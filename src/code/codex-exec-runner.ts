@@ -4,6 +4,7 @@ import { workerPermissionProfileForRole } from "../agent-task/tool-policy.js";
 import { collectWorktreeDiff } from "../audit/diff.js";
 import { buildCodexWorkspaceWriteArgv, detectCodexCapabilities } from "../codex/capabilities.js";
 import type { CodexJsonlStreamEvent } from "../codex/jsonl.js";
+import { resolveCodexEffectiveModel } from "../codex/model-settings.js";
 import { CodexCompletionTracker, codexLifecycleTiming } from "../codex/completion.js";
 import { createCodexJsonlStreamParser } from "../codex/jsonl.js";
 import { writeJsonFile } from "../fs/json.js";
@@ -50,17 +51,18 @@ export async function runCodexExecCode(input: {
   }
   await appendRunEvent(input.paths.events, { timestamp: new Date().toISOString(), type: "codex.capabilities.detected", runId: input.run.id, data: { capabilities } });
 
+  const effectiveModel = await resolveCodexEffectiveModel(input.options.model);
   const argv = buildCodexWorkspaceWriteArgv(capabilities, {
     projectPath: input.worktree.checkoutPath,
     lastMessagePath: input.paths.lastMessage,
-    model: input.options.model,
+    model: effectiveModel.model ?? undefined,
     profile: input.options.profile,
     additionalReadDirs: input.memory.mode === "external-local" ? [input.memory.memoryRoot] : [],
   });
   let run: RunMetadata = { ...input.run, command: [argv.command, ...argv.args], status: "running" };
   await writeJsonFile(input.paths.run, run);
   await appendRunEvent(input.paths.events, { timestamp: new Date().toISOString(), type: "coder.started", runId: run.id, data: { cwd: input.worktree.checkoutPath, command: run.command } });
-  await appendRunEvent(input.paths.events, { timestamp: new Date().toISOString(), type: "codex.started", runId: run.id, data: { cwd: input.worktree.checkoutPath, command: run.command } });
+  await appendRunEvent(input.paths.events, { timestamp: new Date().toISOString(), type: "codex.started", runId: run.id, data: { cwd: input.worktree.checkoutPath, command: run.command, model: effectiveModel.model, modelSource: effectiveModel.source } });
   emitCodeLiveRunStarted(input.options.live, run);
   emitCodeLiveStatus(input.options.live, { runId: run.id, status: "running", label: "Coder" });
   let continuity = await createRuntimeContinuityArtifacts(input.paths, {

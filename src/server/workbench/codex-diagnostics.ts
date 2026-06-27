@@ -1,5 +1,6 @@
 import { detectCodexCapabilities } from "../../codex/capabilities.js";
-import { getCodexConfigPath, readCodexDefaultModel, readCodexProjectTrust } from "../../codex/trust.js";
+import { getCodexConfigPath, readCodexProjectTrust } from "../../codex/trust.js";
+import { getCodexModelSettingsSnapshot, type CodexModelSettingsSnapshot } from "../../codex/model-settings.js";
 import type { ManagedProject } from "../../types/index.js";
 
 export interface WorkbenchCodexDiagnostics {
@@ -8,6 +9,11 @@ export interface WorkbenchCodexDiagnostics {
   version: string | null;
   configPath: string;
   currentModel: string | null;
+  configModel: string | null;
+  selectedModel: string | null;
+  effectiveModel: string | null;
+  effectiveModelSource: "selected" | "config" | "codex-default";
+  modelSettings: CodexModelSettingsSnapshot;
   approvalFlagPlacement: string;
   capabilities: {
     supportsJson: boolean;
@@ -30,13 +36,18 @@ export interface WorkbenchCodexDiagnostics {
 export async function getWorkbenchCodexDiagnostics(project: ManagedProject | null, projectPath?: string): Promise<WorkbenchCodexDiagnostics> {
   const capabilities = await detectCodexCapabilities();
   const trust = projectPath ? await readCodexProjectTrust(projectPath) : null;
-  const currentModel = await readCodexDefaultModel();
+  const modelSettings = await getCodexModelSettingsSnapshot(projectPath);
   return {
     provider: "codex",
     available: capabilities.available,
     version: capabilities.version,
     configPath: getCodexConfigPath(),
-    currentModel,
+    currentModel: modelSettings.effectiveModel,
+    configModel: modelSettings.configModel,
+    selectedModel: modelSettings.selectedModel,
+    effectiveModel: modelSettings.effectiveModel,
+    effectiveModelSource: modelSettings.effectiveModelSource,
+    modelSettings,
     approvalFlagPlacement: capabilities.approvalFlagPlacement,
     capabilities: {
       supportsJson: capabilities.supportsJson,

@@ -8,11 +8,11 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260627-workbench-reference-style-codex-model-selection-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260627-workbench-minimal-right-tool-rail-files-panel-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-file-reference-composer-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260627-workbench-reference-style-slash-skill-composer-v1/summary.md`.
 - Latest archived docs/reference change:
   `harness/changes/archive/20260626-document-desktop-cc-gui-reference-map-and-product-layer-roadmap/summary.md`.
 - Latest completed Harness evolution:
@@ -60,6 +60,12 @@ Current baseline:
   pass relative path/kind metadata into Codex runtime context without injecting
   file contents. File refs are runtime context only, not Harness artifacts,
   permissions, or workflow truth.
+- Workbench Codex model selection now follows the reference-style Codex-first
+  pattern: AHO reads Codex `config.toml` with TOML parsing, best-effort reads
+  runtime model candidates, persists a lightweight AHO runtime model
+  preference, exposes a real composer/settings model picker, and routes Codex
+  exec/app-server runs through one effective-model resolver. Provider remains
+  Codex-only; no fake Claude/OpenCode/Gemini controls are shown.
 - Planning prefers Codex Plan Mode proposal capture; plan confirmation remains
   human.
 - `请求批准` and scoped `完全访问权限` share the same local Goal Loop coordinator.

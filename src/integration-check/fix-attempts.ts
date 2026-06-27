@@ -5,6 +5,7 @@ import { basename, join } from "node:path";
 import { buildCodexWorkspaceWriteArgv, detectCodexCapabilities } from "../codex/capabilities.js";
 import { CodexCompletionTracker, codexLifecycleTiming } from "../codex/completion.js";
 import { createCodexJsonlStreamParser } from "../codex/jsonl.js";
+import { resolveCodexEffectiveModel } from "../codex/model-settings.js";
 import { ensureLastMessage, getSortedSourceStatus, processDiagnosticsData, renderImplementationSummary, writeEmptyCodeArtifacts } from "../code/artifacts.js";
 import { createCodeRunSession, finishRun } from "../code/run-session.js";
 import { writeJsonFile } from "../fs/json.js";
@@ -195,15 +196,17 @@ async function runCodexBackedIntegrationRepair(input: IntegrationFixRepairRunner
   }
   await appendRunEvent(session.paths.events, { timestamp: new Date().toISOString(), type: "codex.capabilities.detected", runId, data: { capabilities } });
 
+  const effectiveModel = await resolveCodexEffectiveModel();
   const argv = buildCodexWorkspaceWriteArgv(capabilities, {
     projectPath: input.checkoutPath,
     lastMessagePath: session.paths.lastMessage,
+    model: effectiveModel.model ?? undefined,
     additionalReadDirs: input.memory.mode === "external-local" ? [input.memory.memoryRoot] : [],
   });
   let running: RunMetadata = { ...run, command: [argv.command, ...argv.args], status: "running" };
   await writeJsonFile(session.paths.run, running);
   await appendRunEvent(session.paths.events, { timestamp: new Date().toISOString(), type: "coder.started", runId, data: { cwd: input.checkoutPath, command: running.command } });
-  await appendRunEvent(session.paths.events, { timestamp: new Date().toISOString(), type: "codex.started", runId, data: { cwd: input.checkoutPath, command: running.command } });
+  await appendRunEvent(session.paths.events, { timestamp: new Date().toISOString(), type: "codex.started", runId, data: { cwd: input.checkoutPath, command: running.command, model: effectiveModel.model, modelSource: effectiveModel.source } });
 
   const completion = new CodexCompletionTracker({ lastMessagePath: session.paths.lastMessage });
   const lifecycleTiming = codexLifecycleTiming(15 * 60 * 1000);

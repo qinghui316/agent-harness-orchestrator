@@ -5,6 +5,7 @@ import { resolveProjectInputWithDirect } from "./direct-project.js";
 import { getWorkbenchCodexDiagnostics } from "./codex-diagnostics.js";
 import { listProjectFileChildren, readProjectFilePreview, searchProjectFiles } from "../../workbench/file-references.js";
 import { getCodexBridgeStatus, syncCodexBridge } from "../../codex/bridge.js";
+import { addCustomCodexModel, getCodexModelSettingsSnapshot, removeCustomCodexModel, setSelectedCodexModel } from "../../codex/model-settings.js";
 import { addSkillRoot, listSkillRoots, listSkills, refreshSkills, setSkillEnabled, type SkillSourceKind } from "../../skill/catalog.js";
 import { addExistingProject, createNewProject, initProjectHarness, listProjectStatuses, trustCodexProjectForWorkbench } from "./project-admin.js";
 import { handleDirectWorkbenchApi } from "./direct-routes.js";
@@ -30,6 +31,10 @@ export async function handleApi(context: WorkbenchServerContext, request: Incomi
   }
   if (request.method === "GET" && url.pathname === "/api/codex/diagnostics") {
     sendJson(response, 200, await getWorkbenchCodexDiagnostics(null));
+    return;
+  }
+  if (request.method === "GET" && url.pathname === "/api/codex/models") {
+    sendJson(response, 200, await getCodexModelSettingsSnapshot());
     return;
   }
   if (request.method === "GET" && url.pathname === "/api/projects") {
@@ -63,6 +68,28 @@ export async function handleApi(context: WorkbenchServerContext, request: Incomi
     const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(codexDiagnosticsMatch[1]));
     sendJson(response, 200, await getWorkbenchCodexDiagnostics(input.project, input.path));
     return;
+  }
+  const codexModelsMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/codex\/models$/);
+  if (codexModelsMatch?.[1]) {
+    const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(codexModelsMatch[1]));
+    if (request.method === "GET") {
+      sendJson(response, 200, await getCodexModelSettingsSnapshot(input.path));
+      return;
+    }
+    if (request.method === "POST") {
+      const body = await readJsonBody<{ selectedModel?: string | null; customModel?: { id?: string; label?: string }; removeCustomModel?: string }>(request);
+      if (Object.prototype.hasOwnProperty.call(body, "selectedModel")) {
+        await setSelectedCodexModel(body.selectedModel ?? null);
+      }
+      if (body.customModel?.id) {
+        await addCustomCodexModel(body.customModel.id, body.customModel.label);
+      }
+      if (body.removeCustomModel) {
+        await removeCustomCodexModel(body.removeCustomModel);
+      }
+      sendJson(response, 200, await getCodexModelSettingsSnapshot(input.path));
+      return;
+    }
   }
   const fileSearchMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/files\/search$/);
   if (request.method === "GET" && fileSearchMatch?.[1]) {

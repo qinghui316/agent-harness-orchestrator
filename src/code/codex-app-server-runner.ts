@@ -3,6 +3,7 @@ import { writeFile } from "node:fs/promises";
 import { workerPermissionProfileForRole } from "../agent-task/tool-policy.js";
 import { collectWorktreeDiff } from "../audit/diff.js";
 import { runCodexAppServerTurn } from "../codex/app-server.js";
+import { resolveCodexEffectiveModel } from "../codex/model-settings.js";
 import { writeJsonFile } from "../fs/json.js";
 import { appendExternalExecutionCompleted, appendExternalExecutionFailed, appendExternalExecutionRequested, appendPermissionProfileAttached } from "../runtime-continuity/events.js";
 import { appendAgentEventEnvelope, createRuntimeContinuityArtifacts, markRuntimeContinuityStatus } from "../runtime-continuity/repository.js";
@@ -58,6 +59,8 @@ export async function runCodexAppServerCode(input: {
     cwd: input.worktree.checkoutPath,
     adapter: "codex-app-server",
   }));
+  const effectiveModel = await resolveCodexEffectiveModel();
+  await appendRunEvent(input.paths.events, { timestamp: new Date().toISOString(), type: "codex.started", runId: run.id, data: { adapter: "codex-app-server", model: effectiveModel.model, modelSource: effectiveModel.source } });
   const appServerResult = await runCodexAppServerTurn({
     projectId: input.project.id,
     changeId: input.changeId,
@@ -107,6 +110,7 @@ export async function runCodexAppServerCode(input: {
       }
     },
     onError: (error) => emitCodeLiveCallbackError(input.live, run.id, error),
+    model: effectiveModel.model,
   });
   recordContinuity((appServerResult.status === "completed"
     ? appendExternalExecutionCompleted(input.paths, continuity, {

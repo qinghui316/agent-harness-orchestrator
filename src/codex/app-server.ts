@@ -4,7 +4,7 @@ import { createWriteStream, existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { finished } from "node:stream/promises";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { mkdtemp, rm } from "node:fs/promises";
 import { codexRuntimeConfigArgs } from "./capabilities.js";
 import { executeProcessStreaming } from "../run/process.js";
@@ -66,6 +66,7 @@ export interface CodexAppServerTurnOptions {
   onPlanDelta?: (text: string) => void;
   onError?: (error: unknown) => void;
   collaborationMode?: "plan";
+  model?: string | null;
 }
 
 export interface CodexAppServerTurnResult {
@@ -208,18 +209,19 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
     if (!threadId) throw new Error("Codex app-server did not return a thread id.");
     await writeSession("started");
 
-    const nativePlanModeModel = options.collaborationMode === "plan" ? await readCodexDefaultModel() : null;
+    const turnModel = options.model?.trim() || null;
     const turnRequest = {
       threadId,
       input: [userTextInput(options.prompt)],
       cwd: options.cwd,
       sandboxPolicy: sandboxPolicyFor(options.sandboxPolicy, options.cwd),
       approvalPolicy: "never",
-      ...(options.collaborationMode === "plan" && nativePlanModeModel ? {
+      ...(turnModel ? { model: turnModel } : {}),
+      ...(options.collaborationMode === "plan" && turnModel ? {
         collaborationMode: {
           mode: "plan",
           settings: {
-            model: nativePlanModeModel,
+            model: turnModel,
             developer_instructions: null,
             reasoning_effort: null,
           },
@@ -356,17 +358,6 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
 
 function userTextInput(text: string): Record<string, unknown> {
   return { type: "text", text, text_elements: [] };
-}
-
-async function readCodexDefaultModel(): Promise<string | null> {
-  const configPath = join(process.env.CODEX_HOME ?? join(homedir(), ".codex"), "config.toml");
-  try {
-    const content = await readFile(configPath, "utf8");
-    const match = content.match(/^\s*model\s*=\s*["']([^"']+)["']\s*$/m);
-    return match?.[1]?.trim() || null;
-  } catch {
-    return null;
-  }
 }
 
 function sandboxPolicyFor(policy: "read-only" | "workspace-write", cwd: string): Record<string, unknown> {

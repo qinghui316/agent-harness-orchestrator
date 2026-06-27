@@ -4,12 +4,14 @@ import { composerExecutionModeLabel, type ComposerExecutionMode } from "./compos
 
 export function ComposerControls({
   modelLabel,
+  onOpenModelSettings,
   mode,
   onModeChange,
   enabledSkillCount = 0,
   onOpenSkillsSettings,
 }: {
   modelLabel: string;
+  onOpenModelSettings?: () => void;
   mode: ComposerExecutionMode;
   onModeChange: (mode: ComposerExecutionMode) => void;
   enabledSkillCount?: number;
@@ -19,7 +21,18 @@ export function ComposerControls({
     <div className="composer-control-strip" aria-label="Composer execution controls">
       <span className="composer-engine-label"><Bot size={14} />Codex</span>
       <span className="composer-control-divider" aria-hidden="true">/</span>
-      <span className="composer-model-label" aria-label={`当前模型：${modelLabel}`}>{modelLabel}</span>
+      {onOpenModelSettings ? (
+        <button
+          type="button"
+          className="composer-model-label composer-model-button"
+          aria-label={`选择模型，当前模型：${modelLabel}`}
+          onClick={onOpenModelSettings}
+        >
+          {modelLabel}
+        </button>
+      ) : (
+        <span className="composer-model-label" aria-label={`当前模型：${modelLabel}`}>{modelLabel}</span>
+      )}
       <div className="composer-execution-mode-toggle" role="group" aria-label="执行模式">
         <button
           type="button"

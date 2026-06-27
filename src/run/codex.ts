@@ -5,6 +5,7 @@ import { resolveRunnableChangeTarget } from "../change/target.js";
 import { buildCodexReadonlyArgv, detectCodexCapabilities } from "../codex/capabilities.js";
 import { CodexCompletionTracker, codexLifecycleTiming, type CodexCompletionSnapshot } from "../codex/completion.js";
 import { createCodexJsonlStreamParser, extractFinalMessageFromCodexJsonl } from "../codex/jsonl.js";
+import { resolveCodexEffectiveModel } from "../codex/model-settings.js";
 import { composeCodexPrompt } from "../codex/prompt.js";
 import { writeJsonFile } from "../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
@@ -111,15 +112,16 @@ export async function startCodexReadonlyRun(project: ManagedProject, options: Co
   }
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.capabilities.detected", runId, data: { capabilities } });
 
+  const effectiveModel = await resolveCodexEffectiveModel(options.model);
   const argv = buildCodexReadonlyArgv(capabilities, {
     projectPath: project.path,
     lastMessagePath: paths.lastMessage,
-    model: options.model,
+    model: effectiveModel.model ?? undefined,
     profile: options.profile,
   });
   run = { ...run, command: [argv.command, ...argv.args], status: "running" };
   await writeJsonFile(paths.run, run);
-  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.started", runId, data: { cwd: project.path, command: run.command, skillWarnings: skillContext.warnings } });
+  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.started", runId, data: { cwd: project.path, command: run.command, model: effectiveModel.model, modelSource: effectiveModel.source, skillWarnings: skillContext.warnings } });
 
   const completion = new CodexCompletionTracker({ lastMessagePath: paths.lastMessage });
   const lifecycleTiming = codexLifecycleTiming(8 * 60 * 1000);

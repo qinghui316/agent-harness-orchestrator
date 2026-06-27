@@ -15,6 +15,7 @@ export function TopicComposer({
   automationMode,
   onAutomationModeChange,
   modelLabel,
+  onOpenModelSettings,
   enabledSkillCount,
   projectId,
   skills,
@@ -40,6 +41,7 @@ export function TopicComposer({
   automationMode: ComposerExecutionMode;
   onAutomationModeChange: (mode: ComposerExecutionMode) => void;
   modelLabel: string;
+  onOpenModelSettings?: () => void;
   enabledSkillCount?: number;
   projectId: string | null;
   skills?: SkillListItem[];
@@ -72,6 +74,7 @@ export function TopicComposer({
     <div className="topic-composer" aria-label="需求对话输入框">
       <ComposerControls
         modelLabel={modelLabel}
+        onOpenModelSettings={onOpenModelSettings}
         mode={automationMode}
         onModeChange={onAutomationModeChange}
         enabledSkillCount={enabledSkillCount}

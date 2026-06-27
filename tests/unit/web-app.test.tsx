@@ -360,6 +360,10 @@ const codexDiagnostics = {
   version: "codex-cli 1.2.3",
   configPath: "C:/Users/test/.codex/config.toml",
   currentModel: "gpt-5.3-codex",
+  configModel: "gpt-5.3-codex",
+  selectedModel: null,
+  effectiveModel: "gpt-5.3-codex",
+  effectiveModelSource: "config",
   approvalFlagPlacement: "after-exec",
   capabilities: {
     supportsJson: true,
@@ -377,6 +381,24 @@ const codexDiagnostics = {
     configExists: true,
     reason: "Project trust is not configured.",
   },
+} as const;
+
+const codexModelSettings = {
+  selectedModel: null,
+  customModels: [{ id: "gpt-5.5", label: "gpt-5.5", source: "custom" }],
+  configModel: "gpt-5.3-codex",
+  configPath: "C:/Users/test/.codex/config.toml",
+  configExists: true,
+  effectiveModel: "gpt-5.3-codex",
+  effectiveModelSource: "config",
+  modelList: {
+    available: true,
+    candidates: [{ id: "gpt-5.3-codex", label: "GPT 5.3 Codex", source: "runtime", isDefault: true }],
+  },
+  candidates: [
+    { id: "gpt-5.3-codex", label: "GPT 5.3 Codex", source: "runtime", isDefault: true },
+    { id: "gpt-5.5", label: "gpt-5.5", source: "custom" },
+  ],
 } as const;
 
 function fetchCallUrls(): string[] {
@@ -868,6 +890,9 @@ describe("Workbench web app", () => {
       }
       if (url === "/api/codex/diagnostics" || url.endsWith("/codex/diagnostics")) {
         return jsonResponse(codexDiagnostics);
+      }
+      if (url === "/api/codex/models" || url.endsWith("/codex/models")) {
+        return jsonResponse(codexModelSettings);
       }
       if (url.includes("/workbench/projections/transcript/")) {
         return new Response(JSON.stringify(snapshot.center.parentAgentTranscript), {
@@ -4677,6 +4702,39 @@ describe("Workbench web app", () => {
     expect(screen.queryByText("Codex · AHO")).toBeNull();
     expect(composer?.textContent).not.toContain("运行 Code");
     expect(screen.getByTitle("发送")).toBeTruthy();
+  });
+
+  it("opens a real Codex model picker from the composer and saves the selected model", async () => {
+    const postBodies: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      if (url === "/api/projects/repo/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      if (url === "/api/codex/models" || url === "/api/projects/repo/codex/models") {
+        if (init?.method === "POST") {
+          postBodies.push(JSON.parse(String(init.body)));
+          return jsonResponse({ ...codexModelSettings, selectedModel: "gpt-5.5", effectiveModel: "gpt-5.5", effectiveModelSource: "selected" });
+        }
+        return jsonResponse(codexModelSettings);
+      }
+      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(snapshot.center.parentAgentTranscript);
+      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(snapshot.center.agentRunGraph);
+      return jsonResponse(url.includes("/stream/") ? stream : snapshot);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getAllByText("会员折扣计价").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByRole("button", { name: /选择模型，当前模型：gpt-5\.3-codex/ }));
+
+    const picker = await screen.findByRole("dialog", { name: "选择 Codex 模型" });
+    expect(within(picker).getByText("GPT 5.3 Codex")).toBeTruthy();
+    expect(within(picker).queryByText("Claude Code")).toBeNull();
+    fireEvent.click(within(picker).getAllByRole("button", { name: "选择" }).at(-1) as HTMLElement);
+
+    await waitFor(() => expect(postBodies).toContainEqual({ selectedModel: "gpt-5.5" }));
+    expect(await screen.findByRole("button", { name: /选择模型，当前模型：gpt-5\.5/ })).toBeTruthy();
   });
 
   it("renders rich live assistant turn before canonical snapshot replacement", async () => {

@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { evaluateCodexAppServerCapabilities, shouldUseCodexAppServerForMemory } from "../../src/codex/app-server.js";
 import { buildCodexReadonlyArgv, buildCodexReadonlyResumeArgv, buildCodexWorkspaceWriteArgv, evaluateCodexCapabilities } from "../../src/codex/capabilities.js";
 import { createCodexJsonlStreamParser, extractFinalMessageFromCodexJsonl, truncateReadablePreview, type CodexJsonlStreamEvent } from "../../src/codex/jsonl.js";
+import { addCustomCodexModel, candidatesFromModelListResponse, resolveCodexEffectiveModel, setSelectedCodexModel } from "../../src/codex/model-settings.js";
 import { composeCodexPrompt, readPromptInput } from "../../src/codex/prompt.js";
+import { readCodexConfigModelStatus } from "../../src/codex/trust.js";
 import { renderTopicFileReferencesForPrompt } from "../../src/workbench/file-references.js";
 
 const rootHelp = "Usage: codex [OPTIONS]\n  -a, --ask-for-approval <APPROVAL_POLICY>\n";
@@ -287,5 +292,81 @@ describe("codex prompt and JSONL parsing", () => {
     expect(preview.preview).toContain("[truncated; see raw log]");
     expect(Buffer.byteLength(preview.preview ?? "", "utf8")).toBeLessThanOrEqual(2300);
     expect((preview.preview ?? "").split(/\r?\n/).length).toBeLessThanOrEqual(81);
+  });
+});
+
+describe("codex model settings", () => {
+  it("reads model from Codex config.toml with a TOML parser", async () => {
+    const temp = await mkdtemp(join(tmpdir(), "aho-codex-model-"));
+    const previousCodexHome = process.env.CODEX_HOME;
+    process.env.CODEX_HOME = temp;
+    try {
+      await writeFile(join(temp, "config.toml"), "model = \"gpt-5.5\"\n[profiles.dev]\nmodel = \"ignored-profile\"\n", "utf8");
+
+      const status = await readCodexConfigModelStatus();
+
+      expect(status.model).toBe("gpt-5.5");
+      expect(status.configExists).toBe(true);
+      expect(status.reason).toBeUndefined();
+    } finally {
+      if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previousCodexHome;
+      await rm(temp, { recursive: true, force: true });
+    }
+  });
+
+  it("degrades cleanly when Codex config.toml is invalid", async () => {
+    const temp = await mkdtemp(join(tmpdir(), "aho-codex-model-"));
+    const previousCodexHome = process.env.CODEX_HOME;
+    process.env.CODEX_HOME = temp;
+    try {
+      await writeFile(join(temp, "config.toml"), "model = [", "utf8");
+
+      const status = await readCodexConfigModelStatus();
+
+      expect(status.model).toBeNull();
+      expect(status.configExists).toBe(true);
+      expect(status.reason).toContain("Invalid Codex config.toml");
+    } finally {
+      if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previousCodexHome;
+      await rm(temp, { recursive: true, force: true });
+    }
+  });
+
+  it("extracts runtime model candidates from model_list responses", () => {
+    const candidates = candidatesFromModelListResponse({
+      data: [
+        { id: "gpt-5.5", displayName: "GPT 5.5", isDefault: true },
+        { model: "gpt-5.3-codex", display_name: "GPT 5.3 Codex" },
+      ],
+    });
+
+    expect(candidates.map((candidate) => candidate.model)).toEqual(["gpt-5.5", "gpt-5.3-codex"]);
+    expect(candidates[0]).toMatchObject({ label: "GPT 5.5", source: "runtime", isDefault: true });
+  });
+
+  it("resolves selected model before Codex config model", async () => {
+    const temp = await mkdtemp(join(tmpdir(), "aho-codex-model-"));
+    const previousCodexHome = process.env.CODEX_HOME;
+    const previousAhoHome = process.env.AHO_HOME;
+    process.env.CODEX_HOME = join(temp, "codex-home");
+    process.env.AHO_HOME = join(temp, "aho-home");
+    try {
+      await mkdir(process.env.CODEX_HOME, { recursive: true });
+      await writeFile(join(process.env.CODEX_HOME, "config.toml"), "model = \"config-model\"\n", "utf8");
+      await addCustomCodexModel("custom-model");
+      await setSelectedCodexModel("custom-model");
+
+      const effective = await resolveCodexEffectiveModel();
+
+      expect(effective).toEqual({ model: "custom-model", source: "selected" });
+    } finally {
+      if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previousCodexHome;
+      if (previousAhoHome === undefined) delete process.env.AHO_HOME;
+      else process.env.AHO_HOME = previousAhoHome;
+      await rm(temp, { recursive: true, force: true });
+    }
   });
 });

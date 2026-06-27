@@ -7,6 +7,11 @@ export type CodexDiagnostics = {
   version: string | null;
   configPath: string;
   currentModel: string | null;
+  configModel?: string | null;
+  selectedModel?: string | null;
+  effectiveModel?: string | null;
+  effectiveModelSource?: CodexEffectiveModelSource;
+  modelSettings?: CodexModelSettingsSnapshot;
   approvalFlagPlacement: string;
   capabilities: {
     supportsJson: boolean;
@@ -24,6 +29,32 @@ export type CodexDiagnostics = {
     configExists: boolean;
     reason?: string;
   };
+};
+export type CodexModelCandidateSource = "runtime" | "config" | "custom" | "selected";
+export type CodexEffectiveModelSource = "selected" | "config" | "codex-default";
+export type CodexModelCandidate = {
+  id: string;
+  label?: string;
+  source: CodexModelCandidateSource;
+  isDefault?: boolean;
+  selected?: boolean;
+};
+export type CodexModelListStatus = {
+  available: boolean;
+  degradedReason?: string;
+  candidates: CodexModelCandidate[];
+};
+export type CodexModelSettingsSnapshot = {
+  selectedModel: string | null;
+  customModels: CodexModelCandidate[];
+  configModel: string | null;
+  configPath: string;
+  configExists: boolean;
+  configReason?: string;
+  effectiveModel: string | null;
+  effectiveModelSource: CodexEffectiveModelSource;
+  modelList: CodexModelListStatus;
+  candidates: CodexModelCandidate[];
 };
 export type ProjectStatus = {
   project: { id: string; name: string; path: string } | null;

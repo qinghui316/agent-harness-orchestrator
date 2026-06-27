@@ -342,6 +342,12 @@ describe("workbench server", () => {
       expect(Array.isArray(diagnostics.errors)).toBe(true);
       expect(existsSync(diagnostics.configPath)).toBe(false);
 
+      const modelSettings = await getJson<{ effectiveModel: string | null; effectiveModelSource: string; configPath: string; candidates: unknown[]; modelList: { candidates: unknown[] } }>(`${appHandle.url}/api/projects/${addedBody.project.id}/codex/models`);
+      expect(modelSettings.effectiveModelSource).toBe("codex-default");
+      expect(modelSettings.configPath).toContain("codex-home");
+      expect(Array.isArray(modelSettings.candidates)).toBe(true);
+      expect(Array.isArray(modelSettings.modelList.candidates)).toBe(true);
+
       const unconfirmedTrust = await fetch(`${appHandle.url}/api/projects/${addedBody.project.id}/codex/trust`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

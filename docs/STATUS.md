@@ -6,11 +6,11 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260627-workbench-reference-style-codex-model-selection-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260627-workbench-minimal-right-tool-rail-files-panel-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-file-reference-composer-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260627-workbench-reference-style-slash-skill-composer-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-skills-catalog-and-codex-bridge-v1/summary.md`.
 - Latest completed Harness evolution:
@@ -20,13 +20,14 @@
 
 ## Latest Product Closeout
 
-`harness/changes/archive/20260627-workbench-minimal-right-tool-rail-files-panel-v1/summary.md`.
+`harness/changes/archive/20260627-workbench-reference-style-codex-model-selection-v1/summary.md`.
 
-It replaces the right confirmation shell with a minimal right tool rail. The
-collapsed state is one panel button; expanded state exposes only implemented
-tabs: `确认` for the existing decision inspector and `文件` for safe read-only
-project file browsing, text preview, and composer file-reference insertion.
-No file tab control executes workflow actions or changes Harness truth.
+It implements Codex-only model selection: AHO reads Codex `config.toml` through
+TOML parsing, best-effort reads runtime model candidates, persists a lightweight
+runtime model preference, shows a real composer/settings model picker, and
+routes Codex exec/app-server runs through one effective-model resolver. It does
+not edit Codex config, add non-Codex providers, or change Harness workflow
+truth.
 
 ## Current Baseline
 
@@ -35,8 +36,8 @@ No file tab control executes workflow actions or changes Harness truth.
 - Harness-mode product entry now follows the `desktop-cc-gui` reference for
   the current implemented surface: sparse project/session sidebar, centered
   `创造任何东西` composer, workspace picker, real execution-mode control strip,
-  Skills catalog, Codex bridge sync, `/skill` composer selection, and `@file`
-  project file references.
+  real Codex model selection, Skills catalog, Codex bridge sync, `/skill`
+  composer selection, and `@file` project file references.
 - The right side is a single collapsed tool rail. Expanded, it contains only
   `确认` and `文件`: confirmation remains the existing decision inspector, while
   files are read-only project tree/preview/reference tools. Browser, Git,
@@ -65,10 +66,9 @@ No file tab control executes workflow actions or changes Harness truth.
 ## Next Resume Point
 
 Product work should continue from `docs/design-docs/ref-desktop-cc-gui.md`.
-Good next slices are actual skill-usage evidence, model settings, provider
-capability matrix, project creation/open/restore polish, runtime diagnostics,
-Git, terminal, browser, attachment panels, or file editing once each has real
-behavior.
+Good next slices are actual skill-usage evidence, provider capability matrix,
+project creation/open/restore polish, runtime diagnostics, Git, terminal,
+browser, attachment panels, or file editing once each has real behavior.
 
 Do not widen `完全访问权限` into raw scheduler, manual IntegrationCheck,
 integration apply/discard, PR/remote/merge, Harness evolution, or full parallel

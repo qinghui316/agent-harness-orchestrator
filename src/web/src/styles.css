@@ -2521,6 +2521,23 @@ input:focus-visible {
   color: var(--text);
 }
 
+.composer-model-button {
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 3px 7px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.composer-model-button:hover,
+.composer-model-button:focus-visible {
+  background: var(--bg-subtle);
+  color: var(--text);
+}
+
 .composer-control-divider {
   color: var(--text-muted);
 }
@@ -4066,6 +4083,89 @@ h1 {
 .settings-panel-header h2 {
   margin: 0;
   font-size: 18px;
+}
+
+.model-picker-overlay {
+  justify-content: center;
+  align-items: center;
+}
+
+.model-picker-panel {
+  display: grid;
+  gap: 14px;
+  width: min(620px, calc(100vw - 36px));
+  max-height: min(720px, calc(100vh - 36px));
+  padding: 18px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-soft);
+}
+
+.model-picker-summary {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+}
+
+.model-picker-actions,
+.model-candidate-actions,
+.model-custom-form {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.model-candidate-list {
+  display: grid;
+  gap: 8px;
+}
+
+.model-candidate-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+}
+
+.model-candidate-row strong,
+.model-candidate-row small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-candidate-row small {
+  margin-top: 3px;
+  color: var(--text-muted);
+}
+
+.model-custom-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.model-custom-form input {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  background: var(--bg-panel);
+  color: var(--text);
+}
+
+.codex-model-settings-card {
+  display: grid;
+  gap: 10px;
 }
 
 .skills-settings-panel {

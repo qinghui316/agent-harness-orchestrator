@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { parse as parseToml } from "smol-toml";
 
 export interface CodexProjectTrustStatus {
   trusted: boolean;
@@ -16,18 +17,37 @@ export interface CodexTrustOptions {
   platform?: NodeJS.Platform;
 }
 
+export interface CodexConfigModelStatus {
+  configPath: string;
+  configExists: boolean;
+  model: string | null;
+  reason?: string;
+}
+
 export function getCodexConfigPath(options: CodexTrustOptions = {}): string {
   return join(options.codexHome ?? process.env.CODEX_HOME ?? join(homedir(), ".codex"), "config.toml");
 }
 
 export async function readCodexDefaultModel(options: CodexTrustOptions = {}): Promise<string | null> {
+  return (await readCodexConfigModelStatus(options)).model;
+}
+
+export async function readCodexConfigModelStatus(options: CodexTrustOptions = {}): Promise<CodexConfigModelStatus> {
   const configPath = getCodexConfigPath(options);
   try {
     const content = await readFile(configPath, "utf8");
-    const match = content.match(/^\s*model\s*=\s*["']([^"']+)["']\s*$/m);
-    return match?.[1]?.trim() || null;
-  } catch {
-    return null;
+    const parsed = parseToml(content) as Record<string, unknown>;
+    const model = parsed.model;
+    if (model === undefined || model === null) return { configPath, configExists: true, model: null };
+    if (typeof model !== "string") {
+      return { configPath, configExists: true, model: null, reason: "Codex config model is not a string." };
+    }
+    const trimmed = model.trim();
+    return { configPath, configExists: true, model: trimmed || null, ...(trimmed ? {} : { reason: "Codex config model is empty." }) };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { configPath, configExists: false, model: null, reason: "Codex config.toml was not found." };
+    const message = error instanceof Error ? error.message : String(error);
+    return { configPath, configExists: true, model: null, reason: `Invalid Codex config.toml: ${message}` };
   }
 }
 

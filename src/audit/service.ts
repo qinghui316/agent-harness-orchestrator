@@ -6,6 +6,7 @@ import { resolveRunnableChangeTarget } from "../change/target.js";
 import { buildCodexReadonlyArgv, detectCodexCapabilities } from "../codex/capabilities.js";
 import { CodexCompletionTracker, codexLifecycleTiming, type CodexCompletionSnapshot } from "../codex/completion.js";
 import { createCodexJsonlStreamParser, extractFinalMessageFromCodexJsonl, type CodexJsonlStreamEvent } from "../codex/jsonl.js";
+import { resolveCodexEffectiveModel } from "../codex/model-settings.js";
 import { buildRoleContextArtifact, buildRoleContextPacket, contextSourceRef } from "../context/packets.js";
 import { buildAgentSystemPrompt, buildRunAgentRecord, resolveAgentRole } from "../agent/catalog.js";
 import { writeJsonFile } from "../fs/json.js";
@@ -248,16 +249,18 @@ export async function startAuditRun(project: ManagedProject, options: AuditRunOp
     capabilities,
   }, "Codex auditor capabilities detected.");
   const cwd = diffResult?.worktree.checkoutPath ?? project.path;
+  const effectiveModel = await resolveCodexEffectiveModel();
   const argv = buildCodexReadonlyArgv(capabilities, {
     projectPath: cwd,
     lastMessagePath: paths.lastMessage,
+    model: effectiveModel.model ?? undefined,
     additionalReadDirs: memory.mode === "external-local" ? [memory.memoryRoot] : [],
   });
   run = { ...run, command: [argv.command, ...argv.args], status: "running" };
   await writeJsonFile(paths.run, run);
   continuity = await markRuntimeContinuityStatus(paths, continuity, "running");
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "audit.started", runId, data: { cwd, command: run.command } });
-  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.started", runId, data: { cwd, command: run.command } });
+  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.started", runId, data: { cwd, command: run.command, model: effectiveModel.model, modelSource: effectiveModel.source } });
   await appendAuditContinuityEvent(paths, continuity, "audit.started", {
     cwd,
     command: run.command,
@@ -265,6 +268,8 @@ export async function startAuditRun(project: ManagedProject, options: AuditRunOp
   await appendAuditContinuityEvent(paths, continuity, "codex.started", {
     cwd,
     command: run.command,
+    model: effectiveModel.model,
+    modelSource: effectiveModel.source,
   }, "Codex readonly audit started.");
   await appendAuditContinuityWrite(paths, continuity, appendExternalExecutionRequested(paths, continuity, {
     requestId: `${runId}:audit-codex-readonly`,

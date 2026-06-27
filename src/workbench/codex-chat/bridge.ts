@@ -6,6 +6,7 @@ import { buildAgentSystemPrompt, buildRunAgentRecord, resolveAgentRole } from ".
 import { detectCodexAppServerCapability, runCodexAppServerTurn, shouldUseCodexAppServerForMemory, type CodexAppServerNotification } from "../../codex/app-server.js";
 import { buildCodexReadonlyArgv, buildCodexReadonlyResumeArgv, detectCodexCapabilities } from "../../codex/capabilities.js";
 import { createCodexJsonlStreamParser, extractCodexSessionIdFromJsonl, extractFinalMessageFromCodexJsonl, truncateReadablePreview, type CodexJsonlStreamEvent } from "../../codex/jsonl.js";
+import { resolveCodexEffectiveModel } from "../../codex/model-settings.js";
 import { writeJsonFile } from "../../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../../memory/resolver.js";
 import { appendRunEvent, buildRunId } from "../../run/manager.js";
@@ -130,14 +131,16 @@ export async function runOrchestratorPlan(project: ManagedProject, changeId: str
     return { ...fallback, run };
   }
 
+  const effectiveModel = await resolveCodexEffectiveModel();
   const argv = buildCodexReadonlyArgv(capabilities, {
     projectPath: project.path,
     lastMessagePath: paths.lastMessage,
+    model: effectiveModel.model ?? undefined,
     additionalReadDirs: memory.mode === "external-local" ? [memory.memoryRoot] : [],
   });
   run = { ...run, command: [argv.command, ...argv.args], status: "running" };
   await writeJsonFile(paths.run, run);
-  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.started", runId, data: { phase: "orchestrator", command: run.command } });
+  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.started", runId, data: { phase: "orchestrator", command: run.command, model: effectiveModel.model, modelSource: effectiveModel.source } });
   const parser = createLiveCodexParser(runId, live);
   const processResult = await executeProcessStreaming({
     cwd: project.path,
@@ -305,6 +308,7 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
 
   const appServerCapabilities = await detectCodexAppServerCapability();
   const useAppServer = appServerCapabilities.available && shouldUseCodexAppServerForMemory(memory.mode);
+  const effectiveModel = await resolveCodexEffectiveModel();
   if (useAppServer) {
     run = { ...run, command: ["codex", "app-server", "--listen", "stdio://"], status: "running" };
     await writeJsonFile(paths.run, run);
@@ -329,6 +333,7 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
       onNotification: (notification) => forwardAppServerNotification(runId, notification, live),
       onError: (error) => emitLive(live, { event: "error", data: { runId, message: error instanceof Error ? error.message : String(error) } }),
       collaborationMode: options.planningMode ? "plan" : undefined,
+      model: effectiveModel.model,
     });
     const status: RunStatus = result.status === "completed" ? "completed" : "failed";
     const lastMessage = result.lastMessage.trim() || result.planText?.trim() || result.error || "Codex app-server did not return a final message.";
@@ -360,12 +365,12 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
   const capabilities = await detectCodexCapabilities();
   const canResume = Boolean(runtime.codexSessionId) && capabilities.supportsSafeResume;
   const argv = canResume
-    ? buildCodexReadonlyResumeArgv(capabilities, { projectPath: project.path, lastMessagePath: paths.lastMessage, sessionId: runtime.codexSessionId as string, additionalReadDirs: memory.mode === "external-local" ? [memory.memoryRoot] : [] })
-    : buildCodexReadonlyArgv(capabilities, { projectPath: project.path, lastMessagePath: paths.lastMessage, additionalReadDirs: memory.mode === "external-local" ? [memory.memoryRoot] : [] });
+    ? buildCodexReadonlyResumeArgv(capabilities, { projectPath: project.path, lastMessagePath: paths.lastMessage, sessionId: runtime.codexSessionId as string, model: effectiveModel.model ?? undefined, additionalReadDirs: memory.mode === "external-local" ? [memory.memoryRoot] : [] })
+    : buildCodexReadonlyArgv(capabilities, { projectPath: project.path, lastMessagePath: paths.lastMessage, model: effectiveModel.model ?? undefined, additionalReadDirs: memory.mode === "external-local" ? [memory.memoryRoot] : [] });
 
   run = { ...run, command: [argv.command, ...argv.args], status: "running" };
   await writeJsonFile(paths.run, run);
-  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.started", runId, data: { phase: "chat", resumed: canResume, resumeFallback: Boolean(runtime.codexSessionId) && !canResume, skillWarnings: skillContext.warnings } });
+  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.started", runId, data: { phase: "chat", resumed: canResume, resumeFallback: Boolean(runtime.codexSessionId) && !canResume, model: effectiveModel.model, modelSource: effectiveModel.source, skillWarnings: skillContext.warnings } });
   const parser = createLiveCodexParser(runId, live);
   const processResult = await executeProcessStreaming({
     cwd: project.path,

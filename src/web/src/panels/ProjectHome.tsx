@@ -4,6 +4,7 @@ import {
   Bot,
   CheckCircle2,
   FolderOpen,
+  RefreshCw,
   Send,
   Sparkles,
   X,
@@ -20,7 +21,7 @@ import {
   ProjectAddForm,
   ProjectCreateForm,
 } from "./ProjectPanels.js";
-import type { CodexDiagnostics, ProjectStatus, SkillListItem, SkillRootListItem, Snapshot, TopicFileReference } from "../types.js";
+import type { CodexDiagnostics, CodexModelCandidate, CodexModelSettingsSnapshot, ProjectStatus, SkillListItem, SkillRootListItem, Snapshot, TopicFileReference } from "../types.js";
 
 export function ProjectHomeView({
   projects,
@@ -90,6 +91,7 @@ export function ProjectReadinessHome({
   snapshot,
   automationMode,
   modelLabel,
+  onOpenModelSettings,
   projects,
   selectedProjectId,
   onCreateDemand,
@@ -106,6 +108,7 @@ export function ProjectReadinessHome({
   snapshot: Snapshot;
   automationMode: ComposerExecutionMode;
   modelLabel: string;
+  onOpenModelSettings?: () => void;
   projects: ProjectStatus[];
   selectedProjectId: string | null;
   onCreateDemand: (body: string, fileRefs?: TopicFileReference[]) => Promise<void>;
@@ -154,6 +157,7 @@ export function ProjectReadinessHome({
         <section className="home-demand-composer" aria-label="新建需求对话">
           <ComposerControls
             modelLabel={modelLabel}
+            onOpenModelSettings={onOpenModelSettings}
             mode={automationMode}
             onModeChange={onAutomationModeChange}
             enabledSkillCount={enabledSkillCount}
@@ -222,6 +226,7 @@ export function CodexDiagnosticsCard({ diagnostics, project }: { diagnostics: Co
       </div>
       <InfoRow label="CLI" value={diagnostics.available ? "可用" : "不可用"} />
       <InfoRow label="版本" value={diagnostics.version ?? "未知"} />
+      <InfoRow label="模型" value={diagnostics.effectiveModel ?? diagnostics.currentModel ?? "默认模型"} />
       <InfoRow label="config.toml" value={diagnostics.configPath} />
       <InfoRow label="项目信任" value={trust?.trusted ? "已信任" : trust?.reason ?? "未检测"} />
       <div className="capability-row" aria-label="Codex 能力">
@@ -243,12 +248,20 @@ export function SettingsPanel({
   open,
   project,
   diagnostics,
+  modelSettings,
+  modelSettingsBusy,
+  modelSettingsMessage,
+  onOpenModelSettings,
   onClose,
   onRefresh,
 }: {
   open: boolean;
   project: ProjectStatus | null;
   diagnostics: CodexDiagnostics | null;
+  modelSettings: CodexModelSettingsSnapshot | null;
+  modelSettingsBusy?: boolean;
+  modelSettingsMessage?: string | null;
+  onOpenModelSettings?: () => void;
   onClose: () => void;
   onRefresh: () => Promise<void>;
 }): ReactElement | null {
@@ -278,12 +291,107 @@ export function SettingsPanel({
           </section>
         )}
         {project?.project ? <SkillsPanel projectId={project.project.id} onRefresh={onRefresh} /> : null}
+        <section className="project-status-panel codex-model-settings-card" aria-label="Codex 模型设置">
+          <div className="panel-title-row">
+            <h2>Codex 模型</h2>
+            <button className="outline-button" onClick={onOpenModelSettings} disabled={!onOpenModelSettings || modelSettingsBusy}>选择模型</button>
+          </div>
+          <InfoRow label="当前模型" value={modelSettings?.effectiveModel ?? diagnostics?.effectiveModel ?? diagnostics?.currentModel ?? "默认模型"} />
+          <InfoRow label="来源" value={modelSourceLabel(modelSettings?.effectiveModelSource ?? diagnostics?.effectiveModelSource)} />
+          {modelSettingsMessage ? <p className="diagnostic-errors">{modelSettingsMessage}</p> : null}
+        </section>
         <details className="settings-advanced">
           <summary>Codex 高级诊断</summary>
           {project && !project.codexTrust?.trusted ? <CodexTrustButton project={project} onDone={() => void onRefresh()} /> : null}
           <CodexDiagnosticsCard diagnostics={diagnostics} project={project} />
         </details>
       </aside>
+    </div>
+  );
+}
+
+export function CodexModelPicker({
+  open,
+  snapshot,
+  busy,
+  message,
+  onClose,
+  onRefresh,
+  onSelect,
+  onAddCustom,
+  onRemoveCustom,
+}: {
+  open: boolean;
+  snapshot: CodexModelSettingsSnapshot | null;
+  busy?: boolean;
+  message?: string | null;
+  onClose: () => void;
+  onRefresh: () => void | Promise<void>;
+  onSelect: (model: string | null) => void | Promise<void>;
+  onAddCustom: (model: string) => void | Promise<void>;
+  onRemoveCustom: (model: string) => void | Promise<void>;
+}): ReactElement | null {
+  const [customModel, setCustomModel] = useState("");
+  if (!open) return null;
+  const candidates = snapshot?.candidates ?? [];
+  const selectedModel = snapshot?.selectedModel ?? null;
+  const effectiveModel = snapshot?.effectiveModel ?? null;
+  return (
+    <div className="settings-overlay model-picker-overlay" role="dialog" aria-label="选择 Codex 模型">
+      <section className="model-picker-panel">
+        <header className="settings-panel-header">
+          <div>
+            <p className="eyebrow">Codex</p>
+            <h2>选择模型</h2>
+          </div>
+          <button className="icon-button" aria-label="关闭模型选择" onClick={onClose}><X size={16} /></button>
+        </header>
+        <p className="muted-copy">这里设置 AHO 调用 Codex 时使用的模型；不会修改 Codex config.toml。</p>
+        <div className="model-picker-summary">
+          <InfoRow label="当前模型" value={effectiveModel ?? "Codex 默认模型"} />
+          <InfoRow label="来源" value={modelSourceLabel(snapshot?.effectiveModelSource)} />
+          {snapshot?.modelList.degradedReason ? <p className="muted-copy">runtime 模型列表不可用：{snapshot.modelList.degradedReason}</p> : null}
+        </div>
+        <div className="model-picker-actions">
+          <button className="outline-button" disabled={busy} onClick={() => void onRefresh()}><RefreshCw size={14} />刷新</button>
+          <button className="outline-button" disabled={busy || !selectedModel} onClick={() => void onSelect(null)}>使用 Codex 配置</button>
+        </div>
+        <div className="model-candidate-list" aria-label="Codex 模型候选">
+          {candidates.length === 0 ? <p className="muted-copy">没有读取到模型列表。可以添加自定义模型，或继续使用 Codex 默认模型。</p> : candidates.map((candidate) => (
+            <div className="model-candidate-row" key={`${candidate.source}:${candidate.id}`}>
+              <div>
+                <strong>{candidate.label ?? candidate.id}</strong>
+                <small>{candidate.id} · {modelCandidateSourceLabel(candidate)}</small>
+              </div>
+              <div className="model-candidate-actions">
+                {candidate.id === effectiveModel ? <span className="composer-pill subtle">当前</span> : null}
+                {candidate.source === "custom" ? (
+                  <button className="outline-button" disabled={busy} onClick={() => void onRemoveCustom(candidate.id)}>移除</button>
+                ) : null}
+                <button className="primary-button" disabled={busy || candidate.id === selectedModel} onClick={() => void onSelect(candidate.id)}>选择</button>
+              </div>
+            </div>
+          ))}
+        </div>
+        <form
+          className="model-custom-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const value = customModel.trim();
+            if (!value) return;
+            void Promise.resolve(onAddCustom(value)).then(() => setCustomModel(""));
+          }}
+        >
+          <input
+            value={customModel}
+            onChange={(event) => setCustomModel(event.target.value)}
+            placeholder="添加自定义 Codex 模型 id"
+            aria-label="自定义 Codex 模型 id"
+          />
+          <button className="outline-button" disabled={busy || !customModel.trim()} type="submit">添加</button>
+        </form>
+        {message ? <p className="diagnostic-errors">{message}</p> : null}
+      </section>
     </div>
   );
 }
@@ -382,6 +490,21 @@ function SkillsPanel({ projectId, onRefresh }: { projectId: string; onRefresh: (
 
 function CapabilityPill({ ok, label }: { ok: boolean; label: string }): ReactElement {
   return <span className={`capability-pill ${ok ? "ok" : "missing"}`}>{label}</span>;
+}
+
+function modelSourceLabel(source: CodexModelSettingsSnapshot["effectiveModelSource"] | undefined): string {
+  if (source === "selected") return "用户选择";
+  if (source === "config") return "Codex 配置";
+  if (source === "codex-default") return "Codex 默认";
+  return "未知";
+}
+
+function modelCandidateSourceLabel(candidate: CodexModelCandidate): string {
+  if (candidate.source === "runtime") return candidate.isDefault ? "runtime 默认" : "runtime";
+  if (candidate.source === "config") return "Codex 配置";
+  if (candidate.source === "custom") return "自定义";
+  if (candidate.source === "selected") return "当前选择";
+  return candidate.source;
 }
 
 function projectReadiness(project: ProjectStatus, snapshot?: Snapshot): { label: string; tone: "ready" | "warning" | "blocked" } {

@@ -30,6 +30,7 @@ import {
 import {
   ProjectHomeView,
   ProjectReadinessHome,
+  CodexModelPicker,
   SettingsPanel,
 } from "./panels/ProjectHome.js";
 import { workflowActionPayloadFromScope } from "./workflow-actions.js";
@@ -54,6 +55,7 @@ import {
 import type {
   AppStatus,
   CodexDiagnostics,
+  CodexModelSettingsSnapshot,
   ProjectStatus,
   Snapshot,
   DemandAgentRunGraph,
@@ -134,6 +136,10 @@ export function App(): ReactElement {
   const [loadingEarlierTranscript, setLoadingEarlierTranscript] = useState(false);
   const [loadedRunGraph, setLoadedRunGraph] = useState<DemandAgentRunGraph | null>(null);
   const [codexDiagnostics, setCodexDiagnostics] = useState<CodexDiagnostics | null>(null);
+  const [codexModelSettings, setCodexModelSettings] = useState<CodexModelSettingsSnapshot | null>(null);
+  const [codexModelPickerOpen, setCodexModelPickerOpen] = useState(false);
+  const [codexModelSettingsBusy, setCodexModelSettingsBusy] = useState(false);
+  const [codexModelSettingsMessage, setCodexModelSettingsMessage] = useState<string | null>(null);
   const [skillItems, setSkillItems] = useState<SkillListItem[]>([]);
   const [draftSkillOverrides, setDraftSkillOverrides] = useState<Record<string, boolean>>({});
   const [composerFileRefs, setComposerFileRefs] = useState<TopicFileReference[]>([]);
@@ -168,6 +174,14 @@ export function App(): ReactElement {
       : "/api/codex/diagnostics";
     const diagnostics = await fetchJson<unknown>(path);
     setCodexDiagnostics(isCodexDiagnostics(diagnostics) ? diagnostics : null);
+  }
+
+  async function loadCodexModelSettings(projectId = selectedProjectId): Promise<void> {
+    const path = projectId
+      ? `/api/projects/${encodeURIComponent(projectId)}/codex/models`
+      : "/api/codex/models";
+    const payload = await fetchJson<unknown>(path);
+    setCodexModelSettings(isCodexModelSettingsSnapshot(payload) ? payload : null);
   }
 
   async function loadSkillSummary(projectId = selectedProjectId, topicId = selectedTopic): Promise<void> {
@@ -219,9 +233,14 @@ export function App(): ReactElement {
     const path = projectId
       ? `/api/projects/${encodeURIComponent(projectId)}/codex/diagnostics`
       : "/api/codex/diagnostics";
-    fetchJson<unknown>(path)
-      .then((diagnostics) => {
-        if (!cancelled) setCodexDiagnostics(isCodexDiagnostics(diagnostics) ? diagnostics : null);
+    Promise.all([
+      fetchJson<unknown>(path),
+      fetchJson<unknown>(projectId ? `/api/projects/${encodeURIComponent(projectId)}/codex/models` : "/api/codex/models"),
+    ])
+      .then(([diagnostics, models]) => {
+        if (cancelled) return;
+        setCodexDiagnostics(isCodexDiagnostics(diagnostics) ? diagnostics : null);
+        setCodexModelSettings(isCodexModelSettingsSnapshot(models) ? models : null);
       })
       .catch((cause: unknown) => {
         if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
@@ -367,6 +386,33 @@ export function App(): ReactElement {
     if (action.kind === "evidence" && context.runId) {
       await chooseRun(context.runId);
       setCenterTab("agentGraph");
+    }
+  }
+
+  async function openCodexModelPicker(): Promise<void> {
+    setCodexModelPickerOpen(true);
+    setCodexModelSettingsMessage(null);
+    try {
+      await loadCodexModelSettings();
+    } catch (cause) {
+      setCodexModelSettingsMessage(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
+
+  async function updateCodexModelSettings(body: unknown): Promise<void> {
+    setCodexModelSettingsBusy(true);
+    setCodexModelSettingsMessage(null);
+    try {
+      const path = selectedProjectId
+        ? `/api/projects/${encodeURIComponent(selectedProjectId)}/codex/models`
+        : "/api/codex/models";
+      const payload = await postJson<unknown>(path, body);
+      setCodexModelSettings(isCodexModelSettingsSnapshot(payload) ? payload : null);
+      await loadCodexDiagnostics();
+    } catch (cause) {
+      setCodexModelSettingsMessage(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setCodexModelSettingsBusy(false);
     }
   }
 
@@ -812,7 +858,10 @@ export function App(): ReactElement {
   const selectedRunGraphNode = useMemo(() => {
     return activeRunGraph.nodes.find((node) => node.id === selectedRunGraphNodeId) ?? activeRunGraph.nodes[0] ?? null;
   }, [activeRunGraph.nodes, selectedRunGraphNodeId]);
-  const codexModelLabel = codexDiagnostics?.currentModel?.trim() || "默认模型";
+  const codexModelLabel = codexModelSettings?.effectiveModel?.trim()
+    || codexDiagnostics?.effectiveModel?.trim()
+    || codexDiagnostics?.currentModel?.trim()
+    || "默认模型";
 
   function appendComposerFileRefs(refs: TopicFileReference[]): void {
     const next = [...composerFileRefs];
@@ -960,6 +1009,7 @@ export function App(): ReactElement {
             snapshot={snapshot}
             automationMode={automationMode}
             modelLabel={codexModelLabel}
+            onOpenModelSettings={() => void openCodexModelPicker()}
             projects={projects}
             selectedProjectId={selectedProjectId}
             onCreateDemand={createTopicFromText}
@@ -1023,6 +1073,7 @@ export function App(): ReactElement {
                   automationMode={automationMode}
                   onAutomationModeChange={handleComposerExecutionModeChange}
                   modelLabel={codexModelLabel}
+                  onOpenModelSettings={() => void openCodexModelPicker()}
                   enabledSkillCount={enabledSkillCount}
                   projectId={selectedProjectId}
                   skills={skillItems}
@@ -1084,8 +1135,23 @@ export function App(): ReactElement {
         open={settingsOpen}
         project={selectedProjectStatus}
         diagnostics={codexDiagnostics}
+        modelSettings={codexModelSettings}
+        modelSettingsBusy={codexModelSettingsBusy}
+        modelSettingsMessage={codexModelSettingsMessage}
+        onOpenModelSettings={() => void openCodexModelPicker()}
         onClose={() => setSettingsOpen(false)}
-        onRefresh={() => loadApp().then(() => loadCodexDiagnostics()).then(() => loadSkillSummary())}
+        onRefresh={() => loadApp().then(() => loadCodexDiagnostics()).then(() => loadCodexModelSettings()).then(() => loadSkillSummary())}
+      />
+      <CodexModelPicker
+        open={codexModelPickerOpen}
+        snapshot={codexModelSettings}
+        busy={codexModelSettingsBusy}
+        message={codexModelSettingsMessage}
+        onClose={() => setCodexModelPickerOpen(false)}
+        onRefresh={() => loadCodexModelSettings()}
+        onSelect={(selectedModel) => updateCodexModelSettings({ selectedModel })}
+        onAddCustom={(model) => updateCodexModelSettings({ customModel: { id: model }, selectedModel: model })}
+        onRemoveCustom={(model) => updateCodexModelSettings({ removeCustomModel: model })}
       />
       <BottomStatusBar snapshot={snapshot} project={selectedProjectStatus} topic={activeTopic} />
     </div>
@@ -1116,6 +1182,17 @@ function isCodexDiagnostics(value: unknown): value is CodexDiagnostics {
     && Array.isArray(diagnostics.errors)
     && typeof diagnostics.capabilities === "object"
     && diagnostics.capabilities !== null;
+}
+
+function isCodexModelSettingsSnapshot(value: unknown): value is CodexModelSettingsSnapshot {
+  if (!value || typeof value !== "object") return false;
+  const snapshot = value as Partial<CodexModelSettingsSnapshot>;
+  return (snapshot.effectiveModel === null || typeof snapshot.effectiveModel === "string" || snapshot.effectiveModel === undefined)
+    && (snapshot.effectiveModelSource === "selected" || snapshot.effectiveModelSource === "config" || snapshot.effectiveModelSource === "codex-default")
+    && Array.isArray(snapshot.candidates)
+    && typeof snapshot.modelList === "object"
+    && snapshot.modelList !== null
+    && Array.isArray(snapshot.modelList.candidates);
 }
 
 function snapshotForProject(project: ProjectStatus | null | undefined): Snapshot {
