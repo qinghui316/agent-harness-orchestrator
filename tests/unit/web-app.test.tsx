@@ -385,7 +385,7 @@ const codexDiagnostics = {
 
 const codexModelSettings = {
   selectedModel: null,
-  customModels: [{ id: "gpt-5.5", label: "gpt-5.5", source: "custom" }],
+  customModels: [],
   configModel: "gpt-5.3-codex",
   configPath: "C:/Users/test/.codex/config.toml",
   configExists: true,
@@ -393,11 +393,14 @@ const codexModelSettings = {
   effectiveModelSource: "config",
   modelList: {
     available: true,
-    candidates: [{ id: "gpt-5.3-codex", label: "GPT 5.3 Codex", source: "runtime", isDefault: true }],
+    candidates: [
+      { id: "gpt-5.3-codex", label: "GPT 5.3 Codex", source: "runtime", isDefault: true },
+      { id: "gpt-5.5", label: "GPT 5.5", source: "runtime" },
+    ],
   },
   candidates: [
     { id: "gpt-5.3-codex", label: "GPT 5.3 Codex", source: "runtime", isDefault: true },
-    { id: "gpt-5.5", label: "gpt-5.5", source: "custom" },
+    { id: "gpt-5.5", label: "GPT 5.5", source: "runtime" },
   ],
 } as const;
 
@@ -874,6 +877,16 @@ function integrationCheckQueueItemWithGoalLoopGuidance() {
 
 describe("Workbench web app", () => {
   beforeEach(() => {
+    const storage = new Map<string, string>();
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: {
+        getItem: (key: string) => storage.get(key) ?? null,
+        setItem: (key: string, value: string) => { storage.set(key, String(value)); },
+        removeItem: (key: string) => { storage.delete(key); },
+        clear: () => { storage.clear(); },
+      },
+    });
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/app/status") {
@@ -4730,11 +4743,41 @@ describe("Workbench web app", () => {
 
     const picker = await screen.findByRole("dialog", { name: "选择 Codex 模型" });
     expect(within(picker).getByText("GPT 5.3 Codex")).toBeTruthy();
+    expect(within(picker).queryByLabelText("自定义 Codex 模型 id")).toBeNull();
+    expect(within(picker).queryByText("添加")).toBeNull();
     expect(within(picker).queryByText("Claude Code")).toBeNull();
     fireEvent.click(within(picker).getAllByRole("button", { name: "选择" }).at(-1) as HTMLElement);
 
     await waitFor(() => expect(postBodies).toContainEqual({ selectedModel: "gpt-5.5" }));
     expect(await screen.findByRole("button", { name: /选择模型，当前模型：gpt-5\.5/ })).toBeTruthy();
+  });
+
+  it("restores the last selected project after refresh from frontend UI state", async () => {
+    window.localStorage.setItem("aho.workbench.selectedProjectId", "tools");
+    const toolsSnapshot = {
+      ...snapshot,
+      project: { id: "tools", name: "Tools", path: "E:/tools" },
+      left: { ...snapshot.left, topics: [], workpads: [] },
+      center: { ...snapshot.center, selectedTopic: null },
+    };
+    const repoProject = { project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" }, codexTrust: { trusted: true } };
+    const toolsProject = { project: toolsSnapshot.project, path: "E:/tools", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" }, codexTrust: { trusted: true } };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "app", directProjectId: null });
+      if (url === "/api/projects") return jsonResponse({ projects: [repoProject, toolsProject] });
+      if (url === "/api/projects/tools/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      if (url === "/api/projects/tools/codex/models") return jsonResponse(codexModelSettings);
+      if (url === "/api/projects/tools/skills") return jsonResponse({ roots: [], skills: [] });
+      if (url === "/api/projects/tools/workbench/snapshot") return jsonResponse(toolsSnapshot);
+      return jsonResponse(snapshot);
+    }));
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "创造任何东西" });
+    expect(screen.getByRole("button", { name: "选择项目" }).textContent).toContain("Tools");
+    expect(fetchCallUrls()).toContain("/api/projects/tools/workbench/snapshot");
   });
 
   it("renders rich live assistant turn before canonical snapshot replacement", async () => {

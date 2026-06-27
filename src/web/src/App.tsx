@@ -94,6 +94,8 @@ const emptySnapshot: Snapshot = {
   warnings: [],
 };
 
+const SELECTED_PROJECT_STORAGE_KEY = "aho.workbench.selectedProjectId";
+
 function isSkillActiveForComposer(skill: SkillListItem, topicId: string | null, draftOverrides: Record<string, boolean>): boolean {
   if (topicId) {
     if (skill.disabledTopics.includes(topicId)) return false;
@@ -161,11 +163,23 @@ export function App(): ReactElement {
     const directProject = status.directProjectId;
     if (directProject) {
       setSelectedProjectId(directProject);
+      persistSelectedProjectId(directProject);
       setExpandedProjects(new Set([directProject]));
       const directStatus = list.projects.find((item) => item.project?.id === directProject);
       if (directStatus?.managed) await refresh(directProject, null);
       else setSnapshot(snapshotForProject(directStatus));
+      return;
     }
+    const restoredProject = readPersistedSelectedProjectId();
+    if (restoredProject && list.projects.some((item) => item.project?.id === restoredProject)) {
+      setSelectedProjectId(restoredProject);
+      setExpandedProjects(new Set([restoredProject]));
+      const restoredStatus = list.projects.find((item) => item.project?.id === restoredProject);
+      if (restoredStatus?.managed) await refresh(restoredProject, null);
+      else setSnapshot(snapshotForProject(restoredStatus));
+      return;
+    }
+    if (restoredProject) clearPersistedSelectedProjectId();
   }
 
   async function loadCodexDiagnostics(projectId = selectedProjectId): Promise<void> {
@@ -254,6 +268,7 @@ export function App(): ReactElement {
 
   async function openProject(projectId: string): Promise<void> {
     setSelectedProjectId(projectId);
+    persistSelectedProjectId(projectId);
     setExpandedProjects((current) => new Set([...current, projectId]));
     setSelectedTopic(null);
     setDraftSkillOverrides({});
@@ -282,6 +297,7 @@ export function App(): ReactElement {
     const baseSnapshot = projectSnapshots[projectId] ?? (status.project?.id === selectedProjectId ? snapshot : await fetchJson<Snapshot>(`/api/projects/${encodeURIComponent(projectId)}/workbench/snapshot`));
     setComposerText("");
     setSelectedProjectId(projectId);
+    persistSelectedProjectId(projectId);
     setSelectedTopic(null);
     setDraftSkillOverrides({});
     setExpandedProjects((current) => new Set([...current, projectId]));
@@ -325,6 +341,7 @@ export function App(): ReactElement {
 
   async function chooseConversation(projectId: string, conversationId: string): Promise<void> {
     setSelectedProjectId(projectId);
+    persistSelectedProjectId(projectId);
     setSelectedTopic(conversationId);
     setDraftSkillOverrides({});
     setExpandedProjects((current) => new Set([...current, projectId]));
@@ -1150,8 +1167,6 @@ export function App(): ReactElement {
         onClose={() => setCodexModelPickerOpen(false)}
         onRefresh={() => loadCodexModelSettings()}
         onSelect={(selectedModel) => updateCodexModelSettings({ selectedModel })}
-        onAddCustom={(model) => updateCodexModelSettings({ customModel: { id: model }, selectedModel: model })}
-        onRemoveCustom={(model) => updateCodexModelSettings({ removeCustomModel: model })}
       />
       <BottomStatusBar snapshot={snapshot} project={selectedProjectStatus} topic={activeTopic} />
     </div>
@@ -1193,6 +1208,31 @@ function isCodexModelSettingsSnapshot(value: unknown): value is CodexModelSettin
     && typeof snapshot.modelList === "object"
     && snapshot.modelList !== null
     && Array.isArray(snapshot.modelList.candidates);
+}
+
+function readPersistedSelectedProjectId(): string | null {
+  try {
+    const value = window.localStorage.getItem(SELECTED_PROJECT_STORAGE_KEY);
+    return value && value.trim().length > 0 ? value.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistSelectedProjectId(projectId: string): void {
+  try {
+    window.localStorage.setItem(SELECTED_PROJECT_STORAGE_KEY, projectId);
+  } catch {
+    // Frontend preference only; ignore unavailable storage.
+  }
+}
+
+function clearPersistedSelectedProjectId(): void {
+  try {
+    window.localStorage.removeItem(SELECTED_PROJECT_STORAGE_KEY);
+  } catch {
+    // Frontend preference only; ignore unavailable storage.
+  }
 }
 
 function snapshotForProject(project: ProjectStatus | null | undefined): Snapshot {

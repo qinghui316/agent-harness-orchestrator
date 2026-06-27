@@ -318,8 +318,6 @@ export function CodexModelPicker({
   onClose,
   onRefresh,
   onSelect,
-  onAddCustom,
-  onRemoveCustom,
 }: {
   open: boolean;
   snapshot: CodexModelSettingsSnapshot | null;
@@ -328,10 +326,7 @@ export function CodexModelPicker({
   onClose: () => void;
   onRefresh: () => void | Promise<void>;
   onSelect: (model: string | null) => void | Promise<void>;
-  onAddCustom: (model: string) => void | Promise<void>;
-  onRemoveCustom: (model: string) => void | Promise<void>;
 }): ReactElement | null {
-  const [customModel, setCustomModel] = useState("");
   if (!open) return null;
   const candidates = snapshot?.candidates ?? [];
   const selectedModel = snapshot?.selectedModel ?? null;
@@ -350,46 +345,26 @@ export function CodexModelPicker({
         <div className="model-picker-summary">
           <InfoRow label="当前模型" value={effectiveModel ?? "Codex 默认模型"} />
           <InfoRow label="来源" value={modelSourceLabel(snapshot?.effectiveModelSource)} />
-          {snapshot?.modelList.degradedReason ? <p className="muted-copy">runtime 模型列表不可用：{snapshot.modelList.degradedReason}</p> : null}
+          {snapshot?.modelList.degradedReason ? <p className="muted-copy">{snapshot.modelList.degradedReason}</p> : null}
         </div>
         <div className="model-picker-actions">
           <button className="outline-button" disabled={busy} onClick={() => void onRefresh()}><RefreshCw size={14} />刷新</button>
           <button className="outline-button" disabled={busy || !selectedModel} onClick={() => void onSelect(null)}>使用 Codex 配置</button>
         </div>
         <div className="model-candidate-list" aria-label="Codex 模型候选">
-          {candidates.length === 0 ? <p className="muted-copy">没有读取到模型列表。可以添加自定义模型，或继续使用 Codex 默认模型。</p> : candidates.map((candidate) => (
+          {candidates.length === 0 ? <p className="muted-copy">没有读取到模型列表。将继续使用 Codex 配置或默认模型。</p> : candidates.map((candidate) => (
             <div className="model-candidate-row" key={`${candidate.source}:${candidate.id}`}>
               <div>
                 <strong>{candidate.label ?? candidate.id}</strong>
                 <small>{candidate.id} · {modelCandidateSourceLabel(candidate)}</small>
               </div>
               <div className="model-candidate-actions">
-                {candidate.id === effectiveModel ? <span className="composer-pill subtle">当前</span> : null}
-                {candidate.source === "custom" ? (
-                  <button className="outline-button" disabled={busy} onClick={() => void onRemoveCustom(candidate.id)}>移除</button>
-                ) : null}
-                <button className="primary-button" disabled={busy || candidate.id === selectedModel} onClick={() => void onSelect(candidate.id)}>选择</button>
+                {(candidate.model ?? candidate.id) === effectiveModel ? <span className="composer-pill subtle">当前</span> : null}
+                <button className="primary-button" disabled={busy || (candidate.model ?? candidate.id) === selectedModel} onClick={() => void onSelect(candidate.id)}>选择</button>
               </div>
             </div>
           ))}
         </div>
-        <form
-          className="model-custom-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            const value = customModel.trim();
-            if (!value) return;
-            void Promise.resolve(onAddCustom(value)).then(() => setCustomModel(""));
-          }}
-        >
-          <input
-            value={customModel}
-            onChange={(event) => setCustomModel(event.target.value)}
-            placeholder="添加自定义 Codex 模型 id"
-            aria-label="自定义 Codex 模型 id"
-          />
-          <button className="outline-button" disabled={busy || !customModel.trim()} type="submit">添加</button>
-        </form>
         {message ? <p className="diagnostic-errors">{message}</p> : null}
       </section>
     </div>
@@ -502,8 +477,6 @@ function modelSourceLabel(source: CodexModelSettingsSnapshot["effectiveModelSour
 function modelCandidateSourceLabel(candidate: CodexModelCandidate): string {
   if (candidate.source === "runtime") return candidate.isDefault ? "runtime 默认" : "runtime";
   if (candidate.source === "config") return "Codex 配置";
-  if (candidate.source === "custom") return "自定义";
-  if (candidate.source === "selected") return "当前选择";
   return candidate.source;
 }
 

@@ -30,10 +30,11 @@ export type CodexDiagnostics = {
     reason?: string;
   };
 };
-export type CodexModelCandidateSource = "runtime" | "config" | "custom" | "selected";
+export type CodexModelCandidateSource = "runtime" | "config";
 export type CodexEffectiveModelSource = "selected" | "config" | "codex-default";
 export type CodexModelCandidate = {
   id: string;
+  model?: string;
   label?: string;
   source: CodexModelCandidateSource;
   isDefault?: boolean;

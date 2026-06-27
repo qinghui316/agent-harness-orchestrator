@@ -5,7 +5,7 @@ import { resolveProjectInputWithDirect } from "./direct-project.js";
 import { getWorkbenchCodexDiagnostics } from "./codex-diagnostics.js";
 import { listProjectFileChildren, readProjectFilePreview, searchProjectFiles } from "../../workbench/file-references.js";
 import { getCodexBridgeStatus, syncCodexBridge } from "../../codex/bridge.js";
-import { addCustomCodexModel, getCodexModelSettingsSnapshot, removeCustomCodexModel, setSelectedCodexModel } from "../../codex/model-settings.js";
+import { getCodexModelSettingsSnapshot, setSelectedCodexModel } from "../../codex/model-settings.js";
 import { addSkillRoot, listSkillRoots, listSkills, refreshSkills, setSkillEnabled, type SkillSourceKind } from "../../skill/catalog.js";
 import { addExistingProject, createNewProject, initProjectHarness, listProjectStatuses, trustCodexProjectForWorkbench } from "./project-admin.js";
 import { handleDirectWorkbenchApi } from "./direct-routes.js";
@@ -77,15 +77,20 @@ export async function handleApi(context: WorkbenchServerContext, request: Incomi
       return;
     }
     if (request.method === "POST") {
-      const body = await readJsonBody<{ selectedModel?: string | null; customModel?: { id?: string; label?: string }; removeCustomModel?: string }>(request);
+      const body = await readJsonBody<{ selectedModel?: string | null }>(request);
       if (Object.prototype.hasOwnProperty.call(body, "selectedModel")) {
-        await setSelectedCodexModel(body.selectedModel ?? null);
-      }
-      if (body.customModel?.id) {
-        await addCustomCodexModel(body.customModel.id, body.customModel.label);
-      }
-      if (body.removeCustomModel) {
-        await removeCustomCodexModel(body.removeCustomModel);
+        const selectedModel = typeof body.selectedModel === "string" ? body.selectedModel.trim() : null;
+        if (selectedModel) {
+          const snapshot = await getCodexModelSettingsSnapshot(input.path);
+          const candidate = snapshot.candidates.find((item) => item.id === selectedModel || item.model === selectedModel);
+          if (!candidate) {
+            sendJson(response, 400, { error: "Selected Codex model must come from the current runtime/config candidates." });
+            return;
+          }
+          await setSelectedCodexModel(candidate.model);
+        } else {
+          await setSelectedCodexModel(null);
+        }
       }
       sendJson(response, 200, await getCodexModelSettingsSnapshot(input.path));
       return;

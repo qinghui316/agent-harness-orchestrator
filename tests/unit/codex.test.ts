@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { evaluateCodexAppServerCapabilities, shouldUseCodexAppServerForMemory } from "../../src/codex/app-server.js";
 import { buildCodexReadonlyArgv, buildCodexReadonlyResumeArgv, buildCodexWorkspaceWriteArgv, evaluateCodexCapabilities } from "../../src/codex/capabilities.js";
 import { createCodexJsonlStreamParser, extractFinalMessageFromCodexJsonl, truncateReadablePreview, type CodexJsonlStreamEvent } from "../../src/codex/jsonl.js";
-import { addCustomCodexModel, candidatesFromModelListResponse, resolveCodexEffectiveModel, setSelectedCodexModel } from "../../src/codex/model-settings.js";
+import { candidatesFromModelListResponse, getCodexModelSettingsSnapshot, resolveCodexEffectiveModel, setSelectedCodexModel } from "../../src/codex/model-settings.js";
 import { composeCodexPrompt, readPromptInput } from "../../src/codex/prompt.js";
 import { readCodexConfigModelStatus } from "../../src/codex/trust.js";
 import { renderTopicFileReferencesForPrompt } from "../../src/workbench/file-references.js";
@@ -350,22 +350,64 @@ describe("codex model settings", () => {
     const temp = await mkdtemp(join(tmpdir(), "aho-codex-model-"));
     const previousCodexHome = process.env.CODEX_HOME;
     const previousAhoHome = process.env.AHO_HOME;
+    const previousPath = process.env.PATH;
     process.env.CODEX_HOME = join(temp, "codex-home");
     process.env.AHO_HOME = join(temp, "aho-home");
+    process.env.PATH = "";
     try {
       await mkdir(process.env.CODEX_HOME, { recursive: true });
       await writeFile(join(process.env.CODEX_HOME, "config.toml"), "model = \"config-model\"\n", "utf8");
-      await addCustomCodexModel("custom-model");
-      await setSelectedCodexModel("custom-model");
+      await setSelectedCodexModel("runtime-model");
 
       const effective = await resolveCodexEffectiveModel();
 
-      expect(effective).toEqual({ model: "custom-model", source: "selected" });
+      expect(effective).toEqual({ model: "runtime-model", source: "selected" });
     } finally {
       if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
       else process.env.CODEX_HOME = previousCodexHome;
       if (previousAhoHome === undefined) delete process.env.AHO_HOME;
       else process.env.AHO_HOME = previousAhoHome;
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+      await rm(temp, { recursive: true, force: true });
+    }
+  });
+
+  it("cleans legacy custom model settings from the visible model snapshot", async () => {
+    const temp = await mkdtemp(join(tmpdir(), "aho-codex-model-"));
+    const previousCodexHome = process.env.CODEX_HOME;
+    const previousAhoHome = process.env.AHO_HOME;
+    const previousPath = process.env.PATH;
+    process.env.CODEX_HOME = join(temp, "codex-home");
+    process.env.AHO_HOME = join(temp, "aho-home");
+    process.env.PATH = "";
+    try {
+      await mkdir(process.env.CODEX_HOME, { recursive: true });
+      await mkdir(process.env.AHO_HOME, { recursive: true });
+      await writeFile(join(process.env.CODEX_HOME, "config.toml"), "model = \"config-model\"\n", "utf8");
+      await writeFile(join(process.env.AHO_HOME, "settings.json"), JSON.stringify({
+        version: "1.0",
+        codex: {
+          selectedModel: "custom-model",
+          customModels: [{ id: "custom-model", updatedAt: "2026-06-27T00:00:00.000Z" }],
+        },
+      }, null, 2), "utf8");
+
+      const snapshot = await getCodexModelSettingsSnapshot(temp);
+
+      expect(snapshot.selectedModel).toBeNull();
+      expect(snapshot.customModels).toEqual([]);
+      expect(snapshot.candidates.some((candidate) => candidate.source === "config" && candidate.model === "config-model")).toBe(true);
+      expect(snapshot.candidates.some((candidate) => candidate.model === "custom-model")).toBe(false);
+      expect(snapshot.effectiveModel).toBe("config-model");
+      expect(snapshot.effectiveModelSource).toBe("config");
+    } finally {
+      if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previousCodexHome;
+      if (previousAhoHome === undefined) delete process.env.AHO_HOME;
+      else process.env.AHO_HOME = previousAhoHome;
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
       await rm(temp, { recursive: true, force: true });
     }
   });

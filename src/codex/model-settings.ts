@@ -4,10 +4,9 @@ import { z } from "zod";
 import { getAhoHome } from "../fs/path.js";
 import { readJsonFile, writeJsonFile } from "../fs/json.js";
 import { codexRuntimeConfigArgs } from "./capabilities.js";
-import { detectCodexAppServerCapability } from "./app-server.js";
 import { readCodexConfigModelStatus } from "./trust.js";
 
-export type CodexModelCandidateSource = "runtime" | "config" | "custom" | "selected";
+export type CodexModelCandidateSource = "runtime" | "config";
 export type CodexEffectiveModelSource = "selected" | "config" | "codex-default";
 
 export interface CodexModelCandidate {
@@ -65,7 +64,21 @@ export function normalizeCodexModelId(value: unknown): string | null {
 }
 
 export async function readCodexModelSettings(): Promise<RuntimeSettings> {
-  return readJsonFile(settingsPath(), RuntimeSettingsSchema as z.ZodType<RuntimeSettings>, { version: "1.0", codex: { selectedModel: null, customModels: [] } });
+  const settings = await readJsonFile(settingsPath(), RuntimeSettingsSchema as z.ZodType<RuntimeSettings>, { version: "1.0", codex: { selectedModel: null, customModels: [] } });
+  const legacyCustomIds = new Set(settings.codex.customModels.map((item) => normalizeCodexModelId(item.id)).filter((item): item is string => Boolean(item)));
+  const selectedModel = normalizeCodexModelId(settings.codex.selectedModel);
+  const sanitized: RuntimeSettings = {
+    ...settings,
+    version: "1.0",
+    codex: {
+      selectedModel: selectedModel && !legacyCustomIds.has(selectedModel) ? selectedModel : null,
+      customModels: [],
+    },
+  };
+  if (settings.codex.customModels.length > 0 || sanitized.codex.selectedModel !== selectedModel) {
+    await writeJsonFile(settingsPath(), sanitized);
+  }
+  return sanitized;
 }
 
 export async function setSelectedCodexModel(model: string | null): Promise<RuntimeSettings> {
@@ -77,42 +90,6 @@ export async function setSelectedCodexModel(model: string | null): Promise<Runti
     codex: {
       ...settings.codex,
       selectedModel,
-    },
-  };
-  await writeJsonFile(settingsPath(), next);
-  return next;
-}
-
-export async function addCustomCodexModel(model: string, label?: string): Promise<RuntimeSettings> {
-  const id = normalizeCodexModelId(model);
-  if (!id) throw new Error("model is required.");
-  const settings = await readCodexModelSettings();
-  const updatedAt = new Date().toISOString();
-  const customModels = settings.codex.customModels.filter((item) => item.id !== id);
-  customModels.push({ id, label: normalizeCodexModelId(label) ?? undefined, updatedAt });
-  const next = {
-    ...settings,
-    version: "1.0" as const,
-    codex: {
-      ...settings.codex,
-      customModels,
-    },
-  };
-  await writeJsonFile(settingsPath(), next);
-  return next;
-}
-
-export async function removeCustomCodexModel(model: string): Promise<RuntimeSettings> {
-  const id = normalizeCodexModelId(model);
-  if (!id) throw new Error("model is required.");
-  const settings = await readCodexModelSettings();
-  const next = {
-    ...settings,
-    version: "1.0" as const,
-    codex: {
-      ...settings.codex,
-      selectedModel: settings.codex.selectedModel === id ? null : settings.codex.selectedModel ?? null,
-      customModels: settings.codex.customModels.filter((item) => item.id !== id),
     },
   };
   await writeJsonFile(settingsPath(), next);
@@ -136,43 +113,33 @@ export async function getCodexModelSettingsSnapshot(projectPath?: string): Promi
     readCodexConfigModelStatus(),
     listCodexRuntimeModels(projectPath),
   ]);
-  const customModels = settings.codex.customModels.map((item): CodexModelCandidate => ({
-    id: item.id,
-    model: item.id,
-    label: item.label?.trim() || item.id,
-    source: "custom",
-  }));
   const selectedModel = normalizeCodexModelId(settings.codex.selectedModel);
-  const candidates = mergeCandidates([
+  const selectableCandidates = mergeCandidates([
     ...runtimeModels.candidates,
     ...(configModel.model ? [{ id: configModel.model, model: configModel.model, label: `${configModel.model} (config)`, source: "config" as const }] : []),
-    ...customModels,
-    ...(selectedModel ? [{ id: selectedModel, model: selectedModel, label: selectedModel, source: "selected" as const }] : []),
   ]);
-  const effective = selectedModel
-    ? { model: selectedModel, source: "selected" as const }
+  const selectedCandidate = selectedModel ? findCandidate(selectableCandidates, selectedModel) : null;
+  if (selectedModel && !selectedCandidate) await setSelectedCodexModel(null);
+  const effective = selectedCandidate
+    ? { model: selectedCandidate.model, source: "selected" as const }
     : configModel.model
       ? { model: configModel.model, source: "config" as const }
       : { model: null, source: "codex-default" as const };
   return {
-    selectedModel,
-    customModels,
+    selectedModel: selectedCandidate?.model ?? null,
+    customModels: [],
     configModel: configModel.model,
     configPath: configModel.configPath,
     configExists: configModel.configExists,
     configReason: configModel.reason,
     modelList: runtimeModels,
-    candidates,
+    candidates: selectableCandidates,
     effectiveModel: effective.model,
     effectiveModelSource: effective.source,
   };
 }
 
 export async function listCodexRuntimeModels(projectPath = process.cwd()): Promise<CodexModelListStatus> {
-  const capability = await detectCodexAppServerCapability();
-  if (!capability.available) {
-    return { available: false, degraded: true, degradedReason: capability.errors.join(" ") || "Codex app-server is unavailable.", candidates: [] };
-  }
   let child: ReturnType<typeof spawn> | null = null;
   let lineBuffer = "";
   let requestId = 1;
@@ -199,7 +166,7 @@ export async function listCodexRuntimeModels(projectPath = process.cwd()): Promi
     const response = await withTimeout(sendRequest("model/list", {}), 3000, "Codex model_list timed out.");
     return { available: true, degraded: false, candidates: candidatesFromModelListResponse(response) };
   } catch (error) {
-    return { available: false, degraded: true, degradedReason: error instanceof Error ? error.message : String(error), candidates: [] };
+    return { available: false, degraded: true, degradedReason: sanitizeModelListFailure(error), candidates: [] };
   } finally {
     for (const [, item] of pending) item.reject(new Error("Codex model_list finished."));
     pending.clear();
@@ -248,6 +215,27 @@ export async function listCodexRuntimeModels(projectPath = process.cwd()): Promi
   }
 }
 
+function findCandidate(candidates: CodexModelCandidate[], model: string): CodexModelCandidate | null {
+  const normalized = model.toLowerCase();
+  return candidates.find((candidate) => candidate.model.toLowerCase() === normalized || candidate.id.toLowerCase() === normalized) ?? null;
+}
+
+function sanitizeModelListFailure(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  const lower = raw.toLowerCase();
+  if (lower.includes("timed out")) return "Codex runtime model list timed out; using config/default model.";
+  if (lower.includes("trust") || lower.includes("trusted") || lower.includes("configuration") || lower.includes("config")) {
+    return "Codex runtime model list is unavailable for this project; using config/default model.";
+  }
+  if (lower.includes("spawn") || lower.includes("enoent") || lower.includes("not recognized")) {
+    return "Codex CLI is unavailable; using config/default model.";
+  }
+  if (lower.includes("closed") || lower.includes("finished") || lower.includes("stdin")) {
+    return "Codex runtime model list is unavailable; using config/default model.";
+  }
+  return "Codex runtime model list is unavailable; using config/default model.";
+}
+
 export function candidatesFromModelListResponse(response: unknown): CodexModelCandidate[] {
   const record = isRecord(response) ? response : {};
   const result = isRecord(record.result) ? record.result : record;
@@ -266,7 +254,7 @@ function mergeCandidates(candidates: CodexModelCandidate[]): CodexModelCandidate
   for (const candidate of candidates) {
     const key = candidate.model.toLowerCase();
     const existing = byModel.get(key);
-    if (!existing || candidate.source === "selected") byModel.set(key, candidate);
+    if (!existing) byModel.set(key, candidate);
   }
   return [...byModel.values()];
 }

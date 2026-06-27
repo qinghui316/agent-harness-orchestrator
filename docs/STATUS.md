@@ -4,8 +4,10 @@
 
 - Current date: 2026-06-27.
 - Active ECL change: none.
-- Pending Harness evolution: none.
+- Pending Harness evolution: `harness/evolution/pending.md`.
 - Latest archived product change:
+  `harness/changes/archive/20260627-workbench-reference-style-codex-runtime-model-picker-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-codex-model-selection-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260627-workbench-minimal-right-tool-rail-files-panel-v1/summary.md`.
@@ -20,14 +22,16 @@
 
 ## Latest Product Closeout
 
-`harness/changes/archive/20260627-workbench-reference-style-codex-model-selection-v1/summary.md`.
+`harness/changes/archive/20260627-workbench-reference-style-codex-runtime-model-picker-v1/summary.md`.
 
-It implements Codex-only model selection: AHO reads Codex `config.toml` through
-TOML parsing, best-effort reads runtime model candidates, persists a lightweight
-runtime model preference, shows a real composer/settings model picker, and
-routes Codex exec/app-server runs through one effective-model resolver. It does
-not edit Codex config, add non-Codex providers, or change Harness workflow
-truth.
+It tightens Codex-only model selection to reference-style runtime semantics:
+AHO reads Codex `config.toml`, best-effort reads project-scoped runtime model
+candidates, falls back to the Codex default, and persists only selections from
+real candidates. Arbitrary custom model ids are ignored/cleaned, raw
+`model/list` stderr is kept out of the ordinary composer/picker UI, and browser
+refresh restores the last valid selected project. It does not edit Codex
+config, add non-Codex providers, expose fake provider controls, or change
+Harness workflow truth.
 
 ## Current Baseline
 
@@ -36,7 +40,7 @@ truth.
 - Harness-mode product entry now follows the `desktop-cc-gui` reference for
   the current implemented surface: sparse project/session sidebar, centered
   `创造任何东西` composer, workspace picker, real execution-mode control strip,
-  real Codex model selection, Skills catalog, Codex bridge sync, `/skill`
+  real Codex runtime/config model selection, Skills catalog, Codex bridge sync, `/skill`
   composer selection, and `@file` project file references.
 - The right side is a single collapsed tool rail. Expanded, it contains only
   `确认` and `文件`: confirmation remains the existing decision inspector, while
