@@ -1,7 +1,9 @@
 import { existsSync } from "node:fs";
+import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createChange } from "../../src/change/manager.js";
 import { initHarness } from "../../src/harness/init.js";
@@ -16,6 +18,7 @@ let registryRoot: string;
 let handle: WorkbenchServerHandle | null = null;
 let originalCodexHome: string | undefined;
 let originalAhoHome: string | undefined;
+const execFileAsync = promisify(execFile);
 
 interface SnapshotResponse {
   left: { topics: Array<{ id: string }> };
@@ -147,6 +150,45 @@ describe("workbench server", () => {
       `${handle!.url}/api/projects/repo/files/preview?path=src%2Fpricing.ts`,
     );
     expect(preview).toMatchObject({ path: "src/pricing.ts", status: "text", content: "export const price = 1;\n" });
+  });
+
+  it("serves read-only Git status and diff for the right rail Git tab", async () => {
+    await mkdir(join(tempDir, "src"), { recursive: true });
+    await writeFile(join(tempDir, "src", "pricing.ts"), "export const price = 1;\n", "utf8");
+    await runGit("init");
+    await runGit("config", "user.email", "aho@example.test");
+    await runGit("config", "user.name", "AHO Test");
+    await runGit("add", "-A");
+    await runGit("commit", "-m", "baseline");
+    await writeFile(join(tempDir, "src", "pricing.ts"), "export const price = 2;\nexport const discount = true;\n", "utf8");
+    await writeFile(join(tempDir, "src", "staged.ts"), "export const staged = true;\n", "utf8");
+    await writeFile(join(tempDir, "src", "untracked.ts"), "export const untracked = true;\n", "utf8");
+    await runGit("add", "src/staged.ts");
+
+    const status = await getJson<{
+      isGitRepository: boolean;
+      branch: string | null;
+      staged: Array<{ relativePath: string; statusLabel: string }>;
+      unstaged: Array<{ relativePath: string; additions?: number }>;
+      untracked: Array<{ relativePath: string }>;
+    }>(`${handle!.url}/api/projects/repo/git/status`);
+    expect(status.isGitRepository).toBe(true);
+    expect(status.branch).toBeTruthy();
+    expect(status.staged).toContainEqual(expect.objectContaining({ relativePath: "src/staged.ts", statusLabel: "新增" }));
+    expect(status.unstaged).toContainEqual(expect.objectContaining({ relativePath: "src/pricing.ts" }));
+    expect(status.untracked).toContainEqual(expect.objectContaining({ relativePath: "src/untracked.ts" }));
+
+    const diff = await getJson<{ status: string; relativePath: string; sections: Array<{ patch: string }> }>(
+      `${handle!.url}/api/projects/repo/git/diff?path=src%2Fpricing.ts`,
+    );
+    expect(diff).toMatchObject({ status: "text", relativePath: "src/pricing.ts" });
+    expect(diff.sections[0]?.patch).toContain("export const price = 2;");
+
+    const unsafe = await getJson<{ status: string; message: string }>(
+      `${handle!.url}/api/projects/repo/git/diff?path=..%2Foutside.ts`,
+    );
+    expect(unsafe.status).toBe("not-found");
+    expect(unsafe.message).toContain("安全范围");
   });
 
   it("returns HTTP diagnostics for unsupported API and action requests", async () => {
@@ -491,6 +533,10 @@ async function getJson<T>(url: string): Promise<T> {
   const response = await fetch(url);
   expect(response.ok).toBe(true);
   return response.json() as Promise<T>;
+}
+
+async function runGit(...args: string[]): Promise<void> {
+  await execFileAsync("git", args, { cwd: tempDir });
 }
 
 async function writeMarker(projectPath: string, id: string, name: string): Promise<void> {

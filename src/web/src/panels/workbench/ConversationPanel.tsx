@@ -58,6 +58,7 @@ export function MainConversationView({
   selectedNode,
   onSelectNode,
   onSelectRun,
+  gitDiffPanel,
 }: {
   workpad: Workpad;
   graph: DemandAgentRunGraph;
@@ -79,6 +80,7 @@ export function MainConversationView({
   selectedNode: DemandAgentRunGraphNode | null;
   onSelectNode: (nodeId: string) => void;
   onSelectRun: (runId: string) => void;
+  gitDiffPanel?: ReactNode;
 }): ReactElement {
   return (
     <div className="main-conversation-view" data-testid="main-conversation-view">
@@ -86,6 +88,7 @@ export function MainConversationView({
         <button type="button" role="tab" aria-selected={activeTab === "conversation"} className={activeTab === "conversation" ? "active" : ""} onClick={() => onTabChange("conversation")}>对话</button>
         <button type="button" role="tab" aria-selected={activeTab === "workpad"} className={activeTab === "workpad" ? "active" : ""} onClick={() => onTabChange("workpad")}>工作台</button>
         <button type="button" role="tab" aria-selected={activeTab === "agentGraph"} className={activeTab === "agentGraph" ? "active" : ""} onClick={() => onTabChange("agentGraph")}>Agent 编排图</button>
+        <button type="button" role="tab" aria-selected={activeTab === "gitDiff"} className={activeTab === "gitDiff" ? "active" : ""} onClick={() => onTabChange("gitDiff")}>Git Diff</button>
       </div>
       {activeTab === "conversation" ? (
         <ParentAgentTranscriptView
@@ -110,7 +113,7 @@ export function MainConversationView({
           onAnswerClarification={onAnswerClarification}
           onSelectDecisionContext={onSelectDecisionContext}
         />
-      ) : (
+      ) : activeTab === "agentGraph" ? (
         <AgentRunGraphPanel
           graph={graph}
           selectedNode={selectedNode}
@@ -119,6 +122,8 @@ export function MainConversationView({
           onSelectNode={onSelectNode}
           onSelectRun={onSelectRun}
         />
+      ) : (
+        gitDiffPanel ?? <div className="git-diff-viewer empty-state" data-testid="git-diff-viewer">选择 Git 文件后查看 diff。</div>
       )}
     </div>
   );

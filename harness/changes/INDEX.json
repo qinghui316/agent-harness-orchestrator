@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-27T11:57:14.7040113Z",
+    "generated_at":  "2026-06-27T13:06:18.6932883Z",
     "active":  [
 
                ],
@@ -2073,6 +2073,10 @@
                     {
                         "name":  "20260627-workbench-reference-style-file-reference-composer-v1",
                         "path":  "harness/changes/archive/20260627-workbench-reference-style-file-reference-composer-v1"
+                    },
+                    {
+                        "name":  "20260627-workbench-reference-style-readonly-git-status-diff-panel-v1",
+                        "path":  "harness/changes/archive/20260627-workbench-reference-style-readonly-git-status-diff-panel-v1"
                     },
                     {
                         "name":  "20260627-workbench-reference-style-skills-catalog-and-codex-bridge-v1",

@@ -127,6 +127,43 @@ export type ProjectFilePreviewResult = {
   truncated?: boolean;
   message?: string;
 };
+export type ProjectGitFileGroup = "staged" | "unstaged" | "untracked";
+export type ProjectGitFileStatus = {
+  relativePath: string;
+  name: string;
+  group: ProjectGitFileGroup;
+  indexStatus: string;
+  worktreeStatus: string;
+  statusLabel: string;
+  additions?: number;
+  deletions?: number;
+};
+export type ProjectGitStatusResult = {
+  isGitRepository: boolean;
+  branch: string | null;
+  dirty: boolean;
+  staged: ProjectGitFileStatus[];
+  unstaged: ProjectGitFileStatus[];
+  untracked: ProjectGitFileStatus[];
+  totalAdditions: number;
+  totalDeletions: number;
+  message?: string;
+};
+export type ProjectGitDiffSection = {
+  label: string;
+  kind: "staged" | "unstaged";
+  patch: string;
+  truncated: boolean;
+};
+export type ProjectGitDiffResult = {
+  relativePath: string;
+  name: string;
+  status: "text" | "binary" | "too-large" | "not-found" | "not-git-repository" | "no-diff";
+  sections: ProjectGitDiffSection[];
+  additions?: number;
+  deletions?: number;
+  message?: string;
+};
 export type Snapshot = {
   project: { id: string; name: string; path: string } | null;
   memory: { memoryMode?: string; harnessReady?: boolean; artifactBase?: string };
@@ -230,7 +267,7 @@ export type DemandAgentRunGraph = {
   edges: DemandAgentRunGraphEdge[];
   updatedAt?: string;
 };
-export type CenterTab = "conversation" | "workpad" | "agentGraph";
+export type CenterTab = "conversation" | "workpad" | "agentGraph" | "gitDiff";
 export type ParentAgentTranscriptBlock = {
   id: string;
   kind: "prose" | "process" | "tool-result" | "evidence";

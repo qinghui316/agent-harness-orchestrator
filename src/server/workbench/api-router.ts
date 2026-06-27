@@ -4,6 +4,7 @@ import { matchProjectWorkbenchRoute } from "./routes.js";
 import { resolveProjectInputWithDirect } from "./direct-project.js";
 import { getWorkbenchCodexDiagnostics } from "./codex-diagnostics.js";
 import { listProjectFileChildren, readProjectFilePreview, searchProjectFiles } from "../../workbench/file-references.js";
+import { getProjectGitDiff, getProjectGitStatus } from "../../workbench/git-panel.js";
 import { getCodexBridgeStatus, syncCodexBridge } from "../../codex/bridge.js";
 import { getCodexModelSettingsSnapshot, setSelectedCodexModel } from "../../codex/model-settings.js";
 import { addSkillRoot, listSkillRoots, listSkills, refreshSkills, setSkillEnabled, type SkillSourceKind } from "../../skill/catalog.js";
@@ -134,6 +135,26 @@ export async function handleApi(context: WorkbenchServerContext, request: Incomi
       return;
     }
     sendJson(response, 200, await readProjectFilePreview(input.project, url.searchParams.get("path") ?? ""));
+    return;
+  }
+  const gitStatusMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/git\/status$/);
+  if (request.method === "GET" && gitStatusMatch?.[1]) {
+    const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(gitStatusMatch[1]));
+    if (!input.project) {
+      sendJson(response, 400, { error: "Project Git status requires a selected project." });
+      return;
+    }
+    sendJson(response, 200, await getProjectGitStatus(input.project));
+    return;
+  }
+  const gitDiffMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/git\/diff$/);
+  if (request.method === "GET" && gitDiffMatch?.[1]) {
+    const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(gitDiffMatch[1]));
+    if (!input.project) {
+      sendJson(response, 400, { error: "Project Git diff requires a selected project." });
+      return;
+    }
+    sendJson(response, 200, await getProjectGitDiff(input.project, url.searchParams.get("path") ?? ""));
     return;
   }
   const skillRootsMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/skill-roots$/);

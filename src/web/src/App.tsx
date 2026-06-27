@@ -12,6 +12,8 @@ import { MainConversationView,
   DecisionInspectorPane,
   BottomStatusBar,
   ProjectFilesPanel,
+  ProjectGitPanel,
+  GitDiffViewer,
   type RightToolRailTab
 } from "./panels/WorkbenchPanels.js";
 import {
@@ -145,6 +147,7 @@ export function App(): ReactElement {
   const [skillItems, setSkillItems] = useState<SkillListItem[]>([]);
   const [draftSkillOverrides, setDraftSkillOverrides] = useState<Record<string, boolean>>({});
   const [composerFileRefs, setComposerFileRefs] = useState<TopicFileReference[]>([]);
+  const [selectedGitDiffPath, setSelectedGitDiffPath] = useState<string | null>(null);
   const [decisionPaneCollapsed, setDecisionPaneCollapsed] = useState(true);
   const [rightToolTab, setRightToolTab] = useState<RightToolRailTab>("confirm");
   const [projectionVersion, setProjectionVersion] = useState(0);
@@ -1020,6 +1023,8 @@ export function App(): ReactElement {
           />
         ) : !selectedProjectStatus?.managed || !selectedProjectMemoryReady ? (
           <UnmanagedProjectView project={selectedProjectStatus} onDone={() => loadApp().then(() => selectedProjectId ? refresh(selectedProjectId, null) : undefined)} />
+        ) : !activeTopic && centerTab === "gitDiff" ? (
+          <GitDiffViewer projectId={selectedProjectId} selectedPath={selectedGitDiffPath} />
         ) : !activeTopic ? (
           <ProjectReadinessHome
             project={selectedProjectStatus}
@@ -1079,6 +1084,7 @@ export function App(): ReactElement {
                     selectedNode={selectedRunGraphNode}
                     onSelectNode={setSelectedRunGraphNodeId}
                     onSelectRun={(runId) => void chooseRun(runId)}
+                    gitDiffPanel={<GitDiffViewer projectId={selectedProjectId} selectedPath={selectedGitDiffPath} />}
                   />
                 </div>
                 {latestHidden ? <button className="latest-button" onClick={() => { const node = threadScrollRef.current; if (node) node.scrollTop = node.scrollHeight; setLatestHidden(false); }}>最新</button> : null}
@@ -1143,6 +1149,18 @@ export function App(): ReactElement {
           <ProjectFilesPanel
             projectId={selectedProjectId}
             selectedRefs={composerFileRefs}
+            onSelectedRefsChange={appendComposerFileRefs}
+          />
+        }
+        gitPanel={
+          <ProjectGitPanel
+            projectId={selectedProjectId}
+            selectedPath={selectedGitDiffPath}
+            selectedRefs={composerFileRefs}
+            onSelectedPathChange={(relativePath) => {
+              setSelectedGitDiffPath(relativePath);
+              setCenterTab("gitDiff");
+            }}
             onSelectedRefsChange={appendComposerFileRefs}
           />
         }

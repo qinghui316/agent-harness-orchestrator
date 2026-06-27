@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260627-workbench-reference-style-readonly-git-status-diff-panel-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-codex-runtime-model-picker-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-codex-model-selection-v1/summary.md`.
@@ -23,6 +25,14 @@
 
 ## Latest Product Closeout
 
+`harness/changes/archive/20260627-workbench-reference-style-readonly-git-status-diff-panel-v1/summary.md`.
+
+It adds a reference-style readonly Git tool to the right rail: branch/dirty
+status, staged/unstaged/untracked groups, file reference insertion, and a center
+`Git Diff` viewer for selected files. It does not add stage, discard, commit,
+push, PR, merge, remote, or any Harness workflow action.
+
+Previous closeout:
 `harness/changes/archive/20260627-workbench-reference-style-codex-runtime-model-picker-v1/summary.md`.
 
 It tightens Codex-only model selection to reference-style runtime semantics:
@@ -44,9 +54,11 @@ Harness workflow truth.
   real Codex runtime/config model selection, Skills catalog, Codex bridge sync, `/skill`
   composer selection, and `@file` project file references.
 - The right side is a single collapsed tool rail. Expanded, it contains only
-  `确认` and `文件`: confirmation remains the existing decision inspector, while
-  files are read-only project tree/preview/reference tools. Browser, Git,
-  terminal, log, editor, upload, and fake future controls stay hidden.
+  real implemented tools: `确认`, `文件`, and `Git`. Confirmation remains the
+  existing decision inspector; files are read-only project tree/preview/reference
+  tools; Git is a read-only status/diff/reference tool with the diff shown in
+  the center workspace. Browser, terminal, log, editor, upload, Git write
+  operations, and fake future controls stay hidden.
 - Unsupported reference-style controls remain hidden until their behavior
   exists. Do not expose fake provider/model dropdowns, file/attachment tools,
   marketplace, terminal, Git, or ordinary Agent-mode controls as clickable UI.
@@ -72,8 +84,9 @@ Harness workflow truth.
 
 Product work should continue from `docs/design-docs/ref-desktop-cc-gui.md`.
 Good next slices are actual skill-usage evidence, provider capability matrix,
-project creation/open/restore polish, runtime diagnostics, Git, terminal,
-browser, attachment panels, or file editing once each has real behavior.
+project creation/open/restore polish, runtime diagnostics, terminal, browser,
+attachment panels, Git write/history flows, or file editing once each has real
+behavior.
 
 Do not widen `完全访问权限` into raw scheduler, manual IntegrationCheck,
 integration apply/discard, PR/remote/merge, Harness evolution, or full parallel

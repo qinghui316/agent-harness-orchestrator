@@ -1774,7 +1774,7 @@ describe("Workbench web app", () => {
     expect(screen.queryByTestId("decision-inspector-primary")).toBeNull();
   });
 
-  it("opens the minimal right tool rail with confirmation and files tabs only", async () => {
+  it("opens the minimal right tool rail with confirmation, files, and Git tabs", async () => {
     const fileRef = { relativePath: "src/pricing.ts", name: "pricing.ts", kind: "file", extension: ".ts", size: 24 };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -1785,6 +1785,28 @@ describe("Workbench web app", () => {
       }
       if (url === "/api/projects/repo/files/preview?path=src%2Fpricing.ts") {
         return jsonResponse({ ...fileRef, path: fileRef.relativePath, status: "text", content: "export const price = 1;\n", truncated: false });
+      }
+      if (url === "/api/projects/repo/git/status") {
+        return jsonResponse({
+          isGitRepository: true,
+          branch: "main",
+          dirty: true,
+          staged: [{ relativePath: "src/staged.ts", name: "staged.ts", group: "staged", indexStatus: "A", worktreeStatus: " ", statusLabel: "新增", additions: 1, deletions: 0 }],
+          unstaged: [{ relativePath: "src/pricing.ts", name: "pricing.ts", group: "unstaged", indexStatus: " ", worktreeStatus: "M", statusLabel: "修改", additions: 1, deletions: 1 }],
+          untracked: [{ relativePath: "src/new.ts", name: "new.ts", group: "untracked", indexStatus: "?", worktreeStatus: "?", statusLabel: "未跟踪" }],
+          totalAdditions: 2,
+          totalDeletions: 1,
+        });
+      }
+      if (url === "/api/projects/repo/git/diff?path=src%2Fpricing.ts") {
+        return jsonResponse({
+          relativePath: "src/pricing.ts",
+          name: "pricing.ts",
+          status: "text",
+          sections: [{ label: "未暂存", kind: "unstaged", patch: "diff --git a/src/pricing.ts b/src/pricing.ts\n@@ -1 +1 @@\n-export const price = 1;\n+export const price = 2;", truncated: false }],
+          additions: 1,
+          deletions: 1,
+        });
       }
       if (url.includes("/workbench/projections/transcript/")) return jsonResponse(snapshot.center.parentAgentTranscript);
       if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(snapshot.center.agentRunGraph);
@@ -1799,9 +1821,9 @@ describe("Workbench web app", () => {
     fireEvent.click(screen.getByTestId("decision-pane-toggle"));
     expect(await screen.findByTestId("right-tool-tab-confirm")).toBeTruthy();
     expect(screen.getByTestId("right-tool-tab-files")).toBeTruthy();
+    expect(screen.getByTestId("right-tool-tab-git")).toBeTruthy();
     expect(screen.getByTestId("decision-inspector-primary")).toBeTruthy();
     expect(screen.queryByRole("tab", { name: "浏览器" })).toBeNull();
-    expect(screen.queryByRole("tab", { name: "Git" })).toBeNull();
     expect(screen.queryByRole("tab", { name: "终端" })).toBeNull();
     expect(screen.queryByRole("tab", { name: "日志" })).toBeNull();
 
@@ -1814,7 +1836,71 @@ describe("Workbench web app", () => {
     await waitFor(() => expect(within(filesPanel).getByText("export const price = 1;")).toBeTruthy());
     fireEvent.click(within(filesPanel).getByText("引用到输入框"));
     expect(screen.getAllByText("pricing.ts").length).toBeGreaterThan(1);
+
+    fireEvent.click(screen.getByTestId("right-tool-tab-git"));
+    const gitPanel = await screen.findByTestId("project-git-panel");
+    expect(within(gitPanel).getByText("main")).toBeTruthy();
+    expect(within(gitPanel).getByText("src/pricing.ts")).toBeTruthy();
+    expect(within(gitPanel).queryByText("提交")).toBeNull();
+    expect(within(gitPanel).queryByText("推送")).toBeNull();
+    expect(within(gitPanel).queryByText("PR")).toBeNull();
+
+    fireEvent.click(within(gitPanel).getByRole("button", { name: /src\/pricing\.ts/ }));
+    expect((await screen.findByRole("tab", { name: "Git Diff" })).getAttribute("aria-selected")).toBe("true");
+    const diffViewer = await screen.findByTestId("git-diff-viewer");
+    await waitFor(() => expect(within(diffViewer).getByText("+export const price = 2;")).toBeTruthy());
+    expect(within(diffViewer).queryByText("commit")).toBeNull();
+    fireEvent.click(within(gitPanel).getAllByText("引用")[0] as HTMLElement);
+    await waitFor(() => expect(screen.getByText("staged.ts")).toBeTruthy());
     expect(fetchCallUrls().filter((url) => url.endsWith("/workbench/actions"))).toHaveLength(actionCallCount);
+  });
+
+  it("opens the center Git diff viewer from the Git rail even before a topic is selected", async () => {
+    const homeSnapshot = {
+      ...snapshot,
+      left: { ...snapshot.left, topics: [], workpads: [] },
+      center: { ...snapshot.center, selectedTopic: null },
+      right: { ...snapshot.right, approvals: [], decisions: [], decisionInspector: { primary: null, related: [], history: [] }, confirmationQueue: { primary: null, current: [], otherDemands: [], maintenance: [], history: [] } },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" }, memory: { memoryMode: "repo-local", memoryAvailable: true, harnessReady: true } }] });
+      if (url === "/api/projects/repo/git/status") {
+        return jsonResponse({
+          isGitRepository: true,
+          branch: "main",
+          dirty: true,
+          staged: [],
+          unstaged: [{ relativePath: "src/pricing.ts", name: "pricing.ts", group: "unstaged", indexStatus: " ", worktreeStatus: "M", statusLabel: "修改", additions: 1, deletions: 1 }],
+          untracked: [],
+          totalAdditions: 1,
+          totalDeletions: 1,
+        });
+      }
+      if (url === "/api/projects/repo/git/diff?path=src%2Fpricing.ts") {
+        return jsonResponse({
+          relativePath: "src/pricing.ts",
+          name: "pricing.ts",
+          status: "text",
+          sections: [{ label: "未暂存", kind: "unstaged", patch: "@@ -1 +1 @@\n-export const price = 1;\n+export const price = 2;", truncated: false }],
+          additions: 1,
+          deletions: 1,
+        });
+      }
+      return jsonResponse(homeSnapshot);
+    }));
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText("创造任何东西")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("decision-pane-toggle"));
+    fireEvent.click(await screen.findByTestId("right-tool-tab-git"));
+    const gitPanel = await screen.findByTestId("project-git-panel");
+    fireEvent.click(within(gitPanel).getByRole("button", { name: /src\/pricing\.ts/ }));
+    const diffViewer = await screen.findByTestId("git-diff-viewer");
+    await waitFor(() => expect(within(diffViewer).getByText("+export const price = 2;")).toBeTruthy());
+    expect(screen.queryByText("创造任何东西")).toBeNull();
+    expect(fetchCallUrls().filter((url) => url.endsWith("/workbench/actions"))).toHaveLength(0);
   });
 
   it("keeps the Agent orchestration map usable while the confirmation rail is collapsed", async () => {
