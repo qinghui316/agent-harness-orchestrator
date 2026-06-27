@@ -8,9 +8,11 @@ import { consumeWorkbenchLiveStream,
   fetchJson,
   postJson } from "./api.js";
 import { MainConversationView,
-  DecisionPaneShell,
+  RightToolRailShell,
   DecisionInspectorPane,
-  BottomStatusBar
+  BottomStatusBar,
+  ProjectFilesPanel,
+  type RightToolRailTab
 } from "./panels/WorkbenchPanels.js";
 import {
   ProjectConversationSidebar,
@@ -136,6 +138,7 @@ export function App(): ReactElement {
   const [draftSkillOverrides, setDraftSkillOverrides] = useState<Record<string, boolean>>({});
   const [composerFileRefs, setComposerFileRefs] = useState<TopicFileReference[]>([]);
   const [decisionPaneCollapsed, setDecisionPaneCollapsed] = useState(true);
+  const [rightToolTab, setRightToolTab] = useState<RightToolRailTab>("confirm");
   const [projectionVersion, setProjectionVersion] = useState(0);
   const [latestHidden, setLatestHidden] = useState(false);
   const threadScrollRef = useRef<HTMLDivElement | null>(null);
@@ -811,6 +814,22 @@ export function App(): ReactElement {
   }, [activeRunGraph.nodes, selectedRunGraphNodeId]);
   const codexModelLabel = codexDiagnostics?.currentModel?.trim() || "默认模型";
 
+  function appendComposerFileRefs(refs: TopicFileReference[]): void {
+    const next = [...composerFileRefs];
+    const seen = new Set(next.map((ref) => ref.relativePath));
+    for (const ref of refs) {
+      if (seen.has(ref.relativePath)) continue;
+      seen.add(ref.relativePath);
+      next.push({ ...ref, source: "composer" });
+    }
+    setComposerFileRefs(next);
+  }
+
+  function expandRightToolRail(): void {
+    if (pendingConfirmationCount > 0) setRightToolTab("confirm");
+    setDecisionPaneCollapsed(false);
+  }
+
   useEffect(() => {
     setAutomationMode(readComposerExecutionMode(selectedProjectId, activeTopic?.id ?? null));
   }, [selectedProjectId, activeTopic?.id]);
@@ -1030,26 +1049,36 @@ export function App(): ReactElement {
         )}
       </main>
 
-      <DecisionPaneShell
+      <RightToolRailShell
         collapsed={decisionPaneCollapsed}
+        activeTab={rightToolTab}
         pendingCount={pendingConfirmationCount}
         hasPrimary={Boolean(activeConfirmationQueue.primary)}
-        onExpand={() => setDecisionPaneCollapsed(false)}
+        onExpand={expandRightToolRail}
         onCollapse={() => setDecisionPaneCollapsed(true)}
-      >
-        <DecisionInspectorPane
-          inspector={activeDecisionInspector}
-          confirmationQueue={activeConfirmationQueue}
-          automationMode={automationMode}
-          confirming={confirming}
-          busy={actionRunning !== null}
-          error={error}
-          onConfirmingChange={setConfirming}
-          onExecuteAction={executeDecisionAction}
-          onFeedback={requestDecisionFeedback}
-          onSelectContext={setSelectedDecisionContextId}
-        />
-      </DecisionPaneShell>
+        onTabChange={setRightToolTab}
+        confirmPanel={
+          <DecisionInspectorPane
+            inspector={activeDecisionInspector}
+            confirmationQueue={activeConfirmationQueue}
+            automationMode={automationMode}
+            confirming={confirming}
+            busy={actionRunning !== null}
+            error={error}
+            onConfirmingChange={setConfirming}
+            onExecuteAction={executeDecisionAction}
+            onFeedback={requestDecisionFeedback}
+            onSelectContext={setSelectedDecisionContextId}
+          />
+        }
+        filesPanel={
+          <ProjectFilesPanel
+            projectId={selectedProjectId}
+            selectedRefs={composerFileRefs}
+            onSelectedRefsChange={appendComposerFileRefs}
+          />
+        }
+      />
 
       <SettingsPanel
         open={settingsOpen}

@@ -3,7 +3,7 @@ import { openNativeFolderDialog } from "./native-dialog.js";
 import { matchProjectWorkbenchRoute } from "./routes.js";
 import { resolveProjectInputWithDirect } from "./direct-project.js";
 import { getWorkbenchCodexDiagnostics } from "./codex-diagnostics.js";
-import { searchProjectFiles } from "../../workbench/file-references.js";
+import { listProjectFileChildren, readProjectFilePreview, searchProjectFiles } from "../../workbench/file-references.js";
 import { getCodexBridgeStatus, syncCodexBridge } from "../../codex/bridge.js";
 import { addSkillRoot, listSkillRoots, listSkills, refreshSkills, setSkillEnabled, type SkillSourceKind } from "../../skill/catalog.js";
 import { addExistingProject, createNewProject, initProjectHarness, listProjectStatuses, trustCodexProjectForWorkbench } from "./project-admin.js";
@@ -78,6 +78,30 @@ export async function handleApi(context: WorkbenchServerContext, request: Incomi
         limit,
       }),
     });
+    return;
+  }
+  const fileChildrenMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/files\/children$/);
+  if (request.method === "GET" && fileChildrenMatch?.[1]) {
+    const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(fileChildrenMatch[1]));
+    if (!input.project) {
+      sendJson(response, 400, { error: "Project file tree requires a selected project." });
+      return;
+    }
+    try {
+      sendJson(response, 200, await listProjectFileChildren(input.project, url.searchParams.get("path") ?? ""));
+    } catch (error) {
+      sendJson(response, 400, { error: error instanceof Error ? error.message : String(error) });
+    }
+    return;
+  }
+  const filePreviewMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/files\/preview$/);
+  if (request.method === "GET" && filePreviewMatch?.[1]) {
+    const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(filePreviewMatch[1]));
+    if (!input.project) {
+      sendJson(response, 400, { error: "Project file preview requires a selected project." });
+      return;
+    }
+    sendJson(response, 200, await readProjectFilePreview(input.project, url.searchParams.get("path") ?? ""));
     return;
   }
   const skillRootsMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/skill-roots$/);

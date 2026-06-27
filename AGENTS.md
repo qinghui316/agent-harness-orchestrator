@@ -8,6 +8,8 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260627-workbench-minimal-right-tool-rail-files-panel-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-file-reference-composer-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-slash-skill-composer-v1/summary.md`.
@@ -36,8 +38,10 @@ Current baseline:
   IntegrationCheck, landing, and terminal nodes. The graph is a projection only
   and does not execute actions or replace `confirmationQueue.primary`.
 - The right confirmation surface defaults to a compact collapsed rail with a
-  pending count badge. Expanding it shows the existing confirmation pane; the
-  rail is frontend-only UI state and does not execute actions.
+  pending count badge. Expanding it shows only implemented tabs: `确认` renders
+  the existing confirmation pane, while `文件` provides safe read-only project
+  tree/preview/reference tools. The rail is frontend-only UI state and does not
+  execute actions.
 - Phase 1 desktop product-layer entry now follows the `desktop-cc-gui`
   reference more closely for Harness mode: a sparse project/conversation
   sidebar plus a centered "create anything" composer. The composer has a real

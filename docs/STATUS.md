@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260627-workbench-minimal-right-tool-rail-files-panel-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-file-reference-composer-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-slash-skill-composer-v1/summary.md`.
@@ -18,15 +20,13 @@
 
 ## Latest Product Closeout
 
-`harness/changes/archive/20260627-workbench-reference-style-file-reference-composer-v1/summary.md`.
+`harness/changes/archive/20260627-workbench-minimal-right-tool-rail-files-panel-v1/summary.md`.
 
-It adds reference-style `@file` project file references to the home and topic
-composer. File search is selected-project scoped and excludes unsafe/cache
-paths; selected refs become chips, are removed from submitted text, bind to the
-first/current user message, and appear in Codex runtime context as relative
-paths/kinds only. File refs remain runtime context only and do not alter
-Harness workflow truth, confirmation queues, apply/close, scheduler, remote,
-merge, PR, or Harness evolution.
+It replaces the right confirmation shell with a minimal right tool rail. The
+collapsed state is one panel button; expanded state exposes only implemented
+tabs: `确认` for the existing decision inspector and `文件` for safe read-only
+project file browsing, text preview, and composer file-reference insertion.
+No file tab control executes workflow actions or changes Harness truth.
 
 ## Current Baseline
 
@@ -37,6 +37,10 @@ merge, PR, or Harness evolution.
   `创造任何东西` composer, workspace picker, real execution-mode control strip,
   Skills catalog, Codex bridge sync, `/skill` composer selection, and `@file`
   project file references.
+- The right side is a single collapsed tool rail. Expanded, it contains only
+  `确认` and `文件`: confirmation remains the existing decision inspector, while
+  files are read-only project tree/preview/reference tools. Browser, Git,
+  terminal, log, editor, upload, and fake future controls stay hidden.
 - Unsupported reference-style controls remain hidden until their behavior
   exists. Do not expose fake provider/model dropdowns, file/attachment tools,
   marketplace, terminal, Git, or ordinary Agent-mode controls as clickable UI.
@@ -60,14 +64,11 @@ merge, PR, or Harness evolution.
 
 ## Next Resume Point
 
-Git-settle the completed Harness evolution if not already committed. Continue
-to exclude unrelated `README.md`, `reference-projects/`, and pre-existing
-package metadata edits.
-
 Product work should continue from `docs/design-docs/ref-desktop-cc-gui.md`.
 Good next slices are actual skill-usage evidence, model settings, provider
 capability matrix, project creation/open/restore polish, runtime diagnostics,
-file tree, Git, terminal, or attachment panels.
+Git, terminal, browser, attachment panels, or file editing once each has real
+behavior.
 
 Do not widen `完全访问权限` into raw scheduler, manual IntegrationCheck,
 integration apply/discard, PR/remote/merge, Harness evolution, or full parallel

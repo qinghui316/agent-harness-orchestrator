@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  listProjectFileChildren,
+  readProjectFilePreview,
   renderTopicFileReferencesForPrompt,
   resolveTopicFileReferences,
   searchProjectFiles,
@@ -67,6 +69,41 @@ describe("Workbench file references", () => {
     if (existsSync(join(root, "linked-src"))) {
       expect(paths.some((path) => path.startsWith("linked-src"))).toBe(false);
     }
+  });
+
+  it("lists safe file tree children for the right tool rail", async () => {
+    const rootChildren = await listProjectFileChildren(project());
+    const rootPaths = rootChildren.entries.map((entry) => entry.relativePath);
+
+    expect(rootChildren.path).toBe("");
+    expect(rootChildren.parentPath).toBeNull();
+    expect(rootPaths).toContain("src");
+    expect(rootPaths).not.toContain("node_modules");
+    expect(rootPaths).not.toContain(".git");
+    expect(rootPaths).not.toContain(".agent-harness");
+    expect(rootPaths).not.toContain("dist");
+    expect(rootPaths).not.toContain("large.bin");
+
+    const srcChildren = await listProjectFileChildren(project(), "src");
+    expect(srcChildren.parentPath).toBe("");
+    expect(srcChildren.entries).toContainEqual(expect.objectContaining({ relativePath: "src/pricing.ts", kind: "file" }));
+  });
+
+  it("previews text files without allowing unsafe paths or large files", async () => {
+    const textPreview = await readProjectFilePreview(project(), "src/pricing.ts");
+
+    expect(textPreview).toMatchObject({
+      path: "src/pricing.ts",
+      kind: "file",
+      status: "text",
+      content: "export const price = 1;\n",
+    });
+
+    const largePreview = await readProjectFilePreview(project(), "large.bin");
+    expect(largePreview.status).toBe("too-large");
+
+    const unsafePreview = await readProjectFilePreview(project(), "../outside.ts");
+    expect(unsafePreview.status).toBe("not-found");
   });
 
   it("resolves selected and handwritten @file references without swallowing unknown tokens", async () => {

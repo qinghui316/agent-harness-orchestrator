@@ -1736,6 +1736,49 @@ describe("Workbench web app", () => {
     expect(screen.queryByTestId("decision-inspector-primary")).toBeNull();
   });
 
+  it("opens the minimal right tool rail with confirmation and files tabs only", async () => {
+    const fileRef = { relativePath: "src/pricing.ts", name: "pricing.ts", kind: "file", extension: ".ts", size: 24 };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      if (url === "/api/projects/repo/files/children?path=") {
+        return jsonResponse({ path: "", parentPath: null, entries: [{ relativePath: "src", name: "src", kind: "directory" }, fileRef] });
+      }
+      if (url === "/api/projects/repo/files/preview?path=src%2Fpricing.ts") {
+        return jsonResponse({ ...fileRef, path: fileRef.relativePath, status: "text", content: "export const price = 1;\n", truncated: false });
+      }
+      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(snapshot.center.parentAgentTranscript);
+      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(snapshot.center.agentRunGraph);
+      return jsonResponse(url.includes("/stream/") ? stream : snapshot);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByTestId("main-conversation-view")).toBeTruthy());
+    const actionCallCount = fetchCallUrls().filter((url) => url.endsWith("/workbench/actions")).length;
+
+    fireEvent.click(screen.getByTestId("decision-pane-toggle"));
+    expect(await screen.findByTestId("right-tool-tab-confirm")).toBeTruthy();
+    expect(screen.getByTestId("right-tool-tab-files")).toBeTruthy();
+    expect(screen.getByTestId("decision-inspector-primary")).toBeTruthy();
+    expect(screen.queryByRole("tab", { name: "浏览器" })).toBeNull();
+    expect(screen.queryByRole("tab", { name: "Git" })).toBeNull();
+    expect(screen.queryByRole("tab", { name: "终端" })).toBeNull();
+    expect(screen.queryByRole("tab", { name: "日志" })).toBeNull();
+
+    fireEvent.click(screen.getByTestId("right-tool-tab-files"));
+    const filesPanel = await screen.findByTestId("project-files-panel");
+    expect(within(filesPanel).getByText("pricing.ts")).toBeTruthy();
+    expect(screen.queryByTestId("decision-inspector-primary")).toBeNull();
+
+    fireEvent.click(within(filesPanel).getByRole("button", { name: /pricing\.ts/ }));
+    await waitFor(() => expect(within(filesPanel).getByText("export const price = 1;")).toBeTruthy());
+    fireEvent.click(within(filesPanel).getByText("引用到输入框"));
+    expect(screen.getAllByText("pricing.ts").length).toBeGreaterThan(1);
+    expect(fetchCallUrls().filter((url) => url.endsWith("/workbench/actions"))).toHaveLength(actionCallCount);
+  });
+
   it("keeps the Agent orchestration map usable while the confirmation rail is collapsed", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -2962,7 +3005,7 @@ describe("Workbench web app", () => {
         },
       },
     };
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
@@ -4017,7 +4060,7 @@ describe("Workbench web app", () => {
         },
       },
     };
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
@@ -4279,7 +4322,7 @@ describe("Workbench web app", () => {
       },
     };
     let feedbackRequestCount = 0;
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
@@ -4302,15 +4345,15 @@ describe("Workbench web app", () => {
     render(<App />);
 
     await openDecisionPane();
-    await waitFor(() => expect(screen.getByText("修正 Goal Loop 建议")).toBeTruthy());
-    fireEvent.click(screen.getByText("修正 Goal Loop 建议"));
+    await waitFor(() => expect(screen.getAllByText("修正 Goal Loop 建议").length).toBeGreaterThan(0));
+    fireEvent.click(screen.getByRole("button", { name: "修正 Goal Loop 建议" }));
     fireEvent.change(screen.getByPlaceholderText("写下需要修改的地方"), { target: { value: "先解释为什么现在可以关闭。" } });
     fireEvent.click(screen.getByText("提交反馈"));
 
     await waitFor(() => {
       expect(fetch).toHaveBeenCalledWith("/api/projects/repo/workbench/actions/live", expect.objectContaining({ method: "POST" }));
     });
-    fireEvent.click(screen.getByText("修正 Goal Loop 建议"));
+    fireEvent.click(screen.getByRole("button", { name: "修正 Goal Loop 建议" }));
     fireEvent.change(screen.getByPlaceholderText("写下需要修改的地方"), { target: { value: "再补充执行前提。" } });
     fireEvent.click(screen.getByText("提交反馈"));
     await waitFor(() => expect(feedbackRequestCount).toBe(2));

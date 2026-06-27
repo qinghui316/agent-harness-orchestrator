@@ -124,6 +124,31 @@ describe("workbench server", () => {
     expect(result.files.some((file) => file.relativePath.startsWith("dist/"))).toBe(false);
   });
 
+  it("serves safe file tree children and read-only previews for the right rail files tab", async () => {
+    await mkdir(join(tempDir, "src"), { recursive: true });
+    await mkdir(join(tempDir, "node_modules", "pkg"), { recursive: true });
+    await writeFile(join(tempDir, "src", "pricing.ts"), "export const price = 1;\n", "utf8");
+    await writeFile(join(tempDir, "node_modules", "pkg", "index.js"), "module.exports = 1;\n", "utf8");
+
+    const rootTree = await getJson<{ entries: Array<{ relativePath: string; kind: string; name: string }> }>(
+      `${handle!.url}/api/projects/repo/files/children`,
+    );
+    expect(rootTree.entries).toContainEqual(expect.objectContaining({ relativePath: "src", kind: "directory", name: "src" }));
+    expect(rootTree.entries.some((entry) => entry.relativePath.includes("node_modules"))).toBe(false);
+
+    const srcTree = await getJson<{ path: string; parentPath: string | null; entries: Array<{ relativePath: string; kind: string; name: string }> }>(
+      `${handle!.url}/api/projects/repo/files/children?path=src`,
+    );
+    expect(srcTree.path).toBe("src");
+    expect(srcTree.parentPath).toBe("");
+    expect(srcTree.entries).toContainEqual(expect.objectContaining({ relativePath: "src/pricing.ts", kind: "file", name: "pricing.ts" }));
+
+    const preview = await getJson<{ path: string; status: string; content?: string }>(
+      `${handle!.url}/api/projects/repo/files/preview?path=src%2Fpricing.ts`,
+    );
+    expect(preview).toMatchObject({ path: "src/pricing.ts", status: "text", content: "export const price = 1;\n" });
+  });
+
   it("returns HTTP diagnostics for unsupported API and action requests", async () => {
     const missing = await fetch(`${handle!.url}/api/not-found`);
     expect(missing.status).toBe(404);

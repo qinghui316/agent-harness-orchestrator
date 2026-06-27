@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-27T07:40:17.9160634Z",
+    "generated_at":  "2026-06-27T09:02:00.8879302Z",
     "active":  [
 
                ],
@@ -2049,6 +2049,10 @@
                     {
                         "name":  "20260627-workbench-harness-composer-execution-mode-controls-v1",
                         "path":  "harness/changes/archive/20260627-workbench-harness-composer-execution-mode-controls-v1"
+                    },
+                    {
+                        "name":  "20260627-workbench-minimal-right-tool-rail-files-panel-v1",
+                        "path":  "harness/changes/archive/20260627-workbench-minimal-right-tool-rail-files-panel-v1"
                     },
                     {
                         "name":  "20260627-workbench-project-home-codex-diagnostics-v1",

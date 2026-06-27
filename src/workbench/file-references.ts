@@ -1,5 +1,5 @@
 import type { Dirent } from "node:fs";
-import { lstat, readdir, realpath, stat } from "node:fs/promises";
+import { lstat, readFile, readdir, realpath, stat } from "node:fs/promises";
 import { extname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { ManagedProject } from "../types/index.js";
 
@@ -19,6 +19,30 @@ export interface ProjectFileSearchOptions {
   limit?: number;
 }
 
+export interface ProjectFileTreeEntry extends TopicFileReference {
+  ignored?: boolean;
+}
+
+export interface ProjectFileTreeResult {
+  path: string;
+  parentPath: string | null;
+  entries: ProjectFileTreeEntry[];
+}
+
+export type ProjectFilePreviewStatus = "text" | "binary" | "too-large" | "directory" | "not-found";
+
+export interface ProjectFilePreviewResult {
+  path: string;
+  name: string;
+  kind: TopicFileReferenceKind | "unknown";
+  status: ProjectFilePreviewStatus;
+  extension?: string;
+  size?: number;
+  content?: string;
+  truncated?: boolean;
+  message?: string;
+}
+
 export interface TopicFileReferenceResolution {
   text: string;
   contextRefs: TopicFileReference[];
@@ -27,6 +51,7 @@ export interface TopicFileReferenceResolution {
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
 const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
+const MAX_PREVIEW_BYTES = 160 * 1024;
 const MAX_VISITED_ENTRIES = 5000;
 const IGNORED_NAMES = new Set([
   ".git",
@@ -76,6 +101,97 @@ export async function searchProjectFiles(project: ManagedProject, options: Proje
   }
 
   return results;
+}
+
+export async function listProjectFileChildren(project: ManagedProject, relativePath = ""): Promise<ProjectFileTreeResult> {
+  const root = await safeProjectRoot(project);
+  const normalizedPath = normalizeRelativePath(relativePath);
+  let directoryRelativePath = "";
+  if (normalizedPath) {
+    const directoryRef = await toSafeReference(root, resolve(root, normalizedPath));
+    if (!directoryRef || directoryRef.kind !== "directory") {
+      throw new Error("Project file tree path must be a directory inside the selected project.");
+    }
+    directoryRelativePath = directoryRef.relativePath;
+  }
+
+  const entries = await readdir(resolve(root, directoryRelativePath), { withFileTypes: true });
+  const safeEntries: ProjectFileTreeEntry[] = [];
+  for (const entry of entries.sort(compareDirent)) {
+    if (shouldIgnoreName(entry.name)) continue;
+    const candidate = await toSafeReference(root, resolve(root, directoryRelativePath, entry.name)).catch(() => null);
+    if (!candidate) continue;
+    safeEntries.push(candidate);
+  }
+
+  return {
+    path: directoryRelativePath,
+    parentPath: directoryRelativePath ? parentRelativePath(directoryRelativePath) : null,
+    entries: safeEntries,
+  };
+}
+
+export async function readProjectFilePreview(project: ManagedProject, relativePath: string): Promise<ProjectFilePreviewResult> {
+  const root = await safeProjectRoot(project);
+  const normalizedPath = normalizeRelativePath(relativePath);
+  if (!normalizedPath) {
+    return {
+      path: "",
+      name: project.name,
+      kind: "directory",
+      status: "directory",
+      message: "选择一个文件以预览。",
+    };
+  }
+
+  const ref = await toSafeReference(root, resolve(root, normalizedPath), { allowLargeFiles: true }).catch(() => null);
+  if (!ref) {
+    return {
+      path: normalizedPath,
+      name: normalizedPath.split("/").pop() ?? normalizedPath,
+      kind: "unknown",
+      status: "not-found",
+      message: "文件不存在或不在当前项目安全范围内。",
+    };
+  }
+  if (ref.kind === "directory") {
+    return {
+      path: ref.relativePath,
+      name: ref.name,
+      kind: "directory",
+      status: "directory",
+      message: "这是一个目录。展开目录以查看内容。",
+    };
+  }
+  if ((ref.size ?? 0) > MAX_FILE_SIZE_BYTES) {
+    return {
+      ...ref,
+      path: ref.relativePath,
+      status: "too-large",
+      message: "文件超过安全读取上限，不能预览。",
+    };
+  }
+
+  const absolutePath = resolve(root, ref.relativePath);
+  const buffer = await readFile(absolutePath);
+  if (looksBinary(buffer)) {
+    return {
+      ...ref,
+      path: ref.relativePath,
+      status: "binary",
+      message: "二进制文件不支持文本预览。",
+    };
+  }
+  const truncated = buffer.byteLength > MAX_PREVIEW_BYTES;
+  const previewBuffer = truncated ? buffer.subarray(0, MAX_PREVIEW_BYTES) : buffer;
+  return {
+    ...ref,
+    path: ref.relativePath,
+    status: "text",
+    content: previewBuffer.toString("utf8"),
+    truncated,
+    message: truncated ? "文件较大，仅显示开头部分。" : undefined,
+  };
 }
 
 export async function resolveTopicFileReferences(
@@ -132,7 +248,7 @@ async function safeProjectRoot(project: ManagedProject): Promise<string> {
   return realpath(resolve(project.path));
 }
 
-async function toSafeReference(root: string, absolutePath: string): Promise<TopicFileReference | null> {
+async function toSafeReference(root: string, absolutePath: string, options: { allowLargeFiles?: boolean } = {}): Promise<TopicFileReference | null> {
   const normalized = resolve(absolutePath);
   if (!isInside(root, normalized)) return null;
   const entry = await lstat(normalized);
@@ -142,7 +258,7 @@ async function toSafeReference(root: string, absolutePath: string): Promise<Topi
   const info = await stat(resolved);
   const kind: TopicFileReferenceKind | null = info.isDirectory() ? "directory" : info.isFile() ? "file" : null;
   if (!kind) return null;
-  if (kind === "file" && info.size > MAX_FILE_SIZE_BYTES) return null;
+  if (kind === "file" && info.size > MAX_FILE_SIZE_BYTES && !options.allowLargeFiles) return null;
   const relativePath = relative(root, resolved).split(sep).join("/");
   if (!relativePath || relativePath.startsWith("..") || relativePath.includes("/../")) return null;
   const name = relativePath.split("/").pop() ?? relativePath;
@@ -184,6 +300,28 @@ function normalizeLimit(value?: number): number {
 
 function shouldIgnoreName(name: string): boolean {
   return IGNORED_NAMES.has(name);
+}
+
+function compareDirent(a: Dirent, b: Dirent): number {
+  if (a.isDirectory() !== b.isDirectory()) return a.isDirectory() ? -1 : 1;
+  return a.name.localeCompare(b.name);
+}
+
+function parentRelativePath(relativePath: string): string | null {
+  const parts = relativePath.split("/").filter(Boolean);
+  if (parts.length === 1) return "";
+  if (parts.length === 0) return null;
+  return parts.slice(0, -1).join("/");
+}
+
+function looksBinary(buffer: Buffer): boolean {
+  const sample = buffer.subarray(0, Math.min(buffer.length, 4096));
+  if (sample.includes(0)) return true;
+  let suspicious = 0;
+  for (const byte of sample) {
+    if (byte < 7 || (byte > 14 && byte < 32)) suspicious += 1;
+  }
+  return sample.length > 0 && suspicious / sample.length > 0.08;
 }
 
 function matchesQuery(ref: TopicFileReference, query: string): boolean {

@@ -79,6 +79,22 @@ export type TopicFileReference = {
   size?: number;
   source?: "composer";
 };
+export type ProjectFileTreeResult = {
+  path: string;
+  parentPath: string | null;
+  entries: TopicFileReference[];
+};
+export type ProjectFilePreviewResult = {
+  path: string;
+  name: string;
+  kind: "file" | "directory" | "unknown";
+  status: "text" | "binary" | "too-large" | "directory" | "not-found";
+  extension?: string;
+  size?: number;
+  content?: string;
+  truncated?: boolean;
+  message?: string;
+};
 export type Snapshot = {
   project: { id: string; name: string; path: string } | null;
   memory: { memoryMode?: string; harnessReady?: boolean; artifactBase?: string };
