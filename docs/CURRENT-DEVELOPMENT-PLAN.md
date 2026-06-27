@@ -205,7 +205,7 @@ acceptance.
 
 Current structured change: none.
 
-Pending Harness evolution: `harness/evolution/pending.md`.
+Pending Harness evolution: none.
 
 Recommended next product step: continue the desktop product layer from
 `docs/design-docs/ref-desktop-cc-gui.md`, now that the selected-project home
@@ -244,6 +244,12 @@ Current Harness evolution:
 
 - Pending evolution: none.
 - Latest completed evolution:
+  `harness/changes/archive/20260627-auto-evolve-post-slash-skill-window/summary.md`.
+  Decision: `docs_merge`; subagent Singer score `82/100`. Existing ECL
+  reference-driven UI/source, user-surface honesty, runtime bridge, and
+  core-reuse coverage was sufficient; compact AGENTS/STATUS/CURRENT handoff
+  alignment was applied.
+- Previous completed evolution:
   `harness/changes/archive/20260627-auto-evolve-post-desktop-product-entry-window/summary.md`.
   Decision: `ecl_update`; subagent Huygens score `84/100`. Added compact
   reference-driven UI/source evidence coverage to ECL and the review template.

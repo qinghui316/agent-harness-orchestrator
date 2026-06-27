@@ -6,25 +6,15 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 
 - Current date: 2026-06-27.
 - Active change: none.
-- Pending Harness evolution: `harness/evolution/pending.md`.
+- Pending Harness evolution: none.
 - Latest archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-slash-skill-composer-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260627-workbench-reference-style-skills-catalog-and-codex-bridge-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260627-workbench-reference-style-workspace-picker-and-session-sidebar-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260627-workbench-harness-composer-execution-mode-controls-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260627-workbench-desktop-cc-gui-aligned-home-and-conversation-entry-v1/summary.md`.
 - Latest archived docs/reference change:
   `harness/changes/archive/20260626-document-desktop-cc-gui-reference-map-and-product-layer-roadmap/summary.md`.
-- Latest archived reference policy correction:
-  `harness/changes/archive/20260626-desktop-cc-gui-local-only-reference-correction/summary.md`.
 - Latest completed Harness evolution:
-  `harness/changes/archive/20260627-auto-evolve-post-desktop-product-entry-window/summary.md`
-  (`ecl_update`; subagent Huygens score 84; added compact reference-driven
-  UI/source evidence coverage to ECL and the review template).
+  `harness/changes/archive/20260627-auto-evolve-post-slash-skill-window/summary.md`
+  (`docs_merge`; subagent Singer score 82; existing ECL coverage was
+  sufficient, compact AGENTS/STATUS/CURRENT handoff alignment applied).
 - Recent detailed archives are discoverable through `docs/STATUS.md` and
   `harness/changes/INDEX.json`; keep per-run ids, E-drive paths, patch hashes,
   and gate sequences archive-only.
@@ -68,22 +58,11 @@ Current baseline:
   not auto-run plan confirmation, raw scheduler, manual IntegrationCheck,
   integration apply/discard, merge, remote, PR, Harness evolution, scheduler
   loops, or parallel execution.
-- Real in-app browser acceptance has verified request-approval stop behavior,
-  full-access sequential local apply/landing/close, and full-access stopping
-  before raw scheduler preparation.
-- Real in-app browser acceptance has also verified low-conflict scheduler
-  handoff: request-approval waits on the real gate, scoped full-access enters
-  scheduler only through the controlled wrapper, and the flow stops at manual
-  IntegrationCheck without exposing full-access on that terminal gate.
-- Real in-app browser acceptance has composed the local scheduler terminal path
-  through controlled scheduler workers, manual IntegrationCheck, human
-  integration apply, and local landing readiness. Workbench now prioritizes
-  local landing/terminal blockers over stale scheduler/audit context. The
-  latest terminal blocker is local close readiness requiring review completion;
-  no PR/remote/merge/Harness evolution ran.
-- Scheduler acceptance has reached same-Change worker worktrees, validation,
-  audit, ready integration candidate, manual IntegrationCheck, aggregate
-  validation/audit, and human integration apply/discard.
+- Real browser acceptance has verified request-approval stop behavior,
+  full-access sequential local apply/landing/close, controlled scheduler
+  handoff stopping at manual IntegrationCheck, and same-Change scheduler
+  workers through human integration apply/discard. PR/remote/merge/Harness
+  evolution did not run.
 - One loop execution maps to one parent Change. Multi-worktree outputs may feed
   IntegrationCheck only within that Change; cross-Change merge remains future
   explicit design.

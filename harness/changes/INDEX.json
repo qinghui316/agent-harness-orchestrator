@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-27T06:09:08.3963169Z",
+    "generated_at":  "2026-06-27T06:23:07.1082087Z",
     "active":  [
 
                ],
@@ -2037,6 +2037,10 @@
                     {
                         "name":  "20260627-auto-evolve-post-desktop-product-entry-window",
                         "path":  "harness/changes/archive/20260627-auto-evolve-post-desktop-product-entry-window"
+                    },
+                    {
+                        "name":  "20260627-auto-evolve-post-slash-skill-window",
+                        "path":  "harness/changes/archive/20260627-auto-evolve-post-slash-skill-window"
                     },
                     {
                         "name":  "20260627-workbench-desktop-cc-gui-aligned-home-and-conversation-entry-v1",
