@@ -245,7 +245,7 @@ workflow truth, or hidden permission bypasses.
 
 Current structured change: none.
 
-Pending Harness evolution: `harness/evolution/pending.md`.
+Pending Harness evolution: none.
 
 Recommended next product step: continue the desktop product layer from
 `docs/design-docs/ref-desktop-cc-gui.md`, now that the selected-project home
@@ -279,20 +279,21 @@ sequential local apply/landing/close path, and full-access stops before raw
 scheduler preparation.
 
 Latest completed Harness evolution:
-`harness/changes/archive/20260628-auto-evolve-post-product-shell-reference-window/summary.md`.
-Decision: `docs_merge`; subagent Epicurus score `88/100`. Existing ECL and
-review-template coverage is sufficient for the reference-style product-shell
-archive window; no product runtime or Harness rule change was made.
+`harness/changes/archive/20260629-auto-evolve-post-attachments-native-roadmap-window/summary.md`.
+Decision: `noop`; subagent Franklin score `92/100`. Existing ECL and
+boundary-doc coverage is sufficient for the onboarding Skill / attachments /
+hybrid native roadmap archive window; no product runtime, Harness rule, or
+template change was made.
 
 Current Harness evolution:
 
-- Pending evolution:
-  `harness/evolution/pending.md`.
+- Pending evolution: none.
 - Latest completed evolution:
-  `harness/changes/archive/20260628-auto-evolve-post-product-shell-reference-window/summary.md`.
-  Decision: `docs_merge`; subagent Epicurus score `88/100`. Existing ECL and
-  review-template coverage was sufficient for the reference-style product-shell
-  window; no product runtime or Harness rule change was made.
+  `harness/changes/archive/20260629-auto-evolve-post-attachments-native-roadmap-window/summary.md`.
+  Decision: `noop`; subagent Franklin score `92/100`. Existing ECL and
+  boundary-doc coverage was sufficient for the onboarding Skill / attachments /
+  hybrid native roadmap window; no product runtime, Harness rule, or template
+  change was made.
 - Previous completed evolution:
   `harness/changes/archive/20260627-auto-evolve-post-slash-skill-window/summary.md`.
   Decision: `docs_merge`; subagent Singer score `82/100`. Existing ECL

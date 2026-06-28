@@ -6,7 +6,7 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 
 - Current date: 2026-06-29.
 - Active change: none.
-- Pending Harness evolution: `harness/evolution/pending.md`.
+- Pending Harness evolution: none.
 - Latest archived product change:
   `harness/changes/archive/20260629-workbench-composer-attachments-first-demand-staging-v2/summary.md`.
 - Previous archived product change:
@@ -50,9 +50,9 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Previous archived docs/reference change:
   `harness/changes/archive/20260626-document-desktop-cc-gui-reference-map-and-product-layer-roadmap/summary.md`.
 - Latest completed Harness evolution:
-  `harness/changes/archive/20260628-auto-evolve-post-onboarding-skill-product-shell-window/summary.md`
-  (`noop`; subagents Feynman/Sartre/Lagrange/Bohr; no-op score 95; existing
-  ECL/template coverage is sufficient for the onboarding Skill / product-shell
+  `harness/changes/archive/20260629-auto-evolve-post-attachments-native-roadmap-window/summary.md`
+  (`noop`; subagent Franklin score 92; existing ECL and boundary-doc coverage
+  is sufficient for the onboarding Skill / attachments / hybrid native roadmap
   archive window; pending evolution has been marked complete).
 - Recent detailed archives are discoverable through `docs/STATUS.md` and
   `harness/changes/INDEX.json`; keep per-run ids, E-drive paths, patch hashes,

@@ -4,7 +4,7 @@
 
 - Current date: 2026-06-29.
 - Active ECL change: none.
-- Pending Harness evolution: `harness/evolution/pending.md`.
+- Pending Harness evolution: none.
 - Latest archived product change:
   `harness/changes/archive/20260629-workbench-composer-attachments-first-demand-staging-v2/summary.md`.
 - Latest archived docs/architecture change:
@@ -48,10 +48,11 @@
 - Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-skills-catalog-and-codex-bridge-v1/summary.md`.
 - Latest completed Harness evolution:
-  `harness/changes/archive/20260628-auto-evolve-post-onboarding-skill-product-shell-window/summary.md`
-  (`noop`; subagents Feynman/Sartre/Lagrange/Bohr; no-op score 95; existing
-  ECL/template coverage sufficient, no new Harness rule/template needed,
-  pending evolution marked complete).
+  `harness/changes/archive/20260629-auto-evolve-post-attachments-native-roadmap-window/summary.md`
+  (`noop`; subagent Franklin score 92; existing ECL and boundary-doc coverage
+  sufficient for the onboarding Skill / attachments / hybrid native roadmap
+  archive window, no new Harness rule/template needed, pending evolution
+  marked complete).
 
 ## Latest Product Closeout
 
