@@ -3,7 +3,6 @@ import {
   AlertTriangle,
   Bot,
   CheckCircle2,
-  FolderOpen,
   RefreshCw,
   Send,
   X,
@@ -13,73 +12,31 @@ import { FileMentionPicker } from "../shell/FileMentionPicker.js";
 import { SkillMentionPicker } from "../shell/SkillMentionPicker.js";
 import type { ComposerExecutionMode } from "../shell/composer-session.js";
 import { WorkspacePicker } from "./WorkspacePicker.js";
-import {
-  InfoRow,
-  ProjectAddForm,
-  ProjectCreateForm,
-} from "./ProjectPanels.js";
+import { InfoRow } from "./ProjectPanels.js";
 import type { CodexDiagnostics, CodexModelCandidate, CodexModelSettingsSnapshot, ProjectStatus, SkillListItem, Snapshot, TopicFileReference } from "../types.js";
 
 export function ProjectHomeView({
   projects,
-  snapshots,
   onOpenProject,
   onRefresh,
 }: {
   projects: ProjectStatus[];
-  snapshots: Record<string, Snapshot>;
   onOpenProject: (projectId: string) => Promise<void>;
   onRefresh: () => Promise<void>;
 }): ReactElement {
-  const [homeMode, setHomeMode] = useState<"closed" | "add" | "new">("closed");
-
-  async function afterProjectAdded(projectId?: string): Promise<void> {
-    await onRefresh();
-    if (projectId) await onOpenProject(projectId);
-    setHomeMode("closed");
-  }
-
   return (
-    <section className="project-home">
-      <div className="project-home-hero">
-        <div className="home-chat-mark compact" aria-label="Codex">
-          <Bot size={46} />
+    <section className="home-chat-surface" aria-label="项目首页">
+      <div className="home-chat-center">
+        <div className="home-chat-mark" aria-label="Codex">
+          <Bot size={50} />
         </div>
         <h1>创造任何东西</h1>
-        <p>选择一个本地项目开始。</p>
-        <div className="project-home-actions">
-          <button className="primary-button" onClick={() => setHomeMode(homeMode === "add" ? "closed" : "add")}><FolderOpen size={15} />添加已有项目</button>
-          <button className="outline-button" onClick={() => setHomeMode(homeMode === "new" ? "closed" : "new")}>新建项目</button>
-        </div>
-      </div>
-
-      {homeMode === "add" ? <ProjectAddForm onDone={afterProjectAdded} /> : null}
-      {homeMode === "new" ? <ProjectCreateForm onDone={afterProjectAdded} /> : null}
-
-      <div className="project-home-list" aria-label="已注册项目">
-        {projects.length === 0 ? (
-          <div className="project-home-empty">还没有注册项目。先添加已有文件夹，或新建一个本地 Git 项目。</div>
-        ) : projects.map((project) => {
-          const projectId = project.project?.id;
-          const name = project.project?.name ?? project.path;
-          const snapshot = projectId ? snapshots[projectId] : undefined;
-          const readiness = projectReadiness(project, snapshot);
-          return (
-            <button
-              key={projectId ?? project.path}
-              className="project-home-row"
-              disabled={!projectId}
-              onClick={() => projectId ? void onOpenProject(projectId) : undefined}
-            >
-              <span className={`project-home-status-dot ${readiness.tone}`} />
-              <span className="project-home-row-main">
-                <strong>{name}</strong>
-                <small>{project.path}</small>
-              </span>
-              <span className="project-home-row-meta">{readiness.label}</span>
-            </button>
-          );
-        })}
+        <WorkspacePicker
+          projects={projects}
+          selectedProjectId={null}
+          onOpenProject={onOpenProject}
+          onRefresh={onRefresh}
+        />
       </div>
     </section>
   );

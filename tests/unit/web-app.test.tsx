@@ -5235,8 +5235,10 @@ describe("Workbench web app", () => {
     await waitFor(() => expect(screen.getByText("创造任何东西")).toBeTruthy());
     expect(screen.queryByText("新对话")).toBeNull();
     fireEvent.click(screen.getByLabelText("项目菜单"));
-    expect(screen.getByText("使用现有文件夹")).toBeTruthy();
-    expect(screen.getByText("新建空项目")).toBeTruthy();
+    expect(screen.getAllByText("打开文件夹").length).toBeGreaterThan(0);
+    expect(screen.getByText("新建项目")).toBeTruthy();
+    expect(screen.queryByText("使用现有文件夹")).toBeNull();
+    expect(screen.queryByText("新建空项目")).toBeNull();
     expect(screen.queryByText("远程项目")).toBeNull();
     expect(screen.getByTestId("decision-pane-toggle")).toBeTruthy();
     const sidebar = document.querySelector(".codex-sidebar") as HTMLElement;
@@ -5255,9 +5257,11 @@ describe("Workbench web app", () => {
     render(<App />);
 
     await screen.findByRole("heading", { name: "创造任何东西" });
-    expect(screen.getByText("选择一个本地项目开始。")).toBeTruthy();
-    expect(screen.getByText("添加已有项目")).toBeTruthy();
-    expect(screen.getAllByText("Repo").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "选择项目" })).toBeTruthy();
+    expect(screen.queryByText("选择一个本地项目开始。")).toBeNull();
+    expect(screen.queryByText("添加已有项目")).toBeNull();
+    expect(screen.queryByLabelText("已注册项目")).toBeNull();
+    expect(screen.queryByText(/项目数据：/)).toBeNull();
     const mutationCalls = vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST");
     expect(mutationCalls).toHaveLength(0);
   });
@@ -5364,7 +5368,9 @@ describe("Workbench web app", () => {
     expect(within(panel).getAllByRole("heading", { name: "技能" }).length).toBeGreaterThan(0);
     expect(within(panel).getAllByText("pricing-helper").length).toBeGreaterThan(0);
     expect(within(panel).getAllByText("native-helper").length).toBeGreaterThan(0);
-    expect(within(panel).getByText("custom: E:/skills")).toBeTruthy();
+    expect(within(panel).getByText("自定义: E:/skills")).toBeTruthy();
+    expect(within(panel).queryByText("Skill ID")).toBeNull();
+    expect(within(panel).queryByText("Hash")).toBeNull();
 
     fireEvent.change(within(panel).getByLabelText("Skill 根目录"), { target: { value: "E:/more-skills" } });
     fireEvent.click(within(panel).getByRole("button", { name: "添加" }));
@@ -5693,12 +5699,12 @@ describe("Workbench web app", () => {
     fireEvent.click(screen.getByRole("button", { name: "选择项目" }));
     const picker = await screen.findByRole("dialog", { name: "项目选择器" });
 
-    fireEvent.click(within(picker).getByRole("button", { name: "添加已有项目" }));
-    expect(within(picker).getByText("选择文件夹添加")).toBeTruthy();
-    expect(within(picker).getByText("手动输入路径")).toBeTruthy();
+    fireEvent.click(within(picker).getByRole("button", { name: "打开文件夹" }));
+    expect(within(picker).getAllByText("打开文件夹").length).toBeGreaterThan(0);
+    expect(within(picker).getByText("输入路径")).toBeTruthy();
 
     fireEvent.click(within(picker).getByRole("button", { name: "新建项目" }));
-    expect(within(picker).getByText("选择父目录")).toBeTruthy();
+    expect(within(picker).getByText("选择位置")).toBeTruthy();
     expect(within(picker).getByText("初始化 Git")).toBeTruthy();
   });
 
@@ -5861,8 +5867,8 @@ describe("Workbench web app", () => {
 
     await waitFor(() => expect(screen.getByText("创造任何东西")).toBeTruthy());
     fireEvent.click(screen.getByLabelText("项目菜单"));
-    fireEvent.click(screen.getByText("使用现有文件夹"));
-    fireEvent.click(screen.getByText("选择文件夹添加"));
+    fireEvent.click(screen.getAllByText("打开文件夹")[0]);
+    fireEvent.click(screen.getAllByText("打开文件夹")[1]);
 
     await waitFor(() => {
       expect(fetch).toHaveBeenCalledWith("/api/dialog/open-folder", expect.objectContaining({ method: "POST" }));

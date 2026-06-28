@@ -4,8 +4,12 @@
 
 - Current date: 2026-06-28.
 - Active ECL change: none.
-- Pending Harness evolution: none.
+- Pending Harness evolution:
+  `harness/evolution/pending.md` (generated after
+  `workbench-reference-style-product-shell-polish-v1`; do not auto-apply).
 - Latest archived product change:
+  `harness/changes/archive/20260628-workbench-reference-style-product-shell-polish-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260628-workbench-reference-style-left-sidebar-and-project-preparation-ux-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260628-workbench-reference-style-app-data-and-real-codex-skills-v1/summary.md`.
@@ -37,6 +41,16 @@
 
 ## Latest Product Closeout
 
+`harness/changes/archive/20260628-workbench-reference-style-product-shell-polish-v1/summary.md`.
+
+It polishes the Harness-mode product shell toward the `desktop-cc-gui`
+reference: the project home is now a sparse creation surface (`创造任何东西`,
+workspace picker, composer), project add/create lives in the workspace picker,
+ordinary Settings/Skills views hide technical internals, and home/settings no
+longer show the bottom technical status footer. Browser smoke screenshots are
+under `E:\aho-accept\product-shell-polish-v1\screenshots`.
+
+Previous closeout:
 `harness/changes/archive/20260628-workbench-reference-style-left-sidebar-and-project-preparation-ux-v1/summary.md`.
 
 It aligns the ordinary Workbench left sidebar and project preparation flow with

@@ -1098,14 +1098,12 @@ export function App(): ReactElement {
         ) : !selectedProjectId ? (
           <ProjectHomeView
             projects={projects}
-            snapshots={projectSnapshots}
             onOpenProject={openProject}
             onRefresh={loadApp}
           />
         ) : !selectedProjectStatus?.project ? (
           <ProjectHomeView
             projects={projects}
-            snapshots={projectSnapshots}
             onOpenProject={openProject}
             onRefresh={loadApp}
           />
@@ -1264,7 +1262,7 @@ export function App(): ReactElement {
         onRefresh={() => loadCodexModelSettings()}
         onSelect={(selectedModel) => updateCodexModelSettings({ selectedModel })}
       />
-      <BottomStatusBar snapshot={snapshot} project={selectedProjectStatus} topic={activeTopic} />
+      {activeTopic && centerTab !== "settings" ? <BottomStatusBar snapshot={snapshot} project={selectedProjectStatus} topic={activeTopic} /> : null}
     </div>
   );
 }

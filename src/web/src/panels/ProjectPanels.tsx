@@ -70,13 +70,13 @@ export function ProjectAddForm({ onDone }: { onDone: (projectId?: string) => Pro
   }
   return (
     <form className="project-form" onSubmit={(event) => { event.preventDefault(); void submit().catch((cause: unknown) => setMessage(cause instanceof Error ? cause.message : String(cause))); }}>
-      <button type="button" className="primary-button" onClick={() => void chooseFolder().catch((cause: unknown) => setMessage(cause instanceof Error ? cause.message : String(cause)))}><Folder size={15} />选择文件夹添加</button>
-      <input value={name} onChange={(event) => setName(event.target.value)} placeholder="显示名称，可选" />
-      <button type="button" className="text-button" onClick={() => setManual(!manual)}>{manual ? "收起手动路径" : "手动输入路径"}</button>
+      <button type="button" className="primary-button" onClick={() => void chooseFolder().catch((cause: unknown) => setMessage(cause instanceof Error ? cause.message : String(cause)))}><Folder size={15} />打开文件夹</button>
+      <input value={name} onChange={(event) => setName(event.target.value)} placeholder="项目名称，可选" />
+      <button type="button" className="text-button" onClick={() => setManual(!manual)}>{manual ? "收起路径输入" : "输入路径"}</button>
       {manual ? (
         <>
-          <input value={path} onChange={(event) => setPath(event.target.value)} placeholder="本地项目路径，例如 E:\\work\\my-app" />
-          <button className="outline-button"><Plus size={15} />添加这个路径</button>
+          <input value={path} onChange={(event) => setPath(event.target.value)} placeholder="项目路径，例如 E:\\work\\my-app" />
+          <button className="outline-button"><Plus size={15} />添加项目</button>
         </>
       ) : null}
       {message ? <small>{message}</small> : null}
@@ -121,9 +121,9 @@ export function ProjectCreateForm({ onDone }: { onDone: (projectId?: string) => 
   }
   return (
     <form className="project-form" onSubmit={(event) => { event.preventDefault(); void submit().catch((cause: unknown) => setMessage(cause instanceof Error ? cause.message : String(cause))); }}>
-      <button type="button" className="outline-button" onClick={() => void chooseParent().catch((cause: unknown) => setMessage(cause instanceof Error ? cause.message : String(cause)))}><Folder size={15} />选择父目录</button>
-      <input value={parentPath} onChange={(event) => setParentPath(event.target.value)} placeholder="父目录路径，例如 E:\\work" />
-      <input value={name} onChange={(event) => setName(event.target.value)} placeholder="项目目录名" />
+      <button type="button" className="outline-button" onClick={() => void chooseParent().catch((cause: unknown) => setMessage(cause instanceof Error ? cause.message : String(cause)))}><Folder size={15} />选择位置</button>
+      <input value={parentPath} onChange={(event) => setParentPath(event.target.value)} placeholder="保存位置，例如 E:\\work" />
+      <input value={name} onChange={(event) => setName(event.target.value)} placeholder="项目名" />
       <label><input type="checkbox" checked={git} onChange={(event) => setGit(event.target.checked)} /> 初始化 Git</label>
       <label><input type="checkbox" checked={readme} onChange={(event) => setReadme(event.target.checked)} /> 创建 README</label>
       <label><input type="checkbox" checked={initialCommit} onChange={(event) => setInitialCommit(event.target.checked)} /> 创建初始提交</label>

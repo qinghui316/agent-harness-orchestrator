@@ -33,8 +33,6 @@ export function WorkspacePicker({
     });
   }, [normalizedQuery, projects]);
 
-  if (!selectedProject?.project) return null;
-
   async function afterProjectAdded(projectId?: string): Promise<void> {
     await onRefresh();
     if (projectId) await onOpenProject(projectId);
@@ -58,9 +56,9 @@ export function WorkspacePicker({
         aria-label="选择项目"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        title={selectedProject.path}
+        title={selectedProject?.path ?? "选择项目"}
       >
-        <span>{selectedProject.project.name}</span>
+        <span>{selectedProject?.project?.name ?? "选择项目"}</span>
         <ChevronDown size={16} aria-hidden />
       </button>
 
@@ -109,7 +107,7 @@ export function WorkspacePicker({
               className={`workspace-picker-action ${mode === "add" ? "selected" : ""}`}
               onClick={() => setMode(mode === "add" ? "closed" : "add")}
             >
-              <Folder size={15} aria-hidden />添加已有项目
+              <Folder size={15} aria-hidden />打开文件夹
             </button>
             <button
               type="button"

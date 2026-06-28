@@ -107,9 +107,9 @@ export function SkillsSettingsView({
           >添加</button>
         </div>
 
-        <div className="skill-root-list" aria-label="已登记 Skill 根目录">
-          {roots.length === 0 ? <span>未登记 custom root。</span> : roots.map((root) => (
-            <span key={root.rootPath} title={root.rootPath}><Folder size={12} />{root.sourceKind}: {root.rootPath}</span>
+        <div className="skill-root-list" aria-label="已添加 Skill 目录">
+          {roots.length === 0 ? <span>未添加自定义目录。</span> : roots.map((root) => (
+            <span key={root.rootPath} title={root.rootPath}><Folder size={12} />{sourceKindLabel(root.sourceKind)}: {root.rootPath}</span>
           ))}
         </div>
 
@@ -166,11 +166,9 @@ export function SkillsSettingsView({
               </div>
             </header>
             <div className="settings-info-grid">
-              <Info label="来源" value={selectedSkill.sourceKind} />
+              <Info label="来源" value={sourceKindLabel(selectedSkill.sourceKind)} />
               <Info label="运行状态" value={runtimeStatusLabel(selectedTarget?.status)} />
               <Info label="路径" value={selectedSkill.sourcePath} />
-              <Info label="Skill ID" value={selectedSkill.skillId} />
-              <Info label="Hash" value={selectedSkill.sourceHash} />
             </div>
             <div className="skill-package-summary">
               <h4>包内容</h4>
@@ -210,4 +208,12 @@ function runtimeStatusLabel(status: SkillListItem["runtimeTargets"][number]["sta
   if (status === "synced") return "已同步";
   if (status === "out-of-sync") return "需要重新同步";
   return "需要同步";
+}
+
+function sourceKindLabel(kind: string): string {
+  if (kind === "global-codex") return "Codex";
+  if (kind === "project-codex") return "项目";
+  if (kind === "custom") return "自定义";
+  if (kind === "managed") return "AHO";
+  return kind;
 }

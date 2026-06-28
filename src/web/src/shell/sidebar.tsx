@@ -89,15 +89,15 @@ export function ProjectConversationSidebar({
         </div>
         {projectMenuMode !== "closed" ? (
           <div className="project-menu-popover">
-            <button className={`project-menu-item ${projectMenuMode === "new" ? "selected" : ""}`} onClick={() => onProjectMenuMode("new")}><FolderPlus size={15} />新建空项目</button>
-            <button className={`project-menu-item ${projectMenuMode === "add" ? "selected" : ""}`} onClick={() => onProjectMenuMode("add")}><Folder size={15} />使用现有文件夹</button>
+            <button className={`project-menu-item ${projectMenuMode === "add" ? "selected" : ""}`} onClick={() => onProjectMenuMode("add")}><Folder size={15} />打开文件夹</button>
+            <button className={`project-menu-item ${projectMenuMode === "new" ? "selected" : ""}`} onClick={() => onProjectMenuMode("new")}><FolderPlus size={15} />新建项目</button>
             {projectMenuMode === "add" ? <ProjectAddForm onDone={afterProjectAdded} /> : null}
             {projectMenuMode === "new" ? <ProjectCreateForm onDone={afterProjectAdded} /> : null}
           </div>
         ) : null}
 
         <div className="project-folder-list">
-          {visibleProjects.length === 0 ? <div className="empty-state sidebar-empty">还没有注册项目。</div> : null}
+          {visibleProjects.length === 0 ? <div className="empty-state sidebar-empty">还没有项目。</div> : null}
           {visibleProjects.map((item) => {
             const projectId = item.project?.id ?? item.path;
             const concreteProjectId = item.project?.id ?? null;
@@ -171,7 +171,7 @@ export function ProjectConversationSidebar({
                 ) : null}
                 {expanded ? (
                   <div className="conversation-list">
-                    {memoryReady && !projectSnapshot ? <div className="conversation-placeholder">展开后加载对话。</div> : null}
+                    {memoryReady && !projectSnapshot ? <div className="conversation-placeholder">正在加载对话。</div> : null}
                     {!memoryReady ? <div className="conversation-placeholder">{memoryIssue?.detail ?? "项目需要准备。"}</div> : null}
                     {filteredConversations.map((conversation) => (
                       <button
@@ -184,7 +184,7 @@ export function ProjectConversationSidebar({
                         {conversation.waitingDecisionCount > 0 ? <b aria-label={`${conversation.waitingDecisionCount} 个待确认`}>{conversation.waitingDecisionCount}</b> : null}
                       </button>
                     ))}
-                    {memoryReady && projectSnapshot && filteredConversations.length === 0 ? <div className="conversation-placeholder">暂无已加载对话。</div> : null}
+                    {memoryReady && projectSnapshot && filteredConversations.length === 0 ? <div className="conversation-placeholder">暂无对话。</div> : null}
                   </div>
                 ) : null}
               </div>
