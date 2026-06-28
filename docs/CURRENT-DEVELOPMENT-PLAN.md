@@ -224,7 +224,7 @@ Tauri packaging, PR/remote/merge, and full parallel executor work out of the
 immediate slice unless explicitly selected.
 
 Latest product change:
-`harness/changes/archive/20260628-workbench-ui-acceptance-deeplink-restore-v1/summary.md`.
+`harness/changes/archive/20260628-workbench-reference-style-product-shell-polish-v1/summary.md`.
 
 Latest real UI acceptance:
 `harness/changes/archive/20260626-workbench-mode-aware-local-goal-loop-real-ui-acceptance-v1/summary.md`.
@@ -235,20 +235,19 @@ sequential local apply/landing/close path, and full-access stops before raw
 scheduler preparation.
 
 Latest completed Harness evolution:
-`harness/changes/archive/20260627-auto-evolve-post-desktop-product-entry-window/summary.md`.
-Decision: `ecl_update`; subagent Huygens score `84/100`. The durable change
-adds compact ECL/review-template coverage for reference-driven UI/source
-evidence. No product runtime, Workbench UI, lint rule, or reference source
-tracking was changed.
+`harness/changes/archive/20260628-auto-evolve-post-product-shell-reference-window/summary.md`.
+Decision: `docs_merge`; subagent Epicurus score `88/100`. Existing ECL and
+review-template coverage is sufficient for the reference-style product-shell
+archive window; no product runtime or Harness rule change was made.
 
 Current Harness evolution:
 
 - Active evolution:
   none.
 - Latest completed evolution:
-  `harness/changes/archive/20260628-auto-evolve-post-ui-transcript-deeplink-window/summary.md`.
-  Decision: `docs_merge`; subagent Descartes score `86/100`. Existing ECL and
-  review-template coverage was sufficient for the UI/transcript/deeplink
+  `harness/changes/archive/20260628-auto-evolve-post-product-shell-reference-window/summary.md`.
+  Decision: `docs_merge`; subagent Epicurus score `88/100`. Existing ECL and
+  review-template coverage was sufficient for the reference-style product-shell
   window; no product runtime or Harness rule change was made.
 - Previous completed evolution:
   `harness/changes/archive/20260627-auto-evolve-post-slash-skill-window/summary.md`.

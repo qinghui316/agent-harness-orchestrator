@@ -4,9 +4,7 @@
 
 - Current date: 2026-06-28.
 - Active ECL change: none.
-- Pending Harness evolution:
-  `harness/evolution/pending.md` (generated after
-  `workbench-reference-style-product-shell-polish-v1`; do not auto-apply).
+- Pending Harness evolution: none.
 - Latest archived product change:
   `harness/changes/archive/20260628-workbench-reference-style-product-shell-polish-v1/summary.md`.
 - Previous archived product change:
@@ -34,8 +32,8 @@
 - Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-skills-catalog-and-codex-bridge-v1/summary.md`.
 - Latest completed Harness evolution:
-  `harness/changes/archive/20260628-auto-evolve-post-ui-transcript-deeplink-window/summary.md`
-  (`docs_merge`; subagent Descartes score 86; existing ECL/template coverage
+  `harness/changes/archive/20260628-auto-evolve-post-product-shell-reference-window/summary.md`
+  (`docs_merge`; subagent Epicurus score 88; existing ECL/template coverage
   sufficient, no new Harness rule/template needed, pending evolution marked
   complete).
 

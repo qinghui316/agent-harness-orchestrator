@@ -103,3 +103,4 @@ timestamp	change_id	status	eval_mode	archive_count	notes
 2026-06-27T06:20:00.8167811Z	manual	docs_merge	subagent_review	512	post-slash-skill window reviewed with subagent Singer score 82; existing ECL coverage sufficient; compact AGENTS/STATUS/CURRENT pending-state docs merge
 2026-06-27T11:54:47.0328007Z	manual	docs_merge	subagent_review	517	post-Codex model picker window reviewed with subagent Helmholtz score 84; existing ECL coverage sufficient; merged CURRENT handoff state and review-template product-visible UI applicability wording
 2026-06-27T17:43:22.5076724Z	manual	docs_merge	subagent_review	522	post-ui-transcript-deeplink window reviewed with subagent Descartes score 86; existing ECL/template coverage sufficient; compact handoff docs merge only
+2026-06-28T08:15:20.6183082Z	manual	docs_merge	subagent_review	527	post-product-shell reference window; subagent Epicurus Merge 88; existing ECL coverage sufficient; handoff alignment only
