@@ -89,29 +89,6 @@ export function SkillsSettingsView({
           </button>
         </header>
 
-        <div className="skill-root-form compact">
-          <input
-            value={rootPath}
-            onChange={(event) => setRootPath(event.target.value)}
-            placeholder="添加 Skill 根目录"
-            aria-label="Skill 根目录"
-          />
-          <button
-            className="outline-button"
-            disabled={busy || !rootPath.trim()}
-            onClick={() => run(async () => {
-              await postJson(`/api/projects/${encodeURIComponent(projectId)}/skill-roots`, { rootPath: rootPath.trim(), sourceKind: "custom" });
-              setRootPath("");
-            })}
-          >添加</button>
-        </div>
-
-        <div className="skill-root-list" aria-label="已添加 Skill 目录">
-          {roots.length === 0 ? <span>未添加自定义目录。</span> : roots.map((root) => (
-            <span key={root.rootPath} title={root.rootPath}><Folder size={12} />{sourceKindLabel(root.sourceKind)}: {root.rootPath}</span>
-          ))}
-        </div>
-
         <input
           className="settings-search-input"
           value={query}
@@ -119,6 +96,32 @@ export function SkillsSettingsView({
           placeholder="搜索 Skill"
           aria-label="搜索 Skill"
         />
+
+        <details className="skill-source-manager">
+          <summary>自定义 Skill 目录</summary>
+          <div className="skill-root-form compact">
+            <input
+              value={rootPath}
+              onChange={(event) => setRootPath(event.target.value)}
+              placeholder="添加本机 Skill 文件夹"
+              aria-label="Skill 根目录"
+            />
+            <button
+              className="outline-button"
+              disabled={busy || !rootPath.trim()}
+              onClick={() => run(async () => {
+                await postJson(`/api/projects/${encodeURIComponent(projectId)}/skill-roots`, { rootPath: rootPath.trim(), sourceKind: "custom" });
+                setRootPath("");
+              })}
+            >添加</button>
+          </div>
+
+          <div className="skill-root-list" aria-label="已添加 Skill 目录">
+            {roots.length === 0 ? <span>未添加自定义目录。</span> : roots.map((root) => (
+              <span key={root.rootPath} title={root.rootPath}><Folder size={12} />{sourceKindLabel(root.sourceKind)}: {root.rootPath}</span>
+            ))}
+          </div>
+        </details>
 
         <div className="skills-settings-list" role="list" aria-label="Skill 列表">
           {filteredSkills.length === 0 ? <p className="muted-copy">还没有扫描到 Skill。</p> : filteredSkills.map((skill) => {
@@ -136,7 +139,10 @@ export function SkillsSettingsView({
                   <strong>{skill.name}</strong>
                   <small>{skill.description || "无描述"}</small>
                 </span>
-                <span className={`skill-sync-state ${target?.status ?? "not-synced"}`}>{runtimeStatusLabel(target?.status)}</span>
+                <span className="skill-list-meta">
+                  <span className="skill-source-badge">{sourceKindLabel(skill.sourceKind)}</span>
+                  <span className={`skill-sync-state ${target?.status ?? "not-synced"}`}>{runtimeStatusLabel(target?.status)}</span>
+                </span>
               </button>
             );
           })}
@@ -153,7 +159,7 @@ export function SkillsSettingsView({
               </div>
               <div className="settings-inline-actions">
                 {!selectedNative ? (
-                  <button className="outline-button" disabled={busy} onClick={() => run(async () => { await postJson(`/api/projects/${encodeURIComponent(projectId)}/skills/codex-bridge/sync`, {}); })}>同步 Codex</button>
+                  <button className="outline-button" disabled={busy} onClick={() => run(async () => { await postJson(`/api/projects/${encodeURIComponent(projectId)}/skills/codex-bridge/sync`, {}); })}>同步到 Codex</button>
                 ) : null}
               </div>
             </header>
@@ -164,7 +170,7 @@ export function SkillsSettingsView({
             </div>
             <div className="skill-package-summary">
               <h4>包内容</h4>
-              <p>{selectedNative ? "这个 Skill 来自 Codex 原生 skills 目录，AHO 只记录选择和运行提示，不复制或改写全局 Skill。" : "AHO 按合法 Skill 包同步 `SKILL.md` 和同目录内容到 Codex bridge；scripts 只作为 Skill 包内容提供给 runtime，AHO 不直接执行。"}</p>
+              <p>{selectedNative ? "这个 Skill 来自 Codex，可直接选择使用。" : "同步后可供 Codex 使用；scripts 只作为 Skill 包内容保留，AHO 不直接执行。"}</p>
               <div className="skill-package-items">
                 <span><FileText size={13} />SKILL.md</span>
                 <span>references/</span>
@@ -196,7 +202,7 @@ function Info({ label, value }: { label: string; value: string }): ReactElement 
 }
 
 function runtimeStatusLabel(status: SkillListItem["runtimeTargets"][number]["status"] | undefined): string {
-  if (status === "native") return "Codex 原生可用";
+  if (status === "native") return "Codex 可用";
   if (status === "synced") return "已同步";
   if (status === "out-of-sync") return "需要重新同步";
   return "需要同步";

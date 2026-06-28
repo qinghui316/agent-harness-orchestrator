@@ -1139,7 +1139,7 @@ export function App(): ReactElement {
             onOpenProject={openProject}
             onRefresh={loadApp}
           />
-        ) : selectedProjectIsTemporary || selectedProjectHistoryUnavailable ? (
+        ) : !activeTopic && (selectedProjectIsTemporary || selectedProjectHistoryUnavailable) ? (
           <UnmanagedProjectView project={selectedProjectStatus} onDone={() => loadApp().then(() => selectedProjectId ? refresh(selectedProjectId, null) : undefined)} />
         ) : !activeTopic && centerTab === "gitDiff" ? (
           <GitDiffViewer projectId={selectedProjectId} selectedPath={selectedGitDiffPath} />

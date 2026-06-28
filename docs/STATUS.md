@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260628-workbench-reference-style-sidebar-and-skills-polish-v2/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260628-workbench-reference-style-sidebar-cleanup-and-skill-availability-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260628-workbench-reference-style-product-shell-polish-v1/summary.md`.
@@ -41,6 +43,17 @@
 
 ## Latest Product Closeout
 
+`harness/changes/archive/20260628-workbench-reference-style-sidebar-and-skills-polish-v2/summary.md`.
+
+It tightens the reference-style Harness-mode product shell: the ordinary
+project row menu now only shows user-understandable actions, history/topic
+reading stays available without forcing project preparation, and the Skills
+settings page reads as a Codex runtime capability browser. Native Codex Skills
+show as available by default, custom root management is secondary, and fake or
+internal controls remain hidden. Browser smoke screenshots are under
+`E:\aho-accept\sidebar-skills-polish-v2\screenshots`.
+
+Previous closeout:
 `harness/changes/archive/20260628-workbench-reference-style-sidebar-cleanup-and-skill-availability-v1/summary.md`.
 
 It adds reference-style sidebar cleanup and Skill availability semantics:

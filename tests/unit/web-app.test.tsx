@@ -4577,6 +4577,7 @@ describe("Workbench web app", () => {
   });
 
   it("runs a single TaskGraph task with taskIds in the Workbench action payload", async () => {
+    window.history.replaceState({}, "", "/?project=repo&topic=member-discount");
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
@@ -5072,12 +5073,14 @@ describe("Workbench web app", () => {
     render(<App />);
 
     await waitFor(() => expect(screen.getAllByText("会员折扣计价").length).toBeGreaterThan(0));
-    fireEvent.click(screen.getByLabelText("项目详情"));
+    fireEvent.click(screen.getByLabelText("更多项目操作"));
     expect(screen.getByRole("menu", { name: "Repo 项目菜单" })).toBeTruthy();
     expect(screen.getByText("打开项目首页")).toBeTruthy();
     expect(screen.getByText("新建对话")).toBeTruthy();
-    expect(screen.getByText("刷新会话")).toBeTruthy();
-    expect(screen.getByText("项目详情")).toBeTruthy();
+    expect(screen.queryByText("刷新会话")).toBeNull();
+    expect(screen.queryByText("准备项目")).toBeNull();
+    expect(screen.queryByText("信任 Codex")).toBeNull();
+    expect(screen.getByText("项目设置")).toBeTruthy();
     expect(screen.getByText("移出项目")).toBeTruthy();
     expect(screen.getByText("设置")).toBeTruthy();
   });
@@ -5378,7 +5381,7 @@ describe("Workbench web app", () => {
     fireEvent.click(within(panel).getByRole("button", { name: "添加" }));
     await waitFor(() => expect(fetchCallUrls()).toContain("/api/projects/repo/skill-roots"));
 
-    fireEvent.click(within(panel).getByRole("button", { name: "同步 Codex" }));
+    fireEvent.click(within(panel).getByRole("button", { name: "同步到 Codex" }));
     await waitFor(() => {
       const calls = vi.mocked(fetch).mock.calls.map(([url, init]) => [String(url), init?.method ?? "GET"]);
       expect(calls).toContainEqual(["/api/projects/repo/skills/codex-bridge/sync", "POST"]);
@@ -5386,8 +5389,8 @@ describe("Workbench web app", () => {
     expect(within(panel).queryByRole("button", { name: "禁用" })).toBeNull();
     expect(within(panel).queryByRole("button", { name: "启用" })).toBeNull();
     fireEvent.click(within(panel).getByRole("button", { name: /native-helper/ }));
-    expect(within(panel).getAllByText("Codex 原生可用").length).toBeGreaterThan(0);
-    expect(within(panel).queryByRole("button", { name: "同步 Codex" })).toBeNull();
+    expect(within(panel).getAllByText("Codex 可用").length).toBeGreaterThan(0);
+    expect(within(panel).queryByRole("button", { name: "同步到 Codex" })).toBeNull();
 
     const calls = vi.mocked(fetch).mock.calls.map(([url, init]) => [String(url), init?.method ?? "GET"]);
     expect(calls).not.toContainEqual(["/api/projects/repo/skills/pricing-helper/enable", "POST"]);
@@ -5849,6 +5852,45 @@ describe("Workbench web app", () => {
     expect(screen.queryByText("准备项目")).toBeNull();
     expect(screen.queryByText("创建需求对话")).toBeNull();
     expect(screen.queryByLabelText("在 Repo 中开始新对话")).toBeNull();
+  });
+
+  it("opens an existing history conversation read-only even when the project is not prepared", async () => {
+    const historySnapshot = {
+      ...snapshot,
+      memory: { memoryMode: "external-local", harnessReady: false },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") {
+        return jsonResponse({ projects: [{
+          project: snapshot.project,
+          path: "E:/repo",
+          pathExists: true,
+          isGitRepo: true,
+          managed: true,
+          memory: {
+            memoryMode: "external-local",
+            memoryAvailable: false,
+            harnessReady: false,
+            artifactBase: "memory-root",
+            roots: { memoryRoot: "E:/aho-home/projects/repo" },
+          },
+          harness: { readiness: "partial" },
+        }] });
+      }
+      if (url === "/api/projects/repo/workbench/projections/transcript/member-discount?limit=100") return jsonResponse(snapshot.center.parentAgentTranscript);
+      return jsonResponse(historySnapshot);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getAllByText("会员折扣计价").length).toBeGreaterThan(0));
+    expect(screen.queryByText("保存到项目列表")).toBeNull();
+    expect(screen.queryByText("这个项目需要准备后才能开始需求对话。")).toBeNull();
+    const graphTab = screen.getByRole("tab", { name: "Agent 编排图" });
+    fireEvent.click(graphTab);
+    expect(graphTab.getAttribute("aria-selected")).toBe("true");
   });
 
   it("adds an existing project from the native folder picker", async () => {

@@ -314,11 +314,12 @@ input:focus-visible {
 
 .project-folder-row {
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) 28px 28px;
+  grid-template-columns: 22px minmax(0, 1fr) 26px 26px;
   align-items: center;
-  min-height: 42px;
+  min-height: 40px;
   border-radius: var(--radius-sm);
-  column-gap: 2px;
+  column-gap: 3px;
+  padding: 0 3px;
 }
 
 .project-folder-row:hover,
@@ -342,8 +343,10 @@ input:focus-visible {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   padding: 0;
+  border-radius: var(--radius-sm);
 }
 
 .project-folder-new {
@@ -351,7 +354,9 @@ input:focus-visible {
 }
 
 .project-folder-new:hover,
+.project-folder-toggle:hover,
 .project-folder-more:hover {
+  background: var(--bg-muted);
   color: var(--text);
 }
 
@@ -376,6 +381,10 @@ input:focus-visible {
   color: var(--text);
   font-size: 14px;
   text-align: left;
+}
+
+.project-folder-main > svg {
+  color: var(--text-muted);
 }
 
 .project-folder-text {
@@ -4711,7 +4720,7 @@ h1 {
 
 .skills-settings-list-item {
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) auto;
+  grid-template-columns: 24px minmax(0, 1fr);
   gap: 8px;
   align-items: center;
   width: 100%;
@@ -4739,6 +4748,13 @@ h1 {
   min-width: 0;
 }
 
+.skill-list-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 4px;
+}
+
 .skill-list-main strong,
 .skill-list-main small {
   overflow: hidden;
@@ -4748,6 +4764,20 @@ h1 {
 
 .skill-list-main small {
   color: var(--text-muted);
+}
+
+.skill-source-badge,
+.skill-sync-state {
+  border-radius: 999px;
+  padding: 3px 7px;
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.skill-source-badge {
+  color: var(--text-faint);
 }
 
 .settings-search-input {
@@ -4767,6 +4797,18 @@ h1 {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+}
+
+.skill-source-manager {
+  display: grid;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.skill-source-manager summary {
+  cursor: pointer;
+  user-select: none;
 }
 
 .skill-package-summary {
@@ -4995,16 +5037,11 @@ h1 {
   gap: 8px;
 }
 
-.skill-sync-state {
-  border-radius: 999px;
-  padding: 3px 7px;
-  background: var(--bg-panel);
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 650;
+.skill-sync-state.synced {
+  color: var(--success);
 }
 
-.skill-sync-state.synced {
+.skill-sync-state.native {
   color: var(--success);
 }
 

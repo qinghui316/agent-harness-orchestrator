@@ -6,13 +6,11 @@ import {
   Folder,
   FolderPlus,
   MoreHorizontal,
-  RefreshCw,
   Search,
   Settings,
   Trash2,
 } from "lucide-react";
 import {
-  CodexTrustButton,
   ProjectPrepareButton,
   ProjectAddForm,
   ProjectCreateForm,
@@ -117,6 +115,7 @@ export function ProjectConversationSidebar({
             const selected = item.project?.id === selectedProjectId;
             const expanded = selected || expandedProjects.has(projectId);
             const projectSnapshot = item.project?.id === selectedProjectId ? snapshot : item.project?.id ? snapshots[item.project.id] : undefined;
+            const hasConversationSnapshot = Boolean(projectSnapshot?.left.workpads?.length || projectSnapshot?.left.topics?.length);
             const memoryReady = projectSnapshot?.memory.harnessReady ?? item.memory?.harnessReady ?? item.harness.readiness === "ready";
             const memoryIssue = memoryStatusIssue(item, projectSnapshot);
             const secondary = duplicateName ? shortProjectContext(item.path) : memoryIssue?.short ?? shortProjectContext(item.path);
@@ -150,7 +149,7 @@ export function ProjectConversationSidebar({
                       <FileText size={15} />
                     </button>
                   ) : null}
-                  <button className="project-folder-more" aria-label="项目详情" onClick={() => onProjectDetails(projectDetailsId === projectId ? null : projectId)}>
+                  <button className="project-folder-more" aria-label="更多项目操作" onClick={() => onProjectDetails(projectDetailsId === projectId ? null : projectId)}>
                     <MoreHorizontal size={15} />
                   </button>
                 </div>
@@ -166,21 +165,11 @@ export function ProjectConversationSidebar({
                         void onNewConversation(item.project?.id);
                       }}><FileText size={15} />新建对话</button>
                     ) : null}
-                    <button className="project-menu-item" role="menuitem" onClick={() => {
-                      onProjectDetails(null);
-                      void onRefresh();
-                    }}><RefreshCw size={15} />刷新会话</button>
-                    {item.project && !memoryReady && memoryIssue?.kind !== "missing-external-memory" ? (
-                      <ProjectPrepareButton projectId={item.project.id} onDone={async () => { onProjectDetails(null); await onRefresh(); }} />
-                    ) : null}
-                    {item.project && item.codexTrust && !item.codexTrust.trusted ? (
-                      <CodexTrustButton project={item} onDone={async () => { onProjectDetails(null); await onRefresh(); }} />
-                    ) : null}
                     {concreteProjectId ? (
                       <button className="project-menu-item" role="menuitem" onClick={() => {
                         onProjectDetails(null);
                         onOpenProjectSettings(concreteProjectId);
-                      }}><Settings size={15} />项目详情</button>
+                      }}><Settings size={15} />项目设置</button>
                     ) : null}
                     {concreteProjectId ? (
                       <button className="project-menu-item danger" role="menuitem" onClick={() => {
@@ -193,7 +182,7 @@ export function ProjectConversationSidebar({
                 {expanded ? (
                   <div className="conversation-list">
                     {memoryReady && !projectSnapshot ? <div className="conversation-placeholder">正在加载对话。</div> : null}
-                    {!memoryReady ? <div className="conversation-placeholder">{memoryIssue?.detail ?? "项目需要准备。"}</div> : null}
+                    {!memoryReady && !hasConversationSnapshot ? <div className="conversation-placeholder">项目需要准备后才能开始新对话。</div> : null}
                     {filteredConversations.map((conversation) => {
                       const menuId = `${projectId}:${conversation.id}`;
                       const hideAllowed = conversation.state === "archive" && conversation.waitingDecisionCount === 0;
