@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-28T13:50:16.9474073Z",
+    "generated_at":  "2026-06-28T14:07:54.8199622Z",
     "active":  [
 
                ],
@@ -2097,6 +2097,10 @@
                     {
                         "name":  "20260627-workbench-reference-style-workspace-picker-and-session-sidebar-v1",
                         "path":  "harness/changes/archive/20260627-workbench-reference-style-workspace-picker-and-session-sidebar-v1"
+                    },
+                    {
+                        "name":  "20260628-auto-evolve-post-onboarding-skill-product-shell-window",
+                        "path":  "harness/changes/archive/20260628-auto-evolve-post-onboarding-skill-product-shell-window"
                     },
                     {
                         "name":  "20260628-auto-evolve-post-product-shell-reference-window",

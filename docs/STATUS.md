@@ -4,8 +4,7 @@
 
 - Current date: 2026-06-28.
 - Active ECL change: none.
-- Pending Harness evolution:
-  `harness/evolution/pending.md`.
+- Pending Harness evolution: none.
 - Latest archived product change:
   `harness/changes/archive/20260628-workbench-first-onboarding-aho-harness-skill-package-v2/summary.md`.
 - Previous archived product change:
@@ -41,10 +40,10 @@
 - Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-skills-catalog-and-codex-bridge-v1/summary.md`.
 - Latest completed Harness evolution:
-  `harness/changes/archive/20260628-auto-evolve-post-product-shell-reference-window/summary.md`
-  (`docs_merge`; subagent Epicurus score 88; existing ECL/template coverage
-  sufficient, no new Harness rule/template needed, pending evolution marked
-  complete).
+  `harness/changes/archive/20260628-auto-evolve-post-onboarding-skill-product-shell-window/summary.md`
+  (`noop`; subagents Feynman/Sartre/Lagrange/Bohr; no-op score 95; existing
+  ECL/template coverage sufficient, no new Harness rule/template needed,
+  pending evolution marked complete).
 
 ## Latest Product Closeout
 
