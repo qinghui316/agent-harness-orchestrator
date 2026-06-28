@@ -157,6 +157,10 @@ export interface TrustCodexProjectRequest {
   confirm?: boolean;
 }
 
+export interface RemoveProjectRequest {
+  confirm?: boolean;
+}
+
 export interface CreateTopicRequest {
   title?: string;
   body?: string;

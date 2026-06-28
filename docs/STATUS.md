@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260628-workbench-reference-style-sidebar-cleanup-and-skill-availability-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260628-workbench-reference-style-product-shell-polish-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260628-workbench-reference-style-left-sidebar-and-project-preparation-ux-v1/summary.md`.
@@ -39,6 +41,17 @@
 
 ## Latest Product Closeout
 
+`harness/changes/archive/20260628-workbench-reference-style-sidebar-cleanup-and-skill-availability-v1/summary.md`.
+
+It adds reference-style sidebar cleanup and Skill availability semantics:
+projects can be removed from the App list without deleting source or Harness
+evidence, duplicate project names show short path context, archived
+conversations can be hidden from the sidebar without deleting Change evidence,
+and native Codex Skills are shown as available runtime capabilities without a
+misleading enable step. The current stable registry was cleaned of stale
+acceptance/temp project records; no source directories were deleted.
+
+Previous closeout:
 `harness/changes/archive/20260628-workbench-reference-style-product-shell-polish-v1/summary.md`.
 
 It polishes the Harness-mode product shell toward the `desktop-cc-gui`

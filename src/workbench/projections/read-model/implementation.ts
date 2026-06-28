@@ -15,7 +15,7 @@ import { buildMaintenanceSummary } from "./maintenance-summary.js";
 import { buildDemandAgentRunGraph, emptyAgentRunGraph, emptyParentAgentTranscript, shellWorkbenchWorkpad } from "./run-graph.js";
 import { listWorkbenchRoles } from "./roles.js";
 import { buildHarnessGaps, buildRepoSummary, resolveWorkbenchMemory } from "./support.js";
-import { listWorkbenchTopicsFromMemory, selectTopicDetail } from "./topics.js";
+import { hideWorkbenchTopicFromSidebar, listWorkbenchTopicsFromMemory, selectTopicDetail } from "./topics.js";
 import { buildDiagnosticWorkpad, buildMultiWorkpadSummaries, buildWorkbenchWorkpad } from "./workpad.js";
 import type { LandingQueueSnapshot, ResolvedMemory } from "../../../types/index.js";
 import type {
@@ -381,6 +381,17 @@ export async function listWorkbenchTopics(input: WorkbenchProjectInput): Promise
   const memory = await resolveWorkbenchMemory(input);
   if (!memory.supported || !existsSync(memory.memoryRoot)) return [];
   return listWorkbenchTopicsFromMemory(memory);
+}
+
+export async function hideWorkbenchTopic(input: WorkbenchProjectInput, topicId: string): Promise<{ hidden: true; topicId: string }> {
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported || !existsSync(memory.memoryRoot)) {
+    const error = new Error("Durable memory is unavailable; cannot hide this conversation.");
+    error.name = "Conflict";
+    throw error;
+  }
+  await hideWorkbenchTopicFromSidebar(memory, topicId);
+  return { hidden: true, topicId };
 }
 
 export async function getWorkbenchTopic(input: WorkbenchProjectInput, topicId: string): Promise<WorkbenchTopicDetail> {

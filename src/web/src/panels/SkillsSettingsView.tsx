@@ -30,7 +30,6 @@ export function SkillsSettingsView({
     ].some((value) => value.toLowerCase().includes(normalized)));
   }, [query, skills]);
   const selectedSkill = skills.find((skill) => skill.skillId === selectedSkillId) ?? filteredSkills[0] ?? null;
-  const enabledCount = skills.filter((skill) => skill.enabledProject || skill.enabledTopics.length > 0).length;
   const selectedTarget = selectedSkill?.runtimeTargets.find((item) => item.provider === "codex");
   const selectedNative = selectedTarget?.status === "native";
 
@@ -83,7 +82,7 @@ export function SkillsSettingsView({
         <header className="settings-section-header">
           <div>
             <h3>技能</h3>
-            <p>{enabledCount} 个已启用</p>
+            <p>{skills.length} 个可用 Skill</p>
           </div>
           <button className="outline-button" disabled={busy} onClick={() => run(async () => { await postJson(`/api/projects/${encodeURIComponent(projectId)}/skills`, {}); })}>
             <RefreshCw size={14} />刷新
@@ -153,13 +152,6 @@ export function SkillsSettingsView({
                 <p>{selectedSkill.description || "无描述"}</p>
               </div>
               <div className="settings-inline-actions">
-                <button
-                  className="outline-button"
-                  disabled={busy}
-                  onClick={() => run(async () => {
-                    await postJson(`/api/projects/${encodeURIComponent(projectId)}/skills/${encodeURIComponent(selectedSkill.skillId)}/enable`, { enabled: !selectedSkill.enabledProject });
-                  })}
-                >{selectedSkill.enabledProject ? "禁用" : "启用"}</button>
                 {!selectedNative ? (
                   <button className="outline-button" disabled={busy} onClick={() => run(async () => { await postJson(`/api/projects/${encodeURIComponent(projectId)}/skills/codex-bridge/sync`, {}); })}>同步 Codex</button>
                 ) : null}

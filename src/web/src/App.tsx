@@ -367,6 +367,36 @@ export function App(): ReactElement {
     await refresh(projectId, conversationId);
   }
 
+  async function removeProject(projectId: string): Promise<void> {
+    const status = projects.find((item) => item.project?.id === projectId);
+    const name = status?.project?.name ?? projectId;
+    const ok = window.confirm(`移出“${name}”？\n\n只会从 App 项目列表移出，不会删除代码、不会修改 Git，也不会删除项目证据。之后可以重新添加。`);
+    if (!ok) return;
+    await postJson(`/api/projects/${encodeURIComponent(projectId)}/remove`, { confirm: true });
+    if (selectedProjectId === projectId) {
+      clearPersistedSelectedProjectId();
+      setSelectedProjectId(null);
+      setSelectedTopic(null);
+      setSnapshot(emptySnapshot);
+      setProjectSnapshots((current) => {
+        const next = { ...current };
+        delete next[projectId];
+        return next;
+      });
+    }
+    await loadApp();
+  }
+
+  async function hideConversation(projectId: string, conversationId: string): Promise<void> {
+    await postJson(`/api/projects/${encodeURIComponent(projectId)}/workbench/topics/${encodeURIComponent(conversationId)}/hide`, { confirm: true });
+    const topicToRefresh = selectedProjectId === projectId && selectedTopic !== conversationId ? selectedTopic : null;
+    if (selectedProjectId === projectId && selectedTopic === conversationId) {
+      setSelectedTopic(null);
+      setLoadedTranscript(null);
+    }
+    await refresh(projectId, topicToRefresh);
+  }
+
   async function ensureProjectReadyForDemand(projectId: string): Promise<string | null> {
     let status = projects.find((item) => item.project?.id === projectId) ?? null;
     if (!status?.project) {
@@ -1070,6 +1100,8 @@ export function App(): ReactElement {
           onOpenProject={openProject}
           onToggleProject={toggleProjectFolder}
           onChooseConversation={chooseConversation}
+          onHideConversation={hideConversation}
+          onRemoveProject={removeProject}
           onRefresh={loadApp}
           onOpenSettings={() => openSettings("basic")}
           onOpenProjectSettings={(projectId) => {

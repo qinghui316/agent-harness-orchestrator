@@ -74,6 +74,18 @@ export class ProjectRegistryStore {
     return (await this.load()).projects;
   }
 
+  async removeProject(query: string): Promise<ManagedProject | null> {
+    const registry = await this.load();
+    const comparable = normalizeForCompare(query);
+    const index = registry.projects.findIndex((project) =>
+      project.id === query || normalizeForCompare(project.path) === comparable
+    );
+    if (index === -1) return null;
+    const [removed] = registry.projects.splice(index, 1);
+    await this.save(registry);
+    return removed ?? null;
+  }
+
   async resolveProject(query: string): Promise<ManagedProject | null> {
     const registry = await this.load();
     const byIdOrName = registry.projects.find((project) => project.id === query || project.name === query);

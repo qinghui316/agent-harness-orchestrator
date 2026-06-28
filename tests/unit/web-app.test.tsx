@@ -5078,6 +5078,7 @@ describe("Workbench web app", () => {
     expect(screen.getByText("新建对话")).toBeTruthy();
     expect(screen.getByText("刷新会话")).toBeTruthy();
     expect(screen.getByText("项目详情")).toBeTruthy();
+    expect(screen.getByText("移出项目")).toBeTruthy();
     expect(screen.getByText("设置")).toBeTruthy();
   });
 
@@ -5362,10 +5363,11 @@ describe("Workbench web app", () => {
     render(<App />);
 
     await screen.findByRole("heading", { name: "创造任何东西" });
-    expect(await screen.findByRole("button", { name: "已启用 1 个技能" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "已启用 1 个技能" }));
+    expect(await screen.findByRole("button", { name: "当前使用 1 个技能" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "当前使用 1 个技能" }));
     const panel = await screen.findByRole("region", { name: "设置" });
     expect(within(panel).getAllByRole("heading", { name: "技能" }).length).toBeGreaterThan(0);
+    expect(within(panel).getByText("2 个可用 Skill")).toBeTruthy();
     expect(within(panel).getAllByText("pricing-helper").length).toBeGreaterThan(0);
     expect(within(panel).getAllByText("native-helper").length).toBeGreaterThan(0);
     expect(within(panel).getByText("自定义: E:/skills")).toBeTruthy();
@@ -5381,13 +5383,14 @@ describe("Workbench web app", () => {
       const calls = vi.mocked(fetch).mock.calls.map(([url, init]) => [String(url), init?.method ?? "GET"]);
       expect(calls).toContainEqual(["/api/projects/repo/skills/codex-bridge/sync", "POST"]);
     });
-    fireEvent.click(within(panel).getByRole("button", { name: "禁用" }));
+    expect(within(panel).queryByRole("button", { name: "禁用" })).toBeNull();
+    expect(within(panel).queryByRole("button", { name: "启用" })).toBeNull();
     fireEvent.click(within(panel).getByRole("button", { name: /native-helper/ }));
     expect(within(panel).getAllByText("Codex 原生可用").length).toBeGreaterThan(0);
     expect(within(panel).queryByRole("button", { name: "同步 Codex" })).toBeNull();
 
     const calls = vi.mocked(fetch).mock.calls.map(([url, init]) => [String(url), init?.method ?? "GET"]);
-    expect(calls).toContainEqual(["/api/projects/repo/skills/pricing-helper/enable", "POST"]);
+    expect(calls).not.toContainEqual(["/api/projects/repo/skills/pricing-helper/enable", "POST"]);
     expect(calls).toContainEqual(["/api/projects/repo/skills/codex-bridge/sync", "POST"]);
     expect(panel.textContent).not.toContain("marketplace");
     expect(panel.textContent).not.toContain("$skill");

@@ -10,7 +10,7 @@ import type { ProjectRegistryStore } from "../../registry/store.js";
 import type { CodexProjectTrustStatus } from "../../types/index.js";
 import type { ManagedProject, MemoryMode } from "../../types/index.js";
 import { assertConfirmed, isWithinDirectory } from "./http.js";
-import type { AddExistingProjectRequest, CreateNewProjectRequest, InitProjectHarnessRequest, TrustCodexProjectRequest } from "./types.js";
+import type { AddExistingProjectRequest, CreateNewProjectRequest, InitProjectHarnessRequest, RemoveProjectRequest, TrustCodexProjectRequest } from "./types.js";
 import { listProjectStatusesWithDirect } from "./direct-project.js";
 import type { WorkbenchProjectInput } from "../../workbench/manager.js";
 
@@ -58,6 +58,17 @@ export async function createNewProject(store: ProjectRegistryStore, body: Create
   }
   const project = await store.addProject(projectPath, name);
   return { project, createdPath: projectPath, status: await getProjectStatus(project, project.path) };
+}
+
+export async function removeRegisteredProject(store: ProjectRegistryStore, projectId: string, body: RemoveProjectRequest): Promise<{ removed: ManagedProject }> {
+  assertConfirmed(body.confirm);
+  const removed = await store.removeProject(projectId);
+  if (!removed) {
+    const error = new Error(`Project not found: ${projectId}`);
+    error.name = "NotFound";
+    throw error;
+  }
+  return { removed };
 }
 
 export async function initProjectHarness(store: ProjectRegistryStore, projectId: string, body: InitProjectHarnessRequest): Promise<{ result: unknown; status: unknown }> {

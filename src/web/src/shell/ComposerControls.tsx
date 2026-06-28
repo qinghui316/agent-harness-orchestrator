@@ -59,7 +59,7 @@ export function ComposerControls({
           className="composer-skill-indicator"
           onClick={onOpenSkillsSettings}
           title="打开技能设置"
-          aria-label={`已启用 ${enabledSkillCount} 个技能`}
+          aria-label={`当前使用 ${enabledSkillCount} 个技能`}
         >
           <Sparkles size={13} />技能 {enabledSkillCount}
         </button>

@@ -58,6 +58,12 @@ export interface StoredSkillEnablement {
   updatedAt: string;
 }
 
+export interface StoredHiddenTopic {
+  projectId: string;
+  changeId: string;
+  hiddenAt: string;
+}
+
 export interface StoredBridgeSync {
   projectId: string;
   skillId: string;
@@ -333,6 +339,19 @@ export class WorkbenchStore {
     `).all(projectId) as SqliteRow[]).map(mapEnablementRow);
   }
 
+  hideTopic(topic: StoredHiddenTopic): void {
+    this.db.prepare(`
+      INSERT INTO hidden_topics (project_id, change_id, hidden_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(project_id, change_id) DO UPDATE SET hidden_at = excluded.hidden_at
+    `).run(topic.projectId, topic.changeId, topic.hiddenAt);
+  }
+
+  listHiddenTopicIds(projectId: string): string[] {
+    const rows = this.db.prepare("SELECT change_id AS changeId FROM hidden_topics WHERE project_id = ?").all(projectId) as SqliteRow[];
+    return rows.map((row) => String(row.changeId));
+  }
+
   upsertBridgeSync(sync: StoredBridgeSync): void {
     this.db.prepare(`
       INSERT INTO bridge_sync (project_id, skill_id, source_hash, materialized_path, materialized_hash, bridge_version, synced_at)
@@ -524,6 +543,13 @@ function migrate(db: Database.Database): void {
       enabled INTEGER NOT NULL,
       updated_at TEXT NOT NULL,
       PRIMARY KEY(project_id, change_id, skill_id, scope)
+    );
+
+    CREATE TABLE IF NOT EXISTS hidden_topics (
+      project_id TEXT NOT NULL,
+      change_id TEXT NOT NULL,
+      hidden_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, change_id)
     );
 
     CREATE TABLE IF NOT EXISTS approval_cache (

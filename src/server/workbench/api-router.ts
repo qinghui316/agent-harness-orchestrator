@@ -8,11 +8,11 @@ import { getProjectGitDiff, getProjectGitStatus } from "../../workbench/git-pane
 import { getCodexBridgeStatus, syncCodexBridge } from "../../codex/bridge.js";
 import { getCodexModelSettingsSnapshot, setSelectedCodexModel } from "../../codex/model-settings.js";
 import { addSkillRoot, listSkillRoots, listSkills, refreshSkills, setSkillEnabled, type SkillSourceKind } from "../../skill/catalog.js";
-import { addExistingProject, createNewProject, initProjectHarness, listProjectStatuses, trustCodexProjectForWorkbench } from "./project-admin.js";
+import { addExistingProject, createNewProject, initProjectHarness, listProjectStatuses, removeRegisteredProject, trustCodexProjectForWorkbench } from "./project-admin.js";
 import { handleDirectWorkbenchApi } from "./direct-routes.js";
 import { handleProjectWorkbenchApi } from "./project-routes.js";
 import { assertLocalWorkbenchRequest, assertRegisteredProject, readJsonBody, sendJson } from "./http.js";
-import type { AddExistingProjectRequest, CreateNewProjectRequest, InitProjectHarnessRequest, TrustCodexProjectRequest, WorkbenchServerContext } from "./types.js";
+import type { AddExistingProjectRequest, CreateNewProjectRequest, InitProjectHarnessRequest, RemoveProjectRequest, TrustCodexProjectRequest, WorkbenchServerContext } from "./types.js";
 
 export async function handleApi(context: WorkbenchServerContext, request: IncomingMessage, response: ServerResponse, url: URL): Promise<void> {
   if (request.method !== "GET") {
@@ -48,6 +48,11 @@ export async function handleApi(context: WorkbenchServerContext, request: Incomi
   }
   if (request.method === "POST" && url.pathname === "/api/projects/new") {
     sendJson(response, 200, await createNewProject(context.store, await readJsonBody<CreateNewProjectRequest>(request)));
+    return;
+  }
+  const projectRemoveMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/remove$/);
+  if (request.method === "POST" && projectRemoveMatch?.[1]) {
+    sendJson(response, 200, await removeRegisteredProject(context.store, decodeURIComponent(projectRemoveMatch[1]), await readJsonBody<RemoveProjectRequest>(request)));
     return;
   }
   if (request.method === "POST" && url.pathname === "/api/dialog/open-folder") {

@@ -1,4 +1,4 @@
-import type { ReactElement } from "react";
+import { useState, type ReactElement } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -9,6 +9,7 @@ import {
   RefreshCw,
   Search,
   Settings,
+  Trash2,
 } from "lucide-react";
 import {
   CodexTrustButton,
@@ -42,6 +43,8 @@ export function ProjectConversationSidebar({
   onOpenProject,
   onToggleProject,
   onChooseConversation,
+  onHideConversation,
+  onRemoveProject,
   onRefresh,
   onOpenSettings,
   onOpenProjectSettings,
@@ -62,12 +65,20 @@ export function ProjectConversationSidebar({
   onOpenProject: (projectId: string) => Promise<void>;
   onToggleProject: (projectId: string) => Promise<void>;
   onChooseConversation: (projectId: string, conversationId: string) => Promise<void>;
+  onHideConversation: (projectId: string, conversationId: string) => Promise<void>;
+  onRemoveProject: (projectId: string) => Promise<void>;
   onRefresh: () => Promise<void>;
   onOpenSettings: () => void;
   onOpenProjectSettings: (projectId: string) => void;
 }): ReactElement {
+  const [conversationMenuId, setConversationMenuId] = useState<string | null>(null);
   const visibleProjects = projects;
   const normalizedSearch = search.trim().toLowerCase();
+  const projectNameCounts = new Map<string, number>();
+  for (const item of visibleProjects) {
+    const name = item.project?.name ?? item.path;
+    projectNameCounts.set(name, (projectNameCounts.get(name) ?? 0) + 1);
+  }
   async function afterProjectAdded(projectId?: string): Promise<void> {
     await onRefresh();
     if (projectId) await onOpenProject(projectId);
@@ -102,11 +113,13 @@ export function ProjectConversationSidebar({
             const projectId = item.project?.id ?? item.path;
             const concreteProjectId = item.project?.id ?? null;
             const projectName = item.project?.name ?? item.path;
+            const duplicateName = (projectNameCounts.get(projectName) ?? 0) > 1;
             const selected = item.project?.id === selectedProjectId;
             const expanded = selected || expandedProjects.has(projectId);
             const projectSnapshot = item.project?.id === selectedProjectId ? snapshot : item.project?.id ? snapshots[item.project.id] : undefined;
             const memoryReady = projectSnapshot?.memory.harnessReady ?? item.memory?.harnessReady ?? item.harness.readiness === "ready";
             const memoryIssue = memoryStatusIssue(item, projectSnapshot);
+            const secondary = duplicateName ? shortProjectContext(item.path) : memoryIssue?.short ?? shortProjectContext(item.path);
             const canStartConversation = Boolean(item.project && item.pathExists && memoryIssue?.kind !== "missing-external-memory");
             const conversations = conversationsForSidebar(projectSnapshot, selectedTopicId);
             const filteredConversations = normalizedSearch
@@ -120,10 +133,12 @@ export function ProjectConversationSidebar({
                   <button className="project-folder-toggle" aria-label={expanded ? "收起项目" : "展开项目"} onClick={() => item.project ? void onToggleProject(item.project.id) : undefined}>
                     {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                   </button>
-                  <button className="project-folder-main" onClick={() => item.project ? void onOpenProject(item.project.id) : undefined}>
+                  <button className="project-folder-main" aria-label={projectName} title={item.path} onClick={() => item.project ? void onOpenProject(item.project.id) : undefined}>
                     <Folder size={16} />
-                    <span>{projectName}</span>
-                    {memoryReady ? null : <small>{memoryIssue?.short ?? "未初始化"}</small>}
+                    <span className="project-folder-text">
+                      <strong>{projectName}</strong>
+                      <small title={item.path}>{secondary}</small>
+                    </span>
                   </button>
                   {canStartConversation ? (
                     <button
@@ -167,23 +182,56 @@ export function ProjectConversationSidebar({
                         onOpenProjectSettings(concreteProjectId);
                       }}><Settings size={15} />项目详情</button>
                     ) : null}
+                    {concreteProjectId ? (
+                      <button className="project-menu-item danger" role="menuitem" onClick={() => {
+                        onProjectDetails(null);
+                        void onRemoveProject(concreteProjectId);
+                      }}><Trash2 size={15} />移出项目</button>
+                    ) : null}
                   </div>
                 ) : null}
                 {expanded ? (
                   <div className="conversation-list">
                     {memoryReady && !projectSnapshot ? <div className="conversation-placeholder">正在加载对话。</div> : null}
                     {!memoryReady ? <div className="conversation-placeholder">{memoryIssue?.detail ?? "项目需要准备。"}</div> : null}
-                    {filteredConversations.map((conversation) => (
-                      <button
-                        key={conversation.id}
-                        className={`conversation-row ${conversation.selected ? "selected" : ""}`}
-                        onClick={() => item.project ? void onChooseConversation(item.project.id, conversation.id) : undefined}
-                      >
-                        <span>{userFacingText(conversation.title)}</span>
-                        <small>{conversation.status}</small>
-                        {conversation.waitingDecisionCount > 0 ? <b aria-label={`${conversation.waitingDecisionCount} 个待确认`}>{conversation.waitingDecisionCount}</b> : null}
-                      </button>
-                    ))}
+                    {filteredConversations.map((conversation) => {
+                      const menuId = `${projectId}:${conversation.id}`;
+                      const hideAllowed = conversation.state === "archive" && conversation.waitingDecisionCount === 0;
+                      return (
+                        <div className={`conversation-row-wrap ${conversation.selected ? "selected" : ""}`} key={conversation.id}>
+                          <button
+                            className={`conversation-row ${conversation.selected ? "selected" : ""}`}
+                            onClick={() => item.project ? void onChooseConversation(item.project.id, conversation.id) : undefined}
+                          >
+                            <span>{userFacingText(conversation.title)}</span>
+                            <small>{conversation.status}</small>
+                            {conversation.waitingDecisionCount > 0 ? <b aria-label={`${conversation.waitingDecisionCount} 个待确认`}>{conversation.waitingDecisionCount}</b> : null}
+                          </button>
+                          <button
+                            className="conversation-more"
+                            aria-label={`${conversation.title} 会话菜单`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setConversationMenuId(conversationMenuId === menuId ? null : menuId);
+                            }}
+                          >
+                            <MoreHorizontal size={14} />
+                          </button>
+                          {conversationMenuId === menuId ? (
+                            <div className="conversation-row-menu" role="menu">
+                              {hideAllowed && item.project ? (
+                                <button className="project-menu-item danger" role="menuitem" onClick={() => {
+                                  setConversationMenuId(null);
+                                  void onHideConversation(item.project!.id, conversation.id);
+                                }}><Trash2 size={14} />从侧栏移除</button>
+                              ) : (
+                                <span className="conversation-menu-disabled">处理完成后才能移出侧栏</span>
+                              )}
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
                     {memoryReady && projectSnapshot && filteredConversations.length === 0 ? <div className="conversation-placeholder">暂无对话。</div> : null}
                   </div>
                 ) : null}
@@ -274,6 +322,7 @@ type SidebarConversation = {
   selected: boolean;
   waitingDecisionCount: number;
   blocker?: string;
+  state: string;
 };
 
 function memoryStatusIssue(project: ProjectStatus, snapshot?: Snapshot): { kind: "missing-external-memory" | "uninitialized"; short: string; detail: string } | null {
@@ -314,5 +363,12 @@ function conversationsForSidebar(snapshot: Snapshot | undefined, selectedTopicId
     selected: selectedTopicId === workpad.id || workpad.selected,
     waitingDecisionCount: workpad.waitingDecisionCount,
     blocker: workpad.blocker,
+    state: workpad.state,
   }));
+}
+
+function shortProjectContext(path: string): string {
+  const parts = path.split(/[\\/]/).filter(Boolean);
+  if (parts.length >= 2) return `${parts.at(-1)} · ${parts.at(-2)}`;
+  return parts[0] ?? path;
 }

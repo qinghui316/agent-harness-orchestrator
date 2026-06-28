@@ -4,6 +4,7 @@ import {
   getWorkbenchSnapshot,
   getWorkbenchStream,
   getWorkbenchTopic,
+  hideWorkbenchTopic,
   listWorkbenchApprovals,
   listWorkbenchTopics,
   type WorkbenchProjectInput,
@@ -11,7 +12,7 @@ import {
 import { runIntakeScan } from "../../workbench/intake.js";
 import { getWorkbenchProjection } from "./projections.js";
 import { readWorkbenchActionEvents, sendActionEventReplay } from "./live.js";
-import { assertRegisteredProject, readJsonBody, sendJson } from "./http.js";
+import { assertConfirmed, assertRegisteredProject, readJsonBody, sendJson } from "./http.js";
 import { handleClarificationAnswer, handleClarificationSkip, handleIntakeReanalyze, handleIntakeScan } from "./intake.js";
 import { sendWorkbenchActionLive } from "./live-actions.js";
 import { readCreateTopicBody, readTopicMessageBody, sendTopicMessageLive, sendTopicMessageReplay } from "./topic-messages.js";
@@ -39,6 +40,13 @@ export async function handleProjectWorkbenchApi(input: WorkbenchProjectInput, re
       await runIntakeScan(input.project, topic.changeId, body.body ?? body.title);
     }
     sendJson(response, 200, { topic, snapshot: await getWorkbenchSnapshot(input, { topicId: topic.changeId }) });
+    return;
+  }
+  const topicHideMatch = rest.match(/^topics\/([^/]+)\/hide$/);
+  if (request.method === "POST" && topicHideMatch?.[1]) {
+    assertRegisteredProject(input);
+    assertConfirmed((await readJsonBody<{ confirm?: boolean }>(request)).confirm);
+    sendJson(response, 200, await hideWorkbenchTopic(input, decodeURIComponent(topicHideMatch[1])));
     return;
   }
   if (request.method === "POST" && rest === "intake/scan") {

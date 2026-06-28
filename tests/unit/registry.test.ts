@@ -60,6 +60,32 @@ describe("ProjectRegistryStore", () => {
     expect(second.id).toMatch(/^repo-[a-f0-9]{8}$/);
   });
 
+  it("removes a project from the registry without deleting source files", async () => {
+    const store = new ProjectRegistryStore(join(tempDir, "home"));
+    const projectPath = join(tempDir, "repo");
+    await mkdir(projectPath, { recursive: true });
+    await writeFile(join(projectPath, "keep.txt"), "source stays", "utf8");
+    const project = await store.addProject(projectPath, "Repo");
+
+    const removed = await store.removeProject(project.id);
+
+    expect(removed).toMatchObject({ id: project.id, path: projectPath });
+    expect(await store.listProjects()).toHaveLength(0);
+    await expect(writeFile(join(projectPath, "still-here.txt"), "ok", "utf8")).resolves.toBeUndefined();
+  });
+
+  it("keeps same-name projects registered as separate paths", async () => {
+    const store = new ProjectRegistryStore(join(tempDir, "home"));
+
+    const first = await store.addProject(join(tempDir, "workspace-a", "src"), "src");
+    const second = await store.addProject(join(tempDir, "workspace-b", "src"), "src");
+
+    expect(first.name).toBe("src");
+    expect(second.name).toBe("src");
+    expect(first.id).not.toBe(second.id);
+    expect(await store.listProjects()).toHaveLength(2);
+  });
+
   it("inherits an existing project marker id when registering a managed project", async () => {
     const store = new ProjectRegistryStore(join(tempDir, "home"));
     const projectPath = join(tempDir, "repo");

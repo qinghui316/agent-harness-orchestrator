@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-28T08:17:24.5985624Z",
+    "generated_at":  "2026-06-28T09:22:46.7352359Z",
     "active":  [
 
                ],
@@ -2117,6 +2117,10 @@
                     {
                         "name":  "20260628-workbench-reference-style-product-shell-polish-v1",
                         "path":  "harness/changes/archive/20260628-workbench-reference-style-product-shell-polish-v1"
+                    },
+                    {
+                        "name":  "20260628-workbench-reference-style-sidebar-cleanup-and-skill-availability-v1",
+                        "path":  "harness/changes/archive/20260628-workbench-reference-style-sidebar-cleanup-and-skill-availability-v1"
                     },
                     {
                         "name":  "20260628-workbench-reference-style-sidebar-settings-skills-ui-v1",

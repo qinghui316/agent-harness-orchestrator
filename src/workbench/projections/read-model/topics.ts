@@ -16,6 +16,7 @@ import { summarizeValidation } from "../../../validation/artifacts.js";
 import { listWorktreesForChange } from "../../../worktree/manager.js";
 import type { AcMap, ChangeIndexItem, ManagedProject, ResolvedMemory } from "../../../types/index.js";
 import type { WorkbenchTopicDetail, WorkbenchTopicState, WorkbenchTopicSummary } from "../../read-model-types.js";
+import { WorkbenchStore } from "../../store.js";
 import { readTopicThreadLogPage } from "../../thread-log.js";
 import { buildThreadStream, buildThreadStreamFromMessages } from "./thread-stream.js";
 import { listWorkbenchDecisions } from "./decision-store.js";
@@ -25,15 +26,64 @@ export type TopicThreadDetailMode = "full" | "latest" | "none";
 
 export async function listWorkbenchTopicsFromMemory(memory: ResolvedMemory): Promise<WorkbenchTopicSummary[]> {
   const index = await buildChangeIndex(memory);
+  const hiddenIds = await listHiddenTopicIds(memory).catch(() => new Set<string>());
   const groups: Array<[WorkbenchTopicState, ChangeIndexItem[]]> = [
     ["active", index.active],
     ["archive", index.archive],
   ];
   const topics: WorkbenchTopicSummary[] = [];
   for (const [state, items] of groups) {
-    for (const item of items) topics.push(await topicSummaryFromItem(memory, state, item));
+    for (const item of items) {
+      const topic = await topicSummaryFromItem(memory, state, item);
+      if (!hiddenIds.has(topic.id) && !hiddenIds.has(topic.name)) topics.push(topic);
+    }
   }
   return topics.sort((a, b) => stateRank(a.state) - stateRank(b.state) || (b.updatedAt ?? b.name).localeCompare(a.updatedAt ?? a.name));
+}
+
+export async function hideWorkbenchTopicFromSidebar(memory: ResolvedMemory, changeId: string): Promise<void> {
+  const topics = await listWorkbenchTopicsFromMemoryIncludingHidden(memory);
+  const topic = topics.find((item) => item.id === changeId || item.name === changeId);
+  if (!topic) {
+    const error = new Error(`Topic not found: ${changeId}.`);
+    error.name = "NotFound";
+    throw error;
+  }
+  if (topic.state !== "archive") {
+    const error = new Error("Only archived or completed conversations can be removed from the sidebar.");
+    error.name = "Conflict";
+    throw error;
+  }
+  const store = await WorkbenchStore.open(memory);
+  try {
+    if (!memory.projectId) {
+      const error = new Error("Project id is required to hide a conversation.");
+      error.name = "Conflict";
+      throw error;
+    }
+    store.hideTopic({ projectId: memory.projectId, changeId: topic.id, hiddenAt: new Date().toISOString() });
+  } finally {
+    store.close();
+  }
+}
+
+async function listWorkbenchTopicsFromMemoryIncludingHidden(memory: ResolvedMemory): Promise<WorkbenchTopicSummary[]> {
+  const index = await buildChangeIndex(memory);
+  const topics: WorkbenchTopicSummary[] = [];
+  for (const [state, items] of [["active", index.active], ["archive", index.archive]] as Array<[WorkbenchTopicState, ChangeIndexItem[]]>) {
+    for (const item of items) topics.push(await topicSummaryFromItem(memory, state, item));
+  }
+  return topics;
+}
+
+async function listHiddenTopicIds(memory: ResolvedMemory): Promise<Set<string>> {
+  if (!memory.projectId) return new Set();
+  const store = await WorkbenchStore.open(memory);
+  try {
+    return new Set(store.listHiddenTopicIds(memory.projectId));
+  } finally {
+    store.close();
+  }
 }
 
 export async function topicSummaryFromItem(memory: ResolvedMemory, state: WorkbenchTopicState, item: ChangeIndexItem): Promise<WorkbenchTopicSummary> {
