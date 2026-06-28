@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260628-aho-harness-onboarding-skill-quality-pass-v3/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260628-workbench-first-onboarding-aho-harness-skill-package-v2/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260628-workbench-system-aho-harness-onboarding-skill-v1/summary.md`.
@@ -47,6 +49,17 @@
 
 ## Latest Product Closeout
 
+`harness/changes/archive/20260628-aho-harness-onboarding-skill-quality-pass-v3/summary.md`.
+
+It sharpens the bundled `aho-harness-onboarding` system Skill with a concise
+Step 1-5 workflow, explicit STOP/CHECKPOINT boundaries, failure handling for
+first-demand / no-docs / project-state paths, evidence-budget output fields,
+and AHO-specific document-quality guidance. First onboarding remains
+deterministic-init plus transient prompt context only; the Skill still cannot
+create workers, scheduler runs, integration checks, apply/close transitions,
+remote/merge/PR work, or Harness evolution.
+
+Previous closeout:
 `harness/changes/archive/20260628-workbench-first-onboarding-aho-harness-skill-package-v2/summary.md`.
 
 It upgrades the bundled `aho-harness-onboarding` system Skill from a thin

@@ -51,3 +51,13 @@ template replacement.
   scaffold;
 - copying `greenfield-templates.md` output as default behavior;
 - writing long historical ledgers into `AGENTS.md` or `docs/STATUS.md`.
+
+## Failure Handling
+
+| Trigger | First response | If still blocked |
+| --- | --- | --- |
+| Empty project has no product goal | Ask focused questions for goal, audience, stack, and entrypoint | Produce only open decisions; do not create business docs |
+| Code exists but entrypoint is unclear | Read manifests, scripts, and likely app/CLI entry files | Mark entrypoint unknown and propose read-only follow-up |
+| README conflicts with source shape | Cite both signals in `ProjectContextPack` | Do not choose one silently; require user or read-only clarification |
+| User requests broad docs for a mature project | Propose a minimal doc sequence with evidence budget | Do not generate full docs from templates in one pass |
+| Existing `AGENTS.md` is hand-written | Propose merge targets and preserve user content | Do not overwrite or treat deterministic skeleton as superior |

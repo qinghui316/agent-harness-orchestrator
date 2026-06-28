@@ -55,6 +55,21 @@ Each proposed doc change should state:
 - verification command or review check;
 - human gate required before writing.
 
+## Document Quality Gates
+
+Carry forward the useful quality constraints from `ecl-harness-engineer` in
+AHO terms:
+
+- `AGENTS.md` is a compact map, not a phase ledger or archive ledger.
+- `docs/STATUS.md` is a short handoff, not a historical database.
+- Technical claims should point to bounded source evidence when available.
+- Generated docs should separate current facts, assumptions, open decisions,
+  and historical/archive references.
+- Existing project-specific docs take precedence over generic templates; propose
+  merges instead of replacing user-written guidance.
+- Verification guidance should map to the detected project command surface and
+  should not weaken existing business gates.
+
 ## Documentation Entropy
 
 Keep maps compact. Put history in archives. Merge duplicate current facts

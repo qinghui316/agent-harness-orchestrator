@@ -300,7 +300,7 @@ export async function generatePlanningDraft(
   return { bundle };
 }
 
-async function shouldIncludeFirstOnboardingSkill(memory: ResolvedMemory, changeId: string): Promise<boolean> {
+export async function shouldIncludeFirstOnboardingSkill(memory: ResolvedMemory, changeId: string): Promise<boolean> {
   const index = await buildChangeIndex(memory).catch(() => null);
   if (!index) return false;
   return index.active.length === 1

@@ -201,6 +201,9 @@ describe("AHO skill source and Codex bridge", () => {
     expect(context.promptSection).toContain("Transient AHO System Skill Context");
     expect(context.promptSection).toContain("references/aho-memory-layout.md");
     expect(context.promptSection).toContain("external-local");
+    expect(context.promptSection).toContain("STOP / CHECKPOINT");
+    expect(context.promptSection).toContain("Evidence budget");
+    expect(context.promptSection).toContain("Failure Handling");
 
     const persistent = await getEnabledSkillContext(repo, "change-a");
     expect(persistent.records).toHaveLength(0);

@@ -13,6 +13,7 @@ import { listWorktreeStatuses } from "../../src/worktree/manager.js";
 import { listTaskQueues } from "../../src/task-queue/manager.js";
 import { listTaskRuns } from "../../src/task-run/manager.js";
 import { listWorkflowRuns } from "../../src/workflow-run/manager.js";
+import { shouldIncludeFirstOnboardingSkill } from "../../src/workbench/actions/handlers/planning.js";
 import { getTempDir, project, writeAcceptedSpecAndTasks, writePlanningBundleFixture } from "./workbench/fixtures.js";
 
 let tempDir: string;
@@ -22,6 +23,19 @@ beforeEach(async () => {
 });
 
 describe("workbench planning and scheduler preparation", () => {
+  it("loads the onboarding system skill only for the first active planning change", async () => {
+    await initHarness(project());
+    const memory = await resolveProjectMemory(project());
+    const first = await createWorkbenchTopic(project(), { title: "First Demand", body: "请先准备这个项目。" });
+
+    expect(await shouldIncludeFirstOnboardingSkill(memory, first.changeId)).toBe(true);
+
+    const second = await createWorkbenchTopic(project(), { title: "Second Demand", body: "普通需求。" });
+
+    expect(await shouldIncludeFirstOnboardingSkill(memory, first.changeId)).toBe(false);
+    expect(await shouldIncludeFirstOnboardingSkill(memory, second.changeId)).toBe(false);
+  });
+
   it("builds generic planning artifacts from the accepted demand instead of stale demo rules", async () => {
     await initHarness(project());
     const memory = await resolveProjectMemory(project());

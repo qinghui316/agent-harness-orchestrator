@@ -45,6 +45,16 @@ Stop and report a blocker when:
 - required evidence would require reading secrets, dependency caches, build
   outputs, `.git`, `node_modules`, or large generated directories.
 
+## Failure Handling
+
+| Trigger | First response | If still blocked |
+| --- | --- | --- |
+| Source path is missing or unreadable | Report the path problem and ask the user to re-add or repair the project | Do not create onboarding output; return `Onboarding Decision Summary` with blocker |
+| AHO memory paths are unavailable | Ask AHO/project settings to repair or rerun deterministic preparation | Do not infer docs, active changes, or history from `cwd` |
+| Existing docs conflict with deterministic prep | Produce a merge proposal that names both sources | Stop before any overwrite; require normal Change and user confirmation |
+| User asks for writes before plan confirmation | Convert the request into a Harness Onboarding Proposal | Stop at the planning confirmation gate |
+| Required evidence is excluded or unsafe | List skipped evidence and reason | Keep unknowns explicit; do not weaken evidence boundaries |
+
 ## Non-Goals
 
 Do not create TaskGraph, SchedulerRun, AgentTask, worker worktree,

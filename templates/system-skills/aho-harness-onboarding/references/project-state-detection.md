@@ -61,3 +61,13 @@ evidence:
 
 Record missing or failing commands as project context, not as permission to
 weaken AHO gates.
+
+## Failure Handling
+
+| Trigger | First response | If still blocked |
+| --- | --- | --- |
+| Project state matches multiple rows | Prefer the stricter state and list the conflicting evidence | Ask for read-only follow-up instead of guessing readiness |
+| ECL files exist but active/archive shape is inconsistent | Classify as Partial Harness and name the broken invariant | Do not treat it as Harness Ready until AHO checks pass |
+| Verification command cannot be inferred | Record it as unknown, not failed | Ask for the expected command or defer to project docs |
+| Baseline command fails before onboarding changes | Record failure as pre-existing project context | Do not relax future validation gates based on this Skill |
+| Evidence volume is too large | Sample manifests, entrypoints, tests, and docs first | Record skipped directories and continue with bounded confidence |

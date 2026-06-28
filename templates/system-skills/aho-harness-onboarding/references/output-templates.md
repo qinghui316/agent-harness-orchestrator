@@ -18,6 +18,9 @@ Use these headings when producing onboarding output.
 - Important directories:
 - Verification commands:
 - Source-safety boundaries:
+- Evidence budget:
+- Skipped evidence:
+- Uncertainty:
 - Unknowns:
 - Main-Agent delegation hints:
 ```
@@ -32,6 +35,8 @@ Use these headings when producing onboarding output.
 - Proposed project-specific docs or scripts:
 - Files to create or update:
 - Evidence:
+- Evidence budget:
+- Skipped evidence:
 - Risks:
 - Human gates:
 - Verification:
@@ -48,6 +53,7 @@ Use these headings when producing onboarding output.
 - Needs read-only follow-up:
 - Must not do:
 - Next real AHO gate:
+- Uncertainty:
 ```
 
 ## Compact Mode
@@ -58,10 +64,12 @@ If the project is already Harness ready, keep the output short:
 ## ProjectContextPack
 - State: Harness Ready
 - Evidence read:
+- Evidence budget:
 - Fresh context:
 - Delegation hint:
 
 ## Onboarding Decision Summary
 - Ready for ordinary AHO planning: yes
 - Next real AHO gate:
+- Uncertainty:
 ```

@@ -19,6 +19,21 @@ guidance only.
 - The main Agent needs a compact context pack before deciding whether work is
   sequential, read-only, or later eligible for low-conflict worker slices.
 
+## Workflow
+
+1. Confirm this is onboarding, context refresh, or explicit
+   `/aho-harness-onboarding` usage. If it is ordinary feature work with fresh
+   context, stop using this Skill.
+2. Select only the references needed for the current project state. Do not load
+   every reference just because it exists.
+3. Classify the project as Empty, Code Only, Partial Harness, or Harness Ready
+   using bounded evidence and AHO resolved memory paths.
+4. Produce the required output: `ProjectContextPack`, `Harness Onboarding
+   Proposal`, and `Onboarding Decision Summary`, or compact mode when the
+   project is already ready.
+5. Hand control back to normal AHO planning. The next real action must be an
+   AHO gate, not a Skill-authorized mutation.
+
 ## Do Not Use When
 
 - The project context is fresh and the user is asking for ordinary feature
@@ -42,6 +57,16 @@ Read only the references needed for the situation:
 - `references/main-agent-orchestration-guide.md` when producing delegation
   hints.
 - `references/output-templates.md` for required output shapes.
+
+## STOP / CHECKPOINT
+
+STOP if source or AHO memory paths are unreadable, if evidence would require
+secrets or generated/dependency caches, or if the user asks for source writes
+before plan confirmation. Return a blocker or open decision instead.
+
+CHECKPOINT before proposing any document/schema/script write: name the target
+file, evidence, verification, and human gate. The Skill can propose that work;
+it cannot perform it.
 
 ## Core Boundary
 
