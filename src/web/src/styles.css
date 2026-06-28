@@ -3004,6 +3004,10 @@ input:focus-visible {
   font-size: 12px;
 }
 
+.composer-attachment-chip.is-previewable {
+  cursor: zoom-in;
+}
+
 .composer-attachment-chip img {
   width: 24px;
   height: 24px;
@@ -3037,6 +3041,48 @@ input:focus-visible {
 .composer-attachment-chip button:hover {
   background: var(--bg-panel);
   color: var(--text-strong);
+}
+
+.composer-attachment-preview {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: rgba(17, 24, 39, 0.42);
+}
+
+.composer-attachment-preview-frame {
+  position: relative;
+  max-width: min(88vw, 980px);
+  max-height: 84vh;
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-lg);
+}
+
+.composer-attachment-preview-frame img {
+  display: block;
+  max-width: min(88vw, 980px);
+  max-height: 84vh;
+  border-radius: var(--radius-md);
+  object-fit: contain;
+}
+
+.composer-attachment-preview-frame button {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+  color: var(--text);
+  cursor: pointer;
 }
 
 .topic-composer textarea,

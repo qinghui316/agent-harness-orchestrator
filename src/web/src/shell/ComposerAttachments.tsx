@@ -1,4 +1,4 @@
-import { useRef, type ClipboardEvent, type DragEvent, type ReactElement } from "react";
+import { useRef, useState, type ClipboardEvent, type DragEvent, type ReactElement } from "react";
 import { FileText, ImageIcon, Paperclip, X } from "lucide-react";
 import type { TopicAttachment } from "../types.js";
 
@@ -40,33 +40,65 @@ export function ComposerAttachButton({
   );
 }
 
+export type ComposerAttachmentListItem = Pick<TopicAttachment, "id" | "fileName" | "kind" | "size" | "previewUrl">;
+
 export function ComposerAttachmentList({
   attachments,
   onRemove,
 }: {
-  attachments: TopicAttachment[];
+  attachments: ComposerAttachmentListItem[];
   onRemove: (id: string) => void | Promise<void>;
 }): ReactElement | null {
+  const [preview, setPreview] = useState<ComposerAttachmentListItem | null>(null);
   if (attachments.length === 0) return null;
   return (
-    <div className="composer-attachment-list" aria-label="附件">
-      {attachments.map((attachment) => (
-        <div className="composer-attachment-chip" key={attachment.id} title={attachment.fileName}>
-          {attachment.kind === "image" && attachment.previewUrl ? (
-            <img src={attachment.previewUrl} alt={attachment.fileName} />
-          ) : attachment.kind === "image" ? (
-            <ImageIcon size={16} />
-          ) : (
-            <FileText size={16} />
-          )}
-          <span>{attachment.fileName}</span>
-          <small>{formatAttachmentSize(attachment.size)}</small>
-          <button type="button" aria-label={`移除 ${attachment.fileName}`} onClick={() => void onRemove(attachment.id)}>
-            <X size={13} />
-          </button>
+    <>
+      <div className="composer-attachment-list" aria-label="附件">
+        {attachments.map((attachment) => {
+          const previewable = attachment.kind === "image" && Boolean(attachment.previewUrl);
+          return (
+            <div
+              className={`composer-attachment-chip ${previewable ? "is-previewable" : ""}`}
+              key={attachment.id}
+              title={attachment.fileName}
+              onClick={() => {
+                if (previewable) setPreview(attachment);
+              }}
+            >
+              {attachment.kind === "image" && attachment.previewUrl ? (
+                <img src={attachment.previewUrl} alt={attachment.fileName} />
+              ) : attachment.kind === "image" ? (
+                <ImageIcon size={16} />
+              ) : (
+                <FileText size={16} />
+              )}
+              <span>{attachment.fileName}</span>
+              <small>{formatAttachmentSize(attachment.size)}</small>
+              <button
+                type="button"
+                aria-label={`移除 ${attachment.fileName}`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void onRemove(attachment.id);
+                }}
+              >
+                <X size={13} />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      {preview?.previewUrl ? (
+        <div className="composer-attachment-preview" role="dialog" aria-label={`${preview.fileName} 预览`} onClick={() => setPreview(null)}>
+          <div className="composer-attachment-preview-frame" onClick={(event) => event.stopPropagation()}>
+            <img src={preview.previewUrl} alt={preview.fileName} />
+            <button type="button" aria-label="关闭预览" onClick={() => setPreview(null)}>
+              <X size={15} />
+            </button>
+          </div>
         </div>
-      ))}
-    </div>
+      ) : null}
+    </>
   );
 }
 

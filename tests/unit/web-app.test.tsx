@@ -5877,6 +5877,117 @@ describe("Workbench web app", () => {
     ]);
   });
 
+  it("stages home attachments until first demand prepares the project", async () => {
+    const noTopicSnapshot = {
+      ...snapshot,
+      memory: { memoryMode: "external-local", harnessReady: false },
+      left: { ...snapshot.left, topics: [], workpads: [] },
+      center: { ...snapshot.center, selectedTopic: null },
+    };
+    const selectedSnapshot = {
+      ...snapshot,
+      left: {
+        ...snapshot.left,
+        topics: [{ id: "attached-demand", title: "根据附件分析", state: "active" }],
+        workpads: [{ id: "attached-demand", title: "根据附件分析", state: "active", runtimeStatus: "active", selected: true, waitingDecisionCount: 0 }],
+      },
+      center: {
+        ...snapshot.center,
+        selectedTopic: { id: "attached-demand", title: "根据附件分析", state: "active", acCount: 0, taskCount: 0 },
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") {
+        return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: false, memory: { registered: true, memoryMode: "external-local", memoryAvailable: false, harnessReady: false, artifactBase: "memory-root" }, harness: { readiness: "missing" }, codexTrust: { trusted: true } }] });
+      }
+      if (url === "/api/projects/repo/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      if (url === "/api/projects/repo/harness/init" && init?.method === "POST") return jsonResponse({ result: { ok: true }, status: { project: snapshot.project } });
+      if (url === "/api/projects/repo/attachments" && init?.method === "POST") {
+        return jsonResponse({ attachment: { id: "att-20260628120000-abcdef123456", fileName: "context.md", mediaType: "text/markdown", kind: "text", size: 12, hash: "abcdef1234567890", source: "composer", createdAt: "2026-06-28T12:00:00.000Z", storagePath: "attachments/att-20260628120000-abcdef123456/content.md", runtimeMode: "bounded-text-preview" } });
+      }
+      if (url === "/api/projects/repo/workbench/topics" && init?.method === "POST") return jsonResponse({ topic: { changeId: "attached-demand" } });
+      if (url === "/api/projects/repo/workbench/snapshot?topic=attached-demand") return jsonResponse(selectedSnapshot);
+      if (url === "/api/projects/repo/workbench/projections/transcript/attached-demand?limit=100") return jsonResponse(selectedSnapshot.center.parentAgentTranscript);
+      return jsonResponse(noTopicSnapshot);
+    }));
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "创造任何东西" });
+    const fileInput = document.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(fileInput).toBeTruthy();
+    fireEvent.change(fileInput!, { target: { files: [new File(["hello"], "context.md", { type: "text/markdown" })] } });
+
+    await screen.findByText("context.md");
+    const postCallsBeforeDemand = vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST");
+    expect(postCallsBeforeDemand).toHaveLength(0);
+
+    fireEvent.change(screen.getByLabelText("新建需求输入框"), { target: { value: "根据附件分析" } });
+    fireEvent.click(screen.getByTitle("创建需求对话"));
+
+    await waitFor(() => {
+      const urls = vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST").map(([url]) => String(url));
+      expect(urls).toEqual([
+        "/api/projects/repo/harness/init",
+        "/api/projects/repo/attachments",
+        "/api/projects/repo/workbench/topics",
+      ]);
+    });
+    const postUrls = vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST").map(([url]) => String(url));
+    expect(postUrls).toEqual([
+      "/api/projects/repo/harness/init",
+      "/api/projects/repo/attachments",
+      "/api/projects/repo/workbench/topics",
+    ]);
+    const topicPost = vi.mocked(fetch).mock.calls.find(([url, init]) => String(url) === "/api/projects/repo/workbench/topics" && init?.method === "POST");
+    expect(JSON.parse(String(topicPost?.[1]?.body))).toMatchObject({
+      title: "根据附件分析",
+      body: "根据附件分析",
+      attachmentIds: ["att-20260628120000-abcdef123456"],
+    });
+  });
+
+  it("cleans up uploaded staged attachments when first demand creation fails", async () => {
+    const noTopicSnapshot = {
+      ...snapshot,
+      memory: { memoryMode: "external-local", harnessReady: false },
+      left: { ...snapshot.left, topics: [], workpads: [] },
+      center: { ...snapshot.center, selectedTopic: null },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") {
+        return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: false, memory: { registered: true, memoryMode: "external-local", memoryAvailable: false, harnessReady: false, artifactBase: "memory-root" }, harness: { readiness: "missing" }, codexTrust: { trusted: true } }] });
+      }
+      if (url === "/api/projects/repo/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      if (url === "/api/projects/repo/harness/init" && init?.method === "POST") return jsonResponse({ result: { ok: true }, status: { project: snapshot.project } });
+      if (url === "/api/projects/repo/attachments" && init?.method === "POST") {
+        return jsonResponse({ attachment: { id: "att-20260628120000-abcdef123456", fileName: "context.md", mediaType: "text/markdown", kind: "text", size: 12, hash: "abcdef1234567890", source: "composer", createdAt: "2026-06-28T12:00:00.000Z", storagePath: "attachments/att-20260628120000-abcdef123456/content.md", runtimeMode: "bounded-text-preview" } });
+      }
+      if (url === "/api/projects/repo/workbench/topics" && init?.method === "POST") {
+        return new Response(JSON.stringify({ error: "topic failed" }), { status: 500, headers: { "Content-Type": "application/json" } });
+      }
+      if (url === "/api/projects/repo/attachments/att-20260628120000-abcdef123456" && init?.method === "DELETE") return jsonResponse({ deleted: true });
+      return jsonResponse(noTopicSnapshot);
+    }));
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "创造任何东西" });
+    const fileInput = document.querySelector<HTMLInputElement>('input[type="file"]');
+    fireEvent.change(fileInput!, { target: { files: [new File(["hello"], "context.md", { type: "text/markdown" })] } });
+    await screen.findByText("context.md");
+
+    fireEvent.change(screen.getByLabelText("新建需求输入框"), { target: { value: "根据附件分析" } });
+    fireEvent.click(screen.getByTitle("创建需求对话"));
+
+    await waitFor(() => expect(fetchCallUrls()).toContain("/api/projects/repo/attachments/att-20260628120000-abcdef123456"));
+    expect(screen.getByText("context.md")).toBeTruthy();
+  });
+
   it("does not expose demand creation when a marker exists but durable memory is unavailable", async () => {
     const unavailableSnapshot = {
       ...snapshot,

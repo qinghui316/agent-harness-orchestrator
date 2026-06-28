@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-28T15:49:30.1574127Z",
+    "generated_at":  "2026-06-28T16:52:20.7524594Z",
     "active":  [
 
                ],
@@ -2153,6 +2153,10 @@
                     {
                         "name":  "20260628-workbench-ui-acceptance-deeplink-restore-v1",
                         "path":  "harness/changes/archive/20260628-workbench-ui-acceptance-deeplink-restore-v1"
+                    },
+                    {
+                        "name":  "20260629-workbench-composer-attachments-first-demand-staging-v2",
+                        "path":  "harness/changes/archive/20260629-workbench-composer-attachments-first-demand-staging-v2"
                     }
                 ]
 }

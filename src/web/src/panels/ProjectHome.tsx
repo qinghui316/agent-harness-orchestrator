@@ -8,13 +8,13 @@ import {
   X,
 } from "lucide-react";
 import { ComposerControls } from "../shell/ComposerControls.js";
-import { ComposerAttachButton, ComposerAttachmentList, filesFromDrop, hasFileDrag, imageFilesFromPaste } from "../shell/ComposerAttachments.js";
+import { ComposerAttachButton, ComposerAttachmentList, filesFromDrop, hasFileDrag, imageFilesFromPaste, type ComposerAttachmentListItem } from "../shell/ComposerAttachments.js";
 import { FileMentionPicker } from "../shell/FileMentionPicker.js";
 import { SkillMentionPicker } from "../shell/SkillMentionPicker.js";
 import type { ComposerExecutionMode } from "../shell/composer-session.js";
 import { WorkspacePicker } from "./WorkspacePicker.js";
 import { InfoRow } from "./ProjectPanels.js";
-import type { CodexDiagnostics, CodexModelCandidate, CodexModelSettingsSnapshot, ProjectStatus, SkillListItem, Snapshot, TopicAttachment, TopicFileReference } from "../types.js";
+import type { CodexDiagnostics, CodexModelCandidate, CodexModelSettingsSnapshot, ProjectStatus, SkillListItem, Snapshot, TopicFileReference } from "../types.js";
 
 export function ProjectHomeView({
   projects,
@@ -52,8 +52,6 @@ export function ProjectReadinessHome({
   projects,
   selectedProjectId,
   onCreateDemand,
-  onAttachFiles,
-  onRemoveAttachment,
   onAutomationModeChange,
   enabledSkillCount,
   skills,
@@ -71,9 +69,7 @@ export function ProjectReadinessHome({
   onOpenModelSettings?: () => void;
   projects: ProjectStatus[];
   selectedProjectId: string | null;
-  onCreateDemand: (body: string, fileRefs?: TopicFileReference[], attachmentIds?: string[]) => Promise<void>;
-  onAttachFiles?: (files: File[]) => Promise<TopicAttachment[]>;
-  onRemoveAttachment?: (id: string) => void | Promise<void>;
+  onCreateDemand: (body: string, fileRefs?: TopicFileReference[], attachmentIds?: string[], attachmentFiles?: File[]) => Promise<void>;
   onAutomationModeChange: (mode: ComposerExecutionMode) => void;
   enabledSkillCount?: number;
   skills?: SkillListItem[];
@@ -84,10 +80,9 @@ export function ProjectReadinessHome({
   onRefresh: () => Promise<void>;
   resetToken?: number;
 }): ReactElement {
-  const readiness = projectReadiness(project, snapshot);
   const [draft, setDraft] = useState("");
   const [draftFileRefs, setDraftFileRefs] = useState<TopicFileReference[]>([]);
-  const [draftAttachments, setDraftAttachments] = useState<TopicAttachment[]>([]);
+  const [draftAttachments, setDraftAttachments] = useState<DraftAttachment[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -95,7 +90,7 @@ export function ProjectReadinessHome({
   const memoryReady = snapshot.memory.harnessReady ?? project.memory?.harnessReady ?? project.harness.readiness === "ready";
   const historyUnavailable = project.managed && project.memory?.memoryAvailable === false;
   const canStartDemand = project.pathExists && !historyUnavailable;
-  const canAttach = canStartDemand && memoryReady;
+  const canAttach = canStartDemand;
 
   useEffect(() => {
     if (resetToken === undefined) return;
@@ -112,24 +107,25 @@ export function ProjectReadinessHome({
     if ((!body && draftAttachments.length === 0) || !canStartDemand) return;
     setSubmitting(true);
     try {
-      await onCreateDemand(body, draftFileRefs, draftAttachments.map((attachment) => attachment.id));
+      await onCreateDemand(body, draftFileRefs, [], draftAttachments.map((attachment) => attachment.file));
       setDraft("");
       setDraftFileRefs([]);
       setDraftAttachments([]);
+    } catch {
+      // The App shell owns the user-facing error message; keep the draft intact.
     } finally {
       setSubmitting(false);
     }
   }
 
   async function attachFiles(files: File[]): Promise<void> {
-    if (!canAttach || !onAttachFiles || files.length === 0) return;
-    const uploaded = await onAttachFiles(files);
-    setDraftAttachments((current) => mergeAttachments(current, uploaded));
+    if (!canAttach || files.length === 0) return;
+    const next = await draftAttachmentsFromFiles(files);
+    setDraftAttachments((current) => mergeAttachments(current, next));
   }
 
-  async function removeAttachment(id: string): Promise<void> {
+  function removeAttachment(id: string): void {
     setDraftAttachments((current) => current.filter((attachment) => attachment.id !== id));
-    await onRemoveAttachment?.(id);
   }
 
   return (
@@ -205,7 +201,7 @@ export function ProjectReadinessHome({
               }
             }}
             disabled={!canStartDemand || submitting}
-            placeholder={memoryReady ? "描述你的需求；Enter 发送，Shift+Enter 换行" : readiness.label}
+            placeholder={memoryReady ? "描述你的需求；Enter 发送，Shift+Enter 换行" : "描述你的需求；发送时会先准备项目工作区"}
             aria-label="新建需求输入框"
           />
           <div className="home-demand-composer-footer">
@@ -226,15 +222,44 @@ export function ProjectReadinessHome({
   );
 }
 
-function mergeAttachments(current: TopicAttachment[], next: TopicAttachment[]): TopicAttachment[] {
+type DraftAttachment = ComposerAttachmentListItem & {
+  file: File;
+};
+
+async function draftAttachmentsFromFiles(files: File[]): Promise<DraftAttachment[]> {
+  const result: DraftAttachment[] = [];
+  for (const file of files) {
+    result.push({
+      id: `draft-${Date.now()}-${result.length}-${Math.random().toString(16).slice(2)}`,
+      fileName: file.name || "attachment",
+      kind: file.type.startsWith("image/") ? "image" : "text",
+      size: file.size,
+      previewUrl: file.type.startsWith("image/") ? await readFileAsDataUrl(file).catch(() => undefined) : undefined,
+      file,
+    });
+  }
+  return result;
+}
+
+function mergeAttachments(current: DraftAttachment[], next: DraftAttachment[]): DraftAttachment[] {
   const result = [...current];
-  const seen = new Set(current.map((attachment) => attachment.id));
+  const seen = new Set(current.map((attachment) => `${attachment.file.name}:${attachment.file.size}:${attachment.file.lastModified}`));
   for (const attachment of next) {
-    if (seen.has(attachment.id)) continue;
-    seen.add(attachment.id);
+    const key = `${attachment.file.name}:${attachment.file.size}:${attachment.file.lastModified}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
     result.push(attachment);
   }
   return result;
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+    reader.onerror = () => reject(reader.error ?? new Error("Failed to read file."));
+    reader.readAsDataURL(file);
+  });
 }
 
 export function CodexDiagnosticsCard({ diagnostics, project }: { diagnostics: CodexDiagnostics | null; project?: ProjectStatus | null }): ReactElement {
@@ -350,15 +375,4 @@ function modelCandidateSourceLabel(candidate: CodexModelCandidate): string {
   if (candidate.source === "runtime") return candidate.isDefault ? "runtime 默认" : "runtime";
   if (candidate.source === "config") return "Codex 配置";
   return candidate.source;
-}
-
-function projectReadiness(project: ProjectStatus, snapshot?: Snapshot): { label: string; tone: "ready" | "warning" | "blocked" } {
-  const pathReady = project.pathExists;
-  const memoryReady = snapshot?.memory.harnessReady ?? project.memory?.harnessReady ?? project.harness.readiness === "ready";
-  if (!pathReady) return { label: "路径不可用", tone: "blocked" };
-  if (project.managed && project.memory?.memoryAvailable === false) return { label: "项目历史不可用", tone: "blocked" };
-  if (!project.managed) return { label: "临时打开", tone: "warning" };
-  if (!memoryReady) return { label: "项目需要准备", tone: "warning" };
-  if (!project.codexTrust?.trusted) return { label: "需要确认 Codex", tone: "warning" };
-  return { label: "就绪", tone: "ready" };
 }

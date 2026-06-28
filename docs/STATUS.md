@@ -2,10 +2,12 @@
 
 ## Current Handoff
 
-- Current date: 2026-06-28.
+- Current date: 2026-06-29.
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260629-workbench-composer-attachments-first-demand-staging-v2/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260628-workbench-reference-style-composer-attachments-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260628-aho-harness-onboarding-skill-quality-pass-v3/summary.md`.
@@ -51,6 +53,18 @@
 
 ## Latest Product Closeout
 
+`harness/changes/archive/20260629-workbench-composer-attachments-first-demand-staging-v2/summary.md`.
+
+It completes the first-demand attachment path for the reference-style composer:
+home composer files now stay in frontend draft state until the user sends the
+first demand; submit then prepares the project, uploads staged attachments,
+creates the Topic/Change with attachment ids, and cleans up partial uploads on
+failure. Existing prepared-topic attachments still upload immediately. Image
+chips support a lightweight preview. A real browser page was opened and
+screenshotted, but local file picker automation was limited by the current
+connector; targeted DOM/server tests cover the staging order and cleanup.
+
+Previous closeout:
 `harness/changes/archive/20260628-workbench-reference-style-composer-attachments-v1/summary.md`.
 
 It adds reference-style composer attachments for prepared projects: home and

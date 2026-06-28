@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createChange } from "../../src/change/manager.js";
 import { initHarness } from "../../src/harness/init.js";
+import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { ProjectRegistryStore } from "../../src/registry/store.js";
 import { startLocalCommandRun } from "../../src/run/manager.js";
 import { buildNativeFolderDialogCommand, executeWorkbenchAction, startWorkbenchServer, type WorkbenchServerHandle } from "../../src/server/workbench-server.js";
@@ -164,6 +165,24 @@ describe("workbench server", () => {
       id: attachmentPayload.attachment.id,
       fileName: "note.md",
     }));
+  });
+
+  it("rejects composer attachment uploads before project preparation", async () => {
+    const memory = await resolveProjectMemory(project());
+    await rm(memory.markerPath, { force: true });
+
+    const attachment = await fetch(`${handle!.url}/api/projects/repo/attachments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fileName: "note.md",
+        mediaType: "text/markdown",
+        data: `data:text/markdown;base64,${Buffer.from("# Notes\n", "utf8").toString("base64")}`,
+      }),
+    });
+
+    expect(attachment.status).toBe(400);
+    expect(await attachment.text()).toContain("Project must be prepared before attaching files.");
   });
 
   it("serves safe file tree children and read-only previews for the right rail files tab", async () => {

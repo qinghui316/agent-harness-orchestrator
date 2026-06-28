@@ -618,21 +618,31 @@ export function App(): ReactElement {
     setDraftSkillOverrides((current) => ({ ...current, [skillId]: !currentlyActive }));
   }
 
+  async function uploadFilesForProject(projectId: string, files: File[]): Promise<TopicAttachment[]> {
+    if (files.length === 0) return [];
+    const uploaded: TopicAttachment[] = [];
+    try {
+      for (const file of files) {
+        const data = await readFileAsDataUrl(file);
+        const payload = await postJson<{ attachment: TopicAttachment }>(
+          `/api/projects/${encodeURIComponent(projectId)}/attachments`,
+          { fileName: file.name, mediaType: file.type || "application/octet-stream", data },
+        );
+        uploaded.push({
+          ...payload.attachment,
+          previewUrl: payload.attachment.kind === "image" ? data : undefined,
+        });
+      }
+      return uploaded;
+    } catch (cause) {
+      await Promise.all(uploaded.map((attachment) => deleteAttachmentForProject(projectId, attachment.id)));
+      throw cause;
+    }
+  }
+
   async function uploadComposerFiles(files: File[]): Promise<TopicAttachment[]> {
     if (!selectedProjectId || files.length === 0) return [];
-    const uploaded: TopicAttachment[] = [];
-    for (const file of files) {
-      const data = await readFileAsDataUrl(file);
-      const payload = await postJson<{ attachment: TopicAttachment }>(
-        `/api/projects/${encodeURIComponent(selectedProjectId)}/attachments`,
-        { fileName: file.name, mediaType: file.type || "application/octet-stream", data },
-      );
-      uploaded.push({
-        ...payload.attachment,
-        previewUrl: payload.attachment.kind === "image" ? data : undefined,
-      });
-    }
-    return uploaded;
+    return uploadFilesForProject(selectedProjectId, files);
   }
 
   async function appendComposerAttachments(files: File[]): Promise<TopicAttachment[]> {
@@ -649,32 +659,42 @@ export function App(): ReactElement {
   async function removeComposerAttachment(attachmentId: string): Promise<void> {
     setComposerAttachments((current) => current.filter((attachment) => attachment.id !== attachmentId));
     if (!selectedProjectId) return;
+    await deleteAttachmentForProject(selectedProjectId, attachmentId);
+  }
+
+  async function deleteAttachmentForProject(projectId: string, attachmentId: string): Promise<void> {
     try {
-      const response = await fetch(`/api/projects/${encodeURIComponent(selectedProjectId)}/attachments/${encodeURIComponent(attachmentId)}`, { method: "DELETE" });
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/attachments/${encodeURIComponent(attachmentId)}`, { method: "DELETE" });
       if (!response.ok) throw new Error(await response.text());
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     }
   }
 
-  async function createTopicFromText(body: string, fileRefs: TopicFileReference[] = [], attachmentIds: string[] = []): Promise<void> {
-    if (!selectedProjectId || (!body.trim() && attachmentIds.length === 0)) return;
+  async function createTopicFromText(body: string, fileRefs: TopicFileReference[] = [], attachmentIds: string[] = [], attachmentFiles: File[] = []): Promise<void> {
+    if (!selectedProjectId || (!body.trim() && attachmentIds.length === 0 && attachmentFiles.length === 0)) return;
     setActionRunning("topic.create");
+    let uploadedDraft: TopicAttachment[] = [];
+    let draftUploadProjectId: string | null = null;
     try {
       const resolved = resolveComposerTextWithContext(body, fileRefs);
-      const demandBody = resolved.text || defaultAttachmentPrompt(attachmentIds.length);
-      if (!demandBody && attachmentIds.length === 0) return;
+      const demandBody = resolved.text || defaultAttachmentPrompt(attachmentIds.length + attachmentFiles.length);
+      if (!demandBody && attachmentIds.length === 0 && attachmentFiles.length === 0) return;
       const title = demandBody.split(/\r?\n/)[0].slice(0, 60);
       const modeForNewTopic = automationMode;
       const effectiveProjectId = await ensureProjectReadyForDemand(selectedProjectId);
       if (!effectiveProjectId) return;
+      draftUploadProjectId = effectiveProjectId;
+      uploadedDraft = await uploadFilesForProject(effectiveProjectId, attachmentFiles);
+      const finalAttachmentIds = [...attachmentIds, ...uploadedDraft.map((attachment) => attachment.id)];
       const result = await postJson<{ topic: { changeId: string } }>(`/api/projects/${encodeURIComponent(effectiveProjectId)}/workbench/topics`, {
         title,
         body: demandBody,
         contextRefs: resolved.contextRefs,
-        attachmentIds,
+        attachmentIds: finalAttachmentIds,
         confirm: true,
       });
+      uploadedDraft = [];
       await applyTopicSkillOverrides(result.topic.changeId, resolved.overrides, effectiveProjectId);
       const migratedMode = migrateDraftComposerExecutionMode(effectiveProjectId, result.topic.changeId, modeForNewTopic);
       setAutomationMode(migratedMode);
@@ -687,7 +707,14 @@ export function App(): ReactElement {
       setSelectedTopic(result.topic.changeId);
       await loadSkillSummary(effectiveProjectId, result.topic.changeId);
       await refresh(effectiveProjectId, result.topic.changeId);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+      throw cause;
     } finally {
+      if (uploadedDraft.length > 0 && draftUploadProjectId) {
+        const cleanupProjectId = draftUploadProjectId;
+        await Promise.all(uploadedDraft.map((attachment) => deleteAttachmentForProject(cleanupProjectId, attachment.id)));
+      }
       setActionRunning(null);
     }
   }
@@ -1210,8 +1237,6 @@ export function App(): ReactElement {
             projects={projects}
             selectedProjectId={selectedProjectId}
             onCreateDemand={createTopicFromText}
-            onAttachFiles={uploadComposerFiles}
-            onRemoveAttachment={removeComposerAttachment}
             onAutomationModeChange={handleComposerExecutionModeChange}
             enabledSkillCount={enabledSkillCount}
             skills={skillItems}
