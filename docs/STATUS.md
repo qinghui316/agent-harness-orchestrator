@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260628-workbench-reference-style-left-sidebar-and-project-preparation-ux-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260628-workbench-reference-style-app-data-and-real-codex-skills-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260628-workbench-reference-style-sidebar-settings-skills-ui-v1/summary.md`.
@@ -35,6 +37,16 @@
 
 ## Latest Product Closeout
 
+`harness/changes/archive/20260628-workbench-reference-style-left-sidebar-and-project-preparation-ux-v1/summary.md`.
+
+It aligns the ordinary Workbench left sidebar and project preparation flow with
+the `desktop-cc-gui` product interaction style: the sidebar is project/session
+navigation only, unprepared projects use "项目准备" language, quick new
+conversation does not create empty topics, and first demand submission can run
+deterministic project preparation before topic/change creation. Technical
+Harness/memory details remain in advanced diagnostics.
+
+Previous closeout:
 `harness/changes/archive/20260628-workbench-reference-style-app-data-and-real-codex-skills-v1/summary.md`.
 
 It aligns AHO project history and Skills with the `desktop-cc-gui` style

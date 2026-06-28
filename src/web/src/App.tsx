@@ -367,6 +367,42 @@ export function App(): ReactElement {
     await refresh(projectId, conversationId);
   }
 
+  async function ensureProjectReadyForDemand(projectId: string): Promise<string | null> {
+    let status = projects.find((item) => item.project?.id === projectId) ?? null;
+    if (!status?.project) {
+      setError("请先选择一个项目。");
+      return null;
+    }
+
+    let effectiveProjectId = status.project.id;
+    if (!status.managed && status.memory?.registered === false) {
+      const saved = await postJson<{ project: { id: string }; status?: ProjectStatus }>("/api/projects", {
+        path: status.path,
+        name: status.project.name,
+        confirm: true,
+      });
+      effectiveProjectId = saved.project.id;
+      setSelectedProjectId(effectiveProjectId);
+      persistSelectedProjectId(effectiveProjectId);
+      setExpandedProjects((current) => new Set([...current, effectiveProjectId]));
+      status = saved.status ?? status;
+    }
+
+    if (status.managed && status.memory?.memoryAvailable === false) {
+      setError("项目历史不可用，请在项目设置的高级诊断中确认应用数据目录。");
+      return null;
+    }
+
+    const memoryReady = status.memory?.harnessReady ?? status.harness.readiness === "ready";
+    if (!memoryReady) {
+      await postJson(`/api/projects/${encodeURIComponent(effectiveProjectId)}/harness/init`, {
+        memoryMode: "external-local",
+        confirm: true,
+      });
+    }
+    return effectiveProjectId;
+  }
+
   async function chooseRun(runId: string): Promise<void> {
     if (!selectedProjectId) return;
     setSelectedRun(runId);
@@ -510,10 +546,10 @@ export function App(): ReactElement {
     await refresh();
   }
 
-  async function applyTopicSkillOverrides(topicId: string, overrides: Record<string, boolean>): Promise<void> {
-    if (!selectedProjectId) return;
+  async function applyTopicSkillOverrides(topicId: string, overrides: Record<string, boolean>, projectId = selectedProjectId): Promise<void> {
+    if (!projectId) return;
     for (const [skillId, enabled] of Object.entries(overrides)) {
-      await postJson(`/api/projects/${encodeURIComponent(selectedProjectId)}/skills/${encodeURIComponent(skillId)}/enable`, { enabled, topic: topicId });
+      await postJson(`/api/projects/${encodeURIComponent(projectId)}/skills/${encodeURIComponent(skillId)}/enable`, { enabled, topic: topicId });
     }
   }
 
@@ -554,21 +590,25 @@ export function App(): ReactElement {
       if (!demandBody) return;
       const title = demandBody.split(/\r?\n/)[0].slice(0, 60);
       const modeForNewTopic = automationMode;
-      const result = await postJson<{ topic: { changeId: string } }>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/topics`, {
+      const effectiveProjectId = await ensureProjectReadyForDemand(selectedProjectId);
+      if (!effectiveProjectId) return;
+      const result = await postJson<{ topic: { changeId: string } }>(`/api/projects/${encodeURIComponent(effectiveProjectId)}/workbench/topics`, {
         title,
         body: demandBody,
         contextRefs: resolved.contextRefs,
         confirm: true,
       });
-      await applyTopicSkillOverrides(result.topic.changeId, resolved.overrides);
-      const migratedMode = migrateDraftComposerExecutionMode(selectedProjectId, result.topic.changeId, modeForNewTopic);
+      await applyTopicSkillOverrides(result.topic.changeId, resolved.overrides, effectiveProjectId);
+      const migratedMode = migrateDraftComposerExecutionMode(effectiveProjectId, result.topic.changeId, modeForNewTopic);
       setAutomationMode(migratedMode);
       setDraftSkillOverrides({});
       setComposerText("");
       setComposerFileRefs([]);
+      setSelectedProjectId(effectiveProjectId);
+      persistSelectedProjectId(effectiveProjectId);
       setSelectedTopic(result.topic.changeId);
-      await loadSkillSummary(selectedProjectId, result.topic.changeId);
-      await refresh(selectedProjectId, result.topic.changeId);
+      await loadSkillSummary(effectiveProjectId, result.topic.changeId);
+      await refresh(effectiveProjectId, result.topic.changeId);
     } finally {
       setActionRunning(null);
     }
@@ -865,9 +905,8 @@ export function App(): ReactElement {
   const activeWorkpad = snapshot.center.workpad ?? emptyWorkpad(activeTopic?.title ?? snapshot.project?.name);
   const activeRun = useMemo(() => snapshot.center.agentLoop.runs.find((run) => run.id === selectedRun) ?? snapshot.center.agentLoop.runs[0], [snapshot, selectedRun]);
   const selectedProjectStatus = useMemo(() => projects.find((item) => item.project?.id === selectedProjectId) ?? null, [projects, selectedProjectId]);
-  const selectedProjectMemoryReady = Boolean(selectedProjectStatus?.managed
-    && snapshot.project?.id === selectedProjectId
-    && (snapshot.memory.harnessReady ?? selectedProjectStatus.memory?.harnessReady) !== false);
+  const selectedProjectHistoryUnavailable = Boolean(selectedProjectStatus?.managed && selectedProjectStatus.memory?.memoryAvailable === false);
+  const selectedProjectIsTemporary = Boolean(selectedProjectStatus?.project && selectedProjectStatus.memory?.registered === false);
   const runIds = useMemo(() => snapshot.center.agentLoop.runs.map((run) => run.id).join("|"), [snapshot.center.agentLoop.runs]);
   const snapshotTranscript = useMemo(() => {
     return normalizeParentAgentTranscript(loadedTranscript ?? snapshot.center.parentAgentTranscript);
@@ -922,7 +961,12 @@ export function App(): ReactElement {
   }, [selectedProjectId, activeTopic?.id]);
 
   useEffect(() => {
-    setCenterTab("conversation");
+    const restore = readWorkbenchRestoreParams();
+    if (restore.topicId && restore.topicId === activeTopic?.id && restore.centerTab) {
+      setCenterTab(restore.centerTab);
+    } else {
+      setCenterTab("conversation");
+    }
     setSelectedRunGraphNodeId(null);
     setLoadedTranscript(null);
     setLoadedRunGraph(null);
@@ -1007,7 +1051,7 @@ export function App(): ReactElement {
     <div className={`app-shell ${decisionPaneCollapsed ? "decision-pane-collapsed" : "decision-pane-expanded"}`}>
       <aside className="sidebar">
         <div className="brand compact-brand">
-          <div className="brand-title">Agent Harness<br />Orchestrator</div>
+          <div className="brand-title">AHO</div>
         </div>
               <ProjectConversationSidebar
                 projects={projects}
@@ -1058,7 +1102,14 @@ export function App(): ReactElement {
             onOpenProject={openProject}
             onRefresh={loadApp}
           />
-        ) : !selectedProjectStatus?.managed || !selectedProjectMemoryReady ? (
+        ) : !selectedProjectStatus?.project ? (
+          <ProjectHomeView
+            projects={projects}
+            snapshots={projectSnapshots}
+            onOpenProject={openProject}
+            onRefresh={loadApp}
+          />
+        ) : selectedProjectIsTemporary || selectedProjectHistoryUnavailable ? (
           <UnmanagedProjectView project={selectedProjectStatus} onDone={() => loadApp().then(() => selectedProjectId ? refresh(selectedProjectId, null) : undefined)} />
         ) : !activeTopic && centerTab === "gitDiff" ? (
           <GitDiffViewer projectId={selectedProjectId} selectedPath={selectedGitDiffPath} />
@@ -1320,7 +1371,7 @@ function snapshotForProject(project: ProjectStatus | null | undefined): Snapshot
       artifactBase: project.memory?.artifactBase,
     },
     center: { ...emptySnapshot.center, workpad: emptyWorkpad(project.project.name) },
-    warnings: project.managed ? [] : ["Project is not managed by Harness yet."],
+    warnings: project.managed ? [] : ["项目需要准备后才能开始需求对话。"],
   };
 }
 

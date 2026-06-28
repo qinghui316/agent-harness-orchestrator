@@ -1802,7 +1802,7 @@ describe("Workbench web app", () => {
     expect(screen.queryByText("刷新状态")).toBeNull();
     expect(screen.queryByText("更多")).toBeNull();
     expect(screen.queryByText("稍后")).toBeNull();
-    expect(screen.getByText("记忆：external-local")).toBeTruthy();
+    expect(screen.getByText("项目数据：已准备")).toBeTruthy();
     expect(screen.getByText("当前需求：会员折扣计价")).toBeTruthy();
     fireEvent.click(screen.getByRole("tab", { name: "Agent 编排图" }));
     expect(await screen.findByTestId("agent-run-graph", undefined, { timeout: 5000 })).toBeTruthy();
@@ -5216,7 +5216,15 @@ describe("Workbench web app", () => {
       if (url === "/api/codex/diagnostics" || url.endsWith("/codex/diagnostics")) {
         return jsonResponse(codexDiagnostics);
       }
-      return new Response(JSON.stringify({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: false, harness: { readiness: "missing" } }] }), {
+      return new Response(JSON.stringify({ projects: [{
+        project: snapshot.project,
+        path: "E:/repo",
+        pathExists: true,
+        isGitRepo: true,
+        managed: false,
+        memory: { registered: true, memoryMode: "external-local", memoryAvailable: false, harnessReady: false, artifactBase: "memory-root" },
+        harness: { readiness: "missing" },
+      }] }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
@@ -5231,8 +5239,9 @@ describe("Workbench web app", () => {
     expect(screen.getByText("新建空项目")).toBeTruthy();
     expect(screen.queryByText("远程项目")).toBeNull();
     expect(screen.getByTestId("decision-pane-toggle")).toBeTruthy();
-    fireEvent.click(screen.getAllByText("Repo")[0]);
-    await waitFor(() => expect(screen.getByText("初始化 Harness")).toBeTruthy());
+    const sidebar = document.querySelector(".codex-sidebar") as HTMLElement;
+    expect(sidebar.textContent).not.toMatch(/Harness|memory|AHO_HOME|external-local|TaskGraph|SchedulerRun/);
+    await waitFor(() => expect(screen.getByText("需要准备")).toBeTruthy());
   });
 
   it("renders the project home without triggering project mutations", async () => {
@@ -5742,6 +5751,56 @@ describe("Workbench web app", () => {
     });
   });
 
+  it("prepares a registered project only when the first demand is sent", async () => {
+    const noTopicSnapshot = {
+      ...snapshot,
+      memory: { memoryMode: "external-local", harnessReady: false },
+      left: { ...snapshot.left, topics: [], workpads: [] },
+      center: { ...snapshot.center, selectedTopic: null },
+    };
+    const selectedSnapshot = {
+      ...snapshot,
+      left: {
+        ...snapshot.left,
+        topics: [{ id: "prepared-demand", title: "准备后创建需求", state: "active" }],
+        workpads: [{ id: "prepared-demand", title: "准备后创建需求", state: "active", runtimeStatus: "active", selected: true, waitingDecisionCount: 0 }],
+      },
+      center: {
+        ...snapshot.center,
+        selectedTopic: { id: "prepared-demand", title: "准备后创建需求", state: "active", acCount: 0, taskCount: 0 },
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") {
+        return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: false, memory: { registered: true, memoryMode: "external-local", memoryAvailable: false, harnessReady: false, artifactBase: "memory-root" }, harness: { readiness: "missing" }, codexTrust: { trusted: true } }] });
+      }
+      if (url === "/api/projects/repo/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      if (url === "/api/projects/repo/harness/init" && init?.method === "POST") return jsonResponse({ result: { ok: true }, status: { project: snapshot.project } });
+      if (url === "/api/projects/repo/workbench/topics" && init?.method === "POST") return jsonResponse({ topic: { changeId: "prepared-demand" } });
+      if (url === "/api/projects/repo/workbench/snapshot?topic=prepared-demand") return jsonResponse(selectedSnapshot);
+      if (url === "/api/projects/repo/workbench/projections/transcript/prepared-demand?limit=100") return jsonResponse(selectedSnapshot.center.parentAgentTranscript);
+      return jsonResponse(noTopicSnapshot);
+    }));
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "创造任何东西" });
+    const postCallsBeforeDemand = vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST");
+    expect(postCallsBeforeDemand).toHaveLength(0);
+
+    fireEvent.change(screen.getByLabelText("新建需求输入框"), { target: { value: "准备后创建需求" } });
+    fireEvent.click(screen.getByTitle("创建需求对话"));
+
+    await waitFor(() => expect(screen.getByText("准备后创建需求")).toBeTruthy());
+    const postUrls = vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST").map(([url]) => String(url));
+    expect(postUrls).toEqual([
+      "/api/projects/repo/harness/init",
+      "/api/projects/repo/workbench/topics",
+    ]);
+  });
+
   it("does not expose demand creation when a marker exists but durable memory is unavailable", async () => {
     const unavailableSnapshot = {
       ...snapshot,
@@ -5776,8 +5835,9 @@ describe("Workbench web app", () => {
 
     render(<App />);
 
-    await waitFor(() => expect(screen.getAllByText(/external-local 记忆未找到/).length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getAllByText(/项目历史不可用/).length).toBeGreaterThan(0));
     expect(screen.queryByText("初始化 Harness")).toBeNull();
+    expect(screen.queryByText("准备项目")).toBeNull();
     expect(screen.queryByText("创建需求对话")).toBeNull();
     expect(screen.queryByLabelText("在 Repo 中开始新对话")).toBeNull();
   });

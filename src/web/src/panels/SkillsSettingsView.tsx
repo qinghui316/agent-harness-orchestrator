@@ -72,7 +72,7 @@ export function SkillsSettingsView({
       <section className="settings-empty-state">
         <Sparkles size={24} />
         <h3>选择项目后管理技能</h3>
-        <p>Skill 是 Codex runtime capability，不是 Harness 工作流权限。</p>
+        <p>技能只影响 Codex 使用能力，不会自动执行项目操作。</p>
       </section>
     );
   }

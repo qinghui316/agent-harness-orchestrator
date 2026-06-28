@@ -129,6 +129,8 @@ export function ProjectReadinessHome({
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const lastResetToken = useRef(resetToken);
   const memoryReady = snapshot.memory.harnessReady ?? project.memory?.harnessReady ?? project.harness.readiness === "ready";
+  const historyUnavailable = project.managed && project.memory?.memoryAvailable === false;
+  const canStartDemand = project.pathExists && !historyUnavailable;
 
   useEffect(() => {
     if (resetToken === undefined) return;
@@ -141,7 +143,7 @@ export function ProjectReadinessHome({
 
   async function submitDemand(): Promise<void> {
     const body = draft.trim();
-    if (!body || !memoryReady) return;
+    if (!body || !canStartDemand) return;
     setSubmitting(true);
     try {
       await onCreateDemand(body, draftFileRefs);
@@ -199,7 +201,7 @@ export function ProjectReadinessHome({
                 void submitDemand();
               }
             }}
-            disabled={!memoryReady || submitting}
+            disabled={!canStartDemand || submitting}
             placeholder={memoryReady ? "描述你的需求；Enter 发送，Shift+Enter 换行" : readiness.label}
             aria-label="新建需求输入框"
           />
@@ -207,7 +209,7 @@ export function ProjectReadinessHome({
             <span className="composer-footer-spacer" />
             <button
               className="composer-send"
-              disabled={!memoryReady || submitting || !draft.trim()}
+              disabled={!canStartDemand || submitting || !draft.trim()}
               onClick={() => void submitDemand()}
               title="创建需求对话"
             >
@@ -252,7 +254,7 @@ export function CodexDiagnosticsCard({ diagnostics, project }: { diagnostics: Co
         <ul className="diagnostic-errors">
           {diagnostics.errors.map((error) => <li key={error}>{error}</li>)}
         </ul>
-      ) : <p className="muted-copy">Codex runtime 满足当前 Harness 模式的本地执行要求。</p>}
+      ) : <p className="muted-copy">Codex 已满足当前专业开发模式的本地执行要求。</p>}
     </section>
   );
 }
@@ -339,7 +341,9 @@ function projectReadiness(project: ProjectStatus, snapshot?: Snapshot): { label:
   const pathReady = project.pathExists;
   const memoryReady = snapshot?.memory.harnessReady ?? project.memory?.harnessReady ?? project.harness.readiness === "ready";
   if (!pathReady) return { label: "路径不可用", tone: "blocked" };
-  if (!project.managed || !memoryReady) return { label: "需要初始化 Harness", tone: "warning" };
+  if (project.managed && project.memory?.memoryAvailable === false) return { label: "项目历史不可用", tone: "blocked" };
+  if (!project.managed) return { label: "临时打开", tone: "warning" };
+  if (!memoryReady) return { label: "项目需要准备", tone: "warning" };
   if (!project.codexTrust?.trusted) return { label: "需要确认 Codex", tone: "warning" };
   return { label: "就绪", tone: "ready" };
 }

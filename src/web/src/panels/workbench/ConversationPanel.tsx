@@ -359,11 +359,11 @@ export function BottomStatusBar({ snapshot, project, topic }: { snapshot: Snapsh
   const issueCount = snapshot.warnings.length + (topic?.closeGate?.blockingIssues.length ?? 0);
   return (
     <footer className="bottom-status">
-      <span>记忆：{snapshot.memory.memoryMode ?? project?.memory?.memoryMode ?? (project?.project ? "unknown" : "未选择")}</span>
+      <span>项目数据：{(snapshot.memory.harnessReady ?? project?.memory?.harnessReady) ? "已准备" : project?.project ? "需要准备" : "未选择"}</span>
       <span>根目录：{repoPath}</span>
       <span><i className={snapshot.memory.harnessReady ? "status-dot ready-dot" : "status-dot muted-dot"} />状态：{snapshot.memory.harnessReady ? "就绪" : "未就绪"}</span>
       <span>当前需求：{topic?.title ?? "无"}</span>
-      <span><i className={snapshot.memory.harnessReady ? "status-dot ready-dot" : "status-dot muted-dot"} />Harness {snapshot.memory.harnessReady ? "就绪" : "未就绪"}</span>
+      <span><i className={snapshot.memory.harnessReady ? "status-dot ready-dot" : "status-dot muted-dot"} />工作区{snapshot.memory.harnessReady ? "已准备" : "需要准备"}</span>
       <span>{issueCount} 个问题</span>
     </footer>
   );

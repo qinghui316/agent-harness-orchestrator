@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import {
   CodexTrustButton,
-  HarnessInitButton,
+  ProjectPrepareButton,
   ProjectAddForm,
   ProjectCreateForm,
 } from "../panels/ProjectPanels.js";
@@ -107,6 +107,7 @@ export function ProjectConversationSidebar({
             const projectSnapshot = item.project?.id === selectedProjectId ? snapshot : item.project?.id ? snapshots[item.project.id] : undefined;
             const memoryReady = projectSnapshot?.memory.harnessReady ?? item.memory?.harnessReady ?? item.harness.readiness === "ready";
             const memoryIssue = memoryStatusIssue(item, projectSnapshot);
+            const canStartConversation = Boolean(item.project && item.pathExists && memoryIssue?.kind !== "missing-external-memory");
             const conversations = conversationsForSidebar(projectSnapshot, selectedTopicId);
             const filteredConversations = normalizedSearch
               ? conversations.filter((conversation) => conversation.title.toLowerCase().includes(normalizedSearch) || conversation.status.toLowerCase().includes(normalizedSearch))
@@ -124,7 +125,7 @@ export function ProjectConversationSidebar({
                     <span>{projectName}</span>
                     {memoryReady ? null : <small>{memoryIssue?.short ?? "未初始化"}</small>}
                   </button>
-                  {item.project && memoryReady ? (
+                  {canStartConversation ? (
                     <button
                       className="project-folder-new"
                       aria-label={`在 ${projectName} 中开始新对话`}
@@ -144,7 +145,7 @@ export function ProjectConversationSidebar({
                       onProjectDetails(null);
                       if (item.project) void onOpenProject(item.project.id);
                     }}><Folder size={15} />打开项目首页</button>
-                    {item.project && memoryReady ? (
+                    {canStartConversation ? (
                       <button className="project-menu-item" role="menuitem" onClick={() => {
                         onProjectDetails(null);
                         void onNewConversation(item.project?.id);
@@ -155,7 +156,7 @@ export function ProjectConversationSidebar({
                       void onRefresh();
                     }}><RefreshCw size={15} />刷新会话</button>
                     {item.project && !memoryReady && memoryIssue?.kind !== "missing-external-memory" ? (
-                      <HarnessInitButton projectId={item.project.id} onDone={async () => { onProjectDetails(null); await onRefresh(); }} />
+                      <ProjectPrepareButton projectId={item.project.id} onDone={async () => { onProjectDetails(null); await onRefresh(); }} />
                     ) : null}
                     {item.project && item.codexTrust && !item.codexTrust.trusted ? (
                       <CodexTrustButton project={item} onDone={async () => { onProjectDetails(null); await onRefresh(); }} />
@@ -171,7 +172,7 @@ export function ProjectConversationSidebar({
                 {expanded ? (
                   <div className="conversation-list">
                     {memoryReady && !projectSnapshot ? <div className="conversation-placeholder">展开后加载对话。</div> : null}
-                    {!memoryReady ? <div className="conversation-placeholder">{memoryIssue?.detail ?? "选择项目后初始化 Harness。"}</div> : null}
+                    {!memoryReady ? <div className="conversation-placeholder">{memoryIssue?.detail ?? "项目需要准备。"}</div> : null}
                     {filteredConversations.map((conversation) => (
                       <button
                         key={conversation.id}
@@ -221,8 +222,8 @@ export function UnmanagedProjectView({ project, onDone }: { project: ProjectStat
           保存到项目列表
         </button>
       ) : null}
-      <p>{issue?.detail ?? "这个项目还没有初始化 Harness。初始化后会创建项目入口地图和 external-local 记忆。"}</p>
-      {issue?.kind === "missing-external-memory" ? null : <HarnessInitButton projectId={project.project.id} onDone={onDone} />}
+      <p>{issue?.detail ?? "这个项目需要准备后才能开始需求对话。"}</p>
+      {issue?.kind === "missing-external-memory" ? null : <ProjectPrepareButton projectId={project.project.id} onDone={onDone} />}
     </section>
   );
 }
@@ -281,17 +282,16 @@ function memoryStatusIssue(project: ProjectStatus, snapshot?: Snapshot): { kind:
   const harnessReady = snapshot?.memory.harnessReady ?? project.memory?.harnessReady ?? project.harness.readiness === "ready";
   if (harnessReady) return null;
   if (project.managed && memoryMode === "external-local" && !available) {
-    const root = project.memory?.roots?.memoryRoot;
     return {
       kind: "missing-external-memory",
-      short: "记忆未找到",
-      detail: root ? `external-local 记忆未找到：${root}。请确认当前 AHO_HOME。` : "external-local 记忆未找到，请确认当前 AHO_HOME。",
+      short: "历史不可用",
+      detail: "项目历史不可用，请在项目设置的高级诊断中确认应用数据目录。",
     };
   }
   return {
     kind: "uninitialized",
-    short: "未初始化",
-    detail: "选择项目后初始化 Harness。",
+    short: "需要准备",
+    detail: "项目需要准备。",
   };
 }
 

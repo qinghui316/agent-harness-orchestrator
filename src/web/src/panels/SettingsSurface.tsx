@@ -1,6 +1,6 @@
 import { useState, type ReactElement } from "react";
 import { Bot, Folder, Settings, Shield, Sparkles, Wrench, X } from "lucide-react";
-import { CodexTrustButton, HarnessInitButton, InfoRow } from "./ProjectPanels.js";
+import { CodexTrustButton, ProjectPrepareButton, InfoRow } from "./ProjectPanels.js";
 import { CodexDiagnosticsCard } from "./ProjectHome.js";
 import { SkillsSettingsView } from "./SkillsSettingsView.js";
 import type { CodexDiagnostics, CodexModelSettingsSnapshot, ProjectStatus } from "../types.js";
@@ -86,9 +86,9 @@ export function SettingsSurface({
         {section === "basic" ? (
           <section className="settings-content-card">
             <h3>当前环境</h3>
-            <p className="muted-copy">当前只显示已实现的 Harness 模式入口能力。普通 Agent 模式、浏览器、终端、附件和 marketplace 还没有放到 UI。</p>
+            <p className="muted-copy">当前只显示已实现的专业开发模式入口能力。普通 Agent 模式、浏览器、终端、附件和 marketplace 还没有放到 UI。</p>
             <div className="settings-info-grid">
-              <Info label="当前模式" value="Harness 模式" />
+              <Info label="当前模式" value="专业开发模式" />
               <Info label="执行引擎" value="Codex" />
               <Info label="右侧工具" value="确认 / 文件 / Git" />
             </div>
@@ -103,12 +103,12 @@ export function SettingsSurface({
                 <div className="settings-info-grid">
                   <Info label="名称" value={project.project.name} />
                   <Info label="路径" value={project.path} />
-                  <Info label="Harness" value={project.harness.readiness} />
+                  <Info label="项目状态" value={project.harness.readiness === "ready" ? "已准备" : "需要准备"} />
                   <Info label="Git" value={project.isGitRepo ? "Git 仓库" : "非 Git 仓库"} />
                 </div>
                 <div className="settings-inline-actions">
                   {project.managed && project.codexTrust && !project.codexTrust.trusted ? <CodexTrustButton project={project} onDone={refresh} /> : null}
-                  {!project.managed || project.harness.readiness !== "ready" ? <HarnessInitButton projectId={project.project.id} onDone={refresh} /> : null}
+                  {!project.managed || project.harness.readiness !== "ready" ? <ProjectPrepareButton projectId={project.project.id} onDone={refresh} /> : null}
                 </div>
               </>
             ) : <p className="muted-copy">还没有选择项目。</p>}

@@ -7,16 +7,16 @@ export function ProjectDetailsPanel({ project, snapshot, selected, onOpen, onRef
   const memoryReady = snapshot?.memory.harnessReady ?? project.memory?.harnessReady ?? project.harness.readiness === "ready";
   const memoryMode = snapshot?.memory.memoryMode ?? project.memory?.memoryMode;
   const memoryIssue = project.managed && memoryMode === "external-local" && project.memory?.memoryAvailable === false
-    ? `记忆未找到：${project.memory.roots.memoryRoot}`
+    ? "项目历史不可用"
     : null;
   return (
     <div className="project-details-panel">
-      <InfoRow label="仓库" value={snapshot?.left.repo?.branch ?? (project.isGitRepo ? "已初始化" : "未检测到")} />
-      <InfoRow label="记忆" value={memoryIssue ?? memoryMode ?? (project.managed ? "已配置" : "未初始化")} />
-      <InfoRow label="状态" value={memoryReady ? "Harness 就绪" : memoryIssue ? "需要确认 AHO_HOME" : "需要初始化"} />
+      <InfoRow label="仓库" value={snapshot?.left.repo?.branch ?? (project.isGitRepo ? "已准备" : "未检测到 Git")} />
+      <InfoRow label="项目状态" value={memoryIssue ?? (memoryReady ? "已准备" : "需要准备")} />
+      <InfoRow label="运行环境" value={project.codexTrust?.trusted ? "Codex 已可用" : "需要确认 Codex"} />
       <InfoRow label="Codex" value={project.codexTrust?.trusted ? "项目已信任" : "需要确认信任"} />
       {!project.codexTrust?.trusted ? <CodexTrustButton project={project} onDone={onRefresh} /> : null}
-      {project.project && !memoryReady && !memoryIssue ? <HarnessInitButton projectId={project.project.id} onDone={async () => onRefresh()} /> : null}
+      {project.project && !memoryReady && !memoryIssue ? <ProjectPrepareButton projectId={project.project.id} onDone={async () => onRefresh()} /> : null}
       {!selected && memoryReady ? <button className="project-detail-action" onClick={onOpen}>打开项目</button> : null}
       <button className="project-detail-action" onClick={onRefresh}>刷新项目</button>
     </div>
@@ -133,7 +133,7 @@ export function ProjectCreateForm({ onDone }: { onDone: (projectId?: string) => 
   );
 }
 
-export function HarnessInitButton({ projectId, onDone }: { projectId: string; onDone: () => Promise<void> }): ReactElement {
+export function ProjectPrepareButton({ projectId, onDone }: { projectId: string; onDone: () => Promise<void> }): ReactElement {
   const [message, setMessage] = useState<string | null>(null);
   async function init(): Promise<void> {
     const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/harness/init`, {
@@ -142,16 +142,18 @@ export function HarnessInitButton({ projectId, onDone }: { projectId: string; on
       body: JSON.stringify({ memoryMode: "external-local", confirm: true }),
     });
     if (!response.ok) throw new Error(await response.text());
-    setMessage("Harness 已初始化。");
+    setMessage("项目已准备。");
     await onDone();
   }
   return (
     <>
-      <button className="secondary-button" onClick={() => void init().catch((cause: unknown) => setMessage(cause instanceof Error ? cause.message : String(cause)))}>初始化 Harness</button>
+      <button className="secondary-button" onClick={() => void init().catch((cause: unknown) => setMessage(cause instanceof Error ? cause.message : String(cause)))}>准备项目</button>
       {message ? <small>{message}</small> : null}
     </>
   );
 }
+
+export const HarnessInitButton = ProjectPrepareButton;
 
 export function CodexTrustButton({ project, onDone }: { project: ProjectStatus; onDone: () => void }): ReactElement | null {
   const [message, setMessage] = useState<string | null>(project.codexTrust?.reason ?? null);
