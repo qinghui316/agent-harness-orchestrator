@@ -7,6 +7,7 @@ import { App } from "../../src/web/src/App.js";
 import { DecisionInspectorPane } from "../../src/web/src/panels/workbench/DecisionPanels.js";
 import { WorkpadView } from "../../src/web/src/panels/workbench/WorkpadPanel.js";
 import { WorkpadDiagnosticDetails } from "../../src/web/src/panels/workbench/workpad/WorkpadDetails.js";
+import { TopicComposer } from "../../src/web/src/shell/composer.js";
 import { summarizeActionResult } from "../../src/workbench/actions/results.js";
 
 const snapshot = {
@@ -934,6 +935,53 @@ describe("Workbench web app", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+  });
+
+  it("renders composer attachment chips with a real paperclip entry", () => {
+    const onRemoveAttachment = vi.fn();
+    render(
+      <TopicComposer
+        value=""
+        onChange={() => undefined}
+        mode="chat"
+        onModeChange={() => undefined}
+        automationMode="request-approval"
+        onAutomationModeChange={() => undefined}
+        modelLabel="gpt-5.5"
+        enabledSkillCount={0}
+        projectId="repo"
+        skills={[]}
+        activeSkillIds={[]}
+        selectedFileRefs={[]}
+        attachments={[{
+          id: "att-20260628120000-abcdef123456",
+          fileName: "screenshot.png",
+          mediaType: "image/png",
+          kind: "image",
+          size: 2048,
+          hash: "abcdef1234567890",
+          source: "composer",
+          createdAt: "2026-06-28T12:00:00.000Z",
+          storagePath: "attachments/att-20260628120000-abcdef123456/content.png",
+          runtimeMode: "codex-image-input",
+          previewUrl: "data:image/png;base64,AAAA",
+        }]}
+        onAttachFiles={() => undefined}
+        onRemoveAttachment={onRemoveAttachment}
+        onToggleSkill={() => undefined}
+        onSelectedFileRefsChange={() => undefined}
+        onSend={async () => undefined}
+        actionRunning={null}
+        busy={false}
+        canRunCode={false}
+      />,
+    );
+
+    expect(screen.getByLabelText("添加附件")).toBeTruthy();
+    expect(screen.getByText("screenshot.png")).toBeTruthy();
+    expect(screen.getByText("2 KB")).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("移除 screenshot.png"));
+    expect(onRemoveAttachment).toHaveBeenCalledWith("att-20260628120000-abcdef123456");
   });
 
   it("loads a paged transcript and keeps large conversations bounded in the DOM", async () => {

@@ -13,12 +13,14 @@ import { dispatchWorkbenchWorkflowAction } from "./actions/dispatcher.js";
 import { buildWorkbenchActionHandlers } from "./actions/handlers/index.js";
 import { recordWorkbenchDecision } from "./decisions.js";
 import { emitAssistantEvent } from "./live-events.js";
+import { resolveTopicAttachments } from "./attachments.js";
 import { resolveTopicFileReferences } from "./file-references.js";
 import { createAssistantTranscriptCapture } from "./live-transcript.js";
 import { getSingleActiveChangeId, resolveTopic } from "./topic-resolver.js";
 import { appendTopicThreadEntry } from "./topic-thread.js";
 import { collectAllTopicThreadEntries, readTopicThreadLog as readThreadLog } from "./thread-log.js";
 import type {
+  TopicAttachment,
   TopicMessageInput,
   TopicMessageResult,
   TopicThreadEntry,
@@ -57,13 +59,16 @@ const PROJECT_SCOPED_WORKFLOW_ACTIONS = new Set<WorkbenchWorkflowActionType>([
   "orchestrator.pump",
 ]);
 
-export async function createWorkbenchTopic(project: ManagedProject, input: { title: string; body?: string; contextRefs?: TopicMessageInput["contextRefs"] }): Promise<{ changeId: string; title: string; state: "active" }> {
+export async function createWorkbenchTopic(project: ManagedProject, input: { title: string; body?: string; contextRefs?: TopicMessageInput["contextRefs"]; attachmentIds?: string[] }): Promise<{ changeId: string; title: string; state: "active" }> {
   const resolved = await resolveTopicFileReferences(project, input.body ?? input.title, input.contextRefs);
-  const result = await createConcurrentChange(project, { title: input.title, body: resolved.text });
+  const attachments = await resolveTopicAttachments(project, input.attachmentIds);
+  const body = resolved.text || defaultAttachmentMessage(attachments);
+  const result = await createConcurrentChange(project, { title: input.title, body });
   await appendTopicThreadEntry(project, result.change.id, {
     type: "user.message",
-    text: resolved.text,
+    text: body,
     contextRefs: resolved.contextRefs.length > 0 ? resolved.contextRefs : undefined,
+    attachments: attachments.length > 0 ? attachments : undefined,
   });
   return { changeId: result.change.id, title: result.change.title, state: "active" };
 }
@@ -79,16 +84,17 @@ export async function readTopicThreadLog(memory: ResolvedMemory, changePath: str
 
 export async function postTopicMessage(project: ManagedProject, changeId: string, input: string | TopicMessageInput, live?: WorkbenchLiveSink): Promise<TopicMessageResult> {
   const parsed = await normalizeTopicMessageInput(project, input);
-  if (parsed.mode === "plan") return postTopicPlanMessage(project, changeId, parsed.message, live, parsed.contextRefs);
+  if (parsed.mode === "plan") return postTopicPlanMessage(project, changeId, parsed.message, live, parsed.contextRefs, parsed.attachments);
   const topicState = await getTopicLifecycleState(project, changeId);
   const runningRun = await findRunningRunForChange(project, changeId);
   if (topicState === "archive" && looksLikeImplementationRequest(parsed.message)) {
-    const user = await appendTopicThreadEntry(project, changeId, { type: "user.message", text: parsed.message, status: "follow-up-requested", contextRefs: parsed.contextRefs });
+    const user = await appendTopicThreadEntry(project, changeId, { type: "user.message", text: parsed.message, status: "follow-up-requested", contextRefs: parsed.contextRefs, attachments: parsed.attachments });
     live?.emit({ event: "topic.message", data: user });
     const followUp = await createWorkbenchTopic(project, {
       title: `后续：${parsed.message.split(/\r?\n/)[0].slice(0, 44)}`,
       body: [`Linked follow-up from archived demand ${changeId}.`, "", parsed.message].join("\n"),
       contextRefs: parsed.contextRefs,
+      attachmentIds: parsed.attachments?.map((attachment) => attachment.id),
     });
     const assistant = await appendTopicThreadEntry(project, changeId, {
       type: "assistant.message",
@@ -102,7 +108,7 @@ export async function postTopicMessage(project: ManagedProject, changeId: string
   if (runningRun) {
     const activeTurn = getActiveCodexAppServerTurn(changeId);
     if (activeTurn) {
-      const user = await appendTopicThreadEntry(project, changeId, { type: "user.message", text: parsed.message, status: "steering-sent", runId: activeTurn.runId, contextRefs: parsed.contextRefs });
+      const user = await appendTopicThreadEntry(project, changeId, { type: "user.message", text: parsed.message, status: "steering-sent", runId: activeTurn.runId, contextRefs: parsed.contextRefs, attachments: parsed.attachments });
       live?.emit({ event: "topic.message", data: user });
       await activeTurn.steer(parsed.message);
       const assistant = await appendTopicThreadEntry(project, changeId, {
@@ -121,7 +127,7 @@ export async function postTopicMessage(project: ManagedProject, changeId: string
       });
       return { user, assistant, run: null, codexSessionId: null, mode: "chat", routingDecision: "same-topic", assistantMessage: assistant.text ?? "" };
     }
-    const user = await appendTopicThreadEntry(project, changeId, { type: "user.message", text: parsed.message, status: "pending-feedback", runId: runningRun.id, contextRefs: parsed.contextRefs });
+    const user = await appendTopicThreadEntry(project, changeId, { type: "user.message", text: parsed.message, status: "pending-feedback", runId: runningRun.id, contextRefs: parsed.contextRefs, attachments: parsed.attachments });
     live?.emit({ event: "topic.message", data: user });
     const assistant = await appendTopicThreadEntry(project, changeId, {
       type: "assistant.message",
@@ -132,10 +138,10 @@ export async function postTopicMessage(project: ManagedProject, changeId: string
     live?.emit({ event: "assistant.message", data: assistant });
     return { user, assistant, run: null, codexSessionId: null, mode: "chat", routingDecision: "same-topic", assistantMessage: assistant.text ?? "" };
   }
-  const user = await appendTopicThreadEntry(project, changeId, { type: "user.message", text: parsed.message, contextRefs: parsed.contextRefs });
+  const user = await appendTopicThreadEntry(project, changeId, { type: "user.message", text: parsed.message, contextRefs: parsed.contextRefs, attachments: parsed.attachments });
   live?.emit({ event: "topic.message", data: user });
   const capture = createAssistantTranscriptCapture(live);
-  const chat = await runCodexChat(project, changeId, parsed.message, capture.sink);
+  const chat = await runCodexChat(project, changeId, parsed.message, capture.sink, { attachments: parsed.attachments });
   const assistantText = chat.message.trim() || capture.text.trim();
   const assistant = await appendTopicThreadEntry(project, changeId, {
     type: "assistant.message",
@@ -212,12 +218,28 @@ const workflowActionHandlers = buildWorkbenchActionHandlers({
   findRunningRunForChange,
 });
 
-async function normalizeTopicMessageInput(project: ManagedProject, input: string | TopicMessageInput): Promise<Required<Pick<TopicMessageInput, "mode" | "message">> & { contextRefs?: TopicMessageInput["contextRefs"] }> {
+async function normalizeTopicMessageInput(project: ManagedProject, input: string | TopicMessageInput): Promise<Required<Pick<TopicMessageInput, "mode" | "message">> & { contextRefs?: TopicMessageInput["contextRefs"]; attachments?: TopicAttachment[] }> {
   const mode = typeof input === "string" ? "chat" : input.mode ?? "chat";
   const message = typeof input === "string" ? input : input.message ?? input.text ?? "";
   if (mode !== "chat" && mode !== "plan") throw new Error("Message mode must be chat or plan.");
-  if (!message.trim()) throw new Error("Message text is required.");
+  const attachments = await resolveTopicAttachments(project, typeof input === "string" ? [] : input.attachmentIds);
+  if (!message.trim() && attachments.length === 0) throw new Error("Message text is required.");
   const resolved = await resolveTopicFileReferences(project, message, typeof input === "string" ? [] : input.contextRefs);
-  if (!resolved.text.trim()) throw new Error("Message text is required.");
-  return { mode, message: resolved.text, contextRefs: resolved.contextRefs.length > 0 ? resolved.contextRefs : undefined };
+  const resolvedMessage = resolved.text.trim() || defaultAttachmentMessage(attachments);
+  if (!resolvedMessage.trim()) throw new Error("Message text is required.");
+  return {
+    mode,
+    message: resolvedMessage,
+    contextRefs: resolved.contextRefs.length > 0 ? resolved.contextRefs : undefined,
+    attachments: attachments.length > 0 ? attachments : undefined,
+  };
+}
+
+function defaultAttachmentMessage(attachments: TopicAttachment[]): string {
+  if (attachments.length === 0) return "";
+  const imageCount = attachments.filter((attachment) => attachment.kind === "image").length;
+  const textCount = attachments.filter((attachment) => attachment.kind === "text").length;
+  if (imageCount > 0 && textCount === 0) return "Please inspect the attached image first, describe what you see, and ask a clarifying question if the requested outcome is unclear.";
+  if (textCount > 0 && imageCount === 0) return "Please use the attached file content as message-scoped context for this request.";
+  return "Please use the attached images and files as message-scoped context for this request.";
 }

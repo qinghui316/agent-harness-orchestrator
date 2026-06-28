@@ -58,6 +58,7 @@ export interface TopicThreadEntry {
   intake?: unknown;
   clarification?: unknown;
   contextRefs?: TopicFileReference[];
+  attachments?: TopicAttachment[];
 }
 
 export interface TopicFileReference {
@@ -67,6 +68,23 @@ export interface TopicFileReference {
   extension?: string;
   size?: number;
   source?: "composer";
+}
+
+export type TopicAttachmentKind = "image" | "text" | "unsupported";
+export type TopicAttachmentRuntimeMode = "codex-image-input" | "bounded-text-preview" | "metadata-only";
+
+export interface TopicAttachment {
+  id: string;
+  fileName: string;
+  mediaType: string;
+  kind: TopicAttachmentKind;
+  size: number;
+  hash: string;
+  source: "composer";
+  createdAt: string;
+  storagePath: string;
+  runtimeMode: TopicAttachmentRuntimeMode;
+  message?: string;
 }
 
 export type AssistantTurnBlockKind =
@@ -170,6 +188,7 @@ export interface TopicMessageInput {
   message?: string;
   text?: string;
   contextRefs?: TopicFileReference[];
+  attachmentIds?: string[];
 }
 
 export interface WorkbenchWorkflowActionRequest {

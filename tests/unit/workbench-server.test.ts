@@ -130,6 +130,42 @@ describe("workbench server", () => {
     expect(result.files.some((file) => file.relativePath.startsWith("dist/"))).toBe(false);
   });
 
+  it("stores composer attachments and binds them to the first topic message", async () => {
+    const attachment = await fetch(`${handle!.url}/api/projects/repo/attachments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fileName: "note.md",
+        mediaType: "text/markdown",
+        data: `data:text/markdown;base64,${Buffer.from("# Notes\nUse this context.\n", "utf8").toString("base64")}`,
+      }),
+    });
+    expect(attachment.ok).toBe(true);
+    const attachmentPayload = await attachment.json() as { attachment: { id: string; kind: string; fileName: string } };
+    expect(attachmentPayload.attachment).toMatchObject({ kind: "text", fileName: "note.md" });
+
+    const topicResponse = await fetch(`${handle!.url}/api/projects/repo/workbench/topics`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "Use attachment",
+        body: "Please use the attached context.",
+        attachmentIds: [attachmentPayload.attachment.id],
+        confirm: true,
+      }),
+    });
+    expect(topicResponse.ok).toBe(true);
+    const topicPayload = await topicResponse.json() as { topic: { changeId: string } };
+    const messages = await getJson<{ messages: Array<{ type: string; attachments?: Array<{ id: string; fileName: string }> }> }>(
+      `${handle!.url}/api/projects/repo/workbench/topics/${encodeURIComponent(topicPayload.topic.changeId)}/messages`,
+    );
+    const userMessage = messages.messages.find((message) => message.type === "user.message");
+    expect(userMessage?.attachments).toContainEqual(expect.objectContaining({
+      id: attachmentPayload.attachment.id,
+      fileName: "note.md",
+    }));
+  });
+
   it("serves safe file tree children and read-only previews for the right rail files tab", async () => {
     await mkdir(join(tempDir, "src"), { recursive: true });
     await mkdir(join(tempDir, "node_modules", "pkg"), { recursive: true });

@@ -67,6 +67,7 @@ export interface CodexAppServerTurnOptions {
   onError?: (error: unknown) => void;
   collaborationMode?: "plan";
   model?: string | null;
+  imageInputs?: Array<{ path: string; mediaType?: string; fileName?: string }>;
 }
 
 export interface CodexAppServerTurnResult {
@@ -212,7 +213,7 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
     const turnModel = options.model?.trim() || null;
     const turnRequest = {
       threadId,
-      input: [userTextInput(options.prompt)],
+      input: [userTextInput(options.prompt), ...imageInputs(options.imageInputs)],
       cwd: options.cwd,
       sandboxPolicy: sandboxPolicyFor(options.sandboxPolicy, options.cwd),
       approvalPolicy: "never",
@@ -358,6 +359,16 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
 
 function userTextInput(text: string): Record<string, unknown> {
   return { type: "text", text, text_elements: [] };
+}
+
+function imageInputs(images: CodexAppServerTurnOptions["imageInputs"]): Record<string, unknown>[] {
+  if (!images?.length) return [];
+  return images
+    .map((image) => image.path.trim())
+    .filter(Boolean)
+    .map((path) => path.startsWith("data:") || path.startsWith("http://") || path.startsWith("https://")
+      ? { type: "image", url: path }
+      : { type: "localImage", path });
 }
 
 function sandboxPolicyFor(policy: "read-only" | "workspace-write", cwd: string): Record<string, unknown> {

@@ -8,6 +8,8 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260628-workbench-reference-style-composer-attachments-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260628-aho-harness-onboarding-skill-quality-pass-v3/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260628-workbench-first-onboarding-aho-harness-skill-package-v2/summary.md`.
@@ -107,6 +109,14 @@ Current baseline:
   pass relative path/kind metadata into Codex runtime context without injecting
   file contents. File refs are runtime context only, not Harness artifacts,
   permissions, or workflow truth.
+- Workbench composer now supports reference-style attachments for prepared
+  projects. Users can paste/drop images or attach small text/code files; AHO
+  stores validated copies under app data, binds attachment metadata to the
+  first/current message, renders removable chips, passes bounded text previews
+  and Codex app-server local image inputs when available, and rejects
+  unprepared-project uploads to avoid accidental source-root `.agent-harness`
+  writes. Attachments are runtime context only, not workflow truth or
+  permissions.
 - Workbench Codex model selection now follows the reference-style Codex-first
   pattern: AHO reads Codex `config.toml` with TOML parsing, best-effort reads
   project-scoped runtime model candidates, falls back to Codex default,

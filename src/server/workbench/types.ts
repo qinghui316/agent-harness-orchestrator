@@ -166,6 +166,7 @@ export interface CreateTopicRequest {
   body?: string;
   confirm?: boolean;
   contextRefs?: TopicMessageInput["contextRefs"];
+  attachmentIds?: string[];
 }
 
 export interface TopicMessageRequest {
@@ -173,6 +174,7 @@ export interface TopicMessageRequest {
   message?: string;
   mode?: TopicMessageInput["mode"];
   contextRefs?: TopicMessageInput["contextRefs"];
+  attachmentIds?: string[];
 }
 
 export interface FolderDialogResult {

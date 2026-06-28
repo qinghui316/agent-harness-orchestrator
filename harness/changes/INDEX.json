@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-28T14:44:29.1974691Z",
+    "generated_at":  "2026-06-28T15:49:30.1574127Z",
     "active":  [
 
                ],
@@ -2121,6 +2121,10 @@
                     {
                         "name":  "20260628-workbench-reference-style-app-data-and-real-codex-skills-v1",
                         "path":  "harness/changes/archive/20260628-workbench-reference-style-app-data-and-real-codex-skills-v1"
+                    },
+                    {
+                        "name":  "20260628-workbench-reference-style-composer-attachments-v1",
+                        "path":  "harness/changes/archive/20260628-workbench-reference-style-composer-attachments-v1"
                     },
                     {
                         "name":  "20260628-workbench-reference-style-left-sidebar-and-project-preparation-ux-v1",

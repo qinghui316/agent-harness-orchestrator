@@ -7,7 +7,7 @@ import { createLiveSink } from "./live.js";
 import { readJsonBody } from "./http.js";
 import type { CreateTopicRequest, TopicMessageRequest } from "./types.js";
 
-export async function readCreateTopicBody(request: IncomingMessage): Promise<{ title: string; body?: string; contextRefs?: CreateTopicRequest["contextRefs"] }> {
+export async function readCreateTopicBody(request: IncomingMessage): Promise<{ title: string; body?: string; contextRefs?: CreateTopicRequest["contextRefs"]; attachmentIds?: string[] }> {
   const body = await readJsonBody<CreateTopicRequest>(request);
   if (body.confirm !== true) {
     const error = new Error("Creating a demand conversation requires confirm: true.");
@@ -19,7 +19,7 @@ export async function readCreateTopicBody(request: IncomingMessage): Promise<{ t
     error.name = "BadRequest";
     throw error;
   }
-  return { title: body.title.trim(), body: body.body, contextRefs: body.contextRefs };
+  return { title: body.title.trim(), body: body.body, contextRefs: body.contextRefs, attachmentIds: body.attachmentIds };
 }
 
 export async function readTopicMessageBody(request: IncomingMessage): Promise<TopicMessageRequest> {
@@ -56,7 +56,9 @@ export async function sendTopicMessageLive(input: WorkbenchProjectInput & { proj
 }
 
 function assertTopicMessageText(message: TopicMessageRequest): void {
-  if (typeof (message.message ?? message.text) !== "string" || (message.message ?? message.text ?? "").trim() === "") {
+  const hasText = typeof (message.message ?? message.text) === "string" && (message.message ?? message.text ?? "").trim() !== "";
+  const hasAttachments = Array.isArray(message.attachmentIds) && message.attachmentIds.length > 0;
+  if (!hasText && !hasAttachments) {
     const error = new Error("Message text is required.");
     error.name = "BadRequest";
     throw error;

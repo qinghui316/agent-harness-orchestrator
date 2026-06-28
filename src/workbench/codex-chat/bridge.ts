@@ -16,6 +16,7 @@ import { getEnabledSkillContext, getTransientSystemSkillContext } from "../../sk
 import type { ManagedProject, RunMetadata, RunStatus } from "../../types/index.js";
 import { displayArtifactPath } from "../../workflow-artifacts/manager.js";
 import { emitAssistantEvent, emitLive } from "../live-events.js";
+import { codexImageInputsForAttachments } from "../attachments.js";
 import { appendTopicThreadEntry } from "../topic-thread.js";
 import { readTopicRuntime, writeTopicRuntime } from "../topic-runtime.js";
 import { resolveTopic } from "../topic-resolver.js";
@@ -23,6 +24,7 @@ import { readTopicThreadLog as readThreadLog } from "../thread-log.js";
 import type {
   OrchestrationPlanCard,
   SuggestedAction,
+  TopicAttachment,
   TopicFileReference,
   TopicMessageResult,
   TopicRoutingDecision,
@@ -170,8 +172,8 @@ export async function runOrchestratorPlan(project: ManagedProject, changeId: str
   return { ...parsed, run };
 }
 
-export async function postTopicPlanMessage(project: ManagedProject, changeId: string, message: string, live?: WorkbenchLiveSink, contextRefs?: TopicFileReference[]): Promise<TopicMessageResult> {
-  const user = await appendTopicThreadEntry(project, changeId, { type: "user.message", text: message, contextRefs });
+export async function postTopicPlanMessage(project: ManagedProject, changeId: string, message: string, live?: WorkbenchLiveSink, contextRefs?: TopicFileReference[], attachments?: TopicAttachment[]): Promise<TopicMessageResult> {
+  const user = await appendTopicThreadEntry(project, changeId, { type: "user.message", text: message, contextRefs, attachments });
   live?.emit({ event: "topic.message", data: user });
   const capture = createAssistantTranscriptCapture(live);
   const orchestration = await runOrchestratorPlan(project, changeId, message, capture.sink);
@@ -224,6 +226,7 @@ export async function postTopicPlanMessage(project: ManagedProject, changeId: st
 export interface RunCodexChatOptions {
   planningMode?: boolean;
   transientSystemSkillIds?: string[];
+  attachments?: TopicAttachment[];
 }
 
 export async function runCodexChat(project: ManagedProject, changeId: string, userMessage: string, live?: WorkbenchLiveSink, options: RunCodexChatOptions = {}): Promise<{ run: RunMetadata; message: string; codexSessionId: string | null; planText?: string }> {
@@ -307,6 +310,14 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
       requestedResume: Boolean(runtime.codexSessionId),
       skills: allSkillRecords.map((item) => item.id),
       skillWarnings: [...skillContext.warnings, ...transientSkillContext.warnings],
+      attachments: (options.attachments ?? []).map((attachment) => ({
+        id: attachment.id,
+        kind: attachment.kind,
+        mediaType: attachment.mediaType,
+        size: attachment.size,
+        hash: attachment.hash,
+        runtimeMode: attachment.runtimeMode,
+      })),
     },
   });
   const contextResult = await buildChatContext(project, memory, changeId, userMessage);
@@ -317,6 +328,7 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
   }
   const goalLoopPreparedEvidence = buildGoalLoopContextPreparedEvidence(contextResult);
   const context = contextResult.context;
+  const imageInputs = await codexImageInputsForAttachments(project, options.attachments);
   await writeFile(paths.context, context, "utf8");
   const prompt = `${context}${skillPromptSections ? `\n\n${skillPromptSections}` : ""}\n\n## User Message\n\n${userMessage}\n`;
   await writeFile(paths.prompt, prompt, "utf8");
@@ -358,6 +370,7 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
       onError: (error) => emitLive(live, { event: "error", data: { runId, message: error instanceof Error ? error.message : String(error) } }),
       collaborationMode: options.planningMode ? "plan" : undefined,
       model: effectiveModel.model,
+      imageInputs,
     });
     const status: RunStatus = result.status === "completed" ? "completed" : "failed";
     const lastMessage = result.lastMessage.trim() || result.planText?.trim() || result.error || "Codex app-server did not return a final message.";

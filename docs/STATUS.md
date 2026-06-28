@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260628-workbench-reference-style-composer-attachments-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260628-aho-harness-onboarding-skill-quality-pass-v3/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260628-workbench-first-onboarding-aho-harness-skill-package-v2/summary.md`.
@@ -49,6 +51,16 @@
 
 ## Latest Product Closeout
 
+`harness/changes/archive/20260628-workbench-reference-style-composer-attachments-v1/summary.md`.
+
+It adds reference-style composer attachments for prepared projects: home and
+topic composers support a real paperclip entry, image paste/drop, small
+text/code attachments, removable chips, message-scoped attachment metadata,
+bounded text previews, and Codex app-server local image inputs. Attachments are
+runtime context only and cannot authorize workflow actions, apply/close,
+scheduler, remote/merge/PR, or Harness evolution.
+
+Previous closeout:
 `harness/changes/archive/20260628-aho-harness-onboarding-skill-quality-pass-v3/summary.md`.
 
 It sharpens the bundled `aho-harness-onboarding` system Skill with a concise

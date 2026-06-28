@@ -10,6 +10,7 @@ import type {
   AssistantTurnBlockKind,
   OrchestrationPlanCard,
   TopicFileReference,
+  TopicAttachment,
   TopicThreadEntry,
   TopicThreadEventType,
   WorkbenchAssistantEvent,
@@ -190,6 +191,7 @@ function fromStoredThreadMessage(row: StoredTopicMessage): TopicThreadEntry {
     intake: raw.intake,
     clarification: raw.clarification,
     contextRefs: Array.isArray(raw.contextRefs) ? raw.contextRefs.filter(isTopicFileReference) : undefined,
+    attachments: Array.isArray(raw.attachments) ? raw.attachments.filter(isTopicAttachment) : undefined,
     position: row.position,
   };
 }
@@ -247,6 +249,20 @@ function isTopicFileReference(value: unknown): value is TopicFileReference {
   return typeof value.relativePath === "string"
     && typeof value.name === "string"
     && (value.kind === "file" || value.kind === "directory");
+}
+
+function isTopicAttachment(value: unknown): value is TopicAttachment {
+  if (!isRecord(value)) return false;
+  return typeof value.id === "string"
+    && typeof value.fileName === "string"
+    && typeof value.mediaType === "string"
+    && (value.kind === "image" || value.kind === "text" || value.kind === "unsupported")
+    && typeof value.size === "number"
+    && typeof value.hash === "string"
+    && value.source === "composer"
+    && typeof value.createdAt === "string"
+    && typeof value.storagePath === "string"
+    && (value.runtimeMode === "codex-image-input" || value.runtimeMode === "bounded-text-preview" || value.runtimeMode === "metadata-only");
 }
 
 function isWorkbenchAssistantEvent(value: unknown): value is WorkbenchAssistantEvent {

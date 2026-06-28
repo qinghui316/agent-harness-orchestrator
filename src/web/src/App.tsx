@@ -73,6 +73,7 @@ import type {
   AssistantTurnBlock,
   LiveTurnEvent,
   LiveAssistantTurn,
+  TopicAttachment,
   TopicFileReference,
 } from "./types.js";
 import { extractInlineSkillMentions } from "./shell/skill-mentions.js";
@@ -148,6 +149,7 @@ export function App(): ReactElement {
   const [skillItems, setSkillItems] = useState<SkillListItem[]>([]);
   const [draftSkillOverrides, setDraftSkillOverrides] = useState<Record<string, boolean>>({});
   const [composerFileRefs, setComposerFileRefs] = useState<TopicFileReference[]>([]);
+  const [composerAttachments, setComposerAttachments] = useState<TopicAttachment[]>([]);
   const [selectedGitDiffPath, setSelectedGitDiffPath] = useState<string | null>(null);
   const [decisionPaneCollapsed, setDecisionPaneCollapsed] = useState(true);
   const [rightToolTab, setRightToolTab] = useState<RightToolRailTab>("confirm");
@@ -284,6 +286,8 @@ export function App(): ReactElement {
     setExpandedProjects((current) => new Set([...current, projectId]));
     setSelectedTopic(null);
     setDraftSkillOverrides({});
+    setComposerAttachments([]);
+    setComposerFileRefs([]);
     setCenterTab("conversation");
     setSelectedRun(null);
     setStream(null);
@@ -310,6 +314,7 @@ export function App(): ReactElement {
     const baseSnapshot = projectSnapshots[projectId] ?? (status.project?.id === selectedProjectId ? snapshot : await fetchJson<Snapshot>(`/api/projects/${encodeURIComponent(projectId)}/workbench/snapshot`));
     setComposerText("");
     setComposerFileRefs([]);
+    setComposerAttachments([]);
     setHomeComposerResetToken((value) => value + 1);
     setSelectedProjectId(projectId);
     persistSelectedProjectId(projectId);
@@ -360,6 +365,8 @@ export function App(): ReactElement {
     persistSelectedProjectId(projectId);
     setSelectedTopic(conversationId);
     setDraftSkillOverrides({});
+    setComposerAttachments([]);
+    setComposerFileRefs([]);
     setExpandedProjects((current) => new Set([...current, projectId]));
     setSelectedRun(null);
     setStream(null);
@@ -611,13 +618,52 @@ export function App(): ReactElement {
     setDraftSkillOverrides((current) => ({ ...current, [skillId]: !currentlyActive }));
   }
 
-  async function createTopicFromText(body: string, fileRefs: TopicFileReference[] = []): Promise<void> {
-    if (!selectedProjectId || !body.trim()) return;
+  async function uploadComposerFiles(files: File[]): Promise<TopicAttachment[]> {
+    if (!selectedProjectId || files.length === 0) return [];
+    const uploaded: TopicAttachment[] = [];
+    for (const file of files) {
+      const data = await readFileAsDataUrl(file);
+      const payload = await postJson<{ attachment: TopicAttachment }>(
+        `/api/projects/${encodeURIComponent(selectedProjectId)}/attachments`,
+        { fileName: file.name, mediaType: file.type || "application/octet-stream", data },
+      );
+      uploaded.push({
+        ...payload.attachment,
+        previewUrl: payload.attachment.kind === "image" ? data : undefined,
+      });
+    }
+    return uploaded;
+  }
+
+  async function appendComposerAttachments(files: File[]): Promise<TopicAttachment[]> {
+    try {
+      const uploaded = await uploadComposerFiles(files);
+      setComposerAttachments((current) => mergeTopicAttachments(current, uploaded));
+      return uploaded;
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+      return [];
+    }
+  }
+
+  async function removeComposerAttachment(attachmentId: string): Promise<void> {
+    setComposerAttachments((current) => current.filter((attachment) => attachment.id !== attachmentId));
+    if (!selectedProjectId) return;
+    try {
+      const response = await fetch(`/api/projects/${encodeURIComponent(selectedProjectId)}/attachments/${encodeURIComponent(attachmentId)}`, { method: "DELETE" });
+      if (!response.ok) throw new Error(await response.text());
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
+
+  async function createTopicFromText(body: string, fileRefs: TopicFileReference[] = [], attachmentIds: string[] = []): Promise<void> {
+    if (!selectedProjectId || (!body.trim() && attachmentIds.length === 0)) return;
     setActionRunning("topic.create");
     try {
       const resolved = resolveComposerTextWithContext(body, fileRefs);
-      const demandBody = resolved.text;
-      if (!demandBody) return;
+      const demandBody = resolved.text || defaultAttachmentPrompt(attachmentIds.length);
+      if (!demandBody && attachmentIds.length === 0) return;
       const title = demandBody.split(/\r?\n/)[0].slice(0, 60);
       const modeForNewTopic = automationMode;
       const effectiveProjectId = await ensureProjectReadyForDemand(selectedProjectId);
@@ -626,6 +672,7 @@ export function App(): ReactElement {
         title,
         body: demandBody,
         contextRefs: resolved.contextRefs,
+        attachmentIds,
         confirm: true,
       });
       await applyTopicSkillOverrides(result.topic.changeId, resolved.overrides, effectiveProjectId);
@@ -634,6 +681,7 @@ export function App(): ReactElement {
       setDraftSkillOverrides({});
       setComposerText("");
       setComposerFileRefs([]);
+      setComposerAttachments([]);
       setSelectedProjectId(effectiveProjectId);
       persistSelectedProjectId(effectiveProjectId);
       setSelectedTopic(result.topic.changeId);
@@ -650,7 +698,8 @@ export function App(): ReactElement {
   }
 
   async function sendTopicMessage(): Promise<void> {
-    if (!selectedProjectId || !activeTopic || !composerText.trim()) return;
+    const attachmentIds = composerAttachments.map((attachment) => attachment.id);
+    if (!selectedProjectId || !activeTopic || (!composerText.trim() && attachmentIds.length === 0)) return;
     if (activeTopic.state !== "active") {
       setError("已完成或稍后处理的需求对话为只读，不能继续发送消息。");
       return;
@@ -661,30 +710,35 @@ export function App(): ReactElement {
       await applyTopicSkillOverrides(activeTopic.id, resolved.overrides);
       await loadSkillSummary(selectedProjectId, activeTopic.id);
     }
-    if (!message) {
+    if (!message && attachmentIds.length === 0) {
       setComposerText("");
       setComposerFileRefs([]);
       return;
     }
     const runningConversation = activeWorkpad.conversationLifecycle === "running" || activeWorkpad.runControlState?.canStop || currentWorkpadSummary(snapshot, activeTopic)?.runtimeStatus === "running";
+    if (runningConversation && attachmentIds.length > 0) {
+      setError("当前执行中暂不支持追加附件；请等待执行暂停后再发送。");
+      return;
+    }
+    const outboundMessage = message || defaultAttachmentPrompt(attachmentIds.length);
     if (runningConversation) {
-      await runWorkflowAction("conversation.steer", { prompt: message });
+      await runWorkflowAction("conversation.steer", { prompt: outboundMessage });
       setComposerFileRefs([]);
       return;
     }
     const pendingClarificationCount = activeWorkpad.intake.pendingClarifications?.length ?? 0;
-    if (composerMode === "chat" && (activeWorkpad.nextAction.actionType === "planning.generate" || activeWorkpad.nextAction.actionType === "planning.revise")) {
-      await runWorkflowAction(activeWorkpad.nextAction.actionType, { prompt: message });
+    if (attachmentIds.length === 0 && composerMode === "chat" && (activeWorkpad.nextAction.actionType === "planning.generate" || activeWorkpad.nextAction.actionType === "planning.revise")) {
+      await runWorkflowAction(activeWorkpad.nextAction.actionType, { prompt: outboundMessage });
       return;
     }
-    if (composerMode === "chat" && (activeWorkpad.nextAction.actionType === "intake.reanalyze" || activeWorkpad.nextAction.actionType === "change.spec.propose" || pendingClarificationCount > 0)) {
+    if (attachmentIds.length === 0 && composerMode === "chat" && (activeWorkpad.nextAction.actionType === "intake.reanalyze" || activeWorkpad.nextAction.actionType === "change.spec.propose" || pendingClarificationCount > 0)) {
       setActionRunning("intake.reanalyze");
       setComposerText("");
       setError(null);
       try {
         const result = await postJson<{ snapshot: Snapshot }>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/intake/reanalyze`, {
           changeId: activeTopic.id,
-          message,
+          message: outboundMessage,
           contextRefs: resolved.contextRefs,
         });
         setSnapshot(result.snapshot);
@@ -699,10 +753,12 @@ export function App(): ReactElement {
     try {
       await consumeWorkbenchLiveStream(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/topics/${encodeURIComponent(activeTopic.id)}/messages/live`, {
         mode: composerMode,
-        message,
+        message: outboundMessage,
         contextRefs: resolved.contextRefs,
+        attachmentIds,
       }, handleLiveEvent);
       setComposerFileRefs([]);
+      setComposerAttachments([]);
     } finally {
       setActionRunning(null);
     }
@@ -1000,6 +1056,7 @@ export function App(): ReactElement {
     setSelectedRunGraphNodeId(null);
     setLoadedTranscript(null);
     setLoadedRunGraph(null);
+    setComposerAttachments([]);
   }, [activeTopic?.id]);
 
   async function loadEarlierTranscriptPage(): Promise<void> {
@@ -1022,7 +1079,7 @@ export function App(): ReactElement {
   }
 
   async function createTopicFromComposer(): Promise<void> {
-    await createTopicFromText(composerText, composerFileRefs);
+    await createTopicFromText(composerText, composerFileRefs, composerAttachments.map((attachment) => attachment.id));
   }
 
   useEffect(() => {
@@ -1153,6 +1210,8 @@ export function App(): ReactElement {
             projects={projects}
             selectedProjectId={selectedProjectId}
             onCreateDemand={createTopicFromText}
+            onAttachFiles={uploadComposerFiles}
+            onRemoveAttachment={removeComposerAttachment}
             onAutomationModeChange={handleComposerExecutionModeChange}
             enabledSkillCount={enabledSkillCount}
             skills={skillItems}
@@ -1221,6 +1280,9 @@ export function App(): ReactElement {
                   skills={skillItems}
                   activeSkillIds={selectedComposerSkillIds}
                   selectedFileRefs={composerFileRefs}
+                  attachments={composerAttachments}
+                  onAttachFiles={(files) => { void appendComposerAttachments(files); }}
+                  onRemoveAttachment={removeComposerAttachment}
                   onSelectedFileRefsChange={setComposerFileRefs}
                   onToggleSkill={toggleComposerSkill}
                   onOpenSkillsSettings={() => openSettings("skills")}
@@ -1297,6 +1359,38 @@ export function App(): ReactElement {
       {activeTopic && centerTab !== "settings" ? <BottomStatusBar snapshot={snapshot} project={selectedProjectStatus} topic={activeTopic} /> : null}
     </div>
   );
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error("Failed to read attachment."));
+    reader.onload = () => {
+      if (typeof reader.result !== "string") {
+        reject(new Error("Attachment reader did not return a data URL."));
+        return;
+      }
+      resolve(reader.result);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function mergeTopicAttachments(current: TopicAttachment[], next: TopicAttachment[]): TopicAttachment[] {
+  const result = [...current];
+  const seen = new Set(current.map((attachment) => attachment.id));
+  for (const attachment of next) {
+    if (seen.has(attachment.id)) continue;
+    seen.add(attachment.id);
+    result.push(attachment);
+  }
+  return result;
+}
+
+function defaultAttachmentPrompt(count: number): string {
+  return count === 1
+    ? "请先查看我附上的文件，然后根据附件内容继续。"
+    : "请先查看我附上的文件，然后根据这些附件内容继续。";
 }
 
 function emptyAgentRunGraph(): DemandAgentRunGraph {

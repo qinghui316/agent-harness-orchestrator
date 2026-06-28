@@ -113,6 +113,21 @@ export type TopicFileReference = {
   size?: number;
   source?: "composer";
 };
+
+export type TopicAttachment = {
+  id: string;
+  fileName: string;
+  mediaType: string;
+  kind: "image" | "text" | "unsupported";
+  size: number;
+  hash: string;
+  source: "composer";
+  createdAt: string;
+  storagePath: string;
+  runtimeMode: "codex-image-input" | "bounded-text-preview" | "metadata-only";
+  message?: string;
+  previewUrl?: string;
+};
 export type ProjectFileTreeResult = {
   path: string;
   parentPath: string | null;

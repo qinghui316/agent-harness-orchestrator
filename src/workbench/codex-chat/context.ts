@@ -1,8 +1,9 @@
 import { getChangeStatusForChange } from "../../change/manager.js";
 import { buildContextProjection } from "../../run/manager.js";
 import type { ManagedProject, ResolvedMemory } from "../../types/index.js";
+import { renderTopicAttachmentsForPrompt } from "../attachments.js";
 import { renderTopicFileReferencesForPrompt } from "../file-references.js";
-import type { TopicFileReference } from "../types.js";
+import type { TopicAttachment, TopicFileReference } from "../types.js";
 import { resolveTopic } from "../topic-resolver.js";
 import { readTopicThreadLog as readThreadLog } from "../thread-log.js";
 import { buildVisibleGoalLoopMainAgentContextSection } from "./goal-loop-context.js";
@@ -47,7 +48,9 @@ export async function buildChatContext(
   const { changePath } = await resolveTopic(project, changeId);
   const recentMessages = (await readThreadLog(memory, changePath)).slice(-12);
   const referencedFiles = topicFileReferencesFromRecentMessages(recentMessages);
+  const attachments = topicAttachmentsFromRecentMessages(recentMessages);
   const goalLoopSection = await buildVisibleGoalLoopMainAgentContextSection(project, memory, changePath, changeId);
+  const attachmentContext = await renderTopicAttachmentsForPrompt(project, attachments);
   return {
     goalLoopNextStepPacketId: goalLoopSection?.goalLoopNextStepPacketId,
     goalLoopControllerPolicyId: goalLoopSection?.goalLoopControllerPolicyId,
@@ -70,6 +73,7 @@ export async function buildChatContext(
       buildContextProjection(status),
       ...(goalLoopSection ? ["", goalLoopSection.markdown] : []),
       ...(referencedFiles.length > 0 ? ["", ...renderTopicFileReferencesForPrompt(referencedFiles), ""] : []),
+      ...(attachmentContext.length > 0 ? ["", ...attachmentContext, ""] : []),
       "## Recent Topic Messages",
       "",
       ...recentMessages.map((entry) => `- ${entry.type}: ${entry.text ?? entry.actionType ?? entry.status ?? ""}`),
@@ -91,7 +95,9 @@ export async function buildOrchestratorContext(
   const status = await getChangeStatusForChange(project, changeId);
   const recentMessages = (await readThreadLog(memory, changePath)).slice(-16);
   const referencedFiles = topicFileReferencesFromRecentMessages(recentMessages);
+  const attachments = topicAttachmentsFromRecentMessages(recentMessages);
   const goalLoopSection = await buildVisibleGoalLoopMainAgentContextSection(project, memory, changePath, changeId);
+  const attachmentContext = await renderTopicAttachmentsForPrompt(project, attachments);
   return {
     goalLoopNextStepPacketId: goalLoopSection?.goalLoopNextStepPacketId,
     goalLoopControllerPolicyId: goalLoopSection?.goalLoopControllerPolicyId,
@@ -114,6 +120,7 @@ export async function buildOrchestratorContext(
       buildContextProjection(status),
       ...(goalLoopSection ? ["", goalLoopSection.markdown] : []),
       ...(referencedFiles.length > 0 ? ["", ...renderTopicFileReferencesForPrompt(referencedFiles), ""] : []),
+      ...(attachmentContext.length > 0 ? ["", ...attachmentContext, ""] : []),
       "## Current Topic",
       "",
       `- Change ID: ${changeId}`,
@@ -147,6 +154,19 @@ function topicFileReferencesFromRecentMessages(messages: Awaited<ReturnType<type
     }
   }
   return refs;
+}
+
+function topicAttachmentsFromRecentMessages(messages: Awaited<ReturnType<typeof readThreadLog>>): TopicAttachment[] {
+  const attachments: TopicAttachment[] = [];
+  const seen = new Set<string>();
+  for (const message of messages) {
+    for (const attachment of message.attachments ?? []) {
+      if (seen.has(attachment.id)) continue;
+      seen.add(attachment.id);
+      attachments.push(attachment);
+    }
+  }
+  return attachments;
 }
 
 function buildControlledLoopStatePromptEvidence(

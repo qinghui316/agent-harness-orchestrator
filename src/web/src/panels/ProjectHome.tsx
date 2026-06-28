@@ -8,12 +8,13 @@ import {
   X,
 } from "lucide-react";
 import { ComposerControls } from "../shell/ComposerControls.js";
+import { ComposerAttachButton, ComposerAttachmentList, filesFromDrop, hasFileDrag, imageFilesFromPaste } from "../shell/ComposerAttachments.js";
 import { FileMentionPicker } from "../shell/FileMentionPicker.js";
 import { SkillMentionPicker } from "../shell/SkillMentionPicker.js";
 import type { ComposerExecutionMode } from "../shell/composer-session.js";
 import { WorkspacePicker } from "./WorkspacePicker.js";
 import { InfoRow } from "./ProjectPanels.js";
-import type { CodexDiagnostics, CodexModelCandidate, CodexModelSettingsSnapshot, ProjectStatus, SkillListItem, Snapshot, TopicFileReference } from "../types.js";
+import type { CodexDiagnostics, CodexModelCandidate, CodexModelSettingsSnapshot, ProjectStatus, SkillListItem, Snapshot, TopicAttachment, TopicFileReference } from "../types.js";
 
 export function ProjectHomeView({
   projects,
@@ -51,6 +52,8 @@ export function ProjectReadinessHome({
   projects,
   selectedProjectId,
   onCreateDemand,
+  onAttachFiles,
+  onRemoveAttachment,
   onAutomationModeChange,
   enabledSkillCount,
   skills,
@@ -68,7 +71,9 @@ export function ProjectReadinessHome({
   onOpenModelSettings?: () => void;
   projects: ProjectStatus[];
   selectedProjectId: string | null;
-  onCreateDemand: (body: string, fileRefs?: TopicFileReference[]) => Promise<void>;
+  onCreateDemand: (body: string, fileRefs?: TopicFileReference[], attachmentIds?: string[]) => Promise<void>;
+  onAttachFiles?: (files: File[]) => Promise<TopicAttachment[]>;
+  onRemoveAttachment?: (id: string) => void | Promise<void>;
   onAutomationModeChange: (mode: ComposerExecutionMode) => void;
   enabledSkillCount?: number;
   skills?: SkillListItem[];
@@ -82,12 +87,15 @@ export function ProjectReadinessHome({
   const readiness = projectReadiness(project, snapshot);
   const [draft, setDraft] = useState("");
   const [draftFileRefs, setDraftFileRefs] = useState<TopicFileReference[]>([]);
+  const [draftAttachments, setDraftAttachments] = useState<TopicAttachment[]>([]);
+  const [dragOver, setDragOver] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const lastResetToken = useRef(resetToken);
   const memoryReady = snapshot.memory.harnessReady ?? project.memory?.harnessReady ?? project.harness.readiness === "ready";
   const historyUnavailable = project.managed && project.memory?.memoryAvailable === false;
   const canStartDemand = project.pathExists && !historyUnavailable;
+  const canAttach = canStartDemand && memoryReady;
 
   useEffect(() => {
     if (resetToken === undefined) return;
@@ -95,20 +103,33 @@ export function ProjectReadinessHome({
     lastResetToken.current = resetToken;
     setDraft("");
     setDraftFileRefs([]);
+    setDraftAttachments([]);
     window.setTimeout(() => textareaRef.current?.focus(), 0);
   }, [resetToken]);
 
   async function submitDemand(): Promise<void> {
     const body = draft.trim();
-    if (!body || !canStartDemand) return;
+    if ((!body && draftAttachments.length === 0) || !canStartDemand) return;
     setSubmitting(true);
     try {
-      await onCreateDemand(body, draftFileRefs);
+      await onCreateDemand(body, draftFileRefs, draftAttachments.map((attachment) => attachment.id));
       setDraft("");
       setDraftFileRefs([]);
+      setDraftAttachments([]);
     } finally {
       setSubmitting(false);
     }
+  }
+
+  async function attachFiles(files: File[]): Promise<void> {
+    if (!canAttach || !onAttachFiles || files.length === 0) return;
+    const uploaded = await onAttachFiles(files);
+    setDraftAttachments((current) => mergeAttachments(current, uploaded));
+  }
+
+  async function removeAttachment(id: string): Promise<void> {
+    setDraftAttachments((current) => current.filter((attachment) => attachment.id !== id));
+    await onRemoveAttachment?.(id);
   }
 
   return (
@@ -125,7 +146,24 @@ export function ProjectReadinessHome({
           onRefresh={onRefresh}
         />
 
-        <section className="home-demand-composer" aria-label="新建需求对话">
+        <section
+          className={`home-demand-composer ${dragOver ? "is-drag-over" : ""}`}
+          aria-label="新建需求对话"
+          onDragOver={(event) => {
+            if (!canAttach || !hasFileDrag(event)) return;
+            event.preventDefault();
+            setDragOver(true);
+          }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(event) => {
+            if (!canAttach) return;
+            const files = filesFromDrop(event);
+            if (files.length === 0) return;
+            event.preventDefault();
+            setDragOver(false);
+            void attachFiles(files);
+          }}
+        >
           <ComposerControls
             modelLabel={modelLabel}
             onOpenModelSettings={onOpenModelSettings}
@@ -148,10 +186,18 @@ export function ProjectReadinessHome({
             selectedRefs={draftFileRefs}
             onSelectedRefsChange={setDraftFileRefs}
           />
+          <ComposerAttachmentList attachments={draftAttachments} onRemove={removeAttachment} />
           <textarea
             ref={textareaRef}
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
+            onPaste={(event) => {
+              if (!canAttach) return;
+              const files = imageFilesFromPaste(event);
+              if (files.length === 0) return;
+              event.preventDefault();
+              void attachFiles(files);
+            }}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
@@ -163,10 +209,11 @@ export function ProjectReadinessHome({
             aria-label="新建需求输入框"
           />
           <div className="home-demand-composer-footer">
+            <ComposerAttachButton disabled={!canAttach || submitting} onAttachFiles={attachFiles} />
             <span className="composer-footer-spacer" />
             <button
               className="composer-send"
-              disabled={!canStartDemand || submitting || !draft.trim()}
+              disabled={!canStartDemand || submitting || (!draft.trim() && draftAttachments.length === 0)}
               onClick={() => void submitDemand()}
               title="创建需求对话"
             >
@@ -177,6 +224,17 @@ export function ProjectReadinessHome({
       </div>
     </section>
   );
+}
+
+function mergeAttachments(current: TopicAttachment[], next: TopicAttachment[]): TopicAttachment[] {
+  const result = [...current];
+  const seen = new Set(current.map((attachment) => attachment.id));
+  for (const attachment of next) {
+    if (seen.has(attachment.id)) continue;
+    seen.add(attachment.id);
+    result.push(attachment);
+  }
+  return result;
 }
 
 export function CodexDiagnosticsCard({ diagnostics, project }: { diagnostics: CodexDiagnostics | null; project?: ProjectStatus | null }): ReactElement {

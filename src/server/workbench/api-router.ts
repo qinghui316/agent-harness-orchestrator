@@ -4,6 +4,7 @@ import { matchProjectWorkbenchRoute } from "./routes.js";
 import { resolveProjectInputWithDirect } from "./direct-project.js";
 import { getWorkbenchCodexDiagnostics } from "./codex-diagnostics.js";
 import { listProjectFileChildren, readProjectFilePreview, searchProjectFiles } from "../../workbench/file-references.js";
+import { createTopicAttachment, deleteTopicAttachment } from "../../workbench/attachments.js";
 import { getProjectGitDiff, getProjectGitStatus } from "../../workbench/git-panel.js";
 import { getCodexBridgeStatus, syncCodexBridge } from "../../codex/bridge.js";
 import { getCodexModelSettingsSnapshot, setSelectedCodexModel } from "../../codex/model-settings.js";
@@ -116,6 +117,35 @@ export async function handleApi(context: WorkbenchServerContext, request: Incomi
         limit,
       }),
     });
+    return;
+  }
+  const attachmentCreateMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/attachments$/);
+  if (request.method === "POST" && attachmentCreateMatch?.[1]) {
+    const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(attachmentCreateMatch[1]));
+    if (!input.project) {
+      sendJson(response, 400, { error: "Composer attachments require a selected project." });
+      return;
+    }
+    try {
+      const body = await readJsonBody<{ fileName?: string; mediaType?: string; data?: string }>(request);
+      sendJson(response, 200, { attachment: await createTopicAttachment(input.project, body) });
+    } catch (error) {
+      sendJson(response, error instanceof Error && error.name === "BadRequest" ? 400 : 500, { error: error instanceof Error ? error.message : String(error) });
+    }
+    return;
+  }
+  const attachmentDeleteMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/attachments\/([^/]+)$/);
+  if (request.method === "DELETE" && attachmentDeleteMatch?.[1] && attachmentDeleteMatch?.[2]) {
+    const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(attachmentDeleteMatch[1]));
+    if (!input.project) {
+      sendJson(response, 400, { error: "Composer attachments require a selected project." });
+      return;
+    }
+    try {
+      sendJson(response, 200, await deleteTopicAttachment(input.project, decodeURIComponent(attachmentDeleteMatch[2])));
+    } catch (error) {
+      sendJson(response, error instanceof Error && error.name === "BadRequest" ? 400 : 500, { error: error instanceof Error ? error.message : String(error) });
+    }
     return;
   }
   const fileChildrenMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/files\/children$/);
