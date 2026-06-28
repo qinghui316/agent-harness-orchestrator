@@ -17,6 +17,7 @@ import {
   ProjectCreateForm,
 } from "../panels/ProjectPanels.js";
 import { userFacingText, workpadStatusLabel } from "../formatters.js";
+import { postJson } from "../api.js";
 import type {
   ProjectStatus,
   Snapshot,
@@ -206,11 +207,20 @@ export function currentWorkpadSummary(snapshot: Snapshot, topic: TopicDetail | n
 export function UnmanagedProjectView({ project, onDone }: { project: ProjectStatus | null; onDone: () => Promise<void> }): ReactElement {
   if (!project?.project) return <EmptyWorkbench title="项目不可用" description="请选择左侧项目或重新刷新项目列表。" />;
   const issue = memoryStatusIssue(project);
+  const temporaryDirect = !project.memory?.registered;
   return (
     <section className="empty-workbench">
-      <p className="eyebrow">项目已添加</p>
+      <p className="eyebrow">{temporaryDirect ? "临时打开" : "项目已添加"}</p>
       <h1>{project.project.name}</h1>
       <p>{project.path}</p>
+      {temporaryDirect ? (
+        <button
+          className="outline-button"
+          onClick={() => void postJson("/api/projects", { path: project.path, name: project.project?.name, confirm: true }).then(() => onDone())}
+        >
+          保存到项目列表
+        </button>
+      ) : null}
       <p>{issue?.detail ?? "这个项目还没有初始化 Harness。初始化后会创建项目入口地图和 external-local 记忆。"}</p>
       {issue?.kind === "missing-external-memory" ? null : <HarnessInitButton projectId={project.project.id} onDone={onDone} />}
     </section>

@@ -1,7 +1,8 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { getAhoHome } from "../../src/fs/path.js";
 import { ProjectRegistryStore } from "../../src/registry/store.js";
 
 let tempDir: string;
@@ -15,6 +16,18 @@ afterEach(async () => {
 });
 
 describe("ProjectRegistryStore", () => {
+  it("uses the user home .agent-harness directory as the default app data home", () => {
+    const previous = process.env.AHO_HOME;
+    try {
+      delete process.env.AHO_HOME;
+      expect(getAhoHome()).toBe(resolve(homedir(), ".agent-harness"));
+      expect(new ProjectRegistryStore().registryPath).toBe(join(resolve(homedir(), ".agent-harness"), "registry.json"));
+    } finally {
+      if (previous === undefined) delete process.env.AHO_HOME;
+      else process.env.AHO_HOME = previous;
+    }
+  });
+
   it("creates and reads registered projects", async () => {
     const store = new ProjectRegistryStore(join(tempDir, "home"));
     const projectPath = join(tempDir, "my-project");

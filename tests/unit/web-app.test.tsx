@@ -5304,18 +5304,32 @@ describe("Workbench web app", () => {
     };
     const skillPayload = {
       roots: [{ rootPath: "E:/skills", sourceKind: "custom", updatedAt: "2026-06-27T00:00:00.000Z" }],
-      skills: [{
-        skillId: "pricing-helper",
-        name: "pricing-helper",
-        description: "Pricing helper.",
-        sourcePath: "E:/skills/pricing-helper",
-        sourceKind: "custom",
-        sourceHash: "hash-a",
-        enabledProject: true,
-        enabledTopics: [],
-        disabledTopics: [],
-        runtimeTargets: [{ provider: "codex", status: "not-synced" }],
-      }],
+      skills: [
+        {
+          skillId: "pricing-helper",
+          name: "pricing-helper",
+          description: "Pricing helper.",
+          sourcePath: "E:/skills/pricing-helper",
+          sourceKind: "custom",
+          sourceHash: "hash-a",
+          enabledProject: true,
+          enabledTopics: [],
+          disabledTopics: [],
+          runtimeTargets: [{ provider: "codex", status: "not-synced", materializationMode: "aho-managed" }],
+        },
+        {
+          skillId: "native-helper",
+          name: "native-helper",
+          description: "Native Codex helper.",
+          sourcePath: "C:/Users/qinghui/.codex/skills/native-helper",
+          sourceKind: "global-codex",
+          sourceHash: "hash-native",
+          enabledProject: false,
+          enabledTopics: [],
+          disabledTopics: [],
+          runtimeTargets: [{ provider: "codex", status: "native", materializationMode: "native" }],
+        },
+      ],
       bridge: { state: "out-of-sync" },
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -5340,6 +5354,7 @@ describe("Workbench web app", () => {
     const panel = await screen.findByRole("region", { name: "设置" });
     expect(within(panel).getAllByRole("heading", { name: "技能" }).length).toBeGreaterThan(0);
     expect(within(panel).getAllByText("pricing-helper").length).toBeGreaterThan(0);
+    expect(within(panel).getAllByText("native-helper").length).toBeGreaterThan(0);
     expect(within(panel).getByText("custom: E:/skills")).toBeTruthy();
 
     fireEvent.change(within(panel).getByLabelText("Skill 根目录"), { target: { value: "E:/more-skills" } });
@@ -5352,6 +5367,9 @@ describe("Workbench web app", () => {
       expect(calls).toContainEqual(["/api/projects/repo/skills/codex-bridge/sync", "POST"]);
     });
     fireEvent.click(within(panel).getByRole("button", { name: "禁用" }));
+    fireEvent.click(within(panel).getByRole("button", { name: /native-helper/ }));
+    expect(within(panel).getAllByText("Codex 原生可用").length).toBeGreaterThan(0);
+    expect(within(panel).queryByRole("button", { name: "同步 Codex" })).toBeNull();
 
     const calls = vi.mocked(fetch).mock.calls.map(([url, init]) => [String(url), init?.method ?? "GET"]);
     expect(calls).toContainEqual(["/api/projects/repo/skills/pricing-helper/enable", "POST"]);

@@ -1,11 +1,11 @@
 import { existsSync } from "node:fs";
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { hashText, listAgentRoles, syncAgentCatalog } from "../agent/catalog.js";
+import { resolveCodexHome } from "./home.js";
 import { writeJsonFile } from "../fs/json.js";
 import { resolveProjectMemory } from "../memory/resolver.js";
-import { copySkillToBridge, hashSkillDirectory, listSkills } from "../skill/catalog.js";
+import { copySkillToBridge, hashSkillDirectory, isNativeCodexSkill, listSkills } from "../skill/catalog.js";
 import type { ManagedProject } from "../types/index.js";
 import { WorkbenchStore } from "../workbench/store.js";
 
@@ -57,7 +57,7 @@ export interface CodexBridgeSyncResult {
 }
 
 export function getCodexBridgePaths(): CodexBridgePaths {
-  const codexHome = process.env.CODEX_HOME ? resolve(process.env.CODEX_HOME) : join(homedir(), ".codex");
+  const codexHome = resolveCodexHome();
   const root = join(codexHome, "plugins", "aho-managed");
   return {
     root,
@@ -96,6 +96,7 @@ export async function getCodexBridgeStatus(project?: ManagedProject): Promise<Co
       const enabled = skills.filter((item) => item.enabledProject || item.enabledTopics.length > 0);
       const outOfSync: string[] = [];
       for (const skill of enabled) {
+        if (isNativeCodexSkill(skill)) continue;
         const sync = store.readBridgeSync(project.id, skill.skillId);
         const materializedExists = sync ? existsSync(sync.materializedPath) : false;
         if (!sync || !materializedExists || sync.sourceHash !== skill.sourceHash) outOfSync.push(skill.skillId);
@@ -138,7 +139,10 @@ export async function syncCodexBridge(project: ManagedProject): Promise<CodexBri
     const skills = await listSkills(project);
     const enablements = store.listSkillEnablement(project.id);
     const enabledIds = new Set(enablements.filter((item) => item.enabled).map((item) => item.skillId));
-    for (const skill of skills.filter((item) => enabledIds.has(item.skillId))) {
+    for (const skill of skills.filter((item) => enabledIds.has(item.skillId) && isNativeCodexSkill(item))) {
+      await rm(join(paths.skillsRoot, `${project.id}__${skill.skillId}`), { recursive: true, force: true });
+    }
+    for (const skill of skills.filter((item) => enabledIds.has(item.skillId) && !isNativeCodexSkill(item))) {
       const materializedSkillId = `${project.id}__${skill.skillId}`;
       const target = join(paths.skillsRoot, materializedSkillId);
       await copySkillToBridge(skill.sourcePath, target, materializedSkillId);

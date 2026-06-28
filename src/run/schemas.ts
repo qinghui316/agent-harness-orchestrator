@@ -59,7 +59,10 @@ export const runMetadataSchema = z.object({
   promptStack: z.array(z.string()).optional(),
   enabledSkills: z.array(z.object({
     id: z.string(),
+    runtimeTarget: z.literal("codex").optional(),
+    sourceKind: z.enum(["managed", "project-codex", "global-codex", "custom"]).optional(),
     sourceHash: z.string(),
+    materializationMode: z.enum(["native", "aho-managed"]).optional(),
     materializedHash: z.string().nullable().optional(),
     bridge: z.string().optional(),
     version: z.string().optional(),

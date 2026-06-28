@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260628-workbench-reference-style-app-data-and-real-codex-skills-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260628-workbench-reference-style-sidebar-settings-skills-ui-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260628-workbench-ui-acceptance-deeplink-restore-v1/summary.md`.
@@ -33,6 +35,16 @@
 
 ## Latest Product Closeout
 
+`harness/changes/archive/20260628-workbench-reference-style-app-data-and-real-codex-skills-v1/summary.md`.
+
+It aligns AHO project history and Skills with the `desktop-cc-gui` style
+runtime model: default app data resolves to the user-home `.agent-harness`
+directory, projects can be saved from direct/temporary opens into the stable
+registry, `$CODEX_HOME/skills` are discovered as native read-only Codex Skills,
+and only custom/managed/project Skills materialize through the AHO-managed
+Codex bridge. Old `E:\aho-accept` acceptance temp children were safely cleaned.
+
+Previous closeout:
 `harness/changes/archive/20260628-workbench-reference-style-sidebar-settings-skills-ui-v1/summary.md`.
 
 It realigns the Harness-mode product shell with the `desktop-cc-gui`

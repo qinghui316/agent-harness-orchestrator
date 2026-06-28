@@ -455,13 +455,21 @@ describe("workbench server", () => {
       const status = await getJson<{ mode: string; directProjectId: string | null }>(`${directHandle.url}/api/app/status`);
       expect(status).toMatchObject({ mode: "project", directProjectId: "external-repo" });
 
-      const projects = await getJson<{ projects: Array<{ project: { id: string } | null; memory: { memoryMode: string; memoryAvailable: boolean; harnessReady: boolean } }> }>(`${directHandle.url}/api/projects`);
+      const projects = await getJson<{ projects: Array<{ project: { id: string } | null; memory: { registered: boolean; memoryMode: string; memoryAvailable: boolean; harnessReady: boolean } }> }>(`${directHandle.url}/api/projects`);
       expect(projects.projects).toHaveLength(1);
       expect(projects.projects[0]).toMatchObject({
         project: { id: "external-repo" },
-        memory: { memoryMode: "external-local", memoryAvailable: true, harnessReady: true },
+        memory: { registered: false, memoryMode: "external-local", memoryAvailable: true, harnessReady: true },
       });
       expect(await store.listProjects()).toHaveLength(0);
+
+      const saved = await fetch(`${directHandle.url}/api/projects`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: sourceRoot, name: "External Repo", confirm: true }),
+      });
+      expect(saved.ok).toBe(true);
+      expect(await store.listProjects()).toHaveLength(1);
 
       const snapshot = await getJson<SnapshotResponse>(`${directHandle.url}/api/projects/external-repo/workbench/snapshot`);
       expect(snapshot.left.topics[0]).toMatchObject({ id: "restored-topic" });

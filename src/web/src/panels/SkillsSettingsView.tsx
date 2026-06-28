@@ -31,6 +31,8 @@ export function SkillsSettingsView({
   }, [query, skills]);
   const selectedSkill = skills.find((skill) => skill.skillId === selectedSkillId) ?? filteredSkills[0] ?? null;
   const enabledCount = skills.filter((skill) => skill.enabledProject || skill.enabledTopics.length > 0).length;
+  const selectedTarget = selectedSkill?.runtimeTargets.find((item) => item.provider === "codex");
+  const selectedNative = selectedTarget?.status === "native";
 
   async function load(): Promise<void> {
     if (!projectId) {
@@ -135,7 +137,7 @@ export function SkillsSettingsView({
                   <strong>{skill.name}</strong>
                   <small>{skill.description || "无描述"}</small>
                 </span>
-                <span className={`skill-sync-state ${target?.status ?? "not-synced"}`}>{target?.status ?? "not-synced"}</span>
+                <span className={`skill-sync-state ${target?.status ?? "not-synced"}`}>{runtimeStatusLabel(target?.status)}</span>
               </button>
             );
           })}
@@ -158,18 +160,21 @@ export function SkillsSettingsView({
                     await postJson(`/api/projects/${encodeURIComponent(projectId)}/skills/${encodeURIComponent(selectedSkill.skillId)}/enable`, { enabled: !selectedSkill.enabledProject });
                   })}
                 >{selectedSkill.enabledProject ? "禁用" : "启用"}</button>
-                <button className="outline-button" disabled={busy} onClick={() => run(async () => { await postJson(`/api/projects/${encodeURIComponent(projectId)}/skills/codex-bridge/sync`, {}); })}>同步 Codex</button>
+                {!selectedNative ? (
+                  <button className="outline-button" disabled={busy} onClick={() => run(async () => { await postJson(`/api/projects/${encodeURIComponent(projectId)}/skills/codex-bridge/sync`, {}); })}>同步 Codex</button>
+                ) : null}
               </div>
             </header>
             <div className="settings-info-grid">
               <Info label="来源" value={selectedSkill.sourceKind} />
+              <Info label="运行状态" value={runtimeStatusLabel(selectedTarget?.status)} />
               <Info label="路径" value={selectedSkill.sourcePath} />
               <Info label="Skill ID" value={selectedSkill.skillId} />
               <Info label="Hash" value={selectedSkill.sourceHash} />
             </div>
             <div className="skill-package-summary">
               <h4>包内容</h4>
-              <p>AHO 按合法 Skill 包同步 `SKILL.md` 和同目录内容到 Codex bridge；scripts 只作为 Skill 包内容提供给 runtime，AHO 不直接执行。</p>
+              <p>{selectedNative ? "这个 Skill 来自 Codex 原生 skills 目录，AHO 只记录选择和运行提示，不复制或改写全局 Skill。" : "AHO 按合法 Skill 包同步 `SKILL.md` 和同目录内容到 Codex bridge；scripts 只作为 Skill 包内容提供给 runtime，AHO 不直接执行。"}</p>
               <div className="skill-package-items">
                 <span><FileText size={13} />SKILL.md</span>
                 <span>references/</span>
@@ -198,4 +203,11 @@ function Info({ label, value }: { label: string; value: string }): ReactElement 
       <strong title={value}>{value}</strong>
     </div>
   );
+}
+
+function runtimeStatusLabel(status: SkillListItem["runtimeTargets"][number]["status"] | undefined): string {
+  if (status === "native") return "Codex 原生可用";
+  if (status === "synced") return "已同步";
+  if (status === "out-of-sync") return "需要重新同步";
+  return "需要同步";
 }

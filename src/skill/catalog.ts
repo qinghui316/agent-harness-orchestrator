@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { copyFile, lstat, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
+import { resolveCodexHome } from "../codex/home.js";
 import { resolveExistingDirectory, slugify } from "../fs/path.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import type { ManagedProject, ResolvedMemory, RunSkillRecord } from "../types/index.js";
@@ -22,7 +23,8 @@ export interface SkillListItem {
   disabledTopics: string[];
   runtimeTargets: Array<{
     provider: "codex";
-    status: "synced" | "out-of-sync" | "not-synced";
+    status: "native" | "synced" | "out-of-sync" | "not-synced";
+    materializationMode: "native" | "aho-managed";
     materializedPath?: string;
     materializedHash?: string;
     bridgeVersion?: string;
@@ -68,6 +70,10 @@ interface SkillMetadata {
 const excludedPackageDirs = new Set([".git", "node_modules", ".cache", ".turbo", ".vite", "dist", "build", "coverage"]);
 const maxSkillPackageFiles = 500;
 const maxSkillPackageFileBytes = 1024 * 1024;
+
+export function isNativeCodexSkill(skill: Pick<SkillListItem, "sourceKind"> | Pick<StoredSkillIndex, "sourceKind">): boolean {
+  return normalizeSourceKind(skill.sourceKind) === "global-codex";
+}
 
 export async function importSkill(project: ManagedProject, sourceDirInput: string): Promise<ImportedSkill> {
   const memory = await resolveProjectMemory(project);
@@ -176,16 +182,20 @@ export async function getEnabledSkillContext(project: ManagedProject, changeId?:
         warnings.push(`Enabled skill ${skillId} is missing from skill source.`);
         continue;
       }
-      const sync = store.readBridgeSync(project.id, skillId);
+      const sourceKind = normalizeSourceKind(skill.sourceKind);
+      const materializationMode = sourceKind === "global-codex" ? "native" : "aho-managed";
+      const sync = materializationMode === "native" ? null : store.readBridgeSync(project.id, skillId);
       records.push({
         id: skill.skillId,
         runtimeTarget: "codex",
+        sourceKind,
         sourceHash: skill.sourceHash,
-        materializedHash: sync?.materializedHash ?? null,
-        bridge: sync ? "codex:aho-managed" : undefined,
+        materializationMode,
+        materializedHash: materializationMode === "native" ? null : sync?.materializedHash ?? null,
+        bridge: materializationMode === "native" ? "codex:native" : sync ? "codex:aho-managed" : undefined,
         version: sync?.bridgeVersion,
       });
-      if (!sync || sync.sourceHash !== skill.sourceHash) {
+      if (materializationMode !== "native" && (!sync || sync.sourceHash !== skill.sourceHash)) {
         warnings.push(`Skill ${skill.skillId} is not synced to the Codex bridge.`);
       }
     }
@@ -196,9 +206,9 @@ export async function getEnabledSkillContext(project: ManagedProject, changeId?:
         ? [
           "# AHO Skill Availability",
           "",
-          "Enabled project skills are runtime capabilities for Codex when synced through the AHO-managed bridge. They are not Harness workflow truth and do not authorize workflow actions.",
+          "Enabled skills are Codex runtime capabilities. Native Codex skills are discovered from Codex directly; other skills use the AHO-managed bridge when synced. Skills are not Harness workflow truth and do not authorize workflow actions.",
           "",
-          ...records.map((record) => `- ${record.id}: sourceHash=${record.sourceHash}${record.bridge ? `; bridge=${record.bridge}` : ""}${record.materializedHash ? `; materializedHash=${record.materializedHash}` : ""}`),
+          ...records.map((record) => `- $${record.id}: sourceKind=${record.sourceKind ?? "managed"}; materialization=${record.materializationMode ?? "aho-managed"}; sourceHash=${record.sourceHash}${record.bridge ? `; bridge=${record.bridge}` : ""}${record.materializedHash ? `; materializedHash=${record.materializedHash}` : ""}`),
         ].join("\n")
         : "",
     };
@@ -291,20 +301,23 @@ async function decorateSkill(memory: ResolvedMemory, skill: StoredSkillIndex, pr
   const store = providedStore ?? await WorkbenchStore.open(memory);
   try {
     const enablements = store.listSkillEnablement(skill.projectId).filter((item) => item.skillId === skill.skillId);
-    const sync = store.readBridgeSync(skill.projectId, skill.skillId);
+    const sourceKind = normalizeSourceKind(skill.sourceKind);
+    const native = sourceKind === "global-codex";
+    const sync = native ? null : store.readBridgeSync(skill.projectId, skill.skillId);
     return {
       skillId: skill.skillId,
       name: skill.name,
       description: skill.description,
       sourcePath: skill.sourcePath,
-      sourceKind: normalizeSourceKind(skill.sourceKind),
+      sourceKind,
       sourceHash: skill.sourceHash,
       enabledProject: enablements.some((item) => item.scope === "project" && item.enabled),
       enabledTopics: enablements.filter((item) => item.scope === "topic" && item.enabled && item.changeId).map((item) => item.changeId as string),
       disabledTopics: enablements.filter((item) => item.scope === "topic" && !item.enabled && item.changeId).map((item) => item.changeId as string),
       runtimeTargets: [{
         provider: "codex",
-        status: sync ? (sync.sourceHash === skill.sourceHash ? "synced" : "out-of-sync") : "not-synced",
+        status: native ? "native" : sync ? (sync.sourceHash === skill.sourceHash ? "synced" : "out-of-sync") : "not-synced",
+        materializationMode: native ? "native" : "aho-managed",
         materializedPath: sync?.materializedPath,
         materializedHash: sync?.materializedHash,
         bridgeVersion: sync?.bridgeVersion,
@@ -368,6 +381,8 @@ async function discoverSkillSources(memory: ResolvedMemory, project: ManagedProj
   if (existsSync(memory.skillsRoot)) candidates.push(...await discoverSkillsInRoot(memory.skillsRoot, "managed"));
   const projectCodexRoot = join(project.path, ".codex", "skills");
   if (existsSync(projectCodexRoot)) candidates.push(...await discoverSkillsInRoot(projectCodexRoot, "project-codex"));
+  const globalCodexRoot = join(resolveCodexHome(), "skills");
+  if (existsSync(globalCodexRoot)) candidates.push(...await discoverSkillsInRoot(globalCodexRoot, "global-codex"));
   for (const root of store.listSkillRoots(project.id)) {
     if (existsSync(root.rootPath)) candidates.push(...await discoverSkillsInRoot(root.rootPath, normalizeSourceKind(root.sourceKind)));
   }

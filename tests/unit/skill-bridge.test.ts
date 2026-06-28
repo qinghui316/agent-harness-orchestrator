@@ -122,6 +122,38 @@ describe("AHO skill source and Codex bridge", () => {
     expect(manifest.agents.some((item: { id: string }) => item.id === "coder")).toBe(true);
   });
 
+  it("discovers global Codex skills as native runtime skills and skips bridge materialization", async () => {
+    const repo = project();
+    await mkdir(repo.path, { recursive: true });
+    await writeProjectMarker(repo, "external-local");
+    const nativeRoot = join(process.env.CODEX_HOME ?? "", "skills");
+    await createSkillSource("native-codex-skill", nativeRoot);
+
+    const skills = await listSkills(repo);
+    const native = skills.find((item) => item.skillId === "native-codex-skill");
+    expect(native).toMatchObject({
+      sourceKind: "global-codex",
+      runtimeTargets: [expect.objectContaining({ provider: "codex", status: "native", materializationMode: "native" })],
+    });
+
+    await setSkillEnabled(repo, "native-codex-skill", { enabled: true });
+    const context = await getEnabledSkillContext(repo, "change-a");
+    expect(context.warnings).toEqual([]);
+    expect(context.records[0]).toMatchObject({
+      id: "native-codex-skill",
+      sourceKind: "global-codex",
+      materializationMode: "native",
+      bridge: "codex:native",
+      materializedHash: null,
+    });
+    expect(context.promptSection).toContain("$native-codex-skill");
+
+    const synced = await syncCodexBridge(repo);
+    expect(synced.synced).toHaveLength(0);
+    expect(existsSync(join(process.env.CODEX_HOME ?? "", "plugins", "aho-managed", "skills", "demo__native-codex-skill"))).toBe(false);
+    expect((await getCodexBridgeStatus(repo)).project?.outOfSync).toEqual([]);
+  });
+
   it("reads bundled agent roles and syncs project catalog sources", async () => {
     const repo = project();
     await mkdir(repo.path, { recursive: true });

@@ -225,7 +225,9 @@ export interface RunMetadata {
 export interface RunSkillRecord {
   id: string;
   runtimeTarget?: "codex";
+  sourceKind?: "managed" | "project-codex" | "global-codex" | "custom";
   sourceHash: string;
+  materializationMode?: "native" | "aho-managed";
   materializedHash?: string | null;
   bridge?: string;
   version?: string;

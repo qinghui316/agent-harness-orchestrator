@@ -8,6 +8,8 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260628-workbench-reference-style-app-data-and-real-codex-skills-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260628-workbench-reference-style-sidebar-settings-skills-ui-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260628-workbench-ui-acceptance-deeplink-restore-v1/summary.md`.
@@ -71,10 +73,15 @@ Current baseline:
   restore instead of relying on previous localStorage state.
 - Workbench Skills now follow the reference-style runtime-capability model:
   Settings can register custom Skill roots, scan `SKILL.md` packages, enable
-  skills for the current project/topic, sync enabled packages into the
-  AHO-managed Codex bridge, and expose `/skill-name` / `$skill-name` composer
-  selection backed by real topic enablement. Skills are runtime capabilities
+  skills for the current project/topic, and expose `/skill-name` /
+  `$skill-name` composer selection backed by real topic enablement. Existing
+  `$CODEX_HOME/skills` entries are discovered as read-only native Codex Skills
+  and are not copied into the AHO bridge; custom/managed/project Skills use
+  the AHO-managed Codex bridge when synced. Skills are runtime capabilities
   only; they do not affect Harness gates or workflow truth.
+- AHO app data defaults to the user's stable `.agent-harness` directory under
+  the OS user home. Project source roots may live on any drive; `E:\aho-accept`
+  is temporary acceptance workspace only and is not a formal history source.
 - Workbench composer now supports reference-style `@file` project file
   references. Home and topic composers search only the selected project,
   display selected file chips, bind refs to the first/current user message, and

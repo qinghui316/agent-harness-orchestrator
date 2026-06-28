@@ -2,7 +2,7 @@ import { normalizeForCompare } from "../../fs/path.js";
 import { getProjectStatus } from "../../project/status.js";
 import { readProjectMarker } from "../../project/marker.js";
 import type { ProjectRegistryStore } from "../../registry/store.js";
-import type { ManagedProject } from "../../types/index.js";
+import type { ManagedProject, ProjectStatus } from "../../types/index.js";
 import type { WorkbenchProjectInput } from "../../workbench/manager.js";
 
 export async function restoreDirectProjectInput(input: WorkbenchProjectInput | null, store: ProjectRegistryStore): Promise<WorkbenchProjectInput | null> {
@@ -41,7 +41,8 @@ export async function listProjectStatusesWithDirect(store: ProjectRegistryStore,
     project.id === directProject.id || normalizeForCompare(project.path) === normalizeForCompare(directProject.path)
   );
   if (known) return statuses;
-  return [...statuses, await getProjectStatus(directProject, directProject.path)];
+  const status = await getProjectStatus(directProject, directProject.path) as ProjectStatus;
+  return [...statuses, { ...status, memory: { ...status.memory, registered: false } }];
 }
 
 export async function resolveProjectInputWithDirect(store: ProjectRegistryStore, directInput: WorkbenchProjectInput | null, projectId: string): Promise<WorkbenchProjectInput> {

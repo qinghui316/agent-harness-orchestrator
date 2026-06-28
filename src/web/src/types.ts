@@ -70,6 +70,7 @@ export type ProjectStatus = {
     memoryAvailable: boolean;
     harnessReady: boolean;
     artifactBase: string;
+    registered?: boolean;
     roots: { memoryRoot: string };
     unsupportedReason?: string;
   };
@@ -80,7 +81,8 @@ export type ProjectStatus = {
 export type SkillSourceKind = "managed" | "project-codex" | "global-codex" | "custom";
 export type SkillRuntimeTarget = {
   provider: "codex";
-  status: "synced" | "out-of-sync" | "not-synced";
+  status: "native" | "synced" | "out-of-sync" | "not-synced";
+  materializationMode: "native" | "aho-managed";
   materializedPath?: string;
   materializedHash?: string;
   bridgeVersion?: string;
