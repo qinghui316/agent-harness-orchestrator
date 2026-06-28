@@ -139,19 +139,51 @@ but Skills are runtime capabilities, not Harness workflow authority.
 
 Decisions:
 
-- Skill sources may be AHO-managed memory skills, project Codex skills, or
-  user-registered custom roots. The catalog records source path, source kind,
-  and source hash. Global Codex skill directories are not scanned implicitly;
-  users may register one explicitly as a custom root.
+- Skill sources may be native Codex skills, AHO-managed memory skills,
+  project Codex skills, or user-registered custom roots. The catalog records
+  source path, source kind, and source hash. `$CODEX_HOME/skills` is discovered
+  by default as read-only native Codex runtime capability, not copied project
+  memory.
 - SQLite records skill roots, project/topic enablement, and bridge sync state.
 - `~/.codex/plugins/aho-managed` is a rebuildable runtime projection.
 - AHO must not overwrite user Codex skills, oh-my-codex skills, or global Codex configuration.
-- Bridge install/sync is explicit; runs may warn when the bridge is out of sync but must not secretly write to `~/.codex`.
+- Native Codex Skills remain native and must not be copied into the AHO bridge.
+  Bridge install/sync is explicit for custom, managed, and non-native project
+  Skill packages; runs may warn when the bridge is out of sync but must not
+  secretly write to `~/.codex`.
 - Skill packages may include supporting content such as `references/`,
   `examples/`, and `scripts/`. AHO may materialize that package for Codex, but
   AHO must not directly execute skill scripts.
 - Runs record enabled skill ids, runtime target, source hashes, and materialized
   hashes so Codex behavior can be audited later.
+
+## 6A.1 Hybrid Desktop Native Boundary
+
+AHO's long-term desktop product may use a Tauri/Rust host and native adapter
+layer, but the current Node/TypeScript AHO core remains the owner of Harness
+workflow truth and product orchestration.
+
+Decisions:
+
+- Node/TypeScript continues to own Change/ECL, accepted artifacts, Workbench
+  APIs, Codex bridge, Skills, Goal Loop, Scheduler, SQLite interaction stores,
+  and project registry behavior.
+- A future Tauri/Rust shell may own desktop host responsibilities such as
+  windows, native menus, tray, updater, native dialogs, notifications, and
+  packaging.
+- Native-heavy tools such as Terminal PTY, file watcher, native file dialogs,
+  runtime log collection, and system notifications must enter through explicit
+  adapter/service owners. They must not be scattered through React components,
+  broad server facades, or Harness workflow modules.
+- Terminal V1 may use Node `node-pty` behind a `TerminalRuntime`-style owner.
+  A future Tauri build may replace that owner with Rust `portable-pty` without
+  changing Workbench UI or public Terminal APIs.
+- Native tools are user/project tools and runtime adapters. They do not become
+  validation, audit, apply, close, scheduler, remote, PR, merge, or Harness
+  evolution authority.
+- Packaging is distribution and process management. It must not turn auto
+  update, native shell startup, terminal output, or local process state into
+  workflow truth.
 
 ## 6B. ECL Agent Runtime Boundary
 

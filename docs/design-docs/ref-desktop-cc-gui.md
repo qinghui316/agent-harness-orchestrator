@@ -24,6 +24,8 @@ AHO should use it as a product-layer and multi-engine desktop-Agent reference. A
 | `src/features/workspaces/hooks/useWorkspaces.ts` | Workspace listing, active workspace state, restore snapshot, worktree/clone hooks, Codex prewarm. |
 | `src/features/skills/hooks/useSkills.ts` | Skills listing, custom skill roots, startup orchestration, response normalization, debug evidence. |
 | `src-tauri/src/` | Rust backend feature modules for engine, Codex, git, terminal, files, settings, project memory, runtime logs, and workspaces. |
+| `src-tauri/src/terminal.rs` and `src/features/terminal/*` | Reference terminal architecture: Rust `portable-pty` backend, Tauri commands/events, React bottom dock, xterm rendering, tabs, resize, and session cleanup. |
+| `src-tauri/src/web_service/daemon_bootstrap.rs` | Desktop host/service pattern for launching and supervising a local service boundary from the Tauri app. |
 | `src-tauri/src/engine/capability_matrix.rs` | Provider capability matrix for Codex, Claude, Gemini, and OpenCode. |
 | `src-tauri/src/backend/app_server.rs` | Codex app-server launch/session/timing/diagnostic bridge reference. |
 | `src-tauri/tauri.conf.json` | Desktop packaging, updater, CSP, asset protocol, resources, icons, and platform bundle settings. |
@@ -79,7 +81,7 @@ AHO should use it as a product-layer and multi-engine desktop-Agent reference. A
 
 - Reference evidence: `src/features/files/`, `src/features/git/`, `src/features/git-history/`, `src/features/terminal/`, `src-tauri/src/files/`, `src-tauri/src/git/`, `src-tauri/src/terminal.rs`.
 - AHO current gap: AHO has source safety and worktree evidence but lacks first-class user panels for file browsing, git status/diff/history, and terminal access inside the product shell.
-- AHO adaptation: add read-mostly project panels first: file tree, diff viewer, git status, terminal dock. Mutating Git/source operations must route through existing AHO gates or explicit project-tool actions.
+- AHO adaptation: add read-mostly project panels first: file tree, diff viewer, git status, terminal dock. Mutating Git/source operations must route through existing AHO gates or explicit project-tool actions. Terminal should be a real project tool rather than a fake command-output panel; in the current Node/TypeScript architecture it may use a Node PTY adapter, while future Tauri packaging can replace that adapter with a Rust `portable-pty` implementation.
 - Boundary: file/git/terminal panels are tools, not workflow truth. They must not mutate source root before an explicit human action or current-Change scoped local authorization.
 - Suggested implementation phase: Phase 3.
 - Acceptance signal: users can inspect files, diffs, git status, and run terminal commands without losing AHO source-safety separation.
@@ -133,7 +135,7 @@ AHO should use it as a product-layer and multi-engine desktop-Agent reference. A
 
 - Reference evidence: `src-tauri/tauri.conf.json`, build scripts `tauri:dev`, `tauri:build`, `build:win-x64`, `build:mac-*`, updater config, bundled resources.
 - AHO current gap: AHO is currently a local Workbench/server developer product, not a packaged desktop app.
-- AHO adaptation: treat Tauri packaging as a later productization option after Harness mode product shell and settings stabilize. Package the UI/server/runtime bridge without weakening local-first source boundaries.
+- AHO adaptation: treat Tauri packaging as a later productization option after Harness mode product shell and settings stabilize. AHO should not copy the reference's full Rust backend as a rewrite plan; instead, a Tauri host can launch and supervise the existing Node/TypeScript AHO backend as a bundled sidecar, then gradually move native-heavy adapters such as Terminal PTY, file watching, native dialogs, notifications, and updater behavior into Rust behind stable service APIs.
 - Boundary: packaging is distribution. It must not change workflow truth or introduce hidden provider credentials, remote merge, or auto-update mutation of project state.
 - Suggested implementation phase: Phase 6.
 - Acceptance signal: a packaged app can open a local project, configure Codex, and run the same Harness mode behavior as the dev Workbench.
@@ -155,11 +157,14 @@ AHO should use it as a product-layer and multi-engine desktop-Agent reference. A
 4. Do not introduce Tauri packaging before core local project setup and settings are usable.
 5. Do not vendor-copy source code or UI components.
 6. Do not let file/git/terminal panels mutate source root outside AHO's explicit safety gates.
-7. Do not replace `confirmationQueue.primary` with UI panel state, task cards, or normal chat controls.
+7. Do not treat desktop-cc-gui's Rust backend shape as a mandate to rewrite AHO's Node/TypeScript Harness core.
+8. Do not replace `confirmationQueue.primary` with UI panel state, task cards, or normal chat controls.
 
 ## Open Questions For Later Changes
 
-- Whether AHO should package the current local server inside Tauri or keep a separate daemon model.
+- The exact desktop host supervision model for the Node/TypeScript AHO backend:
+  bundled Tauri sidecar, separate daemon, or another packaged local service
+  shape.
 - Whether normal Agent mode should share the same Workbench transcript store or use a simpler session store.
 - Which provider capabilities must be normalized before adding Claude Code.
 - Which settings belong at global app level versus project level.

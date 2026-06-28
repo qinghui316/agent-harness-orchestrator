@@ -201,11 +201,51 @@ structured changes. Each phase still needs its own spec, owner modules,
 source-safety and permission boundaries, targeted tests, and user-visible
 acceptance.
 
+## Desktop Native Packaging Strategy
+
+AHO's recommended desktop direction is a hybrid architecture, not an immediate
+full Rust rewrite:
+
+```text
+React UI
+  -> Workbench API
+  -> Node/TypeScript AHO Core
+       - Harness / Change / Goal Loop / Scheduler
+       - Codex bridge / Skills / SQLite / Project registry
+  -> Native Adapter Layer
+       - Terminal / file watcher / native dialogs / notifications
+  -> Future Tauri/Rust Shell
+       - window / menu / tray / updater / packaging
+```
+
+The final user-facing product should be installable as a normal desktop app
+such as `.exe`, `.msi`, `.dmg`, or `.app`. Users should not need to manually
+start a Node server. A future Tauri/Rust host may launch and supervise the
+Node/TypeScript AHO backend as a bundled sidecar, serve the React UI, and
+provide native desktop capabilities. Over time, native-heavy adapters such as
+Terminal PTY or file watching may move from Node implementations to Rust
+implementations behind the same service/API boundary.
+
+This strategy preserves the existing AHO core. Harness workflow truth, Codex
+runtime orchestration, Skills, Goal Loop, Scheduler, Workbench APIs, SQLite
+interaction stores, and project registry behavior stay in the Node/TypeScript
+core unless a later structured architecture change explicitly moves a bounded
+owner. Tauri/Rust is the desktop host/native layer, not a replacement for
+Change/ECL, accepted artifacts, validation/audit, apply/close, or Harness
+evolution.
+
+Future native features must name their adapter owner. For example, Terminal V1
+may use Node `node-pty` through a `TerminalRuntime` owner, while a later Tauri
+packaging phase may replace that implementation with Rust `portable-pty`
+without changing the Workbench UI contract. Native tools must remain user
+tools or runtime adapters; they must not become Agent automation channels,
+workflow truth, or hidden permission bypasses.
+
 ## Next Product Direction
 
 Current structured change: none.
 
-Pending Harness evolution: none.
+Pending Harness evolution: `harness/evolution/pending.md`.
 
 Recommended next product step: continue the desktop product layer from
 `docs/design-docs/ref-desktop-cc-gui.md`, now that the selected-project home
@@ -225,7 +265,10 @@ Tauri packaging, PR/remote/merge, and full parallel executor work out of the
 immediate slice unless explicitly selected.
 
 Latest product change:
-`harness/changes/archive/20260628-workbench-reference-style-product-shell-polish-v1/summary.md`.
+`harness/changes/archive/20260629-workbench-composer-attachments-first-demand-staging-v2/summary.md`.
+
+Latest docs/architecture change:
+`harness/changes/archive/20260629-document-aho-hybrid-desktop-native-roadmap-v1/summary.md`.
 
 Latest real UI acceptance:
 `harness/changes/archive/20260626-workbench-mode-aware-local-goal-loop-real-ui-acceptance-v1/summary.md`.
@@ -243,8 +286,8 @@ archive window; no product runtime or Harness rule change was made.
 
 Current Harness evolution:
 
-- Active evolution:
-  none.
+- Pending evolution:
+  `harness/evolution/pending.md`.
 - Latest completed evolution:
   `harness/changes/archive/20260628-auto-evolve-post-product-shell-reference-window/summary.md`.
   Decision: `docs_merge`; subagent Epicurus score `88/100`. Existing ECL and
