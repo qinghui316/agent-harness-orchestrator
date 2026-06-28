@@ -5018,7 +5018,7 @@ describe("Workbench web app", () => {
 
     render(<App />);
 
-    await screen.findByRole("heading", { name: "选择项目开始" });
+    await screen.findByRole("heading", { name: "创造任何东西" });
     expect(fetchCallUrls()).not.toContain("/api/projects/repo/workbench/snapshot");
     expect(fetchCallUrls()).not.toContain("/api/projects/missing/workbench/snapshot?topic=member-discount");
   });
@@ -5068,16 +5068,16 @@ describe("Workbench web app", () => {
     expect(screen.queryByText(/5 output tokens/)).toBeNull();
   });
 
-  it("renders operational sidebar panels for repo memory and settings", async () => {
+  it("renders operational sidebar project menu and settings entry", async () => {
     render(<App />);
 
     await waitFor(() => expect(screen.getAllByText("会员折扣计价").length).toBeGreaterThan(0));
     fireEvent.click(screen.getByLabelText("项目详情"));
-    expect(screen.getByText("main")).toBeTruthy();
-    expect(screen.getByText("仓库")).toBeTruthy();
-    expect(screen.getByText("记忆")).toBeTruthy();
-    expect(screen.getByText("external-local")).toBeTruthy();
-    expect(screen.getByText("刷新项目")).toBeTruthy();
+    expect(screen.getByRole("menu", { name: "Repo 项目菜单" })).toBeTruthy();
+    expect(screen.getByText("打开项目首页")).toBeTruthy();
+    expect(screen.getByText("新建对话")).toBeTruthy();
+    expect(screen.getByText("刷新会话")).toBeTruthy();
+    expect(screen.getByText("项目详情")).toBeTruthy();
     expect(screen.getByText("设置")).toBeTruthy();
   });
 
@@ -5224,7 +5224,7 @@ describe("Workbench web app", () => {
 
     render(<App />);
 
-    await waitFor(() => expect(screen.getByText("选择项目开始")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("创造任何东西")).toBeTruthy());
     expect(screen.queryByText("新对话")).toBeNull();
     fireEvent.click(screen.getByLabelText("项目菜单"));
     expect(screen.getByText("使用现有文件夹")).toBeTruthy();
@@ -5245,8 +5245,8 @@ describe("Workbench web app", () => {
 
     render(<App />);
 
-    await screen.findByRole("heading", { name: "选择项目开始" });
-    expect(screen.getByText("Harness 模式")).toBeTruthy();
+    await screen.findByRole("heading", { name: "创造任何东西" });
+    expect(screen.getByText("选择一个本地项目开始。")).toBeTruthy();
     expect(screen.getByText("添加已有项目")).toBeTruthy();
     expect(screen.getAllByText("Repo").length).toBeGreaterThan(0);
     const mutationCalls = vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST");
@@ -5285,12 +5285,13 @@ describe("Workbench web app", () => {
     expect(screen.queryByText("Codex 诊断")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "设置" }));
-    expect(await screen.findByRole("dialog", { name: "设置" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Harness / Codex" })).toBeTruthy();
-    expect(screen.getByText("Codex 高级诊断")).toBeTruthy();
+    expect(await screen.findByRole("region", { name: "设置" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "基础" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "高级诊断" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "高级诊断" }));
     expect(screen.getByText("codex-cli 1.2.3")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "关闭设置" }));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "设置" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("region", { name: "设置" })).toBeNull());
     const mutationCalls = vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST");
     expect(mutationCalls).toHaveLength(0);
   });
@@ -5336,9 +5337,9 @@ describe("Workbench web app", () => {
     await screen.findByRole("heading", { name: "创造任何东西" });
     expect(await screen.findByRole("button", { name: "已启用 1 个技能" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "已启用 1 个技能" }));
-    const panel = await screen.findByRole("dialog", { name: "设置" });
-    expect(within(panel).getByRole("heading", { name: "技能" })).toBeTruthy();
-    expect(within(panel).getByText("pricing-helper")).toBeTruthy();
+    const panel = await screen.findByRole("region", { name: "设置" });
+    expect(within(panel).getAllByRole("heading", { name: "技能" }).length).toBeGreaterThan(0);
+    expect(within(panel).getAllByText("pricing-helper").length).toBeGreaterThan(0);
     expect(within(panel).getByText("custom: E:/skills")).toBeTruthy();
 
     fireEvent.change(within(panel).getByLabelText("Skill 根目录"), { target: { value: "E:/more-skills" } });
@@ -5780,7 +5781,7 @@ describe("Workbench web app", () => {
 
     render(<App />);
 
-    await waitFor(() => expect(screen.getByText("选择项目开始")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("创造任何东西")).toBeTruthy());
     fireEvent.click(screen.getByLabelText("项目菜单"));
     fireEvent.click(screen.getByText("使用现有文件夹"));
     fireEvent.click(screen.getByText("选择文件夹添加"));

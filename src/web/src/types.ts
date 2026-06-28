@@ -267,7 +267,7 @@ export type DemandAgentRunGraph = {
   edges: DemandAgentRunGraphEdge[];
   updatedAt?: string;
 };
-export type CenterTab = "conversation" | "workpad" | "agentGraph" | "gitDiff";
+export type CenterTab = "conversation" | "workpad" | "agentGraph" | "gitDiff" | "settings";
 export type ParentAgentTranscriptBlock = {
   id: string;
   kind: "prose" | "process" | "tool-result" | "evidence";

@@ -6,14 +6,15 @@ import {
   Folder,
   FolderPlus,
   MoreHorizontal,
+  RefreshCw,
   Search,
   Settings,
 } from "lucide-react";
 import {
+  CodexTrustButton,
   HarnessInitButton,
   ProjectAddForm,
   ProjectCreateForm,
-  ProjectDetailsPanel,
 } from "../panels/ProjectPanels.js";
 import { userFacingText, workpadStatusLabel } from "../formatters.js";
 import type {
@@ -42,6 +43,7 @@ export function ProjectConversationSidebar({
   onChooseConversation,
   onRefresh,
   onOpenSettings,
+  onOpenProjectSettings,
 }: {
   projects: ProjectStatus[];
   selectedProjectId: string | null;
@@ -61,6 +63,7 @@ export function ProjectConversationSidebar({
   onChooseConversation: (projectId: string, conversationId: string) => Promise<void>;
   onRefresh: () => Promise<void>;
   onOpenSettings: () => void;
+  onOpenProjectSettings: (projectId: string) => void;
 }): ReactElement {
   const visibleProjects = projects;
   const normalizedSearch = search.trim().toLowerCase();
@@ -96,6 +99,7 @@ export function ProjectConversationSidebar({
           {visibleProjects.length === 0 ? <div className="empty-state sidebar-empty">还没有注册项目。</div> : null}
           {visibleProjects.map((item) => {
             const projectId = item.project?.id ?? item.path;
+            const concreteProjectId = item.project?.id ?? null;
             const projectName = item.project?.name ?? item.path;
             const selected = item.project?.id === selectedProjectId;
             const expanded = selected || expandedProjects.has(projectId);
@@ -134,13 +138,34 @@ export function ProjectConversationSidebar({
                   </button>
                 </div>
                 {projectDetailsId === projectId ? (
-                  <ProjectDetailsPanel
-                    project={item}
-                    snapshot={projectSnapshot}
-                    selected={selected}
-                    onOpen={() => item.project ? void onOpenProject(item.project.id) : undefined}
-                    onRefresh={() => void onRefresh()}
-                  />
+                  <div className="project-row-menu-popover" role="menu" aria-label={`${projectName} 项目菜单`}>
+                    <button className="project-menu-item" role="menuitem" onClick={() => {
+                      onProjectDetails(null);
+                      if (item.project) void onOpenProject(item.project.id);
+                    }}><Folder size={15} />打开项目首页</button>
+                    {item.project && memoryReady ? (
+                      <button className="project-menu-item" role="menuitem" onClick={() => {
+                        onProjectDetails(null);
+                        void onNewConversation(item.project?.id);
+                      }}><FileText size={15} />新建对话</button>
+                    ) : null}
+                    <button className="project-menu-item" role="menuitem" onClick={() => {
+                      onProjectDetails(null);
+                      void onRefresh();
+                    }}><RefreshCw size={15} />刷新会话</button>
+                    {item.project && !memoryReady && memoryIssue?.kind !== "missing-external-memory" ? (
+                      <HarnessInitButton projectId={item.project.id} onDone={async () => { onProjectDetails(null); await onRefresh(); }} />
+                    ) : null}
+                    {item.project && item.codexTrust && !item.codexTrust.trusted ? (
+                      <CodexTrustButton project={item} onDone={async () => { onProjectDetails(null); await onRefresh(); }} />
+                    ) : null}
+                    {concreteProjectId ? (
+                      <button className="project-menu-item" role="menuitem" onClick={() => {
+                        onProjectDetails(null);
+                        onOpenProjectSettings(concreteProjectId);
+                      }}><Settings size={15} />项目详情</button>
+                    ) : null}
+                  </div>
                 ) : null}
                 {expanded ? (
                   <div className="conversation-list">
@@ -153,8 +178,8 @@ export function ProjectConversationSidebar({
                         onClick={() => item.project ? void onChooseConversation(item.project.id, conversation.id) : undefined}
                       >
                         <span>{userFacingText(conversation.title)}</span>
-                        <small>{conversation.status}{conversation.waitingDecisionCount > 0 ? ` · ${conversation.waitingDecisionCount} 个待确认` : ""}</small>
-                        {conversation.blocker ? <em>{userFacingText(conversation.blocker)}</em> : null}
+                        <small>{conversation.status}</small>
+                        {conversation.waitingDecisionCount > 0 ? <b aria-label={`${conversation.waitingDecisionCount} 个待确认`}>{conversation.waitingDecisionCount}</b> : null}
                       </button>
                     ))}
                     {memoryReady && projectSnapshot && filteredConversations.length === 0 ? <div className="conversation-placeholder">暂无已加载对话。</div> : null}

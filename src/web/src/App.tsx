@@ -33,8 +33,8 @@ import {
   ProjectHomeView,
   ProjectReadinessHome,
   CodexModelPicker,
-  SettingsPanel,
 } from "./panels/ProjectHome.js";
+import { SettingsSurface, type SettingsSection } from "./panels/SettingsSurface.js";
 import { workflowActionPayloadFromScope } from "./workflow-actions.js";
 import {
   emptyParentAgentTranscript,
@@ -126,7 +126,8 @@ export function App(): ReactElement {
   const [sidebarSearch, setSidebarSearch] = useState("");
   const [projectMenuMode, setProjectMenuMode] = useState<"closed" | "add" | "new">("closed");
   const [projectDetailsId, setProjectDetailsId] = useState<string | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>("basic");
+  const [homeComposerResetToken, setHomeComposerResetToken] = useState(0);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [selectedDecisionContextId, setSelectedDecisionContextId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -283,6 +284,7 @@ export function App(): ReactElement {
     setExpandedProjects((current) => new Set([...current, projectId]));
     setSelectedTopic(null);
     setDraftSkillOverrides({});
+    setCenterTab("conversation");
     setSelectedRun(null);
     setStream(null);
     const status = projects.find((item) => item.project?.id === projectId);
@@ -307,10 +309,13 @@ export function App(): ReactElement {
     }
     const baseSnapshot = projectSnapshots[projectId] ?? (status.project?.id === selectedProjectId ? snapshot : await fetchJson<Snapshot>(`/api/projects/${encodeURIComponent(projectId)}/workbench/snapshot`));
     setComposerText("");
+    setComposerFileRefs([]);
+    setHomeComposerResetToken((value) => value + 1);
     setSelectedProjectId(projectId);
     persistSelectedProjectId(projectId);
     setSelectedTopic(null);
     setDraftSkillOverrides({});
+    setCenterTab("conversation");
     setExpandedProjects((current) => new Set([...current, projectId]));
     const nextSnapshot = {
       ...baseSnapshot,
@@ -415,6 +420,11 @@ export function App(): ReactElement {
       await chooseRun(context.runId);
       setCenterTab("agentGraph");
     }
+  }
+
+  function openSettings(section: SettingsSection = "basic"): void {
+    setSettingsSection(section);
+    setCenterTab("settings");
   }
 
   async function openCodexModelPicker(): Promise<void> {
@@ -1017,12 +1027,31 @@ export function App(): ReactElement {
           onToggleProject={toggleProjectFolder}
           onChooseConversation={chooseConversation}
           onRefresh={loadApp}
-          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenSettings={() => openSettings("basic")}
+          onOpenProjectSettings={(projectId) => {
+            void (async () => {
+              if (projectId !== selectedProjectId) await openProject(projectId);
+              openSettings("project");
+            })();
+          }}
         />
       </aside>
 
       <main className="workspace">
-        {!selectedProjectId ? (
+        {centerTab === "settings" ? (
+          <SettingsSurface
+            section={settingsSection}
+            onSectionChange={setSettingsSection}
+            project={selectedProjectStatus}
+            diagnostics={codexDiagnostics}
+            modelSettings={codexModelSettings}
+            modelSettingsBusy={codexModelSettingsBusy}
+            modelSettingsMessage={codexModelSettingsMessage}
+            onOpenModelSettings={() => void openCodexModelPicker()}
+            onClose={() => setCenterTab("conversation")}
+            onRefresh={() => loadApp().then(() => loadCodexDiagnostics()).then(() => loadCodexModelSettings()).then(() => loadSkillSummary())}
+          />
+        ) : !selectedProjectId ? (
           <ProjectHomeView
             projects={projects}
             snapshots={projectSnapshots}
@@ -1048,9 +1077,10 @@ export function App(): ReactElement {
             skills={skillItems}
             activeSkillIds={selectedComposerSkillIds}
             onToggleSkill={toggleComposerSkill}
-            onOpenSkillsSettings={() => setSettingsOpen(true)}
+            onOpenSkillsSettings={() => openSettings("skills")}
             onOpenProject={openProject}
             onRefresh={loadApp}
+            resetToken={homeComposerResetToken}
           />
         ) : (
           <>
@@ -1112,7 +1142,7 @@ export function App(): ReactElement {
                   selectedFileRefs={composerFileRefs}
                   onSelectedFileRefsChange={setComposerFileRefs}
                   onToggleSkill={toggleComposerSkill}
-                  onOpenSkillsSettings={() => setSettingsOpen(true)}
+                  onOpenSkillsSettings={() => openSettings("skills")}
                   busy={actionRunning !== null || activeTopic.state !== "active"}
                   disabledReason={activeTopic.state !== "active" ? "已完成或稍后处理的需求对话为只读。" : undefined}
                   onSend={sendTopicMessage}
@@ -1174,17 +1204,6 @@ export function App(): ReactElement {
         }
       />
 
-      <SettingsPanel
-        open={settingsOpen}
-        project={selectedProjectStatus}
-        diagnostics={codexDiagnostics}
-        modelSettings={codexModelSettings}
-        modelSettingsBusy={codexModelSettingsBusy}
-        modelSettingsMessage={codexModelSettingsMessage}
-        onOpenModelSettings={() => void openCodexModelPicker()}
-        onClose={() => setSettingsOpen(false)}
-        onRefresh={() => loadApp().then(() => loadCodexDiagnostics()).then(() => loadCodexModelSettings()).then(() => loadSkillSummary())}
-      />
       <CodexModelPicker
         open={codexModelPickerOpen}
         snapshot={codexModelSettings}
@@ -1286,6 +1305,7 @@ function normalizeCenterTabParam(value: string | null): CenterTab | null {
   if (normalized === "workbench" || normalized === "workpad") return "workpad";
   if (normalized === "orchestration" || normalized === "agentgraph" || normalized === "agent-graph") return "agentGraph";
   if (normalized === "gitdiff" || normalized === "git-diff" || normalized === "diff") return "gitDiff";
+  if (normalized === "settings") return "settings";
   return null;
 }
 

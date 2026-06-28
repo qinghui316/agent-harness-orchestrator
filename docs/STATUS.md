@@ -2,10 +2,12 @@
 
 ## Current Handoff
 
-- Current date: 2026-06-27.
+- Current date: 2026-06-28.
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260628-workbench-reference-style-sidebar-settings-skills-ui-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260628-workbench-ui-acceptance-deeplink-restore-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-subtle-transcript-activity-rows-v1/summary.md`.
@@ -31,6 +33,18 @@
 
 ## Latest Product Closeout
 
+`harness/changes/archive/20260628-workbench-reference-style-sidebar-settings-skills-ui-v1/summary.md`.
+
+It realigns the Harness-mode product shell with the `desktop-cc-gui`
+interaction model: settings are now a center workspace surface with categories,
+Skills have a dedicated settings management view, the left sidebar uses compact
+project/session navigation and a lightweight project menu, quick new
+conversation only clears/focuses the composer until the first demand is sent,
+and ordinary home/settings surfaces no longer show fake or over-technical
+controls. Real browser screenshots were captured under
+`E:\aho-accept\reference-sidebar-settings-skills-v1\screenshots`.
+
+Previous closeout:
 `harness/changes/archive/20260628-workbench-ui-acceptance-deeplink-restore-v1/summary.md`.
 
 It fixes Workbench real-UI acceptance restore: clean browser profiles now

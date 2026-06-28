@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import {
   AlertTriangle,
   Bot,
@@ -6,22 +6,19 @@ import {
   FolderOpen,
   RefreshCw,
   Send,
-  Sparkles,
   X,
 } from "lucide-react";
-import { fetchJson, postJson } from "../api.js";
 import { ComposerControls } from "../shell/ComposerControls.js";
 import { FileMentionPicker } from "../shell/FileMentionPicker.js";
 import { SkillMentionPicker } from "../shell/SkillMentionPicker.js";
 import type { ComposerExecutionMode } from "../shell/composer-session.js";
 import { WorkspacePicker } from "./WorkspacePicker.js";
 import {
-  CodexTrustButton,
   InfoRow,
   ProjectAddForm,
   ProjectCreateForm,
 } from "./ProjectPanels.js";
-import type { CodexDiagnostics, CodexModelCandidate, CodexModelSettingsSnapshot, ProjectStatus, SkillListItem, SkillRootListItem, Snapshot, TopicFileReference } from "../types.js";
+import type { CodexDiagnostics, CodexModelCandidate, CodexModelSettingsSnapshot, ProjectStatus, SkillListItem, Snapshot, TopicFileReference } from "../types.js";
 
 export function ProjectHomeView({
   projects,
@@ -45,9 +42,11 @@ export function ProjectHomeView({
   return (
     <section className="project-home">
       <div className="project-home-hero">
-        <p className="eyebrow">Harness 模式</p>
-        <h1>选择项目开始</h1>
-        <p>打开本地项目，确认 Harness 和 Codex 状态，然后进入专业开发闭环。</p>
+        <div className="home-chat-mark compact" aria-label="Codex">
+          <Bot size={46} />
+        </div>
+        <h1>创造任何东西</h1>
+        <p>选择一个本地项目开始。</p>
         <div className="project-home-actions">
           <button className="primary-button" onClick={() => setHomeMode(homeMode === "add" ? "closed" : "add")}><FolderOpen size={15} />添加已有项目</button>
           <button className="outline-button" onClick={() => setHomeMode(homeMode === "new" ? "closed" : "new")}>新建项目</button>
@@ -103,6 +102,7 @@ export function ProjectReadinessHome({
   onOpenSkillsSettings,
   onOpenProject,
   onRefresh,
+  resetToken,
 }: {
   project: ProjectStatus;
   snapshot: Snapshot;
@@ -120,12 +120,24 @@ export function ProjectReadinessHome({
   onOpenSkillsSettings?: () => void;
   onOpenProject: (projectId: string) => Promise<void>;
   onRefresh: () => Promise<void>;
+  resetToken?: number;
 }): ReactElement {
   const readiness = projectReadiness(project, snapshot);
   const [draft, setDraft] = useState("");
   const [draftFileRefs, setDraftFileRefs] = useState<TopicFileReference[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const lastResetToken = useRef(resetToken);
   const memoryReady = snapshot.memory.harnessReady ?? project.memory?.harnessReady ?? project.harness.readiness === "ready";
+
+  useEffect(() => {
+    if (resetToken === undefined) return;
+    if (lastResetToken.current === resetToken) return;
+    lastResetToken.current = resetToken;
+    setDraft("");
+    setDraftFileRefs([]);
+    window.setTimeout(() => textareaRef.current?.focus(), 0);
+  }, [resetToken]);
 
   async function submitDemand(): Promise<void> {
     const body = draft.trim();
@@ -178,6 +190,7 @@ export function ProjectReadinessHome({
             onSelectedRefsChange={setDraftFileRefs}
           />
           <textarea
+            ref={textareaRef}
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
@@ -244,72 +257,6 @@ export function CodexDiagnosticsCard({ diagnostics, project }: { diagnostics: Co
   );
 }
 
-export function SettingsPanel({
-  open,
-  project,
-  diagnostics,
-  modelSettings,
-  modelSettingsBusy,
-  modelSettingsMessage,
-  onOpenModelSettings,
-  onClose,
-  onRefresh,
-}: {
-  open: boolean;
-  project: ProjectStatus | null;
-  diagnostics: CodexDiagnostics | null;
-  modelSettings: CodexModelSettingsSnapshot | null;
-  modelSettingsBusy?: boolean;
-  modelSettingsMessage?: string | null;
-  onOpenModelSettings?: () => void;
-  onClose: () => void;
-  onRefresh: () => Promise<void>;
-}): ReactElement | null {
-  if (!open) return null;
-  return (
-    <div className="settings-overlay" role="dialog" aria-label="设置">
-      <aside className="settings-panel">
-        <header className="settings-panel-header">
-          <div>
-            <p className="eyebrow">设置</p>
-            <h2>Harness / Codex</h2>
-          </div>
-          <button className="icon-button" aria-label="关闭设置" onClick={onClose}><X size={16} /></button>
-        </header>
-        <p className="muted-copy">这里用于查看当前项目状态；普通需求从首页输入框开始。</p>
-        {project ? (
-          <section className="project-status-panel">
-            <h2>当前项目</h2>
-            <InfoRow label="路径" value={project.path} />
-            <InfoRow label="Harness" value={project.harness.readiness} />
-            <InfoRow label="记忆" value={project.memory?.memoryMode ?? "未知"} />
-          </section>
-        ) : (
-          <section className="project-status-panel">
-            <h2>当前项目</h2>
-            <p className="muted-copy">还没有选择项目。</p>
-          </section>
-        )}
-        {project?.project ? <SkillsPanel projectId={project.project.id} onRefresh={onRefresh} /> : null}
-        <section className="project-status-panel codex-model-settings-card" aria-label="Codex 模型设置">
-          <div className="panel-title-row">
-            <h2>Codex 模型</h2>
-            <button className="outline-button" onClick={onOpenModelSettings} disabled={!onOpenModelSettings || modelSettingsBusy}>选择模型</button>
-          </div>
-          <InfoRow label="当前模型" value={modelSettings?.effectiveModel ?? diagnostics?.effectiveModel ?? diagnostics?.currentModel ?? "默认模型"} />
-          <InfoRow label="来源" value={modelSourceLabel(modelSettings?.effectiveModelSource ?? diagnostics?.effectiveModelSource)} />
-          {modelSettingsMessage ? <p className="diagnostic-errors">{modelSettingsMessage}</p> : null}
-        </section>
-        <details className="settings-advanced">
-          <summary>Codex 高级诊断</summary>
-          {project && !project.codexTrust?.trusted ? <CodexTrustButton project={project} onDone={() => void onRefresh()} /> : null}
-          <CodexDiagnosticsCard diagnostics={diagnostics} project={project} />
-        </details>
-      </aside>
-    </div>
-  );
-}
-
 export function CodexModelPicker({
   open,
   snapshot,
@@ -368,98 +315,6 @@ export function CodexModelPicker({
         {message ? <p className="diagnostic-errors">{message}</p> : null}
       </section>
     </div>
-  );
-}
-
-function SkillsPanel({ projectId, onRefresh }: { projectId: string; onRefresh: () => Promise<void> }): ReactElement {
-  const [skills, setSkills] = useState<SkillListItem[]>([]);
-  const [roots, setRoots] = useState<SkillRootListItem[]>([]);
-  const [rootPath, setRootPath] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-
-  async function load(): Promise<void> {
-    const payload = await fetchJson<{ roots?: SkillRootListItem[]; skills?: SkillListItem[] }>(`/api/projects/${encodeURIComponent(projectId)}/skills`);
-    setRoots(Array.isArray(payload.roots) ? payload.roots : []);
-    setSkills(Array.isArray(payload.skills) ? payload.skills : []);
-  }
-
-  useEffect(() => {
-    load().catch((cause: unknown) => setMessage(cause instanceof Error ? cause.message : String(cause)));
-  }, [projectId]);
-
-  async function run(action: () => Promise<void>): Promise<void> {
-    setBusy(true);
-    setMessage(null);
-    try {
-      await action();
-      await load();
-      await onRefresh();
-    } catch (cause) {
-      setMessage(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const enabledCount = skills.filter((skill) => skill.enabledProject || skill.enabledTopics.length > 0).length;
-
-  return (
-    <section className="project-status-panel skills-settings-panel" aria-label="技能设置">
-      <div className="panel-title-row">
-        <h2>技能</h2>
-        <span className="composer-pill subtle">{enabledCount} 已启用</span>
-      </div>
-      <p className="muted-copy">技能会同步给 Codex runtime 使用；它不是 Harness 工作流权限。</p>
-      <div className="skill-root-form">
-        <input
-          value={rootPath}
-          onChange={(event) => setRootPath(event.target.value)}
-          placeholder="添加本机 Skill 根目录"
-          aria-label="Skill 根目录"
-        />
-        <button
-          className="outline-button"
-          disabled={busy || !rootPath.trim()}
-          onClick={() => run(async () => {
-            await postJson(`/api/projects/${encodeURIComponent(projectId)}/skill-roots`, { rootPath: rootPath.trim(), sourceKind: "custom" });
-            setRootPath("");
-          })}
-        >添加</button>
-        <button className="outline-button" disabled={busy} onClick={() => run(async () => { await postJson(`/api/projects/${encodeURIComponent(projectId)}/skills`, {}); })}>刷新</button>
-        <button className="outline-button" disabled={busy} onClick={() => run(async () => { await postJson(`/api/projects/${encodeURIComponent(projectId)}/skills/codex-bridge/sync`, {}); })}>同步 Codex</button>
-      </div>
-      {roots.length > 0 ? (
-        <div className="skill-root-list" aria-label="已登记 Skill 根目录">
-          {roots.map((root) => <span key={root.rootPath} title={root.rootPath}>{root.sourceKind}: {root.rootPath}</span>)}
-        </div>
-      ) : null}
-      <div className="skill-list">
-        {skills.length === 0 ? <p className="muted-copy">还没有扫描到 Skill。添加包含 SKILL.md 的根目录后刷新。</p> : skills.map((skill) => {
-          const target = skill.runtimeTargets.find((item) => item.provider === "codex");
-          return (
-            <div className="skill-row" key={skill.skillId}>
-              <div className="skill-row-main">
-                <strong><Sparkles size={14} />{skill.name}</strong>
-                <small>{skill.description || "无描述"}</small>
-                <small title={skill.sourcePath}>{skill.sourceKind} · {skill.sourcePath}</small>
-              </div>
-              <div className="skill-row-actions">
-                <span className={`skill-sync-state ${target?.status ?? "not-synced"}`}>{target?.status ?? "not-synced"}</span>
-                <button
-                  className="outline-button"
-                  disabled={busy}
-                  onClick={() => run(async () => {
-                    await postJson(`/api/projects/${encodeURIComponent(projectId)}/skills/${encodeURIComponent(skill.skillId)}/enable`, { enabled: !skill.enabledProject });
-                  })}
-                >{skill.enabledProject ? "禁用" : "启用"}</button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      {message ? <p className="diagnostic-errors">{message}</p> : null}
-    </section>
   );
 }
 

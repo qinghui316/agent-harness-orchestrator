@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-27T17:45:54.5379520Z",
+    "generated_at":  "2026-06-28T04:01:29.4653387Z",
     "active":  [
 
                ],
@@ -2101,6 +2101,10 @@
                     {
                         "name":  "20260628-auto-evolve-post-ui-transcript-deeplink-window",
                         "path":  "harness/changes/archive/20260628-auto-evolve-post-ui-transcript-deeplink-window"
+                    },
+                    {
+                        "name":  "20260628-workbench-reference-style-sidebar-settings-skills-ui-v1",
+                        "path":  "harness/changes/archive/20260628-workbench-reference-style-sidebar-settings-skills-ui-v1"
                     },
                     {
                         "name":  "20260628-workbench-ui-acceptance-deeplink-restore-v1",
