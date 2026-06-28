@@ -218,6 +218,57 @@ export async function getEnabledSkillContext(project: ManagedProject, changeId?:
   }
 }
 
+export async function getTransientSystemSkillContext(project: ManagedProject, skillIdsInput: string[]): Promise<EnabledSkillContext> {
+  const memory = await resolveProjectMemory(project);
+  const requestedIds = [...new Set(skillIdsInput.map((id) => slugify(id)).filter(Boolean))].sort();
+  if (requestedIds.length === 0) return { records: [], promptSection: "", warnings: [] };
+  const store = await WorkbenchStore.open(memory);
+  try {
+    await refreshSkillIndex(memory, project, store);
+    const skills = store.listSkills(project.id);
+    const records: RunSkillRecord[] = [];
+    const warnings: string[] = [];
+    const sections: string[] = [];
+    for (const skillId of requestedIds) {
+      const skill = skills.find((item) => item.skillId === skillId);
+      if (!skill) {
+        warnings.push(`Transient system skill ${skillId} is missing from skill sources.`);
+        continue;
+      }
+      const sourceKind = normalizeSourceKind(skill.sourceKind);
+      if (sourceKind !== "system-aho") {
+        warnings.push(`Transient skill ${skillId} is not an AHO system skill.`);
+        continue;
+      }
+      records.push({
+        id: skill.skillId,
+        runtimeTarget: "codex",
+        sourceKind,
+        sourceHash: skill.sourceHash,
+        materializationMode: "aho-managed",
+        materializedHash: null,
+        bridge: "prompt:transient",
+      });
+      sections.push(await renderTransientSystemSkillPrompt(skill));
+    }
+    return {
+      records,
+      warnings,
+      promptSection: sections.length > 0
+        ? [
+          "# Transient AHO System Skill Context",
+          "",
+          "The following bundled AHO system Skill is provided for this turn only. It is context and proposal guidance, not workflow truth or action authority. Do not persist it as project/topic enablement unless the user explicitly selects it.",
+          "",
+          ...sections,
+        ].join("\n")
+        : "",
+    };
+  } finally {
+    store.close();
+  }
+}
+
 export async function hashSkillDirectory(path: string): Promise<string> {
   const hash = createHash("sha256");
   const files = await listSkillPackageFiles(path);
@@ -229,6 +280,25 @@ export async function hashSkillDirectory(path: string): Promise<string> {
     hash.update("\0");
   }
   return hash.digest("hex");
+}
+
+async function renderTransientSystemSkillPrompt(skill: StoredSkillIndex): Promise<string> {
+  const files = await listSkillPackageFiles(skill.sourcePath);
+  const relevantFiles = files
+    .map((file) => ({ file, rel: relative(skill.sourcePath, file).replace(/\\/g, "/") }))
+    .filter((item) => item.rel === "SKILL.md" || item.rel.startsWith("references/"))
+    .sort((a, b) => a.rel.localeCompare(b.rel));
+  const blocks: string[] = [];
+  for (const item of relevantFiles) {
+    blocks.push([
+      `## ${skill.skillId}: ${item.rel}`,
+      "",
+      "````markdown",
+      await readFile(item.file, "utf8"),
+      "````",
+    ].join("\n"));
+  }
+  return blocks.join("\n\n");
 }
 
 export async function copySkillToBridge(sourcePath: string, targetPath: string, materializedName: string): Promise<void> {

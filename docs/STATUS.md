@@ -4,8 +4,11 @@
 
 - Current date: 2026-06-28.
 - Active ECL change: none.
-- Pending Harness evolution: none.
+- Pending Harness evolution:
+  `harness/evolution/pending.md`.
 - Latest archived product change:
+  `harness/changes/archive/20260628-workbench-first-onboarding-aho-harness-skill-package-v2/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260628-workbench-system-aho-harness-onboarding-skill-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260628-workbench-reference-style-sidebar-and-skills-polish-v2/summary.md`.
@@ -45,6 +48,19 @@
 
 ## Latest Product Closeout
 
+`harness/changes/archive/20260628-workbench-first-onboarding-aho-harness-skill-package-v2/summary.md`.
+
+It upgrades the bundled `aho-harness-onboarding` system Skill from a thin
+single file into a short entry plus focused references for first-demand flow,
+project state detection, AHO memory layout, no-docs authoring, Harness document
+generation, main-Agent delegation hints, and output templates. First
+onboarding planning can now include the Skill as transient prompt-only context
+without persisting project/topic enablement; manual selection still uses the
+normal Skill bridge path. Deterministic project preparation, Change planning,
+validation/audit, apply/close, Scheduler, and Harness evolution authority are
+unchanged.
+
+Previous closeout:
 `harness/changes/archive/20260628-workbench-system-aho-harness-onboarding-skill-v1/summary.md`.
 
 It adds the bundled read-only `aho-harness-onboarding` system Skill as an AHO

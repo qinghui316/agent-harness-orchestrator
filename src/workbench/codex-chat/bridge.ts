@@ -12,7 +12,7 @@ import { assertWritableMemory, resolveProjectMemory } from "../../memory/resolve
 import { appendRunEvent, buildRunId } from "../../run/manager.js";
 import { isRunStopRequested } from "../../run/control.js";
 import { executeProcessStreaming } from "../../run/process.js";
-import { getEnabledSkillContext } from "../../skill/catalog.js";
+import { getEnabledSkillContext, getTransientSystemSkillContext } from "../../skill/catalog.js";
 import type { ManagedProject, RunMetadata, RunStatus } from "../../types/index.js";
 import { displayArtifactPath } from "../../workflow-artifacts/manager.js";
 import { emitAssistantEvent, emitLive } from "../live-events.js";
@@ -223,6 +223,7 @@ export async function postTopicPlanMessage(project: ManagedProject, changeId: st
 
 export interface RunCodexChatOptions {
   planningMode?: boolean;
+  transientSystemSkillIds?: string[];
 }
 
 export async function runCodexChat(project: ManagedProject, changeId: string, userMessage: string, live?: WorkbenchLiveSink, options: RunCodexChatOptions = {}): Promise<{ run: RunMetadata; message: string; codexSessionId: string | null; planText?: string }> {
@@ -231,6 +232,11 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
   const { changePath } = await resolveTopic(project, changeId);
   const runtime = await readTopicRuntime(memory, changePath, changeId);
   const skillContext = await getEnabledSkillContext(project, changeId);
+  const transientSkillContext = options.transientSystemSkillIds?.length
+    ? await getTransientSystemSkillContext(project, options.transientSystemSkillIds)
+    : { records: [], promptSection: "", warnings: [] };
+  const allSkillRecords = [...skillContext.records, ...transientSkillContext.records];
+  const skillPromptSections = [skillContext.promptSection, transientSkillContext.promptSection].filter(Boolean).join("\n\n");
   const runId = buildRunId(changeId, ["codex", "chat"]);
   const directory = join(memory.runsRoot, runId);
   const relativeDir = displayArtifactPath(memory, directory);
@@ -279,12 +285,30 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
       agentSession: `${relativeDir}/agent-session.json`,
       lastMessage: `${relativeDir}/last-message.md`,
     },
-    promptStack: ["active-change", "topic-thread", "aho-skills", "user-message", ...(options.planningMode ? ["codex-plan-mode"] : [])],
-    enabledSkills: skillContext.records,
+    promptStack: [
+      "active-change",
+      "topic-thread",
+      "aho-skills",
+      ...(transientSkillContext.records.length > 0 ? ["transient-aho-system-skill"] : []),
+      "user-message",
+      ...(options.planningMode ? ["codex-plan-mode"] : []),
+    ],
+    enabledSkills: allSkillRecords,
   };
   await writeJsonFile(paths.run, run);
   live?.emit({ event: "run.started", data: { runId, changeId, runtime: "codex-readonly", actionType: "chat.ask" } });
-  await appendRunEvent(paths.events, { timestamp: now, type: "run.created", runId, data: { changeId, runtime: "codex-chat", requestedResume: Boolean(runtime.codexSessionId), skills: skillContext.records.map((item) => item.id) } });
+  await appendRunEvent(paths.events, {
+    timestamp: now,
+    type: "run.created",
+    runId,
+    data: {
+      changeId,
+      runtime: "codex-chat",
+      requestedResume: Boolean(runtime.codexSessionId),
+      skills: allSkillRecords.map((item) => item.id),
+      skillWarnings: [...skillContext.warnings, ...transientSkillContext.warnings],
+    },
+  });
   const contextResult = await buildChatContext(project, memory, changeId, userMessage);
   const goalLoopLabels = goalLoopPromptStackLabels(contextResult);
   if (goalLoopLabels.length > 0) {
@@ -294,7 +318,7 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
   const goalLoopPreparedEvidence = buildGoalLoopContextPreparedEvidence(contextResult);
   const context = contextResult.context;
   await writeFile(paths.context, context, "utf8");
-  const prompt = `${context}${skillContext.promptSection ? `\n\n${skillContext.promptSection}` : ""}\n\n## User Message\n\n${userMessage}\n`;
+  const prompt = `${context}${skillPromptSections ? `\n\n${skillPromptSections}` : ""}\n\n## User Message\n\n${userMessage}\n`;
   await writeFile(paths.prompt, prompt, "utf8");
   await appendRunEvent(paths.events, {
     timestamp: new Date().toISOString(),

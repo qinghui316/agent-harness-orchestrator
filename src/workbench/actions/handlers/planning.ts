@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { completeAgentTask, createAgentTask, recordMainAgentDecision } from "../../../agent-task/manager.js";
 import { buildRunAgentRecord, resolveAgentRole } from "../../../agent/catalog.js";
 import { buildAcMap } from "../../../ecl/anchors.js";
+import { buildChangeIndex } from "../../../ecl/index.js";
 import { writeJsonFile } from "../../../fs/json.js";
 import { assertWritableMemory } from "../../../memory/resolver.js";
 import {
@@ -62,7 +63,7 @@ import {
   type SchedulerWorkerValidationResult,
   type SchedulerPlanPreparationResult,
 } from "../../../scheduler-runtime/manager.js";
-import type { ManagedProject } from "../../../types/index.js";
+import type { ManagedProject, ResolvedMemory } from "../../../types/index.js";
 import {
   createWorkflowRunForValidatedTaskQueue,
   validateWorkflowTaskQueueProposalStart,
@@ -184,7 +185,11 @@ export async function generatePlanningDraft(
     "",
     latestUserText,
   ].join("\n"));
-  const planningRuntime = await runCodexChat(project, changeId, planModePrompt, undefined, { planningMode: true }).catch((error: unknown) => {
+  const includeFirstOnboardingSkill = !revision && await shouldIncludeFirstOnboardingSkill(memory, changeId);
+  const planningRuntime = await runCodexChat(project, changeId, planModePrompt, undefined, {
+    planningMode: true,
+    transientSystemSkillIds: includeFirstOnboardingSkill ? ["aho-harness-onboarding"] : undefined,
+  }).catch((error: unknown) => {
     emitAssistantEvent(live, {
       runId: changeId,
       kind: "status",
@@ -293,6 +298,15 @@ export async function generatePlanningDraft(
     nextRecommendation: "Ask the user to confirm execution or request changes.",
   });
   return { bundle };
+}
+
+async function shouldIncludeFirstOnboardingSkill(memory: ResolvedMemory, changeId: string): Promise<boolean> {
+  const index = await buildChangeIndex(memory).catch(() => null);
+  if (!index) return false;
+  return index.active.length === 1
+    && index.active[0]?.name === changeId
+    && index.parking.length === 0
+    && index.archive.length === 0;
 }
 
 export async function confirmPlanningAndStartPipeline(

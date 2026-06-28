@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getCodexBridgeStatus, installCodexBridge, syncCodexBridge } from "../../src/codex/bridge.js";
 import { listAgentRoles, showAgentRole, syncAgentCatalog } from "../../src/agent/catalog.js";
 import { writeProjectMarker } from "../../src/project/marker.js";
-import { addSkillRoot, getEnabledSkillContext, importSkill, listSkills, setSkillEnabled } from "../../src/skill/catalog.js";
+import { addSkillRoot, getEnabledSkillContext, getTransientSystemSkillContext, importSkill, listSkills, setSkillEnabled } from "../../src/skill/catalog.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import type { ManagedProject } from "../../src/types/index.js";
@@ -181,7 +181,29 @@ describe("AHO skill source and Codex bridge", () => {
     expect(synced.synced.some((item) => item.skillId === "aho-harness-onboarding")).toBe(true);
     expect(existsSync(materialized)).toBe(true);
     expect(await readFile(materialized, "utf8")).toContain("name: demo__aho-harness-onboarding");
+    expect(existsSync(join(process.env.CODEX_HOME ?? "", "plugins", "aho-managed", "skills", "demo__aho-harness-onboarding", "references", "first-demand-onboarding-flow.md"))).toBe(true);
     expect(existsSync(join(process.env.CODEX_HOME ?? "", "skills", "aho-harness-onboarding"))).toBe(false);
+  });
+
+  it("renders transient AHO system skill context without project or topic enablement", async () => {
+    const repo = project();
+    await mkdir(repo.path, { recursive: true });
+    await writeProjectMarker(repo, "external-local");
+
+    const context = await getTransientSystemSkillContext(repo, ["aho-harness-onboarding"]);
+    expect(context.records).toEqual([expect.objectContaining({
+      id: "aho-harness-onboarding",
+      sourceKind: "system-aho",
+      materializationMode: "aho-managed",
+      bridge: "prompt:transient",
+      materializedHash: null,
+    })]);
+    expect(context.promptSection).toContain("Transient AHO System Skill Context");
+    expect(context.promptSection).toContain("references/aho-memory-layout.md");
+    expect(context.promptSection).toContain("external-local");
+
+    const persistent = await getEnabledSkillContext(repo, "change-a");
+    expect(persistent.records).toHaveLength(0);
   });
 
   it("reads bundled agent roles and syncs project catalog sources", async () => {
