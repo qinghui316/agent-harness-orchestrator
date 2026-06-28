@@ -363,7 +363,9 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
     : { timestamp: new Date().toISOString(), type: "app-server.unavailable", runId, data: { errors: appServerCapabilities.errors } });
 
   const capabilities = await detectCodexCapabilities();
-  const canResume = Boolean(runtime.codexSessionId) && capabilities.supportsSafeResume;
+  const canResume = Boolean(runtime.codexSessionId)
+    && capabilities.supportsSafeResume
+    && (memory.mode !== "external-local" || capabilities.supportsResumeAddDir);
   const argv = canResume
     ? buildCodexReadonlyResumeArgv(capabilities, { projectPath: project.path, lastMessagePath: paths.lastMessage, sessionId: runtime.codexSessionId as string, model: effectiveModel.model ?? undefined, additionalReadDirs: memory.mode === "external-local" ? [memory.memoryRoot] : [] })
     : buildCodexReadonlyArgv(capabilities, { projectPath: project.path, lastMessagePath: paths.lastMessage, model: effectiveModel.model ?? undefined, additionalReadDirs: memory.mode === "external-local" ? [memory.memoryRoot] : [] });

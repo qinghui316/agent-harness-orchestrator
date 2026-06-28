@@ -66,7 +66,7 @@ export function SkillMentionPicker({
                   <strong>{skill.name}</strong>
                   <small>{skill.description || "无描述"}</small>
                 </span>
-                <span className={`skill-sync-state ${syncState}`}>{syncState === "synced" ? "已同步" : "需要同步"}</span>
+                <span className={`skill-sync-state ${syncState}`}>{runtimeStatusLabel(syncState)}</span>
               </button>
             );
           })}
@@ -74,4 +74,11 @@ export function SkillMentionPicker({
       ) : null}
     </div>
   );
+}
+
+function runtimeStatusLabel(status: string): string {
+  if (status === "native") return "Codex 可用";
+  if (status === "synced") return "已同步";
+  if (status === "out-of-sync") return "需要重新同步";
+  return "需要同步";
 }

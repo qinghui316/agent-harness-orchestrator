@@ -6,10 +6,11 @@ import { z } from "zod";
 import { resolveCodexHome } from "../codex/home.js";
 import { resolveExistingDirectory, slugify } from "../fs/path.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
+import { getSystemSkillsRoot } from "../template-source/paths.js";
 import type { ManagedProject, ResolvedMemory, RunSkillRecord } from "../types/index.js";
 import { WorkbenchStore, type StoredSkillIndex, type StoredSkillRoot } from "../workbench/store.js";
 
-export type SkillSourceKind = "managed" | "project-codex" | "global-codex" | "custom";
+export type SkillSourceKind = "managed" | "project-codex" | "global-codex" | "custom" | "system-aho";
 
 export interface SkillListItem {
   skillId: string;
@@ -378,6 +379,8 @@ async function collectPackageFiles(packageRoot: string, current: string, files: 
 
 async function discoverSkillSources(memory: ResolvedMemory, project: ManagedProject, store: WorkbenchStore): Promise<Array<{ skillId: string; sourcePath: string; sourceKind: SkillSourceKind }>> {
   const candidates: Array<{ sourcePath: string; sourceKind: SkillSourceKind }> = [];
+  const systemSkillsRoot = getSystemSkillsRoot();
+  if (existsSync(systemSkillsRoot)) candidates.push(...await discoverSkillsInRoot(systemSkillsRoot, "system-aho"));
   if (existsSync(memory.skillsRoot)) candidates.push(...await discoverSkillsInRoot(memory.skillsRoot, "managed"));
   const projectCodexRoot = join(project.path, ".codex", "skills");
   if (existsSync(projectCodexRoot)) candidates.push(...await discoverSkillsInRoot(projectCodexRoot, "project-codex"));
@@ -472,7 +475,7 @@ function mapSkillRoot(root: StoredSkillRoot): SkillRootListItem {
 }
 
 function normalizeSourceKind(value: string): SkillSourceKind {
-  if (value === "project-codex" || value === "global-codex" || value === "custom") return value;
+  if (value === "project-codex" || value === "global-codex" || value === "custom" || value === "system-aho") return value;
   return "managed";
 }
 

@@ -126,16 +126,27 @@ describe("codex capabilities", () => {
       sessionId: "session-1",
     })).toThrow("equivalent read-only");
 
-    const safe = evaluateCodexCapabilities("codex-cli 1.0", rootHelp, execHelp, undefined, "Usage: codex exec resume --sandbox <MODE> --cd <DIR>");
+    const safe = evaluateCodexCapabilities("codex-cli 1.0", rootHelp, execHelp, undefined, "Usage: codex exec resume --sandbox <MODE> --cd <DIR> --add-dir <DIR>");
     const argv = buildCodexReadonlyResumeArgv(safe, {
       projectPath: "/repo",
       lastMessagePath: "/repo/out.md",
       sessionId: "session-1",
+      additionalReadDirs: ["/memory"],
     });
     expect(argv.args).toContain("--sandbox");
     expect(argv.args).toContain("read-only");
     expect(argv.args).toContain("--cd");
     expect(argv.args).toContain("/repo");
+    expect(argv.args).toContain("--add-dir");
+    expect(argv.args).toContain("/memory");
+
+    const noAddDirResume = evaluateCodexCapabilities("codex-cli 1.0", rootHelp, execHelp, undefined, "Usage: codex exec resume --sandbox <MODE> --cd <DIR>");
+    expect(() => buildCodexReadonlyResumeArgv(noAddDirResume, {
+      projectPath: "/repo",
+      lastMessagePath: "/repo/out.md",
+      sessionId: "session-1",
+      additionalReadDirs: ["/memory"],
+    })).toThrow("--add-dir");
   });
 
   it("omits optional read-only memory directories when unsupported", () => {

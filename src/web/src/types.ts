@@ -78,7 +78,7 @@ export type ProjectStatus = {
   codexTrust?: { trusted: boolean; configPath: string; projectKey: string; configExists: boolean; reason?: string };
 };
 
-export type SkillSourceKind = "managed" | "project-codex" | "global-codex" | "custom";
+export type SkillSourceKind = "managed" | "project-codex" | "global-codex" | "custom" | "system-aho";
 export type SkillRuntimeTarget = {
   provider: "codex";
   status: "native" | "synced" | "out-of-sync" | "not-synced";

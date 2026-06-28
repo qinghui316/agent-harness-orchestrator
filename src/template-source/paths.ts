@@ -9,3 +9,11 @@ export function getTemplateRoot(): string {
   if (existsSync(distCandidate)) return distCandidate;
   return join(here, "..", "..", "templates", "core-harness");
 }
+
+export function getSystemSkillsRoot(): string {
+  if (process.env.AHO_SYSTEM_SKILLS_DIR) return process.env.AHO_SYSTEM_SKILLS_DIR;
+  const here = dirname(fileURLToPath(import.meta.url));
+  const distCandidate = join(here, "..", "templates", "system-skills");
+  if (existsSync(distCandidate)) return distCandidate;
+  return join(here, "..", "..", "templates", "system-skills");
+}

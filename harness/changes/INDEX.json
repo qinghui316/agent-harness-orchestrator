@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-28T10:16:46.7164201Z",
+    "generated_at":  "2026-06-28T11:51:02.4229741Z",
     "active":  [
 
                ],
@@ -2129,6 +2129,10 @@
                     {
                         "name":  "20260628-workbench-reference-style-sidebar-settings-skills-ui-v1",
                         "path":  "harness/changes/archive/20260628-workbench-reference-style-sidebar-settings-skills-ui-v1"
+                    },
+                    {
+                        "name":  "20260628-workbench-system-aho-harness-onboarding-skill-v1",
+                        "path":  "harness/changes/archive/20260628-workbench-system-aho-harness-onboarding-skill-v1"
                     },
                     {
                         "name":  "20260628-workbench-ui-acceptance-deeplink-restore-v1",

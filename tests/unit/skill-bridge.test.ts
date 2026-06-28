@@ -53,8 +53,9 @@ describe("AHO skill source and Codex bridge", () => {
     const skills = await listSkills(repo);
     const memory = await resolveProjectMemory(repo);
 
-    expect(skills[0]).toMatchObject({ skillId: "pricing-skill", enabledProject: true, disabledTopics: ["change-a"] });
-    expect(skills[0].sourceKind).toBe("managed");
+    const pricing = skills.find((skill) => skill.skillId === "pricing-skill");
+    expect(pricing).toMatchObject({ skillId: "pricing-skill", enabledProject: true, disabledTopics: ["change-a"] });
+    expect(pricing?.sourceKind).toBe("managed");
     expect(existsSync(join(memory.skillsRoot, "pricing-skill", "SKILL.md"))).toBe(true);
     expect(existsSync(join(memory.skillsRoot, "pricing-skill", "references", "note.md"))).toBe(true);
     expect(existsSync(join(memory.skillsRoot, "pricing-skill", "scripts", "run.ps1"))).toBe(true);
@@ -152,6 +153,35 @@ describe("AHO skill source and Codex bridge", () => {
     expect(synced.synced).toHaveLength(0);
     expect(existsSync(join(process.env.CODEX_HOME ?? "", "plugins", "aho-managed", "skills", "demo__native-codex-skill"))).toBe(false);
     expect((await getCodexBridgeStatus(repo)).project?.outOfSync).toEqual([]);
+  });
+
+  it("discovers bundled AHO system skills and materializes them through the AHO-managed bridge", async () => {
+    const repo = project();
+    await mkdir(repo.path, { recursive: true });
+    await writeProjectMarker(repo, "external-local");
+
+    const skills = await listSkills(repo);
+    const systemSkill = skills.find((item) => item.skillId === "aho-harness-onboarding");
+    expect(systemSkill).toMatchObject({
+      sourceKind: "system-aho",
+      runtimeTargets: [expect.objectContaining({ provider: "codex", status: "not-synced", materializationMode: "aho-managed" })],
+    });
+
+    await setSkillEnabled(repo, "aho-harness-onboarding", { topic: "change-a", enabled: true });
+    const beforeSync = await getEnabledSkillContext(repo, "change-a");
+    expect(beforeSync.records[0]).toMatchObject({
+      id: "aho-harness-onboarding",
+      sourceKind: "system-aho",
+      materializationMode: "aho-managed",
+    });
+    expect(beforeSync.warnings).toEqual(["Skill aho-harness-onboarding is not synced to the Codex bridge."]);
+
+    const synced = await syncCodexBridge(repo);
+    const materialized = join(process.env.CODEX_HOME ?? "", "plugins", "aho-managed", "skills", "demo__aho-harness-onboarding", "SKILL.md");
+    expect(synced.synced.some((item) => item.skillId === "aho-harness-onboarding")).toBe(true);
+    expect(existsSync(materialized)).toBe(true);
+    expect(await readFile(materialized, "utf8")).toContain("name: demo__aho-harness-onboarding");
+    expect(existsSync(join(process.env.CODEX_HOME ?? "", "skills", "aho-harness-onboarding"))).toBe(false);
   });
 
   it("reads bundled agent roles and syncs project catalog sources", async () => {

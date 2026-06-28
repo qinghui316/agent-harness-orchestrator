@@ -209,6 +209,7 @@ function runtimeStatusLabel(status: SkillListItem["runtimeTargets"][number]["sta
 }
 
 function sourceKindLabel(kind: string): string {
+  if (kind === "system-aho") return "AHO 内置";
   if (kind === "global-codex") return "Codex";
   if (kind === "project-codex") return "项目";
   if (kind === "custom") return "自定义";

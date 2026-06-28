@@ -1,0 +1,3 @@
+display_name: AHO Harness Onboarding
+short_description: Build project context and Harness onboarding proposals for AHO.
+default_prompt: Use this when preparing a project for AHO Harness work or refreshing project context before planning.

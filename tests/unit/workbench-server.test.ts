@@ -90,8 +90,11 @@ describe("workbench server", () => {
     expect(addedRoot.ok).toBe(true);
     const listed = await getJson<{ roots: Array<{ rootPath: string }>; skills: Array<{ skillId: string; sourceKind: string; runtimeTargets: Array<{ provider: string; status: string }> }> }>(`${handle!.url}/api/projects/repo/skills`);
     expect(listed.roots.some((root) => root.rootPath === skillRoot)).toBe(true);
-    expect(listed.skills[0]).toMatchObject({ skillId: "pricing-helper", sourceKind: "custom" });
-    expect(listed.skills[0].runtimeTargets[0]).toMatchObject({ provider: "codex", status: "not-synced" });
+    const pricing = listed.skills.find((skill) => skill.skillId === "pricing-helper");
+    const system = listed.skills.find((skill) => skill.skillId === "aho-harness-onboarding");
+    expect(pricing).toMatchObject({ skillId: "pricing-helper", sourceKind: "custom" });
+    expect(pricing?.runtimeTargets[0]).toMatchObject({ provider: "codex", status: "not-synced" });
+    expect(system).toMatchObject({ skillId: "aho-harness-onboarding", sourceKind: "system-aho" });
 
     const enabled = await fetch(`${handle!.url}/api/projects/repo/skills/pricing-helper/enable`, {
       method: "POST",

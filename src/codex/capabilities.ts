@@ -16,6 +16,7 @@ export interface CodexCapabilities {
   supportsColor: boolean;
   supportsOutputLastMessage: boolean;
   supportsSafeResume: boolean;
+  supportsResumeAddDir: boolean;
   errors: string[];
 }
 
@@ -52,6 +53,7 @@ export function evaluateCodexCapabilities(versionOutput: string | null, rootHelp
   const supportsAddDir = includesFlag(execHelp, "--add-dir");
   const supportsColor = includesFlag(execHelp, "--color");
   const supportsOutputLastMessage = includesFlag(execHelp, "--output-last-message");
+  const supportsResumeAddDir = includesFlag(resumeHelp, "--add-dir");
   const supportsSafeResume = includesFlag(resumeHelp, "--sandbox") && (includesFlag(resumeHelp, "--cd") || includesFlag(resumeHelp, "-C, --cd"));
 
   if (!available) errors.push("Codex CLI is not available on PATH.");
@@ -70,6 +72,7 @@ export function evaluateCodexCapabilities(versionOutput: string | null, rootHelp
     supportsColor,
     supportsOutputLastMessage,
     supportsSafeResume,
+    supportsResumeAddDir,
     errors,
   };
 }
@@ -145,8 +148,16 @@ export function buildCodexReadonlyResumeArgv(capabilities: CodexCapabilities, op
   if (!capabilities.supportsSafeResume) {
     throw new Error("Codex resume does not expose equivalent read-only sandbox and cwd constraints; use a fresh read-only exec.");
   }
+  if ((options.additionalReadDirs?.length ?? 0) > 0 && !capabilities.supportsResumeAddDir) {
+    throw new Error("Codex resume does not expose --add-dir for external read-only memory; use a fresh read-only exec.");
+  }
 
   const args: string[] = [...codexRuntimeConfigArgs(), "exec", "resume", "--json", "--sandbox", "read-only", "--cd", options.projectPath];
+  if (capabilities.supportsResumeAddDir) {
+    for (const dir of options.additionalReadDirs ?? []) {
+      args.push("--add-dir", dir);
+    }
+  }
   if (capabilities.supportsOutputLastMessage) args.push("--output-last-message", options.lastMessagePath);
   if (options.model) args.push("--model", options.model);
   if (options.profile) args.push("--profile", options.profile);

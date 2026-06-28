@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260628-workbench-system-aho-harness-onboarding-skill-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260628-workbench-reference-style-sidebar-and-skills-polish-v2/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260628-workbench-reference-style-sidebar-cleanup-and-skill-availability-v1/summary.md`.
@@ -43,6 +45,17 @@
 
 ## Latest Product Closeout
 
+`harness/changes/archive/20260628-workbench-system-aho-harness-onboarding-skill-v1/summary.md`.
+
+It adds the bundled read-only `aho-harness-onboarding` system Skill as an AHO
+runtime capability for project onboarding proposals, context extraction, and
+main-Agent delegation input. The Skill materializes through the AHO-managed
+Codex bridge when selected or enabled, does not write to global `.codex/skills`,
+and remains proposal/context only. External-local Codex read-only resume now
+passes the memory root through an explicit read dir when supported and fails
+closed otherwise.
+
+Previous closeout:
 `harness/changes/archive/20260628-workbench-reference-style-sidebar-and-skills-polish-v2/summary.md`.
 
 It tightens the reference-style Harness-mode product shell: the ordinary
@@ -163,6 +176,14 @@ Harness workflow truth.
   composer selection, and `@file` project file references.
   Clean browser profiles can restore a direct-served project or explicit
   `?project=&topic=&tab=` Workbench URL without prior localStorage state.
+- AHO bundles `aho-harness-onboarding` as a read-only system Skill. It is a
+  runtime proposal/context aid for first onboarding, mature-project context
+  extraction, and main-Agent delegation input; it is not workflow truth and
+  cannot bypass project preparation, Change/Plan confirmation, apply/close, or
+  Harness evolution gates.
+- External-local Codex read-only resume passes the external memory root through
+  an explicit read dir when supported and fails closed otherwise, so user-home
+  app data can remain stable while source projects live on any drive.
 - The right side is a single collapsed tool rail. Expanded, it contains only
   real implemented tools: `确认`, `文件`, and `Git`. Confirmation remains the
   existing decision inspector; files are read-only project tree/preview/reference
@@ -196,8 +217,8 @@ Harness workflow truth.
 ## Next Resume Point
 
 Product work should continue from `docs/design-docs/ref-desktop-cc-gui.md`.
-Good next slices are actual skill-usage evidence,
-provider capability matrix,
+Good next slices are first-onboarding system Skill auto-context at the server
+prompt boundary, actual skill-usage evidence, provider capability matrix,
 project creation/open/restore polish, runtime diagnostics, terminal, browser,
 attachment panels, Git write/history flows, or file editing once each has real
 behavior.
