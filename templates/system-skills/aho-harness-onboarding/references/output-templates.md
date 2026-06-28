@@ -33,7 +33,7 @@ Use these headings when producing onboarding output.
 - Goal:
 - Deterministic preparation already handled by AHO:
 - Proposed project-specific docs or scripts:
-- Files to create or update:
+- Proposed files to create or update:
 - Evidence:
 - Evidence budget:
 - Skipped evidence:
