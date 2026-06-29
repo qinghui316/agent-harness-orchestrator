@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260629-workbench-reference-style-compact-git-diagnostics-rail-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260629-workbench-right-rail-owns-right-tool-content-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260629-workbench-runtime-activity-log-sanitize-private-paths-v1/summary.md`.
@@ -74,6 +76,18 @@
 
 ## Latest Product Closeout
 
+`harness/changes/archive/20260629-workbench-reference-style-compact-git-diagnostics-rail-v1/summary.md`.
+
+It makes the right-rail `Git` and `诊断` surfaces compact and
+reference-style: `诊断` defaults to short status rows plus a few recent
+events, with the full runtime-log filters/timeline only in a local subview;
+`Git` shows a compact branch/dirty header, collapsible non-empty file groups,
+dense file rows, secondary reference icons, and readonly diff preview inside
+the rail. The center workspace is not hijacked by right-side tools. Browser
+screenshots were captured under
+`E:\aho-accept\compact-git-diagnostics-rail-v1\screenshots`.
+
+Previous closeout:
 `harness/changes/archive/20260629-workbench-right-rail-owns-right-tool-content-v1/summary.md`.
 
 It fixes the right-tool ownership bug found in real UI review: content opened
@@ -83,17 +97,8 @@ contains the runtime diagnostics summary and bounded runtime activity log, and
 workspace no longer switches to `运行日志` or `Git Diff`; stale
 `?tab=runtime-log` / `?tab=git-diff` links fall back to the ordinary center
 view. Browser screenshots were captured under
-`E:\aho-accept\right-rail-owns-content-v1\screenshots`.
-
-Previous closeout:
-`harness/changes/archive/20260629-workbench-runtime-activity-log-sanitize-private-paths-v1/summary.md`.
-
-It fixes a real UI screenshot acceptance issue in `运行日志`: embedded local
-absolute paths inside action-error summaries are now folded before reaching the
-ordinary timeline/copy text. Browser screenshots were captured under
-`E:\aho-accept\runtime-activity-log-ui-v1\screenshots`; visible DOM checks
-found no absolute Windows path, no `.agent-harness` path, and no fake
-Run/Stop/autofix/Terminal-write/provider/PR/remote/merge controls.
+`E:\aho-accept\right-rail-owns-content-v1\screenshots`; visible checks found
+no Run/Stop/autofix/Terminal-write/provider/PR/remote/merge controls.
 
 Previous closeout:
 `harness/changes/archive/20260629-workbench-readonly-runtime-activity-log-v1/summary.md`.

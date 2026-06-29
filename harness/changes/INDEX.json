@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-29T12:22:04.6349013Z",
+    "generated_at":  "2026-06-29T13:11:45.0866043Z",
     "active":  [
 
                ],
@@ -2193,6 +2193,10 @@
                     {
                         "name":  "20260629-workbench-readonly-runtime-activity-log-v1",
                         "path":  "harness/changes/archive/20260629-workbench-readonly-runtime-activity-log-v1"
+                    },
+                    {
+                        "name":  "20260629-workbench-reference-style-compact-git-diagnostics-rail-v1",
+                        "path":  "harness/changes/archive/20260629-workbench-reference-style-compact-git-diagnostics-rail-v1"
                     },
                     {
                         "name":  "20260629-workbench-reference-style-light-terminal-dock-polish-v1",

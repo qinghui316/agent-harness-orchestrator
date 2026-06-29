@@ -1,6 +1,6 @@
-import { Copy, RefreshCcw } from "lucide-react";
-import type { ReactElement } from "react";
-import type { RuntimeActivityLogSnapshot, RuntimeDiagnosticItem, RuntimeDiagnosticsSnapshot } from "../../types.js";
+import { ArrowLeft, Copy, RefreshCcw } from "lucide-react";
+import { useState, type ReactElement } from "react";
+import type { RuntimeActivityItem, RuntimeActivityLogSnapshot, RuntimeDiagnosticItem, RuntimeDiagnosticsSnapshot } from "../../types.js";
 import { RuntimeActivityLogPanel } from "./RuntimeActivityLogPanel.js";
 
 export function RuntimeDiagnosticsRailPanel({
@@ -18,7 +18,33 @@ export function RuntimeDiagnosticsRailPanel({
   runtimeLogLoading: boolean;
   onRefreshRuntimeLog: () => void;
 }): ReactElement {
+  const [view, setView] = useState<"summary" | "log">("summary");
   const copyText = snapshot ? formatDiagnosticsForCopy(snapshot) : "暂无诊断数据。";
+  if (view === "log") {
+    return (
+      <div className="runtime-diagnostics-rail runtime-diagnostics-rail-log" data-testid="runtime-diagnostics-rail-panel">
+        <header className="runtime-diagnostics-rail-header">
+          <div>
+            <button type="button" className="icon-button" aria-label="返回诊断摘要" onClick={() => setView("summary")}>
+              <ArrowLeft size={14} aria-hidden="true" />
+            </button>
+            <strong>运行日志</strong>
+          </div>
+          <div className="runtime-diagnostics-rail-actions">
+            <button type="button" className="icon-button" aria-label="刷新运行日志" onClick={onRefreshRuntimeLog}>
+              <RefreshCcw size={14} aria-hidden="true" />
+            </button>
+          </div>
+        </header>
+        <RuntimeActivityLogPanel
+          snapshot={runtimeLog}
+          loading={runtimeLogLoading}
+          onRefresh={onRefreshRuntimeLog}
+          variant="rail"
+        />
+      </div>
+    );
+  }
   return (
     <div className="runtime-diagnostics-rail" data-testid="runtime-diagnostics-rail-panel">
       <header className="runtime-diagnostics-rail-header">
@@ -48,11 +74,10 @@ export function RuntimeDiagnosticsRailPanel({
         {!loading && !snapshot ? <div className="runtime-diagnostics-empty">暂无诊断数据。</div> : null}
         {snapshot?.items.map((item) => <RuntimeDiagnosticRow key={item.id} item={item} />)}
       </div>
-      <RuntimeActivityLogPanel
+      <RecentRuntimeEvents
         snapshot={runtimeLog}
         loading={runtimeLogLoading}
-        onRefresh={onRefreshRuntimeLog}
-        variant="rail"
+        onOpenLog={() => setView("log")}
       />
     </div>
   );
@@ -73,6 +98,60 @@ function RuntimeDiagnosticRow({ item }: { item: RuntimeDiagnosticItem }): ReactE
       ) : null}
     </article>
   );
+}
+
+function RecentRuntimeEvents({
+  snapshot,
+  loading,
+  onOpenLog,
+}: {
+  snapshot: RuntimeActivityLogSnapshot | null;
+  loading: boolean;
+  onOpenLog: () => void;
+}): ReactElement {
+  const events = (snapshot?.items ?? []).slice(0, 3);
+  return (
+    <section className="runtime-diagnostics-recent" data-testid="runtime-diagnostics-recent-events">
+      <header>
+        <div>
+          <strong>最近运行事件</strong>
+          <span>{loading ? "正在读取" : snapshot ? `${snapshot.items.length} 条` : "暂无"}</span>
+        </div>
+        <button type="button" className="runtime-diagnostics-open-log" data-testid="runtime-diagnostics-open-log" onClick={onOpenLog}>
+          查看日志
+        </button>
+      </header>
+      {loading ? <div className="runtime-diagnostics-empty compact">正在读取运行日志...</div> : null}
+      {!loading && events.length === 0 ? <div className="runtime-diagnostics-empty compact">暂无运行事件。</div> : null}
+      {events.map((item) => <RecentRuntimeEventRow key={item.id} item={item} />)}
+    </section>
+  );
+}
+
+function RecentRuntimeEventRow({ item }: { item: RuntimeActivityItem }): ReactElement {
+  return (
+    <article className={`runtime-diagnostics-recent-row ${item.severity}`}>
+      <span className={`runtime-activity-dot ${item.severity}`} aria-hidden="true" />
+      <div>
+        <strong>{item.title}</strong>
+        <span>{item.status ? `${typeLabel(item.type)} · ${item.status}` : typeLabel(item.type)}</span>
+      </div>
+    </article>
+  );
+}
+
+function typeLabel(type: RuntimeActivityItem["type"]): string {
+  const labels: Record<RuntimeActivityItem["type"], string> = {
+    provider: "Provider",
+    run: "运行",
+    "run-event": "运行事件",
+    validation: "验证",
+    audit: "审查",
+    "message-context": "消息上下文",
+    terminal: "终端",
+    "action-error": "操作错误",
+  };
+  return labels[type];
 }
 
 function diagnosticsStatusText(snapshot: RuntimeDiagnosticsSnapshot | null): string {

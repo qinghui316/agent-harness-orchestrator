@@ -2119,19 +2119,25 @@ describe("Workbench web app", () => {
     fireEvent.click(await screen.findByTestId("right-tool-launcher-git"));
     const gitPanel = await screen.findByTestId("project-git-panel");
     expect(within(gitPanel).getByText("main")).toBeTruthy();
-    expect(within(gitPanel).getByText("src/pricing.ts")).toBeTruthy();
+    expect(within(gitPanel).getByText("pricing.ts")).toBeTruthy();
+    expect(within(gitPanel).getAllByText("src").length).toBeGreaterThan(0);
+    expect(within(gitPanel).queryByText("没有文件。")).toBeNull();
     expect(within(gitPanel).queryByText("提交")).toBeNull();
     expect(within(gitPanel).queryByText("推送")).toBeNull();
     expect(within(gitPanel).queryByText("PR")).toBeNull();
+    expect(within(gitPanel).queryByText("stage")).toBeNull();
+    expect(within(gitPanel).queryByText("commit")).toBeNull();
 
-    fireEvent.click(within(gitPanel).getByRole("button", { name: /src\/pricing\.ts/ }));
+    fireEvent.click(within(gitPanel).getByLabelText("src/pricing.ts"));
     expect(screen.queryByRole("tab", { name: "Git Diff" })).toBeNull();
     const diffViewer = await within(gitPanel).findByTestId("git-diff-viewer");
     await waitFor(() => expect(within(diffViewer).getByText("+export const price = 2;")).toBeTruthy());
     expect(within(diffViewer).queryByText("commit")).toBeNull();
+    expect(within(diffViewer).queryByText(/stage/)).toBeNull();
     expect(screen.getByTestId("main-conversation-view")).toBeTruthy();
-    fireEvent.click(within(gitPanel).getAllByText("引用")[0] as HTMLElement);
-    await waitFor(() => expect(screen.getByText("staged.ts")).toBeTruthy());
+    fireEvent.click(within(gitPanel).getByLabelText("引用 src/staged.ts 到输入框"));
+    await waitFor(() => expect(document.querySelectorAll(".file-selected-chip").length).toBeGreaterThan(0));
+    expect(screen.getAllByText("staged.ts").length).toBeGreaterThan(1);
 
     fireEvent.click(screen.getByTestId("terminal-dock-toggle"));
     expect(await screen.findByTestId("terminal-dock")).toBeTruthy();
@@ -2143,6 +2149,11 @@ describe("Workbench web app", () => {
     const diagnosticsPanel = await screen.findByTestId("runtime-diagnostics-rail-panel");
     expect(within(diagnosticsPanel).getByText("运行诊断")).toBeTruthy();
     expect(within(diagnosticsPanel).getByText("模型列表")).toBeTruthy();
+    expect(within(diagnosticsPanel).getByTestId("runtime-diagnostics-recent-events")).toBeTruthy();
+    expect(within(diagnosticsPanel).getByText("最近运行事件")).toBeTruthy();
+    expect(within(diagnosticsPanel).getByText("Codex runtime")).toBeTruthy();
+    expect(within(diagnosticsPanel).queryByTestId("runtime-activity-log")).toBeNull();
+    fireEvent.click(within(diagnosticsPanel).getByTestId("runtime-diagnostics-open-log"));
     const runtimeLog = await within(diagnosticsPanel).findByTestId("runtime-activity-log");
     expect(within(runtimeLog).getByText("运行日志")).toBeTruthy();
     expect(within(runtimeLog).getByText("Codex runtime")).toBeTruthy();
@@ -2226,7 +2237,7 @@ describe("Workbench web app", () => {
     fireEvent.click(screen.getByTestId("decision-pane-toggle"));
     fireEvent.click(await screen.findByTestId("right-tool-launcher-git"));
     const gitPanel = await screen.findByTestId("project-git-panel");
-    fireEvent.click(within(gitPanel).getByRole("button", { name: /src\/pricing\.ts/ }));
+    fireEvent.click(within(gitPanel).getByLabelText("src/pricing.ts"));
     const diffViewer = await within(gitPanel).findByTestId("git-diff-viewer");
     await waitFor(() => expect(within(diffViewer).getByText("+export const price = 2;")).toBeTruthy());
     expect(screen.getByText("创造任何东西")).toBeTruthy();

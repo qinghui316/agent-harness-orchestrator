@@ -1,4 +1,4 @@
-import { FileDiff, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { useEffect, useState, type ReactElement } from "react";
 import { fetchJson } from "../../api.js";
 import type { ProjectGitDiffResult, ProjectGitDiffSection } from "../../types.js";
@@ -38,9 +38,9 @@ export function GitDiffViewer({
     <section className={`git-diff-viewer ${variant === "rail" ? "git-diff-viewer-rail" : ""}`} data-testid="git-diff-viewer" aria-label="Git Diff">
       <header className="git-diff-header">
         <div>
-          <p className="eyebrow">Git Diff</p>
-          <h2>{selectedPath ?? "选择一个变更文件"}</h2>
-          <p>{selectedPath ? "只读查看当前项目里的 Git patch。" : "在 Git 面板选择文件后，这里显示只读 diff。"}</p>
+          {variant === "full" ? <p className="eyebrow">Git Diff</p> : null}
+          <h2>{selectedPath ? pathLeaf(selectedPath) : "Diff 预览"}</h2>
+          {selectedPath ? <p>{selectedPath}</p> : null}
         </div>
         <button type="button" className="icon-button" aria-label="刷新 diff" disabled={!selectedPath} onClick={() => void loadDiff()}>
           <RefreshCw size={16} aria-hidden="true" />
@@ -50,9 +50,8 @@ export function GitDiffViewer({
       {loading ? <div className="git-diff-empty">正在读取 diff...</div> : null}
       {!loading && !selectedPath ? (
         <div className="git-diff-empty">
-          <FileDiff size={28} aria-hidden="true" />
-          <strong>从右侧 Git 面板选择文件</strong>
-          <span>这里不会执行 stage、commit、push 或其他 Git 写操作。</span>
+          <strong>选择变更文件</strong>
+          <span>Diff 会显示在这里。</span>
         </div>
       ) : null}
       {!loading && selectedPath && diff && diff.status !== "text" && diff.status !== "too-large" ? (
@@ -70,6 +69,11 @@ export function GitDiffViewer({
       ) : null}
     </section>
   );
+}
+
+function pathLeaf(path: string): string {
+  const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
+  return parts[parts.length - 1] ?? path;
 }
 
 function DiffSection({ section }: { section: ProjectGitDiffSection }): ReactElement {
