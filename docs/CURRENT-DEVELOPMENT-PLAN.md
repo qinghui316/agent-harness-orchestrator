@@ -264,7 +264,7 @@ Tauri packaging, PR/remote/merge, and full parallel executor work out of the
 immediate slice unless explicitly selected.
 
 Latest product change:
-`harness/changes/archive/20260629-workbench-right-rail-owns-right-tool-content-v1/summary.md`.
+`harness/changes/archive/20260629-workbench-reference-style-readonly-git-history-rail-v1/summary.md`.
 
 Latest docs/architecture change:
 `harness/changes/archive/20260629-document-aho-hybrid-desktop-native-roadmap-v1/summary.md`.
@@ -278,15 +278,20 @@ sequential local apply/landing/close path, and full-access stops before raw
 scheduler preparation.
 
 Latest completed Harness evolution:
-`harness/changes/archive/20260629-auto-evolve-post-provider-runtime-log-window/summary.md`.
-Decision: `noop`; subagent Arendt score `90/100`. Existing ECL and boundary
-coverage is sufficient for the provider/runtime-log/private-path archive
-window; no product runtime, Harness rule, or template change was made.
+`harness/changes/archive/20260629-auto-evolve-post-right-rail-git-history-window/summary.md`.
+Decision: `noop`; subagent Bernoulli score `91/100`. Existing ECL coverage is
+sufficient for the right-rail Git/diagnostics/history archive window; no
+product runtime, Harness rule, or template change was made.
 
 Current Harness evolution:
 
 - Pending evolution: none.
 - Latest completed evolution:
+  `harness/changes/archive/20260629-auto-evolve-post-right-rail-git-history-window/summary.md`.
+  Decision: `noop`; subagent Bernoulli score `91/100`. Existing ECL coverage was
+  sufficient for the right-rail Git/diagnostics/history archive window; no
+  product runtime, Harness rule, or template change was made.
+- Previous completed evolution:
   `harness/changes/archive/20260629-auto-evolve-post-provider-runtime-log-window/summary.md`.
   Decision: `noop`; subagent Arendt score `90/100`. Existing ECL and boundary
   coverage was sufficient for the provider/runtime-log/private-path archive

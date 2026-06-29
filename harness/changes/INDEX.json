@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-29T15:00:19.3652136Z",
+    "generated_at":  "2026-06-29T15:19:50.1974741Z",
     "active":  [
 
                ],
@@ -2161,6 +2161,10 @@
                     {
                         "name":  "20260629-auto-evolve-post-provider-runtime-log-window",
                         "path":  "harness/changes/archive/20260629-auto-evolve-post-provider-runtime-log-window"
+                    },
+                    {
+                        "name":  "20260629-auto-evolve-post-right-rail-git-history-window",
+                        "path":  "harness/changes/archive/20260629-auto-evolve-post-right-rail-git-history-window"
                     },
                     {
                         "name":  "20260629-auto-evolve-post-terminal-dock-tool-shell-window",
