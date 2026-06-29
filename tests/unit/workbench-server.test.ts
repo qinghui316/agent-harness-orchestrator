@@ -13,6 +13,7 @@ import { startLocalCommandRun } from "../../src/run/manager.js";
 import { TerminalRuntime } from "../../src/server/terminal/terminal-runtime.js";
 import { buildNativeFolderDialogCommand, executeWorkbenchAction, startWorkbenchServer, type WorkbenchServerHandle } from "../../src/server/workbench-server.js";
 import type { ManagedProject } from "../../src/types/index.js";
+import { appendTopicThreadEntry } from "../../src/workbench/chat.js";
 
 let tempDir: string;
 let staticRoot: string;
@@ -499,6 +500,14 @@ describe("workbench server", () => {
         body: JSON.stringify({ title: "Project scoped topic", body: "Keep route behavior", confirm: true }),
       });
       expect(projectTopic.ok).toBe(true);
+      const projectTopicBody = await projectTopic.json() as { topic: { changeId: string } };
+      await appendTopicThreadEntry({ ...project(), id: addedBody.project.id, name: "Server Repo" }, projectTopicBody.topic.changeId, {
+        type: "workflow.completed",
+        actionRunId: "action-private-path",
+        actionType: "code.run",
+        status: "failed",
+        error: `ENOENT: no such file or directory, open '${join(tempDir, ".agent-harness", "workbench", "private.json")}'`,
+      });
 
       const directTopic = await fetch(`${handle!.url}/api/workbench/topics`, {
         method: "POST",
@@ -550,10 +559,11 @@ describe("workbench server", () => {
         projectId: string;
         limit: number;
         truncated: boolean;
-        items: Array<{ type: string; title: string; summary: string; refs: unknown[] }>;
+        items: Array<{ type: string; title: string; summary: string; details?: string[]; refs: unknown[] }>;
       }>(
         `${appHandle.url}/api/projects/${addedBody.project.id}/runtime/activity?limit=20`,
       );
+      const defaultRuntimeActivityText = runtimeActivity.items.map((item) => [item.title, item.summary, ...(item.details ?? [])].join("\n")).join("\n");
       expect(runtimeActivity.projectId).toBe(addedBody.project.id);
       expect(runtimeActivity.limit).toBe(20);
       expect(typeof runtimeActivity.truncated).toBe("boolean");
@@ -561,6 +571,9 @@ describe("workbench server", () => {
       expect(runtimeActivity.items.some((item) => item.type === "provider" && item.title.includes("Codex"))).toBe(true);
       expect(JSON.stringify(runtimeActivity)).not.toContain("config.toml");
       expect(JSON.stringify(runtimeActivity)).not.toContain("stdout");
+      expect(defaultRuntimeActivityText).not.toContain(tempDir);
+      expect(defaultRuntimeActivityText).not.toContain(".agent-harness");
+      expect(runtimeActivity.items.some((item) => item.type === "action-error" && item.summary.includes("路径已折叠"))).toBe(true);
 
       const unconfirmedTrust = await fetch(`${appHandle.url}/api/projects/${addedBody.project.id}/codex/trust`, {
         method: "POST",

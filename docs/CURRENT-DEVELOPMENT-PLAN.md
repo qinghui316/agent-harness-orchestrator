@@ -245,7 +245,7 @@ workflow truth, or hidden permission bypasses.
 
 Current structured change: none.
 
-Pending Harness evolution: none.
+Pending Harness evolution: `harness/evolution/pending.md`.
 
 Recommended next product step: continue the desktop product layer from
 `docs/design-docs/ref-desktop-cc-gui.md`, now that the selected-project home
@@ -264,7 +264,7 @@ Tauri packaging, PR/remote/merge, and full parallel executor work out of the
 immediate slice unless explicitly selected.
 
 Latest product change:
-`harness/changes/archive/20260629-workbench-codex-style-top-tool-alignment-right-launcher-terminal-squeeze-v1/summary.md`.
+`harness/changes/archive/20260629-workbench-runtime-activity-log-sanitize-private-paths-v1/summary.md`.
 
 Latest docs/architecture change:
 `harness/changes/archive/20260629-document-aho-hybrid-desktop-native-roadmap-v1/summary.md`.
@@ -285,7 +285,7 @@ runtime, Harness rule, or template change was made.
 
 Current Harness evolution:
 
-- Pending evolution: none.
+- Pending evolution: `harness/evolution/pending.md`.
 - Latest completed evolution:
   `harness/changes/archive/20260629-auto-evolve-post-terminal-dock-tool-shell-window/summary.md`.
   Decision: `noop`; subagent Heisenberg score `93/100`. Existing ECL coverage

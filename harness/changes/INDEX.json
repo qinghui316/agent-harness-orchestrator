@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-29T10:52:58.8814710Z",
+    "generated_at":  "2026-06-29T11:27:42.3836419Z",
     "active":  [
 
                ],
@@ -2197,6 +2197,10 @@
                     {
                         "name":  "20260629-workbench-reference-style-project-terminal-dock-v1",
                         "path":  "harness/changes/archive/20260629-workbench-reference-style-project-terminal-dock-v1"
+                    },
+                    {
+                        "name":  "20260629-workbench-runtime-activity-log-sanitize-private-paths-v1",
+                        "path":  "harness/changes/archive/20260629-workbench-runtime-activity-log-sanitize-private-paths-v1"
                     }
                 ]
 }

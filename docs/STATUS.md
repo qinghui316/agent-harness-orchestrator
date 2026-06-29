@@ -4,8 +4,10 @@
 
 - Current date: 2026-06-29.
 - Active ECL change: none.
-- Pending Harness evolution: none.
+- Pending Harness evolution: `harness/evolution/pending.md`.
 - Latest archived product change:
+  `harness/changes/archive/20260629-workbench-runtime-activity-log-sanitize-private-paths-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260629-workbench-readonly-runtime-activity-log-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260629-workbench-provider-product-mode-runtime-boundary-v2/summary.md`.
@@ -69,6 +71,16 @@
 
 ## Latest Product Closeout
 
+`harness/changes/archive/20260629-workbench-runtime-activity-log-sanitize-private-paths-v1/summary.md`.
+
+It fixes a real UI screenshot acceptance issue in `运行日志`: embedded local
+absolute paths inside action-error summaries are now folded before reaching the
+ordinary timeline/copy text. Browser screenshots were captured under
+`E:\aho-accept\runtime-activity-log-ui-v1\screenshots`; visible DOM checks
+found no absolute Windows path, no `.agent-harness` path, and no fake
+Run/Stop/autofix/Terminal-write/provider/PR/remote/merge controls.
+
+Previous closeout:
 `harness/changes/archive/20260629-workbench-readonly-runtime-activity-log-v1/summary.md`.
 
 It adds a read-only Workbench `运行日志` center view and project/topic-scoped

@@ -386,22 +386,29 @@ function providerStatusLabel(status: string): string {
 }
 
 function sanitizeSummary(value: string): string {
-  return value.replace(/\s+/g, " ").slice(0, 240);
+  return sanitizePrivatePaths(value).replace(/\s+/g, " ").slice(0, 240);
 }
 
 function sanitizeDetail(value: string): string {
-  return value
+  return sanitizePrivatePaths(value)
     .split(/\r?\n/)
-    .map((line) => {
-      const trimmed = line.trim();
-      if (/^[A-Za-z]:[\\/]/.test(trimmed) || trimmed.includes("\\.agent-harness") || trimmed.includes("/.agent-harness")) {
-        return `${basename(trimmed) || "path"} (路径已折叠)`;
-      }
-      return trimmed;
-    })
+    .map((line) => line.trim())
     .filter(Boolean)
     .slice(0, 8)
     .join("\n");
+}
+
+function sanitizePrivatePaths(value: string): string {
+  return value
+    .replace(/[A-Za-z]:[\\/][^\s'"<>|)]+/g, foldedPathLabel)
+    .replace(/(?<![\w.])\/(?:Users|home|tmp|var|private|mnt|Volumes)\/[^\s'"<>|)]+/g, foldedPathLabel)
+    .replace(/[^\s'"<>|)]*[/\\]\.agent-harness[/\\][^\s'"<>|)]*/g, foldedPathLabel);
+}
+
+function foldedPathLabel(pathText: string): string {
+  const normalized = pathText.replace(/[\\/]$/, "");
+  const name = basename(normalized);
+  return name ? `${name} (路径已折叠)` : "路径已折叠";
 }
 
 function parseJsonObject(line: string): Record<string, unknown> | null {
