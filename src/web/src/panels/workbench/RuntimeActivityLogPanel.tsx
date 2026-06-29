@@ -9,10 +9,12 @@ export function RuntimeActivityLogPanel({
   snapshot,
   loading,
   onRefresh,
+  variant = "full",
 }: {
   snapshot: RuntimeActivityLogSnapshot | null;
   loading: boolean;
   onRefresh: () => void;
+  variant?: "full" | "rail";
 }): ReactElement {
   const [typeFilter, setTypeFilter] = useState<"all" | RuntimeActivityType>("all");
   const [severityFilter, setSeverityFilter] = useState<"all" | RuntimeActivitySeverity>("all");
@@ -26,10 +28,10 @@ export function RuntimeActivityLogPanel({
   const copyText = snapshot ? formatRuntimeActivityForCopy(snapshot, items) : "暂无运行日志。";
 
   return (
-    <section className="runtime-activity-log" data-testid="runtime-activity-log">
+    <section className={`runtime-activity-log ${variant === "rail" ? "runtime-activity-log-rail" : ""}`} data-testid="runtime-activity-log">
       <header className="runtime-activity-log-header">
         <div>
-          <p className="eyebrow">只读观察</p>
+          <p className="eyebrow">{variant === "rail" ? "只读日志" : "只读观察"}</p>
           <h2>运行日志</h2>
           <span>{loading ? "正在读取运行证据。" : snapshot ? `${items.length} / ${snapshot.items.length} 条事件` : "暂无运行证据。"}</span>
         </div>

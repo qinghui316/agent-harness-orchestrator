@@ -13,9 +13,7 @@ import { MainConversationView,
   BottomStatusBar,
   ProjectFilesPanel,
   ProjectGitPanel,
-  GitDiffViewer,
   RuntimeDiagnosticsRailPanel,
-  RuntimeActivityLogPanel,
   TerminalDock,
   WorkspaceDockToggleBar,
   type RightToolRailTab,
@@ -1201,7 +1199,10 @@ export function App(): ReactElement {
 
   function openRightToolPanel(tab: RightToolRailTab): void {
     setRightToolView(tab);
-    if (tab === "diagnostics") void loadRuntimeDiagnostics();
+    if (tab === "diagnostics") {
+      void loadRuntimeDiagnostics();
+      void loadRuntimeActivityLog();
+    }
   }
 
   useEffect(() => {
@@ -1269,11 +1270,6 @@ export function App(): ReactElement {
         if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
       });
     return () => { cancelled = true; };
-  }, [selectedProjectId, activeTopic?.id, centerTab, projectionVersion]);
-
-  useEffect(() => {
-    if (!selectedProjectId || centerTab !== "runtimeLog") return;
-    void loadRuntimeActivityLog(selectedProjectId, activeTopic?.id ?? null);
   }, [selectedProjectId, activeTopic?.id, centerTab, projectionVersion]);
 
   useEffect(() => {
@@ -1368,14 +1364,6 @@ export function App(): ReactElement {
           />
         ) : !activeTopic && (selectedProjectIsTemporary || selectedProjectHistoryUnavailable) ? (
           <UnmanagedProjectView project={selectedProjectStatus} onDone={() => loadApp().then(() => selectedProjectId ? refresh(selectedProjectId, null) : undefined)} />
-        ) : !activeTopic && centerTab === "gitDiff" ? (
-          <GitDiffViewer projectId={selectedProjectId} selectedPath={selectedGitDiffPath} />
-        ) : !activeTopic && centerTab === "runtimeLog" ? (
-          <RuntimeActivityLogPanel
-            snapshot={runtimeActivityLog}
-            loading={runtimeActivityLogLoading}
-            onRefresh={() => void loadRuntimeActivityLog()}
-          />
         ) : !activeTopic ? (
           <ProjectReadinessHome
             project={selectedProjectStatus}
@@ -1436,14 +1424,6 @@ export function App(): ReactElement {
                     selectedNode={selectedRunGraphNode}
                     onSelectNode={setSelectedRunGraphNodeId}
                     onSelectRun={(runId) => void chooseRun(runId)}
-                    gitDiffPanel={<GitDiffViewer projectId={selectedProjectId} selectedPath={selectedGitDiffPath} />}
-                    runtimeLogPanel={(
-                      <RuntimeActivityLogPanel
-                        snapshot={runtimeActivityLog}
-                        loading={runtimeActivityLogLoading}
-                        onRefresh={() => void loadRuntimeActivityLog()}
-                      />
-                    )}
                   />
                 </div>
                 {latestHidden ? <button className="latest-button" onClick={() => { const node = threadScrollRef.current; if (node) node.scrollTop = node.scrollHeight; setLatestHidden(false); }}>最新</button> : null}
@@ -1544,7 +1524,6 @@ export function App(): ReactElement {
             selectedRefs={composerFileRefs}
             onSelectedPathChange={(relativePath) => {
               setSelectedGitDiffPath(relativePath);
-              setCenterTab("gitDiff");
             }}
             onSelectedRefsChange={appendComposerFileRefs}
           />
@@ -1554,10 +1533,9 @@ export function App(): ReactElement {
             snapshot={runtimeDiagnostics}
             loading={runtimeDiagnosticsLoading}
             onRefresh={() => void loadRuntimeDiagnostics()}
-            onOpenRuntimeLog={() => {
-              setCenterTab("runtimeLog");
-              void loadRuntimeActivityLog();
-            }}
+            runtimeLog={runtimeActivityLog}
+            runtimeLogLoading={runtimeActivityLogLoading}
+            onRefreshRuntimeLog={() => void loadRuntimeActivityLog()}
           />
         }
       />
@@ -1706,8 +1684,8 @@ function normalizeCenterTabParam(value: string | null): CenterTab | null {
   if (normalized === "conversation" || normalized === "chat") return "conversation";
   if (normalized === "workbench" || normalized === "workpad") return "workpad";
   if (normalized === "orchestration" || normalized === "agentgraph" || normalized === "agent-graph") return "agentGraph";
-  if (normalized === "gitdiff" || normalized === "git-diff" || normalized === "diff") return "gitDiff";
-  if (normalized === "runtime" || normalized === "runtime-log" || normalized === "runtimelog" || normalized === "logs") return "runtimeLog";
+  if (normalized === "gitdiff" || normalized === "git-diff" || normalized === "diff") return "conversation";
+  if (normalized === "runtime" || normalized === "runtime-log" || normalized === "runtimelog" || normalized === "logs") return "conversation";
   if (normalized === "settings") return "settings";
   return null;
 }

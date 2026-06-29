@@ -2125,10 +2125,11 @@ describe("Workbench web app", () => {
     expect(within(gitPanel).queryByText("PR")).toBeNull();
 
     fireEvent.click(within(gitPanel).getByRole("button", { name: /src\/pricing\.ts/ }));
-    expect((await screen.findByRole("tab", { name: "Git Diff" })).getAttribute("aria-selected")).toBe("true");
-    const diffViewer = await screen.findByTestId("git-diff-viewer");
+    expect(screen.queryByRole("tab", { name: "Git Diff" })).toBeNull();
+    const diffViewer = await within(gitPanel).findByTestId("git-diff-viewer");
     await waitFor(() => expect(within(diffViewer).getByText("+export const price = 2;")).toBeTruthy());
     expect(within(diffViewer).queryByText("commit")).toBeNull();
+    expect(screen.getByTestId("main-conversation-view")).toBeTruthy();
     fireEvent.click(within(gitPanel).getAllByText("引用")[0] as HTMLElement);
     await waitFor(() => expect(screen.getByText("staged.ts")).toBeTruthy());
 
@@ -2142,14 +2143,14 @@ describe("Workbench web app", () => {
     const diagnosticsPanel = await screen.findByTestId("runtime-diagnostics-rail-panel");
     expect(within(diagnosticsPanel).getByText("运行诊断")).toBeTruthy();
     expect(within(diagnosticsPanel).getByText("模型列表")).toBeTruthy();
-    fireEvent.click(within(diagnosticsPanel).getByTestId("open-runtime-activity-log"));
-    const runtimeLog = await screen.findByTestId("runtime-activity-log");
+    const runtimeLog = await within(diagnosticsPanel).findByTestId("runtime-activity-log");
     expect(within(runtimeLog).getByText("运行日志")).toBeTruthy();
     expect(within(runtimeLog).getByText("Codex runtime")).toBeTruthy();
     expect(within(runtimeLog).getByText("验证通过")).toBeTruthy();
     expect(within(runtimeLog).queryByText("Run")).toBeNull();
     expect(within(runtimeLog).queryByText("Stop")).toBeNull();
     expect(within(runtimeLog).queryByText("自动修复")).toBeNull();
+    expect(within(diagnosticsPanel).queryByTestId("open-runtime-activity-log")).toBeNull();
     expect(within(diagnosticsPanel).queryByText("打开诊断面板")).toBeNull();
     expect(screen.queryByTestId("runtime-diagnostics-dock")).toBeNull();
     expect(screen.getByTestId("terminal-dock")).toBeTruthy();
@@ -2184,7 +2185,7 @@ describe("Workbench web app", () => {
     expect(screen.getByTestId("terminal-dock")).toBeTruthy();
   });
 
-  it("opens the center Git diff viewer from the Git rail even before a topic is selected", async () => {
+  it("keeps Git diff preview inside the Git rail even before a topic is selected", async () => {
     const homeSnapshot = {
       ...snapshot,
       left: { ...snapshot.left, topics: [], workpads: [] },
@@ -2226,9 +2227,10 @@ describe("Workbench web app", () => {
     fireEvent.click(await screen.findByTestId("right-tool-launcher-git"));
     const gitPanel = await screen.findByTestId("project-git-panel");
     fireEvent.click(within(gitPanel).getByRole("button", { name: /src\/pricing\.ts/ }));
-    const diffViewer = await screen.findByTestId("git-diff-viewer");
+    const diffViewer = await within(gitPanel).findByTestId("git-diff-viewer");
     await waitFor(() => expect(within(diffViewer).getByText("+export const price = 2;")).toBeTruthy());
-    expect(screen.queryByText("创造任何东西")).toBeNull();
+    expect(screen.getByText("创造任何东西")).toBeTruthy();
+    expect(screen.queryByRole("tab", { name: "Git Diff" })).toBeNull();
     expect(fetchCallUrls().filter((url) => url.endsWith("/workbench/actions"))).toHaveLength(0);
   });
 
@@ -5242,6 +5244,43 @@ describe("Workbench web app", () => {
     expect(screen.getByRole("tab", { name: "Agent 编排图" }).getAttribute("aria-selected")).toBe("true");
     expect(fetchCallUrls()).toContain("/api/projects/tools/workbench/snapshot?topic=tools-topic");
     expect(fetchCallUrls()).not.toContain("/api/projects/repo/workbench/snapshot");
+  });
+
+  it("falls back to conversation for removed right-tool center tab URL parameters", async () => {
+    window.history.replaceState({}, "", "/?project=tools&topic=tools-topic&tab=runtime-log");
+    const toolsSnapshot = {
+      ...snapshot,
+      project: { id: "tools", name: "Tools", path: "E:/tools" },
+      left: {
+        ...snapshot.left,
+        topics: [{ id: "tools-topic", title: "工具面板验收", state: "active" }],
+        workpads: [{ id: "tools-topic", title: "工具面板验收", state: "active", runtimeStatus: "active", selected: true, waitingDecisionCount: 0 }],
+      },
+      center: {
+        ...snapshot.center,
+        selectedTopic: { id: "tools-topic", title: "工具面板验收", state: "active", acCount: 1, taskCount: 1 },
+      },
+    };
+    const toolsProject = { project: toolsSnapshot.project, path: "E:/tools", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" }, codexTrust: { trusted: true } };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "tools" });
+      if (url === "/api/projects") return jsonResponse({ projects: [toolsProject] });
+      if (url === "/api/projects/tools/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      if (url === "/api/projects/tools/codex/models") return jsonResponse(codexModelSettings);
+      if (url === "/api/projects/tools/skills") return jsonResponse({ roots: [], skills: [] });
+      if (url === "/api/projects/tools/workbench/snapshot?topic=tools-topic") return jsonResponse(toolsSnapshot);
+      if (url === "/api/projects/tools/workbench/projections/transcript/tools-topic?limit=100") return jsonResponse(toolsSnapshot.center.parentAgentTranscript);
+      return jsonResponse(url.includes("/stream/") ? stream : snapshot);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getAllByText("工具面板验收").length).toBeGreaterThan(0));
+    expect(screen.getByRole("tab", { name: "对话" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.queryByRole("tab", { name: "运行日志" })).toBeNull();
+    expect(screen.queryByTestId("runtime-activity-log")).toBeNull();
+    expect(fetchCallUrls().some((url) => url.includes("/runtime/activity"))).toBe(false);
   });
 
   it("fails closed when the URL project id is not registered", async () => {

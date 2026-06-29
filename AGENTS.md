@@ -8,6 +8,8 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260629-workbench-right-rail-owns-right-tool-content-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260629-workbench-runtime-activity-log-sanitize-private-paths-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260629-workbench-readonly-runtime-activity-log-v1/summary.md`.
@@ -95,9 +97,10 @@ Current baseline:
   count badge. Expanding it shows only implemented tabs: `确认` renders the
   existing confirmation pane, `文件` provides safe read-only project
   tree/preview/reference tools, `Git` provides safe read-only branch/dirty
-  status plus staged/unstaged/untracked diff browsing in the center workspace,
-  and `诊断` summarizes read-only runtime health inside the right rail.
-  Terminal is no longer a right-rail tab; it is an
+  status plus staged/unstaged/untracked diff browsing inside the Git rail, and
+  `诊断` shows read-only runtime health plus the bounded runtime activity log
+  inside the diagnostics rail. Right-rail tools do not switch or occupy the
+  center workspace. Terminal is no longer a right-rail tab; it is an
   independent Codex-style button beside the rail that opens the bottom xterm
   dock. The rail and dock state are frontend-only UI state and do not execute
   actions.

@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260629-workbench-right-rail-owns-right-tool-content-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260629-workbench-runtime-activity-log-sanitize-private-paths-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260629-workbench-readonly-runtime-activity-log-v1/summary.md`.
@@ -72,6 +74,18 @@
 
 ## Latest Product Closeout
 
+`harness/changes/archive/20260629-workbench-right-rail-owns-right-tool-content-v1/summary.md`.
+
+It fixes the right-tool ownership bug found in real UI review: content opened
+from the hidden right rail now stays inside the right rail. `诊断` directly
+contains the runtime diagnostics summary and bounded runtime activity log, and
+`Git` contains the selected file's read-only diff preview. The center
+workspace no longer switches to `运行日志` or `Git Diff`; stale
+`?tab=runtime-log` / `?tab=git-diff` links fall back to the ordinary center
+view. Browser screenshots were captured under
+`E:\aho-accept\right-rail-owns-content-v1\screenshots`.
+
+Previous closeout:
 `harness/changes/archive/20260629-workbench-runtime-activity-log-sanitize-private-paths-v1/summary.md`.
 
 It fixes a real UI screenshot acceptance issue in `运行日志`: embedded local
@@ -285,14 +299,18 @@ Harness workflow truth.
   an explicit read dir when supported and fails closed otherwise, so user-home
   app data can remain stable while source projects live on any drive.
 - The right side is a single collapsed tool rail. Expanded, it contains only
-  real implemented tools: `确认`, `文件`, and `Git`. Confirmation remains the
-  existing decision inspector; files are read-only project tree/preview/reference
-  tools; Git is a read-only status/diff/reference tool with the diff shown in
-  the center workspace. Browser, terminal, log, editor, upload, Git write
-  operations, and fake future controls stay hidden.
+  real implemented tools: `确认`, `文件`, `Git`, and `诊断`. Confirmation remains
+  the existing decision inspector; files are read-only project
+  tree/preview/reference tools; Git is a read-only status/diff/reference tool
+  with the selected diff preview inside the Git rail; diagnostics contains the
+  runtime summary and bounded runtime activity log inside the diagnostics rail.
+  Right-rail tools do not switch or occupy the center workspace. Browser,
+  Git write operations, and fake future controls stay hidden. Terminal is a
+  separate Codex-style button beside the rail that opens the bottom dock.
 - Unsupported reference-style controls remain hidden until their behavior
-  exists. Do not expose fake provider/model dropdowns, file/attachment tools,
-  marketplace, terminal, Git, or ordinary Agent-mode controls as clickable UI.
+  exists. Do not expose fake provider/model dropdowns, marketplace, browser,
+  Git write operations, remote/PR/merge, or ordinary Agent-mode controls as
+  clickable UI.
 - `请求批准` and scoped `完全访问权限` share the local Goal Loop coordinator.
   Plan confirmation remains human. Scoped full-access may consume only current
   Change local gates after plan confirmation; raw scheduler, manual

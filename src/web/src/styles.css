@@ -729,7 +729,6 @@ input:focus-visible {
 .workspace-main > .project-home,
 .workspace-main > .project-readiness-home,
 .workspace-main > .unmanaged-project-view,
-.workspace-main > .git-diff-viewer,
 .workspace-main > .center-grid {
   flex: 1 1 auto;
   min-height: 0;
@@ -3969,6 +3968,63 @@ input:focus-visible {
   font-size: 13px;
 }
 
+.runtime-activity-log-rail {
+  gap: 10px;
+  padding: 4px 0 18px;
+  border-top: 1px solid var(--border);
+}
+
+.runtime-activity-log-rail .runtime-activity-log-header {
+  display: grid;
+  gap: 8px;
+}
+
+.runtime-activity-log-rail .runtime-activity-log-header h2 {
+  font-size: 15px;
+}
+
+.runtime-activity-log-rail .runtime-activity-log-actions .secondary-button {
+  min-height: 30px;
+  padding: 5px 8px;
+  font-size: 12px;
+}
+
+.runtime-activity-log-rail .runtime-activity-filters {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+.runtime-activity-log-rail .runtime-activity-filters label {
+  display: grid;
+  gap: 4px;
+}
+
+.runtime-activity-log-rail .runtime-activity-filters select {
+  width: 100%;
+  min-width: 0;
+}
+
+.runtime-activity-log-rail .runtime-activity-row {
+  padding: 9px 10px;
+}
+
+.runtime-activity-log-rail .runtime-activity-row-title {
+  gap: 5px;
+}
+
+.runtime-activity-log-rail .runtime-activity-row-title strong {
+  width: 100%;
+}
+
+.runtime-activity-log-rail .runtime-activity-row p,
+.runtime-activity-log-rail .runtime-activity-details ul {
+  font-size: 12.5px;
+}
+
+.runtime-activity-log-rail .runtime-activity-refs span {
+  max-width: 100%;
+}
+
 .project-files-panel {
   display: flex;
   flex-direction: column;
@@ -4269,6 +4325,52 @@ input:focus-visible {
   height: 100%;
   padding: 18px;
   overflow: hidden;
+}
+
+.git-diff-viewer-rail {
+  flex: 0 0 auto;
+  max-height: 48vh;
+  padding: 10px 0 0;
+  border-top: 1px solid var(--border);
+}
+
+.git-diff-viewer-rail .git-diff-header {
+  align-items: center;
+  gap: 8px;
+}
+
+.git-diff-viewer-rail .git-diff-header h2 {
+  max-width: 210px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+
+.git-diff-viewer-rail .git-diff-header p {
+  font-size: 12px;
+}
+
+.git-diff-viewer-rail .git-diff-empty {
+  min-height: 120px;
+  border-radius: var(--radius-sm);
+}
+
+.git-diff-viewer-rail .git-diff-content {
+  max-height: 36vh;
+}
+
+.git-diff-viewer-rail .git-diff-section h3 {
+  padding: 7px 9px;
+  font-size: 12px;
+}
+
+.git-diff-viewer-rail .git-diff-section pre {
+  font-size: 11.5px;
+}
+
+.git-diff-viewer-rail .diff-line {
+  padding: 0 8px;
 }
 
 .git-diff-header {

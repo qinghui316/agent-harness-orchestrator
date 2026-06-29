@@ -6,9 +6,11 @@ import type { ProjectGitDiffResult, ProjectGitDiffSection } from "../../types.js
 export function GitDiffViewer({
   projectId,
   selectedPath,
+  variant = "full",
 }: {
   projectId: string | null;
   selectedPath: string | null;
+  variant?: "full" | "rail";
 }): ReactElement {
   const [diff, setDiff] = useState<ProjectGitDiffResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -33,12 +35,12 @@ export function GitDiffViewer({
   }, [projectId, selectedPath]);
 
   return (
-    <section className="git-diff-viewer" data-testid="git-diff-viewer" aria-label="Git Diff">
+    <section className={`git-diff-viewer ${variant === "rail" ? "git-diff-viewer-rail" : ""}`} data-testid="git-diff-viewer" aria-label="Git Diff">
       <header className="git-diff-header">
         <div>
           <p className="eyebrow">Git Diff</p>
           <h2>{selectedPath ?? "选择一个变更文件"}</h2>
-          <p>{selectedPath ? "只读查看当前项目里的 Git patch。" : "在右侧 Git 面板选择文件后，这里会显示大尺寸 diff。"}</p>
+          <p>{selectedPath ? "只读查看当前项目里的 Git patch。" : "在 Git 面板选择文件后，这里显示只读 diff。"}</p>
         </div>
         <button type="button" className="icon-button" aria-label="刷新 diff" disabled={!selectedPath} onClick={() => void loadDiff()}>
           <RefreshCw size={16} aria-hidden="true" />

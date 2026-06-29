@@ -2,6 +2,7 @@ import { FileDiff, GitBranch, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState, type MouseEvent, type PointerEvent, type ReactElement } from "react";
 import { fetchJson } from "../../api.js";
 import type { ProjectGitFileStatus, ProjectGitStatusResult, TopicFileReference } from "../../types.js";
+import { GitDiffViewer } from "./GitDiffViewer.js";
 
 export function ProjectGitPanel({
   projectId,
@@ -122,6 +123,7 @@ export function ProjectGitPanel({
             onSelectedPathChange={onSelectedPathChange}
             onInsertReference={insertReference}
           />
+          <GitDiffViewer projectId={projectId} selectedPath={selectedPath} variant="rail" />
         </>
       ) : null}
     </section>

@@ -4,7 +4,6 @@ import {
   useRef,
   useState,
   type ReactElement,
-  type ReactNode,
   type RefObject } from "react";
 import { RunReplay, artifactName } from "./RunReplayPanel.js";
 import { WorkpadView } from "./WorkpadPanel.js";
@@ -52,8 +51,6 @@ export function MainConversationView({
   selectedNode,
   onSelectNode,
   onSelectRun,
-  gitDiffPanel,
-  runtimeLogPanel,
 }: {
   workpad: Workpad;
   graph: DemandAgentRunGraph;
@@ -75,8 +72,6 @@ export function MainConversationView({
   selectedNode: DemandAgentRunGraphNode | null;
   onSelectNode: (nodeId: string) => void;
   onSelectRun: (runId: string) => void;
-  gitDiffPanel?: ReactNode;
-  runtimeLogPanel?: ReactNode;
 }): ReactElement {
   return (
     <div className="main-conversation-view" data-testid="main-conversation-view">
@@ -84,8 +79,6 @@ export function MainConversationView({
         <button type="button" role="tab" aria-selected={activeTab === "conversation"} className={activeTab === "conversation" ? "active" : ""} onClick={() => onTabChange("conversation")}>对话</button>
         <button type="button" role="tab" aria-selected={activeTab === "workpad"} className={activeTab === "workpad" ? "active" : ""} onClick={() => onTabChange("workpad")}>工作台</button>
         <button type="button" role="tab" aria-selected={activeTab === "agentGraph"} className={activeTab === "agentGraph" ? "active" : ""} onClick={() => onTabChange("agentGraph")}>Agent 编排图</button>
-        <button type="button" role="tab" aria-selected={activeTab === "gitDiff"} className={activeTab === "gitDiff" ? "active" : ""} onClick={() => onTabChange("gitDiff")}>Git Diff</button>
-        <button type="button" role="tab" aria-selected={activeTab === "runtimeLog"} className={activeTab === "runtimeLog" ? "active" : ""} onClick={() => onTabChange("runtimeLog")}>运行日志</button>
       </div>
       {activeTab === "conversation" ? (
         <ParentAgentTranscriptView
@@ -119,10 +112,15 @@ export function MainConversationView({
           onSelectNode={onSelectNode}
           onSelectRun={onSelectRun}
         />
-      ) : activeTab === "gitDiff" ? (
-        gitDiffPanel ?? <div className="git-diff-viewer empty-state" data-testid="git-diff-viewer">选择 Git 文件后查看 diff。</div>
       ) : (
-        runtimeLogPanel ?? <div className="runtime-activity-empty" data-testid="runtime-activity-log">暂无运行日志。</div>
+        <AgentRunGraphPanel
+          graph={graph}
+          selectedNode={selectedNode}
+          activeRun={activeRun}
+          stream={stream}
+          onSelectNode={onSelectNode}
+          onSelectRun={onSelectRun}
+        />
       )}
     </div>
   );

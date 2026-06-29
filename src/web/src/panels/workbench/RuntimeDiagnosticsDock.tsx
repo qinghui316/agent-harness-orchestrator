@@ -1,17 +1,22 @@
 import { Copy, RefreshCcw } from "lucide-react";
 import type { ReactElement } from "react";
-import type { RuntimeDiagnosticItem, RuntimeDiagnosticsSnapshot } from "../../types.js";
+import type { RuntimeActivityLogSnapshot, RuntimeDiagnosticItem, RuntimeDiagnosticsSnapshot } from "../../types.js";
+import { RuntimeActivityLogPanel } from "./RuntimeActivityLogPanel.js";
 
 export function RuntimeDiagnosticsRailPanel({
   snapshot,
   loading,
   onRefresh,
-  onOpenRuntimeLog,
+  runtimeLog,
+  runtimeLogLoading,
+  onRefreshRuntimeLog,
 }: {
   snapshot: RuntimeDiagnosticsSnapshot | null;
   loading: boolean;
   onRefresh: () => void;
-  onOpenRuntimeLog: () => void;
+  runtimeLog: RuntimeActivityLogSnapshot | null;
+  runtimeLogLoading: boolean;
+  onRefreshRuntimeLog: () => void;
 }): ReactElement {
   const copyText = snapshot ? formatDiagnosticsForCopy(snapshot) : "暂无诊断数据。";
   return (
@@ -38,14 +43,17 @@ export function RuntimeDiagnosticsRailPanel({
         </div>
       </header>
       <p className="runtime-diagnostics-summary">{loading ? "正在读取运行状态。" : diagnosticsStatusText(snapshot)}</p>
-      <button type="button" className="runtime-diagnostics-open-log" data-testid="open-runtime-activity-log" onClick={onOpenRuntimeLog}>
-        打开运行日志
-      </button>
       <div className="runtime-diagnostics-rail-list">
         {loading ? <div className="runtime-diagnostics-empty">正在读取运行状态...</div> : null}
         {!loading && !snapshot ? <div className="runtime-diagnostics-empty">暂无诊断数据。</div> : null}
         {snapshot?.items.map((item) => <RuntimeDiagnosticRow key={item.id} item={item} />)}
       </div>
+      <RuntimeActivityLogPanel
+        snapshot={runtimeLog}
+        loading={runtimeLogLoading}
+        onRefresh={onRefreshRuntimeLog}
+        variant="rail"
+      />
     </div>
   );
 }
