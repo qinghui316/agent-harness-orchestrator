@@ -468,6 +468,15 @@ function fetchCallUrls(): string[] {
     .map(([input]) => String(input));
 }
 
+function expectNoForbiddenToolControls(container: HTMLElement): void {
+  const forbidden = /(^|\b)(Run|Stop|stage|unstage|discard|commit|push|sync|remote|merge|command|preset|autofix|retry)(\b|$)|\bPR\b|自动修复|执行命令|命令预设|清空控制台|暂存|取消暂存|放弃更改|提交|推送|同步|远端|合并|重试/i;
+  const controls = within(container).queryAllByRole("button")
+    .filter((button) => !button.classList.contains("project-git-group-header"))
+    .map((button) => `${button.textContent ?? ""} ${button.getAttribute("aria-label") ?? ""} ${button.getAttribute("title") ?? ""}`.trim())
+    .filter(Boolean);
+  expect(controls.filter((label) => forbidden.test(label))).toEqual([]);
+}
+
 async function openDecisionPane(): Promise<HTMLElement> {
   const current = screen.queryByTestId("decision-inspector-primary");
   if (current) return current;
@@ -2118,15 +2127,20 @@ describe("Workbench web app", () => {
     fireEvent.click(screen.getByTestId("right-tool-back"));
     fireEvent.click(await screen.findByTestId("right-tool-launcher-git"));
     const gitPanel = await screen.findByTestId("project-git-panel");
+    expect(within(gitPanel).getByTestId("project-git-compact-header")).toBeTruthy();
     expect(within(gitPanel).getByText("main")).toBeTruthy();
+    expect(within(gitPanel).getByText("3 个变更")).toBeTruthy();
+    expect(within(gitPanel).getByText("+2 -1")).toBeTruthy();
     expect(within(gitPanel).getByText("pricing.ts")).toBeTruthy();
     expect(within(gitPanel).getAllByText("src").length).toBeGreaterThan(0);
+    expect(within(gitPanel).getAllByTestId("project-git-file-row").length).toBeGreaterThan(0);
     expect(within(gitPanel).queryByText("没有文件。")).toBeNull();
     expect(within(gitPanel).queryByText("提交")).toBeNull();
     expect(within(gitPanel).queryByText("推送")).toBeNull();
     expect(within(gitPanel).queryByText("PR")).toBeNull();
     expect(within(gitPanel).queryByText("stage")).toBeNull();
     expect(within(gitPanel).queryByText("commit")).toBeNull();
+    expectNoForbiddenToolControls(gitPanel);
 
     fireEvent.click(within(gitPanel).getByLabelText("src/pricing.ts"));
     expect(screen.queryByRole("tab", { name: "Git Diff" })).toBeNull();
@@ -2134,6 +2148,7 @@ describe("Workbench web app", () => {
     await waitFor(() => expect(within(diffViewer).getByText("+export const price = 2;")).toBeTruthy());
     expect(within(diffViewer).queryByText("commit")).toBeNull();
     expect(within(diffViewer).queryByText(/stage/)).toBeNull();
+    expectNoForbiddenToolControls(gitPanel);
     expect(screen.getByTestId("main-conversation-view")).toBeTruthy();
     fireEvent.click(within(gitPanel).getByLabelText("引用 src/staged.ts 到输入框"));
     await waitFor(() => expect(document.querySelectorAll(".file-selected-chip").length).toBeGreaterThan(0));
@@ -2149,18 +2164,23 @@ describe("Workbench web app", () => {
     const diagnosticsPanel = await screen.findByTestId("runtime-diagnostics-rail-panel");
     expect(within(diagnosticsPanel).getByText("运行诊断")).toBeTruthy();
     expect(within(diagnosticsPanel).getByText("模型列表")).toBeTruthy();
+    expect(within(diagnosticsPanel).getByTestId("runtime-diagnostics-health-list")).toBeTruthy();
+    expect(within(diagnosticsPanel).getAllByTestId("runtime-diagnostic-health-row").length).toBeGreaterThan(0);
     expect(within(diagnosticsPanel).getByTestId("runtime-diagnostics-recent-events")).toBeTruthy();
-    expect(within(diagnosticsPanel).getByText("最近运行事件")).toBeTruthy();
+    expect(within(diagnosticsPanel).getByText("最近问题")).toBeTruthy();
     expect(within(diagnosticsPanel).getByText("Codex runtime")).toBeTruthy();
+    expect(diagnosticsPanel.querySelector(".runtime-diagnostics-recent-row.error")).toBeNull();
     expect(within(diagnosticsPanel).queryByTestId("runtime-activity-log")).toBeNull();
     fireEvent.click(within(diagnosticsPanel).getByTestId("runtime-diagnostics-open-log"));
     const runtimeLog = await within(diagnosticsPanel).findByTestId("runtime-activity-log");
     expect(within(runtimeLog).getByText("运行日志")).toBeTruthy();
     expect(within(runtimeLog).getByText("Codex runtime")).toBeTruthy();
     expect(within(runtimeLog).getByText("验证通过")).toBeTruthy();
+    expect(within(runtimeLog).getAllByTestId("runtime-activity-rail-row").length).toBeGreaterThan(0);
     expect(within(runtimeLog).queryByText("Run")).toBeNull();
     expect(within(runtimeLog).queryByText("Stop")).toBeNull();
     expect(within(runtimeLog).queryByText("自动修复")).toBeNull();
+    expectNoForbiddenToolControls(diagnosticsPanel);
     expect(within(diagnosticsPanel).queryByTestId("open-runtime-activity-log")).toBeNull();
     expect(within(diagnosticsPanel).queryByText("打开诊断面板")).toBeNull();
     expect(screen.queryByTestId("runtime-diagnostics-dock")).toBeNull();

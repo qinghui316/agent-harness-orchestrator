@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260629-workbench-right-rail-git-diagnostics-reference-polish-v2/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260629-workbench-reference-style-compact-git-diagnostics-rail-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260629-workbench-right-rail-owns-right-tool-content-v1/summary.md`.
@@ -76,7 +78,7 @@
 
 ## Latest Product Closeout
 
-`harness/changes/archive/20260629-workbench-reference-style-compact-git-diagnostics-rail-v1/summary.md`.
+`harness/changes/archive/20260629-workbench-right-rail-git-diagnostics-reference-polish-v2/summary.md`.
 
 It makes the right-rail `Git` and `诊断` surfaces compact and
 reference-style: `诊断` defaults to short status rows plus a few recent
@@ -85,7 +87,7 @@ events, with the full runtime-log filters/timeline only in a local subview;
 dense file rows, secondary reference icons, and readonly diff preview inside
 the rail. The center workspace is not hijacked by right-side tools. Browser
 screenshots were captured under
-`E:\aho-accept\compact-git-diagnostics-rail-v1\screenshots`.
+`E:\aho-accept\right-rail-git-diagnostics-polish-v2\screenshots`.
 
 Previous closeout:
 `harness/changes/archive/20260629-workbench-right-rail-owns-right-tool-content-v1/summary.md`.

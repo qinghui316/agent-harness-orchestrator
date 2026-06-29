@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, FileText, GitBranch, Link2, RefreshCw } from "lucide-react";
+import { ChevronDown, ChevronRight, FileText, Link2, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState, type MouseEvent, type PointerEvent, type ReactElement } from "react";
 import { fetchJson } from "../../api.js";
 import type { ProjectGitFileStatus, ProjectGitStatusResult, TopicFileReference } from "../../types.js";
@@ -94,10 +94,18 @@ export function ProjectGitPanel({
       onPointerDownCapture={handleGitRowPointerDown}
       onMouseDownCapture={handleGitRowMouseDown}
     >
-      <header className="project-git-header">
-        <div>
-          <strong>Git</strong>
-          <small>{status?.isGitRepository ? `${dirtyCount} 个变更` : "只读状态"}</small>
+      <header className="project-git-header" data-testid="project-git-compact-header">
+        <div className="project-git-header-copy">
+          <div className="project-git-header-main">
+            <strong>{status?.isGitRepository ? status.branch ?? "未命名分支" : "Git"}</strong>
+            {status?.isGitRepository ? (
+              <span className={status.dirty ? "dirty" : "clean"}>{status.dirty ? "有变更" : "干净"}</span>
+            ) : null}
+          </div>
+          <div className="project-git-header-meta">
+            <span>{status?.isGitRepository ? `${dirtyCount} 个变更` : "只读状态"}</span>
+            {status?.isGitRepository ? <span className="diff-stats">+{status.totalAdditions} -{status.totalDeletions}</span> : null}
+          </div>
         </div>
         <button type="button" className="icon-button" aria-label="刷新 Git 状态" data-testid="project-git-refresh" onClick={() => void loadStatus()}>
           <RefreshCw size={15} aria-hidden="true" />
@@ -111,11 +119,6 @@ export function ProjectGitPanel({
       ) : null}
       {!loading && status?.isGitRepository ? (
         <>
-          <div className="project-git-summary">
-            <span><GitBranch size={14} aria-hidden="true" />{status.branch ?? "未命名分支"}</span>
-            <span className={status.dirty ? "dirty" : "clean"}>{status.dirty ? "有变更" : "干净"}</span>
-            <span className="diff-stats">+{status.totalAdditions} -{status.totalDeletions}</span>
-          </div>
           {!hasChanges ? <div className="project-git-empty compact">当前工作区没有 Git 变更。</div> : null}
           <GitFileGroup
             title="已暂存"
@@ -212,12 +215,13 @@ function GitFileRow({
   return (
     <div
       className={`project-git-row ${selected ? "selected" : ""}`}
+      data-testid="project-git-file-row"
       data-git-file-path={file.relativePath}
       data-git-status={statusSymbol(file)}
       title={file.relativePath}
     >
       <button type="button" className="project-git-file-button" aria-label={file.relativePath} onClick={onSelect}>
-        <span className={`project-git-status ${statusClass(file)}`}>{statusSymbol(file)}</span>
+        <span className={`project-git-status ${statusClass(file)}`}>({statusSymbol(file)})</span>
         <span className="project-git-file-icon" aria-hidden="true">
           <FileText size={14} />
         </span>
@@ -271,5 +275,5 @@ function formatCounts(file: ProjectGitFileStatus): string | null {
   const additions = file.additions ?? 0;
   const deletions = file.deletions ?? 0;
   if (additions === 0 && deletions === 0) return null;
-  return `+${additions} / -${deletions}`;
+  return `+${additions} -${deletions}`;
 }

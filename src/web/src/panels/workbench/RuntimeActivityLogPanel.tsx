@@ -26,29 +26,31 @@ export function RuntimeActivityLogPanel({
     });
   }, [snapshot?.items, typeFilter, severityFilter]);
   const copyText = snapshot ? formatRuntimeActivityForCopy(snapshot, items) : "暂无运行日志。";
+  const isRail = variant === "rail";
 
   return (
-    <section className={`runtime-activity-log ${variant === "rail" ? "runtime-activity-log-rail" : ""}`} data-testid="runtime-activity-log">
+    <section className={`runtime-activity-log ${isRail ? "runtime-activity-log-rail" : ""}`} data-testid="runtime-activity-log">
       <header className="runtime-activity-log-header">
         <div>
-          <p className="eyebrow">{variant === "rail" ? "只读日志" : "只读观察"}</p>
+          <p className="eyebrow">{isRail ? "只读" : "只读观察"}</p>
           <h2>运行日志</h2>
           <span>{loading ? "正在读取运行证据。" : snapshot ? `${items.length} / ${snapshot.items.length} 条事件` : "暂无运行证据。"}</span>
         </div>
         <div className="runtime-activity-log-actions">
-          <button type="button" className="secondary-button" onClick={onRefresh}>
+          <button type="button" className="secondary-button" aria-label="刷新运行日志" onClick={onRefresh}>
             <RefreshCcw size={14} aria-hidden="true" />
-            刷新
+            {!isRail ? "刷新" : null}
           </button>
           <button
             type="button"
             className="secondary-button"
+            aria-label="复制运行日志摘要"
             onClick={() => {
               void navigator.clipboard?.writeText(copyText);
             }}
           >
             <Copy size={14} aria-hidden="true" />
-            复制摘要
+            {!isRail ? "复制摘要" : null}
           </button>
         </div>
       </header>
@@ -70,13 +72,48 @@ export function RuntimeActivityLogPanel({
       {!loading && !snapshot ? <div className="runtime-activity-empty">暂无运行日志。</div> : null}
       {!loading && snapshot && items.length === 0 ? <div className="runtime-activity-empty">当前过滤条件下没有事件。</div> : null}
       <div className="runtime-activity-timeline">
-        {items.map((item) => <RuntimeActivityRow key={item.id} item={item} />)}
+        {items.map((item) => <RuntimeActivityRow key={item.id} item={item} variant={variant} />)}
       </div>
     </section>
   );
 }
 
-function RuntimeActivityRow({ item }: { item: RuntimeActivityItem }): ReactElement {
+function RuntimeActivityRow({ item, variant }: { item: RuntimeActivityItem; variant: "full" | "rail" }): ReactElement {
+  if (variant === "rail") {
+    return (
+      <article className={`runtime-activity-row runtime-activity-debug-row ${item.severity}`} data-testid="runtime-activity-rail-row">
+        <div className="runtime-activity-debug-meta">
+          <span>{typeLabel(item.type)}</span>
+          {item.status ? <span>{item.status}</span> : null}
+          <time>{formatTime(item.timestamp)}</time>
+        </div>
+        <div className="runtime-activity-debug-title">
+          <span className={`runtime-activity-dot ${item.severity}`} aria-hidden="true" />
+          <strong>{item.title}</strong>
+        </div>
+        <p>{item.summary}</p>
+        {(item.details?.length || item.refs.length) ? (
+          <details className="runtime-activity-details">
+            <summary>查看证据</summary>
+            {item.details?.length ? (
+              <ul>
+                {item.details.map((detail, index) => <li key={`${item.id}-detail-${index}`}>{detail}</li>)}
+              </ul>
+            ) : null}
+            {item.refs.length ? (
+              <div className="runtime-activity-refs">
+                {item.refs.map((ref, index) => (
+                  <span key={`${item.id}-ref-${index}`} title={ref.path ?? ref.id ?? ref.label}>
+                    {ref.label}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </details>
+        ) : null}
+      </article>
+    );
+  }
   return (
     <article className={`runtime-activity-row ${item.severity}`}>
       <div className="runtime-activity-row-main">

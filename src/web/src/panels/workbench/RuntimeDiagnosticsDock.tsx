@@ -69,13 +69,14 @@ export function RuntimeDiagnosticsRailPanel({
         </div>
       </header>
       <p className="runtime-diagnostics-summary">{loading ? "正在读取运行状态。" : diagnosticsStatusText(snapshot)}</p>
-      <div className="runtime-diagnostics-rail-list">
+      <div className="runtime-diagnostics-rail-list" data-testid="runtime-diagnostics-health-list">
         {loading ? <div className="runtime-diagnostics-empty">正在读取运行状态...</div> : null}
         {!loading && !snapshot ? <div className="runtime-diagnostics-empty">暂无诊断数据。</div> : null}
         {snapshot?.items.map((item) => <RuntimeDiagnosticRow key={item.id} item={item} />)}
       </div>
       <RecentRuntimeEvents
         snapshot={runtimeLog}
+        elevated={Boolean(snapshot && snapshot.summary.status !== "ok")}
         loading={runtimeLogLoading}
         onOpenLog={() => setView("log")}
       />
@@ -85,8 +86,9 @@ export function RuntimeDiagnosticsRailPanel({
 
 function RuntimeDiagnosticRow({ item }: { item: RuntimeDiagnosticItem }): ReactElement {
   return (
-    <article className={`runtime-diagnostic-row ${item.status}`}>
-      <div>
+    <article className={`runtime-diagnostic-row ${item.status}`} data-testid="runtime-diagnostic-health-row">
+      <span className={`runtime-diagnostics-status-dot ${item.status}`} aria-hidden="true" />
+      <div className="runtime-diagnostic-row-main">
         <strong>{item.title}</strong>
         <span>{item.summary}</span>
       </div>
@@ -102,19 +104,21 @@ function RuntimeDiagnosticRow({ item }: { item: RuntimeDiagnosticItem }): ReactE
 
 function RecentRuntimeEvents({
   snapshot,
+  elevated,
   loading,
   onOpenLog,
 }: {
   snapshot: RuntimeActivityLogSnapshot | null;
+  elevated: boolean;
   loading: boolean;
   onOpenLog: () => void;
 }): ReactElement {
-  const events = (snapshot?.items ?? []).slice(0, 3);
+  const events = (snapshot?.items ?? []).slice(0, 2);
   return (
     <section className="runtime-diagnostics-recent" data-testid="runtime-diagnostics-recent-events">
       <header>
         <div>
-          <strong>最近运行事件</strong>
+          <strong>最近问题</strong>
           <span>{loading ? "正在读取" : snapshot ? `${snapshot.items.length} 条` : "暂无"}</span>
         </div>
         <button type="button" className="runtime-diagnostics-open-log" data-testid="runtime-diagnostics-open-log" onClick={onOpenLog}>
@@ -123,15 +127,16 @@ function RecentRuntimeEvents({
       </header>
       {loading ? <div className="runtime-diagnostics-empty compact">正在读取运行日志...</div> : null}
       {!loading && events.length === 0 ? <div className="runtime-diagnostics-empty compact">暂无运行事件。</div> : null}
-      {events.map((item) => <RecentRuntimeEventRow key={item.id} item={item} />)}
+      {events.map((item) => <RecentRuntimeEventRow key={item.id} item={item} elevated={elevated} />)}
     </section>
   );
 }
 
-function RecentRuntimeEventRow({ item }: { item: RuntimeActivityItem }): ReactElement {
+function RecentRuntimeEventRow({ item, elevated }: { item: RuntimeActivityItem; elevated: boolean }): ReactElement {
+  const visualSeverity = elevated ? item.severity : "history";
   return (
-    <article className={`runtime-diagnostics-recent-row ${item.severity}`}>
-      <span className={`runtime-activity-dot ${item.severity}`} aria-hidden="true" />
+    <article className={`runtime-diagnostics-recent-row ${visualSeverity}`}>
+      <span className={`runtime-activity-dot ${elevated ? item.severity : "info"}`} aria-hidden="true" />
       <div>
         <strong>{item.title}</strong>
         <span>{item.status ? `${typeLabel(item.type)} · ${item.status}` : typeLabel(item.type)}</span>

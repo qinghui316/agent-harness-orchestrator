@@ -3649,10 +3649,10 @@ input:focus-visible {
 .runtime-diagnostics-rail {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   min-height: 0;
   height: 100%;
-  padding: 12px;
+  padding: 10px;
   overflow: auto;
 }
 
@@ -3722,8 +3722,9 @@ input:focus-visible {
 .runtime-diagnostics-rail-list {
   display: grid;
   align-content: start;
-  gap: 6px;
+  gap: 0;
   min-height: 0;
+  border-block: 1px solid var(--border);
 }
 
 .runtime-diagnostics-empty {
@@ -3743,16 +3744,22 @@ input:focus-visible {
 
 .runtime-diagnostic-row {
   display: grid;
-  gap: 5px;
-  padding: 8px 9px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-panel);
+  grid-template-columns: 10px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 8px 2px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  background: transparent;
 }
 
-.runtime-diagnostic-row > div {
+.runtime-diagnostic-row:last-child {
+  border-bottom: 0;
+}
+
+.runtime-diagnostic-row-main {
   display: grid;
   gap: 3px;
+  min-width: 0;
 }
 
 .runtime-diagnostic-row strong {
@@ -3768,13 +3775,11 @@ input:focus-visible {
 }
 
 .runtime-diagnostic-row.warning {
-  border-color: color-mix(in srgb, var(--warning) 32%, var(--border));
-  background: var(--warning-soft);
+  background: color-mix(in srgb, var(--warning) 5%, transparent);
 }
 
 .runtime-diagnostic-row.error {
-  border-color: color-mix(in srgb, var(--danger) 36%, var(--border));
-  background: var(--danger-soft);
+  background: color-mix(in srgb, var(--danger) 5%, transparent);
 }
 
 .runtime-diagnostic-row pre {
@@ -3788,6 +3793,10 @@ input:focus-visible {
   font-size: 12px;
   line-height: 1.45;
   white-space: pre-wrap;
+}
+
+.runtime-diagnostic-row details {
+  grid-column: 2;
 }
 
 .runtime-diagnostics-recent {
@@ -3821,18 +3830,22 @@ input:focus-visible {
   grid-template-columns: 10px minmax(0, 1fr);
   align-items: center;
   gap: 8px;
-  min-height: 34px;
-  padding: 6px 8px;
+  min-height: 30px;
+  padding: 5px 2px;
   border-radius: var(--radius-sm);
-  background: var(--bg-subtle);
+  background: transparent;
 }
 
 .runtime-diagnostics-recent-row.warning {
-  background: color-mix(in srgb, var(--warning) 10%, var(--bg-subtle));
+  background: color-mix(in srgb, var(--warning) 7%, transparent);
 }
 
 .runtime-diagnostics-recent-row.error {
-  background: color-mix(in srgb, var(--danger) 10%, var(--bg-subtle));
+  background: color-mix(in srgb, var(--danger) 7%, transparent);
+}
+
+.runtime-diagnostics-recent-row.history {
+  opacity: 0.78;
 }
 
 .runtime-diagnostics-recent-row strong,
@@ -4044,17 +4057,30 @@ input:focus-visible {
 }
 
 .runtime-activity-log-rail .runtime-activity-log-header {
-  display: grid;
-  gap: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
 }
 
 .runtime-activity-log-rail .runtime-activity-log-header h2 {
-  font-size: 15px;
+  font-size: 13.5px;
+}
+
+.runtime-activity-log-rail .runtime-activity-log-header .eyebrow {
+  display: none;
+}
+
+.runtime-activity-log-rail .runtime-activity-log-header span {
+  display: block;
+  margin-top: 1px;
+  font-size: 11.5px;
 }
 
 .runtime-activity-log-rail .runtime-activity-log-actions .secondary-button {
-  min-height: 30px;
-  padding: 5px 8px;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 5px;
   font-size: 12px;
 }
 
@@ -4074,7 +4100,63 @@ input:focus-visible {
 }
 
 .runtime-activity-log-rail .runtime-activity-row {
-  padding: 8px 9px;
+  padding: 7px 2px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: 0;
+  background: transparent;
+}
+
+.runtime-activity-log-rail .runtime-activity-row.warning {
+  background: transparent;
+}
+
+.runtime-activity-log-rail .runtime-activity-row.error {
+  background: transparent;
+}
+
+.runtime-activity-debug-meta,
+.runtime-activity-debug-title {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+}
+
+.runtime-activity-debug-meta {
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.runtime-activity-debug-meta span,
+.runtime-activity-debug-meta time {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runtime-activity-debug-title strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-strong);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runtime-activity-log-rail .runtime-activity-debug-row p {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 2px 0 0 16px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.runtime-activity-log-rail .runtime-activity-debug-row .runtime-activity-details {
+  padding-left: 16px;
 }
 
 .runtime-activity-log-rail .runtime-activity-row-title {
@@ -4251,59 +4333,59 @@ input:focus-visible {
 .project-git-panel {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 7px;
   min-height: 0;
   height: 100%;
 }
 
 .project-git-header {
   display: flex;
-  align-items: center;
+  align-items: start;
   justify-content: space-between;
   gap: 10px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--border);
+}
+
+.project-git-header-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.project-git-header-main,
+.project-git-header-meta {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 7px;
 }
 
 .project-git-header strong {
-  display: block;
+  overflow: hidden;
   color: var(--text-strong);
   font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.project-git-header small,
+.project-git-header-meta,
 .project-git-empty {
   color: var(--text-muted);
   font-size: 12px;
 }
 
-.project-git-summary {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 9px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-panel);
-  color: var(--text-muted);
+.project-git-header-main .dirty {
+  color: var(--accent-strong);
   font-size: 12px;
 }
 
-.project-git-summary span {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-}
-
-.project-git-summary .dirty {
-  color: var(--accent-strong);
-}
-
-.project-git-summary .clean {
+.project-git-header-main .clean {
   color: var(--success);
+  font-size: 12px;
 }
 
-.project-git-summary .diff-stats {
+.project-git-header-meta .diff-stats {
   color: var(--text-strong);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 }
@@ -4320,9 +4402,9 @@ input:focus-visible {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  min-height: 26px;
-  margin: 4px 0 1px;
-  padding: 0 4px;
+  min-height: 24px;
+  margin: 2px 0 0;
+  padding: 0 2px;
   border: 0;
   background: transparent;
   color: var(--text-muted);
@@ -4345,18 +4427,18 @@ input:focus-visible {
 
 .project-git-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 28px;
-  gap: 3px;
+  grid-template-columns: minmax(0, 1fr) 24px;
+  gap: 2px;
   align-items: center;
 }
 
 .project-git-file-button {
   display: grid;
-  grid-template-columns: 24px 18px minmax(0, 1fr) auto;
+  grid-template-columns: 30px 16px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 6px;
-  min-height: 34px;
-  padding: 5px 6px;
+  gap: 5px;
+  min-height: 30px;
+  padding: 4px 5px;
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -4373,10 +4455,10 @@ input:focus-visible {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
+  width: 28px;
   height: 18px;
-  border-radius: var(--radius-xs);
-  background: var(--bg-subtle);
+  border-radius: 0;
+  background: transparent;
   color: var(--text-muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   font-size: 11px;
@@ -4417,7 +4499,7 @@ input:focus-visible {
 
 .project-git-file-name {
   color: var(--text-strong);
-  font-size: 12.5px;
+  font-size: 12.25px;
 }
 
 .project-git-file-dir {
@@ -4428,7 +4510,7 @@ input:focus-visible {
 .project-git-counts {
   color: var(--text-muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-  font-size: 11px;
+  font-size: 10.75px;
   white-space: nowrap;
 }
 
@@ -4441,19 +4523,23 @@ input:focus-visible {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
+  opacity: 0.58;
 }
 
-.project-git-ref-button:hover {
+.project-git-row:hover .project-git-ref-button,
+.project-git-ref-button:hover,
+.project-git-ref-button:focus-visible {
   background: var(--bg-subtle);
   color: var(--text-strong);
+  opacity: 1;
 }
 
 .git-diff-viewer {
@@ -4500,7 +4586,8 @@ input:focus-visible {
 }
 
 .git-diff-viewer-rail .git-diff-content {
-  max-height: 36vh;
+  max-height: 34vh;
+  overflow: auto;
 }
 
 .git-diff-viewer-rail .git-diff-section h3 {

@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-29T13:11:45.0866043Z",
+    "generated_at":  "2026-06-29T13:57:21.7676499Z",
     "active":  [
 
                ],
@@ -2205,6 +2205,10 @@
                     {
                         "name":  "20260629-workbench-reference-style-project-terminal-dock-v1",
                         "path":  "harness/changes/archive/20260629-workbench-reference-style-project-terminal-dock-v1"
+                    },
+                    {
+                        "name":  "20260629-workbench-right-rail-git-diagnostics-reference-polish-v2",
+                        "path":  "harness/changes/archive/20260629-workbench-right-rail-git-diagnostics-reference-polish-v2"
                     },
                     {
                         "name":  "20260629-workbench-right-rail-owns-right-tool-content-v1",
