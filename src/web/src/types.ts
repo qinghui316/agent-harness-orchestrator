@@ -440,7 +440,7 @@ export type DemandAgentRunGraph = {
   edges: DemandAgentRunGraphEdge[];
   updatedAt?: string;
 };
-export type CenterTab = "conversation" | "workpad" | "agentGraph" | "settings";
+export type CenterTab = "conversation" | "workpad" | "agentGraph";
 export type ParentAgentTranscriptBlock = {
   id: string;
   kind: "prose" | "process" | "tool-result" | "evidence";

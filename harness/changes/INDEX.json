@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-29T16:19:29.0182811Z",
+    "generated_at":  "2026-06-29T17:23:17.3932630Z",
     "active":  [
 
                ],
@@ -2225,6 +2225,10 @@
                     {
                         "name":  "20260629-workbench-runtime-activity-log-sanitize-private-paths-v1",
                         "path":  "harness/changes/archive/20260629-workbench-runtime-activity-log-sanitize-private-paths-v1"
+                    },
+                    {
+                        "name":  "20260630-workbench-reference-style-full-page-settings-surface-v1",
+                        "path":  "harness/changes/archive/20260630-workbench-reference-style-full-page-settings-surface-v1"
                     },
                     {
                         "name":  "20260630-workbench-reference-style-project-identity-display-name-v1",

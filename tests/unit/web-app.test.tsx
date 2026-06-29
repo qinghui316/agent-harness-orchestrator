@@ -5387,6 +5387,48 @@ describe("Workbench web app", () => {
     expect(fetchCallUrls().some((url) => url.includes("/runtime/activity"))).toBe(false);
   });
 
+  it("maps legacy settings tab URL to the full-page settings surface", async () => {
+    window.history.replaceState({}, "", "/?project=tools&topic=tools-topic&tab=settings");
+    const toolsSnapshot = {
+      ...snapshot,
+      project: { id: "tools", name: "Tools", path: "E:/tools" },
+      left: {
+        ...snapshot.left,
+        topics: [{ id: "tools-topic", title: "工具面板验收", state: "active" }],
+        workpads: [{ id: "tools-topic", title: "工具面板验收", state: "active", runtimeStatus: "active", selected: true, waitingDecisionCount: 0 }],
+      },
+      center: {
+        ...snapshot.center,
+        selectedTopic: { id: "tools-topic", title: "工具面板验收", state: "active", acCount: 1, taskCount: 1 },
+      },
+    };
+    const toolsProject = { project: toolsSnapshot.project, path: "E:/tools", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" }, codexTrust: { trusted: true } };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "tools" });
+      if (url === "/api/projects") return jsonResponse({ projects: [toolsProject] });
+      if (url === "/api/projects/tools/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      if (url === "/api/projects/tools/codex/models") return jsonResponse(codexModelSettings);
+      if (url === "/api/projects/tools/providers/capabilities") return jsonResponse(providerCapabilityPayload);
+      if (url === "/api/projects/tools/skills") return jsonResponse({ roots: [], skills: [] });
+      if (url === "/api/projects/tools/workbench/snapshot?topic=tools-topic") return jsonResponse(toolsSnapshot);
+      if (url === "/api/projects/tools/workbench/projections/transcript/tools-topic?limit=100") return jsonResponse(toolsSnapshot.center.parentAgentTranscript);
+      return jsonResponse(url.includes("/stream/") ? stream : snapshot);
+    }));
+
+    render(<App />);
+
+    const panel = await screen.findByRole("region", { name: "设置" });
+    expect(within(panel).getByRole("button", { name: "返回工作区" })).toBeTruthy();
+    expect(document.querySelector(".sidebar")).toBeNull();
+    expect(screen.queryByTestId("decision-pane-shell")).toBeNull();
+    expect(screen.queryByTestId("terminal-dock-toggle")).toBeNull();
+    expect(screen.queryByRole("tab", { name: "设置" })).toBeNull();
+    fireEvent.click(within(panel).getByRole("button", { name: "返回工作区" }));
+    await waitFor(() => expect(screen.getByRole("tab", { name: "对话" }).getAttribute("aria-selected")).toBe("true"));
+    expect(document.querySelector(".sidebar")).toBeTruthy();
+  });
+
   it("fails closed when the URL project id is not registered", async () => {
     window.history.replaceState({}, "", "/?project=missing&topic=member-discount");
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
@@ -5462,6 +5504,14 @@ describe("Workbench web app", () => {
     expect(screen.getByText("项目设置")).toBeTruthy();
     expect(screen.getByText("移出项目")).toBeTruthy();
     expect(screen.getByText("设置")).toBeTruthy();
+    fireEvent.click(screen.getByText("项目设置"));
+    const panel = await screen.findByRole("region", { name: "设置" });
+    expect(document.querySelector(".sidebar")).toBeNull();
+    expect(within(panel).getAllByRole("heading", { name: "项目" }).length).toBeGreaterThan(0);
+    expect(within(panel).getByText("E:/repo")).toBeTruthy();
+    fireEvent.click(within(panel).getByRole("button", { name: "返回工作区" }));
+    await waitFor(() => expect(screen.queryByRole("region", { name: "设置" })).toBeNull());
+    expect(document.querySelector(".sidebar")).toBeTruthy();
   });
 
   it("keeps background demand and memory diagnostics out of the primary conversation surface", async () => {
@@ -5683,6 +5733,9 @@ describe("Workbench web app", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "设置" }));
     expect(await screen.findByRole("region", { name: "设置" })).toBeTruthy();
+    expect(document.querySelector(".sidebar")).toBeNull();
+    expect(screen.queryByTestId("decision-pane-shell")).toBeNull();
+    expect(screen.queryByTestId("terminal-dock-toggle")).toBeNull();
     expect(screen.getByRole("heading", { name: "基础" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Codex" }));
     expect(await screen.findByText("能力矩阵")).toBeTruthy();
@@ -5697,8 +5750,10 @@ describe("Workbench web app", () => {
     expect(screen.getByRole("button", { name: "高级诊断" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "高级诊断" }));
     expect(screen.getByText("codex-cli 1.2.3")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "关闭设置" }));
+    fireEvent.click(screen.getByRole("button", { name: "返回工作区" }));
     await waitFor(() => expect(screen.queryByRole("region", { name: "设置" })).toBeNull());
+    expect(document.querySelector(".sidebar")).toBeTruthy();
+    expect(screen.getByTestId("decision-pane-shell")).toBeTruthy();
     const mutationCalls = vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST");
     expect(mutationCalls).toHaveLength(0);
   });
@@ -5771,6 +5826,8 @@ describe("Workbench web app", () => {
     expect(await screen.findByRole("button", { name: "当前使用 1 个技能" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "当前使用 1 个技能" }));
     const panel = await screen.findByRole("region", { name: "设置" });
+    expect(document.querySelector(".sidebar")).toBeNull();
+    expect(screen.queryByTestId("decision-pane-shell")).toBeNull();
     expect(within(panel).getAllByRole("heading", { name: "技能" }).length).toBeGreaterThan(0);
     expect(within(panel).getByText("3 个可用 Skill")).toBeTruthy();
     expect(within(panel).getAllByText("pricing-helper").length).toBeGreaterThan(0);
@@ -5803,6 +5860,9 @@ describe("Workbench web app", () => {
     expect(calls).toContainEqual(["/api/projects/repo/skills/codex-bridge/sync", "POST"]);
     expect(panel.textContent).not.toContain("marketplace");
     expect(panel.textContent).not.toContain("$skill");
+    fireEvent.click(within(panel).getByRole("button", { name: "返回工作区" }));
+    await waitFor(() => expect(screen.queryByRole("region", { name: "设置" })).toBeNull());
+    expect(document.querySelector(".sidebar")).toBeTruthy();
   });
 
   it("uses a slash Skill mention from the home composer and migrates it to the new topic", async () => {

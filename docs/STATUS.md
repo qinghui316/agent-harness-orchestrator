@@ -2,10 +2,12 @@
 
 ## Current Handoff
 
-- Current date: 2026-06-29.
+- Current date: 2026-06-30.
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260630-workbench-reference-style-full-page-settings-surface-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260630-workbench-reference-style-project-identity-display-name-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260629-workbench-reference-style-readonly-git-history-rail-v1/summary.md`.

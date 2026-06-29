@@ -1,5 +1,5 @@
 import { useState, type ReactElement } from "react";
-import { Bot, Folder, Settings, Shield, Sparkles, Wrench, X } from "lucide-react";
+import { ArrowLeft, Bot, Folder, Settings, Shield, Sparkles, Wrench } from "lucide-react";
 import { CodexTrustButton, ProjectPrepareButton, InfoRow } from "./ProjectPanels.js";
 import { CodexDiagnosticsCard } from "./ProjectHome.js";
 import { SkillsSettingsView } from "./SkillsSettingsView.js";
@@ -83,7 +83,7 @@ export function SettingsSurface({
             <h1>{sections.find((item) => item.id === section)?.label ?? "设置"}</h1>
             <p>{settingsDescription(section)}</p>
           </div>
-          <button className="icon-button" aria-label="关闭设置" onClick={onClose}><X size={16} /></button>
+          <button className="outline-button settings-back-button" aria-label="返回工作区" onClick={onClose}><ArrowLeft size={16} />返回工作区</button>
         </header>
 
         {section === "basic" ? (

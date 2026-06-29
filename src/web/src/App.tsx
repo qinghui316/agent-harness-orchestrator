@@ -136,6 +136,7 @@ export function App(): ReactElement {
   const [sidebarSearch, setSidebarSearch] = useState("");
   const [projectMenuMode, setProjectMenuMode] = useState<"closed" | "add" | "new">("closed");
   const [projectDetailsId, setProjectDetailsId] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSection>("basic");
   const [homeComposerResetToken, setHomeComposerResetToken] = useState(0);
   const [confirming, setConfirming] = useState<string | null>(null);
@@ -306,11 +307,19 @@ export function App(): ReactElement {
       const topic = restore.topicId && (restore.projectId || urlProjectStatus) ? restore.topicId : null;
       setSelectedTopic(topic);
       if (restore.centerTab) setCenterTab(restore.centerTab);
+      if (restore.settingsOpen) {
+        setSettingsSection("basic");
+        setSettingsOpen(true);
+      }
       if (selectedStatus?.managed) await refresh(selectedProject, topic);
       else setSnapshot(snapshotForProject(selectedStatus));
       return;
     }
     if (restoredProject) clearPersistedSelectedProjectId();
+    if (restore.settingsOpen) {
+      setSettingsSection("basic");
+      setSettingsOpen(true);
+    }
   }
 
   async function loadCodexDiagnostics(projectId = selectedProjectId): Promise<void> {
@@ -624,7 +633,11 @@ export function App(): ReactElement {
 
   function openSettings(section: SettingsSection = "basic"): void {
     setSettingsSection(section);
-    setCenterTab("settings");
+    setSettingsOpen(true);
+  }
+
+  function closeSettings(): void {
+    setSettingsOpen(false);
   }
 
   async function openCodexModelPicker(): Promise<void> {
@@ -1299,8 +1312,8 @@ export function App(): ReactElement {
   }, [selectedProjectId, selectedRun, runIds, snapshot.center.agentLoop.runs]);
 
   return (
-    <div className={`app-shell ${decisionPaneCollapsed ? "decision-pane-collapsed" : "decision-pane-expanded"}`}>
-      <aside className="sidebar">
+    <div className={`app-shell ${settingsOpen ? "settings-open" : decisionPaneCollapsed ? "decision-pane-collapsed" : "decision-pane-expanded"}`}>
+      {!settingsOpen ? <aside className="sidebar">
         <div className="brand compact-brand">
           <div className="brand-title">AHO</div>
         </div>
@@ -1332,11 +1345,11 @@ export function App(): ReactElement {
             })();
           }}
         />
-      </aside>
+      </aside> : null}
 
-      <main className="workspace">
+      <main className={`workspace${settingsOpen ? " settings-workspace" : ""}`}>
         <div className="workspace-main" data-testid="workspace-main">
-        {centerTab === "settings" ? (
+        {settingsOpen ? (
           <SettingsSurface
             section={settingsSection}
             onSectionChange={setSettingsSection}
@@ -1347,7 +1360,7 @@ export function App(): ReactElement {
             modelSettingsBusy={codexModelSettingsBusy}
             modelSettingsMessage={codexModelSettingsMessage}
             onOpenModelSettings={() => void openCodexModelPicker()}
-            onClose={() => setCenterTab("conversation")}
+            onClose={closeSettings}
             onRefresh={() => loadApp().then(() => loadCodexDiagnostics()).then(() => loadCodexModelSettings()).then(() => loadProviderCapabilities()).then(() => loadSkillSummary())}
           />
         ) : !selectedProjectId ? (
@@ -1464,12 +1477,12 @@ export function App(): ReactElement {
           </>
         )}
         </div>
-        <WorkspaceDockToggleBar
+        {!settingsOpen ? <WorkspaceDockToggleBar
           terminalActive={bottomDockKind === "terminal"}
           terminalDisabled={!selectedProjectId}
           onToggleTerminal={toggleTerminalDock}
-        />
-        <TerminalDock
+        /> : null}
+        {!settingsOpen ? <TerminalDock
           projectId={selectedProjectId}
           open={bottomDockKind === "terminal"}
           height={terminalDockHeight}
@@ -1484,10 +1497,10 @@ export function App(): ReactElement {
             setBottomDockKind("terminal");
           }}
           onCloseTab={closeTerminalTab}
-        />
+        /> : null}
       </main>
 
-      <RightToolRailShell
+      {!settingsOpen ? <RightToolRailShell
         collapsed={decisionPaneCollapsed}
         activeView={rightToolView}
         pendingCount={pendingConfirmationCount}
@@ -1538,7 +1551,7 @@ export function App(): ReactElement {
             onRefreshRuntimeLog={() => void loadRuntimeActivityLog()}
           />
         }
-      />
+      /> : null}
 
       <CodexModelPicker
         open={codexModelPickerOpen}
@@ -1549,7 +1562,7 @@ export function App(): ReactElement {
         onRefresh={() => loadCodexModelSettings()}
         onSelect={(selectedModel) => updateCodexModelSettings({ selectedModel })}
       />
-      {activeTopic && centerTab !== "settings" ? <BottomStatusBar snapshot={snapshot} project={selectedProjectStatus} topic={activeTopic} /> : null}
+      {activeTopic && !settingsOpen ? <BottomStatusBar snapshot={snapshot} project={selectedProjectStatus} topic={activeTopic} /> : null}
     </div>
   );
 }
@@ -1660,16 +1673,18 @@ function clearPersistedSelectedProjectId(): void {
   }
 }
 
-function readWorkbenchRestoreParams(): { projectId: string | null; topicId: string | null; centerTab: CenterTab | null } {
+function readWorkbenchRestoreParams(): { projectId: string | null; topicId: string | null; centerTab: CenterTab | null; settingsOpen: boolean } {
   try {
     const params = new URLSearchParams(window.location.search);
+    const rawTab = params.get("tab");
     return {
       projectId: nonEmptyParam(params.get("project")),
       topicId: nonEmptyParam(params.get("topic")),
-      centerTab: normalizeCenterTabParam(params.get("tab")),
+      centerTab: normalizeCenterTabParam(rawTab),
+      settingsOpen: rawTab?.trim().toLowerCase() === "settings",
     };
   } catch {
-    return { projectId: null, topicId: null, centerTab: null };
+    return { projectId: null, topicId: null, centerTab: null, settingsOpen: false };
   }
 }
 
@@ -1686,7 +1701,7 @@ function normalizeCenterTabParam(value: string | null): CenterTab | null {
   if (normalized === "orchestration" || normalized === "agentgraph" || normalized === "agent-graph") return "agentGraph";
   if (normalized === "gitdiff" || normalized === "git-diff" || normalized === "diff") return "conversation";
   if (normalized === "runtime" || normalized === "runtime-log" || normalized === "runtimelog" || normalized === "logs") return "conversation";
-  if (normalized === "settings") return "settings";
+  if (normalized === "settings") return "conversation";
   return null;
 }
 

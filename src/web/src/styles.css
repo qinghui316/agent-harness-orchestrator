@@ -89,6 +89,11 @@ input:focus-visible {
   grid-template-columns: 280px minmax(0, 1fr) 320px;
 }
 
+.app-shell.settings-open {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+
 .sidebar,
 .approval-pane,
 .workspace {
@@ -715,6 +720,11 @@ input:focus-visible {
   flex-direction: column;
   overflow: hidden;
   background: var(--bg-panel);
+}
+
+.workspace.settings-workspace {
+  grid-column: 1 / -1;
+  grid-row: 1 / -1;
 }
 
 .workspace-main {
@@ -5913,6 +5923,10 @@ h1 {
 .settings-section-header p {
   margin: 5px 0 0;
   color: var(--text-muted);
+}
+
+.settings-back-button {
+  flex: 0 0 auto;
 }
 
 .settings-content-card {
