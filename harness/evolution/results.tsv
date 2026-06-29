@@ -107,3 +107,4 @@ timestamp	change_id	status	eval_mode	archive_count	notes
 2026-06-28T14:05:24.3856953Z	manual	noop	subagent_review	532	post-onboarding Skill/product-shell window; subagents Feynman/Sartre/Lagrange/Bohr recommend retain existing coverage; no-op score 95; no durable Harness delta
 2026-06-28T18:35:14.5529242Z	manual	noop	subagent_review	537	Franklin subagent score 92; existing ECL and boundary docs cover onboarding Skill, attachments, and hybrid native roadmap window.
 2026-06-29T08:15:20.2507293Z	manual	noop	subagent_review	542	Heisenberg subagent score 93; existing ECL covers terminal/right-rail/top-tool alignment archive window; no new Harness rule/template/product runtime change.
+2026-06-29T11:42:22.9892202Z	manual	noop	subagent_review	547	Arendt subagent score 90; existing ECL and boundary coverage is sufficient for provider/runtime-log/private-path archive window; no new Harness rule/template/product runtime change.

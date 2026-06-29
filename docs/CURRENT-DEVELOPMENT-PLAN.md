@@ -245,7 +245,7 @@ workflow truth, or hidden permission bypasses.
 
 Current structured change: none.
 
-Pending Harness evolution: `harness/evolution/pending.md`.
+Pending Harness evolution: none.
 
 Recommended next product step: continue the desktop product layer from
 `docs/design-docs/ref-desktop-cc-gui.md`, now that the selected-project home
@@ -278,15 +278,20 @@ sequential local apply/landing/close path, and full-access stops before raw
 scheduler preparation.
 
 Latest completed Harness evolution:
-`harness/changes/archive/20260629-auto-evolve-post-terminal-dock-tool-shell-window/summary.md`.
-Decision: `noop`; subagent Heisenberg score `93/100`. Existing ECL coverage is
-sufficient for the terminal/right-rail/top-tool archive window; no product
-runtime, Harness rule, or template change was made.
+`harness/changes/archive/20260629-auto-evolve-post-provider-runtime-log-window/summary.md`.
+Decision: `noop`; subagent Arendt score `90/100`. Existing ECL and boundary
+coverage is sufficient for the provider/runtime-log/private-path archive
+window; no product runtime, Harness rule, or template change was made.
 
 Current Harness evolution:
 
-- Pending evolution: `harness/evolution/pending.md`.
+- Pending evolution: none.
 - Latest completed evolution:
+  `harness/changes/archive/20260629-auto-evolve-post-provider-runtime-log-window/summary.md`.
+  Decision: `noop`; subagent Arendt score `90/100`. Existing ECL and boundary
+  coverage was sufficient for the provider/runtime-log/private-path archive
+  window; no product runtime, Harness rule, or template change was made.
+- Previous completed evolution:
   `harness/changes/archive/20260629-auto-evolve-post-terminal-dock-tool-shell-window/summary.md`.
   Decision: `noop`; subagent Heisenberg score `93/100`. Existing ECL coverage
   was sufficient for the terminal/right-rail/top-tool archive window; no

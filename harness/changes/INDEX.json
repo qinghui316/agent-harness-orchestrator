@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-29T11:27:42.3836419Z",
+    "generated_at":  "2026-06-29T11:44:36.0750622Z",
     "active":  [
 
                ],
@@ -2157,6 +2157,10 @@
                     {
                         "name":  "20260629-auto-evolve-post-attachments-native-roadmap-window",
                         "path":  "harness/changes/archive/20260629-auto-evolve-post-attachments-native-roadmap-window"
+                    },
+                    {
+                        "name":  "20260629-auto-evolve-post-provider-runtime-log-window",
+                        "path":  "harness/changes/archive/20260629-auto-evolve-post-provider-runtime-log-window"
                     },
                     {
                         "name":  "20260629-auto-evolve-post-terminal-dock-tool-shell-window",

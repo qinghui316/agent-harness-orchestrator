@@ -4,7 +4,7 @@
 
 - Current date: 2026-06-29.
 - Active ECL change: none.
-- Pending Harness evolution: `harness/evolution/pending.md`.
+- Pending Harness evolution: none.
 - Latest archived product change:
   `harness/changes/archive/20260629-workbench-runtime-activity-log-sanitize-private-paths-v1/summary.md`.
 - Previous archived product change:
@@ -64,10 +64,11 @@
 - Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-skills-catalog-and-codex-bridge-v1/summary.md`.
 - Latest completed Harness evolution:
-  `harness/changes/archive/20260629-auto-evolve-post-terminal-dock-tool-shell-window/summary.md`
-  (`noop`; subagent Heisenberg score 93; existing ECL coverage is sufficient
-  for the terminal/right-rail/top-tool archive window, no new Harness
-  rule/template needed, pending evolution marked complete).
+  `harness/changes/archive/20260629-auto-evolve-post-provider-runtime-log-window/summary.md`
+  (`noop`; subagent Arendt score 90; existing ECL and boundary coverage is
+  sufficient for the provider/runtime-log/private-path archive window, no new
+  Harness rule/template/product runtime change needed, pending evolution marked
+  complete).
 
 ## Latest Product Closeout
 
