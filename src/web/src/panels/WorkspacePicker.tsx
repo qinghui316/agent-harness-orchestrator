@@ -7,6 +7,7 @@ import {
   Search,
 } from "lucide-react";
 import { ProjectAddForm, ProjectCreateForm } from "./ProjectPanels.js";
+import { projectDisplayName } from "../formatters.js";
 import type { ProjectStatus } from "../types.js";
 
 export function WorkspacePicker({
@@ -28,7 +29,7 @@ export function WorkspacePicker({
   const filteredProjects = useMemo(() => {
     if (!normalizedQuery) return projects;
     return projects.filter((item) => {
-      const name = item.project?.name ?? item.path;
+      const name = projectDisplayName(item.project ?? { path: item.path });
       return name.toLowerCase().includes(normalizedQuery) || item.path.toLowerCase().includes(normalizedQuery);
     });
   }, [normalizedQuery, projects]);
@@ -58,7 +59,7 @@ export function WorkspacePicker({
         onClick={() => setOpen((value) => !value)}
         title={selectedProject?.path ?? "选择项目"}
       >
-        <span>{selectedProject?.project?.name ?? "选择项目"}</span>
+        <span>{selectedProject?.project ? projectDisplayName(selectedProject.project) : "选择项目"}</span>
         <ChevronDown size={16} aria-hidden />
       </button>
 
@@ -79,7 +80,7 @@ export function WorkspacePicker({
             {filteredProjects.length === 0 ? <div className="workspace-picker-empty">没有匹配的项目。</div> : null}
             {filteredProjects.map((item) => {
               const projectId = item.project?.id;
-              const name = item.project?.name ?? item.path;
+              const name = projectDisplayName(item.project ?? { path: item.path });
               const selected = projectId === selectedProjectId;
               return (
                 <button

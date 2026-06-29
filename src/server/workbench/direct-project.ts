@@ -1,4 +1,4 @@
-import { normalizeForCompare } from "../../fs/path.js";
+import { defaultProjectName, normalizeForCompare } from "../../fs/path.js";
 import { getProjectStatus } from "../../project/status.js";
 import { readProjectMarker } from "../../project/marker.js";
 import type { ProjectRegistryStore } from "../../registry/store.js";
@@ -24,7 +24,7 @@ export async function restoreDirectProjectInput(input: WorkbenchProjectInput | n
   const now = new Date().toISOString();
   const project: ManagedProject = {
     id: marker.id,
-    name: marker.name,
+    name: defaultProjectName(input.path) || marker.name,
     path: input.path,
     addedAt: now,
     lastSeenAt: now,

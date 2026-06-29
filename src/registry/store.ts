@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { z } from "zod";
 import type { ManagedProject, RegistryFile } from "../types/index.js";
-import { getAhoHome, normalizeForCompare, shortHash, slugify } from "../fs/path.js";
+import { defaultProjectName, getAhoHome, normalizeForCompare, shortHash, slugify } from "../fs/path.js";
 import { readJsonFile, writeJsonFile } from "../fs/json.js";
 import { readProjectMarker } from "../project/marker.js";
 
@@ -48,7 +48,7 @@ export class ProjectRegistryStore {
     }
 
     const marker = await readProjectMarker(path);
-    const displayName = name?.trim() || marker?.name || path.split(/[\\/]/).filter(Boolean).at(-1) || "project";
+    const displayName = name?.trim() || defaultProjectName(path) || "project";
     const baseId = marker?.id ?? slugify(displayName);
     const ids = new Set(registry.projects.map((project) => project.id));
     if (marker && ids.has(marker.id)) {

@@ -336,11 +336,11 @@ function GitHistoryRail({
   if (selectedCommitSha) {
     return (
       <section className="project-git-history-detail" data-testid="project-git-history-detail">
-        <RailBackHeader title={detail?.shortSha ?? selectedCommitSha.slice(0, 12)} subtitle={detail?.summary ?? "版本详情"} onBack={onBackToList} onRefresh={onRefresh} />
+        <RailBackHeader title={detail?.shortSha ?? selectedCommitSha.slice(0, 12)} subtitle={detail?.summary ?? "提交详情"} onBack={onBackToList} onRefresh={onRefresh} />
         {detailError ? <div className="project-files-error">{detailError}</div> : null}
-        {detailLoading ? <div className="project-files-empty">正在读取版本详情...</div> : null}
+        {detailLoading ? <div className="project-files-empty">正在读取提交详情...</div> : null}
         {!detailLoading && detail?.status !== "ok" ? (
-          <div className="project-git-empty">{detail?.message ?? "无法读取版本详情。"}</div>
+          <div className="project-git-empty">{detail?.message ?? "无法读取提交详情。"}</div>
         ) : null}
         {!detailLoading && detail?.status === "ok" ? (
           <>
@@ -374,7 +374,7 @@ function GitHistoryRail({
             {history?.head ? <code>{history.head}</code> : null}
           </div>
           <div className="project-git-header-meta">
-            <span>{history?.status === "ok" ? `${history.total} 个版本` : "只读历史"}</span>
+            <span>{history?.status === "ok" ? `${history.total} 个 Git 提交` : "只读历史"}</span>
           </div>
         </div>
         <button type="button" className="icon-button" aria-label="刷新历史" onClick={onRefresh}>
@@ -426,7 +426,7 @@ function RailBackHeader({ title, subtitle, onBack, onRefresh }: { title: string;
 
 function HistoryCommitRow({ commit, selected, onSelect }: { commit: ProjectGitHistoryCommit; selected: boolean; onSelect: () => void }): ReactElement {
   return (
-    <button type="button" className={`project-git-commit-row ${selected ? "selected" : ""}`} data-testid="project-git-history-row" aria-label={`打开版本 ${commit.shortSha}`} onClick={onSelect}>
+    <button type="button" className={`project-git-commit-row ${selected ? "selected" : ""}`} data-testid="project-git-history-row" aria-label={`打开提交 ${commit.shortSha}`} onClick={onSelect}>
       <span className="project-git-commit-graph" aria-hidden="true"><GitCommit size={13} /></span>
       <span className="project-git-commit-text">
         <span className="project-git-commit-summary">{commit.summary}</span>

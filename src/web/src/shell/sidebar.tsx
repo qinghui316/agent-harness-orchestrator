@@ -15,7 +15,7 @@ import {
   ProjectAddForm,
   ProjectCreateForm,
 } from "../panels/ProjectPanels.js";
-import { userFacingText, workpadStatusLabel } from "../formatters.js";
+import { projectDisplayName, userFacingText, workpadStatusLabel } from "../formatters.js";
 import { postJson } from "../api.js";
 import type {
   ProjectStatus,
@@ -74,7 +74,7 @@ export function ProjectConversationSidebar({
   const normalizedSearch = search.trim().toLowerCase();
   const projectNameCounts = new Map<string, number>();
   for (const item of visibleProjects) {
-    const name = item.project?.name ?? item.path;
+    const name = projectDisplayName(item.project ?? { path: item.path });
     projectNameCounts.set(name, (projectNameCounts.get(name) ?? 0) + 1);
   }
   async function afterProjectAdded(projectId?: string): Promise<void> {
@@ -110,7 +110,7 @@ export function ProjectConversationSidebar({
           {visibleProjects.map((item) => {
             const projectId = item.project?.id ?? item.path;
             const concreteProjectId = item.project?.id ?? null;
-            const projectName = item.project?.name ?? item.path;
+            const projectName = projectDisplayName(item.project ?? { path: item.path });
             const duplicateName = (projectNameCounts.get(projectName) ?? 0) > 1;
             const selected = item.project?.id === selectedProjectId;
             const expanded = selected || expandedProjects.has(projectId);
@@ -249,12 +249,12 @@ export function UnmanagedProjectView({ project, onDone }: { project: ProjectStat
   return (
     <section className="empty-workbench">
       <p className="eyebrow">{temporaryDirect ? "临时打开" : "项目已添加"}</p>
-      <h1>{project.project.name}</h1>
+      <h1>{projectDisplayName(project.project)}</h1>
       <p>{project.path}</p>
       {temporaryDirect ? (
         <button
           className="outline-button"
-          onClick={() => void postJson("/api/projects", { path: project.path, name: project.project?.name, confirm: true }).then(() => onDone())}
+          onClick={() => void postJson("/api/projects", { path: project.path, confirm: true }).then(() => onDone())}
         >
           保存到项目列表
         </button>
@@ -280,7 +280,7 @@ export function TopicEmptyView({
 }): ReactElement {
   return (
     <section className="topic-empty-view">
-      <div className="breadcrumb">{snapshot.project?.name ?? "project"} / 需求对话</div>
+      <div className="breadcrumb">{projectDisplayName(snapshot.project, "project")} / 需求对话</div>
       <div className="topic-empty-content">
         <p className="eyebrow">本地工作台</p>
         <h1>暂无需求对话</h1>

@@ -94,7 +94,7 @@ describe("ProjectRegistryStore", () => {
     const project = await store.addProject(projectPath);
 
     expect(project.id).toBe("ahoacc1");
-    expect(project.name).toBe("ahoacc1");
+    expect(project.name).toBe("repo");
     expect(await store.resolveProject("ahoacc1")).toMatchObject({ path: projectPath });
   });
 

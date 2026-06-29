@@ -2208,7 +2208,9 @@ describe("Workbench web app", () => {
 
     fireEvent.click(within(gitPanel).getByRole("button", { name: "历史" }));
     const historyRail = await within(gitPanel).findByTestId("project-git-history");
+    expect(within(historyRail).getByText("1 个 Git 提交")).toBeTruthy();
     expect(within(historyRail).getByText("baseline pricing")).toBeTruthy();
+    expect(within(historyRail).getByRole("button", { name: "打开提交 abc1234" })).toBeTruthy();
     fireEvent.click(within(historyRail).getByTestId("project-git-history-row"));
     const detail = await within(gitPanel).findByTestId("project-git-history-detail");
     expect(within(detail).getByText("Initial project price.")).toBeTruthy();
@@ -6076,6 +6078,115 @@ describe("Workbench web app", () => {
     expect(screen.getByRole("button", { name: "Tools" })).toBeTruthy();
     const mutationCalls = vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST");
     expect(mutationCalls).toHaveLength(0);
+  });
+
+  it("shows folder display names for legacy internal project ids", async () => {
+    const legacyProject = { id: "aho-self", name: "aho-self", path: "E:/work/agent-harness-orchestrator" };
+    const legacySnapshot = {
+      ...snapshot,
+      project: legacyProject,
+      left: { ...snapshot.left, topics: [], workpads: [] },
+      center: { ...snapshot.center, selectedTopic: null },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "aho-self" });
+      if (url === "/api/projects") {
+        return jsonResponse({ projects: [{
+          project: legacyProject,
+          path: legacyProject.path,
+          pathExists: true,
+          isGitRepo: true,
+          managed: true,
+          memory: { memoryMode: "external-local", memoryAvailable: true, harnessReady: true, artifactBase: "memory-root", roots: { memoryRoot: "E:/aho-home/projects/aho-self" } },
+          harness: { readiness: "ready" },
+          codexTrust: { trusted: true },
+        }] });
+      }
+      if (url === "/api/projects/aho-self/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      if (url === "/api/projects/aho-self/providers/capabilities") return jsonResponse(providerCapabilityPayload);
+      return jsonResponse(legacySnapshot);
+    }));
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "创造任何东西" });
+    expect(screen.getAllByText("agent-harness-orchestrator").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "aho-self" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "设置" }));
+    fireEvent.click(await screen.findByRole("button", { name: "高级诊断" }));
+    expect(screen.getByText("Internal project id")).toBeTruthy();
+    expect(screen.getAllByText("aho-self").length).toBeGreaterThan(0);
+  });
+
+  it("does not persist marker-derived names when saving a temporary direct project from first demand", async () => {
+    const legacyProject = { id: "aho-self", name: "aho-self", path: "E:/work/agent-harness-orchestrator" };
+    const noTopicSnapshot = {
+      ...snapshot,
+      project: legacyProject,
+      left: { ...snapshot.left, topics: [], workpads: [] },
+      center: { ...snapshot.center, selectedTopic: null },
+    };
+    const selectedSnapshot = {
+      ...noTopicSnapshot,
+      left: {
+        ...snapshot.left,
+        topics: [{ id: "saved-demand", title: "保存后创建需求", state: "active" }],
+        workpads: [{ id: "saved-demand", title: "保存后创建需求", state: "active", runtimeStatus: "active", selected: true, waitingDecisionCount: 0 }],
+      },
+      center: {
+        ...snapshot.center,
+        selectedTopic: { id: "saved-demand", title: "保存后创建需求", state: "active", acCount: 0, taskCount: 0 },
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "aho-self" });
+      if (url === "/api/projects" && init?.method !== "POST") {
+        return jsonResponse({ projects: [{
+          project: legacyProject,
+          path: legacyProject.path,
+          pathExists: true,
+          isGitRepo: true,
+          managed: false,
+          memory: { registered: false, memoryMode: "external-local", memoryAvailable: true, harnessReady: true, artifactBase: "memory-root", roots: { memoryRoot: "E:/aho-home/projects/aho-self" } },
+          harness: { readiness: "ready" },
+          codexTrust: { trusted: true },
+        }] });
+      }
+      if (url === "/api/projects" && init?.method === "POST") {
+        return jsonResponse({ project: legacyProject, status: {
+          project: legacyProject,
+          path: legacyProject.path,
+          pathExists: true,
+          isGitRepo: true,
+          managed: true,
+          memory: { registered: true, memoryMode: "external-local", memoryAvailable: true, harnessReady: true, artifactBase: "memory-root", roots: { memoryRoot: "E:/aho-home/projects/aho-self" } },
+          harness: { readiness: "ready" },
+          codexTrust: { trusted: true },
+        } });
+      }
+      if (url === "/api/projects/aho-self/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      if (url === "/api/projects/aho-self/workbench/topics" && init?.method === "POST") return jsonResponse({ topic: { changeId: "saved-demand" } });
+      if (url === "/api/projects/aho-self/workbench/snapshot?topic=saved-demand") return jsonResponse(selectedSnapshot);
+      if (url === "/api/projects/aho-self/workbench/projections/transcript/saved-demand?limit=100") return jsonResponse(selectedSnapshot.center.parentAgentTranscript);
+      return jsonResponse(noTopicSnapshot);
+    }));
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "agent-harness-orchestrator" });
+    fireEvent.click(screen.getByRole("button", { name: "保存到项目列表" }));
+
+    await waitFor(() => {
+      expect(vi.mocked(fetch).mock.calls.some(([url, init]) => String(url) === "/api/projects" && init?.method === "POST")).toBe(true);
+    });
+    const savePost = vi.mocked(fetch).mock.calls.find(([url, init]) => String(url) === "/api/projects" && init?.method === "POST");
+    expect(JSON.parse(String(savePost?.[1]?.body))).toEqual({
+      path: legacyProject.path,
+      confirm: true,
+    });
   });
 
   it("exposes real add and create project forms from the workspace picker", async () => {

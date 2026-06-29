@@ -1,5 +1,24 @@
 import type { ConversationLifecycle, DecompositionPlanSummary, DecompositionReadinessSummary, DemandAgentRunGraphNodeStatus, ThreadStreamItem, WorkbenchCodingPackage, WorkbenchTaskNode, Workpad, WorkpadRuntimeStatus, WorkpadUserStatus } from "./types.js";
 
+type ProjectDisplayInput = {
+  id?: string | null;
+  name?: string | null;
+  path?: string | null;
+};
+
+export function projectPathBasename(path?: string | null): string {
+  const parts = (path ?? "").split(/[\\/]/).filter(Boolean);
+  return parts.at(-1)?.trim() ?? "";
+}
+
+export function projectDisplayName(project?: ProjectDisplayInput | null, fallback = "项目"): string {
+  const name = project?.name?.trim() ?? "";
+  const id = project?.id?.trim() ?? "";
+  const pathName = projectPathBasename(project?.path);
+  if (name && !(id && name === id && pathName && pathName !== name)) return name;
+  return pathName || name || id || fallback;
+}
+
 export function formatTime(value?: string): string {
   if (!value) return "";
   return new Date(value).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });

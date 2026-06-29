@@ -3,6 +3,7 @@ import { Bot, Folder, Settings, Shield, Sparkles, Wrench, X } from "lucide-react
 import { CodexTrustButton, ProjectPrepareButton, InfoRow } from "./ProjectPanels.js";
 import { CodexDiagnosticsCard } from "./ProjectHome.js";
 import { SkillsSettingsView } from "./SkillsSettingsView.js";
+import { projectDisplayName } from "../formatters.js";
 import type { CodexDiagnostics, CodexModelSettingsSnapshot, ProjectStatus, ProviderCapabilityItem, ProviderCapabilitySnapshot } from "../types.js";
 
 export type SettingsSection = "basic" | "project" | "codex" | "skills" | "advanced";
@@ -103,7 +104,7 @@ export function SettingsSurface({
             {project?.project ? (
               <>
                 <div className="settings-info-grid">
-                  <Info label="名称" value={project.project.name} />
+                  <Info label="名称" value={projectDisplayName(project.project)} />
                   <Info label="路径" value={project.path} />
                   <Info label="项目状态" value={project.harness.readiness === "ready" ? "已准备" : "需要准备"} />
                   <Info label="Git" value={project.isGitRepo ? "Git 仓库" : "非 Git 仓库"} />
@@ -147,6 +148,8 @@ export function SettingsSurface({
             </div>
             {project ? (
               <div className="settings-info-grid">
+                <Info label="Internal project id" value={project.project?.id ?? "未记录"} />
+                <Info label="Registry name" value={project.project?.name ?? "未记录"} />
                 <Info label="Memory mode" value={project.memory?.memoryMode ?? "未知"} />
                 <Info label="Memory root" value={project.memory?.roots?.memoryRoot ?? "未记录"} />
                 <Info label="Artifact base" value={project.memory?.artifactBase ?? "未记录"} />

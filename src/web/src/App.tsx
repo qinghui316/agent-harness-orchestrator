@@ -55,6 +55,7 @@ import {
 } from "./shell/composer-session.js";
 
 import {
+  projectDisplayName,
   stateLabel,
   runtimeLabel,
 } from "./formatters.js";
@@ -453,7 +454,7 @@ export function App(): ReactElement {
       ...baseSnapshot,
       center: {
         selectedTopic: null,
-        workpad: emptyWorkpad(baseSnapshot.project?.name ?? status.project?.name ?? "当前项目"),
+        workpad: emptyWorkpad(projectDisplayName(baseSnapshot.project ?? status.project, "当前项目")),
         thread: { items: [] },
         parentAgentTranscript: emptyParentAgentTranscript(),
         activeTab: "conversation" as const,
@@ -503,7 +504,7 @@ export function App(): ReactElement {
 
   async function removeProject(projectId: string): Promise<void> {
     const status = projects.find((item) => item.project?.id === projectId);
-    const name = status?.project?.name ?? projectId;
+    const name = projectDisplayName(status?.project, projectId);
     const ok = window.confirm(`移出“${name}”？\n\n只会从 App 项目列表移出，不会删除代码、不会修改 Git，也不会删除项目证据。之后可以重新添加。`);
     if (!ok) return;
     await postJson(`/api/projects/${encodeURIComponent(projectId)}/remove`, { confirm: true });
@@ -542,7 +543,6 @@ export function App(): ReactElement {
     if (!status.managed && status.memory?.registered === false) {
       const saved = await postJson<{ project: { id: string }; status?: ProjectStatus }>("/api/projects", {
         path: status.path,
-        name: status.project.name,
         confirm: true,
       });
       effectiveProjectId = saved.project.id;
@@ -1143,7 +1143,7 @@ export function App(): ReactElement {
   }
 
   const activeTopic = snapshot.center.selectedTopic;
-  const activeWorkpad = snapshot.center.workpad ?? emptyWorkpad(activeTopic?.title ?? snapshot.project?.name);
+  const activeWorkpad = snapshot.center.workpad ?? emptyWorkpad(activeTopic?.title ?? projectDisplayName(snapshot.project));
   const activeRun = useMemo(() => snapshot.center.agentLoop.runs.find((run) => run.id === selectedRun) ?? snapshot.center.agentLoop.runs[0], [snapshot, selectedRun]);
   const selectedProjectStatus = useMemo(() => projects.find((item) => item.project?.id === selectedProjectId) ?? null, [projects, selectedProjectId]);
   const selectedProjectHistoryUnavailable = Boolean(selectedProjectStatus?.managed && selectedProjectStatus.memory?.memoryAvailable === false);
@@ -1389,7 +1389,7 @@ export function App(): ReactElement {
             <header className="thread-header">
               <div className="thread-title-block">
                 <strong>{activeTopic.title}</strong>
-                <span>{snapshot.project?.name ?? "project"} · {stateLabel(activeTopic.state)} · 验收 {activeTopic.acCount ?? 0} · 任务 {activeTopic.taskCount ?? 0}</span>
+                <span>{projectDisplayName(snapshot.project, "project")} · {stateLabel(activeTopic.state)} · 验收 {activeTopic.acCount ?? 0} · 任务 {activeTopic.taskCount ?? 0}</span>
               </div>
             </header>
 
@@ -1700,7 +1700,7 @@ function snapshotForProject(project: ProjectStatus | null | undefined): Snapshot
       memoryMode: project.memory?.memoryMode,
       artifactBase: project.memory?.artifactBase,
     },
-    center: { ...emptySnapshot.center, workpad: emptyWorkpad(project.project.name) },
+    center: { ...emptySnapshot.center, workpad: emptyWorkpad(projectDisplayName(project.project)) },
     warnings: project.managed ? [] : ["项目需要准备后才能开始需求对话。"],
   };
 }
