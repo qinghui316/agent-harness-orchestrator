@@ -1947,7 +1947,7 @@ describe("Workbench web app", () => {
     expect(screen.queryByTestId("decision-inspector-primary")).toBeNull();
   });
 
-  it("opens the minimal right tool rail with confirmation, files, Git, and terminal tabs", async () => {
+  it("opens the minimal right tool rail with confirmation, files, Git, diagnostics, and a separate terminal toggle", async () => {
     const fileRef = { relativePath: "src/pricing.ts", name: "pricing.ts", kind: "file", extension: ".ts", size: 24 };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -1986,6 +1986,16 @@ describe("Workbench web app", () => {
       }
       if (url.includes("/api/projects/repo/terminal/sessions/") && url.endsWith("/resize")) return jsonResponse({ ok: true });
       if (url.includes("/api/projects/repo/terminal/sessions/") && url.endsWith("/write")) return jsonResponse({ ok: true });
+      if (url === "/api/projects/repo/runtime/diagnostics") {
+        return jsonResponse({
+          generatedAt: "2026-06-29T00:00:00.000Z",
+          summary: { status: "degraded", issueCount: 0, degradedCount: 1 },
+          items: [
+            { id: "terminal:runtime", title: "终端", status: "ok", summary: "终端运行环境可用。" },
+            { id: "codex:model-list", title: "模型列表", status: "warning", summary: "模型列表暂不可用，仍可使用配置或默认模型。", detail: "degraded" },
+          ],
+        });
+      }
       if (url.includes("/workbench/projections/transcript/")) return jsonResponse(snapshot.center.parentAgentTranscript);
       if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(snapshot.center.agentRunGraph);
       return jsonResponse(url.includes("/stream/") ? stream : snapshot);
@@ -2000,7 +2010,9 @@ describe("Workbench web app", () => {
     expect(await screen.findByTestId("right-tool-tab-confirm")).toBeTruthy();
     expect(screen.getByTestId("right-tool-tab-files")).toBeTruthy();
     expect(screen.getByTestId("right-tool-tab-git")).toBeTruthy();
-    expect(screen.getByTestId("right-tool-tab-terminal")).toBeTruthy();
+    expect(screen.getByTestId("right-tool-tab-diagnostics")).toBeTruthy();
+    expect(screen.queryByTestId("right-tool-tab-terminal")).toBeNull();
+    expect(screen.getByTestId("terminal-dock-toggle")).toBeTruthy();
     expect(screen.getByTestId("decision-inspector-primary")).toBeTruthy();
     expect(screen.queryByRole("tab", { name: "浏览器" })).toBeNull();
     expect(screen.queryByRole("tab", { name: "日志" })).toBeNull();
@@ -2031,11 +2043,17 @@ describe("Workbench web app", () => {
     fireEvent.click(within(gitPanel).getAllByText("引用")[0] as HTMLElement);
     await waitFor(() => expect(screen.getByText("staged.ts")).toBeTruthy());
 
-    fireEvent.click(screen.getByTestId("right-tool-tab-terminal"));
+    fireEvent.click(screen.getByTestId("terminal-dock-toggle"));
     expect(await screen.findByTestId("terminal-dock")).toBeTruthy();
     expect(await screen.findByTestId("terminal-xterm")).toBeTruthy();
-    expect(await screen.findByTestId("terminal-rail-panel")).toBeTruthy();
     expect(fetchCallUrls()).toContain("/api/projects/repo/terminal/sessions");
+
+    fireEvent.click(screen.getByTestId("right-tool-tab-diagnostics"));
+    const diagnosticsPanel = await screen.findByTestId("runtime-diagnostics-rail-panel");
+    expect(within(diagnosticsPanel).getByText("诊断")).toBeTruthy();
+    fireEvent.click(within(diagnosticsPanel).getByText("打开诊断面板"));
+    expect(await screen.findByTestId("runtime-diagnostics-dock")).toBeTruthy();
+    expect(screen.queryByTestId("terminal-dock")).toBeNull();
     expect(fetchCallUrls().filter((url) => url.endsWith("/workbench/actions"))).toHaveLength(actionCallCount);
   });
 

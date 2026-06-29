@@ -10,6 +10,33 @@ export interface TerminalTab {
   title: string;
 }
 
+export function WorkspaceDockToggleBar({
+  terminalActive,
+  terminalDisabled,
+  onToggleTerminal,
+}: {
+  terminalActive: boolean;
+  terminalDisabled: boolean;
+  onToggleTerminal: () => void;
+}): ReactElement {
+  return (
+    <div className="workspace-dock-toggle-bar" aria-label="底部工具">
+      <button
+        type="button"
+        className={`workspace-dock-toggle${terminalActive ? " active" : ""}`}
+        data-testid="terminal-dock-toggle"
+        disabled={terminalDisabled}
+        aria-pressed={terminalActive}
+        aria-label={terminalActive ? "收起终端" : "打开终端"}
+        title={terminalActive ? "收起终端" : "打开终端"}
+        onClick={onToggleTerminal}
+      >
+        <SquareTerminal size={16} aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
+
 interface TerminalSession {
   projectId: string;
   terminalId: string;
@@ -127,36 +154,6 @@ export function TerminalDock({
         )}
       </div>
     </section>
-  );
-}
-
-export function TerminalRailPanel({
-  projectId,
-  open,
-  sessionCount,
-  onOpen,
-  onNewTab,
-}: {
-  projectId: string | null;
-  open: boolean;
-  sessionCount: number;
-  onOpen: () => void;
-  onNewTab: () => void;
-}): ReactElement {
-  return (
-    <div className="right-tool-empty" data-testid="terminal-rail-panel">
-      <SquareTerminal size={18} aria-hidden="true" />
-      <strong>终端</strong>
-      <p>{projectId ? (open ? `底部终端已打开，${sessionCount} 个会话。` : "在底部打开当前项目终端。") : "选择项目后可打开终端。"}</p>
-      <div className="tool-panel-actions">
-        <button type="button" className="primary-button" disabled={!projectId} onClick={onOpen}>
-          打开终端
-        </button>
-        <button type="button" className="secondary-button" disabled={!projectId} onClick={onNewTab}>
-          新建会话
-        </button>
-      </div>
-    </div>
   );
 }
 

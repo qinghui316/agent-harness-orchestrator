@@ -3,6 +3,7 @@ import { openNativeFolderDialog } from "./native-dialog.js";
 import { matchProjectWorkbenchRoute } from "./routes.js";
 import { resolveProjectInputWithDirect } from "./direct-project.js";
 import { getWorkbenchCodexDiagnostics } from "./codex-diagnostics.js";
+import { getRuntimeDiagnostics } from "./runtime-diagnostics.js";
 import { listProjectFileChildren, readProjectFilePreview, searchProjectFiles } from "../../workbench/file-references.js";
 import { createTopicAttachment, deleteTopicAttachment } from "../../workbench/attachments.js";
 import { getProjectGitDiff, getProjectGitStatus } from "../../workbench/git-panel.js";
@@ -36,6 +37,10 @@ export async function handleApi(context: WorkbenchServerContext, request: Incomi
   }
   if (request.method === "GET" && url.pathname === "/api/codex/diagnostics") {
     sendJson(response, 200, await getWorkbenchCodexDiagnostics(null));
+    return;
+  }
+  if (request.method === "GET" && url.pathname === "/api/runtime/diagnostics") {
+    sendJson(response, 200, await getRuntimeDiagnostics(context, null));
     return;
   }
   if (request.method === "GET" && url.pathname === "/api/codex/models") {
@@ -77,6 +82,11 @@ export async function handleApi(context: WorkbenchServerContext, request: Incomi
   if (request.method === "GET" && codexDiagnosticsMatch?.[1]) {
     const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(codexDiagnosticsMatch[1]));
     sendJson(response, 200, await getWorkbenchCodexDiagnostics(input.project, input.path));
+    return;
+  }
+  const runtimeDiagnosticsMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/runtime\/diagnostics$/);
+  if (request.method === "GET" && runtimeDiagnosticsMatch?.[1]) {
+    sendJson(response, 200, await getRuntimeDiagnostics(context, decodeURIComponent(runtimeDiagnosticsMatch[1])));
     return;
   }
   const codexModelsMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/codex\/models$/);

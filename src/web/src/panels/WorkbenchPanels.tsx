@@ -4,5 +4,6 @@ export { RightToolRailShell, type RightToolRailTab } from "./workbench/DecisionP
 export { ProjectFilesPanel } from "./workbench/ProjectFilesPanel.js";
 export { ProjectGitPanel } from "./workbench/ProjectGitPanel.js";
 export { GitDiffViewer } from "./workbench/GitDiffViewer.js";
-export { TerminalDock, TerminalRailPanel, type TerminalTab } from "./workbench/TerminalDock.js";
+export { RuntimeDiagnosticsDock, RuntimeDiagnosticsRailPanel } from "./workbench/RuntimeDiagnosticsDock.js";
+export { TerminalDock, WorkspaceDockToggleBar, type TerminalTab } from "./workbench/TerminalDock.js";
 export { WorkpadView } from "./workbench/WorkpadPanel.js";

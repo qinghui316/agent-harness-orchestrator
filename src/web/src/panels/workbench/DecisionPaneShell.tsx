@@ -1,7 +1,7 @@
-import { FileText, GitBranch, ListChecks, PanelRightClose, PanelRightOpen, SquareTerminal } from "lucide-react";
+import { Activity, FileText, GitBranch, ListChecks, PanelRightClose, PanelRightOpen } from "lucide-react";
 import type { ReactElement, ReactNode } from "react";
 
-export type RightToolRailTab = "confirm" | "files" | "git" | "terminal";
+export type RightToolRailTab = "confirm" | "files" | "git" | "diagnostics";
 
 export function RightToolRailShell({
   collapsed,
@@ -14,7 +14,7 @@ export function RightToolRailShell({
   confirmPanel,
   filesPanel,
   gitPanel,
-  terminalPanel,
+  diagnosticsPanel,
 }: {
   collapsed: boolean;
   activeTab: RightToolRailTab;
@@ -26,7 +26,7 @@ export function RightToolRailShell({
   confirmPanel: ReactNode;
   filesPanel: ReactNode;
   gitPanel: ReactNode;
-  terminalPanel: ReactNode;
+  diagnosticsPanel: ReactNode;
 }): ReactElement {
   if (collapsed) {
     const label = pendingCount > 0 ? `展开右侧面板，${pendingCount} 个待确认` : "展开右侧面板";
@@ -93,15 +93,15 @@ export function RightToolRailShell({
           <button
             type="button"
             role="tab"
-            aria-label="终端"
-            aria-selected={activeTab === "terminal"}
-            title="终端"
-            className={activeTab === "terminal" ? "active" : ""}
-            data-testid="right-tool-tab-terminal"
-            onClick={() => onTabChange("terminal")}
+            aria-label="诊断"
+            aria-selected={activeTab === "diagnostics"}
+            title="诊断"
+            className={activeTab === "diagnostics" ? "active" : ""}
+            data-testid="right-tool-tab-diagnostics"
+            onClick={() => onTabChange("diagnostics")}
           >
-            <SquareTerminal size={15} aria-hidden="true" />
-            <span>终端</span>
+            <Activity size={15} aria-hidden="true" />
+            <span>诊断</span>
           </button>
         </div>
         <button
@@ -116,7 +116,7 @@ export function RightToolRailShell({
         </button>
       </div>
       <div className="decision-pane-content">
-        {activeTab === "confirm" ? confirmPanel : activeTab === "files" ? filesPanel : activeTab === "git" ? gitPanel : terminalPanel}
+        {activeTab === "confirm" ? confirmPanel : activeTab === "files" ? filesPanel : activeTab === "git" ? gitPanel : diagnosticsPanel}
       </div>
     </aside>
   );

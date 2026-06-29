@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260629-workbench-codex-style-terminal-toggle-runtime-diagnostics-dock-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260629-workbench-reference-style-project-terminal-dock-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260629-workbench-composer-attachments-first-demand-staging-v2/summary.md`.
@@ -58,17 +60,27 @@
 
 ## Latest Product Closeout
 
+`harness/changes/archive/20260629-workbench-codex-style-terminal-toggle-runtime-diagnostics-dock-v1/summary.md`.
+
+It moves Terminal out of the right rail into a Codex-style independent button
+beside the rail; clicking it opens the bottom xterm Terminal Dock with the
+existing project-scoped `TerminalRuntime` behavior. The right rail now exposes
+only `确认 / 文件 / Git / 诊断`; `诊断` shows a compact read-only summary and
+opens a bottom Runtime Diagnostics Dock. Terminal and diagnostics docks share a
+single bottom-dock slot and do not stack. Diagnostics aggregate project,
+Codex/model, and terminal readiness but do not execute repairs or workflow
+actions. Targeted tests, `typecheck`, `lint`, `test:fast`, `build`,
+`test:workbench`, Harness checks, and real browser acceptance passed.
+
+Previous closeout:
 `harness/changes/archive/20260629-workbench-reference-style-project-terminal-dock-v1/summary.md`.
 
-It adds a reference-style project terminal: the right tool rail now exposes
-`终端`, while the actual interactive shell opens in a bottom xterm dock with
-tabs, resize, collapse, and project-scoped cwd. Backend process lifecycle is
-owned by `TerminalRuntime`; V1 uses Node PTY and keeps the UI/API ready for a
-future Rust/Tauri adapter. Terminal is a manual user tool only and does not
-enter workflow truth, transcript context, validation/audit evidence,
-apply/close, automation, remote, merge, PR, or Harness evolution. Targeted
-tests, `test:fast`, `build`, `test:workbench`, Harness checks, and real browser
-acceptance passed.
+It adds a reference-style project terminal with a bottom xterm dock, tabs,
+resize, collapse, and project-scoped cwd. Backend process lifecycle is owned by
+`TerminalRuntime`; V1 uses Node PTY and keeps the UI/API ready for a future
+Rust/Tauri adapter. Terminal is a manual user tool only and does not enter
+workflow truth, transcript context, validation/audit evidence, apply/close,
+automation, remote, merge, PR, or Harness evolution.
 
 Previous closeout:
 `harness/changes/archive/20260629-workbench-composer-attachments-first-demand-staging-v2/summary.md`.

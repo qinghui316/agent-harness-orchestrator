@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-29T05:19:40.2444836Z",
+    "generated_at":  "2026-06-29T06:09:49.9929648Z",
     "active":  [
 
                ],
@@ -2161,6 +2161,10 @@
                     {
                         "name":  "20260629-document-aho-hybrid-desktop-native-roadmap-v1",
                         "path":  "harness/changes/archive/20260629-document-aho-hybrid-desktop-native-roadmap-v1"
+                    },
+                    {
+                        "name":  "20260629-workbench-codex-style-terminal-toggle-runtime-diagnostics-dock-v1",
+                        "path":  "harness/changes/archive/20260629-workbench-codex-style-terminal-toggle-runtime-diagnostics-dock-v1"
                     },
                     {
                         "name":  "20260629-workbench-composer-attachments-first-demand-staging-v2",

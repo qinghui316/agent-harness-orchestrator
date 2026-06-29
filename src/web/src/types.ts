@@ -181,6 +181,23 @@ export type ProjectGitDiffResult = {
   deletions?: number;
   message?: string;
 };
+export type RuntimeDiagnosticStatus = "ok" | "warning" | "error" | "info";
+export type RuntimeDiagnosticItem = {
+  id: string;
+  title: string;
+  status: RuntimeDiagnosticStatus;
+  summary: string;
+  detail?: string;
+};
+export type RuntimeDiagnosticsSnapshot = {
+  generatedAt: string;
+  summary: {
+    status: "ok" | "degraded" | "error";
+    issueCount: number;
+    degradedCount: number;
+  };
+  items: RuntimeDiagnosticItem[];
+};
 export type Snapshot = {
   project: { id: string; name: string; path: string } | null;
   memory: { memoryMode?: string; harnessReady?: boolean; artifactBase?: string };

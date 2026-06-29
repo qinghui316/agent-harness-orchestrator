@@ -14,8 +14,10 @@ import { MainConversationView,
   ProjectFilesPanel,
   ProjectGitPanel,
   GitDiffViewer,
+  RuntimeDiagnosticsDock,
+  RuntimeDiagnosticsRailPanel,
   TerminalDock,
-  TerminalRailPanel,
+  WorkspaceDockToggleBar,
   type RightToolRailTab,
   type TerminalTab,
 } from "./panels/WorkbenchPanels.js";
@@ -78,6 +80,7 @@ import type {
   LiveAssistantTurn,
   TopicAttachment,
   TopicFileReference,
+  RuntimeDiagnosticsSnapshot,
 } from "./types.js";
 import { extractInlineSkillMentions } from "./shell/skill-mentions.js";
 import { extractInlineFileMentions } from "./shell/file-mentions.js";
@@ -101,6 +104,7 @@ const emptySnapshot: Snapshot = {
 };
 
 const SELECTED_PROJECT_STORAGE_KEY = "aho.workbench.selectedProjectId";
+type BottomDockKind = "terminal" | "diagnostics" | null;
 
 function isSkillActiveForComposer(skill: SkillListItem, topicId: string | null, draftOverrides: Record<string, boolean>): boolean {
   if (topicId) {
@@ -154,10 +158,13 @@ export function App(): ReactElement {
   const [composerFileRefs, setComposerFileRefs] = useState<TopicFileReference[]>([]);
   const [composerAttachments, setComposerAttachments] = useState<TopicAttachment[]>([]);
   const [selectedGitDiffPath, setSelectedGitDiffPath] = useState<string | null>(null);
-  const [terminalDockOpen, setTerminalDockOpen] = useState(false);
+  const [bottomDockKind, setBottomDockKind] = useState<BottomDockKind>(null);
   const [terminalDockHeight, setTerminalDockHeight] = useState(280);
   const [terminalTabs, setTerminalTabs] = useState<TerminalTab[]>([]);
   const [activeTerminalId, setActiveTerminalId] = useState<string | null>(null);
+  const [runtimeDiagnostics, setRuntimeDiagnostics] = useState<RuntimeDiagnosticsSnapshot | null>(null);
+  const [runtimeDiagnosticsLoading, setRuntimeDiagnosticsLoading] = useState(false);
+  const [runtimeDiagnosticsDockHeight, setRuntimeDiagnosticsDockHeight] = useState(280);
   const [decisionPaneCollapsed, setDecisionPaneCollapsed] = useState(true);
   const [rightToolTab, setRightToolTab] = useState<RightToolRailTab>("confirm");
   const [projectionVersion, setProjectionVersion] = useState(0);
@@ -179,14 +186,22 @@ export function App(): ReactElement {
 
   function openTerminalDock(): void {
     ensureTerminalTab();
-    setTerminalDockOpen(true);
+    setBottomDockKind("terminal");
+  }
+
+  function toggleTerminalDock(): void {
+    if (bottomDockKind === "terminal") {
+      setBottomDockKind(null);
+      return;
+    }
+    openTerminalDock();
   }
 
   function createTerminalTab(): void {
     const id = `terminal-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
     setTerminalTabs((current) => [...current, { id, title: `终端 ${current.length + 1}` }]);
     setActiveTerminalId(id);
-    setTerminalDockOpen(true);
+    setBottomDockKind("terminal");
   }
 
   function closeTerminalTab(id: string): void {
@@ -196,9 +211,38 @@ export function App(): ReactElement {
     setTerminalTabs((current) => {
       const next = current.filter((tab) => tab.id !== id);
       if (activeTerminalId === id) setActiveTerminalId(next[0]?.id ?? null);
-      if (next.length === 0) setTerminalDockOpen(false);
+      if (next.length === 0 && bottomDockKind === "terminal") setBottomDockKind(null);
       return next;
     });
+  }
+
+  async function loadRuntimeDiagnostics(projectId = selectedProjectId): Promise<void> {
+    setRuntimeDiagnosticsLoading(true);
+    try {
+      const path = projectId
+        ? `/api/projects/${encodeURIComponent(projectId)}/runtime/diagnostics`
+        : "/api/runtime/diagnostics";
+      setRuntimeDiagnostics(await fetchJson<RuntimeDiagnosticsSnapshot>(path));
+    } catch (cause) {
+      setRuntimeDiagnostics({
+        generatedAt: new Date().toISOString(),
+        summary: { status: "error", issueCount: 1, degradedCount: 0 },
+        items: [{
+          id: "diagnostics:load-error",
+          title: "诊断读取失败",
+          status: "error",
+          summary: "无法读取运行诊断。",
+          detail: cause instanceof Error ? cause.message : String(cause),
+        }],
+      });
+    } finally {
+      setRuntimeDiagnosticsLoading(false);
+    }
+  }
+
+  function openRuntimeDiagnosticsDock(): void {
+    setBottomDockKind("diagnostics");
+    void loadRuntimeDiagnostics();
   }
 
   async function loadApp(): Promise<void> {
@@ -1366,21 +1410,35 @@ export function App(): ReactElement {
             </section>
           </>
         )}
+        <WorkspaceDockToggleBar
+          terminalActive={bottomDockKind === "terminal"}
+          terminalDisabled={!selectedProjectId}
+          onToggleTerminal={toggleTerminalDock}
+        />
         <TerminalDock
           projectId={selectedProjectId}
-          open={terminalDockOpen}
+          open={bottomDockKind === "terminal"}
           height={terminalDockHeight}
           tabs={terminalTabs}
           activeTabId={activeTerminalId}
-          onOpen={() => setTerminalDockOpen(true)}
-          onCollapse={() => setTerminalDockOpen(false)}
+          onOpen={() => setBottomDockKind("terminal")}
+          onCollapse={() => setBottomDockKind(null)}
           onHeightChange={setTerminalDockHeight}
           onNewTab={createTerminalTab}
           onSelectTab={(id) => {
             setActiveTerminalId(id);
-            setTerminalDockOpen(true);
+            setBottomDockKind("terminal");
           }}
           onCloseTab={closeTerminalTab}
+        />
+        <RuntimeDiagnosticsDock
+          open={bottomDockKind === "diagnostics"}
+          height={runtimeDiagnosticsDockHeight}
+          snapshot={runtimeDiagnostics}
+          loading={runtimeDiagnosticsLoading}
+          onClose={() => setBottomDockKind(null)}
+          onRefresh={() => void loadRuntimeDiagnostics()}
+          onHeightChange={setRuntimeDiagnosticsDockHeight}
         />
       </main>
 
@@ -1393,7 +1451,7 @@ export function App(): ReactElement {
         onCollapse={() => setDecisionPaneCollapsed(true)}
         onTabChange={(tab) => {
           setRightToolTab(tab);
-          if (tab === "terminal") openTerminalDock();
+          if (tab === "diagnostics") void loadRuntimeDiagnostics();
         }}
         confirmPanel={
           <DecisionInspectorPane
@@ -1428,13 +1486,12 @@ export function App(): ReactElement {
             onSelectedRefsChange={appendComposerFileRefs}
           />
         }
-        terminalPanel={
-          <TerminalRailPanel
-            projectId={selectedProjectId}
-            open={terminalDockOpen}
-            sessionCount={terminalTabs.length}
-            onOpen={openTerminalDock}
-            onNewTab={createTerminalTab}
+        diagnosticsPanel={
+          <RuntimeDiagnosticsRailPanel
+            snapshot={runtimeDiagnostics}
+            loading={runtimeDiagnosticsLoading}
+            onOpen={openRuntimeDiagnosticsDock}
+            onRefresh={() => void loadRuntimeDiagnostics()}
           />
         }
       />

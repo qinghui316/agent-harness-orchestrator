@@ -46,6 +46,11 @@ export interface TerminalRuntimeOptions {
   loadPty?: () => Promise<NodePtyModule>;
 }
 
+export interface TerminalRuntimeAvailability {
+  available: boolean;
+  message?: string;
+}
+
 interface TerminalRuntimeSession extends TerminalRuntimeSessionInfo {
   pty: IPty;
   dataDisposable: IDisposable;
@@ -116,6 +121,18 @@ export class TerminalRuntime {
     };
     this.sessions.set(key, session);
     return sessionInfo(session);
+  }
+
+  async checkAvailability(): Promise<TerminalRuntimeAvailability> {
+    try {
+      await this.loadPty();
+      return { available: true };
+    } catch (cause) {
+      return {
+        available: false,
+        message: cause instanceof Error ? cause.message : String(cause),
+      };
+    }
   }
 
   write(projectId: string, terminalId: string, data: string): void {
