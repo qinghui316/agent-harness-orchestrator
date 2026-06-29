@@ -9,6 +9,7 @@ import { createCodexJsonlStreamParser, extractCodexSessionIdFromJsonl, extractFi
 import { resolveCodexEffectiveModel } from "../../codex/model-settings.js";
 import { writeJsonFile } from "../../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../../memory/resolver.js";
+import { codexProviderRunMetadata } from "../../provider-runtime/index.js";
 import { appendRunEvent, buildRunId } from "../../run/manager.js";
 import { isRunStopRequested } from "../../run/control.js";
 import { executeProcessStreaming } from "../../run/process.js";
@@ -142,7 +143,18 @@ export async function runOrchestratorPlan(project: ManagedProject, changeId: str
   });
   run = { ...run, command: [argv.command, ...argv.args], status: "running" };
   await writeJsonFile(paths.run, run);
-  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.started", runId, data: { phase: "orchestrator", command: run.command, model: effectiveModel.model, modelSource: effectiveModel.source } });
+  await appendRunEvent(paths.events, {
+    timestamp: new Date().toISOString(),
+    type: "codex.started",
+    runId,
+    data: {
+      phase: "orchestrator",
+      command: run.command,
+      model: effectiveModel.model,
+      modelSource: effectiveModel.source,
+      ...codexProviderRunMetadata({ adapter: "codex-readonly-orchestrator", model: effectiveModel.model, modelSource: effectiveModel.source, capabilities }),
+    },
+  });
   const parser = createLiveCodexParser(runId, live);
   const processResult = await executeProcessStreaming({
     cwd: project.path,
@@ -409,7 +421,20 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
 
   run = { ...run, command: [argv.command, ...argv.args], status: "running" };
   await writeJsonFile(paths.run, run);
-  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.started", runId, data: { phase: "chat", resumed: canResume, resumeFallback: Boolean(runtime.codexSessionId) && !canResume, model: effectiveModel.model, modelSource: effectiveModel.source, skillWarnings: skillContext.warnings } });
+  await appendRunEvent(paths.events, {
+    timestamp: new Date().toISOString(),
+    type: "codex.started",
+    runId,
+    data: {
+      phase: "chat",
+      resumed: canResume,
+      resumeFallback: Boolean(runtime.codexSessionId) && !canResume,
+      model: effectiveModel.model,
+      modelSource: effectiveModel.source,
+      skillWarnings: skillContext.warnings,
+      ...codexProviderRunMetadata({ adapter: canResume ? "codex-readonly-resume-chat" : "codex-readonly-chat", model: effectiveModel.model, modelSource: effectiveModel.source, capabilities }),
+    },
+  });
   const parser = createLiveCodexParser(runId, live);
   const processResult = await executeProcessStreaming({
     cwd: project.path,

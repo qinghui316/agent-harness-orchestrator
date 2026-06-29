@@ -1,0 +1,17 @@
+﻿{
+    "version":  "1.0",
+    "generatedAt":  "2026-06-29T09:52:07.8397892Z",
+    "changeId":  "workbench-provider-product-mode-runtime-boundary-v2",
+    "acceptanceCriteria":  [
+
+                           ],
+    "tasks":  [
+
+              ],
+    "warnings":  [
+                     "Run product planning or update ac-map.json before using AC-gated readiness."
+                 ],
+    "blockingIssues":  [
+                           "ac-map.json was backfilled without parsed acceptance criteria."
+                       ]
+}

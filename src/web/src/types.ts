@@ -57,6 +57,50 @@ export type CodexModelSettingsSnapshot = {
   modelList: CodexModelListStatus;
   candidates: CodexModelCandidate[];
 };
+export type ProviderCapabilityKey =
+  | "streaming.text"
+  | "streaming.reasoning"
+  | "streaming.tool-output"
+  | "tool.use"
+  | "tool.mcp"
+  | "reasoning.effort"
+  | "collaboration.mode"
+  | "session.continuation"
+  | "image.input"
+  | "model.list"
+  | "skills";
+export type ProviderCapabilityItem = {
+  key: ProviderCapabilityKey;
+  label: string;
+  spec: "supported" | "compat-input" | "unsupported" | "unknown";
+  runtime: "ready" | "degraded" | "unavailable";
+  summary: string;
+  reason?: string;
+};
+export type ProviderId = "codex";
+export type ProductMode = "harness" | "agent";
+export type RunnableProductMode = "harness";
+export type HarnessExecutionMode = "request-approval" | "full-access";
+export type ProviderCapabilitySnapshot = {
+  providerId: ProviderId;
+  displayName: string;
+  productMode: RunnableProductMode;
+  status: "ready" | "degraded" | "unavailable";
+  runnable: boolean;
+  checkedAt: string;
+  snapshotHash: string;
+  snapshotVersion: number;
+  effectiveModel: string | null;
+  effectiveModelSource: CodexEffectiveModelSource;
+  degradedReasons: string[];
+  capabilities: ProviderCapabilityItem[];
+};
+export type ProviderRuntimeSummary = {
+  providerId: ProviderId;
+  productMode: RunnableProductMode;
+  harnessExecutionModes: HarnessExecutionMode[];
+  snapshot: ProviderCapabilitySnapshot;
+};
 export type ProjectStatus = {
   project: { id: string; name: string; path: string } | null;
   path: string;
@@ -198,6 +242,41 @@ export type RuntimeDiagnosticsSnapshot = {
   };
   items: RuntimeDiagnosticItem[];
 };
+export type RuntimeActivitySeverity = "info" | "ok" | "warning" | "error";
+export type RuntimeActivityType =
+  | "provider"
+  | "run"
+  | "run-event"
+  | "validation"
+  | "audit"
+  | "message-context"
+  | "terminal"
+  | "action-error";
+export type RuntimeActivityRef = {
+  kind: "run" | "artifact" | "topic" | "validation" | "audit" | "provider" | "diagnostic";
+  label: string;
+  id?: string;
+  path?: string;
+};
+export type RuntimeActivityItem = {
+  id: string;
+  timestamp: string;
+  type: RuntimeActivityType;
+  severity: RuntimeActivitySeverity;
+  status?: string;
+  title: string;
+  summary: string;
+  refs: RuntimeActivityRef[];
+  details?: string[];
+};
+export type RuntimeActivityLogSnapshot = {
+  generatedAt: string;
+  projectId: string;
+  topicId: string | null;
+  limit: number;
+  truncated: boolean;
+  items: RuntimeActivityItem[];
+};
 export type Snapshot = {
   project: { id: string; name: string; path: string } | null;
   memory: { memoryMode?: string; harnessReady?: boolean; artifactBase?: string };
@@ -301,7 +380,7 @@ export type DemandAgentRunGraph = {
   edges: DemandAgentRunGraphEdge[];
   updatedAt?: string;
 };
-export type CenterTab = "conversation" | "workpad" | "agentGraph" | "gitDiff" | "settings";
+export type CenterTab = "conversation" | "workpad" | "agentGraph" | "gitDiff" | "runtimeLog" | "settings";
 export type ParentAgentTranscriptBlock = {
   id: string;
   kind: "prose" | "process" | "tool-result" | "evidence";

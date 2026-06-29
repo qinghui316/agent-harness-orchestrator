@@ -11,6 +11,7 @@ import { buildRoleContextArtifact, buildRoleContextPacket, contextSourceRef } fr
 import { buildAgentSystemPrompt, buildRunAgentRecord, resolveAgentRole } from "../agent/catalog.js";
 import { writeJsonFile } from "../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
+import { codexProviderRunMetadata } from "../provider-runtime/index.js";
 import { getWorktreeMetadataPath } from "../worktree/paths.js";
 import { getLatestValidationSummary, readValidationResult, summarizeValidation } from "../validation/repository.js";
 import { workerPermissionProfileForRole } from "../agent-task/tool-policy.js";
@@ -260,7 +261,8 @@ export async function startAuditRun(project: ManagedProject, options: AuditRunOp
   await writeJsonFile(paths.run, run);
   continuity = await markRuntimeContinuityStatus(paths, continuity, "running");
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "audit.started", runId, data: { cwd, command: run.command } });
-  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.started", runId, data: { cwd, command: run.command, model: effectiveModel.model, modelSource: effectiveModel.source } });
+  const providerRunMetadata = codexProviderRunMetadata({ adapter: "audit-codex-readonly", model: effectiveModel.model, modelSource: effectiveModel.source, capabilities });
+  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.started", runId, data: { cwd, command: run.command, model: effectiveModel.model, modelSource: effectiveModel.source, ...providerRunMetadata } });
   await appendAuditContinuityEvent(paths, continuity, "audit.started", {
     cwd,
     command: run.command,
@@ -270,6 +272,7 @@ export async function startAuditRun(project: ManagedProject, options: AuditRunOp
     command: run.command,
     model: effectiveModel.model,
     modelSource: effectiveModel.source,
+    ...providerRunMetadata,
   }, "Codex readonly audit started.");
   await appendAuditContinuityWrite(paths, continuity, appendExternalExecutionRequested(paths, continuity, {
     requestId: `${runId}:audit-codex-readonly`,

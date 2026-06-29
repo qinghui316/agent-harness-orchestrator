@@ -525,6 +525,43 @@ describe("workbench server", () => {
       expect(Array.isArray(modelSettings.candidates)).toBe(true);
       expect(Array.isArray(modelSettings.modelList.candidates)).toBe(true);
 
+      const capabilities = await getJson<{
+        providers: Array<{ providerId: string; productMode: string; runnable: boolean; snapshotHash: string; snapshotVersion: number; capabilities: Array<{ key: string; spec: string; runtime: string }> }>;
+        runtimeSummaries: Array<{ providerId: string; productMode: string; harnessExecutionModes: string[]; snapshot: { providerId: string; productMode: string } }>;
+      }>(
+        `${appHandle.url}/api/projects/${addedBody.project.id}/providers/capabilities`,
+      );
+      expect(capabilities.providers).toHaveLength(1);
+      expect(capabilities.providers[0]).toMatchObject({ providerId: "codex", productMode: "harness" });
+      expect(typeof capabilities.providers[0].runnable).toBe("boolean");
+      expect(capabilities.providers[0].snapshotHash).toBeTruthy();
+      expect(capabilities.providers[0].snapshotVersion).toBe(2);
+      expect(capabilities.providers[0].capabilities).toContainEqual(expect.objectContaining({ key: "model.list", spec: "supported" }));
+      expect(capabilities.providers[0].capabilities.some((item) => item.key === "skills")).toBe(true);
+      expect(capabilities.runtimeSummaries).toHaveLength(1);
+      expect(capabilities.runtimeSummaries[0]).toMatchObject({
+        providerId: "codex",
+        productMode: "harness",
+        harnessExecutionModes: ["request-approval", "full-access"],
+        snapshot: { providerId: "codex", productMode: "harness" },
+      });
+
+      const runtimeActivity = await getJson<{
+        projectId: string;
+        limit: number;
+        truncated: boolean;
+        items: Array<{ type: string; title: string; summary: string; refs: unknown[] }>;
+      }>(
+        `${appHandle.url}/api/projects/${addedBody.project.id}/runtime/activity?limit=20`,
+      );
+      expect(runtimeActivity.projectId).toBe(addedBody.project.id);
+      expect(runtimeActivity.limit).toBe(20);
+      expect(typeof runtimeActivity.truncated).toBe("boolean");
+      expect(runtimeActivity.items.length).toBeGreaterThan(0);
+      expect(runtimeActivity.items.some((item) => item.type === "provider" && item.title.includes("Codex"))).toBe(true);
+      expect(JSON.stringify(runtimeActivity)).not.toContain("config.toml");
+      expect(JSON.stringify(runtimeActivity)).not.toContain("stdout");
+
       const unconfirmedTrust = await fetch(`${appHandle.url}/api/projects/${addedBody.project.id}/codex/trust`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

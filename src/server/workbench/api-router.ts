@@ -4,6 +4,8 @@ import { matchProjectWorkbenchRoute } from "./routes.js";
 import { resolveProjectInputWithDirect } from "./direct-project.js";
 import { getWorkbenchCodexDiagnostics } from "./codex-diagnostics.js";
 import { getRuntimeDiagnostics } from "./runtime-diagnostics.js";
+import { getRuntimeActivityLog } from "./runtime-activity-log.js";
+import { getCodexProviderRuntimeSummary } from "../../provider-runtime/index.js";
 import { listProjectFileChildren, readProjectFilePreview, searchProjectFiles } from "../../workbench/file-references.js";
 import { createTopicAttachment, deleteTopicAttachment } from "../../workbench/attachments.js";
 import { getProjectGitDiff, getProjectGitStatus } from "../../workbench/git-panel.js";
@@ -41,6 +43,11 @@ export async function handleApi(context: WorkbenchServerContext, request: Incomi
   }
   if (request.method === "GET" && url.pathname === "/api/runtime/diagnostics") {
     sendJson(response, 200, await getRuntimeDiagnostics(context, null));
+    return;
+  }
+  if (request.method === "GET" && url.pathname === "/api/providers/capabilities") {
+    const summary = await getCodexProviderRuntimeSummary(null);
+    sendJson(response, 200, { providers: [summary.snapshot], runtimeSummaries: [summary] });
     return;
   }
   if (request.method === "GET" && url.pathname === "/api/codex/models") {
@@ -87,6 +94,21 @@ export async function handleApi(context: WorkbenchServerContext, request: Incomi
   const runtimeDiagnosticsMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/runtime\/diagnostics$/);
   if (request.method === "GET" && runtimeDiagnosticsMatch?.[1]) {
     sendJson(response, 200, await getRuntimeDiagnostics(context, decodeURIComponent(runtimeDiagnosticsMatch[1])));
+    return;
+  }
+  const runtimeActivityMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/runtime\/activity$/);
+  if (request.method === "GET" && runtimeActivityMatch?.[1]) {
+    sendJson(response, 200, await getRuntimeActivityLog(context, decodeURIComponent(runtimeActivityMatch[1]), {
+      topicId: url.searchParams.get("topicId"),
+      limit: Number(url.searchParams.get("limit") ?? undefined),
+    }));
+    return;
+  }
+  const providerCapabilitiesMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/providers\/capabilities$/);
+  if (request.method === "GET" && providerCapabilitiesMatch?.[1]) {
+    const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(providerCapabilitiesMatch[1]));
+    const summary = await getCodexProviderRuntimeSummary(input.project, input.path);
+    sendJson(response, 200, { providers: [summary.snapshot], runtimeSummaries: [summary] });
     return;
   }
   const codexModelsMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/codex\/models$/);

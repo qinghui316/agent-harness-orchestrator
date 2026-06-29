@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-29T06:09:49.9929648Z",
+    "generated_at":  "2026-06-29T10:52:58.8814710Z",
     "active":  [
 
                ],
@@ -2159,6 +2159,10 @@
                         "path":  "harness/changes/archive/20260629-auto-evolve-post-attachments-native-roadmap-window"
                     },
                     {
+                        "name":  "20260629-auto-evolve-post-terminal-dock-tool-shell-window",
+                        "path":  "harness/changes/archive/20260629-auto-evolve-post-terminal-dock-tool-shell-window"
+                    },
+                    {
                         "name":  "20260629-document-aho-hybrid-desktop-native-roadmap-v1",
                         "path":  "harness/changes/archive/20260629-document-aho-hybrid-desktop-native-roadmap-v1"
                     },
@@ -2167,8 +2171,28 @@
                         "path":  "harness/changes/archive/20260629-workbench-codex-style-terminal-toggle-runtime-diagnostics-dock-v1"
                     },
                     {
+                        "name":  "20260629-workbench-codex-style-top-tool-alignment-right-launcher-terminal-squeeze-v1",
+                        "path":  "harness/changes/archive/20260629-workbench-codex-style-top-tool-alignment-right-launcher-terminal-squeeze-v1"
+                    },
+                    {
                         "name":  "20260629-workbench-composer-attachments-first-demand-staging-v2",
                         "path":  "harness/changes/archive/20260629-workbench-composer-attachments-first-demand-staging-v2"
+                    },
+                    {
+                        "name":  "20260629-workbench-provider-capability-registry-v1",
+                        "path":  "harness/changes/archive/20260629-workbench-provider-capability-registry-v1"
+                    },
+                    {
+                        "name":  "20260629-workbench-provider-product-mode-runtime-boundary-v2",
+                        "path":  "harness/changes/archive/20260629-workbench-provider-product-mode-runtime-boundary-v2"
+                    },
+                    {
+                        "name":  "20260629-workbench-readonly-runtime-activity-log-v1",
+                        "path":  "harness/changes/archive/20260629-workbench-readonly-runtime-activity-log-v1"
+                    },
+                    {
+                        "name":  "20260629-workbench-reference-style-light-terminal-dock-polish-v1",
+                        "path":  "harness/changes/archive/20260629-workbench-reference-style-light-terminal-dock-polish-v1"
                     },
                     {
                         "name":  "20260629-workbench-reference-style-project-terminal-dock-v1",

@@ -8,6 +8,7 @@ import { resolveCodexEffectiveModel } from "../codex/model-settings.js";
 import { CodexCompletionTracker, codexLifecycleTiming } from "../codex/completion.js";
 import { createCodexJsonlStreamParser } from "../codex/jsonl.js";
 import { writeJsonFile } from "../fs/json.js";
+import { codexProviderRunMetadata } from "../provider-runtime/index.js";
 import { appendExternalExecutionCompleted, appendExternalExecutionFailed, appendExternalExecutionRequested, appendPermissionProfileAttached } from "../runtime-continuity/events.js";
 import { appendAgentEventEnvelope, createRuntimeContinuityArtifacts, markRuntimeContinuityStatus } from "../runtime-continuity/repository.js";
 import { appendRunEvent } from "../run/manager.js";
@@ -62,7 +63,18 @@ export async function runCodexExecCode(input: {
   let run: RunMetadata = { ...input.run, command: [argv.command, ...argv.args], status: "running" };
   await writeJsonFile(input.paths.run, run);
   await appendRunEvent(input.paths.events, { timestamp: new Date().toISOString(), type: "coder.started", runId: run.id, data: { cwd: input.worktree.checkoutPath, command: run.command } });
-  await appendRunEvent(input.paths.events, { timestamp: new Date().toISOString(), type: "codex.started", runId: run.id, data: { cwd: input.worktree.checkoutPath, command: run.command, model: effectiveModel.model, modelSource: effectiveModel.source } });
+  await appendRunEvent(input.paths.events, {
+    timestamp: new Date().toISOString(),
+    type: "codex.started",
+    runId: run.id,
+    data: {
+      cwd: input.worktree.checkoutPath,
+      command: run.command,
+      model: effectiveModel.model,
+      modelSource: effectiveModel.source,
+      ...codexProviderRunMetadata({ model: effectiveModel.model, modelSource: effectiveModel.source, capabilities }),
+    },
+  });
   emitCodeLiveRunStarted(input.options.live, run);
   emitCodeLiveStatus(input.options.live, { runId: run.id, status: "running", label: "Coder" });
   let continuity = await createRuntimeContinuityArtifacts(input.paths, {

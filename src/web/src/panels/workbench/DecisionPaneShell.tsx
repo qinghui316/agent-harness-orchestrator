@@ -1,28 +1,38 @@
-import { Activity, FileText, GitBranch, ListChecks, PanelRightClose, PanelRightOpen } from "lucide-react";
+import { Activity, ChevronLeft, FileText, GitBranch, ListChecks, PanelRightClose, PanelRightOpen } from "lucide-react";
 import type { ReactElement, ReactNode } from "react";
 
 export type RightToolRailTab = "confirm" | "files" | "git" | "diagnostics";
+export type RightToolRailView = "launcher" | RightToolRailTab;
+
+const toolLabels: Record<RightToolRailTab, string> = {
+  confirm: "确认事项",
+  files: "文件",
+  git: "Git",
+  diagnostics: "诊断",
+};
 
 export function RightToolRailShell({
   collapsed,
-  activeTab,
+  activeView,
   pendingCount,
   hasPrimary,
   onExpand,
   onCollapse,
-  onTabChange,
+  onToolOpen,
+  onBackToLauncher,
   confirmPanel,
   filesPanel,
   gitPanel,
   diagnosticsPanel,
 }: {
   collapsed: boolean;
-  activeTab: RightToolRailTab;
+  activeView: RightToolRailView;
   pendingCount: number;
   hasPrimary: boolean;
   onExpand: () => void;
   onCollapse: () => void;
-  onTabChange: (tab: RightToolRailTab) => void;
+  onToolOpen: (tab: RightToolRailTab) => void;
+  onBackToLauncher: () => void;
   confirmPanel: ReactNode;
   filesPanel: ReactNode;
   gitPanel: ReactNode;
@@ -34,7 +44,7 @@ export function RightToolRailShell({
       <aside className="approval-pane approval-pane-collapsed" data-testid="decision-pane-shell" aria-label="右侧工具面板">
         <button
           type="button"
-          className={`decision-pane-rail${hasPrimary ? " has-primary" : ""}`}
+          className={`top-tool-button decision-pane-rail${hasPrimary ? " has-primary" : ""}`}
           data-testid="decision-pane-toggle"
           aria-label={label}
           aria-expanded="false"
@@ -47,77 +57,103 @@ export function RightToolRailShell({
     );
   }
 
+  const panelTitle = activeView === "launcher" ? "工具" : toolLabels[activeView];
+  const panelContent =
+    activeView === "launcher" ? (
+      <RightToolLauncher pendingCount={pendingCount} hasPrimary={hasPrimary} onToolOpen={onToolOpen} />
+    ) : activeView === "confirm" ? (
+      confirmPanel
+    ) : activeView === "files" ? (
+      filesPanel
+    ) : activeView === "git" ? (
+      gitPanel
+    ) : (
+      diagnosticsPanel
+    );
+
   return (
     <aside className="approval-pane approval-pane-expanded" data-testid="decision-pane-shell" aria-label="右侧工具面板">
       <div className="decision-pane-toolbar">
-        <div className="right-tool-tabs" role="tablist" aria-label="右侧工具">
-          <button
-            type="button"
-            role="tab"
-            aria-label="确认"
-            aria-selected={activeTab === "confirm"}
-            title="确认"
-            className={activeTab === "confirm" ? "active" : ""}
-            data-testid="right-tool-tab-confirm"
-            onClick={() => onTabChange("confirm")}
-          >
-            <ListChecks size={15} aria-hidden="true" />
-            {pendingCount > 0 ? <span className="right-tool-tab-badge">{pendingCount}</span> : null}
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-label="文件"
-            aria-selected={activeTab === "files"}
-            title="文件"
-            className={activeTab === "files" ? "active" : ""}
-            data-testid="right-tool-tab-files"
-            onClick={() => onTabChange("files")}
-          >
-            <FileText size={15} aria-hidden="true" />
-            <span>文件</span>
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-label="Git"
-            aria-selected={activeTab === "git"}
-            title="Git"
-            className={activeTab === "git" ? "active" : ""}
-            data-testid="right-tool-tab-git"
-            onClick={() => onTabChange("git")}
-          >
-            <GitBranch size={15} aria-hidden="true" />
-            <span>Git</span>
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-label="诊断"
-            aria-selected={activeTab === "diagnostics"}
-            title="诊断"
-            className={activeTab === "diagnostics" ? "active" : ""}
-            data-testid="right-tool-tab-diagnostics"
-            onClick={() => onTabChange("diagnostics")}
-          >
-            <Activity size={15} aria-hidden="true" />
-            <span>诊断</span>
-          </button>
+        <div className="decision-pane-toolbar-left">
+          {activeView !== "launcher" ? (
+            <button
+              type="button"
+              className="top-tool-button decision-pane-back"
+              data-testid="right-tool-back"
+              aria-label="返回工具列表"
+              onClick={onBackToLauncher}
+            >
+              <ChevronLeft size={16} aria-hidden="true" />
+            </button>
+          ) : null}
+          <span className="decision-pane-title">{panelTitle}</span>
         </div>
         <button
           type="button"
-          className="icon-button"
+          className="top-tool-button decision-pane-collapse"
           data-testid="decision-pane-collapse"
           aria-label="折叠右侧面板"
           aria-expanded="true"
           onClick={onCollapse}
         >
-          <PanelRightClose size={16} aria-hidden="true" />
+          <PanelRightClose size={18} aria-hidden="true" />
         </button>
       </div>
-      <div className="decision-pane-content">
-        {activeTab === "confirm" ? confirmPanel : activeTab === "files" ? filesPanel : activeTab === "git" ? gitPanel : diagnosticsPanel}
-      </div>
+      <div className="decision-pane-content">{panelContent}</div>
     </aside>
+  );
+}
+
+function RightToolLauncher({
+  pendingCount,
+  hasPrimary,
+  onToolOpen,
+}: {
+  pendingCount: number;
+  hasPrimary: boolean;
+  onToolOpen: (tab: RightToolRailTab) => void;
+}): ReactElement {
+  return (
+    <div className="right-tool-launcher" data-testid="right-tool-launcher" aria-label="右侧工具入口">
+      <div className="right-tool-launcher-list">
+        <button
+          type="button"
+          className={`right-tool-launcher-item${hasPrimary ? " has-primary" : ""}`}
+          data-testid="right-tool-launcher-confirm"
+          onClick={() => onToolOpen("confirm")}
+        >
+          <ListChecks size={17} aria-hidden="true" />
+          <span>确认</span>
+          {pendingCount > 0 ? <span className="right-tool-launcher-badge">{pendingCount}</span> : null}
+        </button>
+        <button
+          type="button"
+          className="right-tool-launcher-item"
+          data-testid="right-tool-launcher-files"
+          onClick={() => onToolOpen("files")}
+        >
+          <FileText size={17} aria-hidden="true" />
+          <span>文件</span>
+        </button>
+        <button
+          type="button"
+          className="right-tool-launcher-item"
+          data-testid="right-tool-launcher-git"
+          onClick={() => onToolOpen("git")}
+        >
+          <GitBranch size={17} aria-hidden="true" />
+          <span>Git</span>
+        </button>
+        <button
+          type="button"
+          className="right-tool-launcher-item"
+          data-testid="right-tool-launcher-diagnostics"
+          onClick={() => onToolOpen("diagnostics")}
+        >
+          <Activity size={17} aria-hidden="true" />
+          <span>诊断</span>
+        </button>
+      </div>
+    </div>
   );
 }

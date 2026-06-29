@@ -1,82 +1,27 @@
-import { Activity, Copy, RefreshCcw, X } from "lucide-react";
+import { Copy, RefreshCcw } from "lucide-react";
 import type { ReactElement } from "react";
 import type { RuntimeDiagnosticItem, RuntimeDiagnosticsSnapshot } from "../../types.js";
 
 export function RuntimeDiagnosticsRailPanel({
   snapshot,
   loading,
-  onOpen,
   onRefresh,
+  onOpenRuntimeLog,
 }: {
   snapshot: RuntimeDiagnosticsSnapshot | null;
   loading: boolean;
-  onOpen: () => void;
   onRefresh: () => void;
+  onOpenRuntimeLog: () => void;
 }): ReactElement {
-  const statusText = diagnosticsStatusText(snapshot);
-  return (
-    <div className="right-tool-empty" data-testid="runtime-diagnostics-rail-panel">
-      <Activity size={18} aria-hidden="true" />
-      <strong>诊断</strong>
-      <p>{loading ? "正在读取运行状态。" : statusText}</p>
-      <div className="tool-panel-actions">
-        <button type="button" className="primary-button" onClick={onOpen}>
-          打开诊断面板
-        </button>
-        <button type="button" className="secondary-button" onClick={onRefresh}>
-          刷新
-        </button>
-      </div>
-    </div>
-  );
-}
-
-export function RuntimeDiagnosticsDock({
-  open,
-  height,
-  snapshot,
-  loading,
-  onClose,
-  onRefresh,
-  onHeightChange,
-}: {
-  open: boolean;
-  height: number;
-  snapshot: RuntimeDiagnosticsSnapshot | null;
-  loading: boolean;
-  onClose: () => void;
-  onRefresh: () => void;
-  onHeightChange: (height: number) => void;
-}): ReactElement | null {
-  if (!open) return null;
   const copyText = snapshot ? formatDiagnosticsForCopy(snapshot) : "暂无诊断数据。";
   return (
-    <section className="runtime-diagnostics-dock" style={{ height }} data-testid="runtime-diagnostics-dock" aria-label="运行诊断">
-      <div
-        className="runtime-diagnostics-dock-resizer"
-        role="separator"
-        aria-orientation="horizontal"
-        aria-label="调整诊断面板高度"
-        onMouseDown={(event) => {
-          event.preventDefault();
-          const handleMove = (moveEvent: MouseEvent): void => {
-            onHeightChange(Math.max(180, Math.min(520, window.innerHeight - moveEvent.clientY)));
-          };
-          const handleUp = (): void => {
-            window.removeEventListener("mousemove", handleMove);
-            window.removeEventListener("mouseup", handleUp);
-          };
-          window.addEventListener("mousemove", handleMove);
-          window.addEventListener("mouseup", handleUp);
-        }}
-      />
-      <header className="runtime-diagnostics-header">
-        <div className="runtime-diagnostics-title">
-          <Activity size={15} aria-hidden="true" />
+    <div className="runtime-diagnostics-rail" data-testid="runtime-diagnostics-rail-panel">
+      <header className="runtime-diagnostics-rail-header">
+        <div>
+          <span className={`runtime-diagnostics-status-dot ${snapshot?.summary.status ?? "unknown"}`} aria-hidden="true" />
           <strong>运行诊断</strong>
-          <span>{diagnosticsStatusText(snapshot)}</span>
         </div>
-        <div className="runtime-diagnostics-actions">
+        <div className="runtime-diagnostics-rail-actions">
           <button type="button" className="icon-button" aria-label="刷新诊断" onClick={onRefresh}>
             <RefreshCcw size={14} aria-hidden="true" />
           </button>
@@ -90,17 +35,18 @@ export function RuntimeDiagnosticsDock({
           >
             <Copy size={14} aria-hidden="true" />
           </button>
-          <button type="button" className="icon-button" aria-label="关闭诊断面板" onClick={onClose}>
-            <X size={14} aria-hidden="true" />
-          </button>
         </div>
       </header>
-      <div className="runtime-diagnostics-body">
+      <p className="runtime-diagnostics-summary">{loading ? "正在读取运行状态。" : diagnosticsStatusText(snapshot)}</p>
+      <button type="button" className="runtime-diagnostics-open-log" data-testid="open-runtime-activity-log" onClick={onOpenRuntimeLog}>
+        打开运行日志
+      </button>
+      <div className="runtime-diagnostics-rail-list">
         {loading ? <div className="runtime-diagnostics-empty">正在读取运行状态...</div> : null}
         {!loading && !snapshot ? <div className="runtime-diagnostics-empty">暂无诊断数据。</div> : null}
         {snapshot?.items.map((item) => <RuntimeDiagnosticRow key={item.id} item={item} />)}
       </div>
-    </section>
+    </div>
   );
 }
 

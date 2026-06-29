@@ -3,7 +3,7 @@ import { Bot, Folder, Settings, Shield, Sparkles, Wrench, X } from "lucide-react
 import { CodexTrustButton, ProjectPrepareButton, InfoRow } from "./ProjectPanels.js";
 import { CodexDiagnosticsCard } from "./ProjectHome.js";
 import { SkillsSettingsView } from "./SkillsSettingsView.js";
-import type { CodexDiagnostics, CodexModelSettingsSnapshot, ProjectStatus } from "../types.js";
+import type { CodexDiagnostics, CodexModelSettingsSnapshot, ProjectStatus, ProviderCapabilityItem, ProviderCapabilitySnapshot } from "../types.js";
 
 export type SettingsSection = "basic" | "project" | "codex" | "skills" | "advanced";
 
@@ -21,6 +21,7 @@ export function SettingsSurface({
   project,
   diagnostics,
   modelSettings,
+  providerCapabilities,
   modelSettingsBusy,
   modelSettingsMessage,
   onOpenModelSettings,
@@ -32,6 +33,7 @@ export function SettingsSurface({
   project: ProjectStatus | null;
   diagnostics: CodexDiagnostics | null;
   modelSettings: CodexModelSettingsSnapshot | null;
+  providerCapabilities?: ProviderCapabilitySnapshot[];
   modelSettingsBusy?: boolean;
   modelSettingsMessage?: string | null;
   onOpenModelSettings?: () => void;
@@ -128,6 +130,7 @@ export function SettingsSurface({
               <button className="outline-button" onClick={() => void refresh()}>刷新状态</button>
             </div>
             {modelSettingsMessage ? <p className="diagnostic-errors">{modelSettingsMessage}</p> : null}
+            <ProviderCapabilityMatrix snapshot={providerCapabilities?.find((item) => item.providerId === "codex") ?? null} />
           </section>
         ) : null}
 
@@ -177,4 +180,90 @@ function modelSourceLabel(source: CodexModelSettingsSnapshot["effectiveModelSour
   if (source === "config") return "Codex 配置";
   if (source === "codex-default") return "Codex 默认";
   return "未知";
+}
+
+function ProviderCapabilityMatrix({ snapshot }: { snapshot: ProviderCapabilitySnapshot | null }): ReactElement {
+  if (!snapshot) {
+    return (
+      <section className="provider-capability-matrix" aria-label="Codex 能力矩阵">
+        <div className="settings-section-header">
+          <div>
+            <h3>能力矩阵</h3>
+            <p>正在读取 Codex runtime 能力。</p>
+          </div>
+        </div>
+      </section>
+    );
+  }
+  const capabilities = Array.isArray(snapshot.capabilities) ? snapshot.capabilities : [];
+  const degradedReasons = Array.isArray(snapshot.degradedReasons) ? snapshot.degradedReasons : [];
+  return (
+    <section className="provider-capability-matrix" aria-label="Codex 能力矩阵">
+      <div className="settings-section-header">
+        <div>
+          <h3>能力矩阵</h3>
+          <p>{providerStatusText(snapshot)}</p>
+        </div>
+        <span className={`provider-status-pill ${snapshot.status}`}>{providerStatusLabel(snapshot.status)}</span>
+      </div>
+      <div className="settings-info-grid">
+        <Info label="Provider" value={snapshot.displayName ?? "Codex"} />
+        <Info label="Product mode" value="Harness" />
+        <Info label="模型" value={snapshot.effectiveModel ?? "Codex 默认模型"} />
+        <Info label="Snapshot" value={snapshot.snapshotHash} />
+      </div>
+      <div className="provider-capability-list">
+        {capabilities.map((item) => <ProviderCapabilityRow item={item} key={item.key} />)}
+      </div>
+      {degradedReasons.length > 0 ? (
+        <details className="provider-degraded-details">
+          <summary>降级原因</summary>
+          <ul>
+            {degradedReasons.map((reason) => <li key={reason}>{reason}</li>)}
+          </ul>
+        </details>
+      ) : null}
+    </section>
+  );
+}
+
+function ProviderCapabilityRow({ item }: { item: ProviderCapabilityItem }): ReactElement {
+  return (
+    <div className="provider-capability-row">
+      <div>
+        <strong>{item.label}</strong>
+        <small>{item.summary}</small>
+        {item.reason ? <small className="provider-capability-reason">{item.reason}</small> : null}
+      </div>
+      <div className="provider-capability-states">
+        <span className={`provider-state-pill spec ${item.spec}`}>{specStateLabel(item.spec)}</span>
+        <span className={`provider-state-pill runtime ${item.runtime}`}>{runtimeStateLabel(item.runtime)}</span>
+      </div>
+    </div>
+  );
+}
+
+function providerStatusText(snapshot: ProviderCapabilitySnapshot): string {
+  if (snapshot.status === "ready") return "Codex 已满足当前 Harness 模式需要的运行能力。";
+  if (snapshot.status === "degraded") return "Codex 可用，但部分能力正在降级或使用 fallback。";
+  return "Codex 当前不可运行，请查看诊断。";
+}
+
+function providerStatusLabel(status: ProviderCapabilitySnapshot["status"]): string {
+  if (status === "ready") return "可用";
+  if (status === "degraded") return "降级";
+  return "不可用";
+}
+
+function specStateLabel(state: ProviderCapabilityItem["spec"]): string {
+  if (state === "supported") return "支持";
+  if (state === "compat-input") return "兼容";
+  if (state === "unsupported") return "不支持";
+  return "未知";
+}
+
+function runtimeStateLabel(state: ProviderCapabilityItem["runtime"]): string {
+  if (state === "ready") return "当前可用";
+  if (state === "degraded") return "降级";
+  return "不可用";
 }

@@ -20,6 +20,7 @@ Thumbs.db
 Desktop.ini
 
 # Local agent/Harness working state.
+.agent-harness/
 AGENTS.md
 docs/*
 !docs/PRODUCT.md

@@ -6,6 +6,16 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260629-workbench-readonly-runtime-activity-log-v1/summary.md`.
+- Previous archived product change:
+  `harness/changes/archive/20260629-workbench-provider-product-mode-runtime-boundary-v2/summary.md`.
+- Previous archived product change:
+  `harness/changes/archive/20260629-workbench-provider-capability-registry-v1/summary.md`.
+- Previous archived product change:
+  `harness/changes/archive/20260629-workbench-codex-style-top-tool-alignment-right-launcher-terminal-squeeze-v1/summary.md`.
+- Previous archived product change:
+  `harness/changes/archive/20260629-workbench-reference-style-light-terminal-dock-polish-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260629-workbench-codex-style-terminal-toggle-runtime-diagnostics-dock-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260629-workbench-reference-style-project-terminal-dock-v1/summary.md`.
@@ -52,35 +62,28 @@
 - Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-skills-catalog-and-codex-bridge-v1/summary.md`.
 - Latest completed Harness evolution:
-  `harness/changes/archive/20260629-auto-evolve-post-attachments-native-roadmap-window/summary.md`
-  (`noop`; subagent Franklin score 92; existing ECL and boundary-doc coverage
-  sufficient for the onboarding Skill / attachments / hybrid native roadmap
-  archive window, no new Harness rule/template needed, pending evolution
-  marked complete).
+  `harness/changes/archive/20260629-auto-evolve-post-terminal-dock-tool-shell-window/summary.md`
+  (`noop`; subagent Heisenberg score 93; existing ECL coverage is sufficient
+  for the terminal/right-rail/top-tool archive window, no new Harness
+  rule/template needed, pending evolution marked complete).
 
 ## Latest Product Closeout
 
-`harness/changes/archive/20260629-workbench-codex-style-terminal-toggle-runtime-diagnostics-dock-v1/summary.md`.
+`harness/changes/archive/20260629-workbench-readonly-runtime-activity-log-v1/summary.md`.
 
-It moves Terminal out of the right rail into a Codex-style independent button
-beside the rail; clicking it opens the bottom xterm Terminal Dock with the
-existing project-scoped `TerminalRuntime` behavior. The right rail now exposes
-only `确认 / 文件 / Git / 诊断`; `诊断` shows a compact read-only summary and
-opens a bottom Runtime Diagnostics Dock. Terminal and diagnostics docks share a
-single bottom-dock slot and do not stack. Diagnostics aggregate project,
-Codex/model, and terminal readiness but do not execute repairs or workflow
-actions. Targeted tests, `typecheck`, `lint`, `test:fast`, `build`,
-`test:workbench`, Harness checks, and real browser acceptance passed.
+It adds a read-only Workbench `运行日志` center view and project/topic-scoped
+GET API. The log projects existing runtime evidence into a bounded timeline:
+Codex provider readiness, run metadata/events, validation/audit summaries,
+message file/attachment metadata, terminal readiness, and sanitized action
+errors. The right `诊断` rail remains a summary surface with a navigation link
+to the log. No runtime-log table, command console, Terminal write path,
+retry/fix/continue action, or workflow authority was added.
 
 Previous closeout:
-`harness/changes/archive/20260629-workbench-reference-style-project-terminal-dock-v1/summary.md`.
+`harness/changes/archive/20260629-workbench-provider-product-mode-runtime-boundary-v2/summary.md`.
 
-It adds a reference-style project terminal with a bottom xterm dock, tabs,
-resize, collapse, and project-scoped cwd. Backend process lifecycle is owned by
-`TerminalRuntime`; V1 uses Node PTY and keeps the UI/API ready for a future
-Rust/Tauri adapter. Terminal is a manual user tool only and does not enter
-workflow truth, transcript context, validation/audit evidence, apply/close,
-automation, remote, merge, PR, or Harness evolution.
+It tightens the Provider / Product Mode / Harness Execution Mode boundary on
+top of the Codex-only Provider Capability Registry.
 
 Previous closeout:
 `harness/changes/archive/20260629-workbench-composer-attachments-first-demand-staging-v2/summary.md`.
@@ -302,10 +305,9 @@ Harness workflow truth.
 
 Product work should continue from `docs/design-docs/ref-desktop-cc-gui.md`.
 Good next slices are first-onboarding system Skill auto-context at the server
-prompt boundary, actual skill-usage evidence, provider capability matrix,
-project creation/open/restore polish, runtime diagnostics, terminal, browser,
-attachment panels, Git write/history flows, or file editing once each has real
-behavior.
+prompt boundary, actual skill-usage evidence, project creation/open/restore
+polish, runtime diagnostics, terminal, browser, attachment panels, Git
+write/history flows, or file editing once each has real behavior.
 
 Do not widen `完全访问权限` into raw scheduler, manual IntegrationCheck,
 integration apply/discard, PR/remote/merge, Harness evolution, or full parallel

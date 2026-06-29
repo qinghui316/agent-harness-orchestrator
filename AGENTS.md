@@ -8,6 +8,16 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260629-workbench-readonly-runtime-activity-log-v1/summary.md`.
+- Previous archived product change:
+  `harness/changes/archive/20260629-workbench-provider-product-mode-runtime-boundary-v2/summary.md`.
+- Previous archived product change:
+  `harness/changes/archive/20260629-workbench-provider-capability-registry-v1/summary.md`.
+- Previous archived product change:
+  `harness/changes/archive/20260629-workbench-codex-style-top-tool-alignment-right-launcher-terminal-squeeze-v1/summary.md`.
+- Previous archived product change:
+  `harness/changes/archive/20260629-workbench-reference-style-light-terminal-dock-polish-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260629-workbench-codex-style-terminal-toggle-runtime-diagnostics-dock-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260629-workbench-reference-style-project-terminal-dock-v1/summary.md`.
@@ -54,10 +64,10 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Previous archived docs/reference change:
   `harness/changes/archive/20260626-document-desktop-cc-gui-reference-map-and-product-layer-roadmap/summary.md`.
 - Latest completed Harness evolution:
-  `harness/changes/archive/20260629-auto-evolve-post-attachments-native-roadmap-window/summary.md`
-  (`noop`; subagent Franklin score 92; existing ECL and boundary-doc coverage
-  is sufficient for the onboarding Skill / attachments / hybrid native roadmap
-  archive window; pending evolution has been marked complete).
+  `harness/changes/archive/20260629-auto-evolve-post-terminal-dock-tool-shell-window/summary.md`
+  (`noop`; subagent Heisenberg score 93; existing ECL coverage is sufficient
+  for the terminal/right-rail/top-tool archive window; pending evolution has
+  been marked complete).
 - Recent detailed archives are discoverable through `docs/STATUS.md` and
   `harness/changes/INDEX.json`; keep per-run ids, E-drive paths, patch hashes,
   and gate sequences archive-only.
@@ -84,8 +94,8 @@ Current baseline:
   existing confirmation pane, `文件` provides safe read-only project
   tree/preview/reference tools, `Git` provides safe read-only branch/dirty
   status plus staged/unstaged/untracked diff browsing in the center workspace,
-  and `诊断` summarizes read-only runtime health before opening a bottom
-  diagnostics dock. Terminal is no longer a right-rail tab; it is an
+  and `诊断` summarizes read-only runtime health inside the right rail.
+  Terminal is no longer a right-rail tab; it is an
   independent Codex-style button beside the rail that opens the bottom xterm
   dock. The rail and dock state are frontend-only UI state and do not execute
   actions.
@@ -133,9 +143,14 @@ Current baseline:
   project-scoped runtime model candidates, falls back to Codex default,
   persists only a lightweight selection from real candidates, exposes a real
   composer/settings model picker, and routes Codex exec/app-server runs through
-  one effective-model resolver. Arbitrary custom model ids are ignored/cleaned
-  until a real provider capability/API mapping exists. Provider remains
-  Codex-only; no fake Claude/OpenCode/Gemini controls are shown.
+  one effective-model resolver. Workbench also has a Codex-only Provider
+  Capability Registry for Harness mode: Settings can show spec support versus
+  runtime readiness, and Codex run events include provider/product-mode,
+  effective model, and capability snapshot metadata. The registry is
+  diagnostics/readiness only; it is not a permission system or workflow
+  authority. Arbitrary custom model ids are ignored/cleaned until a real
+  provider capability/API mapping exists for non-Codex providers. Provider
+  remains Codex-only; no fake Claude/OpenCode/Gemini controls are shown.
 - Planning prefers Codex Plan Mode proposal capture; plan confirmation remains
   human.
 - `请求批准` and scoped `完全访问权限` share the same local Goal Loop coordinator.

@@ -23,7 +23,7 @@ export function WorkspaceDockToggleBar({
     <div className="workspace-dock-toggle-bar" aria-label="底部工具">
       <button
         type="button"
-        className={`workspace-dock-toggle${terminalActive ? " active" : ""}`}
+        className={`top-tool-button workspace-dock-toggle${terminalActive ? " active" : ""}`}
         data-testid="terminal-dock-toggle"
         disabled={terminalDisabled}
         aria-pressed={terminalActive}
@@ -48,6 +48,8 @@ type TerminalEventFrame =
   | { event: "output"; data: { type: "output"; data: string } }
   | { event: "exit"; data: { type: "exit"; exitCode: number; signal?: number } }
   | { event: "terminal-error"; data: { type: "error"; message: string } };
+
+const TERMINAL_OPEN_TIMEOUT_MS = 10_000;
 
 export function TerminalDock({
   projectId,
@@ -175,10 +177,14 @@ function TerminalPane({ projectId, terminalId, onOpen }: { projectId: string; te
       fontSize: 12,
       convertEol: true,
       theme: {
-        background: "#161719",
-        foreground: "#e8eaed",
-        cursor: "#e8eaed",
-        selectionBackground: "#3d4655",
+        background: "#fbfbfa",
+        foreground: "#202124",
+        cursor: "#111827",
+        selectionBackground: "#dbeafe",
+        black: "#202124",
+        brightBlack: "#6b7280",
+        blue: "#2563eb",
+        brightBlue: "#1d4ed8",
       },
     });
     const fit = new FitAddon();
@@ -208,9 +214,21 @@ function TerminalPane({ projectId, terminalId, onOpen }: { projectId: string; te
     });
 
     let disposed = false;
+    let openTimedOut = false;
+    const openTimeout = window.setTimeout(() => {
+      if (disposed) return;
+      openTimedOut = true;
+      setStatus("error");
+      setMessage("终端连接超时。请确认 Workbench 服务仍在运行，或重新打开终端。");
+    }, TERMINAL_OPEN_TIMEOUT_MS);
     void postJson<{ session: TerminalSession }>(`/api/projects/${encodeURIComponent(projectId)}/terminal/sessions`, openPayload)
       .then(() => {
         if (disposed) return;
+        window.clearTimeout(openTimeout);
+        if (openTimedOut) {
+          void fetch(`/api/projects/${encodeURIComponent(projectId)}/terminal/sessions/${encodeURIComponent(terminalId)}`, { method: "DELETE" });
+          return;
+        }
         setStatus("ready");
         setMessage(null);
         onOpen();
@@ -242,12 +260,14 @@ function TerminalPane({ projectId, terminalId, onOpen }: { projectId: string; te
       })
       .catch((cause: unknown) => {
         if (disposed) return;
+        window.clearTimeout(openTimeout);
         setStatus("error");
         setMessage(cause instanceof Error ? cause.message : String(cause));
       });
 
     return () => {
       disposed = true;
+      window.clearTimeout(openTimeout);
       dataDisposable.dispose();
       resizeObserver?.disconnect();
       eventSourceRef.current?.close();

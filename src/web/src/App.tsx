@@ -14,11 +14,12 @@ import { MainConversationView,
   ProjectFilesPanel,
   ProjectGitPanel,
   GitDiffViewer,
-  RuntimeDiagnosticsDock,
   RuntimeDiagnosticsRailPanel,
+  RuntimeActivityLogPanel,
   TerminalDock,
   WorkspaceDockToggleBar,
   type RightToolRailTab,
+  type RightToolRailView,
   type TerminalTab,
 } from "./panels/WorkbenchPanels.js";
 import {
@@ -63,6 +64,7 @@ import type {
   AppStatus,
   CodexDiagnostics,
   CodexModelSettingsSnapshot,
+  ProviderCapabilitySnapshot,
   ProjectStatus,
   Snapshot,
   DemandAgentRunGraph,
@@ -80,6 +82,7 @@ import type {
   LiveAssistantTurn,
   TopicAttachment,
   TopicFileReference,
+  RuntimeActivityLogSnapshot,
   RuntimeDiagnosticsSnapshot,
 } from "./types.js";
 import { extractInlineSkillMentions } from "./shell/skill-mentions.js";
@@ -104,7 +107,7 @@ const emptySnapshot: Snapshot = {
 };
 
 const SELECTED_PROJECT_STORAGE_KEY = "aho.workbench.selectedProjectId";
-type BottomDockKind = "terminal" | "diagnostics" | null;
+type BottomDockKind = "terminal" | null;
 
 function isSkillActiveForComposer(skill: SkillListItem, topicId: string | null, draftOverrides: Record<string, boolean>): boolean {
   if (topicId) {
@@ -150,6 +153,7 @@ export function App(): ReactElement {
   const [loadedRunGraph, setLoadedRunGraph] = useState<DemandAgentRunGraph | null>(null);
   const [codexDiagnostics, setCodexDiagnostics] = useState<CodexDiagnostics | null>(null);
   const [codexModelSettings, setCodexModelSettings] = useState<CodexModelSettingsSnapshot | null>(null);
+  const [providerCapabilities, setProviderCapabilities] = useState<ProviderCapabilitySnapshot[]>([]);
   const [codexModelPickerOpen, setCodexModelPickerOpen] = useState(false);
   const [codexModelSettingsBusy, setCodexModelSettingsBusy] = useState(false);
   const [codexModelSettingsMessage, setCodexModelSettingsMessage] = useState<string | null>(null);
@@ -164,9 +168,10 @@ export function App(): ReactElement {
   const [activeTerminalId, setActiveTerminalId] = useState<string | null>(null);
   const [runtimeDiagnostics, setRuntimeDiagnostics] = useState<RuntimeDiagnosticsSnapshot | null>(null);
   const [runtimeDiagnosticsLoading, setRuntimeDiagnosticsLoading] = useState(false);
-  const [runtimeDiagnosticsDockHeight, setRuntimeDiagnosticsDockHeight] = useState(280);
+  const [runtimeActivityLog, setRuntimeActivityLog] = useState<RuntimeActivityLogSnapshot | null>(null);
+  const [runtimeActivityLogLoading, setRuntimeActivityLogLoading] = useState(false);
   const [decisionPaneCollapsed, setDecisionPaneCollapsed] = useState(true);
-  const [rightToolTab, setRightToolTab] = useState<RightToolRailTab>("confirm");
+  const [rightToolView, setRightToolView] = useState<RightToolRailView>("launcher");
   const [projectionVersion, setProjectionVersion] = useState(0);
   const [latestHidden, setLatestHidden] = useState(false);
   const threadScrollRef = useRef<HTMLDivElement | null>(null);
@@ -240,9 +245,39 @@ export function App(): ReactElement {
     }
   }
 
-  function openRuntimeDiagnosticsDock(): void {
-    setBottomDockKind("diagnostics");
-    void loadRuntimeDiagnostics();
+  async function loadRuntimeActivityLog(projectId = selectedProjectId, topicId = activeTopic?.id ?? null): Promise<void> {
+    if (!projectId) {
+      setRuntimeActivityLog(null);
+      return;
+    }
+    setRuntimeActivityLogLoading(true);
+    try {
+      const params = new URLSearchParams({ limit: "100" });
+      if (topicId) params.set("topicId", topicId);
+      setRuntimeActivityLog(await fetchJson<RuntimeActivityLogSnapshot>(
+        `/api/projects/${encodeURIComponent(projectId)}/runtime/activity?${params.toString()}`,
+      ));
+    } catch (cause) {
+      const generatedAt = new Date().toISOString();
+      setRuntimeActivityLog({
+        generatedAt,
+        projectId,
+        topicId,
+        limit: 100,
+        truncated: false,
+        items: [{
+          id: "runtime-activity:load-error",
+          timestamp: generatedAt,
+          type: "action-error",
+          severity: "error",
+          title: "运行日志读取失败",
+          summary: cause instanceof Error ? cause.message : String(cause),
+          refs: [],
+        }],
+      });
+    } finally {
+      setRuntimeActivityLogLoading(false);
+    }
   }
 
   async function loadApp(): Promise<void> {
@@ -293,6 +328,14 @@ export function App(): ReactElement {
       : "/api/codex/models";
     const payload = await fetchJson<unknown>(path);
     setCodexModelSettings(isCodexModelSettingsSnapshot(payload) ? payload : null);
+  }
+
+  async function loadProviderCapabilities(projectId = selectedProjectId): Promise<void> {
+    const path = projectId
+      ? `/api/projects/${encodeURIComponent(projectId)}/providers/capabilities`
+      : "/api/providers/capabilities";
+    const payload = await fetchJson<{ providers?: unknown[] }>(path);
+    setProviderCapabilities(Array.isArray(payload.providers) ? payload.providers.filter(isProviderCapabilitySnapshot) : []);
   }
 
   async function loadSkillSummary(projectId = selectedProjectId, topicId = selectedTopic): Promise<void> {
@@ -347,11 +390,13 @@ export function App(): ReactElement {
     Promise.all([
       fetchJson<unknown>(path),
       fetchJson<unknown>(projectId ? `/api/projects/${encodeURIComponent(projectId)}/codex/models` : "/api/codex/models"),
+      fetchJson<{ providers?: unknown[] }>(projectId ? `/api/projects/${encodeURIComponent(projectId)}/providers/capabilities` : "/api/providers/capabilities"),
     ])
-      .then(([diagnostics, models]) => {
+      .then(([diagnostics, models, providers]) => {
         if (cancelled) return;
         setCodexDiagnostics(isCodexDiagnostics(diagnostics) ? diagnostics : null);
         setCodexModelSettings(isCodexModelSettingsSnapshot(models) ? models : null);
+        setProviderCapabilities(Array.isArray(providers.providers) ? providers.providers.filter(isProviderCapabilitySnapshot) : []);
       })
       .catch((cause: unknown) => {
         if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
@@ -371,6 +416,7 @@ export function App(): ReactElement {
     setDraftSkillOverrides({});
     setComposerAttachments([]);
     setComposerFileRefs([]);
+    setRuntimeActivityLog(null);
     setCenterTab("conversation");
     setSelectedRun(null);
     setStream(null);
@@ -603,6 +649,7 @@ export function App(): ReactElement {
       const payload = await postJson<unknown>(path, body);
       setCodexModelSettings(isCodexModelSettingsSnapshot(payload) ? payload : null);
       await loadCodexDiagnostics();
+      await loadProviderCapabilities();
     } catch (cause) {
       setCodexModelSettingsMessage(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -1148,8 +1195,13 @@ export function App(): ReactElement {
   }
 
   function expandRightToolRail(): void {
-    if (pendingConfirmationCount > 0) setRightToolTab("confirm");
+    setRightToolView("launcher");
     setDecisionPaneCollapsed(false);
+  }
+
+  function openRightToolPanel(tab: RightToolRailTab): void {
+    setRightToolView(tab);
+    if (tab === "diagnostics") void loadRuntimeDiagnostics();
   }
 
   useEffect(() => {
@@ -1167,6 +1219,7 @@ export function App(): ReactElement {
     setLoadedTranscript(null);
     setLoadedRunGraph(null);
     setComposerAttachments([]);
+    setRuntimeActivityLog(null);
   }, [activeTopic?.id]);
 
   async function loadEarlierTranscriptPage(): Promise<void> {
@@ -1216,6 +1269,11 @@ export function App(): ReactElement {
         if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
       });
     return () => { cancelled = true; };
+  }, [selectedProjectId, activeTopic?.id, centerTab, projectionVersion]);
+
+  useEffect(() => {
+    if (!selectedProjectId || centerTab !== "runtimeLog") return;
+    void loadRuntimeActivityLog(selectedProjectId, activeTopic?.id ?? null);
   }, [selectedProjectId, activeTopic?.id, centerTab, projectionVersion]);
 
   useEffect(() => {
@@ -1281,6 +1339,7 @@ export function App(): ReactElement {
       </aside>
 
       <main className="workspace">
+        <div className="workspace-main" data-testid="workspace-main">
         {centerTab === "settings" ? (
           <SettingsSurface
             section={settingsSection}
@@ -1288,11 +1347,12 @@ export function App(): ReactElement {
             project={selectedProjectStatus}
             diagnostics={codexDiagnostics}
             modelSettings={codexModelSettings}
+            providerCapabilities={providerCapabilities}
             modelSettingsBusy={codexModelSettingsBusy}
             modelSettingsMessage={codexModelSettingsMessage}
             onOpenModelSettings={() => void openCodexModelPicker()}
             onClose={() => setCenterTab("conversation")}
-            onRefresh={() => loadApp().then(() => loadCodexDiagnostics()).then(() => loadCodexModelSettings()).then(() => loadSkillSummary())}
+            onRefresh={() => loadApp().then(() => loadCodexDiagnostics()).then(() => loadCodexModelSettings()).then(() => loadProviderCapabilities()).then(() => loadSkillSummary())}
           />
         ) : !selectedProjectId ? (
           <ProjectHomeView
@@ -1310,6 +1370,12 @@ export function App(): ReactElement {
           <UnmanagedProjectView project={selectedProjectStatus} onDone={() => loadApp().then(() => selectedProjectId ? refresh(selectedProjectId, null) : undefined)} />
         ) : !activeTopic && centerTab === "gitDiff" ? (
           <GitDiffViewer projectId={selectedProjectId} selectedPath={selectedGitDiffPath} />
+        ) : !activeTopic && centerTab === "runtimeLog" ? (
+          <RuntimeActivityLogPanel
+            snapshot={runtimeActivityLog}
+            loading={runtimeActivityLogLoading}
+            onRefresh={() => void loadRuntimeActivityLog()}
+          />
         ) : !activeTopic ? (
           <ProjectReadinessHome
             project={selectedProjectStatus}
@@ -1371,6 +1437,13 @@ export function App(): ReactElement {
                     onSelectNode={setSelectedRunGraphNodeId}
                     onSelectRun={(runId) => void chooseRun(runId)}
                     gitDiffPanel={<GitDiffViewer projectId={selectedProjectId} selectedPath={selectedGitDiffPath} />}
+                    runtimeLogPanel={(
+                      <RuntimeActivityLogPanel
+                        snapshot={runtimeActivityLog}
+                        loading={runtimeActivityLogLoading}
+                        onRefresh={() => void loadRuntimeActivityLog()}
+                      />
+                    )}
                   />
                 </div>
                 {latestHidden ? <button className="latest-button" onClick={() => { const node = threadScrollRef.current; if (node) node.scrollTop = node.scrollHeight; setLatestHidden(false); }}>最新</button> : null}
@@ -1410,6 +1483,7 @@ export function App(): ReactElement {
             </section>
           </>
         )}
+        </div>
         <WorkspaceDockToggleBar
           terminalActive={bottomDockKind === "terminal"}
           terminalDisabled={!selectedProjectId}
@@ -1431,28 +1505,17 @@ export function App(): ReactElement {
           }}
           onCloseTab={closeTerminalTab}
         />
-        <RuntimeDiagnosticsDock
-          open={bottomDockKind === "diagnostics"}
-          height={runtimeDiagnosticsDockHeight}
-          snapshot={runtimeDiagnostics}
-          loading={runtimeDiagnosticsLoading}
-          onClose={() => setBottomDockKind(null)}
-          onRefresh={() => void loadRuntimeDiagnostics()}
-          onHeightChange={setRuntimeDiagnosticsDockHeight}
-        />
       </main>
 
       <RightToolRailShell
         collapsed={decisionPaneCollapsed}
-        activeTab={rightToolTab}
+        activeView={rightToolView}
         pendingCount={pendingConfirmationCount}
         hasPrimary={Boolean(activeConfirmationQueue.primary)}
         onExpand={expandRightToolRail}
         onCollapse={() => setDecisionPaneCollapsed(true)}
-        onTabChange={(tab) => {
-          setRightToolTab(tab);
-          if (tab === "diagnostics") void loadRuntimeDiagnostics();
-        }}
+        onToolOpen={openRightToolPanel}
+        onBackToLauncher={() => setRightToolView("launcher")}
         confirmPanel={
           <DecisionInspectorPane
             inspector={activeDecisionInspector}
@@ -1490,8 +1553,11 @@ export function App(): ReactElement {
           <RuntimeDiagnosticsRailPanel
             snapshot={runtimeDiagnostics}
             loading={runtimeDiagnosticsLoading}
-            onOpen={openRuntimeDiagnosticsDock}
             onRefresh={() => void loadRuntimeDiagnostics()}
+            onOpenRuntimeLog={() => {
+              setCenterTab("runtimeLog");
+              void loadRuntimeActivityLog();
+            }}
           />
         }
       />
@@ -1579,6 +1645,18 @@ function isCodexModelSettingsSnapshot(value: unknown): value is CodexModelSettin
     && Array.isArray(snapshot.modelList.candidates);
 }
 
+function isProviderCapabilitySnapshot(value: unknown): value is ProviderCapabilitySnapshot {
+  if (!value || typeof value !== "object") return false;
+  const snapshot = value as Partial<ProviderCapabilitySnapshot>;
+  return snapshot.providerId === "codex"
+    && snapshot.productMode === "harness"
+    && (snapshot.status === "ready" || snapshot.status === "degraded" || snapshot.status === "unavailable")
+    && typeof snapshot.runnable === "boolean"
+    && typeof snapshot.snapshotHash === "string"
+    && typeof snapshot.snapshotVersion === "number"
+    && Array.isArray(snapshot.capabilities);
+}
+
 function readPersistedSelectedProjectId(): string | null {
   try {
     const value = window.localStorage.getItem(SELECTED_PROJECT_STORAGE_KEY);
@@ -1629,6 +1707,7 @@ function normalizeCenterTabParam(value: string | null): CenterTab | null {
   if (normalized === "workbench" || normalized === "workpad") return "workpad";
   if (normalized === "orchestration" || normalized === "agentgraph" || normalized === "agent-graph") return "agentGraph";
   if (normalized === "gitdiff" || normalized === "git-diff" || normalized === "diff") return "gitDiff";
+  if (normalized === "runtime" || normalized === "runtime-log" || normalized === "runtimelog" || normalized === "logs") return "runtimeLog";
   if (normalized === "settings") return "settings";
   return null;
 }

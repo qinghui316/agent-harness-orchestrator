@@ -5,6 +5,7 @@ import { collectWorktreeDiff } from "../audit/diff.js";
 import { runCodexAppServerTurn } from "../codex/app-server.js";
 import { resolveCodexEffectiveModel } from "../codex/model-settings.js";
 import { writeJsonFile } from "../fs/json.js";
+import { codexProviderRunMetadata } from "../provider-runtime/index.js";
 import { appendExternalExecutionCompleted, appendExternalExecutionFailed, appendExternalExecutionRequested, appendPermissionProfileAttached } from "../runtime-continuity/events.js";
 import { appendAgentEventEnvelope, createRuntimeContinuityArtifacts, markRuntimeContinuityStatus } from "../runtime-continuity/repository.js";
 import { appendRunEvent } from "../run/manager.js";
@@ -60,7 +61,17 @@ export async function runCodexAppServerCode(input: {
     adapter: "codex-app-server",
   }));
   const effectiveModel = await resolveCodexEffectiveModel();
-  await appendRunEvent(input.paths.events, { timestamp: new Date().toISOString(), type: "codex.started", runId: run.id, data: { adapter: "codex-app-server", model: effectiveModel.model, modelSource: effectiveModel.source } });
+  await appendRunEvent(input.paths.events, {
+    timestamp: new Date().toISOString(),
+    type: "codex.started",
+    runId: run.id,
+    data: {
+      adapter: "codex-app-server",
+      model: effectiveModel.model,
+      modelSource: effectiveModel.source,
+      ...codexProviderRunMetadata({ adapter: "codex-app-server", model: effectiveModel.model, modelSource: effectiveModel.source }),
+    },
+  });
   const appServerResult = await runCodexAppServerTurn({
     projectId: input.project.id,
     changeId: input.changeId,

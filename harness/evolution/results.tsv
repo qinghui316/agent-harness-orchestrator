@@ -106,3 +106,4 @@ timestamp	change_id	status	eval_mode	archive_count	notes
 2026-06-28T08:15:20.6183082Z	manual	docs_merge	subagent_review	527	post-product-shell reference window; subagent Epicurus Merge 88; existing ECL coverage sufficient; handoff alignment only
 2026-06-28T14:05:24.3856953Z	manual	noop	subagent_review	532	post-onboarding Skill/product-shell window; subagents Feynman/Sartre/Lagrange/Bohr recommend retain existing coverage; no-op score 95; no durable Harness delta
 2026-06-28T18:35:14.5529242Z	manual	noop	subagent_review	537	Franklin subagent score 92; existing ECL and boundary docs cover onboarding Skill, attachments, and hybrid native roadmap window.
+2026-06-29T08:15:20.2507293Z	manual	noop	subagent_review	542	Heisenberg subagent score 93; existing ECL covers terminal/right-rail/top-tool alignment archive window; no new Harness rule/template/product runtime change.

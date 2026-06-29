@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../src/web/src/App.js";
@@ -425,6 +425,44 @@ const codexModelSettings = {
   ],
 } as const;
 
+const providerCapabilityPayload = {
+  providers: [{
+    providerId: "codex",
+    productMode: "harness",
+    status: "degraded",
+    runnable: true,
+    effectiveModel: "gpt-5.3-codex",
+    effectiveModelSource: "config",
+    snapshotHash: "capability-1234",
+    snapshotVersion: 2,
+    checkedAt: "2026-06-29T00:00:00.000Z",
+    capabilities: [
+      {
+        key: "model.list",
+        label: "模型列表",
+        spec: "supported",
+        runtime: "degraded",
+        summary: "Codex runtime 暂时不能返回模型列表，仍可使用配置或默认模型。",
+        reason: "runtime unavailable",
+      },
+      {
+        key: "skills",
+        label: "Skills",
+        spec: "supported",
+        runtime: "ready",
+        summary: "2 个 Codex runtime Skill 可用。",
+      },
+      {
+        key: "image.input",
+        label: "图片输入",
+        spec: "supported",
+        runtime: "ready",
+        summary: "图片附件可传给 Codex app-server。",
+      },
+    ],
+  }],
+} as const;
+
 function fetchCallUrls(): string[] {
   return (fetch as unknown as { mock: { calls: Array<[RequestInfo | URL, RequestInit?]> } }).mock.calls
     .map(([input]) => String(input));
@@ -435,6 +473,7 @@ async function openDecisionPane(): Promise<HTMLElement> {
   if (current) return current;
   const toggle = await screen.findByTestId("decision-pane-toggle");
   fireEvent.click(toggle);
+  fireEvent.click(await screen.findByTestId("right-tool-launcher-confirm"));
   return screen.findByTestId("decision-inspector-primary");
 }
 
@@ -929,6 +968,9 @@ describe("Workbench web app", () => {
       if (url === "/api/codex/models" || url.endsWith("/codex/models")) {
         return jsonResponse(codexModelSettings);
       }
+      if (url === "/api/providers/capabilities" || url.endsWith("/providers/capabilities")) {
+        return jsonResponse(providerCapabilityPayload);
+      }
       if (url.includes("/workbench/projections/transcript/")) {
         return new Response(JSON.stringify(snapshot.center.parentAgentTranscript), {
           status: 200,
@@ -954,6 +996,7 @@ describe("Workbench web app", () => {
 
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -1937,6 +1980,9 @@ describe("Workbench web app", () => {
 
     fireEvent.click(toggle);
 
+    expect(await screen.findByTestId("right-tool-launcher")).toBeTruthy();
+    expect(screen.queryByTestId("decision-inspector-primary")).toBeNull();
+    fireEvent.click(screen.getByTestId("right-tool-launcher-confirm"));
     const card = await screen.findByTestId("decision-inspector-primary");
     expect(document.querySelector(".app-shell")?.classList.contains("decision-pane-expanded")).toBe(true);
     expect(within(card).getByText("确认完成需求对话")).toBeTruthy();
@@ -1996,6 +2042,38 @@ describe("Workbench web app", () => {
           ],
         });
       }
+      if (url === "/api/projects/repo/runtime/activity?limit=100&topicId=member-discount") {
+        return jsonResponse({
+          generatedAt: "2026-06-29T00:00:01.000Z",
+          projectId: "repo",
+          topicId: "member-discount",
+          limit: 100,
+          truncated: false,
+          items: [
+            {
+              id: "provider:codex",
+              timestamp: "2026-06-29T00:00:00.000Z",
+              type: "provider",
+              severity: "warning",
+              status: "degraded",
+              title: "Codex runtime",
+              summary: "Codex runtime 降级，继续使用默认模型。",
+              refs: [{ kind: "provider", label: "provider: codex", id: "codex" }],
+              details: ["Provider: Codex", "Product Mode: Harness", "Harness Execution Mode: 逐步确认 / 自动推进"],
+            },
+            {
+              id: "validation:run-1",
+              timestamp: "2026-06-29T00:00:02.000Z",
+              type: "validation",
+              severity: "ok",
+              status: "passed",
+              title: "验证通过",
+              summary: "fast · 2 条命令。",
+              refs: [{ kind: "run", label: "run-1", id: "run-1" }],
+            },
+          ],
+        });
+      }
       if (url.includes("/workbench/projections/transcript/")) return jsonResponse(snapshot.center.parentAgentTranscript);
       if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(snapshot.center.agentRunGraph);
       return jsonResponse(url.includes("/stream/") ? stream : snapshot);
@@ -2006,18 +2084,28 @@ describe("Workbench web app", () => {
     await waitFor(() => expect(screen.getByTestId("main-conversation-view")).toBeTruthy());
     const actionCallCount = fetchCallUrls().filter((url) => url.endsWith("/workbench/actions")).length;
 
+    expect(screen.getByTestId("terminal-dock-toggle").classList.contains("top-tool-button")).toBe(true);
+    expect(screen.getByTestId("decision-pane-toggle").classList.contains("top-tool-button")).toBe(true);
     fireEvent.click(screen.getByTestId("decision-pane-toggle"));
-    expect(await screen.findByTestId("right-tool-tab-confirm")).toBeTruthy();
-    expect(screen.getByTestId("right-tool-tab-files")).toBeTruthy();
-    expect(screen.getByTestId("right-tool-tab-git")).toBeTruthy();
-    expect(screen.getByTestId("right-tool-tab-diagnostics")).toBeTruthy();
+    const launcher = await screen.findByTestId("right-tool-launcher");
+    expect(within(launcher).getByText("确认")).toBeTruthy();
+    expect(screen.getByTestId("right-tool-launcher-files")).toBeTruthy();
+    expect(screen.getByTestId("right-tool-launcher-git")).toBeTruthy();
+    expect(screen.getByTestId("right-tool-launcher-diagnostics")).toBeTruthy();
+    expect(screen.getByTestId("decision-pane-collapse").classList.contains("top-tool-button")).toBe(true);
     expect(screen.queryByTestId("right-tool-tab-terminal")).toBeNull();
     expect(screen.getByTestId("terminal-dock-toggle")).toBeTruthy();
-    expect(screen.getByTestId("decision-inspector-primary")).toBeTruthy();
+    expect(screen.queryByTestId("decision-inspector-primary")).toBeNull();
+    expect(screen.queryByRole("tablist", { name: "右侧工具" })).toBeNull();
     expect(screen.queryByRole("tab", { name: "浏览器" })).toBeNull();
     expect(screen.queryByRole("tab", { name: "日志" })).toBeNull();
 
-    fireEvent.click(screen.getByTestId("right-tool-tab-files"));
+    fireEvent.click(screen.getByTestId("right-tool-launcher-confirm"));
+    expect(await screen.findByTestId("decision-inspector-primary")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("right-tool-back"));
+    expect(await screen.findByTestId("right-tool-launcher")).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("right-tool-launcher-files"));
     const filesPanel = await screen.findByTestId("project-files-panel");
     expect(within(filesPanel).getByText("pricing.ts")).toBeTruthy();
     expect(screen.queryByTestId("decision-inspector-primary")).toBeNull();
@@ -2027,7 +2115,8 @@ describe("Workbench web app", () => {
     fireEvent.click(within(filesPanel).getByText("引用到输入框"));
     expect(screen.getAllByText("pricing.ts").length).toBeGreaterThan(1);
 
-    fireEvent.click(screen.getByTestId("right-tool-tab-git"));
+    fireEvent.click(screen.getByTestId("right-tool-back"));
+    fireEvent.click(await screen.findByTestId("right-tool-launcher-git"));
     const gitPanel = await screen.findByTestId("project-git-panel");
     expect(within(gitPanel).getByText("main")).toBeTruthy();
     expect(within(gitPanel).getByText("src/pricing.ts")).toBeTruthy();
@@ -2048,13 +2137,51 @@ describe("Workbench web app", () => {
     expect(await screen.findByTestId("terminal-xterm")).toBeTruthy();
     expect(fetchCallUrls()).toContain("/api/projects/repo/terminal/sessions");
 
-    fireEvent.click(screen.getByTestId("right-tool-tab-diagnostics"));
+    fireEvent.click(screen.getByTestId("right-tool-back"));
+    fireEvent.click(await screen.findByTestId("right-tool-launcher-diagnostics"));
     const diagnosticsPanel = await screen.findByTestId("runtime-diagnostics-rail-panel");
-    expect(within(diagnosticsPanel).getByText("诊断")).toBeTruthy();
-    fireEvent.click(within(diagnosticsPanel).getByText("打开诊断面板"));
-    expect(await screen.findByTestId("runtime-diagnostics-dock")).toBeTruthy();
-    expect(screen.queryByTestId("terminal-dock")).toBeNull();
+    expect(within(diagnosticsPanel).getByText("运行诊断")).toBeTruthy();
+    expect(within(diagnosticsPanel).getByText("模型列表")).toBeTruthy();
+    fireEvent.click(within(diagnosticsPanel).getByTestId("open-runtime-activity-log"));
+    const runtimeLog = await screen.findByTestId("runtime-activity-log");
+    expect(within(runtimeLog).getByText("运行日志")).toBeTruthy();
+    expect(within(runtimeLog).getByText("Codex runtime")).toBeTruthy();
+    expect(within(runtimeLog).getByText("验证通过")).toBeTruthy();
+    expect(within(runtimeLog).queryByText("Run")).toBeNull();
+    expect(within(runtimeLog).queryByText("Stop")).toBeNull();
+    expect(within(runtimeLog).queryByText("自动修复")).toBeNull();
+    expect(within(diagnosticsPanel).queryByText("打开诊断面板")).toBeNull();
+    expect(screen.queryByTestId("runtime-diagnostics-dock")).toBeNull();
+    expect(screen.getByTestId("terminal-dock")).toBeTruthy();
     expect(fetchCallUrls().filter((url) => url.endsWith("/workbench/actions"))).toHaveLength(actionCallCount);
+  });
+
+  it("shows a readable terminal timeout instead of staying in connecting state", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      if (url === "/api/projects/repo/terminal/sessions") return new Promise<Response>(() => undefined);
+      if (url.includes("/api/projects/repo/terminal/sessions/") && url.endsWith("/resize")) return jsonResponse({ ok: true });
+      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(snapshot.center.parentAgentTranscript);
+      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(snapshot.center.agentRunGraph);
+      return jsonResponse(url.includes("/stream/") ? stream : snapshot);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByTestId("main-conversation-view")).toBeTruthy());
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByTestId("terminal-dock-toggle"));
+    expect(screen.getByText("正在连接终端")).toBeTruthy();
+
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+
+    expect(screen.getByText("终端不可用")).toBeTruthy();
+    expect(screen.getByText("终端连接超时。请确认 Workbench 服务仍在运行，或重新打开终端。")).toBeTruthy();
+    expect(screen.getByTestId("terminal-dock")).toBeTruthy();
   });
 
   it("opens the center Git diff viewer from the Git rail even before a topic is selected", async () => {
@@ -2096,7 +2223,7 @@ describe("Workbench web app", () => {
     render(<App />);
     await waitFor(() => expect(screen.getByText("创造任何东西")).toBeTruthy());
     fireEvent.click(screen.getByTestId("decision-pane-toggle"));
-    fireEvent.click(await screen.findByTestId("right-tool-tab-git"));
+    fireEvent.click(await screen.findByTestId("right-tool-launcher-git"));
     const gitPanel = await screen.findByTestId("project-git-panel");
     fireEvent.click(within(gitPanel).getByRole("button", { name: /src\/pricing\.ts/ }));
     const diffViewer = await screen.findByTestId("git-diff-viewer");
@@ -5392,6 +5519,7 @@ describe("Workbench web app", () => {
         return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, memory: { memoryMode: "external-local", memoryAvailable: true, harnessReady: true, artifactBase: "memory-root", roots: { memoryRoot: "E:/aho-home/projects/repo" } }, harness: { readiness: "ready" }, codexTrust: { trusted: false, configPath: codexDiagnostics.configPath, projectKey: "E:/repo", configExists: true, reason: "Project trust is not configured." } }] });
       }
       if (url === "/api/projects/repo/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      if (url === "/api/projects/repo/providers/capabilities") return jsonResponse(providerCapabilityPayload);
       return jsonResponse(noTopicSnapshot);
     }));
 
@@ -5413,6 +5541,16 @@ describe("Workbench web app", () => {
     fireEvent.click(screen.getByRole("button", { name: "设置" }));
     expect(await screen.findByRole("region", { name: "设置" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "基础" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Codex" }));
+    expect(await screen.findByText("能力矩阵")).toBeTruthy();
+    expect(screen.getByText("Product mode")).toBeTruthy();
+    expect(screen.getByText("Harness")).toBeTruthy();
+    expect(screen.getByText("模型列表")).toBeTruthy();
+    expect(screen.getByText("runtime unavailable")).toBeTruthy();
+    expect(screen.queryByText("Claude Code")).toBeNull();
+    expect(screen.queryByText("OpenCode")).toBeNull();
+    expect(screen.queryByText("Gemini")).toBeNull();
+    expect(screen.queryByText("普通 Agent")).toBeNull();
     expect(screen.getByRole("button", { name: "高级诊断" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "高级诊断" }));
     expect(screen.getByText("codex-cli 1.2.3")).toBeTruthy();
