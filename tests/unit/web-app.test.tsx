@@ -10,6 +10,26 @@ import { WorkpadDiagnosticDetails } from "../../src/web/src/panels/workbench/wor
 import { TopicComposer } from "../../src/web/src/shell/composer.js";
 import { summarizeActionResult } from "../../src/workbench/actions/results.js";
 
+vi.mock("@xterm/xterm", () => ({
+  Terminal: class {
+    cols = 80;
+    rows = 24;
+    loadAddon(): void {}
+    open(): void {}
+    onData(): { dispose: () => void } {
+      return { dispose: () => undefined };
+    }
+    write(): void {}
+    dispose(): void {}
+  },
+}));
+
+vi.mock("@xterm/addon-fit", () => ({
+  FitAddon: class {
+    fit(): void {}
+  },
+}));
+
 const snapshot = {
   project: { id: "repo", name: "Repo", path: "E:/repo" },
   memory: { memoryMode: "external-local", harnessReady: true },
@@ -1188,6 +1208,18 @@ describe("Workbench web app", () => {
       claimIntentId: "claim-1",
       maxSteps: 10,
     });
+    const ResizeObserverStub = class {
+      observe(): void {}
+      disconnect(): void {}
+    };
+    Object.defineProperty(window, "ResizeObserver", { configurable: true, value: ResizeObserverStub });
+    vi.stubGlobal("ResizeObserver", ResizeObserverStub);
+    vi.stubGlobal("EventSource", class {
+      onerror: (() => void) | null = null;
+      constructor(public readonly url: string) {}
+      addEventListener(): void {}
+      close(): void {}
+    });
   });
 
   it("uses composer auto mode to submit scoped-auto with the current gate target ids", async () => {
@@ -1915,7 +1947,7 @@ describe("Workbench web app", () => {
     expect(screen.queryByTestId("decision-inspector-primary")).toBeNull();
   });
 
-  it("opens the minimal right tool rail with confirmation, files, and Git tabs", async () => {
+  it("opens the minimal right tool rail with confirmation, files, Git, and terminal tabs", async () => {
     const fileRef = { relativePath: "src/pricing.ts", name: "pricing.ts", kind: "file", extension: ".ts", size: 24 };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -1949,6 +1981,11 @@ describe("Workbench web app", () => {
           deletions: 1,
         });
       }
+      if (url === "/api/projects/repo/terminal/sessions") {
+        return jsonResponse({ session: { projectId: "repo", terminalId: "terminal-test", cwd: "E:/repo", shell: "cmd.exe" } });
+      }
+      if (url.includes("/api/projects/repo/terminal/sessions/") && url.endsWith("/resize")) return jsonResponse({ ok: true });
+      if (url.includes("/api/projects/repo/terminal/sessions/") && url.endsWith("/write")) return jsonResponse({ ok: true });
       if (url.includes("/workbench/projections/transcript/")) return jsonResponse(snapshot.center.parentAgentTranscript);
       if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(snapshot.center.agentRunGraph);
       return jsonResponse(url.includes("/stream/") ? stream : snapshot);
@@ -1963,9 +2000,9 @@ describe("Workbench web app", () => {
     expect(await screen.findByTestId("right-tool-tab-confirm")).toBeTruthy();
     expect(screen.getByTestId("right-tool-tab-files")).toBeTruthy();
     expect(screen.getByTestId("right-tool-tab-git")).toBeTruthy();
+    expect(screen.getByTestId("right-tool-tab-terminal")).toBeTruthy();
     expect(screen.getByTestId("decision-inspector-primary")).toBeTruthy();
     expect(screen.queryByRole("tab", { name: "浏览器" })).toBeNull();
-    expect(screen.queryByRole("tab", { name: "终端" })).toBeNull();
     expect(screen.queryByRole("tab", { name: "日志" })).toBeNull();
 
     fireEvent.click(screen.getByTestId("right-tool-tab-files"));
@@ -1993,6 +2030,12 @@ describe("Workbench web app", () => {
     expect(within(diffViewer).queryByText("commit")).toBeNull();
     fireEvent.click(within(gitPanel).getAllByText("引用")[0] as HTMLElement);
     await waitFor(() => expect(screen.getByText("staged.ts")).toBeTruthy());
+
+    fireEvent.click(screen.getByTestId("right-tool-tab-terminal"));
+    expect(await screen.findByTestId("terminal-dock")).toBeTruthy();
+    expect(await screen.findByTestId("terminal-xterm")).toBeTruthy();
+    expect(await screen.findByTestId("terminal-rail-panel")).toBeTruthy();
+    expect(fetchCallUrls()).toContain("/api/projects/repo/terminal/sessions");
     expect(fetchCallUrls().filter((url) => url.endsWith("/workbench/actions"))).toHaveLength(actionCallCount);
   });
 

@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-28T18:38:15.6198050Z",
+    "generated_at":  "2026-06-29T05:19:40.2444836Z",
     "active":  [
 
                ],
@@ -2165,6 +2165,10 @@
                     {
                         "name":  "20260629-workbench-composer-attachments-first-demand-staging-v2",
                         "path":  "harness/changes/archive/20260629-workbench-composer-attachments-first-demand-staging-v2"
+                    },
+                    {
+                        "name":  "20260629-workbench-reference-style-project-terminal-dock-v1",
+                        "path":  "harness/changes/archive/20260629-workbench-reference-style-project-terminal-dock-v1"
                     }
                 ]
 }

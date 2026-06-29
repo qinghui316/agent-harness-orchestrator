@@ -1,5 +1,6 @@
 import type { IncomingMessage, Server } from "node:http";
 import type { ProjectRegistryStore } from "../../registry/store.js";
+import type { TerminalRuntime } from "../terminal/terminal-runtime.js";
 import type { ClarificationAnswer } from "../../workbench/intake.js";
 import type { WorkbenchApprovalAction, WorkbenchProjectInput } from "../../workbench/manager.js";
 import type { TopicMessageInput, WorkbenchWorkflowActionRequest } from "../../workbench/chat.js";
@@ -10,6 +11,7 @@ export interface WorkbenchServeOptions {
   port?: number;
   staticRoot?: string;
   store?: ProjectRegistryStore;
+  terminalRuntime?: TerminalRuntime;
 }
 
 export interface WorkbenchServerHandle {
@@ -21,6 +23,7 @@ export interface WorkbenchServerContext {
   input: WorkbenchProjectInput | null;
   staticRoot: string;
   store: ProjectRegistryStore;
+  terminalRuntime: TerminalRuntime;
 }
 
 export interface WorkbenchActionRequest {

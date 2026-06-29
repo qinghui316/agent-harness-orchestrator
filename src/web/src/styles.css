@@ -3350,6 +3350,179 @@ input:focus-visible {
   line-height: 1;
 }
 
+.right-tool-empty {
+  display: grid;
+  align-content: start;
+  justify-items: start;
+  gap: 10px;
+  padding: 16px;
+  color: var(--text-muted);
+}
+
+.right-tool-empty strong {
+  color: var(--text-strong);
+  font-size: 14px;
+}
+
+.right-tool-empty p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.tool-panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.terminal-dock {
+  position: relative;
+  flex: 0 0 auto;
+  min-height: 180px;
+  max-height: 520px;
+  border-top: 1px solid var(--border);
+  background: #161719;
+  color: #e8eaed;
+  box-shadow: 0 -12px 28px rgba(0, 0, 0, 0.08);
+}
+
+.terminal-dock-resizer {
+  position: absolute;
+  top: -4px;
+  left: 0;
+  right: 0;
+  height: 8px;
+  cursor: ns-resize;
+}
+
+.terminal-dock-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 5px 10px;
+  border-bottom: 1px solid #2c323a;
+  background: #202329;
+}
+
+.terminal-dock-collapse {
+  width: 26px;
+  height: 26px;
+  border-color: #343b45;
+  background: #252a31;
+  color: #d7dce4;
+}
+
+.terminal-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.terminal-tab,
+.terminal-tab-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  border: 1px solid #343b45;
+  border-radius: 6px;
+  background: #252a31;
+  color: #cbd3dc;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.terminal-tab {
+  gap: 7px;
+  max-width: 180px;
+  padding: 0 6px 0 10px;
+}
+
+.terminal-tab.active {
+  border-color: #5d6d83;
+  background: #303846;
+  color: #fff;
+}
+
+.terminal-tab span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  color: #9da7b4;
+}
+
+.terminal-tab-close:hover {
+  background: #3b4350;
+  color: #fff;
+}
+
+.terminal-tab-add {
+  width: 28px;
+}
+
+.terminal-dock-body {
+  min-height: 0;
+  height: calc(100% - 36px);
+}
+
+.terminal-pane,
+.terminal-xterm {
+  min-height: 0;
+  height: 100%;
+}
+
+.terminal-pane {
+  position: relative;
+}
+
+.terminal-xterm {
+  padding: 8px 10px;
+}
+
+.terminal-overlay {
+  position: absolute;
+  inset: 14px auto auto 14px;
+  display: grid;
+  gap: 4px;
+  max-width: min(520px, calc(100% - 28px));
+  padding: 10px 12px;
+  border: 1px solid #3d4655;
+  border-radius: var(--radius-sm);
+  background: rgba(32, 35, 41, 0.94);
+  color: #d7dce4;
+  font-size: 12px;
+}
+
+.terminal-overlay strong {
+  color: #fff;
+}
+
+.terminal-overlay.error {
+  border-color: color-mix(in srgb, var(--danger) 72%, #3d4655);
+}
+
+.terminal-empty {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  color: #9da7b4;
+  font-size: 13px;
+}
+
 .project-files-panel {
   display: flex;
   flex-direction: column;

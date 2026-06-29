@@ -35,10 +35,13 @@
   },
   "dependencies": {
     "@chenglou/pretext": "^0.0.8",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "better-sqlite3": "^12.10.0",
     "commander": "^13.1.0",
     "cross-spawn": "^7.0.6",
     "lucide-react": "^1.16.0",
+    "node-pty": "^1.1.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "smol-toml": "^1.7.0",

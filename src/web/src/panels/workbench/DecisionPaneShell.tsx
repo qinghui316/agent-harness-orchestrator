@@ -1,7 +1,7 @@
-import { FileText, GitBranch, ListChecks, PanelRightClose, PanelRightOpen } from "lucide-react";
+import { FileText, GitBranch, ListChecks, PanelRightClose, PanelRightOpen, SquareTerminal } from "lucide-react";
 import type { ReactElement, ReactNode } from "react";
 
-export type RightToolRailTab = "confirm" | "files" | "git";
+export type RightToolRailTab = "confirm" | "files" | "git" | "terminal";
 
 export function RightToolRailShell({
   collapsed,
@@ -14,6 +14,7 @@ export function RightToolRailShell({
   confirmPanel,
   filesPanel,
   gitPanel,
+  terminalPanel,
 }: {
   collapsed: boolean;
   activeTab: RightToolRailTab;
@@ -25,6 +26,7 @@ export function RightToolRailShell({
   confirmPanel: ReactNode;
   filesPanel: ReactNode;
   gitPanel: ReactNode;
+  terminalPanel: ReactNode;
 }): ReactElement {
   if (collapsed) {
     const label = pendingCount > 0 ? `展开右侧面板，${pendingCount} 个待确认` : "展开右侧面板";
@@ -88,6 +90,19 @@ export function RightToolRailShell({
             <GitBranch size={15} aria-hidden="true" />
             <span>Git</span>
           </button>
+          <button
+            type="button"
+            role="tab"
+            aria-label="终端"
+            aria-selected={activeTab === "terminal"}
+            title="终端"
+            className={activeTab === "terminal" ? "active" : ""}
+            data-testid="right-tool-tab-terminal"
+            onClick={() => onTabChange("terminal")}
+          >
+            <SquareTerminal size={15} aria-hidden="true" />
+            <span>终端</span>
+          </button>
         </div>
         <button
           type="button"
@@ -101,7 +116,7 @@ export function RightToolRailShell({
         </button>
       </div>
       <div className="decision-pane-content">
-        {activeTab === "confirm" ? confirmPanel : activeTab === "files" ? filesPanel : gitPanel}
+        {activeTab === "confirm" ? confirmPanel : activeTab === "files" ? filesPanel : activeTab === "git" ? gitPanel : terminalPanel}
       </div>
     </aside>
   );

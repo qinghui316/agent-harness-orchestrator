@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260629-workbench-reference-style-project-terminal-dock-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260629-workbench-composer-attachments-first-demand-staging-v2/summary.md`.
 - Latest archived docs/architecture change:
   `harness/changes/archive/20260629-document-aho-hybrid-desktop-native-roadmap-v1/summary.md`.
@@ -56,6 +58,19 @@
 
 ## Latest Product Closeout
 
+`harness/changes/archive/20260629-workbench-reference-style-project-terminal-dock-v1/summary.md`.
+
+It adds a reference-style project terminal: the right tool rail now exposes
+`终端`, while the actual interactive shell opens in a bottom xterm dock with
+tabs, resize, collapse, and project-scoped cwd. Backend process lifecycle is
+owned by `TerminalRuntime`; V1 uses Node PTY and keeps the UI/API ready for a
+future Rust/Tauri adapter. Terminal is a manual user tool only and does not
+enter workflow truth, transcript context, validation/audit evidence,
+apply/close, automation, remote, merge, PR, or Harness evolution. Targeted
+tests, `test:fast`, `build`, `test:workbench`, Harness checks, and real browser
+acceptance passed.
+
+Previous closeout:
 `harness/changes/archive/20260629-workbench-composer-attachments-first-demand-staging-v2/summary.md`.
 
 It completes the first-demand attachment path for the reference-style composer:

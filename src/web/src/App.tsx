@@ -14,7 +14,10 @@ import { MainConversationView,
   ProjectFilesPanel,
   ProjectGitPanel,
   GitDiffViewer,
-  type RightToolRailTab
+  TerminalDock,
+  TerminalRailPanel,
+  type RightToolRailTab,
+  type TerminalTab,
 } from "./panels/WorkbenchPanels.js";
 import {
   ProjectConversationSidebar,
@@ -151,6 +154,10 @@ export function App(): ReactElement {
   const [composerFileRefs, setComposerFileRefs] = useState<TopicFileReference[]>([]);
   const [composerAttachments, setComposerAttachments] = useState<TopicAttachment[]>([]);
   const [selectedGitDiffPath, setSelectedGitDiffPath] = useState<string | null>(null);
+  const [terminalDockOpen, setTerminalDockOpen] = useState(false);
+  const [terminalDockHeight, setTerminalDockHeight] = useState(280);
+  const [terminalTabs, setTerminalTabs] = useState<TerminalTab[]>([]);
+  const [activeTerminalId, setActiveTerminalId] = useState<string | null>(null);
   const [decisionPaneCollapsed, setDecisionPaneCollapsed] = useState(true);
   const [rightToolTab, setRightToolTab] = useState<RightToolRailTab>("confirm");
   const [projectionVersion, setProjectionVersion] = useState(0);
@@ -161,6 +168,38 @@ export function App(): ReactElement {
     [draftSkillOverrides, selectedTopic, skillItems],
   );
   const enabledSkillCount = selectedComposerSkillIds.length;
+
+  function ensureTerminalTab(): string {
+    if (activeTerminalId && terminalTabs.some((tab) => tab.id === activeTerminalId)) return activeTerminalId;
+    const id = `terminal-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+    setTerminalTabs((current) => [...current, { id, title: `终端 ${current.length + 1}` }]);
+    setActiveTerminalId(id);
+    return id;
+  }
+
+  function openTerminalDock(): void {
+    ensureTerminalTab();
+    setTerminalDockOpen(true);
+  }
+
+  function createTerminalTab(): void {
+    const id = `terminal-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+    setTerminalTabs((current) => [...current, { id, title: `终端 ${current.length + 1}` }]);
+    setActiveTerminalId(id);
+    setTerminalDockOpen(true);
+  }
+
+  function closeTerminalTab(id: string): void {
+    if (selectedProjectId) {
+      void fetch(`/api/projects/${encodeURIComponent(selectedProjectId)}/terminal/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
+    }
+    setTerminalTabs((current) => {
+      const next = current.filter((tab) => tab.id !== id);
+      if (activeTerminalId === id) setActiveTerminalId(next[0]?.id ?? null);
+      if (next.length === 0) setTerminalDockOpen(false);
+      return next;
+    });
+  }
 
   async function loadApp(): Promise<void> {
     const restore = readWorkbenchRestoreParams();
@@ -1327,6 +1366,22 @@ export function App(): ReactElement {
             </section>
           </>
         )}
+        <TerminalDock
+          projectId={selectedProjectId}
+          open={terminalDockOpen}
+          height={terminalDockHeight}
+          tabs={terminalTabs}
+          activeTabId={activeTerminalId}
+          onOpen={() => setTerminalDockOpen(true)}
+          onCollapse={() => setTerminalDockOpen(false)}
+          onHeightChange={setTerminalDockHeight}
+          onNewTab={createTerminalTab}
+          onSelectTab={(id) => {
+            setActiveTerminalId(id);
+            setTerminalDockOpen(true);
+          }}
+          onCloseTab={closeTerminalTab}
+        />
       </main>
 
       <RightToolRailShell
@@ -1336,7 +1391,10 @@ export function App(): ReactElement {
         hasPrimary={Boolean(activeConfirmationQueue.primary)}
         onExpand={expandRightToolRail}
         onCollapse={() => setDecisionPaneCollapsed(true)}
-        onTabChange={setRightToolTab}
+        onTabChange={(tab) => {
+          setRightToolTab(tab);
+          if (tab === "terminal") openTerminalDock();
+        }}
         confirmPanel={
           <DecisionInspectorPane
             inspector={activeDecisionInspector}
@@ -1368,6 +1426,15 @@ export function App(): ReactElement {
               setCenterTab("gitDiff");
             }}
             onSelectedRefsChange={appendComposerFileRefs}
+          />
+        }
+        terminalPanel={
+          <TerminalRailPanel
+            projectId={selectedProjectId}
+            open={terminalDockOpen}
+            sessionCount={terminalTabs.length}
+            onOpen={openTerminalDock}
+            onNewTab={createTerminalTab}
           />
         }
       />

@@ -10,6 +10,7 @@ import { initHarness } from "../../src/harness/init.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { ProjectRegistryStore } from "../../src/registry/store.js";
 import { startLocalCommandRun } from "../../src/run/manager.js";
+import { TerminalRuntime } from "../../src/server/terminal/terminal-runtime.js";
 import { buildNativeFolderDialogCommand, executeWorkbenchAction, startWorkbenchServer, type WorkbenchServerHandle } from "../../src/server/workbench-server.js";
 import type { ManagedProject } from "../../src/types/index.js";
 
@@ -247,6 +248,82 @@ describe("workbench server", () => {
     );
     expect(unsafe.status).toBe("not-found");
     expect(unsafe.message).toContain("安全范围");
+  });
+
+  it("opens project-scoped terminal sessions through the TerminalRuntime owner", async () => {
+    const fakePty = new FakePty();
+    const terminalRuntime = new TerminalRuntime({
+      loadPty: async () => ({
+        spawn: (_shell: string, _args: string[], options: { cwd?: string; cols?: number; rows?: number }) => {
+          fakePty.cwd = options.cwd ?? "";
+          fakePty.cols = options.cols ?? 0;
+          fakePty.rows = options.rows ?? 0;
+          return fakePty;
+        },
+      }) as unknown as typeof import("node-pty"),
+    });
+    const appHandle = await startWorkbenchServer({ project: project(), path: tempDir }, { port: 0, staticRoot, terminalRuntime });
+    try {
+      const opened = await fetch(`${appHandle.url}/api/projects/repo/terminal/sessions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ terminalId: "term-1", cols: 90, rows: 30 }),
+      });
+      expect(opened.ok).toBe(true);
+      expect(fakePty.cwd).toBe(tempDir);
+      expect(fakePty.cols).toBe(90);
+      expect(fakePty.rows).toBe(30);
+
+      const received: string[] = [];
+      const unsubscribe = terminalRuntime.subscribe("repo", "term-1", (event) => {
+        if (event.type === "output") received.push(event.data);
+      });
+      fakePty.emitData("hello terminal");
+      unsubscribe();
+      expect(received).toEqual(["hello terminal"]);
+
+      const write = await fetch(`${appHandle.url}/api/projects/repo/terminal/sessions/term-1/write`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data: "pwd\r" }),
+      });
+      expect(write.ok).toBe(true);
+      expect(fakePty.writes).toContain("pwd\r");
+
+      const resized = await fetch(`${appHandle.url}/api/projects/repo/terminal/sessions/term-1/resize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cols: 120, rows: 40 }),
+      });
+      expect(resized.ok).toBe(true);
+      expect(fakePty.resizeCalls).toContainEqual({ cols: 120, rows: 40 });
+
+      const closed = await fetch(`${appHandle.url}/api/projects/repo/terminal/sessions/term-1`, { method: "DELETE" });
+      expect(closed.ok).toBe(true);
+      expect(fakePty.killed).toBe(true);
+    } finally {
+      await new Promise<void>((resolve) => appHandle.server.close(() => resolve()));
+    }
+  });
+
+  it("returns a readable degraded response when PTY is unavailable", async () => {
+    const terminalRuntime = new TerminalRuntime({
+      loadPty: async () => {
+        throw new Error("native module missing");
+      },
+    });
+    const appHandle = await startWorkbenchServer({ project: project(), path: tempDir }, { port: 0, staticRoot, terminalRuntime });
+    try {
+      const opened = await fetch(`${appHandle.url}/api/projects/repo/terminal/sessions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ terminalId: "term-missing" }),
+      });
+      expect(opened.status).toBe(503);
+      expect(await opened.text()).toContain("Terminal runtime is unavailable");
+    } finally {
+      await new Promise<void>((resolve) => appHandle.server.close(() => resolve()));
+    }
   });
 
   it("returns HTTP diagnostics for unsupported API and action requests", async () => {
@@ -599,6 +676,43 @@ async function getJson<T>(url: string): Promise<T> {
   const response = await fetch(url);
   expect(response.ok).toBe(true);
   return response.json() as Promise<T>;
+}
+
+class FakePty {
+  cwd = "";
+  cols = 0;
+  rows = 0;
+  writes: string[] = [];
+  resizeCalls: Array<{ cols: number; rows: number }> = [];
+  killed = false;
+  private dataListeners: Array<(data: string) => void> = [];
+  private exitListeners: Array<(event: { exitCode: number; signal?: number }) => void> = [];
+
+  onData(listener: (data: string) => void): { dispose: () => void } {
+    this.dataListeners.push(listener);
+    return { dispose: () => { this.dataListeners = this.dataListeners.filter((item) => item !== listener); } };
+  }
+
+  onExit(listener: (event: { exitCode: number; signal?: number }) => void): { dispose: () => void } {
+    this.exitListeners.push(listener);
+    return { dispose: () => { this.exitListeners = this.exitListeners.filter((item) => item !== listener); } };
+  }
+
+  write(data: string): void {
+    this.writes.push(data);
+  }
+
+  resize(cols: number, rows: number): void {
+    this.resizeCalls.push({ cols, rows });
+  }
+
+  kill(): void {
+    this.killed = true;
+  }
+
+  emitData(data: string): void {
+    for (const listener of this.dataListeners) listener(data);
+  }
 }
 
 async function runGit(...args: string[]): Promise<void> {

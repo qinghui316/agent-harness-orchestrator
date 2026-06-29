@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { ProjectRegistryStore } from "../registry/store.js";
 import type { WorkbenchProjectInput } from "../workbench/manager.js";
+import { TerminalRuntime } from "./terminal/terminal-runtime.js";
 import { handleApi } from "./workbench/api-router.js";
 import { restoreDirectProjectInput } from "./workbench/direct-project.js";
 import { sendJson, statusForError } from "./workbench/http.js";
@@ -16,12 +17,14 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
   const port = options.port ?? 4317;
   const staticRoot = options.staticRoot ?? defaultStaticRoot();
   const store = options.store ?? new ProjectRegistryStore();
-  const context: WorkbenchServerContext = { input: await restoreDirectProjectInput(input, store), staticRoot, store };
+  const terminalRuntime = options.terminalRuntime ?? new TerminalRuntime();
+  const context: WorkbenchServerContext = { input: await restoreDirectProjectInput(input, store), staticRoot, store, terminalRuntime };
   const server = createServer((request, response) => {
     handleRequest(context, request, response).catch((error: unknown) => {
       sendJson(response, statusForError(error), { error: error instanceof Error ? error.message : String(error) });
     });
   });
+  server.on("close", () => terminalRuntime.cleanup());
   await new Promise<void>((resolvePromise) => server.listen(port, host, resolvePromise));
   const address = server.address();
   const actualPort = typeof address === "object" && address ? address.port : port;

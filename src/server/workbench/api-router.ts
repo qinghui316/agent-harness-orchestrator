@@ -12,6 +12,7 @@ import { addSkillRoot, listSkillRoots, listSkills, refreshSkills, setSkillEnable
 import { addExistingProject, createNewProject, initProjectHarness, listProjectStatuses, removeRegisteredProject, trustCodexProjectForWorkbench } from "./project-admin.js";
 import { handleDirectWorkbenchApi } from "./direct-routes.js";
 import { handleProjectWorkbenchApi } from "./project-routes.js";
+import { handleTerminalApi } from "./terminal-routes.js";
 import { assertLocalWorkbenchRequest, assertRegisteredProject, readJsonBody, sendJson } from "./http.js";
 import type { AddExistingProjectRequest, CreateNewProjectRequest, InitProjectHarnessRequest, RemoveProjectRequest, TrustCodexProjectRequest, WorkbenchServerContext } from "./types.js";
 
@@ -26,6 +27,8 @@ export async function handleApi(context: WorkbenchServerContext, request: Incomi
     await handleProjectWorkbenchApi(input, request, response, projectWorkbench.rest, url);
     return;
   }
+
+  if (await handleTerminalApi(context, request, response, url)) return;
 
   if (request.method === "GET" && url.pathname === "/api/app/status") {
     sendJson(response, 200, { mode: context.input ? "project" : "app", directProjectId: context.input?.project?.id ?? null });
