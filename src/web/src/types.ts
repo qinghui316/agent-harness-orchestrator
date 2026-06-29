@@ -225,6 +225,66 @@ export type ProjectGitDiffResult = {
   deletions?: number;
   message?: string;
 };
+export type ProjectGitHistoryCommit = {
+  sha: string;
+  shortSha: string;
+  summary: string;
+  author: string;
+  authorEmail: string;
+  timestamp: string;
+  parents: string[];
+  refs: string[];
+  additions: number;
+  deletions: number;
+  changedFiles: number;
+};
+export type ProjectGitHistoryResult = {
+  status: "ok" | "not-git-repository" | "error";
+  branch: string | null;
+  head: string | null;
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+  commits: ProjectGitHistoryCommit[];
+  message?: string;
+};
+export type ProjectGitCommitFileChange = {
+  relativePath: string;
+  oldPath?: string | null;
+  name: string;
+  status: string;
+  additions: number;
+  deletions: number;
+  binary: boolean;
+};
+export type ProjectGitCommitDetailResult = {
+  status: "ok" | "not-found" | "not-git-repository" | "error";
+  sha: string;
+  shortSha?: string;
+  summary?: string;
+  message?: string;
+  author?: string;
+  authorEmail?: string;
+  committer?: string;
+  committerEmail?: string;
+  timestamp?: string;
+  parents?: string[];
+  refs?: string[];
+  files: ProjectGitCommitFileChange[];
+  totalAdditions?: number;
+  totalDeletions?: number;
+};
+export type ProjectGitCommitDiffResult = {
+  relativePath: string;
+  name: string;
+  status: "text" | "binary" | "too-large" | "not-found" | "not-git-repository" | "no-diff";
+  patch: string;
+  truncated: boolean;
+  additions?: number;
+  deletions?: number;
+  message?: string;
+};
 export type RuntimeDiagnosticStatus = "ok" | "warning" | "error" | "info";
 export type RuntimeDiagnosticItem = {
   id: string;

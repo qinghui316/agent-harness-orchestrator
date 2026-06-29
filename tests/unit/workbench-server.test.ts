@@ -249,6 +249,35 @@ describe("workbench server", () => {
     );
     expect(unsafe.status).toBe("not-found");
     expect(unsafe.message).toContain("安全范围");
+
+    const history = await getJson<{
+      status: string;
+      commits: Array<{ sha: string; shortSha: string; summary: string; additions: number; deletions: number }>;
+    }>(`${handle!.url}/api/projects/repo/git/history?limit=10&offset=0&query=baseline`);
+    expect(history.status).toBe("ok");
+    expect(history.commits[0]).toMatchObject({ summary: "baseline" });
+    expect(history.commits[0]?.additions).toBeGreaterThan(0);
+
+    const sha = history.commits[0]!.sha;
+    const detail = await getJson<{
+      status: string;
+      sha: string;
+      summary: string;
+      files: Array<{ relativePath: string; status: string; additions: number; deletions: number }>;
+    }>(`${handle!.url}/api/projects/repo/git/commit?sha=${encodeURIComponent(sha)}`);
+    expect(detail).toMatchObject({ status: "ok", sha, summary: "baseline" });
+    expect(detail.files).toContainEqual(expect.objectContaining({ relativePath: "src/pricing.ts", status: "A" }));
+
+    const commitDiff = await getJson<{ status: string; relativePath: string; patch: string; additions: number }>(
+      `${handle!.url}/api/projects/repo/git/commit-diff?sha=${encodeURIComponent(sha)}&path=src%2Fpricing.ts`,
+    );
+    expect(commitDiff).toMatchObject({ status: "text", relativePath: "src/pricing.ts" });
+    expect(commitDiff.patch).toContain("+export const price = 1;");
+
+    const badSha = await getJson<{ status: string; message: string }>(
+      `${handle!.url}/api/projects/repo/git/commit?sha=not-a-sha`,
+    );
+    expect(badSha.status).toBe("not-found");
   });
 
   it("opens project-scoped terminal sessions through the TerminalRuntime owner", async () => {

@@ -8,7 +8,7 @@ import { getRuntimeActivityLog } from "./runtime-activity-log.js";
 import { getCodexProviderRuntimeSummary } from "../../provider-runtime/index.js";
 import { listProjectFileChildren, readProjectFilePreview, searchProjectFiles } from "../../workbench/file-references.js";
 import { createTopicAttachment, deleteTopicAttachment } from "../../workbench/attachments.js";
-import { getProjectGitDiff, getProjectGitStatus } from "../../workbench/git-panel.js";
+import { getProjectGitCommitDetail, getProjectGitCommitDiff, getProjectGitDiff, getProjectGitHistory, getProjectGitStatus } from "../../workbench/git-panel.js";
 import { getCodexBridgeStatus, syncCodexBridge } from "../../codex/bridge.js";
 import { getCodexModelSettingsSnapshot, setSelectedCodexModel } from "../../codex/model-settings.js";
 import { addSkillRoot, listSkillRoots, listSkills, refreshSkills, setSkillEnabled, type SkillSourceKind } from "../../skill/catalog.js";
@@ -225,6 +225,40 @@ export async function handleApi(context: WorkbenchServerContext, request: Incomi
       return;
     }
     sendJson(response, 200, await getProjectGitDiff(input.project, url.searchParams.get("path") ?? ""));
+    return;
+  }
+  const gitHistoryMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/git\/history$/);
+  if (request.method === "GET" && gitHistoryMatch?.[1]) {
+    const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(gitHistoryMatch[1]));
+    if (!input.project) {
+      sendJson(response, 400, { error: "Project Git history requires a selected project." });
+      return;
+    }
+    sendJson(response, 200, await getProjectGitHistory(input.project, {
+      limit: Number.parseInt(url.searchParams.get("limit") ?? "", 10),
+      offset: Number.parseInt(url.searchParams.get("offset") ?? "", 10),
+      query: url.searchParams.get("query") ?? "",
+    }));
+    return;
+  }
+  const gitCommitMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/git\/commit$/);
+  if (request.method === "GET" && gitCommitMatch?.[1]) {
+    const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(gitCommitMatch[1]));
+    if (!input.project) {
+      sendJson(response, 400, { error: "Project Git commit requires a selected project." });
+      return;
+    }
+    sendJson(response, 200, await getProjectGitCommitDetail(input.project, url.searchParams.get("sha") ?? ""));
+    return;
+  }
+  const gitCommitDiffMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/git\/commit-diff$/);
+  if (request.method === "GET" && gitCommitDiffMatch?.[1]) {
+    const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(gitCommitDiffMatch[1]));
+    if (!input.project) {
+      sendJson(response, 400, { error: "Project Git commit diff requires a selected project." });
+      return;
+    }
+    sendJson(response, 200, await getProjectGitCommitDiff(input.project, url.searchParams.get("sha") ?? "", url.searchParams.get("path") ?? ""));
     return;
   }
   const skillRootsMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/skill-roots$/);

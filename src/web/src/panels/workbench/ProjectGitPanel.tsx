@@ -1,7 +1,7 @@
-import { ChevronDown, ChevronRight, FileText, Link2, RefreshCw } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronRight, FileText, GitCommit, Link2, RefreshCw, Search } from "lucide-react";
 import { useEffect, useMemo, useState, type MouseEvent, type PointerEvent, type ReactElement } from "react";
 import { fetchJson } from "../../api.js";
-import type { ProjectGitFileStatus, ProjectGitStatusResult, TopicFileReference } from "../../types.js";
+import type { ProjectGitCommitDetailResult, ProjectGitCommitDiffResult, ProjectGitCommitFileChange, ProjectGitFileStatus, ProjectGitHistoryCommit, ProjectGitHistoryResult, ProjectGitStatusResult, TopicFileReference } from "../../types.js";
 import { GitDiffViewer } from "./GitDiffViewer.js";
 
 export function ProjectGitPanel({
@@ -18,6 +18,19 @@ export function ProjectGitPanel({
   onSelectedRefsChange: (refs: TopicFileReference[]) => void;
 }): ReactElement {
   const [status, setStatus] = useState<ProjectGitStatusResult | null>(null);
+  const [railView, setRailView] = useState<"changes" | "history">("changes");
+  const [history, setHistory] = useState<ProjectGitHistoryResult | null>(null);
+  const [historyQuery, setHistoryQuery] = useState("");
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [selectedCommitSha, setSelectedCommitSha] = useState<string | null>(null);
+  const [commitDetail, setCommitDetail] = useState<ProjectGitCommitDetailResult | null>(null);
+  const [commitDetailLoading, setCommitDetailLoading] = useState(false);
+  const [commitDetailError, setCommitDetailError] = useState<string | null>(null);
+  const [selectedCommitFile, setSelectedCommitFile] = useState<ProjectGitCommitFileChange | null>(null);
+  const [commitDiff, setCommitDiff] = useState<ProjectGitCommitDiffResult | null>(null);
+  const [commitDiffLoading, setCommitDiffLoading] = useState(false);
+  const [commitDiffError, setCommitDiffError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<ProjectGitFileStatus["group"]>>(new Set());
@@ -32,6 +45,53 @@ export function ProjectGitPanel({
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadHistory(offset = 0): Promise<void> {
+    if (!projectId) return;
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const url = `/api/projects/${encodeURIComponent(projectId)}/git/history?limit=30&offset=${offset}&query=${encodeURIComponent(historyQuery.trim())}`;
+      const next = await fetchJson<ProjectGitHistoryResult>(url);
+      setHistory((current) => offset > 0 && current
+        ? { ...next, commits: [...current.commits, ...next.commits] }
+        : next);
+    } catch (err) {
+      setHistoryError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  async function loadCommitDetail(sha: string): Promise<void> {
+    if (!projectId) return;
+    setCommitDetailLoading(true);
+    setCommitDetailError(null);
+    setCommitDetail(null);
+    try {
+      setCommitDetail(await fetchJson<ProjectGitCommitDetailResult>(`/api/projects/${encodeURIComponent(projectId)}/git/commit?sha=${encodeURIComponent(sha)}`));
+    } catch (err) {
+      setCommitDetailError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCommitDetailLoading(false);
+    }
+  }
+
+  async function loadCommitDiff(sha: string, path: string): Promise<void> {
+    if (!projectId) return;
+    setCommitDiffLoading(true);
+    setCommitDiffError(null);
+    setCommitDiff(null);
+    try {
+      setCommitDiff(await fetchJson<ProjectGitCommitDiffResult>(
+        `/api/projects/${encodeURIComponent(projectId)}/git/commit-diff?sha=${encodeURIComponent(sha)}&path=${encodeURIComponent(path)}`,
+      ));
+    } catch (err) {
+      setCommitDiffError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCommitDiffLoading(false);
     }
   }
 
@@ -65,7 +125,21 @@ export function ProjectGitPanel({
 
   useEffect(() => {
     void loadStatus();
+    setSelectedCommitSha(null);
+    setSelectedCommitFile(null);
   }, [projectId]);
+
+  useEffect(() => {
+    if (railView === "history") void loadHistory(0);
+  }, [railView, projectId]);
+
+  useEffect(() => {
+    if (selectedCommitSha) void loadCommitDetail(selectedCommitSha);
+  }, [selectedCommitSha]);
+
+  useEffect(() => {
+    if (selectedCommitSha && selectedCommitFile) void loadCommitDiff(selectedCommitSha, selectedCommitFile.relativePath);
+  }, [selectedCommitSha, selectedCommitFile?.relativePath]);
 
   const dirtyCount = useMemo(() => (status?.staged.length ?? 0) + (status?.unstaged.length ?? 0) + (status?.untracked.length ?? 0), [status]);
   const hasChanges = Boolean(status && dirtyCount > 0);
@@ -94,6 +168,53 @@ export function ProjectGitPanel({
       onPointerDownCapture={handleGitRowPointerDown}
       onMouseDownCapture={handleGitRowMouseDown}
     >
+      <div className="project-git-subnav" aria-label="Git 子视图">
+        <button type="button" className={railView === "changes" ? "active" : ""} onClick={() => setRailView("changes")}>变更</button>
+        <button type="button" className={railView === "history" ? "active" : ""} onClick={() => setRailView("history")}>历史</button>
+      </div>
+      {railView === "history" ? (
+        <GitHistoryRail
+          history={history}
+          query={historyQuery}
+          loading={historyLoading}
+          error={historyError}
+          selectedCommitSha={selectedCommitSha}
+          detail={commitDetail}
+          detailLoading={commitDetailLoading}
+          detailError={commitDetailError}
+          selectedFile={selectedCommitFile}
+          diff={commitDiff}
+          diffLoading={commitDiffLoading}
+          diffError={commitDiffError}
+          onQueryChange={setHistoryQuery}
+          onSearch={() => {
+            setSelectedCommitSha(null);
+            setSelectedCommitFile(null);
+            void loadHistory(0);
+          }}
+          onRefresh={() => {
+            if (selectedCommitFile && selectedCommitSha) {
+              void loadCommitDiff(selectedCommitSha, selectedCommitFile.relativePath);
+            } else if (selectedCommitSha) {
+              void loadCommitDetail(selectedCommitSha);
+            } else {
+              void loadHistory(0);
+            }
+          }}
+          onLoadMore={() => void loadHistory(history?.commits.length ?? 0)}
+          onSelectCommit={(sha) => {
+            setSelectedCommitSha(sha);
+            setSelectedCommitFile(null);
+          }}
+          onBackToList={() => {
+            setSelectedCommitSha(null);
+            setSelectedCommitFile(null);
+          }}
+          onSelectFile={(file) => setSelectedCommitFile(file)}
+          onBackToDetail={() => setSelectedCommitFile(null)}
+        />
+      ) : (
+        <>
       <header className="project-git-header" data-testid="project-git-compact-header">
         <div className="project-git-header-copy">
           <div className="project-git-header-main">
@@ -153,7 +274,210 @@ export function ProjectGitPanel({
           <GitDiffViewer projectId={projectId} selectedPath={selectedPath} variant="rail" />
         </>
       ) : null}
+        </>
+      )}
     </section>
+  );
+}
+
+function GitHistoryRail({
+  history,
+  query,
+  loading,
+  error,
+  selectedCommitSha,
+  detail,
+  detailLoading,
+  detailError,
+  selectedFile,
+  diff,
+  diffLoading,
+  diffError,
+  onQueryChange,
+  onSearch,
+  onRefresh,
+  onLoadMore,
+  onSelectCommit,
+  onBackToList,
+  onSelectFile,
+  onBackToDetail,
+}: {
+  history: ProjectGitHistoryResult | null;
+  query: string;
+  loading: boolean;
+  error: string | null;
+  selectedCommitSha: string | null;
+  detail: ProjectGitCommitDetailResult | null;
+  detailLoading: boolean;
+  detailError: string | null;
+  selectedFile: ProjectGitCommitFileChange | null;
+  diff: ProjectGitCommitDiffResult | null;
+  diffLoading: boolean;
+  diffError: string | null;
+  onQueryChange: (value: string) => void;
+  onSearch: () => void;
+  onRefresh: () => void;
+  onLoadMore: () => void;
+  onSelectCommit: (sha: string) => void;
+  onBackToList: () => void;
+  onSelectFile: (file: ProjectGitCommitFileChange) => void;
+  onBackToDetail: () => void;
+}): ReactElement {
+  if (selectedCommitSha && selectedFile) {
+    return (
+      <section className="project-git-history-detail" data-testid="project-git-history-diff">
+        <RailBackHeader title={selectedFile.name} subtitle={selectedFile.relativePath} onBack={onBackToDetail} onRefresh={onRefresh} />
+        {diffError ? <div className="project-files-error">{diffError}</div> : null}
+        {diffLoading ? <div className="project-files-empty">正在读取历史 diff...</div> : null}
+        {!diffLoading && diff ? <CommitDiffPreview diff={diff} /> : null}
+      </section>
+    );
+  }
+  if (selectedCommitSha) {
+    return (
+      <section className="project-git-history-detail" data-testid="project-git-history-detail">
+        <RailBackHeader title={detail?.shortSha ?? selectedCommitSha.slice(0, 12)} subtitle={detail?.summary ?? "版本详情"} onBack={onBackToList} onRefresh={onRefresh} />
+        {detailError ? <div className="project-files-error">{detailError}</div> : null}
+        {detailLoading ? <div className="project-files-empty">正在读取版本详情...</div> : null}
+        {!detailLoading && detail?.status !== "ok" ? (
+          <div className="project-git-empty">{detail?.message ?? "无法读取版本详情。"}</div>
+        ) : null}
+        {!detailLoading && detail?.status === "ok" ? (
+          <>
+            <div className="project-git-commit-card">
+              <strong>{detail.summary || "(no message)"}</strong>
+              <div className="project-git-commit-meta">
+                <code>{detail.shortSha}</code>
+                <span>{detail.author || "unknown"}</span>
+                <time>{formatDate(detail.timestamp)}</time>
+                <span>+{detail.totalAdditions ?? 0} -{detail.totalDeletions ?? 0}</span>
+              </div>
+              {commitBody(detail.summary, detail.message) ? <pre>{commitBody(detail.summary, detail.message)}</pre> : null}
+            </div>
+            <div className="project-git-history-section-title">文件 {detail.files.length}</div>
+            <div className="project-git-history-file-list">
+              {detail.files.map((file) => (
+                <HistoryFileRow key={`${detail.sha}:${file.relativePath}`} file={file} onSelect={() => onSelectFile(file)} />
+              ))}
+            </div>
+          </>
+        ) : null}
+      </section>
+    );
+  }
+  return (
+    <section className="project-git-history" data-testid="project-git-history">
+      <header className="project-git-history-header">
+        <div className="project-git-header-copy">
+          <div className="project-git-header-main">
+            <strong>{history?.branch ?? "Git 历史"}</strong>
+            {history?.head ? <code>{history.head}</code> : null}
+          </div>
+          <div className="project-git-header-meta">
+            <span>{history?.status === "ok" ? `${history.total} 个版本` : "只读历史"}</span>
+          </div>
+        </div>
+        <button type="button" className="icon-button" aria-label="刷新历史" onClick={onRefresh}>
+          <RefreshCw size={15} aria-hidden="true" />
+        </button>
+      </header>
+      <form className="project-git-history-search" onSubmit={(event) => { event.preventDefault(); onSearch(); }}>
+        <Search size={13} aria-hidden="true" />
+        <input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="搜索历史" />
+      </form>
+      {error ? <div className="project-files-error">{error}</div> : null}
+      {loading ? <div className="project-files-empty">正在读取 Git 历史...</div> : null}
+      {!loading && history?.status !== "ok" ? (
+        <div className="project-git-empty">{history?.message ?? "无法读取 Git 历史。"}</div>
+      ) : null}
+      {!loading && history?.status === "ok" && history.commits.length === 0 ? (
+        <div className="project-git-empty compact">没有匹配的历史。</div>
+      ) : null}
+      <div className="project-git-commit-list">
+        {history?.commits.map((commit) => (
+          <HistoryCommitRow key={commit.sha} commit={commit} selected={selectedCommitSha === commit.sha} onSelect={() => onSelectCommit(commit.sha)} />
+        ))}
+      </div>
+      {history?.hasMore ? (
+        <button type="button" className="project-git-history-more" disabled={loading} onClick={onLoadMore}>
+          加载更多
+        </button>
+      ) : null}
+    </section>
+  );
+}
+
+function RailBackHeader({ title, subtitle, onBack, onRefresh }: { title: string; subtitle: string; onBack: () => void; onRefresh: () => void }): ReactElement {
+  return (
+    <header className="project-git-history-header">
+      <button type="button" className="icon-button" aria-label="返回 Git 历史" onClick={onBack}>
+        <ArrowLeft size={15} aria-hidden="true" />
+      </button>
+      <div className="project-git-header-copy">
+        <strong>{title}</strong>
+        <span>{subtitle}</span>
+      </div>
+      <button type="button" className="icon-button" aria-label="刷新历史详情" onClick={onRefresh}>
+        <RefreshCw size={15} aria-hidden="true" />
+      </button>
+    </header>
+  );
+}
+
+function HistoryCommitRow({ commit, selected, onSelect }: { commit: ProjectGitHistoryCommit; selected: boolean; onSelect: () => void }): ReactElement {
+  return (
+    <button type="button" className={`project-git-commit-row ${selected ? "selected" : ""}`} data-testid="project-git-history-row" aria-label={`打开版本 ${commit.shortSha}`} onClick={onSelect}>
+      <span className="project-git-commit-graph" aria-hidden="true"><GitCommit size={13} /></span>
+      <span className="project-git-commit-text">
+        <span className="project-git-commit-summary">{commit.summary}</span>
+        <span className="project-git-commit-meta">
+          <code>{commit.shortSha}</code>
+          <span>{commit.author || "unknown"}</span>
+          <time>{formatDate(commit.timestamp)}</time>
+        </span>
+      </span>
+      <span className="project-git-counts">+{commit.additions} -{commit.deletions}</span>
+    </button>
+  );
+}
+
+function HistoryFileRow({ file, onSelect }: { file: ProjectGitCommitFileChange; onSelect: () => void }): ReactElement {
+  const pathParts = splitPath(file.relativePath);
+  return (
+    <button type="button" className="project-git-history-file-row" aria-label={`查看 ${file.relativePath} 的历史 diff`} onClick={onSelect}>
+      <span className={`project-git-status ${statusClassFromSymbol(file.status)}`}>({file.status})</span>
+      <span className="project-git-file-icon" aria-hidden="true"><FileText size={14} /></span>
+      <span className="project-git-file-text">
+        <span className="project-git-file-name">{pathParts.name}</span>
+        {pathParts.dir ? <span className="project-git-file-dir">{pathParts.dir}</span> : null}
+      </span>
+      <span className="project-git-counts">+{file.additions} -{file.deletions}</span>
+    </button>
+  );
+}
+
+function CommitDiffPreview({ diff }: { diff: ProjectGitCommitDiffResult }): ReactElement {
+  if (diff.status !== "text" && diff.status !== "too-large") {
+    return (
+      <div className="git-diff-empty">
+        <strong>{diff.name}</strong>
+        <span>{diff.message ?? "此文件没有可显示的文本 diff。"}</span>
+      </div>
+    );
+  }
+  return (
+    <div className="git-diff-content project-git-history-diff-content">
+      {diff.message ? <div className="project-files-note">{diff.message}</div> : null}
+      <div className="git-diff-stats">+{diff.additions ?? 0} -{diff.deletions ?? 0}</div>
+      <section className="git-diff-section">
+        <h3>历史 diff{diff.truncated ? " · 已截断" : ""}</h3>
+        <pre>
+          {diff.patch.split(/\n/).map((line, index) => (
+            <span key={`history-diff:${index}`} className={diffLineClass(line)}>{line || " "}</span>
+          ))}
+        </pre>
+      </section>
+    </div>
   );
 }
 
@@ -276,4 +600,42 @@ function formatCounts(file: ProjectGitFileStatus): string | null {
   const deletions = file.deletions ?? 0;
   if (additions === 0 && deletions === 0) return null;
   return `+${additions} -${deletions}`;
+}
+
+function statusClassFromSymbol(symbol: string): string {
+  if (symbol === "A" || symbol === "?") return "added";
+  if (symbol === "D") return "deleted";
+  if (symbol === "R" || symbol === "C") return "renamed";
+  return "modified";
+}
+
+function formatDate(value: string | null | undefined): string {
+  if (!value) return "";
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) return value;
+  return new Intl.DateTimeFormat(undefined, {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(timestamp));
+}
+
+function commitBody(summary: string | null | undefined, message: string | null | undefined): string {
+  const normalized = (message ?? "").trim();
+  if (!normalized) return "";
+  const lines = normalized.split(/\r?\n/);
+  if (summary && lines[0]?.trim() === summary.trim()) {
+    return lines.slice(1).join("\n").trim();
+  }
+  return normalized;
+}
+
+function diffLineClass(line: string): string {
+  if (line.startsWith("+++") || line.startsWith("---")) return "diff-line meta";
+  if (line.startsWith("@@")) return "diff-line hunk";
+  if (line.startsWith("+")) return "diff-line addition";
+  if (line.startsWith("-")) return "diff-line deletion";
+  if (line.startsWith("diff --git") || line.startsWith("index ")) return "diff-line meta";
+  return "diff-line context";
 }

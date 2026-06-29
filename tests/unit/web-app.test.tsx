@@ -2036,6 +2036,61 @@ describe("Workbench web app", () => {
           deletions: 1,
         });
       }
+      if (url.startsWith("/api/projects/repo/git/history?")) {
+        return jsonResponse({
+          status: "ok",
+          branch: "main",
+          head: "abc1234",
+          total: 1,
+          hasMore: false,
+          limit: 30,
+          offset: 0,
+          query: "",
+          commits: [{
+            sha: "abc1234def5678",
+            shortSha: "abc1234",
+            summary: "baseline pricing",
+            message: "baseline pricing",
+            author: "AHO Test",
+            authorEmail: "aho@example.test",
+            timestamp: "2026-06-29T00:00:00.000Z",
+            additions: 1,
+            deletions: 0,
+            fileCount: 1,
+            parents: [],
+            refs: [],
+          }],
+        });
+      }
+      if (url === "/api/projects/repo/git/commit?sha=abc1234def5678") {
+        return jsonResponse({
+          status: "ok",
+          sha: "abc1234def5678",
+          shortSha: "abc1234",
+          summary: "baseline pricing",
+          message: "baseline pricing\n\nInitial project price.",
+          author: "AHO Test",
+          authorEmail: "aho@example.test",
+          timestamp: "2026-06-29T00:00:00.000Z",
+          parents: [],
+          refs: [],
+          files: [{ relativePath: "src/pricing.ts", name: "pricing.ts", status: "A", additions: 1, deletions: 0 }],
+          totalAdditions: 1,
+          totalDeletions: 0,
+        });
+      }
+      if (url === "/api/projects/repo/git/commit-diff?sha=abc1234def5678&path=src%2Fpricing.ts") {
+        return jsonResponse({
+          status: "text",
+          sha: "abc1234def5678",
+          relativePath: "src/pricing.ts",
+          name: "pricing.ts",
+          patch: "diff --git a/src/pricing.ts b/src/pricing.ts\n@@ -0,0 +1 @@\n+export const price = 1;",
+          truncated: false,
+          additions: 1,
+          deletions: 0,
+        });
+      }
       if (url === "/api/projects/repo/terminal/sessions") {
         return jsonResponse({ session: { projectId: "repo", terminalId: "terminal-test", cwd: "E:/repo", shell: "cmd.exe" } });
       }
@@ -2150,6 +2205,22 @@ describe("Workbench web app", () => {
     expect(within(diffViewer).queryByText(/stage/)).toBeNull();
     expectNoForbiddenToolControls(gitPanel);
     expect(screen.getByTestId("main-conversation-view")).toBeTruthy();
+
+    fireEvent.click(within(gitPanel).getByRole("button", { name: "历史" }));
+    const historyRail = await within(gitPanel).findByTestId("project-git-history");
+    expect(within(historyRail).getByText("baseline pricing")).toBeTruthy();
+    fireEvent.click(within(historyRail).getByTestId("project-git-history-row"));
+    const detail = await within(gitPanel).findByTestId("project-git-history-detail");
+    expect(within(detail).getByText("Initial project price.")).toBeTruthy();
+    fireEvent.click(within(detail).getByRole("button", { name: /src\/pricing\.ts/ }));
+    const historyDiff = await within(gitPanel).findByTestId("project-git-history-diff");
+    await waitFor(() => expect(within(historyDiff).getByText("+export const price = 1;")).toBeTruthy());
+    expect(screen.queryByRole("tab", { name: "Git History" })).toBeNull();
+    expect(screen.queryByRole("tab", { name: "Git Diff" })).toBeNull();
+    expect(screen.getByTestId("main-conversation-view")).toBeTruthy();
+    expectNoForbiddenToolControls(gitPanel);
+
+    fireEvent.click(within(gitPanel).getByRole("button", { name: "变更" }));
     fireEvent.click(within(gitPanel).getByLabelText("引用 src/staged.ts 到输入框"));
     await waitFor(() => expect(document.querySelectorAll(".file-selected-chip").length).toBeGreaterThan(0));
     expect(screen.getAllByText("staged.ts").length).toBeGreaterThan(1);

@@ -4,8 +4,11 @@
 
 - Current date: 2026-06-29.
 - Active ECL change: none.
-- Pending Harness evolution: none.
+- Pending Harness evolution:
+  `harness/evolution/pending.md`.
 - Latest archived product change:
+  `harness/changes/archive/20260629-workbench-reference-style-readonly-git-history-rail-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260629-workbench-right-rail-git-diagnostics-reference-polish-v2/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260629-workbench-reference-style-compact-git-diagnostics-rail-v1/summary.md`.
@@ -78,6 +81,16 @@
 
 ## Latest Product Closeout
 
+`harness/changes/archive/20260629-workbench-reference-style-readonly-git-history-rail-v1/summary.md`.
+
+It adds a reference-style read-only Git history flow inside the right `Git`
+rail. The rail now keeps `变更` for current branch/dirty status and adds
+`历史` for compact commit list, commit detail, and selected file diff preview.
+All history/detail/diff content remains in the right rail; the center
+workspace is not hijacked. Real in-app browser screenshots are archived under
+`harness/changes/archive/20260629-workbench-reference-style-readonly-git-history-rail-v1/evidence/screenshots/`.
+
+Previous closeout:
 `harness/changes/archive/20260629-workbench-right-rail-git-diagnostics-reference-polish-v2/summary.md`.
 
 It makes the right-rail `Git` and `诊断` surfaces compact and
