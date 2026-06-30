@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   getWorkbenchSnapshot: vi.fn(),
   assertGoalLoopAssistedConcreteGateConfirmation: vi.fn(),
   listAuditResults: vi.fn(),
+  assessMainAgentActionBridge: vi.fn(),
 }));
 
 vi.mock("../../src/workbench/manager.js", () => ({
@@ -26,6 +27,10 @@ vi.mock("../../src/audit/artifacts.js", () => ({
   listAuditResults: mocks.listAuditResults,
 }));
 
+vi.mock("../../src/main-agent-orchestration/index.js", () => ({
+  assessMainAgentActionBridge: mocks.assessMainAgentActionBridge,
+}));
+
 import { assertCurrentWorkflowAction } from "../../src/server/workbench/action-revalidation.js";
 
 function assertCurrent(input: Parameters<typeof assertCurrentWorkflowAction>[0], body: Parameters<typeof assertCurrentWorkflowAction>[1]): ReturnType<typeof assertCurrentWorkflowAction> {
@@ -37,6 +42,91 @@ describe("Workbench action revalidation", () => {
     mocks.getWorkbenchSnapshot.mockReset();
     mocks.assertGoalLoopAssistedConcreteGateConfirmation.mockReset();
     mocks.listAuditResults.mockReset();
+    mocks.assessMainAgentActionBridge.mockReset();
+    mocks.assessMainAgentActionBridge.mockResolvedValue({
+      status: "ready",
+      authority: "non-executing-main-agent-action-bridge-assessment",
+      executionStarted: false,
+    });
+  });
+
+  it("runs main-agent bridge validation before non-revalidated workflow actions when evidence ids are explicit", async () => {
+    const visibleAction = {
+      kind: "workflow-action",
+      actionType: "result.refresh-status",
+      changeId: "change-1",
+      worktreeId: "wt-1",
+      enabled: true,
+    };
+    mocks.getWorkbenchSnapshot.mockResolvedValue({
+      center: {
+        workpad: {
+          nextAction: visibleAction,
+        },
+      },
+      right: {
+        confirmationQueue: {
+          primary: null,
+          current: [],
+          otherDemands: [],
+        },
+      },
+    });
+
+    await expect(assertCurrent({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, {
+      actionType: "result.refresh-status",
+      changeId: "change-1",
+      worktreeId: "wt-1",
+      mainAgentLoopRunId: "loop-1",
+      mainAgentNextStepEvidenceId: "decision-1",
+    })).resolves.toBeUndefined();
+    expect(mocks.assessMainAgentActionBridge).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: "repo",
+      changeId: "change-1",
+      loopRunId: "loop-1",
+      evidenceId: "decision-1",
+      gate: expect.objectContaining({
+        kind: "workflow-action",
+        actionType: "result.refresh-status",
+        enabled: true,
+      }),
+    }));
+  });
+
+  it("rejects explicit main-agent bridge requests when assessment is not ready", async () => {
+    mocks.assessMainAgentActionBridge.mockResolvedValueOnce({
+      status: "target-mismatch",
+      authority: "non-executing-main-agent-action-bridge-assessment",
+      executionStarted: false,
+    });
+    mocks.getWorkbenchSnapshot.mockResolvedValue({
+      center: {
+        workpad: {
+          nextAction: {
+            kind: "workflow-action",
+            actionType: "result.refresh-status",
+            changeId: "change-1",
+            worktreeId: "wt-1",
+            enabled: true,
+          },
+        },
+      },
+      right: {
+        confirmationQueue: {
+          primary: null,
+          current: [],
+          otherDemands: [],
+        },
+      },
+    });
+
+    await expect(assertCurrent({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, {
+      actionType: "result.refresh-status",
+      changeId: "change-1",
+      worktreeId: "wt-1",
+      mainAgentLoopRunId: "loop-1",
+      mainAgentNextStepEvidenceId: "decision-1",
+    })).rejects.toThrow("stale or no longer available");
   });
 
   it("rejects Goal Loop-assisted concrete gate payloads when the matched visible gate is disabled", async () => {

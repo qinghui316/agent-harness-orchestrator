@@ -154,6 +154,7 @@ import {
   mainAgentLoopRunPath,
 } from "../../src/main-agent-orchestration/loop-evidence.js";
 import {
+  assessMainAgentActionBridge,
   mainAgentLoopEventsPath,
   mainAgentNextStepDecisionsPath,
   readMainAgentNextStepEvidence,
@@ -163,6 +164,7 @@ import {
   runMainAgentSourceRefreshRework,
   runMainAgentTaskRunAttempt,
 } from "../../src/main-agent-orchestration/index.js";
+import { recordMainAgentNextStepEvidence } from "../../src/main-agent-orchestration/next-step-evidence.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import {
   runAuditorLeafStage,
@@ -225,11 +227,203 @@ describe("main-agent step loop contract", () => {
       "validator",
       "auditor-agent",
     ]);
+    const completedDecision = decisions.at(-1);
+    expect(completedDecision?.decision.kind).toBe("completed");
+    expect(completedDecision?.gateIntent).toBe("result-handoff");
+    expect(completedDecision?.targetRefs).toMatchObject({
+      worktreeIds: ["code-worktree"],
+      runIds: ["code"],
+      validationIds: ["validation"],
+      auditIds: ["audit"],
+    });
     expect(decisions.every((decision) => decision.authority === "non-executing-main-agent-next-step-evidence")).toBe(true);
     expect(decisions.every((decision) => decision.executionStarted === false)).toBe(true);
     expect(decisionEvents.map((event) => event.decisionEvidenceId)).toEqual(decisions.map((decision) => decision.id));
     expect(JSON.stringify([...events, ...decisions])).not.toContain("Check chat-only");
     expect(JSON.stringify([...events, ...decisions])).not.toContain("stdout");
+  });
+
+  it("assesses result-handoff evidence against the current visible gate without executing it", async () => {
+    const result = await runMainAgentOrchestration({
+      project,
+      changeId: "change-bridge",
+    });
+    const memory = await resolveProjectMemory(project);
+    const decisions = await readMainAgentNextStepEvidence(memory, result.attempts[0]!.result.loopRunId!);
+    const completedDecision = decisions.at(-1)!;
+
+    const auditGate = await assessMainAgentActionBridge({
+      memory,
+      projectId: project.id,
+      changeId: "change-bridge",
+      loopRunId: completedDecision.loopRunId,
+      evidenceId: completedDecision.id,
+      gate: {
+        kind: "approval-action",
+        actionId: "audit.accept",
+        changeId: "change-bridge",
+        enabled: true,
+        targetId: "audit",
+      },
+    });
+    expect(auditGate).toMatchObject({
+      authority: "non-executing-main-agent-action-bridge-assessment",
+      executionStarted: false,
+      status: "ready",
+      matchedGateKind: "approval-action",
+      matchedAction: "audit.accept",
+    });
+
+    const applyGate = await assessMainAgentActionBridge({
+      memory,
+      projectId: project.id,
+      changeId: "change-bridge",
+      loopRunId: completedDecision.loopRunId,
+      evidenceId: completedDecision.id,
+      gate: {
+        kind: "approval-action",
+        actionId: "result.apply",
+        changeId: "change-bridge",
+        enabled: true,
+        targetId: "code-worktree",
+      },
+    });
+    expect(applyGate.status).toBe("ready");
+
+    const landingGate = await assessMainAgentActionBridge({
+      memory,
+      projectId: project.id,
+      changeId: "change-bridge",
+      loopRunId: completedDecision.loopRunId,
+      evidenceId: completedDecision.id,
+      gate: {
+        kind: "workflow-action",
+        actionType: "landing.prepare",
+        changeId: "change-bridge",
+        enabled: true,
+        scope: { actionType: "landing.prepare", worktreeId: "code-worktree" },
+      },
+    });
+    expect(landingGate.status).toBe("ready");
+
+    const mismatch = await assessMainAgentActionBridge({
+      memory,
+      projectId: project.id,
+      changeId: "change-bridge",
+      loopRunId: completedDecision.loopRunId,
+      evidenceId: completedDecision.id,
+      gate: {
+        kind: "approval-action",
+        actionId: "result.apply",
+        changeId: "change-bridge",
+        enabled: true,
+        targetId: "other-worktree",
+      },
+    });
+    expect(mismatch.status).toBe("target-mismatch");
+  });
+
+  it("does not bridge delegate, failed, stale, disabled, or remote gates", async () => {
+    controls.validatorOutcomes = ["failed"];
+    const result = await runMainAgentTaskRunAttempt({
+      project,
+      changeId: "change-bridge-fail-closed",
+      taskIds: ["task-1"],
+      taskRunId: "task-run-1",
+    });
+    const memory = await resolveProjectMemory(project);
+    const decisions = await readMainAgentNextStepEvidence(memory, result.loopRunId!);
+    const failedDecision = decisions.at(-1)!;
+    const delegateLoop = await ensureMainAgentLoopRun(memory, {
+      loopRunId: "manual-delegate-loop",
+      changeId: "change-bridge-fail-closed",
+      projectId: project.id,
+      entrypoint: "task-run",
+    });
+    const delegateDecision = await recordMainAgentNextStepEvidence(memory, delegateLoop.run, {
+      stepIndex: 0,
+      entrypoint: "task-run",
+      observation: {
+        summary: "Manual delegate observation.",
+        totalSteps: 0,
+        completedSteps: 0,
+        failedSteps: 0,
+        latestRoleId: null,
+        latestStatus: null,
+      },
+      decision: {
+        kind: "delegate-role",
+        roleId: "coder-agent",
+        attemptKind: "initial",
+        inputArtifacts: [],
+        reason: "Delegate coder leaf.",
+        nextRecommendation: "Run coder leaf only.",
+      },
+    });
+
+    const delegateBridge = await assessMainAgentActionBridge({
+      memory,
+      projectId: project.id,
+      changeId: "change-bridge-fail-closed",
+      loopRunId: delegateDecision.loopRunId,
+      evidenceId: delegateDecision.id,
+      gate: {
+        kind: "approval-action",
+        actionId: "result.apply",
+        changeId: "change-bridge-fail-closed",
+        enabled: true,
+        targetId: "code-worktree",
+      },
+    });
+    expect(delegateBridge.status).toBe("unsupported");
+
+    const failedBridge = await assessMainAgentActionBridge({
+      memory,
+      projectId: project.id,
+      changeId: "change-bridge-fail-closed",
+      loopRunId: failedDecision.loopRunId,
+      evidenceId: failedDecision.id,
+      gate: {
+        kind: "approval-action",
+        actionId: "result.apply",
+        changeId: "change-bridge-fail-closed",
+        enabled: true,
+        targetId: "code-worktree",
+      },
+    });
+    expect(failedBridge.status).toBe("unsupported");
+
+    const disabledBridge = await assessMainAgentActionBridge({
+      memory,
+      projectId: project.id,
+      changeId: "change-bridge-fail-closed",
+      loopRunId: failedDecision.loopRunId,
+      evidenceId: failedDecision.id,
+      gate: {
+        kind: "approval-action",
+        actionId: "result.apply",
+        changeId: "change-bridge-fail-closed",
+        enabled: false,
+        targetId: "code-worktree",
+      },
+    });
+    expect(disabledBridge.status).toBe("blocked");
+
+    const remoteBridge = await assessMainAgentActionBridge({
+      memory,
+      projectId: project.id,
+      changeId: "change-bridge-fail-closed",
+      loopRunId: failedDecision.loopRunId,
+      evidenceId: failedDecision.id,
+      gate: {
+        kind: "workflow-action",
+        actionType: "remote-landing.merge",
+        changeId: "change-bridge-fail-closed",
+        enabled: true,
+        scope: { actionType: "remote-landing.merge", remoteLandingResultId: "remote-1" },
+      },
+    });
+    expect(remoteBridge.status).toBe("unsupported");
   });
 
   it("keeps TaskRun entrypoints single-attempt when validation fails", async () => {

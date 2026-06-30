@@ -16,6 +16,20 @@ export interface MainAgentNextStepEvidenceRefs {
   auditIds: string[];
 }
 
+export type MainAgentNextStepGateIntent =
+  | "delegate-leaf"
+  | "result-handoff"
+  | "none";
+
+export interface MainAgentNextStepTargetRefs {
+  worktreeIds: string[];
+  runIds: string[];
+  validationIds: string[];
+  auditIds: string[];
+  applyCheckIds: string[];
+  landingPackageIds: string[];
+}
+
 export interface MainAgentNextStepObservationSummary {
   summary: string;
   totalSteps: number;
@@ -46,6 +60,8 @@ export interface MainAgentNextStepEvidence {
     reason: string;
     nextRecommendation: string;
   };
+  gateIntent?: MainAgentNextStepGateIntent;
+  targetRefs?: MainAgentNextStepTargetRefs;
   artifactRefs: string[];
   refs: MainAgentNextStepEvidenceRefs;
 }
@@ -55,6 +71,8 @@ export interface RecordMainAgentNextStepEvidenceInput {
   entrypoint: MainAgentLoopEntrypoint;
   observation: MainAgentNextStepObservationSummary;
   decision: MainAgentOrchestrationDecision;
+  gateIntent?: MainAgentNextStepGateIntent;
+  targetRefs?: Partial<MainAgentNextStepTargetRefs>;
   artifactRefs?: string[];
   refs?: Partial<MainAgentNextStepEvidenceRefs>;
 }
@@ -64,6 +82,15 @@ const refsSchema = z.object({
   runIds: z.array(z.string()),
   validationIds: z.array(z.string()),
   auditIds: z.array(z.string()),
+});
+
+const targetRefsSchema = z.object({
+  worktreeIds: z.array(z.string()),
+  runIds: z.array(z.string()),
+  validationIds: z.array(z.string()),
+  auditIds: z.array(z.string()),
+  applyCheckIds: z.array(z.string()),
+  landingPackageIds: z.array(z.string()),
 });
 
 const observationSchema = z.object({
@@ -96,6 +123,8 @@ const mainAgentNextStepEvidenceSchema = z.object({
     reason: z.string(),
     nextRecommendation: z.string(),
   }),
+  gateIntent: z.enum(["delegate-leaf", "result-handoff", "none"]).optional(),
+  targetRefs: targetRefsSchema.optional(),
   artifactRefs: z.array(z.string()),
   refs: refsSchema,
 });
@@ -136,6 +165,8 @@ export async function recordMainAgentNextStepEvidence(
       latestStatus: input.observation.latestStatus,
     },
     decision: normalizeDecision(input.decision),
+    gateIntent: input.gateIntent ?? gateIntentForDecision(input.decision),
+    targetRefs: normalizeTargetRefs(input.targetRefs),
     artifactRefs: dedupeStrings(input.artifactRefs ?? []),
     refs: {
       agentTaskIds: dedupeStrings(input.refs?.agentTaskIds ?? []),
@@ -198,6 +229,23 @@ function normalizeDecision(decision: MainAgentOrchestrationDecision): MainAgentN
     stoppedAt: decision.stoppedAt,
     reason: truncate(decision.reason),
     nextRecommendation: truncate(decision.nextRecommendation),
+  };
+}
+
+function gateIntentForDecision(decision: MainAgentOrchestrationDecision): MainAgentNextStepGateIntent {
+  if (decision.kind === "delegate-role") return "delegate-leaf";
+  if (decision.kind === "completed") return "result-handoff";
+  return "none";
+}
+
+function normalizeTargetRefs(refs: Partial<MainAgentNextStepTargetRefs> | undefined): MainAgentNextStepTargetRefs {
+  return {
+    worktreeIds: dedupeStrings(refs?.worktreeIds ?? []),
+    runIds: dedupeStrings(refs?.runIds ?? []),
+    validationIds: dedupeStrings(refs?.validationIds ?? []),
+    auditIds: dedupeStrings(refs?.auditIds ?? []),
+    applyCheckIds: dedupeStrings(refs?.applyCheckIds ?? []),
+    landingPackageIds: dedupeStrings(refs?.landingPackageIds ?? []),
   };
 }
 

@@ -2,8 +2,10 @@ import { recordToolEventAuditEntry } from "../../agent-task/boundary-audit.js";
 import { applyMaintenanceCanonicalPatchApplicationManifest, maintenanceCanonicalPatchApplicationGateArtifactRef, maintenanceCanonicalPatchApplicationResultArtifactRef, maintenanceCanonicalUpdateDecisionArtifactRef, recordDemandMemoryCloseout, recordMaintenanceLedgerEntry, recordMaintenanceCanonicalPatchApplicationGate, recordMaintenanceCanonicalUpdateDecision, runMaintenanceCandidatePipeline } from "../../agent-task/manager.js";
 import { evaluateToolPolicy } from "../../agent-task/tool-policy.js";
 import { abandonChangeForChange } from "../../change/manager.js";
+import { assessMainAgentActionBridge, type MainAgentActionBridgeGate } from "../../main-agent-orchestration/index.js";
 import { resolveProjectMemory } from "../../memory/resolver.js";
 import type { ManagedProject } from "../../types/index.js";
+import type { WorkbenchApprovalAction, WorkbenchConfirmationQueueItem, WorkbenchDecisionAction } from "../../workbench/read-model-types.js";
 import { recordWorkbenchDecision, runWorkbenchWorkflowAction } from "../../workbench/chat.js";
 import { getWorkbenchSnapshot, type WorkbenchProjectInput } from "../../workbench/manager.js";
 import { workflowActionScopePayload, workflowActionTargetId } from "../../workflow-actions/registry.js";
@@ -404,6 +406,7 @@ async function executeApprovalOrFeedbackAction(input: WorkbenchProjectInput & { 
     error.name = "Conflict";
     throw error;
   }
+  await assertMainAgentApprovalBridge(input, body, action);
   const result = await runAllowlistedAction(input.project, action, body.options);
   await recordWorkbenchDecision(input.project, {
     id: `approval:${action.actionId}:${action.args.join(":")}`,
@@ -440,6 +443,109 @@ type FeedbackSnapshot = {
     };
   };
 };
+
+type ApprovalBridgeSnapshot = {
+  right?: {
+    confirmationQueue?: {
+      primary?: WorkbenchConfirmationQueueItem | null;
+      current?: WorkbenchConfirmationQueueItem[];
+      otherDemands?: WorkbenchConfirmationQueueItem[];
+      maintenance?: WorkbenchConfirmationQueueItem[];
+    };
+  };
+};
+
+async function assertMainAgentApprovalBridge(
+  input: WorkbenchProjectInput & { project: ManagedProject },
+  body: WorkbenchActionRequest,
+  action: WorkbenchApprovalAction,
+): Promise<void> {
+  if (!body.mainAgentLoopRunId && !body.mainAgentNextStepEvidenceId) return;
+  if (!body.mainAgentLoopRunId || !body.mainAgentNextStepEvidenceId) {
+    throwStaleMainAgentBridgeTarget();
+  }
+  const snapshot = await getWorkbenchSnapshot(input, { topicId: body.changeId ?? body.feedbackContext?.changeId }) as ApprovalBridgeSnapshot;
+  const gate = findVisibleApprovalActionBridgeGate(snapshot, action);
+  const changeId = gate?.changeId ?? body.changeId ?? body.feedbackContext?.changeId ?? null;
+  if (!changeId) {
+    throwStaleMainAgentBridgeTarget();
+  }
+  const memory = await resolveProjectMemory(input.project);
+  const assessment = await assessMainAgentActionBridge({
+    memory,
+    projectId: input.project.id,
+    changeId,
+    loopRunId: body.mainAgentLoopRunId,
+    evidenceId: body.mainAgentNextStepEvidenceId,
+    gate,
+  });
+  if (assessment.status !== "ready") {
+    throwStaleMainAgentBridgeTarget();
+  }
+}
+
+function findVisibleApprovalActionBridgeGate(snapshot: ApprovalBridgeSnapshot, requestAction: WorkbenchApprovalAction): MainAgentActionBridgeGate | null {
+  for (const item of confirmationQueueItems(snapshot)) {
+    for (const action of item.actions) {
+      if (action.kind !== "approval" || !action.action || action.action.actionId !== requestAction.actionId) continue;
+      if (!stringArraysEqual(action.action.args, requestAction.args)) continue;
+      return {
+        kind: "approval-action",
+        actionId: action.action.actionId,
+        changeId: stringOrUndefined(action.changeId ?? item.changeId ?? changeIdFromApprovalAction(requestAction)),
+        enabled: action.enabled,
+        targetId: stringOrUndefined(approvalActionTargetId(requestAction, item, action)),
+        runId: action.runId ?? item.runId,
+        artifact: action.artifact ?? item.evidenceRefs[0],
+        args: action.action.args,
+      };
+    }
+  }
+  return null;
+}
+
+function confirmationQueueItems(snapshot: ApprovalBridgeSnapshot): WorkbenchConfirmationQueueItem[] {
+  const queue = snapshot.right?.confirmationQueue;
+  return [
+    queue?.primary ?? null,
+    ...(queue?.current ?? []),
+    ...(queue?.otherDemands ?? []),
+    ...(queue?.maintenance ?? []),
+  ].filter((item): item is WorkbenchConfirmationQueueItem => Boolean(item));
+}
+
+function approvalActionTargetId(
+  requestAction: WorkbenchApprovalAction,
+  item: WorkbenchConfirmationQueueItem,
+  action: WorkbenchDecisionAction,
+): string | null {
+  if (requestAction.actionId === "audit.accept") return requestAction.args[2] ?? item.auditRunId ?? item.runId ?? null;
+  if (requestAction.actionId === "result.apply") {
+    const worktreeId = requestAction.args.length >= 4 ? requestAction.args[3] : requestAction.args[2];
+    return worktreeId ?? action.worktreeId ?? item.worktreeId ?? item.resultId ?? null;
+  }
+  if (requestAction.actionId === "change.close") return requestAction.args[2] ?? action.changeId ?? item.changeId ?? null;
+  return item.resultId ?? item.worktreeId ?? action.changeId ?? item.changeId ?? null;
+}
+
+function changeIdFromApprovalAction(action: WorkbenchApprovalAction): string | null {
+  if (action.actionId === "change.close") return action.args[2] ?? null;
+  return null;
+}
+
+function stringArraysEqual(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function stringOrUndefined(value: string | null | undefined): string | undefined {
+  return value ?? undefined;
+}
+
+function throwStaleMainAgentBridgeTarget(): never {
+  const error = new Error("Main-agent decision evidence is stale or does not match the current gate.");
+  error.name = "Conflict";
+  throw error;
+}
 
 async function resolveWorkbenchFeedbackRoute(input: WorkbenchProjectInput & { project: ManagedProject }, body: WorkbenchActionRequest): Promise<FeedbackRoute> {
   const feedback = body.feedback?.trim();

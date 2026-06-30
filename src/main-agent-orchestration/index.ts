@@ -1,9 +1,14 @@
 export {
+  assessMainAgentActionBridge,
+  type MainAgentActionBridgeAssessment,
+  type MainAgentActionBridgeGate,
+} from "./action-bridge.js";
+export {
   runMainAgentOrchestration,
   runMainAgentFeedbackRework,
   runMainAgentSourceRefreshRework,
   runMainAgentTaskRunAttempt,
-  type CodeValidateAuditAttemptResult,
+  type MainAgentLeafAttemptResult,
   type MainAgentOrchestrationAttempt,
   type MainAgentOrchestrationResult,
 } from "./runner.js";

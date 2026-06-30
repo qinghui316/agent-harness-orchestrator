@@ -8,6 +8,7 @@ import { revalidatedWorkflowActionSet, workflowActionScopesMatchStrict } from ".
 import { CONTROLLED_SCHEDULER_STEP_ACTION_TYPE, buildControlledSchedulerStepRequest } from "../../workflow-scheduler/controlled-step.js";
 import { assertGoalLoopAssistedConcreteGateConfirmation } from "./goal-loop-gate-confirmation.js";
 import type { WorkbenchWorkflowActionRequest } from "../types.js";
+import { assessMainAgentActionBridge, type MainAgentActionBridgeGate } from "../../main-agent-orchestration/index.js";
 
 const REVALIDATED_WORKFLOW_ACTION_IDS = revalidatedWorkflowActionSet();
 
@@ -66,8 +67,24 @@ export interface CurrentWorkflowActionDeps {
 }
 
 export async function assertCurrentWorkflowAction(input: CurrentWorkflowActionInput, body: CurrentWorkflowActionRequest, deps: CurrentWorkflowActionDeps): Promise<void> {
+  let preloadedSnapshot: CurrentWorkflowActionSnapshot | undefined;
+  if (body.mainAgentLoopRunId || body.mainAgentNextStepEvidenceId) {
+    if (!input.project || !body.changeId || !body.actionType || !body.mainAgentLoopRunId || !body.mainAgentNextStepEvidenceId) throwStaleWorkflowTarget();
+    preloadedSnapshot = await deps.getWorkbenchSnapshot(input, { topicId: body.changeId }) as CurrentWorkflowActionSnapshot;
+    const gate = findVisibleWorkflowActionBridgeGate(preloadedSnapshot, body);
+    const memory = await resolveProjectMemory(input.project);
+    const assessment = await assessMainAgentActionBridge({
+      memory,
+      projectId: input.project.id,
+      changeId: body.changeId,
+      loopRunId: body.mainAgentLoopRunId,
+      evidenceId: body.mainAgentNextStepEvidenceId,
+      gate,
+    });
+    if (assessment.status !== "ready") throwStaleWorkflowTarget();
+  }
   if (!body.actionType || !REVALIDATED_WORKFLOW_ACTION_IDS.has(body.actionType)) return;
-  const snapshot = await deps.getWorkbenchSnapshot(input, { topicId: body.changeId }) as CurrentWorkflowActionSnapshot;
+  const snapshot = preloadedSnapshot ?? await deps.getWorkbenchSnapshot(input, { topicId: body.changeId }) as CurrentWorkflowActionSnapshot;
   if (body.actionType === "planning.goal-loop.feedback.evaluate") {
     const goalLoop = snapshot.center.workpad.goalLoop;
     const nextAction = snapshot.center.workpad.nextAction;
@@ -307,6 +324,33 @@ export async function assertCurrentWorkflowAction(input: CurrentWorkflowActionIn
       throw error;
     }
   }
+}
+
+function findVisibleWorkflowActionBridgeGate(snapshot: CurrentWorkflowActionSnapshot, body: CurrentWorkflowActionRequest): MainAgentActionBridgeGate | null {
+  if (!body.actionType) return null;
+  const queue = snapshot.right.confirmationQueue;
+  const queueActions = [queue.primary, ...queue.current, ...queue.otherDemands, ...(queue.maintenance ?? [])]
+    .filter((item): item is NonNullable<typeof item> => Boolean(item))
+    .flatMap((item) => item.actions);
+  const nextAction = snapshot.center.workpad.nextAction;
+  const taskQueueNextAction = snapshot.center.workpad.taskQueue?.nextAction;
+  const actions = [
+    ...queueActions,
+    ...(nextAction.kind === "workflow-action" && nextAction.actionType ? [nextAction] : []),
+    ...(taskQueueNextAction?.actionType ? [{ ...taskQueueNextAction, kind: "workflow-action" as const, changeId: body.changeId }] : []),
+  ];
+  const match = actions.find((action) => action.kind === "workflow-action"
+    && action.actionType === body.actionType
+    && (!action.changeId || action.changeId === body.changeId)
+    && workflowActionScopesMatchStrict(action, body));
+  if (!match || !match.actionType) return null;
+  return {
+    kind: "workflow-action",
+    actionType: match.actionType,
+    changeId: typeof match.changeId === "string" ? match.changeId : body.changeId,
+    enabled: match.enabled,
+    scope: match,
+  };
 }
 
 export async function assertCurrentAutomationApprovalAction(

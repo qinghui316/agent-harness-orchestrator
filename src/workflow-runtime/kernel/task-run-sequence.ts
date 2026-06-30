@@ -8,7 +8,7 @@ import { emitAssistantEvent } from "./live-events.js";
 import { isRecord, isTaskRunLike, requireSingleTaskId, requireTaskRunId } from "./runtime-guards.js";
 import { runMainAgentTaskRunAttempt } from "../../main-agent-orchestration/index.js";
 
-export async function runTaskRunCodeValidateAuditSequence(
+export async function runTaskRunMainAgentAttempt(
   project: ManagedProject,
   changeId: string,
   request: WorkbenchWorkflowActionRequest,

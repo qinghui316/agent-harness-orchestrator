@@ -125,7 +125,7 @@ import {
   requireSingleTaskId,
   requireTaskRunId,
   runTaskQueueSequence,
-  runTaskRunCodeValidateAuditSequence,
+  runTaskRunMainAgentAttempt,
   sourceRefreshReworkPrompt,
 } from "../../src/workflow-runtime/code-workflow.js";
 import {
@@ -486,7 +486,7 @@ describe("Workbench module boundaries", () => {
     expect(typeof startOrResumeWorkflowTaskQueue).toBe("function");
     expect(typeof validateWorkflowTaskQueueProposalStart).toBe("function");
     expect(typeof runTaskQueueSequence).toBe("function");
-    expect(typeof runTaskRunCodeValidateAuditSequence).toBe("function");
+    expect(typeof runTaskRunMainAgentAttempt).toBe("function");
     expect(typeof runMainAgentTaskRunAttempt).toBe("function");
     expect(typeof runMainAgentSourceRefreshRework).toBe("function");
     expect(typeof runMainAgentFeedbackRework).toBe("function");
@@ -2180,8 +2180,9 @@ describe("Workbench module boundaries", () => {
   it("keeps workflow runtime code-workflow as a narrow runtime facade", () => {
     const facade = readFileSync("src/workflow-runtime/code-workflow.ts", "utf8");
     expect(facade).toContain('export { sourceRefreshReworkPrompt } from "./kernel/bounded-rework.js";');
-    expect(facade).toContain('export { runTaskRunCodeValidateAuditSequence } from "./kernel/task-run-sequence.js";');
+    expect(facade).toContain('export { runTaskRunMainAgentAttempt } from "./kernel/task-run-sequence.js";');
     expect(facade).toContain('export { runTaskQueueSequence } from "./kernel/task-queue-runner.js";');
+    expect(facade).not.toContain("runTaskRunCodeValidateAuditSequence");
     expect(facade).not.toContain("runCodeValidateAuditSequence");
     expect(facade).not.toContain("role-stage-runner");
     expect(facade).not.toMatch(/startCodeRun\(/);

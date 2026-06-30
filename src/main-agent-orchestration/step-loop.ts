@@ -18,6 +18,7 @@ import {
 import {
   recordMainAgentNextStepEvidence,
   type MainAgentNextStepObservationSummary,
+  type MainAgentNextStepTargetRefs,
 } from "./next-step-evidence.js";
 import {
   runAuditorLeafStage,
@@ -40,8 +41,6 @@ export interface MainAgentLeafAttemptResult {
   orchestration: MainAgentOrchestrationState;
   loopRunId?: string;
 }
-
-export type CodeValidateAuditAttemptResult = MainAgentLeafAttemptResult;
 
 export interface MainAgentObservation {
   orchestration: MainAgentOrchestrationState;
@@ -146,6 +145,7 @@ export async function runMainAgentStepLoop(input: RunMainAgentStepLoopInput): Pr
   for (let i = 0; i < 8; i += 1) {
     const observationArtifactRefs = collectObservationArtifactRefs(observation);
     const observationRefs = collectObservationRefs(observation);
+    const observationTargetRefs = collectObservationTargetRefs(observation);
     await appendMainAgentLoopEvent(memory, loopRun, {
       type: "observation.recorded",
       stepIndex: i,
@@ -163,6 +163,7 @@ export async function runMainAgentStepLoop(input: RunMainAgentStepLoopInput): Pr
       decision,
       artifactRefs: observationArtifactRefs,
       refs: observationRefs,
+      targetRefs: observationTargetRefs,
     });
     await appendMainAgentLoopEvent(memory, loopRun, {
       type: "decision.recorded",
@@ -541,6 +542,20 @@ function collectObservationRefs(observation: MainAgentObservation): {
       stringValue(readNested(observation.latestAudit, "audit", "id")),
       stringValue(readNested(observation.latestAudit, "id")),
     ]),
+  };
+}
+
+function collectObservationTargetRefs(observation: MainAgentObservation): MainAgentNextStepTargetRefs {
+  const refs = collectObservationRefs(observation);
+  return {
+    worktreeIds: dedupeStrings([
+      stringValue(observation.latestCode?.run.worktree?.worktreeId),
+    ]),
+    runIds: refs.runIds,
+    validationIds: refs.validationIds,
+    auditIds: refs.auditIds,
+    applyCheckIds: [],
+    landingPackageIds: [],
   };
 }
 

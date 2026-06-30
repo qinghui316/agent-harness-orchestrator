@@ -233,6 +233,8 @@ export interface WorkbenchWorkflowActionRequest {
   goalLoopControllerPolicyId?: string;
   goalLoopGateReadinessPreflightId?: string;
   goalLoopCurrentGateActionType?: WorkbenchWorkflowActionType;
+  mainAgentLoopRunId?: string;
+  mainAgentNextStepEvidenceId?: string;
   goalLoopRuntimeAuthorizationId?: string;
   goalLoopRuntimeRunId?: string;
   automationMode?: "request-approval" | "full-access";

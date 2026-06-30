@@ -11,13 +11,13 @@ import { emitAssistantEvent } from "../workflow-runtime/kernel/live-events.js";
 import type { CodeExecutionGateOptions } from "../code/manager.js";
 import { resolveProjectMemory } from "../memory/resolver.js";
 import { createMainAgentLoopRunId, finishMainAgentLoopRun } from "./loop-evidence.js";
-import { runMainAgentStepLoop, type CodeValidateAuditAttemptResult } from "./step-loop.js";
+import { runMainAgentStepLoop, type MainAgentLeafAttemptResult } from "./step-loop.js";
 
-export type { CodeValidateAuditAttemptResult } from "./step-loop.js";
+export type { MainAgentLeafAttemptResult } from "./step-loop.js";
 
 export interface MainAgentOrchestrationAttempt {
   kind: "initial" | "automatic-rework";
-  result: CodeValidateAuditAttemptResult;
+  result: MainAgentLeafAttemptResult;
 }
 
 export interface MainAgentOrchestrationResult {
@@ -131,7 +131,7 @@ export async function runMainAgentTaskRunAttempt(input: {
   taskIds?: string[];
   taskRunId?: string;
   executionGate?: CodeExecutionGateOptions;
-}): Promise<CodeValidateAuditAttemptResult> {
+}): Promise<MainAgentLeafAttemptResult> {
   return runMainAgentStepLoop({
     project: input.project,
     changeId: input.changeId,
@@ -150,7 +150,7 @@ export async function runMainAgentSourceRefreshRework(input: {
   changeId: string;
   prompt?: string;
   live?: WorkbenchLiveSink;
-}): Promise<CodeValidateAuditAttemptResult> {
+}): Promise<MainAgentLeafAttemptResult> {
   return runMainAgentStepLoop({
     project: input.project,
     changeId: input.changeId,
@@ -166,7 +166,7 @@ export async function runMainAgentFeedbackRework(input: {
   changeId: string;
   prompt?: string;
   live?: WorkbenchLiveSink;
-}): Promise<CodeValidateAuditAttemptResult> {
+}): Promise<MainAgentLeafAttemptResult> {
   return runMainAgentStepLoop({
     project: input.project,
     changeId: input.changeId,
