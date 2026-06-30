@@ -227,11 +227,33 @@ describe("Workbench module boundaries", () => {
 
     const runner = readFileSync(join(process.cwd(), "src/main-agent-orchestration/runner.ts"), "utf8");
     expect(runner).toContain("decideNextMainAgentOrchestration");
+    expect(runner).toContain("runMainAgentStepLoop");
+    expect(runner).not.toContain("runCodeValidateAuditAttempt");
     expect(runner).not.toContain("../workbench/actions/");
     expect(runner).not.toContain("../scheduler-runtime/");
+    expect(runner).not.toContain("../task-queue/");
+    expect(runner).not.toContain("../workflow-run/");
     expect(runner).not.toContain("../apply/");
     expect(runner).not.toContain("../terminal");
     expect(runner).not.toContain("SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES");
+
+    const stepLoop = readFileSync(join(process.cwd(), "src/main-agent-orchestration/step-loop.ts"), "utf8");
+    expect(stepLoop).toContain("runMainAgentLeafStep");
+    expect(stepLoop).toContain("observeOrchestrationState");
+    expect(stepLoop).toContain("recordOrchestrationStepResult");
+    expect(stepLoop).toContain("decideNextMainAgentOrchestration");
+    expect(stepLoop).not.toContain("../workbench/actions/");
+    expect(stepLoop).not.toContain("../scheduler-runtime/");
+    expect(stepLoop).not.toContain("../task-queue/");
+    expect(stepLoop).not.toContain("../workflow-run/");
+    expect(stepLoop).not.toContain("../apply/");
+    expect(stepLoop).not.toContain("../terminal");
+    expect(stepLoop).not.toContain("SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES");
+    const leafStepSource = stepLoop.slice(
+      stepLoop.indexOf("export async function runMainAgentLeafStep"),
+      stepLoop.indexOf("function synthesizeInitialDecision"),
+    );
+    expect(leafStepSource).not.toContain("decideNextMainAgentOrchestration");
   });
 
   it("keeps legacy facades available while exposing split modules", () => {

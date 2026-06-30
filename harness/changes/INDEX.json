@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-30T09:34:53.1175998Z",
+    "generated_at":  "2026-06-30T10:38:26.2897014Z",
     "active":  [
 
                ],
@@ -2245,6 +2245,10 @@
                     {
                         "name":  "20260630-main-agent-orchestration-old-pipeline-removal-v1",
                         "path":  "harness/changes/archive/20260630-main-agent-orchestration-old-pipeline-removal-v1"
+                    },
+                    {
+                        "name":  "20260630-main-agent-orchestration-step-loop-contract-v1",
+                        "path":  "harness/changes/archive/20260630-main-agent-orchestration-step-loop-contract-v1"
                     },
                     {
                         "name":  "20260630-main-agent-projection-de-expose-safety-fix-v2",

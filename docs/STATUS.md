@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260630-main-agent-orchestration-step-loop-contract-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260630-main-agent-orchestration-legacy-facade-retirement-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260630-main-agent-orchestration-old-pipeline-removal-v1/summary.md`.

@@ -1,0 +1,18 @@
+﻿{
+    "version":  "1.0",
+    "generatedAt":  "2026-06-30T10:19:27.2567172Z",
+    "changeId":  "main-agent-orchestration-step-loop-contract-v1",
+    "acceptanceCriteria":  [
+
+                           ],
+    "tasks":  [
+
+              ],
+    "warnings":  [
+                     "Run product planning or update ac-map.json before using AC-gated readiness."
+                 ],
+    "blockingIssues":  [
+                           "ac-map.json was backfilled without parsed acceptance criteria."
+                       ]
+}
+

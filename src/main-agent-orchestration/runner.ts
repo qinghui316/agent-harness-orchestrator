@@ -5,31 +5,13 @@ import {
   type MainAgentOrchestrationRole,
   type MainAgentOrchestrationState,
 } from "../agent-task/orchestration-engine.js";
-import { resolveProjectMemory } from "../memory/resolver.js";
 import type { ManagedProject } from "../types/index.js";
 import type { WorkbenchLiveSink } from "../workbench/types.js";
 import { emitAssistantEvent } from "../workflow-runtime/kernel/live-events.js";
 import type { CodeExecutionGateOptions } from "../code/manager.js";
-import {
-  runAuditorLeafStage,
-  runCoderLeafStage,
-  runReworkCoderLeafStage,
-  runValidatorLeafStage,
-  type AuditLeafRun,
-  type CodeLeafRun,
-  type ValidationLeafRun,
-} from "./leaf-stages.js";
+import { runMainAgentStepLoop, type CodeValidateAuditAttemptResult } from "./step-loop.js";
 
-export interface CodeValidateAuditAttemptResult {
-  code?: CodeLeafRun;
-  validation?: ValidationLeafRun;
-  audit?: AuditLeafRun;
-  status?: "failed" | "needs-user-input";
-  error?: string;
-  stoppedAt: "boundary" | "code" | "validation" | "audit" | null;
-  boundaryAudit?: unknown;
-  orchestration: MainAgentOrchestrationState;
-}
+export type { CodeValidateAuditAttemptResult } from "./step-loop.js";
 
 export interface MainAgentOrchestrationAttempt {
   kind: "initial" | "automatic-rework";
@@ -64,12 +46,13 @@ export async function runMainAgentOrchestration(input: {
   let orchestration = createMainAgentOrchestrationState({ changeId: input.changeId });
   const firstDecision = decideNextMainAgentOrchestration(orchestration);
   assertDelegateDecision(firstDecision, "coder-agent");
-  const first = await runCodeValidateAuditAttempt({
+  const first = await runMainAgentStepLoop({
     project: input.project,
     changeId: input.changeId,
     prompt: input.prompt,
     live: input.live,
     taskIds: input.taskIds,
+    entrypoint: "top-level",
     initialRole: firstDecision.roleId,
     orchestrationState: orchestration,
     initialDecision: firstDecision,
@@ -101,11 +84,12 @@ export async function runMainAgentOrchestration(input: {
     "Do not change canonical planning artifacts.",
     input.prompt ?? "",
   ].join("\n\n");
-  const second = await runCodeValidateAuditAttempt({
+  const second = await runMainAgentStepLoop({
     project: input.project,
     changeId: input.changeId,
     prompt: reworkPrompt,
     live: input.live,
+    entrypoint: "top-level",
     initialRole: next.roleId,
     orchestrationState: orchestration,
     initialDecision: next,
@@ -139,13 +123,14 @@ export async function runMainAgentTaskRunAttempt(input: {
   taskRunId?: string;
   executionGate?: CodeExecutionGateOptions;
 }): Promise<CodeValidateAuditAttemptResult> {
-  return runCodeValidateAuditAttempt({
+  return runMainAgentStepLoop({
     project: input.project,
     changeId: input.changeId,
     prompt: input.prompt,
     live: input.live,
     taskIds: input.taskIds,
     taskRunId: input.taskRunId,
+    entrypoint: "task-run",
     initialRole: "coder-agent",
     executionGate: input.executionGate,
   });
@@ -157,7 +142,14 @@ export async function runMainAgentSourceRefreshRework(input: {
   prompt?: string;
   live?: WorkbenchLiveSink;
 }): Promise<CodeValidateAuditAttemptResult> {
-  return runMainAgentReworkAttempt(input);
+  return runMainAgentStepLoop({
+    project: input.project,
+    changeId: input.changeId,
+    prompt: input.prompt,
+    live: input.live,
+    entrypoint: "source-refresh-rework",
+    initialRole: "rework-coder",
+  });
 }
 
 export async function runMainAgentFeedbackRework(input: {
@@ -166,152 +158,14 @@ export async function runMainAgentFeedbackRework(input: {
   prompt?: string;
   live?: WorkbenchLiveSink;
 }): Promise<CodeValidateAuditAttemptResult> {
-  return runMainAgentReworkAttempt(input);
-}
-
-function runMainAgentReworkAttempt(input: {
-  project: ManagedProject;
-  changeId: string;
-  prompt?: string;
-  live?: WorkbenchLiveSink;
-}): Promise<CodeValidateAuditAttemptResult> {
-  return runCodeValidateAuditAttempt({
+  return runMainAgentStepLoop({
     project: input.project,
     changeId: input.changeId,
     prompt: input.prompt,
     live: input.live,
+    entrypoint: "feedback-rework",
     initialRole: "rework-coder",
   });
-}
-
-async function runCodeValidateAuditAttempt(input: {
-  project: ManagedProject;
-  changeId: string;
-  prompt?: string;
-  live?: WorkbenchLiveSink;
-  taskIds?: string[];
-  taskRunId?: string;
-  initialRole?: string;
-  orchestrationState?: MainAgentOrchestrationState;
-  initialDecision?: Extract<MainAgentOrchestrationDecision, { kind: "delegate-role" }>;
-  executionGate?: CodeExecutionGateOptions;
-}): Promise<CodeValidateAuditAttemptResult> {
-  const memory = await resolveProjectMemory(input.project);
-  let orchestration = input.orchestrationState ?? createMainAgentOrchestrationState({ changeId: input.changeId });
-  let decision = input.initialDecision ?? synthesizeInitialDecision(input.initialRole, orchestration, input.taskRunId);
-  let code: CodeLeafRun | undefined;
-  let validation: ValidationLeafRun | undefined;
-  let audit: AuditLeafRun | undefined;
-
-  for (let i = 0; i < 8; i += 1) {
-    if (decision.kind === "completed") {
-      return { code, validation, audit, stoppedAt: null, orchestration };
-    }
-    if (decision.kind === "failed") {
-      return { code, validation, audit, status: "failed", stoppedAt: decision.stoppedAt, orchestration };
-    }
-    if (decision.kind === "needs-user-input") {
-      return { code, validation, audit, status: "needs-user-input", stoppedAt: decision.stoppedAt, orchestration };
-    }
-
-    if (decision.roleId === "coder-agent" || decision.roleId === "rework-coder") {
-      const coder = decision.roleId === "rework-coder"
-        ? await runReworkCoderLeafStage({
-            project: input.project,
-            memory,
-            changeId: input.changeId,
-            prompt: input.prompt,
-            live: input.live,
-            taskIds: input.taskIds,
-            taskRunId: input.taskRunId,
-            orchestration,
-            decision,
-            executionGate: input.executionGate,
-          })
-        : await runCoderLeafStage({
-            project: input.project,
-            memory,
-            changeId: input.changeId,
-            prompt: input.prompt,
-            live: input.live,
-            taskIds: input.taskIds,
-            taskRunId: input.taskRunId,
-            roleId: "coder-agent",
-            orchestration,
-            decision,
-            executionGate: input.executionGate,
-          });
-      orchestration = coder.orchestration;
-      code = coder.code;
-      if (coder.status === "failed") {
-        return { code, stoppedAt: coder.stoppedAt ?? "code", status: coder.error ? "failed" : undefined, error: coder.error, boundaryAudit: coder.boundaryAudit, orchestration };
-      }
-      decision = decideNextMainAgentOrchestration(orchestration);
-      continue;
-    }
-
-    if (decision.roleId === "validator") {
-      if (!code?.run.worktree?.worktreeId) {
-        return { code, status: "needs-user-input", stoppedAt: "code", error: "Validator requires a completed coder worktree.", orchestration };
-      }
-      const validator = await runValidatorLeafStage({
-        project: input.project,
-        memory,
-        changeId: input.changeId,
-        live: input.live,
-        orchestration,
-        decision: decision as Extract<MainAgentOrchestrationDecision, { kind: "delegate-role" }> & { roleId: "validator" },
-        code,
-      });
-      orchestration = validator.orchestration;
-      validation = validator.validation;
-      if (validator.status === "failed") {
-        return { code, validation, stoppedAt: "validation", status: validator.error ? "failed" : undefined, error: validator.error, orchestration };
-      }
-      decision = decideNextMainAgentOrchestration(orchestration);
-      continue;
-    }
-
-    if (decision.roleId === "auditor-agent") {
-      if (!code?.run.worktree?.worktreeId || !validation) {
-        return { code, validation, status: "needs-user-input", stoppedAt: "validation", error: "Auditor requires completed code and validation evidence.", orchestration };
-      }
-      const auditor = await runAuditorLeafStage({
-        project: input.project,
-        memory,
-        changeId: input.changeId,
-        live: input.live,
-        orchestration,
-        decision: decision as Extract<MainAgentOrchestrationDecision, { kind: "delegate-role" }> & { roleId: "auditor-agent" },
-        code,
-        validation,
-      });
-      orchestration = auditor.orchestration;
-      audit = auditor.audit;
-      return { code, validation, audit, stoppedAt: auditor.status === "completed" ? null : "audit", orchestration };
-    }
-  }
-
-  return { code, validation, audit, status: "needs-user-input", stoppedAt: "audit", error: "Main-agent orchestration exceeded the V1 safety iteration limit.", orchestration };
-}
-
-function synthesizeInitialDecision(
-  roleId: string | undefined,
-  state: MainAgentOrchestrationState,
-  taskRunId: string | undefined,
-): MainAgentOrchestrationDecision {
-  if (roleId === "rework-coder") {
-    return {
-      kind: "delegate-role",
-      roleId: "rework-coder",
-      goal: "Repair implementation from validation or audit evidence.",
-      inputArtifacts: taskRunId ? [taskRunId] : [],
-      reason: "Legacy rework path requested a bounded rework coder run.",
-      attemptKind: "rework",
-      nextRecommendation: "Run rework-coder, then re-run independent validation and audit.",
-    };
-  }
-  return decideNextMainAgentOrchestration(state);
 }
 
 function assertDelegateDecision(decision: MainAgentOrchestrationDecision, roleId: MainAgentOrchestrationRole): asserts decision is Extract<MainAgentOrchestrationDecision, { kind: "delegate-role" }> {
