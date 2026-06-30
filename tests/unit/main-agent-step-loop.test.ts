@@ -7,7 +7,7 @@ import {
   type MainAgentOrchestrationDecision,
   type MainAgentOrchestrationState,
 } from "../../src/agent-task/orchestration-engine.js";
-import type { ManagedProject } from "../../src/types/index.js";
+import type { ManagedProject, TaskRun, WorkerLease } from "../../src/types/index.js";
 
 type MockLeafInput = {
   orchestration: MainAgentOrchestrationState;
@@ -18,6 +18,7 @@ const controls = vi.hoisted(() => ({
   validatorOutcomes: [] as Array<"completed" | "failed">,
   auditorOutcomes: [] as Array<"completed" | "failed">,
   memoryRoot: "",
+  taskRuns: new Map<string, TaskRun>(),
 }));
 
 vi.mock("../../src/memory/resolver.js", () => ({
@@ -149,6 +150,77 @@ vi.mock("../../src/main-agent-orchestration/leaf-stages.js", () => {
   };
 });
 
+vi.mock("../../src/task-run/manager.js", () => ({
+  markTaskRunStarted: vi.fn(async (_memory: unknown, taskRunId: string) => {
+    const taskRun = controls.taskRuns.get(taskRunId);
+    if (!taskRun) throw new Error(`TaskRun not found: ${taskRunId}`);
+    const started: TaskRun = {
+      ...taskRun,
+      status: "running",
+      startedAt: taskRun.startedAt ?? "2026-06-30T00:00:00.000Z",
+      updatedAt: "2026-06-30T00:00:00.000Z",
+    };
+    controls.taskRuns.set(taskRunId, started);
+    return started;
+  }),
+  finishTaskRunFromWorkflowResult: vi.fn(async (_memory: unknown, taskRunId: string, workflow: unknown) => {
+    const taskRun = controls.taskRuns.get(taskRunId);
+    if (!taskRun) throw new Error(`TaskRun not found: ${taskRunId}`);
+    const result = workflow as {
+      stoppedAt?: "code" | "validation" | "audit";
+      code?: { run?: { id?: string; worktree?: { worktreeId?: string } } };
+    };
+    const finished: TaskRun = {
+      ...taskRun,
+      status: result.stoppedAt ? "blocked" : "completed",
+      runId: result.code?.run?.id,
+      worktreeId: result.code?.run?.worktree?.worktreeId,
+      blockedReason: result.stoppedAt ? `${result.stoppedAt} stopped.` : undefined,
+      finishedAt: "2026-06-30T00:00:00.000Z",
+      updatedAt: "2026-06-30T00:00:00.000Z",
+    };
+    controls.taskRuns.set(taskRunId, finished);
+    return finished;
+  }),
+  retryTaskRun: vi.fn(async (_project: ManagedProject, options: { taskRunId: string; roleId?: string }) => {
+    const previous = controls.taskRuns.get(options.taskRunId);
+    if (!previous) throw new Error(`TaskRun not found: ${options.taskRunId}`);
+    const retry: TaskRun = {
+      ...previous,
+      id: `${previous.id}-retry-${previous.attempt}`,
+      roleId: options.roleId ?? previous.roleId,
+      attempt: previous.attempt + 1,
+      status: "claimed",
+      startedAt: null,
+      finishedAt: null,
+      runId: undefined,
+      worktreeId: undefined,
+      blockedReason: undefined,
+      failureReason: undefined,
+      leaseId: `${previous.id}-retry-${previous.attempt}-lease`,
+      createdAt: "2026-06-30T00:00:00.000Z",
+      updatedAt: "2026-06-30T00:00:00.000Z",
+    };
+    controls.taskRuns.set(retry.id, retry);
+    const lease: WorkerLease = {
+      version: "1.0",
+      id: retry.leaseId!,
+      projectId: retry.projectId,
+      changeId: retry.changeId,
+      taskRunId: retry.id,
+      taskId: retry.taskId,
+      roleId: retry.roleId,
+      workerId: "worker",
+      status: "claimed",
+      claimedAt: "2026-06-30T00:00:00.000Z",
+      updatedAt: "2026-06-30T00:00:00.000Z",
+      releasedAt: null,
+      expiresAt: "2026-06-30T01:00:00.000Z",
+    };
+    return { taskRun: retry, lease };
+  }),
+}));
+
 import {
   ensureMainAgentLoopRun,
   mainAgentLoopRunPath,
@@ -162,6 +234,7 @@ import {
   readMainAgentLoopRun,
   runMainAgentOrchestration,
   runMainAgentSourceRefreshRework,
+  runMainAgentTaskRunLifecycle,
   runMainAgentTaskRunAttempt,
 } from "../../src/main-agent-orchestration/index.js";
 import { recordMainAgentNextStepEvidence } from "../../src/main-agent-orchestration/next-step-evidence.js";
@@ -181,11 +254,49 @@ const project: ManagedProject = {
   lastSeenAt: "2026-06-30T00:00:00.000Z",
 };
 
+function taskRun(overrides: Partial<TaskRun> = {}): TaskRun {
+  return {
+    version: "1.0",
+    id: "task-run-1",
+    projectId: project.id,
+    changeId: "change-taskrun-lifecycle",
+    taskId: "task-1",
+    roleId: "coder",
+    attempt: 1,
+    status: "claimed",
+    createdAt: "2026-06-30T00:00:00.000Z",
+    updatedAt: "2026-06-30T00:00:00.000Z",
+    startedAt: null,
+    finishedAt: null,
+    leaseId: "lease-1",
+    ...overrides,
+  };
+}
+
+function workerLease(taskRunId = "task-run-1"): WorkerLease {
+  return {
+    version: "1.0",
+    id: "lease-1",
+    projectId: project.id,
+    changeId: "change-taskrun-lifecycle",
+    taskRunId,
+    taskId: "task-1",
+    roleId: "coder",
+    workerId: "worker",
+    status: "claimed",
+    claimedAt: "2026-06-30T00:00:00.000Z",
+    updatedAt: "2026-06-30T00:00:00.000Z",
+    releasedAt: null,
+    expiresAt: "2026-06-30T01:00:00.000Z",
+  };
+}
+
 describe("main-agent step loop contract", () => {
   beforeEach(async () => {
     controls.validatorOutcomes = [];
     controls.auditorOutcomes = [];
     controls.memoryRoot = await mkdtemp(join(tmpdir(), "aho-main-agent-loop-"));
+    controls.taskRuns.clear();
     vi.clearAllMocks();
   });
 
@@ -448,6 +559,76 @@ describe("main-agent step loop contract", () => {
     expect(events.filter((event) => event.roleId === "rework-coder")).toHaveLength(0);
     expect(decisions.filter((decision) => decision.decision.roleId === "rework-coder")).toHaveLength(0);
     expect(events.some((event) => event.type === "loop.stopped")).toBe(true);
+  });
+
+  it("lets the main-agent TaskRun lifecycle own one bounded rework retry", async () => {
+    controls.validatorOutcomes = ["failed", "completed"];
+    const initialTaskRun = taskRun();
+    controls.taskRuns.set(initialTaskRun.id, initialTaskRun);
+    const retryHandoffs: string[] = [];
+
+    const result = await runMainAgentTaskRunLifecycle({
+      project,
+      started: { taskRun: initialTaskRun, lease: workerLease() },
+      prompt: "Implement the queued task.",
+      onRetryTaskRunStarted: async (started) => {
+        retryHandoffs.push(started.taskRun.id);
+      },
+    });
+
+    expect(runCoderLeafStage).toHaveBeenCalledTimes(1);
+    expect(runReworkCoderLeafStage).toHaveBeenCalledTimes(1);
+    expect(runValidatorLeafStage).toHaveBeenCalledTimes(2);
+    expect(runAuditorLeafStage).toHaveBeenCalledTimes(1);
+    expect(result.taskRun).toMatchObject({
+      id: "task-run-1-retry-1",
+      roleId: "rework-coder",
+      attempt: 2,
+      status: "completed",
+    });
+    expect(result.autoRework?.previousTaskRun).toMatchObject({ id: "task-run-1", status: "blocked" });
+    expect(retryHandoffs).toEqual(["task-run-1-retry-1"]);
+    const workflow = result.workflow as { loopRunId?: string };
+    expect(workflow.loopRunId).toBeTruthy();
+    const memory = await resolveProjectMemory(project);
+    const events = await readMainAgentLoopEvents(memory, workflow.loopRunId!);
+    const decisions = await readMainAgentNextStepEvidence(memory, workflow.loopRunId!);
+    expect(events.filter((event) => event.type === "loop.started")).toHaveLength(1);
+    expect(events.filter((event) => event.type === "loop.stopped")).toHaveLength(0);
+    expect(events.filter((event) => event.type === "loop.completed")).toHaveLength(1);
+    expect(events.filter((event) => event.type === "leaf.started").map((event) => event.roleId)).toEqual([
+      "coder-agent",
+      "validator",
+      "rework-coder",
+      "validator",
+      "auditor-agent",
+    ]);
+    expect(decisions.filter((decision) => decision.decision.roleId === "rework-coder")).toHaveLength(1);
+  });
+
+  it("does not create a third TaskRun when bounded rework budget is exhausted", async () => {
+    controls.validatorOutcomes = ["failed"];
+    const priorRetry = taskRun({ id: "task-run-retry", attempt: 2 });
+    controls.taskRuns.set(priorRetry.id, priorRetry);
+
+    const result = await runMainAgentTaskRunLifecycle({
+      project,
+      started: { taskRun: priorRetry, lease: workerLease("task-run-retry") },
+      prompt: "Retry task.",
+    });
+
+    expect(runCoderLeafStage).toHaveBeenCalledTimes(1);
+    expect(runReworkCoderLeafStage).not.toHaveBeenCalled();
+    expect(runValidatorLeafStage).toHaveBeenCalledTimes(1);
+    expect(runAuditorLeafStage).not.toHaveBeenCalled();
+    expect(result.taskRun).toMatchObject({ id: "task-run-retry", attempt: 2, status: "blocked" });
+    expect(result.autoRework).toBeUndefined();
+    expect([...controls.taskRuns.keys()]).toEqual(["task-run-retry"]);
+    const workflow = result.workflow as { loopRunId?: string };
+    const memory = await resolveProjectMemory(project);
+    const events = await readMainAgentLoopEvents(memory, workflow.loopRunId!);
+    expect(events.filter((event) => event.roleId === "rework-coder")).toHaveLength(0);
+    expect(events.filter((event) => event.type === "loop.stopped")).toHaveLength(1);
   });
 
   it("allows only the top-level runner to perform one automatic rework", async () => {

@@ -13,6 +13,12 @@ export {
   type MainAgentOrchestrationResult,
 } from "./runner.js";
 export {
+  runMainAgentTaskRunLifecycle,
+  runMainAgentTaskRunReworkFromFinished,
+  type MainAgentStartedTaskRun,
+  type MainAgentTaskRunLifecycleResult,
+} from "./taskrun-lifecycle.js";
+export {
   createMainAgentLoopRunId,
   mainAgentLoopEventsPath,
   mainAgentLoopRunPath,

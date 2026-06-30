@@ -131,6 +131,11 @@ export async function runMainAgentTaskRunAttempt(input: {
   taskIds?: string[];
   taskRunId?: string;
   executionGate?: CodeExecutionGateOptions;
+  initialRole?: MainAgentOrchestrationRole;
+  orchestrationState?: MainAgentOrchestrationState;
+  initialDecision?: Extract<MainAgentOrchestrationDecision, { kind: "delegate-role" }>;
+  loopRunId?: string;
+  finalizeLoop?: boolean;
 }): Promise<MainAgentLeafAttemptResult> {
   return runMainAgentStepLoop({
     project: input.project,
@@ -140,8 +145,12 @@ export async function runMainAgentTaskRunAttempt(input: {
     taskIds: input.taskIds,
     taskRunId: input.taskRunId,
     entrypoint: "task-run",
-    initialRole: "coder-agent",
+    initialRole: input.initialRole ?? "coder-agent",
+    orchestrationState: input.orchestrationState,
+    initialDecision: input.initialDecision,
     executionGate: input.executionGate,
+    loopRunId: input.loopRunId,
+    finalizeLoop: input.finalizeLoop,
   });
 }
 

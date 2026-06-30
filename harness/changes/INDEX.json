@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-30T12:50:21.6664506Z",
+    "generated_at":  "2026-06-30T13:43:08.7145911Z",
     "active":  [
 
                ],
@@ -2269,6 +2269,10 @@
                     {
                         "name":  "20260630-main-agent-projection-de-expose-safety-fix-v2",
                         "path":  "harness/changes/archive/20260630-main-agent-projection-de-expose-safety-fix-v2"
+                    },
+                    {
+                        "name":  "20260630-main-agent-taskrun-lifecycle-rework-ownership-v1",
+                        "path":  "harness/changes/archive/20260630-main-agent-taskrun-lifecycle-rework-ownership-v1"
                     },
                     {
                         "name":  "20260630-workbench-chat-only-center-orchestration-top-tool-v1",

@@ -14,6 +14,7 @@ export interface TaskRunStartOptions {
 export interface TaskRunRetryOptions {
   changeId: string;
   taskRunId: string;
+  roleId?: string;
 }
 
 export interface TaskRunReconcileOptions {

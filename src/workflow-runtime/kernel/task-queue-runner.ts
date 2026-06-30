@@ -17,7 +17,7 @@ import type { WorkbenchLiveSink, WorkbenchWorkflowActionRequest } from "../../wo
 import { emitAssistantEvent } from "./live-events.js";
 import { isRecord, isTaskRunLike } from "./runtime-guards.js";
 import { findTaskQueueStageResumeCandidate, executeResumedTaskRunStage } from "./stage-resume-runner.js";
-import { executeStartedTaskRunWorkflow } from "./task-run-sequence.js";
+import { executeStartedTaskRunWorkflow, executeTaskRunReworkIfEligible } from "./task-run-sequence.js";
 
 export async function runTaskQueueSequence(
   project: ManagedProject,
@@ -97,7 +97,10 @@ export async function runTaskQueueSequence(
       const started = resume
         ? { taskRun: resume.taskRun, lease: null }
         : await startTaskRun(project, { changeId, taskId: nextItem.taskId });
-      const runningItem = await markTaskQueueItemRunning(memory, nextItem, started.taskRun);
+      let runningItem = await markTaskQueueItemRunning(memory, nextItem, started.taskRun);
+      const bindRetryTaskRunToItem = async (retryStarted: { taskRun: typeof started.taskRun }) => {
+        runningItem = await markTaskQueueItemRunning(memory, runningItem, retryStarted.taskRun);
+      };
       if (resume) {
         emitAssistantEvent(live, {
           runId: queue.id,
@@ -108,9 +111,13 @@ export async function runTaskQueueSequence(
           artifactRef: resume.verdict.evidenceRefs[0],
         });
       }
-      const result = resume
+      const stageResult = resume
         ? await executeResumedTaskRunStage(project, memory, started.taskRun, resume.verdict, request.prompt, live, executionGate)
-        : await executeStartedTaskRunWorkflow(project, started as Awaited<ReturnType<typeof startTaskRun>>, request.prompt, live, executionGate);
+        : await executeStartedTaskRunWorkflow(project, started as Awaited<ReturnType<typeof startTaskRun>>, request.prompt, live, executionGate, bindRetryTaskRunToItem);
+      const resumedTaskRun = isRecord(stageResult) && isTaskRunLike(stageResult.taskRun) ? stageResult.taskRun : null;
+      const result = resume && resumedTaskRun
+        ? await executeTaskRunReworkIfEligible(project, resumedTaskRun, isRecord(stageResult) && "workflow" in stageResult ? stageResult.workflow : stageResult, request.prompt, live, executionGate, bindRetryTaskRunToItem)
+        : stageResult;
       const taskRun = isRecord(result) && isRecord(result.taskRun) ? result.taskRun : null;
       if (!isTaskRunLike(taskRun)) throw new Error(`Task ${nextItem.taskId} did not return a TaskRun result.`);
       const finishedItem = await finishTaskQueueItem(memory, runningItem, taskRun);

@@ -6,9 +6,7 @@ import { startAuditRun } from "../../audit/manager.js";
 import { startValidationRun } from "../../validation/manager.js";
 import { deriveWorkflowStageResumeVerdict } from "../taskqueue.js";
 import type { WorkbenchLiveSink } from "../../workbench/types.js";
-import { shouldAutoReworkTaskRun } from "./bounded-rework.js";
 import { emitAssistantEvent, emitAuditAssistantEvent, emitValidationAssistantEvents } from "./live-events.js";
-import { executeBoundedTaskRunRework } from "./task-run-sequence.js";
 
 export async function findTaskQueueStageResumeCandidate(memory: ResolvedMemory, changeId: string, taskId: string): Promise<{ taskRun: TaskRun; verdict: StageResumeVerdict } | null> {
   const taskRuns = await listTaskRuns(memory, changeId);
@@ -27,7 +25,7 @@ export async function executeResumedTaskRunStage(
   verdict: StageResumeVerdict,
   prompt: string | undefined,
   live: WorkbenchLiveSink | undefined,
-  executionGate?: CodeExecutionGateOptions,
+  _executionGate?: CodeExecutionGateOptions,
 ): Promise<unknown> {
   const coderRun = verdict.runId ? (await listRuns(memory)).find((run) => run.id === verdict.runId) : undefined;
   if (!coderRun || coderRun.status !== "completed" || !coderRun.worktree?.worktreeId) {
@@ -41,7 +39,12 @@ export async function executeResumedTaskRunStage(
   }
 
   if (verdict.kind === "continue-rework") {
-    return executeBoundedTaskRunRework(project, taskRun, prompt, live, executionGate);
+    const workflow = {
+      stoppedAt: verdict.auditId ? "audit" : "validation",
+      code: { run: coderRun },
+    };
+    const blocked = await finishTaskRunFromWorkflowResult(memory, taskRun.id, workflow, { changeId: taskRun.changeId, taskId: taskRun.taskId });
+    return { taskRun: blocked, workflow };
   }
 
   let validation: Awaited<ReturnType<typeof startValidationRun>> | undefined;
@@ -59,7 +62,6 @@ export async function executeResumedTaskRunStage(
     if (validation.validation.status !== "passed") {
       const workflow = { code: { run: coderRun }, validation, stoppedAt: "validation" };
       const blocked = await finishTaskRunFromWorkflowResult(memory, taskRun.id, workflow, { changeId: taskRun.changeId, taskId: taskRun.taskId });
-      if (shouldAutoReworkTaskRun(blocked)) return executeBoundedTaskRunRework(project, blocked, prompt, live, executionGate);
       return { taskRun: blocked, workflow };
     }
   }
@@ -81,6 +83,5 @@ export async function executeResumedTaskRunStage(
   const auditAccepted = audit.audit.status === "approved" || audit.audit.status === "approved-with-notes";
   const workflow = { code: { run: coderRun }, ...(validation ? { validation } : {}), audit, stoppedAt: auditAccepted ? null : "audit" };
   const finished = await finishTaskRunFromWorkflowResult(memory, taskRun.id, workflow, { changeId: taskRun.changeId, taskId: taskRun.taskId });
-  if (!auditAccepted && shouldAutoReworkTaskRun(finished)) return executeBoundedTaskRunRework(project, finished, prompt, live, executionGate);
   return { taskRun: finished, workflow };
 }

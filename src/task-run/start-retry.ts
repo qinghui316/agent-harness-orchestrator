@@ -38,7 +38,7 @@ export async function retryTaskRun(project: ManagedProject, options: TaskRunRetr
     projectId: project.id,
     changeId: options.changeId,
     taskId,
-    roleId: previous.roleId,
+    roleId: options.roleId ?? previous.roleId,
     attempt: nextAttempt(runs, taskId),
   });
 }
