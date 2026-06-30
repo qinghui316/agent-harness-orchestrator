@@ -7,6 +7,8 @@
 - Pending Harness evolution:
   `harness/evolution/pending.md`.
 - Latest archived product change:
+  `harness/changes/archive/20260630-workbench-chat-only-center-orchestration-top-tool-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260630-workbench-reference-style-compact-composer-context-menu-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260630-workbench-reference-style-composer-context-sources-v1/summary.md`.

@@ -1,7 +1,7 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { Plus, SquareTerminal, X } from "lucide-react";
+import { GitBranch, Plus, SquareTerminal, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactElement } from "react";
 import { postJson } from "../../api.js";
 
@@ -11,16 +11,34 @@ export interface TerminalTab {
 }
 
 export function WorkspaceDockToggleBar({
+  orchestrationActive,
+  orchestrationDisabled,
+  onToggleOrchestration,
   terminalActive,
   terminalDisabled,
   onToggleTerminal,
 }: {
+  orchestrationActive: boolean;
+  orchestrationDisabled: boolean;
+  onToggleOrchestration: () => void;
   terminalActive: boolean;
   terminalDisabled: boolean;
   onToggleTerminal: () => void;
 }): ReactElement {
   return (
-    <div className="workspace-dock-toggle-bar" aria-label="底部工具">
+    <div className="workspace-dock-toggle-bar" aria-label="工作区工具">
+      <button
+        type="button"
+        className={`top-tool-button workspace-orchestration-toggle${orchestrationActive ? " active" : ""}`}
+        data-testid="orchestration-overlay-toggle"
+        disabled={orchestrationDisabled}
+        aria-pressed={orchestrationActive}
+        aria-label={orchestrationActive ? "关闭 Agent 编排图" : "打开 Agent 编排图"}
+        title={orchestrationActive ? "关闭 Agent 编排图" : "打开 Agent 编排图"}
+        onClick={onToggleOrchestration}
+      >
+        <GitBranch size={16} aria-hidden="true" />
+      </button>
       <button
         type="button"
         className={`top-tool-button workspace-dock-toggle${terminalActive ? " active" : ""}`}

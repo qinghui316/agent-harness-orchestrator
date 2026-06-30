@@ -1979,8 +1979,10 @@ describe("Workbench web app", () => {
 
     await waitFor(() => expect(screen.getAllByText("会员折扣计价").length).toBeGreaterThan(0));
     expect(screen.getByTestId("main-conversation-view")).toBeTruthy();
-    expect(screen.getByRole("tab", { name: "对话" })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: "Agent 编排图" })).toBeTruthy();
+    expect(screen.queryByRole("tab", { name: "对话" })).toBeNull();
+    expect(screen.queryByRole("tab", { name: "工作台" })).toBeNull();
+    expect(screen.queryByRole("tab", { name: "Agent 编排图" })).toBeNull();
+    expect(screen.getByTestId("orchestration-overlay-toggle")).toBeTruthy();
     expect(screen.getByTestId("parent-agent-transcript")).toBeTruthy();
     expect(screen.queryByTestId("open-agent-run-graph")).toBeNull();
     expect(screen.queryByText("目标与当前理解")).toBeNull();
@@ -2024,7 +2026,8 @@ describe("Workbench web app", () => {
     expect(screen.queryByText("稍后")).toBeNull();
     expect(screen.getByText("项目数据：已准备")).toBeTruthy();
     expect(screen.getByText("当前需求：会员折扣计价")).toBeTruthy();
-    fireEvent.click(screen.getByRole("tab", { name: "Agent 编排图" }));
+    fireEvent.click(screen.getByTestId("orchestration-overlay-toggle"));
+    expect(await screen.findByTestId("agent-graph-overlay", undefined, { timeout: 5000 })).toBeTruthy();
     expect(await screen.findByTestId("agent-run-graph", undefined, { timeout: 5000 })).toBeTruthy();
     expect(fetchCallUrls()).toContain("/api/projects/repo/workbench/projections/run-graph/member-discount");
     expect(screen.getByTestId("agent-orchestration-map")).toBeTruthy();
@@ -2441,8 +2444,9 @@ describe("Workbench web app", () => {
     await waitFor(() => expect(screen.getByTestId("main-conversation-view")).toBeTruthy());
     expect(screen.getByTestId("decision-pane-toggle")).toBeTruthy();
     expect(screen.queryByTestId("decision-inspector-primary")).toBeNull();
-    fireEvent.click(screen.getByRole("tab", { name: "Agent 编排图" }));
+    fireEvent.click(screen.getByTestId("orchestration-overlay-toggle"));
 
+    expect(await screen.findByTestId("agent-graph-overlay", undefined, { timeout: 5000 })).toBeTruthy();
     expect(await screen.findByTestId("agent-run-graph", undefined, { timeout: 5000 })).toBeTruthy();
     expect(screen.getByTestId("agent-orchestration-map")).toBeTruthy();
     expect(screen.getByTestId("agent-orchestration-zoom-in")).toBeTruthy();
@@ -2536,7 +2540,7 @@ describe("Workbench web app", () => {
       });
     });
 
-    fireEvent.click(screen.getByRole("tab", { name: "工作台" }));
+    fireEvent.click(within(screen.getByTestId("parent-agent-transcript")).getByText("查看详情与证据"));
     const resultReview = await screen.findByTestId("result-review-card");
     expect(within(resultReview).getByText("结果可应用到项目")).toBeTruthy();
     expect(within(resultReview).getByText("验证")).toBeTruthy();
@@ -3088,8 +3092,6 @@ describe("Workbench web app", () => {
     render(<App />);
 
     await screen.findByTestId("transcript-virtual-list");
-    fireEvent.click(await screen.findByRole("tab", { name: "工作台" }));
-    await screen.findByTestId("workpad-view");
     const primarySurface = await screen.findByTestId("controlled-loop-primary-surface");
     expect(within(primarySurface).getByText("当前步骤可以重新确认")).toBeTruthy();
     expect(within(primarySurface).getByText("上一步停止记录、下一步候选和当前确认目标一致。")).toBeTruthy();
@@ -3530,8 +3532,6 @@ describe("Workbench web app", () => {
     render(<App />);
 
     await screen.findByTestId("transcript-virtual-list");
-    fireEvent.click(await screen.findByRole("tab", { name: "工作台" }));
-    await screen.findByTestId("workpad-view");
     fireEvent.click(await screen.findByText("查看详情与证据", {}, { timeout: 5000 }));
     const card = await screen.findByTestId("scheduler-controlled-step-evidence-card");
     expect(within(card).getByText("受控步骤运行证据")).toBeTruthy();
@@ -5028,7 +5028,7 @@ describe("Workbench web app", () => {
     await waitFor(() => expect(screen.getByTestId("main-conversation-view")).toBeTruthy());
     expect(screen.queryByTestId("taskgraph-node-T-001")).toBeNull();
     expect(screen.queryByText("运行此任务")).toBeNull();
-    fireEvent.click(screen.getByRole("tab", { name: "Agent 编排图" }));
+    fireEvent.click(screen.getByTestId("orchestration-overlay-toggle"));
     expect(await screen.findByTestId("agent-run-graph")).toBeTruthy();
   });
 
@@ -5052,7 +5052,7 @@ describe("Workbench web app", () => {
     expect(screen.queryByTestId("task-queue-panel")).toBeNull();
     expect(screen.queryByText("本地顺序执行")).toBeNull();
     expect(screen.queryByText(/并行执行|worker pool|多 agent 协作/)).toBeNull();
-    expect(screen.getByRole("tab", { name: "Agent 编排图" })).toBeTruthy();
+    expect(screen.getByTestId("orchestration-overlay-toggle")).toBeTruthy();
   });
 
   it("shows paused TaskQueue recovery copy and disables individual task run", async () => {
@@ -5141,8 +5141,9 @@ describe("Workbench web app", () => {
 
     await waitFor(() => expect(screen.getByTestId("main-conversation-view")).toBeTruthy());
     const transcriptText = document.querySelector(".parent-agent-transcript")?.textContent ?? "";
-    expect(transcriptText).not.toContain("是否需要覆盖会员满 100、会员未满 100 和非会员三类测试？");
-    expect(screen.queryByTestId("clarification-card")).toBeNull();
+    expect(transcriptText).toContain("是否需要覆盖会员满 100、会员未满 100 和非会员三类测试？");
+    expect(screen.getByTestId("conversation-clarification-strip")).toBeTruthy();
+    expect(screen.getByTestId("clarification-card")).toBeTruthy();
     expect(fetch).not.toHaveBeenCalledWith("/api/projects/repo/workbench/clarifications/clarify-1/answer", expect.anything());
   });
 
@@ -5433,7 +5434,7 @@ describe("Workbench web app", () => {
 
     await waitFor(() => expect(screen.getAllByText("工具面板验收").length).toBeGreaterThan(0));
     expect(screen.getByRole("button", { name: "Tools" })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: "Agent 编排图" }).getAttribute("aria-selected")).toBe("true");
+    expect(await screen.findByTestId("agent-graph-overlay")).toBeTruthy();
     expect(fetchCallUrls()).toContain("/api/projects/tools/workbench/snapshot?topic=tools-topic");
     expect(fetchCallUrls()).not.toContain("/api/projects/repo/workbench/snapshot");
   });
@@ -5469,7 +5470,8 @@ describe("Workbench web app", () => {
     render(<App />);
 
     await waitFor(() => expect(screen.getAllByText("工具面板验收").length).toBeGreaterThan(0));
-    expect(screen.getByRole("tab", { name: "对话" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByTestId("parent-agent-transcript")).toBeTruthy();
+    expect(screen.queryByRole("tab", { name: "对话" })).toBeNull();
     expect(screen.queryByRole("tab", { name: "运行日志" })).toBeNull();
     expect(screen.queryByTestId("runtime-activity-log")).toBeNull();
     expect(fetchCallUrls().some((url) => url.includes("/runtime/activity"))).toBe(false);
@@ -5513,7 +5515,7 @@ describe("Workbench web app", () => {
     expect(screen.queryByTestId("terminal-dock-toggle")).toBeNull();
     expect(screen.queryByRole("tab", { name: "设置" })).toBeNull();
     fireEvent.click(within(panel).getByRole("button", { name: "返回工作区" }));
-    await waitFor(() => expect(screen.getByRole("tab", { name: "对话" }).getAttribute("aria-selected")).toBe("true"));
+    await waitFor(() => expect(screen.getByTestId("parent-agent-transcript")).toBeTruthy());
     expect(document.querySelector(".sidebar")).toBeTruthy();
   });
 
@@ -5652,7 +5654,7 @@ describe("Workbench web app", () => {
     expect(screen.queryByText("停止并按这条修改")).toBeNull();
     expect(screen.queryByText("新需求对话")).toBeNull();
     expect(screen.getByTitle("停止当前执行")).toBeTruthy();
-    expect(screen.getByRole("tab", { name: "Agent 编排图" })).toBeTruthy();
+    expect(screen.getByTestId("orchestration-overlay-toggle")).toBeTruthy();
     expect(screen.queryByText(/worker pool|并行 worktree|merge queue/)).toBeNull();
   });
 
@@ -6669,9 +6671,9 @@ describe("Workbench web app", () => {
     await waitFor(() => expect(screen.getAllByText("会员折扣计价").length).toBeGreaterThan(0));
     expect(screen.queryByText("保存到项目列表")).toBeNull();
     expect(screen.queryByText("这个项目需要准备后才能开始需求对话。")).toBeNull();
-    const graphTab = screen.getByRole("tab", { name: "Agent 编排图" });
-    fireEvent.click(graphTab);
-    expect(graphTab.getAttribute("aria-selected")).toBe("true");
+    const graphButton = screen.getByTestId("orchestration-overlay-toggle");
+    fireEvent.click(graphButton);
+    expect(await screen.findByTestId("agent-graph-overlay")).toBeTruthy();
   });
 
   it("adds an existing project from the native folder picker", async () => {

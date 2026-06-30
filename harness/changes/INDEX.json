@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-30T04:52:01.7871664Z",
+    "generated_at":  "2026-06-30T06:02:20.5749522Z",
     "active":  [
 
                ],
@@ -2225,6 +2225,10 @@
                     {
                         "name":  "20260629-workbench-runtime-activity-log-sanitize-private-paths-v1",
                         "path":  "harness/changes/archive/20260629-workbench-runtime-activity-log-sanitize-private-paths-v1"
+                    },
+                    {
+                        "name":  "20260630-workbench-chat-only-center-orchestration-top-tool-v1",
+                        "path":  "harness/changes/archive/20260630-workbench-chat-only-center-orchestration-top-tool-v1"
                     },
                     {
                         "name":  "20260630-workbench-reference-style-compact-composer-context-menu-v1",

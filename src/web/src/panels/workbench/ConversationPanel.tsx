@@ -6,19 +6,20 @@ import {
   type ReactElement,
   type RefObject } from "react";
 import { RunReplay, artifactName } from "./RunReplayPanel.js";
-import { WorkpadView } from "./WorkpadPanel.js";
 import { AgentOrchestrationMap } from "./AgentOrchestrationMap.js";
 import { calculateTranscriptVirtualRange } from "./TranscriptVirtualList.js";
 import {
   agentRunStatusLabel,
 } from "../../formatters.js";
-import { ControlledSchedulerStepReceiptCard, ControlledSchedulerStepTraceCard } from "./workpad/GoalLoopCards.js";
+import { ControlledSchedulerStepReceiptCard, ControlledSchedulerStepTraceCard, GoalLoopPrimarySummary } from "./workpad/GoalLoopCards.js";
+import { ResultReviewNarrative } from "./workpad/PlanningCards.js";
+import { ClarificationCard } from "./workpad/TaskGraphCards.js";
+import { WorkpadDiagnosticDetails } from "./workpad/WorkpadDetails.js";
 import { ParentAgentTranscriptCellView } from "./TranscriptReadingSurface.js";
 import {
   estimateTranscriptCellHeight,
 } from "./transcriptMeasurement.js";
 import type {
-  CenterTab,
   DemandAgentRunGraph,
   DemandAgentRunGraphNode,
   LiveAssistantTurn,
@@ -32,12 +33,8 @@ import type {
 } from "../../types.js";
 export function MainConversationView({
   workpad,
-  graph,
   transcript,
-  activeTab,
   liveTurns,
-  activeRun,
-  stream,
   scrollContainerRef,
   onLoadEarlierTranscript,
   loadingEarlierTranscript,
@@ -47,18 +44,10 @@ export function MainConversationView({
   onConfirmApproval,
   onAnswerClarification,
   onSelectDecisionContext,
-  onTabChange,
-  selectedNode,
-  onSelectNode,
-  onSelectRun,
 }: {
   workpad: Workpad;
-  graph: DemandAgentRunGraph;
   transcript: ParentAgentTranscript;
-  activeTab: CenterTab;
   liveTurns: LiveAssistantTurn[];
-  activeRun?: RunSummary;
-  stream: StreamPacket | null;
   scrollContainerRef: RefObject<HTMLDivElement | null>;
   onLoadEarlierTranscript: () => Promise<void>;
   loadingEarlierTranscript: boolean;
@@ -68,60 +57,23 @@ export function MainConversationView({
   onConfirmApproval: (approvalId: string) => void;
   onAnswerClarification: (clarificationId: string, answer: string) => Promise<void>;
   onSelectDecisionContext: (contextId: string) => void;
-  onTabChange: (tab: CenterTab) => void;
-  selectedNode: DemandAgentRunGraphNode | null;
-  onSelectNode: (nodeId: string) => void;
-  onSelectRun: (runId: string) => void;
 }): ReactElement {
   return (
     <div className="main-conversation-view" data-testid="main-conversation-view">
-      <div className="center-demand-tabs" role="tablist" aria-label="需求对话视图">
-        <button type="button" role="tab" aria-selected={activeTab === "conversation"} className={activeTab === "conversation" ? "active" : ""} onClick={() => onTabChange("conversation")}>对话</button>
-        <button type="button" role="tab" aria-selected={activeTab === "workpad"} className={activeTab === "workpad" ? "active" : ""} onClick={() => onTabChange("workpad")}>工作台</button>
-        <button type="button" role="tab" aria-selected={activeTab === "agentGraph"} className={activeTab === "agentGraph" ? "active" : ""} onClick={() => onTabChange("agentGraph")}>Agent 编排图</button>
-      </div>
-      {activeTab === "conversation" ? (
-        <ParentAgentTranscriptView
-          workpad={workpad}
-          transcript={transcript}
-          liveTurns={liveTurns}
-          scrollContainerRef={scrollContainerRef}
-          onLoadEarlierTranscript={onLoadEarlierTranscript}
-          loadingEarlierTranscript={loadingEarlierTranscript}
-          busy={busy}
-          onAction={onAction}
-          onAnswerClarification={onAnswerClarification}
-          onSelectDecisionContext={onSelectDecisionContext}
-        />
-      ) : activeTab === "workpad" ? (
-        <WorkpadView
-          workpad={workpad}
-          approvals={approvals}
-          busy={busy}
-          onWorkflowAction={onAction}
-          onConfirmApproval={onConfirmApproval}
-          onAnswerClarification={onAnswerClarification}
-          onSelectDecisionContext={onSelectDecisionContext}
-        />
-      ) : activeTab === "agentGraph" ? (
-        <AgentRunGraphPanel
-          graph={graph}
-          selectedNode={selectedNode}
-          activeRun={activeRun}
-          stream={stream}
-          onSelectNode={onSelectNode}
-          onSelectRun={onSelectRun}
-        />
-      ) : (
-        <AgentRunGraphPanel
-          graph={graph}
-          selectedNode={selectedNode}
-          activeRun={activeRun}
-          stream={stream}
-          onSelectNode={onSelectNode}
-          onSelectRun={onSelectRun}
-        />
-      )}
+      <ParentAgentTranscriptView
+        workpad={workpad}
+        transcript={transcript}
+        liveTurns={liveTurns}
+        scrollContainerRef={scrollContainerRef}
+        onLoadEarlierTranscript={onLoadEarlierTranscript}
+        loadingEarlierTranscript={loadingEarlierTranscript}
+        busy={busy}
+        approvals={approvals}
+        onAction={onAction}
+        onConfirmApproval={onConfirmApproval}
+        onAnswerClarification={onAnswerClarification}
+        onSelectDecisionContext={onSelectDecisionContext}
+      />
     </div>
   );
 }
@@ -134,7 +86,9 @@ function ParentAgentTranscriptView({
   onLoadEarlierTranscript,
   loadingEarlierTranscript,
   busy,
+  approvals,
   onAction,
+  onConfirmApproval,
   onAnswerClarification,
   onSelectDecisionContext,
 }: {
@@ -145,16 +99,17 @@ function ParentAgentTranscriptView({
   onLoadEarlierTranscript: () => Promise<void>;
   loadingEarlierTranscript: boolean;
   busy: boolean;
+  approvals: Snapshot["right"]["approvals"];
   onAction: (actionType: string, options?: Record<string, unknown>) => Promise<void>;
+  onConfirmApproval: (approvalId: string) => void;
   onAnswerClarification: (clarificationId: string, answer: string) => Promise<void>;
   onSelectDecisionContext: (contextId: string) => void;
 }): ReactElement {
-  void workpad;
   void liveTurns;
   void busy;
-  void onAnswerClarification;
   const cells = transcript.cells?.length ? transcript.cells.filter((cell) => cell.kind !== "detail-only") : [];
   const [expandedCells, setExpandedCells] = useState<Set<string>>(new Set());
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [scrollMetrics, setScrollMetrics] = useState({ scrollTop: 0, viewportHeight: 720, listWidth: 760 });
   const loadingEarlierRef = useRef(false);
   const heights = useMemo(() => cells.map((cell) => estimateTranscriptCellHeight(cell, {
@@ -209,6 +164,30 @@ function ParentAgentTranscriptView({
     <div className="parent-agent-transcript" data-testid="parent-agent-transcript">
       {workpad.controlledSchedulerStepReceipt ? <ControlledSchedulerStepReceiptCard receipt={workpad.controlledSchedulerStepReceipt} /> : null}
       {workpad.controlledSchedulerStepTrace ? <ControlledSchedulerStepTraceCard trace={workpad.controlledSchedulerStepTrace} /> : null}
+      {workpad.goalLoop ? (
+        <GoalLoopPrimarySummary
+          goalLoop={workpad.goalLoop}
+          controlledSchedulerReconfirmation={workpad.controlledSchedulerReconfirmation}
+        />
+      ) : null}
+      {workpad.intake.pendingClarifications?.length ? (
+        <section className="conversation-clarification-strip" data-testid="conversation-clarification-strip" aria-label="需要确认">
+          <div className="conversation-clarification-header">
+            <span>需要确认</span>
+            <strong>{workpad.intake.pendingClarifications.length}</strong>
+          </div>
+          <div className="clarification-list">
+            {workpad.intake.pendingClarifications.map((clarification) => (
+              <ClarificationCard
+                key={clarification.id}
+                clarification={clarification}
+                busy={busy}
+                onAnswer={onAnswerClarification}
+              />
+            ))}
+          </div>
+        </section>
+      ) : null}
       <div className="parent-agent-message-list" data-testid="transcript-virtual-list" style={{ minHeight: virtualRange.totalHeight || undefined }}>
         {transcript.paging?.hasMoreBefore ? (
           <div className="transcript-load-earlier" data-testid="transcript-load-earlier">
@@ -234,6 +213,30 @@ function ParentAgentTranscriptView({
         ))}
         {virtualRange.bottomSpacer > 0 ? <div className="transcript-virtual-spacer" style={{ height: virtualRange.bottomSpacer }} /> : null}
       </div>
+      <details className="conversation-workpad-details" open={detailsOpen}>
+        <summary
+          onClick={(event) => {
+            event.preventDefault();
+            setDetailsOpen((open) => !open);
+          }}
+        >
+          查看详情与证据
+        </summary>
+        {detailsOpen ? (
+          <>
+            {workpad.resultReview ? <ResultReviewNarrative review={workpad.resultReview} /> : null}
+            <WorkpadDiagnosticDetails
+              workpad={workpad}
+              approvals={approvals}
+              busy={busy}
+              onWorkflowAction={onAction}
+              onConfirmApproval={onConfirmApproval}
+              onAnswerClarification={onAnswerClarification}
+              onSelectDecisionContext={onSelectDecisionContext}
+            />
+          </>
+        ) : null}
+      </details>
       <HiddenLegacyThreadHooks onAction={onAction} onSelectDecisionContext={onSelectDecisionContext} />
     </div>
   );
@@ -246,7 +249,7 @@ function HiddenLegacyThreadHooks(_: {
   return null;
 }
 
-function AgentRunGraphPanel({
+export function AgentRunGraphPanel({
   graph,
   selectedNode,
   activeRun,

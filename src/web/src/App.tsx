@@ -8,6 +8,7 @@ import { consumeWorkbenchLiveStream,
   fetchJson,
   postJson } from "./api.js";
 import { MainConversationView,
+  AgentRunGraphPanel,
   RightToolRailShell,
   DecisionInspectorPane,
   BottomStatusBar,
@@ -67,7 +68,6 @@ import type {
   ProjectStatus,
   Snapshot,
   DemandAgentRunGraph,
-  CenterTab,
   ParentAgentTranscript,
   Workpad,
   ThreadStreamItem,
@@ -129,7 +129,7 @@ export function App(): ReactElement {
   const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
   const [selectedRun, setSelectedRun] = useState<string | null>(null);
   const [stream, setStream] = useState<StreamPacket | null>(null);
-  const [centerTab, setCenterTab] = useState<CenterTab>("conversation");
+  const [orchestrationOpen, setOrchestrationOpen] = useState(false);
   const [selectedRunGraphNodeId, setSelectedRunGraphNodeId] = useState<string | null>(null);
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
   const [projectSnapshots, setProjectSnapshots] = useState<Record<string, Snapshot>>({});
@@ -306,7 +306,7 @@ export function App(): ReactElement {
       setExpandedProjects(new Set([selectedProject]));
       const topic = restore.topicId && (restore.projectId || urlProjectStatus) ? restore.topicId : null;
       setSelectedTopic(topic);
-      if (restore.centerTab) setCenterTab(restore.centerTab);
+      setOrchestrationOpen(Boolean(topic && restore.orchestrationOpen));
       if (restore.settingsOpen) {
         setSettingsSection("basic");
         setSettingsOpen(true);
@@ -425,7 +425,7 @@ export function App(): ReactElement {
     setComposerAttachments([]);
     setComposerFileRefs([]);
     setRuntimeActivityLog(null);
-    setCenterTab("conversation");
+    setOrchestrationOpen(false);
     setSelectedRun(null);
     setStream(null);
     const status = projects.find((item) => item.project?.id === projectId);
@@ -457,7 +457,7 @@ export function App(): ReactElement {
     persistSelectedProjectId(projectId);
     setSelectedTopic(null);
     setDraftSkillOverrides({});
-    setCenterTab("conversation");
+    setOrchestrationOpen(false);
     setExpandedProjects((current) => new Set([...current, projectId]));
     const nextSnapshot = {
       ...baseSnapshot,
@@ -627,7 +627,7 @@ export function App(): ReactElement {
     }
     if (action.kind === "evidence" && context.runId) {
       await chooseRun(context.runId);
-      setCenterTab("agentGraph");
+      setOrchestrationOpen(true);
     }
   }
 
@@ -1228,17 +1228,26 @@ export function App(): ReactElement {
     }
   }
 
+  function closeOrchestrationOverlay(): void {
+    setOrchestrationOpen(false);
+    window.setTimeout(() => {
+      document.querySelector<HTMLElement>("[data-testid='orchestration-overlay-toggle']")?.focus();
+    }, 0);
+  }
+
+  function toggleOrchestrationOverlay(): void {
+    if (!activeTopic?.id) return;
+    if (orchestrationOpen) closeOrchestrationOverlay();
+    else setOrchestrationOpen(true);
+  }
+
   useEffect(() => {
     setAutomationMode(readComposerExecutionMode(selectedProjectId, activeTopic?.id ?? null));
   }, [selectedProjectId, activeTopic?.id]);
 
   useEffect(() => {
     const restore = readWorkbenchRestoreParams();
-    if (restore.topicId && restore.topicId === activeTopic?.id && restore.centerTab) {
-      setCenterTab(restore.centerTab);
-    } else {
-      setCenterTab("conversation");
-    }
+    setOrchestrationOpen(Boolean(restore.topicId && restore.topicId === activeTopic?.id && restore.orchestrationOpen));
     setSelectedRunGraphNodeId(null);
     setLoadedTranscript(null);
     setLoadedRunGraph(null);
@@ -1283,7 +1292,7 @@ export function App(): ReactElement {
   }, [selectedProjectId, activeTopic?.id, projectionVersion]);
 
   useEffect(() => {
-    if (!selectedProjectId || !activeTopic?.id || centerTab !== "agentGraph") return;
+    if (!selectedProjectId || !activeTopic?.id || !orchestrationOpen) return;
     let cancelled = false;
     fetchJson<DemandAgentRunGraph>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/projections/run-graph/${encodeURIComponent(activeTopic.id)}`)
       .then((projection) => {
@@ -1293,7 +1302,19 @@ export function App(): ReactElement {
         if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
       });
     return () => { cancelled = true; };
-  }, [selectedProjectId, activeTopic?.id, centerTab, projectionVersion]);
+  }, [selectedProjectId, activeTopic?.id, orchestrationOpen, projectionVersion]);
+
+  useEffect(() => {
+    if (!orchestrationOpen) return;
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") closeOrchestrationOverlay();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    window.setTimeout(() => {
+      document.querySelector<HTMLElement>("[data-testid='orchestration-overlay-close']")?.focus();
+    }, 0);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [orchestrationOpen]);
 
   useEffect(() => {
     const node = threadScrollRef.current;
@@ -1305,7 +1326,7 @@ export function App(): ReactElement {
     } else {
       setLatestHidden(true);
     }
-  }, [activeTranscript.items.length, liveTurns.length, centerTab]);
+  }, [activeTranscript.items.length, liveTurns.length]);
 
   useEffect(() => {
     if (!selectedProjectId) return;
@@ -1428,25 +1449,17 @@ export function App(): ReactElement {
                 >
                   <MainConversationView
                     workpad={activeWorkpad}
-                    graph={activeRunGraph}
                     transcript={activeTranscript}
                     scrollContainerRef={threadScrollRef}
                     onLoadEarlierTranscript={loadEarlierTranscriptPage}
                     loadingEarlierTranscript={loadingEarlierTranscript}
-                    activeTab={centerTab}
                     liveTurns={liveTurns}
-                    activeRun={activeRun}
-                    stream={stream}
                     busy={actionRunning !== null}
                     approvals={snapshot.right.approvals}
                     onAction={runWorkflowAction}
                     onConfirmApproval={confirmWorkpadApproval}
                     onAnswerClarification={answerClarification}
                     onSelectDecisionContext={setSelectedDecisionContextId}
-                    onTabChange={setCenterTab}
-                    selectedNode={selectedRunGraphNode}
-                    onSelectNode={setSelectedRunGraphNodeId}
-                    onSelectRun={(runId) => void chooseRun(runId)}
                   />
                 </div>
                 {latestHidden ? <button className="latest-button" onClick={() => { const node = threadScrollRef.current; if (node) node.scrollTop = node.scrollHeight; setLatestHidden(false); }}>最新</button> : null}
@@ -1488,6 +1501,9 @@ export function App(): ReactElement {
         )}
         </div>
         {!settingsOpen ? <WorkspaceDockToggleBar
+          orchestrationActive={orchestrationOpen}
+          orchestrationDisabled={!activeTopic?.id}
+          onToggleOrchestration={toggleOrchestrationOverlay}
           terminalActive={bottomDockKind === "terminal"}
           terminalDisabled={!selectedProjectId}
           onToggleTerminal={toggleTerminalDock}
@@ -1562,6 +1578,49 @@ export function App(): ReactElement {
           />
         }
       /> : null}
+
+      {orchestrationOpen && activeTopic && !settingsOpen ? (
+        <div
+          className="agent-graph-overlay-backdrop"
+          data-testid="agent-graph-overlay-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeOrchestrationOverlay();
+          }}
+        >
+          <section
+            className="agent-graph-overlay"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Agent 编排图"
+            data-testid="agent-graph-overlay"
+          >
+            <header className="agent-graph-overlay-header">
+              <div>
+                <p className="eyebrow">只读投影</p>
+                <h2>Agent 编排图</h2>
+              </div>
+              <button
+                type="button"
+                className="top-tool-button"
+                data-testid="orchestration-overlay-close"
+                aria-label="关闭 Agent 编排图"
+                title="关闭 Agent 编排图"
+                onClick={closeOrchestrationOverlay}
+              >
+                ×
+              </button>
+            </header>
+            <AgentRunGraphPanel
+              graph={activeRunGraph}
+              selectedNode={selectedRunGraphNode}
+              activeRun={activeRun}
+              stream={stream}
+              onSelectNode={setSelectedRunGraphNodeId}
+              onSelectRun={(runId) => void chooseRun(runId)}
+            />
+          </section>
+        </div>
+      ) : null}
 
       <CodexModelPicker
         open={codexModelPickerOpen}
@@ -1683,18 +1742,18 @@ function clearPersistedSelectedProjectId(): void {
   }
 }
 
-function readWorkbenchRestoreParams(): { projectId: string | null; topicId: string | null; centerTab: CenterTab | null; settingsOpen: boolean } {
+function readWorkbenchRestoreParams(): { projectId: string | null; topicId: string | null; orchestrationOpen: boolean; settingsOpen: boolean } {
   try {
     const params = new URLSearchParams(window.location.search);
     const rawTab = params.get("tab");
     return {
       projectId: nonEmptyParam(params.get("project")),
       topicId: nonEmptyParam(params.get("topic")),
-      centerTab: normalizeCenterTabParam(rawTab),
+      orchestrationOpen: isOrchestrationTabParam(rawTab),
       settingsOpen: rawTab?.trim().toLowerCase() === "settings",
     };
   } catch {
-    return { projectId: null, topicId: null, centerTab: null, settingsOpen: false };
+    return { projectId: null, topicId: null, orchestrationOpen: false, settingsOpen: false };
   }
 }
 
@@ -1703,16 +1762,9 @@ function nonEmptyParam(value: string | null): string | null {
   return trimmed ? trimmed : null;
 }
 
-function normalizeCenterTabParam(value: string | null): CenterTab | null {
+function isOrchestrationTabParam(value: string | null): boolean {
   const normalized = value?.trim().toLowerCase();
-  if (!normalized) return null;
-  if (normalized === "conversation" || normalized === "chat") return "conversation";
-  if (normalized === "workbench" || normalized === "workpad") return "workpad";
-  if (normalized === "orchestration" || normalized === "agentgraph" || normalized === "agent-graph") return "agentGraph";
-  if (normalized === "gitdiff" || normalized === "git-diff" || normalized === "diff") return "conversation";
-  if (normalized === "runtime" || normalized === "runtime-log" || normalized === "runtimelog" || normalized === "logs") return "conversation";
-  if (normalized === "settings") return "conversation";
-  return null;
+  return normalized === "orchestration" || normalized === "agentgraph" || normalized === "agent-graph";
 }
 
 function snapshotForProject(project: ProjectStatus | null | undefined): Snapshot {
