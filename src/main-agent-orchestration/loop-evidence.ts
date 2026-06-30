@@ -7,7 +7,7 @@ import { readRequiredJsonFile, writeJsonFile } from "../fs/json.js";
 import { shortHash, slugify } from "../fs/path.js";
 import type { ResolvedMemory } from "../types/index.js";
 
-export type MainAgentLoopEntrypoint = "top-level" | "task-run" | "source-refresh-rework" | "feedback-rework";
+export type MainAgentLoopEntrypoint = "top-level" | "task-run" | "task-queue" | "source-refresh-rework" | "feedback-rework";
 
 export type MainAgentLoopRunStatus = "running" | "completed" | "stopped";
 
@@ -56,6 +56,10 @@ export interface MainAgentLoopEvent {
     runIds: string[];
     validationIds: string[];
     auditIds: string[];
+    taskQueueRunIds: string[];
+    taskQueueItemIds: string[];
+    taskRunIds: string[];
+    workflowRunIds: string[];
   };
 }
 
@@ -83,12 +87,14 @@ export interface MainAgentLoopEventInput {
   refs?: Partial<MainAgentLoopEvent["refs"]>;
 }
 
+const mainAgentLoopEntrypointSchema = z.enum(["top-level", "task-run", "task-queue", "source-refresh-rework", "feedback-rework"]);
+
 const mainAgentLoopRunSchema = z.object({
   version: z.literal("1.0"),
   id: z.string(),
   changeId: z.string(),
   projectId: z.string().nullable(),
-  entrypoint: z.enum(["top-level", "task-run", "source-refresh-rework", "feedback-rework"]),
+  entrypoint: mainAgentLoopEntrypointSchema,
   status: z.enum(["running", "completed", "stopped"]),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -100,6 +106,10 @@ const refsSchema = z.object({
   runIds: z.array(z.string()),
   validationIds: z.array(z.string()),
   auditIds: z.array(z.string()),
+  taskQueueRunIds: z.array(z.string()).optional().default([]),
+  taskQueueItemIds: z.array(z.string()).optional().default([]),
+  taskRunIds: z.array(z.string()).optional().default([]),
+  workflowRunIds: z.array(z.string()).optional().default([]),
 });
 
 const mainAgentLoopEventSchema = z.object({
@@ -118,7 +128,7 @@ const mainAgentLoopEventSchema = z.object({
   ]),
   timestamp: z.string(),
   stepIndex: z.number().optional(),
-  entrypoint: z.enum(["top-level", "task-run", "source-refresh-rework", "feedback-rework"]).optional(),
+  entrypoint: mainAgentLoopEntrypointSchema.optional(),
   roleId: z.string().optional(),
   attemptKind: z.enum(["initial", "rework", "follow-up"]).optional(),
   decisionKind: z.string().optional(),
@@ -207,6 +217,10 @@ export async function appendMainAgentLoopEvent(
       runIds: dedupeStrings(input.refs?.runIds ?? []),
       validationIds: dedupeStrings(input.refs?.validationIds ?? []),
       auditIds: dedupeStrings(input.refs?.auditIds ?? []),
+      taskQueueRunIds: dedupeStrings(input.refs?.taskQueueRunIds ?? []),
+      taskQueueItemIds: dedupeStrings(input.refs?.taskQueueItemIds ?? []),
+      taskRunIds: dedupeStrings(input.refs?.taskRunIds ?? []),
+      workflowRunIds: dedupeStrings(input.refs?.workflowRunIds ?? []),
     },
   };
   const path = mainAgentLoopEventsPath(memory, run.id);

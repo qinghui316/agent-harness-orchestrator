@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-30T14:38:14.3303262Z",
+    "generated_at":  "2026-06-30T15:52:15.2722780Z",
     "active":  [
 
                ],
@@ -2281,6 +2281,10 @@
                     {
                         "name":  "20260630-main-agent-taskrun-lifecycle-rework-ownership-v1",
                         "path":  "harness/changes/archive/20260630-main-agent-taskrun-lifecycle-rework-ownership-v1"
+                    },
+                    {
+                        "name":  "20260630-main-agent-workflowgraph-queue-step-loop-contract-v1",
+                        "path":  "harness/changes/archive/20260630-main-agent-workflowgraph-queue-step-loop-contract-v1"
                     },
                     {
                         "name":  "20260630-workbench-chat-only-center-orchestration-top-tool-v1",

@@ -40,11 +40,14 @@ export interface MainAgentTaskRunLifecycleOptions {
   prompt?: string;
   live?: WorkbenchLiveSink;
   executionGate?: CodeExecutionGateOptions;
+  loopRunId?: string;
+  ownsLoopFinalization?: boolean;
   onRetryTaskRunStarted?: (started: MainAgentStartedTaskRun) => Promise<void>;
 }
 
 export async function runMainAgentTaskRunLifecycle(input: MainAgentTaskRunLifecycleOptions): Promise<MainAgentTaskRunLifecycleResult> {
-  const loopRunId = createMainAgentLoopRunId(input.started.taskRun.changeId);
+  const loopRunId = input.loopRunId ?? createMainAgentLoopRunId(input.started.taskRun.changeId);
+  const ownsLoopFinalization = input.ownsLoopFinalization ?? input.loopRunId === undefined;
   const initial = await runStartedTaskRunAttempt({
     ...input,
     started: input.started,
@@ -60,11 +63,12 @@ export async function runMainAgentTaskRunLifecycle(input: MainAgentTaskRunLifecy
     live: input.live,
     executionGate: input.executionGate,
     loopRunId,
+    ownsLoopFinalization,
     orchestrationState: extractOrchestrationState(initial.workflow, initial.taskRun),
     onRetryTaskRunStarted: input.onRetryTaskRunStarted,
   });
   if (rework) return { ...rework, lease: input.started.lease, autoRework: { previousTaskRun: initial.taskRun, result: rework } };
-  await finishLoopForTaskRun(input.project, loopRunId, initial.taskRun, initial.workflow);
+  if (ownsLoopFinalization) await finishLoopForTaskRun(input.project, loopRunId, initial.taskRun, initial.workflow);
   return initial;
 }
 
@@ -75,9 +79,12 @@ export async function runMainAgentTaskRunReworkFromFinished(input: {
   prompt?: string;
   live?: WorkbenchLiveSink;
   executionGate?: CodeExecutionGateOptions;
+  loopRunId?: string;
+  ownsLoopFinalization?: boolean;
   onRetryTaskRunStarted?: (started: MainAgentStartedTaskRun) => Promise<void>;
 }): Promise<MainAgentTaskRunLifecycleResult> {
-  const loopRunId = createMainAgentLoopRunId(input.taskRun.changeId);
+  const loopRunId = input.loopRunId ?? createMainAgentLoopRunId(input.taskRun.changeId);
+  const ownsLoopFinalization = input.ownsLoopFinalization ?? input.loopRunId === undefined;
   const orchestrationState = synthesizeOrchestrationFromFinishedWorkflow(input.taskRun, input.workflow);
   const rework = await maybeRunTaskRunRework({
     project: input.project,
@@ -86,11 +93,12 @@ export async function runMainAgentTaskRunReworkFromFinished(input: {
     live: input.live,
     executionGate: input.executionGate,
     loopRunId,
+    ownsLoopFinalization,
     orchestrationState,
     onRetryTaskRunStarted: input.onRetryTaskRunStarted,
   });
   if (rework) return { taskRun: rework.taskRun, lease: rework.lease, workflow: rework.workflow, autoRework: { previousTaskRun: input.taskRun, result: rework } };
-  await finishLoopForTaskRun(input.project, loopRunId, input.taskRun, input.workflow);
+  if (ownsLoopFinalization) await finishLoopForTaskRun(input.project, loopRunId, input.taskRun, input.workflow);
   return { taskRun: input.taskRun, lease: null, workflow: input.workflow };
 }
 
@@ -145,6 +153,7 @@ async function maybeRunTaskRunRework(input: {
   live?: WorkbenchLiveSink;
   executionGate?: CodeExecutionGateOptions;
   loopRunId: string;
+  ownsLoopFinalization: boolean;
   orchestrationState: MainAgentOrchestrationState;
   onRetryTaskRunStarted?: (started: MainAgentStartedTaskRun) => Promise<void>;
 }): Promise<MainAgentTaskRunLifecycleResult | null> {
@@ -173,11 +182,12 @@ async function maybeRunTaskRunRework(input: {
     live: input.live,
     executionGate: input.executionGate,
     loopRunId: input.loopRunId,
+    ownsLoopFinalization: input.ownsLoopFinalization,
     initialRole: "rework-coder",
     orchestrationState: input.orchestrationState,
     initialDecision: reworkDecision,
   });
-  await finishLoopForTaskRun(input.project, input.loopRunId, rework.taskRun, rework.workflow);
+  if (input.ownsLoopFinalization) await finishLoopForTaskRun(input.project, input.loopRunId, rework.taskRun, rework.workflow);
   return rework;
 }
 

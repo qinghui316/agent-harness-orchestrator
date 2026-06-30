@@ -2487,6 +2487,7 @@ describe("Workbench web app", () => {
   });
 
   it("keeps the Agent orchestration map usable while the confirmation rail is collapsed", async () => {
+    window.history.replaceState({}, "", "/?project=repo&topic=member-discount");
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });

@@ -606,6 +606,38 @@ describe("main-agent step loop contract", () => {
     expect(decisions.filter((decision) => decision.decision.roleId === "rework-coder")).toHaveLength(1);
   });
 
+  it("does not let a child TaskRun finalize a parent queue loop", async () => {
+    const initialTaskRun = taskRun({ id: "task-run-parent-child" });
+    controls.taskRuns.set(initialTaskRun.id, initialTaskRun);
+    const memory = await resolveProjectMemory(project);
+    const parent = await ensureMainAgentLoopRun(memory, {
+      loopRunId: "queue-parent-loop",
+      changeId: initialTaskRun.changeId,
+      projectId: project.id,
+      entrypoint: "task-queue",
+    });
+
+    const result = await runMainAgentTaskRunLifecycle({
+      project,
+      started: { taskRun: initialTaskRun, lease: workerLease("task-run-parent-child") },
+      prompt: "Run child task.",
+      loopRunId: parent.run.id,
+      ownsLoopFinalization: false,
+    });
+
+    expect(result.taskRun).toMatchObject({ id: "task-run-parent-child", status: "completed" });
+    const parentAfterChild = await readMainAgentLoopRun(memory, parent.run.id);
+    const events = await readMainAgentLoopEvents(memory, parent.run.id);
+    expect(parentAfterChild?.entrypoint).toBe("task-queue");
+    expect(parentAfterChild?.status).toBe("running");
+    expect(events.filter((event) => event.type === "leaf.started").map((event) => event.roleId)).toEqual([
+      "coder-agent",
+      "validator",
+      "auditor-agent",
+    ]);
+    expect(events.some((event) => event.type === "loop.completed" || event.type === "loop.stopped")).toBe(false);
+  });
+
   it("does not create a third TaskRun when bounded rework budget is exhausted", async () => {
     controls.validatorOutcomes = ["failed"];
     const priorRetry = taskRun({ id: "task-run-retry", attempt: 2 });

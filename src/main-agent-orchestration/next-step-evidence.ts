@@ -8,6 +8,7 @@ import type { ResolvedMemory } from "../types/index.js";
 import { mainAgentLoopRunRoot, type MainAgentLoopEntrypoint, type MainAgentLoopRun } from "./loop-evidence.js";
 
 export type MainAgentNextStepEvidenceAuthority = "non-executing-main-agent-next-step-evidence";
+export type MainAgentNextStepEntrypoint = Exclude<MainAgentLoopEntrypoint, "task-queue">;
 
 export interface MainAgentNextStepEvidenceRefs {
   agentTaskIds: string[];
@@ -48,7 +49,7 @@ export interface MainAgentNextStepEvidence {
   loopRunId: string;
   changeId: string;
   projectId: string | null;
-  entrypoint: MainAgentLoopEntrypoint;
+  entrypoint: MainAgentNextStepEntrypoint;
   stepIndex: number;
   createdAt: string;
   observation: MainAgentNextStepObservationSummary;
@@ -68,7 +69,7 @@ export interface MainAgentNextStepEvidence {
 
 export interface RecordMainAgentNextStepEvidenceInput {
   stepIndex: number;
-  entrypoint: MainAgentLoopEntrypoint;
+  entrypoint: MainAgentNextStepEntrypoint;
   observation: MainAgentNextStepObservationSummary;
   decision: MainAgentOrchestrationDecision;
   gateIntent?: MainAgentNextStepGateIntent;

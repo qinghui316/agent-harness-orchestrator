@@ -134,6 +134,9 @@ import {
   runMainAgentTaskRunLifecycle,
   runMainAgentTaskRunAttempt,
   runMainAgentTaskQueueLifecycle,
+  runMainAgentTaskQueueStepLoop,
+  decideNextMainAgentQueueStep,
+  readMainAgentQueueDecisionEvidence,
   findMainAgentTaskQueueStageResumeCandidate,
 } from "../../src/main-agent-orchestration/index.js";
 import { listTaskQueueItems as listTaskQueueItemsFacade, listTaskQueues as listTaskQueuesFacade, reconcileTaskQueues as reconcileTaskQueuesFacade, startOrResumeTaskQueue as startOrResumeTaskQueueFacade } from "../../src/task-queue/manager.js";
@@ -221,15 +224,36 @@ describe("Workbench module boundaries", () => {
 
     const taskQueueLifecycle = readFileSync(join(process.cwd(), "src/main-agent-orchestration/taskqueue-lifecycle.ts"), "utf8");
     expect(taskQueueLifecycle).toContain("runMainAgentTaskQueueLifecycle");
-    expect(taskQueueLifecycle).toContain("runMainAgentTaskRunLifecycle");
-    expect(taskQueueLifecycle).toContain("runMainAgentTaskRunReworkFromFinished");
-    expect(taskQueueLifecycle).toContain("taskQueueExecutionGate");
-    expect(taskQueueLifecycle).toContain("blockQueuedTaskItem");
+    expect(taskQueueLifecycle).toContain("runMainAgentTaskQueueStepLoop");
+    expect(taskQueueLifecycle).toContain("ensureMainAgentLoopRun");
+    expect(taskQueueLifecycle).toContain("finishMainAgentLoopRun");
+    expect(taskQueueLifecycle).not.toContain("while (true)");
+    expect(taskQueueLifecycle).not.toContain("runMainAgentTaskRunLifecycle");
+    expect(taskQueueLifecycle).not.toContain("runMainAgentTaskRunReworkFromFinished");
+    expect(taskQueueLifecycle).not.toContain("startTaskRun");
+    expect(taskQueueLifecycle).not.toContain("findMainAgentTaskQueueStageResumeCandidate");
     expect(taskQueueLifecycle).not.toContain("../scheduler-runtime/");
     expect(taskQueueLifecycle).not.toContain("../workbench/actions/");
     expect(taskQueueLifecycle).not.toContain("../apply/");
     expect(taskQueueLifecycle).not.toContain("../terminal");
     expect(taskQueueLifecycle).not.toContain("SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES");
+
+    const taskQueueStepLoop = readFileSync(join(process.cwd(), "src/main-agent-orchestration/taskqueue-step-loop.ts"), "utf8");
+    expect(taskQueueStepLoop).toContain("observeMainAgentQueue");
+    expect(taskQueueStepLoop).toContain("decideNextMainAgentQueueStep");
+    expect(taskQueueStepLoop).toContain("runMainAgentTaskQueueStepLoop");
+    expect(taskQueueStepLoop).toContain("for (let queueStepIndex");
+    expect(taskQueueStepLoop).not.toContain("while (true)");
+    expect(taskQueueStepLoop).toContain("runMainAgentTaskRunLifecycle");
+    expect(taskQueueStepLoop).toContain("runMainAgentTaskRunReworkFromFinished");
+    expect(taskQueueStepLoop).toContain("taskQueueExecutionGate");
+    expect(taskQueueStepLoop).toContain("blockQueuedTaskItem");
+    expect(taskQueueStepLoop).toContain("ownsLoopFinalization: false");
+    expect(taskQueueStepLoop).not.toContain("../scheduler-runtime/");
+    expect(taskQueueStepLoop).not.toContain("../workbench/actions/");
+    expect(taskQueueStepLoop).not.toContain("../apply/");
+    expect(taskQueueStepLoop).not.toContain("../terminal");
+    expect(taskQueueStepLoop).not.toContain("SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES");
 
     const taskQueueStageResume = readFileSync(join(process.cwd(), "src/main-agent-orchestration/taskqueue-stage-resume.ts"), "utf8");
     expect(taskQueueStageResume).toContain("findMainAgentTaskQueueStageResumeCandidate");
@@ -313,6 +337,9 @@ describe("Workbench module boundaries", () => {
     expect(nextStepEvidence).toContain("non-executing-main-agent-next-step-evidence");
     expect(nextStepEvidence).toContain("executionStarted: false");
     expect(nextStepEvidence).toContain("decisions.jsonl");
+    expect(nextStepEvidence).toContain('Exclude<MainAgentLoopEntrypoint, "task-queue">');
+    expect(nextStepEvidence).not.toContain("run-next-item");
+    expect(nextStepEvidence).not.toContain("queue-decisions.jsonl");
     expect(nextStepEvidence).not.toContain("../workbench/actions/");
     expect(nextStepEvidence).not.toContain("../workbench/");
     expect(nextStepEvidence).not.toContain("../goal-loop/");
@@ -322,6 +349,21 @@ describe("Workbench module boundaries", () => {
     expect(nextStepEvidence).not.toContain("../terminal");
     expect(nextStepEvidence).not.toContain("../apply/");
     expect(nextStepEvidence).not.toContain("SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES");
+
+    const queueStepEvidence = readFileSync(join(process.cwd(), "src/main-agent-orchestration/queue-step-evidence.ts"), "utf8");
+    expect(queueStepEvidence).toContain("non-executing-main-agent-queue-step-evidence");
+    expect(queueStepEvidence).toContain("executionStarted: false");
+    expect(queueStepEvidence).toContain("queue-decisions.jsonl");
+    expect(queueStepEvidence).toContain("run-next-item");
+    expect(queueStepEvidence).not.toContain("../workbench/actions/");
+    expect(queueStepEvidence).not.toContain("../workbench/");
+    expect(queueStepEvidence).not.toContain("../goal-loop/");
+    expect(queueStepEvidence).not.toContain("../scheduler-runtime/");
+    expect(queueStepEvidence).not.toContain("../task-queue/");
+    expect(queueStepEvidence).not.toContain("../workflow-run/");
+    expect(queueStepEvidence).not.toContain("../terminal");
+    expect(queueStepEvidence).not.toContain("../apply/");
+    expect(queueStepEvidence).not.toContain("SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES");
   });
 
   it("keeps legacy facades available while exposing split modules", () => {
@@ -513,6 +555,9 @@ describe("Workbench module boundaries", () => {
     expect(typeof hashArtifactRefs).toBe("function");
     expect(typeof readLatestTaskQueueProposal).toBe("function");
     expect(typeof renderWorkflowGraphPlanMarkdown).toBe("function");
+    expect(typeof runMainAgentTaskQueueStepLoop).toBe("function");
+    expect(typeof decideNextMainAgentQueueStep).toBe("function");
+    expect(typeof readMainAgentQueueDecisionEvidence).toBe("function");
     expect(typeof compileSchedulerContract).toBe("function");
     expect(typeof renderSchedulerContractMarkdown).toBe("function");
     expect(typeof compileSchedulerDispatchDryRun).toBe("function");

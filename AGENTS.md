@@ -8,6 +8,8 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260630-main-agent-workflowgraph-queue-step-loop-contract-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260630-main-agent-taskqueue-workflowgraph-lifecycle-ownership-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260630-main-agent-taskrun-lifecycle-rework-ownership-v1/summary.md`.
@@ -133,6 +135,14 @@ Current baseline:
 
 - Local manual-gated Workbench has real acceptance through planning, code,
   validation/audit, human apply, and close/archive.
+- Main-agent orchestration is the current architecture owner for local role
+  and sequential TaskQueue / WorkflowGraph execution. Role execution uses
+  observe/decide/run-one-leaf/record step loops; TaskQueue execution now uses a
+  queue-level observe/decide/run-one-item/record step loop with non-executing
+  `queue-decisions.jsonl` evidence. V1 remains deterministic and does not add
+  Scheduler/WorkerLease/IntegrationCheck fan-out, UI, confirmation queue,
+  action bridge, automation allowlist, apply/close, remote, PR, merge, or
+  Harness evolution authority.
 - Workbench conversation transcripts now use cursor-incremental SQLite message
   paging by default, bounded virtual rendering, long-message folding, and
   `@chenglou/pretext` height estimates with fallback. Synthetic 100k / 500k
