@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260630-main-agent-orchestration-legacy-facade-retirement-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260630-main-agent-orchestration-old-pipeline-removal-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260630-main-agent-projection-de-expose-safety-fix-v2/summary.md`.
@@ -102,16 +104,23 @@
 
 ## Latest Product Closeout
 
+`harness/changes/archive/20260630-main-agent-orchestration-legacy-facade-retirement-v1/summary.md`.
+
+It retires the remaining production `runCodeValidateAuditSequence` facade.
+TaskRun attempts, source-refresh rework, and PR/feedback rework now call
+explicit `src/main-agent-orchestration/` entrypoints while preserving their
+domain lifecycle owners and result shapes. No Workbench UI, confirmation queue,
+action type, automation allowlist, apply/close, remote, PR, merge, or Harness
+evolution authority changed.
+
+Previous closeout:
 `harness/changes/archive/20260630-main-agent-orchestration-old-pipeline-removal-v1/summary.md`.
 
 It moves full coding workflow control out of the old monolithic
 `runCodeValidateAuditSequence` implementation into the new
 `src/main-agent-orchestration/` owner. The new owner runs the current V1 fixed
 sequence as observe/decide/run-one-leaf/record/observe while preserving existing
-behavior: coder, validator, auditor, and at most one rework. The old exported
-function remains only as a compatibility facade for legacy task-run/rework call
-sites. No Workbench UI, confirmation queue, action type, automation allowlist,
-apply/close, remote, PR, merge, or Harness evolution authority changed.
+behavior: coder, validator, auditor, and at most one rework.
 
 Previous closeout:
 `harness/changes/archive/20260630-main-agent-projection-de-expose-safety-fix-v2/summary.md`.

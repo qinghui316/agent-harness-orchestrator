@@ -7,7 +7,7 @@ import { completePrFeedbackReworkAttempt, refreshPrFeedback, startPrFeedbackRewo
 import { preparePrReviewReadiness, preparePrReviewReplyDraft, refreshPrReviewState, resolvePrReviewThread, submitPrForHumanReview, submitPrReviewReply } from "../../../pr-review/manager.js";
 import { mergeRemoteLanding, prepareRemoteLandingReadiness, refreshRemoteLanding } from "../../../remote-landing/manager.js";
 import { cleanupRemoteBranchAfterMerge, prepareLocalSync, preparePostMergeHandoff, prepareRemoteBranchCleanup, syncLocalAfterMerge } from "../../../post-merge/manager.js";
-import { runCodeValidateAuditSequence } from "../../../workflow-runtime/code-workflow.js";
+import { runMainAgentFeedbackRework } from "../../../main-agent-orchestration/index.js";
 import type { ManagedProject } from "../../../types/index.js";
 import { selectLandingReviewArtifactRef, selectLandingSummaryArtifactRef } from "../../artifact-selection.js";
 import { emitAssistantEvent } from "../../live-events.js";
@@ -221,7 +221,12 @@ export async function reworkPrFeedbackForAction(
     artifact: started.feedback.summary.evidenceRefs[0],
   });
   live?.emit({ event: "assistant.message", data: intro });
-  const workflow = await runCodeValidateAuditSequence(project, changeId, started.prompt, live, undefined, undefined, "rework-coder");
+  const workflow = await runMainAgentFeedbackRework({
+    project,
+    changeId,
+    prompt: started.prompt,
+    live,
+  });
   const artifactRefs = compactArtifactRefs(
     ...(isRecord(workflow) && isRecord(workflow.code) && isRecord(workflow.code.run) && isRecord(workflow.code.run.artifacts) && typeof workflow.code.run.artifacts.directory === "string"
       ? [workflow.code.run.artifacts.directory]

@@ -130,19 +130,58 @@ export async function runMainAgentOrchestration(input: {
   };
 }
 
-export async function runLegacyCodeValidateAuditFacade(input: {
+export async function runMainAgentTaskRunAttempt(input: {
   project: ManagedProject;
   changeId: string;
   prompt?: string;
   live?: WorkbenchLiveSink;
   taskIds?: string[];
   taskRunId?: string;
-  initialRole?: string;
-  orchestrationState?: MainAgentOrchestrationState;
-  initialDecision?: Extract<MainAgentOrchestrationDecision, { kind: "delegate-role" }>;
   executionGate?: CodeExecutionGateOptions;
 }): Promise<CodeValidateAuditAttemptResult> {
-  return runCodeValidateAuditAttempt(input);
+  return runCodeValidateAuditAttempt({
+    project: input.project,
+    changeId: input.changeId,
+    prompt: input.prompt,
+    live: input.live,
+    taskIds: input.taskIds,
+    taskRunId: input.taskRunId,
+    initialRole: "coder-agent",
+    executionGate: input.executionGate,
+  });
+}
+
+export async function runMainAgentSourceRefreshRework(input: {
+  project: ManagedProject;
+  changeId: string;
+  prompt?: string;
+  live?: WorkbenchLiveSink;
+}): Promise<CodeValidateAuditAttemptResult> {
+  return runMainAgentReworkAttempt(input);
+}
+
+export async function runMainAgentFeedbackRework(input: {
+  project: ManagedProject;
+  changeId: string;
+  prompt?: string;
+  live?: WorkbenchLiveSink;
+}): Promise<CodeValidateAuditAttemptResult> {
+  return runMainAgentReworkAttempt(input);
+}
+
+function runMainAgentReworkAttempt(input: {
+  project: ManagedProject;
+  changeId: string;
+  prompt?: string;
+  live?: WorkbenchLiveSink;
+}): Promise<CodeValidateAuditAttemptResult> {
+  return runCodeValidateAuditAttempt({
+    project: input.project,
+    changeId: input.changeId,
+    prompt: input.prompt,
+    live: input.live,
+    initialRole: "rework-coder",
+  });
 }
 
 async function runCodeValidateAuditAttempt(input: {

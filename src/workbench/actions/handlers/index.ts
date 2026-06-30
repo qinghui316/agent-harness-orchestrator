@@ -3,7 +3,8 @@ import { acceptPlanProposal, acceptSpecProposal, startPlanProposalRun, startSpec
 import { runIntegrationCheck } from "../../../integration-check/manager.js";
 import { reconcileTaskRuns } from "../../../task-run/manager.js";
 import { reconcileWorkflowTaskQueue } from "../../../workflow-runtime/taskqueue.js";
-import { runCodeValidateAuditSequence, runTaskQueueSequence, runTaskRunCodeValidateAuditSequence, sourceRefreshReworkPrompt } from "../../../workflow-runtime/code-workflow.js";
+import { runMainAgentSourceRefreshRework } from "../../../main-agent-orchestration/index.js";
+import { runTaskQueueSequence, runTaskRunCodeValidateAuditSequence, sourceRefreshReworkPrompt } from "../../../workflow-runtime/code-workflow.js";
 import { startValidationRun } from "../../../validation/manager.js";
 import { getSpecTestDriftReport } from "../../../spec-test/drift.js";
 import type { ManagedProject, RunMetadata } from "../../../types/index.js";
@@ -78,7 +79,12 @@ export function buildWorkbenchActionHandlers(deps: WorkbenchActionHandlerDeps): 
   "conversation.continue": async (project, changeId, request, live) => runMainAgentToolOrchestration(project, changeId, request.prompt, live, true),
   "result.refresh-rework": async (project, changeId, request, live) => {
     if (!request.worktreeId) throw new Error("result.refresh-rework requires worktreeId.");
-    return runCodeValidateAuditSequence(project, changeId, sourceRefreshReworkPrompt(request.worktreeId, request.prompt), live, undefined, undefined, "rework-coder");
+    return runMainAgentSourceRefreshRework({
+      project,
+      changeId,
+      prompt: sourceRefreshReworkPrompt(request.worktreeId, request.prompt),
+      live,
+    });
   },
   "result.revalidate": async (project, changeId, request) => {
     if (!request.worktreeId) throw new Error("result.revalidate requires worktreeId.");

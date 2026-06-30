@@ -124,11 +124,15 @@ import {
   assertKnownTaskIds,
   requireSingleTaskId,
   requireTaskRunId,
-  runCodeValidateAuditSequence,
   runTaskQueueSequence,
   runTaskRunCodeValidateAuditSequence,
   sourceRefreshReworkPrompt,
 } from "../../src/workflow-runtime/code-workflow.js";
+import {
+  runMainAgentFeedbackRework,
+  runMainAgentSourceRefreshRework,
+  runMainAgentTaskRunAttempt,
+} from "../../src/main-agent-orchestration/index.js";
 import { listTaskQueueItems as listTaskQueueItemsFacade, listTaskQueues as listTaskQueuesFacade, reconcileTaskQueues as reconcileTaskQueuesFacade, startOrResumeTaskQueue as startOrResumeTaskQueueFacade } from "../../src/task-queue/manager.js";
 import { finishTaskRunFromWorkflowResult, listTaskRuns as listTaskRunsFacade, listWorkerLeases as listWorkerLeasesFacade, markTaskRunStarted, reconcileTaskRuns as reconcileTaskRunsFacade, startTaskRun } from "../../src/task-run/manager.js";
 import { appendWorkflowTaskEvent, createWorkflowRunForTaskQueue, getLatestWorkflowRun, listWorkflowRuns, readWorkflowRun, readWorkflowRunEvents, summarizeWorkflowRun, syncWorkflowRunFromQueue, validateTaskQueueProposalStart } from "../../src/workflow-run/manager.js";
@@ -191,12 +195,24 @@ describe("Workbench module boundaries", () => {
     expect(demandWorker).toContain('from "../../main-agent-orchestration/index.js"');
     expect(demandWorker).not.toContain("runCodeValidateAuditSequence");
 
-    const legacyFacade = readFileSync(join(process.cwd(), "src/workflow-runtime/kernel/role-stage-runner.ts"), "utf8");
-    expect(legacyFacade).toContain("runLegacyCodeValidateAuditFacade");
-    expect(legacyFacade).not.toContain("startCodeRun(");
-    expect(legacyFacade).not.toContain("startValidationRun(");
-    expect(legacyFacade).not.toContain("startAuditRun(");
-    expect(legacyFacade).not.toContain("decideNextMainAgentOrchestration");
+    for (const file of listSourceFiles(["src"])) {
+      const source = readFileSync(file, "utf8");
+      expect(source, file).not.toContain("runCodeValidateAuditSequence");
+      expect(source, file).not.toContain("runLegacyCodeValidateAuditFacade");
+    }
+
+    const codeWorkflow = readFileSync(join(process.cwd(), "src/workflow-runtime/code-workflow.ts"), "utf8");
+    expect(codeWorkflow).not.toContain("role-stage-runner");
+    expect(codeWorkflow).not.toContain("runCodeValidateAuditSequence");
+
+    const taskRunSequence = readFileSync(join(process.cwd(), "src/workflow-runtime/kernel/task-run-sequence.ts"), "utf8");
+    expect(taskRunSequence).toContain("runMainAgentTaskRunAttempt");
+
+    const actionHandlers = readFileSync(join(process.cwd(), "src/workbench/actions/handlers/index.ts"), "utf8");
+    expect(actionHandlers).toContain("runMainAgentSourceRefreshRework");
+
+    const remoteHandoff = readFileSync(join(process.cwd(), "src/workbench/actions/handlers/remote-handoff.ts"), "utf8");
+    expect(remoteHandoff).toContain("runMainAgentFeedbackRework");
 
     const leafStages = readFileSync(join(process.cwd(), "src/main-agent-orchestration/leaf-stages.ts"), "utf8");
     expect(leafStages).toContain("runCoderLeafStage");
@@ -423,7 +439,9 @@ describe("Workbench module boundaries", () => {
     expect(typeof validateWorkflowTaskQueueProposalStart).toBe("function");
     expect(typeof runTaskQueueSequence).toBe("function");
     expect(typeof runTaskRunCodeValidateAuditSequence).toBe("function");
-    expect(typeof runCodeValidateAuditSequence).toBe("function");
+    expect(typeof runMainAgentTaskRunAttempt).toBe("function");
+    expect(typeof runMainAgentSourceRefreshRework).toBe("function");
+    expect(typeof runMainAgentFeedbackRework).toBe("function");
     expect(typeof sourceRefreshReworkPrompt).toBe("function");
     expect(typeof requireSingleTaskId).toBe("function");
     expect(typeof requireTaskRunId).toBe("function");
@@ -2111,20 +2129,16 @@ describe("Workbench module boundaries", () => {
     expect(workpadActionButton).toContain("workflowActionPayloadFromScope(action)");
   });
 
-  it("keeps workflow runtime code-workflow as a compatibility facade", () => {
+  it("keeps workflow runtime code-workflow as a narrow runtime facade", () => {
     const facade = readFileSync("src/workflow-runtime/code-workflow.ts", "utf8");
     expect(facade).toContain('export { sourceRefreshReworkPrompt } from "./kernel/bounded-rework.js";');
-    expect(facade).toContain('export { runCodeValidateAuditSequence } from "./kernel/role-stage-runner.js";');
     expect(facade).toContain('export { runTaskRunCodeValidateAuditSequence } from "./kernel/task-run-sequence.js";');
     expect(facade).toContain('export { runTaskQueueSequence } from "./kernel/task-queue-runner.js";');
+    expect(facade).not.toContain("runCodeValidateAuditSequence");
+    expect(facade).not.toContain("role-stage-runner");
     expect(facade).not.toMatch(/startCodeRun\(/);
     expect(facade).not.toMatch(/startValidationRun\(/);
     expect(facade).not.toMatch(/startAuditRun\(/);
-    const sequenceFacade = readFileSync("src/workflow-runtime/kernel/role-stage-runner.ts", "utf8");
-    expect(sequenceFacade).toContain("runLegacyCodeValidateAuditFacade");
-    expect(sequenceFacade).not.toMatch(/startCodeRun\(/);
-    expect(sequenceFacade).not.toMatch(/startValidationRun\(/);
-    expect(sequenceFacade).not.toMatch(/startAuditRun\(/);
   });
 
   it("keeps workbench-server as a compatibility facade", () => {

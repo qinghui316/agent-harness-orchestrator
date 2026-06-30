@@ -6,7 +6,7 @@ import type { WorkbenchLiveSink, WorkbenchWorkflowActionRequest } from "../../wo
 import { buildOfficialTaskRunReworkPrompt, buildResumeReworkPrompt, shouldAutoReworkTaskRun } from "./bounded-rework.js";
 import { emitAssistantEvent } from "./live-events.js";
 import { isRecord, isTaskRunLike, requireSingleTaskId, requireTaskRunId } from "./runtime-guards.js";
-import { runCodeValidateAuditSequence } from "./role-stage-runner.js";
+import { runMainAgentTaskRunAttempt } from "../../main-agent-orchestration/index.js";
 
 export async function runTaskRunCodeValidateAuditSequence(
   project: ManagedProject,
@@ -45,7 +45,15 @@ export async function executeStartedTaskRunWorkflow(
       title: "TaskRun running",
       summary: `${started.taskRun.taskId} attempt ${started.taskRun.attempt} started the Coder -> Validation -> Audit workflow.`,
     });
-    const workflow = await runCodeValidateAuditSequence(project, started.taskRun.changeId, prompt, live, [started.taskRun.taskId], started.taskRun.id, "coder-agent", undefined, undefined, executionGate);
+    const workflow = await runMainAgentTaskRunAttempt({
+      project,
+      changeId: started.taskRun.changeId,
+      prompt,
+      live,
+      taskIds: [started.taskRun.taskId],
+      taskRunId: started.taskRun.id,
+      executionGate,
+    });
     const taskRun = await finishTaskRunFromWorkflowResult(memory, started.taskRun.id, workflow, { changeId: started.taskRun.changeId, taskId: started.taskRun.taskId });
     if (shouldAutoReworkTaskRun(taskRun)) {
       emitAssistantEvent(live, {

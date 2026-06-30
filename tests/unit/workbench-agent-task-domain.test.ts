@@ -12,7 +12,7 @@ import { buildDelegateTaskManifest, validateDelegateTaskPolicy } from "../../src
 import { findBoundaryViolations } from "../../src/agent-task/boundary-audit.js";
 import { dispatchForegroundRoleTask } from "../../src/agent-task/role-dispatcher.js";
 import { evaluateToolPolicy, workerPermissionProfileForRole } from "../../src/agent-task/tool-policy.js";
-import { runCodeValidateAuditSequence } from "../../src/workflow-runtime/kernel/role-stage-runner.js";
+import { runMainAgentTaskRunAttempt } from "../../src/main-agent-orchestration/index.js";
 import { project } from "./workbench/fixtures.js";
 
 describe("workbench AgentTask domain", () => {
@@ -140,18 +140,11 @@ describe("workbench AgentTask domain", () => {
     await createChange(project(), { title: "Code Setup Failure" });
     const memory = await resolveProjectMemory(project());
 
-    const result = await runCodeValidateAuditSequence(
-      project(),
-      "code-setup-failure",
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      "coder-agent",
-      undefined,
-      undefined,
-      { mode: "single-change-readiness", readinessManifestId: "readiness-missing" },
-    );
+    const result = await runMainAgentTaskRunAttempt({
+      project: project(),
+      changeId: "code-setup-failure",
+      executionGate: { mode: "single-change-readiness", readinessManifestId: "readiness-missing" },
+    });
 
     expect(result).toMatchObject({
       status: "failed",

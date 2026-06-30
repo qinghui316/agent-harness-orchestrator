@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-30T08:56:48.7274477Z",
+    "generated_at":  "2026-06-30T09:34:53.1175998Z",
     "active":  [
 
                ],
@@ -2237,6 +2237,10 @@
                     {
                         "name":  "20260630-main-agent-loop-projection-contract-v1",
                         "path":  "harness/changes/archive/20260630-main-agent-loop-projection-contract-v1"
+                    },
+                    {
+                        "name":  "20260630-main-agent-orchestration-legacy-facade-retirement-v1",
+                        "path":  "harness/changes/archive/20260630-main-agent-orchestration-legacy-facade-retirement-v1"
                     },
                     {
                         "name":  "20260630-main-agent-orchestration-old-pipeline-removal-v1",
