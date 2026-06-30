@@ -7,6 +7,8 @@
 - Pending Harness evolution:
   `harness/evolution/pending.md`.
 - Latest archived product change:
+  `harness/changes/archive/20260630-main-agent-loop-projection-contract-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260630-document-main-agent-continuous-orchestration-roadmap-and-clean-conversation-evidence-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260630-workbench-chat-only-center-orchestration-top-tool-v1/summary.md`.

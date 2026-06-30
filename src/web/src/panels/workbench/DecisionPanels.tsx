@@ -132,6 +132,7 @@ function confirmationItemToDecisionContext(item: ConfirmationQueueItem): Decisio
     resultSummary: item.summary,
     recommendation: item.confirmEffect,
     explanation: item.riskSummary,
+    mainAgentLoopProjection: item.mainAgentLoopProjection,
     controlledSchedulerNextCandidate: item.controlledSchedulerNextCandidate,
     controlledSchedulerReconfirmation: item.controlledSchedulerReconfirmation,
     severity: item.status === "failed" ? "blocking" : "info",
@@ -206,6 +207,12 @@ function DecisionContextCard({
         <strong>说明</strong>
         <p>{userFacingText(context.explanation ?? "内部运行状态只作为证据和恢复信息，不是用户主决策语言。")}</p>
       </div>
+      {context.mainAgentLoopProjection?.status === "recommend-existing-gate" ? (
+        <div className="decision-explainer muted" aria-label="Main agent loop projection">
+          <strong>主 Agent 判断</strong>
+          <p>{userFacingText(context.mainAgentLoopProjection.reason || context.mainAgentLoopProjection.summary)}</p>
+        </div>
+      ) : null}
       {context.controlledSchedulerNextCandidate ? (
         <div className="decision-explainer" aria-label="Controlled scheduler next candidate">
           <strong>{userFacingText(context.controlledSchedulerNextCandidate.label)}</strong>

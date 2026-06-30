@@ -171,6 +171,21 @@ import {
 import { workflowActionPayloadFromTaskAction } from "../../src/web/src/workflow-actions.js";
 
 describe("Workbench module boundaries", () => {
+  it("keeps MainAgentLoopProjection as a non-executing read model seam", () => {
+    const source = readFileSync(join(process.cwd(), "src/goal-loop/main-agent-loop-projection.ts"), "utf8");
+    expect(source).toContain("non-executing-main-agent-loop-projection");
+    expect(source).toContain("executionStarted: false");
+    expect(source).not.toContain("../workbench/actions/");
+    expect(source).not.toContain("../scheduler-runtime/");
+    expect(source).not.toContain("../workflow-runtime/");
+    expect(source).not.toContain("../apply/");
+    expect(source).not.toContain("../terminal");
+    expect(source).not.toContain("runMainAgentToolOrchestration");
+    expect(source).not.toContain("runCodeValidateAuditSequence");
+    expect(source).not.toContain("runPostPlanScopedAutomation");
+    expect(source).not.toContain("SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES");
+  });
+
   it("keeps legacy facades available while exposing split modules", () => {
     expect(typeof appendTopicThreadEntry).toBe("function");
     expect(typeof runWorkbenchWorkflowAction).toBe("function");

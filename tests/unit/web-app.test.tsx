@@ -1295,6 +1295,62 @@ describe("Workbench web app", () => {
     }
   });
 
+  it("shows matching main-agent loop projection only as confirmation context", () => {
+    const item = {
+      ...planningConfirmQueueItem(),
+      mainAgentLoopProjection: {
+        authority: "non-executing-main-agent-loop-projection",
+        status: "recommend-existing-gate",
+        changeId: "member-discount",
+        summary: "The current gate matches the main Agent next-step packet.",
+        reason: "主 Agent 判断当前只应确认现有计划 gate。",
+        recommendedAction: {
+          actionType: "planning.confirm-execution",
+          scope: { changeId: "member-discount", planningBundleId: "planning-bundle-1" },
+          reason: "主 Agent 判断当前只应确认现有计划 gate。",
+        },
+        currentGateActionType: "planning.confirm-execution",
+        evidenceRefs: ["goal-loop/packet.md"],
+        forbiddenAuthority: {
+          workflowTruth: false,
+          actionExecution: false,
+          sourceMutation: false,
+          schedulerDispatch: false,
+          applyOrClose: false,
+          remoteOrMerge: false,
+          harnessEvolution: false,
+        },
+        executionStarted: false,
+      },
+    } as const;
+
+    render(
+      <DecisionInspectorPane
+        inspector={{ primary: null, related: [], history: [] }}
+        confirmationQueue={{
+          primary: item,
+          current: [item],
+          otherDemands: [],
+          maintenance: [],
+          history: [],
+        }}
+        confirming={null}
+        busy={false}
+        error={null}
+        automationMode="request-approval"
+        onConfirmingChange={() => undefined}
+        onExecuteAction={async () => undefined}
+        onFeedback={async () => undefined}
+        onSelectContext={() => undefined}
+      />,
+    );
+
+    const card = screen.getByTestId("decision-inspector-primary");
+    expect(within(card).getByText("主 Agent 判断")).toBeTruthy();
+    expect(within(card).getByText("主 Agent 判断当前只应确认现有计划 gate。")).toBeTruthy();
+    expect(within(card).queryByRole("button", { name: /主 Agent/ })).toBeNull();
+  });
+
   it("renders bounded continuation as the primary confirmation and submits maxSteps once confirmed", async () => {
     const execute = vi.fn(async () => undefined);
     function Harness() {

@@ -2,6 +2,7 @@
 import { listRuns } from "../../../run/manager.js";
 import { listDemandWorkers } from "../../../demand-worker/manager.js";
 import { listTaskQueues } from "../../../task-queue/manager.js";
+import { buildMainAgentLoopProjection } from "../../../goal-loop/manager.js";
 import { buildSchedulerControlledLoopStopSummary, CONTROLLED_STEP_FORBIDDEN_AUTHORITY } from "../../../scheduler-runtime/manager.js";
 import {
   evaluateControlledSchedulerBoundaryContinuation,
@@ -306,6 +307,7 @@ export async function buildWorkbenchWorkpad(input: {
     resultReview,
   );
   const goalLoop = filterGoalLoopSummaryForCurrentGate(rawGoalLoop, nextAction);
+  const mainAgentLoopProjection = buildMainAgentProjectionForWorkpad(goalLoop, nextAction, selectedTopic.id);
   const schedulerControlledStepEvidenceForWorkpad = alignControlledSchedulerContinuationReadiness(
     schedulerControlledStepEvidence,
     nextAction,
@@ -397,6 +399,7 @@ export async function buildWorkbenchWorkpad(input: {
     taskGraph,
     taskQueue,
     goalLoop: goalLoop ?? undefined,
+    mainAgentLoopProjection,
     controlledSchedulerStepReceipt: controlledSchedulerStepReceipt ?? undefined,
     controlledSchedulerStepTrace: controlledSchedulerStepTrace ?? undefined,
     controlledSchedulerReconfirmation,
@@ -414,6 +417,114 @@ export async function buildWorkbenchWorkpad(input: {
     background: buildWorkpadBackground(workpads, selectedTopic.id),
     memoryIsolation: buildWorkpadMemoryIsolation(memory, selectedTopic, workpads),
   };
+}
+
+function buildMainAgentProjectionForWorkpad(
+  goalLoop: Awaited<ReturnType<typeof readLatestGoalLoopSummary>>,
+  nextAction: WorkpadNextAction,
+  changeId: string,
+) {
+  return buildMainAgentLoopProjection({
+    changeId,
+    goalLoop: goalLoop ? {
+      changeId: goalLoop.changeId,
+      summary: goalLoop.summary,
+      decisionKind: goalLoop.decisionKind,
+      continuationState: goalLoop.continuationState,
+      recommendationState: goalLoop.recommendationState,
+      completionStatus: goalLoop.completionStatus,
+      recommendedAction: goalLoop.recommendedActionType && goalLoop.recommendedActionScope ? {
+        actionType: goalLoop.recommendedActionType,
+        scope: goalLoop.recommendedActionScope,
+        reason: goalLoop.recommendedActionReason ?? goalLoop.summary,
+      } : undefined,
+      goalLoopDecisionId: goalLoop.goalLoopDecisionId,
+      goalLoopIterationId: goalLoop.goalLoopIterationId,
+      goalLoopNextStepPacketId: goalLoop.goalLoopNextStepPacketId,
+      controllerPolicy: goalLoop.controllerPolicyId ? {
+        id: goalLoop.controllerPolicyId,
+        verdict: goalLoop.controllerVerdict,
+        gateStatus: goalLoop.controllerGateStatus,
+        summary: goalLoop.controllerSummary,
+        executionStarted: false,
+      } : undefined,
+      gateReadinessPreflight: goalLoop.gateReadinessPreflightId ? {
+        id: goalLoop.gateReadinessPreflightId,
+        executionStarted: false,
+        concreteGateInvoked: false,
+      } : undefined,
+      evidenceRefs: [
+        goalLoop.markdownArtifact ?? goalLoop.artifact,
+        goalLoop.nextStepPacketMarkdownArtifact ?? goalLoop.nextStepPacketArtifact,
+        goalLoop.controllerMarkdownArtifact ?? goalLoop.controllerArtifact,
+        goalLoop.gateReadinessPreflightMarkdownArtifact ?? goalLoop.gateReadinessPreflightArtifact,
+      ].filter((value): value is string => Boolean(value)),
+      executionStarted: false,
+    } : null,
+    currentGate: nextAction.actionType ? {
+      actionType: nextAction.actionType,
+      changeId: nextAction.changeId,
+      scope: mainAgentCurrentGateScope(nextAction),
+      enabled: nextAction.enabled,
+      requiresConfirmation: nextAction.requiresConfirmation,
+    } : null,
+  });
+}
+
+function mainAgentCurrentGateScope(nextAction: WorkpadNextAction): Record<string, string | string[]> {
+  const scope: Record<string, string | string[]> = {};
+  for (const key of [
+    "changeId",
+    "planningBundleId",
+    "decompositionPlanId",
+    "readinessManifestId",
+    "taskQueueProposalId",
+    "workflowGraphPlanId",
+    "schedulerContractId",
+    "schedulerDispatchDryRunId",
+    "schedulerWorkerPlanId",
+    "schedulerClaimReconcilePlanId",
+    "schedulerLaunchPreflightId",
+    "schedulerRunId",
+    "schedulerReconcileSnapshotId",
+    "schedulerClaimReservationId",
+    "schedulerWorkerStartId",
+    "schedulerWorkerResultId",
+    "schedulerWorkerValidationId",
+    "schedulerWorkerAuditId",
+    "schedulerWorkerReworkPlanId",
+    "schedulerWorkerReworkStartId",
+    "schedulerWorkerReworkResultId",
+    "schedulerWorkerReworkValidationId",
+    "schedulerWorkerReworkAuditId",
+    "schedulerIntegrationCandidateId",
+    "schedulerIntegrationCheckHandoffId",
+    "schedulerIntegrationOutcomeId",
+    "schedulerRunCompletionId",
+    "schedulerRunBlockedCloseoutId",
+    "reservationIntentId",
+    "claimIntentId",
+    "workflowRunId",
+    "queueRunId",
+    "taskIds",
+    "taskRunId",
+    "workerLeaseId",
+    "runId",
+    "worktreeId",
+    "worktreeIds",
+    "applyCheckId",
+    "landingPackageId",
+    "remoteLandingResultId",
+    "validationRunId",
+    "reworkValidationRunId",
+    "auditRunId",
+    "reworkAuditRunId",
+  ] satisfies Array<keyof WorkpadNextAction>) {
+    const value = nextAction[key];
+    if (typeof value === "string") scope[key] = value;
+    else if (Array.isArray(value) && value.every((item) => typeof item === "string")) scope[key] = value;
+  }
+  return scope;
 }
 
 export function alignControlledSchedulerContinuationReadiness(

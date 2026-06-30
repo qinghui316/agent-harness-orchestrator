@@ -136,8 +136,12 @@ observe current Change evidence
 
 Migration must be split into reviewable structured changes:
 
-1. Non-executing loop contract: define `MainAgentDecision`, next-step packet,
-   explanation, and freshness inputs without executing a recommendation.
+1. Non-executing loop contract: expose `MainAgentLoopProjection` as a temporary
+   bridge over existing Goal Loop evidence, current visible gate, controller
+   policy, preflight, and artifact freshness/parity. It may explain a matching
+   existing gate, but it must not execute, write artifacts, mutate SQLite, or
+   become workflow truth. Later phases should replace older fixed-pipeline gate
+   explanations with this seam before introducing an actual loop runner.
 2. Gate/action boundary: route `逐步确认` and `自动推进` through one stale
    revalidation, ToolPolicy, explicit target-id, and current-gate check.
 3. Leaf role adapter: wrap coder, validator, auditor, and rework as bounded

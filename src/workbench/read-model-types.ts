@@ -5,6 +5,7 @@ import type { ParentAgentTranscript } from "./parent-agent-transcript.js";
 import type { WorkbenchArtifactPreview } from "./artifact-types.js";
 import type { WorkbenchThreadActionType } from "../workflow-actions/registry.js";
 import type { GoalLoopCloseGateHandoff } from "../goal-loop/close-handoff.js";
+import type { MainAgentLoopProjection } from "../goal-loop/main-agent-loop-projection.js";
 import type { GoalLoopControlledLoopStateContext, GoalLoopSchedulerLoopSnapshotContext } from "../goal-loop/scheduler-loop-context.js";
 import type { SchedulerExecutionModeAssessment } from "../workflow-scheduler/types.js";
 import type {
@@ -363,6 +364,7 @@ export interface WorkbenchDecisionContext {
   resultSummary?: string;
   recommendation?: string;
   explanation?: string;
+  mainAgentLoopProjection?: MainAgentLoopProjection;
   severity: "info" | "warning" | "blocking";
   changeId?: string;
   taskId?: string;
@@ -463,6 +465,7 @@ export interface WorkbenchConfirmationQueueItem {
   riskSummary: string;
   controlledSchedulerNextCandidate?: WorkbenchControlledSchedulerNextCandidate;
   controlledSchedulerReconfirmation?: WorkbenchControlledSchedulerReconfirmation;
+  mainAgentLoopProjection?: MainAgentLoopProjection;
   evidenceRefs: string[];
   actions: WorkbenchDecisionAction[];
   primary: boolean;
@@ -947,6 +950,7 @@ export interface WorkbenchWorkpad {
   taskGraph: WorkbenchTaskGraph;
   taskQueue?: WorkbenchTaskQueueSummary;
   goalLoop?: WorkbenchGoalLoopSummary;
+  mainAgentLoopProjection?: MainAgentLoopProjection;
   evidence: WorkpadEvidenceSummary[];
   blockers: string[];
   warnings: string[];
