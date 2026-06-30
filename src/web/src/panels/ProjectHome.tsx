@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { ComposerControls } from "../shell/ComposerControls.js";
 import { ComposerAttachButton, ComposerAttachmentList, filesFromDrop, hasFileDrag, imageFilesFromPaste, type ComposerAttachmentListItem } from "../shell/ComposerAttachments.js";
-import { buildComposerContextSummary, ComposerContextSourcesPanel } from "../shell/ComposerContextSources.js";
+import { buildComposerContextSummary, ComposerContextSourcesPopover, type ComposerContextKind } from "../shell/ComposerContextSources.js";
 import { FileMentionPicker } from "../shell/FileMentionPicker.js";
 import { SkillMentionPicker } from "../shell/SkillMentionPicker.js";
 import type { ComposerExecutionMode } from "../shell/composer-session.js";
@@ -58,7 +58,6 @@ export function ProjectReadinessHome({
   skills,
   activeSkillIds,
   onToggleSkill,
-  onOpenSkillsSettings,
   onOpenProject,
   onRefresh,
   resetToken,
@@ -85,7 +84,7 @@ export function ProjectReadinessHome({
   const [draftFileRefs, setDraftFileRefs] = useState<TopicFileReference[]>([]);
   const [draftAttachments, setDraftAttachments] = useState<DraftAttachment[]>([]);
   const [dragOver, setDragOver] = useState(false);
-  const [contextExpanded, setContextExpanded] = useState(false);
+  const [openContextKind, setOpenContextKind] = useState<ComposerContextKind | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const lastResetToken = useRef(resetToken);
@@ -175,21 +174,20 @@ export function ProjectReadinessHome({
             onModeChange={onAutomationModeChange}
             enabledSkillCount={enabledSkillCount}
             contextSummary={contextSummary}
-            contextExpanded={contextExpanded}
-            onToggleContext={() => setContextExpanded((value) => !value)}
+            openContextKind={openContextKind}
+            onToggleContextKind={(kind) => setOpenContextKind((current) => current === kind ? null : kind)}
           />
-          {contextExpanded && contextSummary.totalCount > 0 ? (
-            <ComposerContextSourcesPanel
-              skills={skills}
-              activeSkillIds={activeSkillIds}
-              selectedFileRefs={draftFileRefs}
-              attachments={draftAttachments}
-              onToggleSkill={onToggleSkill}
-              onSelectedFileRefsChange={setDraftFileRefs}
-              onRemoveAttachment={removeAttachment}
-              onOpenSkillsSettings={onOpenSkillsSettings}
-            />
-          ) : null}
+          <ComposerContextSourcesPopover
+            kind={openContextKind}
+            skills={skills}
+            activeSkillIds={activeSkillIds}
+            selectedFileRefs={draftFileRefs}
+            attachments={draftAttachments}
+            onToggleSkill={onToggleSkill}
+            onSelectedFileRefsChange={setDraftFileRefs}
+            onRemoveAttachment={removeAttachment}
+            onClose={() => setOpenContextKind(null)}
+          />
           <SkillMentionPicker
             value={draft}
             onChange={setDraft}

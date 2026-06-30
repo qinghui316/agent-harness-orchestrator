@@ -1,6 +1,8 @@
 import { File, Folder, ImageIcon, Paperclip, Sparkles, X } from "lucide-react";
-import type { ReactElement } from "react";
+import { useEffect, useRef, type ReactElement } from "react";
 import type { SkillListItem, TopicAttachment, TopicFileReference } from "../types.js";
+
+export type ComposerContextKind = "skills" | "files" | "attachments";
 
 export type ComposerContextAttachment = Pick<TopicAttachment, "id" | "fileName" | "kind" | "size"> & {
   runtimeMode?: TopicAttachment["runtimeMode"];
@@ -29,7 +31,8 @@ export function buildComposerContextSummary(input: {
   };
 }
 
-export function ComposerContextSourcesPanel({
+export function ComposerContextSourcesPopover({
+  kind,
   skills = [],
   activeSkillIds = [],
   selectedFileRefs = [],
@@ -37,8 +40,9 @@ export function ComposerContextSourcesPanel({
   onToggleSkill,
   onSelectedFileRefsChange,
   onRemoveAttachment,
-  onOpenSkillsSettings,
+  onClose,
 }: {
+  kind: ComposerContextKind | null;
   skills?: SkillListItem[];
   activeSkillIds?: string[];
   selectedFileRefs?: TopicFileReference[];
@@ -46,17 +50,44 @@ export function ComposerContextSourcesPanel({
   onToggleSkill?: (skillId: string) => void | Promise<void>;
   onSelectedFileRefsChange?: (refs: TopicFileReference[]) => void;
   onRemoveAttachment?: (id: string) => void | Promise<void>;
-  onOpenSkillsSettings?: () => void;
+  onClose?: () => void;
 }): ReactElement | null {
+  const popoverRef = useRef<HTMLDivElement | null>(null);
   const activeSkills = activeSkillIds.map((skillId) => skills.find((skill) => skill.skillId === skillId) ?? fallbackSkill(skillId));
-  if (activeSkills.length === 0 && selectedFileRefs.length === 0 && attachments.length === 0) return null;
+  const activeCount = kind === "skills" ? activeSkills.length : kind === "files" ? selectedFileRefs.length : kind === "attachments" ? attachments.length : 0;
+
+  useEffect(() => {
+    if (!kind) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose?.();
+    };
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (popoverRef.current?.contains(target)) return;
+      if ((target as Element).closest?.(".composer-context-chip")) return;
+      onClose?.();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("pointerdown", handlePointerDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [kind, onClose]);
+
+  if (!kind || activeCount === 0) return null;
   return (
-    <div className="composer-context-panel" aria-label="本次发送的上下文来源" data-testid="composer-context-panel">
-      {activeSkills.length > 0 ? (
+    <div
+      ref={popoverRef}
+      className="composer-context-popover"
+      aria-label={contextKindAriaLabel(kind)}
+      data-testid="composer-context-popover"
+    >
+      {kind === "skills" ? (
         <section className="composer-context-group">
           <header>
-            <strong><Sparkles size={13} />技能</strong>
-            {onOpenSkillsSettings ? <button type="button" onClick={onOpenSkillsSettings}>管理</button> : null}
+            <strong><Sparkles size={13} />技能 {activeSkills.length}</strong>
           </header>
           <div className="composer-context-list">
             {activeSkills.map((skill) => (
@@ -64,7 +95,7 @@ export function ComposerContextSourcesPanel({
                 key={skill.skillId}
                 icon={<Sparkles size={14} />}
                 title={skill.name}
-                detail={skill.description || sourceKindLabel(skill.sourceKind)}
+                detail={sourceKindLabel(skill.sourceKind)}
                 actionLabel={`移除技能 ${skill.name}`}
                 onRemove={onToggleSkill ? () => void onToggleSkill(skill.skillId) : undefined}
               />
@@ -72,9 +103,9 @@ export function ComposerContextSourcesPanel({
           </div>
         </section>
       ) : null}
-      {selectedFileRefs.length > 0 ? (
+      {kind === "files" ? (
         <section className="composer-context-group">
-          <header><strong><File size={13} />文件</strong></header>
+          <header><strong><File size={13} />文件 {selectedFileRefs.length}</strong></header>
           <div className="composer-context-list">
             {selectedFileRefs.map((ref) => (
               <ContextRow
@@ -89,9 +120,9 @@ export function ComposerContextSourcesPanel({
           </div>
         </section>
       ) : null}
-      {attachments.length > 0 ? (
+      {kind === "attachments" ? (
         <section className="composer-context-group">
-          <header><strong><Paperclip size={13} />附件</strong></header>
+          <header><strong><Paperclip size={13} />附件 {attachments.length}</strong></header>
           <div className="composer-context-list">
             {attachments.map((attachment) => (
               <ContextRow
@@ -175,6 +206,12 @@ function sourceKindLabel(kind: SkillListItem["sourceKind"]): string {
   if (kind === "system-aho") return "AHO 内置";
   if (kind === "project-codex") return "项目 Skill";
   return "自定义 Skill";
+}
+
+function contextKindAriaLabel(kind: ComposerContextKind): string {
+  if (kind === "skills") return "本次发送的技能上下文";
+  if (kind === "files") return "本次发送的文件上下文";
+  return "本次发送的附件上下文";
 }
 
 function formatContextSize(size: number): string {

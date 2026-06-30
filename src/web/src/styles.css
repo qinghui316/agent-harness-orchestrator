@@ -2778,6 +2778,7 @@ input:focus-visible {
 }
 
 .topic-composer {
+  position: relative;
   width: min(100%, 820px);
   margin: 0 auto 12px;
   padding: 10px;
@@ -2905,14 +2906,21 @@ input:focus-visible {
   background: var(--accent-soft);
 }
 
-.composer-context-panel {
+.composer-context-popover {
+  position: absolute;
+  top: 50px;
+  right: 14px;
+  z-index: 35;
   display: grid;
-  gap: 10px;
-  margin: 8px 4px 2px;
-  padding: 10px;
+  width: min(330px, calc(100% - 28px));
+  max-height: min(320px, 70vh);
+  overflow: auto;
+  gap: 9px;
+  padding: 9px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  background: var(--bg-subtle);
+  background: var(--bg-panel);
+  box-shadow: 0 18px 48px rgba(35, 33, 28, 0.16);
 }
 
 .composer-context-group {
@@ -2934,15 +2942,6 @@ input:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-}
-
-.composer-context-group header button {
-  border: 0;
-  background: transparent;
-  color: var(--text-muted);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
 }
 
 .composer-context-list {
@@ -5911,9 +5910,10 @@ h1 {
 }
 
 .home-demand-composer {
+  position: relative;
   display: grid;
   width: min(760px, 100%);
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--bg-panel);

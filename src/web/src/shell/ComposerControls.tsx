@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 import { Bot, File, Paperclip, Sparkles } from "lucide-react";
-import type { ComposerContextSummary } from "./ComposerContextSources.js";
+import type { ComposerContextKind, ComposerContextSummary } from "./ComposerContextSources.js";
 import { composerExecutionModeLabel, type ComposerExecutionMode } from "./composer-session.js";
 
 export function ComposerControls({
@@ -10,8 +10,8 @@ export function ComposerControls({
   onModeChange,
   enabledSkillCount = 0,
   contextSummary,
-  contextExpanded = false,
-  onToggleContext,
+  openContextKind = null,
+  onToggleContextKind,
 }: {
   modelLabel: string;
   onOpenModelSettings?: () => void;
@@ -19,8 +19,8 @@ export function ComposerControls({
   onModeChange: (mode: ComposerExecutionMode) => void;
   enabledSkillCount?: number;
   contextSummary?: ComposerContextSummary;
-  contextExpanded?: boolean;
-  onToggleContext?: () => void;
+  openContextKind?: ComposerContextKind | null;
+  onToggleContextKind?: (kind: ComposerContextKind) => void;
 }): ReactElement {
   const summary = contextSummary ?? { skillCount: enabledSkillCount, fileCount: 0, attachmentCount: 0, totalCount: enabledSkillCount };
   return (
@@ -61,22 +61,34 @@ export function ComposerControls({
       </div>
       {summary.totalCount > 0 ? (
         <div className="composer-context-chip-group" aria-label="本次发送上下文">
-          {summary.skillCount > 0 ? <ContextChip icon={<Sparkles size={13} />} label={`技能 ${summary.skillCount}`} expanded={contextExpanded} onClick={onToggleContext} /> : null}
-          {summary.fileCount > 0 ? <ContextChip icon={<File size={13} />} label={`文件 ${summary.fileCount}`} expanded={contextExpanded} onClick={onToggleContext} /> : null}
-          {summary.attachmentCount > 0 ? <ContextChip icon={<Paperclip size={13} />} label={`附件 ${summary.attachmentCount}`} expanded={contextExpanded} onClick={onToggleContext} /> : null}
+          {summary.skillCount > 0 ? <ContextChip kind="skills" icon={<Sparkles size={13} />} label={`技能 ${summary.skillCount}`} expanded={openContextKind === "skills"} onClick={onToggleContextKind} /> : null}
+          {summary.fileCount > 0 ? <ContextChip kind="files" icon={<File size={13} />} label={`文件 ${summary.fileCount}`} expanded={openContextKind === "files"} onClick={onToggleContextKind} /> : null}
+          {summary.attachmentCount > 0 ? <ContextChip kind="attachments" icon={<Paperclip size={13} />} label={`附件 ${summary.attachmentCount}`} expanded={openContextKind === "attachments"} onClick={onToggleContextKind} /> : null}
         </div>
       ) : null}
     </div>
   );
 }
 
-function ContextChip({ icon, label, expanded, onClick }: { icon: ReactElement; label: string; expanded: boolean; onClick?: () => void }): ReactElement {
+function ContextChip({
+  kind,
+  icon,
+  label,
+  expanded,
+  onClick,
+}: {
+  kind: ComposerContextKind;
+  icon: ReactElement;
+  label: string;
+  expanded: boolean;
+  onClick?: (kind: ComposerContextKind) => void;
+}): ReactElement {
   return (
     <button
       type="button"
       className={`composer-context-chip ${expanded ? "selected" : ""}`}
       aria-expanded={expanded}
-      onClick={onClick}
+      onClick={() => onClick?.(kind)}
     >
       {icon}{label}
     </button>

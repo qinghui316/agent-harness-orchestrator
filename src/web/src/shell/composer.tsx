@@ -4,7 +4,7 @@ import { workflowActionLabel } from "../action-labels.js";
 import type { SkillListItem, TopicAttachment, TopicFileReference, WorkpadRuntimeStatus } from "../types.js";
 import { ComposerAttachButton, ComposerAttachmentList, filesFromDrop, hasFileDrag, imageFilesFromPaste } from "./ComposerAttachments.js";
 import { ComposerControls } from "./ComposerControls.js";
-import { buildComposerContextSummary, ComposerContextSourcesPanel } from "./ComposerContextSources.js";
+import { buildComposerContextSummary, ComposerContextSourcesPopover, type ComposerContextKind } from "./ComposerContextSources.js";
 import type { ComposerExecutionMode } from "./composer-session.js";
 import { FileMentionPicker } from "./FileMentionPicker.js";
 import { SkillMentionPicker } from "./SkillMentionPicker.js";
@@ -28,7 +28,6 @@ export function TopicComposer({
   onRemoveAttachment,
   onToggleSkill,
   onSelectedFileRefsChange,
-  onOpenSkillsSettings,
   busy: _busy,
   disabledReason,
   onSend,
@@ -69,7 +68,7 @@ export function TopicComposer({
   currentWorkpadStatus?: WorkpadRuntimeStatus;
 }): ReactElement {
   const [dragOver, setDragOver] = useState(false);
-  const [contextExpanded, setContextExpanded] = useState(false);
+  const [openContextKind, setOpenContextKind] = useState<ComposerContextKind | null>(null);
   const runningConversation = Boolean(actionRunning) || currentWorkpadStatus === "running";
   const canStop = runningConversation && Boolean(onStopAndContinue) && !value.trim();
   const hasAttachments = (attachments?.length ?? 0) > 0;
@@ -113,21 +112,20 @@ export function TopicComposer({
         onModeChange={onAutomationModeChange}
         enabledSkillCount={enabledSkillCount}
         contextSummary={contextSummary}
-        contextExpanded={contextExpanded}
-        onToggleContext={() => setContextExpanded((value) => !value)}
+        openContextKind={openContextKind}
+        onToggleContextKind={(kind) => setOpenContextKind((current) => current === kind ? null : kind)}
       />
-      {contextExpanded && contextSummary.totalCount > 0 ? (
-        <ComposerContextSourcesPanel
-          skills={skills}
-          activeSkillIds={activeSkillIds}
-          selectedFileRefs={selectedFileRefs}
-          attachments={attachments}
-          onToggleSkill={onToggleSkill}
-          onSelectedFileRefsChange={onSelectedFileRefsChange}
-          onRemoveAttachment={onRemoveAttachment}
-          onOpenSkillsSettings={onOpenSkillsSettings}
-        />
-      ) : null}
+      <ComposerContextSourcesPopover
+        kind={openContextKind}
+        skills={skills}
+        activeSkillIds={activeSkillIds}
+        selectedFileRefs={selectedFileRefs}
+        attachments={attachments}
+        onToggleSkill={onToggleSkill}
+        onSelectedFileRefsChange={onSelectedFileRefsChange}
+        onRemoveAttachment={onRemoveAttachment}
+        onClose={() => setOpenContextKind(null)}
+      />
       <SkillMentionPicker
         value={value}
         onChange={onChange}

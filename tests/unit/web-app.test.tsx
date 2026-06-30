@@ -1108,17 +1108,39 @@ describe("Workbench web app", () => {
       />,
     );
 
+    expect(screen.queryByTestId("composer-context-panel")).toBeNull();
+    expect(screen.queryByTestId("composer-context-popover")).toBeNull();
+
     fireEvent.click(screen.getByRole("button", { name: "技能 1" }));
-    const panel = screen.getByTestId("composer-context-panel");
-    expect(within(panel).getByText("pricing-helper")).toBeTruthy();
-    expect(within(panel).getByText("src/pricing.ts")).toBeTruthy();
-    expect(within(panel).getByText("screenshot.png")).toBeTruthy();
-    fireEvent.click(within(panel).getByLabelText("移除技能 pricing-helper"));
+    let popover = screen.getByTestId("composer-context-popover");
+    expect(within(popover).getByText("pricing-helper")).toBeTruthy();
+    expect(within(popover).getByText("自定义 Skill")).toBeTruthy();
+    expect(within(popover).queryByText("Pricing context helper.")).toBeNull();
+    expect(within(popover).queryByRole("button", { name: "管理" })).toBeNull();
+    expect(within(popover).queryByText("src/pricing.ts")).toBeNull();
+    expect(within(popover).queryByText("screenshot.png")).toBeNull();
+    fireEvent.click(within(popover).getByLabelText("移除技能 pricing-helper"));
     expect(onToggleSkill).toHaveBeenCalledWith("pricing-helper");
-    fireEvent.click(within(panel).getByLabelText("移除文件引用 pricing.ts"));
+
+    fireEvent.click(screen.getByRole("button", { name: "文件 1" }));
+    popover = screen.getByTestId("composer-context-popover");
+    expect(within(popover).getByText("pricing.ts")).toBeTruthy();
+    expect(within(popover).getByText("src/pricing.ts")).toBeTruthy();
+    expect(within(popover).queryByText("pricing-helper")).toBeNull();
+    fireEvent.click(within(popover).getByLabelText("移除文件引用 pricing.ts"));
     expect(onSelectedFileRefsChange).toHaveBeenCalledWith([]);
-    fireEvent.click(within(panel).getByLabelText("移除附件 screenshot.png"));
+
+    fireEvent.click(screen.getByRole("button", { name: "附件 1" }));
+    popover = screen.getByTestId("composer-context-popover");
+    expect(within(popover).getByText("screenshot.png")).toBeTruthy();
+    expect(within(popover).getByText("图片 · 2 KB")).toBeTruthy();
+    expect(within(popover).queryByText("pricing-helper")).toBeNull();
+    fireEvent.click(within(popover).getByLabelText("移除附件 screenshot.png"));
     expect(onRemoveAttachment).toHaveBeenCalledWith("att-20260628120000-abcdef123456");
+
+    expect(screen.getByTestId("composer-context-popover")).toBeTruthy();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByTestId("composer-context-popover")).toBeNull();
     expect(screen.queryByTestId("decision-pane-shell")).toBeNull();
   });
 
@@ -5891,12 +5913,18 @@ describe("Workbench web app", () => {
     await screen.findByRole("heading", { name: "创造任何东西" });
     expect(await screen.findByRole("button", { name: "技能 1" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "技能 1" }));
-    fireEvent.click(await screen.findByRole("button", { name: "管理" }));
+    const contextPopover = await screen.findByTestId("composer-context-popover");
+    expect(within(contextPopover).getByText("pricing-helper")).toBeTruthy();
+    expect(within(contextPopover).queryByText("Pricing helper.")).toBeNull();
+    expect(within(contextPopover).queryByRole("button", { name: "管理" })).toBeNull();
+    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: "设置" }));
     const panel = await screen.findByRole("region", { name: "设置" });
+    fireEvent.click(within(panel).getByRole("button", { name: "技能" }));
     expect(document.querySelector(".sidebar")).toBeNull();
     expect(screen.queryByTestId("decision-pane-shell")).toBeNull();
     expect(within(panel).getAllByRole("heading", { name: "技能" }).length).toBeGreaterThan(0);
-    expect(within(panel).getByText("3 个可用 Skill")).toBeTruthy();
+    await waitFor(() => expect(within(panel).getByText("3 个可用 Skill")).toBeTruthy());
     expect(within(panel).getAllByText("pricing-helper").length).toBeGreaterThan(0);
     expect(within(panel).getAllByText("native-helper").length).toBeGreaterThan(0);
     expect(within(panel).getAllByText("aho-harness-onboarding").length).toBeGreaterThan(0);

@@ -634,10 +634,20 @@ export function App(): ReactElement {
   function openSettings(section: SettingsSection = "basic"): void {
     setSettingsSection(section);
     setSettingsOpen(true);
+    if (section === "skills") {
+      loadSkillSummary().catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)));
+    }
   }
 
   function closeSettings(): void {
     setSettingsOpen(false);
+  }
+
+  function changeSettingsSection(section: SettingsSection): void {
+    setSettingsSection(section);
+    if (section === "skills") {
+      loadSkillSummary().catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)));
+    }
   }
 
   async function openCodexModelPicker(): Promise<void> {
@@ -1352,7 +1362,7 @@ export function App(): ReactElement {
         {settingsOpen ? (
           <SettingsSurface
             section={settingsSection}
-            onSectionChange={setSettingsSection}
+            onSectionChange={changeSettingsSection}
             project={selectedProjectStatus}
             diagnostics={codexDiagnostics}
             modelSettings={codexModelSettings}

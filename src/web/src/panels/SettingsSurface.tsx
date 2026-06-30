@@ -93,7 +93,7 @@ export function SettingsSurface({
             <div className="settings-info-grid">
               <Info label="当前模式" value="专业开发模式" />
               <Info label="执行引擎" value="Codex" />
-              <Info label="右侧工具" value="确认 / 文件 / Git" />
+              <Info label="右侧工具" value="确认 / 文件 / Git / 诊断" />
             </div>
           </section>
         ) : null}
