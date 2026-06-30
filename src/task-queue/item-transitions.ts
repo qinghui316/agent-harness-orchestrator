@@ -148,3 +148,17 @@ export async function failQueuedTaskItem(memory: ResolvedMemory, item: TaskQueue
   await appendTaskQueueTaskEvent(memory, item, "task.failed", { status: "failed", reason });
   return written;
 }
+
+export async function blockQueuedTaskItem(memory: ResolvedMemory, item: TaskQueueItem, reason: string): Promise<TaskQueueItem> {
+  const now = new Date().toISOString();
+  const written = await writeTaskQueueItem(memory, {
+    ...item,
+    status: "blocked",
+    blockedReason: reason,
+    failureReason: undefined,
+    updatedAt: now,
+    finishedAt: now,
+  });
+  await appendTaskQueueTaskEvent(memory, item, "task.blocked", { status: "blocked", reason });
+  return written;
+}

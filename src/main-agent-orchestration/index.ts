@@ -19,6 +19,13 @@ export {
   type MainAgentTaskRunLifecycleResult,
 } from "./taskrun-lifecycle.js";
 export {
+  runMainAgentTaskQueueLifecycle,
+} from "./taskqueue-lifecycle.js";
+export {
+  findMainAgentTaskQueueStageResumeCandidate,
+  executeMainAgentResumedTaskRunStage,
+} from "./taskqueue-stage-resume.js";
+export {
   createMainAgentLoopRunId,
   mainAgentLoopEventsPath,
   mainAgentLoopRunPath,

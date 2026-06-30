@@ -7,6 +7,7 @@ import { listRuns } from "../../src/run/manager.js";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import { getWorkbenchSnapshot } from "../../src/workbench/manager.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
+import { findMainAgentTaskQueueStageResumeCandidate, runMainAgentTaskQueueLifecycle } from "../../src/main-agent-orchestration/index.js";
 import { listTaskQueueItems, listTaskQueues, pauseTaskQueue, reconcileTaskQueues, startOrResumeTaskQueue } from "../../src/task-queue/manager.js";
 import { finishTaskRunFromWorkflowResult, markTaskRunStarted } from "../../src/task-run/manager.js";
 import { appendWorkflowTaskEvent, listWorkflowRuns, readWorkflowRun, readWorkflowRunEvents, syncWorkflowRunFromQueue } from "../../src/workflow-run/manager.js";
@@ -658,6 +659,77 @@ describe("workbench task runtime domain", () => {
     await expect(readWorkflowRunEvents(memory, "workflow-resume-evidence", prepared.workflowRunId)).resolves.toEqual(
       expect.arrayContaining([expect.objectContaining({ type: "task.completed", taskId: "T-001" })]),
     );
+  });
+
+  it("does not resume a queue item from TaskRun evidence bound to another queue", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Workflow Resume Queue Scope" });
+    await writeAcceptedSpecAndTasks("workflow-resume-queue-scope");
+    const memory = await resolveProjectMemory(project());
+    await writeTaskQueueRecord("workflow-resume-queue-scope", "queue-old", "completed", { totalCount: 1, completedCount: 1 });
+    await writeTaskQueueItemRecord("workflow-resume-queue-scope", "queue-old", "queue-old-item-001", "T-001", 1, "completed", { taskRunId: "taskrun-old" });
+    await writeTaskRunRecord("workflow-resume-queue-scope", "taskrun-old", "T-001", "evidence-ready", 1, {
+      runId: "run-old-coder",
+      worktreeId: "wt-old",
+    });
+    await writeCoderRun("workflow-resume-queue-scope", "run-old-coder", ["T-001"], "wt-old", "completed", "taskrun-old");
+    await writeValidationResult("workflow-resume-queue-scope", "validation-old", "wt-old", "passed");
+    await writeAuditResult("workflow-resume-queue-scope", "audit-old", "wt-old", "approved");
+    await writeTaskQueueRecord("workflow-resume-queue-scope", "queue-new", "queued", { totalCount: 1 });
+    await writeTaskQueueItemRecord("workflow-resume-queue-scope", "queue-new", "queue-new-item-001", "T-001", 1, "queued");
+
+    const [currentItem] = await listTaskQueueItems(memory, "workflow-resume-queue-scope", "queue-new");
+    if (!currentItem) throw new Error("Expected current queue item.");
+
+    await expect(findMainAgentTaskQueueStageResumeCandidate(memory, "workflow-resume-queue-scope", currentItem))
+      .resolves.toBeNull();
+  });
+
+  it("fails closed when a TaskQueue item loses WorkflowGraph scope", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Workflow Item Scope Missing" });
+    await writeAcceptedSpecAndTasks("workflow-item-scope-missing");
+    const prepared = await prepareConfirmedTaskQueueProposalWithWorkflow("workflow-item-scope-missing", ["T-001"]);
+    const startedQueue = await startOrResumeTaskQueue(project(), {
+      changeId: "workflow-item-scope-missing",
+      taskQueueProposalId: prepared.proposalId,
+      workflowGraphPlanId: prepared.workflowGraphPlanId,
+      readinessManifestId: prepared.readinessManifestId,
+      decompositionPlanId: prepared.decompositionPlanId,
+      workflowRunId: prepared.workflowRunId,
+    });
+    const memory = await resolveProjectMemory(project());
+    await pauseTaskQueue(memory, startedQueue.queue, "test pause");
+    const [item] = await listTaskQueueItems(memory, "workflow-item-scope-missing", startedQueue.queue.id);
+    if (!item) throw new Error("Expected queued item.");
+    await writeTaskQueueItemRecord("workflow-item-scope-missing", startedQueue.queue.id, item.id, item.taskId, item.order, "queued", {
+      taskQueueProposalId: prepared.proposalId,
+      workflowRunId: prepared.workflowRunId,
+      readinessManifestId: prepared.readinessManifestId,
+      decompositionPlanId: prepared.decompositionPlanId,
+    });
+
+    const result = await runMainAgentTaskQueueLifecycle(project(), "workflow-item-scope-missing", {
+      actionType: "task.queue.start",
+      changeId: "workflow-item-scope-missing",
+      workflowRunId: prepared.workflowRunId,
+      taskQueueProposalId: prepared.proposalId,
+      workflowGraphPlanId: prepared.workflowGraphPlanId,
+      readinessManifestId: prepared.readinessManifestId,
+      decompositionPlanId: prepared.decompositionPlanId,
+      queueRunId: startedQueue.queue.id,
+      confirm: true,
+    }, undefined);
+
+    expect(result).toMatchObject({
+      queue: expect.objectContaining({ status: "failed" }),
+    });
+    const items = await listTaskQueueItems(memory, "workflow-item-scope-missing", startedQueue.queue.id);
+    expect(items).toEqual([expect.objectContaining({
+      id: item.id,
+      status: "failed",
+      failureReason: expect.stringContaining("TaskQueue item graph scope is stale"),
+    })]);
   });
 
   it("rejects explicit forged typed scope when resuming a paused TaskQueue", async () => {

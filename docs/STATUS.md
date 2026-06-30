@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260630-main-agent-taskqueue-workflowgraph-lifecycle-ownership-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260630-main-agent-taskrun-lifecycle-rework-ownership-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260630-main-agent-decision-to-action-bridge-contract-v1/summary.md`.
@@ -102,11 +104,17 @@
 - Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-skills-catalog-and-codex-bridge-v1/summary.md`.
 - Latest completed Harness evolution:
+  `harness/changes/archive/20260630-auto-evolve-post-main-agent-taskqueue-workflowgraph-window/summary.md`
+  (`noop`; subagent Herschel score 88; existing ECL coverage is sufficient for
+  the main-agent TaskQueue / WorkflowGraph lifecycle archive window; no new
+  Harness rule/template/product runtime change needed, pending evolution marked
+  complete).
+- Previous completed Harness evolution:
   `harness/changes/archive/20260630-auto-evolve-post-main-agent-orchestration-migration-window/summary.md`
   (`noop`; existing ECL coverage is sufficient for the main-agent orchestration
   migration archive window; no new Harness rule/template/product runtime change
   needed, pending evolution marked complete).
-- Previous completed Harness evolution:
+- Earlier completed Harness evolution:
   `harness/changes/archive/20260630-auto-evolve-post-main-agent-orchestration-window/summary.md`
   (`noop`; existing ECL coverage is sufficient for the project identity,
   full-page settings, composer context, chat-only center, and main-agent
@@ -119,14 +127,30 @@
 
 ## Latest Product Closeout
 
+`harness/changes/archive/20260630-main-agent-taskqueue-workflowgraph-lifecycle-ownership-v1/summary.md`.
+
+It moves sequential TaskQueue / WorkflowGraph lifecycle control into
+`src/main-agent-orchestration`. `runTaskQueueSequence` is now a compatibility
+wrapper, stage resume orchestration lives under the main-agent owner, and queue
+execution gate / resume scope checks fail closed. TaskQueue, TaskRun,
+WorkflowRun, validation, and audit managers remain the evidence/state owners.
+No Workbench UI, confirmation queue, action type, scheduler fan-out,
+automation allowlist, apply/close, remote, PR, merge, or Harness evolution
+authority changed.
+
+Previous closeout:
+`harness/changes/archive/20260630-main-agent-taskrun-lifecycle-rework-ownership-v1/summary.md`.
+
+It moves TaskRun bounded rework ownership into the main-agent lifecycle while
+preserving single-attempt TaskRun behavior and at-most-once rework.
+
+Previous closeout:
 `harness/changes/archive/20260630-main-agent-orchestration-legacy-facade-retirement-v1/summary.md`.
 
 It retires the remaining production `runCodeValidateAuditSequence` facade.
 TaskRun attempts, source-refresh rework, and PR/feedback rework now call
 explicit `src/main-agent-orchestration/` entrypoints while preserving their
-domain lifecycle owners and result shapes. No Workbench UI, confirmation queue,
-action type, automation allowlist, apply/close, remote, PR, merge, or Harness
-evolution authority changed.
+domain lifecycle owners and result shapes.
 
 Previous closeout:
 `harness/changes/archive/20260630-main-agent-orchestration-old-pipeline-removal-v1/summary.md`.

@@ -133,6 +133,8 @@ import {
   runMainAgentSourceRefreshRework,
   runMainAgentTaskRunLifecycle,
   runMainAgentTaskRunAttempt,
+  runMainAgentTaskQueueLifecycle,
+  findMainAgentTaskQueueStageResumeCandidate,
 } from "../../src/main-agent-orchestration/index.js";
 import { listTaskQueueItems as listTaskQueueItemsFacade, listTaskQueues as listTaskQueuesFacade, reconcileTaskQueues as reconcileTaskQueuesFacade, startOrResumeTaskQueue as startOrResumeTaskQueueFacade } from "../../src/task-queue/manager.js";
 import { finishTaskRunFromWorkflowResult, listTaskRuns as listTaskRunsFacade, listWorkerLeases as listWorkerLeasesFacade, markTaskRunStarted, reconcileTaskRuns as reconcileTaskRunsFacade, startTaskRun } from "../../src/task-run/manager.js";
@@ -157,7 +159,6 @@ import {
 } from "../../src/scheduler-runtime/event-policy.js";
 import { closeSchedulerRunBlockedOrExhausted, compileSchedulerIntegrationCandidate } from "../../src/scheduler-runtime/manager.js";
 import { emitValidationAssistantEvents } from "../../src/workflow-runtime/kernel/live-events.js";
-import { findTaskQueueStageResumeCandidate } from "../../src/workflow-runtime/kernel/stage-resume-runner.js";
 import { executeStartedTaskRunWorkflow } from "../../src/workflow-runtime/kernel/task-run-sequence.js";
 import { startOrResumeWorkflowTaskQueue, validateWorkflowTaskQueueProposalStart } from "../../src/workflow-runtime/taskqueue.js";
 import { fetchJson } from "../../src/web/src/api.js";
@@ -208,16 +209,35 @@ describe("Workbench module boundaries", () => {
     const taskRunSequence = readFileSync(join(process.cwd(), "src/workflow-runtime/kernel/task-run-sequence.ts"), "utf8");
     expect(taskRunSequence).toContain("runMainAgentTaskRunLifecycle");
     expect(taskRunSequence).not.toContain("executeBoundedTaskRunRework");
+    expect(taskRunSequence).not.toContain("executeTaskRunReworkIfEligible");
     expect(taskRunSequence).not.toContain("shouldAutoReworkTaskRun");
 
-    const stageResumeRunner = readFileSync(join(process.cwd(), "src/workflow-runtime/kernel/stage-resume-runner.ts"), "utf8");
-    expect(stageResumeRunner).not.toContain("executeBoundedTaskRunRework");
-    expect(stageResumeRunner).not.toContain("shouldAutoReworkTaskRun");
-
     const taskQueueRunner = readFileSync(join(process.cwd(), "src/workflow-runtime/kernel/task-queue-runner.ts"), "utf8");
-    expect(taskQueueRunner).toContain("const bindRetryTaskRunToItem");
-    expect(taskQueueRunner).toContain("runningItem = await markTaskQueueItemRunning(memory, runningItem, retryStarted.taskRun)");
-    expect(taskQueueRunner).toContain("executeTaskRunReworkIfEligible");
+    expect(taskQueueRunner).toContain("runMainAgentTaskQueueLifecycle");
+    expect(taskQueueRunner).not.toContain("while (true)");
+    expect(taskQueueRunner).not.toContain("startTaskRun");
+    expect(taskQueueRunner).not.toContain("executeTaskRunReworkIfEligible");
+    expect(taskQueueRunner).not.toContain("findTaskQueueStageResumeCandidate");
+
+    const taskQueueLifecycle = readFileSync(join(process.cwd(), "src/main-agent-orchestration/taskqueue-lifecycle.ts"), "utf8");
+    expect(taskQueueLifecycle).toContain("runMainAgentTaskQueueLifecycle");
+    expect(taskQueueLifecycle).toContain("runMainAgentTaskRunLifecycle");
+    expect(taskQueueLifecycle).toContain("runMainAgentTaskRunReworkFromFinished");
+    expect(taskQueueLifecycle).toContain("taskQueueExecutionGate");
+    expect(taskQueueLifecycle).toContain("blockQueuedTaskItem");
+    expect(taskQueueLifecycle).not.toContain("../scheduler-runtime/");
+    expect(taskQueueLifecycle).not.toContain("../workbench/actions/");
+    expect(taskQueueLifecycle).not.toContain("../apply/");
+    expect(taskQueueLifecycle).not.toContain("../terminal");
+    expect(taskQueueLifecycle).not.toContain("SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES");
+
+    const taskQueueStageResume = readFileSync(join(process.cwd(), "src/main-agent-orchestration/taskqueue-stage-resume.ts"), "utf8");
+    expect(taskQueueStageResume).toContain("findMainAgentTaskQueueStageResumeCandidate");
+    expect(taskQueueStageResume).toContain("executeMainAgentResumedTaskRunStage");
+    expect(taskQueueStageResume).toContain("assertMainAgentResumeEvidenceScope");
+    expect(taskQueueStageResume).not.toContain("executeBoundedTaskRunRework");
+    expect(taskQueueStageResume).not.toContain("shouldAutoReworkTaskRun");
+    expect(taskQueueStageResume).not.toContain("../scheduler-runtime/");
 
     const actionHandlers = readFileSync(join(process.cwd(), "src/workbench/actions/handlers/index.ts"), "utf8");
     expect(actionHandlers).toContain("runMainAgentSourceRefreshRework");
@@ -511,6 +531,8 @@ describe("Workbench module boundaries", () => {
     expect(typeof runTaskRunMainAgentAttempt).toBe("function");
     expect(typeof runMainAgentTaskRunAttempt).toBe("function");
     expect(typeof runMainAgentTaskRunLifecycle).toBe("function");
+    expect(typeof runMainAgentTaskQueueLifecycle).toBe("function");
+    expect(typeof findMainAgentTaskQueueStageResumeCandidate).toBe("function");
     expect(typeof runMainAgentSourceRefreshRework).toBe("function");
     expect(typeof runMainAgentFeedbackRework).toBe("function");
     expect(typeof sourceRefreshReworkPrompt).toBe("function");
@@ -518,7 +540,6 @@ describe("Workbench module boundaries", () => {
     expect(typeof requireTaskRunId).toBe("function");
     expect(typeof assertKnownTaskIds).toBe("function");
     expect(typeof emitValidationAssistantEvents).toBe("function");
-    expect(typeof findTaskQueueStageResumeCandidate).toBe("function");
     expect(typeof executeStartedTaskRunWorkflow).toBe("function");
     expect(typeof fetchJson).toBe("function");
     expect(typeof MainConversationView).toBe("function");

@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-30T13:43:08.7145911Z",
+    "generated_at":  "2026-06-30T14:38:14.3303262Z",
     "active":  [
 
                ],
@@ -2235,6 +2235,10 @@
                         "path":  "harness/changes/archive/20260630-auto-evolve-post-main-agent-orchestration-window"
                     },
                     {
+                        "name":  "20260630-auto-evolve-post-main-agent-taskqueue-workflowgraph-window",
+                        "path":  "harness/changes/archive/20260630-auto-evolve-post-main-agent-taskqueue-workflowgraph-window"
+                    },
+                    {
                         "name":  "20260630-document-main-agent-continuous-orchestration-roadmap-and-clean-conversation-evidence-v1",
                         "path":  "harness/changes/archive/20260630-document-main-agent-continuous-orchestration-roadmap-and-clean-conversation-evidence-v1"
                     },
@@ -2269,6 +2273,10 @@
                     {
                         "name":  "20260630-main-agent-projection-de-expose-safety-fix-v2",
                         "path":  "harness/changes/archive/20260630-main-agent-projection-de-expose-safety-fix-v2"
+                    },
+                    {
+                        "name":  "20260630-main-agent-taskqueue-workflowgraph-lifecycle-ownership-v1",
+                        "path":  "harness/changes/archive/20260630-main-agent-taskqueue-workflowgraph-lifecycle-ownership-v1"
                     },
                     {
                         "name":  "20260630-main-agent-taskrun-lifecycle-rework-ownership-v1",

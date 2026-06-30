@@ -1,29 +1,42 @@
-import { listRuns } from "../../run/manager.js";
-import { listTaskRuns, finishTaskRunFromWorkflowResult } from "../../task-run/manager.js";
-import type { CodeExecutionGateOptions } from "../../code/manager.js";
-import type { ManagedProject, ResolvedMemory, StageResumeVerdict, TaskRun } from "../../types/index.js";
-import { startAuditRun } from "../../audit/manager.js";
-import { startValidationRun } from "../../validation/manager.js";
-import { deriveWorkflowStageResumeVerdict } from "../taskqueue.js";
-import type { WorkbenchLiveSink } from "../../workbench/types.js";
-import { emitAssistantEvent, emitAuditAssistantEvent, emitValidationAssistantEvents } from "./live-events.js";
+import { listAuditResults } from "../audit/artifacts.js";
+import { startAuditRun } from "../audit/manager.js";
+import type { CodeExecutionGateOptions } from "../code/manager.js";
+import { listRuns } from "../run/manager.js";
+import { listTaskQueueItems } from "../task-queue/manager.js";
+import { listTaskRuns, finishTaskRunFromWorkflowResult } from "../task-run/manager.js";
+import type { ManagedProject, ResolvedMemory, StageResumeVerdict, TaskQueueItem, TaskRun } from "../types/index.js";
+import { startValidationRun } from "../validation/manager.js";
+import { listValidationResults } from "../validation/artifacts.js";
+import { deriveStageResumeVerdict } from "../workflow-run/manager.js";
+import type { WorkbenchLiveSink } from "../workbench/types.js";
+import { emitAssistantEvent, emitAuditAssistantEvent, emitValidationAssistantEvents } from "../workflow-runtime/kernel/live-events.js";
 
-export async function findTaskQueueStageResumeCandidate(memory: ResolvedMemory, changeId: string, taskId: string): Promise<{ taskRun: TaskRun; verdict: StageResumeVerdict } | null> {
+export async function findMainAgentTaskQueueStageResumeCandidate(
+  memory: ResolvedMemory,
+  changeId: string,
+  item: TaskQueueItem,
+): Promise<{ taskRun: TaskRun; verdict: StageResumeVerdict } | null> {
   const taskRuns = await listTaskRuns(memory, changeId);
-  const candidates = taskRuns.filter((run) => run.taskId.toUpperCase() === taskId.toUpperCase() && !["queued", "claimed", "running"].includes(run.status));
+  const queueItems = await listTaskQueueItems(memory, changeId);
+  const candidates = taskRuns.filter((run) =>
+    run.taskId.toUpperCase() === item.taskId.toUpperCase()
+    && !["queued", "claimed", "running"].includes(run.status)
+    && (!item.taskRunId || run.id === item.taskRunId)
+    && !queueItems.some((queueItem) => queueItem.queueRunId !== item.queueRunId && queueItem.taskRunId === run.id)
+  );
   for (const taskRun of candidates) {
-    const verdict = await deriveWorkflowStageResumeVerdict(memory, changeId, taskRun);
+    const verdict = await deriveStageResumeVerdict(memory, changeId, taskRun);
     if (verdict.kind !== "start-coder") return { taskRun, verdict };
   }
   return null;
 }
 
-export async function executeResumedTaskRunStage(
+export async function executeMainAgentResumedTaskRunStage(
   project: ManagedProject,
   memory: ResolvedMemory,
   taskRun: TaskRun,
   verdict: StageResumeVerdict,
-  prompt: string | undefined,
+  _prompt: string | undefined,
   live: WorkbenchLiveSink | undefined,
   _executionGate?: CodeExecutionGateOptions,
 ): Promise<unknown> {
@@ -84,4 +97,26 @@ export async function executeResumedTaskRunStage(
   const workflow = { code: { run: coderRun }, ...(validation ? { validation } : {}), audit, stoppedAt: auditAccepted ? null : "audit" };
   const finished = await finishTaskRunFromWorkflowResult(memory, taskRun.id, workflow, { changeId: taskRun.changeId, taskId: taskRun.taskId });
   return { taskRun: finished, workflow };
+}
+
+export async function assertMainAgentResumeEvidenceScope(memory: ResolvedMemory, changeId: string, item: TaskQueueItem, verdict: StageResumeVerdict): Promise<void> {
+  if (verdict.taskId && verdict.taskId.toUpperCase() !== item.taskId.toUpperCase()) {
+    throw new Error(`TaskQueue resume evidence is scoped to ${verdict.taskId}, not ${item.taskId}.`);
+  }
+  const runs = await listRuns(memory);
+  const coderRun = verdict.runId ? runs.find((run) => run.id === verdict.runId) : undefined;
+  if (coderRun) {
+    if (coderRun.changeId !== changeId) throw new Error("TaskQueue resume coder evidence belongs to another Change.");
+    if (!coderRun.taskIds?.some((taskId) => taskId.toUpperCase() === item.taskId.toUpperCase())) {
+      throw new Error("TaskQueue resume coder evidence does not include the queue item task.");
+    }
+  }
+  const validations = await listValidationResults(memory, changeId);
+  if (verdict.validationId && !validations.some((validation) => validation.id === verdict.validationId)) {
+    throw new Error("TaskQueue resume validation evidence is stale or missing.");
+  }
+  const audits = await listAuditResults(memory, changeId);
+  if (verdict.auditId && !audits.some((audit) => audit.id === verdict.auditId)) {
+    throw new Error("TaskQueue resume audit evidence is stale or missing.");
+  }
 }
