@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-30T07:39:24.3159756Z",
+    "generated_at":  "2026-06-30T08:14:46.1520663Z",
     "active":  [
 
                ],
@@ -2233,6 +2233,10 @@
                     {
                         "name":  "20260630-main-agent-loop-projection-contract-v1",
                         "path":  "harness/changes/archive/20260630-main-agent-loop-projection-contract-v1"
+                    },
+                    {
+                        "name":  "20260630-main-agent-projection-de-expose-safety-fix-v2",
+                        "path":  "harness/changes/archive/20260630-main-agent-projection-de-expose-safety-fix-v2"
                     },
                     {
                         "name":  "20260630-workbench-chat-only-center-orchestration-top-tool-v1",

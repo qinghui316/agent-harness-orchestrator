@@ -2253,7 +2253,6 @@ export type DecisionContext = {
   resultSummary?: string;
   recommendation?: string;
   explanation?: string;
-  mainAgentLoopProjection?: MainAgentLoopProjection;
   controlledSchedulerNextCandidate?: ControlledSchedulerNextCandidateDetail;
   controlledSchedulerReconfirmation?: ControlledSchedulerReconfirmationDetail;
   severity: "info" | "warning" | "blocking";
@@ -2365,7 +2364,6 @@ export type ConfirmationQueueItem = {
   riskSummary: string;
   controlledSchedulerNextCandidate?: ControlledSchedulerNextCandidateDetail;
   controlledSchedulerReconfirmation?: ControlledSchedulerReconfirmationDetail;
-  mainAgentLoopProjection?: MainAgentLoopProjection;
   evidenceRefs: string[];
   actions: DecisionAction[];
   primary: boolean;

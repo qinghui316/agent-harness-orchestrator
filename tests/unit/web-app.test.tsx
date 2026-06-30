@@ -1295,7 +1295,7 @@ describe("Workbench web app", () => {
     }
   });
 
-  it("shows matching main-agent loop projection only as confirmation context", () => {
+  it("does not expose main-agent loop projection on the confirmation surface", () => {
     const item = {
       ...planningConfirmQueueItem(),
       mainAgentLoopProjection: {
@@ -1346,8 +1346,9 @@ describe("Workbench web app", () => {
     );
 
     const card = screen.getByTestId("decision-inspector-primary");
-    expect(within(card).getByText("主 Agent 判断")).toBeTruthy();
-    expect(within(card).getByText("主 Agent 判断当前只应确认现有计划 gate。")).toBeTruthy();
+    expect(within(card).queryByText("主 Agent 判断")).toBeNull();
+    expect(within(card).queryByText("主 Agent 判断当前只应确认现有计划 gate。")).toBeNull();
+    expect(within(card).queryByLabelText("Main agent loop projection")).toBeNull();
     expect(within(card).queryByRole("button", { name: /主 Agent/ })).toBeNull();
   });
 

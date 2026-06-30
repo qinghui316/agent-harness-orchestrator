@@ -364,7 +364,6 @@ export interface WorkbenchDecisionContext {
   resultSummary?: string;
   recommendation?: string;
   explanation?: string;
-  mainAgentLoopProjection?: MainAgentLoopProjection;
   severity: "info" | "warning" | "blocking";
   changeId?: string;
   taskId?: string;
@@ -465,7 +464,6 @@ export interface WorkbenchConfirmationQueueItem {
   riskSummary: string;
   controlledSchedulerNextCandidate?: WorkbenchControlledSchedulerNextCandidate;
   controlledSchedulerReconfirmation?: WorkbenchControlledSchedulerReconfirmation;
-  mainAgentLoopProjection?: MainAgentLoopProjection;
   evidenceRefs: string[];
   actions: WorkbenchDecisionAction[];
   primary: boolean;

@@ -7,6 +7,8 @@
 - Pending Harness evolution:
   `harness/evolution/pending.md`.
 - Latest archived product change:
+  `harness/changes/archive/20260630-main-agent-projection-de-expose-safety-fix-v2/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260630-main-agent-loop-projection-contract-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260630-document-main-agent-continuous-orchestration-roadmap-and-clean-conversation-evidence-v1/summary.md`.
@@ -95,16 +97,27 @@
 
 ## Latest Product Closeout
 
+`harness/changes/archive/20260630-main-agent-projection-de-expose-safety-fix-v2/summary.md`.
+
+It removes the accidental user-surface exposure of `MainAgentLoopProjection`.
+The projection remains an internal, non-executing migration contract, but it no
+longer attaches to confirmation queue items, enters `DecisionContext`, or
+renders as `主 Agent 判断` in the right confirmation card. The confirmation
+surface now stays limited to real user gates.
+
+Previous closeout:
+`harness/changes/archive/20260630-main-agent-loop-projection-contract-v1/summary.md`.
+
+It added the internal `MainAgentLoopProjection` seam as a non-executing
+contract for future main-agent loop migration. It does not run actions or
+become workflow truth.
+
+Previous closeout:
 `harness/changes/archive/20260630-document-main-agent-continuous-orchestration-roadmap-and-clean-conversation-evidence-v1/summary.md`.
 
 It removes the stale `查看详情与证据` disclosure from the active Workbench
 conversation and records the next algorithm direction as a phased
-main-agent continuous orchestration roadmap. The roadmap clarifies that AHO
-should move from separate engineering pipeline pieces toward a main-agent loop
-that observes evidence, delegates bounded leaf roles, records results, and
-stops at completion, blockage, stale evidence, or human gates. It explicitly
-keeps Change/ECL, validation/audit, ToolPolicyGate, confirmationQueue,
-apply/close, remote/merge, and Harness evolution as the authority boundaries.
+main-agent continuous orchestration roadmap.
 
 Previous closeout:
 `harness/changes/archive/20260630-workbench-chat-only-center-orchestration-top-tool-v1/summary.md`.

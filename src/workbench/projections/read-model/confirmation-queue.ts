@@ -146,7 +146,6 @@ export async function buildConfirmationQueue(input: {
   queue.current = promoteSelectedLandingReadinessGate(queue.current, input.selectedTopic?.id);
   queue.current = promoteSelectedCloseGate(queue.current, input.selectedTopic?.id);
   queue.current = promoteSelectedWorkpadApprovalGate(queue.current, input.workpad.nextAction);
-  queue.current = attachMainAgentLoopProjection(queue.current, input.workpad);
   queue.otherDemands = dedupeConfirmationItems(queue.otherDemands.map(scopeConfirmationQueueItemActions));
   queue.history = dedupeConfirmationItems(queue.history.map(scopeConfirmationQueueItemActions));
   queue.primary = queue.current.find((item) => item.primary) ?? queue.current[0] ?? null;
@@ -208,20 +207,6 @@ function promoteSelectedWorkpadApprovalGate(items: WorkbenchConfirmationQueue["c
   const [approvalGate] = next.splice(index, 1);
   if (!approvalGate) return items;
   return [{ ...approvalGate, primary: true }, ...next];
-}
-
-function attachMainAgentLoopProjection(items: WorkbenchConfirmationQueue["current"], workpad: WorkbenchWorkpad): WorkbenchConfirmationQueue["current"] {
-  const projection = workpad.mainAgentLoopProjection;
-  const recommendedAction = projection?.recommendedAction;
-  if (!projection || projection.status !== "recommend-existing-gate" || !recommendedAction) return items;
-  return items.map((item) => {
-    const sameChange = !projection.changeId || item.changeId === projection.changeId || item.conversationId === projection.changeId;
-    const sameAction = item.actions.some((action) =>
-      action.actionType === recommendedAction.actionType
-      || action.goalLoopCurrentGateActionType === recommendedAction.actionType
-    );
-    return sameChange && sameAction ? { ...item, mainAgentLoopProjection: projection } : item;
-  });
 }
 
 function promoteSelectedWorkflowNextActionGate(items: WorkbenchConfirmationQueue["current"], nextAction: WorkbenchWorkpad["nextAction"]): WorkbenchConfirmationQueue["current"] {
