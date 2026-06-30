@@ -952,28 +952,6 @@ input:focus-visible {
   font-size: 11px;
 }
 
-.conversation-workpad-details {
-  max-width: 880px;
-  margin: 0 auto;
-  color: var(--text-muted);
-}
-
-.conversation-workpad-details > summary {
-  width: fit-content;
-  cursor: pointer;
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.conversation-workpad-details[open] {
-  display: grid;
-  gap: 12px;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-subtle);
-}
-
 .parent-agent-message-list {
   display: grid;
   gap: 20px;

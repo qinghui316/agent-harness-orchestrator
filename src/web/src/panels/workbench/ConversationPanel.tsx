@@ -12,9 +12,7 @@ import {
   agentRunStatusLabel,
 } from "../../formatters.js";
 import { ControlledSchedulerStepReceiptCard, ControlledSchedulerStepTraceCard, GoalLoopPrimarySummary } from "./workpad/GoalLoopCards.js";
-import { ResultReviewNarrative } from "./workpad/PlanningCards.js";
 import { ClarificationCard } from "./workpad/TaskGraphCards.js";
-import { WorkpadDiagnosticDetails } from "./workpad/WorkpadDetails.js";
 import { ParentAgentTranscriptCellView } from "./TranscriptReadingSurface.js";
 import {
   estimateTranscriptCellHeight,
@@ -107,9 +105,12 @@ function ParentAgentTranscriptView({
 }): ReactElement {
   void liveTurns;
   void busy;
+  void approvals;
+  void onAction;
+  void onConfirmApproval;
+  void onSelectDecisionContext;
   const cells = transcript.cells?.length ? transcript.cells.filter((cell) => cell.kind !== "detail-only") : [];
   const [expandedCells, setExpandedCells] = useState<Set<string>>(new Set());
-  const [detailsOpen, setDetailsOpen] = useState(false);
   const [scrollMetrics, setScrollMetrics] = useState({ scrollTop: 0, viewportHeight: 720, listWidth: 760 });
   const loadingEarlierRef = useRef(false);
   const heights = useMemo(() => cells.map((cell) => estimateTranscriptCellHeight(cell, {
@@ -213,40 +214,8 @@ function ParentAgentTranscriptView({
         ))}
         {virtualRange.bottomSpacer > 0 ? <div className="transcript-virtual-spacer" style={{ height: virtualRange.bottomSpacer }} /> : null}
       </div>
-      <details className="conversation-workpad-details" open={detailsOpen}>
-        <summary
-          onClick={(event) => {
-            event.preventDefault();
-            setDetailsOpen((open) => !open);
-          }}
-        >
-          查看详情与证据
-        </summary>
-        {detailsOpen ? (
-          <>
-            {workpad.resultReview ? <ResultReviewNarrative review={workpad.resultReview} /> : null}
-            <WorkpadDiagnosticDetails
-              workpad={workpad}
-              approvals={approvals}
-              busy={busy}
-              onWorkflowAction={onAction}
-              onConfirmApproval={onConfirmApproval}
-              onAnswerClarification={onAnswerClarification}
-              onSelectDecisionContext={onSelectDecisionContext}
-            />
-          </>
-        ) : null}
-      </details>
-      <HiddenLegacyThreadHooks onAction={onAction} onSelectDecisionContext={onSelectDecisionContext} />
     </div>
   );
-}
-
-function HiddenLegacyThreadHooks(_: {
-  onAction: (actionType: string, options?: Record<string, unknown>) => Promise<void>;
-  onSelectDecisionContext: (contextId: string) => void;
-}): ReactElement | null {
-  return null;
 }
 
 export function AgentRunGraphPanel({

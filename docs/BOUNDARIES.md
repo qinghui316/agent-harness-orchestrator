@@ -28,6 +28,29 @@ Natural-language request -> Demand Conversation -> Intake / Project Scan
 
 The product should make AI coding controllable, reviewable, and recoverable. Faster code generation is useful only when it stays anchored to durable project memory and human-confirmed decisions.
 
+## 1A. Orchestration Authority Matrix
+
+Continuous main-agent orchestration is allowed only above existing Harness
+truth. It may observe evidence, recommend next steps, and delegate bounded leaf
+roles through explicit gates; it must not replace the workflow authority model.
+
+| Artifact or surface | Role | Executable by itself | Workflow truth |
+| --- | --- | --- | --- |
+| Change/ECL files, accepted spec/plan/tasks/AC | Canonical demand state | No | Yes |
+| Run, Validation, Audit, Worktree, Apply/Close records | Evidence and gated transitions | Only through existing gated actions | Yes for their domain |
+| `confirmationQueue.primary` | Current human decision surface | Yes, after explicit confirmation and revalidation | Projection of current legal gate |
+| `MainAgentDecision` / next-step packet / controller verdict | Recommendation and prompt context | No | No |
+| WorkflowGraphPlan / WorkflowRun journal / recovery key | Execution structure and recovery evidence | No | No |
+| Workpad, transcript, Agent graph, runtime log, diagnostics | User-facing projections | No | No |
+| Worker `AgentTaskResult` | Leaf-role result evidence | No | No; must pass validation/audit/gates |
+
+`逐步确认` exposes one current legal gate at a time. `自动推进` may consume
+only current-Change local allowed gates after an accepted plan and must stop at
+stale evidence, failure, ambiguity, completion, or any high-impact human gate.
+Neither mode may auto-confirm planning, raw scheduler dispatch, manual
+IntegrationCheck, integration apply/discard, remote/PR/merge, or Harness
+evolution.
+
 ## 2. Personal-First and Local-First Boundary
 
 The primary user is an individual developer managing local repositories with tools such as Codex CLI, Claude Code, and shell commands.

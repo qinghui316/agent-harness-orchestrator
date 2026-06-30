@@ -139,6 +139,25 @@ Phase 6Y turns that direction into a controlled delegation contract. The main-ag
 
 The target direction is freer main-agent orchestration with the same worker boundary. The main agent may ask follow-up questions, split one user request into multiple future Changes, select an existing Change, delegate roles in a non-fixed order, retry repair after validation/audit/feedback evidence, or stop for user input. Worker agents remain leaf roles unless a future AgentSpec explicitly grants bounded delegation and policy support. This keeps A2A as evidence handoff through Harness records, not as a shared group chat.
 
+The next migration target is continuous main-agent orchestration over existing
+Harness truth. The main agent should repeatedly observe the current Change,
+accepted artifacts, Workpad/TaskGraph evidence, provider readiness,
+validation/audit, feedback, and current confirmation gate; then it should
+explain or choose the next legal step. That decision can recommend a bounded
+leaf role, a read-only analysis turn, a clarification, a validation/audit
+repair, or waiting at a human gate. The decision itself is evidence and prompt
+context until it is attached to a real Harness action with fresh target ids and
+server-side revalidation.
+
+Worker roles remain leaves in that loop. A worker receives only the scoped
+context packet for its task, not the full parent transcript, full archive,
+delegate manifest, or unrestricted tool policy. A worker returns artifacts and
+an `AgentTaskResult`; it must not recursively delegate, start Scheduler waves,
+create child Changes, apply source, merge, close/archive, land remotely, or
+evolve Harness rules. If future AgentSpecs add bounded delegation, that must be
+explicitly granted by role spec, ToolPolicyGate, and human-gated workflow
+design.
+
 Phase 6Z makes that contract the foreground role execution path. A role run must be traceable as `MainAgentDecision -> DelegateTaskRequest -> ToolPolicyDecision -> AgentTask -> RoleDispatcher -> AgentTaskResult -> next MainAgentDecision`. The default order can still recommend coder, validator, and auditor, but the implementation must not bypass AgentTaskRequest, ToolPolicyGate, RoleDispatcher, or AgentTaskResult. Only a real runtime MCP call may set `delegationMode = runtime-tool`; backend policy dispatch uses `delegationMode = orchestrator-policy` and must be labeled honestly.
 
 Phase 7E adds the role context packet boundary to that path. Core worker runs receive a `RoleContextPacket` rendered to `context.md` and preserved as `context-packet.json`. A2A remains artifact-mediated: the main agent sends a scoped task, Harness selects Change/evidence context, the worker runs as an isolated leaf role, and the result returns through AgentTaskResult, run artifacts, validation, audit, and boundary evidence. Workers still do not receive the parent transcript, full archive, maintenance ledger, raw logs, or delegate manifest by default.

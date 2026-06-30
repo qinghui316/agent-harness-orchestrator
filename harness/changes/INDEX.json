@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-30T06:02:20.5749522Z",
+    "generated_at":  "2026-06-30T06:51:40.1090947Z",
     "active":  [
 
                ],
@@ -2225,6 +2225,10 @@
                     {
                         "name":  "20260629-workbench-runtime-activity-log-sanitize-private-paths-v1",
                         "path":  "harness/changes/archive/20260629-workbench-runtime-activity-log-sanitize-private-paths-v1"
+                    },
+                    {
+                        "name":  "20260630-document-main-agent-continuous-orchestration-roadmap-and-clean-conversation-evidence-v1",
+                        "path":  "harness/changes/archive/20260630-document-main-agent-continuous-orchestration-roadmap-and-clean-conversation-evidence-v1"
                     },
                     {
                         "name":  "20260630-workbench-chat-only-center-orchestration-top-tool-v1",

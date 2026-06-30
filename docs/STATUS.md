@@ -7,6 +7,8 @@
 - Pending Harness evolution:
   `harness/evolution/pending.md`.
 - Latest archived product change:
+  `harness/changes/archive/20260630-document-main-agent-continuous-orchestration-roadmap-and-clean-conversation-evidence-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260630-workbench-chat-only-center-orchestration-top-tool-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260630-workbench-reference-style-compact-composer-context-menu-v1/summary.md`.
@@ -91,26 +93,24 @@
 
 ## Latest Product Closeout
 
-`harness/changes/archive/20260630-workbench-reference-style-composer-context-sources-v1/summary.md`.
+`harness/changes/archive/20260630-document-main-agent-continuous-orchestration-roadmap-and-clean-conversation-evidence-v1/summary.md`.
 
-It adds reference-style composer context sources. Home and topic composers now
-show `技能 N` / `文件 N` / `附件 N` chips only when real current-send context
-exists, and the details expand inline inside the composer instead of opening
-the right rail or switching the center workspace. Sent user messages can show
-small file/attachment summaries from stored metadata, without guessing Skill
-or system context from text. Real UI acceptance used
-`E:\aho-accept\composer-context-sources-v1\src` and screenshots are archived
-under the change evidence.
+It removes the stale `查看详情与证据` disclosure from the active Workbench
+conversation and records the next algorithm direction as a phased
+main-agent continuous orchestration roadmap. The roadmap clarifies that AHO
+should move from separate engineering pipeline pieces toward a main-agent loop
+that observes evidence, delegates bounded leaf roles, records results, and
+stops at completion, blockage, stale evidence, or human gates. It explicitly
+keeps Change/ECL, validation/audit, ToolPolicyGate, confirmationQueue,
+apply/close, remote/merge, and Harness evolution as the authority boundaries.
 
 Previous closeout:
-`harness/changes/archive/20260629-workbench-reference-style-readonly-git-history-rail-v1/summary.md`.
+`harness/changes/archive/20260630-workbench-chat-only-center-orchestration-top-tool-v1/summary.md`.
 
-It adds a reference-style read-only Git history flow inside the right `Git`
-rail. The rail now keeps `变更` for current branch/dirty status and adds
-`历史` for compact commit list, commit detail, and selected file diff preview.
-All history/detail/diff content remains in the right rail; the center
-workspace is not hijacked. Real in-app browser screenshots are archived under
-`harness/changes/archive/20260629-workbench-reference-style-readonly-git-history-rail-v1/evidence/screenshots/`.
+It made the active conversation center chat-only by removing the old
+`对话 / 工作台 / Agent 编排图` center tabs and moving `Agent 编排图` into a
+top-tool overlay. The center workspace remains focused on transcript and
+composer, while graph details are read-only projection.
 
 Previous closeout:
 `harness/changes/archive/20260629-workbench-right-rail-git-diagnostics-reference-polish-v2/summary.md`.

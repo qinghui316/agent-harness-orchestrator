@@ -111,9 +111,58 @@ This target combines four reference lessons:
 AHO combines those lessons as Goal Loop plus typed workflow recovery plus
 evidence-bound scheduler/action execution plus human gates.
 
+## Main-Agent Continuous Orchestration Migration Roadmap
+
+The current product has many of the required pieces: planning, Workpad,
+TaskGraph, Goal Loop evidence, Scheduler evidence, scoped automation, provider
+runtime readiness, and the read-only Agent orchestration graph. It still does
+not have one unified main-agent continuous controller. Today, the backend can
+still look like an engineering pipeline because planning confirmation, scoped
+automation, role runs, validation/audit, and scheduler handoffs are connected
+through separate gates and projections.
+
+The migration target is not a new central workflow database and not an
+Open Dynamic Workflows runtime copy. The target is an AHO-owned main-agent loop
+above existing Harness truth:
+
+```text
+observe current Change evidence
+-> decide the next legal step in user language
+-> optionally delegate one bounded leaf role or expose one real Harness gate
+-> record evidence/result
+-> return to observe
+-> stop at completed, blocked, stale, or human gate
+```
+
+Migration must be split into reviewable structured changes:
+
+1. Non-executing loop contract: define `MainAgentDecision`, next-step packet,
+   explanation, and freshness inputs without executing a recommendation.
+2. Gate/action boundary: route `逐步确认` and `自动推进` through one stale
+   revalidation, ToolPolicy, explicit target-id, and current-gate check.
+3. Leaf role adapter: wrap coder, validator, auditor, and rework as bounded
+   leaf runs that return `AgentTaskResult` to the main agent.
+4. Sequential continuous loop: first reuse the existing code.run, validation,
+   audit, result, and close gates before adding more scheduler behavior.
+5. Journal/recovery/event projection: make loop state observable and resumable
+   as evidence/projection only; do not promote journals or graphs to truth.
+6. Low-conflict scheduler/parallel path: only after sequential loop behavior is
+   stable, add worker fan-out and IntegrationCheck, still stopping at human
+   integration gates.
+7. Normal Agent mode: design separately as a single-agent session/chat product
+   mode that may reuse Provider Registry, but does not reuse Harness
+   Change/ECL/validation/audit/apply/close truth.
+
+`逐步确认` means the main agent may observe, explain, and recommend, but each
+execution gate waits for the user. `自动推进` means a user-confirmed plan may
+delegate only current-Change local allowed gates until a stop condition; it is
+not an infinite autonomous loop. Plan confirmation, raw scheduler dispatch,
+manual IntegrationCheck, integration apply/discard, PR, remote, merge, and
+Harness evolution remain human-confirmed transitions.
+
 ## Current Implemented Capability Tracks
 
-- Conversation-first Workbench: project folders contain demand conversations, parent-agent transcript surfaces, inline run graph tabs, Workpad summaries, evidence/detail surfaces, and confirmation queues. The default transcript now uses cursor-incremental SQLite message paging, a transcript shell in the default snapshot, virtual rendering, long-message folding, and `@chenglou/pretext` measurement fallback so long conversations do not require full backend transcript construction or full DOM rendering. The reading surface follows the reference-style hierarchy: user prompts are lightweight bubbles, assistant output is clean Markdown prose, and ordinary tool/process/evidence/Agent activity is compact low-noise context while errors/blockers remain visible. Synthetic 100k / 500k message pressure acceptance passed without Codex tokens or durable large fixtures; workflow truth remains Change/artifact/validation/audit/apply/close evidence, not SQLite transcript paging.
+- Conversation-first Workbench: project folders contain demand conversations, parent-agent transcript surfaces, chat-only active conversation centers, Agent orchestration graph overlays, right-rail confirmation/tool surfaces, and confirmation queues. The default transcript now uses cursor-incremental SQLite message paging, a transcript shell in the default snapshot, virtual rendering, long-message folding, and `@chenglou/pretext` measurement fallback so long conversations do not require full backend transcript construction or full DOM rendering. The reading surface follows the reference-style hierarchy: user prompts are lightweight bubbles, assistant output is clean Markdown prose, and ordinary tool/process/evidence/Agent activity is compact low-noise context while errors/blockers remain visible. Main conversation UI no longer exposes a broad "details and evidence" Workpad disclosure; evidence belongs in compact activity rows, the right `诊断` / `确认` tools, or Agent graph detail projections. Synthetic 100k / 500k message pressure acceptance passed without Codex tokens or durable large fixtures; workflow truth remains Change/artifact/validation/audit/apply/close evidence, not SQLite transcript paging.
 - Workbench agent orchestration surface: the selected-demand graph is now a read-only Rudder-style `Agent 编排图` with stage-based layout, avatar cards, status dots, SVG edges, and zoom/fit controls. It visualizes local loop, rework, scheduler worker branch/join, IntegrationCheck, landing, and terminal projection evidence while keeping `confirmationQueue.primary` as the only executable primary surface. The right side is a compact collapsed tool rail; expanding it exposes only real rail tools today: `确认` for the existing confirmation pane, `文件` for safe read-only project tree/preview/reference insertion, `Git` for safe read-only branch/dirty status plus staged/unstaged/untracked diff browsing inside the Git rail, and `诊断` for read-only runtime health plus bounded runtime activity log inside the diagnostics rail. Terminal is a separate Codex-style button beside the rail that opens the bottom xterm dock; it is not a right-rail tab. These tools do not execute workflow actions, change workflow authority, or occupy the center workspace by default.
 - Workbench product entry: Harness mode now has a Phase 1 desktop-style entry surface aligned toward `desktop-cc-gui`: app project home, selected/direct project entry, compact project/conversation sidebar, centered `创造任何东西` composer, a working workspace picker backed by registered projects, and a real Codex-style `Codex / model / 逐步确认|自动推进` execution-mode control strip. The strip is frontend-only project/topic session state; it is not Harness workflow truth and it does not change the underlying Codex full-access runtime profile. The sidebar supports reference-style non-destructive project removal from the App list, duplicate-name path context, and archived-conversation hiding without deleting Change evidence. Settings now open as an independent center workspace with `基础 / 项目 / Codex / 技能 / 高级诊断` categories; ordinary settings avoid raw diagnostics, while Skills have a dedicated roots/list/detail management page. Codex model selection is real and reference-style: AHO reads Codex `config.toml`, best-effort reads project-scoped runtime model candidates, falls back to the Codex default, persists only selections from real candidates, ignores/cleans stale arbitrary custom model ids, and routes Codex exec/app-server runs through one effective-model resolver without editing Codex config. Skills settings support custom roots, Codex bridge sync, native Codex Skills shown as available runtime capabilities, and real `/skill-name` / `$skill-name` composer selection backed by topic-scoped runtime hints. AHO now bundles the read-only `aho-harness-onboarding` system Skill as a proposal/context aid for first onboarding, mature-project context extraction, and main-Agent delegation input; it materializes through the AHO-managed Codex bridge and never writes to global `.codex/skills`. Home and topic composers also support reference-style `@file` project file references: search is scoped to the selected project, selected refs become chips, refs bind to the first/current user message, and Codex context receives relative path/kind metadata without full-file injection. The right `文件` tool gives a read-only tree and preview that can insert the same composer file refs. The right `Git` tool gives read-only branch/dirty status, staged/unstaged/untracked lists, safe file diff preview inside the Git rail, and the same file-ref insertion path. A separate terminal toggle opens the bottom project-scoped xterm dock, while the right `诊断` tool shows read-only runtime diagnostics and runtime activity inside the diagnostics rail. Marketplace, non-Codex provider controls, browser, attachment-management controls, arbitrary custom model entry, Git write controls, and other unsupported toolbar controls remain hidden until implemented. Direct `workbench serve <path>` still auto-selects the direct project while the picker can switch to other registered projects; browser refresh restores the last valid selected project. Codex trust, Harness init, create/add project, workflow actions, apply/close, remote, merge, PR, and Harness evolution remain explicit user actions.
 - Workbench planning and local autonomy: planning generation prefers Codex Plan Mode proposal capture and records `proposedPlanMd`; when native plan deltas are unavailable it uses the prompt-level `<proposed_plan>` fallback. Plan confirmation remains a human gate. The two execution modes share the local Goal Loop coordinator: `逐步确认` observes and leaves each current gate to the user, while `自动推进` may delegate allowed local gates to existing scoped automation after plan confirmation. Automatic advance can continue through local execution, validation/audit, safe `audit.accept`, local `result.apply`, local `landing.prepare`, and local `change.close`, then stops after archive.
