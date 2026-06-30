@@ -137,6 +137,8 @@ import {
   runMainAgentTaskQueueStepLoop,
   decideNextMainAgentQueueStep,
   readMainAgentQueueDecisionEvidence,
+  decideMainAgentWorkflowGraph,
+  readMainAgentWorkflowGraphDecisionEvidence,
   findMainAgentTaskQueueStageResumeCandidate,
 } from "../../src/main-agent-orchestration/index.js";
 import { listTaskQueueItems as listTaskQueueItemsFacade, listTaskQueues as listTaskQueuesFacade, reconcileTaskQueues as reconcileTaskQueuesFacade, startOrResumeTaskQueue as startOrResumeTaskQueueFacade } from "../../src/task-queue/manager.js";
@@ -222,11 +224,21 @@ describe("Workbench module boundaries", () => {
     expect(taskQueueRunner).not.toContain("executeTaskRunReworkIfEligible");
     expect(taskQueueRunner).not.toContain("findTaskQueueStageResumeCandidate");
 
+    const planningHandlers = readFileSync(join(process.cwd(), "src/workbench/actions/handlers/planning.ts"), "utf8");
+    expect(planningHandlers).toContain("runMainAgentTaskQueueLifecycle");
+    expect(planningHandlers).toContain("recordMainAgentWorkflowGraphObservation");
+    expect(planningHandlers).not.toContain("runTaskQueueSequence");
+
+    const actionIndex = readFileSync(join(process.cwd(), "src/workbench/actions/handlers/index.ts"), "utf8");
+    expect(actionIndex).toContain("runMainAgentTaskQueueLifecycle");
+    expect(actionIndex).not.toContain("runTaskQueueSequence");
+
     const taskQueueLifecycle = readFileSync(join(process.cwd(), "src/main-agent-orchestration/taskqueue-lifecycle.ts"), "utf8");
     expect(taskQueueLifecycle).toContain("runMainAgentTaskQueueLifecycle");
     expect(taskQueueLifecycle).toContain("runMainAgentTaskQueueStepLoop");
     expect(taskQueueLifecycle).toContain("ensureMainAgentLoopRun");
     expect(taskQueueLifecycle).toContain("finishMainAgentLoopRun");
+    expect(taskQueueLifecycle).toContain("recordMainAgentWorkflowGraphObservation");
     expect(taskQueueLifecycle).not.toContain("while (true)");
     expect(taskQueueLifecycle).not.toContain("runMainAgentTaskRunLifecycle");
     expect(taskQueueLifecycle).not.toContain("runMainAgentTaskRunReworkFromFinished");
@@ -254,6 +266,20 @@ describe("Workbench module boundaries", () => {
     expect(taskQueueStepLoop).not.toContain("../apply/");
     expect(taskQueueStepLoop).not.toContain("../terminal");
     expect(taskQueueStepLoop).not.toContain("SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES");
+
+    const workflowGraphObservation = readFileSync(join(process.cwd(), "src/main-agent-orchestration/workflowgraph-observation.ts"), "utf8");
+    expect(workflowGraphObservation).toContain("non-executing-main-agent-workflowgraph-decision-evidence");
+    expect(workflowGraphObservation).toContain("executionStarted: false");
+    expect(workflowGraphObservation).toContain("workflowgraph-decisions.jsonl");
+    expect(workflowGraphObservation).toContain("decideMainAgentWorkflowGraph");
+    expect(workflowGraphObservation).not.toContain("selectedItemId");
+    expect(workflowGraphObservation).not.toContain("run-next-item");
+    expect(workflowGraphObservation).not.toContain("../workbench/actions/");
+    expect(workflowGraphObservation).not.toContain("../scheduler-runtime/");
+    expect(workflowGraphObservation).not.toContain("../workflow-runtime/");
+    expect(workflowGraphObservation).not.toContain("../apply/");
+    expect(workflowGraphObservation).not.toContain("../terminal");
+    expect(workflowGraphObservation).not.toContain("SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES");
 
     const taskQueueStageResume = readFileSync(join(process.cwd(), "src/main-agent-orchestration/taskqueue-stage-resume.ts"), "utf8");
     expect(taskQueueStageResume).toContain("findMainAgentTaskQueueStageResumeCandidate");
@@ -578,6 +604,8 @@ describe("Workbench module boundaries", () => {
     expect(typeof runMainAgentTaskRunLifecycle).toBe("function");
     expect(typeof runMainAgentTaskQueueLifecycle).toBe("function");
     expect(typeof findMainAgentTaskQueueStageResumeCandidate).toBe("function");
+    expect(typeof decideMainAgentWorkflowGraph).toBe("function");
+    expect(typeof readMainAgentWorkflowGraphDecisionEvidence).toBe("function");
     expect(typeof runMainAgentSourceRefreshRework).toBe("function");
     expect(typeof runMainAgentFeedbackRework).toBe("function");
     expect(typeof sourceRefreshReworkPrompt).toBe("function");

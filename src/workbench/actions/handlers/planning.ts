@@ -7,6 +7,10 @@ import { buildChangeIndex } from "../../../ecl/index.js";
 import { writeJsonFile } from "../../../fs/json.js";
 import { assertWritableMemory } from "../../../memory/resolver.js";
 import {
+  recordMainAgentWorkflowGraphObservation,
+  runMainAgentTaskQueueLifecycle,
+} from "../../../main-agent-orchestration/index.js";
+import {
   initializeSchedulerRuntime,
   compileSchedulerIntegrationCandidate,
   runSchedulerIntegrationCheckHandoff,
@@ -68,7 +72,6 @@ import {
   createWorkflowRunForValidatedTaskQueue,
   validateWorkflowTaskQueueProposalStart,
 } from "../../../workflow-runtime/taskqueue.js";
-import { runTaskQueueSequence } from "../../../workflow-runtime/code-workflow.js";
 import {
   buildTaskQueueProposalFromReadiness,
   compileWorkflowGraphPlan,
@@ -438,6 +441,7 @@ export async function generateDecompositionPlan(
     payload: { plan },
     completedAt: new Date().toISOString(),
   });
+  await recordMainAgentWorkflowGraphObservation(memory, project, changeId, { changePath });
   return { plan };
 }
 
@@ -470,6 +474,7 @@ export async function confirmDecompositionPlan(
     summary: "Proposal acceptance was recorded without starting execution.",
     artifactRef: confirmed.artifact,
   });
+  await recordMainAgentWorkflowGraphObservation(memory, project, changeId, { changePath });
   return { plan: confirmed, executionStarted: false };
 }
 
@@ -503,6 +508,7 @@ export async function assessDecompositionReadiness(
     summary: "Confirmed DecompositionPlan was checked against execution guardrails. No execution artifacts were created.",
     artifactRef: manifest.artifact,
   });
+  await recordMainAgentWorkflowGraphObservation(memory, project, changeId, { changePath });
   return { manifest, executionStarted: false };
 }
 
@@ -536,6 +542,7 @@ export async function proposeTaskQueue(
     summary: "A typed TaskQueueProposal was generated; no execution records were created.",
     artifactRef: proposal.artifact,
   });
+  await recordMainAgentWorkflowGraphObservation(memory, project, changeId, { changePath });
   return { proposal, executionStarted: false };
 }
 
@@ -582,6 +589,7 @@ export async function compileTaskQueueWorkflowGraph(
     summary: "A versioned typed workflow graph was generated; no TaskQueue or WorkflowRun was started.",
     artifactRef: graph.artifact,
   });
+  await recordMainAgentWorkflowGraphObservation(memory, project, changeId, { changePath });
   return { graph, executionStarted: false };
 }
 
@@ -2193,6 +2201,7 @@ export async function confirmTaskQueueProposalAndStart(
   const latestGraph = await readLatestWorkflowGraphPlan(memory, changePath);
   if (latestGraph.id !== graph.id) throw new Error("planning.taskqueue.confirm-start requires the latest matching WorkflowGraphPlan.");
   const validated = await validateWorkflowTaskQueueProposalStart(memory, project, changeId, proposal.id, graph.id);
+  await recordMainAgentWorkflowGraphObservation(memory, project, changeId, { changePath });
   const workflow = await createWorkflowRunForValidatedTaskQueue(memory, project, validated);
   await appendTopicThreadEntry(project, changeId, {
     type: "assistant.message",
@@ -2200,7 +2209,7 @@ export async function confirmTaskQueueProposalAndStart(
     text: `WorkflowGraphPlan ${graph.id} confirmed for start; starting scoped sequential TaskQueue through WorkflowRun ${workflow.id}.`,
     artifact: graph.artifact,
   });
-  const result = await runTaskQueueSequence(project, changeId, {
+  const result = await runMainAgentTaskQueueLifecycle(project, changeId, {
     ...request,
     actionType: "task.queue.start",
     taskQueueProposalId: proposal.id,

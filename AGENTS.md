@@ -4,10 +4,12 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 
 ## 1. Current Handoff
 
-- Current date: 2026-06-30.
+- Current date: 2026-07-01.
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260701-main-agent-workflowgraph-observation-evidence-queue-wrapper-drain-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260630-main-agent-workflowgraph-queue-step-loop-contract-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260630-main-agent-taskqueue-workflowgraph-lifecycle-ownership-v1/summary.md`.
@@ -139,10 +141,13 @@ Current baseline:
   and sequential TaskQueue / WorkflowGraph execution. Role execution uses
   observe/decide/run-one-leaf/record step loops; TaskQueue execution now uses a
   queue-level observe/decide/run-one-item/record step loop with non-executing
-  `queue-decisions.jsonl` evidence. V1 remains deterministic and does not add
-  Scheduler/WorkerLease/IntegrationCheck fan-out, UI, confirmation queue,
-  action bridge, automation allowlist, apply/close, remote, PR, merge, or
-  Harness evolution authority.
+  `queue-decisions.jsonl` evidence. WorkflowGraph observation now records
+  non-executing `workflowgraph-decisions.jsonl` evidence for missing
+  decomposition/readiness/proposal/graph, queue start readiness, queue
+  running/paused/blocked/completed, stale, and wait states. V1 remains
+  deterministic and does not add Scheduler/WorkerLease/IntegrationCheck
+  fan-out, UI, confirmation queue, action bridge, automation allowlist,
+  apply/close, remote, PR, merge, or Harness evolution authority.
 - Workbench conversation transcripts now use cursor-incremental SQLite message
   paging by default, bounded virtual rendering, long-message folding, and
   `@chenglou/pretext` height estimates with fallback. Synthetic 100k / 500k

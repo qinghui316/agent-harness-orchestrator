@@ -2,10 +2,12 @@
 
 ## Current Handoff
 
-- Current date: 2026-06-30.
+- Current date: 2026-07-01.
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260701-main-agent-workflowgraph-observation-evidence-queue-wrapper-drain-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260630-main-agent-workflowgraph-queue-step-loop-contract-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260630-main-agent-taskqueue-workflowgraph-lifecycle-ownership-v1/summary.md`.
@@ -129,22 +131,21 @@
 
 ## Latest Product Closeout
 
-`harness/changes/archive/20260630-main-agent-workflowgraph-queue-step-loop-contract-v1/summary.md`.
+`harness/changes/archive/20260701-main-agent-workflowgraph-observation-evidence-queue-wrapper-drain-v1/summary.md`.
 
-It moves sequential TaskQueue / WorkflowGraph execution into a queue-level
-main-agent step loop: observe queue/workflow state, decide the next queue step,
-run one queue item, record queue-step evidence, and observe again. The queue
-decision owner is `src/main-agent-orchestration/taskqueue-step-loop.ts`;
-queue-level decisions write non-executing `queue-decisions.jsonl` evidence
-separate from role-level next-step evidence. TaskQueue lifecycle remains the
-start/resume/sync/finish wrapper and owns parent loop finalization; child
-TaskRun lifecycle receives non-finalizing parent-loop context when called from
-a queue. V1 remains deterministic and does not add UI, Scheduler/WorkerLease,
-IntegrationCheck, action bridge, confirmation queue, automation allowlist,
-apply/close, remote, PR, merge, or Harness evolution authority.
+It adds graph-level main-agent observation evidence above the existing role and
+queue step loops. `src/main-agent-orchestration/workflowgraph-observation.ts`
+records non-executing `workflowgraph-decisions.jsonl` evidence for missing
+decomposition/readiness/proposal/graph stages, queue start readiness, queue
+running/paused/blocked/completed states, stale state, and wait state. Production
+Workbench action handlers now call `runMainAgentTaskQueueLifecycle` directly;
+`runTaskQueueSequence` remains only as a compatibility wrapper. The change does
+not add UI, Scheduler/WorkerLease, IntegrationCheck, action bridge,
+confirmation queue, automation allowlist, apply/close, remote, PR, merge, or
+Harness evolution authority.
 
 Previous closeout:
-`harness/changes/archive/20260630-main-agent-taskqueue-workflowgraph-lifecycle-ownership-v1/summary.md`.
+`harness/changes/archive/20260630-main-agent-workflowgraph-queue-step-loop-contract-v1/summary.md`.
 
 It moves sequential TaskQueue / WorkflowGraph lifecycle control into
 `src/main-agent-orchestration`. `runTaskQueueSequence` is now a compatibility

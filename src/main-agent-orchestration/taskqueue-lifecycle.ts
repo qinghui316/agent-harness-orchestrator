@@ -7,6 +7,7 @@ import { reconcileWorkflowTaskQueue, startOrResumeWorkflowTaskQueue } from "../w
 import { emitAssistantEvent } from "../workflow-runtime/kernel/live-events.js";
 import { appendMainAgentLoopEvent, ensureMainAgentLoopRun, finishMainAgentLoopRun } from "./loop-evidence.js";
 import { runMainAgentTaskQueueStepLoop } from "./taskqueue-step-loop.js";
+import { recordMainAgentWorkflowGraphObservation } from "./workflowgraph-observation.js";
 
 export async function runMainAgentTaskQueueLifecycle(
   project: ManagedProject,
@@ -66,6 +67,11 @@ export async function runMainAgentTaskQueueLifecycle(
       queue,
       workflow,
       loopRun,
+    });
+    await recordMainAgentWorkflowGraphObservation(memory, project, changeId, {
+      queue: result.queue,
+      workflow: result.workflowRun,
+      loopRunId: loopRun.id,
     });
     await finishMainAgentLoopRun(memory, loopRun.id, {
       status: result.loopStatus,

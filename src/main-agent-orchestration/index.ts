@@ -56,3 +56,14 @@ export {
   readMainAgentQueueDecisionEvidence,
   type MainAgentQueueDecisionEvidence,
 } from "./queue-step-evidence.js";
+export {
+  decideMainAgentWorkflowGraph,
+  mainAgentWorkflowGraphDecisionEvidenceRef,
+  mainAgentWorkflowGraphDecisionsPath,
+  observeMainAgentWorkflowGraph,
+  readMainAgentWorkflowGraphDecisionEvidence,
+  recordMainAgentWorkflowGraphObservation,
+  type MainAgentWorkflowGraphDecisionEvidence,
+  type MainAgentWorkflowGraphDecisionKind,
+  type MainAgentWorkflowGraphObservation,
+} from "./workflowgraph-observation.js";

@@ -3,8 +3,8 @@ import { acceptPlanProposal, acceptSpecProposal, startPlanProposalRun, startSpec
 import { runIntegrationCheck } from "../../../integration-check/manager.js";
 import { reconcileTaskRuns } from "../../../task-run/manager.js";
 import { reconcileWorkflowTaskQueue } from "../../../workflow-runtime/taskqueue.js";
-import { runMainAgentSourceRefreshRework } from "../../../main-agent-orchestration/index.js";
-import { runTaskQueueSequence, runTaskRunMainAgentAttempt, sourceRefreshReworkPrompt } from "../../../workflow-runtime/code-workflow.js";
+import { runMainAgentSourceRefreshRework, runMainAgentTaskQueueLifecycle } from "../../../main-agent-orchestration/index.js";
+import { runTaskRunMainAgentAttempt, sourceRefreshReworkPrompt } from "../../../workflow-runtime/code-workflow.js";
 import { startValidationRun } from "../../../validation/manager.js";
 import { getSpecTestDriftReport } from "../../../spec-test/drift.js";
 import type { ManagedProject, RunMetadata } from "../../../types/index.js";
@@ -133,7 +133,7 @@ export function buildWorkbenchActionHandlers(deps: WorkbenchActionHandlerDeps): 
   "task.run.start": async (project, changeId, request, live) => runTaskRunMainAgentAttempt(project, changeId, request, live, "start"),
   "task.run.retry": async (project, changeId, request, live) => runTaskRunMainAgentAttempt(project, changeId, request, live, "retry"),
   "task.run.reconcile": async (project, changeId, request) => reconcileTaskRuns(project, { changeId, taskRunId: request.taskRunId }),
-  "task.queue.start": async (project, changeId, request, live) => runTaskQueueSequence(project, changeId, request, live),
+  "task.queue.start": async (project, changeId, request, live) => runMainAgentTaskQueueLifecycle(project, changeId, request, live),
   "task.queue.reconcile": async (project, changeId, request) => reconcileWorkflowTaskQueue(project, { changeId, queueRunId: request.queueRunId }),
   "validate.run": async (project, changeId, request) => startValidationRun(project, { changeId, worktree: request.worktreeId }),
   "audit.run": async (project, changeId, request) => startAuditRun(project, { changeId, worktreeId: request.worktreeId, prompt: request.prompt }),
