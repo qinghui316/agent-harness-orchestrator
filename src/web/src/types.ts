@@ -463,6 +463,8 @@ export type ParentAgentTranscriptCell = {
   isError?: boolean;
   realtime?: boolean;
   detailText?: string;
+  contextRefs?: TopicFileReference[];
+  attachments?: TopicAttachment[];
 };
 export type ParentAgentTranscriptItem = {
   id: string;
@@ -2116,6 +2118,8 @@ export type ThreadStreamItem = {
     iteration?: { currentUnderstanding: string; confirmedConstraints: string[]; openQuestions: string[]; assumptions: string[] };
   };
   clarification?: ClarificationRequest;
+  contextRefs?: TopicFileReference[];
+  attachments?: TopicAttachment[];
 };
 export type ClarificationRequest = {
   id: string;
@@ -2460,6 +2464,8 @@ export type TopicMessageEntry = {
   blocks?: AssistantTurnBlock[];
   intake?: ThreadStreamItem["intake"];
   clarification?: ClarificationRequest;
+  contextRefs?: TopicFileReference[];
+  attachments?: TopicAttachment[];
 };
 
 

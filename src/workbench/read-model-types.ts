@@ -1,5 +1,6 @@
 ﻿import type { AssistantTurnActivity, AssistantTurnBlock, OrchestrationPlanCard } from "./types.js";
 import type { ClarificationRequest, WorkbenchIntakeIteration, WorkbenchIntakeScan } from "./intake.js";
+import type { TopicAttachment, TopicFileReference } from "./types.js";
 import type { ParentAgentTranscript } from "./parent-agent-transcript.js";
 import type { WorkbenchArtifactPreview } from "./artifact-types.js";
 import type { WorkbenchThreadActionType } from "../workflow-actions/registry.js";
@@ -216,6 +217,8 @@ export interface ThreadStreamItem {
     iteration?: WorkbenchIntakeIteration;
   };
   clarification?: ClarificationRequest;
+  contextRefs?: TopicFileReference[];
+  attachments?: TopicAttachment[];
 }
 
 export interface WorkbenchApprovalItem {

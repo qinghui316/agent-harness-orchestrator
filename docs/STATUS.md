@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260630-workbench-reference-style-composer-context-sources-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260630-workbench-reference-style-full-page-settings-surface-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260630-workbench-reference-style-project-identity-display-name-v1/summary.md`.
@@ -84,6 +86,18 @@
 
 ## Latest Product Closeout
 
+`harness/changes/archive/20260630-workbench-reference-style-composer-context-sources-v1/summary.md`.
+
+It adds reference-style composer context sources. Home and topic composers now
+show `技能 N` / `文件 N` / `附件 N` chips only when real current-send context
+exists, and the details expand inline inside the composer instead of opening
+the right rail or switching the center workspace. Sent user messages can show
+small file/attachment summaries from stored metadata, without guessing Skill
+or system context from text. Real UI acceptance used
+`E:\aho-accept\composer-context-sources-v1\src` and screenshots are archived
+under the change evidence.
+
+Previous closeout:
 `harness/changes/archive/20260629-workbench-reference-style-readonly-git-history-rail-v1/summary.md`.
 
 It adds a reference-style read-only Git history flow inside the right `Git`

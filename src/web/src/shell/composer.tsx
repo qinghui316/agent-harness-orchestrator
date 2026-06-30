@@ -1,9 +1,10 @@
-import { useState, type ReactElement } from "react";
+import { useMemo, useState, type ReactElement } from "react";
 import { Send, X } from "lucide-react";
 import { workflowActionLabel } from "../action-labels.js";
 import type { SkillListItem, TopicAttachment, TopicFileReference, WorkpadRuntimeStatus } from "../types.js";
 import { ComposerAttachButton, ComposerAttachmentList, filesFromDrop, hasFileDrag, imageFilesFromPaste } from "./ComposerAttachments.js";
 import { ComposerControls } from "./ComposerControls.js";
+import { buildComposerContextSummary, ComposerContextSourcesPanel } from "./ComposerContextSources.js";
 import type { ComposerExecutionMode } from "./composer-session.js";
 import { FileMentionPicker } from "./FileMentionPicker.js";
 import { SkillMentionPicker } from "./SkillMentionPicker.js";
@@ -68,9 +69,16 @@ export function TopicComposer({
   currentWorkpadStatus?: WorkpadRuntimeStatus;
 }): ReactElement {
   const [dragOver, setDragOver] = useState(false);
+  const [contextExpanded, setContextExpanded] = useState(false);
   const runningConversation = Boolean(actionRunning) || currentWorkpadStatus === "running";
   const canStop = runningConversation && Boolean(onStopAndContinue) && !value.trim();
   const hasAttachments = (attachments?.length ?? 0) > 0;
+  const contextSummary = useMemo(() => buildComposerContextSummary({
+    skills,
+    activeSkillIds,
+    selectedFileRefs,
+    attachments,
+  }), [skills, activeSkillIds, selectedFileRefs, attachments]);
   const canSend = Boolean(value.trim()) || hasAttachments;
   const sendDisabled = Boolean(disabledReason) || (!canSend && !canStop);
   const buttonTitle = canStop ? "停止当前执行" : runningConversation ? "发送给当前执行" : "发送";
@@ -104,8 +112,22 @@ export function TopicComposer({
         mode={automationMode}
         onModeChange={onAutomationModeChange}
         enabledSkillCount={enabledSkillCount}
-        onOpenSkillsSettings={onOpenSkillsSettings}
+        contextSummary={contextSummary}
+        contextExpanded={contextExpanded}
+        onToggleContext={() => setContextExpanded((value) => !value)}
       />
+      {contextExpanded && contextSummary.totalCount > 0 ? (
+        <ComposerContextSourcesPanel
+          skills={skills}
+          activeSkillIds={activeSkillIds}
+          selectedFileRefs={selectedFileRefs}
+          attachments={attachments}
+          onToggleSkill={onToggleSkill}
+          onSelectedFileRefsChange={onSelectedFileRefsChange}
+          onRemoveAttachment={onRemoveAttachment}
+          onOpenSkillsSettings={onOpenSkillsSettings}
+        />
+      ) : null}
       <SkillMentionPicker
         value={value}
         onChange={onChange}

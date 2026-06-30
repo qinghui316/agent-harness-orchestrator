@@ -2,6 +2,7 @@ import type { ReactElement, ReactNode } from "react";
 import { artifactName } from "./RunReplayPanel.js";
 import { formatTime, humanStatus } from "../../formatters.js";
 import { cleanTranscriptText, cleanTranscriptTitle } from "../../liveTranscript.js";
+import { SentMessageContextSummary, type ComposerContextAttachment } from "../../shell/ComposerContextSources.js";
 import {
   isLongTranscriptCell,
   transcriptCellDisplayText,
@@ -77,6 +78,12 @@ function TranscriptMessageProse({ cell, expanded, onToggleExpanded, className }:
     <div className={`parent-agent-prose transcript-message-prose ${className} ${cell.isError ? "danger" : ""}`}>
       {title ? <strong className="transcript-message-title">{title}</strong> : null}
       <TranscriptMarkdownLite text={text} idPrefix={cell.id} />
+      {cell.kind === "user-message" ? (
+        <SentMessageContextSummary
+          contextRefs={cell.contextRefs}
+          attachments={cell.attachments as ComposerContextAttachment[] | undefined}
+        />
+      ) : null}
       {isLongTranscriptCell(cell) ? (
         <button type="button" className="transcript-expand-button" onClick={onToggleExpanded}>
           {folded ? "展开完整内容" : "收起"}

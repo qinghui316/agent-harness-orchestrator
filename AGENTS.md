@@ -8,6 +8,8 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260630-workbench-reference-style-composer-context-sources-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260630-workbench-reference-style-full-page-settings-surface-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260630-workbench-reference-style-project-identity-display-name-v1/summary.md`.
@@ -153,6 +155,12 @@ Current baseline:
   unprepared-project uploads to avoid accidental source-root `.agent-harness`
   writes. Attachments are runtime context only, not workflow truth or
   permissions.
+- Workbench composer now shows reference-style context source chips for the
+  current send: `技能 N`, `文件 N`, and `附件 N` appear only when real
+  message-scoped context is selected, and expand inside the composer instead of
+  opening the right rail or changing the center workspace. Sent user messages
+  can show small file/attachment summaries from stored metadata; Skill/system
+  context is not inferred from text.
 - Workbench Codex model selection now follows the reference-style Codex-first
   pattern: AHO reads Codex `config.toml` with TOML parsing, best-effort reads
   project-scoped runtime model candidates, falls back to Codex default,

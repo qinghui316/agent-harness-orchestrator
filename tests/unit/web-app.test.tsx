@@ -1056,6 +1056,72 @@ describe("Workbench web app", () => {
     expect(onRemoveAttachment).toHaveBeenCalledWith("att-20260628120000-abcdef123456");
   });
 
+  it("shows composer context sources inline without opening workspace tools", () => {
+    const onToggleSkill = vi.fn();
+    const onSelectedFileRefsChange = vi.fn();
+    const onRemoveAttachment = vi.fn();
+    render(
+      <TopicComposer
+        value=""
+        onChange={() => undefined}
+        mode="chat"
+        onModeChange={() => undefined}
+        automationMode="request-approval"
+        onAutomationModeChange={() => undefined}
+        modelLabel="gpt-5.5"
+        enabledSkillCount={1}
+        projectId="repo"
+        skills={[{
+          skillId: "pricing-helper",
+          name: "pricing-helper",
+          description: "Pricing context helper.",
+          sourcePath: "E:/skills/pricing-helper",
+          sourceKind: "custom",
+          sourceHash: "hash",
+          enabledProject: false,
+          enabledTopics: ["member-discount"],
+          disabledTopics: [],
+          runtimeTargets: [{ provider: "codex", status: "synced", materializationMode: "aho-managed" }],
+        }]}
+        activeSkillIds={["pricing-helper"]}
+        selectedFileRefs={[{ relativePath: "src/pricing.ts", name: "pricing.ts", kind: "file", source: "composer" }]}
+        attachments={[{
+          id: "att-20260628120000-abcdef123456",
+          fileName: "screenshot.png",
+          mediaType: "image/png",
+          kind: "image",
+          size: 2048,
+          hash: "abcdef1234567890",
+          source: "composer",
+          createdAt: "2026-06-28T12:00:00.000Z",
+          storagePath: "attachments/att-20260628120000-abcdef123456/content.png",
+          runtimeMode: "codex-image-input",
+        }]}
+        onAttachFiles={() => undefined}
+        onRemoveAttachment={onRemoveAttachment}
+        onToggleSkill={onToggleSkill}
+        onSelectedFileRefsChange={onSelectedFileRefsChange}
+        onSend={async () => undefined}
+        actionRunning={null}
+        busy={false}
+        canRunCode={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "技能 1" }));
+    const panel = screen.getByTestId("composer-context-panel");
+    expect(within(panel).getByText("pricing-helper")).toBeTruthy();
+    expect(within(panel).getByText("src/pricing.ts")).toBeTruthy();
+    expect(within(panel).getByText("screenshot.png")).toBeTruthy();
+    fireEvent.click(within(panel).getByLabelText("移除技能 pricing-helper"));
+    expect(onToggleSkill).toHaveBeenCalledWith("pricing-helper");
+    fireEvent.click(within(panel).getByLabelText("移除文件引用 pricing.ts"));
+    expect(onSelectedFileRefsChange).toHaveBeenCalledWith([]);
+    fireEvent.click(within(panel).getByLabelText("移除附件 screenshot.png"));
+    expect(onRemoveAttachment).toHaveBeenCalledWith("att-20260628120000-abcdef123456");
+    expect(screen.queryByTestId("decision-pane-shell")).toBeNull();
+  });
+
   it("loads a paged transcript and keeps large conversations bounded in the DOM", async () => {
     const largeTranscript = {
       ...snapshot.center.parentAgentTranscript,
@@ -5823,8 +5889,9 @@ describe("Workbench web app", () => {
     render(<App />);
 
     await screen.findByRole("heading", { name: "创造任何东西" });
-    expect(await screen.findByRole("button", { name: "当前使用 1 个技能" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "当前使用 1 个技能" }));
+    expect(await screen.findByRole("button", { name: "技能 1" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "技能 1" }));
+    fireEvent.click(await screen.findByRole("button", { name: "管理" }));
     const panel = await screen.findByRole("region", { name: "设置" });
     expect(document.querySelector(".sidebar")).toBeNull();
     expect(screen.queryByTestId("decision-pane-shell")).toBeNull();

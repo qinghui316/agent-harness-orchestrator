@@ -1,5 +1,6 @@
 import type { ReactElement } from "react";
-import { Bot, Sparkles } from "lucide-react";
+import { Bot, File, Paperclip, Sparkles } from "lucide-react";
+import type { ComposerContextSummary } from "./ComposerContextSources.js";
 import { composerExecutionModeLabel, type ComposerExecutionMode } from "./composer-session.js";
 
 export function ComposerControls({
@@ -8,15 +9,20 @@ export function ComposerControls({
   mode,
   onModeChange,
   enabledSkillCount = 0,
-  onOpenSkillsSettings,
+  contextSummary,
+  contextExpanded = false,
+  onToggleContext,
 }: {
   modelLabel: string;
   onOpenModelSettings?: () => void;
   mode: ComposerExecutionMode;
   onModeChange: (mode: ComposerExecutionMode) => void;
   enabledSkillCount?: number;
-  onOpenSkillsSettings?: () => void;
+  contextSummary?: ComposerContextSummary;
+  contextExpanded?: boolean;
+  onToggleContext?: () => void;
 }): ReactElement {
+  const summary = contextSummary ?? { skillCount: enabledSkillCount, fileCount: 0, attachmentCount: 0, totalCount: enabledSkillCount };
   return (
     <div className="composer-control-strip" aria-label="Composer execution controls">
       <span className="composer-engine-label"><Bot size={14} />Codex</span>
@@ -53,17 +59,26 @@ export function ComposerControls({
           {composerExecutionModeLabel("full-access")}
         </button>
       </div>
-      {enabledSkillCount > 0 ? (
-        <button
-          type="button"
-          className="composer-skill-indicator"
-          onClick={onOpenSkillsSettings}
-          title="打开技能设置"
-          aria-label={`当前使用 ${enabledSkillCount} 个技能`}
-        >
-          <Sparkles size={13} />技能 {enabledSkillCount}
-        </button>
+      {summary.totalCount > 0 ? (
+        <div className="composer-context-chip-group" aria-label="本次发送上下文">
+          {summary.skillCount > 0 ? <ContextChip icon={<Sparkles size={13} />} label={`技能 ${summary.skillCount}`} expanded={contextExpanded} onClick={onToggleContext} /> : null}
+          {summary.fileCount > 0 ? <ContextChip icon={<File size={13} />} label={`文件 ${summary.fileCount}`} expanded={contextExpanded} onClick={onToggleContext} /> : null}
+          {summary.attachmentCount > 0 ? <ContextChip icon={<Paperclip size={13} />} label={`附件 ${summary.attachmentCount}`} expanded={contextExpanded} onClick={onToggleContext} /> : null}
+        </div>
       ) : null}
     </div>
+  );
+}
+
+function ContextChip({ icon, label, expanded, onClick }: { icon: ReactElement; label: string; expanded: boolean; onClick?: () => void }): ReactElement {
+  return (
+    <button
+      type="button"
+      className={`composer-context-chip ${expanded ? "selected" : ""}`}
+      aria-expanded={expanded}
+      onClick={onClick}
+    >
+      {icon}{label}
+    </button>
   );
 }

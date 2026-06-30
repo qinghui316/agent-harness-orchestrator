@@ -74,7 +74,7 @@ export function ThreadStreamView({
 
 export function threadItemFromTopicEntry(entry: TopicMessageEntry): ThreadStreamItem | null {
   if (entry.type === "user.message") {
-    return { id: `live:${entry.id}`, kind: "user-message", label: "User", timestamp: entry.timestamp, body: entry.text, source: "chat" };
+    return { id: `live:${entry.id}`, kind: "user-message", label: "User", timestamp: entry.timestamp, body: entry.text, source: "chat", contextRefs: entry.contextRefs, attachments: entry.attachments };
   }
   if (entry.type === "assistant.message") {
     return { id: `live:${entry.id}`, kind: "assistant-turn", label: "AI", timestamp: entry.timestamp, body: entry.text, source: "chat", artifact: entry.artifact, runId: entry.runId, activity: entry.activity, blocks: entry.blocks };

@@ -69,6 +69,8 @@ export function parentTranscriptCellsFromLiveThreadItem(item: ThreadStreamItem):
       source: "user",
       timestamp: item.timestamp,
       text,
+      contextRefs: item.contextRefs?.length ? item.contextRefs : undefined,
+      attachments: item.attachments?.length ? item.attachments : undefined,
     }] : [];
   }
   const cells: ParentAgentTranscriptCell[] = [];

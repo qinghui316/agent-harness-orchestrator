@@ -577,6 +577,39 @@ describe("workbench read-model projections", () => {
     expect(transcriptText).not.toContain("正在按当前建议推进一个受控步骤");
   });
 
+  it("projects user message file and attachment metadata into parent transcript cells", async () => {
+    await initHarness(project());
+    const topic = await createWorkbenchTopic(project(), { title: "Context Metadata", body: "Initial demand." });
+    await appendTopicThreadEntry(project(), topic.changeId, {
+      type: "user.message",
+      text: "Please use this context.",
+      contextRefs: [{ relativePath: "src/pricing.ts", name: "pricing.ts", kind: "file", source: "composer" }],
+      attachments: [{
+        id: "att-20260628120000-abcdef123456",
+        fileName: "screenshot.png",
+        mediaType: "image/png",
+        kind: "image",
+        size: 2048,
+        hash: "abcdef1234567890",
+        source: "composer",
+        createdAt: "2026-06-28T12:00:00.000Z",
+        storagePath: "attachments/att-20260628120000-abcdef123456/content.png",
+        runtimeMode: "codex-image-input",
+      }],
+    });
+
+    const transcript = await getWorkbenchTranscriptProjection({ project: project(), path: getTempDir() }, topic.changeId);
+
+    expect(transcript.cells).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "user-message",
+        text: "Please use this context.",
+        contextRefs: [expect.objectContaining({ relativePath: "src/pricing.ts" })],
+        attachments: [expect.objectContaining({ id: "att-20260628120000-abcdef123456" })],
+      }),
+    ]));
+  });
+
   it("suppresses selected demand primary confirmations while a run is active", async () => {
     await initHarness(project());
     const topic = await createWorkbenchTopic(project(), { title: "Running Planning", body: "Generate a plan." });

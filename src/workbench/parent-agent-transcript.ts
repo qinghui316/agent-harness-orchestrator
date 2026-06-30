@@ -1,4 +1,4 @@
-import type { AssistantTurnActivity, AssistantTurnBlock } from "./types.js";
+import type { AssistantTurnActivity, AssistantTurnBlock, TopicAttachment, TopicFileReference } from "./types.js";
 
 export type ParentAgentTranscriptActor = "user" | "parent-agent";
 export type ParentAgentTranscriptBlockKind = "prose" | "process" | "tool-result" | "evidence";
@@ -42,6 +42,8 @@ export interface ParentAgentTranscriptCell {
   isError?: boolean;
   realtime?: boolean;
   detailText?: string;
+  contextRefs?: TopicFileReference[];
+  attachments?: TopicAttachment[];
 }
 
 export interface ParentAgentTranscript {
@@ -85,6 +87,8 @@ interface TranscriptThreadItemInput {
   status?: string;
   activity?: AssistantTurnActivity[];
   blocks?: AssistantTurnBlock[];
+  contextRefs?: TopicFileReference[];
+  attachments?: TopicAttachment[];
 }
 
 export function buildParentAgentTranscript(input: {
@@ -145,6 +149,8 @@ function transcriptCellsFromThreadItem(item: TranscriptThreadItemInput): ParentA
           source: "user",
           timestamp: item.timestamp,
           text,
+          contextRefs: item.contextRefs?.length ? item.contextRefs : undefined,
+          attachments: item.attachments?.length ? item.attachments : undefined,
         }]
       : [];
   }

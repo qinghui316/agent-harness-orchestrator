@@ -201,6 +201,8 @@ function threadItemFromMessage(message: TopicThreadEntry, sortKey: number): Thre
       source: "chat",
       status: message.status,
       runId: message.runId,
+      contextRefs: message.contextRefs,
+      attachments: message.attachments,
       semanticKey: `message:${message.id}`,
       sortKey,
       subOrder: 0,
