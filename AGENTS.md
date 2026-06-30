@@ -8,6 +8,8 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260630-main-agent-orchestration-old-pipeline-removal-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260630-main-agent-projection-de-expose-safety-fix-v2/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260630-main-agent-loop-projection-contract-v1/summary.md`.

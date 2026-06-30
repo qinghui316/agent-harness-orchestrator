@@ -186,6 +186,38 @@ describe("Workbench module boundaries", () => {
     expect(source).not.toContain("SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES");
   });
 
+  it("routes main-agent orchestration through the new owner instead of the old full sequence", () => {
+    const demandWorker = readFileSync(join(process.cwd(), "src/workbench/demand-workers/orchestration.ts"), "utf8");
+    expect(demandWorker).toContain('from "../../main-agent-orchestration/index.js"');
+    expect(demandWorker).not.toContain("runCodeValidateAuditSequence");
+
+    const legacyFacade = readFileSync(join(process.cwd(), "src/workflow-runtime/kernel/role-stage-runner.ts"), "utf8");
+    expect(legacyFacade).toContain("runLegacyCodeValidateAuditFacade");
+    expect(legacyFacade).not.toContain("startCodeRun(");
+    expect(legacyFacade).not.toContain("startValidationRun(");
+    expect(legacyFacade).not.toContain("startAuditRun(");
+    expect(legacyFacade).not.toContain("decideNextMainAgentOrchestration");
+
+    const leafStages = readFileSync(join(process.cwd(), "src/main-agent-orchestration/leaf-stages.ts"), "utf8");
+    expect(leafStages).toContain("runCoderLeafStage");
+    expect(leafStages).toContain("runValidatorLeafStage");
+    expect(leafStages).toContain("runAuditorLeafStage");
+    expect(leafStages).toContain("runReworkCoderLeafStage");
+    expect(leafStages).not.toContain("decideNextMainAgentOrchestration");
+    expect(leafStages).not.toContain("../workbench/actions/");
+    expect(leafStages).not.toContain("../scheduler-runtime/");
+    expect(leafStages).not.toContain("../apply/");
+    expect(leafStages).not.toContain("../terminal");
+
+    const runner = readFileSync(join(process.cwd(), "src/main-agent-orchestration/runner.ts"), "utf8");
+    expect(runner).toContain("decideNextMainAgentOrchestration");
+    expect(runner).not.toContain("../workbench/actions/");
+    expect(runner).not.toContain("../scheduler-runtime/");
+    expect(runner).not.toContain("../apply/");
+    expect(runner).not.toContain("../terminal");
+    expect(runner).not.toContain("SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES");
+  });
+
   it("keeps legacy facades available while exposing split modules", () => {
     expect(typeof appendTopicThreadEntry).toBe("function");
     expect(typeof runWorkbenchWorkflowAction).toBe("function");
@@ -2088,6 +2120,11 @@ describe("Workbench module boundaries", () => {
     expect(facade).not.toMatch(/startCodeRun\(/);
     expect(facade).not.toMatch(/startValidationRun\(/);
     expect(facade).not.toMatch(/startAuditRun\(/);
+    const sequenceFacade = readFileSync("src/workflow-runtime/kernel/role-stage-runner.ts", "utf8");
+    expect(sequenceFacade).toContain("runLegacyCodeValidateAuditFacade");
+    expect(sequenceFacade).not.toMatch(/startCodeRun\(/);
+    expect(sequenceFacade).not.toMatch(/startValidationRun\(/);
+    expect(sequenceFacade).not.toMatch(/startAuditRun\(/);
   });
 
   it("keeps workbench-server as a compatibility facade", () => {

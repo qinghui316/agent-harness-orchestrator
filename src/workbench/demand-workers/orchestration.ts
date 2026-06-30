@@ -3,13 +3,6 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { listAgentTasks } from "../../agent-task/manager.js";
 import {
-  createMainAgentOrchestrationState,
-  decideNextMainAgentOrchestration,
-  type MainAgentOrchestrationDecision,
-  type MainAgentOrchestrationRole,
-  type MainAgentOrchestrationState,
-} from "../../agent-task/orchestration-engine.js";
-import {
   claimAvailableDemandWorkers,
   claimNextDemandWorker,
   completeDemandWorkerAttempt,
@@ -20,9 +13,9 @@ import {
   recordMainOrchestratorDecision,
   releaseDemandWorker,
 } from "../../demand-worker/manager.js";
+import { runMainAgentOrchestration } from "../../main-agent-orchestration/index.js";
 import { assertWritableMemory, resolveProjectMemory } from "../../memory/resolver.js";
 import type { ManagedProject, ResolvedMemory } from "../../types/index.js";
-import { runCodeValidateAuditSequence } from "../../workflow-runtime/code-workflow.js";
 import { emitAssistantEvent } from "../live-events.js";
 import { resolveTopic } from "../topic-resolver.js";
 import type { WorkbenchLiveSink } from "../types.js";
@@ -190,7 +183,7 @@ async function runClaimedDemandWorker(
       agentTaskIds: newAgentTaskIds,
     });
     scheduleDemandWorkerPump(project);
-    return { status: completed.worker.status, worker: completed.worker, attempt: completed.attempt, rolePipeline: result, decision: completed.decision };
+    return { status: completed.worker.status, worker: completed.worker, attempt: completed.attempt, orchestrationResult: result, rolePipeline: result, decision: completed.decision };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const completed = await completeDemandWorkerAttempt(memory, running.worker, running.attempt, {
@@ -267,73 +260,15 @@ export async function runMainAgentToolOrchestration(
   taskIds?: string[],
   readinessManifestId?: string,
 ): Promise<unknown> {
-  emitAssistantEvent(live, {
-    runId: changeId,
-    kind: "status",
-    phase: "main-agent-tool-orchestration",
-    title: continuation ? "Main-agent orchestration continued" : "Main-agent orchestration started",
-    summary: "主 agent 将按当前证据逐步委派角色任务；每一步都经过 ToolPolicyGate、RoleDispatcher 和 AgentTaskResult。",
+  return runMainAgentOrchestration({
+    project,
+    changeId,
+    prompt,
+    live,
+    continuation,
+    taskIds,
+    readinessManifestId,
   });
-  let orchestration = createMainAgentOrchestrationState({ changeId });
-  const firstDecision = decideNextMainAgentOrchestration(orchestration);
-  assertDelegateDecision(firstDecision, "coder-agent");
-  const first = await runCodeValidateAuditSequence(project, changeId, prompt, live, taskIds, undefined, firstDecision.roleId, orchestration, firstDecision, readinessManifestId ? { mode: "single-change-readiness", readinessManifestId } : undefined);
-  orchestration = readWorkflowOrchestration(first, orchestration);
-  const next = decideNextMainAgentOrchestration(orchestration);
-  if (next.kind === "completed") {
-    return { status: "completed", attempts: [{ kind: "initial", result: first }], reworkUsed: 0, orchestration };
-  }
-  if (next.kind === "failed") {
-    return { status: "failed", attempts: [{ kind: "initial", result: first }], reworkUsed: 0, requiresUserInput: true, stoppedAt: next.stoppedAt, orchestration };
-  }
-  if (next.kind === "needs-user-input") {
-    return { status: "needs-user-input", attempts: [{ kind: "initial", result: first }], reworkUsed: 0, requiresUserInput: true, stoppedAt: next.stoppedAt, orchestration };
-  }
-  assertDelegateDecision(next, "rework-coder");
-  emitAssistantEvent(live, {
-    runId: changeId,
-    kind: "status",
-    phase: "automatic-rework",
-    title: "Automatic rework started",
-    summary: `${next.reason} AHO is sending the evidence back to rework-coder once.`,
-    isError: true,
-  });
-  const reworkPrompt = [
-    "Use the failed official validation/audit evidence from the previous attempt.",
-    "Repair only the accepted demand in the assigned worktree.",
-    "Do not change canonical planning artifacts.",
-    prompt ?? "",
-  ].join("\n\n");
-  const second = await runCodeValidateAuditSequence(project, changeId, reworkPrompt, live, undefined, undefined, next.roleId, orchestration, next);
-  orchestration = readWorkflowOrchestration(second, orchestration);
-  const finalDecision = decideNextMainAgentOrchestration(orchestration);
-  return {
-    status: finalDecision.kind === "completed" ? "completed" : finalDecision.kind,
-    attempts: [
-      { kind: "initial", result: first },
-      { kind: "automatic-rework", result: second },
-    ],
-    reworkUsed: 1,
-    requiresUserInput: finalDecision.kind !== "completed",
-    stoppedAt: finalDecision.kind === "needs-user-input" || finalDecision.kind === "failed" ? finalDecision.stoppedAt : undefined,
-    orchestration,
-  };
-}
-
-function assertDelegateDecision(decision: MainAgentOrchestrationDecision, roleId: MainAgentOrchestrationRole): asserts decision is Extract<MainAgentOrchestrationDecision, { kind: "delegate-role" }> {
-  if (decision.kind !== "delegate-role" || decision.roleId !== roleId) {
-    throw new Error(`Main-agent decision engine expected ${roleId}, got ${decision.kind}${decision.kind === "delegate-role" ? `:${decision.roleId}` : ""}.`);
-  }
-}
-
-function readWorkflowOrchestration(result: unknown, fallback: MainAgentOrchestrationState): MainAgentOrchestrationState {
-  if (isRecord(result) && isRecord(result.orchestration)) {
-    const state = result.orchestration;
-    if (typeof state.changeId === "string" && Array.isArray(state.steps) && typeof state.maxReworkAttempts === "number") {
-      return state as unknown as MainAgentOrchestrationState;
-    }
-  }
-  return fallback;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
