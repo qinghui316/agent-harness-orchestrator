@@ -17,3 +17,9 @@ export {
   type MainAgentLoopEvent,
   type MainAgentLoopRun,
 } from "./loop-evidence.js";
+export {
+  mainAgentNextStepDecisionsPath,
+  mainAgentNextStepEvidenceRef,
+  readMainAgentNextStepEvidence,
+  type MainAgentNextStepEvidence,
+} from "./next-step-evidence.js";

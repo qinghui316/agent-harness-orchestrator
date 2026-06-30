@@ -16,6 +16,10 @@ import {
   type MainAgentLoopRun,
 } from "./loop-evidence.js";
 import {
+  recordMainAgentNextStepEvidence,
+  type MainAgentNextStepObservationSummary,
+} from "./next-step-evidence.js";
+import {
   runAuditorLeafStage,
   runCoderLeafStage,
   runReworkCoderLeafStage,
@@ -140,28 +144,40 @@ export async function runMainAgentStepLoop(input: RunMainAgentStepLoopInput): Pr
   let nextInitialDecision = input.initialDecision ?? synthesizeInitialDecision(input.initialRole, observation.orchestration, input.taskRunId);
 
   for (let i = 0; i < 8; i += 1) {
+    const observationArtifactRefs = collectObservationArtifactRefs(observation);
+    const observationRefs = collectObservationRefs(observation);
     await appendMainAgentLoopEvent(memory, loopRun, {
       type: "observation.recorded",
       stepIndex: i,
       entrypoint: input.entrypoint,
       summary: summarizeObservation(observation),
-      artifactRefs: collectObservationArtifactRefs(observation),
-      refs: collectObservationRefs(observation),
+      artifactRefs: observationArtifactRefs,
+      refs: observationRefs,
     });
     const decision = decideNextOrchestrationStep(observation, nextInitialDecision);
     nextInitialDecision = undefined;
+    const decisionEvidence = await recordMainAgentNextStepEvidence(memory, loopRun, {
+      stepIndex: i,
+      entrypoint: input.entrypoint,
+      observation: summarizeObservationForEvidence(observation),
+      decision,
+      artifactRefs: observationArtifactRefs,
+      refs: observationRefs,
+    });
     await appendMainAgentLoopEvent(memory, loopRun, {
       type: "decision.recorded",
       stepIndex: i,
       entrypoint: input.entrypoint,
       decisionKind: decision.kind,
+      decisionEvidenceId: decisionEvidence.id,
+      decisionEvidenceRef: decisionEvidence.ref,
       roleId: decision.kind === "delegate-role" ? decision.roleId : undefined,
       attemptKind: decision.kind === "delegate-role" ? decision.attemptKind : undefined,
       stoppedAt: decision.kind === "failed" || decision.kind === "needs-user-input" ? decision.stoppedAt : undefined,
       reason: "reason" in decision ? decision.reason : undefined,
       summary: summarizeDecision(decision),
-      artifactRefs: collectObservationArtifactRefs(observation),
-      refs: collectObservationRefs(observation),
+      artifactRefs: observationArtifactRefs,
+      refs: observationRefs,
     });
 
     if (decision.kind === "completed") {
@@ -461,6 +477,18 @@ function summarizeObservation(observation: MainAgentObservation): string {
   const completedRoles = observation.orchestration.steps.filter((step) => step.status === "completed").length;
   const failedRoles = observation.orchestration.steps.filter((step) => step.status === "failed").length;
   return `Observed ${observation.entrypoint} state with ${observation.orchestration.steps.length} role step(s), ${completedRoles} completed and ${failedRoles} failed.`;
+}
+
+function summarizeObservationForEvidence(observation: MainAgentObservation): MainAgentNextStepObservationSummary {
+  const latest = observation.orchestration.steps.at(-1);
+  return {
+    summary: summarizeObservation(observation),
+    totalSteps: observation.orchestration.steps.length,
+    completedSteps: observation.orchestration.steps.filter((step) => step.status === "completed").length,
+    failedSteps: observation.orchestration.steps.filter((step) => step.status === "failed").length,
+    latestRoleId: latest?.roleId ?? null,
+    latestStatus: latest?.status ?? null,
+  };
 }
 
 function summarizeDecision(decision: MainAgentStepDecision): string {

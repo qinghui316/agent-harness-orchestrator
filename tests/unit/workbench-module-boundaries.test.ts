@@ -266,6 +266,20 @@ describe("Workbench module boundaries", () => {
     expect(loopEvidence).not.toContain("../terminal");
     expect(loopEvidence).not.toContain("../apply/");
     expect(loopEvidence).not.toContain("SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES");
+
+    const nextStepEvidence = readFileSync(join(process.cwd(), "src/main-agent-orchestration/next-step-evidence.ts"), "utf8");
+    expect(nextStepEvidence).toContain("non-executing-main-agent-next-step-evidence");
+    expect(nextStepEvidence).toContain("executionStarted: false");
+    expect(nextStepEvidence).toContain("decisions.jsonl");
+    expect(nextStepEvidence).not.toContain("../workbench/actions/");
+    expect(nextStepEvidence).not.toContain("../workbench/");
+    expect(nextStepEvidence).not.toContain("../goal-loop/");
+    expect(nextStepEvidence).not.toContain("../scheduler-runtime/");
+    expect(nextStepEvidence).not.toContain("../task-queue/");
+    expect(nextStepEvidence).not.toContain("../workflow-run/");
+    expect(nextStepEvidence).not.toContain("../terminal");
+    expect(nextStepEvidence).not.toContain("../apply/");
+    expect(nextStepEvidence).not.toContain("SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES");
   });
 
   it("keeps legacy facades available while exposing split modules", () => {

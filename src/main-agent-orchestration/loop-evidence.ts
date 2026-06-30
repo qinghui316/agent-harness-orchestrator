@@ -44,6 +44,8 @@ export interface MainAgentLoopEvent {
   roleId?: string;
   attemptKind?: "initial" | "rework" | "follow-up";
   decisionKind?: string;
+  decisionEvidenceId?: string;
+  decisionEvidenceRef?: string;
   status?: string;
   stoppedAt?: "boundary" | "code" | "validation" | "audit" | null;
   reason?: string;
@@ -71,6 +73,8 @@ export interface MainAgentLoopEventInput {
   roleId?: string;
   attemptKind?: "initial" | "rework" | "follow-up";
   decisionKind?: string;
+  decisionEvidenceId?: string;
+  decisionEvidenceRef?: string;
   status?: string;
   stoppedAt?: "boundary" | "code" | "validation" | "audit" | null;
   reason?: string;
@@ -118,6 +122,8 @@ const mainAgentLoopEventSchema = z.object({
   roleId: z.string().optional(),
   attemptKind: z.enum(["initial", "rework", "follow-up"]).optional(),
   decisionKind: z.string().optional(),
+  decisionEvidenceId: z.string().optional(),
+  decisionEvidenceRef: z.string().optional(),
   status: z.string().optional(),
   stoppedAt: z.enum(["boundary", "code", "validation", "audit"]).nullable().optional(),
   reason: z.string().optional(),
@@ -275,6 +281,8 @@ function definedOptionalFields(input: MainAgentLoopEventInput): Partial<MainAgen
   if (input.roleId !== undefined) value.roleId = input.roleId;
   if (input.attemptKind !== undefined) value.attemptKind = input.attemptKind;
   if (input.decisionKind !== undefined) value.decisionKind = input.decisionKind;
+  if (input.decisionEvidenceId !== undefined) value.decisionEvidenceId = input.decisionEvidenceId;
+  if (input.decisionEvidenceRef !== undefined) value.decisionEvidenceRef = input.decisionEvidenceRef;
   if (input.status !== undefined) value.status = input.status;
   if (input.stoppedAt !== undefined) value.stoppedAt = input.stoppedAt;
   if (input.reason !== undefined) value.reason = truncateSummary(input.reason);

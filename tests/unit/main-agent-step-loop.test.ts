@@ -155,6 +155,8 @@ import {
 } from "../../src/main-agent-orchestration/loop-evidence.js";
 import {
   mainAgentLoopEventsPath,
+  mainAgentNextStepDecisionsPath,
+  readMainAgentNextStepEvidence,
   readMainAgentLoopEvents,
   readMainAgentLoopRun,
   runMainAgentOrchestration,
@@ -200,6 +202,7 @@ describe("main-agent step loop contract", () => {
     const memory = await resolveProjectMemory(project);
     const run = await readMainAgentLoopRun(memory, loopRunId!);
     const events = await readMainAgentLoopEvents(memory, loopRunId!);
+    const decisions = await readMainAgentNextStepEvidence(memory, loopRunId!);
 
     expect(run?.status).toBe("completed");
     expect(events.map((event) => event.type)).toEqual(expect.arrayContaining([
@@ -215,8 +218,18 @@ describe("main-agent step loop contract", () => {
       "validator",
       "auditor-agent",
     ]);
-    expect(JSON.stringify(events)).not.toContain("Check chat-only");
-    expect(JSON.stringify(events)).not.toContain("stdout");
+    const decisionEvents = events.filter((event) => event.type === "decision.recorded");
+    expect(decisionEvents.every((event) => event.decisionEvidenceId && event.decisionEvidenceRef)).toBe(true);
+    expect(decisions.filter((decision) => decision.decision.kind === "delegate-role").map((decision) => decision.decision.roleId)).toEqual([
+      "coder-agent",
+      "validator",
+      "auditor-agent",
+    ]);
+    expect(decisions.every((decision) => decision.authority === "non-executing-main-agent-next-step-evidence")).toBe(true);
+    expect(decisions.every((decision) => decision.executionStarted === false)).toBe(true);
+    expect(decisionEvents.map((event) => event.decisionEvidenceId)).toEqual(decisions.map((decision) => decision.id));
+    expect(JSON.stringify([...events, ...decisions])).not.toContain("Check chat-only");
+    expect(JSON.stringify([...events, ...decisions])).not.toContain("stdout");
   });
 
   it("keeps TaskRun entrypoints single-attempt when validation fails", async () => {
@@ -237,7 +250,9 @@ describe("main-agent step loop contract", () => {
     expect(result.status).toBeUndefined();
     const memory = await resolveProjectMemory(project);
     const events = await readMainAgentLoopEvents(memory, result.loopRunId!);
+    const decisions = await readMainAgentNextStepEvidence(memory, result.loopRunId!);
     expect(events.filter((event) => event.roleId === "rework-coder")).toHaveLength(0);
+    expect(decisions.filter((decision) => decision.decision.roleId === "rework-coder")).toHaveLength(0);
     expect(events.some((event) => event.type === "loop.stopped")).toBe(true);
   });
 
@@ -259,8 +274,10 @@ describe("main-agent step loop contract", () => {
     expect(result.attempts[0]?.result.loopRunId).toBe(result.attempts[1]?.result.loopRunId);
     const memory = await resolveProjectMemory(project);
     const events = await readMainAgentLoopEvents(memory, result.attempts[0]!.result.loopRunId!);
+    const decisions = await readMainAgentNextStepEvidence(memory, result.attempts[0]!.result.loopRunId!);
     expect(events.filter((event) => event.type === "loop.started")).toHaveLength(1);
     expect(events.filter((event) => event.roleId === "rework-coder" && event.type === "leaf.started")).toHaveLength(1);
+    expect(decisions.filter((decision) => decision.decision.roleId === "rework-coder")).toHaveLength(1);
     expect(events.filter((event) => event.type === "loop.completed")).toHaveLength(1);
   });
 
@@ -280,7 +297,9 @@ describe("main-agent step loop contract", () => {
     expect(result.status).toBeUndefined();
     const memory = await resolveProjectMemory(project);
     const events = await readMainAgentLoopEvents(memory, result.loopRunId!);
+    const decisions = await readMainAgentNextStepEvidence(memory, result.loopRunId!);
     expect(events.filter((event) => event.roleId === "rework-coder" && event.type === "leaf.started")).toHaveLength(1);
+    expect(decisions.filter((decision) => decision.decision.roleId === "rework-coder")).toHaveLength(1);
     expect(events.filter((event) => event.type === "loop.stopped")).toHaveLength(1);
   });
 
@@ -295,9 +314,12 @@ describe("main-agent step loop contract", () => {
 
     expect(await readMainAgentLoopRun(memory, "missing-loop")).toBeNull();
     expect(await readMainAgentLoopEvents(memory, "missing-loop")).toEqual([]);
+    expect(await readMainAgentNextStepEvidence(memory, "missing-loop")).toEqual([]);
 
     await writeFile(mainAgentLoopEventsPath(memory, result.loopRunId!), "{not-json}\n", "utf8");
     expect(await readMainAgentLoopEvents(memory, result.loopRunId!)).toEqual([]);
+    await writeFile(mainAgentNextStepDecisionsPath(memory, result.loopRunId!), "{not-json}\n", "utf8");
+    expect(await readMainAgentNextStepEvidence(memory, result.loopRunId!)).toEqual([]);
   });
 
   it("recreates malformed loop metadata without blocking orchestration evidence", async () => {

@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260630-main-agent-next-step-decision-evidence-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260630-main-agent-loop-evidence-envelope-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260630-main-agent-orchestration-step-loop-contract-v1/summary.md`.
