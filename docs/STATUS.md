@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260630-main-agent-loop-evidence-envelope-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260630-main-agent-orchestration-step-loop-contract-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260630-main-agent-orchestration-legacy-facade-retirement-v1/summary.md`.
@@ -94,12 +96,17 @@
 - Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-skills-catalog-and-codex-bridge-v1/summary.md`.
 - Latest completed Harness evolution:
+  `harness/changes/archive/20260630-auto-evolve-post-main-agent-orchestration-migration-window/summary.md`
+  (`noop`; existing ECL coverage is sufficient for the main-agent orchestration
+  migration archive window; no new Harness rule/template/product runtime change
+  needed, pending evolution marked complete).
+- Previous completed Harness evolution:
   `harness/changes/archive/20260630-auto-evolve-post-main-agent-orchestration-window/summary.md`
   (`noop`; existing ECL coverage is sufficient for the project identity,
   full-page settings, composer context, chat-only center, and main-agent
   projection archive window, no new Harness rule/template/product runtime
   change needed, pending evolution marked complete).
-- Previous completed Harness evolution:
+- Earlier completed Harness evolution:
   `harness/changes/archive/20260629-auto-evolve-post-right-rail-git-history-window/summary.md`
   (`noop`; subagent Bernoulli score 91; existing ECL coverage is sufficient for
   the right-rail Git/diagnostics/history archive window).

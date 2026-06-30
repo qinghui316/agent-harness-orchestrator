@@ -9,6 +9,8 @@ import type { ManagedProject } from "../types/index.js";
 import type { WorkbenchLiveSink } from "../workbench/types.js";
 import { emitAssistantEvent } from "../workflow-runtime/kernel/live-events.js";
 import type { CodeExecutionGateOptions } from "../code/manager.js";
+import { resolveProjectMemory } from "../memory/resolver.js";
+import { createMainAgentLoopRunId, finishMainAgentLoopRun } from "./loop-evidence.js";
 import { runMainAgentStepLoop, type CodeValidateAuditAttemptResult } from "./step-loop.js";
 
 export type { CodeValidateAuditAttemptResult } from "./step-loop.js";
@@ -44,6 +46,7 @@ export async function runMainAgentOrchestration(input: {
     summary: "主 agent 将按当前证据逐步委派角色任务；每一步都经过 ToolPolicyGate、RoleDispatcher 和 AgentTaskResult。",
   });
   let orchestration = createMainAgentOrchestrationState({ changeId: input.changeId });
+  const loopRunId = createMainAgentLoopRunId(input.changeId);
   const firstDecision = decideNextMainAgentOrchestration(orchestration);
   assertDelegateDecision(firstDecision, "coder-agent");
   const first = await runMainAgentStepLoop({
@@ -57,16 +60,21 @@ export async function runMainAgentOrchestration(input: {
     orchestrationState: orchestration,
     initialDecision: firstDecision,
     executionGate: input.readinessManifestId ? { mode: "single-change-readiness", readinessManifestId: input.readinessManifestId } : undefined,
+    loopRunId,
+    finalizeLoop: false,
   });
   orchestration = first.orchestration;
   const next = decideNextMainAgentOrchestration(orchestration);
   if (next.kind === "completed") {
+    await finishTopLevelLoop(input.project, loopRunId, "completed", "Top-level main-agent orchestration completed.", null);
     return { status: "completed", attempts: [{ kind: "initial", result: first }], reworkUsed: 0, orchestration };
   }
   if (next.kind === "failed") {
+    await finishTopLevelLoop(input.project, loopRunId, "stopped", next.reason, next.stoppedAt);
     return { status: "failed", attempts: [{ kind: "initial", result: first }], reworkUsed: 0, requiresUserInput: true, stoppedAt: next.stoppedAt, orchestration };
   }
   if (next.kind === "needs-user-input") {
+    await finishTopLevelLoop(input.project, loopRunId, "stopped", next.reason, next.stoppedAt);
     return { status: "needs-user-input", attempts: [{ kind: "initial", result: first }], reworkUsed: 0, requiresUserInput: true, stoppedAt: next.stoppedAt, orchestration };
   }
   assertDelegateDecision(next, "rework-coder");
@@ -93,6 +101,7 @@ export async function runMainAgentOrchestration(input: {
     initialRole: next.roleId,
     orchestrationState: orchestration,
     initialDecision: next,
+    loopRunId,
   });
   orchestration = second.orchestration;
   const finalDecision = decideNextMainAgentOrchestration(orchestration);
@@ -172,4 +181,15 @@ function assertDelegateDecision(decision: MainAgentOrchestrationDecision, roleId
   if (decision.kind !== "delegate-role" || decision.roleId !== roleId) {
     throw new Error(`Main-agent decision engine expected ${roleId}, got ${decision.kind}${decision.kind === "delegate-role" ? `:${decision.roleId}` : ""}.`);
   }
+}
+
+async function finishTopLevelLoop(
+  project: ManagedProject,
+  loopRunId: string,
+  status: "completed" | "stopped",
+  summary: string,
+  stoppedAt: "boundary" | "code" | "validation" | "audit" | null,
+): Promise<void> {
+  const memory = await resolveProjectMemory(project);
+  await finishMainAgentLoopRun(memory, loopRunId, { status, summary, stoppedAt });
 }

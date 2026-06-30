@@ -110,3 +110,4 @@ timestamp	change_id	status	eval_mode	archive_count	notes
 2026-06-29T11:42:22.9892202Z	manual	noop	subagent_review	547	Arendt subagent score 90; existing ECL and boundary coverage is sufficient for provider/runtime-log/private-path archive window; no new Harness rule/template/product runtime change.
 2026-06-29T15:16:18.6417833Z	manual	noop	subagent_review	552	Bernoulli subagent score 91; existing ECL covers right-rail Git/diagnostics/history window; no new Harness rule/template/product runtime change.
 2026-06-30T08:41:39.7365909Z	manual	noop	subagent_review	561	No-op; existing ECL covers reference UI honesty, projection/runtime boundaries, documentation entropy, and main-agent migration boundaries for this archive window.
+2026-06-30T11:20:05.6906942Z	manual	noop	subagent_review	566	No-op; existing ECL covers main-agent migration boundaries, facade retirement, evidence authority, documentation entropy, and controlled evolution for this archive window.

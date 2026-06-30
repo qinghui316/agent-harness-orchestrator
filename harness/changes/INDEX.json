@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-30T10:38:26.2897014Z",
+    "generated_at":  "2026-06-30T11:22:51.4914041Z",
     "active":  [
 
                ],
@@ -2227,12 +2227,20 @@
                         "path":  "harness/changes/archive/20260629-workbench-runtime-activity-log-sanitize-private-paths-v1"
                     },
                     {
+                        "name":  "20260630-auto-evolve-post-main-agent-orchestration-migration-window",
+                        "path":  "harness/changes/archive/20260630-auto-evolve-post-main-agent-orchestration-migration-window"
+                    },
+                    {
                         "name":  "20260630-auto-evolve-post-main-agent-orchestration-window",
                         "path":  "harness/changes/archive/20260630-auto-evolve-post-main-agent-orchestration-window"
                     },
                     {
                         "name":  "20260630-document-main-agent-continuous-orchestration-roadmap-and-clean-conversation-evidence-v1",
                         "path":  "harness/changes/archive/20260630-document-main-agent-continuous-orchestration-roadmap-and-clean-conversation-evidence-v1"
+                    },
+                    {
+                        "name":  "20260630-main-agent-loop-evidence-envelope-v1",
+                        "path":  "harness/changes/archive/20260630-main-agent-loop-evidence-envelope-v1"
                     },
                     {
                         "name":  "20260630-main-agent-loop-projection-contract-v1",

@@ -254,6 +254,18 @@ describe("Workbench module boundaries", () => {
       stepLoop.indexOf("function synthesizeInitialDecision"),
     );
     expect(leafStepSource).not.toContain("decideNextMainAgentOrchestration");
+
+    const loopEvidence = readFileSync(join(process.cwd(), "src/main-agent-orchestration/loop-evidence.ts"), "utf8");
+    expect(loopEvidence).toContain("main-agent-loop-runs");
+    expect(loopEvidence).toContain("events.jsonl");
+    expect(loopEvidence).not.toContain("../workbench/actions/");
+    expect(loopEvidence).not.toContain("../workbench/");
+    expect(loopEvidence).not.toContain("../scheduler-runtime/");
+    expect(loopEvidence).not.toContain("../task-queue/");
+    expect(loopEvidence).not.toContain("../workflow-run/");
+    expect(loopEvidence).not.toContain("../terminal");
+    expect(loopEvidence).not.toContain("../apply/");
+    expect(loopEvidence).not.toContain("SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES");
   });
 
   it("keeps legacy facades available while exposing split modules", () => {

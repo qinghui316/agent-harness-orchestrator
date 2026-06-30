@@ -10,6 +10,12 @@ import { resolveProjectMemory } from "../memory/resolver.js";
 import type { ManagedProject } from "../types/index.js";
 import type { WorkbenchLiveSink } from "../workbench/types.js";
 import {
+  appendMainAgentLoopEvent,
+  ensureMainAgentLoopRun,
+  finishMainAgentLoopRun,
+  type MainAgentLoopRun,
+} from "./loop-evidence.js";
+import {
   runAuditorLeafStage,
   runCoderLeafStage,
   runReworkCoderLeafStage,
@@ -28,6 +34,7 @@ export interface MainAgentLeafAttemptResult {
   stoppedAt: "boundary" | "code" | "validation" | "audit" | null;
   boundaryAudit?: unknown;
   orchestration: MainAgentOrchestrationState;
+  loopRunId?: string;
 }
 
 export type CodeValidateAuditAttemptResult = MainAgentLeafAttemptResult;
@@ -70,6 +77,8 @@ export interface RunMainAgentStepLoopInput {
   orchestrationState?: MainAgentOrchestrationState;
   initialDecision?: Extract<MainAgentStepDecision, { kind: "delegate-role" }>;
   executionGate?: CodeExecutionGateOptions;
+  loopRunId?: string;
+  finalizeLoop?: boolean;
 }
 
 export function observeOrchestrationState(input: {
@@ -110,6 +119,19 @@ export function recordOrchestrationStepResult(
 
 export async function runMainAgentStepLoop(input: RunMainAgentStepLoopInput): Promise<MainAgentLeafAttemptResult> {
   const memory = await resolveProjectMemory(input.project);
+  const { run: loopRun, created: loopRunCreated } = await ensureMainAgentLoopRun(memory, {
+    loopRunId: input.loopRunId,
+    changeId: input.changeId,
+    projectId: input.project.id,
+    entrypoint: input.entrypoint,
+  });
+  if (loopRunCreated) {
+    await appendMainAgentLoopEvent(memory, loopRun, {
+      type: "loop.started",
+      entrypoint: input.entrypoint,
+      summary: `Main-agent loop started for ${input.entrypoint}.`,
+    });
+  }
   const initialOrchestration = input.orchestrationState ?? createMainAgentOrchestrationState({ changeId: input.changeId });
   let observation = observeOrchestrationState({
     orchestration: initialOrchestration,
@@ -118,39 +140,74 @@ export async function runMainAgentStepLoop(input: RunMainAgentStepLoopInput): Pr
   let nextInitialDecision = input.initialDecision ?? synthesizeInitialDecision(input.initialRole, observation.orchestration, input.taskRunId);
 
   for (let i = 0; i < 8; i += 1) {
+    await appendMainAgentLoopEvent(memory, loopRun, {
+      type: "observation.recorded",
+      stepIndex: i,
+      entrypoint: input.entrypoint,
+      summary: summarizeObservation(observation),
+      artifactRefs: collectObservationArtifactRefs(observation),
+      refs: collectObservationRefs(observation),
+    });
     const decision = decideNextOrchestrationStep(observation, nextInitialDecision);
     nextInitialDecision = undefined;
+    await appendMainAgentLoopEvent(memory, loopRun, {
+      type: "decision.recorded",
+      stepIndex: i,
+      entrypoint: input.entrypoint,
+      decisionKind: decision.kind,
+      roleId: decision.kind === "delegate-role" ? decision.roleId : undefined,
+      attemptKind: decision.kind === "delegate-role" ? decision.attemptKind : undefined,
+      stoppedAt: decision.kind === "failed" || decision.kind === "needs-user-input" ? decision.stoppedAt : undefined,
+      reason: "reason" in decision ? decision.reason : undefined,
+      summary: summarizeDecision(decision),
+      artifactRefs: collectObservationArtifactRefs(observation),
+      refs: collectObservationRefs(observation),
+    });
 
     if (decision.kind === "completed") {
-      return {
+      return finalizeStepLoopResult(memory, loopRun, input.finalizeLoop, {
         code: observation.latestCode,
         validation: observation.latestValidation,
         audit: observation.latestAudit,
         stoppedAt: null,
         orchestration: observation.orchestration,
-      };
+        loopRunId: loopRun.id,
+      }, "completed", "Main-agent loop completed.", collectObservationArtifactRefs(observation), collectObservationRefs(observation));
     }
     if (decision.kind === "failed") {
-      return {
+      return finalizeStepLoopResult(memory, loopRun, input.finalizeLoop, {
         code: observation.latestCode,
         validation: observation.latestValidation,
         audit: observation.latestAudit,
         status: "failed",
         stoppedAt: decision.stoppedAt,
         orchestration: observation.orchestration,
-      };
+        loopRunId: loopRun.id,
+      }, "stopped", summarizeDecision(decision), collectObservationArtifactRefs(observation), collectObservationRefs(observation));
     }
     if (decision.kind === "needs-user-input") {
-      return {
+      return finalizeStepLoopResult(memory, loopRun, input.finalizeLoop, {
         code: observation.latestCode,
         validation: observation.latestValidation,
         audit: observation.latestAudit,
         status: "needs-user-input",
         stoppedAt: decision.stoppedAt,
         orchestration: observation.orchestration,
-      };
+        loopRunId: loopRun.id,
+      }, "stopped", summarizeDecision(decision), collectObservationArtifactRefs(observation), collectObservationRefs(observation));
     }
 
+    await appendMainAgentLoopEvent(memory, loopRun, {
+      type: "leaf.started",
+      stepIndex: i,
+      entrypoint: input.entrypoint,
+      roleId: decision.roleId,
+      attemptKind: decision.attemptKind,
+      reason: decision.reason,
+      summary: `Main-agent delegated ${decision.roleId}.`,
+      artifactRefs: decision.inputArtifacts,
+      refs: collectObservationRefs(observation),
+    });
     const stepResult = await runMainAgentLeafStep({
       project: input.project,
       memory,
@@ -168,9 +225,22 @@ export async function runMainAgentStepLoop(input: RunMainAgentStepLoopInput): Pr
     });
 
     observation = recordOrchestrationStepResult(observation, stepResult);
+    await appendMainAgentLoopEvent(memory, loopRun, {
+      type: "leaf.completed",
+      stepIndex: i,
+      entrypoint: input.entrypoint,
+      roleId: decision.roleId,
+      attemptKind: decision.attemptKind,
+      status: stepResult.status,
+      stoppedAt: stepResult.stoppedAt,
+      reason: stepResult.error,
+      summary: summarizeLeafStepResult(decision.roleId, stepResult),
+      artifactRefs: collectStepResultArtifactRefs(stepResult),
+      refs: collectStepResultRefs(stepResult),
+    });
 
     if (stepResult.status === "failed" || stepResult.status === "needs-user-input") {
-      return {
+      return finalizeStepLoopResult(memory, loopRun, input.finalizeLoop, {
         code: observation.latestCode,
         validation: observation.latestValidation,
         audit: observation.latestAudit,
@@ -179,11 +249,12 @@ export async function runMainAgentStepLoop(input: RunMainAgentStepLoopInput): Pr
         error: stepResult.error,
         boundaryAudit: stepResult.boundaryAudit,
         orchestration: observation.orchestration,
-      };
+        loopRunId: loopRun.id,
+      }, "stopped", summarizeLeafStepResult(decision.roleId, stepResult), collectObservationArtifactRefs(observation), collectObservationRefs(observation));
     }
   }
 
-  return {
+  return finalizeStepLoopResult(memory, loopRun, input.finalizeLoop, {
     code: observation.latestCode,
     validation: observation.latestValidation,
     audit: observation.latestAudit,
@@ -191,7 +262,8 @@ export async function runMainAgentStepLoop(input: RunMainAgentStepLoopInput): Pr
     stoppedAt: "audit",
     error: "Main-agent orchestration exceeded the V1 safety iteration limit.",
     orchestration: observation.orchestration,
-  };
+    loopRunId: loopRun.id,
+  }, "stopped", "Main-agent orchestration exceeded the V1 safety iteration limit.", collectObservationArtifactRefs(observation), collectObservationRefs(observation));
 }
 
 export async function runMainAgentLeafStep(input: {
@@ -356,4 +428,178 @@ function assertDelegateDecision(decision: MainAgentStepDecision, roleId: MainAge
   if (decision.kind !== "delegate-role" || decision.roleId !== roleId) {
     throw new Error(`Main-agent decision engine expected ${roleId}, got ${decision.kind}${decision.kind === "delegate-role" ? `:${decision.roleId}` : ""}.`);
   }
+}
+
+async function finalizeStepLoopResult(
+  memory: Awaited<ReturnType<typeof resolveProjectMemory>>,
+  loopRun: MainAgentLoopRun,
+  finalizeLoop: boolean | undefined,
+  result: MainAgentLeafAttemptResult,
+  status: "completed" | "stopped",
+  summary: string,
+  artifactRefs: string[],
+  refs: {
+    agentTaskIds?: string[];
+    runIds?: string[];
+    validationIds?: string[];
+    auditIds?: string[];
+  },
+): Promise<MainAgentLeafAttemptResult> {
+  if (finalizeLoop !== false) {
+    await finishMainAgentLoopRun(memory, loopRun.id, {
+      status,
+      summary,
+      stoppedAt: result.stoppedAt,
+      artifactRefs,
+      refs,
+    });
+  }
+  return { ...result, loopRunId: loopRun.id };
+}
+
+function summarizeObservation(observation: MainAgentObservation): string {
+  const completedRoles = observation.orchestration.steps.filter((step) => step.status === "completed").length;
+  const failedRoles = observation.orchestration.steps.filter((step) => step.status === "failed").length;
+  return `Observed ${observation.entrypoint} state with ${observation.orchestration.steps.length} role step(s), ${completedRoles} completed and ${failedRoles} failed.`;
+}
+
+function summarizeDecision(decision: MainAgentStepDecision): string {
+  if (decision.kind === "delegate-role") {
+    return `Main agent selected ${decision.roleId}: ${decision.nextRecommendation}`;
+  }
+  if (decision.kind === "completed") {
+    return "Main agent determined the current bounded role loop is complete.";
+  }
+  if (decision.kind === "failed") {
+    return `Main agent stopped after failure at ${decision.stoppedAt}.`;
+  }
+  return `Main agent requires user input after ${decision.stoppedAt}.`;
+}
+
+function summarizeLeafStepResult(roleId: MainAgentOrchestrationRole, result: MainAgentLeafStepResult): string {
+  if (result.status === "completed") {
+    return `${roleId} completed.`;
+  }
+  if (result.error) {
+    return `${roleId} stopped at ${result.stoppedAt ?? "unknown"}: ${result.error}`;
+  }
+  return `${roleId} stopped at ${result.stoppedAt ?? "unknown"} with status ${result.status}.`;
+}
+
+function collectObservationArtifactRefs(observation: MainAgentObservation): string[] {
+  return dedupeStrings([
+    ...collectCodeArtifactRefs(observation.latestCode),
+    ...collectValidationArtifactRefs(observation.latestValidation),
+    ...collectAuditArtifactRefs(observation.latestAudit),
+  ]);
+}
+
+function collectObservationRefs(observation: MainAgentObservation): {
+  runIds: string[];
+  validationIds: string[];
+  auditIds: string[];
+} {
+  return {
+    runIds: dedupeStrings([
+      stringValue(observation.latestCode?.run.id),
+      stringValue(readNested(observation.latestValidation, "run", "id")),
+      stringValue(readNested(observation.latestAudit, "run", "id")),
+    ]),
+    validationIds: dedupeStrings([
+      stringValue(readNested(observation.latestValidation, "validation", "id")),
+      stringValue(readNested(observation.latestValidation, "id")),
+    ]),
+    auditIds: dedupeStrings([
+      stringValue(readNested(observation.latestAudit, "audit", "id")),
+      stringValue(readNested(observation.latestAudit, "id")),
+    ]),
+  };
+}
+
+function collectStepResultArtifactRefs(result: MainAgentLeafStepResult): string[] {
+  return dedupeStrings([
+    ...collectCodeArtifactRefs(result.code),
+    ...collectValidationArtifactRefs(result.validation),
+    ...collectAuditArtifactRefs(result.audit),
+  ]);
+}
+
+function collectStepResultRefs(result: MainAgentLeafStepResult): {
+  runIds: string[];
+  validationIds: string[];
+  auditIds: string[];
+} {
+  return {
+    runIds: dedupeStrings([
+      stringValue(result.code?.run.id),
+      stringValue(readNested(result.validation, "run", "id")),
+      stringValue(readNested(result.audit, "run", "id")),
+    ]),
+    validationIds: dedupeStrings([
+      stringValue(readNested(result.validation, "validation", "id")),
+      stringValue(readNested(result.validation, "id")),
+    ]),
+    auditIds: dedupeStrings([
+      stringValue(readNested(result.audit, "audit", "id")),
+      stringValue(readNested(result.audit, "id")),
+    ]),
+  };
+}
+
+function collectCodeArtifactRefs(code: CodeLeafRun | undefined): string[] {
+  if (!code) return [];
+  return collectArtifactObjectRefs(code.run.artifacts);
+}
+
+function collectValidationArtifactRefs(validation: ValidationLeafRun | undefined): string[] {
+  if (!validation) return [];
+  return collectArtifactObjectRefs(
+    readNested(validation, "run", "artifacts"),
+    readNested(validation, "validation", "artifacts"),
+    readNested(validation, "artifacts"),
+  );
+}
+
+function collectAuditArtifactRefs(audit: AuditLeafRun | undefined): string[] {
+  if (!audit) return [];
+  return collectArtifactObjectRefs(
+    readNested(audit, "run", "artifacts"),
+    readNested(audit, "audit", "artifacts"),
+    readNested(audit, "artifacts"),
+  );
+}
+
+function collectArtifactObjectRefs(...values: unknown[]): string[] {
+  const refs: string[] = [];
+  for (const value of values) {
+    if (!value || typeof value !== "object") continue;
+    for (const entry of Object.values(value as Record<string, unknown>)) {
+      if (typeof entry === "string") refs.push(entry);
+    }
+  }
+  return dedupeStrings(refs);
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function readNested(value: unknown, first: string, second?: string): unknown {
+  if (!value || typeof value !== "object") return undefined;
+  const firstValue = (value as Record<string, unknown>)[first];
+  if (second === undefined) return firstValue;
+  if (!firstValue || typeof firstValue !== "object") return undefined;
+  return (firstValue as Record<string, unknown>)[second];
+}
+
+function dedupeStrings(values: string[]): string[] {
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    const normalized = value.trim();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    result.push(normalized);
+  }
+  return result;
 }
