@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-30T08:14:46.1520663Z",
+    "generated_at":  "2026-06-30T08:42:55.9528302Z",
     "active":  [
 
                ],
@@ -2225,6 +2225,10 @@
                     {
                         "name":  "20260629-workbench-runtime-activity-log-sanitize-private-paths-v1",
                         "path":  "harness/changes/archive/20260629-workbench-runtime-activity-log-sanitize-private-paths-v1"
+                    },
+                    {
+                        "name":  "20260630-auto-evolve-post-main-agent-orchestration-window",
+                        "path":  "harness/changes/archive/20260630-auto-evolve-post-main-agent-orchestration-window"
                     },
                     {
                         "name":  "20260630-document-main-agent-continuous-orchestration-roadmap-and-clean-conversation-evidence-v1",
