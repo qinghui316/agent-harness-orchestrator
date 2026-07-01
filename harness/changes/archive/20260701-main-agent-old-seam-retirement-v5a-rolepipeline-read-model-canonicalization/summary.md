@@ -64,7 +64,7 @@ Record real/manual acceptance notes when applicable:
 ## Documentation Entropy And Experience Lifecycle
 
 - Documentation entropy check: updated `AGENTS.md`, `docs/STATUS.md`, and
-  `docs/CURRENT-DEVELOPMENT-PLAN.md` to point at the active V5a slice.
+  `docs/CURRENT-DEVELOPMENT-PLAN.md` to point at the V5a archive after close.
 - Experience lifecycle result: merged Workbench consumers onto canonical
   `mainAgentExecution`; retained `rolePipeline`, `role.pipeline.*`, and
   `MainAgentLoopProjection` as live compatibility/boundary seams.

@@ -374,7 +374,6 @@ export async function buildWorkbenchWorkpad(input: {
     schedulerRunBlockedCloseout: schedulerRunBlockedCloseout ?? undefined,
     workflowRun: workflowRun ?? undefined,
     mainAgentExecution,
-    rolePipeline,
     resultReview,
     maintenance,
     runControlState: {

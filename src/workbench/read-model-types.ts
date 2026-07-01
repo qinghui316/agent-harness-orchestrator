@@ -935,7 +935,6 @@ export interface WorkbenchWorkpad {
   schedulerRunBlockedCloseout?: WorkbenchSchedulerRunBlockedCloseoutSummary;
   workflowRun?: WorkflowRunSummary;
   mainAgentExecution?: WorkbenchMainAgentExecutionSummary;
-  rolePipeline?: WorkbenchRolePipelineSummary;
   resultReview?: WorkbenchResultReview;
   maintenance?: WorkbenchMaintenanceSummary;
   runControlState?: WorkbenchRunControlState;

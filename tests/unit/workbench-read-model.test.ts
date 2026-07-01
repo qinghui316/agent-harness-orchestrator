@@ -643,43 +643,31 @@ describe("workbench read-model projections", () => {
 
     expect(snapshot.center.workpad.userStatus).toBe("processing");
     expect(snapshot.center.workpad.runControlState?.canStop).toBe(true);
-    expect(snapshot.center.workpad.mainAgentExecution).toEqual(snapshot.center.workpad.rolePipeline);
     expect(snapshot.center.workpad.mainAgentExecution).toMatchObject({
       stage: "validation",
       status: "running",
     });
-    expect(snapshot.center.workpad.rolePipeline).toMatchObject({
-      stage: "validation",
-      status: "running",
-    });
+    expect(Object.prototype.hasOwnProperty.call(snapshot.center.workpad, "rolePipeline")).toBe(false);
+    expect(JSON.stringify(snapshot.center.workpad)).not.toContain('"rolePipeline"');
     expect(snapshot.right.confirmationQueue.primary).toBeNull();
     expect(snapshot.right.decisionInspector.primary).toBeNull();
     expect(JSON.stringify(snapshot.right.confirmationQueue.current)).not.toContain("result.apply");
     expect(JSON.stringify(snapshot.right.decisionInspector)).not.toContain("放弃这次结果");
   });
 
-  it("prefers canonical main-agent execution summary over the legacy role pipeline fallback", () => {
-    const legacy: WorkbenchMainAgentExecutionSummary = {
+  it("reads canonical main-agent execution summary without legacy fallback", () => {
+    const canonical: WorkbenchMainAgentExecutionSummary = {
       stage: "coding",
       status: "completed",
-      runs: [{ roleId: "coder-agent", status: "completed", summary: "legacy summary" }],
+      runs: [{ roleId: "coder-agent", status: "completed", summary: "canonical summary" }],
       agentTasks: [],
       reworkUsed: 0,
       reworkBudget: 1,
     };
-    const canonical: WorkbenchMainAgentExecutionSummary = {
-      ...legacy,
-      status: "running",
-      runs: [{ roleId: "validator", status: "running", summary: "canonical summary" }],
-    };
 
     expect(mainAgentExecutionForWorkpad({
       mainAgentExecution: canonical,
-      rolePipeline: legacy,
     })?.runs[0]?.summary).toBe("canonical summary");
-    expect(mainAgentExecutionForWorkpad({
-      rolePipeline: legacy,
-    })?.runs[0]?.summary).toBe("legacy summary");
   });
 
   it("suppresses selected demand primary confirmations only while a workflow action is in flight", async () => {

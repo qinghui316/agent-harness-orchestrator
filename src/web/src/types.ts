@@ -925,7 +925,6 @@ export type Workpad = {
   controlledSchedulerStepReceipt?: ControlledSchedulerStepReceiptDetail;
   controlledSchedulerStepTrace?: ControlledSchedulerStepTraceDetail;
   mainAgentExecution?: WorkpadMainAgentExecutionSummary;
-  rolePipeline?: WorkpadMainAgentExecutionSummary;
   resultReview?: {
     status: "not-ready" | "ready-to-apply" | "needs-rework" | "applied-clean" | "applied-source-dirty";
     title: string;

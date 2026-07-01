@@ -1011,7 +1011,7 @@ describe("Workbench web app", () => {
     vi.unstubAllGlobals();
   });
 
-  it("prefers canonical main-agent execution over legacy rolePipeline in Workpad UI", () => {
+  it("renders canonical main-agent execution in Workpad UI", () => {
     const canonicalExecution: WorkpadMainAgentExecutionSummary = {
       stage: "validation",
       status: "running",
@@ -1020,14 +1020,9 @@ describe("Workbench web app", () => {
       reworkUsed: 0,
       reworkBudget: 1,
     };
-    const legacyExecution: WorkpadMainAgentExecutionSummary = {
-      ...canonicalExecution,
-      runs: [{ roleId: "coder-agent", status: "completed", summary: "legacy coder summary" }],
-    };
 
     expect(mainAgentExecutionForWorkpad({
       mainAgentExecution: canonicalExecution,
-      rolePipeline: legacyExecution,
     })).toBe(canonicalExecution);
 
     const workpad = {
@@ -1044,7 +1039,6 @@ describe("Workbench web app", () => {
         requiresConfirmation: false,
       },
       mainAgentExecution: canonicalExecution,
-      rolePipeline: legacyExecution,
       intake: {
         goal: "Use the canonical execution summary.",
         currentUnderstanding: "The main Agent is running validation.",
@@ -1064,7 +1058,6 @@ describe("Workbench web app", () => {
     />);
 
     expect(screen.getByText("canonical 验证 summary")).toBeTruthy();
-    expect(screen.queryByText("legacy coder summary")).toBeNull();
   });
 
   it("renders composer attachment chips with a real paperclip entry", () => {

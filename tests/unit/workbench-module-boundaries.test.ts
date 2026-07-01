@@ -252,15 +252,25 @@ describe("Workbench module boundaries", () => {
     const workpadReadModel = readFileSync(join(process.cwd(), "src/workbench/projections/read-model/workpad.ts"), "utf8");
     expect(workpadReadModel).toContain("buildMainAgentLoopProjection");
     expect(workpadReadModel).toContain("mainAgentExecution,");
-    expect(workpadReadModel).toContain("rolePipeline,");
+    expect(workpadReadModel).not.toContain("    rolePipeline,");
     expect(workpadReadModel).toContain("mainAgentLoopProjection,");
 
+    const readModelTypes = readFileSync(join(process.cwd(), "src/workbench/read-model-types.ts"), "utf8");
+    expect(readModelTypes).not.toContain("rolePipeline?:");
+    const webTypes = readFileSync(join(process.cwd(), "src/web/src/types.ts"), "utf8");
+    expect(webTypes).not.toContain("rolePipeline?:");
+
     const mainAgentExecutionReadModel = readFileSync(join(process.cwd(), "src/workbench/projections/read-model/main-agent-execution.ts"), "utf8");
-    expect(mainAgentExecutionReadModel).toContain("workpad.mainAgentExecution ?? workpad.rolePipeline");
+    expect(mainAgentExecutionReadModel).toContain("return workpad.mainAgentExecution");
+    expect(mainAgentExecutionReadModel).not.toContain("workpad.rolePipeline");
 
     const workpadPanel = readFileSync(join(process.cwd(), "src/web/src/panels/workbench/WorkpadPanel.tsx"), "utf8");
     expect(workpadPanel).toContain("mainAgentExecutionForWorkpad");
     expect(workpadPanel).not.toContain("workpad.rolePipeline ? <RoleToolResultRows");
+
+    const webMainAgentExecution = readFileSync(join(process.cwd(), "src/web/src/panels/workbench/workpad/main-agent-execution.ts"), "utf8");
+    expect(webMainAgentExecution).toContain("return workpad.mainAgentExecution");
+    expect(webMainAgentExecution).not.toContain("workpad.rolePipeline");
 
     const actionLabels = readFileSync(join(process.cwd(), "src/web/src/action-labels.ts"), "utf8");
     expect(workflowActionLabel("main-agent.execution.start")).toBe("主 Agent 执行");

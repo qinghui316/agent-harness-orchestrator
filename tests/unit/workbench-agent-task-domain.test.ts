@@ -40,17 +40,9 @@ describe("workbench AgentTask domain", () => {
     const snapshot = await getWorkbenchSnapshot({ project: project(), path: project().path }, { topicId: "agent-task-demand" });
 
     expect(tasks).toHaveLength(1);
-    expect(snapshot.center.workpad.mainAgentExecution).toEqual(snapshot.center.workpad.rolePipeline);
+    expect(Object.prototype.hasOwnProperty.call(snapshot.center.workpad, "rolePipeline")).toBe(false);
+    expect(JSON.stringify(snapshot.center.workpad)).not.toContain('"rolePipeline"');
     expect(snapshot.center.workpad.mainAgentExecution?.agentTasks).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        id: task.id,
-        roleId: "coder-agent",
-        status: "completed",
-        resultSummary: "Coder returned a worktree proposal.",
-        evidenceRefs: ["runs/run-agent-task/implementation.md"],
-      }),
-    ]));
-    expect(snapshot.center.workpad.rolePipeline?.agentTasks).toEqual(expect.arrayContaining([
       expect.objectContaining({
         id: task.id,
         roleId: "coder-agent",
