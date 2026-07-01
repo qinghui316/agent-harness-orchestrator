@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-06-30T16:43:13.6249762Z",
+    "generated_at":  "2026-06-30T19:21:26.6483434Z",
     "active":  [
 
                ],
@@ -2307,8 +2307,24 @@
                         "path":  "harness/changes/archive/20260630-workbench-reference-style-project-identity-display-name-v1"
                     },
                     {
+                        "name":  "20260701-auto-evolve-post-main-agent-workflowgraph-replay-window",
+                        "path":  "harness/changes/archive/20260701-auto-evolve-post-main-agent-workflowgraph-replay-window"
+                    },
+                    {
+                        "name":  "20260701-main-agent-workflowgraph-decision-policy-v1",
+                        "path":  "harness/changes/archive/20260701-main-agent-workflowgraph-decision-policy-v1"
+                    },
+                    {
+                        "name":  "20260701-main-agent-workflowgraph-observation-cleanup-queue-wrapper-removal-v1",
+                        "path":  "harness/changes/archive/20260701-main-agent-workflowgraph-observation-cleanup-queue-wrapper-removal-v1"
+                    },
+                    {
                         "name":  "20260701-main-agent-workflowgraph-observation-evidence-queue-wrapper-drain-v1",
                         "path":  "harness/changes/archive/20260701-main-agent-workflowgraph-observation-evidence-queue-wrapper-drain-v1"
+                    },
+                    {
+                        "name":  "20260701-main-agent-workflowgraph-replay-summary-builder-v1",
+                        "path":  "harness/changes/archive/20260701-main-agent-workflowgraph-replay-summary-builder-v1"
                     }
                 ]
 }

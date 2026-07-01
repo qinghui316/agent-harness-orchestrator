@@ -57,7 +57,6 @@ export {
   type MainAgentQueueDecisionEvidence,
 } from "./queue-step-evidence.js";
 export {
-  decideMainAgentWorkflowGraph,
   mainAgentWorkflowGraphDecisionEvidenceRef,
   mainAgentWorkflowGraphDecisionsPath,
   observeMainAgentWorkflowGraph,
@@ -67,3 +66,17 @@ export {
   type MainAgentWorkflowGraphDecisionKind,
   type MainAgentWorkflowGraphObservation,
 } from "./workflowgraph-observation.js";
+export {
+  evaluateMainAgentWorkflowGraphReplayPolicy,
+  mainAgentWorkflowGraphPolicyToNextObservation,
+  type MainAgentWorkflowGraphDecisionPolicyInput,
+  type MainAgentWorkflowGraphDecisionPolicyKind,
+  type MainAgentWorkflowGraphDecisionPolicyRecommendation,
+} from "./decision-policy.js";
+export {
+  buildMainAgentWorkflowGraphReplaySummary,
+  type MainAgentReplayEvidenceHealth,
+  type MainAgentReplayEvidenceHealthStatus,
+  type MainAgentWorkflowGraphReplayGap,
+  type MainAgentWorkflowGraphReplaySummary,
+} from "./workflowgraph-replay.js";

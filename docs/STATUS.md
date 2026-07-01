@@ -6,6 +6,12 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260701-main-agent-workflowgraph-decision-policy-v1/summary.md`.
+- Previous archived product change:
+  `harness/changes/archive/20260701-main-agent-workflowgraph-replay-summary-builder-v1/summary.md`.
+- Previous archived product change:
+  `harness/changes/archive/20260701-main-agent-workflowgraph-observation-cleanup-queue-wrapper-removal-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260701-main-agent-workflowgraph-observation-evidence-queue-wrapper-drain-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260630-main-agent-workflowgraph-queue-step-loop-contract-v1/summary.md`.
@@ -108,12 +114,18 @@
 - Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-skills-catalog-and-codex-bridge-v1/summary.md`.
 - Latest completed Harness evolution:
+  `harness/changes/archive/20260701-auto-evolve-post-main-agent-workflowgraph-replay-window/summary.md`
+  (`noop`; subagents Bohr 91 and Zeno 92; existing ECL/BOUNDARIES coverage is
+  sufficient for the main-agent WorkflowGraph queue/replay evidence archive
+  window; no new Harness rule/template/product runtime change needed, pending
+  evolution marked complete).
+- Previous completed Harness evolution:
   `harness/changes/archive/20260630-auto-evolve-post-main-agent-taskqueue-workflowgraph-window/summary.md`
   (`noop`; subagent Herschel score 88; existing ECL coverage is sufficient for
   the main-agent TaskQueue / WorkflowGraph lifecycle archive window; no new
   Harness rule/template/product runtime change needed, pending evolution marked
   complete).
-- Previous completed Harness evolution:
+- Earlier completed Harness evolution:
   `harness/changes/archive/20260630-auto-evolve-post-main-agent-orchestration-migration-window/summary.md`
   (`noop`; existing ECL coverage is sufficient for the main-agent orchestration
   migration archive window; no new Harness rule/template/product runtime change
@@ -131,30 +143,37 @@
 
 ## Latest Product Closeout
 
-`harness/changes/archive/20260701-main-agent-workflowgraph-observation-evidence-queue-wrapper-drain-v1/summary.md`.
+`harness/changes/archive/20260701-main-agent-workflowgraph-replay-summary-builder-v1/summary.md`.
 
-It adds graph-level main-agent observation evidence above the existing role and
-queue step loops. `src/main-agent-orchestration/workflowgraph-observation.ts`
-records non-executing `workflowgraph-decisions.jsonl` evidence for missing
-decomposition/readiness/proposal/graph stages, queue start readiness, queue
-running/paused/blocked/completed states, stale state, and wait state. Production
-Workbench action handlers now call `runMainAgentTaskQueueLifecycle` directly;
-`runTaskQueueSequence` remains only as a compatibility wrapper. The change does
-not add UI, Scheduler/WorkerLease, IntegrationCheck, action bridge,
-confirmation queue, automation allowlist, apply/close, remote, PR, merge, or
-Harness evolution authority.
+It adds a read-only `MainAgentWorkflowGraphReplaySummary` builder under
+`src/main-agent-orchestration/workflowgraph-replay.ts`. The builder aggregates
+canonical WorkflowGraph / TaskQueue / TaskRun / AgentTask state with historical
+graph, queue, and role-loop evidence into an in-memory replay summary for
+future main-agent decision policy work. Canonical managers remain the source of
+current state, malformed or stale evidence is surfaced as gaps, and
+`nextObservation` cannot carry executable action ids or confirmation payloads.
+The change does not add UI, Scheduler/WorkerLease, IntegrationCheck, action
+bridge, confirmation queue, automation allowlist, apply/close, remote, PR,
+merge, or Harness evolution authority.
+
+Previous closeout:
+`harness/changes/archive/20260701-main-agent-workflowgraph-observation-cleanup-queue-wrapper-removal-v1/summary.md`.
+
+It fixes WorkflowGraph observation status semantics so a `created` WorkflowRun
+without a fresh matching TaskQueue binding is `wait`, not `queue-running`, and
+deletes the old public `runTaskQueueSequence` wrapper. `runMainAgentTaskQueueLifecycle`
+is the only production TaskQueue main-agent lifecycle entrypoint.
 
 Previous closeout:
 `harness/changes/archive/20260630-main-agent-workflowgraph-queue-step-loop-contract-v1/summary.md`.
 
 It moves sequential TaskQueue / WorkflowGraph lifecycle control into
-`src/main-agent-orchestration`. `runTaskQueueSequence` is now a compatibility
-wrapper, stage resume orchestration lives under the main-agent owner, and queue
-execution gate / resume scope checks fail closed. TaskQueue, TaskRun,
-WorkflowRun, validation, and audit managers remain the evidence/state owners.
-No Workbench UI, confirmation queue, action type, scheduler fan-out,
-automation allowlist, apply/close, remote, PR, merge, or Harness evolution
-authority changed.
+`src/main-agent-orchestration`. Stage resume orchestration lives under the
+main-agent owner, and queue execution gate / resume scope checks fail closed.
+TaskQueue, TaskRun, WorkflowRun, validation, and audit managers remain the
+evidence/state owners. No Workbench UI, confirmation queue, action type,
+scheduler fan-out, automation allowlist, apply/close, remote, PR, merge, or
+Harness evolution authority changed.
 
 Previous closeout:
 `harness/changes/archive/20260630-main-agent-taskrun-lifecycle-rework-ownership-v1/summary.md`.

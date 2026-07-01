@@ -3,12 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  decideMainAgentWorkflowGraph,
   mainAgentWorkflowGraphDecisionsPath,
   readMainAgentWorkflowGraphDecisionEvidence,
   recordMainAgentWorkflowGraphObservation,
   type MainAgentWorkflowGraphObservation,
 } from "../../src/main-agent-orchestration/index.js";
+import { decideMainAgentWorkflowGraph } from "../../src/main-agent-orchestration/workflowgraph-observation.js";
 import type { ManagedProject, ResolvedMemory } from "../../src/types/index.js";
 
 let root: string | null = null;
@@ -40,8 +40,33 @@ describe("main-agent WorkflowGraph observation evidence", () => {
 
     expect(decideMainAgentWorkflowGraph(observation({
       stage: readyCompiledStage(),
-      queue: { queueRunId: "queue-1", queueStatus: "running", workflowRunId: "workflow-1", workflowStatus: "running" },
+      queue: { queueRunId: "queue-1", scopeStatus: "matched", queueStatus: "running", workflowRunId: "workflow-1", workflowStatus: "running" },
     })).kind).toBe("queue-running");
+
+    expect(decideMainAgentWorkflowGraph(observation({
+      stage: readyCompiledStage(),
+      queue: { queueRunId: null, scopeStatus: "unbound", queueStatus: null, workflowRunId: "workflow-1", workflowStatus: "created" },
+    }))).toMatchObject({
+      kind: "wait",
+      reason: "WorkflowRun is created and waiting for queue binding or recovery; it is not running and should not restart the queue gate.",
+    });
+
+    expect(decideMainAgentWorkflowGraph(observation({
+      stage: readyCompiledStage(),
+      queue: { queueRunId: null, scopeStatus: "unbound", queueStatus: null, workflowRunId: "workflow-1", workflowStatus: "created" },
+      recovery: { status: "stale", reasons: ["recovery key drift"] },
+    }))).toMatchObject({
+      kind: "stale",
+      reason: "recovery key drift",
+    });
+
+    expect(decideMainAgentWorkflowGraph(observation({
+      stage: readyCompiledStage(),
+      queue: { queueRunId: "queue-1", scopeStatus: "mismatch", queueStatus: "running", workflowRunId: "workflow-1", workflowStatus: "running" },
+    }))).toMatchObject({
+      kind: "stale",
+      reason: "TaskQueue and WorkflowRun scope mismatch.",
+    });
 
     expect(decideMainAgentWorkflowGraph(observation({
       stage: readyCompiledStage(),
@@ -94,6 +119,7 @@ function observation(overrides: Partial<MainAgentWorkflowGraphObservation> = {})
     queue: {
       queueRunId: null,
       workflowRunId: null,
+      scopeStatus: "unavailable",
       queueStatus: null,
       workflowStatus: null,
       totalCount: null,

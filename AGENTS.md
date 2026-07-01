@@ -8,6 +8,12 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260701-main-agent-workflowgraph-decision-policy-v1/summary.md`.
+- Previous archived product change:
+  `harness/changes/archive/20260701-main-agent-workflowgraph-replay-summary-builder-v1/summary.md`.
+- Previous archived product change:
+  `harness/changes/archive/20260701-main-agent-workflowgraph-observation-cleanup-queue-wrapper-removal-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260701-main-agent-workflowgraph-observation-evidence-queue-wrapper-drain-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260630-main-agent-workflowgraph-queue-step-loop-contract-v1/summary.md`.
@@ -110,12 +116,18 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Previous archived docs/reference change:
   `harness/changes/archive/20260626-document-desktop-cc-gui-reference-map-and-product-layer-roadmap/summary.md`.
 - Latest completed Harness evolution:
+  `harness/changes/archive/20260701-auto-evolve-post-main-agent-workflowgraph-replay-window/summary.md`
+  (`noop`; subagents Bohr 91 and Zeno 92; existing ECL/BOUNDARIES coverage is
+  sufficient for the main-agent WorkflowGraph queue/replay evidence archive
+  window; no new Harness rule/template/product runtime change needed, pending
+  evolution marked complete).
+- Previous completed Harness evolution:
   `harness/changes/archive/20260630-auto-evolve-post-main-agent-taskqueue-workflowgraph-window/summary.md`
   (`noop`; subagent Herschel score 88; existing ECL coverage is sufficient for
   the main-agent TaskQueue / WorkflowGraph lifecycle archive window; no new
   Harness rule/template/product runtime change needed, pending evolution marked
   complete).
-- Previous completed Harness evolution:
+- Earlier completed Harness evolution:
   `harness/changes/archive/20260630-auto-evolve-post-main-agent-orchestration-migration-window/summary.md`
   (`noop`; existing ECL coverage is sufficient for the main-agent orchestration
   migration archive window; no new Harness rule/template/product runtime change
@@ -139,15 +151,15 @@ Current baseline:
   validation/audit, human apply, and close/archive.
 - Main-agent orchestration is the current architecture owner for local role
   and sequential TaskQueue / WorkflowGraph execution. Role execution uses
-  observe/decide/run-one-leaf/record step loops; TaskQueue execution now uses a
+  observe/decide/run-one-leaf/record step loops; TaskQueue execution uses a
   queue-level observe/decide/run-one-item/record step loop with non-executing
-  `queue-decisions.jsonl` evidence. WorkflowGraph observation now records
-  non-executing `workflowgraph-decisions.jsonl` evidence for missing
-  decomposition/readiness/proposal/graph, queue start readiness, queue
-  running/paused/blocked/completed, stale, and wait states. V1 remains
-  deterministic and does not add Scheduler/WorkerLease/IntegrationCheck
-  fan-out, UI, confirmation queue, action bridge, automation allowlist,
-  apply/close, remote, PR, merge, or Harness evolution authority.
+  `queue-decisions.jsonl` evidence. WorkflowGraph observation records
+  non-executing `workflowgraph-decisions.jsonl` evidence, and the read-only
+  replay summary builder now aggregates canonical manager state plus historical
+  graph/queue/role evidence for future decision policy work. V1 remains
+  deterministic and does not add Scheduler/WorkerLease/IntegrationCheck fan-out,
+  UI, confirmation queue, action bridge, automation allowlist, apply/close,
+  remote, PR, merge, or Harness evolution authority.
 - Workbench conversation transcripts now use cursor-incremental SQLite message
   paging by default, bounded virtual rendering, long-message folding, and
   `@chenglou/pretext` height estimates with fallback. Synthetic 100k / 500k

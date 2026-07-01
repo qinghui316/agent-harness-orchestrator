@@ -44,6 +44,7 @@ export interface MainAgentWorkflowGraphArtifactSummary {
 export interface MainAgentWorkflowGraphQueueSummary {
   queueRunId: string | null;
   workflowRunId: string | null;
+  scopeStatus: "matched" | "unbound" | "mismatch" | "unavailable";
   queueStatus: string | null;
   workflowStatus: string | null;
   totalCount: number | null;
@@ -133,6 +134,7 @@ const artifactSummarySchema = z.object({
 const queueSummarySchema = z.object({
   queueRunId: z.string().nullable(),
   workflowRunId: z.string().nullable(),
+  scopeStatus: z.enum(["matched", "unbound", "mismatch", "unavailable"]).optional().default("unavailable"),
   queueStatus: z.string().nullable(),
   workflowStatus: z.string().nullable(),
   totalCount: z.number().nullable(),
@@ -255,11 +257,32 @@ export function decideMainAgentWorkflowGraph(
   if (observation.stage.workflowGraphPlanStatus !== "compiled") {
     return { kind: "stale", reason: `WorkflowGraphPlan is ${observation.stage.workflowGraphPlanStatus ?? "unknown"}.` };
   }
-  switch (observation.queue.queueStatus ?? observation.queue.workflowStatus) {
+  if (observation.queue.scopeStatus === "mismatch") {
+    return { kind: "stale", reason: "TaskQueue and WorkflowRun scope mismatch." };
+  }
+  if (observation.queue.scopeStatus === "matched") {
+    switch (observation.queue.queueStatus) {
+      case "queued":
+      case "running":
+        if (observation.queue.workflowStatus === "running") {
+          return { kind: "queue-running", reason: "A TaskQueue is active for this WorkflowGraph." };
+        }
+        break;
+      case "paused":
+        return { kind: "queue-paused", reason: "TaskQueue execution is paused and can be resumed through existing gates." };
+      case "blocked":
+      case "failed":
+        return { kind: "queue-blocked", reason: "TaskQueue execution is blocked or failed." };
+      case "completed":
+        return { kind: "queue-completed", reason: "TaskQueue execution has completed." };
+    }
+  }
+  switch (observation.queue.workflowStatus) {
+    case "created":
+      return { kind: "wait", reason: "WorkflowRun is created and waiting for queue binding or recovery; it is not running and should not restart the queue gate." };
     case "queued":
     case "running":
-    case "created":
-      return { kind: "queue-running", reason: "A TaskQueue or WorkflowRun is already active for this WorkflowGraph." };
+      return { kind: "wait", reason: "WorkflowRun reports active state but has no matching TaskQueue binding." };
     case "paused":
       return { kind: "queue-paused", reason: "TaskQueue execution is paused and can be resumed through existing gates." };
     case "blocked":
@@ -355,6 +378,7 @@ function summarizeQueue(queue: TaskQueueRun | null, workflow: WorkflowRun | null
   return {
     queueRunId: queue?.id ?? workflow?.queueRunId ?? null,
     workflowRunId: workflow?.id ?? queue?.workflowRunId ?? null,
+    scopeStatus: summarizeQueueScope(queue, workflow),
     queueStatus: queue?.status ?? null,
     workflowStatus: workflow?.status ?? null,
     totalCount: queue?.totalCount ?? workflow?.items.length ?? null,
@@ -362,6 +386,16 @@ function summarizeQueue(queue: TaskQueueRun | null, workflow: WorkflowRun | null
     blockedCount: queue ? queueStatusCount(queue, "blocked") : workflow?.items.filter((item) => item.status === "blocked").length ?? null,
     failedCount: queue ? queueStatusCount(queue, "failed") : workflow?.items.filter((item) => item.status === "failed").length ?? null,
   };
+}
+
+function summarizeQueueScope(queue: TaskQueueRun | null, workflow: WorkflowRun | null): MainAgentWorkflowGraphQueueSummary["scopeStatus"] {
+  if (!queue && !workflow) return "unavailable";
+  if (!queue || !workflow) return "unbound";
+  const queuePointsAtWorkflow = queue.workflowRunId === workflow.id;
+  const workflowPointsAtQueue = workflow.queueRunId === queue.id;
+  if (queuePointsAtWorkflow && workflowPointsAtQueue) return "matched";
+  if ((queue.workflowRunId && queue.workflowRunId !== workflow.id) || (workflow.queueRunId && workflow.queueRunId !== queue.id)) return "mismatch";
+  return "unbound";
 }
 
 function queueStatusCount(queue: TaskQueueRun, status: "blocked" | "failed"): number {

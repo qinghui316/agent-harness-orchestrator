@@ -5,4 +5,3 @@ export {
   requireTaskRunId,
 } from "./kernel/runtime-guards.js";
 export { runTaskRunMainAgentAttempt } from "./kernel/task-run-sequence.js";
-export { runTaskQueueSequence } from "./kernel/task-queue-runner.js";

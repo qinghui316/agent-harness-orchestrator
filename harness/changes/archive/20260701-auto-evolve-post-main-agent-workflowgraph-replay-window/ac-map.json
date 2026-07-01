@@ -1,0 +1,17 @@
+{
+    "version":  "1.0",
+    "generatedAt":  "2026-06-30T18:22:48.8710418Z",
+    "changeId":  "auto-evolve-post-main-agent-workflowgraph-replay-window",
+    "acceptanceCriteria":  [
+
+                           ],
+    "tasks":  [
+
+              ],
+    "warnings":  [
+                     "Run product planning or update ac-map.json before using AC-gated readiness."
+                 ],
+    "blockingIssues":  [
+                           "ac-map.json was backfilled without parsed acceptance criteria."
+                       ]
+}
