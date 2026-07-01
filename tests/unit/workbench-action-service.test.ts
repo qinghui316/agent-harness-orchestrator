@@ -78,10 +78,11 @@ describe("workbench workflow action service", () => {
       },
     });
 
+    await runWorkbenchWorkflowActionService(fakeProject(), { actionType: "main-agent.execution.stop" }, undefined, deps);
     await runWorkbenchWorkflowActionService(fakeProject(), { actionType: "conversation.interrupt" }, undefined, deps);
     await runWorkbenchWorkflowActionService(fakeProject(), { actionType: "conversation.steer", prompt: "add detail" }, undefined, deps);
 
-    expect(appended.filter((entry) => entry.type === "workflow.started").map((entry) => entry.actionType)).toEqual(["conversation.interrupt", "conversation.steer"]);
+    expect(appended.filter((entry) => entry.type === "workflow.started").map((entry) => entry.actionType)).toEqual(["main-agent.execution.stop", "conversation.interrupt", "conversation.steer"]);
   });
 
   it("computes one result summary and reuses it for terminal thread entries and decision history", async () => {

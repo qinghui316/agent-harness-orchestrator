@@ -4,6 +4,7 @@ import {
   isMainAgentExecutionAction,
   isMainAgentExecutionStopAction,
   normalizeMainAgentExecutionAction,
+  toLegacyMainAgentExecutionAction,
 } from "../../src/workflow-actions/main-agent-execution.js";
 import {
   HIGH_IMPACT_WORKFLOW_ACTION_TYPES,
@@ -20,17 +21,34 @@ import {
 } from "../../src/workflow-actions/registry.js";
 
 describe("workflow action registry", () => {
-  it("normalizes current main-agent execution compatibility action ids without registering future ids", () => {
-    for (const actionType of ["role.pipeline.start", "role.pipeline.stop", "role.pipeline.continue", "role.pipeline.reconcile"]) {
-      expect(normalizeMainAgentExecutionAction(actionType)).toBe(actionType);
-      expect(isMainAgentExecutionAction(actionType)).toBe(true);
+  it("normalizes canonical and legacy main-agent execution action ids", () => {
+    const pairs = [
+      ["main-agent.execution.start", "role.pipeline.start"],
+      ["main-agent.execution.stop", "role.pipeline.stop"],
+      ["main-agent.execution.continue", "role.pipeline.continue"],
+      ["main-agent.execution.reconcile", "role.pipeline.reconcile"],
+    ] as const;
+
+    for (const [canonical, legacy] of pairs) {
+      expect(normalizeMainAgentExecutionAction(canonical)).toBe(canonical);
+      expect(normalizeMainAgentExecutionAction(legacy)).toBe(canonical);
+      expect(toLegacyMainAgentExecutionAction(canonical)).toBe(legacy);
+      expect(toLegacyMainAgentExecutionAction(legacy)).toBe(legacy);
+      expect(isMainAgentExecutionAction(canonical)).toBe(true);
+      expect(isMainAgentExecutionAction(legacy)).toBe(true);
+      expect(WORKFLOW_ACTION_TYPES).toContain(canonical);
+      expect(WORKFLOW_ACTION_TYPES).toContain(legacy);
+      expect(LIVE_WORKFLOW_ACTION_TYPES).toContain(canonical);
+      expect(LIVE_WORKFLOW_ACTION_TYPES).toContain(legacy);
     }
 
+    expect(isMainAgentExecutionStopAction("main-agent.execution.stop")).toBe(true);
     expect(isMainAgentExecutionStopAction("role.pipeline.stop")).toBe(true);
+    expect(isMainAgentExecutionStopAction("main-agent.execution.start")).toBe(false);
     expect(isMainAgentExecutionStopAction("role.pipeline.start")).toBe(false);
-    expect(normalizeMainAgentExecutionAction("main-agent.execution.start")).toBeNull();
-    expect(isMainAgentExecutionAction("main-agent.execution.start")).toBe(false);
-    expect(WORKFLOW_ACTION_TYPES).not.toContain("main-agent.execution.start");
+    expect(normalizeMainAgentExecutionAction("code.run")).toBeNull();
+    expect(toLegacyMainAgentExecutionAction("code.run")).toBeNull();
+    expect(isMainAgentExecutionAction("code.run")).toBe(false);
   });
 
   it("keeps live, high-impact, and revalidated action sets inside the canonical action registry", () => {

@@ -207,20 +207,33 @@ describe("Workbench module boundaries", () => {
     }
 
     const registry = readFileSync(join(process.cwd(), "src/workflow-actions/registry.ts"), "utf8");
+    expect(registry).toContain('"main-agent.execution.start"');
+    expect(registry).toContain('"main-agent.execution.stop"');
+    expect(registry).toContain('"main-agent.execution.continue"');
+    expect(registry).toContain('"main-agent.execution.reconcile"');
     expect(registry).toContain('"role.pipeline.start"');
     expect(registry).toContain('"role.pipeline.stop"');
     expect(registry).toContain('"role.pipeline.continue"');
     expect(registry).toContain('"role.pipeline.reconcile"');
 
     const handlers = readFileSync(join(process.cwd(), "src/workbench/actions/handlers/index.ts"), "utf8");
+    expect(handlers).toContain('"main-agent.execution.start": runMainAgentExecutionStart');
+    expect(handlers).toContain('"main-agent.execution.stop": runMainAgentExecutionStop');
+    expect(handlers).toContain('"main-agent.execution.continue": runMainAgentExecutionContinue');
+    expect(handlers).toContain('"main-agent.execution.reconcile": runMainAgentExecutionReconcile');
     expect(handlers).toContain('"role.pipeline.start"');
+    expect(handlers).toContain('"role.pipeline.stop"');
+    expect(handlers).toContain('"role.pipeline.continue"');
+    expect(handlers).toContain('"role.pipeline.reconcile"');
     expect(handlers).toContain("runMainAgentToolOrchestration");
 
     const normalizer = readFileSync(join(process.cwd(), "src/workflow-actions/main-agent-execution.ts"), "utf8");
     expect(normalizer).toContain("normalizeMainAgentExecutionAction");
+    expect(normalizer).toContain("toLegacyMainAgentExecutionAction");
     expect(normalizer).toContain("isMainAgentExecutionAction");
     expect(normalizer).toContain("isMainAgentExecutionStopAction");
-    expect(normalizer).not.toContain("main-agent.execution");
+    expect(normalizer).toContain("main-agent.execution.start");
+    expect(normalizer).toContain("role.pipeline.start");
 
     const actionService = readFileSync(join(process.cwd(), "src/workbench/actions/service.ts"), "utf8");
     expect(actionService).toContain("isMainAgentExecutionStopAction");
@@ -228,7 +241,9 @@ describe("Workbench module boundaries", () => {
 
     const actionResults = readFileSync(join(process.cwd(), "src/workbench/actions/results.ts"), "utf8");
     expect(actionResults).toContain("isMainAgentExecutionAction");
+    expect(actionResults).toContain("normalizeMainAgentExecutionAction");
     expect(actionResults).not.toContain('startsWith("role.pipeline.")');
+    expect(actionResults).not.toContain('case "role.pipeline.start"');
 
     const confirmationQueue = readFileSync(join(process.cwd(), "src/workbench/projections/read-model/confirmation-queue.ts"), "utf8");
     expect(confirmationQueue).toContain('workpad.rolePipeline?.status === "running"');
@@ -240,8 +255,15 @@ describe("Workbench module boundaries", () => {
     expect(workpadReadModel).toContain("mainAgentLoopProjection,");
 
     const actionLabels = readFileSync(join(process.cwd(), "src/web/src/action-labels.ts"), "utf8");
+    expect(workflowActionLabel("main-agent.execution.start")).toBe("主 Agent 执行");
     expect(workflowActionLabel("role.pipeline.start")).toBe("主 Agent 执行");
+    expect(actionLabels).toContain("normalizeMainAgentExecutionAction");
+    expect(actionLabels).not.toContain('actionType === "role.pipeline.start"');
     expect(actionLabels).not.toContain('return "角色流水线"');
+
+    const automationPolicy = readFileSync(join(process.cwd(), "src/automation-runtime/policy.ts"), "utf8");
+    expect(automationPolicy).not.toContain("main-agent.execution");
+    expect(automationPolicy).not.toContain("role.pipeline");
 
     const workpadDetails = readFileSync(join(process.cwd(), "src/web/src/panels/workbench/workpad/WorkpadDetails.tsx"), "utf8");
     expect(workpadDetails).toContain("主 Agent 执行链路");

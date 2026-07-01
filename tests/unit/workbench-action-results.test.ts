@@ -77,8 +77,12 @@ const FORBIDDEN_PRIMARY_TERMS = [
 
 describe("Workbench action result summaries", () => {
   it("summarizes role execution through main-agent execution semantics", () => {
+    expect(labelForAction("main-agent.execution.start")).toBe("Main-agent execution started");
+    expect(labelForAction("main-agent.execution.stop")).toBe("Main-agent execution stop requested");
     expect(labelForAction("role.pipeline.start")).toBe("Main-agent execution started");
     expect(labelForAction("role.pipeline.stop")).toBe("Main-agent execution stop requested");
+    expect(summarizeActionResult("main-agent.execution.start", { status: "completed" })).toBe("Main-agent execution finished with status completed.");
+    expect(summarizeActionResult("main-agent.execution.stop", { status: "stopped" })).toBe("Main-agent execution finished with status stopped.");
     expect(summarizeActionResult("role.pipeline.start", { status: "completed" })).toBe("Main-agent execution finished with status completed.");
     expect(summarizeActionResult("role.pipeline.stop", { status: "stopped" })).toBe("Main-agent execution finished with status stopped.");
   });

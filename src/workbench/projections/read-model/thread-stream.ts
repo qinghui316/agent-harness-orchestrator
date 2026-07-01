@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { readTopicThreadLog } from "../../thread-log.js";
 import { controlledLoopThreadBody, controlledLoopThreadLabel } from "../../user-surface/controlled-loop-results.js";
+import { normalizeMainAgentExecutionAction } from "../../../workflow-actions/main-agent-execution.js";
 import type { AssistantTurnActivity, AssistantTurnBlock, TopicThreadEntry } from "../../types.js";
 import type { ClarificationRequest, WorkbenchIntakeIteration, WorkbenchIntakeScan } from "../../intake.js";
 import type { AuditSummary, ResolvedMemory, RunEvent, RunMetadata, ValidationSummary } from "../../../types/index.js";
@@ -760,6 +761,12 @@ function workflowBody(actionType: string | undefined, status: string | undefined
 }
 
 function workflowActionLabel(actionType: string): string {
+  const mainAgentExecutionAction = normalizeMainAgentExecutionAction(actionType);
+  if (mainAgentExecutionAction === "main-agent.execution.start") return "Main-agent execution";
+  if (mainAgentExecutionAction === "main-agent.execution.stop") return "Main-agent execution stop";
+  if (mainAgentExecutionAction === "main-agent.execution.continue") return "Main-agent execution continue";
+  if (mainAgentExecutionAction === "main-agent.execution.reconcile") return "Main-agent execution reconcile";
+
   switch (actionType) {
     case "change.spec.propose": return "Spec proposal";
     case "change.spec.accept": return "Spec acceptance";

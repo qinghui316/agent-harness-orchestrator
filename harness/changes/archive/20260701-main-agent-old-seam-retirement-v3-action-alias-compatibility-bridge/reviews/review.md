@@ -1,32 +1,40 @@
-﻿# Review: main-agent-old-seam-retirement-v2-action-normalization-bridge
+﻿# Review: main-agent-old-seam-retirement-v3-action-alias-compatibility-bridge
 
-Status: approved after targeted implementation review.
+Status: approved after implementation review.
 
 ## Findings
 
 No blocking findings.
 
-- V2 remains a normalization bridge only: `role.pipeline.*` stays public, and `main-agent.execution.*` is not registered or routable.
-- The only runtime behavior change is centralizing existing classification; stop conflict-bypass behavior is preserved through `isMainAgentExecutionStopAction`.
-- Scheduler, IntegrationCheck, confirmation queue, action revalidation, automation allowlist, ToolPolicyGate, apply/close, and Harness evolution authority are untouched.
-- Post-close correction (2026-07-01): close/handoff and docs coverage was applicable because current handoff and roadmap pointers changed around this seam-retirement line. V3 corrects the current docs and keeps this V2 implementation verdict unchanged.
+- Canonical `main-agent.execution.*` ids and legacy `role.pipeline.*` ids normalize to one canonical family.
+- Workbench handler registration maps both id families to the same private main-agent execution handlers.
+- Stop conflict bypass works for canonical stop.
+- Automation allowlist, GoalLoop behavior, confirmation queue, Scheduler, IntegrationCheck, apply/close, remote, merge, PR, and Harness evolution authority are not expanded.
 
 ## Verification
 
-Targeted verification passed.
-
-- Selected verification scope: `npx vitest run tests/unit/workbench-module-boundaries.test.ts tests/unit/workflow-actions.test.ts tests/unit/action-revalidation.test.ts tests/unit/workbench-read-model.test.ts tests/unit/web-app.test.tsx tests/unit/workbench-action-results.test.ts`.
-- Full / aggregate suites run or skipped: `npm run typecheck`, `npm run lint`, `npm run test:fast`, and `npm run build` passed. Build emitted the existing Vite chunk-size warning only.
-- Rationale for selected scope: covers helper classification, route compatibility, action revalidation, Workbench read-model/UI contract, and action result summaries touched by this change.
+- `npx vitest run tests/unit/workflow-actions.test.ts tests/unit/workbench-action-results.test.ts tests/unit/workbench-action-service.test.ts tests/unit/workbench-module-boundaries.test.ts` - passed.
+- `npx vitest run tests/unit/workflow-actions.test.ts tests/unit/action-revalidation.test.ts tests/unit/workbench-action-results.test.ts tests/unit/workbench-action-service.test.ts tests/unit/workbench-module-boundaries.test.ts tests/unit/workbench-read-model.test.ts tests/unit/web-app.test.tsx` - passed.
+- `npm run typecheck` - passed.
+- `npm run lint` - passed.
+- `npm run test:fast` - passed.
+- `npm run build` - passed.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/lint-ecl.ps1` - passed.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/lint-encoding.ps1` - passed.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/harness-change.ps1 reindex` - passed.
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/harness-evolve.ps1 check` - passed.
+- Selected verification scope: alias normalization, workflow registry/revalidation, Workbench handler/service, labels/summaries, read-model and web aggregate units, plus product-level type/lint/fast/build checks.
+- Full / aggregate suites run or skipped: `npm run test:fast` and `npm run build` run; full slow Workbench/release suites skipped because this change does not modify Scheduler runtime execution, source apply, remote, browser UI layout, or IntegrationCheck apply/discard owners.
+- Rationale for selected scope: touched boundary is action id compatibility and routing semantics; targeted tests plus fast aggregate cover the expanded registry and no-authority-expansion risks.
 - If an aggregate Workbench / slow suite exceeded the tool window: record timeout, split suite members run, pass/fail status, and whether the timeout is product failure or verification runtime-cost debt.
 
 ## Complexity Deletion Review
 
 - Complexity deletion review applicable: yes for product/code/Harness-template/rule changes; docs-only wording changes may mark this not applicable.
 - delete: none.
-- reuse: existing workflow action registry and Workbench handlers remain the public compatibility surface.
-- yagni: avoided public `main-agent.execution.*` ids, new gates, new UI, and any Scheduler/Harness authority changes.
-- shrink: helper plus two runtime call-site refactors is the smallest coherent bridge.
+- reuse: existing owner/helper/mechanism used: extend V2 `main-agent-execution.ts`; reuse existing registry, handler map, labels, and tests.
+- yagni: avoided: no UI default payload switch, no legacy id deletion, no automation/GoalLoop/Scheduler expansion.
+- shrink: simpler alternative checked: registering canonical ids without shared normalization was rejected because it would split handler/label/revalidation semantics.
 - net: Lean already.
 - Note: this is supplemental and does not replace correctness, security, source safety, validation/audit, stale-target, ToolPolicyGate, human-gate, or required coverage checks.
 
@@ -45,15 +53,15 @@ Targeted verification passed.
 
 ## Documentation Entropy Coverage
 
-- Documentation entropy coverage applicable: no. Change to `yes` when this change updates `AGENTS.md`, `docs/STATUS.md`, Harness rules/templates, auto-evolve evidence, or other current-state / handoff documents.
-- If applicable, documents checked: not applicable.
+- Documentation entropy coverage applicable: yes.
+- If applicable, documents checked: `docs/STATUS.md`, `docs/CURRENT-DEVELOPMENT-PLAN.md`, V2 archived review correction note.
 - If applicable, before/after line counts: not applicable.
 - If applicable, duplicate current-state fields checked: not applicable.
-- If applicable, roadmap/current-direction stale language checked: not applicable.
+- If applicable, roadmap/current-direction stale language checked: `docs/CURRENT-DEVELOPMENT-PLAN.md` latest slice and remaining migration updated to V3/V4/V5.
 - If applicable, archive-ledger content promoted / retained / merged / retired / archive-only: not applicable.
 - If applicable, over-budget documents and rationale: not applicable.
-- If applicable, tested with: not applicable.
-- If not applicable, reason: change does not alter docs, handoff files, current-state wording, Harness rules/templates, or auto-evolve evidence.
+- If applicable, tested with: `npm run lint`, `scripts/lint-ecl.ps1`, `scripts/lint-encoding.ps1`, `scripts/harness-change.ps1 reindex`, `scripts/harness-evolve.ps1 check`.
+- If not applicable, reason: not applicable.
 
 ## Experience Lifecycle Coverage
 
@@ -175,38 +183,40 @@ Targeted verification passed.
 
 - Module boundary coverage applicable: yes.
 - Future feature owner module: `src/workflow-actions/main-agent-execution.ts`.
-- If applicable, module owners checked: workflow-action compatibility helper owns action classification only.
-- If applicable, moved responsibilities: local `role.pipeline.*` runtime checks moved behind helper.
-- If applicable, retained facade responsibilities: registry and handler ids remain `role.pipeline.*`.
-- If applicable, forbidden write-back locations: confirmation queue, action registry, revalidation, automation allowlist, Scheduler, IntegrationCheck, apply/close.
-- If applicable, compatibility surface: existing `role.pipeline.*` ids.
-- If applicable, behavior path tested: stop conflict bypass, action summaries, handler compatibility, read-model and web contract.
-- If applicable, follow-up split candidates: V3 public rename/alias migration if needed.
-- If applicable, boundary tests or lint checks: `tests/unit/workbench-module-boundaries.test.ts`.
-- If applicable, compatibility result: no public action id changed.
-- If applicable, tested with: targeted Vitest suite listed above; aggregate verification listed in Verification.
+- If applicable, module owners checked: `src/workflow-actions/main-agent-execution.ts`, `src/workflow-actions/registry.ts`, `src/workbench/actions/handlers/index.ts`, `src/workbench/actions/results.ts`, `src/web/src/action-labels.ts`, `src/workbench/projections/read-model/thread-stream.ts`.
+- If applicable, moved responsibilities: canonical/legacy main-agent execution alias classification.
+- If applicable, retained facade responsibilities: legacy `role.pipeline.*` ids remain public and routable.
+- If applicable, forbidden write-back locations: confirmation queue, action revalidation semantics, automation allowlist, GoalLoop recommendations, Scheduler, IntegrationCheck, apply/close, remote/merge/PR, Harness evolution.
+- If applicable, compatibility surface: canonical `main-agent.execution.*` plus legacy `role.pipeline.*`.
+- If applicable, behavior path tested: canonical/legacy normalization, canonical stop conflict bypass, shared labels/summaries, registry/live set membership.
+- If applicable, follow-up split candidates: V4 UI payload default switch; V5 legacy seam retirement.
+- If applicable, boundary tests or lint checks: `tests/unit/workbench-module-boundaries.test.ts`, `tests/unit/workflow-actions.test.ts`, `tests/unit/action-revalidation.test.ts`.
+- If applicable, compatibility result: canonical and legacy ids coexist; legacy remains routable; canonical is not added to automation allowlist.
+- If applicable, tested with: targeted Vitest suites, `npm run typecheck`, `npm run lint`, `npm run test:fast`, `npm run build`.
+- If not applicable, reason: not applicable.
 
 ## Core Mechanism Reuse Coverage
 
-- Core mechanism reuse / architecture growth control coverage applicable: yes.
-- If applicable, existing mechanisms reused or strengthened: existing registry/handlers and Workbench action service/results.
-- If applicable, new cross-cutting mechanism and owner: small pure normalizer in `workflow-actions`.
-- If applicable, why existing mechanisms were insufficient: direct string checks made future old-seam retirement brittle.
-- If applicable, domain-specific logic location: main-agent execution action compatibility.
-- If applicable, shared cross-cutting logic location: helper consumed by service/result code.
-- If applicable, local framework / state machine / projection / validation / gate avoided: yes.
-- If applicable, public API / facade / Workbench compatibility result: unchanged.
-- If applicable, future-cost reduction result: V3 can focus on registry/revalidation/handler aliasing from one classification boundary.
-- If applicable, tested with: targeted Vitest suite listed above; aggregate verification listed in Verification.
+- Core mechanism reuse / architecture growth control coverage applicable: no.
+- If applicable, existing mechanisms reused or strengthened: not applicable.
+- If applicable, new cross-cutting mechanism and owner: not applicable.
+- If applicable, why existing mechanisms were insufficient: not applicable.
+- If applicable, domain-specific logic location: not applicable.
+- If applicable, shared cross-cutting logic location: not applicable.
+- If applicable, local framework / state machine / projection / validation / gate avoided: not applicable.
+- If applicable, public API / facade / Workbench compatibility result: not applicable.
+- If applicable, future-cost reduction result: not applicable.
+- If applicable, tested with: not applicable.
+- If not applicable, reason: change does not add or change a product feature path, artifact family, state transition, projection, validation/safety gate, ledger event, maintenance record, or cross-module protocol.
 
 ## Close / Handoff Drift Coverage
 
-- Close/handoff drift coverage applicable: no. Change to `yes` when this change alters active phase, product baseline, Harness rules/templates, active/pending state, latest archive, or next recommended work.
-- If applicable, handoff files checked: not applicable.
-- If applicable, stale active-path / phase grep: not applicable.
-- If applicable, latest archive / active path alignment: not applicable.
-- If applicable, pending evolution state checked: not applicable.
-- If not applicable, reason: change does not alter active phase, product baseline, Harness rules/templates, active/pending state, latest archive, or next recommended track.
+- Close/handoff drift coverage applicable: yes.
+- If applicable, handoff files checked: `AGENTS.md`, `docs/STATUS.md`, `docs/CURRENT-DEVELOPMENT-PLAN.md`.
+- If applicable, stale active-path / phase grep: active path removed by close/archive; current docs point at the V3 archive path.
+- If applicable, latest archive / active path alignment: `AGENTS.md`, `docs/STATUS.md`, and `docs/CURRENT-DEVELOPMENT-PLAN.md` point at the V3 archive path after close/reindex.
+- If applicable, pending evolution state checked: preflight reported pending evolution none.
+- If not applicable, reason: not applicable.
 
 ## Remote Handoff Acceptance Coverage
 

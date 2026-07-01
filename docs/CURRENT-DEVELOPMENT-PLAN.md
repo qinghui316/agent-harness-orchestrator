@@ -11,27 +11,22 @@ The user should not need to know internal terms before asking for work. The main
 ## Goal-Driven Workflow Loop Target
 
 Latest implementation slice:
-`harness/changes/archive/20260701-main-agent-controlled-scheduler-integrationcheck-backflow-v1c/summary.md`.
-It adds the final read-only controlled Scheduler terminal backflow for
-IntegrationCheck lineage. Main-agent replay can now observe same-Change /
-same-SchedulerRun integration candidate, handoff, exact IntegrationCheck,
-outcome, completion, and blocked closeout posture, with unsafe lineage gaps
-surfaced through replay/policy. It does not run IntegrationCheck,
-apply/discard integration output, add gates, change UI, change action bridge
-behavior, or affect confirmation queue, action registry, automation allowlist,
-apply/close, remote, PR, merge, or Harness evolution authority.
+`harness/changes/archive/20260701-main-agent-old-seam-retirement-v3-action-alias-compatibility-bridge/summary.md`.
+It adds canonical `main-agent.execution.start/stop/continue/reconcile` action
+ids while retaining `role.pipeline.start/stop/continue/reconcile` as legacy
+aliases. Both id families normalize through one helper, share the same
+Workbench execution handlers, labels, summaries, stop conflict-bypass behavior,
+and revalidation semantics. It does not delete `rolePipeline`,
+`MainAgentLoopProjection`, or `role.pipeline.*`, and it does not expand
+automation, Goal Loop, Scheduler, IntegrationCheck, ToolPolicyGate, apply,
+close, remote, PR, merge, or Harness evolution authority.
 
 Previous completed implementation slice:
-`harness/changes/archive/20260701-main-agent-controlled-scheduler-worker-runtime-backflow-v1b/summary.md`.
-It extends the controlled Scheduler state backflow with a bounded read-only
-worker posture summary for same-Change / same-SchedulerRun WorkerLease,
-worker start/result/validation/audit, and bounded rework evidence. Unsafe
-worker gaps such as malformed JSON, old schema, scope mismatch, stale evidence,
-or wrong SchedulerRun now surface through replay/policy as observation gaps.
-The summary is observation input only; it does not execute Scheduler, start
-workers, create WorkerLease / IntegrationCheck, or affect UI, confirmation
-queue, action registry, automation, apply/close, remote, PR, merge, or Harness
-evolution authority.
+`harness/changes/archive/20260701-main-agent-old-seam-retirement-v2-action-normalization-bridge/summary.md`.
+It centralizes legacy `role.pipeline.*` main-agent execution checks behind the
+main-agent execution helper without registering canonical ids yet. V3 adds a
+correction note for V2 handoff/docs coverage and completes the public action id
+alias bridge.
 
 Previous completed implementation slice:
 `harness/changes/archive/20260701-main-agent-controlled-scheduler-state-backflow-v1a/summary.md`.
@@ -214,14 +209,18 @@ The controlled Scheduler backflow line is now complete through IntegrationCheck
 terminal posture: replay can observe candidate, handoff, exact check, outcome,
 completion, and blocked closeout lineage while preserving IntegrationCheck
 apply/discard as the existing human-gated owner.
+Old seam retirement has started: V1 inventoried live/dead seams, V2 centralized
+legacy `role.pipeline.*` classification, and V3 registers canonical
+`main-agent.execution.*` ids while retaining legacy aliases.
 Those layers still use deterministic policy. They are architecture seams and
 evidence readers, not a free-form autonomous controller.
 
 Remaining migration should be split into reviewable structured changes:
 
-1. Old seam retirement: remove obsolete projections, compatibility aliases,
-   and duplicated read paths such as legacy pipeline naming once replacement
-   evidence is proven in production tests.
+1. Old seam retirement V4/V5: decide whether new Workbench payloads can default
+   to `main-agent.execution.*`, then retire legacy `role.pipeline.*` ids and
+   remaining old read-model/projection seams only after compatibility evidence
+   is proven in production tests.
 2. Normal Agent mode: design separately as a single-agent session/chat product
    mode that may reuse Provider Registry, but does not reuse Harness
    Change/ECL/validation/audit/apply/close truth.
@@ -369,10 +368,12 @@ Current structured change: none.
 
 Pending Harness evolution: none.
 
-Recommended current architecture step: old seam retirement. Remove obsolete
-projection/alias/read-path leftovers now covered by the main-agent role, queue,
-replay, policy, bridge, recovery, and controlled Scheduler backflow layers,
-without weakening canonical Harness truth or Scheduler/IntegrationCheck owners.
+Recommended current architecture step: old seam retirement V4/V5. Evaluate
+whether new Workbench payloads should default to `main-agent.execution.*`, then
+retire legacy `role.pipeline.*` ids and remaining old read-model/projection
+seams only after compatibility evidence is proven. Do not weaken canonical
+Harness truth, Scheduler/IntegrationCheck owners, confirmation gates, action
+revalidation, or automation allowlists.
 
 Desktop product-layer work can continue when selected, but it is no longer the
 default next step for the current main-agent architecture migration.

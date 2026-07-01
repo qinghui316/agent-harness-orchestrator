@@ -16,7 +16,7 @@ import { buildGoalLoopActionHandlers } from "./goal-loop.js";
 import { buildGoalLoopRuntimeActionHandlers } from "./goal-loop-runtime.js";
 import { runScopedAutomationAction } from "./automation.js";
 import { buildSchedulerActionHandlers } from "./scheduler.js";
-import type { WorkbenchActionHandlerMap } from "../dispatcher.js";
+import type { WorkbenchActionHandler, WorkbenchActionHandlerMap } from "../dispatcher.js";
 import type { TopicMessageResult, WorkbenchLiveSink } from "../../types.js";
 
 export interface WorkbenchActionHandlerDeps {
@@ -25,6 +25,15 @@ export interface WorkbenchActionHandlerDeps {
 }
 
 export function buildWorkbenchActionHandlers(deps: WorkbenchActionHandlerDeps): WorkbenchActionHandlerMap {
+  const runMainAgentExecutionStart: WorkbenchActionHandler = async (project, changeId, request, live) =>
+    runMainAgentToolOrchestration(project, changeId, request.prompt, live, false);
+  const runMainAgentExecutionContinue: WorkbenchActionHandler = async (project, changeId, request, live) =>
+    runMainAgentToolOrchestration(project, changeId, request.prompt, live, true);
+  const runMainAgentExecutionStop: WorkbenchActionHandler = async (project, changeId, request, live) =>
+    stopRunningPipeline(project, changeId, request.prompt, live, deps);
+  const runMainAgentExecutionReconcile: WorkbenchActionHandler = async (project, changeId, request) =>
+    reconcileTaskRuns(project, { changeId, taskRunId: request.taskRunId });
+
   const handlers: WorkbenchActionHandlerMap = {
   "chat.ask": async (project, changeId, request, live) => {
     if (!request.prompt) throw new Error("chat.ask requires prompt.");
@@ -70,10 +79,14 @@ export function buildWorkbenchActionHandlers(deps: WorkbenchActionHandlerDeps): 
   "demand.worker.start-available": async (project, changeId, request, live) => pumpDemandWorkersForAction(project, request.prompt, live, changeId),
   "demand.worker.reconcile": async (project) => reconcileDemandWorkersForAction(project),
   "demand.worker.release": async (project, changeId, request) => releaseDemandWorkerForAction(project, changeId, request.prompt),
-  "role.pipeline.start": async (project, changeId, request, live) => runMainAgentToolOrchestration(project, changeId, request.prompt, live, false),
-  "role.pipeline.continue": async (project, changeId, request, live) => runMainAgentToolOrchestration(project, changeId, request.prompt, live, true),
-  "role.pipeline.stop": async (project, changeId, request, live) => stopRunningPipeline(project, changeId, request.prompt, live, deps),
-  "role.pipeline.reconcile": async (project, changeId, request) => reconcileTaskRuns(project, { changeId, taskRunId: request.taskRunId }),
+  "main-agent.execution.start": runMainAgentExecutionStart,
+  "main-agent.execution.stop": runMainAgentExecutionStop,
+  "main-agent.execution.continue": runMainAgentExecutionContinue,
+  "main-agent.execution.reconcile": runMainAgentExecutionReconcile,
+  "role.pipeline.start": runMainAgentExecutionStart,
+  "role.pipeline.stop": runMainAgentExecutionStop,
+  "role.pipeline.continue": runMainAgentExecutionContinue,
+  "role.pipeline.reconcile": runMainAgentExecutionReconcile,
   "conversation.steer": async (project, changeId, request, live) => steerConversation(project, changeId, request.prompt, live, deps),
   "conversation.interrupt": async (project, changeId, request, live) => interruptConversation(project, changeId, request.prompt, live, deps),
   "conversation.continue": async (project, changeId, request, live) => runMainAgentToolOrchestration(project, changeId, request.prompt, live, true),

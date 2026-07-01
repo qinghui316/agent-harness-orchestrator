@@ -1,5 +1,5 @@
 import { controlledLoopDecisionSummary, controlledLoopResultLabel } from "../user-surface/controlled-loop-results.js";
-import { isMainAgentExecutionAction } from "../../workflow-actions/main-agent-execution.js";
+import { isMainAgentExecutionAction, normalizeMainAgentExecutionAction } from "../../workflow-actions/main-agent-execution.js";
 
 export function extractRunId(result: unknown): string | undefined {
   if (isRecord(result) && isRecord(result.run) && typeof result.run.id === "string") return result.run.id;
@@ -313,6 +313,12 @@ export function labelForAction(actionType: string): string {
   const controlledLoopLabel = controlledLoopResultLabel(actionType);
   if (controlledLoopLabel) return controlledLoopLabel;
 
+  const mainAgentExecutionAction = normalizeMainAgentExecutionAction(actionType);
+  if (mainAgentExecutionAction === "main-agent.execution.start") return "Main-agent execution started";
+  if (mainAgentExecutionAction === "main-agent.execution.stop") return "Main-agent execution stop requested";
+  if (mainAgentExecutionAction === "main-agent.execution.continue") return "Main-agent execution continued";
+  if (mainAgentExecutionAction === "main-agent.execution.reconcile") return "Main-agent execution reconciled";
+
   switch (actionType) {
     case "change.spec.propose": return "Spec proposal generated";
     case "change.spec.accept": return "Spec proposal accepted";
@@ -364,10 +370,6 @@ export function labelForAction(actionType: string): string {
     case "demand.worker.start-available": return "Available demand workers started";
     case "demand.worker.reconcile": return "Demand workers reconciled";
     case "demand.worker.release": return "Demand worker released";
-    case "role.pipeline.start": return "Main-agent execution started";
-    case "role.pipeline.stop": return "Main-agent execution stop requested";
-    case "role.pipeline.continue": return "Main-agent execution continued";
-    case "role.pipeline.reconcile": return "Main-agent execution reconciled";
     case "conversation.steer": return "Conversation steering recorded";
     case "conversation.interrupt": return "Conversation interrupt requested";
     case "conversation.continue": return "Conversation continued";

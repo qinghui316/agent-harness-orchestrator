@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260701-main-agent-old-seam-retirement-v3-action-alias-compatibility-bridge/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260701-main-agent-old-seam-retirement-v2-action-normalization-bridge/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260701-main-agent-old-seam-retirement-v1/summary.md`.
@@ -187,6 +189,26 @@
 
 ## Latest Product Closeout
 
+`harness/changes/archive/20260701-main-agent-old-seam-retirement-v3-action-alias-compatibility-bridge/summary.md`.
+
+It adds canonical `main-agent.execution.start/stop/continue/reconcile` action
+ids while retaining `role.pipeline.start/stop/continue/reconcile` as legacy
+aliases. Both id families normalize through one helper, share the same
+Workbench execution handlers, labels, summaries, stop conflict-bypass behavior,
+and revalidation semantics. This is an alias bridge only: it does not delete
+`rolePipeline`, `MainAgentLoopProjection`, or `role.pipeline.*`, and it does
+not expand automation, Goal Loop, Scheduler, IntegrationCheck, ToolPolicyGate,
+apply, close, remote, PR, merge, or Harness evolution authority.
+
+Previous closeout:
+`harness/changes/archive/20260701-main-agent-old-seam-retirement-v2-action-normalization-bridge/summary.md`.
+
+It centralizes legacy `role.pipeline.*` main-agent execution checks behind the
+main-agent execution helper without registering canonical ids yet. A V3
+correction note clarifies that handoff/docs drift coverage was applicable and
+is now repaired.
+
+Previous closeout:
 `harness/changes/archive/20260701-main-agent-controlled-scheduler-integrationcheck-backflow-v1c/summary.md`.
 
 It adds the final read-only controlled Scheduler terminal backflow for
@@ -630,12 +652,13 @@ Harness workflow truth.
 
 ## Next Resume Point
 
-Main-agent architecture work should continue with old seam retirement: remove
-obsolete projection/alias/read-path leftovers
-that are now covered by the main-agent role, queue, replay, policy, bridge,
-recovery, and controlled Scheduler backflow layers. This cleanup must not remove
-canonical Harness truth, Scheduler runtime owners, IntegrationCheck apply/discard
-owners, confirmation gates, action revalidation, or automation allowlists.
+Main-agent architecture work should continue with old seam retirement V4/V5:
+decide whether new Workbench payloads can default to
+`main-agent.execution.*`, then retire legacy `role.pipeline.*` ids and
+remaining old read-model/projection seams only after compatibility evidence is
+proven. This cleanup must not remove canonical Harness truth, Scheduler runtime
+owners, IntegrationCheck apply/discard owners, confirmation gates, action
+revalidation, or automation allowlists.
 
 Desktop product work can continue from
 `docs/design-docs/ref-desktop-cc-gui.md` when selected, but it is no longer the

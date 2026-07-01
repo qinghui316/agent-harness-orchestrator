@@ -1,6 +1,13 @@
+import { normalizeMainAgentExecutionAction } from "../../workflow-actions/main-agent-execution.js";
 import { schedulerUserFacingActionLabel } from "./scheduler-action-labels.js";
 
 export function workflowActionLabel(actionType: string | undefined): string {
+  const mainAgentExecutionAction = normalizeMainAgentExecutionAction(actionType);
+  if (mainAgentExecutionAction === "main-agent.execution.start") return "主 Agent 执行";
+  if (mainAgentExecutionAction === "main-agent.execution.stop") return "停止当前执行";
+  if (mainAgentExecutionAction === "main-agent.execution.continue") return "继续执行";
+  if (mainAgentExecutionAction === "main-agent.execution.reconcile") return "恢复执行状态";
+
   if (actionType === "change.spec.propose") return "Spec proposal";
   if (actionType === "change.plan.propose") return "Plan/Tasks proposal";
   if (actionType === "planning.generate") return "生成方案草案";
@@ -59,8 +66,6 @@ export function workflowActionLabel(actionType: string | undefined): string {
   if (actionType === "demand.worker.start-available") return "开始可处理需求";
   if (actionType === "demand.worker.reconcile") return "恢复处理状态";
   if (actionType === "demand.worker.release") return "结束处理";
-  if (actionType === "role.pipeline.start") return "主 Agent 执行";
-  if (actionType === "role.pipeline.stop") return "停止当前执行";
   if (actionType === "conversation.steer") return "引导当前执行";
   if (actionType === "conversation.interrupt") return "停止当前执行";
   if (actionType === "conversation.continue") return "继续执行";
@@ -102,8 +107,6 @@ export function workflowActionLabel(actionType: string | undefined): string {
   if (actionType === "post-merge.sync-local.run") return "同步本地项目";
   if (actionType === "post-merge.cleanup-branch.prepare") return "检查远端分支";
   if (actionType === "post-merge.cleanup-branch.run") return "清理远端 PR 分支";
-  if (actionType === "role.pipeline.continue") return "继续执行";
-  if (actionType === "role.pipeline.reconcile") return "恢复执行状态";
   if (actionType === "code.run") return "Code workflow";
   if (actionType === "task.run.start") return "Task workflow";
   if (actionType === "task.run.retry") return "Retry task";
