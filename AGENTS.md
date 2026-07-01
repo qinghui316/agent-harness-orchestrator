@@ -6,8 +6,13 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 
 - Current date: 2026-07-01.
 - Active change: none.
-- Pending Harness evolution: none.
+- Pending Harness evolution:
+  `harness/evolution/pending.md` (generated after closing
+  `main-agent-bridge-integration-acceptance-closeout-v1`; handle only when the
+  user asks for Harness evolution work).
 - Latest archived product change:
+  `harness/changes/archive/20260701-main-agent-bridge-integration-acceptance-closeout-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260701-main-agent-workflowgraph-policy-v2-replay-failure-boundary/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260701-main-agent-workflowgraph-replay-consumption-roadmap-sync-v1/summary.md`.

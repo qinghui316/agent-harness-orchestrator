@@ -4,8 +4,12 @@
 
 - Current date: 2026-07-01.
 - Active ECL change: none.
-- Pending Harness evolution: none.
+- Pending Harness evolution:
+  `harness/evolution/pending.md` (generated after closing
+  `main-agent-bridge-integration-acceptance-closeout-v1`; not started).
 - Latest archived product change:
+  `harness/changes/archive/20260701-main-agent-bridge-integration-acceptance-closeout-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260701-main-agent-workflowgraph-policy-v2-replay-failure-boundary/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260701-main-agent-workflowgraph-replay-consumption-roadmap-sync-v1/summary.md`.
@@ -147,6 +151,20 @@
 
 ## Latest Product Closeout
 
+`harness/changes/archive/20260701-main-agent-bridge-integration-acceptance-closeout-v1/summary.md`.
+
+It closes out the already-implemented main-agent bridge integration with
+focused acceptance tests and roadmap cleanup. The production bridge remains the
+existing non-executing `assessMainAgentActionBridge` owner; workflow action
+revalidation and approval action execution fail closed only when requests
+explicitly carry main-agent evidence ids. Requests without bridge ids keep
+their prior behavior. Current roadmap docs now mark bridge practical
+integration complete and point the next main-agent architecture slice to
+Recovery/resume. No UI, confirmation queue, action registry, automation
+allowlist, Scheduler/WorkerLease/IntegrationCheck, apply/close, remote, PR,
+merge, or Harness evolution authority changed.
+
+Previous closeout:
 `harness/changes/archive/20260701-main-agent-workflowgraph-policy-v2-replay-failure-boundary/summary.md`.
 
 It tightens the non-executing WorkflowGraph replay policy after replay
@@ -155,8 +173,7 @@ consumption was centralized. Active queue guidance now uses
 rather than an execution trigger. Replay/history/policy derivation failures
 degrade to replay health gaps instead of blocking existing valid planning or
 TaskQueue gates, while canonical graph observation write failures remain
-fail-closed. Current roadmap/handoff docs now show replay consumption complete
-and make bridge practical integration the next main-agent architecture slice.
+fail-closed.
 
 Previous closeout:
 `harness/changes/archive/20260701-main-agent-workflowgraph-replay-consumption-roadmap-sync-v1/summary.md`.

@@ -432,6 +432,42 @@ describe("main-agent step loop contract", () => {
       },
     });
     expect(mismatch.status).toBe("target-mismatch");
+
+    const schedulerGate = await assessMainAgentActionBridge({
+      memory,
+      projectId: project.id,
+      changeId: "change-bridge",
+      loopRunId: completedDecision.loopRunId,
+      evidenceId: completedDecision.id,
+      gate: {
+        kind: "workflow-action",
+        actionType: "planning.scheduler.worker.start-first",
+        changeId: "change-bridge",
+        enabled: true,
+        scope: {
+          actionType: "planning.scheduler.worker.start-first",
+          schedulerRunId: "scheduler-run-1",
+          schedulerClaimReservationId: "claim-1",
+        },
+      },
+    });
+    expect(schedulerGate.status).toBe("unsupported");
+
+    const integrationApprovalGate = await assessMainAgentActionBridge({
+      memory,
+      projectId: project.id,
+      changeId: "change-bridge",
+      loopRunId: completedDecision.loopRunId,
+      evidenceId: completedDecision.id,
+      gate: {
+        kind: "approval-action",
+        actionId: "apply-check.apply",
+        changeId: "change-bridge",
+        enabled: true,
+        targetId: "apply-check-1",
+      },
+    });
+    expect(integrationApprovalGate.status).toBe("unsupported");
   });
 
   it("does not bridge delegate, failed, stale, disabled, or remote gates", async () => {
@@ -535,6 +571,93 @@ describe("main-agent step loop contract", () => {
       },
     });
     expect(remoteBridge.status).toBe("unsupported");
+  });
+
+  it("fails closed for stale or incomplete result-handoff bridge evidence", async () => {
+    const memory = await resolveProjectMemory(project);
+    const loop = await ensureMainAgentLoopRun(memory, {
+      loopRunId: "manual-result-handoff-loop",
+      changeId: "change-bridge-stale",
+      projectId: project.id,
+      entrypoint: "top-level",
+    });
+    const staleDecision = await recordMainAgentNextStepEvidence(memory, loop.run, {
+      stepIndex: 0,
+      entrypoint: "top-level",
+      observation: {
+        summary: "Completed handoff with an earlier worktree.",
+        totalSteps: 3,
+        completedSteps: 3,
+        failedSteps: 0,
+        latestRoleId: "auditor-agent",
+        latestStatus: "completed",
+      },
+      decision: {
+        kind: "completed",
+        reason: "Initial handoff completed.",
+        nextRecommendation: "Handoff result.",
+      },
+      targetRefs: { worktreeIds: ["wt-old"], auditIds: ["audit-old"] },
+    });
+    const incompleteDecision = await recordMainAgentNextStepEvidence(memory, loop.run, {
+      stepIndex: 1,
+      entrypoint: "top-level",
+      observation: {
+        summary: "Completed handoff without concrete targets.",
+        totalSteps: 3,
+        completedSteps: 3,
+        failedSteps: 0,
+        latestRoleId: "auditor-agent",
+        latestStatus: "completed",
+      },
+      decision: {
+        kind: "completed",
+        reason: "Latest handoff lacks target refs.",
+        nextRecommendation: "Handoff result.",
+      },
+    });
+
+    const staleBridge = await assessMainAgentActionBridge({
+      memory,
+      projectId: project.id,
+      changeId: "change-bridge-stale",
+      loopRunId: loop.run.id,
+      evidenceId: staleDecision.id,
+      gate: {
+        kind: "approval-action",
+        actionId: "result.apply",
+        changeId: "change-bridge-stale",
+        enabled: true,
+        targetId: "wt-old",
+      },
+    });
+    expect(staleBridge.status).toBe("stale");
+
+    const incompleteBridge = await assessMainAgentActionBridge({
+      memory,
+      projectId: project.id,
+      changeId: "change-bridge-stale",
+      loopRunId: loop.run.id,
+      evidenceId: incompleteDecision.id,
+      gate: {
+        kind: "approval-action",
+        actionId: "result.apply",
+        changeId: "change-bridge-stale",
+        enabled: true,
+        targetId: "wt-old",
+      },
+    });
+    expect(incompleteBridge.status).toBe("target-mismatch");
+
+    const missingGateBridge = await assessMainAgentActionBridge({
+      memory,
+      projectId: project.id,
+      changeId: "change-bridge-stale",
+      loopRunId: loop.run.id,
+      evidenceId: incompleteDecision.id,
+      gate: null,
+    });
+    expect(missingGateBridge.status).toBe("unavailable");
   });
 
   it("keeps TaskRun entrypoints single-attempt when validation fails", async () => {

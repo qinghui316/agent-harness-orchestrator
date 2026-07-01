@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-07-01T05:00:46.6975469Z",
+    "generated_at":  "2026-07-01T05:30:09.7566010Z",
     "active":  [
 
                ],
@@ -2309,6 +2309,10 @@
                     {
                         "name":  "20260701-auto-evolve-post-main-agent-workflowgraph-replay-window",
                         "path":  "harness/changes/archive/20260701-auto-evolve-post-main-agent-workflowgraph-replay-window"
+                    },
+                    {
+                        "name":  "20260701-main-agent-bridge-integration-acceptance-closeout-v1",
+                        "path":  "harness/changes/archive/20260701-main-agent-bridge-integration-acceptance-closeout-v1"
                     },
                     {
                         "name":  "20260701-main-agent-workflowgraph-decision-policy-v1",

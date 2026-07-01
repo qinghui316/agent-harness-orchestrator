@@ -37,6 +37,10 @@ function assertCurrent(input: Parameters<typeof assertCurrentWorkflowAction>[0],
   return assertCurrentWorkflowAction(input, body, { getWorkbenchSnapshot: mocks.getWorkbenchSnapshot });
 }
 
+function repoProject() {
+  return { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" };
+}
+
 describe("Workbench action revalidation", () => {
   beforeEach(() => {
     mocks.getWorkbenchSnapshot.mockReset();
@@ -73,7 +77,7 @@ describe("Workbench action revalidation", () => {
       },
     });
 
-    await expect(assertCurrent({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, {
+    await expect(assertCurrent({ project: repoProject(), path: "project-root" }, {
       actionType: "result.refresh-status",
       changeId: "change-1",
       worktreeId: "wt-1",
@@ -91,6 +95,29 @@ describe("Workbench action revalidation", () => {
         enabled: true,
       }),
     }));
+  });
+
+  it("does not run main-agent bridge validation when workflow action evidence ids are absent", async () => {
+    await expect(assertCurrent({ project: repoProject(), path: "project-root" }, {
+      actionType: "result.refresh-status",
+      changeId: "change-1",
+      worktreeId: "wt-1",
+    })).resolves.toBeUndefined();
+
+    expect(mocks.getWorkbenchSnapshot).not.toHaveBeenCalled();
+    expect(mocks.assessMainAgentActionBridge).not.toHaveBeenCalled();
+  });
+
+  it("rejects partial main-agent bridge ids on workflow actions", async () => {
+    await expect(assertCurrent({ project: repoProject(), path: "project-root" }, {
+      actionType: "result.refresh-status",
+      changeId: "change-1",
+      worktreeId: "wt-1",
+      mainAgentLoopRunId: "loop-1",
+    })).rejects.toThrow("stale or no longer available");
+
+    expect(mocks.getWorkbenchSnapshot).not.toHaveBeenCalled();
+    expect(mocks.assessMainAgentActionBridge).not.toHaveBeenCalled();
   });
 
   it("rejects explicit main-agent bridge requests when assessment is not ready", async () => {
@@ -120,13 +147,57 @@ describe("Workbench action revalidation", () => {
       },
     });
 
-    await expect(assertCurrent({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, {
+    await expect(assertCurrent({ project: repoProject(), path: "project-root" }, {
       actionType: "result.refresh-status",
       changeId: "change-1",
       worktreeId: "wt-1",
       mainAgentLoopRunId: "loop-1",
       mainAgentNextStepEvidenceId: "decision-1",
     })).rejects.toThrow("stale or no longer available");
+  });
+
+  it("rejects explicit main-agent bridge requests for unsupported workflow gate families", async () => {
+    mocks.assessMainAgentActionBridge.mockResolvedValueOnce({
+      status: "unsupported",
+      authority: "non-executing-main-agent-action-bridge-assessment",
+      executionStarted: false,
+    });
+    mocks.getWorkbenchSnapshot.mockResolvedValue({
+      center: {
+        workpad: {
+          nextAction: {
+            kind: "workflow-action",
+            actionType: "planning.scheduler.worker.start-first",
+            changeId: "change-1",
+            schedulerRunId: "scheduler-run-1",
+            schedulerClaimReservationId: "claim-reservation-1",
+            enabled: true,
+          },
+        },
+      },
+      right: {
+        confirmationQueue: {
+          primary: null,
+          current: [],
+          otherDemands: [],
+        },
+      },
+    });
+
+    await expect(assertCurrent({ project: repoProject(), path: "project-root" }, {
+      actionType: "planning.scheduler.worker.start-first",
+      changeId: "change-1",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "claim-reservation-1",
+      mainAgentLoopRunId: "loop-1",
+      mainAgentNextStepEvidenceId: "decision-1",
+    })).rejects.toThrow("stale or no longer available");
+    expect(mocks.assessMainAgentActionBridge).toHaveBeenCalledWith(expect.objectContaining({
+      gate: expect.objectContaining({
+        kind: "workflow-action",
+        actionType: "planning.scheduler.worker.start-first",
+      }),
+    }));
   });
 
   it("rejects Goal Loop-assisted concrete gate payloads when the matched visible gate is disabled", async () => {
@@ -202,7 +273,7 @@ describe("Workbench action revalidation", () => {
       },
     });
 
-    await expect(assertCurrent({ project: { id: "repo", name: "Repo", path: "project-root", addedAt: "2026-06-18T00:00:00.000Z", lastSeenAt: "2026-06-18T00:00:00.000Z" }, path: "project-root" }, {
+    await expect(assertCurrent({ project: repoProject(), path: "project-root" }, {
       actionType: "planning.scheduler.worker.start-first",
       changeId: "change-1",
       schedulerRunId: "scheduler-run-1",

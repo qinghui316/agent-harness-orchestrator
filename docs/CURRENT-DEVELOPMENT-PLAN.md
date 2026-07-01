@@ -136,30 +136,27 @@ evidence envelope, next-step decision evidence, non-executing action bridge
 contract, TaskRun rework ownership, TaskQueue lifecycle ownership, queue step
 loop, WorkflowGraph observation evidence, replay summary builder,
 non-executing WorkflowGraph decision policy, centralized replay consumption,
-and Policy V2 replay failure-boundary hardening. Those layers still use
+Policy V2 replay failure-boundary hardening, and explicit bridge acceptance
+coverage for workflow and approval action paths. Those layers still use
 deterministic policy. They are
 architecture seams and evidence readers, not a free-form autonomous controller.
 
 Remaining migration should be split into reviewable structured changes:
 
-1. Bridge practical integration: allow explicit requests to attach fresh
-   main-agent evidence to existing Harness gates only when project/change,
-   target ids, ToolPolicy, stale revalidation, and the current visible gate all
-   match. The gate remains the authority.
-2. Recovery/resume: build read-only replay/recovery summaries that let the
+1. Recovery/resume: build read-only replay/recovery summaries that let the
    main-agent loop resume from existing WorkflowGraph, TaskQueue, TaskRun,
    role-loop, validation, and audit evidence without creating duplicate runs.
-3. Scheduler candidate policy: produce non-executing candidate assessments for
+2. Scheduler candidate policy: produce non-executing candidate assessments for
    SchedulerRun / WorkerLease / IntegrationCheck opportunities from replay
    state. Do not dispatch workers in this phase.
-4. Parallel integration: connect existing SchedulerRun, WorkerLease, worktree,
+3. Parallel integration: connect existing SchedulerRun, WorkerLease, worktree,
    and IntegrationCheck owners to the main-agent loop while preserving one
    human gate per high-impact transition and stopping at integration
    apply/discard.
-5. Old seam retirement: remove obsolete projections, compatibility aliases,
+4. Old seam retirement: remove obsolete projections, compatibility aliases,
    and duplicated read paths such as legacy pipeline naming once replacement
    evidence is proven in production tests.
-6. Normal Agent mode: design separately as a single-agent session/chat product
+5. Normal Agent mode: design separately as a single-agent session/chat product
    mode that may reuse Provider Registry, but does not reuse Harness
    Change/ECL/validation/audit/apply/close truth.
 
@@ -304,26 +301,25 @@ workflow truth, or hidden permission bypasses.
 
 Current structured change: none.
 
-Pending Harness evolution: none.
+Pending Harness evolution: `harness/evolution/pending.md` was generated after
+the bridge closeout. It is a maintenance reminder and should be handled only
+when Harness evolution work is selected.
 
-Recommended next product step: continue the desktop product layer from
-`docs/design-docs/ref-desktop-cc-gui.md`, now that the selected-project home
-uses the reference-style central composer, workspace picker, left session
-history, real permission-mode toggle, Skills catalog, `/skill` composer
-selection, and bundled AHO onboarding Skill. Workbench browser acceptance can
-now restore deterministic project/topic/tab URLs from clean profiles without
-relying on localStorage. Good next slices are first-onboarding system Skill
-auto-context at the server prompt boundary, actual skill-usage evidence,
-provider capability matrix, browser tooling, Git write/history flows, file
-editing, or Tauri packaging. Do not show reference-style controls until their
-behavior exists. Reference-driven product/UI changes must cite the relevant
-reference map/source evidence and prove copied controls are real, hidden, or
-truthfully unavailable. Keep normal Agent mode, Claude Code/OpenCode providers,
-Tauri packaging, PR/remote/merge, and full parallel executor work out of the
-immediate slice unless explicitly selected.
+Recommended next architecture step: `Recovery/resume` for the main-agent
+WorkflowGraph loop. Build read-only replay/recovery summaries that let the
+main-agent loop resume from existing WorkflowGraph, TaskQueue, TaskRun,
+role-loop, validation, and audit evidence without duplicate runs. Follow the
+Open Dynamic Workflows recovery-key lesson, but keep AHO stricter:
+Change/ECL, accepted artifact hashes, ToolPolicyGate, validation/audit, and
+human gates remain authoritative. Do not dispatch Scheduler/WorkerLease,
+IntegrationCheck, apply/close, remote, PR, merge, or Harness evolution from the
+recovery layer.
+
+Desktop product-layer work can continue when selected, but it is no longer the
+default next step for the current main-agent architecture migration.
 
 Latest product change:
-`harness/changes/archive/20260630-main-agent-taskqueue-workflowgraph-lifecycle-ownership-v1/summary.md`.
+`harness/changes/archive/20260701-main-agent-bridge-integration-acceptance-closeout-v1/summary.md`.
 
 Latest docs/architecture change:
 `harness/changes/archive/20260629-document-aho-hybrid-desktop-native-roadmap-v1/summary.md`.
@@ -337,7 +333,7 @@ sequential local apply/landing/close path, and full-access stops before raw
 scheduler preparation.
 
 Latest completed Harness evolution:
-`harness/changes/archive/20260630-auto-evolve-post-main-agent-taskqueue-workflowgraph-window/summary.md`.
+`harness/changes/archive/20260701-auto-evolve-post-main-agent-workflowgraph-replay-window/summary.md`.
 Decision: `noop`; subagent Herschel score `88/100`. Existing ECL coverage is
 sufficient for the main-agent TaskQueue / WorkflowGraph lifecycle archive
 window; no product runtime, Harness rule, or template change was made.
