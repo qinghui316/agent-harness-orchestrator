@@ -9,10 +9,12 @@ import { getWorkbenchSnapshot } from "../../src/workbench/manager.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import {
   findMainAgentTaskQueueStageResumeCandidate,
+  buildMainAgentWorkflowGraphReplaySummary,
   mainAgentLoopRunsRoot,
   readMainAgentLoopEvents,
   readMainAgentLoopRun,
   readMainAgentQueueDecisionEvidence,
+  readMainAgentWorkflowGraphDecisionEvidence,
   runMainAgentTaskQueueLifecycle,
 } from "../../src/main-agent-orchestration/index.js";
 import { listTaskQueueItems, listTaskQueues, pauseTaskQueue, reconcileTaskQueues, startOrResumeTaskQueue } from "../../src/task-queue/manager.js";
@@ -758,6 +760,20 @@ describe("workbench task runtime domain", () => {
     expect(loopRun).toMatchObject({ entrypoint: "task-queue", status: "stopped" });
     expect(queueDecisions.map((decision) => decision.decision.kind)).toEqual(["pause"]);
     expect(loopEvents.filter((event) => event.type === "leaf.started")).toHaveLength(0);
+    const graphDecisions = await readMainAgentWorkflowGraphDecisionEvidence(memory, "workflow-queue-pause");
+    expect(graphDecisions.at(-1)).toMatchObject({
+      authority: "non-executing-main-agent-workflowgraph-decision-evidence",
+      executionStarted: false,
+    });
+    const replay = await buildMainAgentWorkflowGraphReplaySummary(memory, project(), "workflow-queue-pause");
+    expect(replay).toMatchObject({
+      authority: "read-only-main-agent-workflowgraph-replay-summary",
+      executionStarted: false,
+    });
+    const nextObservation = JSON.stringify(replay.nextObservation);
+    expect(nextObservation).not.toContain("actionType");
+    expect(nextObservation).not.toContain("confirmationQueue");
+    expect(nextObservation).not.toContain("recommendedAction");
     const items = await listTaskQueueItems(memory, "workflow-queue-pause", queueResult.queue.id);
     expect(items).toEqual([expect.objectContaining({ status: "queued" })]);
     expect(items[0]?.taskRunId).toBeUndefined();

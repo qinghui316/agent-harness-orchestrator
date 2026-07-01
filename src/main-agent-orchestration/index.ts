@@ -80,3 +80,7 @@ export {
   type MainAgentWorkflowGraphReplayGap,
   type MainAgentWorkflowGraphReplaySummary,
 } from "./workflowgraph-replay.js";
+export {
+  recordMainAgentWorkflowGraphObservationAndReplay,
+  type MainAgentWorkflowGraphObservationReplayResult,
+} from "./workflowgraph-replay-consumption.js";

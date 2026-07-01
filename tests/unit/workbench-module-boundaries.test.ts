@@ -138,6 +138,7 @@ import {
   readMainAgentQueueDecisionEvidence,
   evaluateMainAgentWorkflowGraphReplayPolicy,
   buildMainAgentWorkflowGraphReplaySummary,
+  recordMainAgentWorkflowGraphObservationAndReplay,
   readMainAgentWorkflowGraphDecisionEvidence,
   findMainAgentTaskQueueStageResumeCandidate,
 } from "../../src/main-agent-orchestration/index.js";
@@ -224,7 +225,9 @@ describe("Workbench module boundaries", () => {
 
     const planningHandlers = readFileSync(join(process.cwd(), "src/workbench/actions/handlers/planning.ts"), "utf8");
     expect(planningHandlers).toContain("runMainAgentTaskQueueLifecycle");
-    expect(planningHandlers).toContain("recordMainAgentWorkflowGraphObservation");
+    expect(planningHandlers).toContain("recordMainAgentWorkflowGraphObservationAndReplay");
+    expect(planningHandlers).not.toContain("recordMainAgentWorkflowGraphObservation(");
+    expect(planningHandlers).not.toContain("buildMainAgentWorkflowGraphReplaySummary");
     expect(planningHandlers).not.toContain("runTaskQueueSequence");
 
     const actionIndex = readFileSync(join(process.cwd(), "src/workbench/actions/handlers/index.ts"), "utf8");
@@ -236,7 +239,9 @@ describe("Workbench module boundaries", () => {
     expect(taskQueueLifecycle).toContain("runMainAgentTaskQueueStepLoop");
     expect(taskQueueLifecycle).toContain("ensureMainAgentLoopRun");
     expect(taskQueueLifecycle).toContain("finishMainAgentLoopRun");
-    expect(taskQueueLifecycle).toContain("recordMainAgentWorkflowGraphObservation");
+    expect(taskQueueLifecycle).toContain("recordMainAgentWorkflowGraphObservationAndReplay");
+    expect(taskQueueLifecycle).not.toContain("recordMainAgentWorkflowGraphObservation(");
+    expect(taskQueueLifecycle).not.toContain("buildMainAgentWorkflowGraphReplaySummary");
     expect(taskQueueLifecycle).not.toContain("while (true)");
     expect(taskQueueLifecycle).not.toContain("runMainAgentTaskRunLifecycle");
     expect(taskQueueLifecycle).not.toContain("runMainAgentTaskRunReworkFromFinished");
@@ -298,6 +303,22 @@ describe("Workbench module boundaries", () => {
     expect(workflowGraphReplay).not.toContain("writeJsonFile");
     expect(workflowGraphReplay).not.toContain("appendFile");
     expect(workflowGraphReplay).not.toContain("SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES");
+
+    const workflowGraphReplayConsumption = readFileSync(join(process.cwd(), "src/main-agent-orchestration/workflowgraph-replay-consumption.ts"), "utf8");
+    expect(workflowGraphReplayConsumption).toContain("recordMainAgentWorkflowGraphObservation");
+    expect(workflowGraphReplayConsumption).toContain("buildMainAgentWorkflowGraphReplaySummary");
+    expect(workflowGraphReplayConsumption).toContain("recordMainAgentWorkflowGraphObservationAndReplay");
+    expect(workflowGraphReplayConsumption).not.toContain("actionType");
+    expect(workflowGraphReplayConsumption).not.toContain("confirmationQueue");
+    expect(workflowGraphReplayConsumption).not.toContain("recommendedAction");
+    expect(workflowGraphReplayConsumption).not.toContain("../workbench/actions/");
+    expect(workflowGraphReplayConsumption).not.toContain("../scheduler-runtime/");
+    expect(workflowGraphReplayConsumption).not.toContain("../workflow-runtime/");
+    expect(workflowGraphReplayConsumption).not.toContain("../apply/");
+    expect(workflowGraphReplayConsumption).not.toContain("../terminal");
+    expect(workflowGraphReplayConsumption).not.toContain("writeJsonFile");
+    expect(workflowGraphReplayConsumption).not.toContain("appendFile");
+    expect(workflowGraphReplayConsumption).not.toContain("SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES");
 
     const workflowGraphPolicy = readFileSync(join(process.cwd(), "src/main-agent-orchestration/decision-policy.ts"), "utf8");
     expect(workflowGraphPolicy).toContain("non-executing-main-agent-workflowgraph-decision-policy");
@@ -639,6 +660,7 @@ describe("Workbench module boundaries", () => {
     expect(typeof findMainAgentTaskQueueStageResumeCandidate).toBe("function");
     expect(typeof evaluateMainAgentWorkflowGraphReplayPolicy).toBe("function");
     expect(typeof buildMainAgentWorkflowGraphReplaySummary).toBe("function");
+    expect(typeof recordMainAgentWorkflowGraphObservationAndReplay).toBe("function");
     expect(typeof readMainAgentWorkflowGraphDecisionEvidence).toBe("function");
     expect(typeof runMainAgentSourceRefreshRework).toBe("function");
     expect(typeof runMainAgentFeedbackRework).toBe("function");

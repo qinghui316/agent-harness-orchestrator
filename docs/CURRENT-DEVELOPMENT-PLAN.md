@@ -134,26 +134,42 @@ observe current Change evidence
 -> stop at completed, blocked, stale, or human gate
 ```
 
-Migration must be split into reviewable structured changes:
+Implemented migration slices now include the local role step loop, loop
+evidence envelope, next-step decision evidence, non-executing action bridge
+contract, TaskRun rework ownership, TaskQueue lifecycle ownership, queue step
+loop, WorkflowGraph observation evidence, replay summary builder, and
+non-executing WorkflowGraph decision policy. Those layers still use
+deterministic policy. They are architecture seams and evidence readers, not a
+free-form autonomous controller.
 
-1. Non-executing loop contract: expose `MainAgentLoopProjection` as a temporary
-   bridge over existing Goal Loop evidence, current visible gate, controller
-   policy, preflight, and artifact freshness/parity. It may explain a matching
-   existing gate, but it must not execute, write artifacts, mutate SQLite, or
-   become workflow truth. Later phases should replace older fixed-pipeline gate
-   explanations with this seam before introducing an actual loop runner.
-2. Gate/action boundary: route `逐步确认` and `自动推进` through one stale
-   revalidation, ToolPolicy, explicit target-id, and current-gate check.
-3. Leaf role adapter: wrap coder, validator, auditor, and rework as bounded
-   leaf runs that return `AgentTaskResult` to the main agent.
-4. Sequential continuous loop: first reuse the existing code.run, validation,
-   audit, result, and close gates before adding more scheduler behavior.
-5. Journal/recovery/event projection: make loop state observable and resumable
-   as evidence/projection only; do not promote journals or graphs to truth.
-6. Low-conflict scheduler/parallel path: only after sequential loop behavior is
-   stable, add worker fan-out and IntegrationCheck, still stopping at human
-   integration gates.
-7. Normal Agent mode: design separately as a single-agent session/chat product
+Remaining migration should be split into reviewable structured changes:
+
+1. Replay consumption: route production planning milestones and TaskQueue
+   terminal observations through one helper that records graph observation
+   evidence and builds an in-memory replay summary. The summary remains read
+   only and must not execute queue, action, scheduler, apply, close, or UI
+   work.
+2. Policy V2: let the main-agent policy consume replay summaries as its stable
+   observation input, then improve deterministic next-step classification
+   without adding free LLM execution or expanding allowed actions.
+3. Bridge practical integration: allow explicit requests to attach fresh
+   main-agent evidence to existing Harness gates only when project/change,
+   target ids, ToolPolicy, stale revalidation, and the current visible gate all
+   match. The gate remains the authority.
+4. Recovery/resume: build read-only replay/recovery summaries that let the
+   main-agent loop resume from existing WorkflowGraph, TaskQueue, TaskRun,
+   role-loop, validation, and audit evidence without creating duplicate runs.
+5. Scheduler candidate policy: produce non-executing candidate assessments for
+   SchedulerRun / WorkerLease / IntegrationCheck opportunities from replay
+   state. Do not dispatch workers in this phase.
+6. Parallel integration: connect existing SchedulerRun, WorkerLease, worktree,
+   and IntegrationCheck owners to the main-agent loop while preserving one
+   human gate per high-impact transition and stopping at integration
+   apply/discard.
+7. Old seam retirement: remove obsolete projections, compatibility aliases,
+   and duplicated read paths such as legacy pipeline naming once replacement
+   evidence is proven in production tests.
+8. Normal Agent mode: design separately as a single-agent session/chat product
    mode that may reuse Provider Registry, but does not reuse Harness
    Change/ECL/validation/audit/apply/close truth.
 

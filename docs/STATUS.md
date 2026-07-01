@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260701-main-agent-workflowgraph-replay-consumption-roadmap-sync-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260701-main-agent-workflowgraph-decision-policy-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260701-main-agent-workflowgraph-replay-summary-builder-v1/summary.md`.
@@ -143,6 +145,32 @@
 
 ## Latest Product Closeout
 
+`harness/changes/archive/20260701-main-agent-workflowgraph-replay-consumption-roadmap-sync-v1/summary.md`.
+
+It adds `recordMainAgentWorkflowGraphObservationAndReplay(...)`, a main-agent
+owner helper that records WorkflowGraph observation evidence and immediately
+builds an in-memory replay summary. Planning milestones and TaskQueue terminal
+observation now use that helper, so replay consumption is centralized instead
+of scattered through handlers. The replay summary remains read-only,
+non-persistent, and non-executing; `nextObservation` is not consumed as a queue,
+action, scheduler, prompt, UI, apply, close, remote, PR, merge, or Harness
+evolution command. The main-agent roadmap was updated to show completed role /
+queue / graph evidence slices and the remaining replay consumption -> Policy V2
+-> bridge / recovery / scheduler / old-seam retirement route.
+
+Previous closeout:
+`harness/changes/archive/20260701-main-agent-workflowgraph-decision-policy-v1/summary.md`.
+
+It adds the non-executing `MainAgentWorkflowGraphDecisionPolicy` owner and
+routes `MainAgentWorkflowGraphReplaySummary.nextObservation` through that
+single policy. Replay now builds a summary core from canonical WorkflowGraph /
+TaskQueue / TaskRun / AgentTask state, then derives observation advice through
+policy; historical JSONL remains explanatory and cannot override canonical
+state. The change does not add UI, action dispatch, Scheduler/WorkerLease,
+IntegrationCheck, confirmation queue, automation allowlist, apply/close,
+remote, PR, merge, or Harness evolution authority.
+
+Previous closeout:
 `harness/changes/archive/20260701-main-agent-workflowgraph-replay-summary-builder-v1/summary.md`.
 
 It adds a read-only `MainAgentWorkflowGraphReplaySummary` builder under
@@ -156,7 +184,7 @@ The change does not add UI, Scheduler/WorkerLease, IntegrationCheck, action
 bridge, confirmation queue, automation allowlist, apply/close, remote, PR,
 merge, or Harness evolution authority.
 
-Previous closeout:
+Earlier closeout:
 `harness/changes/archive/20260701-main-agent-workflowgraph-observation-cleanup-queue-wrapper-removal-v1/summary.md`.
 
 It fixes WorkflowGraph observation status semantics so a `created` WorkflowRun
@@ -164,7 +192,7 @@ without a fresh matching TaskQueue binding is `wait`, not `queue-running`, and
 deletes the old public `runTaskQueueSequence` wrapper. `runMainAgentTaskQueueLifecycle`
 is the only production TaskQueue main-agent lifecycle entrypoint.
 
-Previous closeout:
+Earlier closeout:
 `harness/changes/archive/20260630-main-agent-workflowgraph-queue-step-loop-contract-v1/summary.md`.
 
 It moves sequential TaskQueue / WorkflowGraph lifecycle control into

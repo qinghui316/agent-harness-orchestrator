@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   mainAgentWorkflowGraphDecisionsPath,
   readMainAgentWorkflowGraphDecisionEvidence,
+  recordMainAgentWorkflowGraphObservationAndReplay,
   recordMainAgentWorkflowGraphObservation,
   type MainAgentWorkflowGraphObservation,
 } from "../../src/main-agent-orchestration/index.js";
@@ -96,6 +97,31 @@ describe("main-agent WorkflowGraph observation evidence", () => {
 
     await appendFile(path, "not-json\n", "utf8");
     await expect(readMainAgentWorkflowGraphDecisionEvidence(memory(root), "change-a")).resolves.toEqual([]);
+  });
+
+  it("records graph observation before building a non-executing replay summary", async () => {
+    root = await mkdtemp(join(tmpdir(), "aho-workflowgraph-observation-replay-"));
+    const result = await recordMainAgentWorkflowGraphObservationAndReplay(memory(root), project(), "change-a");
+
+    expect(result.observationEvidence).toMatchObject({
+      authority: "non-executing-main-agent-workflowgraph-decision-evidence",
+      executionStarted: false,
+      changeId: "change-a",
+    });
+    expect(result.replaySummary).toMatchObject({
+      authority: "read-only-main-agent-workflowgraph-replay-summary",
+      executionStarted: false,
+      changeId: "change-a",
+    });
+    expect(result.replaySummary.latestHistoricalEvidence.workflowGraphDecision?.id)
+      .toBe(result.observationEvidence.id);
+
+    const nextObservation = JSON.stringify(result.replaySummary.nextObservation);
+    expect(nextObservation).not.toContain("actionType");
+    expect(nextObservation).not.toContain("confirmationQueue");
+    expect(nextObservation).not.toContain("recommendedAction");
+    expect(nextObservation).not.toContain("result.apply");
+    expect(nextObservation).not.toContain("change.close");
   });
 });
 
