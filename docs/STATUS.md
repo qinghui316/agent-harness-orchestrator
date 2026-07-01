@@ -183,30 +183,25 @@
 
 ## Latest Product Closeout
 
-`harness/changes/archive/20260701-main-agent-controlled-scheduler-state-backflow-v1a/summary.md`.
+`harness/changes/archive/20260701-main-agent-controlled-scheduler-integrationcheck-backflow-v1c/summary.md`.
 
-It fixes controlled Scheduler replay so expected SchedulerRun mismatch evidence
-surfaces as an unsafe stale/scope gap, then adds a read-only in-memory
-controlled Scheduler state backflow summary for the latest same-Change
-SchedulerRun, SchedulerRuntimeState, latest runtime event, and controlled step
-refs. The summary is observation input only; it does not execute Scheduler,
-create gates, start workers, create WorkerLease / IntegrationCheck, or affect
-UI, confirmation queue, action registry, automation, apply/close, remote, PR,
-merge, or Harness evolution authority. Canonical WorkflowRun / TaskQueue /
-TaskRun / AgentTask state remains authoritative.
+It adds the final read-only controlled Scheduler terminal backflow for
+IntegrationCheck lineage. Main-agent replay can observe same-Change /
+same-SchedulerRun integration candidate, handoff, exact IntegrationCheck,
+outcome, completion, and blocked closeout posture, with unsafe lineage gaps
+surfaced through replay/policy. It does not run IntegrationCheck,
+apply/discard integration output, add gates, change UI, change action bridge
+behavior, or affect confirmation queue, action registry, automation allowlist,
+apply/close, remote, PR, merge, or Harness evolution authority.
 
 Previous closeout:
-`harness/changes/archive/20260701-main-agent-controlled-scheduler-result-policy-consumption-v1/summary.md`.
+`harness/changes/archive/20260701-main-agent-controlled-scheduler-worker-runtime-backflow-v1b/summary.md`.
 
-It moves `planning.scheduler.controlled-advance.run` behind
-`runMainAgentControlledSchedulerStep(...)`. The Workbench handler now resolves
-the active Change, records main-agent WorkflowGraph observation before the
-step, delegates exactly one existing controlled Scheduler transition to the
-Scheduler owner, and records best-effort post-observation. The
-`controlledSchedulerRoute` remains non-blocking evidence only. This does not
-add UI, action types, gates, SchedulerRun / WorkerLease / IntegrationCheck
-authority, confirmation queue changes, automation allowlist changes,
-apply/close, remote, PR, merge, or Harness evolution authority.
+It extends controlled Scheduler state backflow with bounded same-Change /
+same-SchedulerRun WorkerLease and worker start/result/validation/audit/rework
+posture. It remains observation-only and does not execute Scheduler, start
+workers, create WorkerLease or IntegrationCheck, add UI, change gates, or alter
+confirmation/action/automation authority.
 
 Previous closeout:
 `harness/changes/archive/20260701-main-agent-controlled-scheduler-integration-v1/summary.md`.
