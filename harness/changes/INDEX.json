@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-07-01T05:30:09.7566010Z",
+    "generated_at":  "2026-07-01T05:43:47.6645756Z",
     "active":  [
 
                ],
@@ -2305,6 +2305,10 @@
                     {
                         "name":  "20260630-workbench-reference-style-project-identity-display-name-v1",
                         "path":  "harness/changes/archive/20260630-workbench-reference-style-project-identity-display-name-v1"
+                    },
+                    {
+                        "name":  "20260701-auto-evolve-post-main-agent-policy-bridge-window",
+                        "path":  "harness/changes/archive/20260701-auto-evolve-post-main-agent-policy-bridge-window"
                     },
                     {
                         "name":  "20260701-auto-evolve-post-main-agent-workflowgraph-replay-window",

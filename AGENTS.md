@@ -6,10 +6,7 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 
 - Current date: 2026-07-01.
 - Active change: none.
-- Pending Harness evolution:
-  `harness/evolution/pending.md` (generated after closing
-  `main-agent-bridge-integration-acceptance-closeout-v1`; handle only when the
-  user asks for Harness evolution work).
+- Pending Harness evolution: none.
 - Latest archived product change:
   `harness/changes/archive/20260701-main-agent-bridge-integration-acceptance-closeout-v1/summary.md`.
 - Previous archived product change:
@@ -125,12 +122,18 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Previous archived docs/reference change:
   `harness/changes/archive/20260626-document-desktop-cc-gui-reference-map-and-product-layer-roadmap/summary.md`.
 - Latest completed Harness evolution:
+  `harness/changes/archive/20260701-auto-evolve-post-main-agent-policy-bridge-window/summary.md`
+  (`noop`; subagent Linnaeus score 92; existing ECL/BOUNDARIES coverage is
+  sufficient for the main-agent replay / policy / bridge evidence archive
+  window; no new Harness rule/template/product runtime change needed, pending
+  evolution marked complete).
+- Previous completed Harness evolution:
   `harness/changes/archive/20260701-auto-evolve-post-main-agent-workflowgraph-replay-window/summary.md`
   (`noop`; subagents Bohr 91 and Zeno 92; existing ECL/BOUNDARIES coverage is
   sufficient for the main-agent WorkflowGraph queue/replay evidence archive
   window; no new Harness rule/template/product runtime change needed, pending
   evolution marked complete).
-- Previous completed Harness evolution:
+- Earlier completed Harness evolution:
   `harness/changes/archive/20260630-auto-evolve-post-main-agent-taskqueue-workflowgraph-window/summary.md`
   (`noop`; subagent Herschel score 88; existing ECL coverage is sufficient for
   the main-agent TaskQueue / WorkflowGraph lifecycle archive window; no new
