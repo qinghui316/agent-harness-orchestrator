@@ -37,10 +37,13 @@ export async function recordMainAgentWorkflowGraphObservationAndReplay(
   memory: ResolvedMemory,
   project: ManagedProject,
   changeId: string,
-  options: RecordMainAgentWorkflowGraphObservationOptions = {},
+  options: RecordMainAgentWorkflowGraphObservationOptions & { schedulerRunId?: string | null } = {},
 ): Promise<MainAgentWorkflowGraphObservationReplayResult> {
   const observationEvidence = await recordMainAgentWorkflowGraphObservation(memory, project, changeId, options);
-  const replaySummary = await buildMainAgentWorkflowGraphReplaySummary(memory, project, changeId).catch((error) =>
+  const replaySummary = await buildMainAgentWorkflowGraphReplaySummary(memory, project, changeId, {
+    changePath: options.changePath,
+    schedulerRunId: options.schedulerRunId,
+  }).catch((error) =>
     buildDegradedMainAgentWorkflowGraphReplaySummary(
       project,
       changeId,

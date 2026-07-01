@@ -1,4 +1,4 @@
-import { appendFile, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -13,6 +13,8 @@ import { recordMainAgentQueueDecisionEvidence } from "../../src/main-agent-orche
 import type { ManagedProject, ResolvedMemory, TaskQueueItem, TaskQueueRun, WorkflowRun } from "../../src/types/index.js";
 import { writeTaskQueueItem, writeTaskQueueRun } from "../../src/task-queue/manager.js";
 import { writeWorkflowRun } from "../../src/workflow-run/manager.js";
+import { schedulerControlledStepsDir } from "../../src/scheduler-runtime/paths.js";
+import type { SchedulerControlledStepEvidence } from "../../src/scheduler-runtime/types.js";
 
 let root: string | null = null;
 
@@ -142,7 +144,178 @@ describe("main-agent WorkflowGraph replay summary", () => {
     expect(result.replaySummary.executionStarted).toBe(false);
     expect(JSON.stringify(result.replaySummary.nextObservation)).not.toContain("actionType");
   });
+
+  it("summarizes valid controlled Scheduler step evidence without exposing executable payloads", async () => {
+    root = await mkdtemp(join(tmpdir(), "aho-workflowgraph-replay-"));
+    const mem = memory(root);
+    const changePath = "harness/changes/active/change-a";
+    await writeControlledStep(mem, changePath, controlledStep());
+
+    const summary = await buildMainAgentWorkflowGraphReplaySummary(mem, project(), "change-a", {
+      changePath,
+      schedulerRunId: "scheduler-run-1",
+    });
+
+    expect(summary.controlledScheduler.latestStep).toMatchObject({
+      id: "controlled-step-1",
+      schedulerRunId: "scheduler-run-1",
+      continuationReadinessStatus: "terminal-handoff",
+      resultStatus: "completed",
+      recordedWithWarning: false,
+    });
+    expect(summary.evidenceHealth).toEqual(expect.arrayContaining([
+      expect.objectContaining({ source: "controlled-scheduler-step", status: "available", count: 1 }),
+    ]));
+    expect(summary.refs.schedulerControlledStepIds).toEqual(["controlled-step-1"]);
+    const serialized = JSON.stringify(summary.controlledScheduler);
+    expect(serialized).not.toContain("targetScope");
+    expect(serialized).not.toContain("actionType");
+    expect(serialized).not.toContain("confirmationQueue");
+    expect(serialized).not.toContain("result.apply");
+    expect(serialized).not.toContain("change.close");
+  });
+
+  it("classifies controlled Scheduler malformed, old schema, and scope mismatch evidence as gaps", async () => {
+    root = await mkdtemp(join(tmpdir(), "aho-workflowgraph-replay-"));
+    const mem = memory(root);
+    const changePath = "harness/changes/active/change-a";
+    const dir = schedulerControlledStepsDir(mem, changePath, "scheduler-run-1");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "malformed.json"), "not-json", "utf8");
+    await writeFile(join(dir, "old.json"), JSON.stringify({ version: "0.9", id: "old-step" }), "utf8");
+    await writeFile(join(dir, "scope.json"), JSON.stringify(controlledStep({
+      id: "controlled-step-scope",
+      targetScope: { changeId: "other-change", schedulerRunId: "scheduler-run-1" },
+    })), "utf8");
+
+    const summary = await buildMainAgentWorkflowGraphReplaySummary(mem, project(), "change-a", {
+      changePath,
+      schedulerRunId: "scheduler-run-1",
+    });
+
+    expect(summary.gaps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ source: "controlled-scheduler-step", status: "malformed" }),
+      expect.objectContaining({ source: "controlled-scheduler-step", status: "old-schema" }),
+      expect.objectContaining({ source: "controlled-scheduler-step", status: "scope-mismatch" }),
+    ]));
+    expect(summary.nextObservation.kind).toBe("inspect-evidence-gap");
+  });
+
+  it("treats controlled Scheduler warning evidence as degraded and unsafe", async () => {
+    root = await mkdtemp(join(tmpdir(), "aho-workflowgraph-replay-"));
+    const mem = memory(root);
+    const changePath = "harness/changes/active/change-a";
+    await writeControlledStep(mem, changePath, controlledStep({ status: "recorded-with-warning" }));
+
+    const summary = await buildMainAgentWorkflowGraphReplaySummary(mem, project(), "change-a", {
+      changePath,
+      schedulerRunId: "scheduler-run-1",
+    });
+
+    expect(summary.controlledScheduler.latestStep?.recordedWithWarning).toBe(true);
+    expect(summary.gaps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ source: "controlled-scheduler-step", status: "stale" }),
+    ]));
+    expect(summary.nextObservation.kind).toBe("inspect-evidence-gap");
+  });
 });
+
+async function writeControlledStep(
+  mem: ResolvedMemory,
+  changePath: string,
+  step: SchedulerControlledStepEvidence,
+): Promise<void> {
+  const dir = schedulerControlledStepsDir(mem, changePath, step.schedulerRunId);
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, `${step.id}.json`), JSON.stringify(step), "utf8");
+}
+
+function controlledStep(overrides: Partial<SchedulerControlledStepEvidence> = {}): SchedulerControlledStepEvidence {
+  const executedAction = "planning.scheduler.worker.reconcile-result";
+  const base: SchedulerControlledStepEvidence = {
+    version: "1.0",
+    id: "controlled-step-1",
+    changeId: "change-a",
+    schedulerRunId: "scheduler-run-1",
+    status: "recorded",
+    executedActionType: executedAction,
+    targetScope: { changeId: "change-a", schedulerRunId: "scheduler-run-1" },
+    preStepEvidence: {
+      goalLoopDecisionId: "goal-loop-decision-1",
+      goalLoopIterationId: "goal-loop-iteration-1",
+      goalLoopContinuationBriefId: "goal-loop-brief-1",
+      goalLoopNextStepPacketId: "goal-loop-packet-1",
+      goalLoopControllerPolicyId: "goal-loop-policy-1",
+      goalLoopGateReadinessPreflightId: "goal-loop-preflight-1",
+    },
+    postStepEvidence: {
+      continuationState: "terminal-handoff",
+      executionStarted: false,
+      concreteGateInvoked: false,
+      toolPolicyAuthorizedConcreteGate: false,
+    },
+    postStepHandoff: {
+      status: "terminal-handoff",
+      stopReason: "Scheduler terminal handoff.",
+      executedActionType: executedAction,
+      needsReevaluation: false,
+      executionStarted: false,
+      loopAuthorized: false,
+      wholeWaveDispatchAuthorized: false,
+      slotAllocatorAuthorized: false,
+    },
+    controlledLoopContinuationReadiness: {
+      version: "1.0",
+      authority: "scheduler-runtime-controlled-loop-continuation-readiness",
+      status: "terminal-handoff",
+      routePosture: "terminal-handoff",
+      executedActionType: executedAction,
+      resultKind: "scheduler-run-completion",
+      resultId: "scheduler-run-completion-1",
+      resultStatus: "completed",
+      reason: "Scheduler reached terminal handoff.",
+      boundary: "Existing result gate remains human-gated.",
+      readinessEvidencePrepared: true,
+      needsReevaluation: false,
+      humanGateRequired: true,
+      humanConfirmationStillRequired: true,
+      evidenceRefs: ["scheduler-evidence-ref"],
+      executionStarted: false,
+      loopAuthorized: false,
+      fullParallelExecutorAuthorized: false,
+      wholeWaveDispatchAuthorized: false,
+      slotAllocatorAuthorized: false,
+      sourceMutationAuthorized: false,
+      applyAuthorized: false,
+      closeAuthorized: false,
+      mergeAuthorized: false,
+      remoteLandingAuthorized: false,
+      harnessEvolutionAuthorized: false,
+    },
+    executionStarted: true,
+    stoppedAfterOneSchedulerTransition: true,
+    humanConfirmationStillRequired: true,
+    sourceMutated: false,
+    forbiddenAuthority: {
+      loopAuthorized: false,
+      wholeWaveDispatchAuthorized: false,
+      slotAllocatorAuthorized: false,
+      fullParallelExecutorAuthorized: false,
+      sourceMutationAuthorized: false,
+      applyAuthorized: false,
+      closeAuthorized: false,
+      mergeAuthorized: false,
+      remoteLandingAuthorized: false,
+      harnessEvolutionAuthorized: false,
+    },
+    artifactRefs: ["scheduler-controlled-step-ref"],
+    artifact: "scheduler-controlled-step.json",
+    markdownArtifact: "scheduler-controlled-step.md",
+    createdAt: "2026-07-01T00:02:00.000Z",
+    updatedAt: "2026-07-01T00:02:00.000Z",
+  };
+  return { ...base, ...overrides };
+}
 
 function workflowRun(overrides: Partial<WorkflowRun> = {}): WorkflowRun {
   const base: WorkflowRun = {

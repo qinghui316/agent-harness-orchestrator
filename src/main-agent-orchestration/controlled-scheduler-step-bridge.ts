@@ -29,14 +29,14 @@ export async function runMainAgentControlledSchedulerStep(
   const recordObservation = services.recordWorkflowGraphObservationAndReplay ?? recordMainAgentWorkflowGraphObservationAndReplay;
   const runStep = services.runControlledSchedulerLoopStep ?? runControlledSchedulerLoopStep;
 
-  await recordObservation(context.memory, project, changeId, { changePath: context.changePath });
+  await recordObservation(context.memory, project, changeId, { changePath: context.changePath, schedulerRunId: request.schedulerRunId });
 
   try {
     const result = await runStep(project, changeId, request, services);
-    await recordPostObservation(recordObservation, context.memory, project, changeId, context.changePath);
+    await recordPostObservation(recordObservation, context.memory, project, changeId, context.changePath, request.schedulerRunId);
     return result;
   } catch (error) {
-    await recordPostObservation(recordObservation, context.memory, project, changeId, context.changePath);
+    await recordPostObservation(recordObservation, context.memory, project, changeId, context.changePath, request.schedulerRunId);
     throw error;
   }
 }
@@ -60,9 +60,10 @@ async function recordPostObservation(
   project: ManagedProject,
   changeId: string,
   changePath: string,
+  schedulerRunId?: string | null,
 ): Promise<MainAgentWorkflowGraphObservationReplayResult | null> {
   try {
-    return await recordObservation(memory, project, changeId, { changePath });
+    return await recordObservation(memory, project, changeId, { changePath, schedulerRunId });
   } catch {
     return null;
   }

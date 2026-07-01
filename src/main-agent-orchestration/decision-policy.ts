@@ -70,6 +70,11 @@ export function evaluateMainAgentWorkflowGraphReplayPolicy(
     return recommendation(input, "wait-for-human-gate", input.currentState.reason || "TaskQueue execution is paused.", ["workflow-run", "task-queue"]);
   }
 
+  const controlledSchedulerObservation = observeControlledSchedulerStep(input);
+  if (controlledSchedulerObservation) {
+    return recommendation(input, controlledSchedulerObservation.kind, controlledSchedulerObservation.reason, controlledSchedulerObservation.targets);
+  }
+
   return recommendation(input, "wait", input.currentState.reason || "Replay summary is bounded to current canonical state and historical evidence.", ["workflowgraph-observation"]);
 }
 
@@ -102,6 +107,45 @@ function recommendation(
 
 function gapTargets(gaps: MainAgentWorkflowGraphReplayGap[]): string[] {
   return dedupeStrings(gaps.map((gap) => gap.source));
+}
+
+function observeControlledSchedulerStep(
+  input: MainAgentWorkflowGraphDecisionPolicyInput,
+): { kind: MainAgentWorkflowGraphDecisionPolicyKind; reason: string; targets: string[] } | null {
+  const latest = input.controlledScheduler.latestStep;
+  if (!latest || input.controlledScheduler.healthStatus !== "available") return null;
+  const posture = latest.continuationReadinessStatus ?? latest.routePosture ?? latest.postStepHandoffStatus;
+  switch (posture) {
+    case "terminal-handoff":
+      return {
+        kind: "completed-await-result-gate",
+        reason: "Controlled Scheduler step reached terminal handoff; observe terminal validation/audit and existing result gates.",
+        targets: ["controlled-scheduler-step", "validation", "audit"],
+      };
+    case "needs-review":
+      return {
+        kind: "blocked",
+        reason: "Controlled Scheduler step needs review before further main-agent policy can derive a safe next observation.",
+        targets: ["controlled-scheduler-step"],
+      };
+    case "ready-for-human-gate":
+    case "awaiting-human-gate":
+    case "quality-routing":
+    case "integration-barrier":
+      return {
+        kind: "wait-for-human-gate",
+        reason: "Controlled Scheduler step stopped at an existing human-gated route; observe the current gate rather than executing Scheduler.",
+        targets: ["controlled-scheduler-step", "current-gate"],
+      };
+    case "waiting":
+      return {
+        kind: "wait",
+        reason: "Controlled Scheduler step is waiting for fresh evidence before another observation can be trusted.",
+        targets: ["controlled-scheduler-step"],
+      };
+    default:
+      return null;
+  }
 }
 
 function dedupeStrings(values: Array<string | null | undefined>): string[] {

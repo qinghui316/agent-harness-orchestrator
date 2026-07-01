@@ -12,6 +12,10 @@ import {
   type MainAgentWorkflowGraphDecisionPolicyKind,
 } from "./decision-policy.js";
 import {
+  buildControlledSchedulerStepReplaySummary,
+  type ControlledSchedulerStepReplaySummary,
+} from "./controlled-scheduler-step-replay.js";
+import {
   mainAgentWorkflowGraphDecisionsPath,
   observeMainAgentWorkflowGraph,
   type MainAgentWorkflowGraphDecisionKind,
@@ -34,11 +38,12 @@ export type MainAgentWorkflowGraphReplayCurrentKind =
   | "unavailable";
 
 export interface MainAgentReplayEvidenceHealth {
-  source: "canonical-observation" | "workflowgraph-decisions" | "loop-runs" | "queue-decisions" | "role-loop-decisions" | "role-loop-events" | "replay-summary";
+  source: "canonical-observation" | "workflowgraph-decisions" | "loop-runs" | "queue-decisions" | "role-loop-decisions" | "role-loop-events" | "controlled-scheduler-step" | "replay-summary";
   status: MainAgentReplayEvidenceHealthStatus;
   count: number;
   reasons: string[];
   paths: string[];
+  issues?: Array<{ status: MainAgentReplayEvidenceHealthStatus; reason: string }>;
 }
 
 export interface MainAgentWorkflowGraphReplayGap {
@@ -99,11 +104,19 @@ export interface MainAgentWorkflowGraphReplaySummary {
     mainAgentLoopRunIds: string[];
     workflowRunIds: string[];
     taskQueueRunIds: string[];
+    schedulerControlledStepIds: string[];
     taskRunIds: string[];
     agentTaskIds: string[];
     runIds: string[];
     validationIds: string[];
     auditIds: string[];
+  };
+  controlledScheduler: {
+    latestStep: ControlledSchedulerStepReplaySummary["latestStep"];
+    expectedSchedulerRunId: string | null;
+    healthStatus: ControlledSchedulerStepReplaySummary["health"]["status"];
+    reasons: string[];
+    artifactRefs: string[];
   };
   nextObservation: {
     kind: MainAgentWorkflowGraphDecisionPolicyKind;
@@ -112,11 +125,17 @@ export interface MainAgentWorkflowGraphReplaySummary {
   };
 }
 
+export interface BuildMainAgentWorkflowGraphReplaySummaryOptions {
+  changePath?: string | null;
+  schedulerRunId?: string | null;
+}
+
 const refsSchema = z.object({
   mainAgentLoopRunIds: z.array(z.string()).optional().default([]),
   workflowRunIds: z.array(z.string()).optional().default([]),
   taskQueueRunIds: z.array(z.string()).optional().default([]),
   taskQueueItemIds: z.array(z.string()).optional().default([]),
+  schedulerControlledStepIds: z.array(z.string()).optional().default([]),
   taskRunIds: z.array(z.string()).optional().default([]),
   agentTaskIds: z.array(z.string()).optional().default([]),
   runIds: z.array(z.string()).optional().default([]),
@@ -207,6 +226,7 @@ export async function buildMainAgentWorkflowGraphReplaySummary(
   memory: ResolvedMemory,
   project: ManagedProject,
   changeId: string,
+  options: BuildMainAgentWorkflowGraphReplaySummaryOptions = {},
 ): Promise<MainAgentWorkflowGraphReplaySummary> {
   const latestQueue = await getLatestTaskQueue(memory, changeId).catch(() => null);
   const latestWorkflow = await getLatestWorkflowRun(memory, changeId).catch(() => null);
@@ -259,6 +279,12 @@ export async function buildMainAgentWorkflowGraphReplaySummary(
     kind: line.decisionKind ?? line.type ?? "unknown",
     createdAt: line.timestamp ?? "",
   }));
+  const controlledScheduler = await buildControlledSchedulerStepReplaySummary({
+    memory,
+    changePath: options.changePath,
+    changeId,
+    expectedSchedulerRunId: options.schedulerRunId,
+  });
   const evidenceHealth = [
     canonicalHealth,
     workflowGraphHistory.health,
@@ -266,6 +292,7 @@ export async function buildMainAgentWorkflowGraphReplaySummary(
     queueHistory.health,
     roleDecisions.health,
     roleEvents.health,
+    controlledScheduler.health,
   ];
   const refs = mergeRefs(
     observation.refs,
@@ -277,6 +304,7 @@ export async function buildMainAgentWorkflowGraphReplaySummary(
       mainAgentLoopRunIds: loopDiscovery.ids,
       workflowRunIds: latestWorkflow ? [latestWorkflow.id] : [],
       taskQueueRunIds: dedupeStrings([latestQueue?.queue.id, ...allQueues.map((queue) => queue.id)]),
+      schedulerControlledStepIds: controlledScheduler.latestStep ? [controlledScheduler.latestStep.id] : [],
       taskRunIds: taskRuns.map((run) => run.id),
       agentTaskIds: agentTasks.map((task) => task.id),
       runIds: dedupeStrings(taskRuns.map((run) => run.runId)),
@@ -292,6 +320,7 @@ export async function buildMainAgentWorkflowGraphReplaySummary(
     ...queueHistory.artifactRefs,
     ...roleDecisions.artifactRefs,
     ...roleEvents.artifactRefs,
+    ...controlledScheduler.artifactRefs,
   ]);
   const summaryCore: Omit<MainAgentWorkflowGraphReplaySummary, "nextObservation"> = {
     version: "1.0",
@@ -311,6 +340,13 @@ export async function buildMainAgentWorkflowGraphReplaySummary(
     gaps,
     artifactRefs,
     refs,
+    controlledScheduler: {
+      latestStep: controlledScheduler.latestStep,
+      expectedSchedulerRunId: controlledScheduler.expectedSchedulerRunId,
+      healthStatus: controlledScheduler.health.status,
+      reasons: controlledScheduler.health.reasons,
+      artifactRefs: controlledScheduler.artifactRefs,
+    },
   };
   const policy = evaluateMainAgentWorkflowGraphReplayPolicy(summaryCore);
   return {
@@ -365,6 +401,13 @@ export function buildDegradedMainAgentWorkflowGraphReplaySummary(
     gaps: buildGaps(evidenceHealth),
     artifactRefs: dedupeStrings([...(observation?.artifactRefs ?? []), ...(observationEvidence?.artifactRefs ?? [])]),
     refs,
+    controlledScheduler: {
+      latestStep: null,
+      expectedSchedulerRunId: null,
+      healthStatus: "missing",
+      reasons: ["Controlled Scheduler step replay was not attempted because replay summary derivation degraded."],
+      artifactRefs: [],
+    },
   };
   return {
     ...summaryCore,
@@ -686,6 +729,12 @@ function buildGaps(health: MainAgentReplayEvidenceHealth[]): MainAgentWorkflowGr
   const gaps: MainAgentWorkflowGraphReplayGap[] = [];
   for (const item of health) {
     if (item.status === "available") continue;
+    if (item.issues?.length) {
+      for (const issue of item.issues) {
+        gaps.push({ source: item.source, status: issue.status, reason: issue.reason });
+      }
+      continue;
+    }
     for (const reason of item.reasons.length ? item.reasons : [`${item.source} is ${item.status}.`]) {
       gaps.push({ source: item.source, status: item.status, reason });
     }
@@ -718,6 +767,7 @@ function mergeRefsInto(target: MainAgentWorkflowGraphReplaySummary["refs"], refs
   target.mainAgentLoopRunIds = dedupeStrings([...target.mainAgentLoopRunIds, ...(refs.mainAgentLoopRunIds ?? [])]);
   target.workflowRunIds = dedupeStrings([...target.workflowRunIds, ...(refs.workflowRunIds ?? [])]);
   target.taskQueueRunIds = dedupeStrings([...target.taskQueueRunIds, ...(refs.taskQueueRunIds ?? [])]);
+  target.schedulerControlledStepIds = dedupeStrings([...target.schedulerControlledStepIds, ...(refs.schedulerControlledStepIds ?? [])]);
   target.taskRunIds = dedupeStrings([...target.taskRunIds, ...(refs.taskRunIds ?? [])]);
   target.agentTaskIds = dedupeStrings([...target.agentTaskIds, ...(refs.agentTaskIds ?? [])]);
   target.runIds = dedupeStrings([...target.runIds, ...(refs.runIds ?? [])]);
@@ -730,6 +780,7 @@ function emptyRefs(): MainAgentWorkflowGraphReplaySummary["refs"] {
     mainAgentLoopRunIds: [],
     workflowRunIds: [],
     taskQueueRunIds: [],
+    schedulerControlledStepIds: [],
     taskRunIds: [],
     agentTaskIds: [],
     runIds: [],

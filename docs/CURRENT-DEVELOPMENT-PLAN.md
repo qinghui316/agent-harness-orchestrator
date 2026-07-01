@@ -11,6 +11,18 @@ The user should not need to know internal terms before asking for work. The main
 ## Goal-Driven Workflow Loop Target
 
 Latest implementation slice:
+`harness/changes/archive/20260701-main-agent-controlled-scheduler-result-policy-consumption-v1/summary.md`.
+It adds read-only consumption of existing controlled Scheduler step evidence to
+main-agent WorkflowGraph replay/policy. Replay now exposes a bounded
+`controlledScheduler` summary and a strict health/gap classification for
+missing, malformed, old-schema, scope-mismatch, stale, and
+recorded-with-warning evidence. Policy consumes that summary only as
+observation posture; it does not create Scheduler action payloads, start
+workers, dispatch SchedulerRun, create WorkerLease / IntegrationCheck, or
+affect UI, confirmation queue, action registry, automation, apply/close,
+remote, PR, merge, or Harness evolution authority.
+
+Previous completed implementation slice:
 `harness/changes/archive/20260701-main-agent-controlled-scheduler-step-ownership-bridge-v1/summary.md`.
 It routes `planning.scheduler.controlled-advance.run` through
 `runMainAgentControlledSchedulerStep(...)`: resolve the active Change, record
@@ -168,24 +180,22 @@ strict non-executing signal and routes future Scheduler work toward the
 existing controlled owner only, plus the controlled Scheduler step ownership
 bridge that moves Workbench controlled-advance execution behind the
 main-agent observation sandwich before delegating to the existing Scheduler
-owner. Those layers still use deterministic policy. They are architecture
-seams and evidence readers, not a free-form autonomous controller.
+owner, and controlled Scheduler result/policy consumption that lets replay and
+policy observe existing controlled-step evidence without making it executable.
+Those layers still use deterministic policy. They are architecture seams and
+evidence readers, not a free-form autonomous controller.
 
 Remaining migration should be split into reviewable structured changes:
 
-1. Controlled Scheduler result/policy consumption: consume the existing
-   controlled Scheduler step result, continuation route, and post-step evidence
-   in main-agent replay/policy without creating a new gate, action type,
-   scheduler payload, UI surface, or dispatch path.
-2. Parallel integration through the existing controlled Scheduler owner:
+1. Parallel integration through the existing controlled Scheduler owner:
    connect SchedulerRun, WorkerLease, worktree, and IntegrationCheck owners to
    the main-agent loop only through the controlled Scheduler path, preserving
    one human gate per high-impact transition and stopping at integration
    apply/discard.
-3. Old seam retirement: remove obsolete projections, compatibility aliases,
+2. Old seam retirement: remove obsolete projections, compatibility aliases,
    and duplicated read paths such as legacy pipeline naming once replacement
    evidence is proven in production tests.
-4. Normal Agent mode: design separately as a single-agent session/chat product
+3. Normal Agent mode: design separately as a single-agent session/chat product
    mode that may reuse Provider Registry, but does not reuse Harness
    Change/ECL/validation/audit/apply/close truth.
 
@@ -332,19 +342,18 @@ Current structured change: none.
 
 Pending Harness evolution: none.
 
-Recommended next architecture step: `Controlled Scheduler result/policy
-consumption`. It should consume existing controlled Scheduler step result,
-continuation route, and post-step evidence in main-agent replay/policy without
-creating a new gate, action type, scheduler payload, UI surface, or dispatch
-path. Broader parallel integration should still go only through the existing
-controlled Scheduler owner and preserve one human gate per high-impact
-transition.
+Recommended next architecture step: `Parallel integration through the existing
+controlled Scheduler owner`. It should connect SchedulerRun, WorkerLease,
+worker validation/audit/rework, and IntegrationCheck evidence back into the
+main-agent loop only through the controlled Scheduler path. It must not create
+raw scheduler dispatch, whole-wave auto execution, a new permission system, or
+a second Scheduler gate.
 
 Desktop product-layer work can continue when selected, but it is no longer the
 default next step for the current main-agent architecture migration.
 
 Latest product change:
-`harness/changes/archive/20260701-main-agent-controlled-scheduler-step-ownership-bridge-v1/summary.md`.
+`harness/changes/archive/20260701-main-agent-controlled-scheduler-result-policy-consumption-v1/summary.md`.
 
 Latest docs/architecture change:
 `harness/changes/archive/20260629-document-aho-hybrid-desktop-native-roadmap-v1/summary.md`.

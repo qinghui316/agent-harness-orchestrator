@@ -383,6 +383,21 @@ describe("Workbench module boundaries", () => {
     expect(workflowGraphReplay).not.toContain("appendFile");
     expect(workflowGraphReplay).not.toContain("SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES");
 
+    const controlledSchedulerStepReplay = readFileSync(join(process.cwd(), "src/main-agent-orchestration/controlled-scheduler-step-replay.ts"), "utf8");
+    expect(controlledSchedulerStepReplay).toContain("controlled-scheduler-step");
+    expect(controlledSchedulerStepReplay).toContain("schedulerControlledStepEvidenceSchema");
+    expect(controlledSchedulerStepReplay).toContain("schedulerControlledStepsDir");
+    expect(controlledSchedulerStepReplay).not.toContain("controlled-loop-step");
+    expect(controlledSchedulerStepReplay).not.toContain("../workbench/");
+    expect(controlledSchedulerStepReplay).not.toContain("../server/");
+    expect(controlledSchedulerStepReplay).not.toContain("../workflow-scheduler/");
+    expect(controlledSchedulerStepReplay).not.toContain("../workflow-runtime/");
+    expect(controlledSchedulerStepReplay).not.toContain("../apply/");
+    expect(controlledSchedulerStepReplay).not.toContain("../terminal");
+    expect(controlledSchedulerStepReplay).not.toContain("writeJsonFile");
+    expect(controlledSchedulerStepReplay).not.toContain("appendFile");
+    expect(controlledSchedulerStepReplay).not.toContain("SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES");
+
     const workflowGraphReplayConsumption = readFileSync(join(process.cwd(), "src/main-agent-orchestration/workflowgraph-replay-consumption.ts"), "utf8");
     expect(workflowGraphReplayConsumption).toContain("recordMainAgentWorkflowGraphObservation");
     expect(workflowGraphReplayConsumption).toContain("buildMainAgentWorkflowGraphReplaySummary");
