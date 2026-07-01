@@ -7,6 +7,7 @@ import type {
   WorkbenchWorkflowActionRequest,
   WorkbenchWorkflowActionResult,
 } from "../types.js";
+import { isMainAgentExecutionStopAction } from "../../workflow-actions/main-agent-execution.js";
 
 interface AssistantTranscriptCapture {
   sink: WorkbenchLiveSink;
@@ -128,7 +129,7 @@ export async function runWorkbenchWorkflowActionService(
 }
 
 function isConcurrentControlAction(actionType: WorkbenchWorkflowActionRequest["actionType"]): boolean {
-  return actionType === "conversation.steer" || actionType === "conversation.interrupt" || actionType === "role.pipeline.stop";
+  return actionType === "conversation.steer" || actionType === "conversation.interrupt" || isMainAgentExecutionStopAction(actionType);
 }
 
 function findActiveWorkflowAction(entries: TopicThreadEntry[]): TopicThreadEntry | null {

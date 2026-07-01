@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260701-main-agent-old-seam-retirement-v2-action-normalization-bridge/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260701-main-agent-old-seam-retirement-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260701-main-agent-controlled-scheduler-integrationcheck-backflow-v1c/summary.md`.

@@ -216,6 +216,20 @@ describe("Workbench module boundaries", () => {
     expect(handlers).toContain('"role.pipeline.start"');
     expect(handlers).toContain("runMainAgentToolOrchestration");
 
+    const normalizer = readFileSync(join(process.cwd(), "src/workflow-actions/main-agent-execution.ts"), "utf8");
+    expect(normalizer).toContain("normalizeMainAgentExecutionAction");
+    expect(normalizer).toContain("isMainAgentExecutionAction");
+    expect(normalizer).toContain("isMainAgentExecutionStopAction");
+    expect(normalizer).not.toContain("main-agent.execution");
+
+    const actionService = readFileSync(join(process.cwd(), "src/workbench/actions/service.ts"), "utf8");
+    expect(actionService).toContain("isMainAgentExecutionStopAction");
+    expect(actionService).not.toContain('actionType === "role.pipeline.stop"');
+
+    const actionResults = readFileSync(join(process.cwd(), "src/workbench/actions/results.ts"), "utf8");
+    expect(actionResults).toContain("isMainAgentExecutionAction");
+    expect(actionResults).not.toContain('startsWith("role.pipeline.")');
+
     const confirmationQueue = readFileSync(join(process.cwd(), "src/workbench/projections/read-model/confirmation-queue.ts"), "utf8");
     expect(confirmationQueue).toContain('workpad.rolePipeline?.status === "running"');
     expect(confirmationQueue).toContain("workpad.rolePipeline?.agentTasks.some");

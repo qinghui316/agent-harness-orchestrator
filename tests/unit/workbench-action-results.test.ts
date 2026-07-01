@@ -76,6 +76,13 @@ const FORBIDDEN_PRIMARY_TERMS = [
 ];
 
 describe("Workbench action result summaries", () => {
+  it("summarizes role execution through main-agent execution semantics", () => {
+    expect(labelForAction("role.pipeline.start")).toBe("Main-agent execution started");
+    expect(labelForAction("role.pipeline.stop")).toBe("Main-agent execution stop requested");
+    expect(summarizeActionResult("role.pipeline.start", { status: "completed" })).toBe("Main-agent execution finished with status completed.");
+    expect(summarizeActionResult("role.pipeline.stop", { status: "stopped" })).toBe("Main-agent execution finished with status stopped.");
+  });
+
   it("labels and summarizes controlled loop results in user-facing terms", () => {
     for (const item of CONTROLLED_LOOP_ACTIONS) {
       const label = labelForAction(item.actionType);

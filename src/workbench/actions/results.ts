@@ -1,4 +1,5 @@
 import { controlledLoopDecisionSummary, controlledLoopResultLabel } from "../user-surface/controlled-loop-results.js";
+import { isMainAgentExecutionAction } from "../../workflow-actions/main-agent-execution.js";
 
 export function extractRunId(result: unknown): string | undefined {
   if (isRecord(result) && isRecord(result.run) && typeof result.run.id === "string") return result.run.id;
@@ -286,11 +287,12 @@ export function summarizeActionResult(actionType: string, result: unknown): stri
   if (actionType === "planning.confirm-execution" && isRecord(result)) {
     return "Planning confirmed and canonical artifacts were written. No execution was started.";
   }
-  if ((actionType.startsWith("role.pipeline.") || actionType.startsWith("demand.worker.")) && isRecord(result)) {
+  const isDemandWorkerAction = actionType.startsWith("demand.worker.");
+  if ((isMainAgentExecutionAction(actionType) || isDemandWorkerAction) && isRecord(result)) {
     const status = typeof result.status === "string" ? result.status : "completed";
-    return actionType.startsWith("demand.worker.")
+    return isDemandWorkerAction
       ? `Demand worker finished with status ${status}.`
-      : `Main-agent role orchestration finished with status ${status}.`;
+      : `Main-agent execution finished with status ${status}.`;
   }
   return `${labelForAction(actionType)} completed.`;
 }

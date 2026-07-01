@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { highImpactActions } from "../../src/agent-task/tool-policy.js";
 import {
+  isMainAgentExecutionAction,
+  isMainAgentExecutionStopAction,
+  normalizeMainAgentExecutionAction,
+} from "../../src/workflow-actions/main-agent-execution.js";
+import {
   HIGH_IMPACT_WORKFLOW_ACTION_TYPES,
   LIVE_WORKFLOW_ACTION_TYPES,
   REVALIDATED_WORKFLOW_ACTION_TYPES,
@@ -15,6 +20,19 @@ import {
 } from "../../src/workflow-actions/registry.js";
 
 describe("workflow action registry", () => {
+  it("normalizes current main-agent execution compatibility action ids without registering future ids", () => {
+    for (const actionType of ["role.pipeline.start", "role.pipeline.stop", "role.pipeline.continue", "role.pipeline.reconcile"]) {
+      expect(normalizeMainAgentExecutionAction(actionType)).toBe(actionType);
+      expect(isMainAgentExecutionAction(actionType)).toBe(true);
+    }
+
+    expect(isMainAgentExecutionStopAction("role.pipeline.stop")).toBe(true);
+    expect(isMainAgentExecutionStopAction("role.pipeline.start")).toBe(false);
+    expect(normalizeMainAgentExecutionAction("main-agent.execution.start")).toBeNull();
+    expect(isMainAgentExecutionAction("main-agent.execution.start")).toBe(false);
+    expect(WORKFLOW_ACTION_TYPES).not.toContain("main-agent.execution.start");
+  });
+
   it("keeps live, high-impact, and revalidated action sets inside the canonical action registry", () => {
     const all = new Set<string>(WORKFLOW_ACTION_TYPES);
 

@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-07-01T13:32:23.3682247Z",
+    "generated_at":  "2026-07-01T13:51:05.9940319Z",
     "active":  [
 
                ],
@@ -2353,6 +2353,10 @@
                     {
                         "name":  "20260701-main-agent-old-seam-retirement-v1",
                         "path":  "harness/changes/archive/20260701-main-agent-old-seam-retirement-v1"
+                    },
+                    {
+                        "name":  "20260701-main-agent-old-seam-retirement-v2-action-normalization-bridge",
+                        "path":  "harness/changes/archive/20260701-main-agent-old-seam-retirement-v2-action-normalization-bridge"
                     },
                     {
                         "name":  "20260701-main-agent-scheduler-candidate-assessment-v1",
