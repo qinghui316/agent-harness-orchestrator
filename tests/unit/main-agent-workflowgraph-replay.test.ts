@@ -14,7 +14,10 @@ import type { ManagedProject, ResolvedMemory, TaskQueueItem, TaskQueueRun, Workf
 import { writeTaskQueueItem, writeTaskQueueRun } from "../../src/task-queue/manager.js";
 import { writeWorkflowRun } from "../../src/workflow-run/manager.js";
 import { schedulerControlledStepsDir } from "../../src/scheduler-runtime/paths.js";
-import type { SchedulerControlledStepEvidence } from "../../src/scheduler-runtime/types.js";
+import { appendSchedulerRuntimeEvent, writeSchedulerRuntimeState } from "../../src/scheduler-runtime/repository.js";
+import type { SchedulerControlledStepEvidence, SchedulerRuntimeState } from "../../src/scheduler-runtime/types.js";
+import { writeSchedulerRun } from "../../src/workflow-scheduler/repository.js";
+import type { SchedulerRun } from "../../src/workflow-scheduler/types.js";
 
 let root: string | null = null;
 
@@ -218,6 +221,92 @@ describe("main-agent WorkflowGraph replay summary", () => {
     ]));
     expect(summary.nextObservation.kind).toBe("inspect-evidence-gap");
   });
+
+  it("treats unscoped controlled Scheduler evidence as unsafe when an expected SchedulerRun is known", async () => {
+    root = await mkdtemp(join(tmpdir(), "aho-workflowgraph-replay-"));
+    const mem = memory(root);
+    const changePath = "harness/changes/active/change-a";
+    await writeUnscopedControlledStep(mem, changePath, controlledStep({
+      schedulerRunId: undefined,
+      targetScope: { changeId: "change-a" },
+    }));
+
+    const summary = await buildMainAgentWorkflowGraphReplaySummary(mem, project(), "change-a", {
+      changePath,
+      schedulerRunId: "scheduler-run-expected",
+    });
+
+    expect(summary.gaps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ source: "controlled-scheduler-step", status: "scope-mismatch" }),
+    ]));
+    expect(summary.nextObservation.kind).toBe("inspect-evidence-gap");
+  });
+
+  it("summarizes latest same-Change SchedulerRun runtime state without executable payloads", async () => {
+    root = await mkdtemp(join(tmpdir(), "aho-workflowgraph-replay-"));
+    const mem = memory(root);
+    const changePath = "harness/changes/active/change-a";
+    const run = schedulerRun();
+    await writeChangeMetadata(mem, changePath, "change-a");
+    await writeSchedulerRun(mem, changePath, run);
+    await writeSchedulerRuntimeState(mem, changePath, schedulerRuntimeState());
+    await appendSchedulerRuntimeEvent(mem, changePath, run, "scheduler-runtime.initialized", {
+      status: "initialized",
+      summary: "Scheduler runtime initialized.",
+      artifactRefs: ["scheduler-runtime-state.json"],
+    });
+    await writeControlledStep(mem, changePath, controlledStep());
+
+    const summary = await buildMainAgentWorkflowGraphReplaySummary(mem, project(), "change-a", {
+      changePath,
+      schedulerRunId: "scheduler-run-1",
+    });
+
+    expect(summary.controlledSchedulerStateBackflow).toMatchObject({
+      authority: "read-only-main-agent-controlled-scheduler-state-backflow",
+      executionStarted: false,
+      schedulerRun: { id: "scheduler-run-1", status: "prepared" },
+      runtimeState: { id: "scheduler-runtime-state-1", status: "initialized" },
+      latestRuntimeEvent: {
+        type: "scheduler-runtime.initialized",
+        status: "initialized",
+        summary: "Scheduler runtime initialized.",
+      },
+      controlledStep: expect.objectContaining({ id: "controlled-step-1" }),
+    });
+    expect(summary.evidenceHealth).toEqual(expect.arrayContaining([
+      expect.objectContaining({ source: "controlled-scheduler-state", status: "available" }),
+    ]));
+    expect(summary.refs.schedulerRunIds).toEqual(["scheduler-run-1"]);
+    const serialized = JSON.stringify(summary.controlledSchedulerStateBackflow);
+    expect(serialized).not.toContain("actionType");
+    expect(serialized).not.toContain("confirmationQueue");
+    expect(serialized).not.toContain("recommendedAction");
+    expect(serialized).not.toContain("result.apply");
+    expect(serialized).not.toContain("change.close");
+  });
+
+  it("reports missing Scheduler runtime state as a bounded backflow gap", async () => {
+    root = await mkdtemp(join(tmpdir(), "aho-workflowgraph-replay-"));
+    const mem = memory(root);
+    const changePath = "harness/changes/active/change-a";
+    await writeChangeMetadata(mem, changePath, "change-a");
+    await writeSchedulerRun(mem, changePath, schedulerRun());
+
+    const summary = await buildMainAgentWorkflowGraphReplaySummary(mem, project(), "change-a", {
+      changePath,
+      schedulerRunId: "scheduler-run-1",
+    });
+
+    expect(summary.controlledSchedulerStateBackflow.schedulerRun?.id).toBe("scheduler-run-1");
+    expect(summary.controlledSchedulerStateBackflow.runtimeState).toBeNull();
+    expect(summary.evidenceHealth).toEqual(expect.arrayContaining([
+      expect.objectContaining({ source: "controlled-scheduler-state", status: "missing" }),
+    ]));
+    expect(summary.gaps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ source: "controlled-scheduler-state", status: "missing" }),
+    ]));
+  });
 });
 
 async function writeControlledStep(
@@ -228,6 +317,22 @@ async function writeControlledStep(
   const dir = schedulerControlledStepsDir(mem, changePath, step.schedulerRunId);
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, `${step.id}.json`), JSON.stringify(step), "utf8");
+}
+
+async function writeUnscopedControlledStep(
+  mem: ResolvedMemory,
+  changePath: string,
+  step: SchedulerControlledStepEvidence,
+): Promise<void> {
+  const dir = schedulerControlledStepsDir(mem, changePath);
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, `${step.id}.json`), JSON.stringify(step), "utf8");
+}
+
+async function writeChangeMetadata(mem: ResolvedMemory, changePath: string, changeId: string): Promise<void> {
+  const dir = join(mem.memoryRoot, changePath);
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, "change.json"), JSON.stringify({ version: "1.0", id: changeId, title: changeId, state: "active" }), "utf8");
 }
 
 function controlledStep(overrides: Partial<SchedulerControlledStepEvidence> = {}): SchedulerControlledStepEvidence {
@@ -315,6 +420,68 @@ function controlledStep(overrides: Partial<SchedulerControlledStepEvidence> = {}
     updatedAt: "2026-07-01T00:02:00.000Z",
   };
   return { ...base, ...overrides };
+}
+
+function schedulerRun(overrides: Partial<SchedulerRun> = {}): SchedulerRun {
+  return {
+    version: "1.0",
+    id: "scheduler-run-1",
+    changeId: "change-a",
+    status: "prepared",
+    schedulerMode: "parallel-readiness-v1",
+    schedulerContractId: "scheduler-contract-1",
+    schedulerDispatchDryRunId: "scheduler-dry-run-1",
+    schedulerWorkerPlanId: "scheduler-worker-plan-1",
+    schedulerClaimReconcilePlanId: "scheduler-claim-reconcile-1",
+    schedulerLaunchPreflightId: "scheduler-launch-preflight-1",
+    decompositionPlanId: "decomp-1",
+    readinessManifestId: "ready-1",
+    claimIntentCount: 2,
+    plannedSlotDemand: 2,
+    maxPlannedWaveWidth: 2,
+    blockedCount: 0,
+    humanConfirmed: true,
+    futureToolPolicyGateRequired: true,
+    futureHumanGateRequired: true,
+    sourceArtifactHashes: {},
+    artifactRefs: ["scheduler-run-ref"],
+    artifact: "scheduler-runs/scheduler-run-1.json",
+    markdownArtifact: "scheduler-runs/scheduler-run-1.md",
+    journalArtifact: "scheduler-runs/scheduler-run-1.jsonl",
+    createdAt: "2026-07-01T00:00:00.000Z",
+    updatedAt: "2026-07-01T00:01:00.000Z",
+    ...overrides,
+  };
+}
+
+function schedulerRuntimeState(overrides: Partial<SchedulerRuntimeState> = {}): SchedulerRuntimeState {
+  return {
+    version: "1.0",
+    id: "scheduler-runtime-state-1",
+    changeId: "change-a",
+    schedulerRunId: "scheduler-run-1",
+    schedulerMode: "parallel-readiness-v1",
+    status: "initialized",
+    schedulerContractId: "scheduler-contract-1",
+    schedulerDispatchDryRunId: "scheduler-dry-run-1",
+    schedulerWorkerPlanId: "scheduler-worker-plan-1",
+    schedulerClaimReconcilePlanId: "scheduler-claim-reconcile-1",
+    schedulerLaunchPreflightId: "scheduler-launch-preflight-1",
+    decompositionPlanId: "decomp-1",
+    readinessManifestId: "ready-1",
+    claimIntents: [],
+    waves: [],
+    plannedSlotDemand: 2,
+    maxPlannedWaveWidth: 2,
+    blockedCount: 0,
+    sourceArtifactHashes: {},
+    artifactRefs: ["scheduler-runtime-state-ref"],
+    artifact: "scheduler-runtime/scheduler-runtime-state.json",
+    eventsArtifact: "scheduler-runtime/events.jsonl",
+    createdAt: "2026-07-01T00:00:00.000Z",
+    updatedAt: "2026-07-01T00:01:00.000Z",
+    ...overrides,
+  };
 }
 
 function workflowRun(overrides: Partial<WorkflowRun> = {}): WorkflowRun {

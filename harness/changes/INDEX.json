@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-07-01T09:26:35.5592604Z",
+    "generated_at":  "2026-07-01T10:14:08.7917566Z",
     "active":  [
 
                ],
@@ -2329,6 +2329,10 @@
                     {
                         "name":  "20260701-main-agent-controlled-scheduler-result-policy-consumption-v1",
                         "path":  "harness/changes/archive/20260701-main-agent-controlled-scheduler-result-policy-consumption-v1"
+                    },
+                    {
+                        "name":  "20260701-main-agent-controlled-scheduler-state-backflow-v1a",
+                        "path":  "harness/changes/archive/20260701-main-agent-controlled-scheduler-state-backflow-v1a"
                     },
                     {
                         "name":  "20260701-main-agent-controlled-scheduler-step-ownership-bridge-v1",

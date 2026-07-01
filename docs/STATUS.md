@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260701-main-agent-controlled-scheduler-state-backflow-v1a/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260701-main-agent-controlled-scheduler-result-policy-consumption-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260701-main-agent-controlled-scheduler-step-ownership-bridge-v1/summary.md`.
@@ -171,21 +173,20 @@
 
 ## Latest Product Closeout
 
-`harness/changes/archive/20260701-main-agent-controlled-scheduler-result-policy-consumption-v1/summary.md`.
+`harness/changes/archive/20260701-main-agent-controlled-scheduler-state-backflow-v1a/summary.md`.
 
-It adds read-only consumption of existing controlled Scheduler step evidence to
-main-agent WorkflowGraph replay/policy. Replay now exposes a bounded
-`controlledScheduler` summary with latest step id, SchedulerRun id, executed
-action label, route posture, continuation readiness, post-step handoff, result
-summary, evidence refs, and health/gap status. The strict reader distinguishes
-missing, malformed, old-schema, scope-mismatch, stale, and recorded-with-warning
-states; malformed and warning evidence cannot masquerade as normal readiness.
-Policy consumes only the replay summary and emits observation posture, not
-Scheduler action payloads or confirmation payloads. Canonical WorkflowRun /
-TaskQueue / TaskRun / AgentTask state remains authoritative.
+It fixes controlled Scheduler replay so expected SchedulerRun mismatch evidence
+surfaces as an unsafe stale/scope gap, then adds a read-only in-memory
+controlled Scheduler state backflow summary for the latest same-Change
+SchedulerRun, SchedulerRuntimeState, latest runtime event, and controlled step
+refs. The summary is observation input only; it does not execute Scheduler,
+create gates, start workers, create WorkerLease / IntegrationCheck, or affect
+UI, confirmation queue, action registry, automation, apply/close, remote, PR,
+merge, or Harness evolution authority. Canonical WorkflowRun / TaskQueue /
+TaskRun / AgentTask state remains authoritative.
 
 Previous closeout:
-`harness/changes/archive/20260701-main-agent-controlled-scheduler-step-ownership-bridge-v1/summary.md`.
+`harness/changes/archive/20260701-main-agent-controlled-scheduler-result-policy-consumption-v1/summary.md`.
 
 It moves `planning.scheduler.controlled-advance.run` behind
 `runMainAgentControlledSchedulerStep(...)`. The Workbench handler now resolves

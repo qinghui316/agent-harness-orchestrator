@@ -69,6 +69,13 @@ export async function buildControlledSchedulerStepReplaySummary(input: {
           ...unscoped.health.reasons,
           `Controlled Scheduler step evidence is not scoped to expected SchedulerRun ${expectedSchedulerRunId}.`,
         ],
+        issues: [
+          ...(unscoped.health.issues ?? []),
+          {
+            status: unscoped.health.status === "available" ? "stale" : unscoped.health.status,
+            reason: `Controlled Scheduler step evidence is not scoped to expected SchedulerRun ${expectedSchedulerRunId}.`,
+          },
+        ],
       });
       return {
         latestStep: null,

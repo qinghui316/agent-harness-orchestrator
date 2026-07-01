@@ -16,6 +16,10 @@ import {
   type ControlledSchedulerStepReplaySummary,
 } from "./controlled-scheduler-step-replay.js";
 import {
+  buildMainAgentControlledSchedulerStateBackflow,
+  type MainAgentControlledSchedulerStateBackflowSummary,
+} from "./controlled-scheduler-state-backflow.js";
+import {
   mainAgentWorkflowGraphDecisionsPath,
   observeMainAgentWorkflowGraph,
   type MainAgentWorkflowGraphDecisionKind,
@@ -38,7 +42,7 @@ export type MainAgentWorkflowGraphReplayCurrentKind =
   | "unavailable";
 
 export interface MainAgentReplayEvidenceHealth {
-  source: "canonical-observation" | "workflowgraph-decisions" | "loop-runs" | "queue-decisions" | "role-loop-decisions" | "role-loop-events" | "controlled-scheduler-step" | "replay-summary";
+  source: "canonical-observation" | "workflowgraph-decisions" | "loop-runs" | "queue-decisions" | "role-loop-decisions" | "role-loop-events" | "controlled-scheduler-step" | "controlled-scheduler-state" | "replay-summary";
   status: MainAgentReplayEvidenceHealthStatus;
   count: number;
   reasons: string[];
@@ -104,6 +108,7 @@ export interface MainAgentWorkflowGraphReplaySummary {
     mainAgentLoopRunIds: string[];
     workflowRunIds: string[];
     taskQueueRunIds: string[];
+    schedulerRunIds: string[];
     schedulerControlledStepIds: string[];
     taskRunIds: string[];
     agentTaskIds: string[];
@@ -118,6 +123,7 @@ export interface MainAgentWorkflowGraphReplaySummary {
     reasons: string[];
     artifactRefs: string[];
   };
+  controlledSchedulerStateBackflow: MainAgentControlledSchedulerStateBackflowSummary;
   nextObservation: {
     kind: MainAgentWorkflowGraphDecisionPolicyKind;
     reason: string;
@@ -135,6 +141,7 @@ const refsSchema = z.object({
   workflowRunIds: z.array(z.string()).optional().default([]),
   taskQueueRunIds: z.array(z.string()).optional().default([]),
   taskQueueItemIds: z.array(z.string()).optional().default([]),
+  schedulerRunIds: z.array(z.string()).optional().default([]),
   schedulerControlledStepIds: z.array(z.string()).optional().default([]),
   taskRunIds: z.array(z.string()).optional().default([]),
   agentTaskIds: z.array(z.string()).optional().default([]),
@@ -285,6 +292,13 @@ export async function buildMainAgentWorkflowGraphReplaySummary(
     changeId,
     expectedSchedulerRunId: options.schedulerRunId,
   });
+  const controlledSchedulerStateBackflow = await buildMainAgentControlledSchedulerStateBackflow({
+    memory,
+    project,
+    changeId,
+    changePath: options.changePath,
+    schedulerRunId: options.schedulerRunId,
+  });
   const evidenceHealth = [
     canonicalHealth,
     workflowGraphHistory.health,
@@ -293,6 +307,7 @@ export async function buildMainAgentWorkflowGraphReplaySummary(
     roleDecisions.health,
     roleEvents.health,
     controlledScheduler.health,
+    controlledSchedulerStateBackflow.health,
   ];
   const refs = mergeRefs(
     observation.refs,
@@ -304,6 +319,7 @@ export async function buildMainAgentWorkflowGraphReplaySummary(
       mainAgentLoopRunIds: loopDiscovery.ids,
       workflowRunIds: latestWorkflow ? [latestWorkflow.id] : [],
       taskQueueRunIds: dedupeStrings([latestQueue?.queue.id, ...allQueues.map((queue) => queue.id)]),
+      schedulerRunIds: controlledSchedulerStateBackflow.schedulerRun ? [controlledSchedulerStateBackflow.schedulerRun.id] : [],
       schedulerControlledStepIds: controlledScheduler.latestStep ? [controlledScheduler.latestStep.id] : [],
       taskRunIds: taskRuns.map((run) => run.id),
       agentTaskIds: agentTasks.map((task) => task.id),
@@ -321,6 +337,7 @@ export async function buildMainAgentWorkflowGraphReplaySummary(
     ...roleDecisions.artifactRefs,
     ...roleEvents.artifactRefs,
     ...controlledScheduler.artifactRefs,
+    ...controlledSchedulerStateBackflow.artifactRefs,
   ]);
   const summaryCore: Omit<MainAgentWorkflowGraphReplaySummary, "nextObservation"> = {
     version: "1.0",
@@ -347,6 +364,7 @@ export async function buildMainAgentWorkflowGraphReplaySummary(
       reasons: controlledScheduler.health.reasons,
       artifactRefs: controlledScheduler.artifactRefs,
     },
+    controlledSchedulerStateBackflow,
   };
   const policy = evaluateMainAgentWorkflowGraphReplayPolicy(summaryCore);
   return {
@@ -406,6 +424,26 @@ export function buildDegradedMainAgentWorkflowGraphReplaySummary(
       expectedSchedulerRunId: null,
       healthStatus: "missing",
       reasons: ["Controlled Scheduler step replay was not attempted because replay summary derivation degraded."],
+      artifactRefs: [],
+    },
+    controlledSchedulerStateBackflow: {
+      version: "1.0",
+      authority: "read-only-main-agent-controlled-scheduler-state-backflow",
+      executionStarted: false,
+      changeId,
+      projectId: project.id,
+      expectedSchedulerRunId: null,
+      schedulerRun: null,
+      runtimeState: null,
+      latestRuntimeEvent: null,
+      controlledStep: null,
+      health: {
+        source: "controlled-scheduler-state",
+        status: "missing",
+        count: 0,
+        reasons: ["Controlled Scheduler state backflow was not attempted because replay summary derivation degraded."],
+        paths: [],
+      },
       artifactRefs: [],
     },
   };
@@ -767,6 +805,7 @@ function mergeRefsInto(target: MainAgentWorkflowGraphReplaySummary["refs"], refs
   target.mainAgentLoopRunIds = dedupeStrings([...target.mainAgentLoopRunIds, ...(refs.mainAgentLoopRunIds ?? [])]);
   target.workflowRunIds = dedupeStrings([...target.workflowRunIds, ...(refs.workflowRunIds ?? [])]);
   target.taskQueueRunIds = dedupeStrings([...target.taskQueueRunIds, ...(refs.taskQueueRunIds ?? [])]);
+  target.schedulerRunIds = dedupeStrings([...target.schedulerRunIds, ...(refs.schedulerRunIds ?? [])]);
   target.schedulerControlledStepIds = dedupeStrings([...target.schedulerControlledStepIds, ...(refs.schedulerControlledStepIds ?? [])]);
   target.taskRunIds = dedupeStrings([...target.taskRunIds, ...(refs.taskRunIds ?? [])]);
   target.agentTaskIds = dedupeStrings([...target.agentTaskIds, ...(refs.agentTaskIds ?? [])]);
@@ -780,6 +819,7 @@ function emptyRefs(): MainAgentWorkflowGraphReplaySummary["refs"] {
     mainAgentLoopRunIds: [],
     workflowRunIds: [],
     taskQueueRunIds: [],
+    schedulerRunIds: [],
     schedulerControlledStepIds: [],
     taskRunIds: [],
     agentTaskIds: [],

@@ -398,6 +398,32 @@ describe("Workbench module boundaries", () => {
     expect(controlledSchedulerStepReplay).not.toContain("appendFile");
     expect(controlledSchedulerStepReplay).not.toContain("SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES");
 
+    const controlledSchedulerStateBackflow = readFileSync(join(process.cwd(), "src/main-agent-orchestration/controlled-scheduler-state-backflow.ts"), "utf8");
+    expect(controlledSchedulerStateBackflow).toContain("read-only-main-agent-controlled-scheduler-state-backflow");
+    expect(controlledSchedulerStateBackflow).toContain("executionStarted: false");
+    expect(controlledSchedulerStateBackflow).toContain("readLatestSchedulerRun");
+    expect(controlledSchedulerStateBackflow).toContain("readSchedulerRuntimeState");
+    expect(controlledSchedulerStateBackflow).toContain("readSchedulerRuntimeEvents");
+    expect(controlledSchedulerStateBackflow).toContain("buildControlledSchedulerStepReplaySummary");
+    expect(controlledSchedulerStateBackflow).not.toContain("controlled-loop-step");
+    expect(controlledSchedulerStateBackflow).not.toContain("../workbench/");
+    expect(controlledSchedulerStateBackflow).not.toContain("../server/");
+    expect(controlledSchedulerStateBackflow).not.toContain("../workbench/actions/");
+    expect(controlledSchedulerStateBackflow).not.toContain("../scheduler-runtime/manager");
+    expect(controlledSchedulerStateBackflow).not.toContain("../scheduler-runtime/initialize");
+    expect(controlledSchedulerStateBackflow).not.toContain("../scheduler-runtime/reconcile");
+    expect(controlledSchedulerStateBackflow).not.toContain("../scheduler-runtime/worker-start");
+    expect(controlledSchedulerStateBackflow).not.toContain("../scheduler-runtime/worker-result");
+    expect(controlledSchedulerStateBackflow).not.toContain("../scheduler-runtime/worker-validation");
+    expect(controlledSchedulerStateBackflow).not.toContain("../scheduler-runtime/worker-audit");
+    expect(controlledSchedulerStateBackflow).not.toContain("../scheduler-runtime/integration");
+    expect(controlledSchedulerStateBackflow).not.toContain("../workflow-runtime/");
+    expect(controlledSchedulerStateBackflow).not.toContain("../apply/");
+    expect(controlledSchedulerStateBackflow).not.toContain("../terminal");
+    expect(controlledSchedulerStateBackflow).not.toContain("writeJsonFile");
+    expect(controlledSchedulerStateBackflow).not.toContain("appendFile");
+    expect(controlledSchedulerStateBackflow).not.toContain("SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES");
+
     const workflowGraphReplayConsumption = readFileSync(join(process.cwd(), "src/main-agent-orchestration/workflowgraph-replay-consumption.ts"), "utf8");
     expect(workflowGraphReplayConsumption).toContain("recordMainAgentWorkflowGraphObservation");
     expect(workflowGraphReplayConsumption).toContain("buildMainAgentWorkflowGraphReplaySummary");
