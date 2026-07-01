@@ -18,6 +18,9 @@ describe("main-agent Scheduler candidate assessment", () => {
     expect(result.executionStarted).toBe(false);
     expect(result.kind).toBe("candidate-signal-observed");
     expect(result.schedulerSignal.lowConflictEvidencePresent).toBe(true);
+    expect(result.schedulerSignal.source).toBe("readiness-contract");
+    expect(result.schedulerSignal.readinessNextAllowedAction).toBe("scheduler.contract");
+    expect(result.schedulerSignal.readinessSchedulerEligible).toBe(true);
     expect(result.refs.readinessManifestIds).toEqual(["ready-1"]);
     const serialized = JSON.stringify(result);
     expect(serialized).not.toContain("actionType");
@@ -48,6 +51,45 @@ describe("main-agent Scheduler candidate assessment", () => {
 
     expect(result.kind).toBe("sequential-only");
     expect(result.schedulerSignal.source).toBe("none");
+  });
+
+  it("requires scheduler.contract as the next allowed action", () => {
+    const result = assess({
+      readinessStatus: "ready-for-scheduler-contract",
+      readinessManifestId: "ready-wrong-action",
+      readinessNextAllowedAction: "taskqueue.proposal",
+      readinessSchedulerEligible: true,
+    });
+
+    expect(result.kind).toBe("wait-for-evidence");
+    expect(result.schedulerSignal.lowConflictEvidencePresent).toBe(false);
+    expect(result.reason).toContain("taskqueue.proposal");
+  });
+
+  it("requires schedulerEligible to be true", () => {
+    const result = assess({
+      readinessStatus: "ready-for-scheduler-contract",
+      readinessManifestId: "ready-not-eligible",
+      readinessNextAllowedAction: "scheduler.contract",
+      readinessSchedulerEligible: false,
+    });
+
+    expect(result.kind).toBe("not-low-conflict");
+    expect(result.schedulerSignal.lowConflictEvidencePresent).toBe(false);
+  });
+
+  it("fails closed on old readiness summary schema without scheduler fields", () => {
+    const result = assess({
+      readinessStatus: "ready-for-scheduler-contract",
+      readinessManifestId: "ready-old-schema",
+      omitSchedulerReadinessFields: true,
+    });
+
+    expect(result.kind).toBe("stale");
+    expect(result.schedulerSignal.lowConflictEvidencePresent).toBe(false);
+    expect(result.gaps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ source: "scheduler-readiness", status: "old-schema" }),
+    ]));
   });
 
   it("treats blocked parallel guardrails as not low conflict", () => {
@@ -103,6 +145,9 @@ describe("main-agent Scheduler candidate assessment", () => {
 function assess(input: {
   readinessStatus?: string | null;
   readinessManifestId?: string | null;
+  readinessNextAllowedAction?: MainAgentWorkflowGraphDecisionEvidence["observation"]["stage"]["readinessNextAllowedAction"];
+  readinessSchedulerEligible?: boolean | null;
+  omitSchedulerReadinessFields?: boolean;
   observation?: Partial<MainAgentWorkflowGraphDecisionEvidence["observation"]>;
   replay?: Partial<MainAgentWorkflowGraphReplaySummary> & {
     currentState?: Partial<MainAgentWorkflowGraphReplaySummary["currentState"]>;
@@ -128,10 +173,15 @@ function assess(input: {
 function observationEvidenceFixture(input: {
   readinessStatus?: string | null;
   readinessManifestId?: string | null;
+  readinessNextAllowedAction?: MainAgentWorkflowGraphDecisionEvidence["observation"]["stage"]["readinessNextAllowedAction"];
+  readinessSchedulerEligible?: boolean | null;
+  omitSchedulerReadinessFields?: boolean;
   observation?: Partial<MainAgentWorkflowGraphDecisionEvidence["observation"]>;
 }): MainAgentWorkflowGraphDecisionEvidence {
   const readinessStatus = input.readinessStatus === undefined ? "ready-for-scheduler-contract" : input.readinessStatus;
   const readinessManifestId = input.readinessManifestId === undefined ? "ready-1" : input.readinessManifestId;
+  const readinessNextAllowedAction = input.readinessNextAllowedAction === undefined ? "scheduler.contract" : input.readinessNextAllowedAction;
+  const readinessSchedulerEligible = input.readinessSchedulerEligible === undefined ? true : input.readinessSchedulerEligible;
   const observation: MainAgentWorkflowGraphDecisionEvidence["observation"] = {
     version: "1.0",
     changeId: "change-a",
@@ -142,6 +192,8 @@ function observationEvidenceFixture(input: {
       decompositionPlanStatus: "confirmed",
       readinessManifestId,
       readinessStatus,
+      readinessNextAllowedAction,
+      readinessSchedulerEligible,
       taskQueueProposalId: null,
       taskQueueProposalStatus: null,
       workflowGraphPlanId: null,
@@ -169,6 +221,10 @@ function observationEvidenceFixture(input: {
     ...input.observation,
   };
   if (input.observation?.stage) observation.stage = { ...observation.stage, ...input.observation.stage };
+  if (input.omitSchedulerReadinessFields) {
+    delete (observation.stage as Partial<MainAgentWorkflowGraphDecisionEvidence["observation"]["stage"]>).readinessNextAllowedAction;
+    delete (observation.stage as Partial<MainAgentWorkflowGraphDecisionEvidence["observation"]["stage"]>).readinessSchedulerEligible;
+  }
   if (input.observation?.queue) observation.queue = { ...observation.queue, ...input.observation.queue };
   if (input.observation?.freshness) observation.freshness = { ...observation.freshness, ...input.observation.freshness };
   return {

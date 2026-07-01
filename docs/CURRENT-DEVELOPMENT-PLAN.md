@@ -11,6 +11,18 @@ The user should not need to know internal terms before asking for work. The main
 ## Goal-Driven Workflow Loop Target
 
 Latest implementation slice:
+`harness/changes/archive/20260701-main-agent-controlled-scheduler-integration-v1/summary.md`.
+It hardens Scheduler candidate observation by requiring fresh same-Change
+readiness evidence to agree on `status === "ready-for-scheduler-contract"`,
+`nextAllowedAction === "scheduler.contract"`, and
+`schedulerEligible === true`. It also adds a non-executing controlled route
+summary that says future parallel work must use the existing controlled
+Scheduler owner. It does not create Scheduler action payloads, connect the
+main-agent action bridge, start workers, dispatch SchedulerRun, create
+WorkerLease / IntegrationCheck, or affect UI, confirmation queue, automation,
+apply/close, remote, PR, merge, or Harness evolution authority.
+
+Previous completed implementation slice:
 `harness/changes/archive/20260701-main-agent-scheduler-candidate-assessment-v1/summary.md`.
 It adds the non-executing `MainAgentSchedulerCandidateAssessment` layer on top
 of WorkflowGraph replay/recovery. The assessment labels only whether fresh
@@ -139,15 +151,18 @@ loop, WorkflowGraph observation evidence, replay summary builder,
 non-executing WorkflowGraph decision policy, centralized replay consumption,
 Policy V2 replay failure-boundary hardening, explicit bridge acceptance
 coverage for workflow and approval action paths, the read-only WorkflowGraph
-recovery evidence summary, and the non-executing Scheduler candidate
-assessment. Those layers still use deterministic policy. They are
+recovery evidence summary, the non-executing Scheduler candidate assessment,
+and the controlled Scheduler route hardening that keeps that candidate as a
+strict non-executing signal and routes future Scheduler work toward the
+existing controlled owner only. Those layers still use deterministic policy. They are
 architecture seams and evidence readers, not a free-form autonomous controller.
 
 Remaining migration should be split into reviewable structured changes:
 
-1. Parallel integration: connect existing SchedulerRun, WorkerLease, worktree,
-   and IntegrationCheck owners to the main-agent loop while preserving one
-   human gate per high-impact transition and stopping at integration
+1. Parallel integration through the existing controlled Scheduler owner:
+   connect SchedulerRun, WorkerLease, worktree, and IntegrationCheck owners to
+   the main-agent loop only through the controlled Scheduler path, preserving
+   one human gate per high-impact transition and stopping at integration
    apply/discard.
 2. Old seam retirement: remove obsolete projections, compatibility aliases,
    and duplicated read paths such as legacy pipeline naming once replacement
@@ -299,19 +314,20 @@ Current structured change: none.
 
 Pending Harness evolution: none.
 
-Recommended next architecture step: `Parallel integration` for the main-agent
-WorkflowGraph loop. It should connect existing SchedulerRun, WorkerLease,
-worker validation/audit/rework, and IntegrationCheck owners to the main-agent
-loop while preserving one human gate per high-impact transition and stopping
-at integration apply/discard. The existing Scheduler candidate assessment is
-only an observation signal; it must not dispatch workers or start parallel
-execution by itself.
+Recommended next architecture step: `Parallel integration` through the
+existing controlled Scheduler owner. It should connect existing SchedulerRun,
+WorkerLease, worker validation/audit/rework, and IntegrationCheck owners to the
+main-agent loop only through the controlled Scheduler path while preserving one
+human gate per high-impact transition and stopping at integration
+apply/discard. The candidate assessment and controlled route are observation
+signals only; they must not dispatch workers or start parallel execution by
+themselves.
 
 Desktop product-layer work can continue when selected, but it is no longer the
 default next step for the current main-agent architecture migration.
 
 Latest product change:
-`harness/changes/archive/20260701-main-agent-scheduler-candidate-assessment-v1/summary.md`.
+`harness/changes/archive/20260701-main-agent-controlled-scheduler-integration-v1/summary.md`.
 
 Latest docs/architecture change:
 `harness/changes/archive/20260629-document-aho-hybrid-desktop-native-roadmap-v1/summary.md`.

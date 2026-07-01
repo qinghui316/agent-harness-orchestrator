@@ -35,6 +35,8 @@ export interface MainAgentWorkflowGraphArtifactSummary {
   decompositionPlanStatus: string | null;
   readinessManifestId: string | null;
   readinessStatus: string | null;
+  readinessNextAllowedAction: DecompositionReadinessManifest["nextAllowedAction"] | null;
+  readinessSchedulerEligible: boolean | null;
   taskQueueProposalId: string | null;
   taskQueueProposalStatus: string | null;
   workflowGraphPlanId: string | null;
@@ -125,6 +127,8 @@ const artifactSummarySchema = z.object({
   decompositionPlanStatus: z.string().nullable(),
   readinessManifestId: z.string().nullable(),
   readinessStatus: z.string().nullable(),
+  readinessNextAllowedAction: z.enum(["code.run", "taskqueue.proposal", "scheduler.contract", "clarification.answer", "none"]).nullable().optional().default(null),
+  readinessSchedulerEligible: z.boolean().nullable().optional().default(null),
   taskQueueProposalId: z.string().nullable(),
   taskQueueProposalStatus: z.string().nullable(),
   workflowGraphPlanId: z.string().nullable(),
@@ -367,6 +371,8 @@ function summarizeArtifacts(artifacts: WorkflowGraphArtifacts): MainAgentWorkflo
     decompositionPlanStatus: artifacts.decompositionPlan?.status ?? null,
     readinessManifestId: artifacts.readiness?.id ?? null,
     readinessStatus: artifacts.readiness?.status ?? null,
+    readinessNextAllowedAction: artifacts.readiness?.nextAllowedAction ?? null,
+    readinessSchedulerEligible: artifacts.readiness?.schedulerEligible ?? null,
     taskQueueProposalId: artifacts.proposal?.id ?? null,
     taskQueueProposalStatus: artifacts.proposal?.status ?? null,
     workflowGraphPlanId: artifacts.graph?.id ?? null,

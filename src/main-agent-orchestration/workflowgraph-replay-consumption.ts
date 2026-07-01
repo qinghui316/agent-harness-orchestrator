@@ -19,12 +19,18 @@ import {
   buildMainAgentSchedulerCandidateAssessment,
   type MainAgentSchedulerCandidateAssessment,
 } from "./scheduler-candidate-assessment.js";
+import {
+  buildDegradedMainAgentControlledSchedulerRoute,
+  buildMainAgentControlledSchedulerRoute,
+  type MainAgentControlledSchedulerRoute,
+} from "./controlled-scheduler-integration.js";
 
 export interface MainAgentWorkflowGraphObservationReplayResult {
   observationEvidence: MainAgentWorkflowGraphDecisionEvidence;
   replaySummary: MainAgentWorkflowGraphReplaySummary;
   recoverySummary: MainAgentWorkflowGraphRecoverySummary;
   schedulerCandidateAssessment: MainAgentSchedulerCandidateAssessment;
+  controlledSchedulerRoute: MainAgentControlledSchedulerRoute;
 }
 
 export async function recordMainAgentWorkflowGraphObservationAndReplay(
@@ -65,7 +71,21 @@ export async function recordMainAgentWorkflowGraphObservationAndReplay(
       `Scheduler candidate assessment derivation failed: ${errorMessage(error)}.`,
     ),
   );
-  return { observationEvidence, replaySummary, recoverySummary, schedulerCandidateAssessment };
+  const controlledSchedulerRoute = await (async () => buildMainAgentControlledSchedulerRoute({
+    project,
+    changeId,
+    replaySummary,
+    recoverySummary,
+    schedulerCandidateAssessment,
+  }))().catch((error) =>
+    buildDegradedMainAgentControlledSchedulerRoute(
+      project,
+      changeId,
+      schedulerCandidateAssessment,
+      `Controlled scheduler route derivation failed: ${errorMessage(error)}.`,
+    ),
+  );
+  return { observationEvidence, replaySummary, recoverySummary, schedulerCandidateAssessment, controlledSchedulerRoute };
 }
 
 function errorMessage(error: unknown): string {

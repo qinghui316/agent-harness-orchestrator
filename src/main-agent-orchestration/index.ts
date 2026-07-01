@@ -94,6 +94,11 @@ export {
   type MainAgentSchedulerCandidateGap,
 } from "./scheduler-candidate-assessment.js";
 export {
+  buildMainAgentControlledSchedulerRoute,
+  type MainAgentControlledSchedulerRoute,
+  type MainAgentControlledSchedulerRouteKind,
+} from "./controlled-scheduler-integration.js";
+export {
   recordMainAgentWorkflowGraphObservationAndReplay,
   type MainAgentWorkflowGraphObservationReplayResult,
 } from "./workflowgraph-replay-consumption.js";

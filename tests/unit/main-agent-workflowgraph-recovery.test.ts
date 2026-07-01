@@ -135,6 +135,8 @@ describe("main-agent WorkflowGraph recovery summary", () => {
     expect(result.recoverySummary.executionStarted).toBe(false);
     expect(result.schedulerCandidateAssessment.authority).toBe("non-executing-main-agent-scheduler-candidate-assessment");
     expect(result.schedulerCandidateAssessment.executionStarted).toBe(false);
+    expect(result.controlledSchedulerRoute.authority).toBe("non-executing-main-agent-controlled-scheduler-route");
+    expect(result.controlledSchedulerRoute.executionStarted).toBe(false);
   });
 });
 

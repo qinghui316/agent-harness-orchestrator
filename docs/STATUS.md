@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260701-main-agent-controlled-scheduler-integration-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260701-main-agent-scheduler-candidate-assessment-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260701-main-agent-workflowgraph-recovery-evidence-summary-v1/summary.md`.
@@ -159,6 +161,18 @@
 
 ## Latest Product Closeout
 
+`harness/changes/archive/20260701-main-agent-controlled-scheduler-integration-v1/summary.md`.
+
+It hardens Scheduler candidate observation so a candidate exists only when
+fresh same-Change readiness evidence agrees on scheduler status, the
+`scheduler.contract` next allowed action, and `schedulerEligible === true`.
+It also adds a non-executing controlled route summary that points future
+parallel integration to the existing controlled Scheduler owner. It does not
+generate Scheduler action payloads, dispatch workers, create SchedulerRun /
+WorkerLease / IntegrationCheck, alter UI, or change confirmation queue,
+automation, apply/close, remote, PR, merge, or Harness evolution authority.
+
+Previous closeout:
 `harness/changes/archive/20260701-main-agent-scheduler-candidate-assessment-v1/summary.md`.
 
 It adds the non-executing `MainAgentSchedulerCandidateAssessment` under the
@@ -570,11 +584,11 @@ Harness workflow truth.
 ## Next Resume Point
 
 Main-agent architecture work should continue with parallel integration only
-after a separate structured change: connect existing SchedulerRun,
+through the existing controlled Scheduler owner: connect SchedulerRun,
 WorkerLease, worker validation/audit/rework, and IntegrationCheck owners to the
 main-agent loop while preserving one human gate per high-impact transition.
-The existing candidate assessment is an observation signal only and must not
-dispatch workers.
+The candidate assessment and controlled route are observation signals only and
+must not dispatch workers.
 
 Desktop product work can continue from
 `docs/design-docs/ref-desktop-cc-gui.md` when selected, but it is no longer the

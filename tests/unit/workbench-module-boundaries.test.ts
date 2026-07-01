@@ -221,9 +221,35 @@ describe("Workbench module boundaries", () => {
     expect(source).not.toContain("runIntegrationCheck");
     expect(source).not.toContain("writeScheduler");
 
+    const controlledSchedulerRoute = readFileSync(join(process.cwd(), "src/main-agent-orchestration/controlled-scheduler-integration.ts"), "utf8");
+    expect(controlledSchedulerRoute).toContain("non-executing-main-agent-controlled-scheduler-route");
+    expect(controlledSchedulerRoute).toContain("executionStarted: false");
+    expect(controlledSchedulerRoute).toContain("use-existing-controlled-scheduler-path");
+    expect(controlledSchedulerRoute).toContain("existing-controlled-scheduler-owner");
+    expect(controlledSchedulerRoute).not.toContain("../workflow-scheduler/");
+    expect(controlledSchedulerRoute).not.toContain("../scheduler-runtime/");
+    expect(controlledSchedulerRoute).not.toContain("../workbench/");
+    expect(controlledSchedulerRoute).not.toContain("../server/");
+    expect(controlledSchedulerRoute).not.toContain("../workflow-runtime/");
+    expect(controlledSchedulerRoute).not.toContain("../apply/");
+    expect(controlledSchedulerRoute).not.toContain("../terminal");
+    expect(controlledSchedulerRoute).not.toContain("confirmationQueue");
+    expect(controlledSchedulerRoute).not.toContain("automation");
+    expect(controlledSchedulerRoute).not.toContain("actionType");
+    expect(controlledSchedulerRoute).not.toContain("planning.scheduler.");
+    expect(controlledSchedulerRoute).not.toContain("compileScheduler");
+    expect(controlledSchedulerRoute).not.toContain("compileSchedulerDispatchDryRun");
+    expect(controlledSchedulerRoute).not.toContain("prepareSchedulerRun");
+    expect(controlledSchedulerRoute).not.toContain("dispatch");
+    expect(controlledSchedulerRoute).not.toContain("startWorker");
+    expect(controlledSchedulerRoute).not.toContain("runIntegrationCheck");
+    expect(controlledSchedulerRoute).not.toContain("writeScheduler");
+
     const helper = readFileSync(join(process.cwd(), "src/main-agent-orchestration/workflowgraph-replay-consumption.ts"), "utf8");
     expect(helper).toContain("schedulerCandidateAssessment");
     expect(helper).toContain("buildMainAgentSchedulerCandidateAssessment");
+    expect(helper).toContain("controlledSchedulerRoute");
+    expect(helper).toContain("buildMainAgentControlledSchedulerRoute");
     expect(helper).not.toContain("../workflow-scheduler/");
     expect(helper).not.toContain("../scheduler-runtime/");
   });

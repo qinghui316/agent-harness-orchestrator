@@ -53,7 +53,9 @@ export interface MainAgentSchedulerCandidateAssessment {
   schedulerSignal: {
     readinessStatus: string | null;
     readinessManifestId: string | null;
-    source: "readiness-status" | "none";
+    readinessNextAllowedAction: MainAgentWorkflowGraphDecisionEvidence["observation"]["stage"]["readinessNextAllowedAction"];
+    readinessSchedulerEligible: boolean | null;
+    source: "readiness-contract" | "none";
     lowConflictEvidencePresent: boolean;
   };
   refs: {
@@ -79,10 +81,14 @@ export function buildMainAgentSchedulerCandidateAssessment(
 ): MainAgentSchedulerCandidateAssessment {
   const readinessStatus = input.observationEvidence.observation.stage.readinessStatus;
   const readinessManifestId = input.observationEvidence.observation.stage.readinessManifestId;
+  const readinessNextAllowedAction = input.observationEvidence.observation.stage.readinessNextAllowedAction;
+  const readinessSchedulerEligible = input.observationEvidence.observation.stage.readinessSchedulerEligible;
   const gaps = buildGaps(input);
   const refs = buildRefs(input, readinessManifestId);
   const kindAndReason = deriveAssessmentKind({
     readinessStatus,
+    readinessNextAllowedAction,
+    readinessSchedulerEligible,
     observationEvidence: input.observationEvidence,
     replaySummary: input.replaySummary,
     recoverySummary: input.recoverySummary,
@@ -110,7 +116,9 @@ export function buildMainAgentSchedulerCandidateAssessment(
     schedulerSignal: {
       readinessStatus,
       readinessManifestId,
-      source: readinessStatus === "ready-for-scheduler-contract" ? "readiness-status" : "none",
+      readinessNextAllowedAction,
+      readinessSchedulerEligible,
+      source: kindAndReason.kind === "candidate-signal-observed" ? "readiness-contract" : "none",
       lowConflictEvidencePresent: kindAndReason.kind === "candidate-signal-observed",
     },
     refs,
@@ -147,6 +155,8 @@ export function buildDegradedMainAgentSchedulerCandidateAssessment(
     schedulerSignal: {
       readinessStatus: null,
       readinessManifestId: null,
+      readinessNextAllowedAction: null,
+      readinessSchedulerEligible: null,
       source: "none",
       lowConflictEvidencePresent: false,
     },
@@ -168,6 +178,8 @@ export function buildDegradedMainAgentSchedulerCandidateAssessment(
 
 function deriveAssessmentKind(input: {
   readinessStatus: string | null;
+  readinessNextAllowedAction: MainAgentWorkflowGraphDecisionEvidence["observation"]["stage"]["readinessNextAllowedAction"];
+  readinessSchedulerEligible: boolean | null;
   observationEvidence: MainAgentWorkflowGraphDecisionEvidence;
   replaySummary: MainAgentWorkflowGraphReplaySummary;
   recoverySummary: MainAgentWorkflowGraphRecoverySummary;
@@ -199,9 +211,21 @@ function deriveAssessmentKind(input: {
           reason: "Scheduler readiness exists but WorkflowGraph artifact freshness is not current.",
         };
       }
+      if (input.readinessNextAllowedAction !== "scheduler.contract") {
+        return {
+          kind: "wait-for-evidence",
+          reason: `Scheduler readiness status is present, but next allowed action is ${input.readinessNextAllowedAction ?? "unknown"}.`,
+        };
+      }
+      if (input.readinessSchedulerEligible !== true) {
+        return {
+          kind: "not-low-conflict",
+          reason: "Scheduler readiness status is present, but schedulerEligible is not true.",
+        };
+      }
       return {
         kind: "candidate-signal-observed",
-        reason: "Fresh same-Change readiness evidence explicitly marks this graph as Scheduler-contract eligible.",
+        reason: "Fresh same-Change readiness evidence explicitly marks this graph as Scheduler-contract eligible through status, next allowed action, and schedulerEligible.",
       };
     case "ready-for-sequential-taskqueue-proposal":
     case "ready-for-single-change":
@@ -270,6 +294,16 @@ function buildGaps(input: BuildMainAgentSchedulerCandidateAssessmentInput): Main
       status: "missing",
       reason: "No DecompositionReadinessManifest is available.",
       refs: [],
+    });
+  } else if (
+    input.observationEvidence.observation.stage.readinessNextAllowedAction == null
+    || input.observationEvidence.observation.stage.readinessSchedulerEligible == null
+  ) {
+    gaps.push({
+      source: "scheduler-readiness",
+      status: "old-schema",
+      reason: "DecompositionReadinessManifest summary lacks nextAllowedAction or schedulerEligible.",
+      refs: dedupeStrings([input.observationEvidence.observation.stage.readinessManifestId]),
     });
   }
   if (input.observationEvidence.observation.freshness.status === "stale") {
