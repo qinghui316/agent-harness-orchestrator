@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-07-01T15:53:49.7566333Z",
+    "generated_at":  "2026-07-01T16:28:34.2410072Z",
     "active":  [
 
                ],
@@ -2413,6 +2413,10 @@
                     {
                         "name":  "20260701-main-agent-workflowgraph-replay-summary-builder-v1",
                         "path":  "harness/changes/archive/20260701-main-agent-workflowgraph-replay-summary-builder-v1"
+                    },
+                    {
+                        "name":  "20260702-main-agent-old-seam-retirement-v5d-inbound-only-action-alias-finalization",
+                        "path":  "harness/changes/archive/20260702-main-agent-old-seam-retirement-v5d-inbound-only-action-alias-finalization"
                     }
                 ]
 }

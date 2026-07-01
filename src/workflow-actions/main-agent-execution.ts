@@ -72,10 +72,6 @@ export function normalizeMainAgentExecutionAction(actionType: string | null | un
   return mainAgentExecutionAlias(actionType)?.canonical ?? null;
 }
 
-export function toLegacyMainAgentExecutionAction(actionType: string | null | undefined): MainAgentExecutionLegacyActionType | null {
-  return mainAgentExecutionAlias(actionType)?.legacy ?? null;
-}
-
 export function isMainAgentExecutionAction(actionType: string | null | undefined): actionType is MainAgentExecutionActionType {
   return normalizeMainAgentExecutionAction(actionType) !== null;
 }

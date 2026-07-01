@@ -229,7 +229,7 @@ describe("Workbench module boundaries", () => {
 
     const normalizer = readFileSync(join(process.cwd(), "src/workflow-actions/main-agent-execution.ts"), "utf8");
     expect(normalizer).toContain("normalizeMainAgentExecutionAction");
-    expect(normalizer).toContain("toLegacyMainAgentExecutionAction");
+    expect(normalizer).not.toContain("toLegacyMainAgentExecutionAction");
     expect(normalizer).toContain("isMainAgentExecutionAction");
     expect(normalizer).toContain("isMainAgentExecutionStopAction");
     expect(normalizer).toContain("main-agent.execution.start");
@@ -304,7 +304,7 @@ describe("Workbench module boundaries", () => {
 
     const normalizer = readFileSync(join(process.cwd(), "src/workflow-actions/main-agent-execution.ts"), "utf8");
     expect(normalizer).toContain("normalizeMainAgentExecutionAction");
-    expect(normalizer).toContain("toLegacyMainAgentExecutionAction");
+    expect(normalizer).not.toContain("toLegacyMainAgentExecutionAction");
 
     const handlers = readFileSync(join(process.cwd(), "src/workbench/actions/handlers/index.ts"), "utf8");
     expect(handlers).toContain('"main-agent.execution.start": runMainAgentExecutionStart');
@@ -319,6 +319,11 @@ describe("Workbench module boundaries", () => {
     const automationPolicy = readFileSync(join(process.cwd(), "src/automation-runtime/policy.ts"), "utf8");
     expect(automationPolicy).not.toContain("main-agent.execution");
     expect(automationPolicy).not.toContain("role.pipeline");
+
+    for (const file of listSourceFiles(["src"])) {
+      const source = readFileSync(file, "utf8");
+      expect(source, file).not.toContain("toLegacyMainAgentExecutionAction");
+    }
   });
 
   it("keeps generated main-agent execution payloads canonical while accepting legacy inbound ids", () => {

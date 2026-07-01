@@ -2,10 +2,14 @@
 
 ## Current Handoff
 
-- Current date: 2026-07-01.
+- Current date: 2026-07-02.
 - Active ECL change: none.
-- Pending Harness evolution: none.
+- Pending Harness evolution:
+  `harness/evolution/pending.md` (generated after V5d close; handle as a
+  separate Harness evolution structured change when selected).
 - Latest archived product change:
+  `harness/changes/archive/20260702-main-agent-old-seam-retirement-v5d-inbound-only-action-alias-finalization/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260701-main-agent-old-seam-retirement-v5c-role-pipeline-action-alias-readiness/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260701-main-agent-old-seam-retirement-v5b-remove-workpad-rolepipeline-read-model-output/summary.md`.
@@ -203,6 +207,19 @@
 
 ## Latest Product Closeout
 
+`harness/changes/archive/20260702-main-agent-old-seam-retirement-v5d-inbound-only-action-alias-finalization/summary.md`.
+
+It finalizes `role.pipeline.*` as permanent inbound-only compatibility while
+`main-agent.execution.*` remains the canonical public action family. Legacy
+inbound requests still route to the same handlers and may keep their original
+`request.actionType` in historical thread/action/decision echo evidence. New
+generated Workbench/server/current-gate payloads stay canonical. V5d removes
+the reverse legacy conversion helper from production and does not delete
+`MainAgentLoopProjection`, internal demand-worker `rolePipeline`, Scheduler or
+IntegrationCheck owners, confirmation gates, revalidation, automation
+allowlists, apply/close, remote, PR, merge, or Harness evolution.
+
+Previous closeout:
 `harness/changes/archive/20260701-main-agent-old-seam-retirement-v5c-role-pipeline-action-alias-readiness/summary.md`.
 
 It proves `role.pipeline.*` is currently an inbound-compatibility alias family:
@@ -693,13 +710,13 @@ Harness workflow truth.
 
 ## Next Resume Point
 
-Current main-agent architecture work has no active change. A likely next step
-is V5d: use the V5c alias inventory to decide whether `role.pipeline.*`
-registry/handler aliases can be deleted or must remain permanent inbound-only
-compatibility. `MainAgentLoopProjection` remains a separate later seam. Do not
-remove canonical Harness truth, Scheduler runtime owners, IntegrationCheck
-apply/discard owners, confirmation gates, action revalidation, or automation
-allowlists.
+Current main-agent architecture work has no active product change. Pending
+Harness evolution now exists at `harness/evolution/pending.md` and should be
+handled as a separate structured maintenance change when selected. After that,
+the likely product follow-up is `MainAgentLoopProjection` retirement or
+permanent non-executing boundaryization. Do not remove canonical Harness truth,
+Scheduler runtime owners, IntegrationCheck apply/discard owners, confirmation
+gates, action revalidation, or automation allowlists.
 
 Desktop product work can continue from
 `docs/design-docs/ref-desktop-cc-gui.md` when selected, but it is no longer the

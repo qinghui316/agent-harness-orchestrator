@@ -4,7 +4,6 @@ import {
   isMainAgentExecutionAction,
   isMainAgentExecutionStopAction,
   normalizeMainAgentExecutionAction,
-  toLegacyMainAgentExecutionAction,
 } from "../../src/workflow-actions/main-agent-execution.js";
 import {
   HIGH_IMPACT_WORKFLOW_ACTION_TYPES,
@@ -32,14 +31,16 @@ describe("workflow action registry", () => {
     for (const [canonical, legacy] of pairs) {
       expect(normalizeMainAgentExecutionAction(canonical)).toBe(canonical);
       expect(normalizeMainAgentExecutionAction(legacy)).toBe(canonical);
-      expect(toLegacyMainAgentExecutionAction(canonical)).toBe(legacy);
-      expect(toLegacyMainAgentExecutionAction(legacy)).toBe(legacy);
       expect(isMainAgentExecutionAction(canonical)).toBe(true);
       expect(isMainAgentExecutionAction(legacy)).toBe(true);
       expect(WORKFLOW_ACTION_TYPES).toContain(canonical);
       expect(WORKFLOW_ACTION_TYPES).toContain(legacy);
       expect(LIVE_WORKFLOW_ACTION_TYPES).toContain(canonical);
       expect(LIVE_WORKFLOW_ACTION_TYPES).toContain(legacy);
+      expect(HIGH_IMPACT_WORKFLOW_ACTION_TYPES).not.toContain(canonical);
+      expect(HIGH_IMPACT_WORKFLOW_ACTION_TYPES).not.toContain(legacy);
+      expect(REVALIDATED_WORKFLOW_ACTION_TYPES).not.toContain(canonical);
+      expect(REVALIDATED_WORKFLOW_ACTION_TYPES).not.toContain(legacy);
     }
 
     expect(isMainAgentExecutionStopAction("main-agent.execution.stop")).toBe(true);
@@ -47,7 +48,6 @@ describe("workflow action registry", () => {
     expect(isMainAgentExecutionStopAction("main-agent.execution.start")).toBe(false);
     expect(isMainAgentExecutionStopAction("role.pipeline.start")).toBe(false);
     expect(normalizeMainAgentExecutionAction("code.run")).toBeNull();
-    expect(toLegacyMainAgentExecutionAction("code.run")).toBeNull();
     expect(isMainAgentExecutionAction("code.run")).toBe(false);
   });
 

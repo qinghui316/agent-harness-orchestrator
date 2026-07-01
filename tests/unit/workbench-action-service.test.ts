@@ -91,6 +91,28 @@ describe("workbench workflow action service", () => {
     ]);
   });
 
+  it("keeps legacy inbound main-agent execution ids as historical echo evidence", async () => {
+    const appended: TopicThreadEntry[] = [];
+    const decisions: WorkbenchActionDecisionInput[] = [];
+    const deps = fakeDeps({
+      append(entry) {
+        appended.push(entry);
+      },
+      record(decision) {
+        decisions.push(decision);
+      },
+    });
+
+    const result = await runWorkbenchWorkflowActionService(fakeProject(), { actionType: "role.pipeline.start" }, undefined, deps);
+
+    expect(result.actionType).toBe("role.pipeline.start");
+    expect(appended.find((entry) => entry.type === "workflow.started")?.actionType).toBe("role.pipeline.start");
+    expect(appended.find((entry) => entry.type === "workflow.completed")?.actionType).toBe("role.pipeline.start");
+    expect(decisions[0]?.decisionType).toBe("role.pipeline.start");
+    expect(decisions[0]?.actionId).toBe("role.pipeline.start");
+    expect(decisions[0]?.summary).toBe("已完成。");
+  });
+
   it("computes one result summary and reuses it for terminal thread entries and decision history", async () => {
     const appended: TopicThreadEntry[] = [];
     const decisions: WorkbenchActionDecisionInput[] = [];
