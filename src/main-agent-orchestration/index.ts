@@ -99,6 +99,10 @@ export {
   type MainAgentControlledSchedulerRouteKind,
 } from "./controlled-scheduler-integration.js";
 export {
+  runMainAgentControlledSchedulerStep,
+  type MainAgentControlledSchedulerStepBridgeServices,
+} from "./controlled-scheduler-step-bridge.js";
+export {
   recordMainAgentWorkflowGraphObservationAndReplay,
   type MainAgentWorkflowGraphObservationReplayResult,
 } from "./workflowgraph-replay-consumption.js";

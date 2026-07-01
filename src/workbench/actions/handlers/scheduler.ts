@@ -30,7 +30,7 @@ import {
   validatePlanningSchedulerFirstWorker,
   validatePlanningSchedulerFirstWorkerRework,
 } from "./planning.js";
-import { runControlledSchedulerLoopStep } from "../../../scheduler-runtime/controlled-loop-step.js";
+import { runMainAgentControlledSchedulerStep } from "../../../main-agent-orchestration/controlled-scheduler-step-bridge.js";
 import { buildControlledSchedulerStepRequest } from "../../../workflow-scheduler/controlled-step.js";
 import { assertWorkflowActionScope, auditHighImpactWorkflowAction } from "../boundary.js";
 import { resolveVisibleControlledSchedulerCurrentGate } from "../visible-goal-loop-current-gate.js";
@@ -122,7 +122,7 @@ export function buildSchedulerActionHandlers(): Pick<WorkbenchActionHandlerMap, 
       };
     },
     "planning.scheduler.controlled-advance.run": async (project, changeId, request, live) => {
-      return runControlledSchedulerLoopStep(project, changeId, request as WorkbenchWorkflowActionRequest & { actionType: "planning.scheduler.controlled-advance.run" }, {
+      return runMainAgentControlledSchedulerStep(project, changeId, request as WorkbenchWorkflowActionRequest & { actionType: "planning.scheduler.controlled-advance.run" }, {
         evaluateGoalLoopDecision: (nextRequest) => evaluateGoalLoopDecision(project, changeId, nextRequest as WorkbenchWorkflowActionRequest, live),
         refreshGoalLoopControllerPolicy: (nextRequest) => refreshGoalLoopControllerPolicy(project, changeId, nextRequest as WorkbenchWorkflowActionRequest, live),
         prepareGoalLoopGateReadinessPreflight: (nextRequest, options) => prepareGoalLoopGateReadinessPreflight(project, changeId, nextRequest as WorkbenchWorkflowActionRequest, live, options),

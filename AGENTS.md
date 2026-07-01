@@ -8,6 +8,8 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260701-main-agent-controlled-scheduler-step-ownership-bridge-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260701-main-agent-controlled-scheduler-integration-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260701-main-agent-scheduler-candidate-assessment-v1/summary.md`.
@@ -128,12 +130,18 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Previous archived docs/reference change:
   `harness/changes/archive/20260626-document-desktop-cc-gui-reference-map-and-product-layer-roadmap/summary.md`.
 - Latest completed Harness evolution:
+  `harness/changes/archive/20260701-auto-evolve-post-controlled-scheduler-bridge-window/summary.md`
+  (`noop`; subagent Hilbert score 90; existing ECL/BOUNDARIES coverage is
+  sufficient for the main-agent recovery / Scheduler candidate / controlled
+  Scheduler bridge archive window; no new Harness rule/template/product
+  runtime change needed, pending evolution marked complete).
+- Previous completed Harness evolution:
   `harness/changes/archive/20260701-auto-evolve-post-main-agent-policy-bridge-window/summary.md`
   (`noop`; subagent Linnaeus score 92; existing ECL/BOUNDARIES coverage is
   sufficient for the main-agent replay / policy / bridge evidence archive
   window; no new Harness rule/template/product runtime change needed, pending
   evolution marked complete).
-- Previous completed Harness evolution:
+- Earlier completed Harness evolution:
   `harness/changes/archive/20260701-auto-evolve-post-main-agent-workflowgraph-replay-window/summary.md`
   (`noop`; subagents Bohr 91 and Zeno 92; existing ECL/BOUNDARIES coverage is
   sufficient for the main-agent WorkflowGraph queue/replay evidence archive
@@ -178,10 +186,13 @@ Current baseline:
   the read-only Scheduler candidate assessment can observe low-conflict
   Scheduler signals without becoming readiness authority; and the
   non-executing controlled Scheduler route points future parallel integration
-  to the existing controlled Scheduler owner only. V1 remains deterministic
-  and does not add SchedulerRun/WorkerLease/IntegrationCheck fan-out, UI,
-  confirmation queue, action bridge, automation allowlist, apply/close,
-  remote, PR, merge, or Harness evolution authority.
+  to the existing controlled Scheduler owner only. The existing
+  `planning.scheduler.controlled-advance.run` action now passes through a
+  main-agent bridge that records pre/post WorkflowGraph observation around one
+  controlled Scheduler step before delegating to the original Scheduler owner.
+  V1 remains deterministic and does not add SchedulerRun/WorkerLease/
+  IntegrationCheck fan-out, UI, confirmation queue, action bridge, automation
+  allowlist, apply/close, remote, PR, merge, or Harness evolution authority.
 - Workbench conversation transcripts now use cursor-incremental SQLite message
   paging by default, bounded virtual rendering, long-message folding, and
   `@chenglou/pretext` height estimates with fallback. Synthetic 100k / 500k

@@ -75,6 +75,7 @@ const mocks = vi.hoisted(() => {
     readLatestSchedulerControlledStepEvidenceProjection: vi.fn(),
     resolveProjectMemory: vi.fn(),
     resolveRunnableChangeTarget: vi.fn(),
+    recordMainAgentWorkflowGraphObservationAndReplay: vi.fn(),
   };
 });
 
@@ -114,6 +115,10 @@ vi.mock("../../src/memory/resolver.js", () => ({
 
 vi.mock("../../src/change/target.js", () => ({
   resolveRunnableChangeTarget: mocks.resolveRunnableChangeTarget,
+}));
+
+vi.mock("../../src/main-agent-orchestration/workflowgraph-replay-consumption.js", () => ({
+  recordMainAgentWorkflowGraphObservationAndReplay: mocks.recordMainAgentWorkflowGraphObservationAndReplay,
 }));
 
 vi.mock("../../src/workbench/topic-resolver.js", () => ({
@@ -184,6 +189,7 @@ describe("controlled scheduler advance post-step evaluation", () => {
     mocks.readLatestSchedulerControlledStepEvidenceProjection.mockReset();
     mocks.resolveProjectMemory.mockReset();
     mocks.resolveRunnableChangeTarget.mockReset();
+    mocks.recordMainAgentWorkflowGraphObservationAndReplay.mockReset();
 
     mocks.evaluateGoalLoopDecision.mockResolvedValue({
       goalLoopDecision: { id: "goal-loop-decision-pre" },
@@ -237,6 +243,13 @@ describe("controlled scheduler advance post-step evaluation", () => {
       status: {
         activeChanges: [{ name: "change-1", path: "harness/changes/active/change-1" }],
       },
+    });
+    mocks.recordMainAgentWorkflowGraphObservationAndReplay.mockResolvedValue({
+      observationEvidence: { id: "workflowgraph-observation-1" },
+      replaySummary: { id: "workflowgraph-replay-1" },
+      recoverySummary: { id: "workflowgraph-recovery-1" },
+      schedulerCandidateAssessment: { id: "scheduler-candidate-1" },
+      controlledSchedulerRoute: { kind: "use-existing-controlled-scheduler-path" },
     });
     mocks.readLatestSchedulerControlledStepEvidenceProjection.mockResolvedValue(null);
     mocks.compileGoalLoopEvaluation.mockResolvedValue({

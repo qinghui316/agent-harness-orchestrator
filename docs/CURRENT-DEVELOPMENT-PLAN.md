@@ -11,6 +11,17 @@ The user should not need to know internal terms before asking for work. The main
 ## Goal-Driven Workflow Loop Target
 
 Latest implementation slice:
+`harness/changes/archive/20260701-main-agent-controlled-scheduler-step-ownership-bridge-v1/summary.md`.
+It routes `planning.scheduler.controlled-advance.run` through
+`runMainAgentControlledSchedulerStep(...)`: resolve the active Change, record
+pre-observation, delegate one existing controlled Scheduler transition to the
+Scheduler owner, and record best-effort post-observation. It does not create
+Scheduler action payloads, start workers, dispatch SchedulerRun, create
+WorkerLease / IntegrationCheck, or affect UI, confirmation queue, action
+registry, automation, apply/close, remote, PR, merge, or Harness evolution
+authority.
+
+Previous completed implementation slice:
 `harness/changes/archive/20260701-main-agent-controlled-scheduler-integration-v1/summary.md`.
 It hardens Scheduler candidate observation by requiring fresh same-Change
 readiness evidence to agree on `status === "ready-for-scheduler-contract"`,
@@ -154,20 +165,27 @@ coverage for workflow and approval action paths, the read-only WorkflowGraph
 recovery evidence summary, the non-executing Scheduler candidate assessment,
 and the controlled Scheduler route hardening that keeps that candidate as a
 strict non-executing signal and routes future Scheduler work toward the
-existing controlled owner only. Those layers still use deterministic policy. They are
-architecture seams and evidence readers, not a free-form autonomous controller.
+existing controlled owner only, plus the controlled Scheduler step ownership
+bridge that moves Workbench controlled-advance execution behind the
+main-agent observation sandwich before delegating to the existing Scheduler
+owner. Those layers still use deterministic policy. They are architecture
+seams and evidence readers, not a free-form autonomous controller.
 
 Remaining migration should be split into reviewable structured changes:
 
-1. Parallel integration through the existing controlled Scheduler owner:
+1. Controlled Scheduler result/policy consumption: consume the existing
+   controlled Scheduler step result, continuation route, and post-step evidence
+   in main-agent replay/policy without creating a new gate, action type,
+   scheduler payload, UI surface, or dispatch path.
+2. Parallel integration through the existing controlled Scheduler owner:
    connect SchedulerRun, WorkerLease, worktree, and IntegrationCheck owners to
    the main-agent loop only through the controlled Scheduler path, preserving
    one human gate per high-impact transition and stopping at integration
    apply/discard.
-2. Old seam retirement: remove obsolete projections, compatibility aliases,
+3. Old seam retirement: remove obsolete projections, compatibility aliases,
    and duplicated read paths such as legacy pipeline naming once replacement
    evidence is proven in production tests.
-3. Normal Agent mode: design separately as a single-agent session/chat product
+4. Normal Agent mode: design separately as a single-agent session/chat product
    mode that may reuse Provider Registry, but does not reuse Harness
    Change/ECL/validation/audit/apply/close truth.
 
@@ -314,20 +332,19 @@ Current structured change: none.
 
 Pending Harness evolution: none.
 
-Recommended next architecture step: `Parallel integration` through the
-existing controlled Scheduler owner. It should connect existing SchedulerRun,
-WorkerLease, worker validation/audit/rework, and IntegrationCheck owners to the
-main-agent loop only through the controlled Scheduler path while preserving one
-human gate per high-impact transition and stopping at integration
-apply/discard. The candidate assessment and controlled route are observation
-signals only; they must not dispatch workers or start parallel execution by
-themselves.
+Recommended next architecture step: `Controlled Scheduler result/policy
+consumption`. It should consume existing controlled Scheduler step result,
+continuation route, and post-step evidence in main-agent replay/policy without
+creating a new gate, action type, scheduler payload, UI surface, or dispatch
+path. Broader parallel integration should still go only through the existing
+controlled Scheduler owner and preserve one human gate per high-impact
+transition.
 
 Desktop product-layer work can continue when selected, but it is no longer the
 default next step for the current main-agent architecture migration.
 
 Latest product change:
-`harness/changes/archive/20260701-main-agent-controlled-scheduler-integration-v1/summary.md`.
+`harness/changes/archive/20260701-main-agent-controlled-scheduler-step-ownership-bridge-v1/summary.md`.
 
 Latest docs/architecture change:
 `harness/changes/archive/20260629-document-aho-hybrid-desktop-native-roadmap-v1/summary.md`.
@@ -341,19 +358,33 @@ sequential local apply/landing/close path, and full-access stops before raw
 scheduler preparation.
 
 Latest completed Harness evolution:
-`harness/changes/archive/20260701-auto-evolve-post-main-agent-workflowgraph-replay-window/summary.md`.
-Decision: `noop`; subagent Herschel score `88/100`. Existing ECL coverage is
-sufficient for the main-agent TaskQueue / WorkflowGraph lifecycle archive
-window; no product runtime, Harness rule, or template change was made.
+`harness/changes/archive/20260701-auto-evolve-post-controlled-scheduler-bridge-window/summary.md`.
+Decision: `noop`; subagent Hilbert score `90/100`. Existing ECL/BOUNDARIES
+coverage is sufficient for the main-agent recovery / Scheduler candidate /
+controlled Scheduler bridge archive window; no product runtime, Harness rule,
+or template change was made.
 
 Current Harness evolution:
 
 - Pending evolution: none.
 - Latest completed evolution:
-  `harness/changes/archive/20260630-auto-evolve-post-main-agent-taskqueue-workflowgraph-window/summary.md`.
-  Decision: `noop`; subagent Herschel score `88/100`. Existing ECL coverage was
-  sufficient for the main-agent TaskQueue / WorkflowGraph lifecycle archive
-  window; no product runtime, Harness rule, or template change was made.
+  `harness/changes/archive/20260701-auto-evolve-post-controlled-scheduler-bridge-window/summary.md`.
+  Decision: `noop`; subagent Hilbert score `90/100`. Existing ECL/BOUNDARIES
+  coverage was sufficient for the main-agent recovery / Scheduler candidate /
+  controlled Scheduler bridge archive window; no product runtime, Harness rule,
+  or template change was made.
+- Previous completed evolution:
+  `harness/changes/archive/20260701-auto-evolve-post-main-agent-policy-bridge-window/summary.md`.
+  Decision: `noop`; subagent Linnaeus score `92/100`. Existing ECL/BOUNDARIES
+  coverage was sufficient for the main-agent replay / policy / bridge evidence
+  archive window; no product runtime, Harness rule, or template change was
+  made.
+- Previous completed evolution:
+  `harness/changes/archive/20260701-auto-evolve-post-main-agent-workflowgraph-replay-window/summary.md`.
+  Decision: `noop`; subagents Bohr `91/100` and Zeno `92/100`. Existing
+  ECL/BOUNDARIES coverage was sufficient for the main-agent WorkflowGraph
+  queue/replay evidence archive window; no product runtime, Harness rule, or
+  template change was made.
 - Previous completed evolution:
   `harness/changes/archive/20260630-auto-evolve-post-main-agent-orchestration-migration-window/summary.md`.
   Decision: `noop`; existing ECL coverage was sufficient for the main-agent

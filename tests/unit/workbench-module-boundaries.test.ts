@@ -141,6 +141,7 @@ import {
   recordMainAgentWorkflowGraphObservationAndReplay,
   readMainAgentWorkflowGraphDecisionEvidence,
   findMainAgentTaskQueueStageResumeCandidate,
+  runMainAgentControlledSchedulerStep,
 } from "../../src/main-agent-orchestration/index.js";
 import { listTaskQueueItems as listTaskQueueItemsFacade, listTaskQueues as listTaskQueuesFacade, reconcileTaskQueues as reconcileTaskQueuesFacade, startOrResumeTaskQueue as startOrResumeTaskQueueFacade } from "../../src/task-queue/manager.js";
 import { finishTaskRunFromWorkflowResult, listTaskRuns as listTaskRunsFacade, listWorkerLeases as listWorkerLeasesFacade, markTaskRunStarted, reconcileTaskRuns as reconcileTaskRunsFacade, startTaskRun } from "../../src/task-run/manager.js";
@@ -244,6 +245,27 @@ describe("Workbench module boundaries", () => {
     expect(controlledSchedulerRoute).not.toContain("startWorker");
     expect(controlledSchedulerRoute).not.toContain("runIntegrationCheck");
     expect(controlledSchedulerRoute).not.toContain("writeScheduler");
+
+    const controlledSchedulerBridge = readFileSync(join(process.cwd(), "src/main-agent-orchestration/controlled-scheduler-step-bridge.ts"), "utf8");
+    expect(controlledSchedulerBridge).toContain("runMainAgentControlledSchedulerStep");
+    expect(controlledSchedulerBridge).toContain("../scheduler-runtime/controlled-loop-step.js");
+    expect(controlledSchedulerBridge).toContain("recordMainAgentWorkflowGraphObservationAndReplay");
+    expect(controlledSchedulerBridge).not.toContain("../workbench/");
+    expect(controlledSchedulerBridge).not.toContain("../server/");
+    expect(controlledSchedulerBridge).not.toContain("../terminal");
+    expect(controlledSchedulerBridge).not.toContain("../apply/");
+    expect(controlledSchedulerBridge).not.toContain("confirmationQueue");
+    expect(controlledSchedulerBridge).not.toContain("automation");
+
+    const schedulerHandler = readFileSync(join(process.cwd(), "src/workbench/actions/handlers/scheduler.ts"), "utf8");
+    expect(schedulerHandler).toContain("runMainAgentControlledSchedulerStep");
+    expect(schedulerHandler).not.toContain("../../../scheduler-runtime/controlled-loop-step.js");
+    const controlledLoopStepImporters = listSourceFiles(["src"])
+      .filter((file) => readFileSync(file, "utf8").includes("scheduler-runtime/controlled-loop-step"))
+      .map((file) => file.replace(/\\/g, "/"));
+    expect(controlledLoopStepImporters).toEqual([
+      "src/main-agent-orchestration/controlled-scheduler-step-bridge.ts",
+    ]);
 
     const helper = readFileSync(join(process.cwd(), "src/main-agent-orchestration/workflowgraph-replay-consumption.ts"), "utf8");
     expect(helper).toContain("schedulerCandidateAssessment");
@@ -744,6 +766,7 @@ describe("Workbench module boundaries", () => {
     expect(typeof evaluateMainAgentWorkflowGraphReplayPolicy).toBe("function");
     expect(typeof buildMainAgentWorkflowGraphReplaySummary).toBe("function");
     expect(typeof recordMainAgentWorkflowGraphObservationAndReplay).toBe("function");
+    expect(typeof runMainAgentControlledSchedulerStep).toBe("function");
     expect(typeof readMainAgentWorkflowGraphDecisionEvidence).toBe("function");
     expect(typeof runMainAgentSourceRefreshRework).toBe("function");
     expect(typeof runMainAgentFeedbackRework).toBe("function");

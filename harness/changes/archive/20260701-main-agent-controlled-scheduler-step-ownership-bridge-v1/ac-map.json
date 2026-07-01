@@ -1,0 +1,17 @@
+﻿{
+    "version":  "1.0",
+    "generatedAt":  "2026-07-01T08:24:25.0585256Z",
+    "changeId":  "main-agent-controlled-scheduler-step-ownership-bridge-v1",
+    "acceptanceCriteria":  [
+
+                           ],
+    "tasks":  [
+
+              ],
+    "warnings":  [
+                     "Run product planning or update ac-map.json before using AC-gated readiness."
+                 ],
+    "blockingIssues":  [
+                           "ac-map.json was backfilled without parsed acceptance criteria."
+                       ]
+}

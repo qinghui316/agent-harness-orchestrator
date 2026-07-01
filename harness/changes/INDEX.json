@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-07-01T08:06:06.8061056Z",
+    "generated_at":  "2026-07-01T08:45:51.2446402Z",
     "active":  [
 
                ],
@@ -2307,6 +2307,10 @@
                         "path":  "harness/changes/archive/20260630-workbench-reference-style-project-identity-display-name-v1"
                     },
                     {
+                        "name":  "20260701-auto-evolve-post-controlled-scheduler-bridge-window",
+                        "path":  "harness/changes/archive/20260701-auto-evolve-post-controlled-scheduler-bridge-window"
+                    },
+                    {
                         "name":  "20260701-auto-evolve-post-main-agent-policy-bridge-window",
                         "path":  "harness/changes/archive/20260701-auto-evolve-post-main-agent-policy-bridge-window"
                     },
@@ -2321,6 +2325,10 @@
                     {
                         "name":  "20260701-main-agent-controlled-scheduler-integration-v1",
                         "path":  "harness/changes/archive/20260701-main-agent-controlled-scheduler-integration-v1"
+                    },
+                    {
+                        "name":  "20260701-main-agent-controlled-scheduler-step-ownership-bridge-v1",
+                        "path":  "harness/changes/archive/20260701-main-agent-controlled-scheduler-step-ownership-bridge-v1"
                     },
                     {
                         "name":  "20260701-main-agent-scheduler-candidate-assessment-v1",
