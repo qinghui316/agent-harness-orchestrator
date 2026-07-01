@@ -367,13 +367,12 @@ workflow truth, or hidden permission bypasses.
 
 Current structured change: none.
 
-Pending Harness evolution: `harness/evolution/pending.md`.
+Pending Harness evolution: none.
 
-Recommended current architecture step after pending Harness evolution is old
-seam retirement. Remove obsolete projection/alias/read-path leftovers now
-covered by the main-agent role, queue, replay, policy, bridge, recovery, and
-controlled Scheduler backflow layers, without weakening canonical Harness truth
-or Scheduler/IntegrationCheck owners.
+Recommended current architecture step: old seam retirement. Remove obsolete
+projection/alias/read-path leftovers now covered by the main-agent role, queue,
+replay, policy, bridge, recovery, and controlled Scheduler backflow layers,
+without weakening canonical Harness truth or Scheduler/IntegrationCheck owners.
 
 Desktop product-layer work can continue when selected, but it is no longer the
 default next step for the current main-agent architecture migration.
@@ -393,20 +392,20 @@ sequential local apply/landing/close path, and full-access stops before raw
 scheduler preparation.
 
 Latest completed Harness evolution:
-`harness/changes/archive/20260701-auto-evolve-post-controlled-scheduler-bridge-window/summary.md`.
-Decision: `noop`; subagent Hilbert score `90/100`. Existing ECL/BOUNDARIES
-coverage is sufficient for the main-agent recovery / Scheduler candidate /
-controlled Scheduler bridge archive window; no product runtime, Harness rule,
-or template change was made.
+`harness/changes/archive/20260701-auto-evolve-post-controlled-scheduler-backflow-window/summary.md`.
+Decision: `noop`; subagent Carver score `88/100`. Existing ECL/BOUNDARIES
+coverage is sufficient for the controlled Scheduler result/state/worker/
+IntegrationCheck backflow archive window; no product runtime, Harness rule, or
+template change was made.
 
 Current Harness evolution:
 
 - Pending evolution: none.
 - Latest completed evolution:
-  `harness/changes/archive/20260701-auto-evolve-post-controlled-scheduler-bridge-window/summary.md`.
-  Decision: `noop`; subagent Hilbert score `90/100`. Existing ECL/BOUNDARIES
-  coverage was sufficient for the main-agent recovery / Scheduler candidate /
-  controlled Scheduler bridge archive window; no product runtime, Harness rule,
+  `harness/changes/archive/20260701-auto-evolve-post-controlled-scheduler-backflow-window/summary.md`.
+  Decision: `noop`; subagent Carver score `88/100`. Existing ECL/BOUNDARIES
+  coverage was sufficient for the controlled Scheduler result/state/worker/
+  IntegrationCheck backflow archive window; no product runtime, Harness rule,
   or template change was made.
 - Previous completed evolution:
   `harness/changes/archive/20260701-auto-evolve-post-main-agent-policy-bridge-window/summary.md`.

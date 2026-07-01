@@ -6,8 +6,7 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 
 - Current date: 2026-07-01.
 - Active change: none.
-- Pending Harness evolution:
-  `harness/evolution/pending.md`.
+- Pending Harness evolution: none.
 - Latest archived product change:
   `harness/changes/archive/20260701-main-agent-controlled-scheduler-integrationcheck-backflow-v1c/summary.md`.
 - Previous archived product change:
@@ -139,6 +138,12 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Previous archived docs/reference change:
   `harness/changes/archive/20260626-document-desktop-cc-gui-reference-map-and-product-layer-roadmap/summary.md`.
 - Latest completed Harness evolution:
+  `harness/changes/archive/20260701-auto-evolve-post-controlled-scheduler-backflow-window/summary.md`
+  (`noop`; subagent Carver score 88; existing ECL/BOUNDARIES coverage is
+  sufficient for the controlled Scheduler result/state/worker/IntegrationCheck
+  backflow archive window; no new Harness rule/template/product runtime change
+  needed, pending evolution marked complete).
+- Previous completed Harness evolution:
   `harness/changes/archive/20260701-auto-evolve-post-controlled-scheduler-bridge-window/summary.md`
   (`noop`; subagent Hilbert score 90; existing ECL/BOUNDARIES coverage is
   sufficient for the main-agent recovery / Scheduler candidate / controlled

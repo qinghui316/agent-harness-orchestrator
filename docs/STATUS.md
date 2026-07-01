@@ -4,8 +4,7 @@
 
 - Current date: 2026-07-01.
 - Active ECL change: none.
-- Pending Harness evolution:
-  `harness/evolution/pending.md`.
+- Pending Harness evolution: none.
 - Latest archived product change:
   `harness/changes/archive/20260701-main-agent-controlled-scheduler-integrationcheck-backflow-v1c/summary.md`.
 - Previous archived product change:
@@ -137,6 +136,12 @@
 - Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-skills-catalog-and-codex-bridge-v1/summary.md`.
 - Latest completed Harness evolution:
+  `harness/changes/archive/20260701-auto-evolve-post-controlled-scheduler-backflow-window/summary.md`
+  (`noop`; subagent Carver score 88; existing ECL/BOUNDARIES coverage is
+  sufficient for the controlled Scheduler result/state/worker/IntegrationCheck
+  backflow archive window; no new Harness rule/template/product runtime change
+  needed, pending evolution marked complete).
+- Previous completed Harness evolution:
   `harness/changes/archive/20260701-auto-evolve-post-controlled-scheduler-bridge-window/summary.md`
   (`noop`; subagent Hilbert score 90; existing ECL/BOUNDARIES coverage is
   sufficient for the main-agent recovery / Scheduler candidate / controlled
@@ -626,9 +631,8 @@ Harness workflow truth.
 
 ## Next Resume Point
 
-Next work should first handle `harness/evolution/pending.md` through the normal
-Harness evolution flow. After that, main-agent architecture work should continue
-with old seam retirement: remove obsolete projection/alias/read-path leftovers
+Main-agent architecture work should continue with old seam retirement: remove
+obsolete projection/alias/read-path leftovers
 that are now covered by the main-agent role, queue, replay, policy, bridge,
 recovery, and controlled Scheduler backflow layers. This cleanup must not remove
 canonical Harness truth, Scheduler runtime owners, IntegrationCheck apply/discard
