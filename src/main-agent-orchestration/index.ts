@@ -81,6 +81,13 @@ export {
   type MainAgentWorkflowGraphReplaySummary,
 } from "./workflowgraph-replay.js";
 export {
+  buildMainAgentWorkflowGraphRecoverySummary,
+  type MainAgentWorkflowGraphRecoveryGap,
+  type MainAgentWorkflowGraphRecoveryKind,
+  type MainAgentWorkflowGraphRecoveryStageSummary,
+  type MainAgentWorkflowGraphRecoverySummary,
+} from "./workflowgraph-recovery.js";
+export {
   recordMainAgentWorkflowGraphObservationAndReplay,
   type MainAgentWorkflowGraphObservationReplayResult,
 } from "./workflowgraph-replay-consumption.js";

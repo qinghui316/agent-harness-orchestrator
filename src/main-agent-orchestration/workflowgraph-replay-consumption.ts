@@ -9,10 +9,16 @@ import {
   buildMainAgentWorkflowGraphReplaySummary,
   type MainAgentWorkflowGraphReplaySummary,
 } from "./workflowgraph-replay.js";
+import {
+  buildDegradedMainAgentWorkflowGraphRecoverySummary,
+  buildMainAgentWorkflowGraphRecoverySummary,
+  type MainAgentWorkflowGraphRecoverySummary,
+} from "./workflowgraph-recovery.js";
 
 export interface MainAgentWorkflowGraphObservationReplayResult {
   observationEvidence: MainAgentWorkflowGraphDecisionEvidence;
   replaySummary: MainAgentWorkflowGraphReplaySummary;
+  recoverySummary: MainAgentWorkflowGraphRecoverySummary;
 }
 
 export async function recordMainAgentWorkflowGraphObservationAndReplay(
@@ -30,7 +36,15 @@ export async function recordMainAgentWorkflowGraphObservationAndReplay(
       observationEvidence,
     ),
   );
-  return { observationEvidence, replaySummary };
+  const recoverySummary = await buildMainAgentWorkflowGraphRecoverySummary(memory, project, changeId, replaySummary).catch((error) =>
+    buildDegradedMainAgentWorkflowGraphRecoverySummary(
+      project,
+      changeId,
+      replaySummary,
+      `Recovery summary derivation failed: ${errorMessage(error)}.`,
+    ),
+  );
+  return { observationEvidence, replaySummary, recoverySummary };
 }
 
 function errorMessage(error: unknown): string {

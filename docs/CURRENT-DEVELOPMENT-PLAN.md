@@ -11,14 +11,14 @@ The user should not need to know internal terms before asking for work. The main
 ## Goal-Driven Workflow Loop Target
 
 Latest implementation slice:
-`harness/changes/archive/20260701-main-agent-workflowgraph-policy-v2-replay-failure-boundary/summary.md`.
-It tightens the non-executing WorkflowGraph replay policy after replay
-consumption was centralized. Active queue guidance now reads as
-`observe-active-queue-loop`, replay/history/policy derivation failures degrade
-to health gaps, and canonical graph observation write failures remain
-fail-closed. The replay summary remains read-only and non-executing;
-`nextObservation` is not consumed as a queue, action, scheduler, prompt, UI,
-apply, close, remote, PR, merge, or Harness evolution command.
+`harness/changes/archive/20260701-main-agent-workflowgraph-recovery-evidence-summary-v1/summary.md`.
+It adds the read-only `MainAgentWorkflowGraphRecoverySummary` layer on top of
+WorkflowGraph replay. The summary labels evidence completeness only: recovery
+key freshness, WorkflowRun/TaskQueue binding scope, current queue-bound
+TaskRun stage verdicts, and Run/Validation/Audit refs. It is not a policy,
+next action, confirmation source, recovery executor, scheduler input, UI
+surface, apply/close payload, remote/PR/merge path, or Harness evolution
+authority.
 
 The target architecture is a Goal-driven Workflow Loop, not a Scheduler-first
 product. After the user confirms the goal, boundaries, accepted plan, and
@@ -136,27 +136,25 @@ evidence envelope, next-step decision evidence, non-executing action bridge
 contract, TaskRun rework ownership, TaskQueue lifecycle ownership, queue step
 loop, WorkflowGraph observation evidence, replay summary builder,
 non-executing WorkflowGraph decision policy, centralized replay consumption,
-Policy V2 replay failure-boundary hardening, and explicit bridge acceptance
-coverage for workflow and approval action paths. Those layers still use
-deterministic policy. They are
+Policy V2 replay failure-boundary hardening, explicit bridge acceptance
+coverage for workflow and approval action paths, and the read-only
+WorkflowGraph recovery evidence summary. Those layers still use deterministic
+policy. They are
 architecture seams and evidence readers, not a free-form autonomous controller.
 
 Remaining migration should be split into reviewable structured changes:
 
-1. Recovery/resume: build read-only replay/recovery summaries that let the
-   main-agent loop resume from existing WorkflowGraph, TaskQueue, TaskRun,
-   role-loop, validation, and audit evidence without creating duplicate runs.
-2. Scheduler candidate policy: produce non-executing candidate assessments for
+1. Scheduler candidate policy: produce non-executing candidate assessments for
    SchedulerRun / WorkerLease / IntegrationCheck opportunities from replay
    state. Do not dispatch workers in this phase.
-3. Parallel integration: connect existing SchedulerRun, WorkerLease, worktree,
+2. Parallel integration: connect existing SchedulerRun, WorkerLease, worktree,
    and IntegrationCheck owners to the main-agent loop while preserving one
    human gate per high-impact transition and stopping at integration
    apply/discard.
-4. Old seam retirement: remove obsolete projections, compatibility aliases,
+3. Old seam retirement: remove obsolete projections, compatibility aliases,
    and duplicated read paths such as legacy pipeline naming once replacement
    evidence is proven in production tests.
-5. Normal Agent mode: design separately as a single-agent session/chat product
+4. Normal Agent mode: design separately as a single-agent session/chat product
    mode that may reuse Provider Registry, but does not reuse Harness
    Change/ECL/validation/audit/apply/close truth.
 
@@ -301,19 +299,16 @@ workflow truth, or hidden permission bypasses.
 
 Current structured change: none.
 
-Pending Harness evolution: `harness/evolution/pending.md` was generated after
-the bridge closeout. It is a maintenance reminder and should be handled only
-when Harness evolution work is selected.
+Pending Harness evolution: none.
 
-Recommended next architecture step: `Recovery/resume` for the main-agent
-WorkflowGraph loop. Build read-only replay/recovery summaries that let the
-main-agent loop resume from existing WorkflowGraph, TaskQueue, TaskRun,
-role-loop, validation, and audit evidence without duplicate runs. Follow the
-Open Dynamic Workflows recovery-key lesson, but keep AHO stricter:
-Change/ECL, accepted artifact hashes, ToolPolicyGate, validation/audit, and
-human gates remain authoritative. Do not dispatch Scheduler/WorkerLease,
-IntegrationCheck, apply/close, remote, PR, merge, or Harness evolution from the
-recovery layer.
+Recommended next architecture step: non-executing `Scheduler candidate policy`
+for the main-agent WorkflowGraph loop. It should assess whether current replay
+and recovery evidence indicates low-conflict SchedulerRun / WorkerLease /
+IntegrationCheck opportunities, but it must not dispatch workers or start
+parallel execution. Change/ECL, accepted artifact hashes, ToolPolicyGate,
+validation/audit, and human gates remain authoritative. Do not dispatch
+Scheduler/WorkerLease, IntegrationCheck, apply/close, remote, PR, merge, or
+Harness evolution from the candidate layer.
 
 Desktop product-layer work can continue when selected, but it is no longer the
 default next step for the current main-agent architecture migration.

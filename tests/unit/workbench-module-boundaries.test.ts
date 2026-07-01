@@ -320,6 +320,32 @@ describe("Workbench module boundaries", () => {
     expect(workflowGraphReplayConsumption).not.toContain("appendFile");
     expect(workflowGraphReplayConsumption).not.toContain("SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES");
 
+    const workflowGraphRecovery = readFileSync(join(process.cwd(), "src/main-agent-orchestration/workflowgraph-recovery.ts"), "utf8");
+    expect(workflowGraphRecovery).toContain("read-only-main-agent-workflowgraph-recovery-summary");
+    expect(workflowGraphRecovery).toContain("executionStarted: false");
+    expect(workflowGraphRecovery).toContain("buildMainAgentWorkflowGraphRecoverySummary");
+    expect(workflowGraphRecovery).toContain("deriveStageResumeVerdict");
+    expect(workflowGraphRecovery).not.toContain("assertWorkflowResumeAllowed");
+    expect(workflowGraphRecovery).not.toContain("actionType");
+    expect(workflowGraphRecovery).not.toContain("confirmationQueue");
+    expect(workflowGraphRecovery).not.toContain("recommendedAction");
+    expect(workflowGraphRecovery).not.toContain("../workbench/");
+    expect(workflowGraphRecovery).not.toContain("../server/");
+    expect(workflowGraphRecovery).not.toContain("../workbench/actions/");
+    expect(workflowGraphRecovery).not.toContain("../workflow-scheduler/");
+    expect(workflowGraphRecovery).not.toContain("../scheduler-runtime/");
+    expect(workflowGraphRecovery).not.toContain("../workflow-runtime/");
+    expect(workflowGraphRecovery).not.toContain("../apply/");
+    expect(workflowGraphRecovery).not.toContain("../terminal");
+    expect(workflowGraphRecovery).not.toContain("writeJsonFile");
+    expect(workflowGraphRecovery).not.toContain("appendFile");
+    expect(workflowGraphRecovery).not.toContain("writeWorkflowRun");
+    expect(workflowGraphRecovery).not.toContain("writeTaskQueueRun");
+    expect(workflowGraphRecovery).not.toContain("writeTaskRun");
+    expect(workflowGraphRecovery).not.toContain("startOrResumeTaskQueue");
+    expect(workflowGraphRecovery).not.toContain("runMainAgentTaskQueueLifecycle");
+    expect(workflowGraphRecovery).not.toContain("SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES");
+
     const workflowGraphPolicy = readFileSync(join(process.cwd(), "src/main-agent-orchestration/decision-policy.ts"), "utf8");
     expect(workflowGraphPolicy).toContain("non-executing-main-agent-workflowgraph-decision-policy");
     expect(workflowGraphPolicy).toContain("executionStarted: false");

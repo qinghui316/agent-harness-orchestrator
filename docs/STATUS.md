@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260701-main-agent-workflowgraph-recovery-evidence-summary-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260701-main-agent-bridge-integration-acceptance-closeout-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260701-main-agent-workflowgraph-policy-v2-replay-failure-boundary/summary.md`.
