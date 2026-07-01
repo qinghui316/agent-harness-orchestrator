@@ -6,9 +6,7 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 
 - Current date: 2026-07-02.
 - Active change: none.
-- Pending Harness evolution:
-  `harness/evolution/pending.md` (generated after V5d close; handle as a
-  separate Harness evolution structured change when selected).
+- Pending Harness evolution: none.
 - Latest archived product change:
   `harness/changes/archive/20260702-main-agent-old-seam-retirement-v5d-inbound-only-action-alias-finalization/summary.md`.
 - Previous archived product change:
@@ -156,6 +154,13 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Previous archived docs/reference change:
   `harness/changes/archive/20260626-document-desktop-cc-gui-reference-map-and-product-layer-roadmap/summary.md`.
 - Latest completed Harness evolution:
+  `harness/changes/archive/20260702-auto-evolve-post-main-agent-action-alias-window/summary.md`
+  (`docs_current_delta`; subagent Peirce score 78; existing ECL/BOUNDARIES
+  coverage is sufficient for V5a-V5d action-alias lessons; no ECL rule,
+  Harness template, lint, or product runtime change needed. Current-plan
+  pending-state drift was repaired before pending evolution was marked
+  complete).
+- Previous completed Harness evolution:
   `harness/changes/archive/20260701-auto-evolve-post-main-agent-old-seam-retirement-window/summary.md`
   (`noop`; subagent Singer score 86; existing ECL/BOUNDARIES coverage is
   sufficient for the controlled Scheduler backflow and main-agent old-seam

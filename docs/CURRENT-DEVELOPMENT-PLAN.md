@@ -408,16 +408,12 @@ workflow truth, or hidden permission bypasses.
 
 ## Next Product Direction
 
-Pending Harness evolution:
-`harness/evolution/pending.md` (generated after V5d close; handle as a
-separate Harness evolution structured change when selected).
+Pending Harness evolution: none.
 
 Current structured change: none.
 
-Recommended current architecture step: handle pending Harness evolution first
-if continuing maintenance. After that, the likely product architecture follow-up
-is `MainAgentLoopProjection` retirement or permanent non-executing
-boundaryization. Do not weaken canonical Harness truth,
+Recommended current architecture step: `MainAgentLoopProjection` retirement or
+permanent non-executing boundaryization. Do not weaken canonical Harness truth,
 Scheduler/IntegrationCheck owners, confirmation gates, action revalidation, or
 automation allowlists.
 
@@ -449,6 +445,12 @@ Current Harness evolution:
 
 - Pending evolution: none.
 - Latest completed evolution:
+  `harness/changes/archive/20260702-auto-evolve-post-main-agent-action-alias-window/summary.md`.
+  Decision: `docs_current_delta`; subagent Peirce score `78/100`. Existing
+  ECL/BOUNDARIES coverage was sufficient for the V5a-V5d action-alias lessons;
+  no ECL rule, Harness template, lint, or product runtime change was made.
+  Current-plan pending-state drift was repaired before mark-complete.
+- Previous completed evolution:
   `harness/changes/archive/20260701-auto-evolve-post-main-agent-old-seam-retirement-window/summary.md`.
   Decision: `noop`; subagent Singer score `86/100`. Existing ECL/BOUNDARIES
   coverage was sufficient for the controlled Scheduler backflow and
