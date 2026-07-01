@@ -106,3 +106,8 @@ export {
   recordMainAgentWorkflowGraphObservationAndReplay,
   type MainAgentWorkflowGraphObservationReplayResult,
 } from "./workflowgraph-replay-consumption.js";
+export {
+  buildMainAgentControlledSchedulerIntegrationBackflow,
+  emptyMainAgentControlledSchedulerIntegrationBackflow,
+  type MainAgentControlledSchedulerIntegrationBackflowSummary,
+} from "./controlled-scheduler-integration-backflow.js";

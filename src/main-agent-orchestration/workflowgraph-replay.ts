@@ -20,6 +20,7 @@ import {
   type MainAgentControlledSchedulerStateBackflowSummary,
 } from "./controlled-scheduler-state-backflow.js";
 import { emptyMainAgentControlledSchedulerWorkerBackflow } from "./controlled-scheduler-worker-backflow.js";
+import { emptyMainAgentControlledSchedulerIntegrationBackflow } from "./controlled-scheduler-integration-backflow.js";
 import {
   mainAgentWorkflowGraphDecisionsPath,
   observeMainAgentWorkflowGraph,
@@ -43,7 +44,7 @@ export type MainAgentWorkflowGraphReplayCurrentKind =
   | "unavailable";
 
 export interface MainAgentReplayEvidenceHealth {
-  source: "canonical-observation" | "workflowgraph-decisions" | "loop-runs" | "queue-decisions" | "role-loop-decisions" | "role-loop-events" | "controlled-scheduler-step" | "controlled-scheduler-state" | "controlled-scheduler-worker" | "replay-summary";
+  source: "canonical-observation" | "workflowgraph-decisions" | "loop-runs" | "queue-decisions" | "role-loop-decisions" | "role-loop-events" | "controlled-scheduler-step" | "controlled-scheduler-state" | "controlled-scheduler-worker" | "controlled-scheduler-integration" | "replay-summary";
   status: MainAgentReplayEvidenceHealthStatus;
   count: number;
   reasons: string[];
@@ -310,6 +311,7 @@ export async function buildMainAgentWorkflowGraphReplaySummary(
     controlledScheduler.health,
     controlledSchedulerStateBackflow.health,
     controlledSchedulerStateBackflow.workerBackflow.health,
+    controlledSchedulerStateBackflow.integrationCheckBackflow.health,
   ];
   const refs = mergeRefs(
     observation.refs,
@@ -447,6 +449,17 @@ export function buildDegradedMainAgentWorkflowGraphReplaySummary(
           status: "missing",
           count: 0,
           reasons: ["Controlled Scheduler worker backflow was not attempted because replay summary derivation degraded."],
+          paths: [],
+        },
+      ),
+      integrationCheckBackflow: emptyMainAgentControlledSchedulerIntegrationBackflow(
+        { project, changeId },
+        null,
+        {
+          source: "controlled-scheduler-integration",
+          status: "missing",
+          count: 0,
+          reasons: ["Controlled Scheduler integration backflow was not attempted because replay summary derivation degraded."],
           paths: [],
         },
       ),

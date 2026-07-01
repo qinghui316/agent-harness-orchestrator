@@ -20,6 +20,11 @@ import {
   emptyMainAgentControlledSchedulerWorkerBackflow,
   type MainAgentControlledSchedulerWorkerBackflowSummary,
 } from "./controlled-scheduler-worker-backflow.js";
+import {
+  buildMainAgentControlledSchedulerIntegrationBackflow,
+  emptyMainAgentControlledSchedulerIntegrationBackflow,
+  type MainAgentControlledSchedulerIntegrationBackflowSummary,
+} from "./controlled-scheduler-integration-backflow.js";
 import type { MainAgentReplayEvidenceHealthStatus } from "./workflowgraph-replay.js";
 
 export interface MainAgentControlledSchedulerStateBackflowHealth {
@@ -65,6 +70,7 @@ export interface MainAgentControlledSchedulerStateBackflowSummary {
   } | null;
   controlledStep: ControlledSchedulerStepReplaySummary["latestStep"];
   workerBackflow: MainAgentControlledSchedulerWorkerBackflowSummary;
+  integrationCheckBackflow: MainAgentControlledSchedulerIntegrationBackflowSummary;
   health: MainAgentControlledSchedulerStateBackflowHealth;
   artifactRefs: string[];
 }
@@ -114,15 +120,23 @@ export async function buildMainAgentControlledSchedulerStateBackflow(input: {
     changePath: input.changePath,
     schedulerRunId: run?.id ?? expectedSchedulerRunId,
   });
+  const integrationCheckBackflow = await buildMainAgentControlledSchedulerIntegrationBackflow({
+    memory: input.memory,
+    project: input.project,
+    changeId: input.changeId,
+    changePath: input.changePath,
+    schedulerRunId: run?.id ?? expectedSchedulerRunId,
+  });
   const artifactRefs = [
     ...(run ? Object.values(schedulerRunArtifactRefs(input.memory, input.changePath, run.id)) : []),
     ...(runtime ? Object.values(schedulerRuntimeArtifactRefs(input.memory, input.changePath, runtime.schedulerRunId)) : []),
     ...controlledStep.artifactRefs,
     ...workerBackflow.artifactRefs,
+    ...integrationCheckBackflow.artifactRefs,
     ...(latestEvent?.artifactRefs ?? []),
   ].filter((item) => item.trim().length > 0);
 
-  health.count = [run, runtime, latestEvent, controlledStep.latestStep].filter(Boolean).length + workerBackflow.health.count;
+  health.count = [run, runtime, latestEvent, controlledStep.latestStep].filter(Boolean).length + workerBackflow.health.count + integrationCheckBackflow.health.count;
   return {
     version: "1.0",
     authority: "read-only-main-agent-controlled-scheduler-state-backflow",
@@ -135,6 +149,7 @@ export async function buildMainAgentControlledSchedulerStateBackflow(input: {
     latestRuntimeEvent: latestEvent ? summarizeRuntimeEvent(latestEvent) : null,
     controlledStep: controlledStep.latestStep,
     workerBackflow,
+    integrationCheckBackflow,
     health,
     artifactRefs: dedupeStrings(artifactRefs),
   };
@@ -245,6 +260,7 @@ function emptySummary(
     latestRuntimeEvent: null,
     controlledStep: null,
     workerBackflow: emptyMainAgentControlledSchedulerWorkerBackflow(input, expectedSchedulerRunId),
+    integrationCheckBackflow: emptyMainAgentControlledSchedulerIntegrationBackflow(input, expectedSchedulerRunId),
     health,
     artifactRefs: [],
   };

@@ -11,6 +11,17 @@ The user should not need to know internal terms before asking for work. The main
 ## Goal-Driven Workflow Loop Target
 
 Latest implementation slice:
+`harness/changes/archive/20260701-main-agent-controlled-scheduler-integrationcheck-backflow-v1c/summary.md`.
+It adds the final read-only controlled Scheduler terminal backflow for
+IntegrationCheck lineage. Main-agent replay can now observe same-Change /
+same-SchedulerRun integration candidate, handoff, exact IntegrationCheck,
+outcome, completion, and blocked closeout posture, with unsafe lineage gaps
+surfaced through replay/policy. It does not run IntegrationCheck,
+apply/discard integration output, add gates, change UI, change action bridge
+behavior, or affect confirmation queue, action registry, automation allowlist,
+apply/close, remote, PR, merge, or Harness evolution authority.
+
+Previous completed implementation slice:
 `harness/changes/archive/20260701-main-agent-controlled-scheduler-worker-runtime-backflow-v1b/summary.md`.
 It extends the controlled Scheduler state backflow with a bounded read-only
 worker posture summary for same-Change / same-SchedulerRun WorkerLease,
@@ -199,20 +210,19 @@ bridge that moves Workbench controlled-advance execution behind the
 main-agent observation sandwich before delegating to the existing Scheduler
 owner, and controlled Scheduler result/policy consumption that lets replay and
 policy observe existing controlled-step evidence without making it executable.
+The controlled Scheduler backflow line is now complete through IntegrationCheck
+terminal posture: replay can observe candidate, handoff, exact check, outcome,
+completion, and blocked closeout lineage while preserving IntegrationCheck
+apply/discard as the existing human-gated owner.
 Those layers still use deterministic policy. They are architecture seams and
 evidence readers, not a free-form autonomous controller.
 
 Remaining migration should be split into reviewable structured changes:
 
-1. Parallel integration through the existing controlled Scheduler owner:
-   connect SchedulerRun, WorkerLease, worktree, and IntegrationCheck owners to
-   the main-agent loop only through the controlled Scheduler path, preserving
-   one human gate per high-impact transition and stopping at integration
-   apply/discard.
-2. Old seam retirement: remove obsolete projections, compatibility aliases,
+1. Old seam retirement: remove obsolete projections, compatibility aliases,
    and duplicated read paths such as legacy pipeline naming once replacement
    evidence is proven in production tests.
-3. Normal Agent mode: design separately as a single-agent session/chat product
+2. Normal Agent mode: design separately as a single-agent session/chat product
    mode that may reuse Provider Registry, but does not reuse Harness
    Change/ECL/validation/audit/apply/close truth.
 
@@ -357,19 +367,19 @@ workflow truth, or hidden permission bypasses.
 
 Current structured change: none.
 
-Pending Harness evolution: none.
+Pending Harness evolution: `harness/evolution/pending.md`.
 
-Recommended current architecture step: `Controlled Scheduler IntegrationCheck
-terminal backflow V1c`. It should extend the same read-only observation pattern
-to IntegrationCheck handoff/outcome/completion posture without executing
-IntegrationCheck, applying/discarding integration output, creating new
-Scheduler gates, or changing confirmation/action authority.
+Recommended current architecture step after pending Harness evolution is old
+seam retirement. Remove obsolete projection/alias/read-path leftovers now
+covered by the main-agent role, queue, replay, policy, bridge, recovery, and
+controlled Scheduler backflow layers, without weakening canonical Harness truth
+or Scheduler/IntegrationCheck owners.
 
 Desktop product-layer work can continue when selected, but it is no longer the
 default next step for the current main-agent architecture migration.
 
 Latest product change:
-`harness/changes/archive/20260701-main-agent-controlled-scheduler-worker-runtime-backflow-v1b/summary.md`.
+`harness/changes/archive/20260701-main-agent-controlled-scheduler-integrationcheck-backflow-v1c/summary.md`.
 
 Latest docs/architecture change:
 `harness/changes/archive/20260629-document-aho-hybrid-desktop-native-roadmap-v1/summary.md`.

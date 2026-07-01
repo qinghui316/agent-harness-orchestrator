@@ -4,8 +4,11 @@
 
 - Current date: 2026-07-01.
 - Active ECL change: none.
-- Pending Harness evolution: none.
+- Pending Harness evolution:
+  `harness/evolution/pending.md`.
 - Latest archived product change:
+  `harness/changes/archive/20260701-main-agent-controlled-scheduler-integrationcheck-backflow-v1c/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260701-main-agent-controlled-scheduler-worker-runtime-backflow-v1b/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260701-main-agent-controlled-scheduler-state-backflow-v1a/summary.md`.
@@ -623,13 +626,13 @@ Harness workflow truth.
 
 ## Next Resume Point
 
-Main-agent architecture work should continue with parallel integration through
-the existing controlled Scheduler owner. The next slice should connect
-SchedulerRun, WorkerLease, worker validation/audit/rework, and IntegrationCheck
-evidence back into the main-agent loop only through the controlled Scheduler
-path. It must not create raw scheduler dispatch, whole-wave auto execution, a
-new permission system, or a second Scheduler gate; high-impact transitions
-still stop at the existing human gates.
+Next work should first handle `harness/evolution/pending.md` through the normal
+Harness evolution flow. After that, main-agent architecture work should continue
+with old seam retirement: remove obsolete projection/alias/read-path leftovers
+that are now covered by the main-agent role, queue, replay, policy, bridge,
+recovery, and controlled Scheduler backflow layers. This cleanup must not remove
+canonical Harness truth, Scheduler runtime owners, IntegrationCheck apply/discard
+owners, confirmation gates, action revalidation, or automation allowlists.
 
 Desktop product work can continue from
 `docs/design-docs/ref-desktop-cc-gui.md` when selected, but it is no longer the
