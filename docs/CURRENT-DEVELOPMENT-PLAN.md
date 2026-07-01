@@ -11,15 +11,24 @@ The user should not need to know internal terms before asking for work. The main
 ## Goal-Driven Workflow Loop Target
 
 Latest implementation slice:
+`harness/changes/archive/20260701-main-agent-controlled-scheduler-worker-runtime-backflow-v1b/summary.md`.
+It extends the controlled Scheduler state backflow with a bounded read-only
+worker posture summary for same-Change / same-SchedulerRun WorkerLease,
+worker start/result/validation/audit, and bounded rework evidence. Unsafe
+worker gaps such as malformed JSON, old schema, scope mismatch, stale evidence,
+or wrong SchedulerRun now surface through replay/policy as observation gaps.
+The summary is observation input only; it does not execute Scheduler, start
+workers, create WorkerLease / IntegrationCheck, or affect UI, confirmation
+queue, action registry, automation, apply/close, remote, PR, merge, or Harness
+evolution authority.
+
+Previous completed implementation slice:
 `harness/changes/archive/20260701-main-agent-controlled-scheduler-state-backflow-v1a/summary.md`.
 It fixes controlled Scheduler replay so expected SchedulerRun mismatch evidence
 surfaces as an unsafe stale/scope gap, then adds a read-only in-memory
 controlled Scheduler state backflow summary for the latest same-Change
 SchedulerRun / SchedulerRuntimeState / latest runtime event / controlled step
-refs. The summary is observation input only; it does not execute Scheduler,
-create gates, start workers, create WorkerLease / IntegrationCheck, or affect
-UI, confirmation queue, action registry, automation, apply/close, remote, PR,
-merge, or Harness evolution authority.
+refs.
 
 Previous completed implementation slice:
 `harness/changes/archive/20260701-main-agent-controlled-scheduler-result-policy-consumption-v1/summary.md`.
@@ -350,18 +359,17 @@ Current structured change: none.
 
 Pending Harness evolution: none.
 
-Recommended next architecture step: `Controlled Scheduler worker/runtime
-backflow V1b`. It should extend the same read-only observation pattern to
-WorkerLease / worker result / validation / audit / rework posture without
-executing Scheduler, starting workers, creating IntegrationCheck, or changing
-confirmation/action authority. IntegrationCheck terminal backflow should remain
-a separate V1c slice unless V1b proves small.
+Recommended current architecture step: `Controlled Scheduler IntegrationCheck
+terminal backflow V1c`. It should extend the same read-only observation pattern
+to IntegrationCheck handoff/outcome/completion posture without executing
+IntegrationCheck, applying/discarding integration output, creating new
+Scheduler gates, or changing confirmation/action authority.
 
 Desktop product-layer work can continue when selected, but it is no longer the
 default next step for the current main-agent architecture migration.
 
 Latest product change:
-`harness/changes/archive/20260701-main-agent-controlled-scheduler-state-backflow-v1a/summary.md`.
+`harness/changes/archive/20260701-main-agent-controlled-scheduler-worker-runtime-backflow-v1b/summary.md`.
 
 Latest docs/architecture change:
 `harness/changes/archive/20260629-document-aho-hybrid-desktop-native-roadmap-v1/summary.md`.

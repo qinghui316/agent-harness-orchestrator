@@ -19,6 +19,7 @@ import {
   buildMainAgentControlledSchedulerStateBackflow,
   type MainAgentControlledSchedulerStateBackflowSummary,
 } from "./controlled-scheduler-state-backflow.js";
+import { emptyMainAgentControlledSchedulerWorkerBackflow } from "./controlled-scheduler-worker-backflow.js";
 import {
   mainAgentWorkflowGraphDecisionsPath,
   observeMainAgentWorkflowGraph,
@@ -42,7 +43,7 @@ export type MainAgentWorkflowGraphReplayCurrentKind =
   | "unavailable";
 
 export interface MainAgentReplayEvidenceHealth {
-  source: "canonical-observation" | "workflowgraph-decisions" | "loop-runs" | "queue-decisions" | "role-loop-decisions" | "role-loop-events" | "controlled-scheduler-step" | "controlled-scheduler-state" | "replay-summary";
+  source: "canonical-observation" | "workflowgraph-decisions" | "loop-runs" | "queue-decisions" | "role-loop-decisions" | "role-loop-events" | "controlled-scheduler-step" | "controlled-scheduler-state" | "controlled-scheduler-worker" | "replay-summary";
   status: MainAgentReplayEvidenceHealthStatus;
   count: number;
   reasons: string[];
@@ -308,6 +309,7 @@ export async function buildMainAgentWorkflowGraphReplaySummary(
     roleEvents.health,
     controlledScheduler.health,
     controlledSchedulerStateBackflow.health,
+    controlledSchedulerStateBackflow.workerBackflow.health,
   ];
   const refs = mergeRefs(
     observation.refs,
@@ -437,6 +439,17 @@ export function buildDegradedMainAgentWorkflowGraphReplaySummary(
       runtimeState: null,
       latestRuntimeEvent: null,
       controlledStep: null,
+      workerBackflow: emptyMainAgentControlledSchedulerWorkerBackflow(
+        { project, changeId },
+        null,
+        {
+          source: "controlled-scheduler-worker",
+          status: "missing",
+          count: 0,
+          reasons: ["Controlled Scheduler worker backflow was not attempted because replay summary derivation degraded."],
+          paths: [],
+        },
+      ),
       health: {
         source: "controlled-scheduler-state",
         status: "missing",
