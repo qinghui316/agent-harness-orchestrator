@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-07-01T15:32:44.2674155Z",
+    "generated_at":  "2026-07-01T15:53:49.7566333Z",
     "active":  [
 
                ],
@@ -2377,6 +2377,10 @@
                     {
                         "name":  "20260701-main-agent-old-seam-retirement-v5b-remove-workpad-rolepipeline-read-model-output",
                         "path":  "harness/changes/archive/20260701-main-agent-old-seam-retirement-v5b-remove-workpad-rolepipeline-read-model-output"
+                    },
+                    {
+                        "name":  "20260701-main-agent-old-seam-retirement-v5c-role-pipeline-action-alias-readiness",
+                        "path":  "harness/changes/archive/20260701-main-agent-old-seam-retirement-v5c-role-pipeline-action-alias-readiness"
                     },
                     {
                         "name":  "20260701-main-agent-scheduler-candidate-assessment-v1",

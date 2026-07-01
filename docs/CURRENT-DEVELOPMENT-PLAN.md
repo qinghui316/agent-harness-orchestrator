@@ -11,6 +11,14 @@ The user should not need to know internal terms before asking for work. The main
 ## Goal-Driven Workflow Loop Target
 
 Latest completed implementation slice:
+`harness/changes/archive/20260701-main-agent-old-seam-retirement-v5c-role-pipeline-action-alias-readiness/summary.md`.
+It proves legacy `role.pipeline.*` action ids are currently only inbound
+compatibility aliases while `main-agent.execution.*` is the canonical public
+action family. It records the consumer inventory, tightens generated outbound
+payload boundaries, and does not delete `role.pipeline.*`,
+`MainAgentLoopProjection`, or any Harness authority boundary.
+
+Previous completed implementation slice:
 `harness/changes/archive/20260701-main-agent-old-seam-retirement-v5b-remove-workpad-rolepipeline-read-model-output/summary.md`.
 It removes legacy Workpad public read-model `rolePipeline` output after V5a
 added canonical `mainAgentExecution`. Workbench public read-model and Web DTO
@@ -392,22 +400,22 @@ workflow truth, or hidden permission bypasses.
 
 ## Next Product Direction
 
-Current structured change: none.
-
 Pending Harness evolution: none.
 
-Recommended current architecture step: continue old seam retirement V5c only
-if compatibility evidence proves a safe deletion/migration path for
-`role.pipeline.*` action aliases or `MainAgentLoopProjection`. V5b has already
-removed the Workpad public read-model `rolePipeline` output. Do not weaken
-canonical Harness truth, Scheduler/IntegrationCheck owners, confirmation
-gates, action revalidation, or automation allowlists.
+Current structured change: none.
+
+Recommended current architecture step: V5d should use the V5c inventory to
+decide whether to delete `role.pipeline.*` registry/handler aliases or mark
+them as permanent inbound-only compatibility. `MainAgentLoopProjection` remains
+a separate later seam. Do not weaken canonical Harness truth,
+Scheduler/IntegrationCheck owners, confirmation gates, action revalidation, or
+automation allowlists.
 
 Desktop product-layer work can continue when selected, but it is no longer the
 default next step for the current main-agent architecture migration.
 
 Latest product change:
-`harness/changes/archive/20260701-main-agent-old-seam-retirement-v5b-remove-workpad-rolepipeline-read-model-output/summary.md`.
+`harness/changes/archive/20260701-main-agent-old-seam-retirement-v5c-role-pipeline-action-alias-readiness/summary.md`.
 
 Latest docs/architecture change:
 `harness/changes/archive/20260629-document-aho-hybrid-desktop-native-roadmap-v1/summary.md`.

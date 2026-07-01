@@ -61,7 +61,7 @@ describe("workbench workflow action service", () => {
     expect(appended.some((entry) => entry.type === "workflow.completed" && entry.actionType === "planning.generate")).toBe(true);
   });
 
-  it("allows stop and steer control actions while another workflow action is in flight", async () => {
+  it("allows canonical and legacy main-agent stop control actions while another workflow action is in flight", async () => {
     const appended: TopicThreadEntry[] = [];
     const deps = fakeDeps({
       threadEntries: [{
@@ -79,10 +79,16 @@ describe("workbench workflow action service", () => {
     });
 
     await runWorkbenchWorkflowActionService(fakeProject(), { actionType: "main-agent.execution.stop" }, undefined, deps);
+    await runWorkbenchWorkflowActionService(fakeProject(), { actionType: "role.pipeline.stop" }, undefined, deps);
     await runWorkbenchWorkflowActionService(fakeProject(), { actionType: "conversation.interrupt" }, undefined, deps);
     await runWorkbenchWorkflowActionService(fakeProject(), { actionType: "conversation.steer", prompt: "add detail" }, undefined, deps);
 
-    expect(appended.filter((entry) => entry.type === "workflow.started").map((entry) => entry.actionType)).toEqual(["main-agent.execution.stop", "conversation.interrupt", "conversation.steer"]);
+    expect(appended.filter((entry) => entry.type === "workflow.started").map((entry) => entry.actionType)).toEqual([
+      "main-agent.execution.stop",
+      "role.pipeline.stop",
+      "conversation.interrupt",
+      "conversation.steer",
+    ]);
   });
 
   it("computes one result summary and reuses it for terminal thread entries and decision history", async () => {

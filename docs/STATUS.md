@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260701-main-agent-old-seam-retirement-v5c-role-pipeline-action-alias-readiness/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260701-main-agent-old-seam-retirement-v5b-remove-workpad-rolepipeline-read-model-output/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260701-main-agent-old-seam-retirement-v5a-rolepipeline-read-model-canonicalization/summary.md`.
@@ -201,6 +203,18 @@
 
 ## Latest Product Closeout
 
+`harness/changes/archive/20260701-main-agent-old-seam-retirement-v5c-role-pipeline-action-alias-readiness/summary.md`.
+
+It proves `role.pipeline.*` is currently an inbound-compatibility alias family:
+canonical `main-agent.execution.*` payloads route through the same handlers,
+legacy ids remain accepted at inbound compatibility surfaces, generated
+Workbench/server outbound payloads stay canonical, and Harness authority
+boundaries remain unchanged. V5c does not delete aliases,
+`MainAgentLoopProjection`, internal demand-worker `rolePipeline`, Scheduler or
+IntegrationCheck owners, confirmation gates, revalidation, automation
+allowlists, apply/close, remote, PR, merge, or Harness evolution.
+
+Previous closeout:
 `harness/changes/archive/20260701-main-agent-old-seam-retirement-v5b-remove-workpad-rolepipeline-read-model-output/summary.md`.
 
 It removes legacy Workpad public read-model `rolePipeline` output after V5a
@@ -209,7 +223,7 @@ DTO surfaces now expose only `mainAgentExecution`; legacy `role.pipeline.*`
 action ids, internal demand-worker `rolePipeline`, `MainAgentLoopProjection`,
 and Harness authority boundaries remain unchanged.
 
-Previous closeout:
+Earlier closeout:
 `harness/changes/archive/20260701-main-agent-old-seam-retirement-v5a-rolepipeline-read-model-canonicalization/summary.md`.
 
 It adds canonical Workpad `mainAgentExecution` read-model fields with the same
@@ -679,13 +693,13 @@ Harness workflow truth.
 
 ## Next Resume Point
 
-Main-agent architecture work can continue with old seam retirement V5c only if
-compatibility evidence proves a safe deletion/migration path for
-`role.pipeline.*` action aliases or `MainAgentLoopProjection`. V5b has removed
-Workpad public read-model `rolePipeline` output after V5a added canonical
-`mainAgentExecution`. Do not remove canonical Harness truth, Scheduler runtime
-owners, IntegrationCheck apply/discard owners, confirmation gates, action
-revalidation, or automation allowlists.
+Current main-agent architecture work has no active change. A likely next step
+is V5d: use the V5c alias inventory to decide whether `role.pipeline.*`
+registry/handler aliases can be deleted or must remain permanent inbound-only
+compatibility. `MainAgentLoopProjection` remains a separate later seam. Do not
+remove canonical Harness truth, Scheduler runtime owners, IntegrationCheck
+apply/discard owners, confirmation gates, action revalidation, or automation
+allowlists.
 
 Desktop product work can continue from
 `docs/design-docs/ref-desktop-cc-gui.md` when selected, but it is no longer the

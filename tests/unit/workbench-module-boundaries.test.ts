@@ -309,10 +309,65 @@ describe("Workbench module boundaries", () => {
     const handlers = readFileSync(join(process.cwd(), "src/workbench/actions/handlers/index.ts"), "utf8");
     expect(handlers).toContain('"main-agent.execution.start": runMainAgentExecutionStart');
     expect(handlers).toContain('"role.pipeline.start": runMainAgentExecutionStart');
+    expect(handlers).toContain('"main-agent.execution.stop": runMainAgentExecutionStop');
+    expect(handlers).toContain('"role.pipeline.stop": runMainAgentExecutionStop');
+    expect(handlers).toContain('"main-agent.execution.continue": runMainAgentExecutionContinue');
+    expect(handlers).toContain('"role.pipeline.continue": runMainAgentExecutionContinue');
+    expect(handlers).toContain('"main-agent.execution.reconcile": runMainAgentExecutionReconcile');
+    expect(handlers).toContain('"role.pipeline.reconcile": runMainAgentExecutionReconcile');
 
     const automationPolicy = readFileSync(join(process.cwd(), "src/automation-runtime/policy.ts"), "utf8");
     expect(automationPolicy).not.toContain("main-agent.execution");
     expect(automationPolicy).not.toContain("role.pipeline");
+  });
+
+  it("keeps generated main-agent execution payloads canonical while accepting legacy inbound ids", () => {
+    const generatedPayloadFiles = [
+      "src/web/src",
+      "src/workbench/projections",
+      "src/workbench/workflow-projection.ts",
+      "src/workbench/actions/visible-goal-loop-current-gate.ts",
+      "src/server/workbench",
+    ];
+    const generatedAllowlist = new Set([
+      "src/web/src/action-labels.ts",
+      "src/workbench/projections/read-model/thread-stream.ts",
+      "src/workbench/projections/read-model/confirmation-queue.ts",
+    ]);
+
+    for (const file of listSourceFiles(generatedPayloadFiles)) {
+      const source = readFileSync(file, "utf8");
+      if (!source.includes("role.pipeline.")) continue;
+      const normalizedFile = file.replace(/\\/g, "/");
+      expect(generatedAllowlist.has(normalizedFile), file).toBe(true);
+    }
+
+    const actionLabels = readFileSync(join(process.cwd(), "src/web/src/action-labels.ts"), "utf8");
+    expect(actionLabels).toContain("normalizeMainAgentExecutionAction");
+    expect(actionLabels).not.toContain('actionType === "role.pipeline.start"');
+    expect(actionLabels).not.toContain('case "role.pipeline.start"');
+
+    const threadStream = readFileSync(join(process.cwd(), "src/workbench/projections/read-model/thread-stream.ts"), "utf8");
+    expect(threadStream).toContain("normalizeMainAgentExecutionAction");
+    expect(threadStream).not.toContain('actionType === "role.pipeline.start"');
+    expect(threadStream).not.toContain('case "role.pipeline.start"');
+
+    const actionResults = readFileSync(join(process.cwd(), "src/workbench/actions/results.ts"), "utf8");
+    expect(actionResults).toContain("normalizeMainAgentExecutionAction");
+    expect(actionResults).not.toContain('startsWith("role.pipeline.")');
+    expect(actionResults).not.toContain('case "role.pipeline.stop"');
+
+    const actionService = readFileSync(join(process.cwd(), "src/workbench/actions/service.ts"), "utf8");
+    expect(actionService).toContain("isMainAgentExecutionStopAction");
+    expect(actionService).not.toContain('actionType === "role.pipeline.stop"');
+
+    expect(workflowActionPayloadFromTaskAction({
+      changeId: "change-1",
+      taskIds: ["T-001"],
+    }, "T-001")).toEqual({
+      changeId: "change-1",
+      taskIds: ["T-001"],
+    });
   });
 
   it("keeps main-agent Scheduler candidate assessment non-executing and outside scheduler runtime", () => {
