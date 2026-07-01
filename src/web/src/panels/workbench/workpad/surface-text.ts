@@ -1,10 +1,11 @@
 import { userFacingText } from "../../../formatters.js";
 import type { Workpad } from "../../../types.js";
+import { mainAgentExecutionForWorkpad } from "./main-agent-execution.js";
 
 export function parentAgentNarrative(workpad: Workpad): string {
   if (workpad.resultReview) return "我已经整理了本轮实现结果、验证与审查证据。你可以查看摘要后决定是否应用到项目，或继续要求修改。";
   if (workpad.goalLoop) return "我已经根据当前证据整理出一个受控继续建议。右侧确认后只推进一个步骤，后续仍会停下等待你确认。";
-  if (workpad.rolePipeline) return "我正在把这次需求交给内部角色执行，并会把实现、验证和审查结果汇总回这个对话。";
+  if (mainAgentExecutionForWorkpad(workpad)) return "我正在把这次需求交给内部角色执行，并会把实现、验证和审查结果汇总回这个对话。";
   if (workpad.planningArtifactBundle) return workpad.planningArtifactBundle.status === "confirmed"
     ? "方案已经确认，接下来会进入实现、验证和审查。"
     : "我先把需求整理成可执行方案。你可以继续补充要求，或确认后开始执行。";

@@ -6,9 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../src/web/src/App.js";
 import { DecisionInspectorPane } from "../../src/web/src/panels/workbench/DecisionPanels.js";
 import { WorkpadView } from "../../src/web/src/panels/workbench/WorkpadPanel.js";
+import { mainAgentExecutionForWorkpad } from "../../src/web/src/panels/workbench/workpad/main-agent-execution.js";
 import { WorkpadDiagnosticDetails } from "../../src/web/src/panels/workbench/workpad/WorkpadDetails.js";
 import { TopicComposer } from "../../src/web/src/shell/composer.js";
 import { summarizeActionResult } from "../../src/workbench/actions/results.js";
+import type { Workpad, WorkpadMainAgentExecutionSummary } from "../../src/web/src/types.js";
 
 vi.mock("@xterm/xterm", () => ({
   Terminal: class {
@@ -1007,6 +1009,62 @@ describe("Workbench web app", () => {
     cleanup();
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it("prefers canonical main-agent execution over legacy rolePipeline in Workpad UI", () => {
+    const canonicalExecution: WorkpadMainAgentExecutionSummary = {
+      stage: "validation",
+      status: "running",
+      runs: [{ roleId: "validator", status: "running", summary: "canonical validator summary" }],
+      agentTasks: [],
+      reworkUsed: 0,
+      reworkBudget: 1,
+    };
+    const legacyExecution: WorkpadMainAgentExecutionSummary = {
+      ...canonicalExecution,
+      runs: [{ roleId: "coder-agent", status: "completed", summary: "legacy coder summary" }],
+    };
+
+    expect(mainAgentExecutionForWorkpad({
+      mainAgentExecution: canonicalExecution,
+      rolePipeline: legacyExecution,
+    })).toBe(canonicalExecution);
+
+    const workpad = {
+      title: "Canonical execution",
+      subtitle: "repo · active",
+      state: "active",
+      userStatus: "processing",
+      nextAction: {
+        id: "none",
+        label: "None",
+        description: "No action.",
+        kind: "none",
+        enabled: false,
+        requiresConfirmation: false,
+      },
+      mainAgentExecution: canonicalExecution,
+      rolePipeline: legacyExecution,
+      intake: {
+        goal: "Use the canonical execution summary.",
+        currentUnderstanding: "The main Agent is running validation.",
+        confirmedConstraints: [],
+        pendingClarifications: [],
+      },
+    } as Workpad;
+
+    render(<WorkpadView
+      workpad={workpad}
+      approvals={[]}
+      busy={false}
+      onWorkflowAction={async () => undefined}
+      onConfirmApproval={() => undefined}
+      onAnswerClarification={async () => undefined}
+      onSelectDecisionContext={() => undefined}
+    />);
+
+    expect(screen.getByText("canonical 验证 summary")).toBeTruthy();
+    expect(screen.queryByText("legacy coder summary")).toBeNull();
   });
 
   it("renders composer attachment chips with a real paperclip entry", () => {

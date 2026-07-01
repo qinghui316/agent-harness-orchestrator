@@ -246,13 +246,21 @@ describe("Workbench module boundaries", () => {
     expect(actionResults).not.toContain('case "role.pipeline.start"');
 
     const confirmationQueue = readFileSync(join(process.cwd(), "src/workbench/projections/read-model/confirmation-queue.ts"), "utf8");
-    expect(confirmationQueue).toContain('workpad.rolePipeline?.status === "running"');
-    expect(confirmationQueue).toContain("workpad.rolePipeline?.agentTasks.some");
+    expect(confirmationQueue).toContain("mainAgentExecutionForWorkpad");
+    expect(confirmationQueue).not.toContain('workpad.rolePipeline?.status === "running"');
 
     const workpadReadModel = readFileSync(join(process.cwd(), "src/workbench/projections/read-model/workpad.ts"), "utf8");
     expect(workpadReadModel).toContain("buildMainAgentLoopProjection");
+    expect(workpadReadModel).toContain("mainAgentExecution,");
     expect(workpadReadModel).toContain("rolePipeline,");
     expect(workpadReadModel).toContain("mainAgentLoopProjection,");
+
+    const mainAgentExecutionReadModel = readFileSync(join(process.cwd(), "src/workbench/projections/read-model/main-agent-execution.ts"), "utf8");
+    expect(mainAgentExecutionReadModel).toContain("workpad.mainAgentExecution ?? workpad.rolePipeline");
+
+    const workpadPanel = readFileSync(join(process.cwd(), "src/web/src/panels/workbench/WorkpadPanel.tsx"), "utf8");
+    expect(workpadPanel).toContain("mainAgentExecutionForWorkpad");
+    expect(workpadPanel).not.toContain("workpad.rolePipeline ? <RoleToolResultRows");
 
     const actionLabels = readFileSync(join(process.cwd(), "src/web/src/action-labels.ts"), "utf8");
     expect(workflowActionLabel("main-agent.execution.start")).toBe("主 Agent 执行");

@@ -11,6 +11,14 @@ The user should not need to know internal terms before asking for work. The main
 ## Goal-Driven Workflow Loop Target
 
 Latest implementation slice:
+`harness/changes/archive/20260701-main-agent-old-seam-retirement-v5a-rolepipeline-read-model-canonicalization/summary.md`.
+It added canonical Workpad `mainAgentExecution` read-model fields with the same
+wire shape as legacy `rolePipeline`, routes backend and frontend consumers
+through canonical-first fallback, and keeps `rolePipeline` as compatibility
+output. It does not remove legacy action ids, `MainAgentLoopProjection`, or any
+Harness authority boundary.
+
+Previous completed implementation slice:
 `harness/changes/archive/20260701-main-agent-old-seam-retirement-v4-canonical-payload-default-audit/summary.md`.
 It makes `main-agent.execution.start/stop/continue/reconcile` the default
 outbound payload contract and keeps `role.pipeline.start/stop/continue/reconcile`
@@ -221,16 +229,17 @@ Old seam retirement has started: V1 inventoried live/dead seams, V2 centralized
 legacy `role.pipeline.*` classification, V3 registered canonical
 `main-agent.execution.*` ids while retaining legacy aliases, and V4 is making
 canonical ids the default outbound payload contract while keeping legacy ids as
-inbound compatibility.
+inbound compatibility. V5a is moving Workpad projections from legacy
+`rolePipeline` terminology to canonical `mainAgentExecution` while retaining
+legacy output for compatibility.
 Those layers still use deterministic policy. They are architecture seams and
 evidence readers, not a free-form autonomous controller.
 
 Remaining migration should be split into reviewable structured changes:
 
-1. Old seam retirement V4/V5: make new Workbench/server payloads default to
-   `main-agent.execution.*`, then retire legacy `role.pipeline.*` ids and
-   remaining old read-model/projection seams only after compatibility evidence
-   is proven in production tests.
+1. Old seam retirement V5: finish `mainAgentExecution` read-model
+   canonicalization, then retire legacy `rolePipeline` / `role.pipeline.*`
+   seams only after compatibility evidence is proven in production tests.
 2. Normal Agent mode: design separately as a single-agent session/chat product
    mode that may reuse Provider Registry, but does not reuse Harness
    Change/ECL/validation/audit/apply/close truth.

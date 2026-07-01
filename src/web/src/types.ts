@@ -848,6 +848,26 @@ export type ControlledSchedulerStepTraceDetail = {
   evidenceRefs: string[];
   updatedAt?: string;
 };
+export type WorkpadMainAgentExecutionSummary = {
+  stage: "planning" | "coding" | "validation" | "audit" | "rework" | "done" | "needs-user-input";
+  status: "draft" | "running" | "completed" | "needs-user-input" | "stopped";
+  runs: Array<{ roleId: string; status: string; runId?: string; summary: string; artifact?: string }>;
+  agentTasks: Array<{
+    id: string;
+    roleId: string;
+    kind: "foreground" | "background";
+    status: string;
+    changeId?: string;
+    runId?: string;
+    summary: string;
+    resultSummary?: string;
+    evidenceRefs: string[];
+    createdAt: string;
+    completedAt?: string;
+  }>;
+  reworkUsed: number;
+  reworkBudget: number;
+};
 export type Workpad = {
   title: string;
   subtitle: string;
@@ -904,26 +924,8 @@ export type Workpad = {
   mainAgentLoopProjection?: MainAgentLoopProjection;
   controlledSchedulerStepReceipt?: ControlledSchedulerStepReceiptDetail;
   controlledSchedulerStepTrace?: ControlledSchedulerStepTraceDetail;
-  rolePipeline?: {
-    stage: "planning" | "coding" | "validation" | "audit" | "rework" | "done" | "needs-user-input";
-    status: "draft" | "running" | "completed" | "needs-user-input" | "stopped";
-    runs: Array<{ roleId: string; status: string; runId?: string; summary: string; artifact?: string }>;
-    agentTasks: Array<{
-      id: string;
-      roleId: string;
-      kind: "foreground" | "background";
-      status: string;
-      changeId?: string;
-      runId?: string;
-      summary: string;
-      resultSummary?: string;
-      evidenceRefs: string[];
-      createdAt: string;
-      completedAt?: string;
-    }>;
-    reworkUsed: number;
-    reworkBudget: number;
-  };
+  mainAgentExecution?: WorkpadMainAgentExecutionSummary;
+  rolePipeline?: WorkpadMainAgentExecutionSummary;
   resultReview?: {
     status: "not-ready" | "ready-to-apply" | "needs-rework" | "applied-clean" | "applied-source-dirty";
     title: string;

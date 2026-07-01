@@ -24,6 +24,7 @@
 } from "../../read-model-types.js";
 import type { ManagedProject } from "../../../types/index.js";
 import type { ParentAgentTranscript } from "../../parent-agent-transcript.js";
+import { mainAgentExecutionForWorkpad } from "./main-agent-execution.js";
 export function emptyAgentRunGraph(): DemandAgentRunGraph {
   return {
     title: "执行过程",
@@ -111,7 +112,7 @@ export function buildDemandAgentRunGraph(input: {
     }
   }
 
-  const roleNodeIds = addRolePipelineGraphNodes(nodes, edges, targetBase, workpad.rolePipeline);
+  const roleNodeIds = addRolePipelineGraphNodes(nodes, edges, targetBase, mainAgentExecutionForWorkpad(workpad));
   connectRolePath(edges, roleNodeIds);
   addResultReviewGraphNode(nodes, edges, targetBase, workpad.resultReview, roleNodeIds.at(-1));
   addGoalLoopGraphNodes(nodes, edges, targetBase, workpad);
@@ -134,8 +135,9 @@ export function buildDemandAgentRunGraph(input: {
 
 function parentAgentGraphSummary(workpad: WorkbenchWorkpad): string {
   if (workpad.resultReview) return "已汇总实现结果、验证、审查和下一步决定。";
-  if (workpad.rolePipeline?.status === "running") return "正在调度角色 agent 执行当前需求。";
-  if (workpad.rolePipeline) return "已建立角色执行链路并收集结果。";
+  const mainAgentExecution = mainAgentExecutionForWorkpad(workpad);
+  if (mainAgentExecution?.status === "running") return "正在调度角色 agent 执行当前需求。";
+  if (mainAgentExecution) return "已建立角色执行链路并收集结果。";
   if (workpad.planningArtifactBundle) return "已整理方案，等待确认或后续边界检查。";
   return "正在理解当前需求。";
 }

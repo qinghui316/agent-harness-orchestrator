@@ -2,6 +2,7 @@
 import type { AuditSummary, ValidationSummary } from "../../../types/index.js";
 import { latestByTimestamp, sortByTimestampDesc } from "./projection-summary.js";
 import { evidenceActions } from "./evidence-actions.js";
+import { mainAgentExecutionForWorkpad } from "./main-agent-execution.js";
 import type {
   WorkbenchApprovalItem,
   WorkbenchApprovalKind,
@@ -117,8 +118,9 @@ function shouldOverrideDecisionInspectorPrimary(primary: WorkbenchConfirmationQu
 }
 
 function hasActiveRolePipeline(workpad: WorkbenchWorkpad): boolean {
-  return workpad.rolePipeline?.status === "running"
-    || Boolean(workpad.rolePipeline?.agentTasks.some((task) => task.status === "queued" || task.status === "claimed" || task.status === "running"));
+  const mainAgentExecution = mainAgentExecutionForWorkpad(workpad);
+  return mainAgentExecution?.status === "running"
+    || Boolean(mainAgentExecution?.agentTasks.some((task) => task.status === "queued" || task.status === "claimed" || task.status === "running"));
 }
 
 function resultReviewDecisionContext(topic: WorkbenchTopicDetail, workpad: WorkbenchWorkpad): WorkbenchDecisionContext | null {

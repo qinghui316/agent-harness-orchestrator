@@ -295,6 +295,7 @@ export async function buildWorkbenchWorkpad(input: {
   const workflowRun = await getLatestWorkflowRun(memory, selectedTopic.id).then((run) => run ? summarizeWorkflowRun(run) : null).catch(() => null);
   const agentTasks = await buildAgentTaskSummaries(memory, selectedTopic.id);
   const rolePipeline = buildRolePipelineSummary(selectedTopic, planningBundle, agentTasks);
+  const mainAgentExecution = rolePipeline;
   const resultReview = await buildResultReview(project, memory, selectedTopic);
   const maintenance = await buildMaintenanceSummary(memory);
   const runningRun = selectedTopic.runs.find((run) => run.status === "created" || run.status === "running");
@@ -372,6 +373,7 @@ export async function buildWorkbenchWorkpad(input: {
     schedulerRunCompletion: schedulerRunCompletion ?? undefined,
     schedulerRunBlockedCloseout: schedulerRunBlockedCloseout ?? undefined,
     workflowRun: workflowRun ?? undefined,
+    mainAgentExecution,
     rolePipeline,
     resultReview,
     maintenance,

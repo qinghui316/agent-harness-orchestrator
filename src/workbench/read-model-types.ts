@@ -934,6 +934,7 @@ export interface WorkbenchWorkpad {
   schedulerRunCompletion?: WorkbenchSchedulerRunCompletionSummary;
   schedulerRunBlockedCloseout?: WorkbenchSchedulerRunBlockedCloseoutSummary;
   workflowRun?: WorkflowRunSummary;
+  mainAgentExecution?: WorkbenchMainAgentExecutionSummary;
   rolePipeline?: WorkbenchRolePipelineSummary;
   resultReview?: WorkbenchResultReview;
   maintenance?: WorkbenchMaintenanceSummary;
@@ -1105,6 +1106,8 @@ export interface WorkbenchRolePipelineSummary {
   reworkUsed: number;
   reworkBudget: number;
 }
+
+export type WorkbenchMainAgentExecutionSummary = WorkbenchRolePipelineSummary;
 
 export type DemandAgentRunGraphLaneId = "main" | "roles" | "integration" | "maintenance";
 export type DemandAgentRunGraphNodeKind =

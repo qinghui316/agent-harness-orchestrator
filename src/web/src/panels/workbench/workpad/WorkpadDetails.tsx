@@ -54,6 +54,7 @@ import {
   WorkflowGraphPlanCard,
 } from "./TypedWorkflowCards.js";
 import { WorkpadActionButton } from "./WorkpadActionButton.js";
+import { mainAgentExecutionForWorkpad } from "./main-agent-execution.js";
 
 export function WorkpadDiagnosticDetails({
   workpad,
@@ -77,6 +78,7 @@ export function WorkpadDiagnosticDetails({
   const openQuestions = workpad.intake.openQuestions ?? [];
   const assumptions = workpad.intake.assumptions ?? [];
   const pendingClarifications = workpad.intake.pendingClarifications ?? [];
+  const mainAgentExecution = mainAgentExecutionForWorkpad(workpad);
   const hideHeroAction = Boolean(workpad.controlledSchedulerReconfirmation);
   return (
     <div className="workpad" data-testid="workpad-view">
@@ -177,21 +179,21 @@ export function WorkpadDiagnosticDetails({
       {workpad.controlledSchedulerStepReceipt ? <ControlledSchedulerStepReceiptCard receipt={workpad.controlledSchedulerStepReceipt} /> : null}
       {workpad.controlledSchedulerStepTrace ? <ControlledSchedulerStepTraceCard trace={workpad.controlledSchedulerStepTrace} /> : null}
 
-      {workpad.rolePipeline ? (
+      {mainAgentExecution ? (
         <section className="workpad-section" data-testid="role-pipeline-summary">
           <div className="workpad-section-header">
             <h3>主 Agent 执行链路</h3>
-            <span>{humanStatus(workpad.rolePipeline.status)}</span>
+            <span>{humanStatus(mainAgentExecution.status)}</span>
           </div>
           <div className="workpad-evidence-list">
-            {workpad.rolePipeline.runs.map((run) => (
+            {mainAgentExecution.runs.map((run) => (
               <div className="workpad-evidence" key={`${run.roleId}:${run.runId ?? run.artifact ?? run.status}`}>
                 <strong>{roleLabel(run.roleId)} · {humanStatus(run.status)}</strong>
                 <span>{userFacingText(run.summary)}</span>
                 {run.artifact ? <small className="artifact-link">查看证据：{artifactName(run.artifact)}</small> : null}
               </div>
             ))}
-            {workpad.rolePipeline.agentTasks.slice(-6).map((task) => (
+            {mainAgentExecution.agentTasks.slice(-6).map((task) => (
               <div className="workpad-evidence" key={task.id}>
                 <strong>{roleLabel(task.roleId)} 任务 · {humanStatus(task.status)}</strong>
                 <span>{userFacingText(task.resultSummary ?? task.summary)}</span>

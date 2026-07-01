@@ -41,7 +41,7 @@ export function PlanningNarrativeCard({ bundle }: { bundle: NonNullable<Workpad[
   );
 }
 
-export function RoleToolResultRows({ pipeline }: { pipeline: NonNullable<Workpad["rolePipeline"]> }): ReactElement {
+export function RoleToolResultRows({ pipeline }: { pipeline: NonNullable<Workpad["mainAgentExecution"]> }): ReactElement {
   const rows = [
     ...pipeline.runs.map((run) => ({ id: `${run.roleId}:${run.runId ?? run.artifact ?? run.status}`, roleId: run.roleId, status: run.status, summary: run.summary, artifact: run.artifact })),
     ...pipeline.agentTasks.slice(-6).map((task) => ({ id: task.id, roleId: task.roleId, status: task.status, summary: task.resultSummary ?? task.summary, artifact: task.evidenceRefs[0] })),

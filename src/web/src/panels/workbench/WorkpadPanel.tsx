@@ -10,6 +10,7 @@ import { GoalLoopPrimarySummary } from "./workpad/GoalLoopCards.js";
 import { ClarificationCard } from "./workpad/TaskGraphCards.js";
 import { WorkpadActionButton } from "./workpad/WorkpadActionButton.js";
 import { WorkpadDiagnosticDetails } from "./workpad/WorkpadDetails.js";
+import { mainAgentExecutionForWorkpad } from "./workpad/main-agent-execution.js";
 import { parentAgentNarrative } from "./workpad/surface-text.js";
 
 export function WorkpadView(props: {
@@ -25,6 +26,7 @@ export function WorkpadView(props: {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const approval = workpad.nextAction.approvalId ? approvals.find((item) => item.id === workpad.nextAction.approvalId) : undefined;
   const maintenanceNotice = workpad.maintenance?.status && workpad.maintenance.status !== "idle" ? workpad.maintenance : null;
+  const mainAgentExecution = mainAgentExecutionForWorkpad(workpad);
   const hidePrimaryAction = Boolean(workpad.controlledSchedulerReconfirmation || (workpad.goalLoop && isControlledContinuationAction(workpad.nextAction.actionType)));
   return (
     <div className="parent-conversation" data-testid="workpad-view">
@@ -63,7 +65,7 @@ export function WorkpadView(props: {
       ) : null}
 
       {workpad.planningArtifactBundle ? <PlanningNarrativeCard bundle={workpad.planningArtifactBundle} /> : null}
-      {workpad.rolePipeline ? <RoleToolResultRows pipeline={workpad.rolePipeline} /> : null}
+      {mainAgentExecution ? <RoleToolResultRows pipeline={mainAgentExecution} /> : null}
       {workpad.resultReview ? <ResultReviewNarrative review={workpad.resultReview} /> : null}
 
       <section className="parent-agent-section">

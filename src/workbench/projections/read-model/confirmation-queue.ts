@@ -8,6 +8,7 @@ import { attachControlledSchedulerAdvanceActions, attachGoalLoopAssistedConcrete
 import { integrationCandidateQueueItem, integrationCheckHistoryItem, integrationCheckNeedsActionQueueItem, integrationCheckNeedsUserAction, integrationCheckQueueItem, sameIntegrationTargets } from "./confirmation/integration.js";
 import { landingCandidateQueueItem, landingLocalTerminalBlockerQueueItem, landingPackageQueueItem, landingQueuePrepareItem, landingQueueSnapshotItems, prDraftQueueItem } from "./confirmation/landing.js";
 import { maintenanceCanonicalUpdateDecisionQueueItems } from "./confirmation/maintenance.js";
+import { mainAgentExecutionForWorkpad } from "./main-agent-execution.js";
 import { dedupeConfirmationItems, emptyConfirmationQueue, scopeConfirmationQueueItemActions } from "./confirmation/shared.js";
 import { decompositionPlanToConfirmationItems, schedulerNextActionToConfirmationItems, taskQueueProposalToConfirmationItems, workpadNextActionToConfirmationItems } from "./confirmation/typed-workflow.js";
 
@@ -192,8 +193,9 @@ function hasActiveExecutionRun(topic: WorkbenchTopicDetail): boolean {
 }
 
 function hasActiveRolePipeline(workpad: WorkbenchWorkpad): boolean {
-  return workpad.rolePipeline?.status === "running"
-    || Boolean(workpad.rolePipeline?.agentTasks.some((task) => task.status === "queued" || task.status === "claimed" || task.status === "running"));
+  const mainAgentExecution = mainAgentExecutionForWorkpad(workpad);
+  return mainAgentExecution?.status === "running"
+    || Boolean(mainAgentExecution?.agentTasks.some((task) => task.status === "queued" || task.status === "claimed" || task.status === "running"));
 }
 
 function promoteSelectedWorkpadApprovalGate(items: WorkbenchConfirmationQueue["current"], nextAction: WorkbenchWorkpad["nextAction"]): WorkbenchConfirmationQueue["current"] {

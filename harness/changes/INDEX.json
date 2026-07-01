@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-07-01T14:40:44.2248967Z",
+    "generated_at":  "2026-07-01T15:10:05.4957659Z",
     "active":  [
 
                ],
@@ -2369,6 +2369,10 @@
                     {
                         "name":  "20260701-main-agent-old-seam-retirement-v4-canonical-payload-default-audit",
                         "path":  "harness/changes/archive/20260701-main-agent-old-seam-retirement-v4-canonical-payload-default-audit"
+                    },
+                    {
+                        "name":  "20260701-main-agent-old-seam-retirement-v5a-rolepipeline-read-model-canonicalization",
+                        "path":  "harness/changes/archive/20260701-main-agent-old-seam-retirement-v5a-rolepipeline-read-model-canonicalization"
                     },
                     {
                         "name":  "20260701-main-agent-scheduler-candidate-assessment-v1",

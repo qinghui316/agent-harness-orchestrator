@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260701-main-agent-old-seam-retirement-v5a-rolepipeline-read-model-canonicalization/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260701-main-agent-old-seam-retirement-v4-canonical-payload-default-audit/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260701-main-agent-old-seam-retirement-v3-action-alias-compatibility-bridge/summary.md`.
@@ -197,6 +199,15 @@
 
 ## Latest Product Closeout
 
+`harness/changes/archive/20260701-main-agent-old-seam-retirement-v5a-rolepipeline-read-model-canonicalization/summary.md`.
+
+It adds canonical Workpad `mainAgentExecution` read-model fields with the same
+wire shape as legacy `rolePipeline`, routes backend and frontend consumers
+through canonical-first fallback, and keeps `rolePipeline` as compatibility
+output. It does not remove legacy action ids, `MainAgentLoopProjection`, or any
+Harness authority boundary.
+
+Previous closeout:
 `harness/changes/archive/20260701-main-agent-old-seam-retirement-v4-canonical-payload-default-audit/summary.md`.
 
 It makes canonical `main-agent.execution.*` ids the default outbound

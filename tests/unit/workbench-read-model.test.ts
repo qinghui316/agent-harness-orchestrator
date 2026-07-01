@@ -15,6 +15,7 @@ import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { createAgentTask } from "../../src/agent-task/manager.js";
 import { alignDecisionInspectorWithConfirmationPrimary, buildDecisionInspector } from "../../src/workbench/projections/read-model/decision-inspector.js";
 import { buildConfirmationQueue } from "../../src/workbench/projections/read-model/confirmation-queue.js";
+import { mainAgentExecutionForWorkpad } from "../../src/workbench/projections/read-model/main-agent-execution.js";
 import { landingCandidateQueueItem } from "../../src/workbench/projections/read-model/confirmation/landing.js";
 import { writeLandingArtifacts } from "../../src/landing/repository.js";
 import { landingRoot } from "../../src/landing/utils.js";
@@ -22,7 +23,7 @@ import type { LandingReadinessPackage } from "../../src/landing/types.js";
 import { prDraftRoot } from "../../src/pr-draft/utils.js";
 import { getTempDir, minimalDecompositionPlan, minimalReadiness, prepareSeededSchedulerIntegrationHandoff, project, writeAcceptedSpecAndTasks, writePlanningBundleFixture } from "./workbench/fixtures.js";
 import type { RunMetadata } from "../../src/types/index.js";
-import type { WorkbenchConfirmationQueueItem, WorkbenchDecisionInspector } from "../../src/workbench/read-model-types.js";
+import type { WorkbenchConfirmationQueueItem, WorkbenchDecisionInspector, WorkbenchMainAgentExecutionSummary } from "../../src/workbench/read-model-types.js";
 
 const FORBIDDEN_CONTROLLED_LOOP_PRIMARY_TERMS = [
   "Goal Loop",
@@ -642,6 +643,11 @@ describe("workbench read-model projections", () => {
 
     expect(snapshot.center.workpad.userStatus).toBe("processing");
     expect(snapshot.center.workpad.runControlState?.canStop).toBe(true);
+    expect(snapshot.center.workpad.mainAgentExecution).toEqual(snapshot.center.workpad.rolePipeline);
+    expect(snapshot.center.workpad.mainAgentExecution).toMatchObject({
+      stage: "validation",
+      status: "running",
+    });
     expect(snapshot.center.workpad.rolePipeline).toMatchObject({
       stage: "validation",
       status: "running",
@@ -650,6 +656,30 @@ describe("workbench read-model projections", () => {
     expect(snapshot.right.decisionInspector.primary).toBeNull();
     expect(JSON.stringify(snapshot.right.confirmationQueue.current)).not.toContain("result.apply");
     expect(JSON.stringify(snapshot.right.decisionInspector)).not.toContain("放弃这次结果");
+  });
+
+  it("prefers canonical main-agent execution summary over the legacy role pipeline fallback", () => {
+    const legacy: WorkbenchMainAgentExecutionSummary = {
+      stage: "coding",
+      status: "completed",
+      runs: [{ roleId: "coder-agent", status: "completed", summary: "legacy summary" }],
+      agentTasks: [],
+      reworkUsed: 0,
+      reworkBudget: 1,
+    };
+    const canonical: WorkbenchMainAgentExecutionSummary = {
+      ...legacy,
+      status: "running",
+      runs: [{ roleId: "validator", status: "running", summary: "canonical summary" }],
+    };
+
+    expect(mainAgentExecutionForWorkpad({
+      mainAgentExecution: canonical,
+      rolePipeline: legacy,
+    })?.runs[0]?.summary).toBe("canonical summary");
+    expect(mainAgentExecutionForWorkpad({
+      rolePipeline: legacy,
+    })?.runs[0]?.summary).toBe("legacy summary");
   });
 
   it("suppresses selected demand primary confirmations only while a workflow action is in flight", async () => {
