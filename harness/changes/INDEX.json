@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-07-01T14:13:32.1091713Z",
+    "generated_at":  "2026-07-01T14:40:44.2248967Z",
     "active":  [
 
                ],
@@ -2315,6 +2315,10 @@
                         "path":  "harness/changes/archive/20260701-auto-evolve-post-controlled-scheduler-bridge-window"
                     },
                     {
+                        "name":  "20260701-auto-evolve-post-main-agent-old-seam-retirement-window",
+                        "path":  "harness/changes/archive/20260701-auto-evolve-post-main-agent-old-seam-retirement-window"
+                    },
+                    {
                         "name":  "20260701-auto-evolve-post-main-agent-policy-bridge-window",
                         "path":  "harness/changes/archive/20260701-auto-evolve-post-main-agent-policy-bridge-window"
                     },
@@ -2361,6 +2365,10 @@
                     {
                         "name":  "20260701-main-agent-old-seam-retirement-v3-action-alias-compatibility-bridge",
                         "path":  "harness/changes/archive/20260701-main-agent-old-seam-retirement-v3-action-alias-compatibility-bridge"
+                    },
+                    {
+                        "name":  "20260701-main-agent-old-seam-retirement-v4-canonical-payload-default-audit",
+                        "path":  "harness/changes/archive/20260701-main-agent-old-seam-retirement-v4-canonical-payload-default-audit"
                     },
                     {
                         "name":  "20260701-main-agent-scheduler-candidate-assessment-v1",

@@ -270,6 +270,33 @@ describe("Workbench module boundaries", () => {
     expect(workpadDetails).not.toContain("<h3>角色流水线</h3>");
   });
 
+  it("keeps role.pipeline action ids as inbound compatibility only", () => {
+    const allowedLegacyActionFiles = new Set([
+      "src/workflow-actions/registry.ts",
+      "src/workflow-actions/main-agent-execution.ts",
+      "src/workbench/actions/handlers/index.ts",
+    ]);
+
+    for (const file of listSourceFiles(["src"])) {
+      const source = readFileSync(file, "utf8");
+      if (!source.includes("role.pipeline.")) continue;
+      const normalizedFile = file.replace(/\\/g, "/");
+      expect(allowedLegacyActionFiles.has(normalizedFile), file).toBe(true);
+    }
+
+    const normalizer = readFileSync(join(process.cwd(), "src/workflow-actions/main-agent-execution.ts"), "utf8");
+    expect(normalizer).toContain("normalizeMainAgentExecutionAction");
+    expect(normalizer).toContain("toLegacyMainAgentExecutionAction");
+
+    const handlers = readFileSync(join(process.cwd(), "src/workbench/actions/handlers/index.ts"), "utf8");
+    expect(handlers).toContain('"main-agent.execution.start": runMainAgentExecutionStart');
+    expect(handlers).toContain('"role.pipeline.start": runMainAgentExecutionStart');
+
+    const automationPolicy = readFileSync(join(process.cwd(), "src/automation-runtime/policy.ts"), "utf8");
+    expect(automationPolicy).not.toContain("main-agent.execution");
+    expect(automationPolicy).not.toContain("role.pipeline");
+  });
+
   it("keeps main-agent Scheduler candidate assessment non-executing and outside scheduler runtime", () => {
     const source = readFileSync(join(process.cwd(), "src/main-agent-orchestration/scheduler-candidate-assessment.ts"), "utf8");
     expect(source).toContain("non-executing-main-agent-scheduler-candidate-assessment");

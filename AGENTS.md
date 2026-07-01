@@ -8,6 +8,8 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260701-main-agent-old-seam-retirement-v4-canonical-payload-default-audit/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260701-main-agent-old-seam-retirement-v3-action-alias-compatibility-bridge/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260701-main-agent-old-seam-retirement-v2-action-normalization-bridge/summary.md`.
@@ -144,6 +146,12 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Previous archived docs/reference change:
   `harness/changes/archive/20260626-document-desktop-cc-gui-reference-map-and-product-layer-roadmap/summary.md`.
 - Latest completed Harness evolution:
+  `harness/changes/archive/20260701-auto-evolve-post-main-agent-old-seam-retirement-window/summary.md`
+  (`noop`; subagent Singer score 86; existing ECL/BOUNDARIES coverage is
+  sufficient for the controlled Scheduler backflow and main-agent old-seam
+  retirement archive window; no new Harness rule/template/product runtime
+  change needed, pending evolution marked complete).
+- Previous completed Harness evolution:
   `harness/changes/archive/20260701-auto-evolve-post-controlled-scheduler-backflow-window/summary.md`
   (`noop`; subagent Carver score 88; existing ECL/BOUNDARIES coverage is
   sufficient for the controlled Scheduler result/state/worker/IntegrationCheck

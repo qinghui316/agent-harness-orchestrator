@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260701-main-agent-old-seam-retirement-v4-canonical-payload-default-audit/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260701-main-agent-old-seam-retirement-v3-action-alias-compatibility-bridge/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260701-main-agent-old-seam-retirement-v2-action-normalization-bridge/summary.md`.
@@ -142,6 +144,12 @@
 - Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-skills-catalog-and-codex-bridge-v1/summary.md`.
 - Latest completed Harness evolution:
+  `harness/changes/archive/20260701-auto-evolve-post-main-agent-old-seam-retirement-window/summary.md`
+  (`noop`; subagent Singer score 86; existing ECL/BOUNDARIES coverage is
+  sufficient for the controlled Scheduler backflow and main-agent old-seam
+  retirement archive window; no new Harness rule/template/product runtime
+  change needed, pending evolution marked complete).
+- Previous completed Harness evolution:
   `harness/changes/archive/20260701-auto-evolve-post-controlled-scheduler-backflow-window/summary.md`
   (`noop`; subagent Carver score 88; existing ECL/BOUNDARIES coverage is
   sufficient for the controlled Scheduler result/state/worker/IntegrationCheck
@@ -189,16 +197,25 @@
 
 ## Latest Product Closeout
 
+`harness/changes/archive/20260701-main-agent-old-seam-retirement-v4-canonical-payload-default-audit/summary.md`.
+
+It makes canonical `main-agent.execution.*` ids the default outbound
+main-agent execution payload contract and keeps `role.pipeline.*` as inbound
+compatibility aliases only. It found no production outbound generator still
+emitting legacy ids and added a boundary test that whitelists legacy string
+usage to registry/helper/handler alias surfaces. It does not delete
+`rolePipeline`, `MainAgentLoopProjection`, or legacy aliases, and it does not
+expand automation, Goal Loop, Scheduler, IntegrationCheck, ToolPolicyGate,
+apply, close, remote, PR, merge, or Harness evolution authority.
+
+Previous closeout:
 `harness/changes/archive/20260701-main-agent-old-seam-retirement-v3-action-alias-compatibility-bridge/summary.md`.
 
 It adds canonical `main-agent.execution.start/stop/continue/reconcile` action
 ids while retaining `role.pipeline.start/stop/continue/reconcile` as legacy
 aliases. Both id families normalize through one helper, share the same
 Workbench execution handlers, labels, summaries, stop conflict-bypass behavior,
-and revalidation semantics. This is an alias bridge only: it does not delete
-`rolePipeline`, `MainAgentLoopProjection`, or `role.pipeline.*`, and it does
-not expand automation, Goal Loop, Scheduler, IntegrationCheck, ToolPolicyGate,
-apply, close, remote, PR, merge, or Harness evolution authority.
+and revalidation semantics.
 
 Previous closeout:
 `harness/changes/archive/20260701-main-agent-old-seam-retirement-v2-action-normalization-bridge/summary.md`.
@@ -652,13 +669,12 @@ Harness workflow truth.
 
 ## Next Resume Point
 
-Main-agent architecture work should continue with old seam retirement V4/V5:
-decide whether new Workbench payloads can default to
-`main-agent.execution.*`, then retire legacy `role.pipeline.*` ids and
-remaining old read-model/projection seams only after compatibility evidence is
-proven. This cleanup must not remove canonical Harness truth, Scheduler runtime
-owners, IntegrationCheck apply/discard owners, confirmation gates, action
-revalidation, or automation allowlists.
+Main-agent architecture work can continue with old seam retirement V5 only if
+compatibility evidence proves a safe deletion/migration path for
+`role.pipeline.*`, `rolePipeline`, or `MainAgentLoopProjection`. Do not remove
+canonical Harness truth, Scheduler runtime owners, IntegrationCheck
+apply/discard owners, confirmation gates, action revalidation, or automation
+allowlists.
 
 Desktop product work can continue from
 `docs/design-docs/ref-desktop-cc-gui.md` when selected, but it is no longer the

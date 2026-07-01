@@ -11,15 +11,23 @@ The user should not need to know internal terms before asking for work. The main
 ## Goal-Driven Workflow Loop Target
 
 Latest implementation slice:
+`harness/changes/archive/20260701-main-agent-old-seam-retirement-v4-canonical-payload-default-audit/summary.md`.
+It makes `main-agent.execution.start/stop/continue/reconcile` the default
+outbound payload contract and keeps `role.pipeline.start/stop/continue/reconcile`
+as legacy inbound aliases. It found no production outbound generator still
+emitting legacy ids and added a boundary test that whitelists legacy string
+usage to registry/helper/handler alias surfaces. It does not delete
+`rolePipeline`, `MainAgentLoopProjection`, or legacy aliases, and it does not
+expand automation, Goal Loop, Scheduler, IntegrationCheck, ToolPolicyGate,
+apply, close, remote, PR, merge, or Harness evolution authority.
+
+Previous completed implementation slice:
 `harness/changes/archive/20260701-main-agent-old-seam-retirement-v3-action-alias-compatibility-bridge/summary.md`.
 It adds canonical `main-agent.execution.start/stop/continue/reconcile` action
 ids while retaining `role.pipeline.start/stop/continue/reconcile` as legacy
 aliases. Both id families normalize through one helper, share the same
 Workbench execution handlers, labels, summaries, stop conflict-bypass behavior,
-and revalidation semantics. It does not delete `rolePipeline`,
-`MainAgentLoopProjection`, or `role.pipeline.*`, and it does not expand
-automation, Goal Loop, Scheduler, IntegrationCheck, ToolPolicyGate, apply,
-close, remote, PR, merge, or Harness evolution authority.
+and revalidation semantics.
 
 Previous completed implementation slice:
 `harness/changes/archive/20260701-main-agent-old-seam-retirement-v2-action-normalization-bridge/summary.md`.
@@ -210,15 +218,17 @@ terminal posture: replay can observe candidate, handoff, exact check, outcome,
 completion, and blocked closeout lineage while preserving IntegrationCheck
 apply/discard as the existing human-gated owner.
 Old seam retirement has started: V1 inventoried live/dead seams, V2 centralized
-legacy `role.pipeline.*` classification, and V3 registers canonical
-`main-agent.execution.*` ids while retaining legacy aliases.
+legacy `role.pipeline.*` classification, V3 registered canonical
+`main-agent.execution.*` ids while retaining legacy aliases, and V4 is making
+canonical ids the default outbound payload contract while keeping legacy ids as
+inbound compatibility.
 Those layers still use deterministic policy. They are architecture seams and
 evidence readers, not a free-form autonomous controller.
 
 Remaining migration should be split into reviewable structured changes:
 
-1. Old seam retirement V4/V5: decide whether new Workbench payloads can default
-   to `main-agent.execution.*`, then retire legacy `role.pipeline.*` ids and
+1. Old seam retirement V4/V5: make new Workbench/server payloads default to
+   `main-agent.execution.*`, then retire legacy `role.pipeline.*` ids and
    remaining old read-model/projection seams only after compatibility evidence
    is proven in production tests.
 2. Normal Agent mode: design separately as a single-agent session/chat product
@@ -368,18 +378,17 @@ Current structured change: none.
 
 Pending Harness evolution: none.
 
-Recommended current architecture step: old seam retirement V4/V5. Evaluate
-whether new Workbench payloads should default to `main-agent.execution.*`, then
-retire legacy `role.pipeline.*` ids and remaining old read-model/projection
-seams only after compatibility evidence is proven. Do not weaken canonical
-Harness truth, Scheduler/IntegrationCheck owners, confirmation gates, action
-revalidation, or automation allowlists.
+Recommended current architecture step: continue old seam retirement V5 only if
+compatibility evidence proves a safe deletion/migration path for legacy action
+ids or live read-model seams. Do not weaken canonical Harness truth,
+Scheduler/IntegrationCheck owners, confirmation gates, action revalidation, or
+automation allowlists.
 
 Desktop product-layer work can continue when selected, but it is no longer the
 default next step for the current main-agent architecture migration.
 
 Latest product change:
-`harness/changes/archive/20260701-main-agent-controlled-scheduler-integrationcheck-backflow-v1c/summary.md`.
+`harness/changes/archive/20260701-main-agent-old-seam-retirement-v4-canonical-payload-default-audit/summary.md`.
 
 Latest docs/architecture change:
 `harness/changes/archive/20260629-document-aho-hybrid-desktop-native-roadmap-v1/summary.md`.
@@ -393,16 +402,22 @@ sequential local apply/landing/close path, and full-access stops before raw
 scheduler preparation.
 
 Latest completed Harness evolution:
-`harness/changes/archive/20260701-auto-evolve-post-controlled-scheduler-backflow-window/summary.md`.
-Decision: `noop`; subagent Carver score `88/100`. Existing ECL/BOUNDARIES
-coverage is sufficient for the controlled Scheduler result/state/worker/
-IntegrationCheck backflow archive window; no product runtime, Harness rule, or
+`harness/changes/archive/20260701-auto-evolve-post-main-agent-old-seam-retirement-window/summary.md`.
+Decision: `noop`; subagent Singer score `86/100`. Existing ECL/BOUNDARIES
+coverage is sufficient for the controlled Scheduler backflow and main-agent
+old-seam retirement archive window; no product runtime, Harness rule, or
 template change was made.
 
 Current Harness evolution:
 
 - Pending evolution: none.
 - Latest completed evolution:
+  `harness/changes/archive/20260701-auto-evolve-post-main-agent-old-seam-retirement-window/summary.md`.
+  Decision: `noop`; subagent Singer score `86/100`. Existing ECL/BOUNDARIES
+  coverage was sufficient for the controlled Scheduler backflow and
+  main-agent old-seam retirement archive window; no product runtime, Harness
+  rule, or template change was made.
+- Previous completed evolution:
   `harness/changes/archive/20260701-auto-evolve-post-controlled-scheduler-backflow-window/summary.md`.
   Decision: `noop`; subagent Carver score `88/100`. Existing ECL/BOUNDARIES
   coverage was sufficient for the controlled Scheduler result/state/worker/
