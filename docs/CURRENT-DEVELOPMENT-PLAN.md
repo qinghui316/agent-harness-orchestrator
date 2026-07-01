@@ -11,17 +11,14 @@ The user should not need to know internal terms before asking for work. The main
 ## Goal-Driven Workflow Loop Target
 
 Latest implementation slice:
-`harness/changes/archive/20260626-workbench-local-scheduler-terminal-path-real-ui-scout-v1/summary.md`.
-It composes the separately validated local scheduler terminal slices through
-real UI: Codex Plan Mode, human plan confirmation with `完全访问权限`,
-controlled scheduler workers, manual IntegrationCheck, human integration
-apply, and local landing readiness. It fixed the Workbench surface so local
-landing/terminal blockers win over stale scheduler/audit context, and fixed
-landing attribution for applied IntegrationCheck patches. The remaining local
-terminal blocker is close readiness requiring review completion. It did not
-implement a central workflow DB, raw scheduler full-access allowlist, new
-workflow runtime, full parallel executor, automatic IntegrationCheck,
-integration apply/discard, PR, remote, merge, or Harness evolution.
+`harness/changes/archive/20260701-main-agent-workflowgraph-policy-v2-replay-failure-boundary/summary.md`.
+It tightens the non-executing WorkflowGraph replay policy after replay
+consumption was centralized. Active queue guidance now reads as
+`observe-active-queue-loop`, replay/history/policy derivation failures degrade
+to health gaps, and canonical graph observation write failures remain
+fail-closed. The replay summary remains read-only and non-executing;
+`nextObservation` is not consumed as a queue, action, scheduler, prompt, UI,
+apply, close, remote, PR, merge, or Harness evolution command.
 
 The target architecture is a Goal-driven Workflow Loop, not a Scheduler-first
 product. After the user confirms the goal, boundaries, accepted plan, and
@@ -137,39 +134,32 @@ observe current Change evidence
 Implemented migration slices now include the local role step loop, loop
 evidence envelope, next-step decision evidence, non-executing action bridge
 contract, TaskRun rework ownership, TaskQueue lifecycle ownership, queue step
-loop, WorkflowGraph observation evidence, replay summary builder, and
-non-executing WorkflowGraph decision policy. Those layers still use
-deterministic policy. They are architecture seams and evidence readers, not a
-free-form autonomous controller.
+loop, WorkflowGraph observation evidence, replay summary builder,
+non-executing WorkflowGraph decision policy, centralized replay consumption,
+and Policy V2 replay failure-boundary hardening. Those layers still use
+deterministic policy. They are
+architecture seams and evidence readers, not a free-form autonomous controller.
 
 Remaining migration should be split into reviewable structured changes:
 
-1. Replay consumption: route production planning milestones and TaskQueue
-   terminal observations through one helper that records graph observation
-   evidence and builds an in-memory replay summary. The summary remains read
-   only and must not execute queue, action, scheduler, apply, close, or UI
-   work.
-2. Policy V2: let the main-agent policy consume replay summaries as its stable
-   observation input, then improve deterministic next-step classification
-   without adding free LLM execution or expanding allowed actions.
-3. Bridge practical integration: allow explicit requests to attach fresh
+1. Bridge practical integration: allow explicit requests to attach fresh
    main-agent evidence to existing Harness gates only when project/change,
    target ids, ToolPolicy, stale revalidation, and the current visible gate all
    match. The gate remains the authority.
-4. Recovery/resume: build read-only replay/recovery summaries that let the
+2. Recovery/resume: build read-only replay/recovery summaries that let the
    main-agent loop resume from existing WorkflowGraph, TaskQueue, TaskRun,
    role-loop, validation, and audit evidence without creating duplicate runs.
-5. Scheduler candidate policy: produce non-executing candidate assessments for
+3. Scheduler candidate policy: produce non-executing candidate assessments for
    SchedulerRun / WorkerLease / IntegrationCheck opportunities from replay
    state. Do not dispatch workers in this phase.
-6. Parallel integration: connect existing SchedulerRun, WorkerLease, worktree,
+4. Parallel integration: connect existing SchedulerRun, WorkerLease, worktree,
    and IntegrationCheck owners to the main-agent loop while preserving one
    human gate per high-impact transition and stopping at integration
    apply/discard.
-7. Old seam retirement: remove obsolete projections, compatibility aliases,
+5. Old seam retirement: remove obsolete projections, compatibility aliases,
    and duplicated read paths such as legacy pipeline naming once replacement
    evidence is proven in production tests.
-8. Normal Agent mode: design separately as a single-agent session/chat product
+6. Normal Agent mode: design separately as a single-agent session/chat product
    mode that may reuse Provider Registry, but does not reuse Harness
    Change/ECL/validation/audit/apply/close truth.
 

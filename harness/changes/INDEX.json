@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-07-01T04:25:09.4624891Z",
+    "generated_at":  "2026-07-01T05:00:46.6975469Z",
     "active":  [
 
                ],
@@ -2321,6 +2321,10 @@
                     {
                         "name":  "20260701-main-agent-workflowgraph-observation-evidence-queue-wrapper-drain-v1",
                         "path":  "harness/changes/archive/20260701-main-agent-workflowgraph-observation-evidence-queue-wrapper-drain-v1"
+                    },
+                    {
+                        "name":  "20260701-main-agent-workflowgraph-policy-v2-replay-failure-boundary",
+                        "path":  "harness/changes/archive/20260701-main-agent-workflowgraph-policy-v2-replay-failure-boundary"
                     },
                     {
                         "name":  "20260701-main-agent-workflowgraph-replay-consumption-roadmap-sync-v1",

@@ -7,7 +7,7 @@ export type MainAgentWorkflowGraphDecisionPolicyKind =
   | "inspect-evidence-gap"
   | "wait-for-planning-evidence"
   | "wait-for-human-gate"
-  | "continue-queue-step-loop"
+  | "observe-active-queue-loop"
   | "observe-queue-binding"
   | "completed-await-result-gate"
   | "blocked"
@@ -55,7 +55,7 @@ export function evaluateMainAgentWorkflowGraphReplayPolicy(
   }
 
   if (input.currentState.kind === "queue-running" || input.currentState.queue.status === "running" || input.currentState.queue.status === "queued") {
-    return recommendation(input, "continue-queue-step-loop", "Queue is active; the main agent should continue observing queue item and child role-loop evidence.", ["main-agent-loop", "task-run", "agent-task"]);
+    return recommendation(input, "observe-active-queue-loop", "Queue is active; observe queue item and child role-loop evidence without treating this as an execution trigger.", ["main-agent-loop", "task-run", "agent-task"]);
   }
 
   if (input.currentState.kind === "queue-completed" || input.currentState.queue.status === "completed") {

@@ -34,7 +34,7 @@ export type MainAgentWorkflowGraphReplayCurrentKind =
   | "unavailable";
 
 export interface MainAgentReplayEvidenceHealth {
-  source: "canonical-observation" | "workflowgraph-decisions" | "loop-runs" | "queue-decisions" | "role-loop-decisions" | "role-loop-events";
+  source: "canonical-observation" | "workflowgraph-decisions" | "loop-runs" | "queue-decisions" | "role-loop-decisions" | "role-loop-events" | "replay-summary";
   status: MainAgentReplayEvidenceHealthStatus;
   count: number;
   reasons: string[];
@@ -319,6 +319,63 @@ export async function buildMainAgentWorkflowGraphReplaySummary(
   };
 }
 
+export function buildDegradedMainAgentWorkflowGraphReplaySummary(
+  project: ManagedProject,
+  changeId: string,
+  reason: string,
+  observationEvidence?: { observation: MainAgentWorkflowGraphObservation; artifactRefs: string[]; refs: Partial<MainAgentWorkflowGraphReplaySummary["refs"]> },
+): MainAgentWorkflowGraphReplaySummary {
+  const observation = observationEvidence?.observation;
+  const canonicalHealth: MainAgentReplayEvidenceHealth = observation
+    ? canonicalObservationHealth(observation)
+    : {
+      source: "canonical-observation",
+      status: "missing",
+      count: 0,
+      reasons: ["Canonical WorkflowGraph observation is unavailable for degraded replay summary."],
+      paths: [],
+    };
+  const replayHealth: MainAgentReplayEvidenceHealth = {
+    source: "replay-summary",
+    status: "malformed",
+    count: 0,
+    reasons: [reason],
+    paths: [],
+  };
+  const evidenceHealth = [canonicalHealth, replayHealth];
+  const refs = mergeRefs(observation?.refs, observationEvidence?.refs);
+  const currentState = observation
+    ? buildCurrentState(observation, null, null, [], [], [])
+    : unavailableCurrentState("Replay summary derivation failed before canonical state could be reconstructed.");
+  const summaryCore: Omit<MainAgentWorkflowGraphReplaySummary, "nextObservation"> = {
+    version: "1.0",
+    authority: "read-only-main-agent-workflowgraph-replay-summary",
+    executionStarted: false,
+    changeId,
+    projectId: project.id,
+    builtAt: new Date().toISOString(),
+    currentState,
+    latestHistoricalEvidence: {
+      workflowGraphDecision: null,
+      queueDecision: null,
+      roleDecision: null,
+      roleEvent: null,
+    },
+    evidenceHealth,
+    gaps: buildGaps(evidenceHealth),
+    artifactRefs: dedupeStrings([...(observation?.artifactRefs ?? []), ...(observationEvidence?.artifactRefs ?? [])]),
+    refs,
+  };
+  return {
+    ...summaryCore,
+    nextObservation: {
+      kind: "inspect-evidence-gap",
+      reason,
+      targets: ["replay-summary"],
+    },
+  };
+}
+
 function canonicalObservationHealth(observation: MainAgentWorkflowGraphObservation): MainAgentReplayEvidenceHealth {
   const reasons = [...observation.freshness.reasons, ...observation.recovery.reasons];
   if (observation.queue.scopeStatus === "mismatch") {
@@ -366,7 +423,13 @@ async function readHistoricalJsonl(
   const refs: MainAgentWorkflowGraphReplaySummary["refs"] = emptyRefs();
   const artifactRefs: string[] = [];
   const items: MainAgentWorkflowGraphReplayHistoricalEvidence[] = [];
-  const lines = (await readFile(path, "utf8")).split(/\r?\n/).filter(Boolean);
+  let content: string;
+  try {
+    content = await readFile(path, "utf8");
+  } catch (error) {
+    return emptyHistory(source, "malformed", `Evidence file could not be read: ${errorMessage(error)}.`, [path]);
+  }
+  const lines = content.split(/\r?\n/).filter(Boolean);
   if (lines.length === 0) return emptyHistory(source, "missing", "Evidence file is empty.", [path]);
   for (const line of lines) {
     let raw: unknown;
@@ -415,7 +478,13 @@ async function discoverLoopRuns(
   if (!existsSync(root)) {
     return { ids: [], health: { ...health, status: "missing", reasons: ["Main-agent loop run root is missing."] } };
   }
-  const entries = await readdir(root, { withFileTypes: true });
+  let entries;
+  try {
+    entries = await readdir(root, { withFileTypes: true });
+  } catch (error) {
+    markHealth(health, "malformed", `Main-agent loop run root could not be read: ${errorMessage(error)}.`);
+    return { ids: [...ids].sort(), health };
+  }
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     const path = mainAgentLoopRunPath(memory, entry.name);
@@ -518,6 +587,30 @@ function buildCurrentState(
     },
     taskRuns: countBy(taskRuns.map((run) => run.status)),
     agentTasks: countBy(agentTasks.map((task) => task.status)),
+  };
+}
+
+function unavailableCurrentState(reason: string): MainAgentWorkflowGraphReplayCurrentState {
+  return {
+    kind: "unavailable",
+    reason,
+    source: "canonical-managers",
+    workflow: {
+      id: null,
+      status: null,
+      queueRunId: null,
+    },
+    queue: {
+      id: null,
+      status: null,
+      scopeStatus: "unavailable",
+      totalCount: null,
+      completedCount: null,
+      blockedCount: null,
+      failedCount: null,
+    },
+    taskRuns: {},
+    agentTasks: {},
   };
 }
 
@@ -665,4 +758,9 @@ function dedupeStrings(values: Array<string | null | undefined>): string[] {
     result.push(normalized);
   }
   return result;
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  return "unknown error";
 }

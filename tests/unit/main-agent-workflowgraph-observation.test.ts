@@ -20,6 +20,19 @@ afterEach(async () => {
 });
 
 describe("main-agent WorkflowGraph observation evidence", () => {
+  it("keeps observation and replay current-state classifications aligned for representative states", async () => {
+    root = await mkdtemp(join(tmpdir(), "aho-workflowgraph-observation-parity-"));
+    const mem = memory(root);
+
+    const observationEvidence = await recordMainAgentWorkflowGraphObservation(mem, project(), "change-a");
+    const replayResult = await recordMainAgentWorkflowGraphObservationAndReplay(mem, project(), "change-a");
+
+    expect(replayResult.observationEvidence.decision.kind).toBe(observationEvidence.decision.kind);
+    expect(replayResult.replaySummary.currentState.kind).toBe(replayResult.observationEvidence.decision.kind);
+    expect(replayResult.replaySummary.currentState.source).toBe("canonical-managers");
+    expect(replayResult.replaySummary.executionStarted).toBe(false);
+  });
+
   it("decides graph stage without selecting queue items", () => {
     expect(decideMainAgentWorkflowGraph(observation({
       stage: { decompositionPlanId: null },

@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260701-main-agent-workflowgraph-policy-v2-replay-failure-boundary/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260701-main-agent-workflowgraph-replay-consumption-roadmap-sync-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260701-main-agent-workflowgraph-decision-policy-v1/summary.md`.
@@ -145,6 +147,18 @@
 
 ## Latest Product Closeout
 
+`harness/changes/archive/20260701-main-agent-workflowgraph-policy-v2-replay-failure-boundary/summary.md`.
+
+It tightens the non-executing WorkflowGraph replay policy after replay
+consumption was centralized. Active queue guidance now uses
+`observe-active-queue-loop`, so policy output reads as observation advice
+rather than an execution trigger. Replay/history/policy derivation failures
+degrade to replay health gaps instead of blocking existing valid planning or
+TaskQueue gates, while canonical graph observation write failures remain
+fail-closed. Current roadmap/handoff docs now show replay consumption complete
+and make bridge practical integration the next main-agent architecture slice.
+
+Previous closeout:
 `harness/changes/archive/20260701-main-agent-workflowgraph-replay-consumption-roadmap-sync-v1/summary.md`.
 
 It adds `recordMainAgentWorkflowGraphObservationAndReplay(...)`, a main-agent
@@ -155,8 +169,8 @@ of scattered through handlers. The replay summary remains read-only,
 non-persistent, and non-executing; `nextObservation` is not consumed as a queue,
 action, scheduler, prompt, UI, apply, close, remote, PR, merge, or Harness
 evolution command. The main-agent roadmap was updated to show completed role /
-queue / graph evidence slices and the remaining replay consumption -> Policy V2
--> bridge / recovery / scheduler / old-seam retirement route.
+queue / graph evidence slices and the Policy V2 route that was completed by
+the latest closeout.
 
 Previous closeout:
 `harness/changes/archive/20260701-main-agent-workflowgraph-decision-policy-v1/summary.md`.

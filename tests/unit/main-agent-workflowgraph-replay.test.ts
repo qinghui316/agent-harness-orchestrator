@@ -4,7 +4,9 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   buildMainAgentWorkflowGraphReplaySummary,
+  mainAgentLoopRunsRoot,
   mainAgentWorkflowGraphDecisionsPath,
+  recordMainAgentWorkflowGraphObservationAndReplay,
 } from "../../src/main-agent-orchestration/index.js";
 import { ensureMainAgentLoopRun } from "../../src/main-agent-orchestration/loop-evidence.js";
 import { recordMainAgentQueueDecisionEvidence } from "../../src/main-agent-orchestration/queue-step-evidence.js";
@@ -110,6 +112,35 @@ describe("main-agent WorkflowGraph replay summary", () => {
       expect.objectContaining({ source: "workflowgraph-decisions", status: "malformed" }),
     ]));
     expect(summary.latestHistoricalEvidence.workflowGraphDecision).toBeNull();
+  });
+
+  it("degrades unreadable historical evidence into replay gaps", async () => {
+    root = await mkdtemp(join(tmpdir(), "aho-workflowgraph-replay-"));
+    const mem = memory(root);
+    const loopRoot = mainAgentLoopRunsRoot(mem);
+    await mkdir(loopRoot, { recursive: true });
+    await mkdir(join(loopRoot, "loop-as-directory", "loop.json"), { recursive: true });
+
+    const summary = await buildMainAgentWorkflowGraphReplaySummary(mem, project(), "change-a");
+
+    expect(summary.evidenceHealth).toEqual(expect.arrayContaining([
+      expect.objectContaining({ source: "loop-runs", status: "malformed" }),
+    ]));
+    expect(summary.gaps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ source: "loop-runs", status: "malformed" }),
+    ]));
+    expect(summary.nextObservation.kind).toBe("inspect-evidence-gap");
+  });
+
+  it("keeps observation helper non-blocking when replay derivation can only produce gaps", async () => {
+    root = await mkdtemp(join(tmpdir(), "aho-workflowgraph-replay-"));
+    const mem = memory(root);
+    const result = await recordMainAgentWorkflowGraphObservationAndReplay(mem, project(), "change-a");
+
+    expect(result.observationEvidence.authority).toBe("non-executing-main-agent-workflowgraph-decision-evidence");
+    expect(result.replaySummary.authority).toBe("read-only-main-agent-workflowgraph-replay-summary");
+    expect(result.replaySummary.executionStarted).toBe(false);
+    expect(JSON.stringify(result.replaySummary.nextObservation)).not.toContain("actionType");
   });
 });
 

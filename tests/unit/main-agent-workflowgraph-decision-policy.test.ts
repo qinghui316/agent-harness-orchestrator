@@ -38,7 +38,7 @@ describe("main-agent WorkflowGraph decision policy", () => {
     }));
 
     expect(policy.kind).toBe("observe-queue-binding");
-    expect(policy.kind).not.toBe("continue-queue-step-loop");
+    expect(policy.kind).not.toBe("observe-active-queue-loop");
   });
 
   it("maps planning gaps, queue progress, blocked state, and completion", () => {
@@ -58,7 +58,10 @@ describe("main-agent WorkflowGraph decision policy", () => {
         kind: "queue-running",
         queue: { status: "running" },
       },
-    })).kind).toBe("continue-queue-step-loop");
+    }))).toMatchObject({
+      kind: "observe-active-queue-loop",
+      executionStarted: false,
+    });
 
     expect(evaluateMainAgentWorkflowGraphReplayPolicy(input({
       currentState: {
@@ -73,6 +76,25 @@ describe("main-agent WorkflowGraph decision policy", () => {
         queue: { status: "completed" },
       },
     })).kind).toBe("completed-await-result-gate");
+  });
+
+  it("keeps active queue advice non-executing and payload-free", () => {
+    const policy = evaluateMainAgentWorkflowGraphReplayPolicy(input({
+      currentState: {
+        kind: "queue-running",
+        queue: { status: "queued" },
+      },
+    }));
+
+    expect(policy.kind).toBe("observe-active-queue-loop");
+    expect(policy.reason).toContain("observe");
+    const serialized = JSON.stringify(policy);
+    expect(serialized).not.toContain("actionType");
+    expect(serialized).not.toContain("confirmationQueue");
+    expect(serialized).not.toContain("recommendedAction");
+    expect(serialized).not.toContain("scheduler");
+    expect(serialized).not.toContain("result.apply");
+    expect(serialized).not.toContain("change.close");
   });
 });
 
