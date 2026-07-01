@@ -198,6 +198,42 @@ describe("Workbench module boundaries", () => {
     expect(source).not.toContain("SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES");
   });
 
+  it("keeps old main-agent seams retired only where they are dead", () => {
+    for (const file of listSourceFiles(["src"])) {
+      const source = readFileSync(file, "utf8");
+      expect(source, file).not.toContain("runCodeValidateAuditSequence");
+      expect(source, file).not.toContain("runTaskQueueSequence");
+      expect(source, file).not.toContain("task-queue-runner");
+    }
+
+    const registry = readFileSync(join(process.cwd(), "src/workflow-actions/registry.ts"), "utf8");
+    expect(registry).toContain('"role.pipeline.start"');
+    expect(registry).toContain('"role.pipeline.stop"');
+    expect(registry).toContain('"role.pipeline.continue"');
+    expect(registry).toContain('"role.pipeline.reconcile"');
+
+    const handlers = readFileSync(join(process.cwd(), "src/workbench/actions/handlers/index.ts"), "utf8");
+    expect(handlers).toContain('"role.pipeline.start"');
+    expect(handlers).toContain("runMainAgentToolOrchestration");
+
+    const confirmationQueue = readFileSync(join(process.cwd(), "src/workbench/projections/read-model/confirmation-queue.ts"), "utf8");
+    expect(confirmationQueue).toContain('workpad.rolePipeline?.status === "running"');
+    expect(confirmationQueue).toContain("workpad.rolePipeline?.agentTasks.some");
+
+    const workpadReadModel = readFileSync(join(process.cwd(), "src/workbench/projections/read-model/workpad.ts"), "utf8");
+    expect(workpadReadModel).toContain("buildMainAgentLoopProjection");
+    expect(workpadReadModel).toContain("rolePipeline,");
+    expect(workpadReadModel).toContain("mainAgentLoopProjection,");
+
+    const actionLabels = readFileSync(join(process.cwd(), "src/web/src/action-labels.ts"), "utf8");
+    expect(workflowActionLabel("role.pipeline.start")).toBe("主 Agent 执行");
+    expect(actionLabels).not.toContain('return "角色流水线"');
+
+    const workpadDetails = readFileSync(join(process.cwd(), "src/web/src/panels/workbench/workpad/WorkpadDetails.tsx"), "utf8");
+    expect(workpadDetails).toContain("主 Agent 执行链路");
+    expect(workpadDetails).not.toContain("<h3>角色流水线</h3>");
+  });
+
   it("keeps main-agent Scheduler candidate assessment non-executing and outside scheduler runtime", () => {
     const source = readFileSync(join(process.cwd(), "src/main-agent-orchestration/scheduler-candidate-assessment.ts"), "utf8");
     expect(source).toContain("non-executing-main-agent-scheduler-candidate-assessment");

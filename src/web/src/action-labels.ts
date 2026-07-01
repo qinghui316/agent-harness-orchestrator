@@ -59,7 +59,7 @@ export function workflowActionLabel(actionType: string | undefined): string {
   if (actionType === "demand.worker.start-available") return "开始可处理需求";
   if (actionType === "demand.worker.reconcile") return "恢复处理状态";
   if (actionType === "demand.worker.release") return "结束处理";
-  if (actionType === "role.pipeline.start") return "角色流水线";
+  if (actionType === "role.pipeline.start") return "主 Agent 执行";
   if (actionType === "role.pipeline.stop") return "停止当前执行";
   if (actionType === "conversation.steer") return "引导当前执行";
   if (actionType === "conversation.interrupt") return "停止当前执行";

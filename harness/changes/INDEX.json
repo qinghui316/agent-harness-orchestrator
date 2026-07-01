@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-07-01T11:27:08.1434734Z",
+    "generated_at":  "2026-07-01T13:32:23.3682247Z",
     "active":  [
 
                ],
@@ -2349,6 +2349,10 @@
                     {
                         "name":  "20260701-main-agent-controlled-scheduler-worker-runtime-backflow-v1b",
                         "path":  "harness/changes/archive/20260701-main-agent-controlled-scheduler-worker-runtime-backflow-v1b"
+                    },
+                    {
+                        "name":  "20260701-main-agent-old-seam-retirement-v1",
+                        "path":  "harness/changes/archive/20260701-main-agent-old-seam-retirement-v1"
                     },
                     {
                         "name":  "20260701-main-agent-scheduler-candidate-assessment-v1",

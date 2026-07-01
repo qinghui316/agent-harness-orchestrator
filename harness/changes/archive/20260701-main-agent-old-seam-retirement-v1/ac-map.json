@@ -1,0 +1,18 @@
+﻿{
+    "version":  "1.0",
+    "generatedAt":  "2026-07-01T13:22:30.5260226Z",
+    "changeId":  "main-agent-old-seam-retirement-v1",
+    "acceptanceCriteria":  [
+
+                           ],
+    "tasks":  [
+
+              ],
+    "warnings":  [
+                     "Run product planning or update ac-map.json before using AC-gated readiness."
+                 ],
+    "blockingIssues":  [
+                           "ac-map.json was backfilled without parsed acceptance criteria."
+                       ]
+}
+

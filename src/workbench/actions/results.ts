@@ -362,10 +362,10 @@ export function labelForAction(actionType: string): string {
     case "demand.worker.start-available": return "Available demand workers started";
     case "demand.worker.reconcile": return "Demand workers reconciled";
     case "demand.worker.release": return "Demand worker released";
-    case "role.pipeline.start": return "Role orchestration started";
-    case "role.pipeline.stop": return "Role orchestration stop requested";
-    case "role.pipeline.continue": return "Role orchestration continued";
-    case "role.pipeline.reconcile": return "Role orchestration reconciled";
+    case "role.pipeline.start": return "Main-agent execution started";
+    case "role.pipeline.stop": return "Main-agent execution stop requested";
+    case "role.pipeline.continue": return "Main-agent execution continued";
+    case "role.pipeline.reconcile": return "Main-agent execution reconciled";
     case "conversation.steer": return "Conversation steering recorded";
     case "conversation.interrupt": return "Conversation interrupt requested";
     case "conversation.continue": return "Conversation continued";

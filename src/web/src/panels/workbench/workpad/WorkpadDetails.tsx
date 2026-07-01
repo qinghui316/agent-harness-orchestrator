@@ -180,7 +180,7 @@ export function WorkpadDiagnosticDetails({
       {workpad.rolePipeline ? (
         <section className="workpad-section" data-testid="role-pipeline-summary">
           <div className="workpad-section-header">
-            <h3>角色流水线</h3>
+            <h3>主 Agent 执行链路</h3>
             <span>{humanStatus(workpad.rolePipeline.status)}</span>
           </div>
           <div className="workpad-evidence-list">
