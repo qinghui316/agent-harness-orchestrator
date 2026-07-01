@@ -183,19 +183,14 @@ import {
 import { workflowActionPayloadFromTaskAction } from "../../src/web/src/workflow-actions.js";
 
 describe("Workbench module boundaries", () => {
-  it("keeps MainAgentLoopProjection as a non-executing read model seam", () => {
-    const source = readFileSync(join(process.cwd(), "src/goal-loop/main-agent-loop-projection.ts"), "utf8");
-    expect(source).toContain("non-executing-main-agent-loop-projection");
-    expect(source).toContain("executionStarted: false");
-    expect(source).not.toContain("../workbench/actions/");
-    expect(source).not.toContain("../scheduler-runtime/");
-    expect(source).not.toContain("../workflow-runtime/");
-    expect(source).not.toContain("../apply/");
-    expect(source).not.toContain("../terminal");
-    expect(source).not.toContain("runMainAgentToolOrchestration");
-    expect(source).not.toContain("runCodeValidateAuditSequence");
-    expect(source).not.toContain("runPostPlanScopedAutomation");
-    expect(source).not.toContain("SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES");
+  it("keeps retired MainAgentLoopProjection out of production sources and public DTOs", () => {
+    for (const file of listSourceFiles(["src"])) {
+      const source = readFileSync(file, "utf8");
+      expect(source, file).not.toContain("MainAgentLoopProjection");
+      expect(source, file).not.toContain("mainAgentLoopProjection");
+      expect(source, file).not.toContain("main-agent-loop-projection");
+      expect(source, file).not.toContain("buildMainAgentLoopProjection");
+    }
   });
 
   it("keeps old main-agent seams retired only where they are dead", () => {
@@ -250,15 +245,18 @@ describe("Workbench module boundaries", () => {
     expect(confirmationQueue).not.toContain('workpad.rolePipeline?.status === "running"');
 
     const workpadReadModel = readFileSync(join(process.cwd(), "src/workbench/projections/read-model/workpad.ts"), "utf8");
-    expect(workpadReadModel).toContain("buildMainAgentLoopProjection");
     expect(workpadReadModel).toContain("mainAgentExecution,");
     expect(workpadReadModel).not.toContain("    rolePipeline,");
-    expect(workpadReadModel).toContain("mainAgentLoopProjection,");
+    expect(workpadReadModel).not.toContain("mainAgentLoopProjection");
 
     const readModelTypes = readFileSync(join(process.cwd(), "src/workbench/read-model-types.ts"), "utf8");
     expect(readModelTypes).not.toContain("rolePipeline?:");
+    expect(readModelTypes).not.toContain("mainAgentLoopProjection");
+    expect(readModelTypes).not.toContain("MainAgentLoopProjection");
     const webTypes = readFileSync(join(process.cwd(), "src/web/src/types.ts"), "utf8");
     expect(webTypes).not.toContain("rolePipeline?:");
+    expect(webTypes).not.toContain("mainAgentLoopProjection");
+    expect(webTypes).not.toContain("MainAgentLoopProjection");
 
     const mainAgentExecutionReadModel = readFileSync(join(process.cwd(), "src/workbench/projections/read-model/main-agent-execution.ts"), "utf8");
     expect(mainAgentExecutionReadModel).toContain("return workpad.mainAgentExecution");

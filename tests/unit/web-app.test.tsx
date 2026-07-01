@@ -1346,33 +1346,9 @@ describe("Workbench web app", () => {
     }
   });
 
-  it("does not expose main-agent loop projection on the confirmation surface", () => {
+  it("does not expose retired main-agent loop projection on the confirmation surface", () => {
     const item = {
       ...planningConfirmQueueItem(),
-      mainAgentLoopProjection: {
-        authority: "non-executing-main-agent-loop-projection",
-        status: "recommend-existing-gate",
-        changeId: "member-discount",
-        summary: "The current gate matches the main Agent next-step packet.",
-        reason: "主 Agent 判断当前只应确认现有计划 gate。",
-        recommendedAction: {
-          actionType: "planning.confirm-execution",
-          scope: { changeId: "member-discount", planningBundleId: "planning-bundle-1" },
-          reason: "主 Agent 判断当前只应确认现有计划 gate。",
-        },
-        currentGateActionType: "planning.confirm-execution",
-        evidenceRefs: ["goal-loop/packet.md"],
-        forbiddenAuthority: {
-          workflowTruth: false,
-          actionExecution: false,
-          sourceMutation: false,
-          schedulerDispatch: false,
-          applyOrClose: false,
-          remoteOrMerge: false,
-          harnessEvolution: false,
-        },
-        executionStarted: false,
-      },
     } as const;
 
     render(

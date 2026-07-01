@@ -964,30 +964,6 @@ describe("workbench read-model projections", () => {
     const workpad = {
       resultReview: undefined,
       taskGraph: { nodes: [] },
-      mainAgentLoopProjection: {
-        authority: "non-executing-main-agent-loop-projection",
-        status: "recommend-existing-gate",
-        changeId: "close-projection-target",
-        summary: "The current close gate matches the main Agent packet.",
-        reason: "This internal projection must not become confirmation queue context.",
-        recommendedAction: {
-          actionType: "change.close",
-          scope: { changeId: "close-projection-target" },
-          reason: "This internal projection must not become confirmation queue context.",
-        },
-        currentGateActionType: "change.close",
-        evidenceRefs: ["goal-loop/packet.md"],
-        forbiddenAuthority: {
-          workflowTruth: false,
-          actionExecution: false,
-          sourceMutation: false,
-          schedulerDispatch: false,
-          applyOrClose: false,
-          remoteOrMerge: false,
-          harnessEvolution: false,
-        },
-        executionStarted: false,
-      },
       nextAction: {
         id: "none",
         label: "None",
@@ -1028,8 +1004,9 @@ describe("workbench read-model projections", () => {
     } as Parameters<typeof buildConfirmationQueue>[0]);
 
     expect(queue.current.filter((item) => item.primary)).toHaveLength(1);
+    expect(Object.prototype.hasOwnProperty.call(workpad, "mainAgentLoopProjection")).toBe(false);
+    expect(JSON.stringify(queue)).not.toContain("mainAgentLoopProjection");
     expect(JSON.stringify(queue)).not.toContain("non-executing-main-agent-loop-projection");
-    expect(JSON.stringify(queue)).not.toContain("This internal projection must not become confirmation queue context.");
     expect(queue.primary?.actions).toEqual(expect.arrayContaining([
       expect.objectContaining({
         action: expect.objectContaining({

@@ -11,6 +11,16 @@ The user should not need to know internal terms before asking for work. The main
 ## Goal-Driven Workflow Loop Target
 
 Latest completed implementation slice:
+`harness/changes/archive/20260702-main-agent-loop-projection-retirement-v6/summary.md`.
+It retires the old Workpad/Web DTO `MainAgentLoopProjection` seam and deletes
+`src/goal-loop/main-agent-loop-projection.ts`. Goal Loop summaries,
+controller policy, gate-readiness preflight, feedback, close handoff, action
+bridge evidence ids, main-agent loop evidence, WorkflowGraph replay/policy/
+backflow, Scheduler, IntegrationCheck, confirmationQueue, action revalidation,
+automation allowlists, ToolPolicyGate, apply/close, remote, PR, merge, and
+Harness evolution authority remain unchanged.
+
+Previous completed implementation slice:
 `harness/changes/archive/20260702-main-agent-old-seam-retirement-v5d-inbound-only-action-alias-finalization/summary.md`.
 It finalizes legacy `role.pipeline.*` action ids as permanent inbound-only
 compatibility while `main-agent.execution.*` remains the canonical public
@@ -248,23 +258,25 @@ The controlled Scheduler backflow line is now complete through IntegrationCheck
 terminal posture: replay can observe candidate, handoff, exact check, outcome,
 completion, and blocked closeout lineage while preserving IntegrationCheck
 apply/discard as the existing human-gated owner.
-Old seam retirement has started: V1 inventoried live/dead seams, V2 centralized
+Old seam retirement is now closed for the current Harness-mode main-agent
+foundation: V1 inventoried live/dead seams, V2 centralized
 legacy `role.pipeline.*` classification, V3 registered canonical
 `main-agent.execution.*` ids while retaining legacy aliases, and V4 is making
 canonical ids the default outbound payload contract while keeping legacy ids as
 inbound compatibility. V5a moved Workpad projections from legacy `rolePipeline`
 terminology to canonical `mainAgentExecution` while retaining legacy output for
 compatibility. V5b removes that Workpad public read-model legacy output while
-retaining action aliases and other live seams.
+retaining action aliases and other live seams. V5c/V5d finalize
+`role.pipeline.*` as inbound-only compatibility, and V6 retires the old
+`MainAgentLoopProjection` DTO/projection seam.
 Those layers still use deterministic policy. They are architecture seams and
 evidence readers, not a free-form autonomous controller.
 
 Remaining migration should be split into reviewable structured changes:
 
-1. Old seam retirement V5: finish `mainAgentExecution` read-model
-   canonicalization by removing Workpad public `rolePipeline` output, then
-   assess `role.pipeline.*` action aliases and `MainAgentLoopProjection` in
-   separate compatibility-backed changes.
+1. Smarter main-agent decision policy: optionally replace/augment deterministic
+   policies with explicit evidence-backed main-agent judgment, still behind
+   existing Harness gates.
 2. Normal Agent mode: design separately as a single-agent session/chat product
    mode that may reuse Provider Registry, but does not reuse Harness
    Change/ECL/validation/audit/apply/close truth.
@@ -412,16 +424,18 @@ Pending Harness evolution: none.
 
 Current structured change: none.
 
-Recommended current architecture step: `MainAgentLoopProjection` retirement or
-permanent non-executing boundaryization. Do not weaken canonical Harness truth,
+Recommended current architecture step: the Harness-mode main-agent foundation
+is converged after V6. Start a new structured product or architecture phase
+before expanding decision intelligence, Normal Agent mode, provider support, or
+desktop packaging. Do not weaken canonical Harness truth,
 Scheduler/IntegrationCheck owners, confirmation gates, action revalidation, or
 automation allowlists.
 
-Desktop product-layer work can continue when selected, but it is no longer the
-default next step for the current main-agent architecture migration.
+Desktop product-layer work can continue when selected as a separate structured
+product phase.
 
 Latest product change:
-`harness/changes/archive/20260702-main-agent-old-seam-retirement-v5d-inbound-only-action-alias-finalization/summary.md`.
+`harness/changes/archive/20260702-main-agent-loop-projection-retirement-v6/summary.md`.
 
 Latest docs/architecture change:
 `harness/changes/archive/20260629-document-aho-hybrid-desktop-native-roadmap-v1/summary.md`.

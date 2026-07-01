@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260702-main-agent-loop-projection-retirement-v6/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260702-main-agent-old-seam-retirement-v5d-inbound-only-action-alias-finalization/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260701-main-agent-old-seam-retirement-v5c-role-pipeline-action-alias-readiness/summary.md`.
@@ -212,6 +214,17 @@
 
 ## Latest Product Closeout
 
+`harness/changes/archive/20260702-main-agent-loop-projection-retirement-v6/summary.md`.
+
+It retires the old Workpad/Web DTO `MainAgentLoopProjection` seam and deletes
+`src/goal-loop/main-agent-loop-projection.ts`. Goal Loop summaries,
+controller policy, gate-readiness preflight, feedback, close handoff, action
+bridge evidence ids, main-agent loop evidence, WorkflowGraph replay/policy/
+backflow, Scheduler, IntegrationCheck, confirmationQueue, action revalidation,
+automation allowlists, ToolPolicyGate, apply/close, remote, PR, merge, and
+Harness evolution authority remain unchanged.
+
+Previous closeout:
 `harness/changes/archive/20260702-main-agent-old-seam-retirement-v5d-inbound-only-action-alias-finalization/summary.md`.
 
 It finalizes `role.pipeline.*` as permanent inbound-only compatibility while
@@ -220,7 +233,7 @@ inbound requests still route to the same handlers and may keep their original
 `request.actionType` in historical thread/action/decision echo evidence. New
 generated Workbench/server/current-gate payloads stay canonical. V5d removes
 the reverse legacy conversion helper from production and does not delete
-`MainAgentLoopProjection`, internal demand-worker `rolePipeline`, Scheduler or
+internal demand-worker `rolePipeline`, Scheduler or
 IntegrationCheck owners, confirmation gates, revalidation, automation
 allowlists, apply/close, remote, PR, merge, or Harness evolution.
 
@@ -716,16 +729,15 @@ Harness workflow truth.
 ## Next Resume Point
 
 Current main-agent architecture work has no active product change. Pending
-Harness evolution now exists at `harness/evolution/pending.md` and should be
-handled as a separate structured maintenance change when selected. After that,
-the likely product follow-up is `MainAgentLoopProjection` retirement or
-permanent non-executing boundaryization. Do not remove canonical Harness truth,
-Scheduler runtime owners, IntegrationCheck apply/discard owners, confirmation
-gates, action revalidation, or automation allowlists.
+Harness evolution is none. After V6, the current Harness-mode main-agent
+foundation is converged; next work should start as a new structured product or
+architecture phase, such as smarter decision policy, Normal Agent mode,
+provider expansion, or desktop packaging. Do not remove canonical Harness
+truth, Scheduler runtime owners, IntegrationCheck apply/discard owners,
+confirmation gates, action revalidation, or automation allowlists.
 
 Desktop product work can continue from
-`docs/design-docs/ref-desktop-cc-gui.md` when selected, but it is no longer the
-default next step for the current main-agent architecture migration.
+`docs/design-docs/ref-desktop-cc-gui.md` when selected.
 
 Do not widen `完全访问权限` into raw scheduler, manual IntegrationCheck,
 integration apply/discard, PR/remote/merge, Harness evolution, or full parallel

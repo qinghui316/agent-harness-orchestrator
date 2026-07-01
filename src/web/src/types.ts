@@ -798,35 +798,6 @@ export type GoalLoopSummary = {
   updatedAt?: string;
   executionStarted: false;
 };
-export type MainAgentLoopProjection = {
-  authority: "non-executing-main-agent-loop-projection";
-  status: "recommend-existing-gate" | "wait" | "blocked" | "close-ready" | "unavailable";
-  changeId?: string;
-  summary: string;
-  reason: string;
-  recommendedAction?: {
-    actionType: string;
-    scope: Record<string, string | string[]>;
-    reason: string;
-  };
-  currentGateActionType?: string;
-  goalLoopDecisionId?: string;
-  goalLoopIterationId?: string;
-  goalLoopNextStepPacketId?: string;
-  goalLoopControllerPolicyId?: string;
-  goalLoopGateReadinessPreflightId?: string;
-  evidenceRefs: string[];
-  forbiddenAuthority: {
-    workflowTruth: false;
-    actionExecution: false;
-    sourceMutation: false;
-    schedulerDispatch: false;
-    applyOrClose: false;
-    remoteOrMerge: false;
-    harnessEvolution: false;
-  };
-  executionStarted: false;
-};
 export type ControlledSchedulerStepReceiptDetail = {
   status: "ready-for-confirmation" | "needs-review" | "needs-reevaluation" | "refreshed";
   label: string;
@@ -921,7 +892,6 @@ export type Workpad = {
   schedulerRunCompletion?: SchedulerRunCompletionSummary;
   schedulerRunBlockedCloseout?: SchedulerRunBlockedCloseoutSummary;
   goalLoop?: GoalLoopSummary;
-  mainAgentLoopProjection?: MainAgentLoopProjection;
   controlledSchedulerStepReceipt?: ControlledSchedulerStepReceiptDetail;
   controlledSchedulerStepTrace?: ControlledSchedulerStepTraceDetail;
   mainAgentExecution?: WorkpadMainAgentExecutionSummary;
