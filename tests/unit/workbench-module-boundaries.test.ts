@@ -197,6 +197,37 @@ describe("Workbench module boundaries", () => {
     expect(source).not.toContain("SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES");
   });
 
+  it("keeps main-agent Scheduler candidate assessment non-executing and outside scheduler runtime", () => {
+    const source = readFileSync(join(process.cwd(), "src/main-agent-orchestration/scheduler-candidate-assessment.ts"), "utf8");
+    expect(source).toContain("non-executing-main-agent-scheduler-candidate-assessment");
+    expect(source).toContain("executionStarted: false");
+    expect(source).toContain("candidate-signal-observed");
+    expect(source).not.toContain("../workflow-scheduler/");
+    expect(source).not.toContain("../scheduler-runtime/");
+    expect(source).not.toContain("../workbench/");
+    expect(source).not.toContain("../server/");
+    expect(source).not.toContain("../workflow-runtime/");
+    expect(source).not.toContain("../apply/");
+    expect(source).not.toContain("../terminal");
+    expect(source).not.toContain("confirmationQueue");
+    expect(source).not.toContain("automation");
+    expect(source).not.toContain("actionType");
+    expect(source).not.toContain("planning.scheduler.");
+    expect(source).not.toContain("compileScheduler");
+    expect(source).not.toContain("compileSchedulerDispatchDryRun");
+    expect(source).not.toContain("prepareSchedulerRun");
+    expect(source).not.toContain("dispatch");
+    expect(source).not.toContain("startWorker");
+    expect(source).not.toContain("runIntegrationCheck");
+    expect(source).not.toContain("writeScheduler");
+
+    const helper = readFileSync(join(process.cwd(), "src/main-agent-orchestration/workflowgraph-replay-consumption.ts"), "utf8");
+    expect(helper).toContain("schedulerCandidateAssessment");
+    expect(helper).toContain("buildMainAgentSchedulerCandidateAssessment");
+    expect(helper).not.toContain("../workflow-scheduler/");
+    expect(helper).not.toContain("../scheduler-runtime/");
+  });
+
   it("routes main-agent orchestration through the new owner instead of the old full sequence", () => {
     const demandWorker = readFileSync(join(process.cwd(), "src/workbench/demand-workers/orchestration.ts"), "utf8");
     expect(demandWorker).toContain('from "../../main-agent-orchestration/index.js"');

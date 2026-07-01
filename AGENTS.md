@@ -8,6 +8,8 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260701-main-agent-scheduler-candidate-assessment-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260701-main-agent-workflowgraph-recovery-evidence-summary-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260701-main-agent-bridge-integration-acceptance-closeout-v1/summary.md`.
@@ -170,10 +172,12 @@ Current baseline:
   `queue-decisions.jsonl` evidence. WorkflowGraph observation records
   non-executing `workflowgraph-decisions.jsonl` evidence, and the read-only
   replay summary builder now aggregates canonical manager state plus historical
-  graph/queue/role evidence for future decision policy work. V1 remains
-  deterministic and does not add Scheduler/WorkerLease/IntegrationCheck fan-out,
-  UI, confirmation queue, action bridge, automation allowlist, apply/close,
-  remote, PR, merge, or Harness evolution authority.
+  graph/queue/role evidence; recovery summary labels evidence completeness; and
+  the read-only Scheduler candidate assessment can observe low-conflict
+  Scheduler signals without becoming readiness authority. V1 remains
+  deterministic and does not add SchedulerRun/WorkerLease/IntegrationCheck
+  fan-out, UI, confirmation queue, action bridge, automation allowlist,
+  apply/close, remote, PR, merge, or Harness evolution authority.
 - Workbench conversation transcripts now use cursor-incremental SQLite message
   paging by default, bounded virtual rendering, long-message folding, and
   `@chenglou/pretext` height estimates with fallback. Synthetic 100k / 500k

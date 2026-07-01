@@ -11,14 +11,15 @@ The user should not need to know internal terms before asking for work. The main
 ## Goal-Driven Workflow Loop Target
 
 Latest implementation slice:
-`harness/changes/archive/20260701-main-agent-workflowgraph-recovery-evidence-summary-v1/summary.md`.
-It adds the read-only `MainAgentWorkflowGraphRecoverySummary` layer on top of
-WorkflowGraph replay. The summary labels evidence completeness only: recovery
-key freshness, WorkflowRun/TaskQueue binding scope, current queue-bound
-TaskRun stage verdicts, and Run/Validation/Audit refs. It is not a policy,
-next action, confirmation source, recovery executor, scheduler input, UI
-surface, apply/close payload, remote/PR/merge path, or Harness evolution
-authority.
+`harness/changes/archive/20260701-main-agent-scheduler-candidate-assessment-v1/summary.md`.
+It adds the non-executing `MainAgentSchedulerCandidateAssessment` layer on top
+of WorkflowGraph replay/recovery. The assessment labels only whether fresh
+same-Change scheduler/readiness evidence exposes a low-conflict Scheduler
+candidate signal. It is not Scheduler readiness authority, not a gate, not a
+recommendation, not an action payload, and not a Scheduler transition. It does
+not compile, dry-run, dispatch, start workers, create SchedulerRun /
+WorkerLease / IntegrationCheck, or affect UI, confirmation queue, automation,
+apply/close, remote, PR, merge, or Harness evolution authority.
 
 The target architecture is a Goal-driven Workflow Loop, not a Scheduler-first
 product. After the user confirms the goal, boundaries, accepted plan, and
@@ -137,24 +138,21 @@ contract, TaskRun rework ownership, TaskQueue lifecycle ownership, queue step
 loop, WorkflowGraph observation evidence, replay summary builder,
 non-executing WorkflowGraph decision policy, centralized replay consumption,
 Policy V2 replay failure-boundary hardening, explicit bridge acceptance
-coverage for workflow and approval action paths, and the read-only
-WorkflowGraph recovery evidence summary. Those layers still use deterministic
-policy. They are
+coverage for workflow and approval action paths, the read-only WorkflowGraph
+recovery evidence summary, and the non-executing Scheduler candidate
+assessment. Those layers still use deterministic policy. They are
 architecture seams and evidence readers, not a free-form autonomous controller.
 
 Remaining migration should be split into reviewable structured changes:
 
-1. Scheduler candidate policy: produce non-executing candidate assessments for
-   SchedulerRun / WorkerLease / IntegrationCheck opportunities from replay
-   state. Do not dispatch workers in this phase.
-2. Parallel integration: connect existing SchedulerRun, WorkerLease, worktree,
+1. Parallel integration: connect existing SchedulerRun, WorkerLease, worktree,
    and IntegrationCheck owners to the main-agent loop while preserving one
    human gate per high-impact transition and stopping at integration
    apply/discard.
-3. Old seam retirement: remove obsolete projections, compatibility aliases,
+2. Old seam retirement: remove obsolete projections, compatibility aliases,
    and duplicated read paths such as legacy pipeline naming once replacement
    evidence is proven in production tests.
-4. Normal Agent mode: design separately as a single-agent session/chat product
+3. Normal Agent mode: design separately as a single-agent session/chat product
    mode that may reuse Provider Registry, but does not reuse Harness
    Change/ECL/validation/audit/apply/close truth.
 
@@ -301,20 +299,19 @@ Current structured change: none.
 
 Pending Harness evolution: none.
 
-Recommended next architecture step: non-executing `Scheduler candidate policy`
-for the main-agent WorkflowGraph loop. It should assess whether current replay
-and recovery evidence indicates low-conflict SchedulerRun / WorkerLease /
-IntegrationCheck opportunities, but it must not dispatch workers or start
-parallel execution. Change/ECL, accepted artifact hashes, ToolPolicyGate,
-validation/audit, and human gates remain authoritative. Do not dispatch
-Scheduler/WorkerLease, IntegrationCheck, apply/close, remote, PR, merge, or
-Harness evolution from the candidate layer.
+Recommended next architecture step: `Parallel integration` for the main-agent
+WorkflowGraph loop. It should connect existing SchedulerRun, WorkerLease,
+worker validation/audit/rework, and IntegrationCheck owners to the main-agent
+loop while preserving one human gate per high-impact transition and stopping
+at integration apply/discard. The existing Scheduler candidate assessment is
+only an observation signal; it must not dispatch workers or start parallel
+execution by itself.
 
 Desktop product-layer work can continue when selected, but it is no longer the
 default next step for the current main-agent architecture migration.
 
 Latest product change:
-`harness/changes/archive/20260701-main-agent-bridge-integration-acceptance-closeout-v1/summary.md`.
+`harness/changes/archive/20260701-main-agent-scheduler-candidate-assessment-v1/summary.md`.
 
 Latest docs/architecture change:
 `harness/changes/archive/20260629-document-aho-hybrid-desktop-native-roadmap-v1/summary.md`.

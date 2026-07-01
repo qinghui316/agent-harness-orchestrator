@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-07-01T06:19:43.8228632Z",
+    "generated_at":  "2026-07-01T07:09:48.6566274Z",
     "active":  [
 
                ],
@@ -2317,6 +2317,10 @@
                     {
                         "name":  "20260701-main-agent-bridge-integration-acceptance-closeout-v1",
                         "path":  "harness/changes/archive/20260701-main-agent-bridge-integration-acceptance-closeout-v1"
+                    },
+                    {
+                        "name":  "20260701-main-agent-scheduler-candidate-assessment-v1",
+                        "path":  "harness/changes/archive/20260701-main-agent-scheduler-candidate-assessment-v1"
                     },
                     {
                         "name":  "20260701-main-agent-workflowgraph-decision-policy-v1",

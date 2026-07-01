@@ -88,6 +88,12 @@ export {
   type MainAgentWorkflowGraphRecoverySummary,
 } from "./workflowgraph-recovery.js";
 export {
+  buildMainAgentSchedulerCandidateAssessment,
+  type MainAgentSchedulerCandidateAssessment,
+  type MainAgentSchedulerCandidateAssessmentKind,
+  type MainAgentSchedulerCandidateGap,
+} from "./scheduler-candidate-assessment.js";
+export {
   recordMainAgentWorkflowGraphObservationAndReplay,
   type MainAgentWorkflowGraphObservationReplayResult,
 } from "./workflowgraph-replay-consumption.js";

@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260701-main-agent-scheduler-candidate-assessment-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260701-main-agent-workflowgraph-recovery-evidence-summary-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260701-main-agent-bridge-integration-acceptance-closeout-v1/summary.md`.
@@ -157,18 +159,27 @@
 
 ## Latest Product Closeout
 
-`harness/changes/archive/20260701-main-agent-bridge-integration-acceptance-closeout-v1/summary.md`.
+`harness/changes/archive/20260701-main-agent-scheduler-candidate-assessment-v1/summary.md`.
 
-It closes out the already-implemented main-agent bridge integration with
-focused acceptance tests and roadmap cleanup. The production bridge remains the
-existing non-executing `assessMainAgentActionBridge` owner; workflow action
-revalidation and approval action execution fail closed only when requests
-explicitly carry main-agent evidence ids. Requests without bridge ids keep
-their prior behavior. Current roadmap docs now mark bridge practical
-integration complete and point the next main-agent architecture slice to
-Recovery/resume. No UI, confirmation queue, action registry, automation
-allowlist, Scheduler/WorkerLease/IntegrationCheck, apply/close, remote, PR,
-merge, or Harness evolution authority changed.
+It adds the non-executing `MainAgentSchedulerCandidateAssessment` under the
+main-agent orchestration owner. The assessment consumes existing replay and
+recovery summaries plus fresh same-Change scheduler/readiness refs, then labels
+only whether a Scheduler candidate signal is observable. It is not Scheduler
+readiness authority, not a gate, not a recommendation, and not an action
+payload. It does not call scheduler compile/dry-run/dispatch, does not create
+SchedulerRun / WorkerLease / IntegrationCheck, and does not affect UI,
+confirmation queue, action registry, automation allowlist, apply/close, remote,
+PR, merge, or Harness evolution authority.
+
+Previous closeout:
+`harness/changes/archive/20260701-main-agent-workflowgraph-recovery-evidence-summary-v1/summary.md`.
+
+It adds the read-only `MainAgentWorkflowGraphRecoverySummary` layer on top of
+WorkflowGraph replay. The summary labels evidence completeness only: recovery
+key freshness, WorkflowRun/TaskQueue binding scope, current queue-bound TaskRun
+stage verdicts, and Run/Validation/Audit refs. It is not a policy, next action,
+confirmation source, recovery executor, Scheduler authority, UI surface,
+apply/close payload, remote/PR/merge path, or Harness evolution authority.
 
 Previous closeout:
 `harness/changes/archive/20260701-main-agent-workflowgraph-policy-v2-replay-failure-boundary/summary.md`.
@@ -558,11 +569,16 @@ Harness workflow truth.
 
 ## Next Resume Point
 
-Product work should continue from `docs/design-docs/ref-desktop-cc-gui.md`.
-Good next slices are first-onboarding system Skill auto-context at the server
-prompt boundary, actual skill-usage evidence, project creation/open/restore
-polish, runtime diagnostics, terminal, browser, attachment panels, Git
-write/history flows, or file editing once each has real behavior.
+Main-agent architecture work should continue with parallel integration only
+after a separate structured change: connect existing SchedulerRun,
+WorkerLease, worker validation/audit/rework, and IntegrationCheck owners to the
+main-agent loop while preserving one human gate per high-impact transition.
+The existing candidate assessment is an observation signal only and must not
+dispatch workers.
+
+Desktop product work can continue from
+`docs/design-docs/ref-desktop-cc-gui.md` when selected, but it is no longer the
+default next step for the current main-agent architecture migration.
 
 Do not widen `完全访问权限` into raw scheduler, manual IntegrationCheck,
 integration apply/discard, PR/remote/merge, Harness evolution, or full parallel

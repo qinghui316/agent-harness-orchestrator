@@ -133,6 +133,8 @@ describe("main-agent WorkflowGraph recovery summary", () => {
     expect(result.replaySummary.authority).toBe("read-only-main-agent-workflowgraph-replay-summary");
     expect(result.recoverySummary.authority).toBe("read-only-main-agent-workflowgraph-recovery-summary");
     expect(result.recoverySummary.executionStarted).toBe(false);
+    expect(result.schedulerCandidateAssessment.authority).toBe("non-executing-main-agent-scheduler-candidate-assessment");
+    expect(result.schedulerCandidateAssessment.executionStarted).toBe(false);
   });
 });
 

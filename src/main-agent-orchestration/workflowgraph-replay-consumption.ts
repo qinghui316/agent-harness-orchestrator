@@ -14,11 +14,17 @@ import {
   buildMainAgentWorkflowGraphRecoverySummary,
   type MainAgentWorkflowGraphRecoverySummary,
 } from "./workflowgraph-recovery.js";
+import {
+  buildDegradedMainAgentSchedulerCandidateAssessment,
+  buildMainAgentSchedulerCandidateAssessment,
+  type MainAgentSchedulerCandidateAssessment,
+} from "./scheduler-candidate-assessment.js";
 
 export interface MainAgentWorkflowGraphObservationReplayResult {
   observationEvidence: MainAgentWorkflowGraphDecisionEvidence;
   replaySummary: MainAgentWorkflowGraphReplaySummary;
   recoverySummary: MainAgentWorkflowGraphRecoverySummary;
+  schedulerCandidateAssessment: MainAgentSchedulerCandidateAssessment;
 }
 
 export async function recordMainAgentWorkflowGraphObservationAndReplay(
@@ -44,7 +50,22 @@ export async function recordMainAgentWorkflowGraphObservationAndReplay(
       `Recovery summary derivation failed: ${errorMessage(error)}.`,
     ),
   );
-  return { observationEvidence, replaySummary, recoverySummary };
+  const schedulerCandidateAssessment = await (async () => buildMainAgentSchedulerCandidateAssessment({
+    project,
+    changeId,
+    observationEvidence,
+    replaySummary,
+    recoverySummary,
+  }))().catch((error) =>
+    buildDegradedMainAgentSchedulerCandidateAssessment(
+      project,
+      changeId,
+      replaySummary,
+      recoverySummary,
+      `Scheduler candidate assessment derivation failed: ${errorMessage(error)}.`,
+    ),
+  );
+  return { observationEvidence, replaySummary, recoverySummary, schedulerCandidateAssessment };
 }
 
 function errorMessage(error: unknown): string {
