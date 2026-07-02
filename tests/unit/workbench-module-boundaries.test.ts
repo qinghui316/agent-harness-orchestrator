@@ -410,6 +410,10 @@ describe("Workbench module boundaries", () => {
     expect(decisionPolicy).toContain("parallel-scheduler-candidate");
     expect(decisionPolicy).toContain("explain-existing-gate-only");
     expect(decisionPolicy).toContain("eligible-for-existing-scoped-automation");
+    expect(decisionPolicy).toContain("consumeMainAgentStrategyAdvice");
+    expect(decisionPolicy).toContain("non-executing-main-agent-strategy-advice-consumption");
+    expect(decisionPolicy).toContain("deterministicBaseline");
+    expect(decisionPolicy).toContain("kindSource");
     expect(decisionPolicy).not.toContain("../workflow-scheduler/");
     expect(decisionPolicy).not.toContain("../scheduler-runtime/");
     expect(decisionPolicy).not.toContain("../workbench/");
@@ -459,6 +463,7 @@ describe("Workbench module boundaries", () => {
     expect(automationHandler).toContain("strategyConsumptionGateFromAutomationGate");
     expect(automationHandler).toContain("recordScopedAutomationMainAgentResumePoint");
     expect(automationHandler).not.toContain("buildMainAgentStrategyAdvice");
+    expect(automationHandler).not.toContain("consumeMainAgentStrategyAdvice");
     expect(automationHandler).not.toContain("strategyAdviceInput");
     expect(automationHandler.indexOf("assessMainAgentStrategyConsumption({")).toBeLessThan(automationHandler.indexOf("runScopedAutomation({"));
     expect(automationHandler.indexOf("assessMainAgentResumeConsumption({")).toBeLessThan(automationHandler.indexOf("runScopedAutomation({"));

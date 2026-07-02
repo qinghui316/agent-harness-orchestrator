@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260702-main-agent-strategy-policy-v2b-bounded-advice-consumption/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260702-main-agent-strategy-policy-v2a-stale-first-readonly-advice/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260702-main-agent-resume-consumption-v1c-scoped-local-gated-continuation/summary.md`.
@@ -824,13 +826,15 @@ Harness workflow truth.
 
 ## Next Resume Point
 
-Current main-agent architecture work has no active ECL change. Latest completed
+Current main-agent architecture work has no active change. Latest completed
 slice is
-`harness/changes/archive/20260702-main-agent-strategy-policy-v2a-stale-first-readonly-advice/summary.md`.
-Pending Harness evolution is none. V2a repaired V1c stale-first resume
-consumption and added read-only strategy advice that cannot alter
-`MainAgentStrategyDecision`, scoped automation compatibility, confirmation
-queue, allowlists, Scheduler / IntegrationCheck, or apply / close authority.
+`harness/changes/archive/20260702-main-agent-strategy-policy-v2b-bounded-advice-consumption/summary.md`.
+Pending Harness evolution is none. V2b lets bounded strategy advice influence
+strategy kind only inside a strict current-evidence envelope while preserving
+deterministic baseline provenance; advice remains non-executing and cannot act
+as an action, gate, controller, automation authority, Scheduler /
+IntegrationCheck executor, or apply / close authority. The next structured
+architecture step is Goal-style autonomous loop runner acceptance.
 
 Desktop product work can continue from
 `docs/design-docs/ref-desktop-cc-gui.md` when selected.

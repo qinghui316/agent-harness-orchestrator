@@ -13,6 +13,14 @@ The user should not need to know internal terms before asking for work. The main
 Active implementation slice: none.
 
 Latest completed implementation slice:
+`harness/changes/archive/20260702-main-agent-strategy-policy-v2b-bounded-advice-consumption/summary.md`.
+It lets bounded `MainAgentStrategyAdvice` influence
+`MainAgentStrategyDecision` only inside a strict current-evidence envelope,
+with deterministic baseline provenance and explicit consumption status. It
+does not make advice a controller, gate, action payload, scoped automation
+authority, Scheduler / IntegrationCheck executor, or apply/close authority.
+
+Previous completed implementation slice:
 `harness/changes/archive/20260702-main-agent-strategy-policy-v2a-stale-first-readonly-advice/summary.md`.
 It repaired V1c resume-consumption stale-first ordering and added a strict
 read-only `MainAgentStrategyAdvice` contract. V2a does not let advice change
@@ -20,7 +28,7 @@ strategy kind, full-access compatibility, scoped automation eligibility,
 confirmation queue behavior, action payloads, Scheduler, IntegrationCheck,
 apply/close, or Harness authority.
 
-Previous completed implementation slice:
+Earlier completed implementation slice:
 `harness/changes/archive/20260702-main-agent-resume-consumption-v1c-scoped-local-gated-continuation/summary.md`.
 It consumes explicit main-agent resume continuation only for the
 `scoped-local-automation` lane. Request-approval remains explain-only;
@@ -520,21 +528,21 @@ Pending Harness evolution: none.
 
 Current structured change: none.
 
-Recommended current architecture step: design V2b only if LLM strategy advice
-should safely influence deterministic strategy policy. V2b must remain
-schema-validated, fail-closed, non-authoritative until matched to current
-Harness evidence, and must not expand scoped automation, Scheduler,
-IntegrationCheck, apply/close, remote, PR, merge, or Harness evolution
-authority.
+Recommended current architecture step: plan Goal-style autonomous loop runner
+acceptance. That work should verify that, after plan confirmation, full-access
+can repeatedly observe, decide, consume only existing scoped gates, and stop at
+complete / blocked / human-only gates without widening raw Scheduler,
+IntegrationCheck apply/discard, remote, PR, merge, Harness evolution, or
+apply/close authority.
 
 Desktop product-layer work can continue when selected as a separate structured
 product phase.
 
 Latest product change:
-`harness/changes/archive/20260702-main-agent-resume-consumption-v1c-scoped-local-gated-continuation/summary.md`.
+`harness/changes/archive/20260702-main-agent-strategy-policy-v2b-bounded-advice-consumption/summary.md`.
 
 Previous product change:
-`harness/changes/archive/20260702-main-agent-resume-consumption-context-v1b/summary.md`.
+`harness/changes/archive/20260702-main-agent-strategy-policy-v2a-stale-first-readonly-advice/summary.md`.
 
 Latest docs/architecture change:
 `harness/changes/archive/20260629-document-aho-hybrid-desktop-native-roadmap-v1/summary.md`.

@@ -76,6 +76,60 @@ describe("main-agent strategy consumption", () => {
     }
   });
 
+  it("keeps advice-assisted final strategy inside existing request/full-access gates", () => {
+    const adviceAssisted = strategy("direct-single-worktree", {
+      kindSource: "bounded-advice",
+      deterministicBaseline: {
+        kind: "read-only-or-clarify",
+        reason: "ambiguous baseline",
+        targets: ["workflowgraph-observation"],
+      },
+      adviceConsumption: {
+        authority: "non-executing-main-agent-strategy-advice-consumption",
+        executionStarted: false,
+        controller: false,
+        status: "accepted-bounded",
+        baselineKind: "read-only-or-clarify",
+        finalKind: "direct-single-worktree",
+        finalKindSource: "bounded-advice",
+        adviceKind: "direct",
+        reason: "Bounded advice selected direct-single-worktree.",
+        evidenceRefs: ["advice:direct"],
+      },
+    });
+
+    expect(assessMainAgentStrategyConsumption({
+      strategyDecision: adviceAssisted,
+      mode: "request-approval",
+      selectedChangeId: "change-a",
+      currentGate: workflowGate(),
+    })).toMatchObject({
+      status: "explain-existing-gate",
+      strategyKind: "direct-single-worktree",
+    });
+
+    expect(assessMainAgentStrategyConsumption({
+      strategyDecision: adviceAssisted,
+      mode: "full-access",
+      selectedChangeId: "change-a",
+      currentGate: workflowGate(),
+    })).toMatchObject({
+      status: "allow-existing-scoped-automation",
+      gatePosture: {
+        enabled: true,
+        sameChange: true,
+        scopedAutomationEligible: true,
+      },
+    });
+
+    expect(assessMainAgentStrategyConsumption({
+      strategyDecision: adviceAssisted,
+      mode: "full-access",
+      selectedChangeId: "change-a",
+      currentGate: workflowGate({ scopedAutomationEligible: false }),
+    })).toMatchObject({ status: "stop-for-human-gate" });
+  });
+
   it("allows existing local approval gates for complete strategy without embedding approval payloads", () => {
     const assessment = assessMainAgentStrategyConsumption({
       strategyDecision: strategy("complete"),
@@ -350,8 +404,14 @@ function strategy(
     authority: "non-executing-main-agent-strategy-decision",
     executionStarted: false,
     kind,
+    kindSource: "deterministic-baseline",
     reason: `${kind} reason`,
     targets: ["target"],
+    deterministicBaseline: {
+      kind,
+      reason: `${kind} reason`,
+      targets: ["target"],
+    },
     workflowShape: {
       kind: workflowShapeKind(kind),
       reason: `${kind} workflow shape`,
@@ -403,6 +463,18 @@ function strategy(
       "stale-or-scope-mismatch",
       "ambiguous-or-blocked",
     ],
+    adviceConsumption: {
+      authority: "non-executing-main-agent-strategy-advice-consumption",
+      executionStarted: false,
+      controller: false,
+      status: "ignored",
+      baselineKind: kind,
+      finalKind: kind,
+      finalKindSource: "deterministic-baseline",
+      adviceKind: null,
+      reason: "No strategy advice was provided.",
+      evidenceRefs: [],
+    },
     ...overrides,
   };
 }

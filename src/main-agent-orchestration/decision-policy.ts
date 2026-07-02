@@ -9,6 +9,7 @@ import {
 import {
   buildMainAgentStrategyAdvice,
   type MainAgentStrategyAdvice,
+  type MainAgentStrategyAdviceKind,
 } from "./strategy-advice.js";
 
 export type MainAgentWorkflowGraphDecisionPolicyKind =
@@ -34,6 +35,14 @@ export type MainAgentStrategyDecisionKind =
 
 export type MainAgentStrategyStepwiseCompatibility = "explain-existing-gate-only";
 export type MainAgentStrategyFullAccessCompatibility = "eligible-for-existing-scoped-automation" | "must-stop";
+export type MainAgentStrategyKindSource = "deterministic-baseline" | "bounded-advice" | "rejected-advice";
+export type MainAgentStrategyAdviceConsumptionStatus =
+  | "ignored"
+  | "accepted-readonly"
+  | "accepted-bounded"
+  | "rejected-stale"
+  | "rejected-unsafe"
+  | "rejected-out-of-envelope";
 
 export type MainAgentStrategyStopCondition =
   | "plan-confirmation-required"
@@ -51,8 +60,14 @@ export interface MainAgentStrategyDecision {
   authority: "non-executing-main-agent-strategy-decision";
   executionStarted: false;
   kind: MainAgentStrategyDecisionKind;
+  kindSource: MainAgentStrategyKindSource;
   reason: string;
   targets: string[];
+  deterministicBaseline: {
+    kind: MainAgentStrategyDecisionKind;
+    reason: string;
+    targets: string[];
+  };
   workflowShape: MainAgentWorkflowShape;
   refs: MainAgentWorkflowGraphDecisionPolicyInput["refs"];
   gaps: MainAgentWorkflowGraphReplayGap[];
@@ -63,6 +78,20 @@ export interface MainAgentStrategyDecision {
   };
   stopConditions: MainAgentStrategyStopCondition[];
   strategyAdvice?: MainAgentStrategyAdvice;
+  adviceConsumption: MainAgentStrategyAdviceConsumption;
+}
+
+export interface MainAgentStrategyAdviceConsumption {
+  authority: "non-executing-main-agent-strategy-advice-consumption";
+  executionStarted: false;
+  controller: false;
+  status: MainAgentStrategyAdviceConsumptionStatus;
+  baselineKind: MainAgentStrategyDecisionKind;
+  finalKind: MainAgentStrategyDecisionKind;
+  finalKindSource: MainAgentStrategyKindSource;
+  adviceKind: MainAgentStrategyAdviceKind | null;
+  reason: string;
+  evidenceRefs: string[];
 }
 
 export type MainAgentWorkflowGraphDecisionPolicyInput = Omit<MainAgentWorkflowGraphReplaySummary, "nextObservation" | "strategyDecision">;
@@ -175,54 +204,80 @@ function deriveStrategyDecision(
   const readiness = input.currentState.readiness;
   const unsafeGaps = input.gaps.filter((gap) => ["malformed", "scope-mismatch", "stale", "old-schema"].includes(gap.status));
   const baseTargets = dedupeStrings(policyTargets);
-  let kind: MainAgentStrategyDecisionKind;
-  let reason: string;
-  let targets: string[];
+  let baselineKind: MainAgentStrategyDecisionKind;
+  let baselineReason: string;
+  let baselineTargets: string[];
 
   if (unsafeGaps.length > 0 || input.currentState.kind === "stale" || input.currentState.queue.scopeStatus === "mismatch") {
-    kind = "stale";
-    reason = "Strategy decision cannot trust stale, malformed, old-schema, or scope-mismatched evidence.";
-    targets = gapTargets(unsafeGaps.length > 0 ? unsafeGaps : input.gaps);
+    baselineKind = "stale";
+    baselineReason = "Strategy decision cannot trust stale, malformed, old-schema, or scope-mismatched evidence.";
+    baselineTargets = gapTargets(unsafeGaps.length > 0 ? unsafeGaps : input.gaps);
   } else if (policyKind === "blocked") {
-    kind = "blocked";
-    reason = policyReason;
-    targets = baseTargets;
+    baselineKind = "blocked";
+    baselineReason = policyReason;
+    baselineTargets = baseTargets;
   } else if (policyKind === "completed-await-result-gate" || input.currentState.kind === "queue-completed" || input.currentState.queue.status === "completed") {
-    kind = "complete";
-    reason = "Current evidence appears complete enough to observe existing terminal result gates without creating a new execution path.";
-    targets = dedupeStrings([...baseTargets, "validation", "audit"]);
+    baselineKind = "complete";
+    baselineReason = "Current evidence appears complete enough to observe existing terminal result gates without creating a new execution path.";
+    baselineTargets = dedupeStrings([...baseTargets, "validation", "audit"]);
   } else if (isParallelSchedulerCandidate(readiness)) {
-    kind = "parallel-scheduler-candidate";
-    reason = "Fresh readiness evidence exposes a controlled Scheduler candidate; this is an observation only and any future execution must use the existing controlled Scheduler path.";
-    targets = dedupeStrings([...baseTargets, "scheduler-readiness", "controlled-scheduler"]);
+    baselineKind = "parallel-scheduler-candidate";
+    baselineReason = "Fresh readiness evidence exposes a controlled Scheduler candidate; this is an observation only and any future execution must use the existing controlled Scheduler path.";
+    baselineTargets = dedupeStrings([...baseTargets, "scheduler-readiness", "controlled-scheduler"]);
   } else if (isDirectSingleWorktreeCandidate(readiness)) {
-    kind = "direct-single-worktree";
-    reason = "Readiness evidence selects a single-Change code path with no Scheduler eligibility or low-conflict parallel signal.";
-    targets = dedupeStrings([...baseTargets, "code-readiness"]);
+    baselineKind = "direct-single-worktree";
+    baselineReason = "Readiness evidence selects a single-Change code path with no Scheduler eligibility or low-conflict parallel signal.";
+    baselineTargets = dedupeStrings([...baseTargets, "code-readiness"]);
   } else if (isSequentialWorkflowCandidate(input, readiness, policyKind)) {
-    kind = "sequential-workflowgraph";
-    reason = "Current evidence belongs to the sequential WorkflowGraph or TaskQueue path.";
-    targets = dedupeStrings([...baseTargets, "workflowgraph", "task-queue"]);
+    baselineKind = "sequential-workflowgraph";
+    baselineReason = "Current evidence belongs to the sequential WorkflowGraph or TaskQueue path.";
+    baselineTargets = dedupeStrings([...baseTargets, "workflowgraph", "task-queue"]);
   } else if (readiness.nextAllowedAction === "clarification.answer" || readiness.status === "blocked-needs-clarification" || policyKind === "wait-for-planning-evidence") {
-    kind = "read-only-or-clarify";
-    reason = "Current evidence needs planning, readiness, or clarification before a write-capable strategy can be trusted.";
-    targets = dedupeStrings([...baseTargets, "planning-evidence"]);
+    baselineKind = "read-only-or-clarify";
+    baselineReason = "Current evidence needs planning, readiness, or clarification before a write-capable strategy can be trusted.";
+    baselineTargets = dedupeStrings([...baseTargets, "planning-evidence"]);
   } else if (policyKind === "wait-for-human-gate") {
-    kind = "wait-for-human-gate";
-    reason = policyReason;
-    targets = baseTargets;
+    baselineKind = "wait-for-human-gate";
+    baselineReason = policyReason;
+    baselineTargets = baseTargets;
   } else {
-    kind = "read-only-or-clarify";
-    reason = policyReason || "Current evidence supports observation only.";
-    targets = baseTargets.length > 0 ? baseTargets : ["workflowgraph-observation"];
+    baselineKind = "read-only-or-clarify";
+    baselineReason = policyReason || "Current evidence supports observation only.";
+    baselineTargets = baseTargets.length > 0 ? baseTargets : ["workflowgraph-observation"];
   }
+
+  const strategyAdvice = "strategyAdviceInput" in options
+    ? buildMainAgentStrategyAdvice(options.strategyAdviceInput)
+    : undefined;
+  const adviceConsumption = consumeMainAgentStrategyAdvice({
+    input,
+    policyKind,
+    baselineKind,
+    baselineReason,
+    baselineTargets,
+    strategyAdvice,
+  });
+  const kind = adviceConsumption.finalKind;
+  const reason = adviceConsumption.status === "accepted-bounded"
+    ? adviceConsumption.reason
+    : baselineReason;
+  const targets = adviceConsumption.status === "accepted-bounded"
+    ? strategyTargetsForKind(kind, baseTargets)
+    : baselineTargets;
+  const kindSource = adviceConsumption.finalKindSource;
 
   const strategyDecision: MainAgentStrategyDecision = {
     authority: "non-executing-main-agent-strategy-decision",
     executionStarted: false,
     kind,
+    kindSource,
     reason,
     targets: dedupeStrings(targets),
+    deterministicBaseline: {
+      kind: baselineKind,
+      reason: baselineReason,
+      targets: dedupeStrings(baselineTargets),
+    },
     workflowShape: deriveMainAgentWorkflowShape({
       input,
       strategyKind: kind,
@@ -233,11 +288,151 @@ function deriveStrategyDecision(
     gaps: input.gaps,
     modeCompatibility: strategyModeCompatibility(kind, policyKind),
     stopConditions: strategyStopConditions(),
+    adviceConsumption,
   };
-  if ("strategyAdviceInput" in options) {
-    strategyDecision.strategyAdvice = buildMainAgentStrategyAdvice(options.strategyAdviceInput);
+  if (strategyAdvice) {
+    strategyDecision.strategyAdvice = strategyAdvice;
   }
   return strategyDecision;
+}
+
+export function consumeMainAgentStrategyAdvice(input: {
+  input: MainAgentWorkflowGraphDecisionPolicyInput;
+  policyKind: MainAgentWorkflowGraphDecisionPolicyKind;
+  baselineKind: MainAgentStrategyDecisionKind;
+  baselineReason: string;
+  baselineTargets: string[];
+  strategyAdvice?: MainAgentStrategyAdvice;
+}): MainAgentStrategyAdviceConsumption {
+  const { strategyAdvice, baselineKind } = input;
+  if (!strategyAdvice) {
+    return adviceConsumption(input, "ignored", baselineKind, "deterministic-baseline", null, "No strategy advice was provided.", []);
+  }
+  if (strategyAdvice.status === "ignored") {
+    const status = strategyAdvice.ignoredReason?.includes("forbidden executable payload")
+      ? "rejected-unsafe"
+      : "ignored";
+    return adviceConsumption(input, status, baselineKind, status === "ignored" ? "deterministic-baseline" : "rejected-advice", null, strategyAdvice.ignoredReason ?? "Strategy advice was ignored.", []);
+  }
+  if (baselineKind === "stale" || hasUnsafeEvidence(input.input)) {
+    return adviceConsumption(input, "rejected-stale", baselineKind, "rejected-advice", strategyAdvice.kind, "Strategy advice cannot override stale, malformed, old-schema, or scope-mismatched evidence.", strategyAdvice.evidenceRefs);
+  }
+  const adviceKind = strategyAdvice.kind;
+  if (!adviceKind) {
+    return adviceConsumption(input, "ignored", baselineKind, "deterministic-baseline", null, "Strategy advice has no kind.", strategyAdvice.evidenceRefs);
+  }
+  const requestedKind = strategyKindFromAdvice(adviceKind);
+  if (requestedKind === baselineKind) {
+    return adviceConsumption(input, "accepted-readonly", baselineKind, "deterministic-baseline", adviceKind, "Strategy advice matched the deterministic baseline and remains read-only.", strategyAdvice.evidenceRefs);
+  }
+  if (!isAdviceAllowedToChangeBaseline(baselineKind)) {
+    return adviceConsumption(input, "rejected-out-of-envelope", baselineKind, "rejected-advice", adviceKind, `Strategy advice cannot override deterministic ${baselineKind} evidence.`, strategyAdvice.evidenceRefs);
+  }
+  if (requestedKind === "parallel-scheduler-candidate") {
+    return adviceConsumption(input, "rejected-out-of-envelope", baselineKind, "rejected-advice", adviceKind, "Strategy advice cannot create a parallel Scheduler candidate; only deterministic fresh Scheduler readiness can.", strategyAdvice.evidenceRefs);
+  }
+  if (requestedKind === "stale") {
+    return adviceConsumption(input, "rejected-out-of-envelope", baselineKind, "rejected-advice", adviceKind, "Strategy advice cannot mark current evidence stale without deterministic stale evidence.", strategyAdvice.evidenceRefs);
+  }
+  if (requestedKind === "complete" && !hasTerminalCompletionEvidence(input.input, input.policyKind)) {
+    return adviceConsumption(input, "rejected-out-of-envelope", baselineKind, "rejected-advice", adviceKind, "Terminal strategy advice requires canonical completed posture or terminal result-gate evidence.", strategyAdvice.evidenceRefs);
+  }
+  if (!isAdviceTargetWithinEnvelope(requestedKind)) {
+    return adviceConsumption(input, "rejected-out-of-envelope", baselineKind, "rejected-advice", adviceKind, `Strategy advice kind ${adviceKind} is outside the bounded consumption envelope.`, strategyAdvice.evidenceRefs);
+  }
+  return adviceConsumption(input, "accepted-bounded", requestedKind, "bounded-advice", adviceKind, `Bounded strategy advice selected ${requestedKind}: ${strategyAdvice.reason}`, strategyAdvice.evidenceRefs);
+}
+
+function adviceConsumption(
+  input: {
+    baselineKind: MainAgentStrategyDecisionKind;
+  },
+  status: MainAgentStrategyAdviceConsumptionStatus,
+  finalKind: MainAgentStrategyDecisionKind,
+  finalKindSource: MainAgentStrategyKindSource,
+  adviceKind: MainAgentStrategyAdviceKind | null,
+  reason: string,
+  evidenceRefs: string[],
+): MainAgentStrategyAdviceConsumption {
+  return {
+    authority: "non-executing-main-agent-strategy-advice-consumption",
+    executionStarted: false,
+    controller: false,
+    status,
+    baselineKind: input.baselineKind,
+    finalKind,
+    finalKindSource,
+    adviceKind,
+    reason,
+    evidenceRefs: dedupeStrings(evidenceRefs),
+  };
+}
+
+function hasUnsafeEvidence(input: MainAgentWorkflowGraphDecisionPolicyInput): boolean {
+  return input.currentState.kind === "stale"
+    || input.currentState.queue.scopeStatus === "mismatch"
+    || input.gaps.some((gap) => ["malformed", "scope-mismatch", "stale", "old-schema"].includes(gap.status));
+}
+
+function strategyKindFromAdvice(kind: MainAgentStrategyAdviceKind): MainAgentStrategyDecisionKind {
+  switch (kind) {
+    case "direct":
+      return "direct-single-worktree";
+    case "pipeline":
+      return "sequential-workflowgraph";
+    case "parallel-candidate":
+      return "parallel-scheduler-candidate";
+    case "clarify":
+      return "read-only-or-clarify";
+    case "blocked":
+      return "blocked";
+    case "terminal":
+      return "complete";
+    case "stale":
+      return "stale";
+  }
+}
+
+function isAdviceAllowedToChangeBaseline(kind: MainAgentStrategyDecisionKind): boolean {
+  return kind === "read-only-or-clarify" || kind === "wait-for-human-gate";
+}
+
+function isAdviceTargetWithinEnvelope(kind: MainAgentStrategyDecisionKind): boolean {
+  return kind === "direct-single-worktree"
+    || kind === "sequential-workflowgraph"
+    || kind === "read-only-or-clarify"
+    || kind === "blocked"
+    || kind === "complete";
+}
+
+function hasTerminalCompletionEvidence(
+  input: MainAgentWorkflowGraphDecisionPolicyInput,
+  policyKind: MainAgentWorkflowGraphDecisionPolicyKind,
+): boolean {
+  if (policyKind === "completed-await-result-gate") return true;
+  if (input.currentState.kind === "queue-completed" || input.currentState.queue.status === "completed") return true;
+  if (input.controlledScheduler.healthStatus !== "available" || !input.controlledScheduler.latestStep) return false;
+  const latest = input.controlledScheduler.latestStep;
+  return latest.routePosture === "terminal-handoff"
+    || latest.continuationReadinessStatus === "terminal-handoff"
+    || latest.postStepHandoffStatus === "terminal-handoff";
+}
+
+function strategyTargetsForKind(kind: MainAgentStrategyDecisionKind, baseTargets: string[]): string[] {
+  switch (kind) {
+    case "direct-single-worktree":
+      return dedupeStrings([...baseTargets, "strategy-advice", "code-readiness"]);
+    case "sequential-workflowgraph":
+      return dedupeStrings([...baseTargets, "strategy-advice", "workflowgraph", "task-queue"]);
+    case "read-only-or-clarify":
+      return dedupeStrings([...baseTargets, "strategy-advice", "planning-evidence"]);
+    case "blocked":
+      return dedupeStrings([...baseTargets, "strategy-advice"]);
+    case "complete":
+      return dedupeStrings([...baseTargets, "strategy-advice", "validation", "audit"]);
+    default:
+      return dedupeStrings([...baseTargets, "strategy-advice"]);
+  }
 }
 
 function isDirectSingleWorktreeCandidate(

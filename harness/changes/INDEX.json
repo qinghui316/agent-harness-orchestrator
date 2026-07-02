@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-07-02T06:28:09.7849594Z",
+    "generated_at":  "2026-07-02T07:07:43.3373203Z",
     "active":  [
 
                ],
@@ -2469,6 +2469,10 @@
                     {
                         "name":  "20260702-main-agent-strategy-policy-v2a-stale-first-readonly-advice",
                         "path":  "harness/changes/archive/20260702-main-agent-strategy-policy-v2a-stale-first-readonly-advice"
+                    },
+                    {
+                        "name":  "20260702-main-agent-strategy-policy-v2b-bounded-advice-consumption",
+                        "path":  "harness/changes/archive/20260702-main-agent-strategy-policy-v2b-bounded-advice-consumption"
                     }
                 ]
 }

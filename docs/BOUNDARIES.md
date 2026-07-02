@@ -53,8 +53,8 @@ IntegrationCheck, integration apply/discard, remote/PR/merge, or Harness
 evolution.
 
 LLM strategy advice is not a workflow truth source, gate, controller, or
-automation authority. It may explain or propose a direct / pipeline / parallel /
-clarify / terminal posture only as bounded read-only evidence; it must not write
+automation authority. It may influence the internal main-agent strategy kind
+only through the bounded strategy-policy evidence envelope; it must not write
 strategy JSONL, alter `confirmationQueue`, change scoped automation allowlists,
 or drive action execution.
 

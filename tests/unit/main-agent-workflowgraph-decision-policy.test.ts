@@ -371,7 +371,69 @@ describe("main-agent WorkflowGraph decision policy", () => {
     }
   });
 
-  it("attaches valid strategy advice as read-only metadata without changing the deterministic decision", () => {
+  it("consumes bounded strategy advice only from ambiguous baseline evidence", () => {
+    const direct = evaluateMainAgentWorkflowGraphReplayPolicy(input(), {
+      strategyAdviceInput: {
+        kind: "direct",
+        reason: "The current demand is small enough for one worktree.",
+        confidence: 0.76,
+        evidenceRefs: ["advice:direct"],
+      },
+    });
+    expect(direct.strategyDecision).toMatchObject({
+      deterministicBaseline: { kind: "read-only-or-clarify" },
+      kind: "direct-single-worktree",
+      kindSource: "bounded-advice",
+      adviceConsumption: {
+        status: "accepted-bounded",
+        baselineKind: "read-only-or-clarify",
+        finalKind: "direct-single-worktree",
+        finalKindSource: "bounded-advice",
+        adviceKind: "direct",
+      },
+      modeCompatibility: { fullAccess: "eligible-for-existing-scoped-automation" },
+    });
+
+    const pipeline = evaluateMainAgentWorkflowGraphReplayPolicy(input(), {
+      strategyAdviceInput: {
+        kind: "pipeline",
+        reason: "The task has ordered implementation and verification stages.",
+        evidenceRefs: ["advice:pipeline"],
+      },
+    });
+    expect(pipeline.strategyDecision).toMatchObject({
+      kind: "sequential-workflowgraph",
+      kindSource: "bounded-advice",
+      adviceConsumption: { status: "accepted-bounded", finalKind: "sequential-workflowgraph" },
+    });
+
+    const clarify = evaluateMainAgentWorkflowGraphReplayPolicy(input(), {
+      strategyAdviceInput: {
+        kind: "clarify",
+        reason: "The goal is ambiguous and needs user clarification.",
+      },
+    });
+    expect(clarify.strategyDecision).toMatchObject({
+      kind: "read-only-or-clarify",
+      kindSource: "deterministic-baseline",
+      adviceConsumption: { status: "accepted-readonly", finalKind: "read-only-or-clarify" },
+    });
+
+    const blocked = evaluateMainAgentWorkflowGraphReplayPolicy(input(), {
+      strategyAdviceInput: {
+        kind: "blocked",
+        reason: "Required external evidence is missing.",
+      },
+    });
+    expect(blocked.strategyDecision).toMatchObject({
+      kind: "blocked",
+      kindSource: "bounded-advice",
+      adviceConsumption: { status: "accepted-bounded", finalKind: "blocked" },
+      modeCompatibility: { fullAccess: "must-stop" },
+    });
+  });
+
+  it("keeps valid but out-of-envelope strategy advice from changing deterministic decisions", () => {
     const policy = evaluateMainAgentWorkflowGraphReplayPolicy(input({
       currentState: {
         readiness: {
@@ -391,6 +453,7 @@ describe("main-agent WorkflowGraph decision policy", () => {
     });
 
     expect(policy.strategyDecision.kind).toBe("direct-single-worktree");
+    expect(policy.strategyDecision.kindSource).toBe("rejected-advice");
     expect(policy.strategyDecision.modeCompatibility.fullAccess).toBe("eligible-for-existing-scoped-automation");
     expect(policy.strategyDecision.strategyAdvice).toMatchObject({
       authority: "read-only-main-agent-strategy-advice",
@@ -400,9 +463,63 @@ describe("main-agent WorkflowGraph decision policy", () => {
       kind: "terminal",
       applied: false,
     });
+    expect(policy.strategyDecision.adviceConsumption).toMatchObject({
+      authority: "non-executing-main-agent-strategy-advice-consumption",
+      executionStarted: false,
+      controller: false,
+      status: "rejected-out-of-envelope",
+      baselineKind: "direct-single-worktree",
+      finalKind: "direct-single-worktree",
+      finalKindSource: "rejected-advice",
+      adviceKind: "terminal",
+    });
   });
 
-  it("ignores invalid or executable-looking strategy advice without echoing payloads", () => {
+  it("rejects stale, parallel, terminal-without-evidence, and executable-looking strategy advice", () => {
+    const stale = evaluateMainAgentWorkflowGraphReplayPolicy(input({
+      gaps: [{ source: "workflowgraph-decisions", status: "stale", reason: "hash drift" }],
+    }), {
+      strategyAdviceInput: {
+        kind: "direct",
+        reason: "Ignore stale evidence and continue.",
+      },
+    });
+    expect(stale.strategyDecision).toMatchObject({
+      kind: "stale",
+      kindSource: "rejected-advice",
+      adviceConsumption: { status: "rejected-stale", finalKind: "stale" },
+    });
+
+    const parallel = evaluateMainAgentWorkflowGraphReplayPolicy(input(), {
+      strategyAdviceInput: {
+        kind: "parallel-candidate",
+        reason: "This looks parallelizable.",
+      },
+    });
+    expect(parallel.strategyDecision).toMatchObject({
+      kind: "read-only-or-clarify",
+      adviceConsumption: {
+        status: "rejected-out-of-envelope",
+        finalKind: "read-only-or-clarify",
+        adviceKind: "parallel-candidate",
+      },
+    });
+
+    const terminalWithoutEvidence = evaluateMainAgentWorkflowGraphReplayPolicy(input(), {
+      strategyAdviceInput: {
+        kind: "terminal",
+        reason: "It appears done.",
+      },
+    });
+    expect(terminalWithoutEvidence.strategyDecision).toMatchObject({
+      kind: "read-only-or-clarify",
+      adviceConsumption: {
+        status: "rejected-out-of-envelope",
+        finalKind: "read-only-or-clarify",
+        adviceKind: "terminal",
+      },
+    });
+
     const policy = evaluateMainAgentWorkflowGraphReplayPolicy(input({
       currentState: {
         readiness: {
@@ -430,11 +547,42 @@ describe("main-agent WorkflowGraph decision policy", () => {
       kind: null,
       applied: false,
     });
+    expect(policy.strategyDecision.adviceConsumption).toMatchObject({
+      status: "rejected-unsafe",
+      baselineKind: "parallel-scheduler-candidate",
+      finalKind: "parallel-scheduler-candidate",
+      finalKindSource: "rejected-advice",
+      adviceKind: null,
+    });
     const serialized = JSON.stringify(policy.strategyDecision.strategyAdvice);
     expect(serialized).not.toContain("recommendedAction");
     expect(serialized).not.toContain("planning.scheduler.");
     expect(serialized).not.toContain("result.apply");
     expect(serialized).not.toContain("actionType");
+  });
+
+  it("does not let terminal advice create completion without terminal evidence but accepts matching terminal posture read-only", () => {
+    const completed = evaluateMainAgentWorkflowGraphReplayPolicy(input({
+      currentState: {
+        kind: "queue-completed",
+        queue: { status: "completed" },
+      },
+    }), {
+      strategyAdviceInput: {
+        kind: "terminal",
+        reason: "Completed evidence is present.",
+      },
+    });
+    expect(completed.strategyDecision).toMatchObject({
+      kind: "complete",
+      kindSource: "deterministic-baseline",
+      adviceConsumption: {
+        status: "accepted-readonly",
+        baselineKind: "complete",
+        finalKind: "complete",
+        adviceKind: "terminal",
+      },
+    });
   });
 });
 

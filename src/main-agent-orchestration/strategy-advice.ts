@@ -68,7 +68,7 @@ export function buildMainAgentStrategyAdvice(raw: unknown): MainAgentStrategyAdv
     confidence: parsed.data.confidence ?? null,
     evidenceRefs: dedupeStrings(parsed.data.evidenceRefs ?? []),
     applied: false,
-    ignoredReason: "V2a records advice as read-only evidence only; deterministic strategy remains authoritative.",
+    ignoredReason: "Advice passed schema validation; bounded strategy policy decides whether it can influence the final strategy kind.",
   };
 }
 
