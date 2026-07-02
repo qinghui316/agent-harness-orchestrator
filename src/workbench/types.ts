@@ -49,6 +49,8 @@ export interface TopicThreadEntry {
   actionType?: string;
   status?: string;
   runId?: string;
+  agentRoleId?: string;
+  agentTaskId?: string;
   artifact?: string;
   error?: string;
   resultSummary?: string;
@@ -129,6 +131,28 @@ export type AssistantTurnActivity =
   | { kind: "usage"; usage: Record<string, unknown>; timestamp: string }
   | { kind: "error"; message: string; timestamp: string };
 
+export interface WorkbenchCodexUserInputQuestion {
+  id: string;
+  header?: string;
+  question: string;
+  isOther?: boolean;
+  isSecret?: boolean;
+  options?: Array<{ label: string; description?: string }>;
+}
+
+export interface WorkbenchCodexUserInputRequest {
+  requestId: string;
+  threadId?: string;
+  turnId?: string;
+  itemId?: string;
+  runId: string;
+  changeId: string;
+  agentRoleId?: string;
+  agentTaskId?: string;
+  questions: WorkbenchCodexUserInputQuestion[];
+  status: "pending" | "submitted";
+}
+
 export interface TopicRuntimeMetadata {
   version: "1.0";
   changeId: string;
@@ -157,6 +181,8 @@ export type WorkbenchLiveEvent =
   | { event: "assistant.message"; data: TopicThreadEntry }
   | { event: "assistant.event"; data: WorkbenchAssistantEvent }
   | { event: "tool.event"; data: WorkbenchLiveToolEvent }
+  | { event: "codex.userInput.requested"; data: WorkbenchCodexUserInputRequest }
+  | { event: "codex.userInput.submitted"; data: { requestId: string; runId?: string; agentRoleId?: string; agentTaskId?: string } }
   | { event: "usage"; data: { runId?: string; usage?: Record<string, unknown>; agentRoleId?: string; agentTaskId?: string } }
   | { event: "snapshot"; data: unknown }
   | { event: "error"; data: { message: string; runId?: string; actionRunId?: string } }

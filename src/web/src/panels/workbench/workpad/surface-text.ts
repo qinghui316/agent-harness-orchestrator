@@ -8,7 +8,7 @@ export function parentAgentNarrative(workpad: Workpad): string {
   if (mainAgentExecutionForWorkpad(workpad)) return "我正在把这次需求交给内部角色执行，并会把实现、验证和审查结果汇总回这个对话。";
   if (workpad.planningArtifactBundle) return workpad.planningArtifactBundle.status === "confirmed"
     ? "方案已经确认，接下来会进入实现、验证和审查。"
-    : "我先把需求整理成可执行方案。你可以继续补充要求，或确认后开始执行。";
+    : "我已让 planning-agent 准备方案。你可以在右侧 Agent 工作区继续补充要求，或确认后开始执行。";
   if (workpad.intake.currentUnderstanding) return "我会基于当前需求对话继续分析目标、约束和下一步。";
   return "描述你的需求后，我会先整理方案，再进入实现和验证。";
 }

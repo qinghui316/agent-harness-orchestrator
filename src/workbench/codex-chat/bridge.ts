@@ -400,8 +400,26 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
       },
       existingThreadId: runtime.codexSessionId,
       onTextDelta: (delta) => textDeltaFilter.feed(delta),
-      onPlanDelta: (delta) => planDeltaFilter.feed(delta),
+      onPlanDelta: (delta) => {
+        if (options.planningMode) planDeltaFilter.feed(delta);
+      },
       onNotification: (notification) => forwardAppServerNotification(runId, notification, live),
+      onUserInputRequest: (request) => {
+        emitLive(live, {
+          event: "codex.userInput.requested",
+          data: {
+            requestId: request.requestId,
+            threadId: request.threadId,
+            turnId: request.turnId,
+            itemId: request.itemId,
+            runId,
+            changeId,
+            agentRoleId: options.planningMode ? "planning-agent" : undefined,
+            questions: request.questions,
+            status: "pending",
+          },
+        });
+      },
       onError: (error) => emitLive(live, { event: "error", data: { runId, message: error instanceof Error ? error.message : String(error) } }),
       collaborationMode: options.planningMode ? "plan" : undefined,
       model: effectiveModel.model,
@@ -410,10 +428,10 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
     textDeltaFilter.flush();
     planDeltaFilter.flush();
     const status: RunStatus = result.status === "completed" ? "completed" : "failed";
-    const combinedAdviceText = [result.lastMessage, result.planText].filter(Boolean).join("\n");
+    const combinedAdviceText = [result.lastMessage, options.planningMode ? result.planText : undefined].filter(Boolean).join("\n");
     const adviceExtraction = extractMainAgentStrategyAdviceFromText(combinedAdviceText);
     const visibleLastMessage = stripMainAgentStrategyAdviceBlocks(result.lastMessage).trim();
-    const visiblePlanText = result.planText ? stripMainAgentStrategyAdviceBlocks(result.planText).trim() : undefined;
+    const visiblePlanText = options.planningMode && result.planText ? stripMainAgentStrategyAdviceBlocks(result.planText).trim() : undefined;
     const lastMessage = visibleLastMessage || visiblePlanText || result.error || "Codex app-server did not return a final message.";
     await writeFile(paths.lastMessage, lastMessage, "utf8");
     await writeTopicRuntime(memory, changePath, { version: "1.0", changeId, codexSessionId: result.threadId ?? runtime.codexSessionId, updatedAt: new Date().toISOString() });

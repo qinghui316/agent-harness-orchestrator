@@ -77,10 +77,10 @@ export function threadItemFromTopicEntry(entry: TopicMessageEntry): ThreadStream
     return { id: `live:${entry.id}`, kind: "user-message", label: "User", timestamp: entry.timestamp, body: entry.text, source: "chat", contextRefs: entry.contextRefs, attachments: entry.attachments };
   }
   if (entry.type === "assistant.message") {
-    return { id: `live:${entry.id}`, kind: "assistant-turn", label: "AI", timestamp: entry.timestamp, body: entry.text, source: "chat", artifact: entry.artifact, runId: entry.runId, activity: entry.activity, blocks: entry.blocks };
+    return { id: `live:${entry.id}`, kind: "assistant-turn", label: "AI", timestamp: entry.timestamp, body: entry.text, source: "chat", artifact: entry.artifact, runId: entry.runId, agentRoleId: entry.agentRoleId, agentTaskId: entry.agentTaskId, activity: entry.activity, blocks: entry.blocks };
   }
   if (entry.type === "orchestrator.plan") {
-    return { id: `live:${entry.id}`, kind: "assistant-turn", label: "Orchestrator plan", timestamp: entry.timestamp, body: entry.text, source: "chat", artifact: entry.artifact, runId: entry.runId, planCard: entry.planCard, activity: entry.activity, blocks: entry.blocks };
+    return { id: `live:${entry.id}`, kind: "assistant-turn", label: "Orchestrator plan", timestamp: entry.timestamp, body: entry.text, source: "chat", artifact: entry.artifact, runId: entry.runId, agentRoleId: entry.agentRoleId, agentTaskId: entry.agentTaskId, planCard: entry.planCard, activity: entry.activity, blocks: entry.blocks };
   }
   if (entry.type === "workflow.started" || entry.type === "workflow.completed" || entry.type === "workflow.failed") {
     return threadItemFromWorkflowEntry(entry);
@@ -96,6 +96,7 @@ export function threadItemFromTopicEntry(entry: TopicMessageEntry): ThreadStream
 
 function threadItemFromWorkflowEntry(entry: TopicMessageEntry): ThreadStreamItem | null {
   if (entry.type === "workflow.started") return null;
+  if (entry.actionType === "planning.generate" || entry.actionType === "planning.revise") return null;
   const body = entry.resultSummary?.trim() || entry.text?.trim() || entry.error?.trim();
   if (!body) return null;
   const failed = entry.type === "workflow.failed" || entry.status === "failed";
@@ -108,6 +109,7 @@ function threadItemFromWorkflowEntry(entry: TopicMessageEntry): ThreadStreamItem
     source: "workflow",
     artifact: entry.artifact,
     runId: entry.runId,
+    actionType: entry.actionType,
     actionRunId: entry.actionRunId,
     status: entry.status ?? (failed ? "failed" : "completed"),
     blocks: entry.blocks?.length ? entry.blocks : [{

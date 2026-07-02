@@ -1,0 +1,34 @@
+# Tasks: Main-Agent Real A-to-A Flow Audit + Repair V1
+
+- [x] T-001: Audit reference interaction patterns and record findings.
+  - Covers: AC-001
+- [x] T-002: Trace current AHO main-agent / child-agent flow in code and real UI.
+  - Covers: AC-002
+  - Code trace and real UI trace completed through normal App flow on `goal-loop-demo-real`.
+- [x] T-003: Repair transcript ownership so planning/child-agent output does not leak into main-agent prose.
+  - Covers: AC-003, AC-006
+- [x] T-004: Repair Agent workspace persisted child-agent history and process projection.
+  - Covers: AC-004
+- [x] T-005: Surface clarification/questionnaire prompts in the correct interaction surface.
+  - Covers: AC-005
+- [x] T-006: Preserve planning implementation handoff and Harness gate boundaries.
+  - Covers: AC-007, AC-009
+- [x] T-007: Distinguish app-server live streaming from replay/fallback output.
+  - Covers: AC-008
+- [x] T-008: Add targeted unit/projection/runtime boundary tests.
+  - Covers: AC-003, AC-004, AC-005, AC-006, AC-007, AC-008, AC-009
+- [x] T-009: Run real browser acceptance through normal app/project flow and record evidence.
+  - Covers: AC-002, AC-010
+  - Real browser evidence recorded: connected to the in-app browser, opened `http://127.0.0.1:4477/?project=goal-loop-demo-real`, verified shell resize behavior, and completed a normal new-demand A2A flow (`真实 A2A live streaming 验收 12`) through main Agent live reply, planning-agent delegation, planning-agent feedback/revision, and planning confirmation.
+- [x] T-010: Update docs, review, verification, and closeout evidence.
+  - Covers: AC-001, AC-010
+  - Reference/product findings, targeted verification, real UI acceptance evidence, and closeout notes updated.
+- [x] T-011: Repair A2A workspace shell layout so child Agent panels are transcript-first and left/right rails are collapsible/resizable.
+  - Covers: AC-003, AC-004, AC-006, AC-009
+  - Notes: planning-agent workspace now uses transcript above and a bottom composer instead of explanatory blocks, input/output cards, or a standalone implement button. Left and right rails expose resize handles with bounded widths and only squeeze the center workspace.
+- [x] T-012: Pin the child Agent composer to the bottom of the Agent workspace and keep transcript/history scrolling inside the transcript area.
+  - Covers: AC-003, AC-004, AC-006
+  - Notes: Agent workspace content now gives the Agent tab its own non-scrolling shell; the transcript, evidence, clarification, and Codex user-input cards scroll above a fixed bottom composer.
+- [x] T-013: Repair shell resize UX so the left project sidebar is resize-only and resize cursors match real draggable grips.
+  - Covers: AC-003, AC-010
+  - Notes: left sidebar collapse controls were removed; left and right shell resize grips now use explicit hit targets, pointer-only resize handling, and real browser-verified cursor/hit behavior. Left dragging changes only the left sidebar and center column; right dragging changes only the right rail and center column.

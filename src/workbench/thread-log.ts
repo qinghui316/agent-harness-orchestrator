@@ -182,6 +182,8 @@ function fromStoredThreadMessage(row: StoredTopicMessage): TopicThreadEntry {
     actionType: row.actionType ?? undefined,
     status: row.status ?? undefined,
     runId: row.runId ?? undefined,
+    agentRoleId: typeof raw.agentRoleId === "string" ? raw.agentRoleId : undefined,
+    agentTaskId: typeof raw.agentTaskId === "string" ? raw.agentTaskId : undefined,
     artifact: row.artifact ?? undefined,
     error: row.error ?? undefined,
     resultSummary: typeof raw.resultSummary === "string" ? raw.resultSummary : undefined,

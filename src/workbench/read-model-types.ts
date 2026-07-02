@@ -192,7 +192,10 @@ export interface ThreadStreamEvidence {
   artifact?: string;
   status?: string;
   runId?: string;
+  agentRoleId?: string;
+  agentTaskId?: string;
   actionRunId?: string;
+  actionType?: string;
 }
 
 export interface ThreadStreamItem {
@@ -205,7 +208,10 @@ export interface ThreadStreamItem {
   artifact?: string;
   status?: string;
   runId?: string;
+  agentRoleId?: string;
+  agentTaskId?: string;
   actionRunId?: string;
+  actionType?: string;
   semanticKey?: string;
   planCard?: OrchestrationPlanCard;
   actions?: ThreadStreamAction[];
@@ -396,6 +402,7 @@ export interface WorkbenchAgentWorkspaceAgent {
   evidenceRefs: DemandAgentRunEvidenceRef[];
   actions: WorkbenchDecisionAction[];
   planningBundle?: WorkbenchPlanningArtifactBundle;
+  clarifications?: ClarificationRequest[];
 }
 
 export interface WorkbenchAgentWorkspace {

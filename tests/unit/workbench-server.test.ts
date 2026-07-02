@@ -66,6 +66,10 @@ async function fakeInitialMainAgentTurn(
   return entry;
 }
 
+async function fakeInitialPlanningAgentDelegation() {
+  return false;
+}
+
 describe("workbench server", () => {
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), "aho-server-"));
@@ -78,7 +82,12 @@ describe("workbench server", () => {
     await initHarness(project());
     await createChange(project(), { title: "Server Topic" });
     await startLocalCommandRun(project(), [process.execPath, "-e", "console.log('server stream')"]);
-    handle = await startWorkbenchServer({ project: project(), path: tempDir }, { port: 0, staticRoot, initialMainAgentTurn: fakeInitialMainAgentTurn });
+    handle = await startWorkbenchServer({ project: project(), path: tempDir }, {
+      port: 0,
+      staticRoot,
+      initialMainAgentTurn: fakeInitialMainAgentTurn,
+      initialPlanningAgentDelegation: fakeInitialPlanningAgentDelegation,
+    });
   });
 
   afterEach(async () => {
@@ -574,7 +583,13 @@ describe("workbench server", () => {
 
   it("serves app-level project onboarding routes", async () => {
     const store = new ProjectRegistryStore(registryRoot);
-    const appHandle = await startWorkbenchServer(null, { port: 0, staticRoot, store, initialMainAgentTurn: fakeInitialMainAgentTurn });
+    const appHandle = await startWorkbenchServer(null, {
+      port: 0,
+      staticRoot,
+      store,
+      initialMainAgentTurn: fakeInitialMainAgentTurn,
+      initialPlanningAgentDelegation: fakeInitialPlanningAgentDelegation,
+    });
     try {
       const status = await getJson<{ mode: string }>(`${appHandle.url}/api/app/status`);
       expect(status.mode).toBe("app");

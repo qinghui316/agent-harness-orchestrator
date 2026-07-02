@@ -2,10 +2,12 @@
 
 ## Current Handoff
 
-- Current date: 2026-07-02.
+- Current date: 2026-07-03.
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260703-main-agent-real-a2a-flow-audit-repair-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260702-main-agent-child-agent-workspace-flow-v2/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260702-main-agent-goal-style-real-codex-ui-acceptance-fix-pass-v1/summary.md`.

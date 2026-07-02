@@ -710,7 +710,11 @@ function buildWorkpadMemoryIsolation(memory: ResolvedMemory, selectedTopic: Work
 
 function buildWorkpadIntake(topic: WorkbenchTopicDetail): WorkpadIntakeSummary {
   const firstUser = topic.threadItems.find((item) => item.kind === "user-message" && item.body?.trim());
-  const latestAssistant = [...topic.threadItems].reverse().find((item) => (item.kind === "assistant-turn" || item.kind === "assistant-message") && item.body?.trim());
+  const latestAssistant = [...topic.threadItems].reverse().find((item) =>
+    (item.kind === "assistant-turn" || item.kind === "assistant-message")
+    && (!item.agentRoleId || item.agentRoleId === "main-agent")
+    && item.body?.trim()
+  );
   const latestIteration = [...topic.threadItems].reverse().find((item) => item.intake?.iteration)?.intake?.iteration;
   const latestScan = [...topic.threadItems].reverse().find((item) => item.intake?.scan)?.intake?.scan;
   const clarifications = topic.threadItems

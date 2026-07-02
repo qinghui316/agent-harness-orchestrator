@@ -54,6 +54,8 @@ export function parentTranscriptCellsFromLiveTurn(turn: LiveAssistantTurn): Pare
     timestamp: turn.startedAt,
     body: turn.text,
     runId: turn.runId,
+    agentRoleId: turn.agentRoleId,
+    agentTaskId: turn.agentTaskId,
     blocks: turn.blocks,
   };
   return parentTranscriptCellsFromLiveThreadItem(item);
@@ -68,6 +70,9 @@ export function parentTranscriptCellsFromLiveThreadItem(item: ThreadStreamItem):
       kind: "user-message",
       source: "user",
       timestamp: item.timestamp,
+      agentRoleId: item.agentRoleId,
+      agentTaskId: item.agentTaskId,
+      runId: item.runId,
       text,
       contextRefs: item.contextRefs?.length ? item.contextRefs : undefined,
       attachments: item.attachments?.length ? item.attachments : undefined,
@@ -85,6 +90,9 @@ export function parentTranscriptCellsFromLiveThreadItem(item: ThreadStreamItem):
         kind: block.kind === "error" ? "process-row" : "evidence-row",
         source: "workflow-evidence",
         timestamp: item.timestamp,
+        agentRoleId: item.agentRoleId,
+        agentTaskId: item.agentTaskId,
+        runId: item.runId,
         title: cleanTranscriptTitle(block.title) ?? (block.kind === "error" ? "执行未完成" : "执行结果"),
         text: text || cleanTranscriptText(block.title ?? item.label),
         status: block.status ?? item.status,
@@ -94,7 +102,6 @@ export function parentTranscriptCellsFromLiveThreadItem(item: ThreadStreamItem):
       continue;
     }
     const source = block.source === "codex" ? "codex-runtime" : "aho-orchestration";
-    if (source !== "codex-runtime" && block.kind !== "error") continue;
     if (block.kind === "workflow-evidence" || block.kind === "plan-card") continue;
     const isProcess = block.kind === "command" || block.kind === "command-group" || block.kind === "tool-result" || block.kind === "file-change" || block.kind === "status" || block.kind === "error";
     const title = block.kind === "command" || block.kind === "command-group"
@@ -106,6 +113,9 @@ export function parentTranscriptCellsFromLiveThreadItem(item: ThreadStreamItem):
         kind: "detail-only",
         source,
         timestamp: item.timestamp,
+        agentRoleId: item.agentRoleId,
+        agentTaskId: item.agentTaskId,
+        runId: item.runId,
         title: "运行上下文",
         text,
         status: block.status,
@@ -113,6 +123,7 @@ export function parentTranscriptCellsFromLiveThreadItem(item: ThreadStreamItem):
       });
       continue;
     }
+    if (source !== "codex-runtime" && block.kind !== "error" && !(block.kind === "status" && isAgentLifecycleStatus(block))) continue;
     if (block.kind === "status" && !block.isError && !isAgentLifecycleStatus(block)) continue;
     const processSummary = liveProcessSummary(block);
     const detailText = liveProcessDetailText(block);
@@ -121,6 +132,9 @@ export function parentTranscriptCellsFromLiveThreadItem(item: ThreadStreamItem):
       kind: block.kind === "prose" || block.kind === "reasoning-summary" ? "assistant-message" : isProcess ? "process-row" : "detail-only",
       source,
       timestamp: item.timestamp,
+      agentRoleId: item.agentRoleId,
+      agentTaskId: item.agentTaskId,
+      runId: item.runId,
       title,
       text: isProcess ? processSummary : text,
       status: block.status,

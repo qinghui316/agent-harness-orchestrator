@@ -14,10 +14,11 @@ import { getWorkbenchProjection } from "./projections.js";
 import { readWorkbenchActionEvents, sendActionEventReplay } from "./live.js";
 import { assertConfirmed, assertRegisteredProject, readJsonBody, sendJson } from "./http.js";
 import { handleClarificationAnswer, handleClarificationSkip, handleIntakeReanalyze, handleIntakeScan } from "./intake.js";
+import { handleCodexUserInputAnswer } from "./codex-user-input.js";
 import { sendWorkbenchActionLive } from "./live-actions.js";
 import { readCreateTopicBody, readTopicMessageBody, sendCreateTopicLive, sendTopicMessageLive, sendTopicMessageReplay } from "./topic-messages.js";
 import { executeWorkbenchAction } from "./actions.js";
-import type { ClarificationAnswerRequest, IntakeRequest, WorkbenchActionRequest, WorkbenchServerContext } from "./types.js";
+import type { ClarificationAnswerRequest, CodexUserInputAnswerRequest, IntakeRequest, WorkbenchActionRequest, WorkbenchServerContext } from "./types.js";
 
 export async function handleProjectWorkbenchApi(context: WorkbenchServerContext, input: WorkbenchProjectInput, request: IncomingMessage, response: ServerResponse, rest: string, url: URL): Promise<void> {
   if (request.method === "GET" && rest === "snapshot") {
@@ -34,7 +35,10 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
   }
   if (request.method === "POST" && rest === "topics/live") {
     assertRegisteredProject(input);
-    await sendCreateTopicLive(input, request, response, { initialMainAgentTurn: context.initialMainAgentTurn });
+    await sendCreateTopicLive(input, request, response, {
+      initialMainAgentTurn: context.initialMainAgentTurn,
+      initialPlanningAgentDelegation: context.initialPlanningAgentDelegation,
+    });
     return;
   }
   if (request.method === "POST" && rest === "topics") {
@@ -44,6 +48,7 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
     if (topic.state === "active") {
       await runIntakeScan(input.project, topic.changeId, body.body ?? body.title);
       await context.initialMainAgentTurn(input.project, topic.changeId, body.body ?? body.title);
+      await context.initialPlanningAgentDelegation(input.project, topic.changeId, body.body ?? body.title);
     }
     sendJson(response, 200, { topic, snapshot: await getWorkbenchSnapshot(input, { topicId: topic.changeId }) });
     return;
@@ -75,6 +80,12 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
   if (request.method === "POST" && clarificationSkipMatch?.[1]) {
     assertRegisteredProject(input);
     sendJson(response, 200, await handleClarificationSkip(input, decodeURIComponent(clarificationSkipMatch[1]), await readJsonBody<ClarificationAnswerRequest>(request)));
+    return;
+  }
+  const codexUserInputAnswerMatch = rest.match(/^codex\/user-input\/([^/]+)\/answer$/);
+  if (request.method === "POST" && codexUserInputAnswerMatch?.[1]) {
+    assertRegisteredProject(input);
+    sendJson(response, 200, await handleCodexUserInputAnswer(input, decodeURIComponent(codexUserInputAnswerMatch[1]), await readJsonBody<CodexUserInputAnswerRequest>(request)));
     return;
   }
   const topicMessagesMatch = rest.match(/^topics\/([^/]+)\/messages(?:\/stream)?$/);

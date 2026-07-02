@@ -2,7 +2,6 @@ import { useState, type ReactElement } from "react";
 import { userFacingText, userStatusLabel } from "../../formatters.js";
 import type { Approval, Workpad } from "../../types.js";
 import {
-  PlanningNarrativeCard,
   ResultReviewNarrative,
   RoleToolResultRows,
 } from "./workpad/PlanningCards.js";
@@ -64,7 +63,6 @@ export function WorkpadView(props: {
         />
       ) : null}
 
-      {workpad.planningArtifactBundle ? <PlanningNarrativeCard bundle={workpad.planningArtifactBundle} /> : null}
       {mainAgentExecution ? <RoleToolResultRows pipeline={mainAgentExecution} /> : null}
       {workpad.resultReview ? <ResultReviewNarrative review={workpad.resultReview} /> : null}
 

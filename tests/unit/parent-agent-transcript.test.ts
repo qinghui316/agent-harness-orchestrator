@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildParentAgentTranscript, pageParentAgentTranscript } from "../../src/workbench/parent-agent-transcript.js";
+import { buildAgentScopedTranscriptCells, buildParentAgentTranscript, pageParentAgentTranscript } from "../../src/workbench/parent-agent-transcript.js";
 
 describe("parent agent transcript paging", () => {
   it("keeps the full transcript compatible and returns the latest page by default", () => {
@@ -66,6 +66,133 @@ describe("parent agent transcript paging", () => {
     expect(earlier.cells).toHaveLength(100);
     expect(earlier.cells[0]?.id).toBe("cell:user:msg-9800");
     expect(earlier.cells.at(-1)?.id).toBe("cell:assistant:block-9899");
+  });
+
+  it("keeps child-agent transcript cells out of the parent transcript and available by role", () => {
+    const childBlock = {
+      id: "planning-prose",
+      sequence: 1,
+      kind: "prose" as const,
+      timestamp: "2026-07-02T10:00:00.000Z",
+      source: "codex" as const,
+      text: "Planning-agent draft body stays in the Agent workspace.",
+    };
+    const threadItems = [
+      {
+        id: "main-response",
+        kind: "assistant-turn",
+        label: "assistant",
+        body: "Main agent response.",
+        blocks: [{
+          id: "main-prose",
+          sequence: 1,
+          kind: "prose" as const,
+          timestamp: "2026-07-02T10:00:00.000Z",
+          source: "codex" as const,
+          text: "Main agent response.",
+        }],
+      },
+      {
+        id: "planning-response",
+        kind: "assistant-turn",
+        label: "planning-agent",
+        body: "Planning-agent draft body stays in the Agent workspace.",
+        runId: "run-planning",
+        agentRoleId: "planning-agent",
+        agentTaskId: "task-planning",
+        blocks: [childBlock],
+      },
+    ];
+
+    const parent = buildParentAgentTranscript({
+      workpad: { conversationId: "conv", boundChangeId: "change", title: "Agent split" },
+      threadItems,
+    });
+    const childCells = buildAgentScopedTranscriptCells(threadItems, "planning-agent");
+
+    expect(parent.cells.map((cell) => cell.text).join("\n")).toContain("Main agent response.");
+    expect(parent.cells.map((cell) => cell.text).join("\n")).not.toContain("Planning-agent draft body");
+    expect(childCells).toEqual([
+      expect.objectContaining({
+        agentRoleId: "planning-agent",
+        agentTaskId: "task-planning",
+        runId: "run-planning",
+        text: "Planning-agent draft body stays in the Agent workspace.",
+      }),
+    ]);
+  });
+
+  it("routes planning action output to the planning-agent workspace", () => {
+    const threadItems = [
+      {
+        id: "user-1",
+        kind: "user-message",
+        label: "Build a thing",
+        body: "Build a thing",
+      },
+      {
+        id: "planning-message",
+        kind: "assistant-turn",
+        label: "AI",
+        agentRoleId: "planning-agent",
+        runId: "run-plan",
+        body: "方案草案\n\n## 目标\n做事\n\n## 任务清单\n- T-001",
+        blocks: [{
+          id: "legacy-plan-block",
+          sequence: 1,
+          kind: "prose" as const,
+          source: "codex" as const,
+          text: "方案草案\n\n## 目标\n做事\n\n## 任务清单\n- T-001",
+        }],
+      },
+      {
+        id: "planning-workflow",
+        kind: "assistant-turn",
+        label: "Planning draft generated",
+        source: "workflow",
+        actionType: "planning.generate",
+        status: "completed",
+        body: "Planning draft generated 已完成",
+        blocks: [{
+          id: "legacy-plan-workflow-block",
+          sequence: 1,
+          kind: "prose" as const,
+          source: "workflow" as const,
+          text: "Planning draft generated 已完成",
+        }],
+      },
+    ];
+
+    const parent = buildParentAgentTranscript({
+      workpad: { conversationId: "conv", boundChangeId: "change", title: "Legacy planning" },
+      threadItems,
+    });
+    const planning = buildAgentScopedTranscriptCells(threadItems, "planning-agent");
+
+    expect(parent.cells.map((cell) => cell.text).join("\n")).toBe("Build a thing");
+    expect(planning.map((cell) => cell.text).join("\n")).toContain("## 目标");
+    expect(planning.map((cell) => cell.text).join("\n")).toContain("Planning draft generated");
+    expect(planning.every((cell) => cell.agentRoleId === "planning-agent")).toBe(true);
+  });
+
+  it("strips accidental planning sections from main-agent visible prose", () => {
+    const transcript = buildParentAgentTranscript({
+      workpad: { conversationId: "conv", boundChangeId: "change", title: "Main plan leak" },
+      threadItems: [{
+        id: "main-leak",
+        kind: "assistant-turn",
+        label: "AI",
+        blocks: [{
+          id: "main-leak-block",
+          sequence: 1,
+          kind: "prose" as const,
+          source: "codex" as const,
+          text: "我先确认需求，不会修改文件。\n\n## 目标\n做事\n\n## 验收标准\n- 通过",
+        }],
+      }],
+    });
+
+    expect(transcript.cells.map((cell) => cell.text)).toEqual(["我先确认需求，不会修改文件。"]);
   });
 });
 

@@ -2189,6 +2189,133 @@ describe("Workbench web app", () => {
     expect(screen.queryByTestId("decision-inspector-primary")).toBeNull();
   });
 
+  it("resizes side rails by changing only the dragged rail width variable", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(snapshot.center.parentAgentTranscript);
+      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(snapshot.center.agentRunGraph);
+      return jsonResponse(url.includes("/stream/") ? stream : snapshot);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByTestId("main-conversation-view")).toBeTruthy());
+    expect(screen.queryByLabelText("折叠左侧项目栏")).toBeNull();
+    expect(screen.queryByLabelText("展开左侧项目栏")).toBeNull();
+    const shell = document.querySelector(".app-shell") as HTMLElement;
+    const leftResizer = document.querySelector(".sidebar-resizer") as HTMLElement;
+    expect(leftResizer).toBeTruthy();
+    expect(leftResizer.classList.contains("shell-resize-grip")).toBe(true);
+    expect(document.querySelector(".shell-column-resizer")).toBeNull();
+    dispatchPointerEventWithClientX(leftResizer, "pointerdown", 280, 1);
+    dispatchPointerEventWithClientX(document, "pointermove", 340, 1);
+    dispatchPointerEventWithClientX(document, "pointerup", 340, 1);
+    expect(shell.style.getPropertyValue("--left-sidebar-width")).toBe("340px");
+    expect(shell.style.getPropertyValue("--right-rail-width")).toBe("48px");
+
+    fireEvent.click(screen.getByTestId("decision-pane-toggle"));
+    await screen.findByTestId("right-tool-launcher");
+    const rightResizer = document.querySelector(".right-rail-resizer") as HTMLElement;
+    expect(rightResizer).toBeTruthy();
+    expect(rightResizer.classList.contains("shell-resize-grip")).toBe(true);
+    dispatchPointerEventWithClientX(rightResizer, "pointerdown", 100, 2);
+    dispatchPointerEventWithClientX(document, "pointermove", 40, 2);
+    dispatchPointerEventWithClientX(document, "pointerup", 40, 2);
+    expect(shell.style.getPropertyValue("--left-sidebar-width")).toBe("340px");
+    expect(shell.style.getPropertyValue("--right-rail-width")).toBe("380px");
+  });
+
+  it("uses a transcript-first planning-agent composer instead of separate plan action buttons", async () => {
+    const planningAgentSnapshot = {
+      ...snapshot,
+      right: {
+        ...snapshot.right,
+        agentWorkspace: {
+          selectedAgentId: "planning-agent",
+          agents: [{
+            id: "planning-agent",
+            roleId: "planning-agent",
+            label: "planning-agent",
+            status: "draft",
+            summary: "方案草案等待反馈或实施。",
+            transcript: {
+              title: "planning-agent",
+              emptyMessage: "暂无子 Agent 消息。",
+              cells: [{
+                id: "planning-agent-plan",
+                kind: "assistant-message",
+                source: "chat",
+                text: "为 `message.txt` 增加指定文本的实施方案",
+                agentRoleId: "planning-agent",
+              }],
+              items: [],
+            },
+            evidenceRefs: [],
+            actions: [
+              {
+                id: "agent-workspace:planning.revise:member-discount:planning-bundle-1",
+                label: "修改方案草案",
+                kind: "workflow-action",
+                actionType: "planning.revise",
+                changeId: "member-discount",
+                planningBundleId: "planning-bundle-1",
+                enabled: true,
+                requiresConfirmation: false,
+              },
+              {
+                id: "agent-workspace:planning.confirm-execution:member-discount:planning-bundle-1",
+                label: "实施此计划",
+                kind: "workflow-action",
+                actionType: "planning.confirm-execution",
+                changeId: "member-discount",
+                planningBundleId: "planning-bundle-1",
+                enabled: true,
+                requiresConfirmation: true,
+              },
+            ],
+          }],
+        },
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      if (url.endsWith("/workbench/actions/live") && init?.method === "POST") {
+        return sseResponse([["snapshot", planningAgentSnapshot], ["done", { status: "completed" }]]);
+      }
+      if (url.endsWith("/workbench/actions") && init?.method === "POST") return jsonResponse({ result: { ok: true }, snapshot: planningAgentSnapshot });
+      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(planningAgentSnapshot.center.parentAgentTranscript);
+      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(planningAgentSnapshot.center.agentRunGraph);
+      return jsonResponse(url.includes("/stream/") ? stream : planningAgentSnapshot);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByTestId("main-conversation-view")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("decision-pane-toggle"));
+    fireEvent.click(await screen.findByTestId("right-tool-launcher-agent"));
+    const panel = await screen.findByTestId("agent-workspace-panel");
+    expect(panel.closest(".decision-pane-content")?.classList.contains("agent-content")).toBe(true);
+    expect(within(panel).queryByText("AGENT 工作区")).toBeNull();
+    expect(within(panel).queryByRole("button", { name: "实施此计划" })).toBeNull();
+    expect(within(panel).queryByRole("button", { name: "逐步确认" })).toBeNull();
+    expect(panel.textContent).toContain("为 message.txt 增加指定文本的实施方案");
+
+    const composer = within(panel).getByTestId("agent-workspace-composer");
+    fireEvent.change(within(composer).getByPlaceholderText(/给当前 Agent 发送反馈/), { target: { value: "补充 npm test 验收。" } });
+    fireEvent.click(within(composer).getByTitle("发送给当前 Agent"));
+    await waitFor(() => expect(workflowActionLiveCallContains("\"actionType\":\"planning.revise\"")).toBe(true));
+
+    await waitFor(() => expect((within(composer).getByPlaceholderText(/给当前 Agent 发送反馈/) as HTMLTextAreaElement).disabled).toBe(false));
+    fireEvent.change(within(composer).getByPlaceholderText(/给当前 Agent 发送反馈/), { target: { value: "实施此计划" } });
+    await waitFor(() => expect((within(composer).getByTitle("发送给当前 Agent") as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(within(composer).getByTitle("发送给当前 Agent"));
+    await waitFor(() => expect(workflowActionLiveCallContains("\"actionType\":\"planning.confirm-execution\"")).toBe(true));
+  });
+
   it("opens the minimal right tool rail with confirmation, files, Git, diagnostics, and a separate terminal toggle", async () => {
     const fileRef = { relativePath: "src/pricing.ts", name: "pricing.ts", kind: "file", extension: ".ts", size: 24 };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
@@ -6157,8 +6284,9 @@ describe("Workbench web app", () => {
     fireEvent.change(input, { target: { value: "实现设置入口" } });
     fireEvent.click(screen.getByTitle("创建需求对话"));
 
-    await waitFor(() => expect(screen.getByText("等待回复")).toBeTruthy(), { timeout: 150 });
+    await waitFor(() => expect(screen.getAllByText("实现设置入口").length).toBeGreaterThan(0), { timeout: 150 });
     expect(screen.getAllByText("实现设置入口").length).toBeGreaterThan(0);
+    expect(screen.queryByText("等待回复")).toBeNull();
     expect(delayedEventsStarted).toBe(false);
     expect(fetchCallUrls().some((url) => url.includes("/workbench/projections/transcript/pending%3A"))).toBe(false);
     await waitFor(() => expect(delayedEventsStarted).toBe(true));
@@ -6876,6 +7004,23 @@ function jsonResponse(body: unknown): Response {
     status: 200,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+function workflowActionLiveCallContains(fragment: string): boolean {
+  return vi.mocked(fetch).mock.calls.some(([url, init]) => (
+    String(url) === "/api/projects/repo/workbench/actions/live"
+    && init?.method === "POST"
+    && String(init.body).includes(fragment)
+  ));
+}
+
+function dispatchPointerEventWithClientX(target: EventTarget, type: string, clientX: number, pointerId: number): void {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "clientX", { value: clientX });
+  Object.defineProperty(event, "pageX", { value: clientX });
+  Object.defineProperty(event, "screenX", { value: clientX });
+  Object.defineProperty(event, "pointerId", { value: pointerId });
+  fireEvent(target, event);
 }
 
 function sseResponse(events: Array<[string, unknown]>): Response {

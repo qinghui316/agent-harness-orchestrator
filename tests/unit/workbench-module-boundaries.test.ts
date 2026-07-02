@@ -1861,10 +1861,12 @@ describe("Workbench module boundaries", () => {
       planningHandler.indexOf("export async function shouldIncludeFirstOnboardingSkill"),
     );
     expect(draftHandler).toContain('const agentLive = scopedAgentLiveSink(live, "planning-agent", task.id)');
+    expect(draftHandler).toContain("const planningCapture = createAssistantTranscriptCapture(agentLive)");
     expect(draftHandler).toMatch(/emitPlanningAgentLifecycle\(agentLive, task\.id, "agent-running"/);
-    expect(draftHandler).toMatch(/runCodexChat\(\s*project,\s*changeId,\s*planModePrompt,\s*agentLive,/);
+    expect(draftHandler).toMatch(/runCodexChat\(\s*project,\s*changeId,\s*planModePrompt,\s*planningCapture\.sink,/);
+    expect(draftHandler).toContain('agentRoleId: "planning-agent"');
     expect(draftHandler).not.toMatch(/sanitizeProposedPlanForConversation/);
-    expect(draftHandler).not.toMatch(/live\?\.emit\(\{ event: "assistant\.message"/);
+    expect(draftHandler).not.toMatch(/live\?\.emit\(\{ event: "assistant\.message", data: assistant/);
   });
 
   it("keeps integration-check manager as a compatibility facade", () => {

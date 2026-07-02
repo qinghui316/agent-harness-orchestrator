@@ -710,6 +710,39 @@ describe("workbench read-model projections", () => {
     ]));
   });
 
+  it("keeps persisted planning-agent output out of the main transcript and restores it in the Agent workspace", async () => {
+    await initHarness(project());
+    const topic = await createWorkbenchTopic(project(), { title: "Planning Agent Transcript", body: "Create a reviewable plan." });
+    await writePlanningBundleFixture(topic.changeId, "Create a reviewable plan.");
+    await appendTopicThreadEntry(project(), topic.changeId, {
+      type: "assistant.message",
+      status: "planning-agent-generated",
+      text: "CHILD PLANNING DRAFT BODY",
+      runId: "run-planning-agent",
+      agentRoleId: "planning-agent",
+      agentTaskId: "task-planning-agent",
+      blocks: [{
+        id: "planning-agent-prose",
+        runId: "run-planning-agent",
+        sequence: 1,
+        kind: "prose",
+        timestamp: "2026-07-02T10:00:00.000Z",
+        source: "codex",
+        text: "CHILD PLANNING DRAFT BODY",
+      }],
+    });
+
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
+    const parentText = JSON.stringify(snapshot.center.parentAgentTranscript);
+    const planningAgent = snapshot.right.agentWorkspace.agents.find((agent) => agent.id === "planning-agent");
+
+    expect(parentText).not.toContain("CHILD PLANNING DRAFT BODY");
+    expect(JSON.stringify(planningAgent?.transcript.cells)).toContain("CHILD PLANNING DRAFT BODY");
+    expect(planningAgent?.transcript.cells).toEqual(expect.arrayContaining([
+      expect.objectContaining({ agentRoleId: "planning-agent", runId: "run-planning-agent" }),
+    ]));
+  });
+
   it("prefers persisted assistant blocks over legacy activity when rebuilding the thread", async () => {
     await initHarness(project());
     const topic = await createWorkbenchTopic(project(), { title: "Block Dedupe", body: "Show one command and one usage." });
@@ -771,7 +804,7 @@ describe("workbench read-model projections", () => {
     expect(snapshot.center.workpad.intake.pendingClarifications).toHaveLength(0);
     expect(snapshot.center.workpad.nextAction).toMatchObject({ actionType: "planning.generate", enabled: true });
     expect(JSON.stringify(snapshot.right.confirmationQueue)).not.toContain("planning.generate");
-    expect(snapshot.right.agentWorkspace.agents.find((agent) => agent.id === "planning-agent")?.actions).toEqual(expect.arrayContaining([
+    expect(snapshot.right.agentWorkspace.agents.find((agent) => agent.id === "planning-agent")?.actions).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ actionType: "planning.generate", label: "让 planning-agent 生成方案" }),
     ]));
     expect(snapshot.center.thread.items).toEqual(expect.arrayContaining([

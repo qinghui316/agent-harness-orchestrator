@@ -2110,6 +2110,9 @@ export type ThreadStreamItem = {
   artifact?: string;
   status?: string;
   runId?: string;
+  agentRoleId?: string;
+  agentTaskId?: string;
+  actionType?: string;
   actionRunId?: string;
   semanticKey?: string;
   planCard?: PlanCard;
@@ -2142,6 +2145,7 @@ export type ThreadStreamEvidence = {
   artifact?: string;
   status?: string;
   runId?: string;
+  actionType?: string;
   actionRunId?: string;
 };
 export type RunSummary = { id: string; runtime: string; status: string; startedAt?: string; finishedAt?: string };
@@ -2261,6 +2265,7 @@ export type AgentWorkspaceAgent = {
   evidenceRefs: DemandAgentRunGraphEvidenceRef[];
   actions: DecisionAction[];
   planningBundle?: PlanningArtifactBundle;
+  clarifications?: ClarificationRequest[];
 };
 export type AgentWorkspace = {
   selectedAgentId: string;
@@ -2389,6 +2394,26 @@ export type StreamPacket = {
   diagnostics: string[];
 };
 export type FolderDialogResult = { path: string | null; canceled: boolean; supported: boolean; error?: string };
+export type CodexUserInputQuestion = {
+  id: string;
+  header?: string;
+  question: string;
+  isOther?: boolean;
+  isSecret?: boolean;
+  options?: Array<{ label: string; description?: string }>;
+};
+export type CodexUserInputRequest = {
+  requestId: string;
+  threadId?: string;
+  turnId?: string;
+  itemId?: string;
+  runId: string;
+  changeId: string;
+  agentRoleId?: string;
+  agentTaskId?: string;
+  questions: CodexUserInputQuestion[];
+  status: "pending" | "submitted";
+};
 export type WorkbenchLiveEvent =
   | { event: "topic.created"; data: { topic: { changeId: string; title: string; state: "active" } } }
   | { event: "topic.message"; data: TopicMessageEntry }
@@ -2398,6 +2423,8 @@ export type WorkbenchLiveEvent =
   | { event: "assistant.message"; data: TopicMessageEntry }
   | { event: "assistant.event"; data: AssistantReadableEvent }
   | { event: "tool.event"; data: WorkbenchLiveToolEvent }
+  | { event: "codex.userInput.requested"; data: CodexUserInputRequest }
+  | { event: "codex.userInput.submitted"; data: { requestId: string; runId?: string; agentRoleId?: string; agentTaskId?: string } }
   | { event: "usage"; data: { runId?: string; usage?: Record<string, unknown>; agentRoleId?: string; agentTaskId?: string } }
   | { event: "snapshot"; data: Snapshot }
   | { event: "error"; data: { message: string; runId?: string; actionRunId?: string } }
@@ -2484,6 +2511,8 @@ export type TopicMessageEntry = {
   actionType?: string;
   status?: string;
   runId?: string;
+  agentRoleId?: string;
+  agentTaskId?: string;
   artifact?: string;
   error?: string;
   resultSummary?: string;

@@ -11,8 +11,10 @@ import { artifactForActionResult, extractRunId, labelForAction, summarizeActionR
 import { assertWorkflowActionScope, auditHighImpactWorkflowAction, workflowActionScopePayload, workflowActionTargetId } from "./actions/boundary.js";
 import { dispatchWorkbenchWorkflowAction } from "./actions/dispatcher.js";
 import { buildWorkbenchActionHandlers } from "./actions/handlers/index.js";
+import { generatePlanningDraft } from "./actions/handlers/planning.js";
 import { recordWorkbenchDecision } from "./decisions.js";
 import { emitAssistantEvent } from "./live-events.js";
+import { stripAccidentalPlanningDraftFromMainAgentText } from "./main-agent-visible-text.js";
 import { resolveTopicAttachments } from "./attachments.js";
 import { resolveTopicFileReferences } from "./file-references.js";
 import { createAssistantTranscriptCapture } from "./live-transcript.js";
@@ -93,7 +95,7 @@ export async function runInitialMainAgentTurn(project: ManagedProject, changeId:
   const prompt = buildInitialMainAgentPrompt(userMessage);
   const capture = createAssistantTranscriptCapture(live);
   const chat = await runCodexChat(project, changeId, prompt, capture.sink);
-  const assistantText = chat.message.trim() || capture.text.trim();
+  const assistantText = stripAccidentalPlanningDraftFromMainAgentText(chat.message.trim() || capture.text.trim());
   const assistant = await appendTopicThreadEntry(project, changeId, {
     type: "assistant.message",
     status: "main-agent-initial-turn",
@@ -105,6 +107,50 @@ export async function runInitialMainAgentTurn(project: ManagedProject, changeId:
   });
   live?.emit({ event: "assistant.message", data: assistant });
   return assistant;
+}
+
+export async function runInitialPlanningAgentDelegationIfNeeded(
+  project: ManagedProject,
+  changeId: string,
+  userMessage: string,
+  live?: WorkbenchLiveSink,
+): Promise<boolean> {
+  if (!shouldAutoDelegateInitialPlanningAgent(userMessage)) return false;
+  const { memory, changePath } = await resolveTopic(project, changeId);
+  const thread = await readThreadLog(memory, changePath);
+  const alreadyDelegated = thread.some((entry) =>
+    entry.agentRoleId === "planning-agent"
+    || entry.actionType === "planning.generate"
+    || entry.status === "main-agent-delegated-planning-agent"
+  );
+  if (alreadyDelegated) return false;
+  const delegation = await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "main-agent-delegated-planning-agent",
+    text: "我会让 planning-agent 根据刚才确认的目标整理一份可审阅方案；方案在右侧 Agent 工作区中完善，确认实施前不会进入代码执行。",
+    blocks: [{
+      id: `main-agent:${changeId}:delegate-planning-agent`,
+      sequence: 1,
+      kind: "status",
+      timestamp: new Date().toISOString(),
+      source: "aho",
+      status: "agent-task-created",
+      title: "委派 planning-agent",
+      text: "主 Agent 已委派 planning-agent 整理可审阅方案。",
+    }],
+  });
+  live?.emit({ event: "assistant.message", data: delegation });
+  await generatePlanningDraft(project, changeId, undefined, live, false);
+  return true;
+}
+
+export function shouldAutoDelegateInitialPlanningAgent(userMessage: string): boolean {
+  const text = userMessage.trim();
+  if (!text) return false;
+  if (/(不要|别|先不|暂不).{0,12}(生成|写|创建|整理|输出).{0,8}(方案|计划|规划|清单|任务)/i.test(text)) return false;
+  if (/(不要|别|先不|暂不).{0,12}(planning-agent|规划|计划)/i.test(text)) return false;
+  if (/(只|仅).{0,8}(回复|确认|理解|说明|解释)/i.test(text) && /(不要|别|不需要).{0,12}(方案|计划|规划|清单)/i.test(text)) return false;
+  return true;
 }
 
 function initialMainAgentBlocks(blocks: AssistantTurnBlock[], runId: string, assistantText: string): AssistantTurnBlock[] {
@@ -191,7 +237,7 @@ export async function postTopicMessage(project: ManagedProject, changeId: string
   live?.emit({ event: "topic.message", data: user });
   const capture = createAssistantTranscriptCapture(live);
   const chat = await runCodexChat(project, changeId, parsed.message, capture.sink, { attachments: parsed.attachments });
-  const assistantText = chat.message.trim() || capture.text.trim();
+  const assistantText = stripAccidentalPlanningDraftFromMainAgentText(chat.message.trim() || capture.text.trim());
   const assistant = await appendTopicThreadEntry(project, changeId, {
     type: "assistant.message",
     text: assistantText,

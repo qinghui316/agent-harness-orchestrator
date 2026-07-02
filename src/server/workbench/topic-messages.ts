@@ -6,7 +6,12 @@ import { getWorkbenchSnapshot, type WorkbenchProjectInput } from "../../workbenc
 import type { ManagedProject } from "../../types/index.js";
 import { createLiveSink } from "./live.js";
 import { readJsonBody } from "./http.js";
-import type { CreateTopicRequest, InitialMainAgentTurnRunner, TopicMessageRequest } from "./types.js";
+import type {
+  CreateTopicRequest,
+  InitialMainAgentTurnRunner,
+  InitialPlanningAgentDelegationRunner,
+  TopicMessageRequest,
+} from "./types.js";
 
 export async function readCreateTopicBody(request: IncomingMessage): Promise<{ title: string; body?: string; contextRefs?: CreateTopicRequest["contextRefs"]; attachmentIds?: string[] }> {
   const body = await readJsonBody<CreateTopicRequest>(request);
@@ -42,7 +47,10 @@ export async function sendCreateTopicLive(
   input: WorkbenchProjectInput & { project: ManagedProject },
   request: IncomingMessage,
   response: ServerResponse,
-  options: { initialMainAgentTurn: InitialMainAgentTurnRunner },
+  options: {
+    initialMainAgentTurn: InitialMainAgentTurnRunner;
+    initialPlanningAgentDelegation: InitialPlanningAgentDelegationRunner;
+  },
 ): Promise<void> {
   const body = await readCreateTopicBody(request);
   const sse = createSseResponse(response);
@@ -59,6 +67,7 @@ export async function sendCreateTopicLive(
       sink.emit({ event: "run.status", data: { status: "intake.scan", label: "需求上下文扫描中" } });
       await runIntakeScan(input.project, topic.changeId, body.body ?? body.title);
       await options.initialMainAgentTurn(input.project, topic.changeId, body.body ?? body.title, sink);
+      await options.initialPlanningAgentDelegation(input.project, topic.changeId, body.body ?? body.title, sink);
     }
     sink.emit({ event: "snapshot", data: await getWorkbenchSnapshot(input, { topicId: topic.changeId }) });
     sink.emit({ event: "done", data: { status: "completed" } });

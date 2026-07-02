@@ -3,8 +3,10 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type Dispatch,
   type ReactElement,
+  type PointerEvent as ReactPointerEvent,
   type SetStateAction } from "react";
 import { consumeWorkbenchLiveStream,
   fetchJson,
@@ -87,6 +89,7 @@ import type {
   TopicFileReference,
   RuntimeActivityLogSnapshot,
   RuntimeDiagnosticsSnapshot,
+  CodexUserInputRequest,
 } from "./types.js";
 import { extractInlineSkillMentions } from "./shell/skill-mentions.js";
 import { extractInlineFileMentions } from "./shell/file-mentions.js";
@@ -109,13 +112,19 @@ const emptySnapshot: Snapshot = {
     decisions: [],
     decisionInspector: { primary: null, related: [], history: [] },
     confirmationQueue: { primary: null, current: [], otherDemands: [], maintenance: [], history: [] },
-    agentWorkspace: { selectedAgentId: "main-agent", agents: [] },
+    agentWorkspace: { selectedAgentId: "planning-agent", agents: [] },
   },
   harnessGaps: [],
   warnings: [],
 };
 
 const SELECTED_PROJECT_STORAGE_KEY = "aho.workbench.selectedProjectId";
+const LEFT_SIDEBAR_DEFAULT_WIDTH = 280;
+const LEFT_SIDEBAR_MIN_WIDTH = 220;
+const LEFT_SIDEBAR_MAX_WIDTH = 420;
+const RIGHT_RAIL_DEFAULT_WIDTH = 320;
+const RIGHT_RAIL_MIN_WIDTH = 280;
+const RIGHT_RAIL_MAX_WIDTH = 560;
 type BottomDockKind = "terminal" | null;
 type LiveTurnSetter = Dispatch<SetStateAction<LiveAssistantTurn[]>>;
 type PendingDemandConversation = {
@@ -140,6 +149,17 @@ function activeComposerSkillIds(skills: SkillListItem[], topicId: string | null,
   return skills.filter((skill) => isSkillActiveForComposer(skill, topicId, draftOverrides)).map((skill) => skill.skillId);
 }
 
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function pointerClientX(event: { clientX?: number; pageX?: number; screenX?: number }): number {
+  if (Number.isFinite(event.clientX)) return event.clientX ?? 0;
+  if (Number.isFinite(event.pageX)) return event.pageX ?? 0;
+  if (Number.isFinite(event.screenX)) return event.screenX ?? 0;
+  return 0;
+}
+
 function pendingDemandTranscript(pending: PendingDemandConversation, includeUserMessage: boolean): ParentAgentTranscript {
   const cells: ParentAgentTranscriptCell[] = [];
   if (includeUserMessage) {
@@ -151,15 +171,6 @@ function pendingDemandTranscript(pending: PendingDemandConversation, includeUser
       text: pending.body,
     });
   }
-  cells.push({
-    id: `pending:waiting:${pending.id}`,
-    kind: "process-row",
-    source: "codex-runtime",
-    timestamp: pending.startedAt,
-    title: "等待回复",
-    text: "正在连接 Codex，并读取当前项目上下文。",
-    status: "running",
-  });
   return normalizeParentAgentTranscript({
     title: pending.title,
     cells,
@@ -208,6 +219,7 @@ export function App(): ReactElement {
   const [liveItems, setLiveItems] = useState<ThreadStreamItem[]>([]);
   const [liveTurns, setLiveTurns] = useState<LiveAssistantTurn[]>([]);
   const [agentLiveTurns, setAgentLiveTurns] = useState<LiveAssistantTurn[]>([]);
+  const [codexUserInputRequests, setCodexUserInputRequests] = useState<CodexUserInputRequest[]>([]);
   const [loadedTranscript, setLoadedTranscript] = useState<ParentAgentTranscript | null>(null);
   const [loadingEarlierTranscript, setLoadingEarlierTranscript] = useState(false);
   const [loadedRunGraph, setLoadedRunGraph] = useState<DemandAgentRunGraph | null>(null);
@@ -233,6 +245,8 @@ export function App(): ReactElement {
   const [runtimeActivityLogLoading, setRuntimeActivityLogLoading] = useState(false);
   const [decisionPaneCollapsed, setDecisionPaneCollapsed] = useState(true);
   const [rightToolView, setRightToolView] = useState<RightToolRailView>("launcher");
+  const [leftSidebarWidth, setLeftSidebarWidth] = useState(LEFT_SIDEBAR_DEFAULT_WIDTH);
+  const [rightToolRailWidth, setRightToolRailWidth] = useState(RIGHT_RAIL_DEFAULT_WIDTH);
   const [selectedAgentWorkspaceAgentId, setSelectedAgentWorkspaceAgentId] = useState<string | null>(null);
   const [projectionVersion, setProjectionVersion] = useState(0);
   const [latestHidden, setLatestHidden] = useState(false);
@@ -242,6 +256,39 @@ export function App(): ReactElement {
     [draftSkillOverrides, selectedTopic, skillItems],
   );
   const enabledSkillCount = selectedComposerSkillIds.length;
+
+  const appShellStyle = !settingsOpen ? ({
+    "--left-sidebar-width": `${leftSidebarWidth}px`,
+    "--right-rail-width": decisionPaneCollapsed ? "48px" : `${rightToolRailWidth}px`,
+  } as CSSProperties) : undefined;
+
+  function beginShellColumnResize(event: ReactPointerEvent, side: "left" | "right"): void {
+    event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    const startX = pointerClientX(event);
+    const startWidth = side === "left" ? leftSidebarWidth : rightToolRailWidth;
+    const previousCursor = document.body.style.cursor;
+    document.body.style.cursor = "ew-resize";
+    document.body.classList.add("is-resizing-column");
+    function onPointerMove(moveEvent: PointerEvent): void {
+      const delta = pointerClientX(moveEvent) - startX;
+      if (side === "left") {
+        setLeftSidebarWidth(clampNumber(startWidth + delta, LEFT_SIDEBAR_MIN_WIDTH, LEFT_SIDEBAR_MAX_WIDTH));
+      } else {
+        setRightToolRailWidth(clampNumber(startWidth - delta, RIGHT_RAIL_MIN_WIDTH, RIGHT_RAIL_MAX_WIDTH));
+      }
+    }
+    function onPointerUp(): void {
+      document.removeEventListener("pointermove", onPointerMove);
+      document.removeEventListener("pointerup", onPointerUp);
+      document.removeEventListener("pointercancel", onPointerUp);
+      document.body.style.cursor = previousCursor;
+      document.body.classList.remove("is-resizing-column");
+    }
+    document.addEventListener("pointermove", onPointerMove);
+    document.addEventListener("pointerup", onPointerUp, { once: true });
+    document.addEventListener("pointercancel", onPointerUp, { once: true });
+  }
 
   function ensureTerminalTab(): string {
     if (activeTerminalId && terminalTabs.some((tab) => tab.id === activeTerminalId)) return activeTerminalId;
@@ -536,7 +583,7 @@ export function App(): ReactElement {
         ...baseSnapshot.right,
         decisionInspector: { primary: null, related: [], history: [] },
         confirmationQueue: { primary: null, current: [], otherDemands: [], maintenance: [], history: [] },
-        agentWorkspace: { selectedAgentId: "main-agent", agents: [] },
+        agentWorkspace: { selectedAgentId: "planning-agent", agents: [] },
       },
     };
     setSnapshot(nextSnapshot);
@@ -915,6 +962,7 @@ export function App(): ReactElement {
         setPendingDemandConversation(pendingConversation);
         setLiveItems([]);
         setLiveTurns([]);
+        setCodexUserInputRequests([]);
         setLoadedTranscript(null);
         setLoadedRunGraph(null);
       }
@@ -1096,6 +1144,23 @@ export function App(): ReactElement {
     }
   }
 
+  async function answerCodexUserInput(request: CodexUserInputRequest, answers: Record<string, string | string[]>): Promise<void> {
+    if (!selectedProjectId || !activeTopic) return;
+    setActionRunning("codex.userInput.answer");
+    setError(null);
+    try {
+      await postJson<{ result: unknown; snapshot: Snapshot }>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/codex/user-input/${encodeURIComponent(request.requestId)}/answer`, {
+        changeId: activeTopic.id,
+        answers,
+      });
+      setCodexUserInputRequests((current) => current.map((item) => item.requestId === request.requestId
+        ? { ...item, status: "submitted" }
+        : item));
+    } finally {
+      setActionRunning(null);
+    }
+  }
+
   function handleLiveEvent(event: WorkbenchLiveEvent): void {
     if (event.event === "topic.created") {
       setSelectedTopic(event.data.topic.changeId);
@@ -1109,6 +1174,7 @@ export function App(): ReactElement {
       setLiveItems([]);
       setLiveTurns([]);
       setAgentLiveTurns([]);
+      setCodexUserInputRequests([]);
       setPendingDemandConversation(null);
       invalidateProjectionCache();
       return;
@@ -1123,17 +1189,47 @@ export function App(): ReactElement {
     }
     if (event.event === "assistant.delta") {
       const runId = event.data.runId ?? event.data.agentTaskId ?? "assistant";
-      if (event.data.agentRoleId) appendAgentLiveTurnText(runId, event.data.delta, event.data.agentRoleId, event.data.agentTaskId);
-      else appendLiveTurnText(runId, event.data.delta);
+      if (event.data.agentRoleId) {
+        openChildAgentWorkspace(event.data.agentRoleId);
+        appendAgentLiveTurnText(runId, event.data.delta, event.data.agentRoleId, event.data.agentTaskId);
+      } else {
+        appendLiveTurnText(runId, event.data.delta);
+      }
+      return;
+    }
+    if (event.event === "codex.userInput.requested") {
+      if (event.data.agentRoleId) openChildAgentWorkspace(event.data.agentRoleId);
+      setCodexUserInputRequests((current) => [
+        ...current.filter((item) => item.requestId !== event.data.requestId),
+        event.data,
+      ]);
+      return;
+    }
+    if (event.event === "codex.userInput.submitted") {
+      setCodexUserInputRequests((current) => current.map((item) => item.requestId === event.data.requestId
+        ? { ...item, status: "submitted" }
+        : item));
       return;
     }
     if (event.event === "assistant.message") {
+      if (event.data.agentRoleId) {
+        openChildAgentWorkspace(event.data.agentRoleId);
+        const runId = event.data.runId ?? event.data.agentTaskId ?? `agent-message:${event.data.id}`;
+        upsertAgentLiveTurn(runId, event.data.agentRoleId, event.data.agentTaskId, {
+          status: "completed",
+          text: event.data.text ?? "",
+          blocks: event.data.blocks ?? [],
+        });
+        completeAgentLiveTurn(runId, event.data.text);
+        return;
+      }
       if (event.data.runId) completeLiveTurn(event.data.runId, event.data.text);
       else appendLiveItem(threadItemFromTopicEntry(event.data));
       return;
     }
     if (event.event === "assistant.event") {
       if (event.data.agentRoleId) {
+        openChildAgentWorkspace(event.data.agentRoleId);
         appendAgentLiveTurnEvent(event.data.runId, { kind: "assistant-event", event: event.data }, event.data.agentRoleId, event.data.agentTaskId, event.data.isError ? "failed" : event.data.phase, blockFromAssistantEvent(event.data));
       } else {
         appendLiveTurnEvent(event.data.runId, { kind: "assistant-event", event: event.data }, event.data.isError ? "failed" : event.data.phase, blockFromAssistantEvent(event.data));
@@ -1142,6 +1238,7 @@ export function App(): ReactElement {
     }
     if (event.event === "tool.event") {
       if (event.data.agentRoleId) {
+        openChildAgentWorkspace(event.data.agentRoleId);
         appendAgentLiveTurnEvent(event.data.runId, { kind: "tool", tool: event.data }, event.data.agentRoleId, event.data.agentTaskId, event.data.isError ? "failed" : undefined, blockFromToolEvent(event.data));
       } else {
         appendLiveTurnEvent(event.data.runId, { kind: "tool", tool: event.data }, event.data.isError ? "failed" : undefined, blockFromToolEvent(event.data));
@@ -1167,15 +1264,23 @@ export function App(): ReactElement {
         status: "running",
         events: [{ kind: "status", label: "running", detail: runtimeLabel(event.data.runtime ?? event.data.actionType ?? "Run") }],
       } satisfies Partial<Omit<LiveAssistantTurn, "id" | "runId" | "startedAt">> & { events?: LiveTurnEvent[] };
-      if (event.data.agentRoleId) upsertAgentLiveTurn(event.data.runId, event.data.agentRoleId, event.data.agentTaskId, patch);
-      else upsertLiveTurn(event.data.runId, patch);
+      if (event.data.agentRoleId) {
+        openChildAgentWorkspace(event.data.agentRoleId);
+        upsertAgentLiveTurn(event.data.runId, event.data.agentRoleId, event.data.agentTaskId, patch);
+      } else {
+        upsertLiveTurn(event.data.runId, patch);
+      }
       return;
     }
     if (event.event === "run.status") {
       const runId = event.data.runId ?? event.data.actionRunId ?? (event.data.agentRoleId ? latestAgentLiveRunId() : latestLiveRunId());
       if (runId) {
-        if (event.data.agentRoleId) appendAgentLiveTurnEvent(runId, { kind: "status", label: event.data.status, detail: event.data.label }, event.data.agentRoleId, event.data.agentTaskId, event.data.status);
-        else appendLiveTurnEvent(runId, { kind: "status", label: event.data.status, detail: event.data.label }, event.data.status);
+        if (event.data.agentRoleId) {
+          openChildAgentWorkspace(event.data.agentRoleId);
+          appendAgentLiveTurnEvent(runId, { kind: "status", label: event.data.status, detail: event.data.label }, event.data.agentRoleId, event.data.agentTaskId, event.data.status);
+        } else {
+          appendLiveTurnEvent(runId, { kind: "status", label: event.data.status, detail: event.data.label }, event.data.status);
+        }
       }
     }
   }
@@ -1186,6 +1291,13 @@ export function App(): ReactElement {
 
   function latestAgentLiveRunId(): string | undefined {
     return agentLiveTurns[agentLiveTurns.length - 1]?.runId;
+  }
+
+  function openChildAgentWorkspace(agentRoleId: string): void {
+    if (!agentRoleId || agentRoleId === "main-agent") return;
+    setSelectedAgentWorkspaceAgentId(agentRoleId);
+    setRightToolView("agent");
+    setDecisionPaneCollapsed(false);
   }
 
   function upsertLiveTurn(runId: string, patch: Partial<Omit<LiveAssistantTurn, "id" | "runId" | "startedAt">> & { events?: LiveTurnEvent[] }): void {
@@ -1305,6 +1417,10 @@ export function App(): ReactElement {
     completeLiveTurnIn(setLiveTurns, runId, text);
   }
 
+  function completeAgentLiveTurn(runId: string, text?: string): void {
+    completeLiveTurnIn(setAgentLiveTurns, runId, text);
+  }
+
   function completeLiveTurnIn(setter: LiveTurnSetter, runId: string, text?: string): void {
     setter((current) => current.map((turn) => turn.runId === runId ? {
       ...turn,
@@ -1335,7 +1451,7 @@ export function App(): ReactElement {
     if (kind.includes("validation") || kind.includes("validator")) return "validator";
     if (kind.includes("audit") || kind.includes("auditor")) return "auditor-agent";
     if (kind.includes("rework")) return "rework-coder";
-    if (kind.includes("main")) return "main-agent";
+    if (kind.includes("main")) return null;
     return null;
   }
 
@@ -1395,7 +1511,7 @@ export function App(): ReactElement {
     };
   }, [selectedDecisionContextId, snapshot.right.decisionInspector]);
   const activeConfirmationQueue = snapshot.right.confirmationQueue ?? { primary: null, current: [], otherDemands: [], maintenance: [], history: [] };
-  const activeAgentWorkspace = snapshot.right.agentWorkspace ?? { selectedAgentId: "main-agent", agents: [] };
+  const activeAgentWorkspace = snapshot.right.agentWorkspace ?? { selectedAgentId: "planning-agent", agents: [] };
   const pendingConfirmationCount = (activeConfirmationQueue.primary ? 1 : 0)
     + activeConfirmationQueue.otherDemands.length
     + activeConfirmationQueue.maintenance.length;
@@ -1407,7 +1523,8 @@ export function App(): ReactElement {
   function selectRunGraphNode(nodeId: string): void {
     setSelectedRunGraphNodeId(nodeId);
     const node = activeRunGraph.nodes.find((item) => item.id === nodeId);
-    const agentId = node?.roleId ?? node?.target.roleId ?? agentWorkspaceIdFromNodeKind(node?.kind);
+    const rawAgentId = node?.roleId ?? node?.target.roleId ?? agentWorkspaceIdFromNodeKind(node?.kind);
+    const agentId = rawAgentId === "main-agent" ? null : rawAgentId;
     if (agentId) {
       setSelectedAgentWorkspaceAgentId(agentId);
       setRightToolView("agent");
@@ -1558,11 +1675,15 @@ export function App(): ReactElement {
   }, [selectedProjectId, selectedRun, runIds, snapshot.center.agentLoop.runs]);
 
   return (
-    <div className={`app-shell ${settingsOpen ? "settings-open" : decisionPaneCollapsed ? "decision-pane-collapsed" : "decision-pane-expanded"}`}>
-      {!settingsOpen ? <aside className="sidebar">
-        <div className="brand compact-brand">
-          <div className="brand-title">AHO</div>
-        </div>
+    <div
+      className={`app-shell ${settingsOpen ? "settings-open" : decisionPaneCollapsed ? "decision-pane-collapsed" : "decision-pane-expanded"} sidebar-expanded`}
+      style={appShellStyle}
+    >
+      {!settingsOpen ? (
+        <aside className="sidebar sidebar-expanded" aria-label="左侧项目栏">
+          <div className="brand compact-brand">
+            <div className="brand-title">AHO</div>
+          </div>
               <ProjectConversationSidebar
                 projects={projects}
           selectedProjectId={selectedProjectId}
@@ -1591,7 +1712,15 @@ export function App(): ReactElement {
             })();
           }}
         />
-      </aside> : null}
+          <div
+            className="shell-resize-grip sidebar-resizer"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="调整左侧项目栏宽度"
+            onPointerDown={(event) => beginShellColumnResize(event, "left")}
+          />
+        </aside>
+      ) : null}
 
       <main className={`workspace${settingsOpen ? " settings-workspace" : ""}`}>
         <div className="workspace-main" data-testid="workspace-main">
@@ -1665,6 +1794,7 @@ export function App(): ReactElement {
                   <MainConversationView
                     workpad={activeWorkpad}
                     transcript={activeTranscript}
+                    codexUserInputRequests={codexUserInputRequests.filter((request) => !request.agentRoleId || request.agentRoleId === "main-agent")}
                     scrollContainerRef={threadScrollRef}
                     onLoadEarlierTranscript={loadEarlierTranscriptPage}
                     loadingEarlierTranscript={loadingEarlierTranscript}
@@ -1674,6 +1804,7 @@ export function App(): ReactElement {
                     onAction={runWorkflowAction}
                     onConfirmApproval={confirmWorkpadApproval}
                     onAnswerClarification={answerClarification}
+                    onAnswerCodexUserInput={answerCodexUserInput}
                     onSelectDecisionContext={setSelectedDecisionContextId}
                   />
                 </div>
@@ -1755,10 +1886,15 @@ export function App(): ReactElement {
             workspace={activeAgentWorkspace}
             selectedAgentId={selectedAgentWorkspaceAgentId}
             liveTurns={agentLiveTurns}
+            codexUserInputRequests={codexUserInputRequests.filter((request) => Boolean(request.agentRoleId) && request.agentRoleId !== "main-agent")}
             automationMode={automationMode}
             busy={actionRunning !== null}
             onSelectAgent={setSelectedAgentWorkspaceAgentId}
             onWorkflowAction={runWorkflowAction}
+            onAnswerClarification={answerClarification}
+            onAnswerCodexUserInput={answerCodexUserInput}
+            modelLabel={codexModelLabel}
+            onOpenModelSettings={() => void openCodexModelPicker()}
           />
         }
         confirmPanel={
@@ -1803,6 +1939,7 @@ export function App(): ReactElement {
             onRefreshRuntimeLog={() => void loadRuntimeActivityLog()}
           />
         }
+        onResizeStart={(event) => beginShellColumnResize(event, "right")}
       /> : null}
 
       {orchestrationOpen && activeTopic && !settingsOpen ? (

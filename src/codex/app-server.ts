@@ -50,6 +50,37 @@ export interface CodexAppServerNotification {
   raw: Record<string, unknown>;
 }
 
+export interface CodexAppServerUserInputOption {
+  label: string;
+  description?: string;
+}
+
+export interface CodexAppServerUserInputQuestion {
+  id: string;
+  header?: string;
+  question: string;
+  isOther?: boolean;
+  isSecret?: boolean;
+  options?: CodexAppServerUserInputOption[];
+}
+
+export interface CodexAppServerUserInputRequest {
+  requestId: string;
+  threadId?: string;
+  turnId?: string;
+  itemId?: string;
+  runId: string;
+  changeId: string;
+  roleId: string;
+  questions: CodexAppServerUserInputQuestion[];
+}
+
+export interface CodexAppServerUserInputResponse {
+  answers: Record<string, string | string[]>;
+}
+
+export type CodexAppServerUserInputRequestHandler = (request: CodexAppServerUserInputRequest) => void;
+
 export interface CodexAppServerTurnOptions {
   projectId: string;
   changeId: string;
@@ -62,6 +93,7 @@ export interface CodexAppServerTurnOptions {
   existingThreadId?: string | null;
   timeoutMs?: number;
   onNotification?: CodexAppServerNotificationHandler;
+  onUserInputRequest?: CodexAppServerUserInputRequestHandler;
   onTextDelta?: (text: string) => void;
   onPlanDelta?: (text: string) => void;
   onError?: (error: unknown) => void;
@@ -88,6 +120,7 @@ export interface ActiveCodexAppServerTurn {
   startedAt: string;
   steer(input: string): Promise<void>;
   interrupt(reason?: string): Promise<void>;
+  respondToUserInput(requestId: string, response: CodexAppServerUserInputResponse): Promise<void>;
 }
 
 const activeTurns = new Map<string, ActiveCodexAppServerTurn>();
@@ -133,6 +166,12 @@ export function getActiveCodexAppServerTurn(changeId: string): ActiveCodexAppSer
   return activeTurns.get(changeId) ?? null;
 }
 
+export async function respondToCodexAppServerUserInput(changeId: string, requestId: string, response: CodexAppServerUserInputResponse): Promise<void> {
+  const turn = getActiveCodexAppServerTurn(changeId);
+  if (!turn) throw new Error("No active Codex app-server turn is waiting for user input.");
+  await turn.respondToUserInput(requestId, response);
+}
+
 export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions): Promise<CodexAppServerTurnResult> {
   await Promise.all([
     prepareLogFile(options.paths.events),
@@ -153,6 +192,7 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
   let terminalStatus: CodexAppServerTurnResult["status"] | null = null;
   let terminalError: string | undefined;
   const pending = new Map<number, { resolve: (value: Record<string, unknown>) => void; reject: (error: Error) => void }>();
+  const pendingServerRequests = new Map<string, { id: number; method: string }>();
 
   const writeSession = async (status: CodexAppServerSessionRecord["status"], error?: string): Promise<void> => {
     if (!threadId) return;
@@ -251,6 +291,9 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
         void reason;
         await sendRequest("turn/interrupt", { threadId, turnId });
       },
+      respondToUserInput: async (requestId: string, response: CodexAppServerUserInputResponse) => {
+        sendServerRequestResult(requestId, normalizeUserInputResponse(response));
+      },
     });
 
     await waitForTerminal(options.timeoutMs ?? 15 * 60 * 1000);
@@ -294,6 +337,14 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
     child.stdin.write(`${JSON.stringify({ method, params })}\n`);
   }
 
+  function sendServerRequestResult(requestId: string, result: Record<string, unknown>): void {
+    const request = pendingServerRequests.get(requestId);
+    if (!request) throw new Error("Codex app-server user input request is no longer pending.");
+    pendingServerRequests.delete(requestId);
+    if (!child?.stdin?.writable) throw new Error("Codex app-server stdin is not writable.");
+    child.stdin.write(`${JSON.stringify({ id: request.id, result })}\n`);
+  }
+
   function drainLines(): void {
     for (;;) {
       const index = lineBuffer.indexOf("\n");
@@ -319,7 +370,33 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
       else handler?.resolve(isRecord(payload.result) ? payload.result : payload);
       return;
     }
+    if (typeof payload.id === "number" && typeof payload.method === "string") {
+      if (handleServerRequest(payload.id, payload.method, isRecord(payload.params) ? payload.params : {}, payload)) return;
+    }
     if (typeof payload.method === "string") handleNotification(payload.method, isRecord(payload.params) ? payload.params : {}, payload);
+  }
+
+  function handleServerRequest(id: number, method: string, params: Record<string, unknown>, raw: Record<string, unknown>): boolean {
+    if (method !== "item/tool/requestUserInput") {
+      handleNotification(method, params, raw);
+      return true;
+    }
+    const requestId = String(id);
+    pendingServerRequests.set(requestId, { id, method });
+    const questions = parseUserInputQuestions(params.questions);
+    const request: CodexAppServerUserInputRequest = {
+      requestId,
+      threadId: typeof params.threadId === "string" ? params.threadId : typeof params.thread_id === "string" ? params.thread_id : threadId ?? undefined,
+      turnId: typeof params.turnId === "string" ? params.turnId : typeof params.turn_id === "string" ? params.turn_id : turnId ?? undefined,
+      itemId: typeof params.itemId === "string" ? params.itemId : typeof params.item_id === "string" ? params.item_id : undefined,
+      runId: options.runId,
+      changeId: options.changeId,
+      roleId: options.roleId,
+      questions,
+    };
+    options.onNotification?.({ method, params, raw });
+    options.onUserInputRequest?.(request);
+    return true;
   }
 
   function handleNotification(method: string, params: Record<string, unknown>, raw: Record<string, unknown>): void {
@@ -394,7 +471,7 @@ async function captureCodexAppServerHelp(): Promise<string> {
     const stdoutPath = join(dir, "stdout.log");
     const stderrPath = join(dir, "stderr.log");
     const result = await executeProcessStreaming({
-      cwd: process.cwd(),
+      cwd: dir,
       command: "codex",
       args: ["app-server", "--help"],
       stdoutPath,
@@ -403,15 +480,13 @@ async function captureCodexAppServerHelp(): Promise<string> {
     if (result.exitCode !== 0) throw new Error(result.stderrSample || `codex app-server --help exited with ${result.exitCode}`);
     return result.stdoutSample;
   } finally {
-    await rm(dir, { recursive: true, force: true });
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 
 async function captureCodexAppServerStartupError(): Promise<string | null> {
   const dir = await mkdtemp(join(tmpdir(), "aho-codex-app-server-startup-"));
   try {
-    const stdoutPath = join(dir, "stdout.log");
-    const stderrPath = join(dir, "stderr.log");
     const initializeRequest = `${JSON.stringify({
       id: 1,
       method: "initialize",
@@ -420,26 +495,52 @@ async function captureCodexAppServerStartupError(): Promise<string | null> {
         clientInfo: { name: "agent-harness-orchestrator", title: "Agent Harness Orchestrator", version: "0.1.0" },
       },
     })}\n`;
-    const result = await executeProcessStreaming({
-      cwd: process.cwd(),
-      command: "codex",
-      args: [...codexRuntimeConfigArgs(), "app-server", "--listen", "stdio://"],
-      stdin: initializeRequest,
-      stdoutPath,
-      stderrPath,
-      timeoutMs: 2000,
-      completionSignal: () => false,
+    return await new Promise<string | null>((resolve) => {
+      let settled = false;
+      let stdout = "";
+      let stderr = "";
+      let child: ChildProcess | null = null;
+      let requestedResult: string | null | undefined;
+      const resolveOnce = (result: string | null): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(result);
+      };
+      const requestStop = (result: string | null): void => {
+        if (requestedResult !== undefined) return;
+        requestedResult = result;
+        try {
+          child?.kill();
+        } catch {
+          // Best-effort cleanup for the short-lived startup probe.
+        }
+      };
+      const evaluateStartup = (): string | null => {
+        if (stderr.includes("failed to load configuration") || stderr.includes("Invalid configuration")) {
+          return stderr.trim();
+        }
+        if (stdout.includes('"id"') && stdout.includes('"result"')) return null;
+        return stderr.trim() || "Codex app-server did not respond to initialize during startup check.";
+      };
+      const timer = setTimeout(() => requestStop(evaluateStartup()), 3000);
+      child = spawn("codex", [...codexRuntimeConfigArgs(), "app-server", "--listen", "stdio://"], { cwd: dir });
+      child.stdout?.on("data", (chunk) => {
+        stdout += Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
+        if (stdout.includes('"id"') && stdout.includes('"result"')) requestStop(null);
+      });
+      child.stderr?.on("data", (chunk) => {
+        stderr += Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
+      });
+      child.on("error", (error) => resolveOnce(`Failed to start Codex app-server: ${(error as Error).message}`));
+      child.on("close", (code) => {
+        if (settled) return;
+        if (requestedResult !== undefined) resolveOnce(requestedResult);
+        else if (code !== 0 && code !== null) resolveOnce(stderr.trim() || `codex app-server startup exited with ${code}`);
+        else resolveOnce(evaluateStartup());
+      });
+      child.stdin?.write(initializeRequest);
     });
-    if (result.exitCode !== 0 && result.exitCode !== null) {
-      return result.stderrSample || `codex app-server startup exited with ${result.exitCode}`;
-    }
-    if (result.stderrSample.includes("failed to load configuration") || result.stderrSample.includes("Invalid configuration")) {
-      return result.stderrSample.trim();
-    }
-    if (!result.stdoutSample.includes('"id"') && !result.stdoutSample.includes('"result"')) {
-      return result.stderrSample || "Codex app-server did not respond to initialize during startup check.";
-    }
-    return null;
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -482,6 +583,49 @@ function extractCompletedText(params: Record<string, unknown>): string {
 function isPlanItem(params: Record<string, unknown>): boolean {
   const item = isRecord(params.item) ? params.item : params;
   return item.type === "plan" || item.kind === "plan" || item.itemType === "plan";
+}
+
+function parseUserInputQuestions(value: unknown): CodexAppServerUserInputQuestion[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item, index): CodexAppServerUserInputQuestion | null => {
+      if (!isRecord(item)) return null;
+      const id = typeof item.id === "string" && item.id.trim() ? item.id.trim() : `q${index + 1}`;
+      const question = typeof item.question === "string" ? item.question : "";
+      if (!question.trim()) return null;
+      const options = Array.isArray(item.options)
+        ? item.options
+            .map((option): CodexAppServerUserInputOption | null => {
+              if (!isRecord(option) || typeof option.label !== "string" || !option.label.trim()) return null;
+              return {
+                label: option.label,
+                ...(typeof option.description === "string" && option.description.trim() ? { description: option.description } : {}),
+              };
+            })
+            .filter((option): option is CodexAppServerUserInputOption => Boolean(option))
+        : undefined;
+      return {
+        id,
+        ...(typeof item.header === "string" && item.header.trim() ? { header: item.header } : {}),
+        question,
+        ...(typeof item.is_other === "boolean" ? { isOther: item.is_other } : {}),
+        ...(typeof item.isOther === "boolean" ? { isOther: item.isOther } : {}),
+        ...(typeof item.is_secret === "boolean" ? { isSecret: item.is_secret } : {}),
+        ...(typeof item.isSecret === "boolean" ? { isSecret: item.isSecret } : {}),
+        ...(options && options.length > 0 ? { options } : {}),
+      };
+    })
+    .filter((question): question is CodexAppServerUserInputQuestion => Boolean(question));
+}
+
+  function normalizeUserInputResponse(response: CodexAppServerUserInputResponse): Record<string, unknown> {
+  const answers: Record<string, { answers: string[] }> = {};
+  for (const [questionId, value] of Object.entries(response.answers)) {
+    const answerList = Array.isArray(value) ? value : [value];
+    const normalized = answerList.map((item) => item.trim()).filter(Boolean);
+    if (normalized.length > 0) answers[questionId] = { answers: normalized };
+  }
+  return { answers };
 }
 
 function completionStatus(params: Record<string, unknown>): string | null {

@@ -15,6 +15,13 @@ export type InitialMainAgentTurnRunner = (
   live?: WorkbenchLiveSink,
 ) => Promise<TopicThreadEntry | null>;
 
+export type InitialPlanningAgentDelegationRunner = (
+  project: ManagedProject,
+  changeId: string,
+  userMessage: string,
+  live?: WorkbenchLiveSink,
+) => Promise<boolean>;
+
 export interface WorkbenchServeOptions {
   host?: string;
   port?: number;
@@ -22,6 +29,7 @@ export interface WorkbenchServeOptions {
   store?: ProjectRegistryStore;
   terminalRuntime?: TerminalRuntime;
   initialMainAgentTurn?: InitialMainAgentTurnRunner;
+  initialPlanningAgentDelegation?: InitialPlanningAgentDelegationRunner;
 }
 
 export interface WorkbenchServerHandle {
@@ -35,6 +43,7 @@ export interface WorkbenchServerContext {
   store: ProjectRegistryStore;
   terminalRuntime: TerminalRuntime;
   initialMainAgentTurn: InitialMainAgentTurnRunner;
+  initialPlanningAgentDelegation: InitialPlanningAgentDelegationRunner;
 }
 
 export interface WorkbenchActionRequest {
@@ -146,6 +155,12 @@ export interface IntakeRequest {
 export interface ClarificationAnswerRequest {
   changeId?: string;
   answers?: ClarificationAnswer[];
+  answer?: string;
+}
+
+export interface CodexUserInputAnswerRequest {
+  changeId?: string;
+  answers?: Record<string, string | string[]>;
   answer?: string;
 }
 

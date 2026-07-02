@@ -1,12 +1,12 @@
-import type { WorkbenchAgentTaskSummary, WorkbenchAgentWorkspace, WorkbenchAgentWorkspaceAgent, WorkbenchDecisionAction, WorkbenchPlanningArtifactBundle, WorkbenchRoleRunSummary, WorkbenchTopicDetail, WorkbenchWorkpad } from "../../read-model-types.js";
-import type { ParentAgentTranscript, ParentAgentTranscriptCell } from "../../parent-agent-transcript.js";
+import type { WorkbenchAgentTaskSummary, WorkbenchAgentWorkspace, WorkbenchAgentWorkspaceAgent, WorkbenchDecisionAction, WorkbenchRoleRunSummary, WorkbenchTopicDetail, WorkbenchWorkpad } from "../../read-model-types.js";
+import { buildAgentScopedTranscriptCells, type ParentAgentTranscript, type ParentAgentTranscriptCell } from "../../parent-agent-transcript.js";
 
-const KNOWN_ROLE_ORDER = ["main-agent", "planning-agent", "coder-agent", "validator", "auditor-agent", "rework-coder"];
+const KNOWN_ROLE_ORDER = ["planning-agent", "coder-agent", "validator", "auditor-agent", "rework-coder"];
 
 export function emptyAgentWorkspace(): WorkbenchAgentWorkspace {
   return {
-    selectedAgentId: "main-agent",
-    agents: [mainAgentWorkspace(null)],
+    selectedAgentId: "planning-agent",
+    agents: [],
   };
 }
 
@@ -15,8 +15,7 @@ export function buildAgentWorkspace(input: {
   workpad: WorkbenchWorkpad;
 }): WorkbenchAgentWorkspace {
   const agents = new Map<string, WorkbenchAgentWorkspaceAgent>();
-  agents.set("main-agent", mainAgentWorkspace(input.selectedTopic));
-  agents.set("planning-agent", planningAgentWorkspace(input.selectedTopic, input.workpad));
+  if (input.selectedTopic) agents.set("planning-agent", planningAgentWorkspace(input.selectedTopic, input.workpad));
 
   const execution = input.workpad.mainAgentExecution;
   if (execution) {
@@ -32,66 +31,37 @@ export function buildAgentWorkspace(input: {
   ];
   const selectedAgentId = input.workpad.planningArtifactBundle || input.workpad.nextAction.actionType === "planning.generate" || input.workpad.nextAction.actionType === "planning.confirm-execution"
     ? "planning-agent"
-    : orderedAgents.find((agent) => agent.status === "running")?.id ?? "main-agent";
+    : orderedAgents.find((agent) => agent.status === "running")?.id ?? orderedAgents[0]?.id ?? "planning-agent";
   return { selectedAgentId, agents: orderedAgents };
-}
-
-function mainAgentWorkspace(topic: WorkbenchTopicDetail | null): WorkbenchAgentWorkspaceAgent {
-  return {
-    id: "main-agent",
-    roleId: "main-agent",
-    label: "主 Agent",
-    status: topic?.state === "active" ? "active" : topic?.state ?? "idle",
-    summary: topic ? "主 Agent 负责理解需求、委派子 Agent，并在收到结果后决定下一步。" : "选择需求后查看主 Agent 状态。",
-    inputSummary: topic?.title,
-    outputSummary: "主 Agent 的完整对话显示在中间主对话区。",
-    transcript: transcript("main-agent", [
-      processCell("main-agent:location", "主对话", "主 Agent 对话保留在中间区域；右侧用于查看子 Agent 工作区和证据。", "active", "main-agent"),
-    ]),
-    evidenceRefs: [],
-    actions: [],
-  };
 }
 
 function planningAgentWorkspace(topic: WorkbenchTopicDetail | null, workpad: WorkbenchWorkpad): WorkbenchAgentWorkspaceAgent {
   const bundle = workpad.planningArtifactBundle;
-  const cells: ParentAgentTranscriptCell[] = [];
+  const persistedCells = topic ? buildAgentScopedTranscriptCells(topic.threadItems, "planning-agent") : [];
+  const cells: ParentAgentTranscriptCell[] = [...persistedCells];
   const actions: WorkbenchDecisionAction[] = [];
+  const planningRuns = workpad.mainAgentExecution?.runs.filter((run) => run.roleId === "planning-agent") ?? [];
+  const planningTasks = workpad.mainAgentExecution?.agentTasks.filter((task) => task.roleId === "planning-agent") ?? [];
+  for (const run of planningRuns) {
+    cells.push(processCell(`planning-agent:run:${run.runId ?? run.artifact ?? run.summary}`, "planning-agent 运行", run.summary, run.status, "planning-agent", run.runId, run.artifact));
+  }
+  for (const task of planningTasks) {
+    cells.push(processCell(`planning-agent:task:${task.id}`, "planning-agent 任务", task.resultSummary ?? task.summary, task.status, "planning-agent", task.runId, task.evidenceRefs[0]));
+  }
 
   if (!bundle) {
-    cells.push(processCell("planning-agent:empty", "planning-agent", "还没有方案草案。主 Agent 可以委派 planning-agent 生成一份可审阅方案。", "waiting-user", "planning-agent"));
-    if (topic?.state === "active" && workpad.nextAction.actionType === "planning.generate" && workpad.nextAction.enabled) {
-      actions.push({
-        ...workpad.nextAction,
-        id: `agent-workspace:planning.generate:${topic.id}`,
-        label: "让 planning-agent 生成方案",
-        kind: "workflow-action",
-        actionType: "planning.generate",
-        changeId: topic.id,
-        enabled: true,
-        requiresConfirmation: false,
-      });
+    if (cells.length === 0) {
+      cells.push(processCell("planning-agent:empty", "planning-agent", "还没有方案草案。主 Agent 可以委派 planning-agent 生成一份可审阅方案。", "waiting-user", "planning-agent"));
     }
   } else {
     cells.push(processCell(
       `planning-agent:${bundle.id}:status`,
       bundle.status === "confirmed" ? "方案已实施" : "planning-agent 返回方案",
-      bundle.status === "confirmed" ? "方案已经保存为正式计划记录。" : "方案草案已准备好，可以继续反馈修改或实施。",
+      bundle.status === "confirmed" ? "方案已确认并保存。" : "方案草案已准备好，可以继续反馈修改或实施。",
       bundle.status,
       "planning-agent",
       bundle.proposedPlanRunId,
     ));
-    cells.push({
-      id: `planning-agent:${bundle.id}:plan`,
-      kind: "assistant-message",
-      source: bundle.proposedPlanRunId ? "codex-runtime" : "aho-orchestration",
-      agentRoleId: "planning-agent",
-      runId: bundle.proposedPlanRunId,
-      timestamp: bundle.updatedAt,
-      text: planningBundleText(bundle),
-      status: bundle.status,
-      evidenceRefs: bundle.artifact ? [{ label: "方案草案", ref: bundle.artifact, kind: "artifact" }] : undefined,
-    });
     if (bundle.artifact) {
       cells.push({
         id: `planning-agent:${bundle.id}:evidence`,
@@ -100,7 +70,7 @@ function planningAgentWorkspace(topic: WorkbenchTopicDetail | null, workpad: Wor
         agentRoleId: "planning-agent",
         timestamp: bundle.updatedAt,
         title: "方案材料",
-        text: "方案草案和后续正式计划记录都以 Harness artifact 为准。",
+        text: "方案草案已保存；可以继续反馈修改，或输入“实施此计划”。",
         status: bundle.status,
         evidenceRefs: [{ label: "方案草案", ref: bundle.artifact, kind: "artifact" }],
       });
@@ -136,14 +106,15 @@ function planningAgentWorkspace(topic: WorkbenchTopicDetail | null, workpad: Wor
     id: "planning-agent",
     roleId: "planning-agent",
     label: "planning-agent",
-    status: bundle?.status ?? (workpad.nextAction.actionType === "planning.generate" ? "waiting-user" : "idle"),
-    summary: bundle ? (bundle.status === "confirmed" ? "方案已实施，主 Agent 可以继续推进执行边界。" : "方案草案等待反馈或实施。") : "等待生成方案草案。",
+    status: bundle?.status ?? "idle",
+    summary: bundle ? (bundle.status === "confirmed" ? "方案已实施，主 Agent 可以继续推进执行边界。" : "方案草案等待反馈或实施。") : "主 Agent 尚未委派 planning-agent，或正在等待真实运行结果。",
     inputSummary: topic?.title,
     outputSummary: bundle?.goal,
     transcript: transcript("planning-agent", cells),
     evidenceRefs: bundle?.artifact ? [{ label: "方案草案", ref: bundle.artifact, kind: "artifact" }] : [],
     actions,
     planningBundle: bundle,
+    clarifications: workpad.intake.pendingClarifications,
   };
 }
 
@@ -206,31 +177,30 @@ function transcript(roleId: string, cells: ParentAgentTranscriptCell[]): ParentA
 }
 
 function processCell(id: string, title: string, text: string, status: string, roleId: string, runId?: string, artifactRef?: string): ParentAgentTranscriptCell {
+  const visibleTitle = normalizeAgentWorkspacePlanningText(title);
+  const visibleText = normalizeAgentWorkspacePlanningText(text);
   return {
     id,
     kind: "process-row",
     source: "aho-orchestration",
     agentRoleId: roleId,
     runId,
-    title,
-    text,
+    title: visibleTitle,
+    text: visibleText,
     status,
-    evidenceRefs: artifactRef ? [{ label: title, ref: artifactRef, kind: "artifact" }] : undefined,
+    evidenceRefs: artifactRef ? [{ label: visibleTitle, ref: artifactRef, kind: "artifact" }] : undefined,
   };
 }
 
-function planningBundleText(bundle: WorkbenchPlanningArtifactBundle): string {
-  if (bundle.proposedPlanMd?.trim()) return bundle.proposedPlanMd.trim();
-  const sections = [
-    `目标\n${bundle.goal}`,
-    bundle.constraints.length ? `约束\n${bundle.constraints.map((item) => `- ${item}`).join("\n")}` : "",
-    bundle.acceptanceCriteria.length ? `验收标准\n${bundle.acceptanceCriteria.map((item) => `- ${item}`).join("\n")}` : "",
-    bundle.design ? `实现方案\n${bundle.design}` : "",
-    bundle.tasks.length ? `任务\n${bundle.tasks.map((task) => `- ${task.id}: ${task.title}`).join("\n")}` : "",
-    bundle.risks.length ? `风险\n${bundle.risks.map((item) => `- ${item}`).join("\n")}` : "",
-    bundle.openQuestions.length ? `待确认\n${bundle.openQuestions.map((item) => `- ${item}`).join("\n")}` : "",
-  ].filter(Boolean);
-  return sections.join("\n\n");
+function normalizeAgentWorkspacePlanningText(value: string): string {
+  return value
+    .replace(/\bPlanning draft generated for user review\./g, "方案草案已生成，等待审阅。")
+    .replace(/\bPlanning draft revised for user review\./g, "方案草案已按反馈更新。")
+    .replace(/\bPlanning draft generated\b/g, "方案草案已生成")
+    .replace(/\bPlanning draft revised\b/g, "方案草案已修改")
+    .replace(/\bPlanning confirmed\b/g, "方案已确认")
+    .replace(/\bplanning-agent returned reviewable plan text\./g, "planning-agent 已返回可审阅方案文本。")
+    .replace(/\bPlanning records were saved after user confirmation\./g, "方案已保存；当前不会直接修改文件。");
 }
 
 function roleLabel(roleId: string): string {

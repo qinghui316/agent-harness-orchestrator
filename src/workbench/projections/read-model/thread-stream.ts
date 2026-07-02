@@ -20,6 +20,10 @@ interface ThreadStreamDraft extends ThreadStreamItem {
   subOrder: number;
 }
 
+function planningWorkspaceActionType(actionType: string | undefined): string | undefined {
+  return actionType === "planning.generate" || actionType === "planning.revise" ? actionType : undefined;
+}
+
 export async function buildThreadStream(
   memory: ResolvedMemory,
   topic: WorkbenchTopicSummary,
@@ -156,7 +160,7 @@ function buildThreadStreamMessageDrafts(
     const mapped = threadItemFromMessage(message, sortKey);
     if (mapped) {
       items.push(mapped);
-      if (mapped.kind === "assistant-turn" && mapped.runId) assistantByRun.set(mapped.runId, mapped);
+      if (mapped.kind === "assistant-turn" && mapped.runId && !mapped.agentRoleId) assistantByRun.set(mapped.runId, mapped);
     }
   });
 
@@ -202,6 +206,8 @@ function threadItemFromMessage(message: TopicThreadEntry, sortKey: number): Thre
       source: "chat",
       status: message.status,
       runId: message.runId,
+      agentRoleId: message.agentRoleId,
+      agentTaskId: message.agentTaskId,
       contextRefs: message.contextRefs,
       attachments: message.attachments,
       semanticKey: `message:${message.id}`,
@@ -220,6 +226,9 @@ function threadItemFromMessage(message: TopicThreadEntry, sortKey: number): Thre
       artifact: message.artifact,
       status: message.status,
       runId: message.runId,
+      agentRoleId: message.agentRoleId,
+      agentTaskId: message.agentTaskId,
+      actionType: planningWorkspaceActionType(message.actionType),
       activity: message.activity,
       blocks: blocksFromMessage(message),
       semanticKey: `message:${message.id}`,
@@ -237,6 +246,9 @@ function threadItemFromMessage(message: TopicThreadEntry, sortKey: number): Thre
       source: "chat",
       artifact: message.artifact,
       runId: message.runId,
+      agentRoleId: message.agentRoleId,
+      agentTaskId: message.agentTaskId,
+      actionType: planningWorkspaceActionType(message.actionType),
       planCard: message.planCard,
       activity: message.activity,
       blocks: blocksFromMessage(message),
@@ -323,6 +335,7 @@ function workflowItemFromMessage(message: TopicThreadEntry, sortKey: number): Th
     artifact: message.artifact,
     status: message.status,
     runId: message.runId,
+    actionType: planningWorkspaceActionType(message.actionType),
     actionRunId: message.actionRunId,
     activity: message.activity,
     evidence: [evidence],

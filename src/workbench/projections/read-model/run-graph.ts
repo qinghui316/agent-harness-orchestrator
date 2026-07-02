@@ -81,7 +81,7 @@ export function buildDemandAgentRunGraph(input: {
     label: "主 agent",
     status: mainStatus,
     summary: parentAgentGraphSummary(workpad),
-    reason: "负责理解需求、解释进展、委派角色，并把结果回到主对话。",
+    reason: "负责理解需求、解释进展、委派角色，并在收回结果后决定下一步。",
     target: targetBase,
     inputSummary: workpad.intake.goal,
     outputSummary: workpad.intake.currentUnderstanding,
@@ -108,7 +108,7 @@ export function buildDemandAgentRunGraph(input: {
         attempts: [],
       });
       addGraphEdge(edges, "main-agent", "role:planning-agent", "delegates", "整理方案");
-      addGraphEdge(edges, "role:planning-agent", "main-agent", "returns", "方案回到主对话");
+      addGraphEdge(edges, "role:planning-agent", "main-agent", "returns", "方案返回给主 Agent");
     }
   }
 
@@ -181,7 +181,7 @@ function addRolePipelineGraphNodes(
       attempts: buildRoleAttempts(roleId, pipeline.agentTasks, pipeline.runs),
     });
     addGraphEdge(edges, "main-agent", nodeId, "delegates", `委派 ${roleLabelForGraph(roleId)}`);
-    addGraphEdge(edges, nodeId, "main-agent", "returns", "结果回到主对话");
+    addGraphEdge(edges, nodeId, "main-agent", "returns", "结果返回给主 Agent");
     addRolePolicyAndBoundaryGraphNodes(nodes, edges, targetBase, task, nodeId);
     roleIds.push(nodeId);
   }
@@ -233,7 +233,7 @@ function addRolePolicyAndBoundaryGraphNodes(
       attempts: [],
     });
     addGraphEdge(edges, roleNodeId, boundaryNodeId, "returns", "输出进入边界审计");
-    addGraphEdge(edges, boundaryNodeId, "main-agent", "returns", failed ? "边界问题回到主对话" : "审计结果回到主对话");
+    addGraphEdge(edges, boundaryNodeId, "main-agent", "returns", failed ? "边界问题返回给主 Agent" : "审计结果返回给主 Agent");
   }
 }
 
@@ -308,7 +308,7 @@ function addResultReviewGraphNode(
     attempts: [],
   });
   if (previousNodeId) addGraphEdge(edges, previousNodeId, "result-review", "continues-to", "汇总结果");
-  addGraphEdge(edges, "result-review", "main-agent", "returns", "结果回到主对话");
+  addGraphEdge(edges, "result-review", "main-agent", "returns", "结果返回给主 Agent");
 }
 
 function addGoalLoopGraphNodes(

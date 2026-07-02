@@ -120,6 +120,7 @@ import { readLatestPlanningBundle } from "../planning-bundle.js";
 import { runCodexChat } from "../../codex-chat/bridge.js";
 import { recordWorkbenchDecision } from "../../decisions.js";
 import { emitAssistantEvent } from "../../live-events.js";
+import { createAssistantTranscriptCapture } from "../../live-transcript.js";
 import { appendTopicThreadEntry } from "../../topic-thread.js";
 import { resolveTopic } from "../../topic-resolver.js";
 import { readTopicThreadLog as readThreadLog } from "../../thread-log.js";
@@ -173,29 +174,31 @@ export async function generatePlanningDraft(
       summary: task.summary,
       inputArtifacts: task.inputArtifacts,
     },
-    reason: "The current demand needs a user-reviewable planning draft before formal planning records are written.",
+    reason: "当前需求需要先生成一份可审阅方案草案，再进入后续确认和执行边界。",
   });
   const agentLive = scopedAgentLiveSink(live, "planning-agent", task.id);
+  const planningCapture = createAssistantTranscriptCapture(agentLive);
   emitPlanningAgentLifecycle(agentLive, task.id, "agent-task-created", "创建 planning-agent", "主 Agent 已创建 planning-agent，用于生成可审阅方案草案。");
   const role = await resolveAgentRole(memory, "planning-agent");
   const thread = await readThreadLog(memory, changePath);
   const latestUserText = prompt?.trim()
     || [...thread].reverse().find((entry) => entry.type === "user.message")?.text
     || changeId;
-  const planModePrompt = wrapPlanModePrompt([
-    "你是 planning-agent。请基于当前需求对话生成或修订一份可审阅方案草案。",
-    "只输出方案正文，必须包在 <proposed_plan>...</proposed_plan> 中。",
-    "方案正文包含：目标、约束、验收标准、实现方案、任务清单、风险、待确认点。",
-    "不要输出运行前言、命令说明、读取说明、内部机制说明或对用户的闲聊。",
-    "不要修改文件；用户确认后，系统才会把草案整理成正式记录。",
-    "",
+  const previous = await readLatestPlanningBundle(memory, changePath).catch(() => null);
+  const planModePrompt = wrapPlanModePrompt(buildPlanningAgentDelegationPacket({
     latestUserText,
-  ].join("\n"));
+    parentUnderstanding: [...thread].reverse()
+      .find((entry) => entry.type === "assistant.message" && entry.status === "main-agent-initial-turn")
+      ?.text,
+    feedback: prompt?.trim(),
+    previous,
+    revision,
+  }));
   const includeFirstOnboardingSkill = !revision && await shouldIncludeFirstOnboardingSkill(memory, changeId);
   let planningRuntime: Awaited<ReturnType<typeof runCodexChat>>;
   try {
     emitPlanningAgentLifecycle(agentLive, task.id, "agent-running", "planning-agent 运行中", "正在通过真实 Codex planning turn 生成方案草案。");
-    planningRuntime = await runCodexChat(project, changeId, planModePrompt, agentLive, {
+    planningRuntime = await runCodexChat(project, changeId, planModePrompt, planningCapture.sink, {
       planningMode: true,
       transientSystemSkillIds: includeFirstOnboardingSkill ? ["aho-harness-onboarding"] : undefined,
     });
@@ -220,7 +223,6 @@ export async function generatePlanningDraft(
     });
     throw error;
   }
-  const previous = await readLatestPlanningBundle(memory, changePath).catch(() => null);
   const rawPlanText = planningRuntime?.planText?.trim();
   const planningMessage = planningRuntime?.message.trim();
   const extractionInput = planningMessage?.includes("<proposed_plan")
@@ -241,12 +243,36 @@ export async function generatePlanningDraft(
     planningWarnings,
   });
   await writePlanningBundle(memory, changePath, bundle);
+  const planningAgentText = (proposedPlanMd ?? planningMessage ?? rawPlanText ?? planningCapture.text).trim()
+    || "planning-agent 没有返回可见方案文本。";
+  const planningAgentMessage = await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: revision ? "planning-agent-revised" : "planning-agent-generated",
+    text: planningAgentText,
+    runId: planningRuntime.run.id,
+    artifact: planningRuntime.run.artifacts.lastMessage,
+    activity: planningCapture.activity,
+    blocks: planningCapture.blocks.length > 0
+      ? planningCapture.blocks
+      : [{
+          id: `${planningRuntime.run.id}:planning-agent-message`,
+          runId: planningRuntime.run.id,
+          sequence: 1,
+          kind: "prose",
+          timestamp: planningRuntime.run.finishedAt ?? new Date().toISOString(),
+          source: "codex",
+          text: planningAgentText,
+        }],
+    agentRoleId: "planning-agent",
+    agentTaskId: task.id,
+  });
+  live?.emit({ event: "assistant.message", data: planningAgentMessage });
   emitAssistantEvent(agentLive, {
     runId: bundle.id,
     kind: "plan-update",
     phase: "draft",
-    title: revision ? "Planning draft revised" : "Planning draft generated",
-    summary: "planning-agent returned reviewable plan text.",
+    title: revision ? "方案草案已修改" : "方案草案已生成",
+    summary: "planning-agent 已返回可审阅方案文本。",
     artifactRef: bundle.artifact,
   });
   await recordWorkbenchDecision(project, {
@@ -265,11 +291,77 @@ export async function generatePlanningDraft(
   });
   await completeAgentTask(memory, task, {
     status: "completed",
-    summary: revision ? "Planning draft revised for user review." : "Planning draft generated for user review.",
+    summary: revision ? "方案草案已按反馈更新。" : "方案草案已生成，等待审阅。",
     artifactRefs: [bundle.artifact, planningRuntime.run.artifacts.lastMessage].filter((item): item is string => Boolean(item)),
-    nextRecommendation: "Ask the user to confirm execution or request changes.",
+    nextRecommendation: "等待用户继续反馈修改，或确认进入后续执行边界。",
   });
   return { bundle };
+}
+
+function buildPlanningAgentDelegationPacket(input: {
+  latestUserText: string;
+  parentUnderstanding?: string;
+  feedback?: string;
+  previous: PlanningArtifactBundle | null;
+  revision: boolean;
+}): string {
+  const parentUnderstanding = normalizeDelegationText(input.parentUnderstanding);
+  const userGoalSummary = summarizeDemandForDelegation(input.latestUserText);
+  const feedbackSummary = input.feedback ? summarizeDemandForDelegation(input.feedback) : "";
+  const previousSummary = input.previous
+    ? [
+        `- 既有草案 id: ${input.previous.id}`,
+        `- 既有验收点数量: ${input.previous.acceptanceCriteria.length}`,
+        `- 既有任务数量: ${input.previous.tasks.length}`,
+      ].join("\n")
+    : "- 当前没有可复用的已审阅方案草案。";
+  return [
+    "你是 planning-agent，是主 Agent 委派的 bounded leaf agent。",
+    "这是一份主 Agent 生成的委派包，不是用户原文转发，也不是完整父对话历史。",
+    "",
+    "职责边界：",
+    "- 只生成或修订可审阅的方案草案。",
+    "- 不修改文件，不运行命令，不启动实现，不确认执行。",
+    "- 不递归委派其他 Agent；完成后把方案交回主 Agent。",
+    "- 如果需求仍不清楚，在草案的“待确认点”里提出问题。",
+    "",
+    "主 Agent 对目标的理解：",
+    parentUnderstanding || "用户希望先得到清晰、可审阅的实现方案，再决定是否实施。",
+    "",
+    "需求摘要：",
+    userGoalSummary,
+    "",
+    input.revision ? "本轮用户反馈摘要：" : "本轮规划目标：",
+    input.revision ? feedbackSummary || "用户要求调整现有方案。" : "整理目标、约束、验收标准、实现步骤、风险和待确认点。",
+    "",
+    "当前方案上下文：",
+    previousSummary,
+    "",
+    "输出要求：",
+    "- 只输出方案正文，必须包在 <proposed_plan>...</proposed_plan> 中。",
+    "- 方案正文包含：目标、约束、验收标准、实现方案、任务清单、风险、待确认点。",
+    "- 使用用户语言，避免内部 Harness 对象名、Change id、TaskRun、WorkflowRun、queue、scheduler 等术语。",
+    "- 不要输出运行前言、命令说明、读取说明、内部机制说明或对用户的闲聊。",
+  ].join("\n");
+}
+
+function normalizeDelegationText(value: string | undefined): string {
+  return (value ?? "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 900);
+}
+
+function summarizeDemandForDelegation(value: string): string {
+  const normalized = normalizeDelegationText(value);
+  if (!normalized) return "需求内容为空，需要先向用户澄清目标。";
+  const withoutCodeFences = normalized.replace(/```[\s\S]*?```/g, "[代码块已省略]");
+  const sentence = withoutCodeFences
+    .split(/(?<=[。！？.!?])\s+/)
+    .find((part) => part.trim().length > 0)
+    ?.trim() ?? withoutCodeFences;
+  const clipped = sentence.length > 240 ? `${sentence.slice(0, 240)}...` : sentence;
+  return `主 Agent 将需求理解为：${clipped}`;
 }
 
 export async function shouldIncludeFirstOnboardingSkill(memory: ResolvedMemory, changeId: string): Promise<boolean> {
@@ -299,9 +391,15 @@ function scopeLiveEventToAgent(event: Parameters<WorkbenchLiveSink["emit"]>[0], 
       return { ...event, data: { ...event.data, agentRoleId, agentTaskId } };
     case "assistant.delta":
       return { ...event, data: { ...event.data, agentRoleId, agentTaskId } };
+    case "assistant.message":
+      return { ...event, data: { ...event.data, agentRoleId, agentTaskId } };
     case "assistant.event":
       return { ...event, data: { ...event.data, agentRoleId, agentTaskId } };
     case "tool.event":
+      return { ...event, data: { ...event.data, agentRoleId, agentTaskId } };
+    case "codex.userInput.requested":
+      return { ...event, data: { ...event.data, agentRoleId, agentTaskId } };
+    case "codex.userInput.submitted":
       return { ...event, data: { ...event.data, agentRoleId, agentTaskId } };
     case "usage":
       return { ...event, data: { ...event.data, agentRoleId, agentTaskId } };
@@ -365,23 +463,23 @@ export async function confirmPlanningAndStartPipeline(
     createTask: {
       roleId: "main-agent",
       kind: "foreground",
-      summary: "Planning draft was accepted as formal planning records; execution still requires later boundary checks.",
+      summary: "方案草案已确认；后续执行仍需要经过现有边界检查。",
       inputArtifacts: [confirmed.artifact],
     },
-    reason: "The user confirmed the planning draft; code-producing execution still requires later boundary checks.",
+    reason: "用户确认了方案草案；代码执行仍需要经过现有边界检查。",
   });
   await appendTopicThreadEntry(project, changeId, {
     type: "assistant.message",
     status: "planning-confirmed",
-    text: "已确认规划：方案草案已保存为正式计划记录。下一步需要确认执行拆分和边界检查后，才会进入实现。",
+    text: "我已收回 planning-agent 的方案并保存为正式计划记录。下一步会先检查执行边界；在得到确认前不会修改项目文件。",
     artifact: confirmed.artifact,
   });
   emitAssistantEvent(live, {
     runId: confirmed.id,
     kind: "status",
     phase: "confirmed",
-    title: "Planning confirmed",
-    summary: "Planning records were saved after user confirmation.",
+    title: "方案已确认",
+    summary: "方案已保存；当前不会直接修改文件。",
     artifactRef: confirmed.artifact,
   });
   if (request.postPlanAutomationMode === "full-access") {

@@ -10,6 +10,7 @@ import {
 import { workflowActionPayloadFromTaskAction } from "../../../workflow-actions.js";
 import type {
   ClarificationRequest,
+  CodexUserInputRequest,
   WorkbenchCodingPackage,
   WorkbenchTaskNode,
 } from "../../../types.js";
@@ -173,6 +174,68 @@ export function ClarificationCard({
       </label>
       <button className="primary-button" type="button" disabled={!canSubmit} onClick={() => void submit()}>
         提交回答
+      </button>
+    </article>
+  );
+}
+
+export function CodexUserInputRequestCard({
+  request,
+  busy,
+  onAnswer,
+}: {
+  request: CodexUserInputRequest;
+  busy: boolean;
+  onAnswer: (request: CodexUserInputRequest, answers: Record<string, string | string[]>) => Promise<void>;
+}): ReactElement {
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const pending = request.status === "pending";
+  const canSubmit = pending && !busy && request.questions.some((question) => (answers[question.id] ?? "").trim().length > 0);
+  async function submit(): Promise<void> {
+    if (!canSubmit) return;
+    await onAnswer(request, answers);
+    setAnswers({});
+  }
+  return (
+    <article className="clarification-card codex-user-input-card" data-testid="codex-user-input-card">
+      <div className="clarification-questions">
+        {request.questions.map((question) => (
+          <div key={question.id}>
+            <strong>{question.header ?? "Codex 需要确认"}</strong>
+            <p>{question.question}</p>
+            {question.options && question.options.length > 0 ? (
+              <div className="clarification-options">
+                {question.options.map((option) => (
+                  <button
+                    className="outline-button"
+                    key={option.label}
+                    type="button"
+                    disabled={!pending || busy}
+                    onClick={() => setAnswers((current) => ({
+                      ...current,
+                      [question.id]: option.description ? `${option.label}：${option.description}` : option.label,
+                    }))}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            <label>
+              <span>回答</span>
+              <textarea
+                value={answers[question.id] ?? ""}
+                onChange={(event) => setAnswers((current) => ({ ...current, [question.id]: event.target.value }))}
+                placeholder={question.options?.length ? "选择一个选项，或补充说明" : "输入你的回答"}
+                rows={3}
+                disabled={!pending || busy}
+              />
+            </label>
+          </div>
+        ))}
+      </div>
+      <button className="primary-button" type="button" disabled={!canSubmit} onClick={() => void submit()}>
+        {request.status === "submitted" ? "已提交" : "提交给 Codex"}
       </button>
     </article>
   );
