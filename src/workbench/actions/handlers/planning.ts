@@ -137,7 +137,7 @@ import {
   buildDeterministicPlanningBundle,
 } from "../../planning/builders.js";
 import { writePlanningBundle } from "../../planning/persistence.js";
-import { extractProposedPlanBlock, sanitizeProposedPlanForConversation, wrapPlanModePrompt } from "../../planning/proposed-plan.js";
+import { extractProposedPlanBlock, wrapPlanModePrompt } from "../../planning/proposed-plan.js";
 import {
   decompositionRecommendationLabel,
   renderDecompositionPlanSummary,
@@ -175,7 +175,8 @@ export async function generatePlanningDraft(
     },
     reason: "The current demand needs a user-reviewable planning draft before formal planning records are written.",
   });
-  emitPlanningAgentLifecycle(live, task.id, "agent-task-created", "创建 planning-agent", "主 Agent 已创建 planning-agent，用于生成可审阅方案草案。");
+  const agentLive = scopedAgentLiveSink(live, "planning-agent", task.id);
+  emitPlanningAgentLifecycle(agentLive, task.id, "agent-task-created", "创建 planning-agent", "主 Agent 已创建 planning-agent，用于生成可审阅方案草案。");
   const role = await resolveAgentRole(memory, "planning-agent");
   const thread = await readThreadLog(memory, changePath);
   const latestUserText = prompt?.trim()
@@ -193,17 +194,17 @@ export async function generatePlanningDraft(
   const includeFirstOnboardingSkill = !revision && await shouldIncludeFirstOnboardingSkill(memory, changeId);
   let planningRuntime: Awaited<ReturnType<typeof runCodexChat>>;
   try {
-    emitPlanningAgentLifecycle(live, task.id, "agent-running", "planning-agent 运行中", "正在通过真实 Codex planning turn 生成方案草案。");
-    planningRuntime = await runCodexChat(project, changeId, planModePrompt, undefined, {
+    emitPlanningAgentLifecycle(agentLive, task.id, "agent-running", "planning-agent 运行中", "正在通过真实 Codex planning turn 生成方案草案。");
+    planningRuntime = await runCodexChat(project, changeId, planModePrompt, agentLive, {
       planningMode: true,
       transientSystemSkillIds: includeFirstOnboardingSkill ? ["aho-harness-onboarding"] : undefined,
     });
     if (planningRuntime.run.status !== "completed") {
       throw new Error(planningRuntime.message || "planning-agent did not complete.");
     }
-    emitPlanningAgentLifecycle(live, planningRuntime.run.id, "agent-completed", "planning-agent 返回结果", "planning-agent 已返回可审阅方案文本。", planningRuntime.run.artifacts.lastMessage);
+    emitPlanningAgentLifecycle(agentLive, planningRuntime.run.id, "agent-completed", "planning-agent 返回结果", "planning-agent 已返回可审阅方案文本。", planningRuntime.run.artifacts.lastMessage);
   } catch (error: unknown) {
-    emitAssistantEvent(live, {
+    emitAssistantEvent(agentLive, {
       runId: task.id,
       kind: "status",
       phase: "agent-failed",
@@ -240,7 +241,7 @@ export async function generatePlanningDraft(
     planningWarnings,
   });
   await writePlanningBundle(memory, changePath, bundle);
-  emitAssistantEvent(live, {
+  emitAssistantEvent(agentLive, {
     runId: bundle.id,
     kind: "plan-update",
     phase: "draft",
@@ -248,47 +249,6 @@ export async function generatePlanningDraft(
     summary: "planning-agent returned reviewable plan text.",
     artifactRef: bundle.artifact,
   });
-  const planCard: OrchestrationPlanCard = {
-    title: "方案草案",
-    summary: `目标：${bundle.goal}`,
-    steps: [
-      { label: "验收标准", description: bundle.acceptanceCriteria.join("；") || "等待补充验收标准。" },
-      { label: "实现方案", description: bundle.design },
-      { label: "任务清单", description: bundle.tasks.map((task) => `${task.id} ${task.title}`).join("；") || "等待拆解任务。" },
-    ],
-    warnings: bundle.openQuestions,
-  };
-  const visiblePlanningText = sanitizeProposedPlanForConversation(proposedPlanMd ?? planningMessage ?? rawPlanText ?? "");
-  const assistant = await appendTopicThreadEntry(project, changeId, {
-    type: "assistant.message",
-    status: "planning-draft",
-    text: visiblePlanningText,
-    runId: planningRuntime.run.id,
-    artifact: planningRuntime.run.artifacts.lastMessage,
-    planCard,
-    blocks: [
-      {
-        id: `${bundle.id}:prose`,
-        runId: planningRuntime.run.id,
-        sequence: 1,
-        kind: "prose",
-        timestamp: new Date().toISOString(),
-        source: "codex",
-        text: visiblePlanningText,
-      },
-      {
-        id: `${bundle.id}:plan-card`,
-        runId: bundle.id,
-        sequence: 2,
-        kind: "plan-card",
-        timestamp: new Date().toISOString(),
-        source: "aho",
-        title: "方案草案",
-        planCard,
-      },
-    ],
-  });
-  live?.emit({ event: "assistant.message", data: assistant });
   await recordWorkbenchDecision(project, {
     id: `planning:${bundle.id}`,
     changeId,
@@ -319,6 +279,35 @@ export async function shouldIncludeFirstOnboardingSkill(memory: ResolvedMemory, 
     && index.active[0]?.name === changeId
     && index.parking.length === 0
     && index.archive.length === 0;
+}
+
+function scopedAgentLiveSink(live: WorkbenchLiveSink | undefined, agentRoleId: string, agentTaskId: string): WorkbenchLiveSink | undefined {
+  if (!live) return undefined;
+  return {
+    isClosed: () => live.isClosed?.() ?? false,
+    emit(event) {
+      live.emit(scopeLiveEventToAgent(event, agentRoleId, agentTaskId));
+    },
+  };
+}
+
+function scopeLiveEventToAgent(event: Parameters<WorkbenchLiveSink["emit"]>[0], agentRoleId: string, agentTaskId: string): Parameters<WorkbenchLiveSink["emit"]>[0] {
+  switch (event.event) {
+    case "run.started":
+      return { ...event, data: { ...event.data, agentRoleId, agentTaskId } };
+    case "run.status":
+      return { ...event, data: { ...event.data, agentRoleId, agentTaskId } };
+    case "assistant.delta":
+      return { ...event, data: { ...event.data, agentRoleId, agentTaskId } };
+    case "assistant.event":
+      return { ...event, data: { ...event.data, agentRoleId, agentTaskId } };
+    case "tool.event":
+      return { ...event, data: { ...event.data, agentRoleId, agentTaskId } };
+    case "usage":
+      return { ...event, data: { ...event.data, agentRoleId, agentTaskId } };
+    default:
+      return event;
+  }
 }
 
 function emitPlanningAgentLifecycle(

@@ -670,7 +670,7 @@ describe("workbench read-model projections", () => {
     })?.runs[0]?.summary).toBe("canonical summary");
   });
 
-  it("suppresses selected demand primary confirmations only while a workflow action is in flight", async () => {
+  it("keeps planning draft review in the agent workspace instead of confirmation primary", async () => {
     await initHarness(project());
     const topic = await createWorkbenchTopic(project(), { title: "Planning Gate", body: "Generate a plan." });
     await writePlanningBundleFixture(topic.changeId, "Generate a small plan.");
@@ -688,8 +688,11 @@ describe("workbench read-model projections", () => {
       { project: project(), path: getTempDir() },
       { topicId: topic.changeId, ignoreActiveWorkflowActions: true },
     );
-    expect(automationInternalSnapshot.right.confirmationQueue.primary?.actions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ actionType: "planning.confirm-execution", planningBundleId: expect.any(String) }),
+    expect(JSON.stringify(automationInternalSnapshot.right.confirmationQueue)).not.toContain("planning.confirm-execution");
+    expect(JSON.stringify(automationInternalSnapshot.right.confirmationQueue)).not.toContain("planning.generate");
+    expect(automationInternalSnapshot.right.agentWorkspace.selectedAgentId).toBe("planning-agent");
+    expect(automationInternalSnapshot.right.agentWorkspace.agents.find((agent) => agent.id === "planning-agent")?.actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actionType: "planning.confirm-execution", planningBundleId: expect.any(String), label: "实施此计划" }),
     ]));
 
     await appendTopicThreadEntry(project(), topic.changeId, {
@@ -700,8 +703,10 @@ describe("workbench read-model projections", () => {
     });
     snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
 
-    expect(snapshot.right.confirmationQueue.primary?.actions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ actionType: "planning.confirm-execution", planningBundleId: expect.any(String) }),
+    expect(JSON.stringify(snapshot.right.confirmationQueue)).not.toContain("planning.confirm-execution");
+    expect(JSON.stringify(snapshot.right.confirmationQueue)).not.toContain("planning.generate");
+    expect(snapshot.right.agentWorkspace.agents.find((agent) => agent.id === "planning-agent")?.actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actionType: "planning.confirm-execution", planningBundleId: expect.any(String), label: "实施此计划" }),
     ]));
   });
 
@@ -765,6 +770,10 @@ describe("workbench read-model projections", () => {
     ]));
     expect(snapshot.center.workpad.intake.pendingClarifications).toHaveLength(0);
     expect(snapshot.center.workpad.nextAction).toMatchObject({ actionType: "planning.generate", enabled: true });
+    expect(JSON.stringify(snapshot.right.confirmationQueue)).not.toContain("planning.generate");
+    expect(snapshot.right.agentWorkspace.agents.find((agent) => agent.id === "planning-agent")?.actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actionType: "planning.generate", label: "让 planning-agent 生成方案" }),
+    ]));
     expect(snapshot.center.thread.items).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "intake-summary", label: "需求分析" }),
       expect.objectContaining({ kind: "clarification", label: "需要确认" }),

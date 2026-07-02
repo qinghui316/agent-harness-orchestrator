@@ -1856,9 +1856,15 @@ describe("Workbench module boundaries", () => {
 
   it("keeps planning-agent raw Codex stream out of the main conversation", () => {
     const planningHandler = readFileSync("src/workbench/actions/handlers/planning.ts", "utf8");
-    expect(planningHandler).toMatch(/emitPlanningAgentLifecycle\(live, task\.id, "agent-running"/);
-    expect(planningHandler).toMatch(/runCodexChat\(\s*project,\s*changeId,\s*planModePrompt,\s*undefined,/);
-    expect(planningHandler).toMatch(/sanitizeProposedPlanForConversation/);
+    const draftHandler = planningHandler.slice(
+      planningHandler.indexOf("async function generatePlanningDraft"),
+      planningHandler.indexOf("export async function shouldIncludeFirstOnboardingSkill"),
+    );
+    expect(draftHandler).toContain('const agentLive = scopedAgentLiveSink(live, "planning-agent", task.id)');
+    expect(draftHandler).toMatch(/emitPlanningAgentLifecycle\(agentLive, task\.id, "agent-running"/);
+    expect(draftHandler).toMatch(/runCodexChat\(\s*project,\s*changeId,\s*planModePrompt,\s*agentLive,/);
+    expect(draftHandler).not.toMatch(/sanitizeProposedPlanForConversation/);
+    expect(draftHandler).not.toMatch(/live\?\.emit\(\{ event: "assistant\.message"/);
   });
 
   it("keeps integration-check manager as a compatibility facade", () => {
@@ -2806,12 +2812,15 @@ describe("Workbench module boundaries", () => {
     expect(boundary).toContain("planning.scheduler.run.complete SchedulerRun target is not completable");
   });
 
-  it("keeps confirmation queue planning copy non-executing and preserves explicit action scope", () => {
+  it("keeps planning draft actions in the agent workspace and preserves explicit action scope", () => {
     const typedWorkflow = readFileSync("src/workbench/projections/read-model/confirmation/typed-workflow.ts", "utf8");
-    expect(typedWorkflow).toContain("不会启动代码实现、验证或审查");
-    expect(typedWorkflow).toContain("确认规划不是执行授权");
+    expect(typedWorkflow).not.toContain('action.actionType === "planning.generate"');
+    expect(typedWorkflow).not.toContain('action.actionType === "planning.confirm-execution"');
     expect(typedWorkflow).not.toContain("需要你确认当前方案进入执行");
     expect(typedWorkflow).not.toContain("确认后，主 agent 会通过受控委派启动后续角色执行");
+    const agentWorkspace = readFileSync("src/workbench/projections/read-model/agent-workspace.ts", "utf8");
+    expect(agentWorkspace).toContain('actionType: "planning.confirm-execution"');
+    expect(agentWorkspace).toContain('label: "实施此计划"');
 
     const item = {
       id: "confirm:scope",

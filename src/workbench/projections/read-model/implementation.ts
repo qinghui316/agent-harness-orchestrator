@@ -7,6 +7,7 @@ import { buildParentAgentTranscript, type ParentAgentTranscript } from "../../pa
 import { readTopicThreadLogPage, type TopicThreadLogPageOptions } from "../../thread-log.js";
 import { summarizeRunArtifacts } from "../artifact-preview.js";
 import { buildThreadStreamFromMessages, readRunEvents } from "./thread-stream.js";
+import { buildAgentWorkspace, emptyAgentWorkspace } from "./agent-workspace.js";
 import { buildConfirmationQueue, emptyConfirmationQueue } from "./confirmation-queue.js";
 import { listWorkbenchDecisions } from "./decision-store.js";
 import { alignDecisionInspectorWithConfirmationPrimary, buildDecisionInspector, emptyDecisionInspector } from "./decision-inspector.js";
@@ -178,7 +179,7 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
         agentLoop: { runs: [] },
         agentRunGraph: emptyAgentRunGraph(),
       },
-      right: { approvals: [], decisions: [], decisionInspector: emptyDecisionInspector(), confirmationQueue: emptyConfirmationQueue() },
+      right: { approvals: [], decisions: [], decisionInspector: emptyDecisionInspector(), confirmationQueue: emptyConfirmationQueue(), agentWorkspace: emptyAgentWorkspace() },
       roles,
       harnessGaps: gaps,
       warnings,
@@ -241,7 +242,7 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
       agentLoop: { runs: selectedTopic?.runs ?? [] },
       agentRunGraph: emptyAgentRunGraph(),
     },
-    right: { approvals, decisions, decisionInspector: alignedDecisionInspector, confirmationQueue },
+    right: { approvals, decisions, decisionInspector: alignedDecisionInspector, confirmationQueue, agentWorkspace: buildAgentWorkspace({ selectedTopic, workpad }) },
     roles,
     harnessGaps: gaps,
     warnings,

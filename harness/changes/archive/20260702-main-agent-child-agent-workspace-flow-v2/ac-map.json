@@ -1,0 +1,17 @@
+﻿{
+    "version":  "1.0",
+    "generatedAt":  "2026-07-02T11:23:22.4577023Z",
+    "changeId":  "main-agent-child-agent-workspace-flow-v2",
+    "acceptanceCriteria":  [
+
+                           ],
+    "tasks":  [
+
+              ],
+    "warnings":  [
+                     "Run product planning or update ac-map.json before using AC-gated readiness."
+                 ],
+    "blockingIssues":  [
+                           "ac-map.json was backfilled without parsed acceptance criteria."
+                       ]
+}

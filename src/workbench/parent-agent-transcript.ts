@@ -34,6 +34,9 @@ export interface ParentAgentTranscriptCell {
   id: string;
   kind: ParentAgentTranscriptCellKind;
   source: ParentAgentTranscriptBlockSource;
+  agentRoleId?: string;
+  agentTaskId?: string;
+  runId?: string;
   timestamp?: string;
   title?: string;
   text: string;

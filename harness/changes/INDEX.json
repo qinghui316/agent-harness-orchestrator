@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-07-02T10:57:14.4636005Z",
+    "generated_at":  "2026-07-02T12:07:48.9134824Z",
     "active":  [
 
                ],
@@ -2429,6 +2429,10 @@
                     {
                         "name":  "20260702-auto-evolve-post-resume-continuation-window",
                         "path":  "harness/changes/archive/20260702-auto-evolve-post-resume-continuation-window"
+                    },
+                    {
+                        "name":  "20260702-main-agent-child-agent-workspace-flow-v2",
+                        "path":  "harness/changes/archive/20260702-main-agent-child-agent-workspace-flow-v2"
                     },
                     {
                         "name":  "20260702-main-agent-goal-style-real-codex-ui-acceptance-fix-pass-v1",

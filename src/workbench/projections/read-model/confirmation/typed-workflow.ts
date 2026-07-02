@@ -11,63 +11,7 @@ export function workpadNextActionToConfirmationItems(
 ): WorkbenchConfirmationQueueItem[] {
   const action = workpad.nextAction;
   if (!selectedTopic) return [];
-  const planningBundleId = workpad.planningArtifactBundle?.status === "draft"
-    ? workpad.planningArtifactBundle.id
-    : action.actionType === "planning.confirm-execution"
-      ? action.planningBundleId
-      : undefined;
-  if (planningBundleId) {
-    return [{
-      id: `confirm:planning:${selectedTopic.id}`,
-      kind: "planning-confirm",
-      projectId: project?.id ?? null,
-      conversationId: selectedTopic.id,
-      changeId: selectedTopic.id,
-      planningBundleId,
-      summary: "规划草案已经准备好，可以保存为正式计划记录。",
-      whyNeedsConfirmation: "需要你确认将当前草案保存为正式计划记录。",
-      confirmEffect: action.actionType === "planning.confirm-execution"
-        ? action.description
-        : "确认只保存正式计划记录和确认记录；不会启动代码实现、验证或审查。",
-      riskSummary: "确认规划不是执行授权；后续执行仍必须经过拆分评估和执行边界检查。",
-      evidenceRefs: evidenceRefs(workpad.planningArtifactBundle?.artifact),
-      actions: [{
-        id: `workflow:planning.confirm-execution:${selectedTopic.id}`,
-        label: action.actionType === "planning.confirm-execution" ? action.label : "确认执行",
-        kind: "workflow-action",
-        changeId: selectedTopic.id,
-        actionType: "planning.confirm-execution",
-        planningBundleId,
-        enabled: true,
-        requiresConfirmation: true,
-      }, {
-        id: `feedback:planning:${selectedTopic.id}:${planningBundleId}`,
-        label: "提出修改意见",
-        kind: "feedback",
-        changeId: selectedTopic.id,
-        planningBundleId,
-        enabled: true,
-        requiresConfirmation: false,
-      }],
-      primary: true,
-      status: "pending",
-    }];
-  }
   if (action.kind !== "workflow-action" || !action.enabled || !action.requiresConfirmation || !action.actionType) return [];
-  if (action.actionType === "planning.generate") {
-    return [genericWorkflowQueueItem({
-      project,
-      selectedTopic,
-      id: `confirm:planning-generate:${selectedTopic.id}`,
-      summary: "可以先生成方案草案。",
-      whyNeedsConfirmation: "需要你确认让 planning-agent 生成一个可审阅方案草案。",
-      confirmEffect: "只生成可审阅方案草案和相关证据；不会写入正式方案记录，也不会启动执行。",
-      riskSummary: "草案仍需后续确认后才会成为正式计划记录。",
-      label: action.label,
-      actionType: "planning.generate",
-      evidence: [],
-    })];
-  }
   if (action.actionType === "planning.decompose") {
     return [genericWorkflowQueueItem({
       project,

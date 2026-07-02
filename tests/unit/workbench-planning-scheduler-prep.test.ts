@@ -141,7 +141,7 @@ describe("workbench planning and scheduler preparation", () => {
     expect(plan.rationale).toContain("one Change");
   });
 
-  it("projects confirmed planning next action into the right confirmation queue", async () => {
+  it("projects draft planning next action into the planning-agent workspace", async () => {
     await initHarness(project());
     const topic = await createWorkbenchTopic(project(), {
       title: "Ready Demand",
@@ -156,15 +156,15 @@ describe("workbench planning and scheduler preparation", () => {
       actionType: "planning.confirm-execution",
       enabled: true,
     });
-    expect(snapshot.right.confirmationQueue.primary).toMatchObject({
-      kind: "planning-confirm",
-      changeId: topic.changeId,
-      summary: expect.stringContaining("保存为正式计划记录"),
-    });
-    expect(snapshot.right.confirmationQueue.primary?.actions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ actionType: "planning.confirm-execution", label: "确认规划", planningBundleId }),
+    expect([
+      ...(snapshot.right.confirmationQueue.primary?.actions ?? []),
+      ...snapshot.right.confirmationQueue.current.flatMap((item) => item.actions),
+    ].some((action) => action.actionType === "planning.confirm-execution")).toBe(false);
+    const planningAgent = snapshot.right.agentWorkspace.agents.find((agent) => agent.id === "planning-agent");
+    expect(snapshot.right.agentWorkspace.selectedAgentId).toBe("planning-agent");
+    expect(planningAgent?.actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actionType: "planning.confirm-execution", label: "实施此计划", planningBundleId }),
     ]));
-    expect(snapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "planning.goal-loop.evaluate")).toBe(false);
   });
 
   it("rejects stale planning bundle confirmation", async () => {

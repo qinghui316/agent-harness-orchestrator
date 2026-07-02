@@ -384,6 +384,25 @@ export interface WorkbenchDecisionInspector {
   selectedContextId?: string;
 }
 
+export interface WorkbenchAgentWorkspaceAgent {
+  id: string;
+  roleId: string;
+  label: string;
+  status: string;
+  summary: string;
+  inputSummary?: string;
+  outputSummary?: string;
+  transcript: ParentAgentTranscript;
+  evidenceRefs: DemandAgentRunEvidenceRef[];
+  actions: WorkbenchDecisionAction[];
+  planningBundle?: WorkbenchPlanningArtifactBundle;
+}
+
+export interface WorkbenchAgentWorkspace {
+  selectedAgentId: string;
+  agents: WorkbenchAgentWorkspaceAgent[];
+}
+
 export type WorkbenchConfirmationQueueItemKind =
   | "planning-confirm"
   | "single-result-apply"
@@ -1393,6 +1412,7 @@ export interface WorkbenchSnapshot {
     decisions: WorkbenchDecisionItem[];
     decisionInspector: WorkbenchDecisionInspector;
     confirmationQueue: WorkbenchConfirmationQueue;
+    agentWorkspace: WorkbenchAgentWorkspace;
   };
   roles: WorkbenchRoleSummary[];
   harnessGaps: HarnessGap[];

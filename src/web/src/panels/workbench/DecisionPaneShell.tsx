@@ -1,10 +1,11 @@
-import { Activity, ChevronLeft, FileText, GitBranch, ListChecks, PanelRightClose, PanelRightOpen } from "lucide-react";
+import { Activity, Bot, ChevronLeft, FileText, GitBranch, ListChecks, PanelRightClose, PanelRightOpen } from "lucide-react";
 import type { ReactElement, ReactNode } from "react";
 
-export type RightToolRailTab = "confirm" | "files" | "git" | "diagnostics";
+export type RightToolRailTab = "agent" | "confirm" | "files" | "git" | "diagnostics";
 export type RightToolRailView = "launcher" | RightToolRailTab;
 
 const toolLabels: Record<RightToolRailTab, string> = {
+  agent: "Agent",
   confirm: "确认事项",
   files: "文件",
   git: "Git",
@@ -20,6 +21,7 @@ export function RightToolRailShell({
   onCollapse,
   onToolOpen,
   onBackToLauncher,
+  agentPanel,
   confirmPanel,
   filesPanel,
   gitPanel,
@@ -33,6 +35,7 @@ export function RightToolRailShell({
   onCollapse: () => void;
   onToolOpen: (tab: RightToolRailTab) => void;
   onBackToLauncher: () => void;
+  agentPanel: ReactNode;
   confirmPanel: ReactNode;
   filesPanel: ReactNode;
   gitPanel: ReactNode;
@@ -61,6 +64,8 @@ export function RightToolRailShell({
   const panelContent =
     activeView === "launcher" ? (
       <RightToolLauncher pendingCount={pendingCount} hasPrimary={hasPrimary} onToolOpen={onToolOpen} />
+    ) : activeView === "agent" ? (
+      agentPanel
     ) : activeView === "confirm" ? (
       confirmPanel
     ) : activeView === "files" ? (
@@ -116,6 +121,15 @@ function RightToolLauncher({
   return (
     <div className="right-tool-launcher" data-testid="right-tool-launcher" aria-label="右侧工具入口">
       <div className="right-tool-launcher-list">
+        <button
+          type="button"
+          className="right-tool-launcher-item"
+          data-testid="right-tool-launcher-agent"
+          onClick={() => onToolOpen("agent")}
+        >
+          <Bot size={17} aria-hidden="true" />
+          <span>Agent</span>
+        </button>
         <button
           type="button"
           className={`right-tool-launcher-item${hasPrimary ? " has-primary" : ""}`}

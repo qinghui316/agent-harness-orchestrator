@@ -3,7 +3,9 @@ import {
   useMemo,
   useRef,
   useState,
-  type ReactElement } from "react";
+  type Dispatch,
+  type ReactElement,
+  type SetStateAction } from "react";
 import { consumeWorkbenchLiveStream,
   fetchJson,
   postJson } from "./api.js";
@@ -15,6 +17,7 @@ import { MainConversationView,
   ProjectFilesPanel,
   ProjectGitPanel,
   RuntimeDiagnosticsRailPanel,
+  AgentWorkspacePanel,
   TerminalDock,
   WorkspaceDockToggleBar,
   type RightToolRailTab,
@@ -101,13 +104,20 @@ const emptySnapshot: Snapshot = {
     activeTab: "conversation",
     agentRunGraph: emptyAgentRunGraph(),
   },
-  right: { approvals: [], decisions: [], decisionInspector: { primary: null, related: [], history: [] }, confirmationQueue: { primary: null, current: [], otherDemands: [], maintenance: [], history: [] } },
+  right: {
+    approvals: [],
+    decisions: [],
+    decisionInspector: { primary: null, related: [], history: [] },
+    confirmationQueue: { primary: null, current: [], otherDemands: [], maintenance: [], history: [] },
+    agentWorkspace: { selectedAgentId: "main-agent", agents: [] },
+  },
   harnessGaps: [],
   warnings: [],
 };
 
 const SELECTED_PROJECT_STORAGE_KEY = "aho.workbench.selectedProjectId";
 type BottomDockKind = "terminal" | null;
+type LiveTurnSetter = Dispatch<SetStateAction<LiveAssistantTurn[]>>;
 type PendingDemandConversation = {
   id: string;
   projectId: string;
@@ -197,6 +207,7 @@ export function App(): ReactElement {
   const [actionRunning, setActionRunning] = useState<string | null>(null);
   const [liveItems, setLiveItems] = useState<ThreadStreamItem[]>([]);
   const [liveTurns, setLiveTurns] = useState<LiveAssistantTurn[]>([]);
+  const [agentLiveTurns, setAgentLiveTurns] = useState<LiveAssistantTurn[]>([]);
   const [loadedTranscript, setLoadedTranscript] = useState<ParentAgentTranscript | null>(null);
   const [loadingEarlierTranscript, setLoadingEarlierTranscript] = useState(false);
   const [loadedRunGraph, setLoadedRunGraph] = useState<DemandAgentRunGraph | null>(null);
@@ -222,6 +233,7 @@ export function App(): ReactElement {
   const [runtimeActivityLogLoading, setRuntimeActivityLogLoading] = useState(false);
   const [decisionPaneCollapsed, setDecisionPaneCollapsed] = useState(true);
   const [rightToolView, setRightToolView] = useState<RightToolRailView>("launcher");
+  const [selectedAgentWorkspaceAgentId, setSelectedAgentWorkspaceAgentId] = useState<string | null>(null);
   const [projectionVersion, setProjectionVersion] = useState(0);
   const [latestHidden, setLatestHidden] = useState(false);
   const threadScrollRef = useRef<HTMLDivElement | null>(null);
@@ -524,6 +536,7 @@ export function App(): ReactElement {
         ...baseSnapshot.right,
         decisionInspector: { primary: null, related: [], history: [] },
         confirmationQueue: { primary: null, current: [], otherDemands: [], maintenance: [], history: [] },
+        agentWorkspace: { selectedAgentId: "main-agent", agents: [] },
       },
     };
     setSnapshot(nextSnapshot);
@@ -994,23 +1007,6 @@ export function App(): ReactElement {
       setComposerFileRefs([]);
       return;
     }
-    const pendingClarificationCount = activeWorkpad.intake.pendingClarifications?.length ?? 0;
-    if (attachmentIds.length === 0 && composerMode === "chat" && (activeWorkpad.nextAction.actionType === "intake.reanalyze" || activeWorkpad.nextAction.actionType === "change.spec.propose" || pendingClarificationCount > 0)) {
-      setActionRunning("intake.reanalyze");
-      setComposerText("");
-      setError(null);
-      try {
-        const result = await postJson<{ snapshot: Snapshot }>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/intake/reanalyze`, {
-          changeId: activeTopic.id,
-          message: outboundMessage,
-          contextRefs: resolved.contextRefs,
-        });
-        setSnapshot(result.snapshot);
-      } finally {
-        setActionRunning(null);
-      }
-      return;
-    }
     setActionRunning(composerMode === "plan" ? "orchestrator.plan" : "chat.ask");
     setComposerText("");
     setError(null);
@@ -1112,6 +1108,7 @@ export function App(): ReactElement {
       setSnapshot(event.data);
       setLiveItems([]);
       setLiveTurns([]);
+      setAgentLiveTurns([]);
       setPendingDemandConversation(null);
       invalidateProjectionCache();
       return;
@@ -1125,7 +1122,9 @@ export function App(): ReactElement {
       return;
     }
     if (event.event === "assistant.delta") {
-      appendLiveTurnText(event.data.runId ?? "assistant", event.data.delta);
+      const runId = event.data.runId ?? event.data.agentTaskId ?? "assistant";
+      if (event.data.agentRoleId) appendAgentLiveTurnText(runId, event.data.delta, event.data.agentRoleId, event.data.agentTaskId);
+      else appendLiveTurnText(runId, event.data.delta);
       return;
     }
     if (event.event === "assistant.message") {
@@ -1134,16 +1133,27 @@ export function App(): ReactElement {
       return;
     }
     if (event.event === "assistant.event") {
-      appendLiveTurnEvent(event.data.runId, { kind: "assistant-event", event: event.data }, event.data.isError ? "failed" : event.data.phase, blockFromAssistantEvent(event.data));
+      if (event.data.agentRoleId) {
+        appendAgentLiveTurnEvent(event.data.runId, { kind: "assistant-event", event: event.data }, event.data.agentRoleId, event.data.agentTaskId, event.data.isError ? "failed" : event.data.phase, blockFromAssistantEvent(event.data));
+      } else {
+        appendLiveTurnEvent(event.data.runId, { kind: "assistant-event", event: event.data }, event.data.isError ? "failed" : event.data.phase, blockFromAssistantEvent(event.data));
+      }
       return;
     }
     if (event.event === "tool.event") {
-      appendLiveTurnEvent(event.data.runId, { kind: "tool", tool: event.data }, event.data.isError ? "failed" : undefined, blockFromToolEvent(event.data));
+      if (event.data.agentRoleId) {
+        appendAgentLiveTurnEvent(event.data.runId, { kind: "tool", tool: event.data }, event.data.agentRoleId, event.data.agentTaskId, event.data.isError ? "failed" : undefined, blockFromToolEvent(event.data));
+      } else {
+        appendLiveTurnEvent(event.data.runId, { kind: "tool", tool: event.data }, event.data.isError ? "failed" : undefined, blockFromToolEvent(event.data));
+      }
       return;
     }
     if (event.event === "usage") {
-      const runId = event.data.runId ?? latestLiveRunId();
-      if (runId && event.data.usage) appendLiveTurnEvent(runId, { kind: "usage", usage: event.data.usage }, undefined, usageBlock(runId, event.data.usage));
+      const runId = event.data.runId ?? (event.data.agentRoleId ? latestAgentLiveRunId() : latestLiveRunId());
+      if (runId && event.data.usage) {
+        if (event.data.agentRoleId) appendAgentLiveTurnEvent(runId, { kind: "usage", usage: event.data.usage }, event.data.agentRoleId, event.data.agentTaskId, undefined, usageBlock(runId, event.data.usage));
+        else appendLiveTurnEvent(runId, { kind: "usage", usage: event.data.usage }, undefined, usageBlock(runId, event.data.usage));
+      }
       return;
     }
     if (event.event === "topic.message") {
@@ -1151,18 +1161,21 @@ export function App(): ReactElement {
       return;
     }
     if (event.event === "run.started") {
-      upsertLiveTurn(event.data.runId, {
+      const patch = {
         runtime: event.data.runtime,
         actionType: event.data.actionType,
         status: "running",
         events: [{ kind: "status", label: "running", detail: runtimeLabel(event.data.runtime ?? event.data.actionType ?? "Run") }],
-      });
+      } satisfies Partial<Omit<LiveAssistantTurn, "id" | "runId" | "startedAt">> & { events?: LiveTurnEvent[] };
+      if (event.data.agentRoleId) upsertAgentLiveTurn(event.data.runId, event.data.agentRoleId, event.data.agentTaskId, patch);
+      else upsertLiveTurn(event.data.runId, patch);
       return;
     }
     if (event.event === "run.status") {
-      const runId = event.data.runId ?? event.data.actionRunId ?? latestLiveRunId();
+      const runId = event.data.runId ?? event.data.actionRunId ?? (event.data.agentRoleId ? latestAgentLiveRunId() : latestLiveRunId());
       if (runId) {
-        appendLiveTurnEvent(runId, { kind: "status", label: event.data.status, detail: event.data.label }, event.data.status);
+        if (event.data.agentRoleId) appendAgentLiveTurnEvent(runId, { kind: "status", label: event.data.status, detail: event.data.label }, event.data.agentRoleId, event.data.agentTaskId, event.data.status);
+        else appendLiveTurnEvent(runId, { kind: "status", label: event.data.status, detail: event.data.label }, event.data.status);
       }
     }
   }
@@ -1171,13 +1184,36 @@ export function App(): ReactElement {
     return liveTurns[liveTurns.length - 1]?.runId;
   }
 
+  function latestAgentLiveRunId(): string | undefined {
+    return agentLiveTurns[agentLiveTurns.length - 1]?.runId;
+  }
+
   function upsertLiveTurn(runId: string, patch: Partial<Omit<LiveAssistantTurn, "id" | "runId" | "startedAt">> & { events?: LiveTurnEvent[] }): void {
-    setLiveTurns((current) => {
+    upsertLiveTurnIn(setLiveTurns, runId, patch);
+  }
+
+  function upsertAgentLiveTurn(
+    runId: string,
+    agentRoleId: string,
+    agentTaskId: string | undefined,
+    patch: Partial<Omit<LiveAssistantTurn, "id" | "runId" | "startedAt">> & { events?: LiveTurnEvent[] },
+  ): void {
+    upsertLiveTurnIn(setAgentLiveTurns, runId, { ...patch, agentRoleId, agentTaskId });
+  }
+
+  function upsertLiveTurnIn(
+    setter: LiveTurnSetter,
+    runId: string,
+    patch: Partial<Omit<LiveAssistantTurn, "id" | "runId" | "startedAt">> & { events?: LiveTurnEvent[] },
+  ): void {
+    setter((current) => {
       const existing = current.find((turn) => turn.runId === runId);
       if (!existing) {
         return [...current, {
           id: `live-turn:${runId}`,
           runId,
+          agentRoleId: patch.agentRoleId,
+          agentTaskId: patch.agentTaskId,
           runtime: patch.runtime,
           actionType: patch.actionType,
           status: patch.status ?? "running",
@@ -1193,10 +1229,28 @@ export function App(): ReactElement {
   }
 
   function appendLiveTurnText(runId: string, delta: string): void {
-    setLiveTurns((current) => {
+    appendLiveTurnTextIn(setLiveTurns, runId, delta);
+  }
+
+  function appendAgentLiveTurnText(runId: string, delta: string, agentRoleId: string, agentTaskId?: string): void {
+    appendLiveTurnTextIn(setAgentLiveTurns, runId, delta, agentRoleId, agentTaskId);
+  }
+
+  function appendLiveTurnTextIn(setter: LiveTurnSetter, runId: string, delta: string, agentRoleId?: string, agentTaskId?: string): void {
+    setter((current) => {
       const existing = current.find((turn) => turn.runId === runId);
       if (!existing) {
-        return [...current, { id: `live-turn:${runId}`, runId, status: "streaming", text: delta, events: [{ kind: "status", label: "streaming" }], blocks: [proseBlock(runId, delta, 1)], startedAt: new Date().toISOString() }];
+        return [...current, {
+          id: `live-turn:${runId}`,
+          runId,
+          agentRoleId,
+          agentTaskId,
+          status: "streaming",
+          text: delta,
+          events: [{ kind: "status", label: "streaming" }],
+          blocks: [proseBlock(runId, delta, 1)],
+          startedAt: new Date().toISOString(),
+        }];
       }
       return current.map((turn) => {
         if (turn.runId !== runId) return turn;
@@ -1206,10 +1260,35 @@ export function App(): ReactElement {
   }
 
   function appendLiveTurnEvent(runId: string, event: LiveTurnEvent, status?: string, block?: AssistantTurnBlock | null): void {
-    setLiveTurns((current) => {
+    appendLiveTurnEventIn(setLiveTurns, runId, event, status, block);
+  }
+
+  function appendAgentLiveTurnEvent(
+    runId: string,
+    event: LiveTurnEvent,
+    agentRoleId: string,
+    agentTaskId?: string,
+    status?: string,
+    block?: AssistantTurnBlock | null,
+  ): void {
+    appendLiveTurnEventIn(setAgentLiveTurns, runId, event, status, block, agentRoleId, agentTaskId);
+  }
+
+  function appendLiveTurnEventIn(setter: LiveTurnSetter, runId: string, event: LiveTurnEvent, status?: string, block?: AssistantTurnBlock | null, agentRoleId?: string, agentTaskId?: string): void {
+    setter((current) => {
       const existing = current.find((turn) => turn.runId === runId);
       if (!existing) {
-        return [...current, { id: `live-turn:${runId}`, runId, status: status ?? "running", text: "", events: [event], blocks: block ? [block] : [], startedAt: new Date().toISOString() }];
+        return [...current, {
+          id: `live-turn:${runId}`,
+          runId,
+          agentRoleId,
+          agentTaskId,
+          status: status ?? "running",
+          text: "",
+          events: [event],
+          blocks: block ? [block] : [],
+          startedAt: new Date().toISOString(),
+        }];
       }
       return current.map((turn) => {
         if (turn.runId !== runId) return turn;
@@ -1223,7 +1302,11 @@ export function App(): ReactElement {
   }
 
   function completeLiveTurn(runId: string, text?: string): void {
-    setLiveTurns((current) => current.map((turn) => turn.runId === runId ? {
+    completeLiveTurnIn(setLiveTurns, runId, text);
+  }
+
+  function completeLiveTurnIn(setter: LiveTurnSetter, runId: string, text?: string): void {
+    setter((current) => current.map((turn) => turn.runId === runId ? {
       ...turn,
       status: "completed",
       text: text || turn.text || "",
@@ -1242,6 +1325,17 @@ export function App(): ReactElement {
     }
     if (event.kind === "usage") return `usage:${JSON.stringify(event.usage)}`;
     if (event.kind === "error") return `error:${event.message}`;
+    return null;
+  }
+
+  function agentWorkspaceIdFromNodeKind(kind: string | undefined): string | null {
+    if (!kind) return null;
+    if (kind.includes("planning")) return "planning-agent";
+    if (kind.includes("coder") || kind.includes("code")) return "coder-agent";
+    if (kind.includes("validation") || kind.includes("validator")) return "validator";
+    if (kind.includes("audit") || kind.includes("auditor")) return "auditor-agent";
+    if (kind.includes("rework")) return "rework-coder";
+    if (kind.includes("main")) return "main-agent";
     return null;
   }
 
@@ -1301,6 +1395,7 @@ export function App(): ReactElement {
     };
   }, [selectedDecisionContextId, snapshot.right.decisionInspector]);
   const activeConfirmationQueue = snapshot.right.confirmationQueue ?? { primary: null, current: [], otherDemands: [], maintenance: [], history: [] };
+  const activeAgentWorkspace = snapshot.right.agentWorkspace ?? { selectedAgentId: "main-agent", agents: [] };
   const pendingConfirmationCount = (activeConfirmationQueue.primary ? 1 : 0)
     + activeConfirmationQueue.otherDemands.length
     + activeConfirmationQueue.maintenance.length;
@@ -1309,6 +1404,16 @@ export function App(): ReactElement {
   const selectedRunGraphNode = useMemo(() => {
     return activeRunGraph.nodes.find((node) => node.id === selectedRunGraphNodeId) ?? activeRunGraph.nodes[0] ?? null;
   }, [activeRunGraph.nodes, selectedRunGraphNodeId]);
+  function selectRunGraphNode(nodeId: string): void {
+    setSelectedRunGraphNodeId(nodeId);
+    const node = activeRunGraph.nodes.find((item) => item.id === nodeId);
+    const agentId = node?.roleId ?? node?.target.roleId ?? agentWorkspaceIdFromNodeKind(node?.kind);
+    if (agentId) {
+      setSelectedAgentWorkspaceAgentId(agentId);
+      setRightToolView("agent");
+      setDecisionPaneCollapsed(false);
+    }
+  }
   const codexModelLabel = codexModelSettings?.effectiveModel?.trim()
     || codexDiagnostics?.effectiveModel?.trim()
     || codexDiagnostics?.currentModel?.trim()
@@ -1645,6 +1750,17 @@ export function App(): ReactElement {
         onCollapse={() => setDecisionPaneCollapsed(true)}
         onToolOpen={openRightToolPanel}
         onBackToLauncher={() => setRightToolView("launcher")}
+        agentPanel={
+          <AgentWorkspacePanel
+            workspace={activeAgentWorkspace}
+            selectedAgentId={selectedAgentWorkspaceAgentId}
+            liveTurns={agentLiveTurns}
+            automationMode={automationMode}
+            busy={actionRunning !== null}
+            onSelectAgent={setSelectedAgentWorkspaceAgentId}
+            onWorkflowAction={runWorkflowAction}
+          />
+        }
         confirmPanel={
           <DecisionInspectorPane
             inspector={activeDecisionInspector}
@@ -1725,7 +1841,7 @@ export function App(): ReactElement {
               selectedNode={selectedRunGraphNode}
               activeRun={activeRun}
               stream={stream}
-              onSelectNode={setSelectedRunGraphNodeId}
+              onSelectNode={selectRunGraphNode}
               onSelectRun={(runId) => void chooseRun(runId)}
             />
           </section>

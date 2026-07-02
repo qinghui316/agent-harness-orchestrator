@@ -1,4 +1,4 @@
-import type { ReactElement, ReactNode } from "react";
+import { useState, type ReactElement, type ReactNode } from "react";
 import { artifactName } from "./RunReplayPanel.js";
 import { formatTime, humanStatus } from "../../formatters.js";
 import { cleanTranscriptText, cleanTranscriptTitle } from "../../liveTranscript.js";
@@ -8,6 +8,34 @@ import {
   transcriptCellDisplayText,
 } from "./transcriptMeasurement.js";
 import type { ParentAgentTranscriptCell } from "../../types.js";
+
+export function AgentTranscriptPane({ cells, emptyMessage = "暂无 Agent 消息。", testId = "agent-transcript-pane" }: {
+  cells: ParentAgentTranscriptCell[];
+  emptyMessage?: string;
+  testId?: string;
+}): ReactElement {
+  const [expandedCells, setExpandedCells] = useState<Set<string>>(new Set());
+  return (
+    <div className="agent-transcript-pane" data-testid={testId}>
+      {cells.length === 0 ? <div className="empty-state">{emptyMessage}</div> : null}
+      {cells.map((cell) => (
+        <ParentAgentTranscriptCellView
+          key={cell.id}
+          cell={cell}
+          expanded={expandedCells.has(cell.id)}
+          onToggleExpanded={() => {
+            setExpandedCells((current) => {
+              const next = new Set(current);
+              if (next.has(cell.id)) next.delete(cell.id);
+              else next.add(cell.id);
+              return next;
+            });
+          }}
+        />
+      ))}
+    </div>
+  );
+}
 
 export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded }: {
   cell: ParentAgentTranscriptCell;

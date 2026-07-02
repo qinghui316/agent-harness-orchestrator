@@ -483,6 +483,17 @@ function expectNoForbiddenToolControls(container: HTMLElement): void {
 async function openDecisionPane(): Promise<HTMLElement> {
   const current = screen.queryByTestId("decision-inspector-primary");
   if (current) return current;
+  const launcher = screen.queryByTestId("right-tool-launcher");
+  if (launcher) {
+    fireEvent.click(await screen.findByTestId("right-tool-launcher-confirm"));
+    return screen.findByTestId("decision-inspector-primary");
+  }
+  const back = screen.queryByTestId("right-tool-back");
+  if (back) {
+    fireEvent.click(back);
+    fireEvent.click(await screen.findByTestId("right-tool-launcher-confirm"));
+    return screen.findByTestId("decision-inspector-primary");
+  }
   const toggle = await screen.findByTestId("decision-pane-toggle");
   fireEvent.click(toggle);
   fireEvent.click(await screen.findByTestId("right-tool-launcher-confirm"));
@@ -2329,6 +2340,7 @@ describe("Workbench web app", () => {
     fireEvent.click(screen.getByTestId("decision-pane-toggle"));
     const launcher = await screen.findByTestId("right-tool-launcher");
     expect(within(launcher).getByText("确认")).toBeTruthy();
+    expect(screen.getByTestId("right-tool-launcher-agent")).toBeTruthy();
     expect(screen.getByTestId("right-tool-launcher-files")).toBeTruthy();
     expect(screen.getByTestId("right-tool-launcher-git")).toBeTruthy();
     expect(screen.getByTestId("right-tool-launcher-diagnostics")).toBeTruthy();
@@ -2339,6 +2351,11 @@ describe("Workbench web app", () => {
     expect(screen.queryByRole("tablist", { name: "右侧工具" })).toBeNull();
     expect(screen.queryByRole("tab", { name: "浏览器" })).toBeNull();
     expect(screen.queryByRole("tab", { name: "日志" })).toBeNull();
+
+    fireEvent.click(screen.getByTestId("right-tool-launcher-agent"));
+    expect(await screen.findByTestId("agent-workspace-panel")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("right-tool-back"));
+    expect(await screen.findByTestId("right-tool-launcher")).toBeTruthy();
 
     fireEvent.click(screen.getByTestId("right-tool-launcher-confirm"));
     expect(await screen.findByTestId("decision-inspector-primary")).toBeTruthy();
@@ -5150,7 +5167,7 @@ describe("Workbench web app", () => {
     expect(fetch).not.toHaveBeenCalledWith("/api/projects/repo/workbench/clarifications/clarify-1/answer", expect.anything());
   });
 
-  it("routes Workpad supplemental demand text through intake reanalysis before Spec", async () => {
+  it("routes Workpad supplemental demand text through the main Agent live turn before Spec", async () => {
     const intakeReadySnapshot = {
       ...snapshot,
       center: {
@@ -5173,6 +5190,12 @@ describe("Workbench web app", () => {
       const url = String(input);
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      if (url.includes("/messages/live")) {
+        return sseResponse([
+          ["topic.message", { id: "live-user-intake-note", type: "user.message", changeId: "member-discount", text: "折扣金额四舍五入到分，只有会员订单参与。" }],
+          ["done", { status: "completed" }],
+        ]);
+      }
       if (url.includes("/intake/reanalyze")) return jsonResponse({ snapshot: intakeReadySnapshot });
       return jsonResponse(url.includes("/stream/") ? stream : intakeReadySnapshot);
     }));
@@ -5184,12 +5207,12 @@ describe("Workbench web app", () => {
     fireEvent.click(screen.getByTitle("发送"));
 
     await waitFor(() => {
-      expect(fetch).toHaveBeenCalledWith("/api/projects/repo/workbench/intake/reanalyze", expect.objectContaining({
+      expect(fetch).toHaveBeenCalledWith("/api/projects/repo/workbench/topics/member-discount/messages/live", expect.objectContaining({
         method: "POST",
         body: expect.stringContaining("折扣金额四舍五入到分"),
       }));
     });
-    expect(fetch).not.toHaveBeenCalledWith("/api/projects/repo/workbench/topics/member-discount/messages/live", expect.anything());
+    expect(fetch).not.toHaveBeenCalledWith("/api/projects/repo/workbench/intake/reanalyze", expect.anything());
   });
 
   it("does not hijack ordinary composer messages into planning actions", async () => {
@@ -6180,6 +6203,8 @@ describe("Workbench web app", () => {
     render(<App />);
 
     await waitFor(() => expect(screen.getAllByText("会员折扣计价").length).toBeGreaterThan(0));
+    await waitFor(() => expect(fetchCallUrls()).toContain("/api/projects/repo/skills"));
+    await act(async () => { await Promise.resolve(); });
     const input = within(screen.getByLabelText("需求对话输入框")).getByRole("textbox");
     fireEvent.change(input, { target: { value: "$pricing-helper 请继续" } });
     fireEvent.click(screen.getByTitle("发送"));

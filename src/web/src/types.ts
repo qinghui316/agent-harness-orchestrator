@@ -354,7 +354,7 @@ export type Snapshot = {
     activeTab?: CenterTab;
     agentRunGraph: DemandAgentRunGraph;
   };
-  right: { approvals: Approval[]; decisions: Decision[]; decisionInspector: DecisionInspector; confirmationQueue: ConfirmationQueue };
+  right: { approvals: Approval[]; decisions: Decision[]; decisionInspector: DecisionInspector; confirmationQueue: ConfirmationQueue; agentWorkspace: AgentWorkspace };
   harnessGaps: Array<{ id: string; status: string; summary: string }>;
   warnings: string[];
 };
@@ -455,6 +455,9 @@ export type ParentAgentTranscriptCell = {
   id: string;
   kind: "user-message" | "assistant-message" | "process-row" | "evidence-row" | "detail-only";
   source: "user" | "codex-runtime" | "aho-orchestration" | "workflow-evidence" | "maintenance";
+  agentRoleId?: string;
+  agentTaskId?: string;
+  runId?: string;
   timestamp?: string;
   title?: string;
   text: string;
@@ -2246,6 +2249,23 @@ export type DecisionInspector = {
   history: DecisionContext[];
   selectedContextId?: string;
 };
+export type AgentWorkspaceAgent = {
+  id: string;
+  roleId: string;
+  label: string;
+  status: string;
+  summary: string;
+  inputSummary?: string;
+  outputSummary?: string;
+  transcript: ParentAgentTranscript;
+  evidenceRefs: DemandAgentRunGraphEvidenceRef[];
+  actions: DecisionAction[];
+  planningBundle?: PlanningArtifactBundle;
+};
+export type AgentWorkspace = {
+  selectedAgentId: string;
+  agents: AgentWorkspaceAgent[];
+};
 export type ControlledSchedulerNextCandidateDetail = {
   status: "ready-for-confirmation" | "needs-review";
   label: string;
@@ -2372,19 +2392,21 @@ export type FolderDialogResult = { path: string | null; canceled: boolean; suppo
 export type WorkbenchLiveEvent =
   | { event: "topic.created"; data: { topic: { changeId: string; title: string; state: "active" } } }
   | { event: "topic.message"; data: TopicMessageEntry }
-  | { event: "run.started"; data: { runId: string; changeId: string; actionType?: string; runtime?: string; taskIds?: string[] } }
-  | { event: "run.status"; data: { runId?: string; actionRunId?: string; status: string; label?: string } }
-  | { event: "assistant.delta"; data: { delta: string; runId?: string } }
+  | { event: "run.started"; data: { runId: string; changeId: string; actionType?: string; runtime?: string; taskIds?: string[]; agentRoleId?: string; agentTaskId?: string } }
+  | { event: "run.status"; data: { runId?: string; actionRunId?: string; status: string; label?: string; agentRoleId?: string; agentTaskId?: string } }
+  | { event: "assistant.delta"; data: { delta: string; runId?: string; agentRoleId?: string; agentTaskId?: string } }
   | { event: "assistant.message"; data: TopicMessageEntry }
   | { event: "assistant.event"; data: AssistantReadableEvent }
   | { event: "tool.event"; data: WorkbenchLiveToolEvent }
-  | { event: "usage"; data: { runId?: string; usage?: Record<string, unknown> } }
+  | { event: "usage"; data: { runId?: string; usage?: Record<string, unknown>; agentRoleId?: string; agentTaskId?: string } }
   | { event: "snapshot"; data: Snapshot }
   | { event: "error"; data: { message: string; runId?: string; actionRunId?: string } }
   | { event: "done"; data: { status: "completed" | "failed" } };
 export type WorkbenchLiveToolEvent = {
   runId: string;
   itemId?: string;
+  agentRoleId?: string;
+  agentTaskId?: string;
   phase: "started" | "completed" | "stderr" | "status";
   name?: string;
   command?: string;
@@ -2396,6 +2418,8 @@ export type WorkbenchLiveToolEvent = {
 export type AssistantReadableEvent = {
   runId: string;
   itemId?: string;
+  agentRoleId?: string;
+  agentTaskId?: string;
   kind: "status" | "reasoning-summary" | "command" | "file-change" | "mcp-tool" | "web-search" | "plan-update" | "tool-result" | "usage" | "error";
   phase?: string;
   title?: string;
@@ -2439,6 +2463,8 @@ export type LiveTurnEvent =
 export type LiveAssistantTurn = {
   id: string;
   runId: string;
+  agentRoleId?: string;
+  agentTaskId?: string;
   runtime?: string;
   actionType?: string;
   status: string;

@@ -10,9 +10,20 @@ The user should not need to know internal terms before asking for work. The main
 
 ## Goal-Driven Workflow Loop Target
 
-Active implementation slice: none.
+Current implementation state: no active implementation slice.
 
 Latest completed implementation slice:
+`harness/changes/archive/20260702-main-agent-child-agent-workspace-flow-v2/summary.md`.
+It moves bounded child-agent interaction into a reusable right-side
+Agent workspace. The parent conversation stays clean and main-Agent owned,
+planning-agent drafts/revisions live in the Agent workspace, and the
+user-facing `实施此计划` affordance continues to call the existing
+`planning.confirm-execution` Harness action with target freshness and
+cross-Change revalidation. It does not add workflow truth, controller
+authority, action types, automation allowlist entries, Scheduler /
+IntegrationCheck authority, or apply/close authority.
+
+Previous completed implementation slice:
 `harness/changes/archive/20260702-main-agent-goal-style-real-codex-ui-acceptance-fix-pass-v1/summary.md`.
 It completes the real Codex UI acceptance/fix pass for the Harness-mode main
 Agent conversation flow. External-local new demands now show a live-first user

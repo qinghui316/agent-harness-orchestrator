@@ -151,13 +151,13 @@ export interface TopicMessageResult {
 export type WorkbenchLiveEvent =
   | { event: "topic.created"; data: { topic: { changeId: string; title: string; state: "active" } } }
   | { event: "topic.message"; data: TopicThreadEntry }
-  | { event: "run.started"; data: { runId: string; changeId: string; actionType?: string; runtime?: string; taskIds?: string[] } }
-  | { event: "run.status"; data: { runId?: string; actionRunId?: string; status: string; label?: string } }
-  | { event: "assistant.delta"; data: { delta: string; runId?: string } }
+  | { event: "run.started"; data: { runId: string; changeId: string; actionType?: string; runtime?: string; taskIds?: string[]; agentRoleId?: string; agentTaskId?: string } }
+  | { event: "run.status"; data: { runId?: string; actionRunId?: string; status: string; label?: string; agentRoleId?: string; agentTaskId?: string } }
+  | { event: "assistant.delta"; data: { delta: string; runId?: string; agentRoleId?: string; agentTaskId?: string } }
   | { event: "assistant.message"; data: TopicThreadEntry }
   | { event: "assistant.event"; data: WorkbenchAssistantEvent }
   | { event: "tool.event"; data: WorkbenchLiveToolEvent }
-  | { event: "usage"; data: { runId?: string; usage?: Record<string, unknown> } }
+  | { event: "usage"; data: { runId?: string; usage?: Record<string, unknown>; agentRoleId?: string; agentTaskId?: string } }
   | { event: "snapshot"; data: unknown }
   | { event: "error"; data: { message: string; runId?: string; actionRunId?: string } }
   | { event: "done"; data: { status: "completed" | "failed" } };
@@ -170,6 +170,8 @@ export interface WorkbenchLiveSink {
 export interface WorkbenchLiveToolEvent {
   runId: string;
   itemId?: string;
+  agentRoleId?: string;
+  agentTaskId?: string;
   phase: "started" | "completed" | "stderr" | "status";
   name?: string;
   command?: string;
@@ -182,6 +184,8 @@ export interface WorkbenchLiveToolEvent {
 export interface WorkbenchAssistantEvent extends CodexReadableEvent {
   runId: string;
   timestamp?: string;
+  agentRoleId?: string;
+  agentTaskId?: string;
 }
 
 export interface TopicMessageInput {

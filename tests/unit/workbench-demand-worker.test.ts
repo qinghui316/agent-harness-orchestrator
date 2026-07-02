@@ -16,6 +16,7 @@ import {
 import { initHarness } from "../../src/harness/init.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
+import { workflowActionPayloadFromScope } from "../../src/web/src/workflow-actions.js";
 import { createWorkbenchTopic } from "../../src/workbench/chat.js";
 import { getWorkbenchSnapshot } from "../../src/workbench/manager.js";
 import { getTempDir, project, writePlanningBundleFixture } from "./workbench/fixtures.js";
@@ -37,10 +38,12 @@ describe("workbench demand worker domain", () => {
     if (!claimedTwo) throw new Error("Expected second running demand to be claimed.");
     await markDemandWorkerRunning(memory, claimedTwo.worker, claimedTwo.attempt);
 
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: active.changeId });
+    const confirmAction = planningAgentConfirmAction(snapshot);
+    expect(confirmAction.planningBundleId).toBe(planningBundleId);
     const result = await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
+      ...workflowActionPayloadFromScope(confirmAction),
       actionType: "planning.confirm-execution",
-      changeId: active.changeId,
-      planningBundleId,
       confirm: true,
     });
 
@@ -67,10 +70,12 @@ describe("workbench demand worker domain", () => {
     await enqueueDemandWorker(memory, { changeId: older.changeId });
     await enqueueDemandWorker(memory, { changeId: olderTwo.changeId });
 
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: active.changeId });
+    const confirmAction = planningAgentConfirmAction(snapshot);
+    expect(confirmAction.planningBundleId).toBe(planningBundleId);
     const result = await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
+      ...workflowActionPayloadFromScope(confirmAction),
       actionType: "planning.confirm-execution",
-      changeId: active.changeId,
-      planningBundleId,
       confirm: true,
       prompt: "current-demand-prompt",
     });
@@ -224,3 +229,11 @@ describe("workbench demand worker domain", () => {
     expect(await listDemandWorkers(memory)).toEqual(expect.arrayContaining([expect.objectContaining({ changeId: topic.changeId, status: "claimed" })]));
   });
 });
+
+function planningAgentConfirmAction(snapshot: Awaited<ReturnType<typeof getWorkbenchSnapshot>>) {
+  const action = snapshot.right.agentWorkspace.agents
+    .find((agent) => agent.id === "planning-agent")
+    ?.actions.find((item) => item.actionType === "planning.confirm-execution");
+  if (!action) throw new Error("Expected planning-agent workspace to expose planning.confirm-execution.");
+  return action;
+}

@@ -28,10 +28,10 @@ The default interaction is one demand conversation:
 ```text
 user demand
 -> read-only project understanding when needed
--> planning-agent draft in the main conversation
--> optional live steering while planning is running
--> user feedback / revised plan
--> user confirms execution
+-> main Agent explains understanding and delegates planning when needed
+-> planning-agent draft in the right Agent workspace
+-> user feedback / revised plan in the planning-agent workspace
+-> user clicks "实施此计划"
 -> coder-agent implements and self-tests in an AHO-owned worktree
 -> optional live steering while coder is running
 -> validator independently checks
@@ -53,17 +53,35 @@ complete the demand. Those terms belong in Agent orchestration graph details, ev
 drawers, or developer docs.
 
 For the chat-only Workbench center, the primary conversation must stay clean:
-real user messages, real Codex/assistant output, compact activity rows, and
-short clarification strips only. It must not expose a general Workpad
-`details/evidence` disclosure as a normal part of every conversation. Evidence
-should be reachable through the right `确认` / `诊断` tools, compact activity
-row expansion, or the Agent orchestration graph overlay. The graph remains a
-wide read-only projection opened from the top tool button; it can explain
-main-agent decisions and leaf-role results, but it cannot execute workflow
-actions. The right rail remains the only visible surface for real confirmation
-gates.
+real user messages, real Codex/assistant output, compact delegation/result
+activity rows, and short clarification strips only. It must not expose full
+planning drafts, AC/task tables, raw artifact refs, Change ids, TaskRun ids, or
+WorkflowRun ids as ordinary assistant prose. Planning-agent, coder, validator,
+auditor, rework, and scheduler worker details belong in the right `Agent`
+workspace and graph node details. Evidence should be reachable through the
+right `Agent` / `确认` / `诊断` tools, compact activity row expansion, or the
+Agent orchestration graph overlay. The graph remains a wide read-only
+projection opened from the top tool button; it can explain main-agent decisions
+and leaf-role results, but it cannot execute workflow actions.
 
-OpenSpec is the reference for the planning artifact flow. Proposal, spec, design, tasks, and AC are artifacts produced and revised in one main planning conversation. They are not separate user-visible spec-agent and planner-agent flows. When the user confirms planning, AHO promotes the accepted bundle into internal canonical artifacts; Phase 7J no longer treats that confirmation as permission to start the role pipeline.
+The right rail separates interaction surfaces by responsibility. `Agent` shows
+selected main/child agent status, transcript/process rows, planning drafts,
+feedback, output summaries, and evidence refs. `确认` shows only real Harness
+gates such as source apply, landing/close, Scheduler/IntegrationCheck,
+remote/PR/merge, abandon/request-changes, or Harness evolution. Planning draft
+review is not a normal confirmationQueue primary card. The user-facing
+`实施此计划` affordance in the planning-agent workspace still calls the existing
+`planning.confirm-execution` action with stale-target and cross-Change
+revalidation intact; the workspace is a projection and scoped interaction
+surface, not workflow truth or a permission system.
+
+OpenSpec is the reference for the planning artifact flow. Proposal, spec,
+design, tasks, and AC are artifacts produced and revised through the
+planning-agent workspace and promoted only through the existing
+`planning.confirm-execution` path. They are not long assistant messages in the
+parent conversation and not separate workflow truth. When the user implements a
+plan, AHO promotes the accepted bundle into internal canonical artifacts; Phase
+7J no longer treats that confirmation as permission to start the role pipeline.
 
 Open Dynamic Workflows is the reference for deterministic workflow-as-artifact mechanics, not for the Workbench product surface. Phase 7H used only the proposal lesson: if a broad demand needs decomposition, the center conversation can show the main agent's DecompositionPlan in user language. Phase 7I adds a separate `DecompositionReadinessManifest` check after confirmation. Phase 7J uses that verdict as a gate: `ready-for-single-change` may expose `code.run`, while `ready-for-sequential-taskqueue-proposal` exposes TaskQueueProposal generation. Phase 7L adds a separate `WorkflowGraphPlan` compile action before confirmed queue start; graph compile is evidence and execution input, not execution. Phase 7K adds typed WorkflowRun progress recovery for that confirmed sequential queue. It still does not start a parallel scheduler, child Change, executable WorkflowPlan runtime, recovery replay from cached LLM output, or ODWF-style JavaScript script. Workflow scripts, resume keys, versioned graph refs, and raw orchestration internals belong in graph/details/evidence views, not the primary conversation.
 
@@ -319,7 +337,9 @@ Internal terms may appear in developer docs, tests, APIs, storage, and Agent Loo
 ## 5. Core UX Rules
 
 - A developer should understand the current demand, next required decision, and strongest evidence without opening raw files first.
-- Planning happens in the main conversation; there is no separate user-visible bottom Plan mode.
+- Planning happens in the planning-agent workspace; the main conversation keeps
+  the parent Agent narrative and delegation/result process rows. There is no
+  separate user-visible bottom Plan mode.
 - If Codex app-server is active, running input is sent to the current planning/coder turn. If fallback is active, the UI must say the input is recorded for the next turn.
 - A user confirming execution only agrees to implement the current plan; final source apply/merge still needs explicit confirmation.
 - A user confirming a Goal-loop or scheduler stage agrees to one described Harness transition, not to an unbounded autonomous loop.
@@ -337,7 +357,7 @@ Internal terms may appear in developer docs, tests, APIs, storage, and Agent Loo
 | --- | --- |
 | Project | Managed project registry entry |
 | Demand Conversation | Topic/Change/Workpad binding and interaction log |
-| Planning Draft | Proposal/spec/design/tasks/AC artifact bundle before confirmation |
+| Planning Draft | Proposal/spec/design/tasks/AC artifact bundle in the planning-agent workspace before implementation |
 | Execution Result | Role pipeline run summaries and evidence |
 | Evidence | Run artifacts, validation, audit, worktree state, decisions |
 | Apply / Merge Decision | Human-gated source transition |
