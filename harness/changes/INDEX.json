@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-07-01T17:16:16.5319056Z",
+    "generated_at":  "2026-07-02T06:28:09.7849594Z",
     "active":  [
 
                ],
@@ -2419,12 +2419,56 @@
                         "path":  "harness/changes/archive/20260702-auto-evolve-post-main-agent-action-alias-window"
                     },
                     {
+                        "name":  "20260702-auto-evolve-post-main-agent-strategy-consumption-window",
+                        "path":  "harness/changes/archive/20260702-auto-evolve-post-main-agent-strategy-consumption-window"
+                    },
+                    {
+                        "name":  "20260702-auto-evolve-post-resume-continuation-window",
+                        "path":  "harness/changes/archive/20260702-auto-evolve-post-resume-continuation-window"
+                    },
+                    {
                         "name":  "20260702-main-agent-loop-projection-retirement-v6",
                         "path":  "harness/changes/archive/20260702-main-agent-loop-projection-retirement-v6"
                     },
                     {
+                        "name":  "20260702-main-agent-odwf-style-human-stop-resume-point-v1",
+                        "path":  "harness/changes/archive/20260702-main-agent-odwf-style-human-stop-resume-point-v1"
+                    },
+                    {
+                        "name":  "20260702-main-agent-odwf-style-strategy-policy-v1",
+                        "path":  "harness/changes/archive/20260702-main-agent-odwf-style-strategy-policy-v1"
+                    },
+                    {
                         "name":  "20260702-main-agent-old-seam-retirement-v5d-inbound-only-action-alias-finalization",
                         "path":  "harness/changes/archive/20260702-main-agent-old-seam-retirement-v5d-inbound-only-action-alias-finalization"
+                    },
+                    {
+                        "name":  "20260702-main-agent-resume-consumption-context-v1b",
+                        "path":  "harness/changes/archive/20260702-main-agent-resume-consumption-context-v1b"
+                    },
+                    {
+                        "name":  "20260702-main-agent-resume-consumption-v1c-scoped-local-gated-continuation",
+                        "path":  "harness/changes/archive/20260702-main-agent-resume-consumption-v1c-scoped-local-gated-continuation"
+                    },
+                    {
+                        "name":  "20260702-main-agent-resumepoint-stable-key-safety-v1a",
+                        "path":  "harness/changes/archive/20260702-main-agent-resumepoint-stable-key-safety-v1a"
+                    },
+                    {
+                        "name":  "20260702-main-agent-strategy-consumption-execution-mode-bridge-v1",
+                        "path":  "harness/changes/archive/20260702-main-agent-strategy-consumption-execution-mode-bridge-v1"
+                    },
+                    {
+                        "name":  "20260702-main-agent-strategy-consumption-readonly-safety-fix-v1",
+                        "path":  "harness/changes/archive/20260702-main-agent-strategy-consumption-readonly-safety-fix-v1"
+                    },
+                    {
+                        "name":  "20260702-main-agent-strategy-decision-contract-v1",
+                        "path":  "harness/changes/archive/20260702-main-agent-strategy-decision-contract-v1"
+                    },
+                    {
+                        "name":  "20260702-main-agent-strategy-policy-v2a-stale-first-readonly-advice",
+                        "path":  "harness/changes/archive/20260702-main-agent-strategy-policy-v2a-stale-first-readonly-advice"
                     }
                 ]
 }

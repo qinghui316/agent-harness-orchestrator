@@ -7,6 +7,7 @@ export const GOAL_LOOP_CONTROLLER_POLICY_PROMPT_LABEL = "goal-loop-controller-po
 export const GOAL_LOOP_SCHEDULER_TERMINAL_HANDOFF_PROMPT_LABEL = "goal-loop-scheduler-terminal-handoff";
 export const GOAL_LOOP_CONTROLLED_SCHEDULER_NEXT_CANDIDATE_PROMPT_LABEL = "goal-loop-controlled-scheduler-next-candidate";
 export const GOAL_LOOP_CONTROLLED_SCHEDULER_POST_STEP_ROUTING_PROMPT_LABEL = "goal-loop-controlled-scheduler-post-step-routing";
+export const MAIN_AGENT_RESUME_CONTINUATION_PROMPT_LABEL = "main-agent-resume-continuation-context";
 
 export interface GoalLoopRoutingPosturePromptEvidence {
   authority: "non-executing-routing-posture-prompt-evidence";
@@ -37,6 +38,8 @@ export interface GoalLoopContextPreparedEvidence {
   goalLoopSchedulerTerminalHandoff?: MainAgentContextResult["goalLoopSchedulerTerminalHandoff"];
   goalLoopControlledSchedulerNextCandidate?: MainAgentContextResult["goalLoopControlledSchedulerNextCandidate"];
   goalLoopControlledSchedulerPostStepRouting?: MainAgentContextResult["goalLoopControlledSchedulerPostStepRouting"];
+  mainAgentResumeContinuationStatus?: NonNullable<MainAgentContextResult["resumeContinuationContext"]>["status"];
+  mainAgentResumeContinuationPointId?: string;
 }
 
 export function goalLoopPromptStackLabels(context: MainAgentContextResult): string[] {
@@ -62,6 +65,9 @@ export function goalLoopPromptStackLabels(context: MainAgentContextResult): stri
   if (context.goalLoopControlledSchedulerPostStepRouting) {
     labels.push(GOAL_LOOP_CONTROLLED_SCHEDULER_POST_STEP_ROUTING_PROMPT_LABEL);
   }
+  if (context.resumeContinuationContext && context.resumeContinuationContext.status !== "not-requested") {
+    labels.push(MAIN_AGENT_RESUME_CONTINUATION_PROMPT_LABEL);
+  }
   return labels;
 }
 
@@ -78,6 +84,8 @@ export function buildGoalLoopContextPreparedEvidence(context: MainAgentContextRe
     goalLoopSchedulerTerminalHandoff: context.goalLoopSchedulerTerminalHandoff,
     goalLoopControlledSchedulerNextCandidate: context.goalLoopControlledSchedulerNextCandidate,
     goalLoopControlledSchedulerPostStepRouting: context.goalLoopControlledSchedulerPostStepRouting,
+    mainAgentResumeContinuationStatus: context.resumeContinuationContext?.status,
+    mainAgentResumeContinuationPointId: context.resumeContinuationContext?.resumePoint?.id,
   };
 }
 

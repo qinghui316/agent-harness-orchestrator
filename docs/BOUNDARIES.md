@@ -40,6 +40,7 @@ roles through explicit gates; it must not replace the workflow authority model.
 | Run, Validation, Audit, Worktree, Apply/Close records | Evidence and gated transitions | Only through existing gated actions | Yes for their domain |
 | `confirmationQueue.primary` | Current human decision surface | Yes, after explicit confirmation and revalidation | Projection of current legal gate |
 | `MainAgentDecision` / next-step packet / controller verdict | Recommendation and prompt context | No | No |
+| LLM strategy advice | Bounded read-only strategy evidence | No | No |
 | WorkflowGraphPlan / WorkflowRun journal / recovery key | Execution structure and recovery evidence | No | No |
 | Workpad, transcript, Agent graph, runtime log, diagnostics | User-facing projections | No | No |
 | Worker `AgentTaskResult` | Leaf-role result evidence | No | No; must pass validation/audit/gates |
@@ -50,6 +51,12 @@ stale evidence, failure, ambiguity, completion, or any high-impact human gate.
 Neither mode may auto-confirm planning, raw scheduler dispatch, manual
 IntegrationCheck, integration apply/discard, remote/PR/merge, or Harness
 evolution.
+
+LLM strategy advice is not a workflow truth source, gate, controller, or
+automation authority. It may explain or propose a direct / pipeline / parallel /
+clarify / terminal posture only as bounded read-only evidence; it must not write
+strategy JSONL, alter `confirmationQueue`, change scoped automation allowlists,
+or drive action execution.
 
 ## 2. Personal-First and Local-First Boundary
 

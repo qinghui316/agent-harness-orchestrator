@@ -8,6 +8,24 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260702-main-agent-strategy-policy-v2a-stale-first-readonly-advice/summary.md`.
+- Previous archived product change:
+  `harness/changes/archive/20260702-main-agent-resume-consumption-v1c-scoped-local-gated-continuation/summary.md`.
+- Previous archived product change:
+  `harness/changes/archive/20260702-main-agent-resume-consumption-context-v1b/summary.md`.
+- Previous archived product change:
+  `harness/changes/archive/20260702-main-agent-resumepoint-stable-key-safety-v1a/summary.md`.
+- Previous archived product change:
+  `harness/changes/archive/20260702-main-agent-odwf-style-human-stop-resume-point-v1/summary.md`.
+- Previous archived product change:
+  `harness/changes/archive/20260702-main-agent-odwf-style-strategy-policy-v1/summary.md`.
+- Previous archived product change:
+  `harness/changes/archive/20260702-main-agent-strategy-consumption-readonly-safety-fix-v1/summary.md`.
+- Previous archived product change:
+  `harness/changes/archive/20260702-main-agent-strategy-consumption-execution-mode-bridge-v1/summary.md`.
+- Previous archived product change:
+  `harness/changes/archive/20260702-main-agent-strategy-decision-contract-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260702-main-agent-loop-projection-retirement-v6/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260702-main-agent-old-seam-retirement-v5d-inbound-only-action-alias-finalization/summary.md`.
@@ -156,6 +174,20 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Previous archived docs/reference change:
   `harness/changes/archive/20260626-document-desktop-cc-gui-reference-map-and-product-layer-roadmap/summary.md`.
 - Latest completed Harness evolution:
+  `harness/changes/archive/20260702-auto-evolve-post-resume-continuation-window/summary.md`
+  (`docs_current_delta`; subagent Cicero; existing ECL/BOUNDARIES coverage is
+  sufficient for non-executing strategy/resume evidence and stable-key
+  continuation; no new Harness rule/template/lint/product runtime change
+  needed. Current handoff drift was repaired and pending evolution was marked
+  complete).
+- Previous completed Harness evolution:
+  `harness/changes/archive/20260702-auto-evolve-post-main-agent-strategy-consumption-window/summary.md`
+  (`docs_current_delta`; subagents Beauvoir/Godel score 82; existing
+  ECL/BOUNDARIES coverage is sufficient for the strategy decision/consumption
+  and read-only safety archive window; no new Harness rule/template/lint or
+  product runtime change needed. Current handoff drift was repaired before
+  pending evolution was marked complete).
+- Previous completed Harness evolution:
   `harness/changes/archive/20260702-auto-evolve-post-main-agent-action-alias-window/summary.md`
   (`docs_current_delta`; subagent Peirce score 78; existing ECL/BOUNDARIES
   coverage is sufficient for V5a-V5d action-alias lessons; no ECL rule,
@@ -238,6 +270,16 @@ Current baseline:
   V1 remains deterministic and does not add SchedulerRun/WorkerLease/
   IntegrationCheck fan-out, UI, confirmation queue, action bridge, automation
   allowlist, apply/close, remote, PR, merge, or Harness evolution authority.
+- Main-agent resume now has ODWF-style stable-key evidence and read-only
+  continuation context. Scoped automation can record `MainAgentResumePoint`
+  evidence when a human stop/reject/feedback, budget, blocked, or stale
+  breakpoint occurs. A later explicit "continue / resume / follow feedback"
+  main-agent turn may bind only the latest same-project/same-Change point whose
+  rebuilt current gate/target, source/artifact, policy/runtime, and feedback
+  evidence still matches, then inject bounded quoted context into main-agent
+  chat/orchestrator prompts. It does not enter worker role packets, Workbench
+  UI, action payloads, automation execution, Scheduler, IntegrationCheck,
+  apply/close, remote/PR/merge, or Harness evolution.
 - Workbench conversation transcripts now use cursor-incremental SQLite message
   paging by default, bounded virtual rendering, long-message folding, and
   `@chenglou/pretext` height estimates with fallback. Synthetic 100k / 500k

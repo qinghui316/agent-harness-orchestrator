@@ -6,6 +6,24 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260702-main-agent-strategy-policy-v2a-stale-first-readonly-advice/summary.md`.
+- Previous archived product change:
+  `harness/changes/archive/20260702-main-agent-resume-consumption-v1c-scoped-local-gated-continuation/summary.md`.
+- Previous archived product change:
+  `harness/changes/archive/20260702-main-agent-resume-consumption-context-v1b/summary.md`.
+- Previous archived product change:
+  `harness/changes/archive/20260702-main-agent-resumepoint-stable-key-safety-v1a/summary.md`.
+- Previous archived product change:
+  `harness/changes/archive/20260702-main-agent-odwf-style-human-stop-resume-point-v1/summary.md`.
+- Previous archived product change:
+  `harness/changes/archive/20260702-main-agent-odwf-style-strategy-policy-v1/summary.md`.
+- Previous archived product change:
+  `harness/changes/archive/20260702-main-agent-strategy-consumption-readonly-safety-fix-v1/summary.md`.
+- Previous archived product change:
+  `harness/changes/archive/20260702-main-agent-strategy-consumption-execution-mode-bridge-v1/summary.md`.
+- Previous archived product change:
+  `harness/changes/archive/20260702-main-agent-strategy-decision-contract-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260702-main-agent-loop-projection-retirement-v6/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260702-main-agent-old-seam-retirement-v5d-inbound-only-action-alias-finalization/summary.md`.
@@ -154,6 +172,20 @@
 - Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-skills-catalog-and-codex-bridge-v1/summary.md`.
 - Latest completed Harness evolution:
+  `harness/changes/archive/20260702-auto-evolve-post-resume-continuation-window/summary.md`
+  (`docs_current_delta`; subagent Cicero; existing ECL/BOUNDARIES coverage is
+  sufficient for non-executing strategy/resume evidence and stable-key
+  continuation; no new Harness rule/template/lint/product runtime change
+  needed. Current handoff drift was repaired and pending evolution was marked
+  complete).
+- Previous completed Harness evolution:
+  `harness/changes/archive/20260702-auto-evolve-post-main-agent-strategy-consumption-window/summary.md`
+  (`docs_current_delta`; subagents Beauvoir/Godel score 82; existing
+  ECL/BOUNDARIES coverage is sufficient for the strategy decision/consumption
+  and read-only safety archive window; no new Harness rule/template/lint or
+  product runtime change needed. Current handoff drift was repaired before
+  pending evolution was marked complete).
+- Previous completed Harness evolution:
   `harness/changes/archive/20260702-auto-evolve-post-main-agent-action-alias-window/summary.md`
   (`docs_current_delta`; subagent Peirce score 78; existing ECL/BOUNDARIES
   coverage is sufficient for V5a-V5d action-alias lessons; no ECL rule,
@@ -214,6 +246,83 @@
 
 ## Latest Product Closeout
 
+`harness/changes/archive/20260702-main-agent-resume-consumption-context-v1b/summary.md`.
+
+It adds a read-only `MainAgentResumeContinuationContext` for explicit
+"continue / resume / follow feedback" main-agent turns after a human stop,
+reject, discard, feedback, budget, blocked, or stale breakpoint. The context
+rebuilds the current ResumePoint stable key from current Change/gate/target,
+source/artifact, policy/runtime, and feedback evidence, binds only when the
+latest same-project/same-Change ResumePoint is still safe, and injects bounded
+quoted evidence into main-agent chat / orchestrator prompt context. It does not
+enter worker role packets, Workbench UI, confirmation cards, action payloads,
+automation execution, Scheduler, IntegrationCheck, apply/close, remote/PR/merge,
+or Harness evolution.
+
+Previous closeout:
+`harness/changes/archive/20260702-main-agent-resumepoint-stable-key-safety-v1a/summary.md`.
+
+It tightens `MainAgentResumePoint` stable-key safety before resume consumption:
+runtime instance ids stay in refs instead of the stable hash, write-time
+validation rejects cross-Change/lane/gate/target scope drift, bind results
+distinguish stale and blocked evidence, and worker/automation behavior remains
+unchanged.
+
+Previous closeout:
+`harness/changes/archive/20260702-main-agent-odwf-style-human-stop-resume-point-v1/summary.md`.
+
+It adds a non-executing ODWF-style `MainAgentResumePoint` evidence owner for
+main-agent human stops. Scoped automation can now record stable-key resume
+points when it stops at budget, stale, blocked, unsupported, or human-only
+breakpoints; later main-agent turns can bind only when the same Change,
+gate/target, source/artifact, runtime/policy, and feedback evidence still
+match. It does not add UI, action types, automation permissions, Scheduler or
+IntegrationCheck execution, apply/close authority, remote/PR/merge, or Harness
+evolution authority.
+
+Previous closeout:
+`harness/changes/archive/20260702-main-agent-odwf-style-strategy-policy-v1/summary.md`.
+
+It adds ODWF-style non-executing workflow shape metadata to
+`MainAgentStrategyDecision`: direct, pipeline, parallel-candidate, clarify,
+blocked, terminal, and stale shape labels; bounded leaf role hints; barrier and
+isolation metadata. The strategy remains deterministic and non-executing. It
+does not add UI, write strategy JSONL, call LLM strategy, change automation,
+Scheduler, IntegrationCheck, apply/close, remote, PR, merge, or Harness
+evolution authority.
+
+Previous closeout:
+`harness/changes/archive/20260702-main-agent-strategy-consumption-readonly-safety-fix-v1/summary.md`.
+
+It fixes the Strategy Consumption / Execution Mode Bridge read-only boundary:
+scoped automation strategy prechecks build strategy context from read-only
+WorkflowGraph replay/degraded replay instead of recording
+`workflowgraph-decisions.jsonl`; the post-plan duplicate precheck was removed.
+
+Previous closeout:
+`harness/changes/archive/20260702-main-agent-strategy-consumption-execution-mode-bridge-v1/summary.md`.
+
+It connects the non-executing `MainAgentStrategyDecision` to the existing
+Harness execution-mode boundary. `逐步确认` remains explanatory and waits on
+the real current gate. `完全访问权限` now has a fail-closed strategy
+consumption precheck before existing scoped automation; execution still
+requires the current visible primary gate to be same-Change, enabled,
+target-fresh, and already covered by the existing automation allowlists and
+revalidation. No action type, allowlist, UI, Scheduler/IntegrationCheck,
+remote/PR/merge, apply/close, or Harness evolution authority was expanded.
+
+Previous closeout:
+`harness/changes/archive/20260702-main-agent-strategy-decision-contract-v1/summary.md`.
+
+It adds a non-executing `MainAgentStrategyDecision` contract on top of the
+existing replay decision policy so Harness-mode evidence can classify direct
+single-worktree, sequential WorkflowGraph, controlled Scheduler parallel
+candidate, read-only/clarify, wait, blocked, complete, and stale strategy
+postures. V1 is contract-only: it does not execute actions, write new JSONL,
+change UI, call scoped automation, or expand Scheduler / IntegrationCheck /
+apply / close / remote / PR / merge / Harness evolution authority.
+
+Previous closeout:
 `harness/changes/archive/20260702-main-agent-loop-projection-retirement-v6/summary.md`.
 
 It retires the old Workpad/Web DTO `MainAgentLoopProjection` seam and deletes
@@ -223,19 +332,6 @@ bridge evidence ids, main-agent loop evidence, WorkflowGraph replay/policy/
 backflow, Scheduler, IntegrationCheck, confirmationQueue, action revalidation,
 automation allowlists, ToolPolicyGate, apply/close, remote, PR, merge, and
 Harness evolution authority remain unchanged.
-
-Previous closeout:
-`harness/changes/archive/20260702-main-agent-old-seam-retirement-v5d-inbound-only-action-alias-finalization/summary.md`.
-
-It finalizes `role.pipeline.*` as permanent inbound-only compatibility while
-`main-agent.execution.*` remains the canonical public action family. Legacy
-inbound requests still route to the same handlers and may keep their original
-`request.actionType` in historical thread/action/decision echo evidence. New
-generated Workbench/server/current-gate payloads stay canonical. V5d removes
-the reverse legacy conversion helper from production and does not delete
-internal demand-worker `rolePipeline`, Scheduler or
-IntegrationCheck owners, confirmation gates, revalidation, automation
-allowlists, apply/close, remote, PR, merge, or Harness evolution.
 
 Previous closeout:
 `harness/changes/archive/20260701-main-agent-old-seam-retirement-v5c-role-pipeline-action-alias-readiness/summary.md`.
@@ -728,13 +824,13 @@ Harness workflow truth.
 
 ## Next Resume Point
 
-Current main-agent architecture work has no active product change. Pending
-Harness evolution is none. After V6, the current Harness-mode main-agent
-foundation is converged; next work should start as a new structured product or
-architecture phase, such as smarter decision policy, Normal Agent mode,
-provider expansion, or desktop packaging. Do not remove canonical Harness
-truth, Scheduler runtime owners, IntegrationCheck apply/discard owners,
-confirmation gates, action revalidation, or automation allowlists.
+Current main-agent architecture work has no active ECL change. Latest completed
+slice is
+`harness/changes/archive/20260702-main-agent-strategy-policy-v2a-stale-first-readonly-advice/summary.md`.
+Pending Harness evolution is none. V2a repaired V1c stale-first resume
+consumption and added read-only strategy advice that cannot alter
+`MainAgentStrategyDecision`, scoped automation compatibility, confirmation
+queue, allowlists, Scheduler / IntegrationCheck, or apply / close authority.
 
 Desktop product work can continue from
 `docs/design-docs/ref-desktop-cc-gui.md` when selected.

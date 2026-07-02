@@ -4,8 +4,22 @@ import { isScopedAutomationAllowedAction, isScopedAutomationAllowedApprovalActio
 import type { ScopedAutomationChildGate } from "../../../automation-runtime/runner.js";
 import type { AutomationStopReason } from "../../../automation-runtime/types.js";
 import { decideLocalGoalLoopNextStep } from "../../../goal-loop-runtime/local-loop.js";
+import {
+  assessMainAgentResumeConsumption,
+  assessMainAgentStrategyConsumption,
+  buildMainAgentResumeContinuationContext,
+  buildMainAgentStrategyConsumptionContext,
+  detectMainAgentResumeContinuationIntent,
+  recordScopedAutomationMainAgentResumePoint,
+  sanitizeMainAgentResumeGateScope,
+  type MainAgentResumeContinuationContext,
+  type MainAgentResumeConsumptionAssessment,
+  type MainAgentResumePointGateSnapshot,
+  type MainAgentStrategyConsumptionAssessment,
+  type MainAgentStrategyConsumptionGateSummary,
+} from "../../../main-agent-orchestration/index.js";
 import { assertWritableMemory } from "../../../memory/resolver.js";
-import type { ManagedProject } from "../../../types/index.js";
+import type { ManagedProject, ResolvedMemory } from "../../../types/index.js";
 import { isWorkflowActionType, workflowActionScopesMatchStrict, type WorkflowActionType } from "../../../workflow-actions/registry.js";
 import { emitAssistantEvent } from "../../live-events.js";
 import { getWorkbenchSnapshot } from "../../manager.js";
@@ -35,17 +49,49 @@ export async function runScopedAutomationAction(
   const automationRequest = assertScopedAutomationRequest(changeId, request);
   const { memory, changePath } = await resolveTopic(project, changeId);
   assertWritableMemory(memory, "Workbench scoped automation runtime");
-  const [sourceState, acceptedArtifactHashes] = await Promise.all([
-    captureAutomationSourceState(memory),
-    captureAcceptedArtifactHashes(memory, changePath),
-  ]);
+  const currentGate = await resolveCurrentPrimaryAutomationGate(project, changeId);
+  const strategyContext = await buildMainAgentStrategyConsumptionContext(memory, project, changeId, { changePath });
+  const strategyAssessment = assessMainAgentStrategyConsumption({
+    strategyDecision: strategyContext.strategyDecision,
+    mode: "full-access",
+    selectedChangeId: changeId,
+    currentGate: strategyConsumptionGateFromAutomationGate(currentGate),
+  });
+  if (strategyAssessment.status !== "allow-existing-scoped-automation") {
+    return appendScopedAutomationNotStarted(project, changeId, live, strategyAssessment);
+  }
+  let sourceState: Awaited<ReturnType<typeof captureAutomationSourceState>> | undefined;
+  let acceptedArtifactHashes: Awaited<ReturnType<typeof captureAcceptedArtifactHashes>> | undefined;
+  const captureSafetyContext = async () => {
+    if (!sourceState || !acceptedArtifactHashes) {
+      [sourceState, acceptedArtifactHashes] = await Promise.all([
+        captureAutomationSourceState(memory),
+        captureAcceptedArtifactHashes(memory, changePath),
+      ]);
+    }
+    return { sourceState, acceptedArtifactHashes };
+  };
+  const resumeContinuationContext = await buildScopedLocalResumeContinuationContext(project, changeId, memory, changePath, request, currentGate, captureSafetyContext);
+  if (resumeContinuationContext.status !== "not-requested") {
+    const resumeAssessment = assessMainAgentResumeConsumption({
+      resumeContinuationContext,
+      strategyDecision: strategyContext.strategyDecision,
+      mode: "full-access",
+      selectedChangeId: changeId,
+      currentGate: strategyConsumptionGateFromAutomationGate(currentGate),
+    });
+    if (resumeAssessment.status !== "allow-existing-scoped-automation") {
+      return appendScopedAutomationNotStarted(project, changeId, live, resumeAssessment);
+    }
+  }
+  const safetyContext = await captureSafetyContext();
 
   const result = await runScopedAutomation({
     memory,
     changePath,
     projectId: project.id,
-    sourceState,
-    acceptedArtifactHashes,
+    sourceState: safetyContext.sourceState,
+    acceptedArtifactHashes: safetyContext.acceptedArtifactHashes,
     request: automationRequest,
     services: {
       resolveCurrentPrimaryGate: async () => resolveCurrentPrimaryAutomationGate(project, changeId),
@@ -94,6 +140,26 @@ export async function runScopedAutomationAction(
       summarizeChildResult: (gate, childResult) => gate.kind === "workflow-action"
         ? summarizeActionResult(gate.actionType, childResult)
         : `${gate.actionId} completed`,
+      recordResumePoint: async (input) => {
+        await recordScopedAutomationMainAgentResumePoint(memory, changePath, {
+          projectId: project.id,
+          changeId,
+          sourceStopReason: input.stopReason,
+          summary: input.summary,
+          requestedGate: { ...input.requestedGate },
+          currentGate: automationGateToResumeSnapshot(input.currentGate),
+          sourceState: { ...input.sourceState },
+          acceptedArtifactHashes: { ...input.acceptedArtifactHashes },
+          automationAuthorizationId: input.authorization.id,
+          automationRunId: input.automationRun.id,
+          automationIterationIds: input.iterations.map((iteration) => iteration.id),
+          artifactRefs: [
+            input.authorization.artifact,
+            input.automationRun.artifact,
+            ...input.iterations.map((iteration) => iteration.artifact),
+          ],
+        });
+      },
       waitForSettledPrimaryGate: async () => {
         await new Promise((resolve) => setTimeout(resolve, 1000));
       },
@@ -133,23 +199,161 @@ export async function runPostPlanScopedAutomation(
     },
   });
   if (decision.kind !== "run-scoped-automation") {
-    const text = `计划已确认，但完全访问权限未启动：${decision.summary}`;
-    await appendTopicThreadEntry(project, changeId, {
-      type: "assistant.message",
-      status: "scoped-automation-not-started",
-      text,
+    return appendScopedAutomationNotStarted(project, changeId, live, {
+      status: decision.kind === "blocked" ? "blocked" : "stop-for-human-gate",
+      reason: decision.summary,
+      gatePosture: {
+        stopReason: "stopReason" in decision ? decision.stopReason : decision.kind,
+      },
     });
-    emitAssistantEvent(live, {
-      runId: changeId,
-      kind: "status",
-      phase: "scoped-automation-not-started",
-      title: "完全访问权限未启动",
-      summary: text,
-    });
-    return { status: "not-started", stopReason: "stopReason" in decision ? decision.stopReason : decision.kind, summary: decision.summary };
   }
   const request = scopedAutomationRequestFromGate(changeId, decision.gate);
   return runScopedAutomationAction(project, changeId, request, live, handlers);
+}
+
+function strategyConsumptionGateFromAutomationGate(
+  gate: ScopedAutomationChildGate | { stopReason: AutomationStopReason; summary: string },
+): MainAgentStrategyConsumptionGateSummary {
+  if ("stopReason" in gate) {
+    return {
+      kind: gate.stopReason === "blocked" ? "blocked" : "none",
+      enabled: false,
+      scopedAutomationEligible: false,
+      family: "unknown",
+      stopReason: gate.stopReason,
+      summary: gate.summary,
+    };
+  }
+  if (gate.kind === "approval-action") {
+    const snapshot = automationGateToResumeSnapshot(gate);
+    return {
+      kind: "approval",
+      changeId: gate.changeId,
+      approvalActionId: gate.actionId,
+      targetIds: snapshot?.targetIds ?? [],
+      enabled: true,
+      scopedAutomationEligible: true,
+      family: "local-approval",
+    };
+  }
+  const snapshot = automationGateToResumeSnapshot(gate);
+  return {
+    kind: "workflow",
+    changeId: gate.changeId,
+    actionType: gate.actionType,
+    targetIds: snapshot?.targetIds ?? [],
+    enabled: true,
+    scopedAutomationEligible: true,
+    family: gate.actionType === "planning.goal-loop.controlled-continue.run" ? "controlled-scheduler" : "local-workflow",
+  };
+}
+
+async function buildScopedLocalResumeContinuationContext(
+  project: ManagedProject,
+  changeId: string,
+  memory: ResolvedMemory,
+  changePath: string,
+  request: WorkbenchWorkflowActionRequest,
+  currentGate: ScopedAutomationChildGate | { stopReason: AutomationStopReason; summary: string },
+  captureSafetyContext: () => Promise<{
+    sourceState: Awaited<ReturnType<typeof captureAutomationSourceState>>;
+    acceptedArtifactHashes: Awaited<ReturnType<typeof captureAcceptedArtifactHashes>>;
+  }>,
+): Promise<MainAgentResumeContinuationContext> {
+  const continuationIntent = detectMainAgentResumeContinuationIntent([request.feedback, request.prompt].filter(Boolean).join("\n"));
+  if (!continuationIntent.requested) {
+    return buildMainAgentResumeContinuationContext(memory, {
+      projectId: project.id,
+      changeId,
+      changePath,
+      continuationIntent,
+      currentEvidence: { changeId },
+      candidateLanes: ["scoped-local-automation"],
+    });
+  }
+  const { sourceState, acceptedArtifactHashes } = await captureSafetyContext();
+  return buildMainAgentResumeContinuationContext(memory, {
+    projectId: project.id,
+    changeId,
+    changePath,
+    continuationIntent,
+    currentEvidence: {
+      changeId,
+      gate: "stopReason" in currentGate ? null : automationGateToResumeSnapshot(currentGate),
+      sourceState: sourceState as unknown as Record<string, unknown>,
+      acceptedArtifactHashes: acceptedArtifactHashes as unknown as Record<string, unknown>,
+      runtimePolicy: {
+        automationMode: "full-access",
+        authorizationAuthority: "human-confirmed-scoped-automation-authorization",
+      },
+      feedbackHash: continuationIntent.feedbackHash ?? null,
+    },
+    candidateLanes: ["scoped-local-automation"],
+    priority: { hasConcreteCurrentGate: !("stopReason" in currentGate) },
+  });
+}
+
+function automationGateToResumeSnapshot(gate: ScopedAutomationChildGate | null): MainAgentResumePointGateSnapshot | null {
+  if (!gate) return null;
+  const rawScope = { ...gate } as Record<string, unknown>;
+  const targetIds = collectResumeTargetIds(rawScope);
+  if (gate.kind === "approval-action") {
+    return {
+      kind: "approval-action",
+      approvalActionId: gate.actionId,
+      changeId: gate.changeId,
+      targetIds,
+      scope: sanitizeMainAgentResumeGateScope(rawScope),
+    };
+  }
+  return {
+    kind: "workflow-action",
+    actionType: gate.actionType,
+    changeId: gate.changeId,
+    targetIds,
+    scope: sanitizeMainAgentResumeGateScope(rawScope),
+  };
+}
+
+function collectResumeTargetIds(scope: Record<string, unknown>): string[] {
+  const values = new Set<string>();
+  for (const [key, value] of Object.entries(scope)) {
+    if (key === "changeId" || key === "actionType" || key === "actionId" || key === "kind") continue;
+    if (typeof value === "string" && /(?:Id|Ids|Artifact|Hash)$/.test(key)) values.add(value);
+    if (Array.isArray(value) && /(?:Id|Ids)$/.test(key)) {
+      for (const item of value) {
+        if (typeof item === "string") values.add(item);
+      }
+    }
+  }
+  return [...values].sort();
+}
+
+async function appendScopedAutomationNotStarted(
+  project: ManagedProject,
+  changeId: string,
+  live: WorkbenchLiveSink | undefined,
+  assessment: Pick<MainAgentStrategyConsumptionAssessment | MainAgentResumeConsumptionAssessment, "status" | "reason"> & { gatePosture?: { stopReason?: string | null } },
+): Promise<{ status: "not-started"; stopReason: string; summary: string }> {
+  const text = `完全访问权限未启动：${assessment.reason}`;
+  await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "scoped-automation-not-started",
+    text,
+  });
+  emitAssistantEvent(live, {
+    runId: changeId,
+    kind: "status",
+    phase: "scoped-automation-not-started",
+    title: "完全访问权限未启动",
+    summary: text,
+  });
+  const stopReason = assessment.gatePosture?.stopReason ?? assessment.status;
+  return {
+    status: "not-started",
+    stopReason,
+    summary: assessment.reason,
+  };
 }
 
 async function resolveCurrentPrimaryAutomationGate(

@@ -28,9 +28,22 @@ export interface ScopedAutomationServices {
   resolveCurrentPrimaryGate(previousResult: unknown | null): Promise<ScopedAutomationChildGate | { stopReason: AutomationStopReason; summary: string }>;
   dispatchChildAction(request: ScopedAutomationChildGate, auditScope: Record<string, unknown>): Promise<unknown>;
   summarizeChildResult(gate: ScopedAutomationChildGate, result: unknown): string;
+  recordResumePoint?(input: ScopedAutomationResumePointInput): Promise<void>;
   checkSafety?(previousResult: unknown | null): Promise<{ stopReason: "source-drift" | "accepted-artifact-drift"; summary: string } | null>;
   waitForSettledPrimaryGate?(attempt: number): Promise<void>;
   primaryGateResolutionTimeoutMs?: number;
+}
+
+export interface ScopedAutomationResumePointInput {
+  stopReason: AutomationStopReason;
+  summary: string;
+  currentGate: ScopedAutomationChildGate | null;
+  requestedGate: ScopedAutomationRequest;
+  authorization: AutomationAuthorization;
+  automationRun: AutomationRun;
+  iterations: AutomationIteration[];
+  sourceState: AutomationSourceState;
+  acceptedArtifactHashes: AutomationAcceptedArtifactHashes;
 }
 
 export interface ScopedAutomationResult {
@@ -113,6 +126,7 @@ export async function runScopedAutomation(input: {
   let stopReason: AutomationStopReason = "max-steps";
   let stopSummary = automationStopReasonSummary("max-steps");
   let previousGateSignature: string | null = null;
+  let stopGate: ScopedAutomationChildGate | null = null;
 
   for (let index = 0; index < maxSteps; index += 1) {
     const safety = services.checkSafety ? await services.checkSafety(previousResult) : null;
@@ -133,12 +147,14 @@ export async function runScopedAutomation(input: {
     if ("stopReason" in next) {
       stopReason = next.stopReason;
       stopSummary = next.summary;
+      stopGate = null;
       break;
     }
     const scopeStop = scopedAutomationStopForChange(next, request.changeId);
     if (scopeStop) {
       stopReason = scopeStop.stopReason;
       stopSummary = scopeStop.summary;
+      stopGate = next;
       break;
     }
       const gateActionId = scopedAutomationGateActionId(next);
@@ -146,12 +162,14 @@ export async function runScopedAutomation(input: {
       if (gateStop) {
         stopReason = gateStop.stopReason;
         stopSummary = gateStop.summary;
+        stopGate = next;
         break;
       }
       const gateSignature = scopedAutomationGateSignature(next);
       if (previousGateSignature === gateSignature) {
         stopReason = "no-progress";
         stopSummary = automationStopReasonSummary("no-progress");
+        stopGate = next;
         break;
       }
 
@@ -212,6 +230,7 @@ export async function runScopedAutomation(input: {
     } catch (error) {
       stopReason = "handler-failed";
       stopSummary = error instanceof Error ? error.message : String(error);
+      stopGate = next;
       const iteration: AutomationIteration = {
         version: "1.0",
         id: iterationId,
@@ -260,6 +279,23 @@ export async function runScopedAutomation(input: {
   automationRun.updatedAt = new Date().toISOString();
   automationRun.completedAt = new Date().toISOString();
   await writeAutomationRun(memory, changePath, automationRun);
+  if (services.recordResumePoint && isResumableAutomationStopReason(stopReason)) {
+    try {
+      await services.recordResumePoint({
+        stopReason,
+        summary: stopSummary,
+        currentGate: stopGate,
+        requestedGate: request,
+        authorization,
+        automationRun,
+        iterations,
+        sourceState,
+        acceptedArtifactHashes,
+      });
+    } catch (error) {
+      console.warn(`[automation-runtime] failed to record main-agent resume point: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
 
   return {
     authorization,
@@ -270,6 +306,10 @@ export async function runScopedAutomation(input: {
     summary: stopSummary,
     artifactRefs: [authorization.artifact, automationRun.artifact, ...iterations.map((iteration) => iteration.artifact)],
   };
+}
+
+function isResumableAutomationStopReason(reason: AutomationStopReason): boolean {
+  return reason !== "no-primary-gate";
 }
 
 async function resolvePostBudgetStop(

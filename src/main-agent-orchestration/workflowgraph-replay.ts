@@ -10,6 +10,7 @@ import {
   evaluateMainAgentWorkflowGraphReplayPolicy,
   mainAgentWorkflowGraphPolicyToNextObservation,
   type MainAgentWorkflowGraphDecisionPolicyKind,
+  type MainAgentStrategyDecision,
 } from "./decision-policy.js";
 import {
   buildControlledSchedulerStepReplaySummary,
@@ -71,6 +72,12 @@ export interface MainAgentWorkflowGraphReplayCurrentState {
   kind: MainAgentWorkflowGraphReplayCurrentKind;
   reason: string;
   source: "canonical-managers";
+  readiness: {
+    manifestId: string | null;
+    status: string | null;
+    nextAllowedAction: MainAgentWorkflowGraphObservation["stage"]["readinessNextAllowedAction"];
+    schedulerEligible: boolean | null;
+  };
   workflow: {
     id: string | null;
     status: string | null;
@@ -131,6 +138,7 @@ export interface MainAgentWorkflowGraphReplaySummary {
     reason: string;
     targets: string[];
   };
+  strategyDecision: MainAgentStrategyDecision;
 }
 
 export interface BuildMainAgentWorkflowGraphReplaySummaryOptions {
@@ -343,7 +351,7 @@ export async function buildMainAgentWorkflowGraphReplaySummary(
     ...controlledScheduler.artifactRefs,
     ...controlledSchedulerStateBackflow.artifactRefs,
   ]);
-  const summaryCore: Omit<MainAgentWorkflowGraphReplaySummary, "nextObservation"> = {
+  const summaryCore: Omit<MainAgentWorkflowGraphReplaySummary, "nextObservation" | "strategyDecision"> = {
     version: "1.0",
     authority: "read-only-main-agent-workflowgraph-replay-summary",
     executionStarted: false,
@@ -374,6 +382,7 @@ export async function buildMainAgentWorkflowGraphReplaySummary(
   return {
     ...summaryCore,
     nextObservation: mainAgentWorkflowGraphPolicyToNextObservation(policy),
+    strategyDecision: policy.strategyDecision,
   };
 }
 
@@ -405,7 +414,7 @@ export function buildDegradedMainAgentWorkflowGraphReplaySummary(
   const currentState = observation
     ? buildCurrentState(observation, null, null, [], [], [])
     : unavailableCurrentState("Replay summary derivation failed before canonical state could be reconstructed.");
-  const summaryCore: Omit<MainAgentWorkflowGraphReplaySummary, "nextObservation"> = {
+  const summaryCore: Omit<MainAgentWorkflowGraphReplaySummary, "nextObservation" | "strategyDecision"> = {
     version: "1.0",
     authority: "read-only-main-agent-workflowgraph-replay-summary",
     executionStarted: false,
@@ -480,6 +489,7 @@ export function buildDegradedMainAgentWorkflowGraphReplaySummary(
       reason,
       targets: ["replay-summary"],
     },
+    strategyDecision: evaluateMainAgentWorkflowGraphReplayPolicy(summaryCore).strategyDecision,
   };
 }
 
@@ -678,6 +688,12 @@ function buildCurrentState(
     kind: current.kind,
     reason: current.reason,
     source: "canonical-managers",
+    readiness: {
+      manifestId: observation.stage.readinessManifestId,
+      status: observation.stage.readinessStatus,
+      nextAllowedAction: observation.stage.readinessNextAllowedAction,
+      schedulerEligible: observation.stage.readinessSchedulerEligible,
+    },
     workflow: {
       id: workflow?.id ?? null,
       status: workflow?.status ?? observation.queue.workflowStatus,
@@ -702,6 +718,12 @@ function unavailableCurrentState(reason: string): MainAgentWorkflowGraphReplayCu
     kind: "unavailable",
     reason,
     source: "canonical-managers",
+    readiness: {
+      manifestId: null,
+      status: null,
+      nextAllowedAction: null,
+      schedulerEligible: null,
+    },
     workflow: {
       id: null,
       status: null,

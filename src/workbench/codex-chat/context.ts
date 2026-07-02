@@ -1,8 +1,19 @@
 import { getChangeStatusForChange } from "../../change/manager.js";
+import { captureAcceptedArtifactHashes, captureAutomationSourceState } from "../../automation-runtime/safety.js";
+import {
+  buildMainAgentResumeContinuationContext,
+  detectMainAgentResumeContinuationIntent,
+  renderMainAgentResumeContinuationPromptSection,
+  sanitizeMainAgentResumeGateScope,
+  type MainAgentResumeContinuationContext,
+  type MainAgentResumePointGateSnapshot,
+} from "../../main-agent-orchestration/index.js";
 import { buildContextProjection } from "../../run/manager.js";
 import type { ManagedProject, ResolvedMemory } from "../../types/index.js";
 import { renderTopicAttachmentsForPrompt } from "../attachments.js";
 import { renderTopicFileReferencesForPrompt } from "../file-references.js";
+import { getWorkbenchSnapshot } from "../manager.js";
+import type { WorkbenchConfirmationQueueItem, WorkbenchDecisionAction } from "../read-model-types.js";
 import type { TopicAttachment, TopicFileReference } from "../types.js";
 import { resolveTopic } from "../topic-resolver.js";
 import { readTopicThreadLog as readThreadLog } from "../thread-log.js";
@@ -36,6 +47,7 @@ export interface MainAgentContextResult {
   goalLoopSchedulerTerminalHandoff?: VisibleGoalLoopMainAgentContextSection["schedulerTerminalHandoff"];
   goalLoopControlledSchedulerNextCandidate?: VisibleGoalLoopMainAgentContextSection["controlledSchedulerNextCandidate"];
   goalLoopControlledSchedulerPostStepRouting?: VisibleGoalLoopMainAgentContextSection["controlledSchedulerPostStepRouting"];
+  resumeContinuationContext?: MainAgentResumeContinuationContext;
 }
 
 export async function buildChatContext(
@@ -51,6 +63,8 @@ export async function buildChatContext(
   const attachments = topicAttachmentsFromRecentMessages(recentMessages);
   const goalLoopSection = await buildVisibleGoalLoopMainAgentContextSection(project, memory, changePath, changeId);
   const attachmentContext = await renderTopicAttachmentsForPrompt(project, attachments);
+  const resumeContinuationContext = await buildPromptResumeContinuationContext(project, memory, changePath, changeId, userMessage);
+  const resumeContinuationPrompt = renderMainAgentResumeContinuationPromptSection(resumeContinuationContext);
   return {
     goalLoopNextStepPacketId: goalLoopSection?.goalLoopNextStepPacketId,
     goalLoopControllerPolicyId: goalLoopSection?.goalLoopControllerPolicyId,
@@ -63,6 +77,7 @@ export async function buildChatContext(
     goalLoopSchedulerTerminalHandoff: goalLoopSection?.schedulerTerminalHandoff,
     goalLoopControlledSchedulerNextCandidate: goalLoopSection?.controlledSchedulerNextCandidate,
     goalLoopControlledSchedulerPostStepRouting: goalLoopSection?.controlledSchedulerPostStepRouting,
+    resumeContinuationContext,
     context: [
       "# AHO Topic Chat",
       "",
@@ -72,6 +87,7 @@ export async function buildChatContext(
       "",
       buildContextProjection(status),
       ...(goalLoopSection ? ["", goalLoopSection.markdown] : []),
+      ...(resumeContinuationPrompt.length > 0 ? ["", ...resumeContinuationPrompt] : []),
       ...(referencedFiles.length > 0 ? ["", ...renderTopicFileReferencesForPrompt(referencedFiles), ""] : []),
       ...(attachmentContext.length > 0 ? ["", ...attachmentContext, ""] : []),
       "## Recent Topic Messages",
@@ -98,6 +114,8 @@ export async function buildOrchestratorContext(
   const attachments = topicAttachmentsFromRecentMessages(recentMessages);
   const goalLoopSection = await buildVisibleGoalLoopMainAgentContextSection(project, memory, changePath, changeId);
   const attachmentContext = await renderTopicAttachmentsForPrompt(project, attachments);
+  const resumeContinuationContext = await buildPromptResumeContinuationContext(project, memory, changePath, changeId, userMessage);
+  const resumeContinuationPrompt = renderMainAgentResumeContinuationPromptSection(resumeContinuationContext);
   return {
     goalLoopNextStepPacketId: goalLoopSection?.goalLoopNextStepPacketId,
     goalLoopControllerPolicyId: goalLoopSection?.goalLoopControllerPolicyId,
@@ -110,6 +128,7 @@ export async function buildOrchestratorContext(
     goalLoopSchedulerTerminalHandoff: goalLoopSection?.schedulerTerminalHandoff,
     goalLoopControlledSchedulerNextCandidate: goalLoopSection?.controlledSchedulerNextCandidate,
     goalLoopControlledSchedulerPostStepRouting: goalLoopSection?.controlledSchedulerPostStepRouting,
+    resumeContinuationContext,
     context: [
       "# AHO Workbench Orchestrator Context",
       "",
@@ -119,6 +138,7 @@ export async function buildOrchestratorContext(
       "",
       buildContextProjection(status),
       ...(goalLoopSection ? ["", goalLoopSection.markdown] : []),
+      ...(resumeContinuationPrompt.length > 0 ? ["", ...resumeContinuationPrompt] : []),
       ...(referencedFiles.length > 0 ? ["", ...renderTopicFileReferencesForPrompt(referencedFiles), ""] : []),
       ...(attachmentContext.length > 0 ? ["", ...attachmentContext, ""] : []),
       "## Current Topic",
@@ -187,4 +207,107 @@ function buildControlledLoopStatePromptEvidence(
     closeAuthorized: state.closeAuthorized,
     harnessEvolutionAuthorized: state.harnessEvolutionAuthorized,
   };
+}
+
+async function buildPromptResumeContinuationContext(
+  project: ManagedProject,
+  memory: ResolvedMemory,
+  changePath: string,
+  changeId: string,
+  userMessage: string,
+): Promise<MainAgentResumeContinuationContext> {
+  const continuationIntent = detectMainAgentResumeContinuationIntent(userMessage);
+  if (!continuationIntent.requested) {
+    return buildMainAgentResumeContinuationContext(memory, {
+      projectId: project.id,
+      changeId,
+      changePath,
+      continuationIntent,
+      currentEvidence: { changeId },
+    });
+  }
+  const [snapshot, sourceState, acceptedArtifactHashes] = await Promise.all([
+    getWorkbenchSnapshot({ project, path: project.path }, { topicId: changeId }).catch(() => null),
+    captureAutomationSourceState(memory),
+    captureAcceptedArtifactHashes(memory, changePath),
+  ]);
+  const primary = snapshot?.right.confirmationQueue.primary ?? null;
+  const currentGate = primary ? resumeGateFromPrimary(primary, changeId) : null;
+  return buildMainAgentResumeContinuationContext(memory, {
+    projectId: project.id,
+    changeId,
+    changePath,
+    continuationIntent,
+    currentEvidence: {
+      changeId,
+      gate: currentGate,
+      acceptedArtifactHashes: { ...acceptedArtifactHashes },
+      sourceState: { ...sourceState },
+      runtimePolicy: {
+        automationMode: "full-access",
+        authorizationAuthority: "human-confirmed-scoped-automation-authorization",
+      },
+    },
+    candidateLanes: ["scoped-local-automation"],
+    priority: {
+      hasConcreteCurrentGate: Boolean(currentGate && currentGate.kind !== "none"),
+    },
+  });
+}
+
+function resumeGateFromPrimary(
+  primary: WorkbenchConfirmationQueueItem,
+  changeId: string,
+): MainAgentResumePointGateSnapshot | null {
+  const action = chooseResumePrimaryAction(primary.actions);
+  if (!action) return null;
+  const rawScope = { ...action } as Record<string, unknown>;
+  const targetIds = collectResumeTargetIds(rawScope);
+  if (action.kind === "approval" && action.action) {
+    return {
+      kind: "approval-action",
+      approvalActionId: action.action.actionId,
+      changeId: action.changeId ?? primary.changeId ?? changeId,
+      targetIds,
+      scope: sanitizeMainAgentResumeGateScope({
+        ...rawScope,
+        primaryId: primary.id,
+        resultId: primary.resultId,
+        runId: primary.runId,
+        artifact: primary.evidenceRefs[0] ?? action.artifact,
+      }),
+    };
+  }
+  if (action.kind === "workflow-action" && action.actionType) {
+    return {
+      kind: "workflow-action",
+      actionType: action.actionType,
+      changeId: action.changeId ?? primary.changeId ?? changeId,
+      targetIds,
+      scope: sanitizeMainAgentResumeGateScope({
+        ...rawScope,
+        primaryId: primary.id,
+      }),
+    };
+  }
+  return null;
+}
+
+function chooseResumePrimaryAction(actions: WorkbenchDecisionAction[]): WorkbenchDecisionAction | undefined {
+  return actions.find((action) => action.enabled && action.kind === "workflow-action" && action.actionType)
+    ?? actions.find((action) => action.enabled && action.kind === "approval" && action.action);
+}
+
+function collectResumeTargetIds(scope: Record<string, unknown>): string[] {
+  const values = new Set<string>();
+  for (const [key, value] of Object.entries(scope)) {
+    if (key === "changeId" || key === "actionType" || key === "actionId" || key === "kind") continue;
+    if (typeof value === "string" && /(?:Id|Ids|Artifact|Hash)$/.test(key)) values.add(value);
+    if (Array.isArray(value) && /(?:Id|Ids)$/.test(key)) {
+      for (const item of value) {
+        if (typeof item === "string") values.add(item);
+      }
+    }
+  }
+  return [...values].sort();
 }

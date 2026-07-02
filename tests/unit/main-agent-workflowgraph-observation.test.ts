@@ -135,6 +135,23 @@ describe("main-agent WorkflowGraph observation evidence", () => {
     expect(nextObservation).not.toContain("recommendedAction");
     expect(nextObservation).not.toContain("result.apply");
     expect(nextObservation).not.toContain("change.close");
+
+    expect(result.replaySummary.strategyDecision).toMatchObject({
+      authority: "non-executing-main-agent-strategy-decision",
+      executionStarted: false,
+      kind: "read-only-or-clarify",
+      modeCompatibility: {
+        stepwise: "explain-existing-gate-only",
+        fullAccess: "must-stop",
+      },
+    });
+    const strategy = JSON.stringify(result.replaySummary.strategyDecision);
+    expect(strategy).not.toContain("actionType");
+    expect(strategy).not.toContain("confirmationQueue");
+    expect(strategy).not.toContain("recommendedAction");
+    expect(strategy).not.toContain("planning.scheduler.");
+    expect(strategy).not.toContain("result.apply");
+    expect(strategy).not.toContain("change.close");
   });
 });
 

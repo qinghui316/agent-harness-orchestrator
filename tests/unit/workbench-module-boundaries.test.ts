@@ -249,6 +249,34 @@ describe("Workbench module boundaries", () => {
     expect(workpadReadModel).not.toContain("    rolePipeline,");
     expect(workpadReadModel).not.toContain("mainAgentLoopProjection");
 
+    const strategyPolicy = readFileSync(join(process.cwd(), "src/main-agent-orchestration/strategy-policy.ts"), "utf8");
+    expect(strategyPolicy).toContain("deriveMainAgentWorkflowShape");
+    expect(strategyPolicy).toContain("parallel-candidate");
+    expect(strategyPolicy).not.toContain("../workbench/");
+    expect(strategyPolicy).not.toContain("workbench/actions");
+    expect(strategyPolicy).not.toContain("confirmationQueue");
+    expect(strategyPolicy).not.toContain("scheduler-runtime/controlled-loop-step");
+    expect(strategyPolicy).not.toContain("runIntegrationCheck");
+    expect(strategyPolicy).not.toContain("applyIntegrationCheck");
+    expect(strategyPolicy).not.toContain("discardIntegrationCheck");
+    expect(strategyPolicy).not.toContain("automation allowlist");
+    expect(strategyPolicy).not.toContain("actionType");
+    expect(strategyPolicy).not.toContain("recursiveDelegation");
+
+    const strategyAdvice = readFileSync(join(process.cwd(), "src/main-agent-orchestration/strategy-advice.ts"), "utf8");
+    expect(strategyAdvice).toContain("read-only-main-agent-strategy-advice");
+    expect(strategyAdvice).toContain("executionStarted: false");
+    expect(strategyAdvice).toContain("controller: false");
+    expect(strategyAdvice).toContain("buildMainAgentStrategyAdvice");
+    expect(strategyAdvice).not.toMatch(/from\s+["'].*workbench/);
+    expect(strategyAdvice).not.toMatch(/from\s+["'].*confirmation/);
+    expect(strategyAdvice).not.toMatch(/from\s+["'].*scheduler-runtime/);
+    expect(strategyAdvice).not.toMatch(/from\s+["'].*integration-check/);
+    expect(strategyAdvice).not.toMatch(/\brunIntegrationCheck\s*\(/);
+    expect(strategyAdvice).not.toMatch(/\bapplyIntegrationCheck\s*\(/);
+    expect(strategyAdvice).not.toMatch(/\bdiscardIntegrationCheck\s*\(/);
+    expect(strategyAdvice).not.toMatch(/\bSCOPED_AUTOMATION_ALLOWED_ACTION_TYPES\b/);
+
     const readModelTypes = readFileSync(join(process.cwd(), "src/workbench/read-model-types.ts"), "utf8");
     expect(readModelTypes).not.toContain("rolePipeline?:");
     expect(readModelTypes).not.toContain("mainAgentLoopProjection");
@@ -374,6 +402,95 @@ describe("Workbench module boundaries", () => {
   });
 
   it("keeps main-agent Scheduler candidate assessment non-executing and outside scheduler runtime", () => {
+    const decisionPolicy = readFileSync(join(process.cwd(), "src/main-agent-orchestration/decision-policy.ts"), "utf8");
+    expect(decisionPolicy).toContain("non-executing-main-agent-strategy-decision");
+    expect(decisionPolicy).toContain("executionStarted: false");
+    expect(decisionPolicy).toContain("direct-single-worktree");
+    expect(decisionPolicy).toContain("sequential-workflowgraph");
+    expect(decisionPolicy).toContain("parallel-scheduler-candidate");
+    expect(decisionPolicy).toContain("explain-existing-gate-only");
+    expect(decisionPolicy).toContain("eligible-for-existing-scoped-automation");
+    expect(decisionPolicy).not.toContain("../workflow-scheduler/");
+    expect(decisionPolicy).not.toContain("../scheduler-runtime/");
+    expect(decisionPolicy).not.toContain("../workbench/");
+    expect(decisionPolicy).not.toContain("../server/");
+    expect(decisionPolicy).not.toContain("../workflow-runtime/");
+    expect(decisionPolicy).not.toContain("../apply/");
+    expect(decisionPolicy).not.toContain("../terminal");
+    expect(decisionPolicy).not.toContain("../automation-runtime/");
+    expect(decisionPolicy).not.toContain("confirmationQueue");
+    expect(decisionPolicy).not.toContain("SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES");
+    expect(decisionPolicy).not.toContain("runPostPlanScopedAutomation");
+    expect(decisionPolicy).not.toContain("runScopedAutomation");
+    expect(decisionPolicy).not.toContain("strategy-consumption");
+
+    const strategyConsumption = readFileSync(join(process.cwd(), "src/main-agent-orchestration/strategy-consumption.ts"), "utf8");
+    expect(strategyConsumption).toContain("non-executing-main-agent-strategy-consumption-assessment");
+    expect(strategyConsumption).toContain("read-only-main-agent-strategy-consumption-context");
+    expect(strategyConsumption).toContain("executionStarted: false");
+    expect(strategyConsumption).toContain("explain-existing-gate");
+    expect(strategyConsumption).toContain("allow-existing-scoped-automation");
+    expect(strategyConsumption).toContain("buildMainAgentWorkflowGraphReplaySummary");
+    expect(strategyConsumption).not.toContain("recordMainAgentWorkflowGraphObservationAndReplay");
+    expect(strategyConsumption).not.toContain("recordMainAgentWorkflowGraphObservation");
+    expect(strategyConsumption).not.toContain("../workflow-scheduler/");
+    expect(strategyConsumption).not.toContain("../scheduler-runtime/");
+    expect(strategyConsumption).not.toContain("../workbench/");
+    expect(strategyConsumption).not.toContain("../server/");
+    expect(strategyConsumption).not.toContain("../workflow-runtime/");
+    expect(strategyConsumption).not.toContain("../apply/");
+    expect(strategyConsumption).not.toContain("../terminal");
+    expect(strategyConsumption).not.toContain("../automation-runtime/");
+    expect(strategyConsumption).not.toContain("confirmationQueue");
+    expect(strategyConsumption).not.toContain("SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES");
+    expect(strategyConsumption).not.toContain("SCOPED_AUTOMATION_ALLOWED_APPROVAL_ACTION_IDS");
+    expect(strategyConsumption).not.toContain("runScopedAutomation");
+    expect(strategyConsumption).not.toContain("dispatchWorkbenchWorkflowAction");
+    expect(strategyConsumption).not.toContain("actionPayload");
+    expect(strategyConsumption).not.toContain("confirmationPayload");
+    expect(strategyConsumption).not.toContain("schedulerPayload");
+
+    const automationHandler = readFileSync(join(process.cwd(), "src/workbench/actions/handlers/automation.ts"), "utf8");
+    expect(automationHandler).toContain("assessMainAgentStrategyConsumption");
+    expect(automationHandler).toContain("assessMainAgentResumeConsumption");
+    expect(automationHandler).toContain("buildMainAgentStrategyConsumptionContext");
+    expect(automationHandler).toContain("buildMainAgentResumeContinuationContext");
+    expect(automationHandler).not.toContain("recordMainAgentWorkflowGraphObservationAndReplay");
+    expect(automationHandler).toContain("strategyConsumptionGateFromAutomationGate");
+    expect(automationHandler).toContain("recordScopedAutomationMainAgentResumePoint");
+    expect(automationHandler).not.toContain("buildMainAgentStrategyAdvice");
+    expect(automationHandler).not.toContain("strategyAdviceInput");
+    expect(automationHandler.indexOf("assessMainAgentStrategyConsumption({")).toBeLessThan(automationHandler.indexOf("runScopedAutomation({"));
+    expect(automationHandler.indexOf("assessMainAgentResumeConsumption({")).toBeLessThan(automationHandler.indexOf("runScopedAutomation({"));
+
+    const resumePoint = readFileSync(join(process.cwd(), "src/main-agent-orchestration/resume-point.ts"), "utf8");
+    expect(resumePoint).toContain("non-executing-main-agent-resume-point");
+    expect(resumePoint).toContain("executionStarted: false");
+    expect(resumePoint).toContain("stableStringify");
+    expect(resumePoint).toContain("createMainAgentStableResumeKey");
+    expect(resumePoint).not.toContain("../workbench/");
+    expect(resumePoint).not.toContain("../server/");
+    expect(resumePoint).not.toContain("../workflow-scheduler/");
+    expect(resumePoint).not.toContain("../scheduler-runtime/");
+    expect(resumePoint).not.toContain("../integration-check/");
+    expect(resumePoint).not.toContain("../apply/");
+    expect(resumePoint).not.toContain("../terminal");
+    expect(resumePoint).not.toContain("../automation-runtime/policy");
+    expect(resumePoint).not.toContain("SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES");
+    expect(resumePoint).not.toContain("dispatchWorkbenchWorkflowAction");
+    expect(resumePoint).not.toContain("runScopedAutomation");
+    expect(resumePoint).not.toContain("runIntegrationCheck");
+    expect(resumePoint).not.toContain("applyIntegrationCheck");
+    expect(resumePoint).not.toContain("discardIntegrationCheck");
+    const delegateTask = readFileSync(join(process.cwd(), "src/agent-task/delegate-task.ts"), "utf8");
+    const leafStages = readFileSync(join(process.cwd(), "src/main-agent-orchestration/leaf-stages.ts"), "utf8");
+    expect(delegateTask).toContain("Worker roles cannot call delegateTask or spawn subagents.");
+    expect(delegateTask).not.toContain("ResumeContinuationContext");
+    expect(delegateTask).not.toContain("MainAgentResumePoint");
+    expect(leafStages).toContain("recordPostRunBoundaryAudit");
+    expect(leafStages).not.toContain("ResumeContinuationContext");
+    expect(leafStages).not.toContain("MainAgentResumePoint");
+
     const source = readFileSync(join(process.cwd(), "src/main-agent-orchestration/scheduler-candidate-assessment.ts"), "utf8");
     expect(source).toContain("non-executing-main-agent-scheduler-candidate-assessment");
     expect(source).toContain("executionStarted: false");
@@ -2753,6 +2870,51 @@ describe("Workbench module boundaries", () => {
     expect(facade).not.toMatch(/startCodeRun\(/);
     expect(facade).not.toMatch(/startValidationRun\(/);
     expect(facade).not.toMatch(/startAuditRun\(/);
+  });
+
+  it("keeps main-agent resume continuation out of worker contexts and executors", () => {
+    const owner = readFileSync("src/main-agent-orchestration/resume-continuation.ts", "utf8");
+    const strategyConsumption = readFileSync("src/main-agent-orchestration/strategy-consumption.ts", "utf8");
+    const chatContext = readFileSync("src/workbench/codex-chat/context.ts", "utf8");
+    const chatPromptEvidence = readFileSync("src/workbench/codex-chat/goal-loop-prompt-evidence.ts", "utf8");
+    const delegateTask = readFileSync("src/agent-task/delegate-task.ts", "utf8");
+    const leafStages = readFileSync("src/main-agent-orchestration/leaf-stages.ts", "utf8");
+    const packets = readFileSync("src/context/packets.ts", "utf8");
+    const automationHandler = readFileSync("src/workbench/actions/handlers/automation.ts", "utf8");
+
+    expect(owner).toContain("read-only-main-agent-resume-continuation-context");
+    expect(owner).toContain("bindLatestMainAgentResumePoint");
+    expect(owner).not.toMatch(/from\s+["'].*workbench\/actions/);
+    expect(owner).not.toMatch(/from\s+["'].*server/);
+    expect(owner).not.toMatch(/from\s+["'].*confirmation/);
+    expect(owner).not.toMatch(/from\s+["'].*scheduler-runtime/);
+    expect(owner).not.toMatch(/from\s+["'].*workflow-scheduler/);
+    expect(owner).not.toMatch(/from\s+["'].*integration-check/);
+    expect(owner).not.toContain("dispatchWorkbenchWorkflowAction");
+    expect(owner).not.toContain("runScopedAutomation");
+    expect(owner).not.toContain("runIntegrationCheck");
+    expect(owner).not.toContain("applyIntegrationCheck");
+    expect(owner).not.toContain("closeChange");
+    expect(owner).not.toMatch(/actionType:\s*["']/);
+    expect(owner).not.toContain("confirmationPayload");
+    expect(owner).not.toContain("scheduler payload");
+
+    expect(chatContext).toContain("buildMainAgentResumeContinuationContext");
+    expect(chatContext).toContain("renderMainAgentResumeContinuationPromptSection");
+    expect(chatPromptEvidence).toContain("main-agent-resume-continuation-context");
+    expect(automationHandler).toContain("buildMainAgentResumeContinuationContext");
+    expect(automationHandler).toContain("assessMainAgentResumeConsumption");
+    expect(strategyConsumption).toContain("non-executing-main-agent-resume-consumption-assessment");
+    expect(strategyConsumption).not.toContain("runScopedAutomation");
+    expect(strategyConsumption).not.toContain("dispatchWorkbenchWorkflowAction");
+    expect(strategyConsumption).not.toContain("SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES");
+    expect(strategyConsumption).not.toContain("applyIntegrationCheck");
+    expect(strategyConsumption).not.toContain("runIntegrationCheck");
+    for (const source of [delegateTask, leafStages, packets]) {
+      expect(source).not.toContain("MainAgentResumeContinuationContext");
+      expect(source).not.toContain("read-only-main-agent-resume-continuation-context");
+      expect(source).not.toContain("buildMainAgentResumeContinuationContext");
+    }
   });
 
   it("keeps workbench-server as a compatibility facade", () => {

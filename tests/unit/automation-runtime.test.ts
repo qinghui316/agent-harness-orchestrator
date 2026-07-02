@@ -589,6 +589,7 @@ describe("Scoped automation runtime", () => {
   });
 
   it("fails closed when source safety reports drift", async () => {
+    const resumePoints: unknown[] = [];
     const result = await runScopedAutomation({
       memory,
       changePath: "harness/changes/active/change-1",
@@ -601,11 +602,20 @@ describe("Scoped automation runtime", () => {
         resolveCurrentPrimaryGate: async () => ({ kind: "workflow-action", actionType: "validate.run" as const, changeId: "change-1", worktreeId: "wt-1" }),
         dispatchChildAction: async () => ({ ok: true }),
         summarizeChildResult: () => "unused",
+        recordResumePoint: async (input) => {
+          resumePoints.push(input);
+        },
       },
     });
 
     expect(result.stopReason).toBe("source-drift");
     expect(result.automationRun.completedSteps).toBe(0);
+    expect(resumePoints).toHaveLength(1);
+    expect(resumePoints[0]).toMatchObject({
+      stopReason: "source-drift",
+      currentGate: null,
+      sourceState: { capturedAt: "2026-06-24T00:00:00.000Z" },
+    });
   });
 });
 
