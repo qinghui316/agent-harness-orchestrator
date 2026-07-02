@@ -144,6 +144,7 @@ export interface MainAgentWorkflowGraphReplaySummary {
 export interface BuildMainAgentWorkflowGraphReplaySummaryOptions {
   changePath?: string | null;
   schedulerRunId?: string | null;
+  strategyAdviceInput?: unknown;
 }
 
 const refsSchema = z.object({
@@ -378,7 +379,7 @@ export async function buildMainAgentWorkflowGraphReplaySummary(
     },
     controlledSchedulerStateBackflow,
   };
-  const policy = evaluateMainAgentWorkflowGraphReplayPolicy(summaryCore);
+  const policy = evaluateMainAgentWorkflowGraphReplayPolicy(summaryCore, options.strategyAdviceInput === undefined ? {} : { strategyAdviceInput: options.strategyAdviceInput });
   return {
     ...summaryCore,
     nextObservation: mainAgentWorkflowGraphPolicyToNextObservation(policy),

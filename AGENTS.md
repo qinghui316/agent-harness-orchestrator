@@ -8,6 +8,8 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260702-main-agent-llm-strategy-advice-production-goal-acceptance-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260702-main-agent-strategy-policy-v2b-bounded-advice-consumption/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260702-main-agent-strategy-policy-v2a-stale-first-readonly-advice/summary.md`.
@@ -176,6 +178,13 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Previous archived docs/reference change:
   `harness/changes/archive/20260626-document-desktop-cc-gui-reference-map-and-product-layer-roadmap/summary.md`.
 - Latest completed Harness evolution:
+  `harness/changes/archive/20260702-auto-evolve-post-main-agent-llm-strategy-advice-window/summary.md`
+  (`docs_current_delta`; subagent Rawls score 88; existing ECL/BOUNDARIES
+  coverage is sufficient for current-run LLM strategy advice metadata,
+  one-shot bounded policy consumption, scoped resume/automation,
+  full-access/human gates, and worker boundary; no ECL/template/lint/CI or
+  product runtime change needed. Pending evolution was marked complete).
+- Previous completed Harness evolution:
   `harness/changes/archive/20260702-auto-evolve-post-resume-continuation-window/summary.md`
   (`docs_current_delta`; subagent Cicero; existing ECL/BOUNDARIES coverage is
   sufficient for non-executing strategy/resume evidence and stable-key

@@ -56,7 +56,10 @@ LLM strategy advice is not a workflow truth source, gate, controller, or
 automation authority. It may influence the internal main-agent strategy kind
 only through the bounded strategy-policy evidence envelope; it must not write
 strategy JSONL, alter `confirmationQueue`, change scoped automation allowlists,
-or drive action execution.
+or drive action execution. Real main-agent runs may produce advice only as
+same-run, same-Change metadata; it is stripped from visible transcript / plan /
+live deltas and is passed explicitly to policy instead of being recovered from
+historical replay.
 
 ## 2. Personal-First and Local-First Boundary
 

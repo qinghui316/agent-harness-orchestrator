@@ -277,6 +277,18 @@ describe("Workbench module boundaries", () => {
     expect(strategyAdvice).not.toMatch(/\bdiscardIntegrationCheck\s*\(/);
     expect(strategyAdvice).not.toMatch(/\bSCOPED_AUTOMATION_ALLOWED_ACTION_TYPES\b/);
 
+    const strategyAdviceRuntime = readFileSync(join(process.cwd(), "src/main-agent-orchestration/strategy-advice-runtime.ts"), "utf8");
+    expect(strategyAdviceRuntime).toContain("MAIN_AGENT_STRATEGY_ADVICE_START");
+    expect(strategyAdviceRuntime).toContain("stripMainAgentStrategyAdviceBlocks");
+    expect(strategyAdviceRuntime).not.toMatch(/from\s+["'].*workbench/);
+    expect(strategyAdviceRuntime).not.toMatch(/from\s+["'].*confirmation/);
+    expect(strategyAdviceRuntime).not.toMatch(/from\s+["'].*scheduler-runtime/);
+    expect(strategyAdviceRuntime).not.toMatch(/from\s+["'].*integration-check/);
+    expect(strategyAdviceRuntime).not.toMatch(/\brunIntegrationCheck\s*\(/);
+    expect(strategyAdviceRuntime).not.toMatch(/\bapplyIntegrationCheck\s*\(/);
+    expect(strategyAdviceRuntime).not.toMatch(/\bdiscardIntegrationCheck\s*\(/);
+    expect(strategyAdviceRuntime).not.toMatch(/\bSCOPED_AUTOMATION_ALLOWED_ACTION_TYPES\b/);
+
     const readModelTypes = readFileSync(join(process.cwd(), "src/workbench/read-model-types.ts"), "utf8");
     expect(readModelTypes).not.toContain("rolePipeline?:");
     expect(readModelTypes).not.toContain("mainAgentLoopProjection");
@@ -467,6 +479,16 @@ describe("Workbench module boundaries", () => {
     expect(automationHandler).not.toContain("strategyAdviceInput");
     expect(automationHandler.indexOf("assessMainAgentStrategyConsumption({")).toBeLessThan(automationHandler.indexOf("runScopedAutomation({"));
     expect(automationHandler.indexOf("assessMainAgentResumeConsumption({")).toBeLessThan(automationHandler.indexOf("runScopedAutomation({"));
+
+    const delegateTaskForAdvice = readFileSync(join(process.cwd(), "src/agent-task/delegate-task.ts"), "utf8");
+    expect(delegateTaskForAdvice).not.toContain("MainAgentStrategyAdvice");
+    expect(delegateTaskForAdvice).not.toContain("main_agent_strategy_advice");
+    const leafStagesForAdvice = readFileSync(join(process.cwd(), "src/main-agent-orchestration/leaf-stages.ts"), "utf8");
+    expect(leafStagesForAdvice).not.toContain("MainAgentStrategyAdvice");
+    expect(leafStagesForAdvice).not.toContain("main_agent_strategy_advice");
+    const contextPackets = readFileSync(join(process.cwd(), "src/context/packets.ts"), "utf8");
+    expect(contextPackets).not.toContain("MainAgentStrategyAdvice");
+    expect(contextPackets).not.toContain("main_agent_strategy_advice");
 
     const resumePoint = readFileSync(join(process.cwd(), "src/main-agent-orchestration/resume-point.ts"), "utf8");
     expect(resumePoint).toContain("non-executing-main-agent-resume-point");

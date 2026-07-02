@@ -67,6 +67,18 @@ export const runMetadataSchema = z.object({
     bridge: z.string().optional(),
     version: z.string().optional(),
   })).optional(),
+  mainAgentStrategy: z.object({
+    authority: z.literal("read-only-main-agent-current-run-strategy-metadata"),
+    executionStarted: z.literal(false),
+    advice: z.unknown().optional(),
+    adviceConsumption: z.unknown().optional(),
+    strategyKind: z.string().optional(),
+    kindSource: z.string().optional(),
+    deterministicBaselineKind: z.string().optional(),
+    nextObservationKind: z.string().optional(),
+    builtAt: z.string().optional(),
+    error: z.string().optional(),
+  }).optional(),
   agent: z.object({
     roleId: z.string(),
     source: z.enum(["bundled", "memory"]),

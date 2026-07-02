@@ -91,6 +91,15 @@ export {
   type MainAgentStrategyAdviceStatus,
 } from "./strategy-advice.js";
 export {
+  MAIN_AGENT_STRATEGY_ADVICE_END,
+  MAIN_AGENT_STRATEGY_ADVICE_START,
+  createMainAgentStrategyAdviceDeltaFilter,
+  extractMainAgentStrategyAdviceFromText,
+  renderMainAgentStrategyAdvicePromptSection,
+  stripMainAgentStrategyAdviceBlocks,
+  type MainAgentStrategyAdviceExtraction,
+} from "./strategy-advice-runtime.js";
+export {
   deriveMainAgentWorkflowShape,
   type DeriveMainAgentWorkflowShapeInput,
   type MainAgentLeafRoleHint,

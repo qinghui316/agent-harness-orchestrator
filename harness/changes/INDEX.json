@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-07-02T07:07:43.3373203Z",
+    "generated_at":  "2026-07-02T07:38:45.2603010Z",
     "active":  [
 
                ],
@@ -2419,12 +2419,20 @@
                         "path":  "harness/changes/archive/20260702-auto-evolve-post-main-agent-action-alias-window"
                     },
                     {
+                        "name":  "20260702-auto-evolve-post-main-agent-llm-strategy-advice-window",
+                        "path":  "harness/changes/archive/20260702-auto-evolve-post-main-agent-llm-strategy-advice-window"
+                    },
+                    {
                         "name":  "20260702-auto-evolve-post-main-agent-strategy-consumption-window",
                         "path":  "harness/changes/archive/20260702-auto-evolve-post-main-agent-strategy-consumption-window"
                     },
                     {
                         "name":  "20260702-auto-evolve-post-resume-continuation-window",
                         "path":  "harness/changes/archive/20260702-auto-evolve-post-resume-continuation-window"
+                    },
+                    {
+                        "name":  "20260702-main-agent-llm-strategy-advice-production-goal-acceptance-v1",
+                        "path":  "harness/changes/archive/20260702-main-agent-llm-strategy-advice-production-goal-acceptance-v1"
                     },
                     {
                         "name":  "20260702-main-agent-loop-projection-retirement-v6",

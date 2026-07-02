@@ -36,6 +36,41 @@ describe("main-agent strategy consumption", () => {
     expect(existsSync(mainAgentWorkflowGraphDecisionsPath(mem, "change-a"))).toBe(false);
   });
 
+  it("passes current-run strategy advice one-shot without recording replay evidence", async () => {
+    root = await mkdtemp(join(tmpdir(), "aho-strategy-consumption-advice-"));
+    const mem = memory(root);
+    const context = await buildMainAgentStrategyConsumptionContext(mem, project(), "change-a", {
+      strategyAdviceInput: {
+        kind: "direct",
+        reason: "The current request is small enough for one bounded leaf loop.",
+        confidence: 0.8,
+        evidenceRefs: ["current-run-advice"],
+      },
+    });
+
+    expect(context.strategyDecision).toMatchObject({
+      deterministicBaseline: { kind: "read-only-or-clarify" },
+      kind: "direct-single-worktree",
+      kindSource: "bounded-advice",
+      strategyAdvice: {
+        authority: "read-only-main-agent-strategy-advice",
+        executionStarted: false,
+        controller: false,
+        status: "accepted-readonly",
+        kind: "direct",
+      },
+      adviceConsumption: {
+        status: "accepted-bounded",
+        adviceKind: "direct",
+      },
+    });
+    expect(existsSync(mainAgentWorkflowGraphDecisionsPath(mem, "change-a"))).toBe(false);
+
+    const noAdvice = await buildMainAgentStrategyConsumptionContext(mem, project(), "change-a");
+    expect(noAdvice.strategyDecision.strategyAdvice).toBeUndefined();
+    expect(noAdvice.strategyDecision.kind).toBe("read-only-or-clarify");
+  });
+
   it("keeps request-approval explanatory and non-executing", () => {
     const assessment = assessMainAgentStrategyConsumption({
       strategyDecision: strategy("direct-single-worktree"),
@@ -74,6 +109,37 @@ describe("main-agent strategy consumption", () => {
         },
       });
     }
+  });
+
+  it("requires modeCompatibility full-access eligibility before scoped automation", () => {
+    const mustStopDirect = strategy("direct-single-worktree", {
+      modeCompatibility: {
+        stepwise: "explain-existing-gate-only",
+        fullAccess: "must-stop",
+        fullAccessReason: "Baseline remains human-gated.",
+      },
+    });
+
+    expect(assessMainAgentStrategyConsumption({
+      strategyDecision: mustStopDirect,
+      mode: "full-access",
+      selectedChangeId: "change-a",
+      currentGate: workflowGate(),
+    })).toMatchObject({
+      status: "stop-for-human-gate",
+      reason: "Baseline remains human-gated.",
+    });
+
+    expect(assessMainAgentResumeConsumption({
+      resumeContinuationContext: resumeContext(),
+      strategyDecision: mustStopDirect,
+      mode: "full-access",
+      selectedChangeId: "change-a",
+      currentGate: workflowGate({ actionType: "code.run", targetIds: ["task-1"] }),
+    })).toMatchObject({
+      status: "stop-for-human-gate",
+      reason: "Baseline remains human-gated.",
+    });
   });
 
   it("keeps advice-assisted final strategy inside existing request/full-access gates", () => {

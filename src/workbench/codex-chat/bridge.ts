@@ -35,6 +35,13 @@ import type {
 import { createAssistantTranscriptCapture } from "../live-transcript.js";
 import { buildChatContext, buildOrchestratorContext } from "./context.js";
 import { buildGoalLoopContextPreparedEvidence, goalLoopPromptStackLabels } from "./goal-loop-prompt-evidence.js";
+import {
+  buildMainAgentWorkflowGraphReplaySummary,
+  createMainAgentStrategyAdviceDeltaFilter,
+  extractMainAgentStrategyAdviceFromText,
+  stripMainAgentStrategyAdviceBlocks,
+  type MainAgentStrategyAdvice,
+} from "../../main-agent-orchestration/index.js";
 export async function runOrchestratorPlan(project: ManagedProject, changeId: string, userMessage: string, live?: WorkbenchLiveSink): Promise<{
   run: RunMetadata;
   routingDecision: TopicRoutingDecision;
@@ -90,7 +97,7 @@ export async function runOrchestratorPlan(project: ManagedProject, changeId: str
       orchestrationPlan: `${relativeDir}/orchestration-plan.json`,
       orchestrationPlanMarkdown: `${relativeDir}/orchestration-plan.md`,
     },
-    promptStack: ["agent-role", "active-change", "topic-thread", "workflow-status", "user-message"],
+    promptStack: ["agent-role", "active-change", "topic-thread", "workflow-status", "main-agent-strategy-advice-request", "user-message"],
     agent: buildRunAgentRecord(role),
   };
   await writeJsonFile(paths.run, run);
@@ -155,7 +162,8 @@ export async function runOrchestratorPlan(project: ManagedProject, changeId: str
       ...codexProviderRunMetadata({ adapter: "codex-readonly-orchestrator", model: effectiveModel.model, modelSource: effectiveModel.source, capabilities }),
     },
   });
-  const parser = createLiveCodexParser(runId, live);
+  const codexDeltaFilter = createMainAgentStrategyAdviceDeltaFilter((delta) => emitLive(live, { event: "assistant.delta", data: { delta, runId } }));
+  const parser = createLiveCodexParser(runId, live, codexDeltaFilter);
   const processResult = await executeProcessStreaming({
     cwd: project.path,
     command: argv.command,
@@ -169,16 +177,28 @@ export async function runOrchestratorPlan(project: ManagedProject, changeId: str
     stopSignal: () => isRunStopRequested(runId),
   });
   parser.flush();
+  codexDeltaFilter.flush();
   const lastMessage = existsSync(paths.lastMessage)
     ? await readFile(paths.lastMessage, "utf8")
     : extractFinalMessageFromCodexJsonl(processResult.stdoutSample) ?? "";
-  if (!existsSync(paths.lastMessage)) await writeFile(paths.lastMessage, lastMessage || "# Orchestrator Plan Not Captured\n", "utf8");
-  const parsed = parseOrchestrationOutput(lastMessage, userMessage, heuristicDecision);
+  const adviceExtraction = extractMainAgentStrategyAdviceFromText(lastMessage);
+  const visibleLastMessage = adviceExtraction.visibleText || "# Orchestrator Plan Not Captured";
+  await writeFile(paths.lastMessage, `${visibleLastMessage}\n`, "utf8");
+  const parsed = parseOrchestrationOutput(visibleLastMessage, userMessage, heuristicDecision);
   await writeJsonFile(paths.orchestrationPlan, parsed);
   await writeFile(paths.orchestrationPlanMarkdown, renderPlanCardMarkdown(parsed), "utf8");
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.exited", runId, data: { phase: "orchestrator", exitCode: processResult.exitCode, signal: processResult.signal } });
   const status: RunStatus = processResult.exitCode === 0 ? "completed" : "failed";
   run = await finishOrchestratorRun(paths.run, run, status, processResult.exitCode, processResult.signal);
+  run = await attachCurrentRunStrategyAdviceMetadata({
+    run,
+    runPath: paths.run,
+    memory,
+    project,
+    changeId,
+    changePath,
+    strategyAdvice: adviceExtraction.strategyAdvice,
+  });
   await appendRunEvent(paths.events, { timestamp: run.finishedAt ?? new Date().toISOString(), type: status === "completed" ? "orchestrator.plan.completed" : "orchestrator.plan.failed", runId, data: { routingDecision: parsed.routingDecision } });
   await appendRunEvent(paths.events, { timestamp: run.finishedAt ?? new Date().toISOString(), type: status === "completed" ? "run.completed" : "run.failed", runId });
   return { ...parsed, run };
@@ -305,6 +325,7 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
       "topic-thread",
       "aho-skills",
       ...(transientSkillContext.records.length > 0 ? ["transient-aho-system-skill"] : []),
+      "main-agent-strategy-advice-request",
       "user-message",
       ...(options.planningMode ? ["codex-plan-mode"] : []),
     ],
@@ -361,6 +382,8 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
     run = { ...run, command: ["codex", "app-server", "--listen", "stdio://"], status: "running" };
     await writeJsonFile(paths.run, run);
     await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "app-server.started", runId, data: { phase: "chat", resumed: Boolean(runtime.codexSessionId) } });
+    const textDeltaFilter = createMainAgentStrategyAdviceDeltaFilter((delta) => emitLive(live, { event: "assistant.delta", data: { delta, runId } }));
+    const planDeltaFilter = createMainAgentStrategyAdviceDeltaFilter((delta) => emitLive(live, { event: "assistant.delta", data: { delta, runId } }));
     const result = await runCodexAppServerTurn({
       projectId: project.id,
       changeId,
@@ -376,24 +399,39 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
         session: paths.agentSession,
       },
       existingThreadId: runtime.codexSessionId,
-      onTextDelta: (delta) => emitLive(live, { event: "assistant.delta", data: { delta, runId } }),
-      onPlanDelta: (delta) => emitLive(live, { event: "assistant.delta", data: { delta, runId } }),
+      onTextDelta: (delta) => textDeltaFilter.feed(delta),
+      onPlanDelta: (delta) => planDeltaFilter.feed(delta),
       onNotification: (notification) => forwardAppServerNotification(runId, notification, live),
       onError: (error) => emitLive(live, { event: "error", data: { runId, message: error instanceof Error ? error.message : String(error) } }),
       collaborationMode: options.planningMode ? "plan" : undefined,
       model: effectiveModel.model,
       imageInputs,
     });
+    textDeltaFilter.flush();
+    planDeltaFilter.flush();
     const status: RunStatus = result.status === "completed" ? "completed" : "failed";
-    const lastMessage = result.lastMessage.trim() || result.planText?.trim() || result.error || "Codex app-server did not return a final message.";
+    const combinedAdviceText = [result.lastMessage, result.planText].filter(Boolean).join("\n");
+    const adviceExtraction = extractMainAgentStrategyAdviceFromText(combinedAdviceText);
+    const visibleLastMessage = stripMainAgentStrategyAdviceBlocks(result.lastMessage).trim();
+    const visiblePlanText = result.planText ? stripMainAgentStrategyAdviceBlocks(result.planText).trim() : undefined;
+    const lastMessage = visibleLastMessage || visiblePlanText || result.error || "Codex app-server did not return a final message.";
     await writeFile(paths.lastMessage, lastMessage, "utf8");
     await writeTopicRuntime(memory, changePath, { version: "1.0", changeId, codexSessionId: result.threadId ?? runtime.codexSessionId, updatedAt: new Date().toISOString() });
     await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "app-server.exited", runId, data: { phase: "chat", status: result.status, threadId: result.threadId, turnId: result.turnId, error: result.error } });
     run = { ...run, status, exitCode: status === "completed" ? 0 : 1, signal: null, finishedAt: new Date().toISOString() };
     await writeJsonFile(paths.run, run);
     await appendRunEvent(paths.events, { timestamp: run.finishedAt ?? new Date().toISOString(), type: status === "completed" ? "run.completed" : "run.failed", runId });
+    run = await attachCurrentRunStrategyAdviceMetadata({
+      run,
+      runPath: paths.run,
+      memory,
+      project,
+      changeId,
+      changePath,
+      strategyAdvice: adviceExtraction.strategyAdvice,
+    });
     live?.emit({ event: "run.status", data: { runId, status } });
-    return { run, message: lastMessage, codexSessionId: result.threadId ?? runtime.codexSessionId, planText: result.planText };
+    return { run, message: lastMessage, codexSessionId: result.threadId ?? runtime.codexSessionId, planText: visiblePlanText };
   }
   const appServerSkipReason = appServerCapabilities.available
     ? "external-local memory requires codex exec --add-dir memoryRoot"
@@ -435,7 +473,8 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
       ...codexProviderRunMetadata({ adapter: canResume ? "codex-readonly-resume-chat" : "codex-readonly-chat", model: effectiveModel.model, modelSource: effectiveModel.source, capabilities }),
     },
   });
-  const parser = createLiveCodexParser(runId, live);
+  const codexDeltaFilter = createMainAgentStrategyAdviceDeltaFilter((delta) => emitLive(live, { event: "assistant.delta", data: { delta, runId } }));
+  const parser = createLiveCodexParser(runId, live, codexDeltaFilter);
   const processResult = await executeProcessStreaming({
     cwd: project.path,
     command: argv.command,
@@ -449,11 +488,14 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
     stopSignal: () => isRunStopRequested(runId),
   });
   parser.flush();
+  codexDeltaFilter.flush();
   const stdout = processResult.stdoutSample;
   const lastMessage = existsSync(paths.lastMessage)
     ? await readFile(paths.lastMessage, "utf8")
     : extractFinalMessageFromCodexJsonl(stdout) ?? "";
-  if (!existsSync(paths.lastMessage)) await writeFile(paths.lastMessage, lastMessage || "# Codex Chat Not Captured\n", "utf8");
+  const adviceExtraction = extractMainAgentStrategyAdviceFromText(lastMessage);
+  const visibleLastMessage = adviceExtraction.visibleText || "# Codex Chat Not Captured";
+  await writeFile(paths.lastMessage, `${visibleLastMessage}\n`, "utf8");
   const nextSessionId = extractCodexSessionIdFromJsonl(stdout) ?? runtime.codexSessionId;
   await writeTopicRuntime(memory, changePath, { version: "1.0", changeId, codexSessionId: nextSessionId, updatedAt: new Date().toISOString() });
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.exited", runId, data: { phase: "chat", exitCode: processResult.exitCode, signal: processResult.signal, sessionLinked: Boolean(nextSessionId) } });
@@ -461,23 +503,93 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
   run = { ...run, status, exitCode: processResult.exitCode, signal: processResult.signal, finishedAt: new Date().toISOString() };
   await writeJsonFile(paths.run, run);
   await appendRunEvent(paths.events, { timestamp: run.finishedAt ?? new Date().toISOString(), type: status === "completed" ? "run.completed" : "run.failed", runId });
+  run = await attachCurrentRunStrategyAdviceMetadata({
+    run,
+    runPath: paths.run,
+    memory,
+    project,
+    changeId,
+    changePath,
+    strategyAdvice: adviceExtraction.strategyAdvice,
+  });
   live?.emit({ event: "run.status", data: { runId, status } });
-  return { run, message: lastMessage.trim() || processResult.stderrSample || "Codex did not return a final message.", codexSessionId: nextSessionId };
+  return { run, message: visibleLastMessage.trim() || processResult.stderrSample || "Codex did not return a final message.", codexSessionId: nextSessionId };
 }
 
-function createLiveCodexParser(runId: string, live: WorkbenchLiveSink | undefined): ReturnType<typeof createCodexJsonlStreamParser> {
+async function attachCurrentRunStrategyAdviceMetadata(input: {
+  run: RunMetadata;
+  runPath: string;
+  memory: Awaited<ReturnType<typeof resolveProjectMemory>>;
+  project: ManagedProject;
+  changeId: string;
+  changePath: string;
+  strategyAdvice?: MainAgentStrategyAdvice;
+}): Promise<RunMetadata> {
+  if (!input.strategyAdvice) {
+    return input.run;
+  }
+  try {
+    const replaySummary = await buildMainAgentWorkflowGraphReplaySummary(input.memory, input.project, input.changeId, {
+      changePath: input.changePath,
+      strategyAdviceInput: input.strategyAdvice,
+    });
+    const nextRun: RunMetadata = {
+      ...input.run,
+      mainAgentStrategy: {
+        authority: "read-only-main-agent-current-run-strategy-metadata",
+        executionStarted: false,
+        advice: input.strategyAdvice,
+        adviceConsumption: replaySummary.strategyDecision.adviceConsumption,
+        strategyKind: replaySummary.strategyDecision.kind,
+        kindSource: replaySummary.strategyDecision.kindSource,
+        deterministicBaselineKind: replaySummary.strategyDecision.deterministicBaseline.kind,
+        nextObservationKind: replaySummary.nextObservation.kind,
+        builtAt: replaySummary.builtAt,
+      },
+    };
+    await writeJsonFile(input.runPath, nextRun);
+    return nextRun;
+  } catch (error) {
+    const nextRun: RunMetadata = {
+      ...input.run,
+      mainAgentStrategy: {
+        authority: "read-only-main-agent-current-run-strategy-metadata",
+        executionStarted: false,
+        advice: input.strategyAdvice,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    };
+    await writeJsonFile(input.runPath, nextRun);
+    return nextRun;
+  }
+}
+
+function createLiveCodexParser(
+  runId: string,
+  live: WorkbenchLiveSink | undefined,
+  deltaFilter?: { feed: (delta: string) => void },
+): ReturnType<typeof createCodexJsonlStreamParser> {
   return createCodexJsonlStreamParser((event: CodexJsonlStreamEvent) => {
-    forwardCodexStreamEvent(runId, event, live);
+    forwardCodexStreamEvent(runId, event, live, deltaFilter);
   });
 }
 
-function forwardCodexStreamEvent(runId: string, event: CodexJsonlStreamEvent, live: WorkbenchLiveSink | undefined): void {
+function forwardCodexStreamEvent(
+  runId: string,
+  event: CodexJsonlStreamEvent,
+  live: WorkbenchLiveSink | undefined,
+  deltaFilter?: { feed: (delta: string) => void },
+): void {
     if (!live) return;
     if (event.type === "readable_event") {
       emitAssistantEvent(live, { ...event.event, runId });
       return;
     }
     if (event.type === "text_delta") {
+      if (deltaFilter) {
+        deltaFilter.feed(event.delta);
+        return;
+      }
       emitLive(live, { event: "assistant.delta", data: { delta: event.delta, runId } });
       return;
     }

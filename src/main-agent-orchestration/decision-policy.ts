@@ -247,7 +247,7 @@ function deriveStrategyDecision(
   }
 
   const strategyAdvice = "strategyAdviceInput" in options
-    ? buildMainAgentStrategyAdvice(options.strategyAdviceInput)
+    ? coerceMainAgentStrategyAdvice(options.strategyAdviceInput)
     : undefined;
   const adviceConsumption = consumeMainAgentStrategyAdvice({
     input,
@@ -294,6 +294,22 @@ function deriveStrategyDecision(
     strategyDecision.strategyAdvice = strategyAdvice;
   }
   return strategyDecision;
+}
+
+function coerceMainAgentStrategyAdvice(raw: unknown): MainAgentStrategyAdvice {
+  if (isMainAgentStrategyAdvice(raw)) {
+    return raw;
+  }
+  return buildMainAgentStrategyAdvice(raw);
+}
+
+function isMainAgentStrategyAdvice(raw: unknown): raw is MainAgentStrategyAdvice {
+  if (!raw || typeof raw !== "object") return false;
+  const value = raw as Partial<MainAgentStrategyAdvice>;
+  return value.authority === "read-only-main-agent-strategy-advice"
+    && value.executionStarted === false
+    && value.controller === false
+    && (value.status === "accepted-readonly" || value.status === "ignored");
 }
 
 export function consumeMainAgentStrategyAdvice(input: {

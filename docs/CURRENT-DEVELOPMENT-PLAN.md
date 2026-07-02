@@ -13,6 +13,17 @@ The user should not need to know internal terms before asking for work. The main
 Active implementation slice: none.
 
 Latest completed implementation slice:
+`harness/changes/archive/20260702-main-agent-llm-strategy-advice-production-goal-acceptance-v1/summary.md`.
+It connects bounded `MainAgentStrategyAdvice` to real `chat.ask` and
+`orchestrator.plan` output. The advice is requested in prompt context, parsed
+from the current run, stripped from assistant text / plan output / live deltas,
+and passed one-shot into the existing strategy policy. It is current-run
+metadata only: replay does not read historical latest advice, workers do not
+receive it, and full-access still requires `modeCompatibility.fullAccess`,
+current visible gate freshness, existing allowlists, revalidation, and
+ToolPolicy / action-owner checks.
+
+Previous completed implementation slice:
 `harness/changes/archive/20260702-main-agent-strategy-policy-v2b-bounded-advice-consumption/summary.md`.
 It lets bounded `MainAgentStrategyAdvice` influence
 `MainAgentStrategyDecision` only inside a strict current-evidence envelope,

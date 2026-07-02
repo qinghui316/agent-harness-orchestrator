@@ -197,6 +197,18 @@ export interface RunMetadata {
   taskRunId?: string;
   promptStack?: string[];
   enabledSkills?: RunSkillRecord[];
+  mainAgentStrategy?: {
+    authority: "read-only-main-agent-current-run-strategy-metadata";
+    executionStarted: false;
+    advice?: unknown;
+    adviceConsumption?: unknown;
+    strategyKind?: string;
+    kindSource?: string;
+    deterministicBaselineKind?: string;
+    nextObservationKind?: string;
+    builtAt?: string;
+    error?: string;
+  };
   agent?: RunAgentRecord;
   contextPacket?: RunContextPacketRef;
   executionGate?: {

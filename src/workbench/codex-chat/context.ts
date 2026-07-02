@@ -4,6 +4,7 @@ import {
   buildMainAgentResumeContinuationContext,
   detectMainAgentResumeContinuationIntent,
   renderMainAgentResumeContinuationPromptSection,
+  renderMainAgentStrategyAdvicePromptSection,
   sanitizeMainAgentResumeGateScope,
   type MainAgentResumeContinuationContext,
   type MainAgentResumePointGateSnapshot,
@@ -65,6 +66,7 @@ export async function buildChatContext(
   const attachmentContext = await renderTopicAttachmentsForPrompt(project, attachments);
   const resumeContinuationContext = await buildPromptResumeContinuationContext(project, memory, changePath, changeId, userMessage);
   const resumeContinuationPrompt = renderMainAgentResumeContinuationPromptSection(resumeContinuationContext);
+  const strategyAdvicePrompt = renderMainAgentStrategyAdvicePromptSection();
   return {
     goalLoopNextStepPacketId: goalLoopSection?.goalLoopNextStepPacketId,
     goalLoopControllerPolicyId: goalLoopSection?.goalLoopControllerPolicyId,
@@ -88,6 +90,8 @@ export async function buildChatContext(
       buildContextProjection(status),
       ...(goalLoopSection ? ["", goalLoopSection.markdown] : []),
       ...(resumeContinuationPrompt.length > 0 ? ["", ...resumeContinuationPrompt] : []),
+      "",
+      ...strategyAdvicePrompt,
       ...(referencedFiles.length > 0 ? ["", ...renderTopicFileReferencesForPrompt(referencedFiles), ""] : []),
       ...(attachmentContext.length > 0 ? ["", ...attachmentContext, ""] : []),
       "## Recent Topic Messages",
@@ -116,6 +120,7 @@ export async function buildOrchestratorContext(
   const attachmentContext = await renderTopicAttachmentsForPrompt(project, attachments);
   const resumeContinuationContext = await buildPromptResumeContinuationContext(project, memory, changePath, changeId, userMessage);
   const resumeContinuationPrompt = renderMainAgentResumeContinuationPromptSection(resumeContinuationContext);
+  const strategyAdvicePrompt = renderMainAgentStrategyAdvicePromptSection();
   return {
     goalLoopNextStepPacketId: goalLoopSection?.goalLoopNextStepPacketId,
     goalLoopControllerPolicyId: goalLoopSection?.goalLoopControllerPolicyId,
@@ -139,6 +144,8 @@ export async function buildOrchestratorContext(
       buildContextProjection(status),
       ...(goalLoopSection ? ["", goalLoopSection.markdown] : []),
       ...(resumeContinuationPrompt.length > 0 ? ["", ...resumeContinuationPrompt] : []),
+      "",
+      ...strategyAdvicePrompt,
       ...(referencedFiles.length > 0 ? ["", ...renderTopicFileReferencesForPrompt(referencedFiles), ""] : []),
       ...(attachmentContext.length > 0 ? ["", ...attachmentContext, ""] : []),
       "## Current Topic",

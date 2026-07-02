@@ -65,6 +65,7 @@ export interface AssessMainAgentStrategyConsumptionInput {
 export interface BuildMainAgentStrategyConsumptionContextOptions {
   changePath?: string;
   schedulerRunId?: string | null;
+  strategyAdviceInput?: unknown;
 }
 
 export interface MainAgentStrategyConsumptionContext {
@@ -127,6 +128,7 @@ export async function buildMainAgentStrategyConsumptionContext(
   const replaySummary = await buildMainAgentWorkflowGraphReplaySummary(memory, project, changeId, {
     changePath: options.changePath,
     schedulerRunId: options.schedulerRunId,
+    strategyAdviceInput: options.strategyAdviceInput,
   }).catch((error) =>
     buildDegradedMainAgentWorkflowGraphReplaySummary(
       project,
@@ -178,6 +180,10 @@ export function assessMainAgentStrategyConsumption(
 
   if (input.mode === "request-approval") {
     return assessment(input, gate.kind === "none" ? "stop-for-human-gate" : "explain-existing-gate", gate.summary || "Stepwise mode explains the current real gate and waits for human confirmation.", posture);
+  }
+
+  if (input.strategyDecision.modeCompatibility.fullAccess !== "eligible-for-existing-scoped-automation") {
+    return assessment(input, "stop-for-human-gate", input.strategyDecision.modeCompatibility.fullAccessReason || "Strategy mode compatibility requires stopping before scoped automation.", posture);
   }
 
   if (!isStrategyEligibleForScopedAutomation(input.strategyDecision.kind)) {
@@ -252,6 +258,9 @@ export function assessMainAgentResumeConsumption(
   }
   if (input.mode === "request-approval") {
     return resumeAssessment(input, "explain-existing-gate", "Stepwise mode explains the current real gate and waits for human confirmation.", resumePosture, gatePosture);
+  }
+  if (input.strategyDecision.modeCompatibility.fullAccess !== "eligible-for-existing-scoped-automation") {
+    return resumeAssessment(input, "stop-for-human-gate", input.strategyDecision.modeCompatibility.fullAccessReason || "Strategy mode compatibility requires stopping before scoped-local resume automation.", resumePosture, gatePosture);
   }
   if (!isStrategyEligibleForScopedAutomation(input.strategyDecision.kind)) {
     return resumeAssessment(input, "stop-for-human-gate", `Strategy ${input.strategyDecision.kind} is not eligible for scoped-local resume automation.`, resumePosture, gatePosture);
