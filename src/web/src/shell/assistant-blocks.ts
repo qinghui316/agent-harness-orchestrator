@@ -226,6 +226,7 @@ function dedupeBlocks(blocks: AssistantTurnBlock[]): AssistantTurnBlock[] {
 function isMainThreadBlock(block: AssistantTurnBlock): boolean {
   if (block.kind !== "status") return true;
   const normalized = `${block.title ?? ""} ${block.text ?? ""} ${block.status ?? ""}`.toLowerCase();
+  if (isAgentLifecycleStatus(normalized)) return true;
   if (normalized.includes("codex thread started")) return false;
   if (normalized.includes("codex initialized the thread")) return false;
   if (normalized.includes("codex turn running")) return false;
@@ -237,6 +238,7 @@ function isMainThreadBlock(block: AssistantTurnBlock): boolean {
 function isMainThreadAssistantEvent(event: AssistantReadableEvent): boolean {
   if (event.kind !== "status") return true;
   const normalized = `${event.title ?? ""} ${event.summary ?? ""} ${event.phase ?? ""}`.toLowerCase();
+  if (isAgentLifecycleStatus(normalized)) return true;
   if (normalized.includes("codex thread started")) return false;
   if (normalized.includes("codex initialized the thread")) return false;
   if (normalized.includes("codex turn running")) return false;
@@ -244,6 +246,17 @@ function isMainThreadAssistantEvent(event: AssistantReadableEvent): boolean {
   if (normalized.includes("codex turn completed")) return false;
   if (normalized.includes("codex completed the turn")) return false;
   return event.isError === true || normalized.includes("validation") || normalized.includes("audit") || normalized.includes("failed") || normalized.includes("blocked");
+}
+
+function isAgentLifecycleStatus(normalized: string): boolean {
+  return normalized.includes("agent-task-created")
+    || normalized.includes("agent-running")
+    || normalized.includes("agent-completed")
+    || normalized.includes("planning-agent")
+    || normalized.includes("coder")
+    || normalized.includes("validator")
+    || normalized.includes("auditor")
+    || normalized.includes("rework");
 }
 
 function normalizeCommandKey(command: string | undefined): string {

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { evaluateCodexAppServerCapabilities, shouldUseCodexAppServerForMemory } from "../../src/codex/app-server.js";
+import { evaluateCodexAppServerCapabilities, shouldUseCodexAppServerForMemory, shouldUseCodexAppServerForReadOnlyTurn } from "../../src/codex/app-server.js";
 import { buildCodexReadonlyArgv, buildCodexReadonlyResumeArgv, buildCodexWorkspaceWriteArgv, evaluateCodexCapabilities } from "../../src/codex/capabilities.js";
 import { createCodexJsonlStreamParser, extractFinalMessageFromCodexJsonl, truncateReadablePreview, type CodexJsonlStreamEvent } from "../../src/codex/jsonl.js";
 import { candidatesFromModelListResponse, getCodexModelSettingsSnapshot, resolveCodexEffectiveModel, setSelectedCodexModel } from "../../src/codex/model-settings.js";
@@ -47,6 +47,13 @@ describe("codex capabilities", () => {
   it("skips app-server when project memory is external-local", () => {
     expect(shouldUseCodexAppServerForMemory("repo-local")).toBe(true);
     expect(shouldUseCodexAppServerForMemory("remote")).toBe(true);
+    expect(shouldUseCodexAppServerForMemory("external-local")).toBe(false);
+  });
+
+  it("allows app-server for read-only external-local main agent turns", () => {
+    expect(shouldUseCodexAppServerForReadOnlyTurn("repo-local")).toBe(true);
+    expect(shouldUseCodexAppServerForReadOnlyTurn("remote")).toBe(true);
+    expect(shouldUseCodexAppServerForReadOnlyTurn("external-local")).toBe(true);
     expect(shouldUseCodexAppServerForMemory("external-local")).toBe(false);
   });
 

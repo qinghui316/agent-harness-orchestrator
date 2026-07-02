@@ -3,8 +3,17 @@ import type { ProjectRegistryStore } from "../../registry/store.js";
 import type { TerminalRuntime } from "../terminal/terminal-runtime.js";
 import type { ClarificationAnswer } from "../../workbench/intake.js";
 import type { WorkbenchApprovalAction, WorkbenchProjectInput } from "../../workbench/manager.js";
-import type { TopicMessageInput, WorkbenchWorkflowActionRequest } from "../../workbench/chat.js";
+import type { TopicMessageInput, TopicThreadEntry, WorkbenchWorkflowActionRequest } from "../../workbench/chat.js";
+import type { WorkbenchLiveSink } from "../../workbench/types.js";
 import type { MemoryMode } from "../../types/index.js";
+import type { ManagedProject } from "../../types/index.js";
+
+export type InitialMainAgentTurnRunner = (
+  project: ManagedProject,
+  changeId: string,
+  userMessage: string,
+  live?: WorkbenchLiveSink,
+) => Promise<TopicThreadEntry | null>;
 
 export interface WorkbenchServeOptions {
   host?: string;
@@ -12,6 +21,7 @@ export interface WorkbenchServeOptions {
   staticRoot?: string;
   store?: ProjectRegistryStore;
   terminalRuntime?: TerminalRuntime;
+  initialMainAgentTurn?: InitialMainAgentTurnRunner;
 }
 
 export interface WorkbenchServerHandle {
@@ -24,6 +34,7 @@ export interface WorkbenchServerContext {
   staticRoot: string;
   store: ProjectRegistryStore;
   terminalRuntime: TerminalRuntime;
+  initialMainAgentTurn: InitialMainAgentTurnRunner;
 }
 
 export interface WorkbenchActionRequest {

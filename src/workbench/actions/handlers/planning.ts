@@ -137,12 +137,11 @@ import {
   buildDeterministicPlanningBundle,
 } from "../../planning/builders.js";
 import { writePlanningBundle } from "../../planning/persistence.js";
-import { extractProposedPlanBlock, wrapPlanModePrompt } from "../../planning/proposed-plan.js";
+import { extractProposedPlanBlock, sanitizeProposedPlanForConversation, wrapPlanModePrompt } from "../../planning/proposed-plan.js";
 import {
   decompositionRecommendationLabel,
   renderDecompositionPlanSummary,
   renderDecompositionReadinessSummary,
-  renderPlanningBundleSummary,
 } from "../../planning/renderers.js";
 
 export async function generatePlanningDraft(
@@ -174,35 +173,52 @@ export async function generatePlanningDraft(
       summary: task.summary,
       inputArtifacts: task.inputArtifacts,
     },
-    reason: "The current demand needs a user-reviewable planning draft before canonical artifacts are written.",
+    reason: "The current demand needs a user-reviewable planning draft before formal planning records are written.",
   });
+  emitPlanningAgentLifecycle(live, task.id, "agent-task-created", "创建 planning-agent", "主 Agent 已创建 planning-agent，用于生成可审阅方案草案。");
   const role = await resolveAgentRole(memory, "planning-agent");
   const thread = await readThreadLog(memory, changePath);
   const latestUserText = prompt?.trim()
     || [...thread].reverse().find((entry) => entry.type === "user.message")?.text
     || changeId;
   const planModePrompt = wrapPlanModePrompt([
-    "作为 planning-agent，请基于当前需求对话生成或修订方案草案。",
-    "输出目标、约束、验收标准、实现方案、任务清单、风险和待确认点。",
-    "不要修改文件；AHO 会在用户确认执行后再写入 canonical artifacts。",
+    "你是 planning-agent。请基于当前需求对话生成或修订一份可审阅方案草案。",
+    "只输出方案正文，必须包在 <proposed_plan>...</proposed_plan> 中。",
+    "方案正文包含：目标、约束、验收标准、实现方案、任务清单、风险、待确认点。",
+    "不要输出运行前言、命令说明、读取说明、内部机制说明或对用户的闲聊。",
+    "不要修改文件；用户确认后，系统才会把草案整理成正式记录。",
     "",
     latestUserText,
   ].join("\n"));
   const includeFirstOnboardingSkill = !revision && await shouldIncludeFirstOnboardingSkill(memory, changeId);
-  const planningRuntime = await runCodexChat(project, changeId, planModePrompt, undefined, {
-    planningMode: true,
-    transientSystemSkillIds: includeFirstOnboardingSkill ? ["aho-harness-onboarding"] : undefined,
-  }).catch((error: unknown) => {
+  let planningRuntime: Awaited<ReturnType<typeof runCodexChat>>;
+  try {
+    emitPlanningAgentLifecycle(live, task.id, "agent-running", "planning-agent 运行中", "正在通过真实 Codex planning turn 生成方案草案。");
+    planningRuntime = await runCodexChat(project, changeId, planModePrompt, undefined, {
+      planningMode: true,
+      transientSystemSkillIds: includeFirstOnboardingSkill ? ["aho-harness-onboarding"] : undefined,
+    });
+    if (planningRuntime.run.status !== "completed") {
+      throw new Error(planningRuntime.message || "planning-agent did not complete.");
+    }
+    emitPlanningAgentLifecycle(live, planningRuntime.run.id, "agent-completed", "planning-agent 返回结果", "planning-agent 已返回可审阅方案文本。", planningRuntime.run.artifacts.lastMessage);
+  } catch (error: unknown) {
     emitAssistantEvent(live, {
-      runId: changeId,
+      runId: task.id,
       kind: "status",
-      phase: "planning-runtime-fallback",
-      title: "方案草案运行时不可用",
+      phase: "agent-failed",
+      title: "planning-agent 失败",
       summary: error instanceof Error ? error.message : String(error),
       isError: true,
     });
-    return null;
-  });
+    await completeAgentTask(memory, task, {
+      status: "failed",
+      summary: "planning-agent failed before producing a reviewable draft.",
+      artifactRefs: [],
+      nextRecommendation: "Retry after fixing the runtime issue or ask the user for a narrower request.",
+    });
+    throw error;
+  }
   const previous = await readLatestPlanningBundle(memory, changePath).catch(() => null);
   const rawPlanText = planningRuntime?.planText?.trim();
   const planningMessage = planningRuntime?.message.trim();
@@ -219,24 +235,17 @@ export async function generatePlanningDraft(
   ];
   const bundle = buildDeterministicPlanningBundle(memory, changePath, changeId, latestUserText, previous, revision, {
     proposedPlanMd,
-    proposedPlanRunId: planningRuntime?.run.id,
+    proposedPlanRunId: planningRuntime.run.id,
     planningMode: proposedPlanMd ? (rawPlanText ? "codex-plan-mode" : "prompt-plan-contract") : "deterministic-fallback",
     planningWarnings,
   });
-  const supportingPlanningText = proposedPlanMd
-    ? undefined
-    : extraction.proseWithoutPlan && extraction.proseWithoutPlan.trim() !== proposedPlanMd?.trim()
-      ? extraction.proseWithoutPlan
-      : planningMessage !== proposedPlanMd?.trim()
-        ? planningMessage
-        : undefined;
   await writePlanningBundle(memory, changePath, bundle);
   emitAssistantEvent(live, {
     runId: bundle.id,
     kind: "plan-update",
     phase: "draft",
     title: revision ? "Planning draft revised" : "Planning draft generated",
-    summary: "planning-agent produced a proposal/spec/design/tasks bundle for user review.",
+    summary: "planning-agent returned reviewable plan text.",
     artifactRef: bundle.artifact,
   });
   const planCard: OrchestrationPlanCard = {
@@ -249,23 +258,23 @@ export async function generatePlanningDraft(
     ],
     warnings: bundle.openQuestions,
   };
+  const visiblePlanningText = sanitizeProposedPlanForConversation(proposedPlanMd ?? planningMessage ?? rawPlanText ?? "");
   const assistant = await appendTopicThreadEntry(project, changeId, {
     type: "assistant.message",
     status: "planning-draft",
-    text: [supportingPlanningText, proposedPlanMd, renderPlanningBundleSummary(bundle)].filter(Boolean).join("\n\n"),
-    runId: planningRuntime?.run.id,
-    artifact: planningRuntime?.run.artifacts.lastMessage ?? bundle.artifact,
+    text: visiblePlanningText,
+    runId: planningRuntime.run.id,
+    artifact: planningRuntime.run.artifacts.lastMessage,
     planCard,
     blocks: [
       {
         id: `${bundle.id}:prose`,
-        runId: planningRuntime?.run.id ?? bundle.id,
+        runId: planningRuntime.run.id,
         sequence: 1,
         kind: "prose",
         timestamp: new Date().toISOString(),
-        source: planningRuntime ? "codex" : "aho",
-        title: revision ? "方案草案已更新" : "方案草案",
-        text: [supportingPlanningText, proposedPlanMd, renderPlanningBundleSummary(bundle)].filter(Boolean).join("\n\n"),
+        source: "codex",
+        text: visiblePlanningText,
       },
       {
         id: `${bundle.id}:plan-card`,
@@ -286,9 +295,9 @@ export async function generatePlanningDraft(
     decisionType: revision ? "planning.revise" : "planning.generate",
     status: "completed",
     label: revision ? "方案草案已更新" : "方案草案已生成",
-    summary: "planning-agent generated a draft bundle. It is not canonical until confirmation.",
+    summary: "planning-agent 已返回可审阅方案草案；确认前不会成为正式计划记录。",
     targetId: bundle.id,
-    runId: null,
+    runId: planningRuntime.run.id,
     artifact: bundle.artifact,
     actionId: revision ? "planning.revise" : "planning.generate",
     payload: { role: buildRunAgentRecord(role), bundle },
@@ -297,7 +306,7 @@ export async function generatePlanningDraft(
   await completeAgentTask(memory, task, {
     status: "completed",
     summary: revision ? "Planning draft revised for user review." : "Planning draft generated for user review.",
-    artifactRefs: [bundle.artifact, ...(planningRuntime?.run.artifacts.lastMessage ? [planningRuntime.run.artifacts.lastMessage] : [])],
+    artifactRefs: [bundle.artifact, planningRuntime.run.artifacts.lastMessage].filter((item): item is string => Boolean(item)),
     nextRecommendation: "Ask the user to confirm execution or request changes.",
   });
   return { bundle };
@@ -310,6 +319,24 @@ export async function shouldIncludeFirstOnboardingSkill(memory: ResolvedMemory, 
     && index.active[0]?.name === changeId
     && index.parking.length === 0
     && index.archive.length === 0;
+}
+
+function emitPlanningAgentLifecycle(
+  live: WorkbenchLiveSink | undefined,
+  runId: string,
+  phase: "agent-task-created" | "agent-running" | "agent-completed",
+  title: string,
+  summary: string,
+  artifactRef?: string,
+): void {
+  emitAssistantEvent(live, {
+    runId,
+    kind: "status",
+    phase,
+    title,
+    summary,
+    artifactRef,
+  });
 }
 
 export async function confirmPlanningAndStartPipeline(
@@ -349,15 +376,15 @@ export async function confirmPlanningAndStartPipeline(
     createTask: {
       roleId: "main-agent",
       kind: "foreground",
-      summary: "Canonical planning artifacts were accepted; execution requires decomposition and readiness gates.",
+      summary: "Planning draft was accepted as formal planning records; execution still requires later boundary checks.",
       inputArtifacts: [confirmed.artifact],
     },
-    reason: "The user confirmed the planning artifact bundle; Phase 7J requires typed readiness before code-producing execution.",
+    reason: "The user confirmed the planning draft; code-producing execution still requires later boundary checks.",
   });
   await appendTopicThreadEntry(project, changeId, {
     type: "assistant.message",
     status: "planning-confirmed",
-    text: "已确认规划：方案草案已写入内部 spec/plan/tasks/ac-map。下一步需要生成或确认 DecompositionPlan，并通过 readiness gate 后才能启动执行。",
+    text: "已确认规划：方案草案已保存为正式计划记录。下一步需要确认执行拆分和边界检查后，才会进入实现。",
     artifact: confirmed.artifact,
   });
   emitAssistantEvent(live, {
@@ -365,7 +392,7 @@ export async function confirmPlanningAndStartPipeline(
     kind: "status",
     phase: "confirmed",
     title: "Planning confirmed",
-    summary: "Canonical planning artifacts were written after user confirmation.",
+    summary: "Planning records were saved after user confirmation.",
     artifactRef: confirmed.artifact,
   });
   if (request.postPlanAutomationMode === "full-access") {

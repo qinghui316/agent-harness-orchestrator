@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260702-main-agent-goal-style-real-codex-ui-acceptance-fix-pass-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260702-main-agent-llm-strategy-advice-production-goal-acceptance-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260702-main-agent-strategy-policy-v2b-bounded-advice-consumption/summary.md`.
@@ -837,13 +839,15 @@ Harness workflow truth.
 
 Current main-agent architecture work has no active change. Latest completed
 slice is
-`harness/changes/archive/20260702-main-agent-strategy-policy-v2b-bounded-advice-consumption/summary.md`.
-Pending Harness evolution is none. V2b lets bounded strategy advice influence
-strategy kind only inside a strict current-evidence envelope while preserving
-deterministic baseline provenance; advice remains non-executing and cannot act
-as an action, gate, controller, automation authority, Scheduler /
-IntegrationCheck executor, or apply / close authority. The next structured
-architecture step is Goal-style autonomous loop runner acceptance.
+`harness/changes/archive/20260702-main-agent-goal-style-real-codex-ui-acceptance-fix-pass-v1/summary.md`.
+Pending Harness evolution is none. The latest real UI pass fixed the
+conversation-first main-Agent flow: new external-local demands show a
+live-first user message and run-backed main-Agent reply, ordinary chat no
+longer auto-hands off to planning, planning-agent work is shown as process
+rows, and planning prose is sanitized without replacing Harness truth. The next
+structured architecture step can return to Goal-style autonomous loop runner
+acceptance, or desktop product-layer work can continue as a separate selected
+phase.
 
 Desktop product work can continue from
 `docs/design-docs/ref-desktop-cc-gui.md` when selected.

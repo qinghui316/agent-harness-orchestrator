@@ -30,6 +30,24 @@ export function extractProposedPlanBlock(text: string): ProposedPlanExtraction {
   };
 }
 
+const CONVERSATION_INTERNAL_LINE_PATTERN = /\b(AHO|Harness|Workpad|TaskRun|WorkflowRun|AgentTask|Run Context Projection|active change|review status|validation|audit|worktree|gate|canonical|artifact|proposal-only|planning evidence|close gate|ECL)\b|AC-\d+|T-\d+|\bTBD\b|ui-final-\d+|node\s+test\.mjs|仓库|工作区|脚本|占位|关闭条件|当前阶段/i;
+
+export function sanitizeProposedPlanForConversation(markdown: string): string {
+  const extracted = markdown.includes("<proposed_plan")
+    ? extractProposedPlanBlock(markdown).proposedPlanMd ?? markdown
+    : markdown;
+  const withoutTags = extracted
+    .replace(/<\/?proposed_plan>/gi, "")
+    .trim();
+  const filtered = withoutTags
+    .split(/\r?\n/)
+    .filter((line) => !CONVERSATION_INTERNAL_LINE_PATTERN.test(line))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return filtered || withoutTags;
+}
+
 function extractMarkdownHeadings(markdown: string): string[] {
   return markdown
     .split(/\r?\n/)
@@ -49,9 +67,10 @@ function extractHeading(line: string): string | null {
 
 export function wrapPlanModePrompt(input: string): string {
   return [
-    "You are preparing an implementation plan for AHO Workbench planning.",
+    "You are preparing a user-reviewable implementation plan.",
     "Use Plan Mode behavior: explore the demand context from the prompt, identify scope, constraints, acceptance criteria, implementation steps, risks, and verification.",
-    "Do not modify files. This is proposal-only planning evidence.",
+    "Do not modify files.",
+    "Write for the user. Do not mention internal product mechanics, change ids, repository scans, dirty status, script names, evidence ledgers, gates, artifacts, queues, runs, validation/audit records, or close conditions unless the user explicitly asked for those details.",
     "Return exactly one final <proposed_plan>...</proposed_plan> block. The block must be decision-complete for implementation review.",
     "",
     input,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractProposedPlanBlock, wrapPlanModePrompt } from "../../src/workbench/planning/proposed-plan.js";
+import { extractProposedPlanBlock, sanitizeProposedPlanForConversation, wrapPlanModePrompt } from "../../src/workbench/planning/proposed-plan.js";
 
 describe("Codex proposed plan extraction", () => {
   it("extracts the first proposed_plan block and leaves surrounding prose as non-authoritative context", () => {
@@ -58,5 +58,31 @@ describe("Codex proposed plan extraction", () => {
     expect(prompt).toContain("<proposed_plan>");
     expect(prompt).toContain("Do not modify files");
     expect(prompt).toContain("User demand");
+    expect(prompt).not.toContain("AHO Workbench");
+    expect(prompt).not.toContain("proposal-only planning evidence");
+  });
+
+  it("sanitizes visible conversation text without changing stored plan extraction", () => {
+    const visible = sanitizeProposedPlanForConversation([
+      "I checked AHO Harness context.",
+      "<proposed_plan>",
+      "目标:",
+      "给用户一份可读方案。",
+      "- 当前 active change 为 demo，AC-001 仍为 TBD。",
+      "- 仓库扫描显示工作区 dirty，可用脚本为 node test.mjs。",
+      "实现方案:",
+      "只展示方案正文。",
+      "</proposed_plan>",
+    ].join("\n"));
+
+    expect(visible).toContain("目标:");
+    expect(visible).toContain("只展示方案正文。");
+    expect(visible).not.toContain("<proposed_plan>");
+    expect(visible).not.toContain("Harness");
+    expect(visible).not.toContain("active change");
+    expect(visible).not.toContain("AC-001");
+    expect(visible).not.toContain("TBD");
+    expect(visible).not.toContain("dirty");
+    expect(visible).not.toContain("node test.mjs");
   });
 });

@@ -13,7 +13,8 @@ import { startLocalCommandRun } from "../../src/run/manager.js";
 import { TerminalRuntime } from "../../src/server/terminal/terminal-runtime.js";
 import { buildNativeFolderDialogCommand, executeWorkbenchAction, startWorkbenchServer, type WorkbenchServerHandle } from "../../src/server/workbench-server.js";
 import type { ManagedProject } from "../../src/types/index.js";
-import { appendTopicThreadEntry } from "../../src/workbench/chat.js";
+import { appendTopicThreadEntry, buildInitialMainAgentPrompt } from "../../src/workbench/chat.js";
+import type { WorkbenchLiveSink } from "../../src/workbench/types.js";
 
 let tempDir: string;
 let staticRoot: string;
@@ -38,6 +39,33 @@ function project(): ManagedProject {
   };
 }
 
+async function fakeInitialMainAgentTurn(
+  inputProject: ManagedProject,
+  changeId: string,
+  userMessage: string,
+  live?: WorkbenchLiveSink,
+) {
+  live?.emit({ event: "run.status", data: { runId: "run-main-agent-initial-test", status: "running", label: "Codex" } });
+  const entry = await appendTopicThreadEntry(inputProject, changeId, {
+    type: "assistant.message",
+    status: "main-agent-initial-turn",
+    text: `主 Agent 已读取需求，下一步会先判断规划边界：${userMessage}`,
+    runId: "run-main-agent-initial-test",
+    artifact: ".agent-harness/runs/run-main-agent-initial-test/last-message.md",
+    blocks: [{
+      id: "main-agent-initial-test:prose",
+      runId: "run-main-agent-initial-test",
+      sequence: 1,
+      kind: "prose",
+      timestamp: "2026-05-15T00:00:00.000Z",
+      source: "codex",
+      text: `主 Agent 已读取需求，下一步会先判断规划边界：${userMessage}`,
+    }],
+  });
+  live?.emit({ event: "topic.message", data: entry });
+  return entry;
+}
+
 describe("workbench server", () => {
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), "aho-server-"));
@@ -50,7 +78,7 @@ describe("workbench server", () => {
     await initHarness(project());
     await createChange(project(), { title: "Server Topic" });
     await startLocalCommandRun(project(), [process.execPath, "-e", "console.log('server stream')"]);
-    handle = await startWorkbenchServer({ project: project(), path: tempDir }, { port: 0, staticRoot });
+    handle = await startWorkbenchServer({ project: project(), path: tempDir }, { port: 0, staticRoot, initialMainAgentTurn: fakeInitialMainAgentTurn });
   });
 
   afterEach(async () => {
@@ -167,6 +195,49 @@ describe("workbench server", () => {
       id: attachmentPayload.attachment.id,
       fileName: "note.md",
     }));
+  });
+
+  it("streams topic creation before the initial main-agent turn finishes", async () => {
+    const live = await fetch(`${handle!.url}/api/projects/repo/workbench/topics/live`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "Live topic", body: "请先判断下一步", confirm: true }),
+    });
+
+    expect(live.ok).toBe(true);
+    expect(live.headers.get("content-type")).toContain("text/event-stream");
+    const body = await live.text();
+    expect(body).toContain("event: topic.created");
+    expect(body).toContain("event: topic.message");
+    expect(body).toContain("event: run.status");
+    expect(body).toContain("event: snapshot");
+    expect(body).toContain("event: done");
+    const createdIndex = body.indexOf("event: topic.created");
+    const userMessageIndex = body.indexOf("\"type\":\"user.message\"");
+    const intakeIndex = body.indexOf("\"status\":\"intake.scan\"");
+    const runIndex = body.indexOf("\"runId\":\"run-main-agent-initial-test\"");
+    const assistantIndex = body.indexOf("\"type\":\"assistant.message\"");
+    expect(createdIndex).toBeGreaterThanOrEqual(0);
+    expect(userMessageIndex).toBeGreaterThan(createdIndex);
+    expect(intakeIndex).toBeGreaterThan(userMessageIndex);
+    expect(runIndex).toBeGreaterThan(intakeIndex);
+    expect(assistantIndex).toBeGreaterThan(runIndex);
+    expect(body).toContain("main-agent-initial-turn");
+  });
+
+  it("keeps the initial main-agent prompt user-facing", () => {
+    const prompt = buildInitialMainAgentPrompt("请更新 message.txt，让测试通过");
+
+    expect(prompt).toContain("请更新 message.txt，让测试通过");
+    expect(prompt).toContain("正常开发助理");
+    expect(prompt).not.toContain("Harness gate");
+    expect(prompt).not.toContain("canonical artifacts");
+    expect(prompt).not.toContain("AC-001");
+    expect(prompt).not.toContain("TBD");
+    expect(prompt).not.toContain("Change id");
+    expect(prompt).not.toContain("TaskRun");
+    expect(prompt).not.toContain("WorkflowRun");
+    expect(prompt).not.toContain("planning-agent");
   });
 
   it("rejects composer attachment uploads before project preparation", async () => {
@@ -503,7 +574,7 @@ describe("workbench server", () => {
 
   it("serves app-level project onboarding routes", async () => {
     const store = new ProjectRegistryStore(registryRoot);
-    const appHandle = await startWorkbenchServer(null, { port: 0, staticRoot, store });
+    const appHandle = await startWorkbenchServer(null, { port: 0, staticRoot, store, initialMainAgentTurn: fakeInitialMainAgentTurn });
     try {
       const status = await getJson<{ mode: string }>(`${appHandle.url}/api/app/status`);
       expect(status.mode).toBe("app");
@@ -530,6 +601,26 @@ describe("workbench server", () => {
       });
       expect(projectTopic.ok).toBe(true);
       const projectTopicBody = await projectTopic.json() as { topic: { changeId: string } };
+      const projectMessages = await getJson<{ messages: Array<{ type: string; status?: string; runId?: string; artifact?: string }> }>(
+        `${appHandle.url}/api/projects/${addedBody.project.id}/workbench/topics/${projectTopicBody.topic.changeId}/messages`,
+      );
+      expect(projectMessages.messages).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          type: "assistant.message",
+          status: "main-agent-initial-turn",
+          runId: "run-main-agent-initial-test",
+          artifact: ".agent-harness/runs/run-main-agent-initial-test/last-message.md",
+        }),
+      ]));
+      const projectTranscript = await getJson<{ cells: Array<{ kind: string; text?: string }> }>(
+        `${appHandle.url}/api/projects/${addedBody.project.id}/workbench/projections/transcript/${projectTopicBody.topic.changeId}?limit=100`,
+      );
+      expect(projectTranscript.cells).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          kind: "assistant-message",
+          text: expect.stringContaining("主 Agent 已读取需求"),
+        }),
+      ]));
       await appendTopicThreadEntry({ ...project(), id: addedBody.project.id, name: "Server Repo" }, projectTopicBody.topic.changeId, {
         type: "workflow.completed",
         actionRunId: "action-private-path",

@@ -2056,11 +2056,11 @@ export function buildTypedWorkflowNextAction(input: {
     return workflowNextAction("intake.reanalyze", "继续澄清需求", "回答需要确认的问题，AHO 会更新当前理解。", false);
   }
   if (planningBundle?.status === "draft") {
-    const next = workflowNextAction("planning.confirm-execution", "确认规划", "确认当前方案并写入内部 spec/plan/tasks/ac-map；不会启动执行。");
+    const next = workflowNextAction("planning.confirm-execution", "确认规划", "确认当前方案并保存为正式计划记录；不会启动执行。");
     return { ...next, planningBundleId: planningBundle.id };
   }
   if (!readiness.specReady || !readiness.planReady || !readiness.tasksReady) {
-    return workflowNextAction("planning.generate", "生成方案草案", "在主对话里生成 proposal/spec/design/tasks 草案；确认执行后才写入内部 artifacts。");
+    return workflowNextAction("planning.generate", "生成方案草案", "在主对话里生成可审阅方案草案；确认后才保存为正式计划记录。");
   }
   if (!decompositionPlan) {
     return workflowNextAction("planning.decompose", "生成拆分提案", "根据已确认方案生成 DecompositionPlan；不会启动执行。");

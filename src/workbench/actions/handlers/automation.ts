@@ -95,6 +95,25 @@ export async function runScopedAutomationAction(
     request: automationRequest,
     services: {
       resolveCurrentPrimaryGate: async () => resolveCurrentPrimaryAutomationGate(project, changeId),
+      checkSafety: async () => {
+        const [currentSourceState, currentAcceptedArtifactHashes] = await Promise.all([
+          captureAutomationSourceState(memory),
+          captureAcceptedArtifactHashes(memory, changePath),
+        ]);
+        if (!automationSourceStatesEqual(safetyContext.sourceState, currentSourceState)) {
+          return {
+            stopReason: "source-drift",
+            summary: "Source state changed outside the scoped automation authorization.",
+          };
+        }
+        if (!automationAcceptedArtifactHashesEqual(safetyContext.acceptedArtifactHashes, currentAcceptedArtifactHashes)) {
+          return {
+            stopReason: "accepted-artifact-drift",
+            summary: "Accepted Spec/Plan/Tasks/AC artifacts changed outside the scoped automation authorization.",
+          };
+        }
+        return null;
+      },
       dispatchChildAction: async (childRequest, auditScope) => {
         if (childRequest.kind === "approval-action") {
           const action = childRequest.action as WorkbenchApprovalAction;
@@ -327,6 +346,32 @@ function collectResumeTargetIds(scope: Record<string, unknown>): string[] {
     }
   }
   return [...values].sort();
+}
+
+function automationSourceStatesEqual(
+  expected: Awaited<ReturnType<typeof captureAutomationSourceState>>,
+  actual: Awaited<ReturnType<typeof captureAutomationSourceState>>,
+): boolean {
+  return expected.gitHead === actual.gitHead
+    && stringArraysEqual(expected.statusShort ?? [], actual.statusShort ?? []);
+}
+
+function automationAcceptedArtifactHashesEqual(
+  expected: Awaited<ReturnType<typeof captureAcceptedArtifactHashes>>,
+  actual: Awaited<ReturnType<typeof captureAcceptedArtifactHashes>>,
+): boolean {
+  return expected.spec === actual.spec
+    && expected.plan === actual.plan
+    && expected.tasks === actual.tasks
+    && expected.acMap === actual.acMap;
+}
+
+function stringArraysEqual(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) return false;
+  }
+  return true;
 }
 
 async function appendScopedAutomationNotStarted(

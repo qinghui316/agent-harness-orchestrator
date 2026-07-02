@@ -15,11 +15,11 @@ import { readWorkbenchActionEvents, sendActionEventReplay } from "./live.js";
 import { assertConfirmed, assertRegisteredProject, readJsonBody, sendJson } from "./http.js";
 import { handleClarificationAnswer, handleClarificationSkip, handleIntakeReanalyze, handleIntakeScan } from "./intake.js";
 import { sendWorkbenchActionLive } from "./live-actions.js";
-import { readCreateTopicBody, readTopicMessageBody, sendTopicMessageLive, sendTopicMessageReplay } from "./topic-messages.js";
+import { readCreateTopicBody, readTopicMessageBody, sendCreateTopicLive, sendTopicMessageLive, sendTopicMessageReplay } from "./topic-messages.js";
 import { executeWorkbenchAction } from "./actions.js";
-import type { ClarificationAnswerRequest, IntakeRequest, WorkbenchActionRequest } from "./types.js";
+import type { ClarificationAnswerRequest, IntakeRequest, WorkbenchActionRequest, WorkbenchServerContext } from "./types.js";
 
-export async function handleProjectWorkbenchApi(input: WorkbenchProjectInput, request: IncomingMessage, response: ServerResponse, rest: string, url: URL): Promise<void> {
+export async function handleProjectWorkbenchApi(context: WorkbenchServerContext, input: WorkbenchProjectInput, request: IncomingMessage, response: ServerResponse, rest: string, url: URL): Promise<void> {
   if (request.method === "GET" && rest === "snapshot") {
     sendJson(response, 200, await getWorkbenchSnapshot(input, { topicId: url.searchParams.get("topic") ?? undefined }));
     return;
@@ -32,12 +32,18 @@ export async function handleProjectWorkbenchApi(input: WorkbenchProjectInput, re
     sendJson(response, 200, await listWorkbenchTopics(input));
     return;
   }
+  if (request.method === "POST" && rest === "topics/live") {
+    assertRegisteredProject(input);
+    await sendCreateTopicLive(input, request, response, { initialMainAgentTurn: context.initialMainAgentTurn });
+    return;
+  }
   if (request.method === "POST" && rest === "topics") {
     assertRegisteredProject(input);
     const body = await readCreateTopicBody(request);
     const topic = await createWorkbenchTopic(input.project, body);
     if (topic.state === "active") {
       await runIntakeScan(input.project, topic.changeId, body.body ?? body.title);
+      await context.initialMainAgentTurn(input.project, topic.changeId, body.body ?? body.title);
     }
     sendJson(response, 200, { topic, snapshot: await getWorkbenchSnapshot(input, { topicId: topic.changeId }) });
     return;

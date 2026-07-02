@@ -250,12 +250,24 @@ function assistantEventTitle(kind: WorkbenchAssistantEvent["kind"]): string {
 function isMainThreadAssistantStatus(event: WorkbenchAssistantEvent): boolean {
   if (event.kind !== "status") return true;
   const normalized = `${event.title ?? ""} ${event.summary ?? ""} ${event.phase ?? ""}`.toLowerCase();
+  if (isAgentLifecycleStatus(normalized)) return true;
   if (normalized.includes("codex thread started")) return false;
   if (normalized.includes("codex initialized the thread")) return false;
   if (normalized.includes("codex turn running")) return false;
   if (normalized.includes("codex started processing the turn")) return false;
   if (normalized.includes("codex turn completed")) return false;
   return Boolean(event.isError) || normalized.includes("validation") || normalized.includes("audit") || normalized.includes("failed") || normalized.includes("blocked");
+}
+
+function isAgentLifecycleStatus(normalized: string): boolean {
+  return normalized.includes("agent-task-created")
+    || normalized.includes("agent-running")
+    || normalized.includes("agent-completed")
+    || normalized.includes("planning-agent")
+    || normalized.includes("coder")
+    || normalized.includes("validator")
+    || normalized.includes("auditor")
+    || normalized.includes("rework");
 }
 
 function emitLive(live: WorkbenchLiveSink | undefined, event: WorkbenchLiveEvent): void {

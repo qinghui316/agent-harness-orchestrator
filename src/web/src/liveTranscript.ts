@@ -113,7 +113,7 @@ export function parentTranscriptCellsFromLiveThreadItem(item: ThreadStreamItem):
       });
       continue;
     }
-    if (block.kind === "status" && !block.isError) continue;
+    if (block.kind === "status" && !block.isError && !isAgentLifecycleStatus(block)) continue;
     const processSummary = liveProcessSummary(block);
     const detailText = liveProcessDetailText(block);
     cells.push({
@@ -212,6 +212,18 @@ export function normalizeParentAgentTranscript(value: ParentAgentTranscript | nu
     items: Array.isArray(value?.items) ? value.items : [],
     paging: value?.paging,
   };
+}
+
+function isAgentLifecycleStatus(block: AssistantTurnBlock): boolean {
+  const normalized = `${block.title ?? ""} ${block.text ?? ""} ${block.status ?? ""}`.toLowerCase();
+  return normalized.includes("agent-task-created")
+    || normalized.includes("agent-running")
+    || normalized.includes("agent-completed")
+    || normalized.includes("planning-agent")
+    || normalized.includes("coder")
+    || normalized.includes("validator")
+    || normalized.includes("auditor")
+    || normalized.includes("rework");
 }
 
 export function isParentAgentTranscriptPayload(value: ParentAgentTranscript | null | undefined): boolean {

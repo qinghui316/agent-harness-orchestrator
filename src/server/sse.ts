@@ -16,6 +16,9 @@ export function createSseResponse(response: ServerResponse, options: { keepAlive
     Connection: "keep-alive",
     "X-Accel-Buffering": "no",
   });
+  response.socket?.setNoDelay?.(true);
+  response.flushHeaders?.();
+  response.write(": connected\n\n");
 
   let closed = false;
   let heartbeat: NodeJS.Timeout | null = null;

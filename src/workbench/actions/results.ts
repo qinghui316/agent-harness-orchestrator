@@ -285,7 +285,7 @@ export function summarizeActionResult(actionType: string, result: unknown): stri
     return `SchedulerRun closeout ${status} recorded before IntegrationCheck. No apply, landing, PR, merge, or next worker was started.`;
   }
   if (actionType === "planning.confirm-execution" && isRecord(result)) {
-    return "Planning confirmed and canonical artifacts were written. No execution was started.";
+    return "Planning confirmed and the formal planning records were written. No execution was started.";
   }
   const isDemandWorkerAction = actionType.startsWith("demand.worker.");
   if ((isMainAgentExecutionAction(actionType) || isDemandWorkerAction) && isRecord(result)) {

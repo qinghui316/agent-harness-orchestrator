@@ -2370,6 +2370,7 @@ export type StreamPacket = {
 };
 export type FolderDialogResult = { path: string | null; canceled: boolean; supported: boolean; error?: string };
 export type WorkbenchLiveEvent =
+  | { event: "topic.created"; data: { topic: { changeId: string; title: string; state: "active" } } }
   | { event: "topic.message"; data: TopicMessageEntry }
   | { event: "run.started"; data: { runId: string; changeId: string; actionType?: string; runtime?: string; taskIds?: string[] } }
   | { event: "run.status"; data: { runId?: string; actionRunId?: string; status: string; label?: string } }

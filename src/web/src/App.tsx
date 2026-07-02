@@ -69,6 +69,7 @@ import type {
   Snapshot,
   DemandAgentRunGraph,
   ParentAgentTranscript,
+  ParentAgentTranscriptCell,
   Workpad,
   ThreadStreamItem,
   DecisionAction,
@@ -107,6 +108,13 @@ const emptySnapshot: Snapshot = {
 
 const SELECTED_PROJECT_STORAGE_KEY = "aho.workbench.selectedProjectId";
 type BottomDockKind = "terminal" | null;
+type PendingDemandConversation = {
+  id: string;
+  projectId: string;
+  title: string;
+  body: string;
+  startedAt: string;
+};
 
 function isSkillActiveForComposer(skill: SkillListItem, topicId: string | null, draftOverrides: Record<string, boolean>): boolean {
   if (topicId) {
@@ -120,6 +128,47 @@ function isSkillActiveForComposer(skill: SkillListItem, topicId: string | null, 
 
 function activeComposerSkillIds(skills: SkillListItem[], topicId: string | null, draftOverrides: Record<string, boolean>): string[] {
   return skills.filter((skill) => isSkillActiveForComposer(skill, topicId, draftOverrides)).map((skill) => skill.skillId);
+}
+
+function pendingDemandTranscript(pending: PendingDemandConversation, includeUserMessage: boolean): ParentAgentTranscript {
+  const cells: ParentAgentTranscriptCell[] = [];
+  if (includeUserMessage) {
+    cells.push({
+      id: `pending:user:${pending.id}`,
+      kind: "user-message",
+      source: "user",
+      timestamp: pending.startedAt,
+      text: pending.body,
+    });
+  }
+  cells.push({
+    id: `pending:waiting:${pending.id}`,
+    kind: "process-row",
+    source: "codex-runtime",
+    timestamp: pending.startedAt,
+    title: "等待回复",
+    text: "正在连接 Codex，并读取当前项目上下文。",
+    status: "running",
+  });
+  return normalizeParentAgentTranscript({
+    title: pending.title,
+    cells,
+    items: cells.map((cell) => ({
+      id: `pending:item:${cell.id}`,
+      actor: cell.kind === "user-message" ? "user" : "parent-agent",
+      timestamp: cell.timestamp,
+      derived: cell.kind !== "user-message",
+      blocks: [{
+        id: `pending:block:${cell.id}`,
+        kind: cell.kind === "user-message" ? "prose" : "process",
+        source: cell.source,
+        title: cell.title,
+        text: cell.text,
+        status: cell.status,
+      }],
+    })),
+    emptyMessage: "正在等待主 Agent 回复。",
+  });
 }
 
 export function App(): ReactElement {
@@ -151,6 +200,7 @@ export function App(): ReactElement {
   const [loadedTranscript, setLoadedTranscript] = useState<ParentAgentTranscript | null>(null);
   const [loadingEarlierTranscript, setLoadingEarlierTranscript] = useState(false);
   const [loadedRunGraph, setLoadedRunGraph] = useState<DemandAgentRunGraph | null>(null);
+  const [pendingDemandConversation, setPendingDemandConversation] = useState<PendingDemandConversation | null>(null);
   const [codexDiagnostics, setCodexDiagnostics] = useState<CodexDiagnostics | null>(null);
   const [codexModelSettings, setCodexModelSettings] = useState<CodexModelSettingsSnapshot | null>(null);
   const [providerCapabilities, setProviderCapabilities] = useState<ProviderCapabilitySnapshot[]>([]);
@@ -827,6 +877,8 @@ export function App(): ReactElement {
     setActionRunning("topic.create");
     let uploadedDraft: TopicAttachment[] = [];
     let draftUploadProjectId: string | null = null;
+    let createdTopicId: string | null = null;
+    const previousSelectedTopic = selectedTopic;
     try {
       const resolved = resolveComposerTextWithContext(body, fileRefs);
       const demandBody = resolved.text || defaultAttachmentPrompt(attachmentIds.length + attachmentFiles.length);
@@ -835,19 +887,54 @@ export function App(): ReactElement {
       const modeForNewTopic = automationMode;
       const effectiveProjectId = await ensureProjectReadyForDemand(selectedProjectId);
       if (!effectiveProjectId) return;
+      const showPendingBeforeCreate = attachmentFiles.length === 0;
+      const pendingConversation: PendingDemandConversation = {
+        id: `pending:${Date.now().toString(36)}`,
+        projectId: effectiveProjectId,
+        title,
+        body: demandBody,
+        startedAt: new Date().toISOString(),
+      };
+      if (showPendingBeforeCreate) {
+        setSelectedProjectId(effectiveProjectId);
+        persistSelectedProjectId(effectiveProjectId);
+        setSelectedTopic(pendingConversation.id);
+        setPendingDemandConversation(pendingConversation);
+        setLiveItems([]);
+        setLiveTurns([]);
+        setLoadedTranscript(null);
+        setLoadedRunGraph(null);
+      }
       draftUploadProjectId = effectiveProjectId;
       uploadedDraft = await uploadFilesForProject(effectiveProjectId, attachmentFiles);
       const finalAttachmentIds = [...attachmentIds, ...uploadedDraft.map((attachment) => attachment.id)];
-      const result = await postJson<{ topic: { changeId: string } }>(`/api/projects/${encodeURIComponent(effectiveProjectId)}/workbench/topics`, {
+      await consumeWorkbenchLiveStream<WorkbenchLiveEvent>(`/api/projects/${encodeURIComponent(effectiveProjectId)}/workbench/topics/live`, {
         title,
         body: demandBody,
         contextRefs: resolved.contextRefs,
         attachmentIds: finalAttachmentIds,
         confirm: true,
+      }, (event) => {
+        if (event.event === "topic.created") {
+          createdTopicId = event.data.topic.changeId;
+          setSelectedProjectId(effectiveProjectId);
+          persistSelectedProjectId(effectiveProjectId);
+          setSelectedTopic(event.data.topic.changeId);
+          setPendingDemandConversation((current) => current && current.projectId === effectiveProjectId
+            ? { ...current, id: event.data.topic.changeId, title: event.data.topic.title }
+            : {
+              ...pendingConversation,
+              id: event.data.topic.changeId,
+              title: event.data.topic.title,
+              startedAt: new Date().toISOString(),
+            });
+        }
+        handleLiveEvent(event);
       });
+      if (!createdTopicId) throw new Error("Demand conversation was not created.");
       uploadedDraft = [];
-      await applyTopicSkillOverrides(result.topic.changeId, resolved.overrides, effectiveProjectId);
-      const migratedMode = migrateDraftComposerExecutionMode(effectiveProjectId, result.topic.changeId, modeForNewTopic);
+      await applyTopicSkillOverrides(createdTopicId, resolved.overrides, effectiveProjectId);
+      const migratedMode = migrateDraftComposerExecutionMode(effectiveProjectId, createdTopicId, modeForNewTopic);
       setAutomationMode(migratedMode);
       setDraftSkillOverrides({});
       setComposerText("");
@@ -855,10 +942,13 @@ export function App(): ReactElement {
       setComposerAttachments([]);
       setSelectedProjectId(effectiveProjectId);
       persistSelectedProjectId(effectiveProjectId);
-      setSelectedTopic(result.topic.changeId);
-      await loadSkillSummary(effectiveProjectId, result.topic.changeId);
-      await refresh(effectiveProjectId, result.topic.changeId);
+      setSelectedTopic(createdTopicId);
+      setPendingDemandConversation(null);
+      await loadSkillSummary(effectiveProjectId, createdTopicId);
+      await refresh(effectiveProjectId, createdTopicId);
     } catch (cause) {
+      setPendingDemandConversation(null);
+      if (!createdTopicId) setSelectedTopic(previousSelectedTopic);
       setError(cause instanceof Error ? cause.message : String(cause));
       throw cause;
     } finally {
@@ -905,10 +995,6 @@ export function App(): ReactElement {
       return;
     }
     const pendingClarificationCount = activeWorkpad.intake.pendingClarifications?.length ?? 0;
-    if (attachmentIds.length === 0 && composerMode === "chat" && (activeWorkpad.nextAction.actionType === "planning.generate" || activeWorkpad.nextAction.actionType === "planning.revise")) {
-      await runWorkflowAction(activeWorkpad.nextAction.actionType, { prompt: outboundMessage });
-      return;
-    }
     if (attachmentIds.length === 0 && composerMode === "chat" && (activeWorkpad.nextAction.actionType === "intake.reanalyze" || activeWorkpad.nextAction.actionType === "change.spec.propose" || pendingClarificationCount > 0)) {
       setActionRunning("intake.reanalyze");
       setComposerText("");
@@ -1015,10 +1101,18 @@ export function App(): ReactElement {
   }
 
   function handleLiveEvent(event: WorkbenchLiveEvent): void {
+    if (event.event === "topic.created") {
+      setSelectedTopic(event.data.topic.changeId);
+      setPendingDemandConversation((current) => current
+        ? { ...current, id: event.data.topic.changeId, title: event.data.topic.title }
+        : current);
+      return;
+    }
     if (event.event === "snapshot") {
       setSnapshot(event.data);
       setLiveItems([]);
       setLiveTurns([]);
+      setPendingDemandConversation(null);
       invalidateProjectionCache();
       return;
     }
@@ -1165,16 +1259,32 @@ export function App(): ReactElement {
     setProjectionVersion((value) => value + 1);
   }
 
-  const activeTopic = snapshot.center.selectedTopic;
-  const activeWorkpad = snapshot.center.workpad ?? emptyWorkpad(activeTopic?.title ?? projectDisplayName(snapshot.project));
+  const activePendingConversation = pendingDemandConversation
+    && selectedProjectId === pendingDemandConversation.projectId
+    && selectedTopic === pendingDemandConversation.id
+    ? pendingDemandConversation
+    : null;
+  const activeTopic = activePendingConversation
+    ? {
+      id: activePendingConversation.id,
+      title: activePendingConversation.title,
+      state: "active" as const,
+      acCount: 0,
+      taskCount: 0,
+    }
+    : snapshot.center.selectedTopic;
+  const isPendingTopic = Boolean(activePendingConversation && activeTopic?.id === activePendingConversation.id);
+  const activeWorkpad = activePendingConversation ? emptyWorkpad(activePendingConversation.title) : snapshot.center.workpad ?? emptyWorkpad(activeTopic?.title ?? projectDisplayName(snapshot.project));
   const activeRun = useMemo(() => snapshot.center.agentLoop.runs.find((run) => run.id === selectedRun) ?? snapshot.center.agentLoop.runs[0], [snapshot, selectedRun]);
   const selectedProjectStatus = useMemo(() => projects.find((item) => item.project?.id === selectedProjectId) ?? null, [projects, selectedProjectId]);
   const selectedProjectHistoryUnavailable = Boolean(selectedProjectStatus?.managed && selectedProjectStatus.memory?.memoryAvailable === false);
   const selectedProjectIsTemporary = Boolean(selectedProjectStatus?.project && selectedProjectStatus.memory?.registered === false);
   const runIds = useMemo(() => snapshot.center.agentLoop.runs.map((run) => run.id).join("|"), [snapshot.center.agentLoop.runs]);
+  const pendingHasLiveUserMessage = Boolean(activePendingConversation && liveItems.some((item) => item.kind === "user-message" && (item.body ?? item.label) === activePendingConversation.body));
   const snapshotTranscript = useMemo(() => {
+    if (activePendingConversation) return pendingDemandTranscript(activePendingConversation, !pendingHasLiveUserMessage);
     return normalizeParentAgentTranscript(loadedTranscript ?? snapshot.center.parentAgentTranscript);
-  }, [loadedTranscript, snapshot.center.parentAgentTranscript]);
+  }, [activePendingConversation, loadedTranscript, pendingHasLiveUserMessage, snapshot.center.parentAgentTranscript]);
   const activeTranscript = useMemo(() => {
     return mergeLiveItemsIntoTranscript(snapshotTranscript, liveItems, liveTurns);
   }, [snapshotTranscript, liveItems, liveTurns]);
@@ -1236,7 +1346,7 @@ export function App(): ReactElement {
   }
 
   function toggleOrchestrationOverlay(): void {
-    if (!activeTopic?.id) return;
+    if (!activeTopic?.id || isPendingTopic) return;
     if (orchestrationOpen) closeOrchestrationOverlay();
     else setOrchestrationOpen(true);
   }
@@ -1256,7 +1366,7 @@ export function App(): ReactElement {
   }, [activeTopic?.id]);
 
   async function loadEarlierTranscriptPage(): Promise<void> {
-    if (!selectedProjectId || !activeTopic?.id || loadingEarlierTranscript) return;
+    if (!selectedProjectId || !activeTopic?.id || isPendingTopic || loadingEarlierTranscript) return;
     const cursor = activeTranscript.paging?.nextBeforeCursor;
     if (!cursor || activeTranscript.paging?.hasMoreBefore === false) return;
     setLoadingEarlierTranscript(true);
@@ -1279,7 +1389,7 @@ export function App(): ReactElement {
   }
 
   useEffect(() => {
-    if (!selectedProjectId || !activeTopic?.id) return;
+    if (!selectedProjectId || !activeTopic?.id || isPendingTopic) return;
     let cancelled = false;
     fetchJson<ParentAgentTranscript>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/projections/transcript/${encodeURIComponent(activeTopic.id)}?limit=100`)
       .then((projection) => {
@@ -1289,10 +1399,10 @@ export function App(): ReactElement {
         if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
       });
     return () => { cancelled = true; };
-  }, [selectedProjectId, activeTopic?.id, projectionVersion]);
+  }, [selectedProjectId, activeTopic?.id, isPendingTopic, projectionVersion]);
 
   useEffect(() => {
-    if (!selectedProjectId || !activeTopic?.id || !orchestrationOpen) return;
+    if (!selectedProjectId || !activeTopic?.id || isPendingTopic || !orchestrationOpen) return;
     let cancelled = false;
     fetchJson<DemandAgentRunGraph>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/projections/run-graph/${encodeURIComponent(activeTopic.id)}`)
       .then((projection) => {
@@ -1302,7 +1412,7 @@ export function App(): ReactElement {
         if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
       });
     return () => { cancelled = true; };
-  }, [selectedProjectId, activeTopic?.id, orchestrationOpen, projectionVersion]);
+  }, [selectedProjectId, activeTopic?.id, isPendingTopic, orchestrationOpen, projectionVersion]);
 
   useEffect(() => {
     if (!orchestrationOpen) return;
@@ -1502,7 +1612,7 @@ export function App(): ReactElement {
         </div>
         {!settingsOpen ? <WorkspaceDockToggleBar
           orchestrationActive={orchestrationOpen}
-          orchestrationDisabled={!activeTopic?.id}
+          orchestrationDisabled={!activeTopic?.id || isPendingTopic}
           onToggleOrchestration={toggleOrchestrationOverlay}
           terminalActive={bottomDockKind === "terminal"}
           terminalDisabled={!selectedProjectId}

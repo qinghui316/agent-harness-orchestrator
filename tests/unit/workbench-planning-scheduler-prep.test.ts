@@ -159,7 +159,7 @@ describe("workbench planning and scheduler preparation", () => {
     expect(snapshot.right.confirmationQueue.primary).toMatchObject({
       kind: "planning-confirm",
       changeId: topic.changeId,
-      summary: expect.stringContaining("写入内部 spec/plan/tasks/ac-map"),
+      summary: expect.stringContaining("保存为正式计划记录"),
     });
     expect(snapshot.right.confirmationQueue.primary?.actions).toEqual(expect.arrayContaining([
       expect.objectContaining({ actionType: "planning.confirm-execution", label: "确认规划", planningBundleId }),

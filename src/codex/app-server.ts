@@ -112,6 +112,10 @@ export function shouldUseCodexAppServerForMemory(memoryMode: MemoryMode): boolea
   return memoryMode !== "external-local";
 }
 
+export function shouldUseCodexAppServerForReadOnlyTurn(_memoryMode: MemoryMode): boolean {
+  return true;
+}
+
 export async function detectCodexAppServerCapability(): Promise<CodexAppServerCapabilities> {
   let help: string | null = null;
   let spawnError: string | undefined;

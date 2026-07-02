@@ -20,6 +20,7 @@ import { getSingleActiveChangeId, resolveTopic } from "./topic-resolver.js";
 import { appendTopicThreadEntry } from "./topic-thread.js";
 import { collectAllTopicThreadEntries, readTopicThreadLog as readThreadLog } from "./thread-log.js";
 import type {
+  AssistantTurnBlock,
   TopicAttachment,
   TopicMessageInput,
   TopicMessageResult,
@@ -71,6 +72,54 @@ export async function createWorkbenchTopic(project: ManagedProject, input: { tit
     attachments: attachments.length > 0 ? attachments : undefined,
   });
   return { changeId: result.change.id, title: result.change.title, state: "active" };
+}
+
+export function buildInitialMainAgentPrompt(userMessage: string): string {
+  return [
+    "这是 AHO 需求对话的第一轮主 Agent 回复。",
+    "你在主对话中直接回复用户，语气像一个正常开发助理。",
+    "用 2-4 句话说明：你理解的用户目标；当前不会修改文件或启动实现；下一步是先确认真实需求和验收方式，或等待用户确认后再进入规划。",
+    "不要使用项目内部对象名、英文阶段名、技术状态码或实现细节术语。",
+    "不要说已经启动任何子 Agent、规划角色、编码角色、验证角色或审查角色。",
+    "不要生成方案草案、任务清单或验收标准；不要执行代码；不要声称已经获得确认。",
+    "如果用户明确要求你解释内部机制，才可以使用内部术语。",
+    "",
+    "用户原始需求：",
+    userMessage,
+  ].join("\n");
+}
+
+export async function runInitialMainAgentTurn(project: ManagedProject, changeId: string, userMessage: string, live?: WorkbenchLiveSink): Promise<TopicThreadEntry> {
+  const prompt = buildInitialMainAgentPrompt(userMessage);
+  const capture = createAssistantTranscriptCapture(live);
+  const chat = await runCodexChat(project, changeId, prompt, capture.sink);
+  const assistantText = chat.message.trim() || capture.text.trim();
+  const assistant = await appendTopicThreadEntry(project, changeId, {
+    type: "assistant.message",
+    status: "main-agent-initial-turn",
+    text: assistantText,
+    runId: chat.run.id,
+    artifact: chat.run.artifacts.lastMessage,
+    activity: capture.activity,
+    blocks: initialMainAgentBlocks(capture.blocks, chat.run.id, assistantText),
+  });
+  live?.emit({ event: "assistant.message", data: assistant });
+  return assistant;
+}
+
+function initialMainAgentBlocks(blocks: AssistantTurnBlock[], runId: string, assistantText: string): AssistantTurnBlock[] {
+  if (blocks.length > 0) return blocks;
+  const text = assistantText.trim();
+  if (!text) return blocks;
+  return [{
+    id: `${runId}:initial-main-agent`,
+    runId,
+    sequence: 1,
+    kind: "prose",
+    timestamp: new Date().toISOString(),
+    source: "codex",
+    text,
+  }];
 }
 
 export async function listTopicMessages(project: ManagedProject, changeId: string): Promise<TopicThreadEntry[]> {

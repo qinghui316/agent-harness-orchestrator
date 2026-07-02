@@ -27,7 +27,7 @@ export async function handleApi(context: WorkbenchServerContext, request: Incomi
   const projectWorkbench = matchProjectWorkbenchRoute(url.pathname);
   if (projectWorkbench) {
     const input = await resolveProjectInputWithDirect(context.store, context.input, projectWorkbench.projectId);
-    await handleProjectWorkbenchApi(input, request, response, projectWorkbench.rest, url);
+    await handleProjectWorkbenchApi(context, input, request, response, projectWorkbench.rest, url);
     return;
   }
 

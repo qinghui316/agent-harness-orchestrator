@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { buildAgentSystemPrompt, buildRunAgentRecord, resolveAgentRole } from "../../agent/catalog.js";
-import { detectCodexAppServerCapability, runCodexAppServerTurn, shouldUseCodexAppServerForMemory, type CodexAppServerNotification } from "../../codex/app-server.js";
+import { detectCodexAppServerCapability, runCodexAppServerTurn, shouldUseCodexAppServerForReadOnlyTurn, type CodexAppServerNotification } from "../../codex/app-server.js";
 import { buildCodexReadonlyArgv, buildCodexReadonlyResumeArgv, detectCodexCapabilities } from "../../codex/capabilities.js";
 import { createCodexJsonlStreamParser, extractCodexSessionIdFromJsonl, extractFinalMessageFromCodexJsonl, truncateReadablePreview, type CodexJsonlStreamEvent } from "../../codex/jsonl.js";
 import { resolveCodexEffectiveModel } from "../../codex/model-settings.js";
@@ -376,7 +376,7 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
   });
 
   const appServerCapabilities = await detectCodexAppServerCapability();
-  const useAppServer = appServerCapabilities.available && shouldUseCodexAppServerForMemory(memory.mode);
+  const useAppServer = appServerCapabilities.available && shouldUseCodexAppServerForReadOnlyTurn(memory.mode);
   const effectiveModel = await resolveCodexEffectiveModel();
   if (useAppServer) {
     run = { ...run, command: ["codex", "app-server", "--listen", "stdio://"], status: "running" };
@@ -387,7 +387,7 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
     const result = await runCodexAppServerTurn({
       projectId: project.id,
       changeId,
-      roleId: "planning-agent",
+      roleId: options.planningMode ? "planning-agent" : "main-agent",
       runId,
       cwd: project.path,
       prompt,
@@ -433,8 +433,8 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
     live?.emit({ event: "run.status", data: { runId, status } });
     return { run, message: lastMessage, codexSessionId: result.threadId ?? runtime.codexSessionId, planText: visiblePlanText };
   }
-  const appServerSkipReason = appServerCapabilities.available
-    ? "external-local memory requires codex exec --add-dir memoryRoot"
+  const appServerSkipReason = appServerCapabilities.available && !shouldUseCodexAppServerForReadOnlyTurn(memory.mode)
+    ? "read-only turn is not eligible for Codex app-server"
     : null;
   emitAssistantEvent(live, {
     runId,
@@ -442,7 +442,7 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
     phase: "fallback",
     title: "实时引导不可用",
     summary: appServerSkipReason
-      ? "当前项目使用外部 AHO memory，已切换到 Codex exec 以读取完整项目记忆。"
+      ? "当前只读主 Agent turn 不能使用 Codex app-server，已切换到 Codex exec。"
       : "Codex app-server 不可用，当前输入会在下一轮生效。",
   });
   await appendRunEvent(paths.events, appServerSkipReason

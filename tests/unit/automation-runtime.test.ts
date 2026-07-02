@@ -617,6 +617,40 @@ describe("Scoped automation runtime", () => {
       sourceState: { capturedAt: "2026-06-24T00:00:00.000Z" },
     });
   });
+
+  it("fails closed when accepted artifact safety reports drift", async () => {
+    const dispatched: unknown[] = [];
+    const resumePoints: unknown[] = [];
+    const result = await runScopedAutomation({
+      memory,
+      changePath: "harness/changes/active/change-1",
+      projectId: "project-1",
+      sourceState: { capturedAt: "2026-06-24T00:00:00.000Z" },
+      acceptedArtifactHashes: { spec: "spec-a", plan: "plan-a", tasks: "tasks-a", acMap: "ac-a" },
+      request: baseRequest(),
+      services: {
+        checkSafety: async () => ({ stopReason: "accepted-artifact-drift", summary: "accepted artifacts changed" }),
+        resolveCurrentPrimaryGate: async () => ({ kind: "workflow-action", actionType: "validate.run" as const, changeId: "change-1", worktreeId: "wt-1" }),
+        dispatchChildAction: async (request) => {
+          dispatched.push(request);
+          return { ok: true };
+        },
+        summarizeChildResult: () => "unused",
+        recordResumePoint: async (input) => {
+          resumePoints.push(input);
+        },
+      },
+    });
+
+    expect(result.stopReason).toBe("accepted-artifact-drift");
+    expect(result.automationRun.completedSteps).toBe(0);
+    expect(dispatched).toEqual([]);
+    expect(resumePoints).toHaveLength(1);
+    expect(resumePoints[0]).toMatchObject({
+      stopReason: "accepted-artifact-drift",
+      acceptedArtifactHashes: { spec: "spec-a", plan: "plan-a", tasks: "tasks-a", acMap: "ac-a" },
+    });
+  });
 });
 
 function baseRequest(overrides: Partial<Parameters<typeof runScopedAutomation>[0]["request"]> = {}): Parameters<typeof runScopedAutomation>[0]["request"] {

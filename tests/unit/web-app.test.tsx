@@ -9,6 +9,7 @@ import { WorkpadView } from "../../src/web/src/panels/workbench/WorkpadPanel.js"
 import { mainAgentExecutionForWorkpad } from "../../src/web/src/panels/workbench/workpad/main-agent-execution.js";
 import { WorkpadDiagnosticDetails } from "../../src/web/src/panels/workbench/workpad/WorkpadDetails.js";
 import { TopicComposer } from "../../src/web/src/shell/composer.js";
+import { parentTranscriptCellsFromLiveThreadItem } from "../../src/web/src/liveTranscript.js";
 import { summarizeActionResult } from "../../src/workbench/actions/results.js";
 import type { Workpad, WorkpadMainAgentExecutionSummary } from "../../src/web/src/types.js";
 
@@ -530,7 +531,7 @@ function planningConfirmQueueItem() {
     changeId: "member-discount",
     summary: "规划草案已准备好。",
     whyNeedsConfirmation: "需要你确认计划；确认计划不会启动执行。",
-    confirmEffect: "确认后写入当前需求的 spec/plan/tasks/ac-map。",
+    confirmEffect: "确认后保存为正式计划记录。",
     riskSummary: "计划确认是人工边界。",
     evidenceRefs: ["planning-bundle.md"],
     primary: true,
@@ -4984,18 +4985,27 @@ describe("Workbench web app", () => {
 
     render(<App />);
 
+    async function submitGoalLoopFeedback(feedback: string): Promise<void> {
+      const feedbackButton = await waitFor(() => {
+        const button = screen.getByRole("button", { name: "修正 Goal Loop 建议" }) as HTMLButtonElement;
+        expect(button.disabled).toBe(false);
+        return button;
+      });
+      fireEvent.click(feedbackButton);
+      const editor = await screen.findByTestId("decision-feedback-editor");
+      fireEvent.change(within(editor).getByPlaceholderText("写下需要修改的地方"), { target: { value: feedback } });
+      fireEvent.click(within(editor).getByText("提交反馈"));
+    }
+
     await openDecisionPane();
     await waitFor(() => expect(screen.getAllByText("修正 Goal Loop 建议").length).toBeGreaterThan(0));
-    fireEvent.click(screen.getByRole("button", { name: "修正 Goal Loop 建议" }));
-    fireEvent.change(screen.getByPlaceholderText("写下需要修改的地方"), { target: { value: "先解释为什么现在可以关闭。" } });
-    fireEvent.click(screen.getByText("提交反馈"));
+    await submitGoalLoopFeedback("先解释为什么现在可以关闭。");
 
     await waitFor(() => {
       expect(fetch).toHaveBeenCalledWith("/api/projects/repo/workbench/actions/live", expect.objectContaining({ method: "POST" }));
     });
-    fireEvent.click(screen.getByRole("button", { name: "修正 Goal Loop 建议" }));
-    fireEvent.change(screen.getByPlaceholderText("写下需要修改的地方"), { target: { value: "再补充执行前提。" } });
-    fireEvent.click(screen.getByText("提交反馈"));
+    await waitFor(() => expect(feedbackRequestCount).toBe(1));
+    await submitGoalLoopFeedback("再补充执行前提。");
     await waitFor(() => expect(feedbackRequestCount).toBe(2));
   });
 
@@ -5180,6 +5190,49 @@ describe("Workbench web app", () => {
       }));
     });
     expect(fetch).not.toHaveBeenCalledWith("/api/projects/repo/workbench/topics/member-discount/messages/live", expect.anything());
+  });
+
+  it("does not hijack ordinary composer messages into planning actions", async () => {
+    const planningGateSnapshot = {
+      ...snapshot,
+      center: {
+        ...snapshot.center,
+        workpad: {
+          ...snapshot.center.workpad,
+          nextAction: {
+            id: "next:planning.generate",
+            label: "生成方案",
+            description: "等待用户确认后生成方案草案。",
+            kind: "workflow-action",
+            enabled: true,
+            requiresConfirmation: true,
+            actionType: "planning.generate",
+          },
+        },
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      if (url.includes("/messages/live")) {
+        return sseResponse([
+          ["topic.message", { id: "live-user-planning-note", type: "user.message", changeId: "member-discount", text: "先补充边界，不要生成方案" }],
+          ["done", { status: "completed" }],
+        ]);
+      }
+      return jsonResponse(url.includes("/stream/") ? stream : planningGateSnapshot);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getAllByText("会员折扣计价").length).toBeGreaterThan(0));
+    fireEvent.change(screen.getByPlaceholderText("输入问题或下一步需求"), { target: { value: "先补充边界，不要生成方案" } });
+    fireEvent.click(screen.getByTitle("发送"));
+
+    await waitFor(() => expect(fetchCallUrls()).toContain("/api/projects/repo/workbench/topics/member-discount/messages/live"));
+    expect(fetchCallUrls()).not.toContain("/api/projects/repo/workbench/actions/live");
+    expect(fetchCallUrls()).not.toContain("/api/projects/repo/workbench/actions");
   });
 
   it("consumes live message SSE and keeps the composer at the work surface", async () => {
@@ -5997,7 +6050,7 @@ describe("Workbench web app", () => {
       if (url === "/api/projects/repo/codex/diagnostics") return jsonResponse(codexDiagnostics);
       if (url === "/api/projects/repo/skills") return jsonResponse(skillPayload);
       if (url === "/api/projects/repo/skills/pricing-helper/enable" && init?.method === "POST") return jsonResponse(skillPayload);
-      if (url === "/api/projects/repo/workbench/topics" && init?.method === "POST") return jsonResponse({ topic: { changeId: "new-demand" } });
+      if (url === "/api/projects/repo/workbench/topics/live" && init?.method === "POST") return topicCreateLiveResponse("new-demand", selectedSnapshot, "实现设置入口");
       if (url === "/api/projects/repo/workbench/snapshot?topic=new-demand") return jsonResponse(selectedSnapshot);
       if (url === "/api/projects/repo/workbench/projections/transcript/new-demand?limit=100") return jsonResponse(selectedSnapshot.center.parentAgentTranscript);
       return jsonResponse(noTopicSnapshot);
@@ -6015,14 +6068,78 @@ describe("Workbench web app", () => {
     fireEvent.click(screen.getByTitle("创建需求对话"));
 
     await waitFor(() => expect(screen.getAllByText("实现设置入口").length).toBeGreaterThan(0));
-    const topicPost = vi.mocked(fetch).mock.calls.find(([url, init]) => String(url) === "/api/projects/repo/workbench/topics" && init?.method === "POST");
+    const topicPost = vi.mocked(fetch).mock.calls.find(([url, init]) => String(url) === "/api/projects/repo/workbench/topics/live" && init?.method === "POST");
     expect(JSON.parse(String(topicPost?.[1]?.body))).toMatchObject({
       title: "实现设置入口",
       body: "实现设置入口",
       confirm: true,
     });
-    const enablePost = vi.mocked(fetch).mock.calls.find(([url, init]) => String(url) === "/api/projects/repo/skills/pricing-helper/enable" && init?.method === "POST");
+    await waitFor(() => {
+      const expectedEnable = vi.mocked(fetch).mock.calls.find(([url, init]) =>
+        String(url) === "/api/projects/repo/skills/pricing-helper/enable"
+        && init?.method === "POST"
+        && String(init.body).includes("\"topic\":\"new-demand\""));
+      expect(expectedEnable).toBeTruthy();
+    });
+    const enablePost = vi.mocked(fetch).mock.calls.find(([url, init]) =>
+      String(url) === "/api/projects/repo/skills/pricing-helper/enable"
+      && init?.method === "POST"
+      && String(init.body).includes("\"topic\":\"new-demand\""));
     expect(JSON.parse(String(enablePost?.[1]?.body))).toMatchObject({ enabled: true, topic: "new-demand" });
+  });
+
+  it("shows the new demand immediately while waiting for the first live topic event", async () => {
+    const noTopicSnapshot = {
+      ...snapshot,
+      left: { ...snapshot.left, topics: [], workpads: [] },
+      center: { ...snapshot.center, selectedTopic: null, workpad: null, parentAgentTranscript: { title: "需求对话", cells: [], items: [] } },
+    };
+    const selectedSnapshot = {
+      ...snapshot,
+      left: {
+        ...snapshot.left,
+        topics: [{ id: "new-demand", title: "实现设置入口", state: "active" }],
+        workpads: [{ id: "new-demand", title: "实现设置入口", state: "active", runtimeStatus: "active", selected: true, waitingDecisionCount: 0 }],
+      },
+      center: {
+        ...snapshot.center,
+        selectedTopic: { id: "new-demand", title: "实现设置入口", state: "active", acCount: 0, taskCount: 0 },
+      },
+    };
+    let delayedEventsStarted = false;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") {
+        return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, memory: { memoryMode: "external-local", memoryAvailable: true, harnessReady: true, artifactBase: "memory-root" }, harness: { readiness: "ready" }, codexTrust: { trusted: true } }] });
+      }
+      if (url === "/api/projects/repo/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      if (url === "/api/projects/repo/skills") return jsonResponse({ roots: [], skills: [] });
+      if (url === "/api/projects/repo/workbench/topics/live" && init?.method === "POST") {
+        return delayedSseResponse([], [
+          ["topic.created", { topic: { changeId: "new-demand", title: "实现设置入口", state: "active" } }],
+          ["snapshot", selectedSnapshot],
+          ["done", { status: "completed" }],
+        ], () => { delayedEventsStarted = true; });
+      }
+      if (url === "/api/projects/repo/workbench/snapshot?topic=new-demand") return jsonResponse(selectedSnapshot);
+      if (url === "/api/projects/repo/workbench/projections/transcript/new-demand?limit=100") return jsonResponse(selectedSnapshot.center.parentAgentTranscript);
+      return jsonResponse(noTopicSnapshot);
+    }));
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "创造任何东西" });
+    const input = screen.getByLabelText("新建需求输入框");
+    fireEvent.change(input, { target: { value: "实现设置入口" } });
+    fireEvent.click(screen.getByTitle("创建需求对话"));
+
+    await waitFor(() => expect(screen.getByText("等待回复")).toBeTruthy(), { timeout: 150 });
+    expect(screen.getAllByText("实现设置入口").length).toBeGreaterThan(0);
+    expect(delayedEventsStarted).toBe(false);
+    expect(fetchCallUrls().some((url) => url.includes("/workbench/projections/transcript/pending%3A"))).toBe(false);
+    await waitFor(() => expect(delayedEventsStarted).toBe(true));
+    await waitFor(() => expect(screen.queryByText("等待回复")).toBeNull());
   });
 
   it("recognizes dollar Skill mentions in an existing topic without leaving the token in the sent message", async () => {
@@ -6068,7 +6185,10 @@ describe("Workbench web app", () => {
     fireEvent.click(screen.getByTitle("发送"));
 
     await waitFor(() => expect(fetchCallUrls()).toContain("/api/projects/repo/workbench/topics/member-discount/messages/live"));
-    const enablePost = vi.mocked(fetch).mock.calls.find(([url, init]) => String(url) === "/api/projects/repo/skills/pricing-helper/enable" && init?.method === "POST");
+    const enablePost = vi.mocked(fetch).mock.calls.find(([url, init]) =>
+      String(url) === "/api/projects/repo/skills/pricing-helper/enable"
+      && init?.method === "POST"
+      && String(init.body).includes("\"topic\":\"member-discount\""));
     expect(JSON.parse(String(enablePost?.[1]?.body))).toMatchObject({ enabled: true, topic: "member-discount" });
     const livePost = vi.mocked(fetch).mock.calls.find(([url, init]) => String(url) === "/api/projects/repo/workbench/topics/member-discount/messages/live" && init?.method === "POST");
     expect(JSON.parse(String(livePost?.[1]?.body))).toMatchObject({ message: "请继续" });
@@ -6102,7 +6222,7 @@ describe("Workbench web app", () => {
       if (url === "/api/projects/repo/codex/diagnostics") return jsonResponse(codexDiagnostics);
       if (url === "/api/projects/repo/skills") return jsonResponse({ roots: [], skills: [] });
       if (url.startsWith("/api/projects/repo/files/search")) return jsonResponse({ files: [fileRef] });
-      if (url === "/api/projects/repo/workbench/topics" && init?.method === "POST") return jsonResponse({ topic: { changeId: "new-demand" } });
+      if (url === "/api/projects/repo/workbench/topics/live" && init?.method === "POST") return topicCreateLiveResponse("new-demand", selectedSnapshot, "请改");
       if (url === "/api/projects/repo/workbench/snapshot?topic=new-demand") return jsonResponse(selectedSnapshot);
       if (url === "/api/projects/repo/workbench/projections/transcript/new-demand?limit=100") return jsonResponse(selectedSnapshot.center.parentAgentTranscript);
       return jsonResponse(noTopicSnapshot);
@@ -6119,7 +6239,7 @@ describe("Workbench web app", () => {
     fireEvent.click(screen.getByTitle("创建需求对话"));
 
     await waitFor(() => expect(screen.getAllByText("请改").length).toBeGreaterThan(0));
-    const topicPost = vi.mocked(fetch).mock.calls.find(([url, init]) => String(url) === "/api/projects/repo/workbench/topics" && init?.method === "POST");
+    const topicPost = vi.mocked(fetch).mock.calls.find(([url, init]) => String(url) === "/api/projects/repo/workbench/topics/live" && init?.method === "POST");
     expect(JSON.parse(String(topicPost?.[1]?.body))).toMatchObject({
       title: "请改",
       body: "请改",
@@ -6318,7 +6438,7 @@ describe("Workbench web app", () => {
         } });
       }
       if (url === "/api/projects/aho-self/codex/diagnostics") return jsonResponse(codexDiagnostics);
-      if (url === "/api/projects/aho-self/workbench/topics" && init?.method === "POST") return jsonResponse({ topic: { changeId: "saved-demand" } });
+      if (url === "/api/projects/aho-self/workbench/topics/live" && init?.method === "POST") return topicCreateLiveResponse("saved-demand", selectedSnapshot, "保存后的需求");
       if (url === "/api/projects/aho-self/workbench/snapshot?topic=saved-demand") return jsonResponse(selectedSnapshot);
       if (url === "/api/projects/aho-self/workbench/projections/transcript/saved-demand?limit=100") return jsonResponse(selectedSnapshot.center.parentAgentTranscript);
       return jsonResponse(noTopicSnapshot);
@@ -6404,8 +6524,8 @@ describe("Workbench web app", () => {
         return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, memory: { memoryMode: "external-local", memoryAvailable: true, harnessReady: true, artifactBase: "memory-root" }, harness: { readiness: "ready" }, codexTrust: { trusted: true } }] });
       }
       if (url === "/api/projects/repo/codex/diagnostics") return jsonResponse(codexDiagnostics);
-      if (url === "/api/projects/repo/workbench/topics" && init?.method === "POST") {
-        return jsonResponse({ topic: { changeId: "new-demand" } });
+      if (url === "/api/projects/repo/workbench/topics/live" && init?.method === "POST") {
+        return topicCreateLiveResponse("new-demand", selectedSnapshot, "实现设置入口");
       }
       if (url === "/api/projects/repo/workbench/snapshot?topic=new-demand") return jsonResponse(selectedSnapshot);
       if (url === "/api/projects/repo/workbench/projections/transcript/new-demand?limit=100") return jsonResponse(selectedSnapshot.center.parentAgentTranscript);
@@ -6419,7 +6539,7 @@ describe("Workbench web app", () => {
     fireEvent.click(screen.getByTitle("创建需求对话"));
 
     await waitFor(() => expect(screen.getByText("实现设置入口")).toBeTruthy());
-    const topicPost = vi.mocked(fetch).mock.calls.find(([url, init]) => String(url) === "/api/projects/repo/workbench/topics" && init?.method === "POST");
+    const topicPost = vi.mocked(fetch).mock.calls.find(([url, init]) => String(url) === "/api/projects/repo/workbench/topics/live" && init?.method === "POST");
     expect(topicPost).toBeTruthy();
     expect(JSON.parse(String(topicPost?.[1]?.body))).toMatchObject({
       title: "实现设置入口",
@@ -6455,7 +6575,7 @@ describe("Workbench web app", () => {
       }
       if (url === "/api/projects/repo/codex/diagnostics") return jsonResponse(codexDiagnostics);
       if (url === "/api/projects/repo/harness/init" && init?.method === "POST") return jsonResponse({ result: { ok: true }, status: { project: snapshot.project } });
-      if (url === "/api/projects/repo/workbench/topics" && init?.method === "POST") return jsonResponse({ topic: { changeId: "prepared-demand" } });
+      if (url === "/api/projects/repo/workbench/topics/live" && init?.method === "POST") return topicCreateLiveResponse("prepared-demand", selectedSnapshot, "准备后创建需求");
       if (url === "/api/projects/repo/workbench/snapshot?topic=prepared-demand") return jsonResponse(selectedSnapshot);
       if (url === "/api/projects/repo/workbench/projections/transcript/prepared-demand?limit=100") return jsonResponse(selectedSnapshot.center.parentAgentTranscript);
       return jsonResponse(noTopicSnapshot);
@@ -6474,7 +6594,7 @@ describe("Workbench web app", () => {
     const postUrls = vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST").map(([url]) => String(url));
     expect(postUrls).toEqual([
       "/api/projects/repo/harness/init",
-      "/api/projects/repo/workbench/topics",
+      "/api/projects/repo/workbench/topics/live",
     ]);
   });
 
@@ -6508,7 +6628,7 @@ describe("Workbench web app", () => {
       if (url === "/api/projects/repo/attachments" && init?.method === "POST") {
         return jsonResponse({ attachment: { id: "att-20260628120000-abcdef123456", fileName: "context.md", mediaType: "text/markdown", kind: "text", size: 12, hash: "abcdef1234567890", source: "composer", createdAt: "2026-06-28T12:00:00.000Z", storagePath: "attachments/att-20260628120000-abcdef123456/content.md", runtimeMode: "bounded-text-preview" } });
       }
-      if (url === "/api/projects/repo/workbench/topics" && init?.method === "POST") return jsonResponse({ topic: { changeId: "attached-demand" } });
+      if (url === "/api/projects/repo/workbench/topics/live" && init?.method === "POST") return topicCreateLiveResponse("attached-demand", selectedSnapshot, "根据附件分析");
       if (url === "/api/projects/repo/workbench/snapshot?topic=attached-demand") return jsonResponse(selectedSnapshot);
       if (url === "/api/projects/repo/workbench/projections/transcript/attached-demand?limit=100") return jsonResponse(selectedSnapshot.center.parentAgentTranscript);
       return jsonResponse(noTopicSnapshot);
@@ -6533,16 +6653,16 @@ describe("Workbench web app", () => {
       expect(urls).toEqual([
         "/api/projects/repo/harness/init",
         "/api/projects/repo/attachments",
-        "/api/projects/repo/workbench/topics",
+        "/api/projects/repo/workbench/topics/live",
       ]);
     });
     const postUrls = vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST").map(([url]) => String(url));
     expect(postUrls).toEqual([
       "/api/projects/repo/harness/init",
       "/api/projects/repo/attachments",
-      "/api/projects/repo/workbench/topics",
+      "/api/projects/repo/workbench/topics/live",
     ]);
-    const topicPost = vi.mocked(fetch).mock.calls.find(([url, init]) => String(url) === "/api/projects/repo/workbench/topics" && init?.method === "POST");
+    const topicPost = vi.mocked(fetch).mock.calls.find(([url, init]) => String(url) === "/api/projects/repo/workbench/topics/live" && init?.method === "POST");
     expect(JSON.parse(String(topicPost?.[1]?.body))).toMatchObject({
       title: "根据附件分析",
       body: "根据附件分析",
@@ -6568,7 +6688,7 @@ describe("Workbench web app", () => {
       if (url === "/api/projects/repo/attachments" && init?.method === "POST") {
         return jsonResponse({ attachment: { id: "att-20260628120000-abcdef123456", fileName: "context.md", mediaType: "text/markdown", kind: "text", size: 12, hash: "abcdef1234567890", source: "composer", createdAt: "2026-06-28T12:00:00.000Z", storagePath: "attachments/att-20260628120000-abcdef123456/content.md", runtimeMode: "bounded-text-preview" } });
       }
-      if (url === "/api/projects/repo/workbench/topics" && init?.method === "POST") {
+      if (url === "/api/projects/repo/workbench/topics/live" && init?.method === "POST") {
         return new Response(JSON.stringify({ error: "topic failed" }), { status: 500, headers: { "Content-Type": "application/json" } });
       }
       if (url === "/api/projects/repo/attachments/att-20260628120000-abcdef123456" && init?.method === "DELETE") return jsonResponse({ deleted: true });
@@ -6586,7 +6706,7 @@ describe("Workbench web app", () => {
     fireEvent.click(screen.getByTitle("创建需求对话"));
 
     await waitFor(() => expect(fetchCallUrls()).toContain("/api/projects/repo/attachments/att-20260628120000-abcdef123456"));
-    expect(screen.getByText("context.md")).toBeTruthy();
+    await waitFor(() => expect(screen.getByText("context.md")).toBeTruthy());
   });
 
   it("does not expose demand creation when a marker exists but durable memory is unavailable", async () => {
@@ -6699,6 +6819,31 @@ describe("Workbench web app", () => {
       }));
     });
   });
+
+  it("renders agent lifecycle status blocks as compact process rows", () => {
+    const cells = parentTranscriptCellsFromLiveThreadItem({
+      id: "item-planning-agent-created",
+      kind: "assistant-turn",
+      label: "planning-agent",
+      source: "chat",
+      timestamp: "2026-07-02T00:00:00.000Z",
+      blocks: [{
+        id: "planning-agent-created",
+        kind: "status",
+        source: "codex",
+        title: "创建 planning-agent",
+        text: "主 Agent 已创建 planning-agent，用于生成可审阅方案草案。",
+        status: "agent-task-created",
+      }],
+    });
+
+    expect(cells).toEqual([expect.objectContaining({
+      kind: "process-row",
+      title: "创建 planning-agent",
+      text: "创建 planning-agent",
+      status: "agent-task-created",
+    })]);
+  });
 });
 
 function jsonResponse(body: unknown): Response {
@@ -6722,6 +6867,14 @@ function sseResponse(events: Array<[string, unknown]>): Response {
     status: 200,
     headers: { "Content-Type": "text/event-stream" },
   });
+}
+
+function topicCreateLiveResponse(changeId: string, snapshotPayload: unknown, title: string): Response {
+  return sseResponse([
+    ["topic.created", { topic: { changeId, title, state: "active" } }],
+    ["snapshot", snapshotPayload],
+    ["done", { status: "completed" }],
+  ]);
 }
 
 function delayedSseResponse(

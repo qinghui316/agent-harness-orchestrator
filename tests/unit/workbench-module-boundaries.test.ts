@@ -477,6 +477,11 @@ describe("Workbench module boundaries", () => {
     expect(automationHandler).not.toContain("buildMainAgentStrategyAdvice");
     expect(automationHandler).not.toContain("consumeMainAgentStrategyAdvice");
     expect(automationHandler).not.toContain("strategyAdviceInput");
+    expect(automationHandler).toContain("checkSafety: async () =>");
+    expect(automationHandler).toContain("captureAutomationSourceState(memory)");
+    expect(automationHandler).toContain("captureAcceptedArtifactHashes(memory, changePath)");
+    expect(automationHandler).toContain("source-drift");
+    expect(automationHandler).toContain("accepted-artifact-drift");
     expect(automationHandler.indexOf("assessMainAgentStrategyConsumption({")).toBeLessThan(automationHandler.indexOf("runScopedAutomation({"));
     expect(automationHandler.indexOf("assessMainAgentResumeConsumption({")).toBeLessThan(automationHandler.indexOf("runScopedAutomation({"));
 
@@ -626,6 +631,7 @@ describe("Workbench module boundaries", () => {
     expect(planningHandlers).toContain("recordMainAgentWorkflowGraphObservationAndReplay");
     expect(planningHandlers).not.toContain("recordMainAgentWorkflowGraphObservation(");
     expect(planningHandlers).not.toContain("buildMainAgentWorkflowGraphReplaySummary");
+    expect(planningHandlers).not.toContain("renderPlanningBundleSummary");
     expect(planningHandlers).not.toContain("runTaskQueueSequence");
 
     const actionIndex = readFileSync(join(process.cwd(), "src/workbench/actions/handlers/index.ts"), "utf8");
@@ -1842,6 +1848,17 @@ describe("Workbench module boundaries", () => {
     const appServerRunner = readFileSync("src/code/codex-app-server-runner.ts", "utf8");
     expect(appServerRunner).toContain("roleId: input.roleId");
     expect(appServerRunner).not.toContain('roleId: "coder-agent"');
+
+    const workbenchChatBridge = readFileSync("src/workbench/codex-chat/bridge.ts", "utf8");
+    expect(workbenchChatBridge).toContain('roleId: options.planningMode ? "planning-agent" : "main-agent"');
+    expect(workbenchChatBridge).not.toContain('roleId: "planning-agent",');
+  });
+
+  it("keeps planning-agent raw Codex stream out of the main conversation", () => {
+    const planningHandler = readFileSync("src/workbench/actions/handlers/planning.ts", "utf8");
+    expect(planningHandler).toMatch(/emitPlanningAgentLifecycle\(live, task\.id, "agent-running"/);
+    expect(planningHandler).toMatch(/runCodexChat\(\s*project,\s*changeId,\s*planModePrompt,\s*undefined,/);
+    expect(planningHandler).toMatch(/sanitizeProposedPlanForConversation/);
   });
 
   it("keeps integration-check manager as a compatibility facade", () => {
@@ -2791,7 +2808,8 @@ describe("Workbench module boundaries", () => {
 
   it("keeps confirmation queue planning copy non-executing and preserves explicit action scope", () => {
     const typedWorkflow = readFileSync("src/workbench/projections/read-model/confirmation/typed-workflow.ts", "utf8");
-    expect(typedWorkflow).toContain("不会启动 coder、validator、auditor、TaskQueue、TaskRun 或 AgentTask");
+    expect(typedWorkflow).toContain("不会启动代码实现、验证或审查");
+    expect(typedWorkflow).toContain("确认规划不是执行授权");
     expect(typedWorkflow).not.toContain("需要你确认当前方案进入执行");
     expect(typedWorkflow).not.toContain("确认后，主 agent 会通过受控委派启动后续角色执行");
 

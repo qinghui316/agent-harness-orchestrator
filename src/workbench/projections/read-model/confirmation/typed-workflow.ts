@@ -24,11 +24,11 @@ export function workpadNextActionToConfirmationItems(
       conversationId: selectedTopic.id,
       changeId: selectedTopic.id,
       planningBundleId,
-      summary: "规划草案已经准备好，可以写入内部 spec/plan/tasks/ac-map。",
-      whyNeedsConfirmation: "需要你确认将当前规划写入 canonical spec/plan/tasks/ac-map。",
+      summary: "规划草案已经准备好，可以保存为正式计划记录。",
+      whyNeedsConfirmation: "需要你确认将当前草案保存为正式计划记录。",
       confirmEffect: action.actionType === "planning.confirm-execution"
         ? action.description
-        : "确认只写 canonical spec/plan/tasks/ac-map 和确认记录；不会启动 coder、validator、auditor、TaskQueue、TaskRun 或 AgentTask。",
+        : "确认只保存正式计划记录和确认记录；不会启动代码实现、验证或审查。",
       riskSummary: "确认规划不是执行授权；后续执行仍必须经过拆分评估和执行边界检查。",
       evidenceRefs: evidenceRefs(workpad.planningArtifactBundle?.artifact),
       actions: [{
@@ -61,8 +61,8 @@ export function workpadNextActionToConfirmationItems(
       id: `confirm:planning-generate:${selectedTopic.id}`,
       summary: "可以先生成方案草案。",
       whyNeedsConfirmation: "需要你确认让 planning-agent 生成一个可审阅方案草案。",
-      confirmEffect: "只生成 proposal/spec/design/tasks 草案和证据；不会写 canonical artifacts，也不会启动执行。",
-      riskSummary: "草案仍需后续确认执行后才会写入内部 spec/plan/tasks/ac-map。",
+      confirmEffect: "只生成可审阅方案草案和相关证据；不会写入正式方案记录，也不会启动执行。",
+      riskSummary: "草案仍需后续确认后才会成为正式计划记录。",
       label: action.label,
       actionType: "planning.generate",
       evidence: [],

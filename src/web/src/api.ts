@@ -35,6 +35,7 @@ export async function consumeWorkbenchLiveStream<TEvent>(url: string, body: unkn
       buffer = buffer.slice(index + 2);
       const event = parseWorkbenchSseFrame<TEvent>(frame);
       if (event) onEvent(event);
+      await yieldToBrowser();
       index = buffer.indexOf("\n\n");
     }
   }
@@ -42,6 +43,7 @@ export async function consumeWorkbenchLiveStream<TEvent>(url: string, body: unkn
   if (trailing) {
     const event = parseWorkbenchSseFrame<TEvent>(trailing);
     if (event) onEvent(event);
+    await yieldToBrowser();
   }
 }
 
@@ -55,4 +57,8 @@ function parseWorkbenchSseFrame<TEvent>(frame: string): TEvent | null {
   }
   if (!eventName || dataLines.length === 0) return null;
   return { event: eventName, data: JSON.parse(dataLines.join("\n")) } as TEvent;
+}
+
+function yieldToBrowser(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
 }

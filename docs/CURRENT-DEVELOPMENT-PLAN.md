@@ -13,6 +13,16 @@ The user should not need to know internal terms before asking for work. The main
 Active implementation slice: none.
 
 Latest completed implementation slice:
+`harness/changes/archive/20260702-main-agent-goal-style-real-codex-ui-acceptance-fix-pass-v1/summary.md`.
+It completes the real Codex UI acceptance/fix pass for the Harness-mode main
+Agent conversation flow. External-local new demands now show a live-first user
+message and run-backed main-Agent reply before planning gates; ordinary chat no
+longer auto-hands off to planning; planning-agent execution is visible as
+process rows; raw planning stream/tool noise is not projected into the main
+conversation; and visible planning prose is sanitized while real run artifacts
+remain evidence.
+
+Previous completed implementation slice:
 `harness/changes/archive/20260702-main-agent-llm-strategy-advice-production-goal-acceptance-v1/summary.md`.
 It connects bounded `MainAgentStrategyAdvice` to real `chat.ask` and
 `orchestrator.plan` output. The advice is requested in prompt context, parsed
@@ -550,21 +560,21 @@ Desktop product-layer work can continue when selected as a separate structured
 product phase.
 
 Latest product change:
-`harness/changes/archive/20260702-main-agent-strategy-policy-v2b-bounded-advice-consumption/summary.md`.
+`harness/changes/archive/20260702-main-agent-goal-style-real-codex-ui-acceptance-fix-pass-v1/summary.md`.
 
 Previous product change:
-`harness/changes/archive/20260702-main-agent-strategy-policy-v2a-stale-first-readonly-advice/summary.md`.
+`harness/changes/archive/20260702-main-agent-llm-strategy-advice-production-goal-acceptance-v1/summary.md`.
 
 Latest docs/architecture change:
 `harness/changes/archive/20260629-document-aho-hybrid-desktop-native-roadmap-v1/summary.md`.
 
 Latest real UI acceptance:
-`harness/changes/archive/20260626-workbench-mode-aware-local-goal-loop-real-ui-acceptance-v1/summary.md`.
+`harness/changes/archive/20260702-main-agent-goal-style-real-codex-ui-acceptance-fix-pass-v1/summary.md`.
 
-The mode-aware local Goal Loop now has real in-app browser evidence:
-request-approval waits on the real next gate, full-access can complete a
-sequential local apply/landing/close path, and full-access stops before raw
-scheduler preparation.
+The latest real in-app browser pass verified the conversation-first main-Agent
+flow: live-first user message, run-backed main-Agent reply, explicit planning
+gate, planning-agent process rows, sanitized planning draft, and no automatic
+code execution in stepwise mode.
 
 Latest completed Harness evolution:
 `harness/changes/archive/20260702-auto-evolve-post-resume-continuation-window/summary.md`.
