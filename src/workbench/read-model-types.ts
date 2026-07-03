@@ -71,10 +71,12 @@ export interface WorkbenchProjectInput {
 
 export interface WorkbenchTopicSummary {
   id: string;
+  kind?: "conversation" | "change";
   name: string;
   title: string;
   state: WorkbenchTopicState;
   path: string;
+  boundChangeId?: string | null;
   createdAt?: string;
   updatedAt?: string;
   closedAt?: string | null;

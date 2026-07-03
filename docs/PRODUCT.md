@@ -32,7 +32,10 @@ See `docs/AGENT-DEVELOPMENT-OS.md` for the end-to-end product loop and staged ro
 
 ## 1A. Final Product Shape
 
-The final AHO product is a project workspace with demand conversations. Each demand conversation binds to internal Change/Workpad state that can carry a developer from raw demand to verified, reviewed, human-applied code:
+The final AHO product is a project workspace with demand conversations.
+Conversation records are chat windows and transcripts. When the user enters a
+real workflow, explicit Harness Change/Workpad state carries the developer from
+raw demand to verified, reviewed, human-applied code:
 
 ```text
 Demand

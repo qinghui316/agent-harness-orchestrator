@@ -359,7 +359,7 @@ export type Snapshot = {
   warnings: string[];
 };
 
-export type Topic = { id: string; title: string; state: string; updatedAt?: string };
+export type Topic = { id: string; title: string; state: string; updatedAt?: string; kind?: "conversation" | "change"; boundChangeId?: string | null };
 export type WorkpadRuntimeStatus = "active" | "running" | "queued" | "blocked" | "waiting-decision" | "archived" | "readonly";
 export type WorkpadUserStatus = "processing" | "waiting-confirmation" | "needs-rework" | "later" | "completed" | "abandoned";
 export type ConversationLifecycle = "active" | "running" | "waiting-user" | "archived-readonly" | "abandoned";
@@ -720,7 +720,8 @@ export type WorkbenchTaskQueueSummary = {
 };
 export type GoalLoopSummary = {
   id: string;
-  changeId: string;
+  changeId?: string;
+  conversationId?: string;
   goalLoopDecisionId: string;
   goalLoopIterationId: string;
   goalLoopNextStepPacketId?: string;
@@ -2408,16 +2409,17 @@ export type CodexUserInputRequest = {
   turnId?: string;
   itemId?: string;
   runId: string;
-  changeId: string;
+  changeId?: string;
+  conversationId?: string;
   agentRoleId?: string;
   agentTaskId?: string;
   questions: CodexUserInputQuestion[];
   status: "pending" | "submitted";
 };
 export type WorkbenchLiveEvent =
-  | { event: "topic.created"; data: { topic: { changeId: string; title: string; state: "active" } } }
+  | { event: "topic.created"; data: { topic: { id?: string; conversationId?: string; changeId?: string; title: string; state: "active" } } }
   | { event: "topic.message"; data: TopicMessageEntry }
-  | { event: "run.started"; data: { runId: string; changeId: string; actionType?: string; runtime?: string; taskIds?: string[]; agentRoleId?: string; agentTaskId?: string } }
+  | { event: "run.started"; data: { runId: string; changeId?: string; conversationId?: string; actionType?: string; runtime?: string; taskIds?: string[]; agentRoleId?: string; agentTaskId?: string } }
   | { event: "run.status"; data: { runId?: string; actionRunId?: string; status: string; label?: string; agentRoleId?: string; agentTaskId?: string } }
   | { event: "assistant.delta"; data: { delta: string; runId?: string; agentRoleId?: string; agentTaskId?: string } }
   | { event: "assistant.message"; data: TopicMessageEntry }

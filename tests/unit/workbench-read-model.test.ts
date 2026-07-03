@@ -6,7 +6,7 @@ import { createChange, closeChange } from "../../src/change/manager.js";
 import { initHarness } from "../../src/harness/init.js";
 import { startLocalCommandRun } from "../../src/run/manager.js";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
-import { appendTopicThreadEntry, createWorkbenchTopic } from "../../src/workbench/chat.js";
+import { appendTopicThreadEntry, createWorkbenchConversation, createWorkbenchTopic } from "../../src/workbench/chat.js";
 import { readTopicThreadLog } from "../../src/workbench/thread-log.js";
 import { answerClarification, reanalyzeIntake, runIntakeScan } from "../../src/workbench/intake.js";
 import { deleteWorkbenchConversation, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTopic, getWorkbenchTranscriptProjection, listWorkbenchApprovals, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
@@ -189,35 +189,48 @@ describe("workbench read-model projections", () => {
 
   it("deletes conversation transcript records without deleting the active Harness change", async () => {
     await initHarness(project());
-    const topic = await createWorkbenchTopic(project(), { title: "Delete Conversation", body: "Keep the Harness change." });
-    await appendTopicThreadEntry(project(), topic.changeId, {
-      id: "assistant-before-delete",
-      type: "assistant.message",
-      timestamp: "2026-07-03T00:00:00.000Z",
-      changeId: topic.changeId,
-      text: "This transcript should be deleted.",
-    });
-    const changeDir = join(getTempDir(), "harness", "changes", "active", topic.changeId);
+    const change = await createChange(project(), { title: "Keep Harness Change", body: "The Change must survive conversation deletion." });
+    const conversation = await createWorkbenchConversation(project(), { title: "Delete Conversation", body: "This transcript should be deleted." }, undefined, { runMainAgent: false });
+    const changeDir = join(getTempDir(), "harness", "changes", "active", change.change.id);
     expect(existsSync(changeDir)).toBe(true);
 
-    await deleteWorkbenchConversation({ project: project(), path: getTempDir() }, topic.changeId);
+    await deleteWorkbenchConversation({ project: project(), path: getTempDir() }, conversation.conversationId);
 
     expect(existsSync(changeDir)).toBe(true);
     expect(existsSync(join(changeDir, "summary.md"))).toBe(true);
-    await expect(readTopicThreadLog(await resolveProjectMemory(project()), `harness/changes/active/${topic.changeId}`)).resolves.toEqual([]);
-    await expect(listWorkbenchTopics({ project: project(), path: getTempDir() })).resolves.toEqual([]);
+    await expect(listWorkbenchTopics({ project: project(), path: getTempDir() })).resolves.not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: conversation.conversationId }),
+    ]));
 
     const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() });
-    expect(snapshot.left.topics).toEqual([]);
-    expect(snapshot.left.workpads).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: topic.changeId, state: "active" }),
+    expect(snapshot.left.topics).toEqual(expect.not.arrayContaining([
+      expect.objectContaining({ id: conversation.conversationId }),
     ]));
-    expect(snapshot.center.selectedTopic).toBeNull();
+    expect(snapshot.left.workpads).toEqual(expect.not.arrayContaining([
+      expect.objectContaining({ id: conversation.conversationId }),
+    ]));
 
-    const addressableTopic = await getWorkbenchTopic({ project: project(), path: getTempDir() }, topic.changeId);
-    expect(addressableTopic.id).toBe(topic.changeId);
-    expect(addressableTopic.threadItems.some((item) => JSON.stringify(item).includes("This transcript should be deleted."))).toBe(false);
-    expect(addressableTopic.threadItems.some((item) => item.kind === "change-state")).toBe(true);
+    await expect(getWorkbenchTopic({ project: project(), path: getTempDir() }, conversation.conversationId)).rejects.toThrow();
+    const addressableChange = await getWorkbenchTopic({ project: project(), path: getTempDir() }, change.change.id);
+    expect(addressableChange.id).toBe(change.change.id);
+    expect(addressableChange.threadItems.some((item) => JSON.stringify(item).includes("This transcript should be deleted."))).toBe(false);
+  });
+
+  it("keeps ordinary conversations out of Harness gate projections", async () => {
+    await initHarness(project());
+    const conversation = await createWorkbenchConversation(project(), { title: "Ordinary Chat", body: "Just talk to the main Agent." }, undefined, { runMainAgent: false });
+
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: conversation.conversationId });
+
+    expect(snapshot.left.topics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: conversation.conversationId, kind: "conversation", boundChangeId: null }),
+    ]));
+    expect(snapshot.center.selectedTopic?.id).toBe(conversation.conversationId);
+    expect(snapshot.center.selectedTopic?.change).toBeNull();
+    expect(snapshot.right.confirmationQueue.primary).toBeNull();
+    expect(snapshot.right.confirmationQueue.current).toEqual([]);
+    expect(snapshot.right.agentWorkspace.agents).toEqual([]);
+    expect(existsSync(join(getTempDir(), "harness", "changes", "active", conversation.conversationId))).toBe(false);
   });
 
   it("builds a snapshot with selected topic, semantic thread, roles, gaps, and close approval", async () => {

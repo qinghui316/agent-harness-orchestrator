@@ -6231,47 +6231,6 @@ h1 {
   border-top: 1px solid var(--border);
 }
 
-.home-active-work {
-  display: grid;
-  gap: 8px;
-  width: min(760px, 100%);
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-panel);
-}
-
-.home-active-work-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  width: 100%;
-  padding: 9px 10px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text);
-  text-align: left;
-}
-
-.home-active-work-row:hover {
-  background: var(--bg-subtle);
-  color: var(--text-strong);
-}
-
-.home-active-work-row strong {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.home-active-work-row small {
-  flex: none;
-  color: var(--text-muted);
-}
-
 .home-demand-composer {
   position: relative;
   display: grid;

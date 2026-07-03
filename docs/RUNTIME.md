@@ -38,7 +38,7 @@ Project
 | --- | --- | --- |
 | Project | source of truth | Registry entry plus marker |
 | Memory Store | source of truth | Repo-local, external-local, or future remote |
-| DemandConversation | user-facing projection / interaction record | Project-scoped demand conversation bound to one internal Topic/Change/Workpad |
+| DemandConversation | user-facing projection / interaction record | Project-scoped chat window and transcript; may carry optional workflow metadata but is not the Change id |
 | ParentAgentTranscript | projection | Codex-style demand transcript; default UI text is generated only from real Codex runtime or exec replay cells for the selected demand |
 | ParentAgentTranscriptCell | projection row | Phase 7A canonical conversation cell: user-message, assistant-message, process-row, evidence-row, or detail-only |
 | DemandAgentRunGraph | projection | Selected-demand parent-agent delegation graph; explains role/tool/background work without replacing workflow truth |
@@ -198,16 +198,17 @@ Phase 9Z adds a terminal scheduler closeout evidence path for blocked/exhausted 
 
 ### DemandConversation
 
-A DemandConversation is the user-facing work surface under a project. It owns the main conversation where the user states a demand, revises planning drafts, sees execution results, and gives follow-up feedback.
+A DemandConversation is the user-facing chat surface under a project. It owns the conversation window where the user talks to the main Agent, asks follow-up questions, and may later enter a Harness workflow.
 
-It is not workflow truth by itself. It binds to internal Topic/Change/Workpad state, and accepted ECL files, run artifacts, validation, audit, worktree state, and decisions remain authoritative.
+It is not workflow truth by itself and its id is not a Harness Change id. Accepted ECL files, run artifacts, validation, audit, worktree state, current gates, and decisions remain authoritative only under explicit Harness Change scope.
 
 Deleting a DemandConversation removes the user-facing transcript/message record
-from the Workbench conversation catalog. It does not delete or supersede the
-internal Topic/Change, accepted artifacts, run artifacts, validation/audit,
+from the Workbench conversation catalog. It does not delete or supersede any
+Harness Change, accepted artifacts, run artifacts, validation/audit,
 TaskQueue/WorkflowRun/Scheduler/IntegrationCheck evidence, ResumePoint, current
 gate, or source state. A later main-agent continuation must rebuild context from
-Harness evidence/replay/current gate rather than from the deleted transcript.
+project `AGENTS.md`, docs, Harness evidence/replay/current gate, and current
+source state rather than from the deleted transcript.
 
 Archived demand conversations are read-only for implementation work. A new implementation request after archive creates a linked follow-up conversation rather than mutating the old evidence chain.
 

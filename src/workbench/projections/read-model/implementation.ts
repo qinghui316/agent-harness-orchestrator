@@ -188,15 +188,16 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
 
   const visibleTopics = await listWorkbenchTopicsFromMemory(memory);
   const allTopics = await listWorkbenchTopicsFromMemory(memory, { includeDeleted: true });
+  const workflowTopics = workflowScopedTopics(allTopics);
   const selectableTopics = options.topicId ? allTopics : visibleTopics;
   const selectedTopic = await selectTopicDetail(input.project, memory, selectableTopics, options.topicId, { threadMode: "latest", threadLimit: 100 });
-  const approvals = input.project ? await buildApprovalInbox(input.project, memory, allTopics) : [];
+  const approvals = input.project ? await buildApprovalInbox(input.project, memory, workflowTopics) : [];
   const decisions = input.project ? await listWorkbenchDecisions(memory, options.topicId) : [];
-  const workpads = await buildMultiWorkpadSummaries(memory, allTopics, approvals, selectedTopic?.id);
+  const workpads = await buildMultiWorkpadSummaries(memory, visibleTopics, approvals, selectedTopic?.id);
   const workpad = await buildWorkbenchWorkpad({
     project: input.project,
     memory,
-    topics: allTopics,
+    topics: visibleTopics,
     workpads,
     selectedTopic,
     approvals,
@@ -210,15 +211,18 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
     approvals,
     decisions,
   });
-  const confirmationQueue = await buildConfirmationQueue({
-    project: input.project,
-    memory,
-    selectedTopic,
-    workpad,
-    decisionInspector,
-    ignoreActiveWorkflowActions: options.ignoreActiveWorkflowActions,
-    ignoreActiveWorkflowActionTypes: options.ignoreActiveWorkflowActionTypes,
-  });
+  const selectedIsPureConversation = selectedTopic?.kind === "conversation" && !selectedTopic.boundChangeId;
+  const confirmationQueue = selectedIsPureConversation
+    ? emptyConfirmationQueue()
+    : await buildConfirmationQueue({
+      project: input.project,
+      memory,
+      selectedTopic,
+      workpad,
+      decisionInspector,
+      ignoreActiveWorkflowActions: options.ignoreActiveWorkflowActions,
+      ignoreActiveWorkflowActionTypes: options.ignoreActiveWorkflowActionTypes,
+    });
   const alignedDecisionInspector = alignDecisionInspectorWithConfirmationPrimary(decisionInspector, confirmationQueue.primary, selectedTopic?.id);
   const shellWorkpad = shellWorkbenchWorkpad(workpad);
   const parentAgentTranscript = buildParentAgentTranscript({
@@ -244,7 +248,13 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
       agentLoop: { runs: selectedTopic?.runs ?? [] },
       agentRunGraph: emptyAgentRunGraph(),
     },
-    right: { approvals, decisions, decisionInspector: alignedDecisionInspector, confirmationQueue, agentWorkspace: buildAgentWorkspace({ selectedTopic, workpad }) },
+    right: {
+      approvals,
+      decisions,
+      decisionInspector: alignedDecisionInspector,
+      confirmationQueue,
+      agentWorkspace: selectedIsPureConversation ? emptyAgentWorkspace() : buildAgentWorkspace({ selectedTopic, workpad }),
+    },
     roles,
     harnessGaps: gaps,
     warnings,
@@ -272,11 +282,11 @@ export async function getWorkbenchTranscriptPageProjection(
   const topic = topics.find((item) => item.id === changeId || item.name === changeId);
   if (!topic) return emptyParentAgentTranscript();
   const page = await readTopicThreadLogPage(memory, topic.path, paging);
-  const threadItems = await buildThreadStreamFromMessages(memory, topic, page.entries);
+  const threadItems = await buildThreadStreamFromMessages(memory, topic, page.entries, { includeChangeState: topic.kind !== "conversation" });
   const transcript = buildParentAgentTranscript({
     workpad: {
       conversationId: topic.id,
-      boundChangeId: topic.id,
+      boundChangeId: topic.kind === "conversation" ? topic.boundChangeId ?? undefined : topic.id,
       title: topic.title,
     },
     threadItems,
@@ -298,7 +308,8 @@ export async function getWorkbenchRunGraphProjection(input: WorkbenchProjectInpu
   const topics = await listWorkbenchTopicsFromMemory(memory, { includeDeleted: true });
   const selectedTopic = await selectTopicDetail(input.project, memory, topics, changeId);
   if (!selectedTopic) return emptyAgentRunGraph();
-  const approvals = input.project ? await buildApprovalInbox(input.project, memory, topics) : [];
+  const workflowTopics = workflowScopedTopics(topics);
+  const approvals = input.project ? await buildApprovalInbox(input.project, memory, workflowTopics) : [];
   const decisions = input.project ? await listWorkbenchDecisions(memory, changeId) : [];
   const workpads = await buildMultiWorkpadSummaries(memory, topics, approvals, selectedTopic.id);
   const workpad = await buildWorkbenchWorkpad({
@@ -364,7 +375,8 @@ async function buildWorkbenchProjectionWorkpad(
   topics: WorkbenchTopicSummary[],
   selectedTopic: WorkbenchTopicDetail | null,
 ): Promise<WorkbenchWorkpad> {
-  const approvals = input.project ? await buildApprovalInbox(input.project, memory, topics) : [];
+  const workflowTopics = workflowScopedTopics(topics);
+  const approvals = input.project ? await buildApprovalInbox(input.project, memory, workflowTopics) : [];
   const decisions = input.project ? await listWorkbenchDecisions(memory, selectedTopic?.id) : [];
   const workpads = await buildMultiWorkpadSummaries(memory, topics, approvals, selectedTopic?.id);
   return buildWorkbenchWorkpad({
@@ -439,9 +451,13 @@ export async function listWorkbenchApprovals(input: WorkbenchProjectInput, optio
   const memory = await resolveWorkbenchMemory(input);
   if (!memory.supported || !existsSync(memory.memoryRoot)) return [];
   const topics = await listWorkbenchTopicsFromMemory(memory, { includeDeleted: true });
-  const approvals = await buildApprovalInbox(input.project, memory, topics);
+  const approvals = await buildApprovalInbox(input.project, memory, workflowScopedTopics(topics));
   if (!options.topicId) return approvals;
   return approvals.filter((item) => !item.changeId || item.changeId === options.topicId);
+}
+
+function workflowScopedTopics(topics: WorkbenchTopicSummary[]): WorkbenchTopicSummary[] {
+  return topics.filter((topic) => topic.kind !== "conversation" || Boolean(topic.boundChangeId));
 }
 
 

@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260703-workbench-conversation-harness-identity-separation-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260703-workbench-conversation-delete-harness-resume-entry-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260703-main-agent-real-a2a-flow-audit-repair-v1/summary.md`.
@@ -852,14 +854,16 @@ Harness workflow truth.
 
 Current main-agent / Workbench architecture work has no active change. Latest
 completed product slice is
-`harness/changes/archive/20260703-workbench-conversation-delete-harness-resume-entry-v1/summary.md`.
+`harness/changes/archive/20260703-workbench-conversation-harness-identity-separation-v1/summary.md`.
 Pending Harness evolution is none; the latest evolution closeout is
 `harness/changes/archive/20260703-auto-evolve-post-real-a2a-conversation-delete-window/summary.md`.
 
-Current Workbench state after the latest product closeout: conversation records
-may be deleted from the sidebar without deleting or closing the underlying
-Harness Change, workflow evidence, ResumePoint, current gate, or source state.
-Main-agent continuation should recover from Harness evidence/replay rather than
+Current Workbench state after the latest product closeout: conversations are
+chat windows and transcripts, not Harness Change ids. Ordinary project-scoped
+main Agent chat does not create a Change. Deleting a conversation removes only
+the conversation transcript/catalog row; it must not delete, close, abandon, or
+archive Harness Change evidence. Later conversations rely on project routing
+documents, Harness evidence/replay, current gates, and source state rather than
 deleted transcript history. The preceding real A2A/UI pass remains the latest
 verified interaction baseline for main-agent to child-agent flow.
 

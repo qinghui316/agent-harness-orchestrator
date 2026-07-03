@@ -42,6 +42,7 @@ export interface TopicThreadEntry {
   id: string;
   type: TopicThreadEventType;
   timestamp: string;
+  conversationId?: string;
   changeId: string;
   position?: number;
   text?: string;
@@ -146,7 +147,8 @@ export interface WorkbenchCodexUserInputRequest {
   turnId?: string;
   itemId?: string;
   runId: string;
-  changeId: string;
+  changeId?: string;
+  conversationId?: string;
   agentRoleId?: string;
   agentTaskId?: string;
   questions: WorkbenchCodexUserInputQuestion[];
@@ -173,9 +175,9 @@ export interface TopicMessageResult {
 }
 
 export type WorkbenchLiveEvent =
-  | { event: "topic.created"; data: { topic: { changeId: string; title: string; state: "active" } } }
+  | { event: "topic.created"; data: { topic: { id?: string; conversationId?: string; changeId?: string; title: string; state: "active" } } }
   | { event: "topic.message"; data: TopicThreadEntry }
-  | { event: "run.started"; data: { runId: string; changeId: string; actionType?: string; runtime?: string; taskIds?: string[]; agentRoleId?: string; agentTaskId?: string } }
+  | { event: "run.started"; data: { runId: string; changeId?: string; conversationId?: string; actionType?: string; runtime?: string; taskIds?: string[]; agentRoleId?: string; agentTaskId?: string } }
   | { event: "run.status"; data: { runId?: string; actionRunId?: string; status: string; label?: string; agentRoleId?: string; agentTaskId?: string } }
   | { event: "assistant.delta"; data: { delta: string; runId?: string; agentRoleId?: string; agentTaskId?: string } }
   | { event: "assistant.message"; data: TopicThreadEntry }

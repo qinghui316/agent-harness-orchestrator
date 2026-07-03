@@ -127,10 +127,13 @@ Decisions:
 - `docs/` and Harness artifacts preserve durable project knowledge in the active memory store.
 - `context.md` is a per-run projection and is not source of truth.
 - Chat transcripts can inform work, but they are not durable project state unless summarized into files.
+- A Workbench conversation id is not a Harness Change id. Ordinary chat does
+  not create workflow truth; planning, gated actions, apply, and close must
+  carry explicit Harness Change scope.
 - Deleting a Workbench conversation is a conversation-layer cleanup only. It
-  must not close, abandon, cancel, move, archive, or garbage-collect the bound
-  Change, ECL files, workflow evidence, ResumePoint, current gate, or source
-  state.
+  must not close, abandon, cancel, move, archive, or garbage-collect any
+  Harness Change, ECL files, workflow evidence, ResumePoint, current gate, or
+  source state.
 - Future dashboards and indexes must derive from AHO-managed memory rather than replacing it.
 - External-local and remote memory must be accessed through Memory Resolver / Memory Store boundaries, not through hardcoded repo-local paths.
 
@@ -436,13 +439,16 @@ Demand Conversation is the user-visible unit of work. A Change is the internal w
 Relationship:
 
 ```text
-Project -> Demand Conversation -> internal Change / Workpad -> Run -> Events / Artifacts
+Project -> Conversation window
+Project -> Harness Change / Workpad -> Run -> Events / Artifacts
 ```
 
 Decisions:
 
 - Users should see projects and demand conversations, not internal Topic/Change/Workpad terminology.
-- One demand conversation binds to one internal Change/Workpad for the lifetime of that demand.
+- A Workbench conversation is not a Change identity. It may reference workflow
+  metadata when a real Harness flow exists, but write-capable actions must carry
+  explicit Change scope.
 - After a demand conversation is archived, implementation-class follow-up input creates a linked follow-up conversation rather than rebinding the old conversation to a new Change.
 - A Change may have multiple runs.
 - A failed run must not erase change history.

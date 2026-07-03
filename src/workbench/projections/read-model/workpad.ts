@@ -199,8 +199,8 @@ export async function buildWorkbenchWorkpad(input: {
       intake: {
         goal: topics.length > 0 ? "选择一个需求查看进度。" : "还没有需求对话。",
         currentUnderstanding: topics.length > 0
-          ? `当前项目有 ${topics.length} 个 Topic，可从左侧选择继续。`
-          : "输入需求后，AHO 会创建内部 Change，并把后续方案、运行和证据汇总到这个需求对话。",
+          ? `当前项目有 ${topics.length} 个对话，可从左侧选择继续。`
+          : "输入消息后，主 Agent 会在项目上下文中回复；Harness 工作流状态由项目文档和证据决定。",
         source: "project",
         relatedArtifacts: [],
         missingInfo: topics.length > 0 ? [] : ["No Topic exists yet."],
@@ -219,13 +219,56 @@ export async function buildWorkbenchWorkpad(input: {
       warnings: gaps.filter((gap) => gap.status !== "available").map((gap) => gap.summary),
       nextAction: {
         id: "create-topic",
-        label: "输入需求创建需求对话",
-        description: "在底部输入自然语言需求，创建新的需求对话。",
+        label: "输入消息开始对话",
+        description: "在底部输入消息，开始新的主 Agent 对话。",
         kind: "read-only",
         enabled: true,
         requiresConfirmation: false,
       },
       background: buildWorkpadBackground(workpads, undefined),
+      memoryIsolation: buildWorkpadMemoryIsolation(memory, null, workpads),
+      maintenance: await buildMaintenanceSummary(memory),
+    };
+  }
+
+  if (selectedTopic.kind === "conversation" && !selectedTopic.boundChangeId) {
+    return {
+      conversationId: selectedTopic.id,
+      title: selectedTopic.title,
+      subtitle: project?.name ?? "项目对话",
+      state: "active",
+      userStatus: "later",
+      userStatusLabel: userDecisionStateLabel("later"),
+      conversationLifecycle: "active",
+      pendingFeedback: [],
+      intake: {
+        goal: selectedTopic.title,
+        currentUnderstanding: "这是普通主 Agent 对话。主 Agent 会按项目 AGENTS.md 和 Harness 文档自行判断当前状态。",
+        source: "project",
+        relatedArtifacts: [],
+        missingInfo: [],
+        confirmedConstraints: [],
+        openQuestions: [],
+        assumptions: [],
+        pendingClarifications: [],
+      },
+      progress: emptyProgress("none"),
+      tasks: [],
+      codingPackages: [],
+      taskGraph: emptyTaskGraph(),
+      taskQueue: undefined,
+      evidence: [],
+      blockers: [],
+      warnings: [],
+      nextAction: {
+        id: "conversation-only",
+        label: "普通对话",
+        description: "该对话不是 Harness gate，也不代表 Change lifecycle。",
+        kind: "read-only",
+        enabled: true,
+        requiresConfirmation: false,
+      },
+      background: buildWorkpadBackground(workpads, selectedTopic.id),
       memoryIsolation: buildWorkpadMemoryIsolation(memory, null, workpads),
       maintenance: await buildMaintenanceSummary(memory),
     };
@@ -1039,6 +1082,20 @@ export async function buildMultiWorkpadSummaries(
   const allRuns = await listRuns(memory).catch(() => []);
   const demandWorkers = await listDemandWorkers(memory).catch(() => []);
   const summaries = await Promise.all(topics.map(async (topic): Promise<WorkbenchWorkpadSummary> => {
+    if (topic.kind === "conversation" && !topic.boundChangeId) {
+      return {
+        id: topic.id,
+        title: topic.title,
+        state: topic.state,
+        runtimeStatus: topic.state === "archive" ? "archived" : "active",
+        userStatus: topic.state === "archive" ? "completed" : "later",
+        userStatusLabel: userDecisionStateLabel(topic.state === "archive" ? "completed" : "later"),
+        conversationLifecycle: topic.state === "archive" ? "archived-readonly" : "active",
+        selected: topic.id === selectedTopicId,
+        waitingDecisionCount: 0,
+        updatedAt: topic.updatedAt,
+      };
+    }
     const runs = allRuns.filter((run) => run.changeId === topic.id || run.changeId === topic.name);
     const latestRun = latestByTimestamp(runs, (run) => run.finishedAt ?? run.startedAt);
     const runningRun = runs.find((run) => run.status === "created" || run.status === "running");

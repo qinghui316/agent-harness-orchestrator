@@ -977,15 +977,17 @@ export function App(): ReactElement {
         confirm: true,
       }, (event) => {
         if (event.event === "topic.created") {
-          createdTopicId = event.data.topic.changeId;
+          const createdId = event.data.topic.conversationId ?? event.data.topic.id ?? event.data.topic.changeId;
+          if (!createdId) throw new Error("Conversation was created without an id.");
+          createdTopicId = createdId;
           setSelectedProjectId(effectiveProjectId);
           persistSelectedProjectId(effectiveProjectId);
-          setSelectedTopic(event.data.topic.changeId);
+          setSelectedTopic(createdId);
           setPendingDemandConversation((current) => current && current.projectId === effectiveProjectId
-            ? { ...current, id: event.data.topic.changeId, title: event.data.topic.title }
+            ? { ...current, id: createdId, title: event.data.topic.title }
             : {
               ...pendingConversation,
-              id: event.data.topic.changeId,
+              id: createdId,
               title: event.data.topic.title,
               startedAt: new Date().toISOString(),
             });
@@ -1150,7 +1152,8 @@ export function App(): ReactElement {
     setError(null);
     try {
       await postJson<{ result: unknown; snapshot: Snapshot }>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/codex/user-input/${encodeURIComponent(request.requestId)}/answer`, {
-        changeId: activeTopic.id,
+        changeId: request.changeId,
+        conversationId: request.conversationId ?? (!request.changeId ? activeTopic.id : undefined),
         answers,
       });
       setCodexUserInputRequests((current) => current.map((item) => item.requestId === request.requestId
@@ -1163,9 +1166,11 @@ export function App(): ReactElement {
 
   function handleLiveEvent(event: WorkbenchLiveEvent): void {
     if (event.event === "topic.created") {
-      setSelectedTopic(event.data.topic.changeId);
+      const topicId = event.data.topic.conversationId ?? event.data.topic.id ?? event.data.topic.changeId;
+      if (!topicId) return;
+      setSelectedTopic(topicId);
       setPendingDemandConversation((current) => current
-        ? { ...current, id: event.data.topic.changeId, title: event.data.topic.title }
+        ? { ...current, id: topicId, title: event.data.topic.title }
         : current);
       return;
     }
@@ -1771,7 +1776,6 @@ export function App(): ReactElement {
             onOpenProject={openProject}
             onRefresh={loadApp}
             resetToken={homeComposerResetToken}
-            onOpenExistingDemand={(conversationId) => chooseConversation(selectedProjectId, conversationId)}
           />
         ) : (
           <>

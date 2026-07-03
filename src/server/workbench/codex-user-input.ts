@@ -1,7 +1,6 @@
 import { respondToCodexAppServerUserInput } from "../../codex/app-server.js";
 import { getWorkbenchSnapshot, type WorkbenchProjectInput } from "../../workbench/manager.js";
 import type { ManagedProject } from "../../types/index.js";
-import { requireChangeId } from "./http.js";
 import type { CodexUserInputAnswerRequest } from "./types.js";
 
 export async function handleCodexUserInputAnswer(
@@ -9,12 +8,17 @@ export async function handleCodexUserInputAnswer(
   requestId: string,
   body: CodexUserInputAnswerRequest,
 ): Promise<{ result: unknown; snapshot: unknown }> {
-  const changeId = requireChangeId(body.changeId);
+  const scopeId = body.changeId ?? body.conversationId;
+  if (!scopeId) {
+    const error = new Error("Codex user input answer requires a changeId or conversationId.");
+    error.name = "BadRequest";
+    throw error;
+  }
   const answers = normalizeCodexUserInputAnswers(body);
-  await respondToCodexAppServerUserInput(changeId, requestId, { answers });
+  await respondToCodexAppServerUserInput(scopeId, requestId, { answers });
   return {
     result: { status: "submitted", requestId },
-    snapshot: await getWorkbenchSnapshot(input, { topicId: changeId }),
+    snapshot: await getWorkbenchSnapshot(input, { topicId: scopeId }),
   };
 }
 

@@ -15,16 +15,16 @@ Project
     -> Apply / merge decision
 ```
 
-Internally, one demand conversation binds to a Change/Workpad/Topic and uses ECL artifacts, TaskGraph, runs, validation, audit, worktrees, and decisions as workflow truth. Those internal objects support the product; they should not be the primary user vocabulary.
+Internally, a Workbench conversation is only the chat window and transcript. A Harness Change is created or selected only by real planning/gate/action paths, and ECL artifacts, TaskGraph, runs, validation, audit, worktrees, and decisions remain workflow truth. Those internal objects support the product; they should not be the primary user vocabulary.
 
 Users may delete a Workbench conversation record from the sidebar during the
 testing-stage product flow. That operation removes the visible conversation /
 transcript record only. It must not close, abandon, move, archive, or clean up
-the bound Harness Change, ECL artifacts, run evidence, validation/audit,
-ResumePoint, current gate, or source state. If the project still has active
-work after the conversation is deleted, the project home may show a simple
-`继续进行中的任务` entry that reopens the Change through Harness evidence
-without restoring the deleted transcript.
+any Harness Change, ECL artifacts, run evidence, validation/audit, ResumePoint,
+current gate, or source state. The project home stays a normal chat entry point:
+a later conversation lets the main Agent read `AGENTS.md`, docs, and Harness
+evidence to understand current project state rather than restoring a deleted
+transcript or showing a separate "continue active work" entry.
 
 Future Workbench direction is project conversation first: one project conversation may eventually link several related Changes when the main agent splits a broad user request. That is not the current runtime model. Current Workbench demand conversations already may create multiple active internal Changes under one project, so every selected-demand write-capable action, close/abandon action, result apply, and auto-finalize path must carry an explicit `changeId` target and avoid global active-state fallback.
 

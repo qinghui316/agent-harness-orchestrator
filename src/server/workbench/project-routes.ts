@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { createWorkbenchTopic, listTopicMessages, postTopicMessage } from "../../workbench/chat.js";
+import { createWorkbenchConversation, listConversationMessages, listTopicMessages, postConversationMessage, postTopicMessage } from "../../workbench/chat.js";
 import {
   getWorkbenchSnapshot,
   getWorkbenchStream,
@@ -10,14 +10,13 @@ import {
   listWorkbenchTopics,
   type WorkbenchProjectInput,
 } from "../../workbench/manager.js";
-import { runIntakeScan } from "../../workbench/intake.js";
 import { getWorkbenchProjection } from "./projections.js";
 import { readWorkbenchActionEvents, sendActionEventReplay } from "./live.js";
 import { assertConfirmed, assertRegisteredProject, readJsonBody, sendJson } from "./http.js";
 import { handleClarificationAnswer, handleClarificationSkip, handleIntakeReanalyze, handleIntakeScan } from "./intake.js";
 import { handleCodexUserInputAnswer } from "./codex-user-input.js";
 import { sendWorkbenchActionLive } from "./live-actions.js";
-import { readCreateTopicBody, readTopicMessageBody, sendCreateTopicLive, sendTopicMessageLive, sendTopicMessageReplay } from "./topic-messages.js";
+import { readCreateTopicBody, readTopicMessageBody, sendConversationMessageLive, sendCreateTopicLive, sendTopicMessageLive, sendTopicMessageReplay } from "./topic-messages.js";
 import { executeWorkbenchAction } from "./actions.js";
 import type { ClarificationAnswerRequest, CodexUserInputAnswerRequest, IntakeRequest, WorkbenchActionRequest, WorkbenchServerContext } from "./types.js";
 
@@ -45,13 +44,11 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
   if (request.method === "POST" && rest === "topics") {
     assertRegisteredProject(input);
     const body = await readCreateTopicBody(request);
-    const topic = await createWorkbenchTopic(input.project, body);
-    if (topic.state === "active") {
-      await runIntakeScan(input.project, topic.changeId, body.body ?? body.title);
-      await context.initialMainAgentTurn(input.project, topic.changeId, body.body ?? body.title);
-      await context.initialPlanningAgentDelegation(input.project, topic.changeId, body.body ?? body.title);
-    }
-    sendJson(response, 200, { topic, snapshot: await getWorkbenchSnapshot(input, { topicId: topic.changeId }) });
+    const topic = await createWorkbenchConversation(input.project, body, undefined, { runMainAgent: false });
+    sendJson(response, 200, {
+      topic: { id: topic.conversationId, conversationId: topic.conversationId, title: topic.title, state: topic.state },
+      snapshot: await getWorkbenchSnapshot(input, { topicId: topic.conversationId }),
+    });
     return;
   }
   const topicHideMatch = rest.match(/^topics\/([^/]+)\/hide$/);
@@ -99,26 +96,36 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
   const topicMessagesMatch = rest.match(/^topics\/([^/]+)\/messages(?:\/stream)?$/);
   if (topicMessagesMatch?.[1]) {
     assertRegisteredProject(input);
-    const changeId = decodeURIComponent(topicMessagesMatch[1]);
+    const topicId = decodeURIComponent(topicMessagesMatch[1]);
     if (rest.endsWith("/stream")) {
-      await sendTopicMessageReplay(input.project, changeId, response);
+      await sendTopicMessageReplay(input.project, topicId, response);
       return;
     }
     if (request.method === "GET") {
-      sendJson(response, 200, { messages: await listTopicMessages(input.project, changeId) });
+      const messages = topicId.startsWith("conv-")
+        ? await listConversationMessages(input.project, topicId)
+        : await listTopicMessages(input.project, topicId);
+      sendJson(response, 200, { messages });
       return;
     }
     if (request.method === "POST") {
       const message = await readTopicMessageBody(request);
-      const result = await postTopicMessage(input.project, changeId, message);
-      sendJson(response, 200, { result, messages: await listTopicMessages(input.project, changeId), snapshot: await getWorkbenchSnapshot(input, { topicId: changeId }) });
+      if (topicId.startsWith("conv-")) {
+        const result = await postConversationMessage(input.project, topicId, message);
+        sendJson(response, 200, { result, messages: result.assistant ? [result.user, result.assistant] : [result.user], snapshot: await getWorkbenchSnapshot(input, { topicId }) });
+      } else {
+        const result = await postTopicMessage(input.project, topicId, message);
+        sendJson(response, 200, { result, messages: await listTopicMessages(input.project, topicId), snapshot: await getWorkbenchSnapshot(input, { topicId }) });
+      }
       return;
     }
   }
   const topicMessagesLiveMatch = rest.match(/^topics\/([^/]+)\/messages\/live$/);
   if (request.method === "POST" && topicMessagesLiveMatch?.[1]) {
     assertRegisteredProject(input);
-    await sendTopicMessageLive(input, decodeURIComponent(topicMessagesLiveMatch[1]), request, response);
+    const id = decodeURIComponent(topicMessagesLiveMatch[1]);
+    if (id.startsWith("conv-")) await sendConversationMessageLive(input, id, request, response);
+    else await sendTopicMessageLive(input, id, request, response);
     return;
   }
   if (request.method === "GET" && rest.startsWith("topics/")) {

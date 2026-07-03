@@ -160,6 +160,7 @@ export interface ClarificationAnswerRequest {
 
 export interface CodexUserInputAnswerRequest {
   changeId?: string;
+  conversationId?: string;
   answers?: Record<string, string | string[]>;
   answer?: string;
 }

@@ -4,7 +4,11 @@ This document preserves current roadmap and development-plan context outside the
 
 ## Product Shape
 
-AHO is a local-first Agent Development OS. The user-facing model remains simple: a project contains demand conversations. The internal model binds each demand conversation to durable Change, Workpad, Topic, TaskGraph, role-run, validation, audit, apply, landing, remote handoff, and Harness evolution evidence.
+AHO is a local-first Agent Development OS. The user-facing model remains simple:
+a project contains conversations. Conversation records are chat windows and
+transcripts; durable Change, Workpad, TaskGraph, role-run, validation, audit,
+apply, landing, remote handoff, and Harness evolution evidence remain explicit
+Harness workflow state rather than conversation identity.
 
 The user should not need to know internal terms before asking for work. The main conversation should explain the current understanding, accepted state, agent progress, strongest evidence, and next safe decision. Internal objects support that conversation and must not leak as required user workflow unless the UI intentionally exposes them.
 
@@ -13,25 +17,22 @@ The user should not need to know internal terms before asking for work. The main
 Current implementation state: no active implementation slice.
 
 Latest completed implementation slice:
-`harness/changes/archive/20260702-main-agent-child-agent-workspace-flow-v2/summary.md`.
-It moves bounded child-agent interaction into a reusable right-side
-Agent workspace. The parent conversation stays clean and main-Agent owned,
-planning-agent drafts/revisions live in the Agent workspace, and the
-user-facing `实施此计划` affordance continues to call the existing
-`planning.confirm-execution` Harness action with target freshness and
-cross-Change revalidation. It does not add workflow truth, controller
-authority, action types, automation allowlist entries, Scheduler /
-IntegrationCheck authority, or apply/close authority.
+`harness/changes/archive/20260703-workbench-conversation-harness-identity-separation-v1/summary.md`.
+It separates Workbench conversation ids from Harness Change ids. Ordinary
+project-scoped main Agent chat no longer creates workflow truth; real planning,
+gates, actions, apply, and close remain explicitly Change-scoped. Conversation
+delete remains transcript/catalog cleanup only.
 
 Previous completed implementation slice:
-`harness/changes/archive/20260702-main-agent-goal-style-real-codex-ui-acceptance-fix-pass-v1/summary.md`.
-It completes the real Codex UI acceptance/fix pass for the Harness-mode main
-Agent conversation flow. External-local new demands now show a live-first user
-message and run-backed main-Agent reply before planning gates; ordinary chat no
-longer auto-hands off to planning; planning-agent execution is visible as
-process rows; raw planning stream/tool noise is not projected into the main
-conversation; and visible planning prose is sanitized while real run artifacts
-remain evidence.
+`harness/changes/archive/20260703-workbench-conversation-delete-harness-resume-entry-v1/summary.md`.
+It made Workbench conversation deletion remove the conversation transcript /
+catalog record only, while preserving Harness Change evidence, gates, runs,
+ResumePoint, and source state.
+
+Previous completed implementation slice:
+`harness/changes/archive/20260703-main-agent-real-a2a-flow-audit-repair-v1/summary.md`.
+It completes the real A2A flow audit/repair baseline for Harness-mode main
+Agent conversation and right-side child-agent workspace interaction.
 
 Previous completed implementation slice:
 `harness/changes/archive/20260702-main-agent-llm-strategy-advice-production-goal-acceptance-v1/summary.md`.

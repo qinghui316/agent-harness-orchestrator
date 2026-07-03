@@ -7,6 +7,7 @@ import type { ResolvedMemory } from "../types/index.js";
 export interface StoredTopicMessage {
   id: string;
   projectId: string;
+  conversationId: string;
   changeId: string;
   position: number;
   type: string;
@@ -19,6 +20,17 @@ export interface StoredTopicMessage {
   artifact: string | null;
   error: string | null;
   rawJson: string;
+}
+
+export interface StoredConversation {
+  projectId: string;
+  conversationId: string;
+  title: string;
+  state: "active" | "archive";
+  boundChangeId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
 }
 
 export interface StoredCodexSessionLink {
@@ -127,17 +139,18 @@ export class WorkbenchStore {
 
   appendMessage(message: Omit<StoredTopicMessage, "position">): StoredTopicMessage {
     const row = this.db.prepare(
-      "SELECT COALESCE(MAX(position), 0) + 1 AS nextPosition FROM messages WHERE project_id = ? AND change_id = ?",
-    ).get(message.projectId, message.changeId) as SqliteRow;
+      "SELECT COALESCE(MAX(position), 0) + 1 AS nextPosition FROM messages WHERE project_id = ? AND conversation_id = ?",
+    ).get(message.projectId, message.conversationId) as SqliteRow;
     const position = Number(row.nextPosition ?? 1);
     this.db.prepare(`
       INSERT INTO messages (
-        id, project_id, change_id, position, type, timestamp, text, action_run_id,
+        id, project_id, conversation_id, change_id, position, type, timestamp, text, action_run_id,
         action_type, status, run_id, artifact, error, raw_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       message.id,
       message.projectId,
+      message.conversationId,
       message.changeId,
       position,
       message.type,
@@ -156,7 +169,7 @@ export class WorkbenchStore {
 
   listMessages(projectId: string, changeId: string): StoredTopicMessage[] {
     return (this.db.prepare(`
-      SELECT id, project_id AS projectId, change_id AS changeId, position, type, timestamp,
+      SELECT id, project_id AS projectId, conversation_id AS conversationId, change_id AS changeId, position, type, timestamp,
         text, action_run_id AS actionRunId, action_type AS actionType, status, run_id AS runId,
         artifact, error, raw_json AS rawJson
       FROM messages
@@ -165,13 +178,24 @@ export class WorkbenchStore {
     `).all(projectId, changeId) as SqliteRow[]).map(mapMessageRow);
   }
 
-  listLatestMessages(projectId: string, changeId: string, limit: number): StoredTopicMessage[] {
+  listConversationMessages(projectId: string, conversationId: string): StoredTopicMessage[] {
     return (this.db.prepare(`
-      SELECT id, project_id AS projectId, change_id AS changeId, position, type, timestamp,
+      SELECT id, project_id AS projectId, conversation_id AS conversationId, change_id AS changeId, position, type, timestamp,
         text, action_run_id AS actionRunId, action_type AS actionType, status, run_id AS runId,
         artifact, error, raw_json AS rawJson
       FROM messages
-      WHERE project_id = ? AND change_id = ?
+      WHERE project_id = ? AND conversation_id = ?
+      ORDER BY position ASC
+    `).all(projectId, conversationId) as SqliteRow[]).map(mapMessageRow);
+  }
+
+  listLatestMessages(projectId: string, changeId: string, limit: number): StoredTopicMessage[] {
+    return (this.db.prepare(`
+      SELECT id, project_id AS projectId, conversation_id AS conversationId, change_id AS changeId, position, type, timestamp,
+        text, action_run_id AS actionRunId, action_type AS actionType, status, run_id AS runId,
+        artifact, error, raw_json AS rawJson
+      FROM messages
+      WHERE project_id = ? AND conversation_id = ?
       ORDER BY position DESC
       LIMIT ?
     `).all(projectId, changeId, limit) as SqliteRow[]).map(mapMessageRow).reverse();
@@ -179,11 +203,11 @@ export class WorkbenchStore {
 
   listMessagesBeforePosition(projectId: string, changeId: string, beforePosition: number, limit: number): StoredTopicMessage[] {
     return (this.db.prepare(`
-      SELECT id, project_id AS projectId, change_id AS changeId, position, type, timestamp,
+      SELECT id, project_id AS projectId, conversation_id AS conversationId, change_id AS changeId, position, type, timestamp,
         text, action_run_id AS actionRunId, action_type AS actionType, status, run_id AS runId,
         artifact, error, raw_json AS rawJson
       FROM messages
-      WHERE project_id = ? AND change_id = ? AND position < ?
+      WHERE project_id = ? AND conversation_id = ? AND position < ?
       ORDER BY position DESC
       LIMIT ?
     `).all(projectId, changeId, beforePosition, limit) as SqliteRow[]).map(mapMessageRow).reverse();
@@ -191,7 +215,7 @@ export class WorkbenchStore {
 
   listAllMessages(projectId: string): StoredTopicMessage[] {
     return (this.db.prepare(`
-      SELECT id, project_id AS projectId, change_id AS changeId, position, type, timestamp,
+      SELECT id, project_id AS projectId, conversation_id AS conversationId, change_id AS changeId, position, type, timestamp,
         text, action_run_id AS actionRunId, action_type AS actionType, status, run_id AS runId,
         artifact, error, raw_json AS rawJson
       FROM messages
@@ -201,26 +225,26 @@ export class WorkbenchStore {
   }
 
   hasMessages(projectId: string, changeId: string): boolean {
-    const row = this.db.prepare("SELECT COUNT(*) AS count FROM messages WHERE project_id = ? AND change_id = ?").get(projectId, changeId) as SqliteRow;
+    const row = this.db.prepare("SELECT COUNT(*) AS count FROM messages WHERE project_id = ? AND conversation_id = ?").get(projectId, changeId) as SqliteRow;
     return Number(row.count ?? 0) > 0;
   }
 
   countMessages(projectId: string, changeId: string): number {
-    const row = this.db.prepare("SELECT COUNT(*) AS count FROM messages WHERE project_id = ? AND change_id = ?").get(projectId, changeId) as SqliteRow;
+    const row = this.db.prepare("SELECT COUNT(*) AS count FROM messages WHERE project_id = ? AND conversation_id = ?").get(projectId, changeId) as SqliteRow;
     return Number(row.count ?? 0);
   }
 
   deleteMessages(projectId: string, changeId: string): number {
-    const result = this.db.prepare("DELETE FROM messages WHERE project_id = ? AND change_id = ?").run(projectId, changeId);
+    const result = this.db.prepare("DELETE FROM messages WHERE project_id = ? AND conversation_id = ?").run(projectId, changeId);
     return result.changes;
   }
 
   importMessages(messages: StoredTopicMessage[]): number {
     const insert = this.db.prepare(`
       INSERT OR IGNORE INTO messages (
-        id, project_id, change_id, position, type, timestamp, text, action_run_id,
+        id, project_id, conversation_id, change_id, position, type, timestamp, text, action_run_id,
         action_type, status, run_id, artifact, error, raw_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const transaction = this.db.transaction((items: StoredTopicMessage[]) => {
       let count = 0;
@@ -228,6 +252,7 @@ export class WorkbenchStore {
         const result = insert.run(
           item.id,
           item.projectId,
+          item.conversationId,
           item.changeId,
           item.position,
           item.type,
@@ -254,6 +279,73 @@ export class WorkbenchStore {
       FROM codex_session_links WHERE project_id = ? AND change_id = ?
     `).get(projectId, changeId) as SqliteRow | undefined;
     return row ? mapSessionRow(row) : null;
+  }
+
+  createConversation(conversation: StoredConversation): void {
+    this.db.prepare(`
+      INSERT INTO conversations (
+        project_id, conversation_id, title, state, bound_change_id, created_at, updated_at, deleted_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(project_id, conversation_id) DO UPDATE SET
+        title = excluded.title,
+        state = excluded.state,
+        bound_change_id = excluded.bound_change_id,
+        updated_at = excluded.updated_at,
+        deleted_at = excluded.deleted_at
+    `).run(
+      conversation.projectId,
+      conversation.conversationId,
+      conversation.title,
+      conversation.state,
+      conversation.boundChangeId,
+      conversation.createdAt,
+      conversation.updatedAt,
+      conversation.deletedAt,
+    );
+  }
+
+  listConversations(projectId: string, options: { includeDeleted?: boolean } = {}): StoredConversation[] {
+    const rows = options.includeDeleted
+      ? this.db.prepare(`
+        SELECT project_id AS projectId, conversation_id AS conversationId, title, state,
+          bound_change_id AS boundChangeId, created_at AS createdAt, updated_at AS updatedAt,
+          deleted_at AS deletedAt
+        FROM conversations
+        WHERE project_id = ?
+        ORDER BY updated_at DESC
+      `).all(projectId) as SqliteRow[]
+      : this.db.prepare(`
+        SELECT project_id AS projectId, conversation_id AS conversationId, title, state,
+          bound_change_id AS boundChangeId, created_at AS createdAt, updated_at AS updatedAt,
+          deleted_at AS deletedAt
+        FROM conversations
+        WHERE project_id = ? AND deleted_at IS NULL
+        ORDER BY updated_at DESC
+      `).all(projectId) as SqliteRow[];
+    return rows.map(mapConversationRow);
+  }
+
+  readConversation(projectId: string, conversationId: string, options: { includeDeleted?: boolean } = {}): StoredConversation | null {
+    const row = this.db.prepare(`
+      SELECT project_id AS projectId, conversation_id AS conversationId, title, state,
+        bound_change_id AS boundChangeId, created_at AS createdAt, updated_at AS updatedAt,
+        deleted_at AS deletedAt
+      FROM conversations
+      WHERE project_id = ? AND conversation_id = ? ${options.includeDeleted ? "" : "AND deleted_at IS NULL"}
+    `).get(projectId, conversationId) as SqliteRow | undefined;
+    return row ? mapConversationRow(row) : null;
+  }
+
+  deleteConversation(projectId: string, conversationId: string, deletedAt: string): void {
+    const transaction = this.db.transaction(() => {
+      this.deleteMessages(projectId, conversationId);
+      this.db.prepare(`
+        UPDATE conversations
+        SET deleted_at = ?, updated_at = ?
+        WHERE project_id = ? AND conversation_id = ?
+      `).run(deletedAt, deletedAt, projectId, conversationId);
+    });
+    transaction();
   }
 
   writeCodexSession(link: StoredCodexSessionLink): void {
@@ -488,6 +580,7 @@ export async function importThreadJsonlIfNeeded(memory: ResolvedMemory, projectI
         return {
           id: typeof parsed.id === "string" ? parsed.id : `${changeId}-import-${index + 1}`,
           projectId,
+          conversationId: changeId,
           changeId,
           position: index + 1,
           type: String(parsed.type ?? "assistant.message"),
@@ -513,6 +606,7 @@ function migrate(db: Database.Database): void {
     CREATE TABLE IF NOT EXISTS messages (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL,
+      conversation_id TEXT NOT NULL DEFAULT '',
       change_id TEXT NOT NULL,
       position INTEGER NOT NULL,
       type TEXT NOT NULL,
@@ -527,6 +621,20 @@ function migrate(db: Database.Database): void {
       raw_json TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_messages_topic ON messages(project_id, change_id, position);
+    CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(project_id, conversation_id, position);
+
+    CREATE TABLE IF NOT EXISTS conversations (
+      project_id TEXT NOT NULL,
+      conversation_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      state TEXT NOT NULL DEFAULT 'active',
+      bound_change_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deleted_at TEXT,
+      PRIMARY KEY(project_id, conversation_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_conversations_project_updated ON conversations(project_id, deleted_at, updated_at);
 
     CREATE TABLE IF NOT EXISTS action_runs (
       id TEXT PRIMARY KEY,
@@ -635,6 +743,8 @@ function migrate(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_decision_records_topic ON decision_records(project_id, change_id, updated_at);
   `);
+  ensureColumn(db, "messages", "conversation_id", "TEXT NOT NULL DEFAULT ''");
+  db.exec("UPDATE messages SET conversation_id = change_id WHERE conversation_id = ''");
   ensureColumn(db, "skills", "source_kind", "TEXT NOT NULL DEFAULT 'managed'");
 }
 
@@ -642,6 +752,7 @@ function mapMessageRow(row: SqliteRow): StoredTopicMessage {
   return {
     id: String(row.id),
     projectId: String(row.projectId),
+    conversationId: String(row.conversationId ?? row.changeId),
     changeId: String(row.changeId),
     position: Number(row.position),
     type: String(row.type),
@@ -654,6 +765,19 @@ function mapMessageRow(row: SqliteRow): StoredTopicMessage {
     artifact: nullableString(row.artifact),
     error: nullableString(row.error),
     rawJson: String(row.rawJson),
+  };
+}
+
+function mapConversationRow(row: SqliteRow): StoredConversation {
+  return {
+    projectId: String(row.projectId),
+    conversationId: String(row.conversationId),
+    title: String(row.title),
+    state: row.state === "archive" ? "archive" : "active",
+    boundChangeId: nullableString(row.boundChangeId),
+    createdAt: String(row.createdAt),
+    updatedAt: String(row.updatedAt),
+    deletedAt: nullableString(row.deletedAt),
   };
 }
 

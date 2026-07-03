@@ -165,6 +165,7 @@ function toStoredThreadMessage(memory: ResolvedMemory, entry: TopicThreadEntry):
   return {
     id: entry.id,
     projectId: memory.projectId ?? "unregistered",
+    conversationId: entry.conversationId ?? entry.changeId,
     changeId: entry.changeId,
     type: entry.type,
     timestamp: entry.timestamp,
@@ -179,12 +180,13 @@ function toStoredThreadMessage(memory: ResolvedMemory, entry: TopicThreadEntry):
   };
 }
 
-function fromStoredThreadMessage(row: StoredTopicMessage): TopicThreadEntry {
+export function fromStoredThreadMessage(row: StoredTopicMessage): TopicThreadEntry {
   const raw = parseStoredRawJson(row.rawJson);
   return {
     id: row.id,
     type: row.type as TopicThreadEventType,
     timestamp: row.timestamp,
+    conversationId: row.conversationId,
     changeId: row.changeId,
     text: row.text ?? undefined,
     actionRunId: row.actionRunId ?? undefined,

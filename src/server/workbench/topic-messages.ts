@@ -1,7 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createSseResponse } from "../sse.js";
-import { createWorkbenchTopic, listTopicMessages, postTopicMessage } from "../../workbench/chat.js";
-import { runIntakeScan } from "../../workbench/intake.js";
+import { createWorkbenchConversation, listConversationMessages, listTopicMessages, postConversationMessage, postTopicMessage } from "../../workbench/chat.js";
 import { getWorkbenchSnapshot, type WorkbenchProjectInput } from "../../workbench/manager.js";
 import type { ManagedProject } from "../../types/index.js";
 import { createLiveSink } from "./live.js";
@@ -36,7 +35,10 @@ export async function readTopicMessageBody(request: IncomingMessage): Promise<To
 
 export async function sendTopicMessageReplay(project: ManagedProject, changeId: string, response: ServerResponse): Promise<void> {
   response.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-store", Connection: "close" });
-  for (const message of await listTopicMessages(project, changeId)) {
+  const messages = changeId.startsWith("conv-")
+    ? await listConversationMessages(project, changeId)
+    : await listTopicMessages(project, changeId);
+  for (const message of messages) {
     response.write(`event: message\n`);
     response.write(`data: ${JSON.stringify(message)}\n\n`);
   }
@@ -55,25 +57,34 @@ export async function sendCreateTopicLive(
   const body = await readCreateTopicBody(request);
   const sse = createSseResponse(response);
   const sink = createLiveSink(sse);
-  let changeId: string | undefined;
+  let conversationId: string | undefined;
   try {
-    const topic = await createWorkbenchTopic(input.project, body);
-    changeId = topic.changeId;
-    sink.emit({ event: "topic.created", data: { topic } });
-    for (const message of await listTopicMessages(input.project, topic.changeId)) {
-      sink.emit({ event: "topic.message", data: message });
-    }
-    if (topic.state === "active") {
-      sink.emit({ event: "run.status", data: { status: "intake.scan", label: "需求上下文扫描中" } });
-      await runIntakeScan(input.project, topic.changeId, body.body ?? body.title);
-      await options.initialMainAgentTurn(input.project, topic.changeId, body.body ?? body.title, sink);
-      await options.initialPlanningAgentDelegation(input.project, topic.changeId, body.body ?? body.title, sink);
-    }
-    sink.emit({ event: "snapshot", data: await getWorkbenchSnapshot(input, { topicId: topic.changeId }) });
+    void options;
+    const topic = await createWorkbenchConversation(input.project, body, sink);
+    conversationId = topic.conversationId;
+    sink.emit({ event: "snapshot", data: await getWorkbenchSnapshot(input, { topicId: topic.conversationId }) });
     sink.emit({ event: "done", data: { status: "completed" } });
   } catch (cause) {
     sink.emit({ event: "error", data: { message: cause instanceof Error ? cause.message : String(cause) } });
-    sink.emit({ event: "snapshot", data: await getWorkbenchSnapshot(input, { topicId: changeId }).catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) })) });
+    sink.emit({ event: "snapshot", data: await getWorkbenchSnapshot(input, { topicId: conversationId }).catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) })) });
+    sink.emit({ event: "done", data: { status: "failed" } });
+  } finally {
+    sse.end();
+  }
+}
+
+export async function sendConversationMessageLive(input: WorkbenchProjectInput & { project: ManagedProject }, conversationId: string, request: IncomingMessage, response: ServerResponse): Promise<void> {
+  const message = await readJsonBody<TopicMessageRequest>(request);
+  assertTopicMessageText(message);
+  const sse = createSseResponse(response);
+  const sink = createLiveSink(sse);
+  try {
+    await postConversationMessage(input.project, conversationId, message, sink);
+    sink.emit({ event: "snapshot", data: await getWorkbenchSnapshot(input, { topicId: conversationId }) });
+    sink.emit({ event: "done", data: { status: "completed" } });
+  } catch (cause) {
+    sink.emit({ event: "error", data: { message: cause instanceof Error ? cause.message : String(cause) } });
+    sink.emit({ event: "snapshot", data: await getWorkbenchSnapshot(input, { topicId: conversationId }).catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) })) });
     sink.emit({ event: "done", data: { status: "failed" } });
   } finally {
     sse.end();

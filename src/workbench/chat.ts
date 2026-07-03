@@ -1,8 +1,11 @@
 import { existsSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { getActiveCodexAppServerTurn } from "../codex/app-server.js";
+import { detectCodexAppServerCapability, getActiveCodexAppServerTurn, runCodexAppServerTurn } from "../codex/app-server.js";
+import { resolveCodexEffectiveModel } from "../codex/model-settings.js";
 import { createConcurrentChange } from "../change/manager.js";
-import { resolveProjectMemory } from "../memory/resolver.js";
+import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { listRuns } from "../run/manager.js";
 import type { ManagedProject, ResolvedMemory, RunMetadata } from "../types/index.js";
 import { postTopicPlanMessage, runCodexChat } from "./codex-chat/bridge.js";
@@ -20,7 +23,8 @@ import { resolveTopicFileReferences } from "./file-references.js";
 import { createAssistantTranscriptCapture } from "./live-transcript.js";
 import { getSingleActiveChangeId, resolveTopic } from "./topic-resolver.js";
 import { appendTopicThreadEntry } from "./topic-thread.js";
-import { collectAllTopicThreadEntries, readTopicThreadLog as readThreadLog } from "./thread-log.js";
+import { collectAllTopicThreadEntries, fromStoredThreadMessage, readTopicThreadLog as readThreadLog } from "./thread-log.js";
+import { WorkbenchStore, type StoredTopicMessage } from "./store.js";
 import type {
   AssistantTurnBlock,
   TopicAttachment,
@@ -76,6 +80,105 @@ export async function createWorkbenchTopic(project: ManagedProject, input: { tit
   return { changeId: result.change.id, title: result.change.title, state: "active" };
 }
 
+export async function createWorkbenchConversation(
+  project: ManagedProject,
+  input: { title: string; body?: string; contextRefs?: TopicMessageInput["contextRefs"]; attachmentIds?: string[] },
+  live?: WorkbenchLiveSink,
+  options: { runMainAgent?: boolean } = {},
+): Promise<{ conversationId: string; title: string; state: "active" }> {
+  const memory = await resolveProjectMemory(project);
+  assertWritableMemory(memory, "Workbench conversation");
+  if (!memory.projectId) throw new Error("Project id is required to create a conversation.");
+  const resolved = await resolveTopicFileReferences(project, input.body ?? input.title, input.contextRefs);
+  const attachments = await resolveTopicAttachments(project, input.attachmentIds);
+  const body = resolved.text || defaultAttachmentMessage(attachments);
+  const now = new Date().toISOString();
+  const conversationId = `conv-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
+  const store = await WorkbenchStore.open(memory);
+  try {
+    store.createConversation({
+      projectId: memory.projectId,
+      conversationId,
+      title: input.title,
+      state: "active",
+      boundChangeId: null,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+    store.appendMessage(toConversationStoredMessage(memory.projectId, conversationId, {
+      id: `user:${conversationId}:1`,
+      type: "user.message",
+      timestamp: now,
+      conversationId,
+      changeId: "",
+      text: body,
+      contextRefs: resolved.contextRefs.length > 0 ? resolved.contextRefs : undefined,
+      attachments: attachments.length > 0 ? attachments : undefined,
+    }));
+  } finally {
+    store.close();
+  }
+  live?.emit({
+    event: "topic.created",
+    data: { topic: { id: conversationId, conversationId, title: input.title, state: "active" } },
+  });
+  live?.emit({
+    event: "topic.message",
+    data: {
+      id: `user:${conversationId}:1`,
+      type: "user.message",
+      timestamp: now,
+      conversationId,
+      changeId: "",
+      text: body,
+      contextRefs: resolved.contextRefs.length > 0 ? resolved.contextRefs : undefined,
+      attachments: attachments.length > 0 ? attachments : undefined,
+    },
+  });
+  if (options.runMainAgent !== false) await runProjectScopedMainAgentTurn(project, conversationId, body, live);
+  return { conversationId, title: input.title, state: "active" };
+}
+
+export async function postConversationMessage(project: ManagedProject, conversationId: string, input: string | TopicMessageInput, live?: WorkbenchLiveSink): Promise<TopicMessageResult> {
+  const parsed = await normalizeTopicMessageInput(project, input);
+  const memory = await resolveProjectMemory(project);
+  assertWritableMemory(memory, "Workbench conversation");
+  if (!memory.projectId) throw new Error("Project id is required to post a conversation message.");
+  const now = new Date().toISOString();
+  const user: TopicThreadEntry = {
+    id: `user:${conversationId}:${Date.now().toString(36)}`,
+    type: "user.message",
+    timestamp: now,
+    conversationId,
+    changeId: "",
+    text: parsed.message,
+    contextRefs: parsed.contextRefs,
+    attachments: parsed.attachments,
+  };
+  const store = await WorkbenchStore.open(memory);
+  try {
+    if (!store.readConversation(memory.projectId, conversationId)) throw new Error(`Conversation not found: ${conversationId}.`);
+    store.appendMessage(toConversationStoredMessage(memory.projectId, conversationId, user));
+  } finally {
+    store.close();
+  }
+  live?.emit({ event: "topic.message", data: user });
+  const assistant = await runProjectScopedMainAgentTurn(project, conversationId, parsed.message, live);
+  return { user, assistant, run: null, codexSessionId: null, mode: "chat", routingDecision: "same-topic", assistantMessage: assistant.text ?? "" };
+}
+
+export async function listConversationMessages(project: ManagedProject, conversationId: string): Promise<TopicThreadEntry[]> {
+  const memory = await resolveProjectMemory(project);
+  if (!memory.projectId) return [];
+  const store = await WorkbenchStore.open(memory);
+  try {
+    return store.listConversationMessages(memory.projectId, conversationId).map(fromStoredThreadMessage);
+  } finally {
+    store.close();
+  }
+}
+
 export function buildInitialMainAgentPrompt(userMessage: string): string {
   return [
     "这是 AHO 需求对话的第一轮主 Agent 回复。",
@@ -89,6 +192,112 @@ export function buildInitialMainAgentPrompt(userMessage: string): string {
     "用户原始需求：",
     userMessage,
   ].join("\n");
+}
+
+async function runProjectScopedMainAgentTurn(project: ManagedProject, conversationId: string, userMessage: string, live?: WorkbenchLiveSink): Promise<TopicThreadEntry> {
+  const memory = await resolveProjectMemory(project);
+  assertWritableMemory(memory, "Project-scoped chat");
+  if (!memory.projectId) throw new Error("Project id is required to run project-scoped chat.");
+  const runId = buildProjectConversationRunId(conversationId);
+  const directory = join(memory.workbenchRoot, "conversations", conversationId, "runs", runId);
+  await mkdir(directory, { recursive: true });
+  const capture = createAssistantTranscriptCapture(live);
+  capture.sink.emit({ event: "run.started", data: { runId, conversationId, runtime: "codex-readonly", actionType: "chat.ask" } });
+  capture.sink.emit({ event: "run.status", data: { runId, status: "connecting", label: "正在连接 Codex" } });
+  const prompt = [
+    "You are the main Agent for this project.",
+    "Run as an ordinary read-only conversation turn. Do not edit files, create worktrees, apply changes, close changes, or claim approval.",
+    "Use the project root as the source of truth. Read AGENTS.md, docs, and Harness evidence yourself when needed.",
+    "Workbench conversation history is only interaction context; it is not workflow truth.",
+    "",
+    "User message:",
+    userMessage,
+  ].join("\n");
+  await writeFile(join(directory, "prompt.md"), prompt, "utf8");
+  const appServerCapabilities = await detectCodexAppServerCapability();
+  if (!appServerCapabilities.available) {
+    const message = appServerCapabilities.errors.length > 0
+      ? `Codex app-server 不可用：${appServerCapabilities.errors.join("; ")}`
+      : "Codex app-server 不可用。";
+    live?.emit({ event: "error", data: { runId, message } });
+    throw new Error(message);
+  }
+  const effectiveModel = await resolveCodexEffectiveModel();
+  const result = await runCodexAppServerTurn({
+    projectId: project.id,
+    changeId: conversationId,
+    roleId: "main-agent",
+    runId,
+    cwd: project.path,
+    prompt,
+    sandboxPolicy: "read-only",
+    paths: {
+      events: join(directory, "app-server-events.jsonl"),
+      stderr: join(directory, "app-server-stderr.log"),
+      lastMessage: join(directory, "last-message.md"),
+      session: join(directory, "agent-session.json"),
+    },
+    onTextDelta: (delta) => capture.sink.emit({ event: "assistant.delta", data: { delta, runId } }),
+    onPlanDelta: undefined,
+    onNotification: (notification) => forwardProjectAppServerNotification(runId, notification, capture.sink),
+    onUserInputRequest: (request) => {
+      capture.sink.emit({
+        event: "codex.userInput.requested",
+        data: {
+          requestId: request.requestId,
+          threadId: request.threadId,
+          turnId: request.turnId,
+          itemId: request.itemId,
+          runId,
+          conversationId,
+          questions: request.questions,
+          status: "pending",
+        },
+      });
+    },
+    onError: (error) => capture.sink.emit({ event: "error", data: { runId, message: error instanceof Error ? error.message : String(error) } }),
+    model: effectiveModel.model,
+  });
+  const assistantText = (result.lastMessage.trim() || capture.text.trim() || result.error || "").trim();
+  await writeFile(join(directory, "last-message.md"), assistantText, "utf8");
+  const assistant: TopicThreadEntry = {
+    id: `assistant:${conversationId}:${Date.now().toString(36)}`,
+    type: "assistant.message",
+    timestamp: new Date().toISOString(),
+    conversationId,
+    changeId: "",
+    text: assistantText,
+    runId,
+    artifact: `workbench/conversations/${conversationId}/runs/${runId}/last-message.md`,
+    activity: capture.activity,
+    blocks: capture.blocks.length > 0 ? capture.blocks : initialMainAgentBlocks([], runId, assistantText),
+  };
+  const store = await WorkbenchStore.open(memory);
+  try {
+    store.appendMessage(toConversationStoredMessage(memory.projectId, conversationId, assistant));
+  } finally {
+    store.close();
+  }
+  live?.emit({ event: "assistant.message", data: assistant });
+  return assistant;
+}
+
+function buildProjectConversationRunId(conversationId: string): string {
+  return `chat-${conversationId}-${Date.now().toString(36)}`;
+}
+
+function forwardProjectAppServerNotification(runId: string, notification: unknown, live: WorkbenchLiveSink | undefined): void {
+  if (!isRecord(notification)) return;
+  const method = typeof notification.method === "string" ? notification.method : "";
+  if (method === "turn/completed") {
+    live?.emit({ event: "run.status", data: { runId, status: "completed" } });
+    return;
+  }
+  if (method === "turn/failed") {
+    const params = isRecord(notification.params) ? notification.params : {};
+    const message = typeof params.error === "string" ? params.error : "Codex app-server turn failed.";
+    live?.emit({ event: "error", data: { runId, message } });
+  }
 }
 
 export async function runInitialMainAgentTurn(project: ManagedProject, changeId: string, userMessage: string, live?: WorkbenchLiveSink): Promise<TopicThreadEntry> {
@@ -312,6 +521,29 @@ const workflowActionHandlers = buildWorkbenchActionHandlers({
   postTopicMessage,
   findRunningRunForChange,
 });
+
+function toConversationStoredMessage(projectId: string, conversationId: string, entry: TopicThreadEntry): Omit<StoredTopicMessage, "position"> {
+  return {
+    id: entry.id,
+    projectId,
+    conversationId,
+    changeId: entry.changeId,
+    type: entry.type,
+    timestamp: entry.timestamp,
+    text: entry.text ?? null,
+    actionRunId: entry.actionRunId ?? null,
+    actionType: entry.actionType ?? null,
+    status: entry.status ?? null,
+    runId: entry.runId ?? null,
+    artifact: entry.artifact ?? null,
+    error: entry.error ?? null,
+    rawJson: JSON.stringify(entry),
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 async function normalizeTopicMessageInput(project: ManagedProject, input: string | TopicMessageInput): Promise<Required<Pick<TopicMessageInput, "mode" | "message">> & { contextRefs?: TopicMessageInput["contextRefs"]; attachments?: TopicAttachment[] }> {
   const mode = typeof input === "string" ? "chat" : input.mode ?? "chat";
