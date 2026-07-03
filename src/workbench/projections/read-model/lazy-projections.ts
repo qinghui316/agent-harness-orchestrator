@@ -13,7 +13,7 @@ import type { SchedulerIntegrationCandidate, SchedulerIntegrationCheckHandoff, S
 import type { ResolvedMemory } from "../../../types/index.js";
 import type { WorkbenchPlanningArtifactBundle, WorkbenchProjectInput } from "../../read-model-types.js";
 import { resolveWorkbenchMemory } from "./support.js";
-import { listWorkbenchTopicsFromMemory } from "./topics.js";
+import { listWorkbenchTopicsFromMemory as listTopicsFromMemory } from "./topics.js";
 import {
   findWorkbenchTopicPath,
   getDecompositionPlanProjectionForPath,
@@ -57,6 +57,10 @@ const planningBundleProjectionSchema = z.object({
   artifact: z.string().optional(),
   updatedAt: z.string().optional(),
 });
+
+function listWorkbenchTopicsFromMemory(memory: ResolvedMemory) {
+  return listTopicsFromMemory(memory, { includeDeleted: true });
+}
 
 export async function readLatestPlanningBundleProjection(memory: ResolvedMemory, changePath: string): Promise<WorkbenchPlanningArtifactBundle | null> {
   const path = join(memory.memoryRoot, changePath, "planning", "latest-bundle.json");

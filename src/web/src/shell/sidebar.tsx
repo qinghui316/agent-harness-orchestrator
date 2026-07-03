@@ -185,7 +185,6 @@ export function ProjectConversationSidebar({
                     {!memoryReady && !hasConversationSnapshot ? <div className="conversation-placeholder">项目需要准备后才能开始新对话。</div> : null}
                     {filteredConversations.map((conversation) => {
                       const menuId = `${projectId}:${conversation.id}`;
-                      const hideAllowed = conversation.state === "archive" && conversation.waitingDecisionCount === 0;
                       return (
                         <div className={`conversation-row-wrap ${conversation.selected ? "selected" : ""}`} key={conversation.id}>
                           <button
@@ -208,14 +207,10 @@ export function ProjectConversationSidebar({
                           </button>
                           {conversationMenuId === menuId ? (
                             <div className="conversation-row-menu" role="menu">
-                              {hideAllowed && item.project ? (
-                                <button className="project-menu-item danger" role="menuitem" onClick={() => {
-                                  setConversationMenuId(null);
-                                  void onHideConversation(item.project!.id, conversation.id);
-                                }}><Trash2 size={14} />从侧栏移除</button>
-                              ) : (
-                                <span className="conversation-menu-disabled">处理完成后才能移出侧栏</span>
-                              )}
+                              <button className="project-menu-item danger" role="menuitem" onClick={() => {
+                                setConversationMenuId(null);
+                                if (item.project) void onHideConversation(item.project.id, conversation.id);
+                              }}><Trash2 size={14} />删除对话</button>
                             </div>
                           ) : null}
                         </div>

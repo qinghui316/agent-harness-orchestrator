@@ -642,7 +642,7 @@ export function App(): ReactElement {
   }
 
   async function hideConversation(projectId: string, conversationId: string): Promise<void> {
-    await postJson(`/api/projects/${encodeURIComponent(projectId)}/workbench/topics/${encodeURIComponent(conversationId)}/hide`, { confirm: true });
+    await postJson(`/api/projects/${encodeURIComponent(projectId)}/workbench/topics/${encodeURIComponent(conversationId)}/delete`, { confirm: true });
     const topicToRefresh = selectedProjectId === projectId && selectedTopic !== conversationId ? selectedTopic : null;
     if (selectedProjectId === projectId && selectedTopic === conversationId) {
       setSelectedTopic(null);
@@ -1771,6 +1771,7 @@ export function App(): ReactElement {
             onOpenProject={openProject}
             onRefresh={loadApp}
             resetToken={homeComposerResetToken}
+            onOpenExistingDemand={(conversationId) => chooseConversation(selectedProjectId, conversationId)}
           />
         ) : (
           <>

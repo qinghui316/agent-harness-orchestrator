@@ -4,6 +4,7 @@ import {
   getWorkbenchSnapshot,
   getWorkbenchStream,
   getWorkbenchTopic,
+  deleteWorkbenchConversation,
   hideWorkbenchTopic,
   listWorkbenchApprovals,
   listWorkbenchTopics,
@@ -58,6 +59,13 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
     assertRegisteredProject(input);
     assertConfirmed((await readJsonBody<{ confirm?: boolean }>(request)).confirm);
     sendJson(response, 200, await hideWorkbenchTopic(input, decodeURIComponent(topicHideMatch[1])));
+    return;
+  }
+  const topicDeleteMatch = rest.match(/^topics\/([^/]+)\/delete$/);
+  if (request.method === "POST" && topicDeleteMatch?.[1]) {
+    assertRegisteredProject(input);
+    assertConfirmed((await readJsonBody<{ confirm?: boolean }>(request)).confirm);
+    sendJson(response, 200, await deleteWorkbenchConversation(input, decodeURIComponent(topicDeleteMatch[1])));
     return;
   }
   if (request.method === "POST" && rest === "intake/scan") {

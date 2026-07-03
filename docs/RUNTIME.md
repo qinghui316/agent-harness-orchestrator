@@ -179,7 +179,7 @@ Phase 9Z adds a terminal scheduler closeout evidence path for blocked/exhausted 
 | Role Profile | source of truth | Bundled or future memory-scoped role definition |
 | Agent Spec | source of truth | Future declarative role/subagent declaration |
 | Run | source of truth | One execution attempt |
-| Topic Interaction Log | source of truth for interaction history | Internal conversation log for one demand; Workbench SQLite records user/assistant/workflow messages, but not accepted requirements |
+| Topic Interaction Log | source of truth for interaction history | Internal conversation log for one demand; Workbench SQLite records user/assistant/workflow messages, but not accepted requirements. It may be deleted from the Workbench conversation layer without deleting the bound Change or workflow evidence |
 | Skill Source | runtime capability source | AHO-managed skills, project Codex skill roots, and custom roots containing `SKILL.md`; not workflow truth |
 | Agent Catalog | source of truth | Memory-root `agent-catalog.json` plus `agents/{role-id}.md`, with bundled profiles as defaults |
 | Command Catalog | source of truth | Future memory-root command declarations for workflow entrypoints |
@@ -201,6 +201,13 @@ Phase 9Z adds a terminal scheduler closeout evidence path for blocked/exhausted 
 A DemandConversation is the user-facing work surface under a project. It owns the main conversation where the user states a demand, revises planning drafts, sees execution results, and gives follow-up feedback.
 
 It is not workflow truth by itself. It binds to internal Topic/Change/Workpad state, and accepted ECL files, run artifacts, validation, audit, worktree state, and decisions remain authoritative.
+
+Deleting a DemandConversation removes the user-facing transcript/message record
+from the Workbench conversation catalog. It does not delete or supersede the
+internal Topic/Change, accepted artifacts, run artifacts, validation/audit,
+TaskQueue/WorkflowRun/Scheduler/IntegrationCheck evidence, ResumePoint, current
+gate, or source state. A later main-agent continuation must rebuild context from
+Harness evidence/replay/current gate rather than from the deleted transcript.
 
 Archived demand conversations are read-only for implementation work. A new implementation request after archive creates a linked follow-up conversation rather than mutating the old evidence chain.
 

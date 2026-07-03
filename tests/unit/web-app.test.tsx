@@ -1023,6 +1023,24 @@ describe("Workbench web app", () => {
     vi.unstubAllGlobals();
   });
 
+  it("deletes an active conversation from the sidebar without showing workflow lifecycle wording", async () => {
+    render(<App />);
+
+    const menuButton = await screen.findByLabelText("会员折扣计价 会话菜单");
+    fireEvent.click(menuButton);
+    expect(screen.queryByText("处理完成后才能移出侧栏")).toBeNull();
+    expect(screen.queryByText("关闭 Change")).toBeNull();
+    fireEvent.click(screen.getByRole("menuitem", { name: /删除对话/ }));
+
+    await waitFor(() => {
+      const deleteCall = vi.mocked(fetch).mock.calls.find(([url, init]) =>
+        String(url) === "/api/projects/repo/workbench/topics/member-discount/delete"
+        && init?.method === "POST");
+      expect(deleteCall).toBeTruthy();
+      expect(JSON.parse(String(deleteCall?.[1]?.body))).toMatchObject({ confirm: true });
+    });
+  });
+
   it("renders canonical main-agent execution in Workpad UI", () => {
     const canonicalExecution: WorkpadMainAgentExecutionSummary = {
       stage: "validation",

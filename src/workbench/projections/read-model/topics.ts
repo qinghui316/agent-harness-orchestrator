@@ -24,9 +24,14 @@ import { readChangeMetadataAt, stateRank } from "./support.js";
 
 export type TopicThreadDetailMode = "full" | "latest" | "none";
 
-export async function listWorkbenchTopicsFromMemory(memory: ResolvedMemory): Promise<WorkbenchTopicSummary[]> {
+export interface ListWorkbenchTopicsOptions {
+  includeDeleted?: boolean;
+}
+
+export async function listWorkbenchTopicsFromMemory(memory: ResolvedMemory, options: ListWorkbenchTopicsOptions = {}): Promise<WorkbenchTopicSummary[]> {
   const index = await buildChangeIndex(memory);
-  const hiddenIds = await listHiddenTopicIds(memory).catch(() => new Set<string>());
+  const hiddenIds = options.includeDeleted ? new Set<string>() : await listHiddenTopicIds(memory).catch(() => new Set<string>());
+  const deletedIds = options.includeDeleted ? new Set<string>() : await listDeletedTopicIds(memory).catch(() => new Set<string>());
   const groups: Array<[WorkbenchTopicState, ChangeIndexItem[]]> = [
     ["active", index.active],
     ["archive", index.archive],
@@ -35,10 +40,38 @@ export async function listWorkbenchTopicsFromMemory(memory: ResolvedMemory): Pro
   for (const [state, items] of groups) {
     for (const item of items) {
       const topic = await topicSummaryFromItem(memory, state, item);
-      if (!hiddenIds.has(topic.id) && !hiddenIds.has(topic.name)) topics.push(topic);
+      if (
+        !hiddenIds.has(topic.id)
+        && !hiddenIds.has(topic.name)
+        && !deletedIds.has(topic.id)
+        && !deletedIds.has(topic.name)
+      ) {
+        topics.push(topic);
+      }
     }
   }
   return topics.sort((a, b) => stateRank(a.state) - stateRank(b.state) || (b.updatedAt ?? b.name).localeCompare(a.updatedAt ?? a.name));
+}
+
+export async function deleteWorkbenchTopicConversation(memory: ResolvedMemory, changeId: string): Promise<void> {
+  const topics = await listWorkbenchTopicsFromMemoryIncludingHidden(memory);
+  const topic = topics.find((item) => item.id === changeId || item.name === changeId);
+  if (!topic) {
+    const error = new Error(`Topic not found: ${changeId}.`);
+    error.name = "NotFound";
+    throw error;
+  }
+  if (!memory.projectId) {
+    const error = new Error("Project id is required to delete a conversation.");
+    error.name = "Conflict";
+    throw error;
+  }
+  const store = await WorkbenchStore.open(memory);
+  try {
+    store.deleteTopicConversation({ projectId: memory.projectId, changeId: topic.id, deletedAt: new Date().toISOString() });
+  } finally {
+    store.close();
+  }
 }
 
 export async function hideWorkbenchTopicFromSidebar(memory: ResolvedMemory, changeId: string): Promise<void> {
@@ -81,6 +114,16 @@ async function listHiddenTopicIds(memory: ResolvedMemory): Promise<Set<string>> 
   const store = await WorkbenchStore.open(memory);
   try {
     return new Set(store.listHiddenTopicIds(memory.projectId));
+  } finally {
+    store.close();
+  }
+}
+
+async function listDeletedTopicIds(memory: ResolvedMemory): Promise<Set<string>> {
+  if (!memory.projectId) return new Set();
+  const store = await WorkbenchStore.open(memory);
+  try {
+    return new Set(store.listDeletedTopicIds(memory.projectId));
   } finally {
     store.close();
   }

@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-07-02T16:39:10.0712534Z",
+    "generated_at":  "2026-07-03T02:36:31.6043833Z",
     "active":  [
 
                ],
@@ -2493,6 +2493,10 @@
                     {
                         "name":  "20260703-main-agent-real-a2a-flow-audit-repair-v1",
                         "path":  "harness/changes/archive/20260703-main-agent-real-a2a-flow-audit-repair-v1"
+                    },
+                    {
+                        "name":  "20260703-workbench-conversation-delete-harness-resume-entry-v1",
+                        "path":  "harness/changes/archive/20260703-workbench-conversation-delete-harness-resume-entry-v1"
                     }
                 ]
 }

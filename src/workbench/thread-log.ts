@@ -24,6 +24,7 @@ export async function readTopicThreadLog(memory: ResolvedMemory, changePath: str
   try {
     const rows = store.listMessages(projectId, changeId);
     if (rows.length > 0) return rows.map(fromStoredThreadMessage);
+    if (store.isTopicDeleted(projectId, changeId)) return [];
   } finally {
     store.close();
   }
@@ -64,6 +65,14 @@ export async function readTopicThreadLogPage(
   await importThreadJsonlIfNeeded(memory, projectId, changeId, changePath);
   const store = await WorkbenchStore.open(memory);
   try {
+    if (store.isTopicDeleted(projectId, changeId) && !store.hasMessages(projectId, changeId)) {
+      return {
+        entries: [],
+        limit,
+        totalCount: 0,
+        hasMoreBefore: false,
+      };
+    }
     const totalCount = store.countMessages(projectId, changeId);
     if (beforePosition !== undefined && beforePosition > totalCount) throw invalidCursor();
     const rows = beforePosition !== undefined

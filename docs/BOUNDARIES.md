@@ -127,6 +127,10 @@ Decisions:
 - `docs/` and Harness artifacts preserve durable project knowledge in the active memory store.
 - `context.md` is a per-run projection and is not source of truth.
 - Chat transcripts can inform work, but they are not durable project state unless summarized into files.
+- Deleting a Workbench conversation is a conversation-layer cleanup only. It
+  must not close, abandon, cancel, move, archive, or garbage-collect the bound
+  Change, ECL files, workflow evidence, ResumePoint, current gate, or source
+  state.
 - Future dashboards and indexes must derive from AHO-managed memory rather than replacing it.
 - External-local and remote memory must be accessed through Memory Resolver / Memory Store boundaries, not through hardcoded repo-local paths.
 

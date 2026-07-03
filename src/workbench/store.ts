@@ -64,6 +64,12 @@ export interface StoredHiddenTopic {
   hiddenAt: string;
 }
 
+export interface StoredDeletedTopic {
+  projectId: string;
+  changeId: string;
+  deletedAt: string;
+}
+
 export interface StoredBridgeSync {
   projectId: string;
   skillId: string;
@@ -202,6 +208,11 @@ export class WorkbenchStore {
   countMessages(projectId: string, changeId: string): number {
     const row = this.db.prepare("SELECT COUNT(*) AS count FROM messages WHERE project_id = ? AND change_id = ?").get(projectId, changeId) as SqliteRow;
     return Number(row.count ?? 0);
+  }
+
+  deleteMessages(projectId: string, changeId: string): number {
+    const result = this.db.prepare("DELETE FROM messages WHERE project_id = ? AND change_id = ?").run(projectId, changeId);
+    return result.changes;
   }
 
   importMessages(messages: StoredTopicMessage[]): number {
@@ -352,6 +363,29 @@ export class WorkbenchStore {
     return rows.map((row) => String(row.changeId));
   }
 
+  deleteTopicConversation(topic: StoredDeletedTopic): void {
+    const transaction = this.db.transaction(() => {
+      this.deleteMessages(topic.projectId, topic.changeId);
+      this.db.prepare(`
+        INSERT INTO deleted_topics (project_id, change_id, deleted_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(project_id, change_id) DO UPDATE SET deleted_at = excluded.deleted_at
+      `).run(topic.projectId, topic.changeId, topic.deletedAt);
+      this.db.prepare("DELETE FROM hidden_topics WHERE project_id = ? AND change_id = ?").run(topic.projectId, topic.changeId);
+    });
+    transaction();
+  }
+
+  isTopicDeleted(projectId: string, changeId: string): boolean {
+    const row = this.db.prepare("SELECT 1 AS existsFlag FROM deleted_topics WHERE project_id = ? AND change_id = ?").get(projectId, changeId) as SqliteRow | undefined;
+    return Boolean(row);
+  }
+
+  listDeletedTopicIds(projectId: string): string[] {
+    const rows = this.db.prepare("SELECT change_id AS changeId FROM deleted_topics WHERE project_id = ?").all(projectId) as SqliteRow[];
+    return rows.map((row) => String(row.changeId));
+  }
+
   upsertBridgeSync(sync: StoredBridgeSync): void {
     this.db.prepare(`
       INSERT INTO bridge_sync (project_id, skill_id, source_hash, materialized_path, materialized_hash, bridge_version, synced_at)
@@ -441,6 +475,7 @@ export class WorkbenchStore {
 export async function importThreadJsonlIfNeeded(memory: ResolvedMemory, projectId: string, changeId: string, changePath: string): Promise<number> {
   const store = await WorkbenchStore.open(memory);
   try {
+    if (store.isTopicDeleted(projectId, changeId)) return 0;
     if (store.hasMessages(projectId, changeId)) return 0;
     const path = join(memory.memoryRoot, changePath, "thread.jsonl");
     if (!existsSync(path)) return 0;
@@ -549,6 +584,13 @@ function migrate(db: Database.Database): void {
       project_id TEXT NOT NULL,
       change_id TEXT NOT NULL,
       hidden_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, change_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS deleted_topics (
+      project_id TEXT NOT NULL,
+      change_id TEXT NOT NULL,
+      deleted_at TEXT NOT NULL,
       PRIMARY KEY(project_id, change_id)
     );
 

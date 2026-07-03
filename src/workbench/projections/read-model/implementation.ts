@@ -16,7 +16,7 @@ import { buildMaintenanceSummary } from "./maintenance-summary.js";
 import { buildDemandAgentRunGraph, emptyAgentRunGraph, emptyParentAgentTranscript, shellWorkbenchWorkpad } from "./run-graph.js";
 import { listWorkbenchRoles } from "./roles.js";
 import { buildHarnessGaps, buildRepoSummary, resolveWorkbenchMemory } from "./support.js";
-import { hideWorkbenchTopicFromSidebar, listWorkbenchTopicsFromMemory, selectTopicDetail } from "./topics.js";
+import { deleteWorkbenchTopicConversation, hideWorkbenchTopicFromSidebar, listWorkbenchTopicsFromMemory, selectTopicDetail } from "./topics.js";
 import { buildDiagnosticWorkpad, buildMultiWorkpadSummaries, buildWorkbenchWorkpad } from "./workpad.js";
 import type { LandingQueueSnapshot, ResolvedMemory } from "../../../types/index.js";
 import type {
@@ -186,15 +186,17 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
     };
   }
 
-  const topics = await listWorkbenchTopicsFromMemory(memory);
-  const selectedTopic = await selectTopicDetail(input.project, memory, topics, options.topicId, { threadMode: "latest", threadLimit: 100 });
-  const approvals = input.project ? await buildApprovalInbox(input.project, memory, topics) : [];
+  const visibleTopics = await listWorkbenchTopicsFromMemory(memory);
+  const allTopics = await listWorkbenchTopicsFromMemory(memory, { includeDeleted: true });
+  const selectableTopics = options.topicId ? allTopics : visibleTopics;
+  const selectedTopic = await selectTopicDetail(input.project, memory, selectableTopics, options.topicId, { threadMode: "latest", threadLimit: 100 });
+  const approvals = input.project ? await buildApprovalInbox(input.project, memory, allTopics) : [];
   const decisions = input.project ? await listWorkbenchDecisions(memory, options.topicId) : [];
-  const workpads = await buildMultiWorkpadSummaries(memory, topics, approvals, selectedTopic?.id);
+  const workpads = await buildMultiWorkpadSummaries(memory, allTopics, approvals, selectedTopic?.id);
   const workpad = await buildWorkbenchWorkpad({
     project: input.project,
     memory,
-    topics,
+    topics: allTopics,
     workpads,
     selectedTopic,
     approvals,
@@ -227,11 +229,11 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
     project: input.project,
     memory: memoryStatus,
     left: {
-      project: input.project,
-      memory: memoryStatus,
-      topics,
-      workpads,
-      repo: buildRepoSummary(projectStatus),
+        project: input.project,
+        memory: memoryStatus,
+        topics: visibleTopics,
+        workpads,
+        repo: buildRepoSummary(projectStatus),
     },
     center: {
       selectedTopic,
@@ -252,7 +254,7 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
 export async function getWorkbenchTranscriptProjection(input: WorkbenchProjectInput, changeId: string): Promise<ParentAgentTranscript> {
   const memory = await resolveWorkbenchMemory(input);
   if (!memory.supported) return emptyParentAgentTranscript();
-  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const topics = await listWorkbenchTopicsFromMemory(memory, { includeDeleted: true });
   const selectedTopic = await selectTopicDetail(input.project, memory, topics, changeId);
   if (!selectedTopic) return emptyParentAgentTranscript();
   const workpad = await buildWorkbenchProjectionWorkpad(input, memory, topics, selectedTopic);
@@ -266,7 +268,7 @@ export async function getWorkbenchTranscriptPageProjection(
 ): Promise<ParentAgentTranscript> {
   const memory = await resolveWorkbenchMemory(input);
   if (!memory.supported) return emptyParentAgentTranscript();
-  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const topics = await listWorkbenchTopicsFromMemory(memory, { includeDeleted: true });
   const topic = topics.find((item) => item.id === changeId || item.name === changeId);
   if (!topic) return emptyParentAgentTranscript();
   const page = await readTopicThreadLogPage(memory, topic.path, paging);
@@ -293,7 +295,7 @@ export async function getWorkbenchTranscriptPageProjection(
 export async function getWorkbenchRunGraphProjection(input: WorkbenchProjectInput, changeId: string): Promise<DemandAgentRunGraph> {
   const memory = await resolveWorkbenchMemory(input);
   if (!memory.supported) return emptyAgentRunGraph();
-  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const topics = await listWorkbenchTopicsFromMemory(memory, { includeDeleted: true });
   const selectedTopic = await selectTopicDetail(input.project, memory, topics, changeId);
   if (!selectedTopic) return emptyAgentRunGraph();
   const approvals = input.project ? await buildApprovalInbox(input.project, memory, topics) : [];
@@ -325,7 +327,7 @@ export async function getWorkbenchRunGraphProjection(input: WorkbenchProjectInpu
 export async function getWorkbenchWorkpadProjection(input: WorkbenchProjectInput, changeId: string): Promise<WorkbenchWorkpad> {
   const memory = await resolveWorkbenchMemory(input);
   if (!memory.supported) return buildDiagnosticWorkpad(input.project?.name ?? "未选择项目", ["Durable memory is unavailable."], buildHarnessGaps());
-  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const topics = await listWorkbenchTopicsFromMemory(memory, { includeDeleted: true });
   const selectedTopic = await selectTopicDetail(input.project, memory, topics, changeId);
   return buildWorkbenchProjectionWorkpad(input, memory, topics, selectedTopic);
 }
@@ -395,9 +397,20 @@ export async function hideWorkbenchTopic(input: WorkbenchProjectInput, topicId: 
   return { hidden: true, topicId };
 }
 
+export async function deleteWorkbenchConversation(input: WorkbenchProjectInput, topicId: string): Promise<{ deleted: true; topicId: string }> {
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported || !existsSync(memory.memoryRoot)) {
+    const error = new Error("Durable memory is unavailable; cannot delete this conversation.");
+    error.name = "Conflict";
+    throw error;
+  }
+  await deleteWorkbenchTopicConversation(memory, topicId);
+  return { deleted: true, topicId };
+}
+
 export async function getWorkbenchTopic(input: WorkbenchProjectInput, topicId: string): Promise<WorkbenchTopicDetail> {
   const memory = await resolveWorkbenchMemory(input);
-  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const topics = await listWorkbenchTopicsFromMemory(memory, { includeDeleted: true });
   const detail = await selectTopicDetail(input.project, memory, topics, topicId);
   if (!detail) throw new Error(`Topic not found: ${topicId}.`);
   return detail;
@@ -425,7 +438,7 @@ export async function listWorkbenchApprovals(input: WorkbenchProjectInput, optio
   if (!input.project) return [];
   const memory = await resolveWorkbenchMemory(input);
   if (!memory.supported || !existsSync(memory.memoryRoot)) return [];
-  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const topics = await listWorkbenchTopicsFromMemory(memory, { includeDeleted: true });
   const approvals = await buildApprovalInbox(input.project, memory, topics);
   if (!options.topicId) return approvals;
   return approvals.filter((item) => !item.changeId || item.changeId === options.topicId);

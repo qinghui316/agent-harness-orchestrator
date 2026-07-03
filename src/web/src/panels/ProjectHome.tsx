@@ -15,6 +15,7 @@ import { SkillMentionPicker } from "../shell/SkillMentionPicker.js";
 import type { ComposerExecutionMode } from "../shell/composer-session.js";
 import { WorkspacePicker } from "./WorkspacePicker.js";
 import { InfoRow } from "./ProjectPanels.js";
+import { workpadStatusLabel } from "../formatters.js";
 import type { CodexDiagnostics, CodexModelCandidate, CodexModelSettingsSnapshot, ProjectStatus, SkillListItem, Snapshot, TopicFileReference } from "../types.js";
 
 export function ProjectHomeView({
@@ -61,6 +62,7 @@ export function ProjectReadinessHome({
   onOpenProject,
   onRefresh,
   resetToken,
+  onOpenExistingDemand,
 }: {
   project: ProjectStatus;
   snapshot: Snapshot;
@@ -79,6 +81,7 @@ export function ProjectReadinessHome({
   onOpenProject: (projectId: string) => Promise<void>;
   onRefresh: () => Promise<void>;
   resetToken?: number;
+  onOpenExistingDemand?: (conversationId: string) => Promise<void>;
 }): ReactElement {
   const [draft, setDraft] = useState("");
   const [draftFileRefs, setDraftFileRefs] = useState<TopicFileReference[]>([]);
@@ -98,6 +101,11 @@ export function ProjectReadinessHome({
     selectedFileRefs: draftFileRefs,
     attachments: draftAttachments,
   }), [skills, activeSkillIds, draftFileRefs, draftAttachments]);
+  const visibleTopicIds = useMemo(() => new Set(snapshot.left.topics.map((topic) => topic.id)), [snapshot.left.topics]);
+  const deletedActiveWorkpads = useMemo(
+    () => (snapshot.left.workpads ?? []).filter((item) => item.state === "active" && !visibleTopicIds.has(item.id)),
+    [snapshot.left.workpads, visibleTopicIds],
+  );
 
   useEffect(() => {
     if (resetToken === undefined) return;
@@ -148,6 +156,22 @@ export function ProjectReadinessHome({
           onOpenProject={onOpenProject}
           onRefresh={onRefresh}
         />
+
+        {deletedActiveWorkpads.length > 0 ? (
+          <section className="home-active-work" aria-label="进行中的任务">
+            <span className="section-label">进行中的任务</span>
+            {deletedActiveWorkpads.map((item) => (
+              <button
+                key={item.id}
+                className="home-active-work-row"
+                onClick={() => void onOpenExistingDemand?.(item.id)}
+              >
+                <strong>{item.title}</strong>
+                <small>{item.userStatusLabel ?? workpadStatusLabel(item.runtimeStatus)}</small>
+              </button>
+            ))}
+          </section>
+        ) : null}
 
         <section
           className={`home-demand-composer ${dragOver ? "is-drag-over" : ""}`}
