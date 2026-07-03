@@ -1,6 +1,7 @@
 ﻿import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import { createChange, closeChange } from "../../src/change/manager.js";
 import { initHarness } from "../../src/harness/init.js";
@@ -231,6 +232,55 @@ describe("workbench read-model projections", () => {
     expect(snapshot.right.confirmationQueue.current).toEqual([]);
     expect(snapshot.right.agentWorkspace.agents).toEqual([]);
     expect(existsSync(join(getTempDir(), "harness", "changes", "active", conversation.conversationId))).toBe(false);
+  });
+
+  it("migrates legacy Workbench message tables before creating conversation indexes", async () => {
+    await initHarness(project());
+    const memory = await resolveProjectMemory(project());
+    await mkdir(memory.workbenchRoot, { recursive: true });
+    const projectId = project().id;
+    const db = new Database(memory.workbenchDbPath);
+    try {
+      db.exec(`
+        CREATE TABLE messages (
+          id TEXT PRIMARY KEY,
+          project_id TEXT NOT NULL,
+          change_id TEXT NOT NULL,
+          position INTEGER NOT NULL,
+          type TEXT NOT NULL,
+          timestamp TEXT NOT NULL,
+          text TEXT,
+          action_run_id TEXT,
+          action_type TEXT,
+          status TEXT,
+          run_id TEXT,
+          artifact TEXT,
+          error TEXT,
+          raw_json TEXT NOT NULL
+        );
+        INSERT INTO messages (
+          id, project_id, change_id, position, type, timestamp, text, raw_json
+        ) VALUES (
+          'legacy-message', '${projectId}', 'legacy-change', 1, 'user.message',
+          '2026-07-03T00:00:00.000Z', 'legacy text', '{}'
+        );
+      `);
+    } finally {
+      db.close();
+    }
+
+    const store = await WorkbenchStore.open(memory);
+    try {
+      expect(store.listConversationMessages(projectId, "legacy-change")).toEqual([
+        expect.objectContaining({
+          id: "legacy-message",
+          conversationId: "legacy-change",
+          changeId: "legacy-change",
+        }),
+      ]);
+    } finally {
+      store.close();
+    }
   });
 
   it("builds a snapshot with selected topic, semantic thread, roles, gaps, and close approval", async () => {

@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-07-03T04:17:40.4748264Z",
+    "generated_at":  "2026-07-03T05:04:33.0802316Z",
     "active":  [
 
                ],
@@ -2501,6 +2501,10 @@
                     {
                         "name":  "20260703-workbench-conversation-delete-harness-resume-entry-v1",
                         "path":  "harness/changes/archive/20260703-workbench-conversation-delete-harness-resume-entry-v1"
+                    },
+                    {
+                        "name":  "20260703-workbench-conversation-harness-identity-real-ui-acceptance-v1",
+                        "path":  "harness/changes/archive/20260703-workbench-conversation-harness-identity-real-ui-acceptance-v1"
                     },
                     {
                         "name":  "20260703-workbench-conversation-harness-identity-separation-v1",

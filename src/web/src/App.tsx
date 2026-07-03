@@ -1486,8 +1486,11 @@ export function App(): ReactElement {
       state: "active" as const,
       acCount: 0,
       taskCount: 0,
+      kind: "conversation" as const,
+      boundChangeId: null,
     }
     : snapshot.center.selectedTopic;
+  const activeTopicIsConversation = activeTopic?.kind === "conversation";
   const isPendingTopic = Boolean(activePendingConversation && activeTopic?.id === activePendingConversation.id);
   const activeWorkpad = activePendingConversation ? emptyWorkpad(activePendingConversation.title) : snapshot.center.workpad ?? emptyWorkpad(activeTopic?.title ?? projectDisplayName(snapshot.project));
   const activeRun = useMemo(() => snapshot.center.agentLoop.runs.find((run) => run.id === selectedRun) ?? snapshot.center.agentLoop.runs[0], [snapshot, selectedRun]);
@@ -1782,7 +1785,11 @@ export function App(): ReactElement {
             <header className="thread-header">
               <div className="thread-title-block">
                 <strong>{activeTopic.title}</strong>
-                <span>{projectDisplayName(snapshot.project, "project")} · {stateLabel(activeTopic.state)} · 验收 {activeTopic.acCount ?? 0} · 任务 {activeTopic.taskCount ?? 0}</span>
+                <span>
+                  {activeTopicIsConversation
+                    ? `${projectDisplayName(snapshot.project, "project")} · ${stateLabel(activeTopic.state)}`
+                    : `${projectDisplayName(snapshot.project, "project")} · ${stateLabel(activeTopic.state)} · 验收 ${activeTopic.acCount ?? 0} · 任务 ${activeTopic.taskCount ?? 0}`}
+                </span>
               </div>
             </header>
 

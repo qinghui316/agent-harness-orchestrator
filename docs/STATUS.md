@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260703-workbench-conversation-harness-identity-real-ui-acceptance-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260703-workbench-conversation-harness-identity-separation-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260703-workbench-conversation-delete-harness-resume-entry-v1/summary.md`.

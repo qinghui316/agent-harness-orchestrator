@@ -158,7 +158,7 @@ export function TopicComposer({
         {disabledReason ? <span className="composer-pill">只读</span> : null}
         {runningConversation ? <span className="composer-pill subtle">{value.trim() ? "会发送给当前执行" : "可停止当前执行"}</span> : null}
         <span className="composer-spacer" />
-        {actionRunning ? <span className="composer-pill subtle">正在运行：{workflowActionLabel(actionRunning)}</span> : null}
+        {actionRunning ? <span className="composer-pill subtle">正在运行：{runningActionLabel(actionRunning)}</span> : null}
         <button
           className={`composer-send ${actionRunning ? "running" : ""}`}
           disabled={sendDisabled}
@@ -170,4 +170,9 @@ export function TopicComposer({
       </div>
     </div>
   );
+}
+
+function runningActionLabel(actionType: string): string {
+  if (actionType === "topic.create" || actionType === "chat.ask") return "正在生成回复";
+  return workflowActionLabel(actionType);
 }

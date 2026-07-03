@@ -5515,6 +5515,48 @@ describe("Workbench web app", () => {
     expect(fetch).toHaveBeenCalledWith("/api/projects/repo/workbench/topics/member-discount/messages/live", expect.objectContaining({ method: "POST" }));
   });
 
+  it("renders ordinary conversations without Harness progress counters", async () => {
+    const conversationSnapshot = {
+      ...snapshot,
+      left: {
+        ...snapshot.left,
+        topics: [{ id: "conv-1", title: "普通对话", state: "active", kind: "conversation", boundChangeId: null }],
+        workpads: [],
+      },
+      center: {
+        ...snapshot.center,
+        selectedTopic: { id: "conv-1", title: "普通对话", state: "active", kind: "conversation", boundChangeId: null },
+        workpad: {
+          ...snapshot.center.workpad,
+          title: "普通对话",
+          progress: {
+            ...snapshot.center.workpad.progress,
+            acCount: 0,
+            taskCount: 0,
+          },
+        },
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") {
+        return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      }
+      return jsonResponse(url.includes("/stream/") ? stream : conversationSnapshot);
+    }));
+
+    render(<App />);
+
+    await screen.findByText("普通对话");
+    const titleMeta = document.querySelector(".thread-title-block span");
+    expect(titleMeta?.textContent).toBe("Repo · 进行中");
+    expect(titleMeta?.textContent).not.toContain("验收");
+    expect(titleMeta?.textContent).not.toContain("任务");
+    expect(screen.getByText(/当前对话：普通对话/)).toBeTruthy();
+    expect(screen.queryByText(/当前需求：普通对话/)).toBeNull();
+  });
+
   it("hides composer controls that do not have active capabilities", async () => {
     const noCodeSnapshot = {
       ...snapshot,

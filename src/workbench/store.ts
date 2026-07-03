@@ -621,7 +621,6 @@ function migrate(db: Database.Database): void {
       raw_json TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_messages_topic ON messages(project_id, change_id, position);
-    CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(project_id, conversation_id, position);
 
     CREATE TABLE IF NOT EXISTS conversations (
       project_id TEXT NOT NULL,
@@ -745,6 +744,7 @@ function migrate(db: Database.Database): void {
   `);
   ensureColumn(db, "messages", "conversation_id", "TEXT NOT NULL DEFAULT ''");
   db.exec("UPDATE messages SET conversation_id = change_id WHERE conversation_id = ''");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(project_id, conversation_id, position);");
   ensureColumn(db, "skills", "source_kind", "TEXT NOT NULL DEFAULT 'managed'");
 }
 
