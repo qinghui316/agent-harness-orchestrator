@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-07-03T02:36:31.6043833Z",
+    "generated_at":  "2026-07-03T03:01:52.1696712Z",
     "active":  [
 
                ],
@@ -2489,6 +2489,10 @@
                     {
                         "name":  "20260702-main-agent-strategy-policy-v2b-bounded-advice-consumption",
                         "path":  "harness/changes/archive/20260702-main-agent-strategy-policy-v2b-bounded-advice-consumption"
+                    },
+                    {
+                        "name":  "20260703-auto-evolve-post-real-a2a-conversation-delete-window",
+                        "path":  "harness/changes/archive/20260703-auto-evolve-post-real-a2a-conversation-delete-window"
                     },
                     {
                         "name":  "20260703-main-agent-real-a2a-flow-audit-repair-v1",

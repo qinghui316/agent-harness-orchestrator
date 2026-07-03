@@ -6,10 +6,7 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 
 - Current date: 2026-07-03.
 - Active change: none.
-- Pending Harness evolution:
-  `harness/evolution/pending.md`
-  (generated after closing `workbench-conversation-delete-harness-resume-entry-v1`;
-  handle as a separate Harness evolution change).
+- Pending Harness evolution: none.
 - Latest archived product change:
   `harness/changes/archive/20260703-workbench-conversation-delete-harness-resume-entry-v1/summary.md`.
 - Previous archived product change:
@@ -189,6 +186,13 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Previous archived docs/reference change:
   `harness/changes/archive/20260626-document-desktop-cc-gui-reference-map-and-product-layer-roadmap/summary.md`.
 - Latest completed Harness evolution:
+  `harness/changes/archive/20260703-auto-evolve-post-real-a2a-conversation-delete-window/summary.md`
+  (`docs_current_delta`; subagent Socrates; existing ECL/BOUNDARIES plus
+  Workbench/RUNTIME/BOUNDARIES docs cover real Codex A2A acceptance,
+  child-agent workspace projection, LLM strategy advice, and conversation
+  delete truth separation; no new rule/template/lint/CI/runtime change
+  required. Pending evolution was marked complete).
+- Previous completed Harness evolution:
   `harness/changes/archive/20260702-auto-evolve-post-main-agent-llm-strategy-advice-window/summary.md`
   (`docs_current_delta`; subagent Rawls score 88; existing ECL/BOUNDARIES
   coverage is sufficient for current-run LLM strategy advice metadata,

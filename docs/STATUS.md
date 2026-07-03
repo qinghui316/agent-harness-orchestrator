@@ -4,10 +4,7 @@
 
 - Current date: 2026-07-03.
 - Active ECL change: none.
-- Pending Harness evolution:
-  `harness/evolution/pending.md`
-  (generated after closing `workbench-conversation-delete-harness-resume-entry-v1`;
-  handle as a separate Harness evolution change).
+- Pending Harness evolution: none.
 - Latest archived product change:
   `harness/changes/archive/20260703-workbench-conversation-delete-harness-resume-entry-v1/summary.md`.
 - Previous archived product change:
@@ -187,6 +184,13 @@
 - Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-skills-catalog-and-codex-bridge-v1/summary.md`.
 - Latest completed Harness evolution:
+  `harness/changes/archive/20260703-auto-evolve-post-real-a2a-conversation-delete-window/summary.md`
+  (`docs_current_delta`; subagent Socrates; existing ECL/BOUNDARIES plus
+  Workbench/RUNTIME/BOUNDARIES docs cover real Codex A2A acceptance,
+  child-agent workspace projection, LLM strategy advice, and conversation
+  delete truth separation; no new rule/template/lint/CI/runtime change
+  required. Pending evolution was marked complete).
+- Previous completed Harness evolution:
   `harness/changes/archive/20260702-auto-evolve-post-main-agent-llm-strategy-advice-window/summary.md`
   (`docs_current_delta`; subagent Rawls score 88; existing ECL/BOUNDARIES
   coverage is sufficient for current-run LLM strategy advice metadata,
@@ -846,17 +850,23 @@ Harness workflow truth.
 
 ## Next Resume Point
 
-Current main-agent architecture work has no active change. Latest completed
-slice is
-`harness/changes/archive/20260702-main-agent-goal-style-real-codex-ui-acceptance-fix-pass-v1/summary.md`.
-Pending Harness evolution is none. The latest real UI pass fixed the
-conversation-first main-Agent flow: new external-local demands show a
-live-first user message and run-backed main-Agent reply, ordinary chat no
-longer auto-hands off to planning, planning-agent work is shown as process
-rows, and planning prose is sanitized without replacing Harness truth. The next
-structured architecture step can return to Goal-style autonomous loop runner
-acceptance, or desktop product-layer work can continue as a separate selected
-phase.
+Current main-agent / Workbench architecture work has no active change. Latest
+completed product slice is
+`harness/changes/archive/20260703-workbench-conversation-delete-harness-resume-entry-v1/summary.md`.
+Pending Harness evolution is none; the latest evolution closeout is
+`harness/changes/archive/20260703-auto-evolve-post-real-a2a-conversation-delete-window/summary.md`.
+
+Current Workbench state after the latest product closeout: conversation records
+may be deleted from the sidebar without deleting or closing the underlying
+Harness Change, workflow evidence, ResumePoint, current gate, or source state.
+Main-agent continuation should recover from Harness evidence/replay rather than
+deleted transcript history. The preceding real A2A/UI pass remains the latest
+verified interaction baseline for main-agent to child-agent flow.
+
+Next structured work should be selected explicitly: continue desktop/A2A
+product polish, continue Goal-style autonomous loop runner acceptance, or take
+up a new product request. Do not mix those tracks into Harness evolution
+closeout work.
 
 Desktop product work can continue from
 `docs/design-docs/ref-desktop-cc-gui.md` when selected.
