@@ -264,14 +264,14 @@ const snapshot = {
       ],
       nodes: [
         { id: "main-agent", kind: "main-agent", lane: "main", label: "主 agent", status: "completed", summary: "负责和用户对话并分派角色。", reason: "用户入口和调度入口。", target: { projectId: "repo", conversationId: "member-discount", changeId: "member-discount" }, inputSummary: "用户提出会员折扣需求。", outputSummary: "需求已执行并生成结果。", evidenceRefs: [], attempts: [] },
-        { id: "role:planning-agent", kind: "planning-agent", lane: "roles", label: "规划", roleId: "planning-agent", status: "completed", summary: "整理方案草案。", reason: "主 agent 需要把需求转成可执行方案。", target: { projectId: "repo", conversationId: "member-discount", changeId: "member-discount", roleId: "planning-agent" }, inputSummary: "当前需求。", outputSummary: "方案已确认。", evidenceRefs: [{ label: "方案", ref: "latest-bundle.md", kind: "artifact" }], attempts: [] },
+        { id: "role:planning-agent", kind: "planning-agent", lane: "roles", label: "规划", roleId: "planning-agent", status: "completed", summary: "整理计划。", reason: "主 agent 需要把需求转成可执行计划。", target: { projectId: "repo", conversationId: "member-discount", changeId: "member-discount", roleId: "planning-agent" }, inputSummary: "当前需求。", outputSummary: "计划已确认。", evidenceRefs: [{ label: "计划", ref: "latest-bundle.md", kind: "artifact" }], attempts: [] },
         { id: "role:coder-agent", kind: "coder-agent", lane: "roles", label: "coder-agent", roleId: "coder-agent", status: "completed", summary: "已实现会员折扣。", reason: "主 agent 委派实现。", target: { projectId: "repo", conversationId: "member-discount", changeId: "member-discount", roleId: "coder-agent", runId: "run-1", worktreeId: "wt-1" }, inputSummary: "已确认方案。", outputSummary: "代码和测试已更新。", evidenceRefs: [{ label: "执行", ref: "run-1", kind: "run" }], attempts: [{ id: "run-1", status: "completed", summary: "实现完成。", evidenceRefs: [{ label: "执行", ref: "run-1", kind: "run" }] }] },
         { id: "role:validator", kind: "validator", lane: "roles", label: "validator", roleId: "validator", status: "completed", summary: "验证通过。", reason: "需要独立机械验证。", target: { projectId: "repo", conversationId: "member-discount", changeId: "member-discount", roleId: "validator", runId: "validation-1" }, inputSummary: "验收标准和 worktree。", outputSummary: "测试通过。", evidenceRefs: [{ label: "验证", ref: "validation-1", kind: "run" }], attempts: [] },
         { id: "role:auditor-agent", kind: "auditor-agent", lane: "roles", label: "auditor-agent", roleId: "auditor-agent", status: "completed", summary: "审查带备注批准。", reason: "需要独立语义审查。", target: { projectId: "repo", conversationId: "member-discount", changeId: "member-discount", roleId: "auditor-agent", runId: "audit-1" }, inputSummary: "diff 和验证证据。", outputSummary: "可应用但有注意事项。", evidenceRefs: [{ label: "审查", ref: "audit-1", kind: "run" }], attempts: [] },
         { id: "maintenance:closeout", kind: "memory-closeout", lane: "maintenance", label: "记忆 closeout", status: "completed", summary: "后台整理本次需求记忆。", reason: "终态需求需要写入维护账本。", target: { projectId: "repo", conversationId: "member-discount", changeId: "member-discount", maintenanceRunId: "maintenance-1" }, inputSummary: "终态需求证据。", outputSummary: "closeout 已记录。", evidenceRefs: [{ label: "closeout", ref: "maintenance-1", kind: "maintenance" }], attempts: [] },
       ],
       edges: [
-        { id: "edge:main:planning", from: "main-agent", to: "role:planning-agent", kind: "delegates", label: "整理方案" },
+        { id: "edge:main:planning", from: "main-agent", to: "role:planning-agent", kind: "delegates", label: "整理计划" },
         { id: "edge:planning:coder", from: "role:planning-agent", to: "role:coder-agent", kind: "continues-to", label: "确认后执行" },
         { id: "edge:coder:validator", from: "role:coder-agent", to: "role:validator", kind: "requires-evidence", label: "验证" },
         { id: "edge:validator:auditor", from: "role:validator", to: "role:auditor-agent", kind: "requires-evidence", label: "审查" },
@@ -2258,7 +2258,7 @@ describe("Workbench web app", () => {
             roleId: "planning-agent",
             label: "planning-agent",
             status: "draft",
-            summary: "方案草案等待反馈或实施。",
+            summary: "计划等待反馈或实施。",
             transcript: {
               title: "planning-agent",
               emptyMessage: "暂无子 Agent 消息。",
@@ -2275,7 +2275,7 @@ describe("Workbench web app", () => {
             actions: [
               {
                 id: "agent-workspace:planning.revise:member-discount:planning-bundle-1",
-                label: "修改方案草案",
+                label: "修改计划",
                 kind: "workflow-action",
                 actionType: "planning.revise",
                 changeId: "member-discount",
@@ -5371,7 +5371,7 @@ describe("Workbench web app", () => {
           nextAction: {
             id: "next:planning.generate",
             label: "生成方案",
-            description: "等待用户确认后生成方案草案。",
+            description: "等待用户确认后开始规划。",
             kind: "workflow-action",
             enabled: true,
             requiresConfirmation: true,
@@ -7046,7 +7046,7 @@ describe("Workbench web app", () => {
         kind: "status",
         source: "codex",
         title: "创建 planning-agent",
-        text: "主 Agent 已创建 planning-agent，用于生成可审阅方案草案。",
+        text: "主 Agent 已创建 planning-agent，用于整理可审阅计划。",
         status: "agent-task-created",
       }],
     });

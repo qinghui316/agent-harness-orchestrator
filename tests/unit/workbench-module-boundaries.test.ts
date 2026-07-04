@@ -1866,7 +1866,9 @@ describe("Workbench module boundaries", () => {
     expect(draftHandler).toMatch(/runCodexChat\(\s*project,\s*changeId,\s*planModePrompt,\s*planningCapture\.sink,/);
     expect(draftHandler).toContain("planningMode: true");
     expect(draftHandler).toContain('"codex-native-plan"');
-    expect(draftHandler).toContain("Use Codex Plan Mode for this planning turn.");
+    expect(draftHandler).toContain("你正在 Codex Plan Mode 中工作");
+    expect(draftHandler).toContain("不要修改文件、运行命令、开始实现或确认实施。");
+    expect(draftHandler).toContain("不要再委派其它 Agent。");
     expect(draftHandler).not.toContain("wrapPlanModePrompt");
     expect(draftHandler).not.toContain("必须包在 <proposed_plan>");
     expect(draftHandler).not.toContain("bounded leaf agent");

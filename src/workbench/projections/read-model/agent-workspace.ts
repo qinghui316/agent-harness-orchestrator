@@ -75,18 +75,30 @@ function planningAgentWorkspace(topic: WorkbenchTopicDetail | null, workpad: Wor
         requiresConfirmation: true,
       });
     }
+  } else if (topic?.state === "active" && cells.length > 0) {
+    const reviseSource = workpad.nextAction.actionType === "planning.generate" ? workpad.nextAction : undefined;
+    actions.push({
+      ...reviseSource,
+      id: `agent-workspace:planning.revise:${topic.id}:needs-input`,
+      label: "回复 planning-agent",
+      kind: "workflow-action",
+      actionType: "planning.revise",
+      changeId: topic.id,
+      enabled: true,
+      requiresConfirmation: false,
+    });
   }
 
   return {
     id: "planning-agent",
     roleId: "planning-agent",
     label: "planning-agent",
-    status: bundle?.status ?? "idle",
-    summary: bundle ? (bundle.status === "confirmed" ? "方案已实施，主 Agent 可以继续推进执行边界。" : "方案草案等待反馈或实施。") : "主 Agent 尚未委派 planning-agent，或正在等待真实运行结果。",
+    status: bundle?.status ?? planningTasks.at(-1)?.status ?? planningRuns.at(-1)?.status ?? "idle",
+    summary: bundle ? (bundle.status === "confirmed" ? "计划已进入实施流程，主 Agent 可以继续判断下一步。" : "计划等待反馈或实施。") : "主 Agent 尚未委派 planning-agent，或正在等待真实运行结果。",
     inputSummary: topic?.title,
     outputSummary: bundle?.goal,
     transcript: transcript("planning-agent", cells),
-    evidenceRefs: bundle?.artifact ? [{ label: "方案草案", ref: bundle.artifact, kind: "artifact" }] : [],
+    evidenceRefs: bundle?.artifact ? [{ label: "计划", ref: bundle.artifact, kind: "artifact" }] : [],
     actions,
     planningBundle: bundle,
   };
@@ -168,12 +180,12 @@ function processCell(id: string, title: string, text: string, status: string, ro
 
 function normalizeAgentWorkspacePlanningText(value: string): string {
   return value
-    .replace(/\bPlanning draft generated for user review\./g, "方案草案已生成，等待审阅。")
-    .replace(/\bPlanning draft revised for user review\./g, "方案草案已按反馈更新。")
-    .replace(/\bPlanning draft generated\b/g, "方案草案已生成")
-    .replace(/\bPlanning draft revised\b/g, "方案草案已修改")
-    .replace(/\bPlanning confirmed\b/g, "方案已确认")
-    .replace(/\bplanning-agent returned reviewable plan text\./g, "planning-agent 已返回可审阅方案文本。")
+    .replace(/\bPlanning draft generated for user review\./g, "计划已生成，等待审阅。")
+    .replace(/\bPlanning draft revised for user review\./g, "计划已按反馈更新。")
+    .replace(/\bPlanning draft generated\b/g, "计划已生成")
+    .replace(/\bPlanning draft revised\b/g, "计划已修改")
+    .replace(/\bPlanning confirmed\b/g, "计划已确认")
+    .replace(/\bplanning-agent returned reviewable plan text\./g, "planning-agent 已返回可审阅计划。")
     .replace(/\bPlanning records were saved after user confirmation\./g, "方案已保存；当前不会直接修改文件。");
 }
 

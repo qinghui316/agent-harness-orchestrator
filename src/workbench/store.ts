@@ -336,6 +336,14 @@ export class WorkbenchStore {
     return row ? mapConversationRow(row) : null;
   }
 
+  bindConversationToChange(projectId: string, conversationId: string, changeId: string, updatedAt: string): void {
+    this.db.prepare(`
+      UPDATE conversations
+      SET bound_change_id = ?, updated_at = ?
+      WHERE project_id = ? AND conversation_id = ? AND deleted_at IS NULL
+    `).run(changeId, updatedAt, projectId, conversationId);
+  }
+
   deleteConversation(projectId: string, conversationId: string, deletedAt: string): void {
     const transaction = this.db.transaction(() => {
       this.deleteMessages(projectId, conversationId);

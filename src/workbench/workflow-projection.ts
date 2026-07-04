@@ -2060,7 +2060,7 @@ export function buildTypedWorkflowNextAction(input: {
     return { ...next, planningBundleId: planningBundle.id };
   }
   if (!readiness.specReady || !readiness.planReady || !readiness.tasksReady) {
-    return workflowNextAction("planning.generate", "让 planning-agent 生成方案", "委派 planning-agent 生成可审阅方案草案；结果显示在右侧 Agent 工作区，确认后才保存为正式计划记录。");
+    return workflowNextAction("planning.generate", "委派 planning-agent 规划", "委派 planning-agent 整理可审阅计划；结果显示在右侧 Agent 工作区，确认后才进入实施流程。");
   }
   if (!decompositionPlan) {
     return workflowNextAction("planning.decompose", "生成拆分提案", "根据已确认方案生成 DecompositionPlan；不会启动执行。");

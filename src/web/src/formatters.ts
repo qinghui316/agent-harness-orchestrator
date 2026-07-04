@@ -160,7 +160,7 @@ export function userFacingText(value: string): string {
     .replace(/\bAccept audit proposal\b/gi, "接受审查证据")
     .replace(/接受 Spec/g, "接受需求说明")
     .replace(/接受 Plan/g, "接受执行方案")
-    .replace(/\bPlan\/Tasks proposal\b/gi, "执行方案草案")
+    .replace(/\bPlan\/Tasks proposal\b/gi, "执行计划")
     .replace(/\bPlan\/Tasks acceptance\b/gi, "执行方案确认")
     .replace(/\bSpec proposal\b/gi, "需求说明草案")
     .replace(/\bSpec\b/g, "需求说明")
@@ -320,7 +320,7 @@ export function decisionKindLabel(kind: string): string {
 }
 
 export function confirmationKindLabel(kind: string): string {
-  if (kind === "planning-confirm") return "方案确认";
+  if (kind === "planning-confirm") return "计划确认";
   if (kind === "single-result-apply") return "结果应用";
   if (kind === "integration-check") return "兼容性检查";
   if (kind === "integration-apply") return "组合应用";

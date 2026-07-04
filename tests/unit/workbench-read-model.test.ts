@@ -842,6 +842,38 @@ describe("workbench read-model projections", () => {
     expect(planningAgent?.clarifications).toBeUndefined();
   });
 
+  it("restores planning-agent workspace from the bound Change when selecting a conversation", async () => {
+    await initHarness(project());
+    const conversation = await createWorkbenchConversation(project(), { title: "Bound Conversation", body: "Plan this demand." }, undefined, { runMainAgent: false });
+    const topic = await createWorkbenchTopic(project(), { title: "Bound Change", body: "Plan this demand." });
+    await writePlanningBundleFixture(topic.changeId, "Create a bound-conversation plan.");
+    await appendTopicThreadEntry(project(), topic.changeId, {
+      type: "assistant.message",
+      status: "planning-agent-generated",
+      text: "BOUND CHILD PLAN BODY",
+      runId: "run-bound-planning-agent",
+      agentRoleId: "planning-agent",
+      agentTaskId: "task-bound-planning-agent",
+    });
+    const memory = await resolveProjectMemory(project());
+    const store = await WorkbenchStore.open(memory);
+    try {
+      store.bindConversationToChange(project().id, conversation.conversationId, topic.changeId, "2026-07-04T00:00:00.000Z");
+    } finally {
+      store.close();
+    }
+
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: conversation.conversationId });
+    const planningAgent = snapshot.right.agentWorkspace.agents.find((agent) => agent.id === "planning-agent");
+
+    expect(snapshot.center.selectedTopic?.id).toBe(topic.changeId);
+    expect(planningAgent?.planningBundle?.goal).toBe("Create a bound-conversation plan.");
+    expect(JSON.stringify(planningAgent?.transcript.cells)).toContain("Create a bound-conversation plan.");
+    expect(planningAgent?.actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actionType: "planning.confirm-execution", planningBundleId: expect.any(String) }),
+    ]));
+  });
+
   it("prefers persisted assistant blocks over legacy activity when rebuilding the thread", async () => {
     await initHarness(project());
     const topic = await createWorkbenchTopic(project(), { title: "Block Dedupe", body: "Show one command and one usage." });
@@ -904,7 +936,7 @@ describe("workbench read-model projections", () => {
     expect(snapshot.center.workpad.nextAction).toMatchObject({ actionType: "planning.generate", enabled: true });
     expect(JSON.stringify(snapshot.right.confirmationQueue)).not.toContain("planning.generate");
     expect(snapshot.right.agentWorkspace.agents.find((agent) => agent.id === "planning-agent")?.actions).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ actionType: "planning.generate", label: "让 planning-agent 生成方案" }),
+      expect.objectContaining({ actionType: "planning.generate" }),
     ]));
     expect(snapshot.center.thread.items).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "intake-summary", label: "需求分析" }),

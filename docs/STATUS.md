@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260704-native-codex-plan-question-flow-alignment-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260704-main-agent-a2a-native-interaction-alignment-v3/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260704-main-agent-native-codex-interaction-alignment-v2-1/summary.md`.
@@ -868,7 +870,7 @@ Harness workflow truth.
 
 Current main-agent / Workbench architecture work has no active change. Latest
 completed product slice is
-`harness/changes/archive/20260704-main-agent-native-codex-interaction-alignment-v2-1/summary.md`.
+`harness/changes/archive/20260704-native-codex-plan-question-flow-alignment-v1/summary.md`.
 Pending Harness evolution is none; the latest evolution closeout is
 `harness/changes/archive/20260704-auto-evolve-post-native-codex-plan-mode-window/summary.md`.
 

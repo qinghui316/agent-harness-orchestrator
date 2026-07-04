@@ -470,7 +470,7 @@ export function App(): ReactElement {
     setSkillItems(Array.isArray(payload.skills) ? payload.skills : []);
   }
 
-  async function refresh(projectId = selectedProjectId, topic = selectedTopic): Promise<void> {
+  async function refresh(projectId = selectedProjectId, topic = selectedTopic): Promise<Snapshot | void> {
     if (!projectId) {
       const list = await fetchJson<{ projects: ProjectStatus[] }>("/api/projects");
       setProjects(list.projects);
@@ -492,6 +492,7 @@ export function App(): ReactElement {
     const runId = selectedRun ?? next.center.agentLoop.runs[0]?.id ?? null;
     setSelectedRun(runId);
     if (runId) setStream(await fetchJson<StreamPacket>(`/api/projects/${encodeURIComponent(projectId)}/workbench/stream/${encodeURIComponent(runId)}`));
+    return next;
   }
 
   useEffect(() => {
@@ -1075,10 +1076,14 @@ export function App(): ReactElement {
   }
 
   async function runWorkflowAction(actionType: string, options: Record<string, unknown> = {}): Promise<void> {
+    const { preserveSelectedTopic, ...actionOptions } = options;
+    const shouldPreserveSelectedTopic = preserveSelectedTopic === true;
     const projectScopedAction = actionType === "maintenance.canonical-update.decision.record"
       || actionType === "maintenance.canonical-patch.application-gate.record"
       || actionType === "maintenance.canonical-patch.apply";
     if (!selectedProjectId || (!activeTopic && !projectScopedAction)) return;
+    const topicBeforeAction = activeTopic?.id ?? selectedTopic;
+    const snapshotBeforeAction = snapshot;
     setActionRunning(actionType);
     setError(null);
     try {
@@ -1109,7 +1114,7 @@ export function App(): ReactElement {
           actionType,
           changeId: activeTopic?.id,
           confirm: true,
-          ...options,
+          ...actionOptions,
         });
         setSnapshot(result.snapshot);
         return;
@@ -1119,8 +1124,16 @@ export function App(): ReactElement {
         changeId: activeTopic?.id,
         confirm: true,
         prompt: composerText.trim() || undefined,
-        ...options,
+        ...actionOptions,
       }, handleLiveEvent);
+      if (shouldPreserveSelectedTopic && topicBeforeAction) {
+        const refreshed = await refresh(selectedProjectId, topicBeforeAction);
+        if (refreshed && !refreshed.center.selectedTopic && snapshotBeforeAction.center.selectedTopic?.id === topicBeforeAction) {
+          const restored = preserveSelectedWorkbenchTopic(refreshed, snapshotBeforeAction);
+          setSnapshot(restored);
+          setProjectSnapshots((current) => ({ ...current, [selectedProjectId]: restored }));
+        }
+      }
       if (composerText.trim()) setComposerText("");
     } finally {
       setActionRunning(null);
@@ -1156,9 +1169,7 @@ export function App(): ReactElement {
         conversationId: request.conversationId ?? (!request.changeId ? activeTopic.id : undefined),
         answers,
       });
-      setCodexUserInputRequests((current) => current.map((item) => item.requestId === request.requestId
-        ? { ...item, status: "submitted" }
-        : item));
+      setCodexUserInputRequests((current) => current.filter((item) => item.requestId !== request.requestId));
     } finally {
       setActionRunning(null);
     }
@@ -1211,9 +1222,7 @@ export function App(): ReactElement {
       return;
     }
     if (event.event === "codex.userInput.submitted") {
-      setCodexUserInputRequests((current) => current.map((item) => item.requestId === event.data.requestId
-        ? { ...item, status: "submitted" }
-        : item));
+      setCodexUserInputRequests((current) => current.filter((item) => item.requestId !== event.data.requestId));
       return;
     }
     if (event.event === "assistant.message") {
@@ -1759,7 +1768,10 @@ export function App(): ReactElement {
             onRefresh={loadApp}
           />
         ) : !activeTopic && (selectedProjectIsTemporary || selectedProjectHistoryUnavailable) ? (
-          <UnmanagedProjectView project={selectedProjectStatus} onDone={() => loadApp().then(() => selectedProjectId ? refresh(selectedProjectId, null) : undefined)} />
+          <UnmanagedProjectView project={selectedProjectStatus} onDone={async () => {
+            await loadApp();
+            if (selectedProjectId) await refresh(selectedProjectId, null);
+          }} />
         ) : !activeTopic ? (
           <ProjectReadinessHome
             project={selectedProjectStatus}
@@ -2055,6 +2067,24 @@ function emptyAgentRunGraph(): DemandAgentRunGraph {
     ],
     nodes: [],
     edges: [],
+  };
+}
+
+function preserveSelectedWorkbenchTopic(next: Snapshot, previous: Snapshot): Snapshot {
+  return {
+    ...next,
+    center: {
+      ...next.center,
+      selectedTopic: previous.center.selectedTopic,
+      workpad: previous.center.workpad,
+      parentAgentTranscript: previous.center.parentAgentTranscript,
+      agentRunGraph: previous.center.agentRunGraph,
+      agentLoop: previous.center.agentLoop,
+    },
+    right: {
+      ...next.right,
+      agentWorkspace: previous.right.agentWorkspace,
+    },
   };
 }
 

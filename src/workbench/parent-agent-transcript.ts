@@ -496,9 +496,9 @@ function cleanToolTitle(value: string | undefined): string | undefined {
   if (text === "Command completed") return "已运行命令";
   if (text === "Command started") return "命令执行中";
   if (text === "Command failed") return "命令需要关注";
-  if (text === "Planning draft generated") return "方案草案已生成";
-  if (text === "Planning draft revised") return "方案草案已修改";
-  if (text === "Planning confirmed") return "方案已确认";
+  if (text === "Planning draft generated") return "计划已生成";
+  if (text === "Planning draft revised") return "计划已修改";
+  if (text === "Planning confirmed") return "计划已确认";
   return text;
 }
 

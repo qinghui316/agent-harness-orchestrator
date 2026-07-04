@@ -42,7 +42,7 @@ export function AgentWorkspacePanel({
   const liveCells = useMemo(() => liveTurns
     .filter((turn) => turn.agentRoleId === selected.roleId || turn.agentRoleId === selected.id)
     .flatMap(parentTranscriptCellsFromLiveTurn), [liveTurns, selected.id, selected.roleId]);
-  const activeCodexUserInputRequests = codexUserInputRequests.filter((request) => request.agentRoleId === selected.roleId || request.agentRoleId === selected.id);
+  const activeCodexUserInputRequests = codexUserInputRequests.filter((request) => request.status === "pending" && (request.agentRoleId === selected.roleId || request.agentRoleId === selected.id));
   const cells = [...(selected.transcript.cells ?? []).filter((cell) => cell.kind !== "detail-only"), ...liveCells];
   return (
     <div className="agent-workspace-panel" data-testid="agent-workspace-panel">
@@ -188,6 +188,7 @@ function AgentWorkspaceComposer({
     try {
       await onWorkflowAction(action.actionType, {
         ...workflowActionPayloadFromScope(action),
+        preserveSelectedTopic: true,
         ...extra,
       });
       setValue("");

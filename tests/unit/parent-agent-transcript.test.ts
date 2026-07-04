@@ -136,29 +136,29 @@ describe("parent agent transcript paging", () => {
         label: "AI",
         agentRoleId: "planning-agent",
         runId: "run-plan",
-        body: "方案草案\n\n## 目标\n做事\n\n## 任务清单\n- T-001",
+        body: "计划\n\n## 目标\n做事\n\n## 任务清单\n- T-001",
         blocks: [{
           id: "legacy-plan-block",
           sequence: 1,
           kind: "prose" as const,
           source: "codex" as const,
-          text: "方案草案\n\n## 目标\n做事\n\n## 任务清单\n- T-001",
+          text: "计划\n\n## 目标\n做事\n\n## 任务清单\n- T-001",
         }],
       },
       {
         id: "planning-workflow",
         kind: "assistant-turn",
-        label: "Planning draft generated",
+        label: "计划已生成",
         source: "workflow",
         actionType: "planning.generate",
         status: "completed",
-        body: "Planning draft generated 已完成",
+        body: "计划已生成",
         blocks: [{
           id: "legacy-plan-workflow-block",
           sequence: 1,
           kind: "prose" as const,
           source: "workflow" as const,
-          text: "Planning draft generated 已完成",
+          text: "计划已生成",
         }],
       },
     ];
@@ -171,7 +171,7 @@ describe("parent agent transcript paging", () => {
 
     expect(parent.cells.map((cell) => cell.text).join("\n")).toBe("Build a thing");
     expect(planning.map((cell) => cell.text).join("\n")).toContain("## 目标");
-    expect(planning.map((cell) => cell.text).join("\n")).toContain("Planning draft generated");
+    expect(planning.map((cell) => cell.text).join("\n")).toContain("计划已生成");
     expect(planning.every((cell) => cell.agentRoleId === "planning-agent")).toBe(true);
   });
 

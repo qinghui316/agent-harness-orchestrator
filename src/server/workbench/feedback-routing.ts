@@ -80,7 +80,7 @@ export function resolveFeedbackRouteFromPrimary(primary: FeedbackSnapshotPrimary
         planningBundleId,
         feedback,
         prompt: [
-          "用户在方案确认点提出修改意见。请基于当前需求、上一版方案草案和这条反馈修订方案草案。",
+          "用户在计划确认点提出修改意见。请基于当前需求、上一版计划和这条反馈修订计划。",
           "",
           `当前 planningBundleId: ${planningBundleId}`,
           "",

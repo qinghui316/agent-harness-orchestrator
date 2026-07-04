@@ -285,7 +285,7 @@ export function summarizeActionResult(actionType: string, result: unknown): stri
     return `SchedulerRun closeout ${status} recorded before IntegrationCheck. No apply, landing, PR, merge, or next worker was started.`;
   }
   if (actionType === "planning.confirm-execution" && isRecord(result)) {
-    return "方案已确认并保存。当前不会直接修改文件；下一步会继续走现有执行边界。";
+    return "计划已确认并保存。当前不会直接修改文件；下一步会继续走现有执行边界。";
   }
   const isDemandWorkerAction = actionType.startsWith("demand.worker.");
   if ((isMainAgentExecutionAction(actionType) || isDemandWorkerAction) && isRecord(result)) {
@@ -324,9 +324,9 @@ export function labelForAction(actionType: string): string {
     case "change.spec.accept": return "Spec proposal accepted";
     case "change.plan.propose": return "Plan proposal generated";
     case "change.plan.accept": return "Plan proposal accepted";
-    case "planning.generate": return "方案草案已生成";
-    case "planning.revise": return "方案草案已修改";
-    case "planning.confirm-execution": return "方案已确认";
+    case "planning.generate": return "计划已生成";
+    case "planning.revise": return "计划已修改";
+    case "planning.confirm-execution": return "计划已确认";
     case "planning.decompose": return "DecompositionPlan drafted";
     case "planning.decomposition.confirm": return "DecompositionPlan confirmed";
     case "planning.decomposition.assess-readiness": return "Decomposition readiness assessed";

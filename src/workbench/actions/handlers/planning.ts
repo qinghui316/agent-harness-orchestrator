@@ -125,6 +125,7 @@ import { appendTopicThreadEntry } from "../../topic-thread.js";
 import { resolveTopic } from "../../topic-resolver.js";
 import { readTopicThreadLog as readThreadLog } from "../../thread-log.js";
 import type {
+  AssistantTurnBlock,
   OrchestrationPlanCard,
   PlanningArtifactBundle,
   WorkbenchLiveSink,
@@ -151,9 +152,9 @@ export async function generatePlanningDraft(
   prompt: string | undefined,
   live: WorkbenchLiveSink | undefined,
   revision: boolean,
-): Promise<{ bundle: PlanningArtifactBundle }> {
+): Promise<{ bundle?: PlanningArtifactBundle; needsUserInput?: boolean }> {
   const { memory, changePath } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "Planning draft");
+  assertWritableMemory(memory, "Planning");
   const task = await createAgentTask(memory, {
     conversationId: changeId,
     changeId,
@@ -166,7 +167,7 @@ export async function generatePlanningDraft(
   await recordMainAgentDecision(memory, {
     changeId,
     recommendedAction: revision ? "planning.revise" : "planning.generate",
-    userMessage: revision ? "修改方案草案" : "生成方案草案",
+    userMessage: revision ? "修改计划" : "开始规划",
     requiresUserDecision: false,
     createTask: {
       roleId: "planning-agent",
@@ -174,7 +175,7 @@ export async function generatePlanningDraft(
       summary: task.summary,
       inputArtifacts: task.inputArtifacts,
     },
-    reason: "当前需求需要先生成一份可审阅方案草案，再进入后续确认和执行边界。",
+    reason: "当前需求需要先由 planning-agent 整理计划，再进入后续确认和执行边界。",
   });
   const agentLive = scopedAgentLiveSink(live, "planning-agent", task.id);
   const planningCapture = createAssistantTranscriptCapture(agentLive);
@@ -200,6 +201,7 @@ export async function generatePlanningDraft(
     emitPlanningAgentLifecycle(agentLive, task.id, "agent-running", "planning-agent 运行中", "正在通过 Codex Plan Mode 整理计划。");
     planningRuntime = await runCodexChat(project, changeId, planModePrompt, planningCapture.sink, {
       planningMode: true,
+      omitWorkbenchContext: true,
       transientSystemSkillIds: includeFirstOnboardingSkill ? ["aho-harness-onboarding"] : undefined,
     });
     if (planningRuntime.run.status !== "completed") {
@@ -217,18 +219,18 @@ export async function generatePlanningDraft(
     });
     await completeAgentTask(memory, task, {
       status: "failed",
-      summary: "planning-agent failed before producing a reviewable draft.",
+      summary: "planning-agent failed before producing a reviewable plan.",
       artifactRefs: [],
       nextRecommendation: "Retry after fixing the runtime issue or ask the user for a narrower request.",
     });
     throw error;
   }
   const rawPlanText = planningRuntime?.planText?.trim() ?? "";
-  const planningMessage = planningRuntime?.message.trim() ?? "";
+  const planningMessage = cleanPlanningAgentVisibleText(planningRuntime?.message.trim() ?? "");
   const fallbackExtraction = !rawPlanText && planningMessage.includes("<proposed_plan")
     ? extractProposedPlanBlock(planningMessage)
     : null;
-  const proposedPlanMd = rawPlanText || fallbackExtraction?.proposedPlanMd || "";
+  const proposedPlanMd = cleanPlanningAgentVisibleText(rawPlanText || fallbackExtraction?.proposedPlanMd || "");
   const planSource: PlanningArtifactBundle["planningMode"] = rawPlanText
     ? "codex-native-plan"
     : fallbackExtraction?.proposedPlanMd
@@ -236,12 +238,44 @@ export async function generatePlanningDraft(
       : "deterministic-fallback";
   const planValidation = validateReviewablePlanningText(proposedPlanMd, planSource);
   if (!planValidation.usable) {
+    if (planningMessage) {
+      const planningAgentMessage = await appendTopicThreadEntry(project, changeId, {
+        type: "assistant.message",
+        status: "planning-agent-needs-input",
+        text: planningMessage,
+        runId: planningRuntime.run.id,
+        artifact: planningRuntime.run.artifacts.lastMessage,
+        activity: planningCapture.activity,
+        blocks: planningCapture.blocks.length > 0
+          ? cleanPlanningAgentBlocks(planningCapture.blocks)
+          : [{
+              id: `${planningRuntime.run.id}:planning-agent-question`,
+              runId: planningRuntime.run.id,
+              sequence: 1,
+              kind: "prose",
+              timestamp: planningRuntime.run.finishedAt ?? new Date().toISOString(),
+              source: "codex",
+              text: planningMessage,
+            }],
+        agentRoleId: "planning-agent",
+        agentTaskId: task.id,
+      });
+      live?.emit({ event: "assistant.message", data: planningAgentMessage });
+      await completeAgentTask(memory, task, {
+        status: "needs-user-input",
+        summary: "planning-agent 需要用户补充信息后继续规划。",
+        artifactRefs: [planningRuntime.run.artifacts.lastMessage].filter((item): item is string => Boolean(item)),
+        nextRecommendation: "用户可在 planning-agent 工作区回答问题或补充要求；确认前不会进入实施。",
+        requiresUserInputReason: planningMessage,
+      });
+      return { needsUserInput: true };
+    }
     const message = `planning-agent did not return a usable native plan: ${planValidation.reason}`;
     emitAssistantEvent(agentLive, {
       runId: planningRuntime.run.id,
       kind: "error",
       phase: "native-plan-invalid",
-      title: "planning-agent 方案不可用",
+      title: "planning-agent 计划不可用",
       summary: message,
       isError: true,
     });
@@ -264,8 +298,8 @@ export async function generatePlanningDraft(
     planningWarnings,
   });
   await writePlanningBundle(memory, changePath, bundle);
-  const planningAgentText = (proposedPlanMd ?? planningMessage ?? rawPlanText ?? planningCapture.text).trim()
-    || "planning-agent 没有返回可见方案文本。";
+  const planningAgentText = cleanPlanningAgentVisibleText((proposedPlanMd ?? planningMessage ?? rawPlanText ?? planningCapture.text).trim())
+    || "planning-agent 没有返回可见计划文本。";
   const planningAgentMessage = await appendTopicThreadEntry(project, changeId, {
     type: "assistant.message",
     status: revision ? "planning-agent-revised" : "planning-agent-generated",
@@ -274,7 +308,7 @@ export async function generatePlanningDraft(
     artifact: planningRuntime.run.artifacts.lastMessage,
     activity: planningCapture.activity,
     blocks: planningCapture.blocks.length > 0
-      ? planningCapture.blocks
+      ? cleanPlanningAgentBlocks(planningCapture.blocks)
       : [{
           id: `${planningRuntime.run.id}:planning-agent-message`,
           runId: planningRuntime.run.id,
@@ -288,21 +322,13 @@ export async function generatePlanningDraft(
     agentTaskId: task.id,
   });
   live?.emit({ event: "assistant.message", data: planningAgentMessage });
-  emitAssistantEvent(agentLive, {
-    runId: bundle.id,
-    kind: "plan-update",
-    phase: "draft",
-    title: revision ? "方案草案已修改" : "方案草案已生成",
-    summary: "planning-agent 已返回可审阅方案文本。",
-    artifactRef: bundle.artifact,
-  });
   await recordWorkbenchDecision(project, {
     id: `planning:${bundle.id}`,
     changeId,
     decisionType: revision ? "planning.revise" : "planning.generate",
     status: "completed",
-    label: revision ? "方案草案已更新" : "方案草案已生成",
-    summary: "planning-agent 已返回可审阅方案草案；确认前不会成为正式计划记录。",
+    label: revision ? "计划已更新" : "计划已生成",
+    summary: "planning-agent 已返回可审阅计划；确认前不会进入实施。",
     targetId: bundle.id,
     runId: planningRuntime.run.id,
     artifact: bundle.artifact,
@@ -312,7 +338,7 @@ export async function generatePlanningDraft(
   });
   await completeAgentTask(memory, task, {
     status: "completed",
-    summary: revision ? "方案草案已按反馈更新。" : "方案草案已生成，等待审阅。",
+    summary: revision ? "计划已按反馈更新。" : "计划已生成，等待审阅。",
     artifactRefs: [bundle.artifact, planningRuntime.run.artifacts.lastMessage].filter((item): item is string => Boolean(item)),
     nextRecommendation: "等待用户继续反馈修改，或确认进入后续执行边界。",
   });
@@ -331,36 +357,67 @@ function buildPlanningAgentDelegationPacket(input: {
   const feedbackSummary = input.feedback ? summarizeDemandForDelegation(input.feedback) : "";
   const previousSummary = input.previous
     ? [
-        "- 已有一个方案草案；本轮只需要按用户反馈调整它。",
+        "- 已有一个计划；本轮只需要按用户反馈调整它。",
         input.previous.goal ? `- 现有目标摘要：${normalizeDelegationText(input.previous.goal).slice(0, 360)}` : "",
       ].filter(Boolean).join("\n")
-    : "- 当前没有已有方案草案。";
+    : "- 当前没有已有计划。";
   return [
-    "Use Codex Plan Mode for this planning turn.",
-    "This is a bounded delegation note from the main Agent, not the full parent transcript.",
+    "请作为 planning-agent 帮主 Agent 完成一次只读规划。",
+    "你正在 Codex Plan Mode 中工作；请使用自然语言与用户澄清并形成计划。",
+    "面向用户的输出要像普通计划对话，不要使用内部流程词，例如 Harness、AGENTS.md、Change、active change、worktree、AC、tasks、TaskRun、WorkflowRun、queue、scheduler、bundle、close gate、validation、audit。",
+    "需要表达这些概念时，请改用用户能理解的说法，例如项目记录、项目说明、当前任务、工作副本、验收点、计划、检查、审查、完成前确认。",
     "",
-    "Boundaries:",
-    "- Do not edit files, run commands, start implementation, or confirm execution.",
-    "- Do not delegate to another Agent.",
-    "- If important information is missing, ask concise runtime questions.",
+    "边界：",
+    "- 不要修改文件、运行命令、开始实现或确认实施。",
+    "- 不要再委派其它 Agent。",
+    "- 如果关键信息不足，直接向用户提出简短问题。",
     "",
-    "Main Agent understanding:",
-    parentUnderstanding || "用户希望先得到清晰、可审阅的实现方案，再决定是否实施。",
+    "主 Agent 对需求的理解：",
+    parentUnderstanding || "用户希望先得到清晰、可审阅的计划，再决定是否实施。",
     "",
-    "User-facing request summary:",
+    "用户需求摘要：",
     userGoalSummary,
     "",
-    input.revision ? "User feedback for this revision:" : "Planning task:",
-    input.revision ? feedbackSummary || "The user wants the current plan revised." : "Clarify the request and produce a practical plan the user can review.",
+    input.revision ? "本轮用户反馈：" : "本轮规划任务：",
+    input.revision ? feedbackSummary || "用户希望调整当前计划。" : "澄清需求，并整理一份用户能直接审阅的计划。",
     "",
-    "Existing plan context:",
+    "已有计划上下文：",
     previousSummary,
     "",
-    "Visible response style:",
-    "- Write naturally in the user's language.",
-    "- Avoid internal object names, run ids, queues, schedulers, or system mechanics.",
-    "- Do not use XML wrapper tags.",
+    "表达要求：",
+    "- 使用用户的语言自然回复。",
+    "- 不要暴露内部对象名、运行 id、队列、调度器或系统机制。",
+    "- 不要使用 XML 包裹标签。",
   ].join("\n");
+}
+
+function cleanPlanningAgentVisibleText(value: string): string {
+  return value
+    .replace(/\bAGENTS\.md\b/gi, "项目说明")
+    .replace(/\bHarness\b/gi, "项目记录")
+    .replace(/\bactive\s+change\b/gi, "当前任务")
+    .replace(/\bChange\b/g, "任务")
+    .replace(/\bworktree\b/gi, "工作副本")
+    .replace(/\bTaskRun\b/g, "任务运行")
+    .replace(/\bWorkflowRun\b/g, "流程运行")
+    .replace(/\bclose\s+gate\b/gi, "完成前确认")
+    .replace(/\bvalidation\b/gi, "检查")
+    .replace(/\baudit\b/gi, "审查")
+    .replace(/\bbundle\b/gi, "计划记录")
+    .replace(/\bqueue\b/gi, "队列")
+    .replace(/\bscheduler\b/gi, "调度流程")
+    .replace(/\bAC-\d+\b/g, "验收点")
+    .replace(/\bT-\d+\b/g, "任务项")
+    .replace(/\bTBD\b/g, "待确认");
+}
+
+function cleanPlanningAgentBlocks(blocks: AssistantTurnBlock[]): AssistantTurnBlock[] {
+  return blocks.map((block) => ({
+    ...block,
+    title: block.title ? cleanPlanningAgentVisibleText(block.title) : block.title,
+    text: block.text ? cleanPlanningAgentVisibleText(block.text) : block.text,
+    preview: block.preview ? cleanPlanningAgentVisibleText(block.preview) : block.preview,
+  }));
 }
 
 function validateReviewablePlanningText(markdown: string, source: PlanningArtifactBundle["planningMode"]): { usable: boolean; reason?: string; warnings?: string[] } {
@@ -503,10 +560,10 @@ export async function confirmPlanningAndStartPipeline(
     createTask: {
       roleId: "main-agent",
       kind: "foreground",
-      summary: "方案草案已确认；后续执行仍需要经过现有边界检查。",
+      summary: "计划已确认；后续执行仍需要经过现有边界检查。",
       inputArtifacts: [confirmed.artifact],
     },
-    reason: "用户确认了方案草案；代码执行仍需要经过现有边界检查。",
+    reason: "用户确认了计划；代码执行仍需要经过现有边界检查。",
   });
   await appendTopicThreadEntry(project, changeId, {
     type: "assistant.message",
@@ -518,7 +575,7 @@ export async function confirmPlanningAndStartPipeline(
     runId: confirmed.id,
     kind: "status",
     phase: "confirmed",
-    title: "方案已确认",
+    title: "计划已确认",
     summary: "方案已保存；当前不会直接修改文件。",
     artifactRef: confirmed.artifact,
   });

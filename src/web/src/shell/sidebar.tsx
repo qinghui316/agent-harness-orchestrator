@@ -279,7 +279,7 @@ export function TopicEmptyView({
       <div className="topic-empty-content">
         <p className="eyebrow">本地工作台</p>
         <h1>暂无需求对话</h1>
-        <p>输入一个需求或问题来创建第一个需求对话。AHO 会先生成方案草案，而不是直接写代码。</p>
+        <p>输入一个需求或问题来创建第一个需求对话。AHO 会先规划并确认，再进入实现。</p>
         <div className="empty-composer">
           <textarea value={composerText} onChange={(event) => setComposerText(event.target.value)} placeholder="例如：帮我新增会员满 100 元 9 折，并补测试。" />
           <button className="primary-button" disabled={busy || !composerText.trim()} onClick={() => void onCreate()}>创建需求对话</button>

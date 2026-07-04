@@ -13,7 +13,7 @@ export function PlanningArtifactBundleCard({ bundle }: { bundle: NonNullable<Wor
   return (
     <section className="workpad-section" data-testid="planning-draft-card">
       <div className="workpad-section-header">
-        <h3>{bundle.status === "confirmed" ? "已确认方案" : "方案草案"}</h3>
+        <h3>{bundle.status === "confirmed" ? "已确认计划" : "计划"}</h3>
         <span>planning-agent</span>
       </div>
       <p className="workpad-goal">{bundle.goal}</p>

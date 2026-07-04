@@ -100,15 +100,15 @@ export function buildDemandAgentRunGraph(input: {
         roleId: "planning-agent",
         status: workpad.planningArtifactBundle?.status === "confirmed" ? "completed" : "waiting-user",
         summary: bundle.goal,
-        reason: "主 agent 用它把需求沉淀为可执行方案。",
+        reason: "主 agent 用它把需求沉淀为可执行计划。",
         target: { ...targetBase, roleId: "planning-agent" },
         inputSummary: workpad.intake.currentUnderstanding,
         outputSummary: bundle.design,
-        evidenceRefs: bundle.artifact ? [{ label: "方案证据", ref: bundle.artifact, kind: "artifact" }] : [],
+        evidenceRefs: bundle.artifact ? [{ label: "计划证据", ref: bundle.artifact, kind: "artifact" }] : [],
         attempts: [],
       });
-      addGraphEdge(edges, "main-agent", "role:planning-agent", "delegates", "整理方案");
-      addGraphEdge(edges, "role:planning-agent", "main-agent", "returns", "方案返回给主 Agent");
+      addGraphEdge(edges, "main-agent", "role:planning-agent", "delegates", "整理计划");
+      addGraphEdge(edges, "role:planning-agent", "main-agent", "returns", "计划返回给主 Agent");
     }
   }
 
@@ -138,7 +138,7 @@ function parentAgentGraphSummary(workpad: WorkbenchWorkpad): string {
   const mainAgentExecution = mainAgentExecutionForWorkpad(workpad);
   if (mainAgentExecution?.status === "running") return "正在调度角色 agent 执行当前需求。";
   if (mainAgentExecution) return "已建立角色执行链路并收集结果。";
-  if (workpad.planningArtifactBundle) return "已整理方案，等待确认或后续边界检查。";
+  if (workpad.planningArtifactBundle) return "已整理计划，等待确认或后续边界检查。";
   return "正在理解当前需求。";
 }
 
@@ -804,7 +804,7 @@ function roleLabelForGraph(roleId: string): string {
 }
 
 function roleReason(roleId: string): string {
-  if (roleId === "planning-agent") return "主 agent 委派它把需求澄清和方案沉淀为可执行草案。";
+  if (roleId === "planning-agent") return "主 agent 委派它把需求澄清并整理为可执行计划。";
   if (roleId === "coder-agent") return "主 agent 委派它在隔离工作区实现并自测。";
   if (roleId === "rework-coder") return "主 agent 根据失败证据或用户反馈委派它重新处理。";
   if (roleId === "validator") return "主 agent 委派它做独立机械验证。";

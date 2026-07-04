@@ -14,7 +14,7 @@ export function PlanningNarrativeCard({ bundle }: { bundle: NonNullable<Workpad[
   return (
     <section className="parent-agent-section" data-testid="planning-draft-card">
       <div className="parent-section-header">
-        <h3>{bundle.status === "confirmed" ? "已确认方案" : "方案草案"}</h3>
+        <h3>{bundle.status === "confirmed" ? "已确认计划" : "计划"}</h3>
         <span>{bundle.status === "confirmed" ? "准备执行" : "等待确认"}</span>
       </div>
       <p className="parent-agent-lead">我理解你要做的是：{parentSurfaceText(bundle.goal)}</p>

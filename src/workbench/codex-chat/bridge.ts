@@ -257,6 +257,7 @@ export async function postTopicPlanMessage(project: ManagedProject, changeId: st
 
 export interface RunCodexChatOptions {
   planningMode?: boolean;
+  omitWorkbenchContext?: boolean;
   transientSystemSkillIds?: string[];
   attachments?: TopicAttachment[];
 }
@@ -353,14 +354,20 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
       })),
     },
   });
-  const contextResult = await buildChatContext(project, memory, changeId, userMessage);
-  const goalLoopLabels = goalLoopPromptStackLabels(contextResult);
+  const contextResult = options.omitWorkbenchContext ? null : await buildChatContext(project, memory, changeId, userMessage);
+  const goalLoopLabels = contextResult ? goalLoopPromptStackLabels(contextResult) : [];
   if (goalLoopLabels.length > 0) {
     run = { ...run, promptStack: [...(run.promptStack ?? []), ...goalLoopLabels] };
     await writeJsonFile(paths.run, run);
   }
-  const goalLoopPreparedEvidence = buildGoalLoopContextPreparedEvidence(contextResult);
-  const context = contextResult.context;
+  const goalLoopPreparedEvidence = contextResult ? buildGoalLoopContextPreparedEvidence(contextResult) : {};
+  const context = contextResult?.context ?? [
+    "# Planning-Agent Turn",
+    "",
+    "This turn receives its complete user-facing delegation in the user message.",
+    "Do not expose Workbench internals, run ids, task ids, queues, close gates, audit/validation mechanics, Harness, AGENTS.md, Change ids, worktrees, bundles, or internal acceptance/task ids.",
+    "Use plain user-facing wording such as project notes, current task, plan, checks, review, and finish confirmation.",
+  ].join("\n");
   const imageInputs = await codexImageInputsForAttachments(project, options.attachments);
   await writeFile(paths.context, context, "utf8");
   const prompt = `${context}${skillPromptSections ? `\n\n${skillPromptSections}` : ""}\n\n## User Message\n\n${userMessage}\n`;
@@ -384,14 +391,19 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
     await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "app-server.started", runId, data: { phase: "chat", resumed: Boolean(runtime.codexSessionId) } });
     const liveOwner = appServerLiveOwner(runId, options.planningMode ? "planning-agent" : undefined);
     const textDeltaFilter = createMainAgentStrategyAdviceDeltaFilter((delta) => emitScopedAssistantDelta(live, liveOwner, delta));
-    const planDeltaFilter = createMainAgentStrategyAdviceDeltaFilter((delta) => {
-      emitScopedAssistantEvent(live, liveOwner, {
-        kind: "status",
-        phase: "native-plan-delta",
-        title: "计划更新",
-        summary: previewPlainText(delta, 240),
-      });
-    });
+    let emittedNativePlanText = "";
+    const emitNativePlanText = (text: string, replace = false): void => {
+      if (!options.planningMode || !text.trim()) return;
+      if (replace) {
+        if (!emittedNativePlanText) {
+          emittedNativePlanText = text;
+          textDeltaFilter.feed(text);
+        }
+        return;
+      }
+      emittedNativePlanText += text;
+      textDeltaFilter.feed(text);
+    };
     const result = await runCodexAppServerTurn({
       projectId: project.id,
       changeId,
@@ -409,17 +421,12 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
       existingThreadId: runtime.codexSessionId,
       onTextDelta: (delta) => textDeltaFilter.feed(delta),
       onPlanDelta: (delta) => {
-        if (options.planningMode) planDeltaFilter.feed(delta);
+        emitNativePlanText(delta);
       },
       onPlanUpdate: (text, params) => {
         if (!options.planningMode) return;
-        emitScopedAssistantEvent(live, liveOwner, {
-          itemId: itemIdFromAppServerParams(params),
-          kind: "plan-update",
-          phase: "native-plan-updated",
-          title: "Codex Plan updated",
-          summary: previewPlainText(text, 240),
-        });
+        void params;
+        emitNativePlanText(text, true);
       },
       onNotification: (notification) => forwardAppServerNotification(runId, notification, live, liveOwner),
       onUserInputRequest: (request) => {
@@ -444,7 +451,6 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
       imageInputs,
     });
     textDeltaFilter.flush();
-    planDeltaFilter.flush();
     const status: RunStatus = result.status === "completed" ? "completed" : "failed";
     const combinedAdviceText = [result.lastMessage, options.planningMode ? result.planText : undefined].filter(Boolean).join("\n");
     const adviceExtraction = extractMainAgentStrategyAdviceFromText(combinedAdviceText);
@@ -691,7 +697,7 @@ function emitScopedAssistantEvent(live: WorkbenchLiveSink | undefined, owner: Ap
 function forwardAppServerNotification(runId: string, notification: CodexAppServerNotification, live: WorkbenchLiveSink | undefined, owner: AppServerLiveOwner = { runId }): void {
   if (!live) return;
   const method = notification.method;
-  if (method === "item/plan/delta" || method === "item/tool/requestUserInput") return;
+  if (method === "item/plan/delta" || method === "turn/plan/updated" || method === "item/tool/requestUserInput") return;
   if (method === "turn/completed") {
     emitLive(live, { event: "run.status", data: { runId, status: "completed" } });
     return;
@@ -700,16 +706,6 @@ function forwardAppServerNotification(runId: string, notification: CodexAppServe
     const message = JSON.stringify(notification.params);
     emitLive(live, { event: "error", data: { runId, message } });
     emitScopedAssistantEvent(live, owner, { kind: "error", phase: "failed", title: "Codex app-server turn failed", summary: message, isError: true });
-    return;
-  }
-  if (method === "turn/plan/updated") {
-    emitScopedAssistantEvent(live, owner, {
-      itemId: itemIdFromAppServerParams(notification.params),
-      kind: "plan-update",
-      phase: "native-plan-updated",
-      title: "Codex Plan updated",
-      summary: previewFromAppServerParams(notification.params) ?? "Native Codex plan state changed.",
-    });
     return;
   }
   if (method.includes("commandExecution")) {
@@ -734,11 +730,6 @@ function forwardAppServerNotification(runId: string, notification: CodexAppServe
       summary: method,
     });
   }
-}
-
-function previewPlainText(text: string, limit: number): string {
-  const normalized = text.replace(/\s+/g, " ").trim();
-  return normalized.length > limit ? `${normalized.slice(0, limit)}...` : normalized;
 }
 
 function formatUsageSummary(usage: Record<string, unknown>): string {

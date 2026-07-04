@@ -48,7 +48,7 @@ function readinessSchedulerLabel(manifest: DecompositionReadinessManifest): stri
 
 export function renderPlanningBundleSummary(bundle: PlanningArtifactBundle): string {
   return [
-    `我准备了方案草案：${bundle.goal}`,
+    `我准备了计划：${bundle.goal}`,
     "",
     `验收标准：${bundle.acceptanceCriteria.join("；")}`,
     `实现方案：${bundle.design}`,

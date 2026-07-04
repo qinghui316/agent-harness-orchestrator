@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-07-04T14:06:21.5166277Z",
+    "generated_at":  "2026-07-04T15:59:18.6160416Z",
     "active":  [
 
                ],
@@ -2525,6 +2525,10 @@
                     {
                         "name":  "20260704-main-agent-native-codex-interaction-alignment-v2-1",
                         "path":  "harness/changes/archive/20260704-main-agent-native-codex-interaction-alignment-v2-1"
+                    },
+                    {
+                        "name":  "20260704-native-codex-plan-question-flow-alignment-v1",
+                        "path":  "harness/changes/archive/20260704-native-codex-plan-question-flow-alignment-v1"
                     }
                 ]
 }

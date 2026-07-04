@@ -124,6 +124,7 @@ function ParentAgentTranscriptView({
   const [expandedCells, setExpandedCells] = useState<Set<string>>(new Set());
   const [scrollMetrics, setScrollMetrics] = useState({ scrollTop: 0, viewportHeight: 720, listWidth: 760 });
   const loadingEarlierRef = useRef(false);
+  const pendingCodexUserInputRequests = codexUserInputRequests.filter((request) => request.status === "pending");
   const heights = useMemo(() => cells.map((cell) => estimateTranscriptCellHeight(cell, {
     expanded: expandedCells.has(cell.id),
     width: scrollMetrics.listWidth,
@@ -200,14 +201,14 @@ function ParentAgentTranscriptView({
           </div>
         </section>
       ) : null}
-      {codexUserInputRequests.length ? (
+      {pendingCodexUserInputRequests.length ? (
         <section className="conversation-clarification-strip" data-testid="codex-user-input-strip" aria-label="Codex 需要确认">
           <div className="conversation-clarification-header">
             <span>Codex 需要确认</span>
-            <strong>{codexUserInputRequests.length}</strong>
+            <strong>{pendingCodexUserInputRequests.length}</strong>
           </div>
           <div className="clarification-list">
-            {codexUserInputRequests.map((request) => (
+            {pendingCodexUserInputRequests.map((request) => (
               <CodexUserInputRequestCard
                 key={request.requestId}
                 request={request}
