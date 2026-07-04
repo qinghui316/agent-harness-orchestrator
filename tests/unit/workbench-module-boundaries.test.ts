@@ -1864,6 +1864,10 @@ describe("Workbench module boundaries", () => {
     expect(draftHandler).toContain("const planningCapture = createAssistantTranscriptCapture(agentLive)");
     expect(draftHandler).toMatch(/emitPlanningAgentLifecycle\(agentLive, task\.id, "agent-running"/);
     expect(draftHandler).toMatch(/runCodexChat\(\s*project,\s*changeId,\s*planModePrompt,\s*planningCapture\.sink,/);
+    expect(draftHandler).toContain("planningMode: true");
+    expect(draftHandler).toContain('"codex-native-plan"');
+    expect(draftHandler).not.toContain("wrapPlanModePrompt");
+    expect(draftHandler).not.toContain("必须包在 <proposed_plan>");
     expect(draftHandler).toContain('agentRoleId: "planning-agent"');
     expect(draftHandler).not.toMatch(/sanitizeProposedPlanForConversation/);
     expect(draftHandler).not.toMatch(/live\?\.emit\(\{ event: "assistant\.message", data: assistant/);

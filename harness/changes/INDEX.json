@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-07-03T05:04:33.0802316Z",
+    "generated_at":  "2026-07-04T07:51:15.0729638Z",
     "active":  [
 
                ],
@@ -2509,6 +2509,10 @@
                     {
                         "name":  "20260703-workbench-conversation-harness-identity-separation-v1",
                         "path":  "harness/changes/archive/20260703-workbench-conversation-harness-identity-separation-v1"
+                    },
+                    {
+                        "name":  "20260704-codex-native-plan-mode-planning-agent-repair-v1",
+                        "path":  "harness/changes/archive/20260704-codex-native-plan-mode-planning-agent-repair-v1"
                     }
                 ]
 }

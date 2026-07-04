@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { evaluateCodexAppServerCapabilities, shouldUseCodexAppServerForMemory, shouldUseCodexAppServerForReadOnlyTurn } from "../../src/codex/app-server.js";
+import { evaluateCodexAppServerCapabilities, extractCodexAppServerPlanText, shouldUseCodexAppServerForMemory, shouldUseCodexAppServerForReadOnlyTurn } from "../../src/codex/app-server.js";
 import { buildCodexReadonlyArgv, buildCodexReadonlyResumeArgv, buildCodexWorkspaceWriteArgv, evaluateCodexCapabilities } from "../../src/codex/capabilities.js";
 import { createCodexJsonlStreamParser, extractFinalMessageFromCodexJsonl, truncateReadablePreview, type CodexJsonlStreamEvent } from "../../src/codex/jsonl.js";
 import { candidatesFromModelListResponse, getCodexModelSettingsSnapshot, resolveCodexEffectiveModel, setSelectedCodexModel } from "../../src/codex/model-settings.js";
@@ -55,6 +55,21 @@ describe("codex capabilities", () => {
     expect(shouldUseCodexAppServerForReadOnlyTurn("remote")).toBe(true);
     expect(shouldUseCodexAppServerForReadOnlyTurn("external-local")).toBe(true);
     expect(shouldUseCodexAppServerForMemory("external-local")).toBe(false);
+  });
+
+  it("extracts native Codex plan text from plan delta, turn update, and completed plan items", () => {
+    expect(extractCodexAppServerPlanText("item/plan/delta", { delta: "step 1" })).toBe("step 1");
+    expect(extractCodexAppServerPlanText("turn/plan/updated", {
+      plan: {
+        steps: [
+          { title: "确认目标", description: "先确认需求和验收标准。" },
+          { title: "实施", description: "按确认后的范围修改。" },
+        ],
+      },
+    })).toContain("确认目标");
+    expect(extractCodexAppServerPlanText("item/completed", {
+      item: { type: "proposed-plan", markdown: "## 目标\n生成计划\n\n## 验收\n通过测试" },
+    })).toContain("## 目标");
   });
 
   it("builds root-level approval argv", () => {

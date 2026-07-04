@@ -985,7 +985,7 @@ export interface WorkbenchWorkpad {
 
 export interface WorkbenchPlanningDraft {
   id: string;
-  planningMode?: "codex-plan-mode" | "prompt-plan-contract" | "deterministic-fallback";
+  planningMode?: "codex-native-plan" | "codex-plan-mode" | "prompt-plan-contract" | "deterministic-fallback";
   proposedPlanMd?: string;
   proposedPlanRunId?: string;
   planningWarnings?: string[];

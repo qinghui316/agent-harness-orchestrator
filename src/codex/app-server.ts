@@ -96,6 +96,7 @@ export interface CodexAppServerTurnOptions {
   onUserInputRequest?: CodexAppServerUserInputRequestHandler;
   onTextDelta?: (text: string) => void;
   onPlanDelta?: (text: string) => void;
+  onPlanUpdate?: (text: string, params: Record<string, unknown>) => void;
   onError?: (error: unknown) => void;
   collaborationMode?: "plan";
   model?: string | null;
@@ -147,6 +148,13 @@ export function shouldUseCodexAppServerForMemory(memoryMode: MemoryMode): boolea
 
 export function shouldUseCodexAppServerForReadOnlyTurn(_memoryMode: MemoryMode): boolean {
   return true;
+}
+
+export function extractCodexAppServerPlanText(method: string, params: Record<string, unknown>): string {
+  if (method === "item/plan/delta" && typeof params.delta === "string") return params.delta;
+  if (method === "turn/plan/updated") return extractTurnPlanText(params);
+  if (method === "item/completed" && isPlanItem(params)) return extractCompletedText(params);
+  return "";
 }
 
 export async function detectCodexAppServerCapability(): Promise<CodexAppServerCapabilities> {
@@ -381,6 +389,8 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
       handleNotification(method, params, raw);
       return true;
     }
+    options.onNotification?.({ method, params, raw });
+    if (params.completed === true) return true;
     const requestId = String(id);
     pendingServerRequests.set(requestId, { id, method });
     const questions = parseUserInputQuestions(params.questions);
@@ -394,7 +404,6 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
       roleId: options.roleId,
       questions,
     };
-    options.onNotification?.({ method, params, raw });
     options.onUserInputRequest?.(request);
     return true;
   }
@@ -407,9 +416,14 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
       lastMessage += text;
       options.onTextDelta?.(text);
     }
-    if (method === "item/plan/delta" && typeof params.delta === "string") {
-      planText += params.delta;
-      options.onPlanDelta?.(params.delta);
+    const planEventText = extractCodexAppServerPlanText(method, params);
+    if (method === "item/plan/delta" && planEventText) {
+      planText += planEventText;
+      options.onPlanDelta?.(planEventText);
+    }
+    if (method === "turn/plan/updated" && planEventText) {
+      planText = planEventText;
+      options.onPlanUpdate?.(planEventText, params);
     }
     if (method === "turn/completed") {
       terminalStatus = completionStatus(params) === "interrupted" ? "interrupted" : "completed";
@@ -419,7 +433,10 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
     } else if (method === "item/completed") {
       const finalText = extractCompletedText(params);
       if (finalText && !lastMessage.includes(finalText)) lastMessage += finalText;
-      if (isPlanItem(params) && finalText) planText = finalText;
+      if (isPlanItem(params) && finalText) {
+        planText = finalText;
+        options.onPlanUpdate?.(finalText, params);
+      }
     }
   }
 
@@ -574,6 +591,8 @@ function extractTextDelta(method: string, params: Record<string, unknown>): stri
 function extractCompletedText(params: Record<string, unknown>): string {
   const item = isRecord(params.item) ? params.item : params;
   if (typeof item.text === "string") return item.text;
+  if (typeof item.markdown === "string") return item.markdown;
+  if (typeof item.output === "string") return item.output;
   if (Array.isArray(item.content)) {
     return item.content.map((entry) => isRecord(entry) && typeof entry.text === "string" ? entry.text : "").filter(Boolean).join("\n");
   }
@@ -582,7 +601,56 @@ function extractCompletedText(params: Record<string, unknown>): string {
 
 function isPlanItem(params: Record<string, unknown>): boolean {
   const item = isRecord(params.item) ? params.item : params;
-  return item.type === "plan" || item.kind === "plan" || item.itemType === "plan";
+  return item.type === "plan"
+    || item.kind === "plan"
+    || item.itemType === "plan"
+    || item.type === "proposed-plan"
+    || item.kind === "proposed-plan"
+    || item.type === "plan-implementation"
+    || item.kind === "plan-implementation";
+}
+
+function extractTurnPlanText(params: Record<string, unknown>): string {
+  const plan = params.plan;
+  if (typeof plan === "string") return plan.trim();
+  if (isRecord(plan)) {
+    const text = extractPlanObjectText(plan);
+    if (text) return text;
+  }
+  const item = isRecord(params.item) ? params.item : null;
+  if (item) {
+    const text = extractPlanObjectText(item);
+    if (text) return text;
+  }
+  const explanation = typeof params.explanation === "string" ? params.explanation.trim() : "";
+  return explanation;
+}
+
+function extractPlanObjectText(plan: Record<string, unknown>): string {
+  const direct = [
+    plan.markdown,
+    plan.text,
+    plan.content,
+    plan.body,
+    plan.summary,
+    plan.explanation,
+  ].find((value): value is string => typeof value === "string" && value.trim().length > 0);
+  if (direct) return direct.trim();
+  if (Array.isArray(plan.steps)) {
+    const steps = plan.steps
+      .map((step, index) => {
+        if (typeof step === "string") return `${index + 1}. ${step}`;
+        if (isRecord(step)) {
+          const title = typeof step.title === "string" ? step.title : typeof step.label === "string" ? step.label : `Step ${index + 1}`;
+          const detail = typeof step.description === "string" ? step.description : typeof step.detail === "string" ? step.detail : "";
+          return detail ? `${index + 1}. ${title}: ${detail}` : `${index + 1}. ${title}`;
+        }
+        return "";
+      })
+      .filter(Boolean);
+    if (steps.length > 0) return steps.join("\n");
+  }
+  return "";
 }
 
 function parseUserInputQuestions(value: unknown): CodexAppServerUserInputQuestion[] {

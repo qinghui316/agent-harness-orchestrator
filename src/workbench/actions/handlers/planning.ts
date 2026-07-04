@@ -138,7 +138,7 @@ import {
   buildDeterministicPlanningBundle,
 } from "../../planning/builders.js";
 import { writePlanningBundle } from "../../planning/persistence.js";
-import { extractProposedPlanBlock, wrapPlanModePrompt } from "../../planning/proposed-plan.js";
+import { extractProposedPlanBlock } from "../../planning/proposed-plan.js";
 import {
   decompositionRecommendationLabel,
   renderDecompositionPlanSummary,
@@ -185,7 +185,7 @@ export async function generatePlanningDraft(
     || [...thread].reverse().find((entry) => entry.type === "user.message")?.text
     || changeId;
   const previous = await readLatestPlanningBundle(memory, changePath).catch(() => null);
-  const planModePrompt = wrapPlanModePrompt(buildPlanningAgentDelegationPacket({
+  const planModePrompt = buildPlanningAgentDelegationPacket({
     latestUserText,
     parentUnderstanding: [...thread].reverse()
       .find((entry) => entry.type === "assistant.message" && entry.status === "main-agent-initial-turn")
@@ -193,7 +193,7 @@ export async function generatePlanningDraft(
     feedback: prompt?.trim(),
     previous,
     revision,
-  }));
+  });
   const includeFirstOnboardingSkill = !revision && await shouldIncludeFirstOnboardingSkill(memory, changeId);
   let planningRuntime: Awaited<ReturnType<typeof runCodexChat>>;
   try {
@@ -223,23 +223,44 @@ export async function generatePlanningDraft(
     });
     throw error;
   }
-  const rawPlanText = planningRuntime?.planText?.trim();
-  const planningMessage = planningRuntime?.message.trim();
-  const extractionInput = planningMessage?.includes("<proposed_plan")
-    ? planningMessage
-    : planningMessage && rawPlanText && planningMessage === rawPlanText
-      ? planningMessage
-      : [planningMessage, rawPlanText].filter(Boolean).join("\n\n");
-  const extraction = extractProposedPlanBlock(extractionInput);
-  const proposedPlanMd = extraction.proposedPlanMd ?? rawPlanText ?? null;
+  const rawPlanText = planningRuntime?.planText?.trim() ?? "";
+  const planningMessage = planningRuntime?.message.trim() ?? "";
+  const fallbackExtraction = !rawPlanText && planningMessage.includes("<proposed_plan")
+    ? extractProposedPlanBlock(planningMessage)
+    : null;
+  const proposedPlanMd = rawPlanText || fallbackExtraction?.proposedPlanMd || "";
+  const planSource: PlanningArtifactBundle["planningMode"] = rawPlanText
+    ? "codex-native-plan"
+    : fallbackExtraction?.proposedPlanMd
+      ? "prompt-plan-contract"
+      : "deterministic-fallback";
+  const planValidation = validateReviewablePlanningText(proposedPlanMd, planSource);
+  if (!planValidation.usable) {
+    const message = `planning-agent did not return a usable native plan: ${planValidation.reason}`;
+    emitAssistantEvent(agentLive, {
+      runId: planningRuntime.run.id,
+      kind: "error",
+      phase: "native-plan-invalid",
+      title: "planning-agent 方案不可用",
+      summary: message,
+      isError: true,
+    });
+    await completeAgentTask(memory, task, {
+      status: "failed",
+      summary: message,
+      artifactRefs: [planningRuntime.run.artifacts.lastMessage].filter((item): item is string => Boolean(item)),
+      nextRecommendation: "Ask planning-agent to clarify or revise the plan before creating Harness planning records.",
+    });
+    throw new Error(message);
+  }
   const planningWarnings = [
-    ...(extraction.proposedPlanMd || rawPlanText ? [] : extraction.warnings),
-    ...(proposedPlanMd && extraction.headings.length === 0 ? ["Codex proposed plan had no headings; AHO derived task/AC structure conservatively."] : []),
+    ...(fallbackExtraction?.warnings ?? []),
+    ...(planValidation.warnings ?? []),
   ];
   const bundle = buildDeterministicPlanningBundle(memory, changePath, changeId, latestUserText, previous, revision, {
     proposedPlanMd,
     proposedPlanRunId: planningRuntime.run.id,
-    planningMode: proposedPlanMd ? (rawPlanText ? "codex-plan-mode" : "prompt-plan-contract") : "deterministic-fallback",
+    planningMode: planSource,
     planningWarnings,
   });
   await writePlanningBundle(memory, changePath, bundle);
@@ -316,14 +337,14 @@ function buildPlanningAgentDelegationPacket(input: {
       ].join("\n")
     : "- 当前没有可复用的已审阅方案草案。";
   return [
-    "你是 planning-agent，是主 Agent 委派的 bounded leaf agent。",
-    "这是一份主 Agent 生成的委派包，不是用户原文转发，也不是完整父对话历史。",
+    "你是 planning-agent，是主 Agent 委派的 bounded leaf agent。请使用 Codex Plan Mode 进行规划。",
+    "这是一份薄委派上下文，不是用户原文转发，也不是完整父对话历史。",
     "",
     "职责边界：",
     "- 只生成或修订可审阅的方案草案。",
     "- 不修改文件，不运行命令，不启动实现，不确认执行。",
     "- 不递归委派其他 Agent；完成后把方案交回主 Agent。",
-    "- 如果需求仍不清楚，在草案的“待确认点”里提出问题。",
+    "- 如果需求仍不清楚，使用运行时用户输入请求提出问题，或在计划中清楚列出待确认点。",
     "",
     "主 Agent 对目标的理解：",
     parentUnderstanding || "用户希望先得到清晰、可审阅的实现方案，再决定是否实施。",
@@ -337,12 +358,35 @@ function buildPlanningAgentDelegationPacket(input: {
     "当前方案上下文：",
     previousSummary,
     "",
-    "输出要求：",
-    "- 只输出方案正文，必须包在 <proposed_plan>...</proposed_plan> 中。",
-    "- 方案正文包含：目标、约束、验收标准、实现方案、任务清单、风险、待确认点。",
+    "计划内容要求：",
+    "- 使用 Codex 原生 Plan Mode 输出计划，不要使用旧的 XML 计划包装标签。",
+    "- 计划应覆盖：目标、约束、验收标准、实现方案、任务清单、风险、待确认点。",
     "- 使用用户语言，避免内部 Harness 对象名、Change id、TaskRun、WorkflowRun、queue、scheduler 等术语。",
     "- 不要输出运行前言、命令说明、读取说明、内部机制说明或对用户的闲聊。",
   ].join("\n");
+}
+
+function validateReviewablePlanningText(markdown: string, source: PlanningArtifactBundle["planningMode"]): { usable: boolean; reason?: string; warnings?: string[] } {
+  const normalized = markdown.replace(/\s+/g, " ").trim();
+  if (!normalized) return { usable: false, reason: "empty plan text" };
+  if (normalized.length < 80) return { usable: false, reason: "plan text is too short" };
+  const signals = [
+    /目标|目的|需求|goal|objective|purpose/i,
+    /约束|范围|边界|constraint|scope|boundary/i,
+    /验收|验证|测试|acceptance|verification|test/i,
+    /实现|方案|步骤|implementation|approach|steps/i,
+    /任务|清单|task|todo/i,
+    /风险|待确认|risk|question|clarify/i,
+  ];
+  const signalCount = signals.filter((pattern) => pattern.test(markdown)).length;
+  if (signalCount < 2) return { usable: false, reason: "plan lacks enough planning structure signals" };
+  const warnings = source === "prompt-plan-contract"
+    ? ["Planning output came from legacy <proposed_plan> fallback rather than native Codex Plan item."]
+    : [];
+  if (!/验收|验证|测试|acceptance|verification|test/i.test(markdown)) {
+    warnings.push("Plan did not clearly name verification or acceptance evidence; AHO derived acceptance/task structure conservatively.");
+  }
+  return { usable: true, warnings };
 }
 
 function normalizeDelegationText(value: string | undefined): string {

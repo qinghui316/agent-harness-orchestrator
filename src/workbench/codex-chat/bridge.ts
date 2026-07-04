@@ -403,6 +403,17 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
       onPlanDelta: (delta) => {
         if (options.planningMode) planDeltaFilter.feed(delta);
       },
+      onPlanUpdate: (text, params) => {
+        if (!options.planningMode) return;
+        emitAssistantEvent(live, {
+          runId,
+          itemId: itemIdFromAppServerParams(params),
+          kind: "plan-update",
+          phase: "native-plan-updated",
+          title: "Codex Plan updated",
+          summary: previewPlainText(text, 240),
+        });
+      },
       onNotification: (notification) => forwardAppServerNotification(runId, notification, live),
       onUserInputRequest: (request) => {
         emitLive(live, {
@@ -662,6 +673,17 @@ function forwardAppServerNotification(runId: string, notification: CodexAppServe
     emitAssistantEvent(live, { runId, kind: "error", phase: "failed", title: "Codex app-server turn failed", summary: message, isError: true });
     return;
   }
+  if (method === "turn/plan/updated") {
+    emitAssistantEvent(live, {
+      runId,
+      itemId: itemIdFromAppServerParams(notification.params),
+      kind: "plan-update",
+      phase: "native-plan-updated",
+      title: "Codex Plan updated",
+      summary: previewFromAppServerParams(notification.params) ?? "Native Codex plan state changed.",
+    });
+    return;
+  }
   if (method.includes("commandExecution")) {
     const command = commandFromAppServerParams(notification.params);
     emitAssistantEvent(live, {
@@ -686,6 +708,11 @@ function forwardAppServerNotification(runId: string, notification: CodexAppServe
       summary: method,
     });
   }
+}
+
+function previewPlainText(text: string, limit: number): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  return normalized.length > limit ? `${normalized.slice(0, limit)}...` : normalized;
 }
 
 function formatUsageSummary(usage: Record<string, unknown>): string {

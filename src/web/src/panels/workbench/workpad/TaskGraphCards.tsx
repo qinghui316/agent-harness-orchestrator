@@ -190,7 +190,7 @@ export function CodexUserInputRequestCard({
 }): ReactElement {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const pending = request.status === "pending";
-  const canSubmit = pending && !busy && request.questions.some((question) => (answers[question.id] ?? "").trim().length > 0);
+  const canSubmit = pending && !busy && (request.questions.length === 0 || request.questions.some((question) => (answers[question.id] ?? "").trim().length > 0));
   async function submit(): Promise<void> {
     if (!canSubmit) return;
     await onAnswer(request, answers);

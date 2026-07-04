@@ -8,6 +8,7 @@ import { DecisionInspectorPane } from "../../src/web/src/panels/workbench/Decisi
 import { WorkpadView } from "../../src/web/src/panels/workbench/WorkpadPanel.js";
 import { mainAgentExecutionForWorkpad } from "../../src/web/src/panels/workbench/workpad/main-agent-execution.js";
 import { WorkpadDiagnosticDetails } from "../../src/web/src/panels/workbench/workpad/WorkpadDetails.js";
+import { CodexUserInputRequestCard } from "../../src/web/src/panels/workbench/workpad/TaskGraphCards.js";
 import { TopicComposer } from "../../src/web/src/shell/composer.js";
 import { parentTranscriptCellsFromLiveThreadItem } from "../../src/web/src/liveTranscript.js";
 import { summarizeActionResult } from "../../src/workbench/actions/results.js";
@@ -7056,6 +7057,29 @@ describe("Workbench web app", () => {
       text: "创建 planning-agent",
       status: "agent-task-created",
     })]);
+  });
+});
+
+describe("Codex native requestUserInput cards", () => {
+  it("allows submitting an empty-answer request when Codex sends no questions", async () => {
+    const onAnswer = vi.fn().mockResolvedValue(undefined);
+    render(
+      <CodexUserInputRequestCard
+        request={{
+          requestId: "request-1",
+          runId: "run-1",
+          agentRoleId: "planning-agent",
+          questions: [],
+          status: "pending",
+        }}
+        busy={false}
+        onAnswer={onAnswer}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "提交给 Codex" }));
+
+    await waitFor(() => expect(onAnswer).toHaveBeenCalledWith(expect.objectContaining({ requestId: "request-1" }), {}));
   });
 });
 
