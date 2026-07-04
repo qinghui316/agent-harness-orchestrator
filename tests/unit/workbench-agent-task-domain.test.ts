@@ -108,6 +108,15 @@ describe("workbench AgentTask domain", () => {
       inputArtifacts: ["harness/changes/active/delegate-task-demand/spec.md"],
     });
     expect(accepted.ok).toBe(true);
+    const acceptedFromSeparateConversation = await validateDelegateTaskPolicy(memory, {
+      conversationId: "conversation-window-1",
+      changeId: "delegate-task-demand",
+      roleId: "coder-agent",
+      kind: "foreground",
+      goal: "Implement the confirmed demand in an AHO-owned worktree.",
+      inputArtifacts: ["harness/changes/active/delegate-task-demand/spec.md"],
+    });
+    expect(acceptedFromSeparateConversation.ok).toBe(true);
     const forbidden = await validateDelegateTaskPolicy(memory, {
       conversationId: "delegate-task-demand",
       changeId: "delegate-task-demand",

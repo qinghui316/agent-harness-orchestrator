@@ -4,7 +4,6 @@ import { workflowActionPayloadFromScope } from "../../workflow-actions.js";
 import { humanStatus } from "../../formatters.js";
 import { parentTranscriptCellsFromLiveTurn } from "../../liveTranscript.js";
 import { AgentTranscriptPane } from "./TranscriptReadingSurface.js";
-import { artifactName } from "./RunReplayPanel.js";
 import { ClarificationCard, CodexUserInputRequestCard } from "./workpad/TaskGraphCards.js";
 import type { AgentWorkspace, AgentWorkspaceAgent, CodexUserInputRequest, DecisionAction, LiveAssistantTurn } from "../../types.js";
 
@@ -70,13 +69,6 @@ export function AgentWorkspacePanel({
         </header>
         <div className="agent-workspace-transcript-region">
           <AgentTranscriptPane cells={cells} emptyMessage={selected.transcript.emptyMessage} testId="agent-workspace-transcript" />
-          {selected.evidenceRefs.length ? (
-            <div className="agent-workspace-evidence" aria-label="Agent 证据">
-              {selected.evidenceRefs.slice(0, 5).map((ref) => (
-                <span key={`${ref.kind}:${ref.ref}`}>{ref.label}: {artifactName(ref.ref)}</span>
-              ))}
-            </div>
-          ) : null}
           <AgentClarifications agent={selected} busy={busy} onAnswer={onAnswerClarification} />
           <AgentCodexUserInputRequests requests={activeCodexUserInputRequests} busy={busy} onAnswer={onAnswerCodexUserInput} />
         </div>
@@ -157,11 +149,7 @@ function AgentCodexUserInputRequests({
 }): ReactElement {
   if (requests.length === 0) return <></>;
   return (
-    <section className="agent-workspace-clarifications" data-testid="agent-workspace-codex-user-input" aria-label="Codex 需要确认">
-      <div className="conversation-clarification-header">
-        <span>Codex 需要确认</span>
-        <strong>{requests.length}</strong>
-      </div>
+    <section className="agent-workspace-clarifications agent-workspace-runtime-questions" data-testid="agent-workspace-codex-user-input" aria-label="Codex 提问">
       <div className="clarification-list">
         {requests.map((request) => (
           <CodexUserInputRequestCard key={request.requestId} request={request} busy={busy} onAnswer={onAnswer} />

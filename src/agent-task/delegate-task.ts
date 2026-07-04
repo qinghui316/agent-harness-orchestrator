@@ -111,9 +111,6 @@ export async function validateDelegateTaskPolicy(memory: ResolvedMemory, request
   if (!isAllowedDelegateRole(role)) {
     return reject(request, `Unknown or unavailable role: ${role || "(empty)"}.`, "这个角色当前不能由主 agent 委派。");
   }
-  if (request.changeId !== request.conversationId) {
-    return reject(request, "conversationId and changeId must match for a demand-scoped v1 role task.", "这个委派目标不属于当前需求对话。");
-  }
   if (!request.goal.trim()) {
     return reject(request, "delegateTask requires a non-empty goal.", "主 agent 需要先说明要委派的具体目标。");
   }

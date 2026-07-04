@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260704-main-agent-a2a-native-interaction-alignment-v3/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260704-main-agent-native-codex-interaction-alignment-v2-1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260704-codex-native-plan-mode-planning-agent-repair-v1/summary.md`.

@@ -178,7 +178,7 @@ export async function generatePlanningDraft(
   });
   const agentLive = scopedAgentLiveSink(live, "planning-agent", task.id);
   const planningCapture = createAssistantTranscriptCapture(agentLive);
-  emitPlanningAgentLifecycle(agentLive, task.id, "agent-task-created", "创建 planning-agent", "主 Agent 已创建 planning-agent，用于生成可审阅方案草案。");
+  emitPlanningAgentLifecycle(agentLive, task.id, "agent-task-created", "创建 planning-agent", "主 Agent 已委派 planning-agent 整理计划。");
   const role = await resolveAgentRole(memory, "planning-agent");
   const thread = await readThreadLog(memory, changePath);
   const latestUserText = prompt?.trim()
@@ -197,7 +197,7 @@ export async function generatePlanningDraft(
   const includeFirstOnboardingSkill = !revision && await shouldIncludeFirstOnboardingSkill(memory, changeId);
   let planningRuntime: Awaited<ReturnType<typeof runCodexChat>>;
   try {
-    emitPlanningAgentLifecycle(agentLive, task.id, "agent-running", "planning-agent 运行中", "正在通过真实 Codex planning turn 生成方案草案。");
+    emitPlanningAgentLifecycle(agentLive, task.id, "agent-running", "planning-agent 运行中", "正在通过 Codex Plan Mode 整理计划。");
     planningRuntime = await runCodexChat(project, changeId, planModePrompt, planningCapture.sink, {
       planningMode: true,
       transientSystemSkillIds: includeFirstOnboardingSkill ? ["aho-harness-onboarding"] : undefined,
@@ -205,7 +205,7 @@ export async function generatePlanningDraft(
     if (planningRuntime.run.status !== "completed") {
       throw new Error(planningRuntime.message || "planning-agent did not complete.");
     }
-    emitPlanningAgentLifecycle(agentLive, planningRuntime.run.id, "agent-completed", "planning-agent 返回结果", "planning-agent 已返回可审阅方案文本。", planningRuntime.run.artifacts.lastMessage);
+    emitPlanningAgentLifecycle(agentLive, planningRuntime.run.id, "agent-completed", "planning-agent 返回结果", "planning-agent 已返回计划。", planningRuntime.run.artifacts.lastMessage);
   } catch (error: unknown) {
     emitAssistantEvent(agentLive, {
       runId: task.id,
@@ -336,30 +336,30 @@ function buildPlanningAgentDelegationPacket(input: {
       ].filter(Boolean).join("\n")
     : "- 当前没有已有方案草案。";
   return [
-    "请使用 Codex Plan Mode 帮主 Agent 准备一份可审阅的方案。",
-    "这是主 Agent 整理后的委派上下文，不是完整对话历史。",
+    "Use Codex Plan Mode for this planning turn.",
+    "This is a bounded delegation note from the main Agent, not the full parent transcript.",
     "",
-    "边界：",
-    "- 不修改文件，不运行命令，不启动实现，不确认执行。",
-    "- 不委派其他 Agent；只把方案或必要问题交回。",
-    "- 如果缺少关键信息，优先用运行时提问能力向用户确认。",
+    "Boundaries:",
+    "- Do not edit files, run commands, start implementation, or confirm execution.",
+    "- Do not delegate to another Agent.",
+    "- If important information is missing, ask concise runtime questions.",
     "",
-    "主 Agent 对目标的理解：",
+    "Main Agent understanding:",
     parentUnderstanding || "用户希望先得到清晰、可审阅的实现方案，再决定是否实施。",
     "",
-    "需求摘要：",
+    "User-facing request summary:",
     userGoalSummary,
     "",
-    input.revision ? "本轮用户反馈摘要：" : "本轮规划目标：",
-    input.revision ? feedbackSummary || "用户要求调整现有方案。" : "把目标、范围、实施路径和验证方式说清楚。",
+    input.revision ? "User feedback for this revision:" : "Planning task:",
+    input.revision ? feedbackSummary || "The user wants the current plan revised." : "Clarify the request and produce a practical plan the user can review.",
     "",
-    "当前方案上下文：",
+    "Existing plan context:",
     previousSummary,
     "",
-    "输出要求：",
-    "- 用用户的语言写自然、可审阅的计划。",
-    "- 不要暴露内部对象名、运行 id、队列、调度器或系统机制。",
-    "- 不要使用 XML 包装标签。",
+    "Visible response style:",
+    "- Write naturally in the user's language.",
+    "- Avoid internal object names, run ids, queues, schedulers, or system mechanics.",
+    "- Do not use XML wrapper tags.",
   ].join("\n");
 }
 

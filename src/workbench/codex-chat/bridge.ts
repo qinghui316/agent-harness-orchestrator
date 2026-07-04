@@ -384,7 +384,14 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
     await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "app-server.started", runId, data: { phase: "chat", resumed: Boolean(runtime.codexSessionId) } });
     const liveOwner = appServerLiveOwner(runId, options.planningMode ? "planning-agent" : undefined);
     const textDeltaFilter = createMainAgentStrategyAdviceDeltaFilter((delta) => emitScopedAssistantDelta(live, liveOwner, delta));
-    const planDeltaFilter = createMainAgentStrategyAdviceDeltaFilter((delta) => emitScopedAssistantDelta(live, liveOwner, delta));
+    const planDeltaFilter = createMainAgentStrategyAdviceDeltaFilter((delta) => {
+      emitScopedAssistantEvent(live, liveOwner, {
+        kind: "status",
+        phase: "native-plan-delta",
+        title: "计划更新",
+        summary: previewPlainText(delta, 240),
+      });
+    });
     const result = await runCodexAppServerTurn({
       projectId: project.id,
       changeId,
