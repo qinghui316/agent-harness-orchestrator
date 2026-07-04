@@ -1868,6 +1868,8 @@ describe("Workbench module boundaries", () => {
     expect(draftHandler).toContain('"codex-native-plan"');
     expect(draftHandler).not.toContain("wrapPlanModePrompt");
     expect(draftHandler).not.toContain("必须包在 <proposed_plan>");
+    expect(draftHandler).not.toContain("bounded leaf agent");
+    expect(draftHandler).not.toContain("计划应覆盖");
     expect(draftHandler).toContain('agentRoleId: "planning-agent"');
     expect(draftHandler).not.toMatch(/sanitizeProposedPlanForConversation/);
     expect(draftHandler).not.toMatch(/live\?\.emit\(\{ event: "assistant\.message", data: assistant/);

@@ -49,32 +49,7 @@ function planningAgentWorkspace(topic: WorkbenchTopicDetail | null, workpad: Wor
     cells.push(processCell(`planning-agent:task:${task.id}`, "planning-agent 任务", task.resultSummary ?? task.summary, task.status, "planning-agent", task.runId, task.evidenceRefs[0]));
   }
 
-  if (!bundle) {
-    if (cells.length === 0) {
-      cells.push(processCell("planning-agent:empty", "planning-agent", "还没有方案草案。主 Agent 可以委派 planning-agent 生成一份可审阅方案。", "waiting-user", "planning-agent"));
-    }
-  } else {
-    cells.push(processCell(
-      `planning-agent:${bundle.id}:status`,
-      bundle.status === "confirmed" ? "方案已实施" : "planning-agent 返回方案",
-      bundle.status === "confirmed" ? "方案已确认并保存。" : "方案草案已准备好，可以继续反馈修改或实施。",
-      bundle.status,
-      "planning-agent",
-      bundle.proposedPlanRunId,
-    ));
-    if (bundle.artifact) {
-      cells.push({
-        id: `planning-agent:${bundle.id}:evidence`,
-        kind: "evidence-row",
-        source: "workflow-evidence",
-        agentRoleId: "planning-agent",
-        timestamp: bundle.updatedAt,
-        title: "方案材料",
-        text: "方案草案已保存；可以继续反馈修改，或输入“实施此计划”。",
-        status: bundle.status,
-        evidenceRefs: [{ label: "方案草案", ref: bundle.artifact, kind: "artifact" }],
-      });
-    }
+  if (bundle) {
     if (topic?.state === "active" && bundle.status === "draft") {
       const reviseSource = workpad.nextAction.actionType === "planning.revise" ? workpad.nextAction : undefined;
       const confirmSource = workpad.nextAction.actionType === "planning.confirm-execution" ? workpad.nextAction : undefined;
@@ -114,7 +89,6 @@ function planningAgentWorkspace(topic: WorkbenchTopicDetail | null, workpad: Wor
     evidenceRefs: bundle?.artifact ? [{ label: "方案草案", ref: bundle.artifact, kind: "artifact" }] : [],
     actions,
     planningBundle: bundle,
-    clarifications: workpad.intake.pendingClarifications,
   };
 }
 

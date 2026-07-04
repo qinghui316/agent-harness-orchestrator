@@ -382,8 +382,9 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
     run = { ...run, command: ["codex", "app-server", "--listen", "stdio://"], status: "running" };
     await writeJsonFile(paths.run, run);
     await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "app-server.started", runId, data: { phase: "chat", resumed: Boolean(runtime.codexSessionId) } });
-    const textDeltaFilter = createMainAgentStrategyAdviceDeltaFilter((delta) => emitLive(live, { event: "assistant.delta", data: { delta, runId } }));
-    const planDeltaFilter = createMainAgentStrategyAdviceDeltaFilter((delta) => emitLive(live, { event: "assistant.delta", data: { delta, runId } }));
+    const liveOwner = appServerLiveOwner(runId, options.planningMode ? "planning-agent" : undefined);
+    const textDeltaFilter = createMainAgentStrategyAdviceDeltaFilter((delta) => emitScopedAssistantDelta(live, liveOwner, delta));
+    const planDeltaFilter = createMainAgentStrategyAdviceDeltaFilter((delta) => emitScopedAssistantDelta(live, liveOwner, delta));
     const result = await runCodexAppServerTurn({
       projectId: project.id,
       changeId,
@@ -405,8 +406,7 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
       },
       onPlanUpdate: (text, params) => {
         if (!options.planningMode) return;
-        emitAssistantEvent(live, {
-          runId,
+        emitScopedAssistantEvent(live, liveOwner, {
           itemId: itemIdFromAppServerParams(params),
           kind: "plan-update",
           phase: "native-plan-updated",
@@ -414,7 +414,7 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
           summary: previewPlainText(text, 240),
         });
       },
-      onNotification: (notification) => forwardAppServerNotification(runId, notification, live),
+      onNotification: (notification) => forwardAppServerNotification(runId, notification, live, liveOwner),
       onUserInputRequest: (request) => {
         emitLive(live, {
           event: "codex.userInput.requested",
@@ -425,7 +425,7 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
             itemId: request.itemId,
             runId,
             changeId,
-            agentRoleId: options.planningMode ? "planning-agent" : undefined,
+            agentRoleId: liveOwner.agentRoleId,
             questions: request.questions,
             status: "pending",
           },
@@ -660,9 +660,31 @@ function forwardCodexStreamEvent(
     }
 }
 
-function forwardAppServerNotification(runId: string, notification: CodexAppServerNotification, live: WorkbenchLiveSink | undefined): void {
+interface AppServerLiveOwner {
+  runId: string;
+  agentRoleId?: string;
+}
+
+function appServerLiveOwner(runId: string, agentRoleId: string | undefined): AppServerLiveOwner {
+  return agentRoleId ? { runId, agentRoleId } : { runId };
+}
+
+function emitScopedAssistantDelta(live: WorkbenchLiveSink | undefined, owner: AppServerLiveOwner, delta: string): void {
+  emitLive(live, { event: "assistant.delta", data: { delta, runId: owner.runId, ...(owner.agentRoleId ? { agentRoleId: owner.agentRoleId } : {}) } });
+}
+
+function emitScopedAssistantEvent(live: WorkbenchLiveSink | undefined, owner: AppServerLiveOwner, event: Omit<Parameters<typeof emitAssistantEvent>[1], "runId" | "agentRoleId">): void {
+  emitAssistantEvent(live, {
+    ...event,
+    runId: owner.runId,
+    ...(owner.agentRoleId ? { agentRoleId: owner.agentRoleId } : {}),
+  });
+}
+
+function forwardAppServerNotification(runId: string, notification: CodexAppServerNotification, live: WorkbenchLiveSink | undefined, owner: AppServerLiveOwner = { runId }): void {
   if (!live) return;
   const method = notification.method;
+  if (method === "item/plan/delta" || method === "item/tool/requestUserInput") return;
   if (method === "turn/completed") {
     emitLive(live, { event: "run.status", data: { runId, status: "completed" } });
     return;
@@ -670,12 +692,11 @@ function forwardAppServerNotification(runId: string, notification: CodexAppServe
   if (method === "turn/failed") {
     const message = JSON.stringify(notification.params);
     emitLive(live, { event: "error", data: { runId, message } });
-    emitAssistantEvent(live, { runId, kind: "error", phase: "failed", title: "Codex app-server turn failed", summary: message, isError: true });
+    emitScopedAssistantEvent(live, owner, { kind: "error", phase: "failed", title: "Codex app-server turn failed", summary: message, isError: true });
     return;
   }
   if (method === "turn/plan/updated") {
-    emitAssistantEvent(live, {
-      runId,
+    emitScopedAssistantEvent(live, owner, {
       itemId: itemIdFromAppServerParams(notification.params),
       kind: "plan-update",
       phase: "native-plan-updated",
@@ -686,8 +707,7 @@ function forwardAppServerNotification(runId: string, notification: CodexAppServe
   }
   if (method.includes("commandExecution")) {
     const command = commandFromAppServerParams(notification.params);
-    emitAssistantEvent(live, {
-      runId,
+    emitScopedAssistantEvent(live, owner, {
       itemId: itemIdFromAppServerParams(notification.params),
       kind: "command",
       phase: method.includes("completed") || method.includes("finished") ? "completed" : "running",
@@ -699,8 +719,7 @@ function forwardAppServerNotification(runId: string, notification: CodexAppServe
     return;
   }
   if (method.startsWith("item/") || method.startsWith("tool/")) {
-    emitAssistantEvent(live, {
-      runId,
+    emitScopedAssistantEvent(live, owner, {
       itemId: itemIdFromAppServerParams(notification.params),
       kind: "status",
       phase: "running",

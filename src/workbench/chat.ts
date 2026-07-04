@@ -258,7 +258,7 @@ async function runProjectScopedMainAgentTurn(project: ManagedProject, conversati
     onError: (error) => capture.sink.emit({ event: "error", data: { runId, message: error instanceof Error ? error.message : String(error) } }),
     model: effectiveModel.model,
   });
-  const assistantText = (result.lastMessage.trim() || capture.text.trim() || result.error || "").trim();
+  const assistantText = (capture.text.trim() || stripProjectScopedPromptEcho(result.lastMessage, userMessage).trim() || result.error || "").trim();
   await writeFile(join(directory, "last-message.md"), assistantText, "utf8");
   const assistant: TopicThreadEntry = {
     id: `assistant:${conversationId}:${Date.now().toString(36)}`,
@@ -280,6 +280,19 @@ async function runProjectScopedMainAgentTurn(project: ManagedProject, conversati
   }
   live?.emit({ event: "assistant.message", data: assistant });
   return assistant;
+}
+
+function stripProjectScopedPromptEcho(message: string, userMessage: string): string {
+  const trimmed = message.trim();
+  if (!trimmed) return "";
+  const userMarker = `User message:\n${userMessage}`;
+  const markerIndex = trimmed.indexOf(userMarker);
+  if (markerIndex >= 0) {
+    return trimmed.slice(markerIndex + userMarker.length).trim();
+  }
+  return trimmed
+    .replace(/^You are the main Agent for this project\.[\s\S]*?User message:\s*/i, "")
+    .trim();
 }
 
 function buildProjectConversationRunId(conversationId: string): string {

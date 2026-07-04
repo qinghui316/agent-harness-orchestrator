@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260704-main-agent-native-codex-interaction-alignment-v2-1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260704-codex-native-plan-mode-planning-agent-repair-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260703-workbench-conversation-harness-identity-real-ui-acceptance-v1/summary.md`.
@@ -190,6 +192,12 @@
 - Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-skills-catalog-and-codex-bridge-v1/summary.md`.
 - Latest completed Harness evolution:
+  `harness/changes/archive/20260704-auto-evolve-post-native-codex-plan-mode-window/summary.md`
+  (`docs_current_delta`; existing ECL/BOUNDARIES/WORKBENCH/RUNTIME coverage is
+  sufficient for native Codex Plan Mode, conversation identity, real UI
+  acceptance, and A2A workspace scoping; no new rule/template/lint/CI/runtime
+  change required. Pending evolution was marked complete).
+- Previous completed Harness evolution:
   `harness/changes/archive/20260703-auto-evolve-post-real-a2a-conversation-delete-window/summary.md`
   (`docs_current_delta`; subagent Socrates; existing ECL/BOUNDARIES plus
   Workbench/RUNTIME/BOUNDARIES docs cover real Codex A2A acceptance,
@@ -858,18 +866,18 @@ Harness workflow truth.
 
 Current main-agent / Workbench architecture work has no active change. Latest
 completed product slice is
-`harness/changes/archive/20260703-workbench-conversation-harness-identity-separation-v1/summary.md`.
+`harness/changes/archive/20260704-main-agent-native-codex-interaction-alignment-v2-1/summary.md`.
 Pending Harness evolution is none; the latest evolution closeout is
-`harness/changes/archive/20260703-auto-evolve-post-real-a2a-conversation-delete-window/summary.md`.
+`harness/changes/archive/20260704-auto-evolve-post-native-codex-plan-mode-window/summary.md`.
 
 Current Workbench state after the latest product closeout: conversations are
 chat windows and transcripts, not Harness Change ids. Ordinary project-scoped
-main Agent chat does not create a Change. Deleting a conversation removes only
-the conversation transcript/catalog row; it must not delete, close, abandon, or
-archive Harness Change evidence. Later conversations rely on project routing
-documents, Harness evidence/replay, current gates, and source state rather than
-deleted transcript history. The preceding real A2A/UI pass remains the latest
-verified interaction baseline for main-agent to child-agent flow.
+main Agent chat does not create a Change. Planning-agent interaction now
+prefers Codex app-server native Plan Mode: native plan events and runtime
+requestUserInput belong to the planning-agent workspace, while the main
+conversation keeps only parent-level narration and process rows. Harness truth
+remains Change/ECL, accepted artifacts, target freshness, ToolPolicyGate,
+validation/audit, confirmationQueue, and apply/close owners.
 
 Next structured work should be selected explicitly: continue desktop/A2A
 product polish, continue Goal-style autonomous loop runner acceptance, or take

@@ -331,20 +331,18 @@ function buildPlanningAgentDelegationPacket(input: {
   const feedbackSummary = input.feedback ? summarizeDemandForDelegation(input.feedback) : "";
   const previousSummary = input.previous
     ? [
-        `- 既有草案 id: ${input.previous.id}`,
-        `- 既有验收点数量: ${input.previous.acceptanceCriteria.length}`,
-        `- 既有任务数量: ${input.previous.tasks.length}`,
-      ].join("\n")
-    : "- 当前没有可复用的已审阅方案草案。";
+        "- 已有一个方案草案；本轮只需要按用户反馈调整它。",
+        input.previous.goal ? `- 现有目标摘要：${normalizeDelegationText(input.previous.goal).slice(0, 360)}` : "",
+      ].filter(Boolean).join("\n")
+    : "- 当前没有已有方案草案。";
   return [
-    "你是 planning-agent，是主 Agent 委派的 bounded leaf agent。请使用 Codex Plan Mode 进行规划。",
-    "这是一份薄委派上下文，不是用户原文转发，也不是完整父对话历史。",
+    "请使用 Codex Plan Mode 帮主 Agent 准备一份可审阅的方案。",
+    "这是主 Agent 整理后的委派上下文，不是完整对话历史。",
     "",
-    "职责边界：",
-    "- 只生成或修订可审阅的方案草案。",
+    "边界：",
     "- 不修改文件，不运行命令，不启动实现，不确认执行。",
-    "- 不递归委派其他 Agent；完成后把方案交回主 Agent。",
-    "- 如果需求仍不清楚，使用运行时用户输入请求提出问题，或在计划中清楚列出待确认点。",
+    "- 不委派其他 Agent；只把方案或必要问题交回。",
+    "- 如果缺少关键信息，优先用运行时提问能力向用户确认。",
     "",
     "主 Agent 对目标的理解：",
     parentUnderstanding || "用户希望先得到清晰、可审阅的实现方案，再决定是否实施。",
@@ -353,16 +351,15 @@ function buildPlanningAgentDelegationPacket(input: {
     userGoalSummary,
     "",
     input.revision ? "本轮用户反馈摘要：" : "本轮规划目标：",
-    input.revision ? feedbackSummary || "用户要求调整现有方案。" : "整理目标、约束、验收标准、实现步骤、风险和待确认点。",
+    input.revision ? feedbackSummary || "用户要求调整现有方案。" : "把目标、范围、实施路径和验证方式说清楚。",
     "",
     "当前方案上下文：",
     previousSummary,
     "",
-    "计划内容要求：",
-    "- 使用 Codex 原生 Plan Mode 输出计划，不要使用旧的 XML 计划包装标签。",
-    "- 计划应覆盖：目标、约束、验收标准、实现方案、任务清单、风险、待确认点。",
-    "- 使用用户语言，避免内部 Harness 对象名、Change id、TaskRun、WorkflowRun、queue、scheduler 等术语。",
-    "- 不要输出运行前言、命令说明、读取说明、内部机制说明或对用户的闲聊。",
+    "输出要求：",
+    "- 用用户的语言写自然、可审阅的计划。",
+    "- 不要暴露内部对象名、运行 id、队列、调度器或系统机制。",
+    "- 不要使用 XML 包装标签。",
   ].join("\n");
 }
 
@@ -375,11 +372,10 @@ function validateReviewablePlanningText(markdown: string, source: PlanningArtifa
     /约束|范围|边界|constraint|scope|boundary/i,
     /验收|验证|测试|acceptance|verification|test/i,
     /实现|方案|步骤|implementation|approach|steps/i,
-    /任务|清单|task|todo/i,
     /风险|待确认|risk|question|clarify/i,
   ];
   const signalCount = signals.filter((pattern) => pattern.test(markdown)).length;
-  if (signalCount < 2) return { usable: false, reason: "plan lacks enough planning structure signals" };
+  if (signalCount < 1) return { usable: false, reason: "plan lacks enough planning structure signals" };
   const warnings = source === "prompt-plan-contract"
     ? ["Planning output came from legacy <proposed_plan> fallback rather than native Codex Plan item."]
     : [];

@@ -157,6 +157,18 @@ export function extractCodexAppServerPlanText(method: string, params: Record<str
   return "";
 }
 
+export function buildCodexAppServerCollaborationModePayload(mode: CodexAppServerTurnOptions["collaborationMode"], model: string | null): Record<string, unknown> | undefined {
+  if (mode !== "plan") return undefined;
+  return {
+    mode: "plan",
+    settings: {
+      model,
+      developer_instructions: null,
+      reasoning_effort: null,
+    },
+  };
+}
+
 export async function detectCodexAppServerCapability(): Promise<CodexAppServerCapabilities> {
   let help: string | null = null;
   let spawnError: string | undefined;
@@ -263,6 +275,7 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
     await writeSession("started");
 
     const turnModel = options.model?.trim() || null;
+    const collaborationMode = buildCodexAppServerCollaborationModePayload(options.collaborationMode, turnModel);
     const turnRequest = {
       threadId,
       input: [userTextInput(options.prompt), ...imageInputs(options.imageInputs)],
@@ -270,16 +283,7 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
       sandboxPolicy: sandboxPolicyFor(options.sandboxPolicy, options.cwd),
       approvalPolicy: "never",
       ...(turnModel ? { model: turnModel } : {}),
-      ...(options.collaborationMode === "plan" && turnModel ? {
-        collaborationMode: {
-          mode: "plan",
-          settings: {
-            model: turnModel,
-            developer_instructions: null,
-            reasoning_effort: null,
-          },
-        },
-      } : {}),
+      ...(collaborationMode ? { collaborationMode } : {}),
     };
     const turnResponse = await sendRequest("turn/start", turnRequest);
     turnId = extractTurnId(turnResponse);
@@ -432,7 +436,7 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
       terminalError = JSON.stringify(params);
     } else if (method === "item/completed") {
       const finalText = extractCompletedText(params);
-      if (finalText && !lastMessage.includes(finalText)) lastMessage += finalText;
+      if (isAssistantMessageItem(params) && finalText && !lastMessage.includes(finalText)) lastMessage += finalText;
       if (isPlanItem(params) && finalText) {
         planText = finalText;
         options.onPlanUpdate?.(finalText, params);
@@ -608,6 +612,18 @@ function isPlanItem(params: Record<string, unknown>): boolean {
     || item.kind === "proposed-plan"
     || item.type === "plan-implementation"
     || item.kind === "plan-implementation";
+}
+
+function isAssistantMessageItem(params: Record<string, unknown>): boolean {
+  const item = isRecord(params.item) ? params.item : params;
+  return item.type === "agentMessage"
+    || item.kind === "agentMessage"
+    || item.type === "assistantMessage"
+    || item.kind === "assistantMessage"
+    || item.type === "agent_message"
+    || item.kind === "agent_message"
+    || item.type === "assistant_message"
+    || item.kind === "assistant_message";
 }
 
 function extractTurnPlanText(params: Record<string, unknown>): string {

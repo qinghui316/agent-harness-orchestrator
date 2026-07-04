@@ -8,6 +8,8 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260704-main-agent-native-codex-interaction-alignment-v2-1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260704-codex-native-plan-mode-planning-agent-repair-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260703-workbench-conversation-harness-identity-real-ui-acceptance-v1/summary.md`.
@@ -192,6 +194,12 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Previous archived docs/reference change:
   `harness/changes/archive/20260626-document-desktop-cc-gui-reference-map-and-product-layer-roadmap/summary.md`.
 - Latest completed Harness evolution:
+  `harness/changes/archive/20260704-auto-evolve-post-native-codex-plan-mode-window/summary.md`
+  (`docs_current_delta`; existing ECL/BOUNDARIES/WORKBENCH/RUNTIME coverage is
+  sufficient for native Codex Plan Mode, conversation identity, real UI
+  acceptance, and A2A workspace scoping; no new rule/template/lint/CI/runtime
+  change required. Pending evolution was marked complete).
+- Previous completed Harness evolution:
   `harness/changes/archive/20260703-auto-evolve-post-real-a2a-conversation-delete-window/summary.md`
   (`docs_current_delta`; subagent Socrates; existing ECL/BOUNDARIES plus
   Workbench/RUNTIME/BOUNDARIES docs cover real Codex A2A acceptance,

@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-07-04T07:51:15.0729638Z",
+    "generated_at":  "2026-07-04T09:06:01.9592223Z",
     "active":  [
 
                ],
@@ -2511,8 +2511,16 @@
                         "path":  "harness/changes/archive/20260703-workbench-conversation-harness-identity-separation-v1"
                     },
                     {
+                        "name":  "20260704-auto-evolve-post-native-codex-plan-mode-window",
+                        "path":  "harness/changes/archive/20260704-auto-evolve-post-native-codex-plan-mode-window"
+                    },
+                    {
                         "name":  "20260704-codex-native-plan-mode-planning-agent-repair-v1",
                         "path":  "harness/changes/archive/20260704-codex-native-plan-mode-planning-agent-repair-v1"
+                    },
+                    {
+                        "name":  "20260704-main-agent-native-codex-interaction-alignment-v2-1",
+                        "path":  "harness/changes/archive/20260704-main-agent-native-codex-interaction-alignment-v2-1"
                     }
                 ]
 }

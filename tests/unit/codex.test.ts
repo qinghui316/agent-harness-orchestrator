@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { evaluateCodexAppServerCapabilities, extractCodexAppServerPlanText, shouldUseCodexAppServerForMemory, shouldUseCodexAppServerForReadOnlyTurn } from "../../src/codex/app-server.js";
+import { buildCodexAppServerCollaborationModePayload, evaluateCodexAppServerCapabilities, extractCodexAppServerPlanText, shouldUseCodexAppServerForMemory, shouldUseCodexAppServerForReadOnlyTurn } from "../../src/codex/app-server.js";
 import { buildCodexReadonlyArgv, buildCodexReadonlyResumeArgv, buildCodexWorkspaceWriteArgv, evaluateCodexCapabilities } from "../../src/codex/capabilities.js";
 import { createCodexJsonlStreamParser, extractFinalMessageFromCodexJsonl, truncateReadablePreview, type CodexJsonlStreamEvent } from "../../src/codex/jsonl.js";
 import { candidatesFromModelListResponse, getCodexModelSettingsSnapshot, resolveCodexEffectiveModel, setSelectedCodexModel } from "../../src/codex/model-settings.js";
@@ -70,6 +70,18 @@ describe("codex capabilities", () => {
     expect(extractCodexAppServerPlanText("item/completed", {
       item: { type: "proposed-plan", markdown: "## 目标\n生成计划\n\n## 验收\n通过测试" },
     })).toContain("## 目标");
+  });
+
+  it("keeps native Plan Mode collaboration payload even when no explicit model is selected", () => {
+    expect(buildCodexAppServerCollaborationModePayload("plan", null)).toEqual({
+      mode: "plan",
+      settings: {
+        model: null,
+        developer_instructions: null,
+        reasoning_effort: null,
+      },
+    });
+    expect(buildCodexAppServerCollaborationModePayload(undefined, null)).toBeUndefined();
   });
 
   it("builds root-level approval argv", () => {

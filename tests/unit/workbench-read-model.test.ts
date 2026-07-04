@@ -801,6 +801,7 @@ describe("workbench read-model projections", () => {
 
     expect(JSON.stringify(snapshot.right.confirmationQueue)).not.toContain("planning.confirm-execution");
     expect(JSON.stringify(snapshot.right.confirmationQueue)).not.toContain("planning.generate");
+    expect(JSON.stringify(snapshot.right.agentWorkspace.agents.find((agent) => agent.id === "planning-agent")?.transcript.cells ?? [])).not.toContain("方案材料");
     expect(snapshot.right.agentWorkspace.agents.find((agent) => agent.id === "planning-agent")?.actions).toEqual(expect.arrayContaining([
       expect.objectContaining({ actionType: "planning.confirm-execution", planningBundleId: expect.any(String), label: "实施此计划" }),
     ]));
@@ -834,9 +835,11 @@ describe("workbench read-model projections", () => {
 
     expect(parentText).not.toContain("CHILD PLANNING DRAFT BODY");
     expect(JSON.stringify(planningAgent?.transcript.cells)).toContain("CHILD PLANNING DRAFT BODY");
+    expect(JSON.stringify(planningAgent?.transcript.cells)).not.toContain("方案材料");
     expect(planningAgent?.transcript.cells).toEqual(expect.arrayContaining([
       expect.objectContaining({ agentRoleId: "planning-agent", runId: "run-planning-agent" }),
     ]));
+    expect(planningAgent?.clarifications).toBeUndefined();
   });
 
   it("prefers persisted assistant blocks over legacy activity when rebuilding the thread", async () => {
