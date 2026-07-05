@@ -130,6 +130,14 @@ Decisions:
 - A Workbench conversation id is not a Harness Change id. Ordinary chat does
   not create workflow truth; planning, gated actions, apply, and close must
   carry explicit Harness Change scope.
+- Provider runtime scope is not Harness Change scope. Ordinary main-agent
+  chat may use a conversation/runtime scope, while workflow actions must carry
+  explicit Change scope only when they cross into Harness planning, gated
+  execution, apply, or close.
+- Workbench must not infer child-agent delegation by parsing visible main-agent
+  text, user keywords, or fixed phrases. Child Agent / plan surfaces may appear
+  only from real provider runtime ownership metadata or explicit Harness
+  workflow actions.
 - Deleting a Workbench conversation is a conversation-layer cleanup only. It
   must not close, abandon, cancel, move, archive, or garbage-collect any
   Harness Change, ECL files, workflow evidence, ResumePoint, current gate, or

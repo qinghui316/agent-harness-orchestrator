@@ -391,18 +391,17 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
     await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "app-server.started", runId, data: { phase: "chat", resumed: Boolean(runtime.codexSessionId) } });
     const liveOwner = appServerLiveOwner(runId, options.planningMode ? "planning-agent" : undefined);
     const textDeltaFilter = createMainAgentStrategyAdviceDeltaFilter((delta) => emitScopedAssistantDelta(live, liveOwner, delta));
-    let emittedNativePlanText = "";
-    const emitNativePlanText = (text: string, replace = false): void => {
+    let nativePlanText = "";
+    const emitNativePlanEvent = (text: string, replace = false): void => {
       if (!options.planningMode || !text.trim()) return;
-      if (replace) {
-        if (!emittedNativePlanText) {
-          emittedNativePlanText = text;
-          textDeltaFilter.feed(text);
-        }
-        return;
-      }
-      emittedNativePlanText += text;
-      textDeltaFilter.feed(text);
+      nativePlanText = replace ? text : `${nativePlanText}${text}`;
+      emitScopedAssistantEvent(live, liveOwner, {
+        itemId: "native-plan",
+        kind: "plan-update",
+        phase: replace ? "updated" : "streaming",
+        title: "计划",
+        summary: nativePlanText,
+      });
     };
     const result = await runCodexAppServerTurn({
       projectId: project.id,
@@ -421,12 +420,12 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
       existingThreadId: runtime.codexSessionId,
       onTextDelta: (delta) => textDeltaFilter.feed(delta),
       onPlanDelta: (delta) => {
-        emitNativePlanText(delta);
+        emitNativePlanEvent(delta);
       },
       onPlanUpdate: (text, params) => {
         if (!options.planningMode) return;
         void params;
-        emitNativePlanText(text, true);
+        emitNativePlanEvent(text, true);
       },
       onNotification: (notification) => forwardAppServerNotification(runId, notification, live, liveOwner),
       onUserInputRequest: (request) => {

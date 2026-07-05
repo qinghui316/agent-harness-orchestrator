@@ -1879,6 +1879,40 @@ describe("Workbench module boundaries", () => {
     expect(draftHandler).not.toMatch(/live\?\.emit\(\{ event: "assistant\.message", data: assistant/);
   });
 
+  it("keeps ordinary project chat from heuristically starting planning-agent", () => {
+    const chat = readFileSync("src/workbench/chat.ts", "utf8");
+    const conversationPath = chat.slice(
+      chat.indexOf("export async function createWorkbenchConversation"),
+      chat.indexOf("export async function listConversationMessages"),
+    );
+    expect(chat).not.toContain("shouldAutoDelegateInitialPlanningAgent");
+    expect(chat).not.toContain("runProjectScopedPlanningAgentDelegationIfNeeded");
+    expect(chat).not.toContain("runInitialPlanningAgentDelegationIfNeeded");
+    expect(conversationPath).not.toContain("createConcurrentChange(project");
+    expect(conversationPath).not.toContain("generatePlanningDraft");
+    expect(chat).not.toContain("If planning is the next step, say naturally");
+  });
+
+  it("keeps Codex native plan events scoped instead of flattening them into assistant deltas", () => {
+    const bridge = readFileSync("src/workbench/codex-chat/bridge.ts", "utf8");
+    expect(bridge).toContain('kind: "plan-update"');
+    expect(bridge).toContain('itemId: "native-plan"');
+    expect(bridge).toContain("onPlanDelta: (delta) =>");
+    expect(bridge).toContain("onPlanUpdate: (text, params) =>");
+    expect(bridge).not.toContain("textDeltaFilter.feed(text)");
+    expect(bridge).not.toContain("emitNativePlanText");
+  });
+
+  it("separates Codex app-server runtime scope from Harness Change scope", () => {
+    const appServer = readFileSync("src/codex/app-server.ts", "utf8");
+    const chat = readFileSync("src/workbench/chat.ts", "utf8");
+    expect(appServer).toContain("runtimeScopeId?: string");
+    expect(appServer).toContain("const runtimeScopeId = options.runtimeScopeId ?? options.changeId");
+    expect(appServer).toContain("runtimeScopeId: activeScopeId");
+    expect(chat).toContain("runtimeScopeId: conversationId");
+    expect(chat).not.toContain("changeId: conversationId");
+  });
+
   it("keeps integration-check manager as a compatibility facade", () => {
     const facade = readFileSync("src/integration-check/manager.ts", "utf8");
     expect(facade).toContain('from "./service.js"');

@@ -40,7 +40,7 @@ user demand
 -> main Agent explains understanding and delegates planning when needed
 -> planning-agent draft in the right Agent workspace
 -> user feedback / revised plan in the planning-agent workspace
--> user clicks "实施此计划"
+-> user types "实施此计划" / "可以执行" in the planning-agent workspace
 -> coder-agent implements and self-tests in an AHO-owned worktree
 -> optional live steering while coder is running
 -> validator independently checks
@@ -73,16 +73,35 @@ Agent orchestration graph overlay. The graph remains a wide read-only
 projection opened from the top tool button; it can explain main-agent decisions
 and leaf-role results, but it cannot execute workflow actions.
 
-The right rail separates interaction surfaces by responsibility. `Agent` shows
-selected main/child agent status, transcript/process rows, planning drafts,
-feedback, output summaries, and evidence refs. `确认` shows only real Harness
+The right rail separates interaction surfaces by responsibility. The center
+conversation is the main Agent surface, so the right `Agent` workspace shows
+only child-agent or provider-owned plan/session surfaces such as planning-agent,
+coder, validator, auditor, rework, or scheduler worker. It shows transcript /
+process rows, plan items, runtime question cards, feedback, output summaries,
+and evidence refs for that selected child surface. `确认` shows only real Harness
 gates such as source apply, landing/close, Scheduler/IntegrationCheck,
 remote/PR/merge, abandon/request-changes, or Harness evolution. Planning draft
 review is not a normal confirmationQueue primary card. The user-facing
-`实施此计划` affordance in the planning-agent workspace still calls the existing
+`实施此计划` intent in the planning-agent workspace still calls the existing
 `planning.confirm-execution` action with stale-target and cross-Change
 revalidation intact; the workspace is a projection and scoped interaction
 surface, not workflow truth or a permission system.
+
+Provider runtime events are projected by ownership, not by parsing visible
+assistant text. Ordinary main-agent chat must not start planning-agent by
+keyword, fixed phrase, or Workbench-side guess. A child-agent or plan workspace
+appears only when a real Harness action or provider runtime event carries a
+clear owner such as role/session/thread/turn/item identifiers. Explicit owner
+metadata wins; a single active turn may be used as a bounded fallback; ambiguous
+multi-turn events must stay unassigned rather than being pushed into the main
+conversation or the wrong Agent workspace.
+
+Codex native Plan Mode is the preferred planning interaction. Native plan
+deltas, plan updates, completed plan items, and runtime user-input requests
+belong in the planning-agent workspace. They are runtime interaction events,
+not Harness gates and not canonical workflow truth. The older
+`<proposed_plan>` proposal block is a replay/fallback path only and must be
+labeled honestly when used.
 
 OpenSpec is the reference for the planning artifact flow. Proposal, spec,
 design, tasks, and AC are artifacts produced and revised through the

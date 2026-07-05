@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { ProjectRegistryStore } from "../registry/store.js";
 import type { WorkbenchProjectInput } from "../workbench/manager.js";
-import { runInitialMainAgentTurn, runInitialPlanningAgentDelegationIfNeeded } from "../workbench/chat.js";
+import { runInitialMainAgentTurn } from "../workbench/chat.js";
 import { TerminalRuntime } from "./terminal/terminal-runtime.js";
 import { handleApi } from "./workbench/api-router.js";
 import { restoreDirectProjectInput } from "./workbench/direct-project.js";
@@ -25,7 +25,6 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
     store,
     terminalRuntime,
     initialMainAgentTurn: options.initialMainAgentTurn ?? runInitialMainAgentTurn,
-    initialPlanningAgentDelegation: options.initialPlanningAgentDelegation ?? runInitialPlanningAgentDelegationIfNeeded,
   };
   const server = createServer((request, response) => {
     handleRequest(context, request, response).catch((error: unknown) => {

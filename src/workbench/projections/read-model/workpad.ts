@@ -243,7 +243,7 @@ export async function buildWorkbenchWorkpad(input: {
       pendingFeedback: [],
       intake: {
         goal: selectedTopic.title,
-        currentUnderstanding: "这是普通主 Agent 对话。主 Agent 会按项目 AGENTS.md 和 Harness 文档自行判断当前状态。",
+        currentUnderstanding: "这是普通主 Agent 对话。主 Agent 会按项目说明和已记录的项目进度判断下一步。",
         source: "project",
         relatedArtifacts: [],
         missingInfo: [],
@@ -263,7 +263,7 @@ export async function buildWorkbenchWorkpad(input: {
       nextAction: {
         id: "conversation-only",
         label: "普通对话",
-        description: "该对话不是 Harness gate，也不代表 Change lifecycle。",
+        description: "这里可以继续和主 Agent 对话；只有你明确进入实施流程时，才会出现需要确认的操作。",
         kind: "read-only",
         enabled: true,
         requiresConfirmation: false,

@@ -66,10 +66,6 @@ async function fakeInitialMainAgentTurn(
   return entry;
 }
 
-async function fakeInitialPlanningAgentDelegation() {
-  return false;
-}
-
 describe("workbench server", () => {
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), "aho-server-"));
@@ -86,7 +82,6 @@ describe("workbench server", () => {
       port: 0,
       staticRoot,
       initialMainAgentTurn: fakeInitialMainAgentTurn,
-      initialPlanningAgentDelegation: fakeInitialPlanningAgentDelegation,
     });
   });
 
@@ -583,7 +578,6 @@ describe("workbench server", () => {
       staticRoot,
       store,
       initialMainAgentTurn: fakeInitialMainAgentTurn,
-      initialPlanningAgentDelegation: fakeInitialPlanningAgentDelegation,
     });
     try {
       const status = await getJson<{ mode: string }>(`${appHandle.url}/api/app/status`);

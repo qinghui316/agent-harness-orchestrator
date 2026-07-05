@@ -249,14 +249,16 @@ Intake objects prepare the Change before Spec.
 
 `IntakeIteration` is an interaction/read-model record for current understanding, confirmed constraints, open questions, assumptions, and recommended next action.
 
-`ClarificationRequest` is the common question model for AHO-generated deterministic questions and future Codex app-server `tool/requestUserInput` prompts. In Phase 5S, answering a clarification updates AHO's deterministic intake projection; it does not resume the same Codex turn because the app-server bridge is not implemented.
+`ClarificationRequest` is the common question model for AHO-generated deterministic questions. Provider-native runtime questions such as Codex app-server `item/tool/requestUserInput` are separate live interaction events: they render in the owning Agent transcript, submit answers back to the same provider request id, and do not become Harness confirmation gates or canonical planning artifacts by themselves.
 
 ## AgentSession And App-Server Runtime Handles
 
-`AgentSession` records a live or recently completed Codex app-server runtime handle:
+`AgentSession` records a live or recently completed provider app-server runtime handle:
 
 - `projectId`
-- `conversationId` / internal `changeId`
+- `conversationId`
+- runtime scope id
+- optional internal `changeId` when the turn belongs to a Harness workflow action
 - `roleId`
 - `runId`
 - `threadId`
@@ -267,7 +269,9 @@ Intake objects prepare the Change before Spec.
 
 It is stored with run artifacts such as `agent-session.json`, `app-server-events.jsonl`, `app-server-stderr.log`, and `app-server-last-message.md`. It is not a source of workflow truth and must not replace demand conversations, accepted planning artifacts, validation/audit artifacts, worktree state, or apply/merge decisions.
 
-Phase 6E uses AgentSession only for `planning-agent` and `coder-agent` turns. Steering is valid only while an app-server turn is active. If the adapter falls back to `codex exec`, user input is recorded as next-turn feedback instead of being presented as live steering.
+Provider runtime events are normalized for UI projection only: assistant text streams, plan deltas / updates / completions, runtime questions, tool lifecycle, child-session lifecycle, and turn lifecycle. Every event should carry provider and runtime owner ids such as conversation, thread, turn, item, run, agent role, or child session. Explicit owner metadata wins; a single active turn may be used as a bounded fallback; ambiguous multi-turn events must not be routed into the main transcript or a child Agent workspace.
+
+Phase 6E started AgentSession for `planning-agent` and `coder-agent` turns. Steering is valid only while an app-server turn is active. If the adapter falls back to `codex exec`, user input is recorded as next-turn feedback instead of being presented as live steering, and replay/fallback output must not be counted as live streaming acceptance.
 
 ### ResultReview
 

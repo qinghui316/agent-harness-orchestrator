@@ -14,7 +14,6 @@ import { artifactForActionResult, extractRunId, labelForAction, summarizeActionR
 import { assertWorkflowActionScope, auditHighImpactWorkflowAction, workflowActionScopePayload, workflowActionTargetId } from "./actions/boundary.js";
 import { dispatchWorkbenchWorkflowAction } from "./actions/dispatcher.js";
 import { buildWorkbenchActionHandlers } from "./actions/handlers/index.js";
-import { generatePlanningDraft } from "./actions/handlers/planning.js";
 import { recordWorkbenchDecision } from "./decisions.js";
 import { emitAssistantEvent } from "./live-events.js";
 import { stripAccidentalPlanningDraftFromMainAgentText } from "./main-agent-visible-text.js";
@@ -137,8 +136,7 @@ export async function createWorkbenchConversation(
     },
   });
   if (options.runMainAgent !== false) {
-    const assistant = await runProjectScopedMainAgentTurn(project, conversationId, body, live);
-    await runProjectScopedPlanningAgentDelegationIfNeeded(project, conversationId, body, assistant, live);
+    await runProjectScopedMainAgentTurn(project, conversationId, body, live);
   }
   return { conversationId, title: input.title, state: "active" };
 }
@@ -168,7 +166,6 @@ export async function postConversationMessage(project: ManagedProject, conversat
   }
   live?.emit({ event: "topic.message", data: user });
   const assistant = await runProjectScopedMainAgentTurn(project, conversationId, parsed.message, live);
-  await runProjectScopedPlanningAgentDelegationIfNeeded(project, conversationId, parsed.message, assistant, live);
   return { user, assistant, run: null, codexSessionId: null, mode: "chat", routingDecision: "same-topic", assistantMessage: assistant.text ?? "" };
 }
 
@@ -217,7 +214,7 @@ async function runProjectScopedMainAgentTurn(project: ManagedProject, conversati
     "Do not write child-Agent output, child-Agent logs, implementation plans, acceptance lists, task lists, or internal runtime details in this reply.",
     "Do not expose internal product terms in the user-visible reply, including Harness, AGENTS.md, Change, active change, worktree, AC, tasks, TaskRun, WorkflowRun, queue, scheduler, bundle, close gate, validation, or audit.",
     "Use plain user-facing words instead, such as 项目记录, 项目说明, 当前任务, 工作副本, 验收点, 计划, 检查, 审查, or 完成前确认.",
-    "If planning is the next step, say naturally that you will hand planning to planning-agent after this reply; do not claim the child Agent has already started.",
+    "If planning is the next step, explain the need in plain language and wait for the user or an explicit workflow action; do not announce or simulate child-Agent work.",
     "Reply in 2-4 sentences in the user's language.",
     "",
     "User message:",
@@ -235,7 +232,7 @@ async function runProjectScopedMainAgentTurn(project: ManagedProject, conversati
   const effectiveModel = await resolveCodexEffectiveModel();
   const result = await runCodexAppServerTurn({
     projectId: project.id,
-    changeId: conversationId,
+    runtimeScopeId: conversationId,
     roleId: "main-agent",
     runId,
     cwd: project.path,
@@ -292,57 +289,6 @@ async function runProjectScopedMainAgentTurn(project: ManagedProject, conversati
   return assistant;
 }
 
-async function runProjectScopedPlanningAgentDelegationIfNeeded(
-  project: ManagedProject,
-  conversationId: string,
-  userMessage: string,
-  assistant: TopicThreadEntry,
-  live?: WorkbenchLiveSink,
-): Promise<boolean> {
-  if (!shouldAutoDelegateInitialPlanningAgent(userMessage)) return false;
-  const memory = await resolveProjectMemory(project);
-  if (!memory.projectId) return false;
-  const store = await WorkbenchStore.open(memory);
-  try {
-    const conversation = store.readConversation(memory.projectId, conversationId);
-    if (!conversation || conversation.boundChangeId) return false;
-    const now = new Date().toISOString();
-    const created = await createConcurrentChange(project, {
-      title: conversation.title || summarizeConversationTitle(userMessage),
-      body: userMessage,
-    });
-    store.bindConversationToChange(memory.projectId, conversationId, created.change.id, now);
-    live?.emit({
-      event: "topic.created",
-      data: { topic: { id: conversationId, conversationId, changeId: created.change.id, title: conversation.title, state: "active" } },
-    });
-    await appendTopicThreadEntry(project, created.change.id, {
-      type: "user.message",
-      conversationId,
-      text: userMessage,
-    });
-    await appendTopicThreadEntry(project, created.change.id, {
-      type: "assistant.message",
-      status: "main-agent-initial-turn",
-      conversationId,
-      text: assistant.text ?? "",
-      runId: assistant.runId,
-      artifact: assistant.artifact,
-      activity: assistant.activity,
-      blocks: assistant.blocks,
-    });
-    await runInitialPlanningAgentDelegationIfNeeded(project, created.change.id, userMessage, live);
-    return true;
-  } finally {
-    store.close();
-  }
-}
-
-function summarizeConversationTitle(userMessage: string): string {
-  const compact = userMessage.replace(/\s+/g, " ").trim();
-  return compact.length > 80 ? `${compact.slice(0, 80)}...` : compact || "新对话";
-}
-
 function stripProjectScopedChildAgentLeak(message: string): string {
   const normalized = message.trim();
   if (!normalized) return "";
@@ -359,7 +305,7 @@ function stripProjectScopedChildAgentLeak(message: string): string {
   if (indexes.length === 0) return normalized;
   const cut = Math.min(...indexes);
   const parentText = normalized.slice(0, cut).trim();
-  return parentText || "我已经理解目标。下一步我会把规划交给 planning-agent；它只会整理计划，不会修改文件或执行代码。";
+  return parentText || "我已经理解目标。下一步需要先把需求和验收方式说清楚；在你确认前我不会修改文件或执行代码。";
 }
 
 function cleanUserVisibleAgentText(message: string): string {
@@ -429,50 +375,6 @@ export async function runInitialMainAgentTurn(project: ManagedProject, changeId:
   });
   live?.emit({ event: "assistant.message", data: assistant });
   return assistant;
-}
-
-export async function runInitialPlanningAgentDelegationIfNeeded(
-  project: ManagedProject,
-  changeId: string,
-  userMessage: string,
-  live?: WorkbenchLiveSink,
-): Promise<boolean> {
-  if (!shouldAutoDelegateInitialPlanningAgent(userMessage)) return false;
-  const { memory, changePath } = await resolveTopic(project, changeId);
-  const thread = await readThreadLog(memory, changePath);
-  const alreadyDelegated = thread.some((entry) =>
-    entry.agentRoleId === "planning-agent"
-    || entry.actionType === "planning.generate"
-    || entry.status === "main-agent-delegated-planning-agent"
-  );
-  if (alreadyDelegated) return false;
-  const delegation = await appendTopicThreadEntry(project, changeId, {
-    type: "assistant.message",
-    status: "main-agent-delegated-planning-agent",
-    text: "我会让 planning-agent 根据刚才确认的目标整理一份可审阅计划；计划在右侧 Agent 工作区中完善，确认实施前不会进入代码执行。",
-    blocks: [{
-      id: `main-agent:${changeId}:delegate-planning-agent`,
-      sequence: 1,
-      kind: "status",
-      timestamp: new Date().toISOString(),
-      source: "aho",
-      status: "agent-task-created",
-      title: "委派 planning-agent",
-      text: "主 Agent 已委派 planning-agent 整理可审阅计划。",
-    }],
-  });
-  live?.emit({ event: "assistant.message", data: delegation });
-  await generatePlanningDraft(project, changeId, undefined, live, false);
-  return true;
-}
-
-export function shouldAutoDelegateInitialPlanningAgent(userMessage: string): boolean {
-  const text = userMessage.trim();
-  if (!text) return false;
-  if (/(不要|别|先不|暂不).{0,12}(生成|写|创建|整理|输出).{0,8}(方案|计划|规划|清单|任务)/i.test(text)) return false;
-  if (/(不要|别|先不|暂不).{0,12}(planning-agent|规划|计划)/i.test(text)) return false;
-  if (/(只|仅).{0,8}(回复|确认|理解|说明|解释)/i.test(text) && /(不要|别|不需要).{0,12}(方案|计划|规划|清单)/i.test(text)) return false;
-  return true;
 }
 
 function initialMainAgentBlocks(blocks: AssistantTurnBlock[], runId: string, assistantText: string): AssistantTurnBlock[] {

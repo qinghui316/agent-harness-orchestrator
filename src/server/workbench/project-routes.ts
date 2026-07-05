@@ -37,7 +37,6 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
     assertRegisteredProject(input);
     await sendCreateTopicLive(input, request, response, {
       initialMainAgentTurn: context.initialMainAgentTurn,
-      initialPlanningAgentDelegation: context.initialPlanningAgentDelegation,
     });
     return;
   }

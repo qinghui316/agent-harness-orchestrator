@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-07-04T15:59:18.6160416Z",
+    "generated_at":  "2026-07-05T05:37:21.1843601Z",
     "active":  [
 
                ],
@@ -2529,6 +2529,10 @@
                     {
                         "name":  "20260704-native-codex-plan-question-flow-alignment-v1",
                         "path":  "harness/changes/archive/20260704-native-codex-plan-question-flow-alignment-v1"
+                    },
+                    {
+                        "name":  "20260705-provider-native-a2a-runtime-alignment-v1",
+                        "path":  "harness/changes/archive/20260705-provider-native-a2a-runtime-alignment-v1"
                     }
                 ]
 }

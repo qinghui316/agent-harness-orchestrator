@@ -29,7 +29,8 @@ export interface CodexAppServerSessionRecord {
   version: "1.0";
   adapter: "codex-app-server";
   projectId: string;
-  changeId: string;
+  changeId?: string;
+  runtimeScopeId: string;
   roleId: string;
   runId: string;
   threadId: string;
@@ -70,7 +71,8 @@ export interface CodexAppServerUserInputRequest {
   turnId?: string;
   itemId?: string;
   runId: string;
-  changeId: string;
+  changeId?: string;
+  runtimeScopeId: string;
   roleId: string;
   questions: CodexAppServerUserInputQuestion[];
 }
@@ -83,7 +85,8 @@ export type CodexAppServerUserInputRequestHandler = (request: CodexAppServerUser
 
 export interface CodexAppServerTurnOptions {
   projectId: string;
-  changeId: string;
+  changeId?: string;
+  runtimeScopeId?: string;
   roleId: string;
   runId: string;
   cwd: string;
@@ -113,7 +116,8 @@ export interface CodexAppServerTurnResult {
 }
 
 export interface ActiveCodexAppServerTurn {
-  changeId: string;
+  changeId?: string;
+  runtimeScopeId: string;
   roleId: string;
   runId: string;
   threadId: string;
@@ -182,17 +186,20 @@ export async function detectCodexAppServerCapability(): Promise<CodexAppServerCa
   return evaluateCodexAppServerCapabilities(help, spawnError);
 }
 
-export function getActiveCodexAppServerTurn(changeId: string): ActiveCodexAppServerTurn | null {
-  return activeTurns.get(changeId) ?? null;
+export function getActiveCodexAppServerTurn(scopeId: string): ActiveCodexAppServerTurn | null {
+  return activeTurns.get(scopeId) ?? null;
 }
 
-export async function respondToCodexAppServerUserInput(changeId: string, requestId: string, response: CodexAppServerUserInputResponse): Promise<void> {
-  const turn = getActiveCodexAppServerTurn(changeId);
+export async function respondToCodexAppServerUserInput(scopeId: string, requestId: string, response: CodexAppServerUserInputResponse): Promise<void> {
+  const turn = getActiveCodexAppServerTurn(scopeId);
   if (!turn) throw new Error("No active Codex app-server turn is waiting for user input.");
   await turn.respondToUserInput(requestId, response);
 }
 
 export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions): Promise<CodexAppServerTurnResult> {
+  const runtimeScopeId = options.runtimeScopeId ?? options.changeId;
+  if (!runtimeScopeId) throw new Error("Codex app-server turn requires a runtimeScopeId or changeId.");
+  const activeScopeId: string = runtimeScopeId;
   await Promise.all([
     prepareLogFile(options.paths.events),
     prepareLogFile(options.paths.stderr),
@@ -220,7 +227,8 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
       version: "1.0",
       adapter: "codex-app-server",
       projectId: options.projectId,
-      changeId: options.changeId,
+      ...(options.changeId ? { changeId: options.changeId } : {}),
+      runtimeScopeId: activeScopeId,
       roleId: options.roleId,
       runId: options.runId,
       threadId,
@@ -289,8 +297,9 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
     turnId = extractTurnId(turnResponse);
     if (!turnId) throw new Error("Codex app-server did not return a turn id.");
     await writeSession("running");
-    activeTurns.set(options.changeId, {
-      changeId: options.changeId,
+    activeTurns.set(activeScopeId, {
+      ...(options.changeId ? { changeId: options.changeId } : {}),
+      runtimeScopeId: activeScopeId,
       roleId: options.roleId,
       runId: options.runId,
       threadId,
@@ -321,7 +330,7 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
     await writeSession("failed", terminalError).catch(() => undefined);
     return { status: "failed", threadId, turnId, lastMessage, planText, error: terminalError };
   } finally {
-    activeTurns.delete(options.changeId);
+    activeTurns.delete(activeScopeId);
     for (const [, item] of pending) item.reject(new Error("Codex app-server turn finished."));
     pending.clear();
     try {
@@ -404,7 +413,8 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
       turnId: typeof params.turnId === "string" ? params.turnId : typeof params.turn_id === "string" ? params.turn_id : turnId ?? undefined,
       itemId: typeof params.itemId === "string" ? params.itemId : typeof params.item_id === "string" ? params.item_id : undefined,
       runId: options.runId,
-      changeId: options.changeId,
+      ...(options.changeId ? { changeId: options.changeId } : {}),
+      runtimeScopeId: activeScopeId,
       roleId: options.roleId,
       questions,
     };

@@ -17,6 +17,22 @@ The user should not need to know internal terms before asking for work. The main
 Current implementation state: no active implementation slice.
 
 Latest completed implementation slice:
+`harness/changes/archive/20260705-provider-native-a2a-runtime-alignment-v1/summary.md`.
+It removes Workbench-side guessed delegation from ordinary chat and separates
+provider runtime event ownership from Harness Change scope. Ordinary
+main-agent conversation remains project-scoped chat. Child Agent / plan
+surfaces are projected only from explicit provider runtime owner metadata or
+explicit Harness workflow actions. Codex native plan and request-user-input
+events belong to the planning-agent workspace; they are not flattened into the
+main transcript and do not become Harness gates or workflow truth.
+
+Previous completed implementation slice:
+`harness/changes/archive/20260704-native-codex-plan-question-flow-alignment-v1/summary.md`.
+It aligns planning-agent with Codex native Plan Mode, plan streaming, and
+runtime questions while keeping Harness confirmation, validation, audit,
+apply, and close as the execution authority.
+
+Previous completed implementation slice:
 `harness/changes/archive/20260703-workbench-conversation-harness-identity-separation-v1/summary.md`.
 It separates Workbench conversation ids from Harness Change ids. Ordinary
 project-scoped main Agent chat no longer creates workflow truth; real planning,

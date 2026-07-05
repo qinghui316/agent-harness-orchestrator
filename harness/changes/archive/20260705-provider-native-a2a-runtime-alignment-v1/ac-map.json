@@ -1,0 +1,18 @@
+﻿{
+    "version":  "1.0",
+    "generatedAt":  "2026-07-05T05:08:04.7836302Z",
+    "changeId":  "provider-native-a2a-runtime-alignment-v1",
+    "acceptanceCriteria":  [
+
+                           ],
+    "tasks":  [
+
+              ],
+    "warnings":  [
+                     "Run product planning or update ac-map.json before using AC-gated readiness."
+                 ],
+    "blockingIssues":  [
+                           "ac-map.json was backfilled without parsed acceptance criteria."
+                       ]
+}
+

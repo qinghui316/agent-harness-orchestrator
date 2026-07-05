@@ -8,7 +8,6 @@ import { readJsonBody } from "./http.js";
 import type {
   CreateTopicRequest,
   InitialMainAgentTurnRunner,
-  InitialPlanningAgentDelegationRunner,
   TopicMessageRequest,
 } from "./types.js";
 
@@ -51,7 +50,6 @@ export async function sendCreateTopicLive(
   response: ServerResponse,
   options: {
     initialMainAgentTurn: InitialMainAgentTurnRunner;
-    initialPlanningAgentDelegation: InitialPlanningAgentDelegationRunner;
   },
 ): Promise<void> {
   const body = await readCreateTopicBody(request);
