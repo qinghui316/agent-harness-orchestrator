@@ -13,6 +13,75 @@ import {
   type DecompositionUnit,
 } from "../../workflow-artifacts/manager.js";
 import type { PlanningArtifactBundle, TopicThreadEntry } from "../types.js";
+
+type AgentPlanSectionKey = "goal" | "scope" | "acceptance" | "implementation" | "tasks" | "risks" | "questions" | "other";
+
+interface AgentAuthoredPlanSections {
+  goal: string;
+  constraints: string[];
+  acceptanceCriteria: string[];
+  design: string;
+  tasks: Array<{ id: string; title: string; acIds: string[] }>;
+  risks: string[];
+  openQuestions: string[];
+  sourceScopeConstraints: string[];
+  warnings: string[];
+}
+
+export function buildAgentAuthoredPlanningBundle(
+  memory: ResolvedMemory,
+  changePath: string,
+  changeId: string,
+  prompt: string,
+  previous: PlanningArtifactBundle | null,
+  revision: boolean,
+  options: {
+    proposedPlanMd: string;
+    proposedPlanRunId?: string;
+    planningMode?: PlanningArtifactBundle["planningMode"];
+    planningWarnings?: string[];
+  },
+): PlanningArtifactBundle {
+  const proposedPlanMd = options.proposedPlanMd.trim();
+  if (!proposedPlanMd) {
+    throw new Error("Agent-authored planning requires non-empty native plan content.");
+  }
+  const parsed = parseAgentAuthoredPlan(proposedPlanMd);
+  const now = new Date().toISOString();
+  const id = `planning-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+  const changeDir = join(memory.memoryRoot, changePath);
+  const artifact = displayArtifactPath(memory, join(changeDir, "planning", "latest-bundle.md"));
+  const planningWarnings = uniqueStrings([
+    ...(options.planningWarnings ?? []),
+    ...parsed.warnings,
+  ]);
+  const specMd = renderSpecMarkdown(changeId, parsed.goal, parsed.constraints, parsed.acceptanceCriteria);
+  const planMd = renderAgentAuthoredImplementationPlanMarkdown(proposedPlanMd, parsed.tasks);
+  const tasksMd = renderTasksMarkdown(parsed.tasks);
+  return {
+    id,
+    status: "draft",
+    ...(options.planningMode ? { planningMode: options.planningMode } : {}),
+    proposedPlanMd,
+    ...(options.proposedPlanRunId ? { proposedPlanRunId: options.proposedPlanRunId } : {}),
+    ...(planningWarnings.length ? { planningWarnings } : {}),
+    goal: parsed.goal,
+    constraints: parsed.constraints,
+    sourceScopeConstraints: parsed.sourceScopeConstraints,
+    acceptanceCriteria: parsed.acceptanceCriteria,
+    design: parsed.design,
+    tasks: parsed.tasks,
+    risks: parsed.risks,
+    openQuestions: parsed.openQuestions,
+    specMd,
+    planMd,
+    tasksMd,
+    acMapCandidate: buildAcMap({ changeId, specContent: specMd, tasksContent: tasksMd, placeholderFiles: [] }),
+    artifact,
+    updatedAt: now,
+  };
+}
+
 export function buildDeterministicPlanningBundle(
   memory: ResolvedMemory,
   changePath: string,
@@ -27,60 +96,15 @@ export function buildDeterministicPlanningBundle(
     planningWarnings?: string[];
   } = {},
 ): PlanningArtifactBundle {
-  const now = new Date().toISOString();
-  const id = `planning-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-  const goal = revision && previous ? `${previous.goal}\n\nRevision request: ${prompt}` : prompt;
-  const constraints = uniqueStrings([
-    ...(previous?.constraints ?? []),
-    ...extractConstraintCandidates(prompt),
-  ]);
-  const acceptanceCriteria = buildAcceptanceCriteria(goal, constraints);
-  const acIds = acceptanceCriteria.map((_item, index) => `AC-${String(index + 1).padStart(3, "0")}`);
-  const explicitSourceScopes = extractExplicitSourceScopes(goal);
-  const planningSignalText = [goal, options.proposedPlanMd].filter(Boolean).join("\n");
-  const proposedTaskSpecs = extractScopedTaskSpecs(options.proposedPlanMd ?? "");
-  const scopedTaskSpecs = proposedTaskSpecs.length >= 2
-    ? proposedTaskSpecs
-    : explicitSourceScopes.map((scope) => ({ scope, title: taskTitleForSourceScope(scope, goal) }));
-  const parallelSignal = hasParallelPlanningSignal(planningSignalText);
-  const tasks = parallelSignal && scopedTaskSpecs.length >= 2
-    ? scopedTaskSpecs.slice(0, 8).map((task, index) => ({
-        id: `T-${String(index + 1).padStart(3, "0")}`,
-        title: task.title,
-        acIds,
-      }))
-    : [
-        { id: "T-001", title: taskTitleForGoal(goal), acIds },
-      ];
-  const specMd = renderSpecMarkdown(changeId, goal, constraints, acceptanceCriteria);
-  const planMd = options.proposedPlanMd?.trim()
-    ? renderImplementationPlanMarkdownFromProposedPlan(options.proposedPlanMd, tasks)
-    : renderImplementationPlanMarkdown(goal, tasks);
-  const tasksMd = renderTasksMarkdown(tasks);
-  const changeDir = join(memory.memoryRoot, changePath);
-  const artifact = displayArtifactPath(memory, join(changeDir, "planning", "latest-bundle.md"));
-  return {
-    id,
-    status: "draft",
-    ...(options.planningMode ? { planningMode: options.planningMode } : {}),
-    ...(options.proposedPlanMd?.trim() ? { proposedPlanMd: options.proposedPlanMd.trim() } : {}),
+  if (!options.proposedPlanMd?.trim()) {
+    throw new Error("Deterministic planning content generation is retired; provide Agent-authored native plan content.");
+  }
+  return buildAgentAuthoredPlanningBundle(memory, changePath, changeId, prompt, previous, revision, {
+    proposedPlanMd: options.proposedPlanMd,
     ...(options.proposedPlanRunId ? { proposedPlanRunId: options.proposedPlanRunId } : {}),
-    ...(options.planningWarnings?.length ? { planningWarnings: options.planningWarnings } : {}),
-    goal,
-    constraints,
-    sourceScopeConstraints: explicitSourceScopes,
-    acceptanceCriteria,
-    design: "Use the smallest focused implementation in an AHO-owned worktree, add or update targeted verification for the accepted demand, then run independent validation and audit.",
-    tasks,
-    risks: ["Validation or audit may require one bounded rework cycle.", "User confirmation is still required before applying/merging source changes."],
-    openQuestions: [...(options.planningWarnings ?? [])],
-    specMd,
-    planMd,
-    tasksMd,
-    acMapCandidate: buildAcMap({ changeId, specContent: specMd, tasksContent: tasksMd, placeholderFiles: [] }),
-    artifact,
-    updatedAt: now,
-  };
+    ...(options.planningMode ? { planningMode: options.planningMode } : {}),
+    ...(options.planningWarnings ? { planningWarnings: options.planningWarnings } : {}),
+  });
 }
 
 export function buildDeterministicDecompositionPlan(
@@ -314,34 +338,6 @@ function extractExplicitSourceScopes(text: string): string[] {
   return scopes;
 }
 
-function extractScopedTaskSpecs(text: string): Array<{ scope: string; title: string }> {
-  if (!text.trim()) return [];
-  const specs: Array<{ scope: string; title: string }> = [];
-  const seen = new Set<string>();
-  for (const line of text.split(/\r?\n/)) {
-    if (!/(?:^|\s|[-*])(?:\[.\]\s*)?(?:T-\d{3}|任务\s*[A-Za-z0-9一二三四五六七八九十]+)/i.test(line)) continue;
-    const scope = extractExplicitSourceScopes(line)[0];
-    if (!scope) continue;
-    const normalized = normalizeScope(scope);
-    if (seen.has(normalized)) continue;
-    seen.add(normalized);
-    specs.push({ scope, title: taskTitleFromPlanLine(line, scope) });
-  }
-  return specs;
-}
-
-function taskTitleFromPlanLine(line: string, scope: string): string {
-  const cleaned = line
-    .replace(/^\s*[-*]\s*/, "")
-    .replace(/^\[.\]\s*/, "")
-    .replace(/^T-\d{3}\s*[:：-]?\s*/i, "")
-    .replace(/^任务\s*[A-Za-z0-9一二三四五六七八九十]+\s*[:：-]?\s*/i, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  const title = cleaned || `Update ${scope}`;
-  return title.length > 96 ? `${title.slice(0, 93)}...` : title;
-}
-
 function hasParallelPlanningSignal(text: string): boolean {
   return /并行|parallel|多个模块|多模块|independent|独立|低冲突|source\s*Scopes?|sourceScopes|互不重叠|无依赖|两个\s*(?:worker|任务|文件)|two[-\s]?(?:file|task|worker)/i.test(text);
 }
@@ -449,37 +445,179 @@ function rationaleForRecommendation(recommendation: DecompositionRecommendation,
   }
 }
 
-function extractConstraintCandidates(prompt: string): string[] {
-  const candidates: string[] = [];
-  if (/四舍五入|金额|按分|元|折扣|满\s*100|100\s*元/.test(prompt)) candidates.push("金额按分处理，涉及折扣时需要明确舍入规则。");
-  if (/会员/.test(prompt)) candidates.push("只有会员订单参与会员折扣规则。");
-  if (/非会员/.test(prompt)) candidates.push("非会员不打折。");
-  if (/100/.test(prompt)) candidates.push("会员订单满 100 元才触发折扣。");
-  if (/非\s*CI|not\s+ci|non[-\s]?ci/i.test(prompt)) candidates.push("真实验收入口不得接入默认 CI 或默认测试脚本。");
-  if (/fake|fixture|mock/i.test(prompt)) candidates.push("必须明确区分真实 Codex 验收和 fake/fixture 测试。");
-  if (/sandbox|同根|同一个仓|当前项目|current-project/i.test(prompt)) candidates.push("真实验收应使用外部 sandbox managed project 和外部 AHO runtime home，避免污染开发仓库。");
-  if (/Workbench|Codex|code\.run/i.test(prompt)) candidates.push("验收说明必须覆盖真实 Workbench action path 和真实 Codex code.run 证据。");
-  if (/测试|test/i.test(prompt)) candidates.push("需要补充或更新测试覆盖核心规则。");
-  return candidates;
+function parseAgentAuthoredPlan(markdown: string): AgentAuthoredPlanSections {
+  const sections = splitAgentPlanSections(markdown);
+  const goal = firstSectionItem(sections, ["goal"]);
+  const constraints = sectionItems(sections, ["scope"]);
+  const acceptance = sectionItems(sections, ["acceptance"]);
+  const implementationItems = sectionItems(sections, ["implementation"]);
+  const taskItems = sectionItems(sections, ["tasks"]);
+  const risks = sectionItems(sections, ["risks"]);
+  const openQuestions = sectionItems(sections, ["questions"]);
+  const missing: string[] = [];
+  if (!goal) missing.push("goal");
+  if (constraints.length === 0) missing.push("scope/constraints");
+  if (acceptance.length === 0) missing.push("acceptance/verification");
+  if (implementationItems.length === 0) missing.push("implementation approach");
+  if (taskItems.length === 0) missing.push("tasks");
+  if (missing.length > 0) {
+    throw new Error(`Agent-authored plan is missing required planning sections: ${missing.join(", ")}.`);
+  }
+  const acceptanceCriteria = acceptance.map((item, index) => normalizeAcceptanceCriterion(item, index));
+  const acIds = acceptanceCriteria.map((_item, index) => `AC-${String(index + 1).padStart(3, "0")}`);
+  const tasks = taskItems.map((item, index) => ({
+    id: normalizeTaskId(item, index),
+    title: normalizeTaskTitle(item),
+    acIds: referencedAcIds(item, acIds),
+  }));
+  const sourceScopeConstraints = uniqueStrings(extractExplicitSourceScopes([
+    goal,
+    ...constraints,
+    ...implementationItems,
+    ...taskItems,
+  ].join("\n")));
+  return {
+    goal,
+    constraints,
+    acceptanceCriteria,
+    design: implementationItems.join("\n"),
+    tasks,
+    risks,
+    openQuestions,
+    sourceScopeConstraints,
+    warnings: risks.length === 0 ? ["Agent-authored plan did not include an explicit risk section."] : [],
+  };
 }
 
-function buildAcceptanceCriteria(goal: string, constraints: string[]): string[] {
-  const criteria = uniqueStrings([`完成用户需求：${goal}`, ...constraints]);
-  return criteria.slice(0, 5).map((criterion, index) => `AC-${String(index + 1).padStart(3, "0")}: ${criterion}`);
+function splitAgentPlanSections(markdown: string): Record<AgentPlanSectionKey, string[]> {
+  const sections: Record<AgentPlanSectionKey, string[]> = {
+    goal: [],
+    scope: [],
+    acceptance: [],
+    implementation: [],
+    tasks: [],
+    risks: [],
+    questions: [],
+    other: [],
+  };
+  let current: AgentPlanSectionKey = "other";
+  for (const rawLine of markdown.split(/\r?\n/)) {
+    const key = agentPlanSectionKey(rawLine);
+    if (key) {
+      current = key;
+      const trailing = trailingSectionContent(rawLine);
+      if (trailing) sections[current].push(trailing);
+      continue;
+    }
+    sections[current].push(rawLine);
+  }
+  return sections;
 }
 
-function taskTitleForGoal(goal: string): string {
-  const compact = goal.replace(/\s+/g, " ").trim();
-  return compact.length > 80
-    ? `Implement accepted demand: ${compact.slice(0, 77)}...`
-    : `Implement accepted demand: ${compact}`;
+function agentPlanSectionKey(line: string): AgentPlanSectionKey | null {
+  const label = normalizeSectionLabel(line);
+  if (!label) return null;
+  if (/^(goal|objective|purpose|目标|目的|需求|用户目标|本轮目标)$/.test(label)) return "goal";
+  if (/^(scope|constraints?|boundar(y|ies)|non-goals?|范围|约束|边界|非目标|不做什么)$/.test(label)) return "scope";
+  if (/^(acceptance|acceptance criteria|verification|validation|tests?|验收|验收标准|验证|测试|检查方式)$/.test(label)) return "acceptance";
+  if (/^(approach|implementation|implementation plan|plan|design|steps|方案|实现方案|实施方案|计划|步骤)$/.test(label)) return "implementation";
+  if (/^(tasks?|task list|todo|任务|任务清单|待办)$/.test(label)) return "tasks";
+  if (/^(risks?|risk|风险|风险和缓解|注意事项)$/.test(label)) return "risks";
+  if (/^(questions?|open questions?|clarifications?|待确认|澄清问题|问题|需要确认)$/.test(label)) return "questions";
+  return null;
 }
 
-function taskTitleForSourceScope(scope: string, goal: string): string {
-  const normalized = scope.replace(/\\/g, "/");
-  const compactGoal = goal.replace(/\s+/g, " ").trim();
-  const suffix = compactGoal.length > 48 ? `${compactGoal.slice(0, 45)}...` : compactGoal;
-  return `Update ${normalized}: ${suffix}`;
+function normalizeSectionLabel(line: string): string {
+  const trimmed = line.trim();
+  if (!trimmed) return "";
+  const heading = trimmed.match(/^#{1,6}\s+(.+?)\s*#*\s*$/)?.[1]
+    ?? trimmed.match(/^\*\*(.+?)\*\*\s*[:：]?\s*$/)?.[1]
+    ?? trimmed.match(/^(.{1,40}?)[：:]\s*$/)?.[1]
+    ?? trimmed.match(/^(.{1,40}?)$/)?.[1];
+  if (!heading) return "";
+  const withoutNumbering = heading
+    .replace(/^\s*(?:\d+[.)、]\s*|[-*]\s*)/, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  return withoutNumbering;
+}
+
+function trailingSectionContent(line: string): string {
+  const match = line.trim().match(/^#{1,6}\s+[^:：]+[:：]\s*(.+)$/)
+    ?? line.trim().match(/^[^:：]{1,40}[:：]\s*(.+)$/);
+  return match?.[1]?.trim() ?? "";
+}
+
+function firstSectionItem(sections: Record<AgentPlanSectionKey, string[]>, keys: AgentPlanSectionKey[]): string {
+  return sectionItems(sections, keys)[0] ?? "";
+}
+
+function sectionItems(sections: Record<AgentPlanSectionKey, string[]>, keys: AgentPlanSectionKey[]): string[] {
+  const items: string[] = [];
+  for (const key of keys) {
+    const paragraphs: string[] = [];
+    for (const rawLine of sections[key]) {
+      const normalized = normalizePlanContentLine(rawLine);
+      if (!normalized) {
+        flushParagraph(paragraphs, items);
+        continue;
+      }
+      if (agentPlanSectionKey(rawLine)) {
+        flushParagraph(paragraphs, items);
+        continue;
+      }
+      if (/^(?:[-*]\s+|\d+[.)、]\s+|\[[ xX]\]\s+)/.test(rawLine.trim())) {
+        flushParagraph(paragraphs, items);
+        items.push(normalized);
+      } else {
+        paragraphs.push(normalized);
+      }
+    }
+    flushParagraph(paragraphs, items);
+  }
+  return uniqueStrings(items).map((item) => item.length > 500 ? `${item.slice(0, 497)}...` : item);
+}
+
+function flushParagraph(paragraph: string[], items: string[]): void {
+  if (paragraph.length === 0) return;
+  items.push(paragraph.join(" "));
+  paragraph.length = 0;
+}
+
+function normalizePlanContentLine(line: string): string {
+  return line
+    .replace(/^\s*[-*]\s+/, "")
+    .replace(/^\s*\[[ xX]\]\s+/, "")
+    .replace(/^\s*\d+[.)、]\s+/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeAcceptanceCriterion(item: string, index: number): string {
+  const id = `AC-${String(index + 1).padStart(3, "0")}`;
+  return item.match(/^AC-\d{3}\s*[:：-]/i)
+    ? item.replace(/^AC-\d{3}/i, id)
+    : `${id}: ${item}`;
+}
+
+function normalizeTaskId(item: string, index: number): string {
+  return item.match(/\bT-\d{3}\b/i)?.[0].toUpperCase() ?? `T-${String(index + 1).padStart(3, "0")}`;
+}
+
+function normalizeTaskTitle(item: string): string {
+  const title = item
+    .replace(/\bT-\d{3}\b\s*[:：-]?\s*/i, "")
+    .replace(/\b(?:covers?|覆盖)\s*[:：]?\s*AC-\d{3}(?:\s*,\s*AC-\d{3})*/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!title) throw new Error("Agent-authored plan contains an empty task title.");
+  return title.length > 160 ? `${title.slice(0, 157)}...` : title;
+}
+
+function referencedAcIds(item: string, fallbackIds: string[]): string[] {
+  const refs = Array.from(item.matchAll(/\bAC-\d{3}\b/gi)).map((match) => match[0].toUpperCase());
+  return refs.length > 0 ? uniqueStrings(refs) : fallbackIds;
 }
 
 function renderSpecMarkdown(changeId: string, goal: string, constraints: string[], acceptanceCriteria: string[]): string {
@@ -492,7 +630,7 @@ function renderSpecMarkdown(changeId: string, goal: string, constraints: string[
     "",
     "## Constraints",
     "",
-    ...(constraints.length > 0 ? constraints.map((item) => `- ${item}`) : ["- No extra constraints confirmed yet."]),
+    ...constraints.map((item) => `- ${item}`),
     "",
     "## Acceptance Criteria",
     "",
@@ -501,32 +639,13 @@ function renderSpecMarkdown(changeId: string, goal: string, constraints: string[
   ].join("\n");
 }
 
-function renderImplementationPlanMarkdown(goal: string, tasks: PlanningArtifactBundle["tasks"]): string {
-  return [
-    "# Plan",
-    "",
-    "## Approach",
-    "",
-    `Implement the accepted demand in one Coding Work Package: ${goal}`,
-    "",
-    "## Tasks",
-    "",
-    ...tasks.map((task) => `- ${task.id}: ${task.title} (${task.acIds.join(", ")})`),
-    "",
-    "## Verification",
-    "",
-    "- Run targeted tests, then independent validation and audit.",
-    "",
-  ].join("\n");
-}
-
-function renderImplementationPlanMarkdownFromProposedPlan(proposedPlanMd: string, tasks: PlanningArtifactBundle["tasks"]): string {
+function renderAgentAuthoredImplementationPlanMarkdown(proposedPlanMd: string, tasks: PlanningArtifactBundle["tasks"]): string {
   return [
     "# Plan",
     "",
     proposedPlanMd.trim(),
     "",
-    "## AHO Derived Task Mapping",
+    "## Accepted Task Mapping",
     "",
     ...tasks.map((task) => `- ${task.id}: ${task.title} (${task.acIds.join(", ")})`),
     "",

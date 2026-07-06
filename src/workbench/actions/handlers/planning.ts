@@ -134,9 +134,9 @@ import type {
 import type { WorkbenchActionHandlerMap } from "../dispatcher.js";
 import { runPostPlanScopedAutomation } from "./automation.js";
 import {
+  buildAgentAuthoredPlanningBundle,
   buildDecompositionReadinessManifest,
   buildDeterministicDecompositionPlan,
-  buildDeterministicPlanningBundle,
 } from "../../planning/builders.js";
 import { writePlanningBundle } from "../../planning/persistence.js";
 import { extractProposedPlanBlock } from "../../planning/proposed-plan.js";
@@ -231,11 +231,11 @@ export async function generatePlanningDraft(
     ? extractProposedPlanBlock(planningMessage)
     : null;
   const proposedPlanMd = cleanPlanningAgentVisibleText(rawPlanText || fallbackExtraction?.proposedPlanMd || "");
-  const planSource: PlanningArtifactBundle["planningMode"] = rawPlanText
+  const planSource: PlanningArtifactBundle["planningMode"] | undefined = rawPlanText
     ? "codex-native-plan"
     : fallbackExtraction?.proposedPlanMd
       ? "prompt-plan-contract"
-      : "deterministic-fallback";
+      : undefined;
   const planValidation = validateReviewablePlanningText(proposedPlanMd, planSource);
   if (!planValidation.usable) {
     if (planningMessage) {
@@ -291,10 +291,10 @@ export async function generatePlanningDraft(
     ...(fallbackExtraction?.warnings ?? []),
     ...(planValidation.warnings ?? []),
   ];
-  const bundle = buildDeterministicPlanningBundle(memory, changePath, changeId, latestUserText, previous, revision, {
+  const bundle = buildAgentAuthoredPlanningBundle(memory, changePath, changeId, latestUserText, previous, revision, {
     proposedPlanMd,
     proposedPlanRunId: planningRuntime.run.id,
-    planningMode: planSource,
+    ...(planSource ? { planningMode: planSource } : {}),
     planningWarnings,
   });
   await writePlanningBundle(memory, changePath, bundle);
@@ -362,15 +362,13 @@ function buildPlanningAgentDelegationPacket(input: {
       ].filter(Boolean).join("\n")
     : "- 当前没有已有计划。";
   return [
-    "请作为 planning-agent 帮主 Agent 完成一次只读规划。",
-    "你正在 Codex Plan Mode 中工作；请使用自然语言与用户澄清并形成计划。",
-    "面向用户的输出要像普通计划对话，不要使用内部流程词，例如 Harness、AGENTS.md、Change、active change、worktree、AC、tasks、TaskRun、WorkflowRun、queue、scheduler、bundle、close gate、validation、audit。",
-    "需要表达这些概念时，请改用用户能理解的说法，例如项目记录、项目说明、当前任务、工作副本、验收点、计划、检查、审查、完成前确认。",
+    "你是 planning-agent，正在 Codex Plan Mode 中帮助主 Agent 做只读规划。",
+    "请根据下面的信息和项目文件，直接形成用户能审阅的计划；如果关键信息不足，使用运行时提问能力向用户提问。",
     "",
     "边界：",
     "- 不要修改文件、运行命令、开始实现或确认实施。",
     "- 不要再委派其它 Agent。",
-    "- 如果关键信息不足，直接向用户提出简短问题。",
+    "- 不要暴露内部对象名、运行 id、队列、调度器或系统机制。",
     "",
     "主 Agent 对需求的理解：",
     parentUnderstanding || "用户希望先得到清晰、可审阅的计划，再决定是否实施。",
@@ -384,10 +382,8 @@ function buildPlanningAgentDelegationPacket(input: {
     "已有计划上下文：",
     previousSummary,
     "",
-    "表达要求：",
-    "- 使用用户的语言自然回复。",
-    "- 不要暴露内部对象名、运行 id、队列、调度器或系统机制。",
-    "- 不要使用 XML 包裹标签。",
+    "计划需要让后续实施者看得懂目标、范围、验收方式、实施步骤、任务拆分、风险和待确认点。",
+    "不要套固定模板；按这次需求自然组织。",
   ].join("\n");
 }
 
@@ -420,7 +416,7 @@ function cleanPlanningAgentBlocks(blocks: AssistantTurnBlock[]): AssistantTurnBl
   }));
 }
 
-function validateReviewablePlanningText(markdown: string, source: PlanningArtifactBundle["planningMode"]): { usable: boolean; reason?: string; warnings?: string[] } {
+function validateReviewablePlanningText(markdown: string, source: PlanningArtifactBundle["planningMode"] | undefined): { usable: boolean; reason?: string; warnings?: string[] } {
   const normalized = markdown.replace(/\s+/g, " ").trim();
   if (!normalized) return { usable: false, reason: "empty plan text" };
   if (normalized.length < 80) return { usable: false, reason: "plan text is too short" };
@@ -432,7 +428,8 @@ function validateReviewablePlanningText(markdown: string, source: PlanningArtifa
     /风险|待确认|risk|question|clarify/i,
   ];
   const signalCount = signals.filter((pattern) => pattern.test(markdown)).length;
-  if (signalCount < 1) return { usable: false, reason: "plan lacks enough planning structure signals" };
+  if (!source) return { usable: false, reason: "native Plan Mode did not return a plan item" };
+  if (signalCount < 3) return { usable: false, reason: "plan lacks enough planning structure signals" };
   const warnings = source === "prompt-plan-contract"
     ? ["Planning output came from legacy <proposed_plan> fallback rather than native Codex Plan item."]
     : [];

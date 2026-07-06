@@ -8,7 +8,7 @@ import { createWorkbenchTopic } from "../../src/workbench/chat.js";
 import { getWorkbenchDecompositionPlanProjection, getWorkbenchDecompositionReadinessProjection, getWorkbenchSchedulerClaimReservationProjection, getWorkbenchSchedulerContractProjection, getWorkbenchSnapshot, getWorkbenchTaskQueueProposalProjection, getWorkbenchWorkflowGraphPlanProjection } from "../../src/workbench/manager.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { listAgentTasks } from "../../src/agent-task/manager.js";
-import { buildDeterministicDecompositionPlan, buildDeterministicPlanningBundle } from "../../src/workbench/planning/builders.js";
+import { buildAgentAuthoredPlanningBundle, buildDeterministicDecompositionPlan, buildDeterministicPlanningBundle } from "../../src/workbench/planning/builders.js";
 import { listWorktreeStatuses } from "../../src/worktree/manager.js";
 import { listTaskQueues } from "../../src/task-queue/manager.js";
 import { listTaskRuns } from "../../src/task-run/manager.js";
@@ -36,46 +36,79 @@ describe("workbench planning and scheduler preparation", () => {
     expect(await shouldIncludeFirstOnboardingSkill(memory, second.changeId)).toBe(false);
   });
 
-  it("builds generic planning artifacts from the accepted demand instead of stale demo rules", async () => {
+  it("does not build planning artifacts from raw demand without Agent-authored plan content", async () => {
     await initHarness(project());
     const memory = await resolveProjectMemory(project());
     const prompt = "为 AHO 增加一个非 CI 的 current-project real Codex acceptance 入口或说明，明确如何用当前项目跑真实 Workbench/Codex 验收，并区分它和 fake fixture 测试。";
 
-    const bundle = buildDeterministicPlanningBundle(memory, "harness/changes/active/real-codex-acceptance", "real-codex-acceptance", prompt, null, false);
-    const acceptedText = [...bundle.acceptanceCriteria, bundle.design, bundle.tasks[0]?.title ?? ""].join("\n");
-
-    expect(acceptedText).toContain("完成用户需求");
-    expect(acceptedText).toContain("真实 Codex 验收");
-    expect(acceptedText).toContain("Workbench action path");
-    expect(acceptedText).not.toContain("金额按分");
-    expect(acceptedText).not.toContain("pricing rule");
+    expect(() => buildDeterministicPlanningBundle(memory, "harness/changes/active/real-codex-acceptance", "real-codex-acceptance", prompt, null, false))
+      .toThrow("Deterministic planning content generation is retired");
   });
 
-  it("splits deterministic planning tasks for explicit independent source scopes", async () => {
+  it("builds planning artifacts from Agent-authored native plan sections", async () => {
     await initHarness(project());
     const memory = await resolveProjectMemory(project());
-    const prompt = "请并行独立修改 src/alpha.ts 和 src/beta.ts：分别新增 alphaLabel 和 betaLabel 导出，并保持两个文件互不依赖。";
+    const plan = [
+      "## 目标",
+      "为 AHO 增加真实 UI 验收说明，区分真实 Codex app-server 验收和 fake fixture 测试。",
+      "",
+      "## 范围",
+      "- 更新 docs/WORKBENCH.md 中的真实验收入口说明。",
+      "- 不修改 runtime 权限或默认 CI。",
+      "",
+      "## 验收标准",
+      "- 能说明真实 App、真实项目和真实 Codex app-server 的验收路径。",
+      "- 能说明 fake fixture 不能冒充真实验收。",
+      "",
+      "## 实施方案",
+      "- 补充 Workbench 文档里的真实验收路径。",
+      "- 增加针对文档内容的轻量检查。",
+      "",
+      "## 任务",
+      "- 更新 docs/WORKBENCH.md 的真实验收说明，覆盖 AC-001。",
+      "- 更新对应测试或检查，覆盖 AC-002。",
+      "",
+      "## 风险",
+      "- Codex runtime 不可用时只能记录 blocked，不能宣称验收通过。",
+    ].join("\n");
 
-    const bundle = buildDeterministicPlanningBundle(memory, "harness/changes/active/parallel-files", "parallel-files", prompt, null, false);
+    const bundle = buildAgentAuthoredPlanningBundle(memory, "harness/changes/active/real-codex-acceptance", "real-codex-acceptance", "raw demand is context only", null, false, {
+      proposedPlanMd: plan,
+      planningMode: "codex-native-plan",
+    });
 
-    expect(bundle.tasks).toEqual([
-      expect.objectContaining({ id: "T-001", title: expect.stringContaining("src/alpha.ts"), acIds: ["AC-001"] }),
-      expect.objectContaining({ id: "T-002", title: expect.stringContaining("src/beta.ts"), acIds: ["AC-001"] }),
+    expect(bundle.goal).toContain("真实 UI 验收说明");
+    expect(bundle.constraints).toContain("更新 docs/WORKBENCH.md 中的真实验收入口说明。");
+    expect(bundle.acceptanceCriteria).toEqual([
+      "AC-001: 能说明真实 App、真实项目和真实 Codex app-server 的验收路径。",
+      "AC-002: 能说明 fake fixture 不能冒充真实验收。",
     ]);
-    expect(bundle.sourceScopeConstraints).toEqual(["src/alpha.ts", "src/beta.ts"]);
-    expect(bundle.tasksMd).toContain("T-001");
-    expect(bundle.tasksMd).toContain("src/alpha.ts");
-    expect(bundle.tasksMd).toContain("T-002");
-    expect(bundle.tasksMd).toContain("src/beta.ts");
+    expect(bundle.tasks).toEqual([
+      expect.objectContaining({ id: "T-001", title: expect.stringContaining("docs/WORKBENCH.md"), acIds: ["AC-001"] }),
+      expect.objectContaining({ id: "T-002", title: expect.stringContaining("测试或检查"), acIds: ["AC-002"] }),
+    ]);
+    expect(bundle.design).toContain("补充 Workbench 文档");
+    expect(bundle.risks).toEqual([expect.stringContaining("Codex runtime")]);
   });
 
-  it("preserves scoped tasks from a Codex proposed plan instead of collapsing to one worktree", async () => {
+  it("preserves scoped tasks from Agent-authored plan instead of collapsing to one worktree", async () => {
     await initHarness(project());
     const memory = await resolveProjectMemory(project());
     const prompt = "请做一个低冲突两文件改动：把 src/alpha.ts 和 src/beta.ts 分别更新，后续组合问题由 IntegrationFix 处理。";
     const proposedPlanMd = [
       "目标:",
       "- 低冲突 TaskGraph，两项任务互不重叠。",
+      "",
+      "范围:",
+      "- 只修改 src/alpha.ts。",
+      "- 只修改 src/beta.ts。",
+      "",
+      "验收标准:",
+      "- AC-001: src/alpha.ts 的 alphaMode 已更新。",
+      "- AC-002: src/beta.ts 的 betaMode 已更新。",
+      "",
+      "实施方案:",
+      "- 两个文件可作为独立任务处理，组合问题由后续检查处理。",
       "",
       "任务清单:",
       "- [ ] T-001: 修改 `src/alpha.ts` 的 alphaMode，覆盖 AC-001。",
@@ -85,7 +118,7 @@ describe("workbench planning and scheduler preparation", () => {
       "- 两个 worker 先独立验证，再进入组合检查。",
     ].join("\n");
 
-    const bundle = buildDeterministicPlanningBundle(memory, "harness/changes/active/proposed-plan-parallel", "proposed-plan-parallel", prompt, null, false, {
+    const bundle = buildAgentAuthoredPlanningBundle(memory, "harness/changes/active/proposed-plan-parallel", "proposed-plan-parallel", prompt, null, false, {
       proposedPlanMd,
       planningMode: "prompt-plan-contract",
     });
@@ -107,12 +140,34 @@ describe("workbench planning and scheduler preparation", () => {
     });
   });
 
-  it("does not treat negated source paths as accepted scheduler source scopes", async () => {
+  it("does not treat negated source paths in Agent-authored plan as accepted scheduler source scopes", async () => {
     await initHarness(project());
     const memory = await resolveProjectMemory(project());
-    const prompt = "请把这个需求作为低冲突 TaskGraph 执行：任务 A 只修改 src/alpha.ts，把 alphaMode 从 legacy 改成 modern；任务 B 只修改 src/beta.ts，把 betaMode 从 legacy 改成 modern。两个任务 sourceScopes 必须分别是 src/alpha.ts 和 src/beta.ts，互不重叠、无依赖；不要在 worker 阶段新增 src/integration-note.ts，组合验证需要时由 IntegrationFix 处理。";
+    const proposedPlanMd = [
+      "目标:",
+      "- 低冲突 TaskGraph，两项任务互不重叠。",
+      "",
+      "范围:",
+      "- 只修改 src/alpha.ts。",
+      "- 只修改 src/beta.ts。",
+      "- 不要在 worker 阶段新增 src/integration-note.ts。",
+      "",
+      "验收标准:",
+      "- AC-001: src/alpha.ts 的 alphaMode 从 legacy 改成 modern。",
+      "- AC-002: src/beta.ts 的 betaMode 从 legacy 改成 modern。",
+      "",
+      "实施方案:",
+      "- 两个任务 sourceScopes 分别是 src/alpha.ts 和 src/beta.ts，组合验证需要时由 IntegrationFix 处理。",
+      "",
+      "任务清单:",
+      "- [ ] T-001: 修改 `src/alpha.ts` 的 alphaMode，覆盖 AC-001。",
+      "- [ ] T-002: 修改 `src/beta.ts` 的 betaMode，覆盖 AC-002。",
+    ].join("\n");
 
-    const bundle = buildDeterministicPlanningBundle(memory, "harness/changes/active/negated-scope", "negated-scope", prompt, null, false);
+    const bundle = buildAgentAuthoredPlanningBundle(memory, "harness/changes/active/negated-scope", "negated-scope", "raw demand is context only", null, false, {
+      proposedPlanMd,
+      planningMode: "codex-native-plan",
+    });
 
     expect(bundle.sourceScopeConstraints).toEqual(["src/alpha.ts", "src/beta.ts"]);
     expect(bundle.tasks).toEqual([
@@ -129,16 +184,27 @@ describe("workbench planning and scheduler preparation", () => {
     });
   });
 
-  it("does not treat active-change safety warnings as multi-change implementation intent", async () => {
+  it("fails closed when Agent-authored plan lacks task evidence", async () => {
     await initHarness(project());
     const memory = await resolveProjectMemory(project());
-    const prompt = "新增 src/cheer.ts，导出 cheerGreeting(name: string)。当前 harness/changes/active/ 中存在多个 active change；本任务不得创建第二个 active change。";
-    const bundle = buildDeterministicPlanningBundle(memory, "harness/changes/active/cheer", "cheer", prompt, null, false);
+    const incompletePlan = [
+      "## 目标",
+      "新增 src/cheer.ts，导出 cheerGreeting(name: string)。",
+      "",
+      "## 范围",
+      "- 只修改 src/cheer.ts。",
+      "",
+      "## 验收标准",
+      "- cheerGreeting 返回可读问候语。",
+      "",
+      "## 实施方案",
+      "- 添加函数并验证导出。",
+    ].join("\n");
 
-    const plan = buildDeterministicDecompositionPlan(memory, "harness/changes/active/cheer", "cheer", bundle, [], undefined);
-
-    expect(plan.recommendation).toBe("single-change");
-    expect(plan.rationale).toContain("one Change");
+    expect(() => buildAgentAuthoredPlanningBundle(memory, "harness/changes/active/cheer", "cheer", "raw demand is context only", null, false, {
+      proposedPlanMd: incompletePlan,
+      planningMode: "codex-native-plan",
+    })).toThrow("tasks");
   });
 
   it("projects draft planning next action into the planning-agent workspace", async () => {

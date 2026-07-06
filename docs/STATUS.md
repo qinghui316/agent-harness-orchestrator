@@ -2,10 +2,13 @@
 
 ## Current Handoff
 
-- Current date: 2026-07-05.
+- Current date: 2026-07-06.
 - Active ECL change: none.
-- Pending Harness evolution: none.
+- Pending Harness evolution:
+  `harness/evolution/pending.md`.
 - Latest archived product change:
+  `harness/changes/archive/20260706-provider-native-agent-authored-planning-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260705-provider-native-a2a-runtime-alignment-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260704-native-codex-plan-question-flow-alignment-v1/summary.md`.

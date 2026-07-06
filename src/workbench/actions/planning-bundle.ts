@@ -7,7 +7,7 @@ import type { PlanningArtifactBundle } from "../types.js";
 const planningBundleSchema = z.object({
   id: z.string(),
   status: z.enum(["draft", "confirmed"]),
-  planningMode: z.enum(["codex-native-plan", "codex-plan-mode", "prompt-plan-contract", "deterministic-fallback"]).optional(),
+  planningMode: z.enum(["codex-native-plan", "codex-plan-mode", "prompt-plan-contract"]).optional(),
   proposedPlanMd: z.string().optional(),
   proposedPlanRunId: z.string().optional(),
   planningWarnings: z.array(z.string()).optional(),

@@ -1037,7 +1037,7 @@ export type Workpad = {
 export type PlanningArtifactBundle = {
   id: string;
   status?: "draft" | "confirmed";
-  planningMode?: "codex-native-plan" | "codex-plan-mode" | "prompt-plan-contract" | "deterministic-fallback";
+  planningMode?: "codex-native-plan" | "codex-plan-mode" | "prompt-plan-contract";
   proposedPlanMd?: string;
   proposedPlanRunId?: string;
   planningWarnings?: string[];
