@@ -24,12 +24,55 @@ export interface CodexConfigModelStatus {
   reason?: string;
 }
 
+export type CodexFeatureConfigState = "default-enabled" | "default-disabled" | "enabled" | "disabled" | "unknown";
+
+export interface CodexNativeCollabConfigStatus {
+  configPath: string;
+  configExists: boolean;
+  multiAgent: CodexFeatureConfigState;
+  multiAgentV2: CodexFeatureConfigState;
+  reason?: string;
+}
+
 export function getCodexConfigPath(options: CodexTrustOptions = {}): string {
   return join(options.codexHome ?? process.env.CODEX_HOME ?? join(homedir(), ".codex"), "config.toml");
 }
 
 export async function readCodexDefaultModel(options: CodexTrustOptions = {}): Promise<string | null> {
   return (await readCodexConfigModelStatus(options)).model;
+}
+
+export async function readCodexNativeCollabConfigStatus(options: CodexTrustOptions = {}): Promise<CodexNativeCollabConfigStatus> {
+  const configPath = getCodexConfigPath(options);
+  try {
+    const content = await readFile(configPath, "utf8");
+    const parsed = parseToml(content) as Record<string, unknown>;
+    const features = isRecord(parsed.features) ? parsed.features : {};
+    return {
+      configPath,
+      configExists: true,
+      multiAgent: featureState(features.multi_agent ?? features.collab, "default-enabled"),
+      multiAgentV2: featureState(features.multi_agent_v2, "default-disabled"),
+    };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return {
+        configPath,
+        configExists: false,
+        multiAgent: "default-enabled",
+        multiAgentV2: "default-disabled",
+        reason: "Codex config.toml was not found; using Codex feature defaults.",
+      };
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      configPath,
+      configExists: true,
+      multiAgent: "unknown",
+      multiAgentV2: "unknown",
+      reason: `Invalid Codex config.toml: ${message}`,
+    };
+  }
 }
 
 export async function readCodexConfigModelStatus(options: CodexTrustOptions = {}): Promise<CodexConfigModelStatus> {
@@ -156,4 +199,18 @@ function trimTrailingBlankLines(lines: string[]): string[] {
 
 function ensureTrailingNewline(content: string): string {
   return content.endsWith("\n") ? content : `${content}\n`;
+}
+
+function featureState(value: unknown, defaultState: "default-enabled" | "default-disabled"): CodexFeatureConfigState {
+  if (typeof value === "boolean") return value ? "enabled" : "disabled";
+  if (isRecord(value)) {
+    const enabled = value.enabled;
+    if (typeof enabled === "boolean") return enabled ? "enabled" : "disabled";
+  }
+  if (value === undefined || value === null) return defaultState;
+  return "unknown";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

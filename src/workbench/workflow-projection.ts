@@ -770,8 +770,6 @@ export interface WorkbenchSchedulerReconcileSnapshotSummary {
 type WorkflowProjectionActionType =
   | "intake.scan"
   | "intake.reanalyze"
-  | "planning.generate"
-  | "planning.confirm-execution"
   | "planning.decompose"
   | "planning.decomposition.confirm"
   | "planning.decomposition.assess-readiness"
@@ -813,7 +811,6 @@ export interface WorkbenchTypedWorkflowNextAction {
   enabled: boolean;
   requiresConfirmation: boolean;
   actionType: WorkflowProjectionActionType;
-  planningBundleId?: string;
   decompositionPlanId?: string;
   readinessManifestId?: string;
   taskQueueProposalId?: string;
@@ -868,11 +865,6 @@ export interface TypedWorkflowProjectionReadiness {
 export interface TypedWorkflowProjectionIntake {
   pendingClarifications: unknown[];
   openQuestions: unknown[];
-}
-
-export interface TypedWorkflowPlanningBundle {
-  id: string;
-  status: "draft" | "confirmed";
 }
 
 export async function readLatestDecompositionPlanSummary(memory: ResolvedMemory, changePath: string): Promise<WorkbenchDecompositionPlanSummary | null> {
@@ -2017,7 +2009,6 @@ export function buildTypedWorkflowNextAction(input: {
   topic: TypedWorkflowProjectionTopic;
   readiness: TypedWorkflowProjectionReadiness;
   intake?: TypedWorkflowProjectionIntake;
-  planningBundle?: TypedWorkflowPlanningBundle | null;
   decompositionPlan?: WorkbenchDecompositionPlanSummary | null;
   decompositionReadiness?: WorkbenchDecompositionReadinessSummary | null;
   taskQueueProposal?: WorkbenchTaskQueueProposalSummary | null;
@@ -2048,19 +2039,19 @@ export function buildTypedWorkflowNextAction(input: {
   schedulerRunBlockedCloseout?: WorkbenchSchedulerRunBlockedCloseoutSummary | null;
   workflowRun?: WorkflowRunSummary | null;
 }): WorkbenchTypedWorkflowNextAction {
-  const { topic, readiness, intake, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, schedulerWorkerAudit, schedulerWorkerReworkPlan, schedulerWorkerReworkStart, schedulerWorkerReworkResult, schedulerWorkerReworkValidation, schedulerWorkerReworkAudit, schedulerWorkerPaths = [], schedulerIntegrationCandidate, schedulerIntegrationCheckHandoff, schedulerIntegrationOutcome, schedulerRunCompletion, schedulerRunBlockedCloseout, workflowRun } = input;
+  const { topic, readiness, intake, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, schedulerWorkerAudit, schedulerWorkerReworkPlan, schedulerWorkerReworkStart, schedulerWorkerReworkResult, schedulerWorkerReworkValidation, schedulerWorkerReworkAudit, schedulerWorkerPaths = [], schedulerIntegrationCandidate, schedulerIntegrationCheckHandoff, schedulerIntegrationOutcome, schedulerRunCompletion, schedulerRunBlockedCloseout, workflowRun } = input;
   if (!readiness.specReady && !topic.runs.some((run) => run.runtime === "intake-scan")) {
     return workflowNextAction("intake.scan", "分析需求", "先只读扫描项目，整理当前理解、相关文件和待确认问题。", false);
   }
   if (!readiness.specReady && (intake?.pendingClarifications.length || intake?.openQuestions.length)) {
     return workflowNextAction("intake.reanalyze", "继续澄清需求", "回答需要确认的问题，AHO 会更新当前理解。", false);
   }
-  if (planningBundle?.status === "draft") {
-    const next = workflowNextAction("planning.confirm-execution", "实施此计划", "确认 planning-agent 的当前方案并保存为正式计划记录；是否继续执行由当前执行模式决定。");
-    return { ...next, planningBundleId: planningBundle.id };
-  }
   if (!readiness.specReady || !readiness.planReady || !readiness.tasksReady) {
-    return workflowNextAction("planning.generate", "委派 planning-agent 规划", "委派 planning-agent 整理可审阅计划；结果显示在右侧 Agent 工作区，确认后才进入实施流程。");
+    return {
+      ...workflowNextAction("intake.reanalyze", "继续对话", "继续通过主 Agent 或 Plan session 补充需求；Workbench 不生成计划或任务。", false),
+      enabled: false,
+      disabledReason: "项目规则和计划内容应由 Agent 读取项目文档后处理，Workbench 不再提供工程化 planning action。",
+    };
   }
   if (!decompositionPlan) {
     return workflowNextAction("planning.decompose", "生成拆分提案", "根据已确认方案生成 DecompositionPlan；不会启动执行。");

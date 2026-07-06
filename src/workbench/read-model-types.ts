@@ -123,7 +123,6 @@ export interface ThreadStreamAction {
   enabled: boolean;
   requiresConfirmation: boolean;
   disabledReason?: string;
-  planningBundleId?: string;
   decompositionPlanId?: string;
   readinessManifestId?: string;
   taskQueueProposalId?: string;
@@ -158,7 +157,6 @@ export interface ThreadStreamAction {
   goalLoopControllerPolicyId?: string;
   goalLoopGateReadinessPreflightId?: string;
   goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
-  postPlanAutomationMode?: "request-approval" | "full-access";
   automationMode?: "request-approval" | "full-access";
   automationCurrentGateActionType?: ThreadStreamAction["actionType"];
   automationCurrentGateApprovalActionId?: string;
@@ -286,7 +284,6 @@ export interface WorkbenchDecisionAction {
     message?: string;
   };
   actionType?: ThreadStreamAction["actionType"];
-  planningBundleId?: string;
   decompositionPlanId?: string;
   readinessManifestId?: string;
   taskQueueProposalId?: string;
@@ -321,7 +318,6 @@ export interface WorkbenchDecisionAction {
   goalLoopControllerPolicyId?: string;
   goalLoopGateReadinessPreflightId?: string;
   goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
-  postPlanAutomationMode?: "request-approval" | "full-access";
   automationMode?: "request-approval" | "full-access";
   automationCurrentGateActionType?: ThreadStreamAction["actionType"];
   automationCurrentGateApprovalActionId?: string;
@@ -403,7 +399,6 @@ export interface WorkbenchAgentWorkspaceAgent {
   transcript: ParentAgentTranscript;
   evidenceRefs: DemandAgentRunEvidenceRef[];
   actions: WorkbenchDecisionAction[];
-  planningBundle?: WorkbenchPlanningArtifactBundle;
   clarifications?: ClarificationRequest[];
 }
 
@@ -437,7 +432,6 @@ export interface WorkbenchConfirmationQueueItem {
   runId?: string;
   worktreeId?: string;
   applyCheckId?: string;
-  planningBundleId?: string;
   landingPackageId?: string;
   schedulerRunId?: string;
   schedulerReconcileSnapshotId?: string;
@@ -464,7 +458,6 @@ export interface WorkbenchConfirmationQueueItem {
   goalLoopControllerPolicyId?: string;
   goalLoopGateReadinessPreflightId?: string;
   goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
-  postPlanAutomationMode?: "request-approval" | "full-access";
   automationMode?: "request-approval" | "full-access";
   automationCurrentGateActionType?: ThreadStreamAction["actionType"];
   automationCurrentGateApprovalActionId?: string;
@@ -549,7 +542,6 @@ export interface WorkpadNextAction {
   actionType?: ThreadStreamAction["actionType"];
   changeId?: string;
   approvalId?: string;
-  planningBundleId?: string;
   decompositionPlanId?: string;
   readinessManifestId?: string;
   taskQueueProposalId?: string;
@@ -929,8 +921,6 @@ export interface WorkbenchWorkpad {
   requiresUserInputReason?: string;
   scopedFeedbackTarget?: WorkbenchScopedFeedbackTarget;
   postArchiveEvolutionCandidate?: WorkbenchPostArchiveEvolutionCandidate;
-  planningDraft?: WorkbenchPlanningDraft;
-  planningArtifactBundle?: WorkbenchPlanningArtifactBundle;
   decompositionPlan?: WorkbenchDecompositionPlanSummary;
   decompositionReadiness?: WorkbenchDecompositionReadinessSummary;
   taskQueueProposal?: WorkbenchTaskQueueProposalSummary;
@@ -981,28 +971,6 @@ export interface WorkbenchWorkpad {
   nextAction: WorkpadNextAction;
   background: WorkpadBackgroundActivitySummary;
   memoryIsolation: WorkpadMemoryIsolationSummary;
-}
-
-export interface WorkbenchPlanningDraft {
-  id: string;
-  planningMode?: "codex-native-plan" | "codex-plan-mode" | "prompt-plan-contract";
-  proposedPlanMd?: string;
-  proposedPlanRunId?: string;
-  planningWarnings?: string[];
-  goal: string;
-  constraints: string[];
-  sourceScopeConstraints?: string[];
-  acceptanceCriteria: string[];
-  design: string;
-  tasks: Array<{ id: string; title: string; acIds: string[] }>;
-  risks: string[];
-  openQuestions: string[];
-  artifact?: string;
-  updatedAt?: string;
-}
-
-export interface WorkbenchPlanningArtifactBundle extends WorkbenchPlanningDraft {
-  status: "draft" | "confirmed";
 }
 
 export interface WorkbenchRoleRunSummary {

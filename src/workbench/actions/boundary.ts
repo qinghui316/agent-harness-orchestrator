@@ -1,5 +1,3 @@
-import { existsSync } from "node:fs";
-import { join } from "node:path";
 import { recordToolEventAuditEntry } from "../../agent-task/boundary-audit.js";
 import { evaluateToolPolicy, highImpactActions } from "../../agent-task/tool-policy.js";
 import { getChangeStatusForChange } from "../../change/manager.js";
@@ -45,7 +43,6 @@ import { readWorkflowRun } from "../../workflow-run/manager.js";
 import type { WorkbenchLiveSink, WorkbenchWorkflowActionRequest } from "../types.js";
 import { assertLatestWorkbenchActionTarget, assertPreparedWorkbenchActionTarget, assertWorkbenchActionChangeScope, assertWorkbenchActionOptionalStringTarget, assertWorkbenchActionStringArrayTarget, requireActiveChangeTarget } from "./active-target.js";
 import { assertGoalLoopAssistedConcreteGateConfirmation } from "./goal-loop-gate-confirmation.js";
-import { readLatestPlanningBundle } from "./planning-bundle.js";
 
 const HIGH_IMPACT_WORKBENCH_ACTIONS = new Set(highImpactActions());
 
@@ -166,14 +163,6 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
   if (request.goalLoopGateReadinessPreflightId) {
     const target = await requireActiveChangeTarget(memory, changeId, "Goal Loop-assisted concrete gate");
     await assertGoalLoopAssistedConcreteGateConfirmation(memory, target.path, changeId, request);
-  }
-  if (request.actionType === "planning.confirm-execution") {
-    const target = await requireActiveChangeTarget(memory, changeId, "planning.confirm-execution");
-    if (!request.planningBundleId) throw new Error("planning.confirm-execution requires planningBundleId.");
-    const bundle = await readLatestPlanningBundle(memory, target.path);
-    if (bundle.id !== request.planningBundleId || bundle.status !== "draft" || !existsSync(join(memory.memoryRoot, target.path, "planning", "latest-bundle.json"))) {
-      throw new Error("planning.confirm-execution target is stale or no longer confirmable.");
-    }
   }
   if (request.actionType === "planning.decomposition.confirm") {
     const target = await requireActiveChangeTarget(memory, changeId, "planning.decomposition.confirm");

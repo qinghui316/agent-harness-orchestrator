@@ -3848,6 +3848,42 @@ body.is-resizing-column {
   overscroll-behavior: contain;
 }
 
+.agent-workspace-handoff-card {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--bg-elevated);
+  box-shadow: 0 10px 24px rgba(28, 27, 26, 0.06);
+}
+
+.agent-workspace-handoff-card strong {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-strong);
+  font-size: 15px;
+}
+
+.agent-workspace-handoff-card p {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.agent-workspace-handoff-eyebrow {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.agent-workspace-handoff-button {
+  justify-content: center;
+  width: 100%;
+}
+
 .agent-transcript-pane {
   display: grid;
   gap: 14px;

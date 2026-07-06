@@ -6,6 +6,8 @@
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260707-provider-native-a2a-real-ui-acceptance-fix-pass-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260706-provider-native-agent-authored-planning-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260705-provider-native-a2a-runtime-alignment-v1/summary.md`.
@@ -881,15 +883,17 @@ Harness workflow truth.
 
 Current main-agent / Workbench architecture work has no active change. Latest
 completed product slice is
+`harness/changes/archive/20260707-provider-native-a2a-real-ui-acceptance-fix-pass-v1/summary.md`.
+The previous completed product slice is
 `harness/changes/archive/20260706-provider-native-agent-authored-planning-v1/summary.md`.
 Pending Harness evolution is none; the latest evolution closeout is
 `harness/changes/archive/20260706-auto-evolve-post-provider-native-agent-authored-planning-window/summary.md`.
 
-Current Workbench state after the latest product closeout: conversations are
-chat windows and transcripts, not Harness Change ids. Ordinary project-scoped
-main Agent chat does not create a Change. Planning-agent interaction now
-prefers Codex app-server native Plan Mode: native plan events and runtime
-requestUserInput belong to the planning-agent workspace, while the main
+Current Workbench state after the active closeout work: conversations are chat
+windows and transcripts, not Harness Change ids. Ordinary project-scoped main
+Agent chat does not create a Change. Codex app-server native Plan Mode projects
+native plan events and runtime requestUserInput into the `plan-session` / Plan
+Agent workspace unless the provider emits a real child-agent owner. The main
 conversation keeps only parent-level narration and process rows. Harness truth
 remains Change/ECL, accepted artifacts, target freshness, ToolPolicyGate,
 validation/audit, confirmationQueue, and apply/close owners.

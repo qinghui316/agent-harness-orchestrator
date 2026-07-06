@@ -8,7 +8,6 @@ type FeedbackSnapshotAction = Record<string, unknown> & {
   enabled?: boolean;
   actionType?: string;
   changeId?: string;
-  planningBundleId?: string;
   worktreeId?: string;
   applyCheckId?: string;
   runId?: string;
@@ -24,7 +23,6 @@ export type FeedbackSnapshotPrimary = Record<string, unknown> & {
   runId?: string;
   worktreeId?: string;
   applyCheckId?: string;
-  planningBundleId?: string;
   evidenceRefs?: string[];
   actions?: FeedbackSnapshotAction[];
 };
@@ -51,7 +49,7 @@ export function resolveFeedbackRouteFromPrimary(primary: FeedbackSnapshotPrimary
   const feedbackAction = resolveCurrentFeedbackAction(primary, body);
   const context = body.feedbackContext ?? {};
   const changeId = stringOrNull(context.changeId ?? feedbackAction.changeId ?? primary.changeId);
-  const targetId = stringOrNull(context.targetId ?? feedbackAction.worktreeId ?? primary.worktreeId ?? primary.applyCheckId ?? primary.resultId ?? feedbackAction.planningBundleId ?? primary.planningBundleId);
+  const targetId = stringOrNull(context.targetId ?? feedbackAction.worktreeId ?? primary.worktreeId ?? primary.applyCheckId ?? primary.resultId);
   const runId = stringOrNull(context.runId ?? feedbackAction.runId ?? primary.runId);
   const artifact = stringOrNull(context.artifact ?? feedbackAction.artifact ?? primary.evidenceRefs?.[0]);
   const label = typeof feedbackAction.label === "string" ? feedbackAction.label : "scoped feedback";
@@ -66,30 +64,6 @@ export function resolveFeedbackRouteFromPrimary(primary: FeedbackSnapshotPrimary
     runId,
     artifact,
   };
-
-  const planningAction = primary.actions?.find((action) => action.kind === "workflow-action" && action.actionType === "planning.confirm-execution");
-  const planningBundleId = stringOrNull(context.planningBundleId ?? feedbackAction.planningBundleId ?? primary.planningBundleId ?? planningAction?.planningBundleId);
-  if (primary.kind === "planning-confirm" && planningAction?.actionType === "planning.confirm-execution" && changeId && planningBundleId) {
-    return {
-      ...base,
-      decisionType: "planning.feedback",
-      targetId: planningBundleId,
-      workflowRequest: {
-        actionType: "planning.revise",
-        changeId,
-        planningBundleId,
-        feedback,
-        prompt: [
-          "用户在计划确认点提出修改意见。请基于当前需求、上一版计划和这条反馈修订计划。",
-          "",
-          `当前 planningBundleId: ${planningBundleId}`,
-          "",
-          "用户反馈：",
-          feedback,
-        ].join("\n"),
-      },
-    };
-  }
 
   const worktreeId = stringOrNull(context.worktreeId ?? feedbackAction.worktreeId ?? primary.worktreeId ?? (primary.kind === "single-result-apply" ? primary.resultId : undefined));
   if (primary.kind === "single-result-apply" && changeId && worktreeId) {
@@ -126,7 +100,7 @@ export function resolveLegacyFeedbackRoute(body: WorkbenchActionRequest): Feedba
     actionId: action?.actionId ?? context.actionId ?? "workbench.feedback",
     label: action?.label ?? "scoped feedback",
     summary: "User requested changes instead of accepting this decision.",
-    targetId: stringOrNull(context.targetId ?? context.planningBundleId ?? context.worktreeId ?? context.applyCheckId),
+    targetId: stringOrNull(context.targetId ?? context.worktreeId ?? context.applyCheckId),
     runId: stringOrNull(context.runId),
     artifact: stringOrNull(context.artifact),
   };
@@ -143,7 +117,6 @@ function resolveCurrentFeedbackAction(primary: FeedbackSnapshotPrimary, body: Wo
   if (context.changeId && primary.changeId && context.changeId !== primary.changeId) throwStaleFeedbackTarget();
   if (context.changeId && feedbackAction.changeId && context.changeId !== feedbackAction.changeId) throwStaleFeedbackTarget();
   if (context.actionKind && context.actionKind !== "feedback") throwStaleFeedbackTarget();
-  if (context.planningBundleId && stringOrNull(feedbackAction.planningBundleId ?? primary.planningBundleId) !== context.planningBundleId) throwStaleFeedbackTarget();
   if (context.worktreeId && stringOrNull(feedbackAction.worktreeId ?? primary.worktreeId ?? primary.resultId) !== context.worktreeId) throwStaleFeedbackTarget();
   if (context.applyCheckId && stringOrNull(feedbackAction.applyCheckId ?? primary.applyCheckId) !== context.applyCheckId) throwStaleFeedbackTarget();
   if (context.runId && primary.runId && context.runId !== primary.runId) throwStaleFeedbackTarget();

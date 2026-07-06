@@ -9,7 +9,6 @@ export type DecompositionRecommendation =
 
 export interface WorkflowRecoveryKeyInputs {
   changeId: string;
-  planningBundleId?: string;
   acceptedArtifactRefs: string[];
   contextScope: "selected-demand";
   sourceRevision?: string;

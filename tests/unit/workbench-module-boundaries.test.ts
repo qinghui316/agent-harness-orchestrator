@@ -83,14 +83,12 @@ import { assertLatestSchedulerArtifact } from "../../src/workflow-scheduler/guar
 import { assertLatestSchedulerRuntimeClaimReservationForSnapshot } from "../../src/scheduler-runtime/guards.js";
 import { dispatchWorkbenchWorkflowAction } from "../../src/workbench/actions/dispatcher.js";
 import { buildWorkbenchActionHandlers } from "../../src/workbench/actions/handlers/index.js";
-import { generatePlanningDraft } from "../../src/workbench/actions/handlers/planning.js";
 import { interruptConversation, steerConversation, stopRunningPipeline } from "../../src/workbench/actions/handlers/control.js";
 import { mergeRemoteLandingForAction, prepareLandingForAction, preparePrDraftForAction } from "../../src/workbench/actions/handlers/remote-handoff.js";
 import { runCodexChat } from "../../src/workbench/codex-chat/bridge.js";
 import { runMainAgentToolOrchestration } from "../../src/workbench/demand-workers/orchestration.js";
 import { recordWorkbenchDecision } from "../../src/workbench/decisions.js";
 import { emitAssistantEvent } from "../../src/workbench/live-events.js";
-import { buildAgentAuthoredPlanningBundle } from "../../src/workbench/planning/builders.js";
 import { createLiveSink, readWorkbenchActionEvents } from "../../src/server/workbench/live.js";
 import { getWorkbenchProjection } from "../../src/server/workbench/projections.js";
 import { matchProjectWorkbenchRoute } from "../../src/server/workbench/routes.js";
@@ -116,7 +114,6 @@ import { schedulerUserFacingActionLabel } from "../../src/workbench/projections/
 import { buildDemandAgentRunGraph, emptyAgentRunGraph } from "../../src/workbench/projections/read-model/run-graph.js";
 import { buildThreadStream, isConcreteChangeFile } from "../../src/workbench/projections/read-model/thread-stream.js";
 import { buildDecisionInspector } from "../../src/workbench/projections/read-model/decision-inspector.js";
-import { readLatestPlanningBundleProjection } from "../../src/workbench/projections/read-model/lazy-projections.js";
 import { buildResultReview } from "../../src/workbench/projections/read-model/result-review.js";
 import { buildTaskGraph, buildTaskQueueSummary, emptyTaskGraph } from "../../src/workbench/projections/read-model/task-graph.js";
 import { buildDiagnosticWorkpad, buildWorkbenchWorkpad } from "../../src/workbench/projections/read-model/workpad.js";
@@ -1099,7 +1096,6 @@ describe("Workbench module boundaries", () => {
     expect(typeof assertWorkflowActionScope).toBe("function");
     expect(typeof dispatchWorkbenchWorkflowAction).toBe("function");
     expect(typeof buildWorkbenchActionHandlers).toBe("function");
-    expect(typeof generatePlanningDraft).toBe("function");
     expect(typeof stopRunningPipeline).toBe("function");
     expect(typeof steerConversation).toBe("function");
     expect(typeof interruptConversation).toBe("function");
@@ -1110,7 +1106,6 @@ describe("Workbench module boundaries", () => {
     expect(typeof runMainAgentToolOrchestration).toBe("function");
     expect(typeof recordWorkbenchDecision).toBe("function");
     expect(typeof emitAssistantEvent).toBe("function");
-    expect(typeof buildAgentAuthoredPlanningBundle).toBe("function");
     expect(typeof createLiveSink).toBe("function");
     expect(typeof readWorkbenchActionEvents).toBe("function");
     expect(typeof getWorkbenchProjection).toBe("function");
@@ -1137,7 +1132,6 @@ describe("Workbench module boundaries", () => {
     expect(typeof buildThreadStream).toBe("function");
     expect(typeof isConcreteChangeFile).toBe("function");
     expect(typeof buildDecisionInspector).toBe("function");
-    expect(typeof readLatestPlanningBundleProjection).toBe("function");
     expect(typeof buildResultReview).toBe("function");
     expect(typeof emptyTaskGraph).toBe("function");
     expect(typeof buildTaskGraph).toBe("function");
@@ -1854,32 +1848,22 @@ describe("Workbench module boundaries", () => {
     expect(workbenchChatBridge).not.toContain('roleId: "planning-agent",');
   });
 
-  it("keeps planning-agent raw Codex stream out of the main conversation", () => {
+  it("keeps removed engineering planning chain out of the planning handler", () => {
     const planningHandler = readFileSync("src/workbench/actions/handlers/planning.ts", "utf8");
-    const draftHandler = planningHandler.slice(
-      planningHandler.indexOf("async function generatePlanningDraft"),
-      planningHandler.indexOf("export async function shouldIncludeFirstOnboardingSkill"),
-    );
-    expect(draftHandler).toContain('const agentLive = scopedAgentLiveSink(live, "planning-agent", task.id)');
-    expect(draftHandler).toContain("const planningCapture = createAssistantTranscriptCapture(agentLive)");
-    expect(draftHandler).toMatch(/emitPlanningAgentLifecycle\(agentLive, task\.id, "agent-running"/);
-    expect(draftHandler).toMatch(/runCodexChat\(\s*project,\s*changeId,\s*planModePrompt,\s*planningCapture\.sink,/);
-    expect(draftHandler).toContain("planningMode: true");
-    expect(draftHandler).toContain('"codex-native-plan"');
-    expect(draftHandler).toContain("正在 Codex Plan Mode 中帮助主 Agent 做只读规划");
-    expect(draftHandler).toContain("不要修改文件、运行命令、开始实现或确认实施。");
-    expect(draftHandler).toContain("不要再委派其它 Agent。");
-    expect(draftHandler).toContain("不要套固定模板");
-    expect(planningHandler).toContain("buildAgentAuthoredPlanningBundle");
+    expect(planningHandler).not.toContain("async function generatePlanningDraft");
+    expect(planningHandler).not.toContain("confirmPlanningAndStartPipeline");
+    expect(planningHandler).not.toContain("buildPlanningAgentDelegationPacket");
+    expect(planningHandler).not.toContain("scopedAgentLiveSink");
+    expect(planningHandler).not.toContain("createAssistantTranscriptCapture");
+    expect(planningHandler).not.toContain("emitPlanningAgentLifecycle");
+    expect(planningHandler).not.toContain("writePlanningBundle");
+    expect(planningHandler).not.toContain("readLatestPlanningBundle");
+    expect(planningHandler).not.toContain("latest-bundle");
+    expect(planningHandler).not.toContain("buildAgentAuthoredPlanningBundle");
     expect(planningHandler).not.toContain("buildDeterministicPlanningBundle");
-    expect(draftHandler).not.toContain("wrapPlanModePrompt");
-    expect(draftHandler).not.toContain("必须包在 <proposed_plan>");
-    expect(draftHandler).not.toContain("bounded leaf agent");
-    expect(draftHandler).not.toContain("计划应覆盖");
-    expect(draftHandler).not.toContain("Goal, Constraints, Acceptance Criteria");
-    expect(draftHandler).toContain('agentRoleId: "planning-agent"');
-    expect(draftHandler).not.toMatch(/sanitizeProposedPlanForConversation/);
-    expect(draftHandler).not.toMatch(/live\?\.emit\(\{ event: "assistant\.message", data: assistant/);
+    expect(planningHandler).not.toContain("planning.confirm-execution");
+    expect(planningHandler).not.toContain("planning.generate");
+    expect(planningHandler).not.toContain("planning.revise");
   });
 
   it("keeps ordinary project chat from heuristically starting planning-agent", () => {
@@ -1888,12 +1872,40 @@ describe("Workbench module boundaries", () => {
       chat.indexOf("export async function createWorkbenchConversation"),
       chat.indexOf("export async function listConversationMessages"),
     );
+    const projectScopedTurn = chat.slice(
+      chat.indexOf("async function runProjectScopedMainAgentTurn"),
+      chat.indexOf("function createProjectScopedParentDeltaFilter"),
+    );
     expect(chat).not.toContain("shouldAutoDelegateInitialPlanningAgent");
     expect(chat).not.toContain("runProjectScopedPlanningAgentDelegationIfNeeded");
     expect(chat).not.toContain("runInitialPlanningAgentDelegationIfNeeded");
     expect(conversationPath).not.toContain("createConcurrentChange(project");
+    expect(projectScopedTurn).not.toContain("createConcurrentChange(project");
+    expect(projectScopedTurn).not.toContain("buildAgentAuthoredPlanningBundle");
+    expect(projectScopedTurn).not.toContain("writePlanningBundle");
+    expect(projectScopedTurn).not.toContain("bindConversationToChange");
+    expect(projectScopedTurn).not.toContain("planning.confirm-execution");
     expect(conversationPath).not.toContain("generatePlanningDraft");
     expect(chat).not.toContain("If planning is the next step, say naturally");
+  });
+
+  it("keeps ordinary project Plan Mode scoped to a plan session, not planning-agent", () => {
+    const chat = readFileSync("src/workbench/chat.ts", "utf8");
+    const projectPlanMessage = chat.slice(
+      chat.indexOf("function projectScopedPlanningMessage"),
+      chat.indexOf("function stripProjectScopedChildAgentLeak"),
+    );
+    const projectPlanForwarder = chat.slice(
+      chat.indexOf("function forwardProjectPlanEvent"),
+      chat.indexOf("function forwardProjectCollabToolCall"),
+    );
+
+    expect(chat).toContain('const PROJECT_PLAN_SESSION_ROLE_ID = "plan-session"');
+    expect(projectPlanMessage).toContain("agentRoleId: PROJECT_PLAN_SESSION_ROLE_ID");
+    expect(projectPlanForwarder).toContain("agentRoleId: PROJECT_PLAN_SESSION_ROLE_ID");
+    expect(projectPlanMessage).not.toContain('agentRoleId: "planning-agent"');
+    expect(projectPlanForwarder).not.toContain('agentRoleId: "planning-agent"');
+    expect(chat).toContain('nativePlanText ? "" : stripProjectScopedPromptEcho');
   });
 
   it("keeps Codex native plan events scoped instead of flattening them into assistant deltas", () => {
@@ -2861,15 +2873,19 @@ describe("Workbench module boundaries", () => {
     expect(boundary).toContain("planning.scheduler.run.complete SchedulerRun target is not completable");
   });
 
-  it("keeps planning draft actions in the agent workspace and preserves explicit action scope", () => {
+  it("keeps removed planning draft actions out of confirmation and agent workspace projections", () => {
     const typedWorkflow = readFileSync("src/workbench/projections/read-model/confirmation/typed-workflow.ts", "utf8");
     expect(typedWorkflow).not.toContain('action.actionType === "planning.generate"');
     expect(typedWorkflow).not.toContain('action.actionType === "planning.confirm-execution"');
     expect(typedWorkflow).not.toContain("需要你确认当前方案进入执行");
     expect(typedWorkflow).not.toContain("确认后，主 agent 会通过受控委派启动后续角色执行");
     const agentWorkspace = readFileSync("src/workbench/projections/read-model/agent-workspace.ts", "utf8");
-    expect(agentWorkspace).toContain('actionType: "planning.confirm-execution"');
-    expect(agentWorkspace).toContain('label: "实施此计划"');
+    expect(agentWorkspace).not.toContain('actionType: "planning.confirm-execution"');
+    expect(agentWorkspace).not.toContain('actionType: "planning.revise"');
+    expect(agentWorkspace).not.toContain('actionType: "planning.generate"');
+    expect(agentWorkspace).not.toContain('label: "实施此计划"');
+    expect(agentWorkspace).not.toContain("latest-bundle");
+    expect(agentWorkspace).not.toContain("planningBundle");
 
     const item = {
       id: "confirm:scope",

@@ -96,7 +96,6 @@ export function threadItemFromTopicEntry(entry: TopicMessageEntry): ThreadStream
 
 function threadItemFromWorkflowEntry(entry: TopicMessageEntry): ThreadStreamItem | null {
   if (entry.type === "workflow.started") return null;
-  if (entry.actionType === "planning.generate" || entry.actionType === "planning.revise") return null;
   const body = entry.resultSummary?.trim() || entry.text?.trim() || entry.error?.trim();
   if (!body) return null;
   const failed = entry.type === "workflow.failed" || entry.status === "failed";

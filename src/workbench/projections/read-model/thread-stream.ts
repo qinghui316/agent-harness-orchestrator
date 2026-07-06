@@ -20,10 +20,6 @@ interface ThreadStreamDraft extends ThreadStreamItem {
   subOrder: number;
 }
 
-function planningWorkspaceActionType(actionType: string | undefined): string | undefined {
-  return actionType === "planning.generate" || actionType === "planning.revise" ? actionType : undefined;
-}
-
 export async function buildThreadStream(
   memory: ResolvedMemory,
   topic: WorkbenchTopicSummary,
@@ -228,7 +224,7 @@ function threadItemFromMessage(message: TopicThreadEntry, sortKey: number): Thre
       runId: message.runId,
       agentRoleId: message.agentRoleId,
       agentTaskId: message.agentTaskId,
-      actionType: planningWorkspaceActionType(message.actionType),
+      actionType: undefined,
       activity: message.activity,
       blocks: blocksFromMessage(message),
       semanticKey: `message:${message.id}`,
@@ -248,7 +244,7 @@ function threadItemFromMessage(message: TopicThreadEntry, sortKey: number): Thre
       runId: message.runId,
       agentRoleId: message.agentRoleId,
       agentTaskId: message.agentTaskId,
-      actionType: planningWorkspaceActionType(message.actionType),
+      actionType: undefined,
       planCard: message.planCard,
       activity: message.activity,
       blocks: blocksFromMessage(message),
@@ -335,7 +331,7 @@ function workflowItemFromMessage(message: TopicThreadEntry, sortKey: number): Th
     artifact: message.artifact,
     status: message.status,
     runId: message.runId,
-    actionType: planningWorkspaceActionType(message.actionType),
+    actionType: undefined,
     actionRunId: message.actionRunId,
     activity: message.activity,
     evidence: [evidence],

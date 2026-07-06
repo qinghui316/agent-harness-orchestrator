@@ -14,7 +14,7 @@ describe("workbench workflow action service", () => {
         changeId: "change-1",
         type: "workflow.started",
         actionRunId: "action-running",
-        actionType: "planning.generate",
+        actionType: "code.run",
         status: "running",
       }],
       append(entry) {
@@ -22,7 +22,7 @@ describe("workbench workflow action service", () => {
       },
     });
 
-    await expect(runWorkbenchWorkflowActionService(fakeProject(), { actionType: "planning.generate" }, undefined, deps)).rejects.toThrow("当前已有执行正在进行");
+    await expect(runWorkbenchWorkflowActionService(fakeProject(), { actionType: "code.run" }, undefined, deps)).rejects.toThrow("当前已有执行正在进行");
 
     expect(appended).toHaveLength(0);
   });
@@ -37,7 +37,7 @@ describe("workbench workflow action service", () => {
           changeId: "change-1",
           type: "workflow.started",
           actionRunId: "action-finished",
-          actionType: "planning.generate",
+          actionType: "code.run",
           status: "running",
         },
         {
@@ -46,7 +46,7 @@ describe("workbench workflow action service", () => {
           changeId: "change-1",
           type: "workflow.completed",
           actionRunId: "action-finished",
-          actionType: "planning.generate",
+          actionType: "code.run",
           status: "completed",
         },
       ],
@@ -55,10 +55,10 @@ describe("workbench workflow action service", () => {
       },
     });
 
-    await runWorkbenchWorkflowActionService(fakeProject(), { actionType: "planning.generate" }, undefined, deps);
+    await runWorkbenchWorkflowActionService(fakeProject(), { actionType: "code.run" }, undefined, deps);
 
-    expect(appended.some((entry) => entry.type === "workflow.started" && entry.actionType === "planning.generate")).toBe(true);
-    expect(appended.some((entry) => entry.type === "workflow.completed" && entry.actionType === "planning.generate")).toBe(true);
+    expect(appended.some((entry) => entry.type === "workflow.started" && entry.actionType === "code.run")).toBe(true);
+    expect(appended.some((entry) => entry.type === "workflow.completed" && entry.actionType === "code.run")).toBe(true);
   });
 
   it("allows canonical and legacy main-agent stop control actions while another workflow action is in flight", async () => {
@@ -70,7 +70,7 @@ describe("workbench workflow action service", () => {
         changeId: "change-1",
         type: "workflow.started",
         actionRunId: "action-running",
-        actionType: "planning.generate",
+        actionType: "code.run",
         status: "running",
       }],
       append(entry) {

@@ -264,7 +264,7 @@ const snapshot = {
       ],
       nodes: [
         { id: "main-agent", kind: "main-agent", lane: "main", label: "主 agent", status: "completed", summary: "负责和用户对话并分派角色。", reason: "用户入口和调度入口。", target: { projectId: "repo", conversationId: "member-discount", changeId: "member-discount" }, inputSummary: "用户提出会员折扣需求。", outputSummary: "需求已执行并生成结果。", evidenceRefs: [], attempts: [] },
-        { id: "role:planning-agent", kind: "planning-agent", lane: "roles", label: "规划", roleId: "planning-agent", status: "completed", summary: "整理计划。", reason: "主 agent 需要把需求转成可执行计划。", target: { projectId: "repo", conversationId: "member-discount", changeId: "member-discount", roleId: "planning-agent" }, inputSummary: "当前需求。", outputSummary: "计划已确认。", evidenceRefs: [{ label: "计划", ref: "latest-bundle.md", kind: "artifact" }], attempts: [] },
+        { id: "role:planning-agent", kind: "planning-agent", lane: "roles", label: "规划", roleId: "planning-agent", status: "completed", summary: "整理计划。", reason: "主 agent 需要把需求转成可执行计划。", target: { projectId: "repo", conversationId: "member-discount", changeId: "member-discount", roleId: "planning-agent" }, inputSummary: "当前需求。", outputSummary: "计划已确认。", evidenceRefs: [], attempts: [] },
         { id: "role:coder-agent", kind: "coder-agent", lane: "roles", label: "coder-agent", roleId: "coder-agent", status: "completed", summary: "已实现会员折扣。", reason: "主 agent 委派实现。", target: { projectId: "repo", conversationId: "member-discount", changeId: "member-discount", roleId: "coder-agent", runId: "run-1", worktreeId: "wt-1" }, inputSummary: "已确认方案。", outputSummary: "代码和测试已更新。", evidenceRefs: [{ label: "执行", ref: "run-1", kind: "run" }], attempts: [{ id: "run-1", status: "completed", summary: "实现完成。", evidenceRefs: [{ label: "执行", ref: "run-1", kind: "run" }] }] },
         { id: "role:validator", kind: "validator", lane: "roles", label: "validator", roleId: "validator", status: "completed", summary: "验证通过。", reason: "需要独立机械验证。", target: { projectId: "repo", conversationId: "member-discount", changeId: "member-discount", roleId: "validator", runId: "validation-1" }, inputSummary: "验收标准和 worktree。", outputSummary: "测试通过。", evidenceRefs: [{ label: "验证", ref: "validation-1", kind: "run" }], attempts: [] },
         { id: "role:auditor-agent", kind: "auditor-agent", lane: "roles", label: "auditor-agent", roleId: "auditor-agent", status: "completed", summary: "审查带备注批准。", reason: "需要独立语义审查。", target: { projectId: "repo", conversationId: "member-discount", changeId: "member-discount", roleId: "auditor-agent", runId: "audit-1" }, inputSummary: "diff 和验证证据。", outputSummary: "可应用但有注意事项。", evidenceRefs: [{ label: "审查", ref: "audit-1", kind: "run" }], attempts: [] },
@@ -531,32 +531,6 @@ function boundedContinuationQueueItem() {
       reservationIntentId: "reservation-1",
       claimIntentId: "claim-1",
       maxSteps: 10,
-    }],
-  } as const;
-}
-
-function planningConfirmQueueItem() {
-  return {
-    id: "confirm:planning:member-discount",
-    kind: "planning-confirm",
-    conversationId: "member-discount",
-    changeId: "member-discount",
-    summary: "规划草案已准备好。",
-    whyNeedsConfirmation: "需要你确认计划；确认计划不会启动执行。",
-    confirmEffect: "确认后保存为正式计划记录。",
-    riskSummary: "计划确认是人工边界。",
-    evidenceRefs: ["planning-bundle.md"],
-    primary: true,
-    status: "pending",
-    actions: [{
-      id: "workflow:planning.confirm-execution:planning-bundle-1",
-      label: "确认规划",
-      kind: "workflow-action",
-      enabled: true,
-      requiresConfirmation: true,
-      actionType: "planning.confirm-execution",
-      changeId: "member-discount",
-      planningBundleId: "planning-bundle-1",
     }],
   } as const;
 }
@@ -1379,7 +1353,7 @@ describe("Workbench web app", () => {
 
   it("does not expose retired main-agent loop projection on the confirmation surface", () => {
     const item = {
-      ...planningConfirmQueueItem(),
+      ...decomposeQueueItem(),
     } as const;
 
     render(
@@ -1522,91 +1496,6 @@ describe("Workbench web app", () => {
       changeId: "member-discount",
       decompositionPlanId: "decomp-1",
       maxSteps: 10,
-    });
-  });
-
-  it("uses composer auto mode as post-plan mode without converting planning confirmation to scoped-auto", async () => {
-    const execute = vi.fn(async () => undefined);
-    function Harness() {
-      const [confirming, setConfirming] = useState<string | null>(null);
-      return (
-        <DecisionInspectorPane
-          inspector={{ primary: null, related: [], history: [] }}
-          confirmationQueue={{
-            primary: planningConfirmQueueItem(),
-            current: [planningConfirmQueueItem()],
-            otherDemands: [],
-            maintenance: [],
-            history: [],
-          }}
-          confirming={confirming}
-          busy={false}
-          error={null}
-          automationMode="full-access"
-          onConfirmingChange={setConfirming}
-          onExecuteAction={execute}
-          onFeedback={async () => undefined}
-          onSelectContext={() => undefined}
-        />
-      );
-    }
-
-    render(<Harness />);
-
-    const card = screen.getByTestId("decision-inspector-primary");
-    expect(within(card).queryByLabelText("后续执行模式")).toBeNull();
-    fireEvent.click(within(card).getByRole("button", { name: "确认规划" }));
-    fireEvent.click(within(card).getByRole("button", { name: "确认" }));
-
-    await waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
-    expect(execute.mock.calls[0]?.[0]).toMatchObject({
-      actionType: "planning.confirm-execution",
-      changeId: "member-discount",
-      planningBundleId: "planning-bundle-1",
-      postPlanAutomationMode: "full-access",
-    });
-    expect(execute.mock.calls[0]?.[0]).not.toMatchObject({
-      actionType: "planning.automation.scoped-auto.run",
-    });
-  });
-
-  it("submits request-approval as the default post-plan mode", async () => {
-    const execute = vi.fn(async () => undefined);
-    function Harness() {
-      const [confirming, setConfirming] = useState<string | null>(null);
-      return (
-        <DecisionInspectorPane
-          inspector={{ primary: null, related: [], history: [] }}
-          confirmationQueue={{
-            primary: planningConfirmQueueItem(),
-            current: [planningConfirmQueueItem()],
-            otherDemands: [],
-            maintenance: [],
-            history: [],
-          }}
-          confirming={confirming}
-          busy={false}
-          error={null}
-          onConfirmingChange={setConfirming}
-          onExecuteAction={execute}
-          onFeedback={async () => undefined}
-          onSelectContext={() => undefined}
-        />
-      );
-    }
-
-    render(<Harness />);
-
-    const card = screen.getByTestId("decision-inspector-primary");
-    fireEvent.click(within(card).getByRole("button", { name: "确认规划" }));
-    fireEvent.click(within(card).getByRole("button", { name: "确认" }));
-
-    await waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
-    expect(execute.mock.calls[0]?.[0]).toMatchObject({
-      actionType: "planning.confirm-execution",
-      changeId: "member-discount",
-      planningBundleId: "planning-bundle-1",
-      postPlanAutomationMode: "request-approval",
     });
   });
 
@@ -2246,69 +2135,53 @@ describe("Workbench web app", () => {
     expect(shell.style.getPropertyValue("--right-rail-width")).toBe("380px");
   });
 
-  it("uses a transcript-first planning-agent composer instead of separate plan action buttons", async () => {
-    const planningAgentSnapshot = {
+  it("uses a transcript-first plan session workspace without old planning workflow actions", async () => {
+    const planSessionSnapshot = {
       ...snapshot,
+      center: {
+        ...snapshot.center,
+        selectedTopic: { id: "conv-plan", title: "Plan conversation", state: "active", kind: "conversation", boundChangeId: null },
+      },
       right: {
         ...snapshot.right,
         agentWorkspace: {
-          selectedAgentId: "planning-agent",
+          selectedAgentId: "plan-session",
           agents: [{
-            id: "planning-agent",
-            roleId: "planning-agent",
-            label: "planning-agent",
+            id: "plan-session",
+            roleId: "plan-session",
+            label: "Plan Agent",
             status: "draft",
-            summary: "计划等待反馈或实施。",
+            summary: "Codex Plan Mode 的计划对话。",
             transcript: {
-              title: "planning-agent",
-              emptyMessage: "暂无子 Agent 消息。",
+              title: "Plan Agent",
+              emptyMessage: "暂无计划会话内容。",
               cells: [{
-                id: "planning-agent-plan",
+                id: "plan-session-plan",
                 kind: "assistant-message",
-                source: "chat",
+                source: "codex-runtime",
                 text: "为 `message.txt` 增加指定文本的实施方案",
-                agentRoleId: "planning-agent",
+                agentRoleId: "plan-session",
               }],
               items: [],
             },
             evidenceRefs: [],
-            actions: [
-              {
-                id: "agent-workspace:planning.revise:member-discount:planning-bundle-1",
-                label: "修改计划",
-                kind: "workflow-action",
-                actionType: "planning.revise",
-                changeId: "member-discount",
-                planningBundleId: "planning-bundle-1",
-                enabled: true,
-                requiresConfirmation: false,
-              },
-              {
-                id: "agent-workspace:planning.confirm-execution:member-discount:planning-bundle-1",
-                label: "实施此计划",
-                kind: "workflow-action",
-                actionType: "planning.confirm-execution",
-                changeId: "member-discount",
-                planningBundleId: "planning-bundle-1",
-                enabled: true,
-                requiresConfirmation: true,
-              },
-            ],
+            actions: [],
           }],
         },
       },
     };
+    const calls: Array<{ url: string; body: string }> = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (init?.body) calls.push({ url, body: String(init.body) });
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
-      if (url.endsWith("/workbench/actions/live") && init?.method === "POST") {
-        return sseResponse([["snapshot", planningAgentSnapshot], ["done", { status: "completed" }]]);
+      if (url.endsWith("/workbench/topics/conv-plan/messages/live") && init?.method === "POST") {
+        return sseResponse([["snapshot", planSessionSnapshot], ["done", { status: "completed" }]]);
       }
-      if (url.endsWith("/workbench/actions") && init?.method === "POST") return jsonResponse({ result: { ok: true }, snapshot: planningAgentSnapshot });
-      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(planningAgentSnapshot.center.parentAgentTranscript);
-      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(planningAgentSnapshot.center.agentRunGraph);
-      return jsonResponse(url.includes("/stream/") ? stream : planningAgentSnapshot);
+      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(planSessionSnapshot.center.parentAgentTranscript);
+      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(planSessionSnapshot.center.agentRunGraph);
+      return jsonResponse(url.includes("/stream/") ? stream : planSessionSnapshot);
     }));
 
     render(<App />);
@@ -2319,20 +2192,84 @@ describe("Workbench web app", () => {
     const panel = await screen.findByTestId("agent-workspace-panel");
     expect(panel.closest(".decision-pane-content")?.classList.contains("agent-content")).toBe(true);
     expect(within(panel).queryByText("AGENT 工作区")).toBeNull();
-    expect(within(panel).queryByRole("button", { name: "实施此计划" })).toBeNull();
     expect(within(panel).queryByRole("button", { name: "逐步确认" })).toBeNull();
     expect(panel.textContent).toContain("为 message.txt 增加指定文本的实施方案");
+    expect(within(panel).queryByTestId("agent-plan-handoff-card")).toBeNull();
+    expect(within(panel).queryByRole("button", { name: "实施此计划" })).toBeNull();
 
     const composer = within(panel).getByTestId("agent-workspace-composer");
-    fireEvent.change(within(composer).getByPlaceholderText(/给当前 Agent 发送反馈/), { target: { value: "补充 npm test 验收。" } });
+    const feedbackBox = within(composer).getByPlaceholderText("给当前 Agent 发送反馈");
+    fireEvent.change(feedbackBox, { target: { value: "补充 npm test 验收。" } });
     fireEvent.click(within(composer).getByTitle("发送给当前 Agent"));
-    await waitFor(() => expect(workflowActionLiveCallContains("\"actionType\":\"planning.revise\"")).toBe(true));
 
-    await waitFor(() => expect((within(composer).getByPlaceholderText(/给当前 Agent 发送反馈/) as HTMLTextAreaElement).disabled).toBe(false));
-    fireEvent.change(within(composer).getByPlaceholderText(/给当前 Agent 发送反馈/), { target: { value: "实施此计划" } });
-    await waitFor(() => expect((within(composer).getByTitle("发送给当前 Agent") as HTMLButtonElement).disabled).toBe(false));
+    await waitFor(() => expect(calls.some((call) => call.url.endsWith("/workbench/topics/conv-plan/messages/live") && call.body.includes("\"mode\":\"plan\"") && call.body.includes("补充 npm test 验收。"))).toBe(true));
+    expect(calls.some((call) => call.url.endsWith("/workbench/actions/live"))).toBe(false);
+    expect(calls.some((call) => call.body.includes("planning.revise") || call.body.includes("planning.confirm-execution"))).toBe(false);
+  });
+
+  it("sends Plan Agent workspace feedback through conversation Plan Mode instead of workflow actions", async () => {
+    const planSessionSnapshot = {
+      ...snapshot,
+      center: {
+        ...snapshot.center,
+        selectedTopic: { id: "conv-plan", title: "Plan conversation", state: "active", kind: "conversation", boundChangeId: null },
+      },
+      right: {
+        ...snapshot.right,
+        agentWorkspace: {
+          selectedAgentId: "plan-session",
+          agents: [{
+            id: "plan-session",
+            roleId: "plan-session",
+            label: "Plan Agent",
+            status: "completed",
+            summary: "Codex Plan Mode 的计划对话。",
+            transcript: {
+              title: "Plan Agent",
+              emptyMessage: "暂无会话内容。",
+              cells: [{
+                id: "plan-session-plan",
+                kind: "assistant-message",
+                source: "codex-runtime",
+                text: "先整理目标，再确认执行方式。",
+                agentRoleId: "plan-session",
+              }],
+              items: [],
+            },
+            evidenceRefs: [],
+            actions: [],
+          }],
+        },
+      },
+    };
+    const calls: Array<{ url: string; body: string }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (init?.body) calls.push({ url, body: String(init.body) });
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      if (url.endsWith("/workbench/topics/conv-plan/messages/live") && init?.method === "POST") {
+        return sseResponse([["snapshot", planSessionSnapshot], ["done", { status: "completed" }]]);
+      }
+      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(planSessionSnapshot.center.parentAgentTranscript);
+      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(planSessionSnapshot.center.agentRunGraph);
+      return jsonResponse(url.includes("/stream/") ? stream : planSessionSnapshot);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByTestId("main-conversation-view")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("decision-pane-toggle"));
+    fireEvent.click(await screen.findByTestId("right-tool-launcher-agent"));
+    const panel = await screen.findByTestId("agent-workspace-panel");
+    expect(within(panel).getAllByText("Plan Agent").length).toBeGreaterThanOrEqual(1);
+    expect(within(panel).queryByText("只读")).toBeNull();
+    const composer = within(panel).getByTestId("agent-workspace-composer");
+    fireEvent.change(within(composer).getByPlaceholderText("给当前 Agent 发送反馈"), { target: { value: "请补充验证步骤。" } });
     fireEvent.click(within(composer).getByTitle("发送给当前 Agent"));
-    await waitFor(() => expect(workflowActionLiveCallContains("\"actionType\":\"planning.confirm-execution\"")).toBe(true));
+
+    await waitFor(() => expect(calls.some((call) => call.url.endsWith("/workbench/topics/conv-plan/messages/live") && call.body.includes("\"mode\":\"plan\"") && call.body.includes("请补充验证步骤。"))).toBe(true));
+    expect(calls.some((call) => call.url.endsWith("/workbench/actions/live"))).toBe(false);
   });
 
   it("opens the minimal right tool rail with confirmation, files, Git, diagnostics, and a separate terminal toggle", async () => {
@@ -4988,7 +4925,7 @@ describe("Workbench web app", () => {
             goalLoopNextStepPacketId: "goal-loop-next-step-packet-1",
             changeId: "member-discount",
             status: "ready",
-            recommendedActionType: "planning.confirm-execution",
+            recommendedActionType: "change.close",
             recommendedActionScope: { changeId: "member-discount" },
             summary: "主 Agent 建议确认执行。",
             artifact: "harness/changes/active/member-discount/goal-loop/continuation.md",
@@ -5000,21 +4937,21 @@ describe("Workbench web app", () => {
         ...snapshot.right,
         confirmationQueue: {
           primary: {
-            id: "confirm:planning:member-discount",
-            kind: "planning-confirm",
+            id: "confirm:close:member-discount",
+            kind: "close",
             conversationId: "member-discount",
             changeId: "member-discount",
-            summary: "准备确认执行。",
-            whyNeedsConfirmation: "确认后进入现有 Harness gate。",
-            confirmEffect: "确认后只执行当前 gate。",
+            summary: "准备关闭当前任务。",
+            whyNeedsConfirmation: "确认前需要最后检查当前结果。",
+            confirmEffect: "确认后关闭当前任务。",
             riskSummary: "可先修正 Goal Loop 建议。",
             evidenceRefs: [],
             actions: [
               {
-                id: "workflow:planning.confirm-execution:member-discount",
-                label: "确认执行计划",
+                id: "workflow:change.close:member-discount",
+                label: "关闭当前任务",
                 kind: "workflow-action",
-                actionType: "planning.confirm-execution",
+                actionType: "change.close",
                 changeId: "member-discount",
                 enabled: true,
                 requiresConfirmation: true,
@@ -5056,7 +4993,7 @@ describe("Workbench web app", () => {
             goalLoopNextStepPacketId: "goal-loop-next-step-packet-2",
             changeId: "member-discount",
             status: "ready",
-            recommendedActionType: "planning.confirm-execution",
+            recommendedActionType: "change.close",
             recommendedActionScope: { changeId: "member-discount" },
             summary: "主 Agent 已按反馈重新解释关闭前提。",
             artifact: "harness/changes/active/member-discount/goal-loop/continuation-2.md",
@@ -5082,21 +5019,21 @@ describe("Workbench web app", () => {
         ...snapshot.right,
         confirmationQueue: {
           primary: {
-            id: "confirm:planning:member-discount",
-            kind: "planning-confirm",
+            id: "confirm:close:member-discount",
+            kind: "close",
             conversationId: "member-discount",
             changeId: "member-discount",
-            summary: "准备确认执行。",
-            whyNeedsConfirmation: "确认后进入现有 Harness gate。",
-            confirmEffect: "确认后只执行当前 gate。",
+            summary: "准备关闭当前任务。",
+            whyNeedsConfirmation: "确认前需要最后检查当前结果。",
+            confirmEffect: "确认后关闭当前任务。",
             riskSummary: "可先修正 Goal Loop 建议。",
             evidenceRefs: [],
             actions: [
               {
-                id: "workflow:planning.confirm-execution:member-discount",
-                label: "确认执行计划",
+                id: "workflow:change.close:member-discount",
+                label: "关闭当前任务",
                 kind: "workflow-action",
-                actionType: "planning.confirm-execution",
+                actionType: "change.close",
                 changeId: "member-discount",
                 enabled: true,
                 requiresConfirmation: true,
@@ -5361,21 +5298,21 @@ describe("Workbench web app", () => {
     expect(fetch).not.toHaveBeenCalledWith("/api/projects/repo/workbench/intake/reanalyze", expect.anything());
   });
 
-  it("does not hijack ordinary composer messages into planning actions", async () => {
-    const planningGateSnapshot = {
+  it("does not hijack ordinary composer messages into workflow actions", async () => {
+    const workflowGateSnapshot = {
       ...snapshot,
       center: {
         ...snapshot.center,
         workpad: {
           ...snapshot.center.workpad,
           nextAction: {
-            id: "next:planning.generate",
-            label: "生成方案",
-            description: "等待用户确认后开始规划。",
+            id: "next:code.run",
+            label: "执行当前任务",
+            description: "等待用户确认后执行。",
             kind: "workflow-action",
             enabled: true,
             requiresConfirmation: true,
-            actionType: "planning.generate",
+            actionType: "code.run",
           },
         },
       },
@@ -5390,7 +5327,7 @@ describe("Workbench web app", () => {
           ["done", { status: "completed" }],
         ]);
       }
-      return jsonResponse(url.includes("/stream/") ? stream : planningGateSnapshot);
+      return jsonResponse(url.includes("/stream/") ? stream : workflowGateSnapshot);
     }));
 
     render(<App />);
@@ -7088,14 +7025,6 @@ function jsonResponse(body: unknown): Response {
     status: 200,
     headers: { "Content-Type": "application/json" },
   });
-}
-
-function workflowActionLiveCallContains(fragment: string): boolean {
-  return vi.mocked(fetch).mock.calls.some(([url, init]) => (
-    String(url) === "/api/projects/repo/workbench/actions/live"
-    && init?.method === "POST"
-    && String(init.body).includes(fragment)
-  ));
 }
 
 function dispatchPointerEventWithClientX(target: EventTarget, type: string, clientX: number, pointerId: number): void {

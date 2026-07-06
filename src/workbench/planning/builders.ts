@@ -1,5 +1,4 @@
 import { join } from "node:path";
-import { buildAcMap } from "../../ecl/anchors.js";
 import { getChangeStatusForChange } from "../../change/manager.js";
 import type { ResolvedMemory } from "../../types/index.js";
 import {
@@ -12,115 +11,37 @@ import {
   type DecompositionRecommendation,
   type DecompositionUnit,
 } from "../../workflow-artifacts/manager.js";
-import type { PlanningArtifactBundle, TopicThreadEntry } from "../types.js";
+import type { TopicThreadEntry } from "../types.js";
 
-type AgentPlanSectionKey = "goal" | "scope" | "acceptance" | "implementation" | "tasks" | "risks" | "questions" | "other";
-
-interface AgentAuthoredPlanSections {
-  goal: string;
-  constraints: string[];
-  acceptanceCriteria: string[];
-  design: string;
+interface DecompositionPlanningSource {
+  id?: string;
+  goal?: string;
+  proposedPlanMd?: string;
+  design?: string;
   tasks: Array<{ id: string; title: string; acIds: string[] }>;
-  risks: string[];
-  openQuestions: string[];
-  sourceScopeConstraints: string[];
-  warnings: string[];
-}
-
-export function buildAgentAuthoredPlanningBundle(
-  memory: ResolvedMemory,
-  changePath: string,
-  changeId: string,
-  prompt: string,
-  previous: PlanningArtifactBundle | null,
-  revision: boolean,
-  options: {
-    proposedPlanMd: string;
-    proposedPlanRunId?: string;
-    planningMode?: PlanningArtifactBundle["planningMode"];
-    planningWarnings?: string[];
-  },
-): PlanningArtifactBundle {
-  const proposedPlanMd = options.proposedPlanMd.trim();
-  if (!proposedPlanMd) {
-    throw new Error("Agent-authored planning requires non-empty native plan content.");
-  }
-  const parsed = parseAgentAuthoredPlan(proposedPlanMd);
-  const now = new Date().toISOString();
-  const id = `planning-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-  const changeDir = join(memory.memoryRoot, changePath);
-  const artifact = displayArtifactPath(memory, join(changeDir, "planning", "latest-bundle.md"));
-  const planningWarnings = uniqueStrings([
-    ...(options.planningWarnings ?? []),
-    ...parsed.warnings,
-  ]);
-  const specMd = renderSpecMarkdown(changeId, parsed.goal, parsed.constraints, parsed.acceptanceCriteria);
-  const planMd = renderAgentAuthoredImplementationPlanMarkdown(proposedPlanMd, parsed.tasks);
-  const tasksMd = renderTasksMarkdown(parsed.tasks);
-  return {
-    id,
-    status: "draft",
-    ...(options.planningMode ? { planningMode: options.planningMode } : {}),
-    proposedPlanMd,
-    ...(options.proposedPlanRunId ? { proposedPlanRunId: options.proposedPlanRunId } : {}),
-    ...(planningWarnings.length ? { planningWarnings } : {}),
-    goal: parsed.goal,
-    constraints: parsed.constraints,
-    sourceScopeConstraints: parsed.sourceScopeConstraints,
-    acceptanceCriteria: parsed.acceptanceCriteria,
-    design: parsed.design,
-    tasks: parsed.tasks,
-    risks: parsed.risks,
-    openQuestions: parsed.openQuestions,
-    specMd,
-    planMd,
-    tasksMd,
-    acMapCandidate: buildAcMap({ changeId, specContent: specMd, tasksContent: tasksMd, placeholderFiles: [] }),
-    artifact,
-    updatedAt: now,
-  };
-}
-
-export function buildDeterministicPlanningBundle(
-  memory: ResolvedMemory,
-  changePath: string,
-  changeId: string,
-  prompt: string,
-  previous: PlanningArtifactBundle | null,
-  revision: boolean,
-  options: {
-    proposedPlanMd?: string | null;
-    proposedPlanRunId?: string;
-    planningMode?: PlanningArtifactBundle["planningMode"];
-    planningWarnings?: string[];
-  } = {},
-): PlanningArtifactBundle {
-  if (!options.proposedPlanMd?.trim()) {
-    throw new Error("Deterministic planning content generation is retired; provide Agent-authored native plan content.");
-  }
-  return buildAgentAuthoredPlanningBundle(memory, changePath, changeId, prompt, previous, revision, {
-    proposedPlanMd: options.proposedPlanMd,
-    ...(options.proposedPlanRunId ? { proposedPlanRunId: options.proposedPlanRunId } : {}),
-    ...(options.planningMode ? { planningMode: options.planningMode } : {}),
-    ...(options.planningWarnings ? { planningWarnings: options.planningWarnings } : {}),
-  });
+  openQuestions?: string[];
+  sourceScopeConstraints?: string[];
+  artifact?: string;
+  artifactRefs?: string[];
 }
 
 export function buildDeterministicDecompositionPlan(
   memory: ResolvedMemory,
   changePath: string,
   changeId: string,
-  bundle: PlanningArtifactBundle | null,
+  source: DecompositionPlanningSource | null,
   thread: TopicThreadEntry[],
   prompt: string | undefined,
 ): DecompositionPlan {
   const now = new Date().toISOString();
   const id = `decomposition-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   const threadText = thread.map((entry) => entry.text ?? "").join("\n");
-  const signalText = [bundle?.goal, bundle?.proposedPlanMd, bundle?.design, prompt, threadText].filter(Boolean).join("\n");
-  const tasks = bundle?.tasks.length ? bundle.tasks : [{ id: "T-001", title: bundle?.goal ?? "Clarify and implement the accepted demand.", acIds: [] }];
-  const asksClarification = (bundle?.openQuestions.length ?? 0) > 0 || /不明确|澄清|clarify/i.test(signalText);
+  const signalText = [source?.goal, source?.proposedPlanMd, source?.design, prompt, threadText].filter(Boolean).join("\n");
+  if (!source?.tasks.length) {
+    throw new Error("Decomposition requires Agent-authored planning tasks; refusing to generate fallback tasks.");
+  }
+  const tasks = source.tasks;
+  const asksClarification = (source?.openQuestions?.length ?? 0) > 0 || /不明确|澄清|clarify/i.test(signalText);
   const parallelSignal = hasParallelPlanningSignal(signalText);
   const multiChangeSignal = hasMultiChangeImplementationSignal(signalText);
   const recommendation: DecompositionRecommendation = asksClarification
@@ -132,8 +53,8 @@ export function buildDeterministicDecompositionPlan(
         : "single-change";
   const explicitSourceScopes = extractExplicitSourceScopes(signalText);
   const sourceScopeConstraints = unique([
-    ...(bundle?.sourceScopeConstraints ?? []),
-    ...extractExplicitSourceScopes(bundle?.goal ?? ""),
+    ...(source?.sourceScopeConstraints ?? []),
+    ...extractExplicitSourceScopes(source?.goal ?? ""),
     ...extractExplicitSourceScopes(prompt ?? ""),
   ]);
   const scopedParallelCandidate = recommendation === "taskgraph-parallel-candidate" && explicitSourceScopes.length >= tasks.length;
@@ -169,12 +90,11 @@ export function buildDeterministicDecompositionPlan(
     sourceScopeConstraints,
     scopeExpansions,
     riskSummary: "This is a proposal only. User confirmation does not start execution, create child Changes, or trust recovered work.",
-    openQuestions: bundle?.openQuestions ?? [],
-    artifactRefs: [bundle?.artifact].filter((item): item is string => Boolean(item)),
+    openQuestions: source?.openQuestions ?? [],
+    artifactRefs: unique([...(source?.artifactRefs ?? []), source?.artifact].filter((item): item is string => Boolean(item))),
     recoveryKeyInputs: {
       changeId,
-      planningBundleId: bundle?.id,
-      acceptedArtifactRefs: [bundle?.artifact].filter((item): item is string => Boolean(item)),
+      acceptedArtifactRefs: unique([...(source?.artifactRefs ?? []), source?.artifact].filter((item): item is string => Boolean(item))),
       contextScope: "selected-demand",
       rolePolicyProfile: "main-agent proposal; worker roles remain leaves",
       notes: [
@@ -443,224 +363,4 @@ function rationaleForRecommendation(recommendation: DecompositionRecommendation,
     case "taskgraph-sequential": return `The demand maps to ${unitCount} ordered TaskGraph candidate units.`;
     case "single-change": return "The accepted scope fits one Change and one Coding Work Package.";
   }
-}
-
-function parseAgentAuthoredPlan(markdown: string): AgentAuthoredPlanSections {
-  const sections = splitAgentPlanSections(markdown);
-  const goal = firstSectionItem(sections, ["goal"]);
-  const constraints = sectionItems(sections, ["scope"]);
-  const acceptance = sectionItems(sections, ["acceptance"]);
-  const implementationItems = sectionItems(sections, ["implementation"]);
-  const taskItems = sectionItems(sections, ["tasks"]);
-  const risks = sectionItems(sections, ["risks"]);
-  const openQuestions = sectionItems(sections, ["questions"]);
-  const missing: string[] = [];
-  if (!goal) missing.push("goal");
-  if (constraints.length === 0) missing.push("scope/constraints");
-  if (acceptance.length === 0) missing.push("acceptance/verification");
-  if (implementationItems.length === 0) missing.push("implementation approach");
-  if (taskItems.length === 0) missing.push("tasks");
-  if (missing.length > 0) {
-    throw new Error(`Agent-authored plan is missing required planning sections: ${missing.join(", ")}.`);
-  }
-  const acceptanceCriteria = acceptance.map((item, index) => normalizeAcceptanceCriterion(item, index));
-  const acIds = acceptanceCriteria.map((_item, index) => `AC-${String(index + 1).padStart(3, "0")}`);
-  const tasks = taskItems.map((item, index) => ({
-    id: normalizeTaskId(item, index),
-    title: normalizeTaskTitle(item),
-    acIds: referencedAcIds(item, acIds),
-  }));
-  const sourceScopeConstraints = uniqueStrings(extractExplicitSourceScopes([
-    goal,
-    ...constraints,
-    ...implementationItems,
-    ...taskItems,
-  ].join("\n")));
-  return {
-    goal,
-    constraints,
-    acceptanceCriteria,
-    design: implementationItems.join("\n"),
-    tasks,
-    risks,
-    openQuestions,
-    sourceScopeConstraints,
-    warnings: risks.length === 0 ? ["Agent-authored plan did not include an explicit risk section."] : [],
-  };
-}
-
-function splitAgentPlanSections(markdown: string): Record<AgentPlanSectionKey, string[]> {
-  const sections: Record<AgentPlanSectionKey, string[]> = {
-    goal: [],
-    scope: [],
-    acceptance: [],
-    implementation: [],
-    tasks: [],
-    risks: [],
-    questions: [],
-    other: [],
-  };
-  let current: AgentPlanSectionKey = "other";
-  for (const rawLine of markdown.split(/\r?\n/)) {
-    const key = agentPlanSectionKey(rawLine);
-    if (key) {
-      current = key;
-      const trailing = trailingSectionContent(rawLine);
-      if (trailing) sections[current].push(trailing);
-      continue;
-    }
-    sections[current].push(rawLine);
-  }
-  return sections;
-}
-
-function agentPlanSectionKey(line: string): AgentPlanSectionKey | null {
-  const label = normalizeSectionLabel(line);
-  if (!label) return null;
-  if (/^(goal|objective|purpose|目标|目的|需求|用户目标|本轮目标)$/.test(label)) return "goal";
-  if (/^(scope|constraints?|boundar(y|ies)|non-goals?|范围|约束|边界|非目标|不做什么)$/.test(label)) return "scope";
-  if (/^(acceptance|acceptance criteria|verification|validation|tests?|验收|验收标准|验证|测试|检查方式)$/.test(label)) return "acceptance";
-  if (/^(approach|implementation|implementation plan|plan|design|steps|方案|实现方案|实施方案|计划|步骤)$/.test(label)) return "implementation";
-  if (/^(tasks?|task list|todo|任务|任务清单|待办)$/.test(label)) return "tasks";
-  if (/^(risks?|risk|风险|风险和缓解|注意事项)$/.test(label)) return "risks";
-  if (/^(questions?|open questions?|clarifications?|待确认|澄清问题|问题|需要确认)$/.test(label)) return "questions";
-  return null;
-}
-
-function normalizeSectionLabel(line: string): string {
-  const trimmed = line.trim();
-  if (!trimmed) return "";
-  const heading = trimmed.match(/^#{1,6}\s+(.+?)\s*#*\s*$/)?.[1]
-    ?? trimmed.match(/^\*\*(.+?)\*\*\s*[:：]?\s*$/)?.[1]
-    ?? trimmed.match(/^(.{1,40}?)[：:]\s*$/)?.[1]
-    ?? trimmed.match(/^(.{1,40}?)$/)?.[1];
-  if (!heading) return "";
-  const withoutNumbering = heading
-    .replace(/^\s*(?:\d+[.)、]\s*|[-*]\s*)/, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
-  return withoutNumbering;
-}
-
-function trailingSectionContent(line: string): string {
-  const match = line.trim().match(/^#{1,6}\s+[^:：]+[:：]\s*(.+)$/)
-    ?? line.trim().match(/^[^:：]{1,40}[:：]\s*(.+)$/);
-  return match?.[1]?.trim() ?? "";
-}
-
-function firstSectionItem(sections: Record<AgentPlanSectionKey, string[]>, keys: AgentPlanSectionKey[]): string {
-  return sectionItems(sections, keys)[0] ?? "";
-}
-
-function sectionItems(sections: Record<AgentPlanSectionKey, string[]>, keys: AgentPlanSectionKey[]): string[] {
-  const items: string[] = [];
-  for (const key of keys) {
-    const paragraphs: string[] = [];
-    for (const rawLine of sections[key]) {
-      const normalized = normalizePlanContentLine(rawLine);
-      if (!normalized) {
-        flushParagraph(paragraphs, items);
-        continue;
-      }
-      if (agentPlanSectionKey(rawLine)) {
-        flushParagraph(paragraphs, items);
-        continue;
-      }
-      if (/^(?:[-*]\s+|\d+[.)、]\s+|\[[ xX]\]\s+)/.test(rawLine.trim())) {
-        flushParagraph(paragraphs, items);
-        items.push(normalized);
-      } else {
-        paragraphs.push(normalized);
-      }
-    }
-    flushParagraph(paragraphs, items);
-  }
-  return uniqueStrings(items).map((item) => item.length > 500 ? `${item.slice(0, 497)}...` : item);
-}
-
-function flushParagraph(paragraph: string[], items: string[]): void {
-  if (paragraph.length === 0) return;
-  items.push(paragraph.join(" "));
-  paragraph.length = 0;
-}
-
-function normalizePlanContentLine(line: string): string {
-  return line
-    .replace(/^\s*[-*]\s+/, "")
-    .replace(/^\s*\[[ xX]\]\s+/, "")
-    .replace(/^\s*\d+[.)、]\s+/, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function normalizeAcceptanceCriterion(item: string, index: number): string {
-  const id = `AC-${String(index + 1).padStart(3, "0")}`;
-  return item.match(/^AC-\d{3}\s*[:：-]/i)
-    ? item.replace(/^AC-\d{3}/i, id)
-    : `${id}: ${item}`;
-}
-
-function normalizeTaskId(item: string, index: number): string {
-  return item.match(/\bT-\d{3}\b/i)?.[0].toUpperCase() ?? `T-${String(index + 1).padStart(3, "0")}`;
-}
-
-function normalizeTaskTitle(item: string): string {
-  const title = item
-    .replace(/\bT-\d{3}\b\s*[:：-]?\s*/i, "")
-    .replace(/\b(?:covers?|覆盖)\s*[:：]?\s*AC-\d{3}(?:\s*,\s*AC-\d{3})*/gi, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!title) throw new Error("Agent-authored plan contains an empty task title.");
-  return title.length > 160 ? `${title.slice(0, 157)}...` : title;
-}
-
-function referencedAcIds(item: string, fallbackIds: string[]): string[] {
-  const refs = Array.from(item.matchAll(/\bAC-\d{3}\b/gi)).map((match) => match[0].toUpperCase());
-  return refs.length > 0 ? uniqueStrings(refs) : fallbackIds;
-}
-
-function renderSpecMarkdown(changeId: string, goal: string, constraints: string[], acceptanceCriteria: string[]): string {
-  return [
-    `# Spec: ${changeId}`,
-    "",
-    "## Goal",
-    "",
-    goal,
-    "",
-    "## Constraints",
-    "",
-    ...constraints.map((item) => `- ${item}`),
-    "",
-    "## Acceptance Criteria",
-    "",
-    ...acceptanceCriteria.map((item) => `- ${item}`),
-    "",
-  ].join("\n");
-}
-
-function renderAgentAuthoredImplementationPlanMarkdown(proposedPlanMd: string, tasks: PlanningArtifactBundle["tasks"]): string {
-  return [
-    "# Plan",
-    "",
-    proposedPlanMd.trim(),
-    "",
-    "## Accepted Task Mapping",
-    "",
-    ...tasks.map((task) => `- ${task.id}: ${task.title} (${task.acIds.join(", ")})`),
-    "",
-  ].join("\n");
-}
-
-function renderTasksMarkdown(tasks: PlanningArtifactBundle["tasks"]): string {
-  return [
-    "# Tasks",
-    "",
-    ...tasks.map((task) => `- [ ] ${task.id}: ${task.title} Covers: ${task.acIds.join(", ")}`),
-    "",
-  ].join("\n");
-}
-
-function uniqueStrings(items: string[]): string[] {
-  return Array.from(new Set(items.map((item) => item.trim()).filter(Boolean)));
 }

@@ -1,4 +1,3 @@
-import type { PlanningArtifactBundle } from "../types.js";
 import type {
   DecompositionPlan,
   DecompositionReadinessManifest,
@@ -44,57 +43,4 @@ function readinessSchedulerLabel(manifest: DecompositionReadinessManifest): stri
   if (manifest.nextAllowedAction === "scheduler.contract") return "可编译 Scheduler Contract（不启动调度器）";
   if (manifest.nextAllowedAction === "taskqueue.proposal") return "可进入后续 TaskQueue proposal";
   return "可进入后续执行边界检查";
-}
-
-export function renderPlanningBundleSummary(bundle: PlanningArtifactBundle): string {
-  return [
-    `我准备了计划：${bundle.goal}`,
-    "",
-    `验收标准：${bundle.acceptanceCriteria.join("；")}`,
-    `实现方案：${bundle.design}`,
-    `任务：${bundle.tasks.map((task) => `${task.id} ${task.title}`).join("；")}`,
-    `范围：${bundle.sourceScopeConstraints?.length ? `保持在 ${bundle.sourceScopeConstraints.join("、")}` : "未明确限定具体文件范围"}`,
-    bundle.openQuestions.length > 0 ? `待确认：${bundle.openQuestions.join("；")}` : "如果认可，可以确认执行；如果不认可，可以直接在主对话里要求修改。",
-  ].join("\n");
-}
-
-export function renderPlanningBundleMarkdown(bundle: PlanningArtifactBundle): string {
-  return [
-    `# Planning Draft ${bundle.id}`,
-    "",
-    `Status: ${bundle.status}`,
-    "",
-    "## Goal",
-    "",
-    bundle.goal,
-    "",
-    "## Constraints",
-    "",
-    ...(bundle.constraints.length > 0 ? bundle.constraints.map((item) => `- ${item}`) : ["- None confirmed."]),
-    "",
-    "## Source Scope Constraints",
-    "",
-    ...(bundle.sourceScopeConstraints?.length ? bundle.sourceScopeConstraints.map((item) => `- ${item}`) : ["- None explicitly limited."]),
-    "",
-    "## Acceptance Criteria",
-    "",
-    ...bundle.acceptanceCriteria.map((item) => `- ${item}`),
-    "",
-    "## Design",
-    "",
-    bundle.design,
-    "",
-    "## Tasks",
-    "",
-    ...bundle.tasks.map((task) => `- ${task.id}: ${task.title} (${task.acIds.join(", ")})`),
-    "",
-    "## Risks",
-    "",
-    ...bundle.risks.map((item) => `- ${item}`),
-    "",
-    "## Open Questions",
-    "",
-    ...(bundle.openQuestions.length > 0 ? bundle.openQuestions.map((item) => `- ${item}`) : ["- None."]),
-    "",
-  ].join("\n");
 }

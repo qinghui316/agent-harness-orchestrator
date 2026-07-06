@@ -90,6 +90,7 @@ import type {
   RuntimeActivityLogSnapshot,
   RuntimeDiagnosticsSnapshot,
   CodexUserInputRequest,
+  AgentWorkspaceAgent,
 } from "./types.js";
 import { extractInlineSkillMentions } from "./shell/skill-mentions.js";
 import { extractInlineFileMentions } from "./shell/file-mentions.js";
@@ -833,7 +834,6 @@ export function App(): ReactElement {
           changeId: context.changeId,
           targetId: context.targetId,
           runId: context.runId,
-          planningBundleId: action.planningBundleId ?? context.planningBundleId,
           worktreeId: action.worktreeId ?? context.targetId,
           applyCheckId: action.applyCheckId,
           landingPackageId: action.landingPackageId,
@@ -1170,6 +1170,20 @@ export function App(): ReactElement {
         answers,
       });
       setCodexUserInputRequests((current) => current.filter((item) => item.requestId !== request.requestId));
+    } finally {
+      setActionRunning(null);
+    }
+  }
+
+  async function sendAgentWorkspaceMessage(agent: AgentWorkspaceAgent, message: string): Promise<void> {
+    if (!selectedProjectId || !activeTopic || !message.trim()) return;
+    setActionRunning(`agent.message.${agent.id}`);
+    setError(null);
+    try {
+      await consumeWorkbenchLiveStream(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/topics/${encodeURIComponent(activeTopic.id)}/messages/live`, {
+        mode: agent.id === "plan-session" || agent.id === "planning-agent" ? "plan" : "chat",
+        message: message.trim(),
+      }, handleLiveEvent);
     } finally {
       setActionRunning(null);
     }
@@ -1911,12 +1925,11 @@ export function App(): ReactElement {
             selectedAgentId={selectedAgentWorkspaceAgentId}
             liveTurns={agentLiveTurns}
             codexUserInputRequests={codexUserInputRequests.filter((request) => Boolean(request.agentRoleId) && request.agentRoleId !== "main-agent")}
-            automationMode={automationMode}
             busy={actionRunning !== null}
             onSelectAgent={setSelectedAgentWorkspaceAgentId}
-            onWorkflowAction={runWorkflowAction}
             onAnswerClarification={answerClarification}
             onAnswerCodexUserInput={answerCodexUserInput}
+            onSendAgentMessage={sendAgentWorkspaceMessage}
             modelLabel={codexModelLabel}
             onOpenModelSettings={() => void openCodexModelPicker()}
           />

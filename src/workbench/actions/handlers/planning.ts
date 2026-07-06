@@ -1,10 +1,4 @@
-import { writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { completeAgentTask, createAgentTask, recordMainAgentDecision } from "../../../agent-task/manager.js";
-import { buildRunAgentRecord, resolveAgentRole } from "../../../agent/catalog.js";
-import { buildAcMap } from "../../../ecl/anchors.js";
-import { buildChangeIndex } from "../../../ecl/index.js";
-import { writeJsonFile } from "../../../fs/json.js";
+import { getChangeStatusForChange } from "../../../change/manager.js";
 import { assertWritableMemory } from "../../../memory/resolver.js";
 import {
   recordMainAgentWorkflowGraphObservationAndReplay,
@@ -67,7 +61,7 @@ import {
   type SchedulerWorkerValidationResult,
   type SchedulerPlanPreparationResult,
 } from "../../../scheduler-runtime/manager.js";
-import type { ManagedProject, ResolvedMemory } from "../../../types/index.js";
+import type { ManagedProject } from "../../../types/index.js";
 import {
   createWorkflowRunForValidatedTaskQueue,
   validateWorkflowTaskQueueProposalStart,
@@ -116,473 +110,25 @@ import {
   type SchedulerRun,
   type SchedulerWorkerSessionPlan,
 } from "../../../workflow-scheduler/manager.js";
-import { readLatestPlanningBundle } from "../planning-bundle.js";
-import { runCodexChat } from "../../codex-chat/bridge.js";
 import { recordWorkbenchDecision } from "../../decisions.js";
 import { emitAssistantEvent } from "../../live-events.js";
-import { createAssistantTranscriptCapture } from "../../live-transcript.js";
 import { appendTopicThreadEntry } from "../../topic-thread.js";
 import { resolveTopic } from "../../topic-resolver.js";
 import { readTopicThreadLog as readThreadLog } from "../../thread-log.js";
 import type {
-  AssistantTurnBlock,
   OrchestrationPlanCard,
-  PlanningArtifactBundle,
   WorkbenchLiveSink,
   WorkbenchWorkflowActionRequest,
 } from "../../types.js";
-import type { WorkbenchActionHandlerMap } from "../dispatcher.js";
-import { runPostPlanScopedAutomation } from "./automation.js";
 import {
-  buildAgentAuthoredPlanningBundle,
   buildDecompositionReadinessManifest,
   buildDeterministicDecompositionPlan,
 } from "../../planning/builders.js";
-import { writePlanningBundle } from "../../planning/persistence.js";
-import { extractProposedPlanBlock } from "../../planning/proposed-plan.js";
 import {
   decompositionRecommendationLabel,
   renderDecompositionPlanSummary,
   renderDecompositionReadinessSummary,
 } from "../../planning/renderers.js";
-
-export async function generatePlanningDraft(
-  project: ManagedProject,
-  changeId: string,
-  prompt: string | undefined,
-  live: WorkbenchLiveSink | undefined,
-  revision: boolean,
-): Promise<{ bundle?: PlanningArtifactBundle; needsUserInput?: boolean }> {
-  const { memory, changePath } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "Planning");
-  const task = await createAgentTask(memory, {
-    conversationId: changeId,
-    changeId,
-    roleId: "planning-agent",
-    kind: "foreground",
-    summary: revision ? "Revise planning artifact bundle from user feedback." : "Generate planning artifact bundle from the demand conversation.",
-    inputArtifacts: [changePath],
-    initialStatus: "running",
-  });
-  await recordMainAgentDecision(memory, {
-    changeId,
-    recommendedAction: revision ? "planning.revise" : "planning.generate",
-    userMessage: revision ? "修改计划" : "开始规划",
-    requiresUserDecision: false,
-    createTask: {
-      roleId: "planning-agent",
-      kind: "foreground",
-      summary: task.summary,
-      inputArtifacts: task.inputArtifacts,
-    },
-    reason: "当前需求需要先由 planning-agent 整理计划，再进入后续确认和执行边界。",
-  });
-  const agentLive = scopedAgentLiveSink(live, "planning-agent", task.id);
-  const planningCapture = createAssistantTranscriptCapture(agentLive);
-  emitPlanningAgentLifecycle(agentLive, task.id, "agent-task-created", "创建 planning-agent", "主 Agent 已委派 planning-agent 整理计划。");
-  const role = await resolveAgentRole(memory, "planning-agent");
-  const thread = await readThreadLog(memory, changePath);
-  const latestUserText = prompt?.trim()
-    || [...thread].reverse().find((entry) => entry.type === "user.message")?.text
-    || changeId;
-  const previous = await readLatestPlanningBundle(memory, changePath).catch(() => null);
-  const planModePrompt = buildPlanningAgentDelegationPacket({
-    latestUserText,
-    parentUnderstanding: [...thread].reverse()
-      .find((entry) => entry.type === "assistant.message" && entry.status === "main-agent-initial-turn")
-      ?.text,
-    feedback: prompt?.trim(),
-    previous,
-    revision,
-  });
-  const includeFirstOnboardingSkill = !revision && await shouldIncludeFirstOnboardingSkill(memory, changeId);
-  let planningRuntime: Awaited<ReturnType<typeof runCodexChat>>;
-  try {
-    emitPlanningAgentLifecycle(agentLive, task.id, "agent-running", "planning-agent 运行中", "正在通过 Codex Plan Mode 整理计划。");
-    planningRuntime = await runCodexChat(project, changeId, planModePrompt, planningCapture.sink, {
-      planningMode: true,
-      omitWorkbenchContext: true,
-      transientSystemSkillIds: includeFirstOnboardingSkill ? ["aho-harness-onboarding"] : undefined,
-    });
-    if (planningRuntime.run.status !== "completed") {
-      throw new Error(planningRuntime.message || "planning-agent did not complete.");
-    }
-    emitPlanningAgentLifecycle(agentLive, planningRuntime.run.id, "agent-completed", "planning-agent 返回结果", "planning-agent 已返回计划。", planningRuntime.run.artifacts.lastMessage);
-  } catch (error: unknown) {
-    emitAssistantEvent(agentLive, {
-      runId: task.id,
-      kind: "status",
-      phase: "agent-failed",
-      title: "planning-agent 失败",
-      summary: error instanceof Error ? error.message : String(error),
-      isError: true,
-    });
-    await completeAgentTask(memory, task, {
-      status: "failed",
-      summary: "planning-agent failed before producing a reviewable plan.",
-      artifactRefs: [],
-      nextRecommendation: "Retry after fixing the runtime issue or ask the user for a narrower request.",
-    });
-    throw error;
-  }
-  const rawPlanText = planningRuntime?.planText?.trim() ?? "";
-  const planningMessage = cleanPlanningAgentVisibleText(planningRuntime?.message.trim() ?? "");
-  const fallbackExtraction = !rawPlanText && planningMessage.includes("<proposed_plan")
-    ? extractProposedPlanBlock(planningMessage)
-    : null;
-  const proposedPlanMd = cleanPlanningAgentVisibleText(rawPlanText || fallbackExtraction?.proposedPlanMd || "");
-  const planSource: PlanningArtifactBundle["planningMode"] | undefined = rawPlanText
-    ? "codex-native-plan"
-    : fallbackExtraction?.proposedPlanMd
-      ? "prompt-plan-contract"
-      : undefined;
-  const planValidation = validateReviewablePlanningText(proposedPlanMd, planSource);
-  if (!planValidation.usable) {
-    if (planningMessage) {
-      const planningAgentMessage = await appendTopicThreadEntry(project, changeId, {
-        type: "assistant.message",
-        status: "planning-agent-needs-input",
-        text: planningMessage,
-        runId: planningRuntime.run.id,
-        artifact: planningRuntime.run.artifacts.lastMessage,
-        activity: planningCapture.activity,
-        blocks: planningCapture.blocks.length > 0
-          ? cleanPlanningAgentBlocks(planningCapture.blocks)
-          : [{
-              id: `${planningRuntime.run.id}:planning-agent-question`,
-              runId: planningRuntime.run.id,
-              sequence: 1,
-              kind: "prose",
-              timestamp: planningRuntime.run.finishedAt ?? new Date().toISOString(),
-              source: "codex",
-              text: planningMessage,
-            }],
-        agentRoleId: "planning-agent",
-        agentTaskId: task.id,
-      });
-      live?.emit({ event: "assistant.message", data: planningAgentMessage });
-      await completeAgentTask(memory, task, {
-        status: "needs-user-input",
-        summary: "planning-agent 需要用户补充信息后继续规划。",
-        artifactRefs: [planningRuntime.run.artifacts.lastMessage].filter((item): item is string => Boolean(item)),
-        nextRecommendation: "用户可在 planning-agent 工作区回答问题或补充要求；确认前不会进入实施。",
-        requiresUserInputReason: planningMessage,
-      });
-      return { needsUserInput: true };
-    }
-    const message = `planning-agent did not return a usable native plan: ${planValidation.reason}`;
-    emitAssistantEvent(agentLive, {
-      runId: planningRuntime.run.id,
-      kind: "error",
-      phase: "native-plan-invalid",
-      title: "planning-agent 计划不可用",
-      summary: message,
-      isError: true,
-    });
-    await completeAgentTask(memory, task, {
-      status: "failed",
-      summary: message,
-      artifactRefs: [planningRuntime.run.artifacts.lastMessage].filter((item): item is string => Boolean(item)),
-      nextRecommendation: "Ask planning-agent to clarify or revise the plan before creating Harness planning records.",
-    });
-    throw new Error(message);
-  }
-  const planningWarnings = [
-    ...(fallbackExtraction?.warnings ?? []),
-    ...(planValidation.warnings ?? []),
-  ];
-  const bundle = buildAgentAuthoredPlanningBundle(memory, changePath, changeId, latestUserText, previous, revision, {
-    proposedPlanMd,
-    proposedPlanRunId: planningRuntime.run.id,
-    ...(planSource ? { planningMode: planSource } : {}),
-    planningWarnings,
-  });
-  await writePlanningBundle(memory, changePath, bundle);
-  const planningAgentText = cleanPlanningAgentVisibleText((proposedPlanMd ?? planningMessage ?? rawPlanText ?? planningCapture.text).trim())
-    || "planning-agent 没有返回可见计划文本。";
-  const planningAgentMessage = await appendTopicThreadEntry(project, changeId, {
-    type: "assistant.message",
-    status: revision ? "planning-agent-revised" : "planning-agent-generated",
-    text: planningAgentText,
-    runId: planningRuntime.run.id,
-    artifact: planningRuntime.run.artifacts.lastMessage,
-    activity: planningCapture.activity,
-    blocks: planningCapture.blocks.length > 0
-      ? cleanPlanningAgentBlocks(planningCapture.blocks)
-      : [{
-          id: `${planningRuntime.run.id}:planning-agent-message`,
-          runId: planningRuntime.run.id,
-          sequence: 1,
-          kind: "prose",
-          timestamp: planningRuntime.run.finishedAt ?? new Date().toISOString(),
-          source: "codex",
-          text: planningAgentText,
-        }],
-    agentRoleId: "planning-agent",
-    agentTaskId: task.id,
-  });
-  live?.emit({ event: "assistant.message", data: planningAgentMessage });
-  await recordWorkbenchDecision(project, {
-    id: `planning:${bundle.id}`,
-    changeId,
-    decisionType: revision ? "planning.revise" : "planning.generate",
-    status: "completed",
-    label: revision ? "计划已更新" : "计划已生成",
-    summary: "planning-agent 已返回可审阅计划；确认前不会进入实施。",
-    targetId: bundle.id,
-    runId: planningRuntime.run.id,
-    artifact: bundle.artifact,
-    actionId: revision ? "planning.revise" : "planning.generate",
-    payload: { role: buildRunAgentRecord(role), bundle },
-    completedAt: new Date().toISOString(),
-  });
-  await completeAgentTask(memory, task, {
-    status: "completed",
-    summary: revision ? "计划已按反馈更新。" : "计划已生成，等待审阅。",
-    artifactRefs: [bundle.artifact, planningRuntime.run.artifacts.lastMessage].filter((item): item is string => Boolean(item)),
-    nextRecommendation: "等待用户继续反馈修改，或确认进入后续执行边界。",
-  });
-  return { bundle };
-}
-
-function buildPlanningAgentDelegationPacket(input: {
-  latestUserText: string;
-  parentUnderstanding?: string;
-  feedback?: string;
-  previous: PlanningArtifactBundle | null;
-  revision: boolean;
-}): string {
-  const parentUnderstanding = normalizeDelegationText(input.parentUnderstanding);
-  const userGoalSummary = summarizeDemandForDelegation(input.latestUserText);
-  const feedbackSummary = input.feedback ? summarizeDemandForDelegation(input.feedback) : "";
-  const previousSummary = input.previous
-    ? [
-        "- 已有一个计划；本轮只需要按用户反馈调整它。",
-        input.previous.goal ? `- 现有目标摘要：${normalizeDelegationText(input.previous.goal).slice(0, 360)}` : "",
-      ].filter(Boolean).join("\n")
-    : "- 当前没有已有计划。";
-  return [
-    "你是 planning-agent，正在 Codex Plan Mode 中帮助主 Agent 做只读规划。",
-    "请根据下面的信息和项目文件，直接形成用户能审阅的计划；如果关键信息不足，使用运行时提问能力向用户提问。",
-    "",
-    "边界：",
-    "- 不要修改文件、运行命令、开始实现或确认实施。",
-    "- 不要再委派其它 Agent。",
-    "- 不要暴露内部对象名、运行 id、队列、调度器或系统机制。",
-    "",
-    "主 Agent 对需求的理解：",
-    parentUnderstanding || "用户希望先得到清晰、可审阅的计划，再决定是否实施。",
-    "",
-    "用户需求摘要：",
-    userGoalSummary,
-    "",
-    input.revision ? "本轮用户反馈：" : "本轮规划任务：",
-    input.revision ? feedbackSummary || "用户希望调整当前计划。" : "澄清需求，并整理一份用户能直接审阅的计划。",
-    "",
-    "已有计划上下文：",
-    previousSummary,
-    "",
-    "计划需要让后续实施者看得懂目标、范围、验收方式、实施步骤、任务拆分、风险和待确认点。",
-    "不要套固定模板；按这次需求自然组织。",
-  ].join("\n");
-}
-
-function cleanPlanningAgentVisibleText(value: string): string {
-  return value
-    .replace(/\bAGENTS\.md\b/gi, "项目说明")
-    .replace(/\bHarness\b/gi, "项目记录")
-    .replace(/\bactive\s+change\b/gi, "当前任务")
-    .replace(/\bChange\b/g, "任务")
-    .replace(/\bworktree\b/gi, "工作副本")
-    .replace(/\bTaskRun\b/g, "任务运行")
-    .replace(/\bWorkflowRun\b/g, "流程运行")
-    .replace(/\bclose\s+gate\b/gi, "完成前确认")
-    .replace(/\bvalidation\b/gi, "检查")
-    .replace(/\baudit\b/gi, "审查")
-    .replace(/\bbundle\b/gi, "计划记录")
-    .replace(/\bqueue\b/gi, "队列")
-    .replace(/\bscheduler\b/gi, "调度流程")
-    .replace(/\bAC-\d+\b/g, "验收点")
-    .replace(/\bT-\d+\b/g, "任务项")
-    .replace(/\bTBD\b/g, "待确认");
-}
-
-function cleanPlanningAgentBlocks(blocks: AssistantTurnBlock[]): AssistantTurnBlock[] {
-  return blocks.map((block) => ({
-    ...block,
-    title: block.title ? cleanPlanningAgentVisibleText(block.title) : block.title,
-    text: block.text ? cleanPlanningAgentVisibleText(block.text) : block.text,
-    preview: block.preview ? cleanPlanningAgentVisibleText(block.preview) : block.preview,
-  }));
-}
-
-function validateReviewablePlanningText(markdown: string, source: PlanningArtifactBundle["planningMode"] | undefined): { usable: boolean; reason?: string; warnings?: string[] } {
-  const normalized = markdown.replace(/\s+/g, " ").trim();
-  if (!normalized) return { usable: false, reason: "empty plan text" };
-  if (normalized.length < 80) return { usable: false, reason: "plan text is too short" };
-  const signals = [
-    /目标|目的|需求|goal|objective|purpose/i,
-    /约束|范围|边界|constraint|scope|boundary/i,
-    /验收|验证|测试|acceptance|verification|test/i,
-    /实现|方案|步骤|implementation|approach|steps/i,
-    /风险|待确认|risk|question|clarify/i,
-  ];
-  const signalCount = signals.filter((pattern) => pattern.test(markdown)).length;
-  if (!source) return { usable: false, reason: "native Plan Mode did not return a plan item" };
-  if (signalCount < 3) return { usable: false, reason: "plan lacks enough planning structure signals" };
-  const warnings = source === "prompt-plan-contract"
-    ? ["Planning output came from legacy <proposed_plan> fallback rather than native Codex Plan item."]
-    : [];
-  if (!/验收|验证|测试|acceptance|verification|test/i.test(markdown)) {
-    warnings.push("Plan did not clearly name verification or acceptance evidence; AHO derived acceptance/task structure conservatively.");
-  }
-  return { usable: true, warnings };
-}
-
-function normalizeDelegationText(value: string | undefined): string {
-  return (value ?? "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 900);
-}
-
-function summarizeDemandForDelegation(value: string): string {
-  const normalized = normalizeDelegationText(value);
-  if (!normalized) return "需求内容为空，需要先向用户澄清目标。";
-  const withoutCodeFences = normalized.replace(/```[\s\S]*?```/g, "[代码块已省略]");
-  const sentence = withoutCodeFences
-    .split(/(?<=[。！？.!?])\s+/)
-    .find((part) => part.trim().length > 0)
-    ?.trim() ?? withoutCodeFences;
-  const clipped = sentence.length > 240 ? `${sentence.slice(0, 240)}...` : sentence;
-  return `主 Agent 将需求理解为：${clipped}`;
-}
-
-export async function shouldIncludeFirstOnboardingSkill(memory: ResolvedMemory, changeId: string): Promise<boolean> {
-  const index = await buildChangeIndex(memory).catch(() => null);
-  if (!index) return false;
-  return index.active.length === 1
-    && index.active[0]?.name === changeId
-    && index.parking.length === 0
-    && index.archive.length === 0;
-}
-
-function scopedAgentLiveSink(live: WorkbenchLiveSink | undefined, agentRoleId: string, agentTaskId: string): WorkbenchLiveSink | undefined {
-  if (!live) return undefined;
-  return {
-    isClosed: () => live.isClosed?.() ?? false,
-    emit(event) {
-      live.emit(scopeLiveEventToAgent(event, agentRoleId, agentTaskId));
-    },
-  };
-}
-
-function scopeLiveEventToAgent(event: Parameters<WorkbenchLiveSink["emit"]>[0], agentRoleId: string, agentTaskId: string): Parameters<WorkbenchLiveSink["emit"]>[0] {
-  switch (event.event) {
-    case "run.started":
-      return { ...event, data: { ...event.data, agentRoleId, agentTaskId } };
-    case "run.status":
-      return { ...event, data: { ...event.data, agentRoleId, agentTaskId } };
-    case "assistant.delta":
-      return { ...event, data: { ...event.data, agentRoleId, agentTaskId } };
-    case "assistant.message":
-      return { ...event, data: { ...event.data, agentRoleId, agentTaskId } };
-    case "assistant.event":
-      return { ...event, data: { ...event.data, agentRoleId, agentTaskId } };
-    case "tool.event":
-      return { ...event, data: { ...event.data, agentRoleId, agentTaskId } };
-    case "codex.userInput.requested":
-      return { ...event, data: { ...event.data, agentRoleId, agentTaskId } };
-    case "codex.userInput.submitted":
-      return { ...event, data: { ...event.data, agentRoleId, agentTaskId } };
-    case "usage":
-      return { ...event, data: { ...event.data, agentRoleId, agentTaskId } };
-    default:
-      return event;
-  }
-}
-
-function emitPlanningAgentLifecycle(
-  live: WorkbenchLiveSink | undefined,
-  runId: string,
-  phase: "agent-task-created" | "agent-running" | "agent-completed",
-  title: string,
-  summary: string,
-  artifactRef?: string,
-): void {
-  emitAssistantEvent(live, {
-    runId,
-    kind: "status",
-    phase,
-    title,
-    summary,
-    artifactRef,
-  });
-}
-
-export async function confirmPlanningAndStartPipeline(
-  project: ManagedProject,
-  changeId: string,
-  request: WorkbenchWorkflowActionRequest,
-  live: WorkbenchLiveSink | undefined,
-  handlers?: WorkbenchActionHandlerMap,
-): Promise<unknown> {
-  const { memory, changePath } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "Confirm planning execution");
-  const bundle = await readLatestPlanningBundle(memory, changePath);
-  if (!request.planningBundleId) throw new Error("planning.confirm-execution requires planningBundleId.");
-  if (bundle.id !== request.planningBundleId || bundle.status !== "draft") throw new Error("planning.confirm-execution target is stale or no longer confirmable.");
-  const changeDir = join(memory.memoryRoot, changePath);
-  await writeFile(join(changeDir, "spec.md"), bundle.specMd, "utf8");
-  await writeFile(join(changeDir, "plan.md"), bundle.planMd, "utf8");
-  await writeFile(join(changeDir, "tasks.md"), bundle.tasksMd, "utf8");
-  const acMap = buildAcMap({
-    changeId,
-    specContent: bundle.specMd,
-    tasksContent: bundle.tasksMd,
-    placeholderFiles: [
-      { path: "spec.md", content: bundle.specMd },
-      { path: "plan.md", content: bundle.planMd },
-      { path: "tasks.md", content: bundle.tasksMd },
-    ],
-  });
-  await writeJsonFile(join(changeDir, "ac-map.json"), acMap);
-  const confirmed = { ...bundle, status: "confirmed" as const, acMapCandidate: acMap, updatedAt: new Date().toISOString() };
-  await writePlanningBundle(memory, changePath, confirmed);
-  await recordMainAgentDecision(memory, {
-    changeId,
-    recommendedAction: "planning.confirm-execution",
-    userMessage: "确认执行",
-    requiresUserDecision: false,
-    createTask: {
-      roleId: "main-agent",
-      kind: "foreground",
-      summary: "计划已确认；后续执行仍需要经过现有边界检查。",
-      inputArtifacts: [confirmed.artifact],
-    },
-    reason: "用户确认了计划；代码执行仍需要经过现有边界检查。",
-  });
-  await appendTopicThreadEntry(project, changeId, {
-    type: "assistant.message",
-    status: "planning-confirmed",
-    text: "我已收回 planning-agent 的方案并保存为正式计划记录。下一步会先检查执行边界；在得到确认前不会修改项目文件。",
-    artifact: confirmed.artifact,
-  });
-  emitAssistantEvent(live, {
-    runId: confirmed.id,
-    kind: "status",
-    phase: "confirmed",
-    title: "计划已确认",
-    summary: "方案已保存；当前不会直接修改文件。",
-    artifactRef: confirmed.artifact,
-  });
-  if (request.postPlanAutomationMode === "full-access") {
-    if (!handlers) throw new Error("post-plan automation requires Workbench action handlers.");
-    const automation = await runPostPlanScopedAutomation(project, changeId, live, handlers);
-    return { bundle: confirmed, executionStarted: true, postPlanAutomationMode: "full-access", automation };
-  }
-  return { bundle: confirmed, executionStarted: false, postPlanAutomationMode: "request-approval" };
-}
 
 export async function generateDecompositionPlan(
   project: ManagedProject,
@@ -592,9 +138,17 @@ export async function generateDecompositionPlan(
 ): Promise<{ plan: DecompositionPlan }> {
   const { memory, changePath } = await resolveTopic(project, changeId);
   assertWritableMemory(memory, "Generate decomposition plan");
-  const bundle = await readLatestPlanningBundle(memory, changePath).catch(() => null);
   const thread = await readThreadLog(memory, changePath);
-  const plan = buildDeterministicDecompositionPlan(memory, changePath, changeId, bundle, thread, prompt);
+  const status = await getChangeStatusForChange(memory, changeId);
+  if (!status.acMap?.tasks.length) {
+    throw new Error("Decomposition requires accepted Agent-authored tasks; Workbench will not generate fallback planning tasks.");
+  }
+  const plan = buildDeterministicDecompositionPlan(memory, changePath, changeId, {
+    tasks: status.acMap.tasks.map((task) => ({ id: task.id, title: task.text, acIds: task.acIds })),
+    openQuestions: status.acMap.blockingIssues,
+    sourceScopeConstraints: [],
+    artifactRefs: ["spec.md", "plan.md", "tasks.md"],
+  }, thread, prompt);
   await writeDecompositionPlan(memory, changePath, plan);
   const planCard: OrchestrationPlanCard = {
     title: "拆分评估",

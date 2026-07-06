@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { buildCodexAppServerCollaborationModePayload, evaluateCodexAppServerCapabilities, extractCodexAppServerPlanText, shouldUseCodexAppServerForMemory, shouldUseCodexAppServerForReadOnlyTurn } from "../../src/codex/app-server.js";
+import { buildCodexAppServerCollaborationModePayload, evaluateCodexAppServerCapabilities, extractCodexAppServerCollabToolCall, extractCodexAppServerPlanText, shouldUseCodexAppServerForMemory, shouldUseCodexAppServerForReadOnlyTurn } from "../../src/codex/app-server.js";
 import { buildCodexReadonlyArgv, buildCodexReadonlyResumeArgv, buildCodexWorkspaceWriteArgv, evaluateCodexCapabilities } from "../../src/codex/capabilities.js";
 import { createCodexJsonlStreamParser, extractFinalMessageFromCodexJsonl, truncateReadablePreview, type CodexJsonlStreamEvent } from "../../src/codex/jsonl.js";
 import { candidatesFromModelListResponse, getCodexModelSettingsSnapshot, resolveCodexEffectiveModel, setSelectedCodexModel } from "../../src/codex/model-settings.js";
 import { composeCodexPrompt, readPromptInput } from "../../src/codex/prompt.js";
-import { readCodexConfigModelStatus } from "../../src/codex/trust.js";
+import { readCodexConfigModelStatus, readCodexNativeCollabConfigStatus } from "../../src/codex/trust.js";
 import { codexProviderRunMetadata, isRunnableProductMode, RUNNABLE_PRODUCT_MODES, stableCapabilitySnapshotHash } from "../../src/provider-runtime/index.js";
 import { renderTopicFileReferencesForPrompt } from "../../src/workbench/file-references.js";
 
@@ -67,6 +67,16 @@ describe("codex capabilities", () => {
         ],
       },
     })).toContain("确认目标");
+    const arrayPlan = extractCodexAppServerPlanText("turn/plan/updated", {
+      explanation: "只记录后续工作安排，不做任何文件修改或命令执行。",
+      plan: [
+        { step: "确认项目说明和当前记录中没有更高优先级限制。", status: "pending" },
+        { step: "修改后运行 `node test.mjs`，用测试结果确认目标字符串被接受。", status: "pending" },
+      ],
+    });
+    expect(arrayPlan).toContain("只记录后续工作安排");
+    expect(arrayPlan).toContain("[pending] 确认项目说明");
+    expect(arrayPlan).toContain("node test.mjs");
     expect(extractCodexAppServerPlanText("item/completed", {
       item: { type: "proposed-plan", markdown: "## 目标\n生成计划\n\n## 验收\n通过测试" },
     })).toContain("## 目标");
@@ -82,6 +92,34 @@ describe("codex capabilities", () => {
       },
     });
     expect(buildCodexAppServerCollaborationModePayload(undefined, null)).toBeUndefined();
+  });
+
+  it("extracts native Codex collab tool call items for child-agent projection", () => {
+    const call = extractCodexAppServerCollabToolCall("item/completed", {
+      item: {
+        type: "collabAgentToolCall",
+        id: "collab-1",
+        tool: "spawn_agent",
+        status: "completed",
+        senderThreadId: "thread-root",
+        receiverThreadIds: ["thread-child"],
+        prompt: "Draft a plan.",
+        model: "gpt-5.5",
+      },
+    });
+
+    expect(call).toEqual({
+      itemId: "collab-1",
+      tool: "spawn_agent",
+      status: "completed",
+      senderThreadId: "thread-root",
+      receiverThreadIds: ["thread-child"],
+      prompt: "Draft a plan.",
+      model: "gpt-5.5",
+      reasoningEffort: undefined,
+      agentsStates: undefined,
+    });
+    expect(extractCodexAppServerCollabToolCall("item/completed", { item: { type: "dynamicToolCall", tool: "spawn_agent" } })).toBeNull();
   });
 
   it("builds root-level approval argv", () => {
@@ -430,6 +468,32 @@ describe("codex model settings", () => {
       expect(status.model).toBeNull();
       expect(status.configExists).toBe(true);
       expect(status.reason).toContain("Invalid Codex config.toml");
+    } finally {
+      if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previousCodexHome;
+      await rm(temp, { recursive: true, force: true });
+    }
+  });
+
+  it("reads native Codex collab feature config without requiring AHO-managed dynamic tools", async () => {
+    const temp = await mkdtemp(join(tmpdir(), "aho-codex-collab-"));
+    const previousCodexHome = process.env.CODEX_HOME;
+    process.env.CODEX_HOME = temp;
+    try {
+      await writeFile(join(temp, "config.toml"), [
+        "[features]",
+        "multi_agent = true",
+        "",
+        "[features.multi_agent_v2]",
+        "enabled = true",
+        "max_concurrent_threads_per_session = 4",
+        "",
+      ].join("\n"), "utf8");
+
+      const status = await readCodexNativeCollabConfigStatus();
+
+      expect(status.multiAgent).toBe("enabled");
+      expect(status.multiAgentV2).toBe("enabled");
     } finally {
       if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
       else process.env.CODEX_HOME = previousCodexHome;

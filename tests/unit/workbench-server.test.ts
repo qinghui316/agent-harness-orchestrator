@@ -13,7 +13,7 @@ import { startLocalCommandRun } from "../../src/run/manager.js";
 import { TerminalRuntime } from "../../src/server/terminal/terminal-runtime.js";
 import { buildNativeFolderDialogCommand, executeWorkbenchAction, startWorkbenchServer, type WorkbenchServerHandle } from "../../src/server/workbench-server.js";
 import type { ManagedProject } from "../../src/types/index.js";
-import { appendTopicThreadEntry, buildInitialMainAgentPrompt } from "../../src/workbench/chat.js";
+import { appendTopicThreadEntry, buildInitialMainAgentPrompt, buildProjectScopedMainAgentPrompt } from "../../src/workbench/chat.js";
 import type { WorkbenchLiveSink } from "../../src/workbench/types.js";
 
 let tempDir: string;
@@ -237,6 +237,19 @@ describe("workbench server", () => {
     expect(prompt).not.toContain("TaskRun");
     expect(prompt).not.toContain("WorkflowRun");
     expect(prompt).not.toContain("planning-agent");
+  });
+
+  it("allows project-scoped parent turns to use provider-native planning without simulating child output", () => {
+    const prompt = buildProjectScopedMainAgentPrompt("请用原生 Plan Mode 生成计划");
+
+    expect(prompt).toContain("you may use provider-native planning or collaboration tools");
+    expect(prompt).toContain("Prefer provider-native Plan Mode or child-Agent collaboration");
+    expect(prompt).toContain("Only native runtime tool/Plan/question events count as child-Agent or planning-session work");
+    expect(prompt).toContain("read project guidance, enabled skills, and docs");
+    expect(prompt).toContain("use available tools according to the project rules");
+    expect(prompt).toContain("Do not assume Workbench will create Harness records or execute the plan for you");
+    expect(prompt).not.toContain("wait for the user or an explicit workflow action");
+    expect(prompt).toContain("请用原生 Plan Mode 生成计划");
   });
 
   it("rejects composer attachment uploads before project preparation", async () => {

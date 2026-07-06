@@ -14,6 +14,7 @@ import {
   git,
   initGitRepository,
   project,
+  writeAcceptedSpecAndTasks,
 } from "../unit/workbench/fixtures.js";
 import type { WorkbenchDecisionAction } from "../../src/workbench/read-model-types.js";
 
@@ -38,30 +39,10 @@ describe("workbench demand-to-execution golden flow", () => {
         body: "会员订单满 100 元打九折，非会员不打折，需要测试。",
       });
       await runIntakeScan(project(), topic.changeId, "会员订单满 100 元打九折，非会员不打折，需要测试。");
+      await writeAcceptedSpecAndTasks(topic.changeId);
       process.env.PATH = join(getTempDir(), "no-codex-bin");
 
-      await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
-        actionType: "planning.generate",
-        changeId: topic.changeId,
-        prompt: "会员订单满 100 元打九折，非会员不打折，需要测试。",
-        confirm: true,
-      });
       let snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
-      const confirmPlanning = primaryWorkflowAction(snapshot, "planning.confirm-execution");
-      expect(confirmPlanning).toMatchObject({ changeId: topic.changeId, planningBundleId: expect.any(String) });
-
-      const confirmed = await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
-        ...confirmPlanning,
-        confirm: true,
-      });
-      const confirmedWorkflow = unwrapWorkflowActionResult(confirmed.result);
-      expect(confirmedWorkflow).toMatchObject({
-        bundle: expect.objectContaining({ status: "confirmed" }),
-        executionStarted: false,
-      });
-
-      snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
-      expect(snapshot.right.confirmationQueue.current.filter((item) => item.primary)).toHaveLength(1);
       const decompose = primaryWorkflowAction(snapshot, "planning.decompose");
       expect(decompose).toMatchObject({ changeId: topic.changeId });
 

@@ -8,7 +8,6 @@ type QueueActionScope = {
   disabledReason?: string;
   changeId?: string;
   proposalId?: string;
-  planningBundleId?: string;
   decompositionPlanId?: string;
   readinessManifestId?: string;
   taskQueueProposalId?: string;

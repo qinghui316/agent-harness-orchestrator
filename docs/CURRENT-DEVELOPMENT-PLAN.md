@@ -17,6 +17,14 @@ The user should not need to know internal terms before asking for work. The main
 Current implementation state: no active implementation slice.
 
 Latest completed implementation slice:
+`harness/changes/archive/20260707-provider-native-a2a-real-ui-acceptance-fix-pass-v1/summary.md`.
+It closes the provider-native Plan Mode / old planning-chain deletion pass:
+native Codex Plan Mode now projects as `plan-session` / Plan Agent instead of a
+fake `planning-agent`, old Workbench planning actions and `latest-bundle`
+surfaces are removed from the product path, and real child-agent A2A remains
+blocked on provider runtime events that were not observed.
+
+Previous completed implementation slice:
 `harness/changes/archive/20260706-provider-native-agent-authored-planning-v1/summary.md`.
 It removes the remaining deterministic planning-content fallback. Planning
 content must come from Agent-authored native plan output or an explicitly
@@ -31,8 +39,9 @@ provider runtime event ownership from Harness Change scope. Ordinary
 main-agent conversation remains project-scoped chat. Child Agent / plan
 surfaces are projected only from explicit provider runtime owner metadata or
 explicit Harness workflow actions. Codex native plan and request-user-input
-events belong to the planning-agent workspace; they are not flattened into the
-main transcript and do not become Harness gates or workflow truth.
+events belong to the `plan-session` / Plan Agent workspace unless a real
+provider child-agent owner is emitted; they are not flattened into the main
+transcript and do not become Harness gates or workflow truth.
 
 Previous completed implementation slice:
 `harness/changes/archive/20260704-native-codex-plan-question-flow-alignment-v1/summary.md`.
@@ -606,6 +615,9 @@ Desktop product-layer work can continue when selected as a separate structured
 product phase.
 
 Latest product change:
+`harness/changes/archive/20260707-provider-native-a2a-real-ui-acceptance-fix-pass-v1/summary.md`.
+
+Previous product change:
 `harness/changes/archive/20260706-provider-native-agent-authored-planning-v1/summary.md`.
 
 Previous product change:

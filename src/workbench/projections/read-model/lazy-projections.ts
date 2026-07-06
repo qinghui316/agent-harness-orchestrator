@@ -1,7 +1,3 @@
-import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
-import { z } from "zod";
 import type {
   DecompositionPlan,
   DecompositionReadinessManifest,
@@ -11,7 +7,7 @@ import type {
 import type { SchedulerClaimReconcilePlan, SchedulerContract, SchedulerDispatchDryRun, SchedulerLaunchPreflight, SchedulerRun, SchedulerWorkerSessionPlan } from "../../../workflow-scheduler/manager.js";
 import type { SchedulerIntegrationCandidate, SchedulerIntegrationCheckHandoff, SchedulerIntegrationOutcome, SchedulerRunBlockedCloseout, SchedulerRunCompletion, SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkAudit, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkValidation, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerValidation } from "../../../scheduler-runtime/manager.js";
 import type { ResolvedMemory } from "../../../types/index.js";
-import type { WorkbenchPlanningArtifactBundle, WorkbenchProjectInput } from "../../read-model-types.js";
+import type { WorkbenchProjectInput } from "../../read-model-types.js";
 import { resolveWorkbenchMemory } from "./support.js";
 import { listWorkbenchTopicsFromMemory as listTopicsFromMemory } from "./topics.js";
 import {
@@ -44,32 +40,8 @@ import {
   getWorkflowRunProjectionForChange,
 } from "../typed-workflow.js";
 
-const planningBundleProjectionSchema = z.object({
-  id: z.string(),
-  status: z.enum(["draft", "confirmed"]),
-  goal: z.string(),
-  constraints: z.array(z.string()).default([]),
-  acceptanceCriteria: z.array(z.string()).default([]),
-  design: z.string().default(""),
-  tasks: z.array(z.object({ id: z.string(), title: z.string(), acIds: z.array(z.string()).default([]) })).default([]),
-  risks: z.array(z.string()).default([]),
-  openQuestions: z.array(z.string()).default([]),
-  artifact: z.string().optional(),
-  updatedAt: z.string().optional(),
-});
-
 function listWorkbenchTopicsFromMemory(memory: ResolvedMemory) {
   return listTopicsFromMemory(memory, { includeDeleted: true });
-}
-
-export async function readLatestPlanningBundleProjection(memory: ResolvedMemory, changePath: string): Promise<WorkbenchPlanningArtifactBundle | null> {
-  const path = join(memory.memoryRoot, changePath, "planning", "latest-bundle.json");
-  if (!existsSync(path)) return null;
-  const content = await readFile(path, "utf8").catch(() => "");
-  if (!content.trim()) return null;
-  const parsed = planningBundleProjectionSchema.safeParse(JSON.parse(content));
-  if (!parsed.success) return null;
-  return parsed.data;
 }
 
 export async function getWorkbenchDecompositionPlanProjection(input: WorkbenchProjectInput, changeId: string): Promise<DecompositionPlan | null> {

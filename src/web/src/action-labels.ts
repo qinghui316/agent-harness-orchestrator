@@ -10,9 +10,6 @@ export function workflowActionLabel(actionType: string | undefined): string {
 
   if (actionType === "change.spec.propose") return "Spec proposal";
   if (actionType === "change.plan.propose") return "Plan/Tasks proposal";
-  if (actionType === "planning.generate") return "委派 planning-agent 规划";
-  if (actionType === "planning.revise") return "修改计划";
-  if (actionType === "planning.confirm-execution") return "实施此计划";
   if (actionType === "planning.decompose") return "拆分评估";
   if (actionType === "planning.decomposition.confirm") return "确认拆分方向";
   if (actionType === "planning.decomposition.assess-readiness") return "检查执行边界";

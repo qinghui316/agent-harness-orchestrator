@@ -1,7 +1,4 @@
-import { existsSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { listAgentTasks } from "../../src/agent-task/manager.js";
 import {
   claimAvailableDemandWorkers,
   claimNextDemandWorker,
@@ -15,79 +12,11 @@ import {
 } from "../../src/demand-worker/manager.js";
 import { initHarness } from "../../src/harness/init.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
-import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
-import { workflowActionPayloadFromScope } from "../../src/web/src/workflow-actions.js";
 import { createWorkbenchTopic } from "../../src/workbench/chat.js";
 import { getWorkbenchSnapshot } from "../../src/workbench/manager.js";
-import { getTempDir, project, writePlanningBundleFixture } from "./workbench/fixtures.js";
+import { getTempDir, project } from "./workbench/fixtures.js";
 
 describe("workbench demand worker domain", () => {
-  it("routes planning confirmation through a demand worker queue when no worker slot is available", async () => {
-    await initHarness(project());
-    const active = await createWorkbenchTopic(project(), { title: "Queued Demand", body: "Implement later." });
-    const running = await createWorkbenchTopic(project(), { title: "Running Demand", body: "Already running." });
-    const runningTwo = await createWorkbenchTopic(project(), { title: "Running Demand 2", body: "Already running too." });
-    const planningBundleId = await writePlanningBundleFixture(active.changeId);
-    const memory = await resolveProjectMemory(project());
-    await enqueueDemandWorker(memory, { changeId: running.changeId });
-    const claimed = await claimNextDemandWorker(memory, { changeId: running.changeId });
-    if (!claimed) throw new Error("Expected running demand to be claimed.");
-    await markDemandWorkerRunning(memory, claimed.worker, claimed.attempt);
-    await enqueueDemandWorker(memory, { changeId: runningTwo.changeId });
-    const claimedTwo = await claimNextDemandWorker(memory, { changeId: runningTwo.changeId });
-    if (!claimedTwo) throw new Error("Expected second running demand to be claimed.");
-    await markDemandWorkerRunning(memory, claimedTwo.worker, claimedTwo.attempt);
-
-    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: active.changeId });
-    const confirmAction = planningAgentConfirmAction(snapshot);
-    expect(confirmAction.planningBundleId).toBe(planningBundleId);
-    const result = await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
-      ...workflowActionPayloadFromScope(confirmAction),
-      actionType: "planning.confirm-execution",
-      confirm: true,
-    });
-
-    expect(result.result).toMatchObject({ status: "completed", result: expect.objectContaining({ executionStarted: false }) });
-    expect(existsSync(join(getTempDir(), "harness", "changes", "active", active.changeId, "spec.md"))).toBe(true);
-    expect(existsSync(join(getTempDir(), "harness", "changes", "active", active.changeId, "ac-map.json"))).toBe(true);
-    const workers = await listDemandWorkers(memory);
-    expect(workers).toEqual(expect.arrayContaining([
-      expect.objectContaining({ changeId: running.changeId, status: "running" }),
-      expect.objectContaining({ changeId: runningTwo.changeId, status: "running" }),
-    ]));
-    expect(workers.some((worker) => worker.changeId === active.changeId)).toBe(false);
-    const tasks = await listAgentTasks(memory, active.changeId);
-    expect(tasks).toHaveLength(0);
-  });
-
-  it("does not wait on background demand workers when the current demand remains queued", async () => {
-    await initHarness(project());
-    const older = await createWorkbenchTopic(project(), { title: "Older Demand", body: "Run first." });
-    const olderTwo = await createWorkbenchTopic(project(), { title: "Older Demand 2", body: "Run second." });
-    const active = await createWorkbenchTopic(project(), { title: "Current Demand", body: "Run after earlier demands." });
-    const planningBundleId = await writePlanningBundleFixture(active.changeId);
-    const memory = await resolveProjectMemory(project());
-    await enqueueDemandWorker(memory, { changeId: older.changeId });
-    await enqueueDemandWorker(memory, { changeId: olderTwo.changeId });
-
-    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: active.changeId });
-    const confirmAction = planningAgentConfirmAction(snapshot);
-    expect(confirmAction.planningBundleId).toBe(planningBundleId);
-    const result = await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
-      ...workflowActionPayloadFromScope(confirmAction),
-      actionType: "planning.confirm-execution",
-      confirm: true,
-      prompt: "current-demand-prompt",
-    });
-
-    expect(result.result).toMatchObject({
-      status: "completed",
-      result: expect.objectContaining({ executionStarted: false }),
-    });
-    const workers = await listDemandWorkers(memory);
-    expect(workers.some((worker) => worker.changeId === active.changeId)).toBe(false);
-  });
-
   it("claims one demand at a time when configured for sequential execution", async () => {
     await initHarness(project());
     const first = await createWorkbenchTopic(project(), { title: "First Demand", body: "A" });
@@ -229,11 +158,3 @@ describe("workbench demand worker domain", () => {
     expect(await listDemandWorkers(memory)).toEqual(expect.arrayContaining([expect.objectContaining({ changeId: topic.changeId, status: "claimed" })]));
   });
 });
-
-function planningAgentConfirmAction(snapshot: Awaited<ReturnType<typeof getWorkbenchSnapshot>>) {
-  const action = snapshot.right.agentWorkspace.agents
-    .find((agent) => agent.id === "planning-agent")
-    ?.actions.find((item) => item.actionType === "planning.confirm-execution");
-  if (!action) throw new Error("Expected planning-agent workspace to expose planning.confirm-execution.");
-  return action;
-}

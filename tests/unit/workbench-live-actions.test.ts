@@ -64,7 +64,7 @@ describe("Workbench live actions", () => {
     mocks.getWorkbenchSnapshot.mockResolvedValue({ ok: true });
   });
 
-  it("forwards post-plan automation mode through the live workflow endpoint", async () => {
+  it("rejects removed planning confirmation actions on the live workflow endpoint", async () => {
     const response = new FakeSseResponse();
 
     await sendWorkbenchActionLive({
@@ -84,15 +84,8 @@ describe("Workbench live actions", () => {
       postPlanAutomationMode: "full-access",
     }) as never, response as unknown as ServerResponse);
 
-    expect(mocks.assertCurrentWorkflowAction).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
-      actionType: "planning.confirm-execution",
-      postPlanAutomationMode: "full-access",
-    }), expect.anything());
-    expect(mocks.runWorkbenchWorkflowAction).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
-      actionType: "planning.confirm-execution",
-      changeId: "change-1",
-      planningBundleId: "planning-bundle-1",
-      postPlanAutomationMode: "full-access",
-    }), expect.anything());
+    expect(mocks.assertCurrentWorkflowAction).not.toHaveBeenCalled();
+    expect(mocks.runWorkbenchWorkflowAction).not.toHaveBeenCalled();
+    expect(response.chunks.join("\n")).toContain("Action planning.confirm-execution is not supported by the live endpoint.");
   });
 });

@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-07-06T05:29:48.0761045Z",
+    "generated_at":  "2026-07-06T17:37:20.1898566Z",
     "active":  [
 
                ],
@@ -2541,6 +2541,10 @@
                     {
                         "name":  "20260706-provider-native-agent-authored-planning-v1",
                         "path":  "harness/changes/archive/20260706-provider-native-agent-authored-planning-v1"
+                    },
+                    {
+                        "name":  "20260707-provider-native-a2a-real-ui-acceptance-fix-pass-v1",
+                        "path":  "harness/changes/archive/20260707-provider-native-a2a-real-ui-acceptance-fix-pass-v1"
                     }
                 ]
 }

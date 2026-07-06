@@ -74,7 +74,6 @@ export interface ParentAgentTranscriptPageOptions {
 
 const DEFAULT_TRANSCRIPT_PAGE_LIMIT = 100;
 const MAX_TRANSCRIPT_PAGE_LIMIT = 500;
-const PLANNING_WORKSPACE_ACTION_TYPES = new Set(["planning.generate", "planning.revise"]);
 
 interface TranscriptWorkpadInput {
   conversationId?: string;
@@ -119,7 +118,7 @@ export function buildParentAgentTranscript(input: {
 
 export function buildAgentScopedTranscriptCells(threadItems: TranscriptThreadItemInput[], agentRoleId: string): ParentAgentTranscriptCell[] {
   return dedupeTranscriptCellEvidenceRefs(consolidateTranscriptCells(threadItems
-    .filter((item) => item.agentRoleId === agentRoleId || (agentRoleId === "planning-agent" && isPlanningWorkspaceActionItem(item)))
+    .filter((item) => item.agentRoleId === agentRoleId)
     .flatMap((item) => transcriptCellsFromThreadItem(item, { forceAgentRoleId: agentRoleId }))));
 }
 
@@ -157,14 +156,7 @@ function normalizeTranscriptPageLimit(value?: number): number {
 function shouldShowInParentTranscript(item: TranscriptThreadItemInput): boolean {
   if (item.kind === "change-state") return false;
   if (item.agentRoleId && item.agentRoleId !== "main-agent") return false;
-  if (isPlanningWorkspaceActionItem(item)) return false;
   return true;
-}
-
-function isPlanningWorkspaceActionItem(item: TranscriptThreadItemInput): boolean {
-  if (item.kind === "user-message") return false;
-  if (item.agentRoleId && item.agentRoleId !== "planning-agent") return false;
-  return PLANNING_WORKSPACE_ACTION_TYPES.has(item.actionType ?? "");
 }
 
 function transcriptCellsFromThreadItem(

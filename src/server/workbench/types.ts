@@ -43,7 +43,6 @@ export interface WorkbenchActionRequest {
   changeId?: string;
   prompt?: string;
   proposalId?: string;
-  planningBundleId?: string;
   decompositionPlanId?: string;
   readinessManifestId?: string;
   taskQueueProposalId?: string;
@@ -72,7 +71,6 @@ export interface WorkbenchActionRequest {
   mainAgentLoopRunId?: string;
   mainAgentNextStepEvidenceId?: string;
   automationMode?: "request-approval" | "full-access";
-  postPlanAutomationMode?: "request-approval" | "full-access";
   automationCurrentGateActionType?: WorkbenchWorkflowActionRequest["actionType"];
   automationCurrentGateApprovalActionId?: string;
   automationCurrentGateTargetId?: string;
@@ -121,7 +119,6 @@ export interface WorkbenchActionRequest {
     changeId?: string;
     targetId?: string;
     runId?: string;
-    planningBundleId?: string;
     worktreeId?: string;
     applyCheckId?: string;
     landingPackageId?: string;

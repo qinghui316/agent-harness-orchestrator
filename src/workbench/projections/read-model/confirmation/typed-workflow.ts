@@ -23,7 +23,7 @@ export function workpadNextActionToConfirmationItems(
       riskSummary: "拆分提案必须再经过确认和执行边界检查后，才可能进入下一步真实执行。",
       label: action.label,
       actionType: "planning.decompose",
-      evidence: evidenceRefs(workpad.planningArtifactBundle?.artifact),
+      evidence: [],
     })];
   }
   if (action.actionType === "code.run" && action.readinessManifestId) {

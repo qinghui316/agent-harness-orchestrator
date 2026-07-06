@@ -188,6 +188,7 @@ export function readableEventTitle(event: AssistantReadableEvent): string {
 }
 
 function assistantEventBlockKind(kind: AssistantReadableEvent["kind"]): AssistantTurnBlock["kind"] {
+  if (kind === "plan-update") return "prose";
   if (kind === "reasoning-summary") return "reasoning-summary";
   if (kind === "command") return "command";
   if (kind === "file-change") return "file-change";

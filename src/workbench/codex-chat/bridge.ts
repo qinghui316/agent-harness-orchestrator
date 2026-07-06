@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { buildAgentSystemPrompt, buildRunAgentRecord, resolveAgentRole } from "../../agent/catalog.js";
-import { detectCodexAppServerCapability, runCodexAppServerTurn, shouldUseCodexAppServerForReadOnlyTurn, type CodexAppServerNotification } from "../../codex/app-server.js";
+import { detectCodexAppServerCapability, extractCodexAppServerCollabToolCall, runCodexAppServerTurn, shouldUseCodexAppServerForReadOnlyTurn, type CodexAppServerCollabToolCall, type CodexAppServerNotification } from "../../codex/app-server.js";
 import { buildCodexReadonlyArgv, buildCodexReadonlyResumeArgv, detectCodexCapabilities } from "../../codex/capabilities.js";
 import { createCodexJsonlStreamParser, extractCodexSessionIdFromJsonl, extractFinalMessageFromCodexJsonl, truncateReadablePreview, type CodexJsonlStreamEvent } from "../../codex/jsonl.js";
 import { resolveCodexEffectiveModel } from "../../codex/model-settings.js";
@@ -388,7 +388,7 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
   if (useAppServer) {
     run = { ...run, command: ["codex", "app-server", "--listen", "stdio://"], status: "running" };
     await writeJsonFile(paths.run, run);
-    await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "app-server.started", runId, data: { phase: "chat", resumed: Boolean(runtime.codexSessionId) } });
+    await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "app-server.started", runId, data: { phase: "chat", resumed: Boolean(runtime.codexSessionId), nativeCollab: appServerCapabilities.nativeCollab } });
     const liveOwner = appServerLiveOwner(runId, options.planningMode ? "planning-agent" : undefined);
     const textDeltaFilter = createMainAgentStrategyAdviceDeltaFilter((delta) => emitScopedAssistantDelta(live, liveOwner, delta));
     let nativePlanText = "";
@@ -696,6 +696,11 @@ function emitScopedAssistantEvent(live: WorkbenchLiveSink | undefined, owner: Ap
 function forwardAppServerNotification(runId: string, notification: CodexAppServerNotification, live: WorkbenchLiveSink | undefined, owner: AppServerLiveOwner = { runId }): void {
   if (!live) return;
   const method = notification.method;
+  const collabToolCall = extractCodexAppServerCollabToolCall(method, notification.params);
+  if (collabToolCall) {
+    forwardAppServerCollabToolCall(runId, collabToolCall, live, owner);
+    return;
+  }
   if (method === "item/plan/delta" || method === "turn/plan/updated" || method === "item/tool/requestUserInput") return;
   if (method === "turn/completed") {
     emitLive(live, { event: "run.status", data: { runId, status: "completed" } });
@@ -729,6 +734,41 @@ function forwardAppServerNotification(runId: string, notification: CodexAppServe
       summary: method,
     });
   }
+}
+
+function forwardAppServerCollabToolCall(runId: string, call: CodexAppServerCollabToolCall, live: WorkbenchLiveSink | undefined, owner: AppServerLiveOwner): void {
+  const agentRoleId = owner.agentRoleId ?? collabAgentRoleId(call);
+  const childOwner = agentRoleId ? { ...owner, agentRoleId } : owner;
+  const status = call.status ?? "running";
+  const receiverSummary = call.receiverThreadIds.length > 0 ? ` -> ${call.receiverThreadIds.join(", ")}` : "";
+  const promptSummary = call.prompt ? truncateReadablePreview(call.prompt).preview : undefined;
+  emitScopedAssistantEvent(live, childOwner, {
+    itemId: call.itemId,
+    kind: "status",
+    phase: status,
+    title: call.tool === "spawn_agent" ? "planning-agent 会话" : `协作工具：${call.tool}`,
+    summary: call.tool === "spawn_agent"
+      ? `Codex 已启动原生子 Agent${receiverSummary}。${promptSummary ?? ""}`.trim()
+      : `Codex 原生协作事件：${call.tool}${receiverSummary}。${promptSummary ?? ""}`.trim(),
+  });
+  emitLive(live, {
+    event: "tool.event",
+    data: {
+      runId,
+      itemId: call.itemId,
+      agentRoleId,
+      agentTaskId: call.receiverThreadIds[0],
+      phase: status === "completed" || status === "succeeded" ? "completed" : "started",
+      name: call.tool,
+      outputTail: promptSummary,
+      status,
+    },
+  });
+}
+
+function collabAgentRoleId(call: CodexAppServerCollabToolCall): string | undefined {
+  if (call.tool === "spawn_agent" || call.tool === "send_input" || call.tool === "wait_agent") return "planning-agent";
+  return undefined;
 }
 
 function formatUsageSummary(usage: Record<string, unknown>): string {

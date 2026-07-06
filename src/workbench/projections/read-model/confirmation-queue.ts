@@ -49,7 +49,7 @@ export async function buildConfirmationQueue(input: {
       ...taskQueueProposalToConfirmationItems(input.project, input.selectedTopic, input.workpad),
       ...decisionContextToConfirmationItems(input.decisionInspector.primary, true),
       ...input.decisionInspector.related.flatMap((context) => decisionContextToConfirmationItems(context, false)),
-    ]).filter((item) => !item.actions.some((action) => isPlanningWorkspaceAction(action.actionType)));
+    ]);
   const nextActionType = input.workpad.nextAction.actionType;
   if (!selectedTopicBusy && !selectedTopicInactive && nextActionType?.startsWith("planning.scheduler.") && !currentItems.some((item) => item.actions.some((action) => action.actionType === nextActionType))) {
     currentItems.push(...schedulerNextActionToConfirmationItems(input.project, input.selectedTopic, input.workpad));
@@ -151,12 +151,6 @@ export async function buildConfirmationQueue(input: {
   queue.history = dedupeConfirmationItems(queue.history.map(scopeConfirmationQueueItemActions));
   queue.primary = queue.current.find((item) => item.primary) ?? queue.current[0] ?? null;
   return queue;
-}
-
-function isPlanningWorkspaceAction(actionType: string | undefined): boolean {
-  return actionType === "planning.generate"
-    || actionType === "planning.revise"
-    || actionType === "planning.confirm-execution";
 }
 
 function isSelectedLandingPackage(pkg: { target: { changeIds: string[] } }, selectedChangeId: string | undefined): boolean {

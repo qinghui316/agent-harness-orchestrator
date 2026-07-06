@@ -89,29 +89,6 @@ export function buildDemandAgentRunGraph(input: {
     attempts: [],
   });
 
-  if (workpad.planningArtifactBundle || workpad.planningDraft) {
-    const bundle = workpad.planningArtifactBundle ?? workpad.planningDraft;
-    if (bundle) {
-      addGraphNode(nodes, {
-        id: "role:planning-agent",
-        kind: "planning-agent",
-        lane: "roles",
-        label: "planning-agent",
-        roleId: "planning-agent",
-        status: workpad.planningArtifactBundle?.status === "confirmed" ? "completed" : "waiting-user",
-        summary: bundle.goal,
-        reason: "主 agent 用它把需求沉淀为可执行计划。",
-        target: { ...targetBase, roleId: "planning-agent" },
-        inputSummary: workpad.intake.currentUnderstanding,
-        outputSummary: bundle.design,
-        evidenceRefs: bundle.artifact ? [{ label: "计划证据", ref: bundle.artifact, kind: "artifact" }] : [],
-        attempts: [],
-      });
-      addGraphEdge(edges, "main-agent", "role:planning-agent", "delegates", "整理计划");
-      addGraphEdge(edges, "role:planning-agent", "main-agent", "returns", "计划返回给主 Agent");
-    }
-  }
-
   const roleNodeIds = addRolePipelineGraphNodes(nodes, edges, targetBase, mainAgentExecutionForWorkpad(workpad));
   connectRolePath(edges, roleNodeIds);
   addResultReviewGraphNode(nodes, edges, targetBase, workpad.resultReview, roleNodeIds.at(-1));
@@ -138,7 +115,6 @@ function parentAgentGraphSummary(workpad: WorkbenchWorkpad): string {
   const mainAgentExecution = mainAgentExecutionForWorkpad(workpad);
   if (mainAgentExecution?.status === "running") return "正在调度角色 agent 执行当前需求。";
   if (mainAgentExecution) return "已建立角色执行链路并收集结果。";
-  if (workpad.planningArtifactBundle) return "已整理计划，等待确认或后续边界检查。";
   return "正在理解当前需求。";
 }
 

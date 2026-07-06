@@ -9,11 +9,13 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { codexRuntimeConfigArgs } from "./capabilities.js";
 import { executeProcessStreaming } from "../run/process.js";
 import type { MemoryMode } from "../types/index.js";
+import { readCodexNativeCollabConfigStatus, type CodexNativeCollabConfigStatus } from "./trust.js";
 
 export interface CodexAppServerCapabilities {
   available: boolean;
   supportsStdio: boolean;
   supportsRequiredLifecycle: boolean;
+  nativeCollab: CodexNativeCollabConfigStatus;
   help: string | null;
   errors: string[];
 }
@@ -49,6 +51,18 @@ export interface CodexAppServerNotification {
   method: string;
   params: Record<string, unknown>;
   raw: Record<string, unknown>;
+}
+
+export interface CodexAppServerCollabToolCall {
+  itemId?: string;
+  tool: string;
+  status?: string;
+  senderThreadId?: string;
+  receiverThreadIds: string[];
+  prompt?: string;
+  model?: string;
+  reasoningEffort?: string;
+  agentsStates?: Record<string, unknown>;
 }
 
 export interface CodexAppServerUserInputOption {
@@ -130,7 +144,7 @@ export interface ActiveCodexAppServerTurn {
 
 const activeTurns = new Map<string, ActiveCodexAppServerTurn>();
 
-export function evaluateCodexAppServerCapabilities(help: string | null, spawnError?: string): CodexAppServerCapabilities {
+export function evaluateCodexAppServerCapabilities(help: string | null, spawnError?: string, nativeCollab: CodexNativeCollabConfigStatus = defaultNativeCollabStatus()): CodexAppServerCapabilities {
   const errors: string[] = [];
   if (spawnError) errors.push(spawnError);
   const supportsStdio = Boolean(help?.includes("stdio://") && help.includes("--listen"));
@@ -141,6 +155,7 @@ export function evaluateCodexAppServerCapabilities(help: string | null, spawnErr
     available: errors.length === 0,
     supportsStdio,
     supportsRequiredLifecycle,
+    nativeCollab,
     help,
     errors,
   };
@@ -161,6 +176,31 @@ export function extractCodexAppServerPlanText(method: string, params: Record<str
   return "";
 }
 
+export function extractCodexAppServerCollabToolCall(method: string, params: Record<string, unknown>): CodexAppServerCollabToolCall | null {
+  if (!method.startsWith("item/") && !method.startsWith("turn/")) return null;
+  const item = isRecord(params.item) ? params.item : params;
+  const type = stringValue(item.type ?? item.kind ?? item.itemType);
+  if (type !== "collabToolCall" && type !== "collabAgentToolCall") return null;
+  const tool = stringValue(item.tool ?? item.name);
+  if (!tool) return null;
+  const receiverThreadIds = [
+    ...stringList(item.receiverThreadId ?? item.receiver_thread_id),
+    ...stringList(item.receiverThreadIds ?? item.receiver_thread_ids),
+    ...stringList(item.newThreadId ?? item.new_thread_id),
+  ];
+  return {
+    itemId: stringValue(item.id),
+    tool,
+    status: stringValue(item.status),
+    senderThreadId: stringValue(item.senderThreadId ?? item.sender_thread_id),
+    receiverThreadIds: [...new Set(receiverThreadIds)],
+    prompt: stringValue(item.prompt),
+    model: stringValue(item.model),
+    reasoningEffort: stringValue(item.reasoningEffort ?? item.reasoning_effort),
+    agentsStates: isRecord(item.agentsStates) ? item.agentsStates : isRecord(item.agents_states) ? item.agents_states : undefined,
+  };
+}
+
 export function buildCodexAppServerCollaborationModePayload(mode: CodexAppServerTurnOptions["collaborationMode"], model: string | null): Record<string, unknown> | undefined {
   if (mode !== "plan") return undefined;
   return {
@@ -176,6 +216,7 @@ export function buildCodexAppServerCollaborationModePayload(mode: CodexAppServer
 export async function detectCodexAppServerCapability(): Promise<CodexAppServerCapabilities> {
   let help: string | null = null;
   let spawnError: string | undefined;
+  const nativeCollab = await readCodexNativeCollabConfigStatus();
   try {
     help = await captureCodexAppServerHelp();
     const startupError = await captureCodexAppServerStartupError();
@@ -183,7 +224,7 @@ export async function detectCodexAppServerCapability(): Promise<CodexAppServerCa
   } catch (error) {
     spawnError = `Failed to inspect Codex app-server: ${(error as Error).message}`;
   }
-  return evaluateCodexAppServerCapabilities(help, spawnError);
+  return evaluateCodexAppServerCapabilities(help, spawnError, nativeCollab);
 }
 
 export function getActiveCodexAppServerTurn(scopeId: string): ActiveCodexAppServerTurn | null {
@@ -639,6 +680,10 @@ function isAssistantMessageItem(params: Record<string, unknown>): boolean {
 function extractTurnPlanText(params: Record<string, unknown>): string {
   const plan = params.plan;
   if (typeof plan === "string") return plan.trim();
+  if (Array.isArray(plan)) {
+    const text = extractPlanStepsText(plan, typeof params.explanation === "string" ? params.explanation : "");
+    if (text) return text;
+  }
   if (isRecord(plan)) {
     const text = extractPlanObjectText(plan);
     if (text) return text;
@@ -650,6 +695,17 @@ function extractTurnPlanText(params: Record<string, unknown>): string {
   }
   const explanation = typeof params.explanation === "string" ? params.explanation.trim() : "";
   return explanation;
+}
+
+function extractPlanStepsText(steps: unknown[], explanation: string): string {
+  const renderedSteps = steps
+    .map((step, index) => renderPlanStep(step, index))
+    .filter(Boolean);
+  const intro = explanation.trim();
+  return [
+    intro,
+    renderedSteps.length > 0 ? renderedSteps.join("\n") : "",
+  ].filter(Boolean).join("\n\n");
 }
 
 function extractPlanObjectText(plan: Record<string, unknown>): string {
@@ -677,6 +733,19 @@ function extractPlanObjectText(plan: Record<string, unknown>): string {
     if (steps.length > 0) return steps.join("\n");
   }
   return "";
+}
+
+function renderPlanStep(step: unknown, index: number): string {
+  if (typeof step === "string") return `${index + 1}. ${step}`;
+  if (!isRecord(step)) return "";
+  const text = stringValue(step.step)
+    ?? stringValue(step.title)
+    ?? stringValue(step.label)
+    ?? stringValue(step.description)
+    ?? stringValue(step.detail);
+  if (!text) return "";
+  const status = stringValue(step.status);
+  return status ? `${index + 1}. [${status}] ${text}` : `${index + 1}. ${text}`;
 }
 
 function parseUserInputQuestions(value: unknown): CodexAppServerUserInputQuestion[] {
@@ -730,6 +799,25 @@ function completionStatus(params: Record<string, unknown>): string | null {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function defaultNativeCollabStatus(): CodexNativeCollabConfigStatus {
+  return {
+    configPath: "",
+    configExists: false,
+    multiAgent: "default-enabled",
+    multiAgentV2: "default-disabled",
+  };
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function stringList(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map(stringValue).filter((item): item is string => Boolean(item));
+  const single = stringValue(value);
+  return single ? [single] : [];
 }
 
 export async function readAgentSession(path: string): Promise<CodexAppServerSessionRecord | null> {

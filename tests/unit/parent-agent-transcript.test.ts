@@ -122,57 +122,47 @@ describe("parent agent transcript paging", () => {
     ]);
   });
 
-  it("routes planning action output to the planning-agent workspace", () => {
+  it("routes native Plan Mode output to a plan session instead of planning-agent", () => {
     const threadItems = [
       {
         id: "user-1",
         kind: "user-message",
-        label: "Build a thing",
-        body: "Build a thing",
+        label: "Plan a small change",
+        body: "Plan a small change",
       },
       {
-        id: "planning-message",
+        id: "native-plan-message",
         kind: "assistant-turn",
-        label: "AI",
-        agentRoleId: "planning-agent",
-        runId: "run-plan",
-        body: "计划\n\n## 目标\n做事\n\n## 任务清单\n- T-001",
+        label: "计划会话",
+        agentRoleId: "plan-session",
+        runId: "run-native-plan",
+        body: "Native plan body from Codex Plan Mode.",
         blocks: [{
-          id: "legacy-plan-block",
+          id: "native-plan-block",
           sequence: 1,
           kind: "prose" as const,
           source: "codex" as const,
-          text: "计划\n\n## 目标\n做事\n\n## 任务清单\n- T-001",
-        }],
-      },
-      {
-        id: "planning-workflow",
-        kind: "assistant-turn",
-        label: "计划已生成",
-        source: "workflow",
-        actionType: "planning.generate",
-        status: "completed",
-        body: "计划已生成",
-        blocks: [{
-          id: "legacy-plan-workflow-block",
-          sequence: 1,
-          kind: "prose" as const,
-          source: "workflow" as const,
-          text: "计划已生成",
+          text: "Native plan body from Codex Plan Mode.",
         }],
       },
     ];
 
     const parent = buildParentAgentTranscript({
-      workpad: { conversationId: "conv", boundChangeId: "change", title: "Legacy planning" },
+      workpad: { conversationId: "conv", title: "Native plan session" },
       threadItems,
     });
-    const planning = buildAgentScopedTranscriptCells(threadItems, "planning-agent");
+    const planSession = buildAgentScopedTranscriptCells(threadItems, "plan-session");
+    const planningAgent = buildAgentScopedTranscriptCells(threadItems, "planning-agent");
 
-    expect(parent.cells.map((cell) => cell.text).join("\n")).toBe("Build a thing");
-    expect(planning.map((cell) => cell.text).join("\n")).toContain("## 目标");
-    expect(planning.map((cell) => cell.text).join("\n")).toContain("计划已生成");
-    expect(planning.every((cell) => cell.agentRoleId === "planning-agent")).toBe(true);
+    expect(parent.cells.map((cell) => cell.text).join("\n")).toBe("Plan a small change");
+    expect(planSession).toEqual([
+      expect.objectContaining({
+        agentRoleId: "plan-session",
+        runId: "run-native-plan",
+        text: "Native plan body from Codex Plan Mode.",
+      }),
+    ]);
+    expect(planningAgent).toEqual([]);
   });
 
   it("strips accidental planning sections from main-agent visible prose", () => {

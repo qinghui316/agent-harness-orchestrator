@@ -2,7 +2,6 @@ import type { WorkbenchThreadActionType } from "../../workflow-actions/registry.
 
 export type WorkflowActionPayloadSource = {
   changeId?: string;
-  planningBundleId?: string;
   decompositionPlanId?: string;
   readinessManifestId?: string;
   taskQueueProposalId?: string;
@@ -37,7 +36,6 @@ export type WorkflowActionPayloadSource = {
   goalLoopControllerPolicyId?: string;
   goalLoopGateReadinessPreflightId?: string;
   goalLoopCurrentGateActionType?: WorkbenchThreadActionType;
-  postPlanAutomationMode?: "request-approval" | "full-access";
   automationMode?: "request-approval" | "full-access";
   automationCurrentGateActionType?: WorkbenchThreadActionType;
   automationCurrentGateApprovalActionId?: string;

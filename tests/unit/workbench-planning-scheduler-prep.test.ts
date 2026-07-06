@@ -8,13 +8,12 @@ import { createWorkbenchTopic } from "../../src/workbench/chat.js";
 import { getWorkbenchDecompositionPlanProjection, getWorkbenchDecompositionReadinessProjection, getWorkbenchSchedulerClaimReservationProjection, getWorkbenchSchedulerContractProjection, getWorkbenchSnapshot, getWorkbenchTaskQueueProposalProjection, getWorkbenchWorkflowGraphPlanProjection } from "../../src/workbench/manager.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { listAgentTasks } from "../../src/agent-task/manager.js";
-import { buildAgentAuthoredPlanningBundle, buildDeterministicDecompositionPlan, buildDeterministicPlanningBundle } from "../../src/workbench/planning/builders.js";
+import { buildDeterministicDecompositionPlan } from "../../src/workbench/planning/builders.js";
 import { listWorktreeStatuses } from "../../src/worktree/manager.js";
 import { listTaskQueues } from "../../src/task-queue/manager.js";
 import { listTaskRuns } from "../../src/task-run/manager.js";
 import { listWorkflowRuns } from "../../src/workflow-run/manager.js";
-import { shouldIncludeFirstOnboardingSkill } from "../../src/workbench/actions/handlers/planning.js";
-import { getTempDir, project, writeAcceptedSpecAndTasks, writePlanningBundleFixture } from "./workbench/fixtures.js";
+import { getTempDir, project, writeAcceptedSpecAndTasks } from "./workbench/fixtures.js";
 
 let tempDir: string;
 
@@ -23,232 +22,17 @@ beforeEach(async () => {
 });
 
 describe("workbench planning and scheduler preparation", () => {
-  it("loads the onboarding system skill only for the first active planning change", async () => {
+  it("does not invent decomposition tasks when planning has no Agent-authored tasks", async () => {
     await initHarness(project());
     const memory = await resolveProjectMemory(project());
-    const first = await createWorkbenchTopic(project(), { title: "First Demand", body: "请先准备这个项目。" });
-
-    expect(await shouldIncludeFirstOnboardingSkill(memory, first.changeId)).toBe(true);
-
-    const second = await createWorkbenchTopic(project(), { title: "Second Demand", body: "普通需求。" });
-
-    expect(await shouldIncludeFirstOnboardingSkill(memory, first.changeId)).toBe(false);
-    expect(await shouldIncludeFirstOnboardingSkill(memory, second.changeId)).toBe(false);
-  });
-
-  it("does not build planning artifacts from raw demand without Agent-authored plan content", async () => {
-    await initHarness(project());
-    const memory = await resolveProjectMemory(project());
-    const prompt = "为 AHO 增加一个非 CI 的 current-project real Codex acceptance 入口或说明，明确如何用当前项目跑真实 Workbench/Codex 验收，并区分它和 fake fixture 测试。";
-
-    expect(() => buildDeterministicPlanningBundle(memory, "harness/changes/active/real-codex-acceptance", "real-codex-acceptance", prompt, null, false))
-      .toThrow("Deterministic planning content generation is retired");
-  });
-
-  it("builds planning artifacts from Agent-authored native plan sections", async () => {
-    await initHarness(project());
-    const memory = await resolveProjectMemory(project());
-    const plan = [
-      "## 目标",
-      "为 AHO 增加真实 UI 验收说明，区分真实 Codex app-server 验收和 fake fixture 测试。",
-      "",
-      "## 范围",
-      "- 更新 docs/WORKBENCH.md 中的真实验收入口说明。",
-      "- 不修改 runtime 权限或默认 CI。",
-      "",
-      "## 验收标准",
-      "- 能说明真实 App、真实项目和真实 Codex app-server 的验收路径。",
-      "- 能说明 fake fixture 不能冒充真实验收。",
-      "",
-      "## 实施方案",
-      "- 补充 Workbench 文档里的真实验收路径。",
-      "- 增加针对文档内容的轻量检查。",
-      "",
-      "## 任务",
-      "- 更新 docs/WORKBENCH.md 的真实验收说明，覆盖 AC-001。",
-      "- 更新对应测试或检查，覆盖 AC-002。",
-      "",
-      "## 风险",
-      "- Codex runtime 不可用时只能记录 blocked，不能宣称验收通过。",
-    ].join("\n");
-
-    const bundle = buildAgentAuthoredPlanningBundle(memory, "harness/changes/active/real-codex-acceptance", "real-codex-acceptance", "raw demand is context only", null, false, {
-      proposedPlanMd: plan,
-      planningMode: "codex-native-plan",
-    });
-
-    expect(bundle.goal).toContain("真实 UI 验收说明");
-    expect(bundle.constraints).toContain("更新 docs/WORKBENCH.md 中的真实验收入口说明。");
-    expect(bundle.acceptanceCriteria).toEqual([
-      "AC-001: 能说明真实 App、真实项目和真实 Codex app-server 的验收路径。",
-      "AC-002: 能说明 fake fixture 不能冒充真实验收。",
-    ]);
-    expect(bundle.tasks).toEqual([
-      expect.objectContaining({ id: "T-001", title: expect.stringContaining("docs/WORKBENCH.md"), acIds: ["AC-001"] }),
-      expect.objectContaining({ id: "T-002", title: expect.stringContaining("测试或检查"), acIds: ["AC-002"] }),
-    ]);
-    expect(bundle.design).toContain("补充 Workbench 文档");
-    expect(bundle.risks).toEqual([expect.stringContaining("Codex runtime")]);
-  });
-
-  it("preserves scoped tasks from Agent-authored plan instead of collapsing to one worktree", async () => {
-    await initHarness(project());
-    const memory = await resolveProjectMemory(project());
-    const prompt = "请做一个低冲突两文件改动：把 src/alpha.ts 和 src/beta.ts 分别更新，后续组合问题由 IntegrationFix 处理。";
-    const proposedPlanMd = [
-      "目标:",
-      "- 低冲突 TaskGraph，两项任务互不重叠。",
-      "",
-      "范围:",
-      "- 只修改 src/alpha.ts。",
-      "- 只修改 src/beta.ts。",
-      "",
-      "验收标准:",
-      "- AC-001: src/alpha.ts 的 alphaMode 已更新。",
-      "- AC-002: src/beta.ts 的 betaMode 已更新。",
-      "",
-      "实施方案:",
-      "- 两个文件可作为独立任务处理，组合问题由后续检查处理。",
-      "",
-      "任务清单:",
-      "- [ ] T-001: 修改 `src/alpha.ts` 的 alphaMode，覆盖 AC-001。",
-      "- [ ] T-002: 修改 `src/beta.ts` 的 betaMode，覆盖 AC-002。",
-      "",
-      "验证:",
-      "- 两个 worker 先独立验证，再进入组合检查。",
-    ].join("\n");
-
-    const bundle = buildAgentAuthoredPlanningBundle(memory, "harness/changes/active/proposed-plan-parallel", "proposed-plan-parallel", prompt, null, false, {
-      proposedPlanMd,
-      planningMode: "prompt-plan-contract",
-    });
-
-    expect(bundle.tasks).toEqual([
-      expect.objectContaining({ id: "T-001", title: expect.stringContaining("src/alpha.ts") }),
-      expect.objectContaining({ id: "T-002", title: expect.stringContaining("src/beta.ts") }),
-    ]);
-
-    const plan = buildDeterministicDecompositionPlan(memory, "harness/changes/active/proposed-plan-parallel", "proposed-plan-parallel", bundle, [], undefined);
-    expect(plan).toMatchObject({
-      recommendation: "taskgraph-parallel-candidate",
-      units: [
-        expect.objectContaining({ taskIds: ["T-001"], scopeHints: ["src/alpha.ts"], dependsOn: [] }),
-        expect.objectContaining({ taskIds: ["T-002"], scopeHints: ["src/beta.ts"], dependsOn: [] }),
-      ],
-      dependencies: [],
-      conflictScopes: ["src/alpha.ts", "src/beta.ts"],
-    });
-  });
-
-  it("does not treat negated source paths in Agent-authored plan as accepted scheduler source scopes", async () => {
-    await initHarness(project());
-    const memory = await resolveProjectMemory(project());
-    const proposedPlanMd = [
-      "目标:",
-      "- 低冲突 TaskGraph，两项任务互不重叠。",
-      "",
-      "范围:",
-      "- 只修改 src/alpha.ts。",
-      "- 只修改 src/beta.ts。",
-      "- 不要在 worker 阶段新增 src/integration-note.ts。",
-      "",
-      "验收标准:",
-      "- AC-001: src/alpha.ts 的 alphaMode 从 legacy 改成 modern。",
-      "- AC-002: src/beta.ts 的 betaMode 从 legacy 改成 modern。",
-      "",
-      "实施方案:",
-      "- 两个任务 sourceScopes 分别是 src/alpha.ts 和 src/beta.ts，组合验证需要时由 IntegrationFix 处理。",
-      "",
-      "任务清单:",
-      "- [ ] T-001: 修改 `src/alpha.ts` 的 alphaMode，覆盖 AC-001。",
-      "- [ ] T-002: 修改 `src/beta.ts` 的 betaMode，覆盖 AC-002。",
-    ].join("\n");
-
-    const bundle = buildAgentAuthoredPlanningBundle(memory, "harness/changes/active/negated-scope", "negated-scope", "raw demand is context only", null, false, {
-      proposedPlanMd,
-      planningMode: "codex-native-plan",
-    });
-
-    expect(bundle.sourceScopeConstraints).toEqual(["src/alpha.ts", "src/beta.ts"]);
-    expect(bundle.tasks).toEqual([
-      expect.objectContaining({ id: "T-001", title: expect.stringContaining("src/alpha.ts") }),
-      expect.objectContaining({ id: "T-002", title: expect.stringContaining("src/beta.ts") }),
-    ]);
-
-    const plan = buildDeterministicDecompositionPlan(memory, "harness/changes/active/negated-scope", "negated-scope", bundle, [], undefined);
-    expect(plan).toMatchObject({
-      recommendation: "taskgraph-parallel-candidate",
-      conflictScopes: ["src/alpha.ts", "src/beta.ts"],
-      sourceScopeConstraints: ["src/alpha.ts", "src/beta.ts"],
-      scopeExpansions: [],
-    });
-  });
-
-  it("fails closed when Agent-authored plan lacks task evidence", async () => {
-    await initHarness(project());
-    const memory = await resolveProjectMemory(project());
-    const incompletePlan = [
-      "## 目标",
-      "新增 src/cheer.ts，导出 cheerGreeting(name: string)。",
-      "",
-      "## 范围",
-      "- 只修改 src/cheer.ts。",
-      "",
-      "## 验收标准",
-      "- cheerGreeting 返回可读问候语。",
-      "",
-      "## 实施方案",
-      "- 添加函数并验证导出。",
-    ].join("\n");
-
-    expect(() => buildAgentAuthoredPlanningBundle(memory, "harness/changes/active/cheer", "cheer", "raw demand is context only", null, false, {
-      proposedPlanMd: incompletePlan,
-      planningMode: "codex-native-plan",
-    })).toThrow("tasks");
-  });
-
-  it("projects draft planning next action into the planning-agent workspace", async () => {
-    await initHarness(project());
-    const topic = await createWorkbenchTopic(project(), {
-      title: "Ready Demand",
-      body: "Run the accepted plan.",
-    });
-    await writeAcceptedSpecAndTasks(topic.changeId);
-    const planningBundleId = await writePlanningBundleFixture(topic.changeId);
-
-    const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
-
-    expect(snapshot.center.workpad.nextAction).toMatchObject({
-      actionType: "planning.confirm-execution",
-      enabled: true,
-    });
-    expect([
-      ...(snapshot.right.confirmationQueue.primary?.actions ?? []),
-      ...snapshot.right.confirmationQueue.current.flatMap((item) => item.actions),
-    ].some((action) => action.actionType === "planning.confirm-execution")).toBe(false);
-    const planningAgent = snapshot.right.agentWorkspace.agents.find((agent) => agent.id === "planning-agent");
-    expect(snapshot.right.agentWorkspace.selectedAgentId).toBe("planning-agent");
-    expect(planningAgent?.actions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ actionType: "planning.confirm-execution", label: "实施此计划", planningBundleId }),
-    ]));
-  });
-
-  it("rejects stale planning bundle confirmation", async () => {
-    await initHarness(project());
-    const topic = await createWorkbenchTopic(project(), {
-      title: "Stale Planning",
-      body: "Confirm only the visible planning bundle.",
-    });
-    await writeAcceptedSpecAndTasks(topic.changeId);
-    const staleBundleId = await writePlanningBundleFixture(topic.changeId, "First bundle", "first");
-    await writePlanningBundleFixture(topic.changeId, "Second bundle", "second");
-
-    await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
-      actionType: "planning.confirm-execution",
-      changeId: topic.changeId,
-      planningBundleId: staleBundleId,
-      confirm: true,
-    })).rejects.toThrow("stale or no longer available");
+    await expect(() => buildDeterministicDecompositionPlan(
+      memory,
+      "harness/changes/active/no-agent-tasks",
+      "no-agent-tasks",
+      null,
+      [],
+      "Implement the accepted demand.",
+    )).toThrow("Agent-authored planning tasks");
   });
 
   it("generates and confirms a DecompositionPlan without creating execution artifacts", async () => {
@@ -258,13 +42,6 @@ describe("workbench planning and scheduler preparation", () => {
       body: "Assess whether this should be split before execution.",
     });
     await writeAcceptedSpecAndTasks(topic.changeId);
-    const planningBundleId = await writePlanningBundleFixture(topic.changeId, "Implement one scoped demand.");
-    await executeWorkbenchAction({ project: project(), path: tempDir }, {
-      actionType: "planning.confirm-execution",
-      changeId: topic.changeId,
-      planningBundleId,
-      confirm: true,
-    });
 
     const draft = await executeWorkbenchAction({ project: project(), path: tempDir }, {
       actionType: "planning.decompose",
@@ -345,13 +122,6 @@ describe("workbench planning and scheduler preparation", () => {
       body: "Assess only the visible confirmed decomposition plan.",
     });
     await writeAcceptedSpecAndTasks(topic.changeId);
-    const planningBundleId = await writePlanningBundleFixture(topic.changeId, "Implement one scoped demand.");
-    await executeWorkbenchAction({ project: project(), path: tempDir }, {
-      actionType: "planning.confirm-execution",
-      changeId: topic.changeId,
-      planningBundleId,
-      confirm: true,
-    });
 
     const draft = await executeWorkbenchAction({ project: project(), path: tempDir }, {
       actionType: "planning.decompose",
@@ -389,13 +159,6 @@ describe("workbench planning and scheduler preparation", () => {
       body: "Reject decomposition plans that no longer match accepted tasks.",
     });
     await writeAcceptedSpecAndTasks(topic.changeId);
-    const planningBundleId = await writePlanningBundleFixture(topic.changeId, "Implement one scoped demand.");
-    await executeWorkbenchAction({ project: project(), path: tempDir }, {
-      actionType: "planning.confirm-execution",
-      changeId: topic.changeId,
-      planningBundleId,
-      confirm: true,
-    });
 
     const draft = await executeWorkbenchAction({ project: project(), path: tempDir }, {
       actionType: "planning.decompose",
@@ -438,34 +201,31 @@ describe("workbench planning and scheduler preparation", () => {
     });
     await writeAcceptedSpecAndTasks(topic.changeId);
     const changeDir = join(tempDir, "harness", "changes", "active", topic.changeId);
-    await writeFile(join(changeDir, "tasks.md"), [
+    await writeFile(join(tempDir, "spec.md"), "# Spec\n\n## Acceptance Criteria\n\n- AC-001: Complete ordered split work.\n", "utf8");
+    await writeFile(join(tempDir, "plan.md"), "# Plan\n\nRun the two accepted tasks in order.\n", "utf8");
+    await writeFile(join(tempDir, "tasks.md"), [
       "# Tasks",
       "",
-      "- [ ] T-001: First task.",
+      "- [ ] T-001: First task in `src/first.ts`.",
       "  - Covers: AC-001",
-      "- [ ] T-002: Second task.",
+      "- [ ] T-002: Second task in `src/second.ts` after T-001.",
       "  - Covers: AC-001",
       "",
     ].join("\n"), "utf8");
-    const planningBundleId = await writePlanningBundleFixture(topic.changeId, "Implement ordered split work.");
-    const bundlePath = join(changeDir, "planning", "latest-bundle.json");
-    const bundle = JSON.parse(await readFile(bundlePath, "utf8"));
-    bundle.tasks = [
-      { id: "T-001", title: "First task", acIds: ["AC-001"] },
-      { id: "T-002", title: "Second task", acIds: ["AC-001"] },
-    ];
-    bundle.tasksMd = "- [ ] T-001: First task\n  - Covers: AC-001\n- [ ] T-002: Second task\n  - Covers: AC-001\n";
-    await writeFile(bundlePath, JSON.stringify(bundle, null, 2), "utf8");
-    await executeWorkbenchAction({ project: project(), path: tempDir }, {
-      actionType: "planning.confirm-execution",
-      changeId: topic.changeId,
-      planningBundleId,
-      confirm: true,
-    });
+    await writeFile(join(changeDir, "tasks.md"), [
+      "# Tasks",
+      "",
+      "- [ ] T-001: First task in `src/first.ts`.",
+      "  - Covers: AC-001",
+      "- [ ] T-002: Second task in `src/second.ts` after T-001.",
+      "  - Covers: AC-001",
+      "",
+    ].join("\n"), "utf8");
 
     const draft = await executeWorkbenchAction({ project: project(), path: tempDir }, {
       actionType: "planning.decompose",
       changeId: topic.changeId,
+      prompt: "顺序执行：先处理 src/first.ts，再处理 src/second.ts。",
       confirm: true,
     });
     const planId = ((draft.result as { result?: { plan?: { id?: string; recommendation?: string } } }).result?.plan?.id);
@@ -498,7 +258,12 @@ describe("workbench planning and scheduler preparation", () => {
       readinessManifestId: manifest?.id,
       confirm: true,
     });
-    const proposal = (proposed.result as { result?: { proposal?: { id?: string; itemCount?: number; status?: string; readinessManifestId?: string; executionStarted?: boolean } } }).result?.proposal;
+    const proposedResult = (proposed.result as { result?: unknown }).result ?? proposed.result;
+    const proposedConcrete = (proposedResult as { result?: unknown }).result ?? proposedResult;
+    const proposal = (proposedConcrete as { proposal?: { id?: string; itemCount?: number; status?: string; readinessManifestId?: string; executionStarted?: boolean } }).proposal;
+    if (!proposal) {
+      throw new Error(JSON.stringify(proposedConcrete));
+    }
     expect(proposal).toMatchObject({ status: "draft", readinessManifestId: manifest?.id });
     const snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
     expect(snapshot.center.workpad.taskQueueProposal).toMatchObject({ id: proposal?.id, itemCount: 2, status: "draft" });
@@ -546,25 +311,26 @@ describe("workbench planning and scheduler preparation", () => {
     });
     await writeAcceptedSpecAndTasks(topic.changeId);
     const changeDir = join(tempDir, "harness", "changes", "active", topic.changeId);
-    await writeFile(join(changeDir, "tasks.md"), [
+    await writeFile(join(tempDir, "spec.md"), "# Spec\n\n## Acceptance Criteria\n\n- AC-001: Update independent modules.\n", "utf8");
+    await writeFile(join(tempDir, "plan.md"), "# Plan\n\nUpdate module A and module B independently.\n", "utf8");
+    await writeFile(join(tempDir, "tasks.md"), [
       "# Tasks",
       "",
-      "- [ ] T-001: Update module A.",
+      "- [ ] T-001: Update `src/module-a.ts`.",
       "  - Covers: AC-001",
-      "- [ ] T-002: Update module B.",
+      "- [ ] T-002: Update `src/module-b.ts`.",
       "  - Covers: AC-001",
       "",
     ].join("\n"), "utf8");
-    await writePlanningBundleFixture(topic.changeId, "Implement independent parallel module updates.");
-    const bundlePath = join(changeDir, "planning", "latest-bundle.json");
-    const bundle = JSON.parse(await readFile(bundlePath, "utf8"));
-    bundle.status = "confirmed";
-    bundle.tasks = [
-      { id: "T-001", title: "Update module A", acIds: ["AC-001"] },
-      { id: "T-002", title: "Update module B", acIds: ["AC-001"] },
-    ];
-    bundle.tasksMd = "- [ ] T-001: Update module A\n  - Covers: AC-001\n- [ ] T-002: Update module B\n  - Covers: AC-001\n";
-    await writeFile(bundlePath, JSON.stringify(bundle, null, 2), "utf8");
+    await writeFile(join(changeDir, "tasks.md"), [
+      "# Tasks",
+      "",
+      "- [ ] T-001: Update `src/module-a.ts`.",
+      "  - Covers: AC-001",
+      "- [ ] T-002: Update `src/module-b.ts`.",
+      "  - Covers: AC-001",
+      "",
+    ].join("\n"), "utf8");
 
     const draft = await executeWorkbenchAction({ project: project(), path: tempDir }, {
       actionType: "planning.decompose",
@@ -641,7 +407,7 @@ describe("workbench planning and scheduler preparation", () => {
       readinessManifestId: manifest?.id,
       confirm: true,
     });
-    const preparedResult = (prepared.result as {
+    const preparedResult = (((prepared.result as { result?: unknown }).result ?? prepared.result) as {
       result?: {
         status?: string;
         mode?: string;
@@ -656,7 +422,10 @@ describe("workbench planning and scheduler preparation", () => {
         claimReservation?: { id?: string; schedulerRunId?: string; schedulerReconcileSnapshotId?: string; reservedCount?: number; blockedCount?: number };
         launchBrief?: { status?: string; schedulerRunId?: string; schedulerReconcileSnapshotId?: string; schedulerClaimReservationId?: string; reservedCount?: number; blockedCount?: number; summary?: string };
       };
-    }).result;
+    }).result ?? ((prepared.result as { result?: unknown }).result ?? prepared.result);
+    if ((preparedResult as { status?: string })?.status === "failed") {
+      throw new Error(JSON.stringify(preparedResult));
+    }
     expect(preparedResult).toMatchObject({ status: "prepared", mode: "prepared-new-evidence" });
     const contract = preparedResult?.contract;
     const dryRun = preparedResult?.dryRun;
@@ -810,22 +579,12 @@ describe("workbench planning and scheduler preparation", () => {
     await writeFile(join(changeDir, "tasks.md"), [
       "# Tasks",
       "",
-      "- [ ] T-001: Update module A.",
+      "- [ ] T-001: Update `src/module-a.ts`.",
       "  - Covers: AC-001",
-      "- [ ] T-002: Update module B.",
+      "- [ ] T-002: Update `src/module-b.ts`.",
       "  - Covers: AC-001",
       "",
     ].join("\n"), "utf8");
-    await writePlanningBundleFixture(topic.changeId, "Implement independent parallel module updates.");
-    const bundlePath = join(changeDir, "planning", "latest-bundle.json");
-    const bundle = JSON.parse(await readFile(bundlePath, "utf8"));
-    bundle.status = "confirmed";
-    bundle.tasks = [
-      { id: "T-001", title: "Update module A", acIds: ["AC-001"] },
-      { id: "T-002", title: "Update module B", acIds: ["AC-001"] },
-    ];
-    bundle.tasksMd = "- [ ] T-001: Update module A\n  - Covers: AC-001\n- [ ] T-002: Update module B\n  - Covers: AC-001\n";
-    await writeFile(bundlePath, JSON.stringify(bundle, null, 2), "utf8");
 
     const draft = await executeWorkbenchAction({ project: project(), path: tempDir }, {
       actionType: "planning.decompose",
@@ -890,22 +649,12 @@ describe("workbench planning and scheduler preparation", () => {
     await writeFile(join(changeDir, "tasks.md"), [
       "# Tasks",
       "",
-      "- [ ] T-001: Update module A.",
+      "- [ ] T-001: Update `src/module-a.ts`.",
       "  - Covers: AC-001",
-      "- [ ] T-002: Update module B.",
+      "- [ ] T-002: Update `src/module-b.ts`.",
       "  - Covers: AC-001",
       "",
     ].join("\n"), "utf8");
-    await writePlanningBundleFixture(topic.changeId, "Implement independent parallel module updates.");
-    const bundlePath = join(changeDir, "planning", "latest-bundle.json");
-    const bundle = JSON.parse(await readFile(bundlePath, "utf8"));
-    bundle.status = "confirmed";
-    bundle.tasks = [
-      { id: "T-001", title: "Update module A", acIds: ["AC-001"] },
-      { id: "T-002", title: "Update module B", acIds: ["AC-001"] },
-    ];
-    bundle.tasksMd = "- [ ] T-001: Update module A\n  - Covers: AC-001\n- [ ] T-002: Update module B\n  - Covers: AC-001\n";
-    await writeFile(bundlePath, JSON.stringify(bundle, null, 2), "utf8");
 
     const draft = await executeWorkbenchAction({ project: project(), path: tempDir }, {
       actionType: "planning.decompose",

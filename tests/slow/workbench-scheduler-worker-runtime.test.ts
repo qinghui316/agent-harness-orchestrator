@@ -13,7 +13,7 @@ import { listTaskQueues } from "../../src/task-queue/manager.js";
 import { listTaskRuns, listWorkerLeases } from "../../src/task-run/manager.js";
 import { listWorkflowRuns } from "../../src/workflow-run/manager.js";
 import { auditSchedulerFirstWorker, validateSchedulerFirstWorker } from "../../src/scheduler-runtime/manager.js";
-import { createFakeCodex, findSchedulerGateAction, getTempDir, git, initGitRepository, project, unwrapControlledSchedulerAdvanceResult, writeAcceptedSpecAndTasks, writePlanningBundleFixture } from "../unit/workbench/fixtures.js";
+import { createFakeCodex, findSchedulerGateAction, getTempDir, git, initGitRepository, project, unwrapControlledSchedulerAdvanceResult, writeAcceptedSpecAndTasks } from "../unit/workbench/fixtures.js";
 
 describe("workbench scheduler worker runtime slow path", () => {
   it("starts and validates the first scheduler worker after prepared launch confirmation", async () => {
@@ -34,17 +34,6 @@ describe("workbench scheduler worker runtime slow path", () => {
       "  - Covers: AC-001",
       "",
     ].join("\n"), "utf8");
-    await writePlanningBundleFixture(topic.changeId, "Implement independent parallel module updates.");
-    const bundlePath = join(changeDir, "planning", "latest-bundle.json");
-    const bundle = JSON.parse(await readFile(bundlePath, "utf8"));
-    bundle.status = "confirmed";
-    bundle.tasks = [
-      { id: "T-001", title: "Update module A", acIds: ["AC-001"] },
-      { id: "T-002", title: "Update module B", acIds: ["AC-001"] },
-    ];
-    bundle.tasksMd = "- [ ] T-001: Update module A\n  - Covers: AC-001\n- [ ] T-002: Update module B\n  - Covers: AC-001\n";
-    await writeFile(bundlePath, JSON.stringify(bundle, null, 2), "utf8");
-
     const draft = await executeWorkbenchAction({ project: project(), path: tempDir }, {
       actionType: "planning.decompose",
       changeId: topic.changeId,

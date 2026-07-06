@@ -1,23 +1,21 @@
 import { Bot, Send } from "lucide-react";
 import { useMemo, useState, type ReactElement } from "react";
-import { workflowActionPayloadFromScope } from "../../workflow-actions.js";
 import { humanStatus } from "../../formatters.js";
 import { parentTranscriptCellsFromLiveTurn } from "../../liveTranscript.js";
 import { AgentTranscriptPane } from "./TranscriptReadingSurface.js";
 import { ClarificationCard, CodexUserInputRequestCard } from "./workpad/TaskGraphCards.js";
-import type { AgentWorkspace, AgentWorkspaceAgent, CodexUserInputRequest, DecisionAction, LiveAssistantTurn } from "../../types.js";
+import type { AgentWorkspace, AgentWorkspaceAgent, CodexUserInputRequest, LiveAssistantTurn } from "../../types.js";
 
 export function AgentWorkspacePanel({
   workspace,
   selectedAgentId,
   liveTurns,
   codexUserInputRequests,
-  automationMode,
   busy,
   onSelectAgent,
-  onWorkflowAction,
   onAnswerClarification,
   onAnswerCodexUserInput,
+  onSendAgentMessage,
   modelLabel,
   onOpenModelSettings,
 }: {
@@ -25,12 +23,11 @@ export function AgentWorkspacePanel({
   selectedAgentId: string | null;
   liveTurns: LiveAssistantTurn[];
   codexUserInputRequests: CodexUserInputRequest[];
-  automationMode: "request-approval" | "full-access";
   busy: boolean;
   onSelectAgent: (agentId: string) => void;
-  onWorkflowAction: (actionType: string, options?: Record<string, unknown>) => Promise<void>;
   onAnswerClarification: (clarificationId: string, answer: string) => Promise<void>;
   onAnswerCodexUserInput: (request: CodexUserInputRequest, answers: Record<string, string | string[]>) => Promise<void>;
+  onSendAgentMessage: (agent: AgentWorkspaceAgent, message: string) => Promise<void>;
   modelLabel: string;
   onOpenModelSettings?: () => void;
 }): ReactElement {
@@ -74,11 +71,10 @@ export function AgentWorkspacePanel({
         </div>
         <AgentWorkspaceComposer
           agent={selected}
-          automationMode={automationMode}
           busy={busy}
           modelLabel={modelLabel}
           onOpenModelSettings={onOpenModelSettings}
-          onWorkflowAction={onWorkflowAction}
+          onSendAgentMessage={onSendAgentMessage}
         />
       </section>
     </div>
@@ -161,52 +157,32 @@ function AgentCodexUserInputRequests({
 
 function AgentWorkspaceComposer({
   agent,
-  automationMode,
   busy,
   modelLabel,
   onOpenModelSettings,
-  onWorkflowAction,
+  onSendAgentMessage,
 }: {
   agent: AgentWorkspaceAgent;
-  automationMode: "request-approval" | "full-access";
   busy: boolean;
   modelLabel: string;
   onOpenModelSettings?: () => void;
-  onWorkflowAction: (actionType: string, options?: Record<string, unknown>) => Promise<void>;
+  onSendAgentMessage: (agent: AgentWorkspaceAgent, message: string) => Promise<void>;
 }): ReactElement {
   const [value, setValue] = useState("");
   const [pending, setPending] = useState<string | null>(null);
-  const reviseAction = agent.actions.find((action) => action.actionType === "planning.revise");
-  const implementAction = agent.actions.find((action) => action.actionType === "planning.confirm-execution");
   const actionBusy = busy || pending !== null;
   const text = value.trim();
-  const canInteract = Boolean(reviseAction || implementAction);
+  const canInteract = agent.id === "plan-session" || agent.id === "planning-agent";
   const submitDisabled = actionBusy || !canInteract || !text;
-  async function runAction(action: DecisionAction, extra: Record<string, unknown> = {}): Promise<void> {
-    if (!action.actionType || !action.enabled || actionBusy) return;
-    setPending(action.id);
+  async function submit(): Promise<void> {
+    if (submitDisabled) return;
+    setPending(`agent-message:${agent.id}`);
     try {
-      await onWorkflowAction(action.actionType, {
-        ...workflowActionPayloadFromScope(action),
-        preserveSelectedTopic: true,
-        ...extra,
-      });
+      await onSendAgentMessage(agent, text);
       setValue("");
     } finally {
       setPending(null);
     }
-  }
-  async function submit(): Promise<void> {
-    if (submitDisabled) return;
-    if (implementAction && isImplementationIntent(text)) {
-      await runAction(implementAction, { postPlanAutomationMode: automationMode, feedback: text });
-      return;
-    }
-    if (reviseAction) {
-      await runAction(reviseAction, { feedback: text, prompt: text });
-      return;
-    }
-    if (implementAction) await runAction(implementAction, { postPlanAutomationMode: automationMode, feedback: text });
   }
   return (
     <div className="topic-composer agent-workspace-composer" data-testid="agent-workspace-composer" aria-label={`${agent.label} 输入框`}>
@@ -214,11 +190,10 @@ function AgentWorkspaceComposer({
       <textarea
         value={value}
         onChange={(event) => setValue(event.target.value)}
-        placeholder={canInteract ? "给当前 Agent 发送反馈，或输入“实施此计划”" : "当前 Agent 暂无可交互输入"}
+        placeholder="给当前 Agent 发送反馈"
         disabled={actionBusy || !canInteract}
       />
       <div className="composer-toolbar">
-        {!canInteract ? <span className="composer-pill subtle">只读</span> : null}
         {pending ? <span className="composer-pill subtle">正在发送</span> : null}
         <span className="composer-spacer" />
         <button
@@ -235,18 +210,14 @@ function AgentWorkspaceComposer({
   );
 }
 
-function isImplementationIntent(value: string): boolean {
-  return /(实施|执行|确认|可以|开始|继续).{0,8}(计划|方案|执行)|^(实施此计划|执行此计划|确认执行|可以执行|开始执行|继续执行)$/i.test(value);
-}
-
 function emptyAgent(): AgentWorkspaceAgent {
   return {
-    id: "planning-agent",
-    roleId: "planning-agent",
-    label: "planning-agent",
+    id: "empty-agent-workspace",
+    roleId: "empty-agent-workspace",
+    label: "暂无会话",
     status: "idle",
-    summary: "暂无子 Agent 工作区。父级对话保留在中间区域。",
-    transcript: { title: "planning-agent", cells: [], items: [], emptyMessage: "暂无子 Agent 消息。" },
+    summary: "暂无可显示的 Agent 或计划会话。",
+    transcript: { title: "暂无会话", cells: [], items: [], emptyMessage: "暂无会话内容。" },
     evidenceRefs: [],
     actions: [],
   };

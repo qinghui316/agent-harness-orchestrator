@@ -71,9 +71,17 @@ export function createAssistantTranscriptCapture(live: WorkbenchLiveSink | undef
             timestamp,
           });
         } else if (event.event === "assistant.delta") {
+          if (event.data.agentRoleId) {
+            emitLive(live, event);
+            return;
+          }
           capture.text += event.data.delta;
           appendProse(event.data.delta, event.data.runId);
         } else if (event.event === "assistant.event") {
+          if (event.data.agentRoleId) {
+            emitLive(live, event);
+            return;
+          }
           activity.push({
             kind: "assistant-event",
             event: { ...event.data, timestamp: event.data.timestamp ?? timestamp },
@@ -81,9 +89,17 @@ export function createAssistantTranscriptCapture(live: WorkbenchLiveSink | undef
           });
           appendAssistantEventBlock({ ...event.data, timestamp: event.data.timestamp ?? timestamp }, timestamp);
         } else if (event.event === "tool.event") {
+          if (event.data.agentRoleId) {
+            emitLive(live, event);
+            return;
+          }
           activity.push({ kind: "tool", tool: event.data, timestamp });
           appendToolEventBlock(event.data, timestamp);
         } else if (event.event === "usage" && isRecord(event.data.usage)) {
+          if (event.data.agentRoleId) {
+            emitLive(live, event);
+            return;
+          }
           activity.push({ kind: "usage", usage: event.data.usage, timestamp });
           const currentSequence = nextSequence();
           upsertTranscriptBlock(blocks, {
@@ -225,6 +241,7 @@ function normalizeBlockText(text: string | undefined): string {
 }
 
 function assistantEventBlockKind(kind: WorkbenchAssistantEvent["kind"]): AssistantTurnBlockKind {
+  if (kind === "plan-update") return "prose";
   if (kind === "reasoning-summary") return "reasoning-summary";
   if (kind === "command") return "command";
   if (kind === "file-change") return "file-change";

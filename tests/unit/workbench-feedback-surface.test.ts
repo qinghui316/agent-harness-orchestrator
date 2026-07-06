@@ -83,34 +83,6 @@ describe("workbench feedback surface", () => {
     ]));
   });
 
-  it("routes planning confirmation feedback to planning revise without accepting the bundle", () => {
-    const route = resolveFeedbackRouteFromPrimary({
-      id: "confirm:change-1",
-      kind: "planning-confirm",
-      changeId: "change-1",
-      planningBundleId: "bundle-1",
-      actions: [
-        { id: "workflow:planning.confirm-execution:change-1", kind: "workflow-action", actionType: "planning.confirm-execution", changeId: "change-1", planningBundleId: "bundle-1", enabled: true },
-        { id: "feedback:planning:change-1:bundle-1", label: "提出修改意见", kind: "feedback", changeId: "change-1", planningBundleId: "bundle-1", enabled: true },
-      ],
-    }, feedbackRequest({
-      feedback: "把风险和回滚方案写进计划。",
-      changeId: "change-1",
-      actionId: "feedback:planning:change-1:bundle-1",
-      planningBundleId: "bundle-1",
-    }));
-
-    expect(route.decisionType).toBe("planning.feedback");
-    expect(route.targetId).toBe("bundle-1");
-    expect(route.workflowRequest).toEqual(expect.objectContaining({
-      actionType: "planning.revise",
-      changeId: "change-1",
-      planningBundleId: "bundle-1",
-      feedback: "把风险和回滚方案写进计划。",
-    }));
-    expect(route.workflowRequest?.prompt).toContain("把风险和回滚方案写进计划。");
-  });
-
   it("routes result apply feedback to bounded rework without applying source", () => {
     const route = resolveFeedbackRouteFromPrimary({
       id: "result:change-1:wt-1:ready",
@@ -146,32 +118,34 @@ describe("workbench feedback surface", () => {
 
   it("fails closed for stale or cross-change feedback targets", () => {
     const primary = {
-      id: "confirm:change-1",
-      kind: "planning-confirm",
+      id: "result:change-1:wt-1:ready",
+      kind: "single-result-apply",
       changeId: "change-1",
-      planningBundleId: "bundle-1",
+      resultId: "wt-1",
+      worktreeId: "wt-1",
+      runId: "run-1",
       actions: [
-        { id: "feedback:planning:change-1:bundle-1", label: "提出修改意见", kind: "feedback", changeId: "change-1", planningBundleId: "bundle-1", enabled: true },
+        { id: "feedback:wt-1", label: "要求修改", kind: "feedback", changeId: "change-1", worktreeId: "wt-1", enabled: true },
       ],
     };
 
     expect(() => resolveFeedbackRouteFromPrimary(primary, feedbackRequest({
       feedback: "换一个方向。",
       changeId: "other-change",
-      actionId: "feedback:planning:change-1:bundle-1",
-      planningBundleId: "bundle-1",
+      actionId: "feedback:wt-1",
+      worktreeId: "wt-1",
     }))).toThrow("Feedback target is stale or no longer available.");
 
     expect(() => resolveFeedbackRouteFromPrimary(primary, feedbackRequest({
       feedback: "换一个方向。",
       changeId: "change-1",
       actionId: "missing-feedback-action",
-      planningBundleId: "bundle-1",
+      worktreeId: "wt-1",
     }))).toThrow("Feedback target is stale or no longer available.");
   });
 });
 
-function feedbackRequest(input: { feedback: string; changeId: string; actionId: string; planningBundleId?: string; worktreeId?: string; runId?: string }): WorkbenchActionRequest {
+function feedbackRequest(input: { feedback: string; changeId: string; actionId: string; worktreeId?: string; runId?: string }): WorkbenchActionRequest {
   return {
     feedback: input.feedback,
     feedbackContext: {
@@ -179,7 +153,6 @@ function feedbackRequest(input: { feedback: string; changeId: string; actionId: 
       actionId: input.actionId,
       actionKind: "feedback",
       changeId: input.changeId,
-      planningBundleId: input.planningBundleId,
       worktreeId: input.worktreeId,
       runId: input.runId,
     },

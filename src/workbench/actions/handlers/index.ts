@@ -9,7 +9,7 @@ import { startValidationRun } from "../../../validation/manager.js";
 import { getSpecTestDriftReport } from "../../../spec-test/drift.js";
 import type { ManagedProject, RunMetadata } from "../../../types/index.js";
 import { enqueueDemandWorkerForAction, evaluateDemandOrchestrator, pumpDemandWorkersForAction, reconcileDemandWorkersForAction, releaseDemandWorkerForAction, runMainAgentToolOrchestration, startNextDemandWorkerForAction } from "../../demand-workers/orchestration.js";
-import { assessDecompositionReadiness, compileTaskQueueWorkflowGraph, confirmDecompositionPlan, confirmPlanningAndStartPipeline, confirmTaskQueueProposalAndStart, generateDecompositionPlan, generatePlanningDraft, proposeTaskQueue } from "./planning.js";
+import { assessDecompositionReadiness, compileTaskQueueWorkflowGraph, confirmDecompositionPlan, confirmTaskQueueProposalAndStart, generateDecompositionPlan, proposeTaskQueue } from "./planning.js";
 import { cleanupRemoteBranchForAction, createPrDraftForAction, mergeNextLandingQueueForAction, mergeRemoteLandingForAction, prepareLandingForAction, prepareLandingQueueForAction, prepareLocalSyncForAction, preparePostMergeForAction, preparePrDraftForAction, preparePrReviewForAction, preparePrReviewReplyForAction, prepareRemoteBranchCleanupForAction, prepareRemoteLandingForAction, refreshLandingQueueForAction, refreshPrDraftForAction, refreshPrFeedbackForAction, refreshPrReviewForAction, refreshRemoteLandingForAction, reworkPrFeedbackForAction, resolvePrReviewThreadForAction, reviewLandingForAction, submitPrReviewForAction, submitPrReviewReplyForAction, syncLocalForAction, updatePrDraftForAction } from "./remote-handoff.js";
 import { interruptConversation, steerConversation, stopRunningPipeline } from "./control.js";
 import { buildGoalLoopActionHandlers } from "./goal-loop.js";
@@ -49,9 +49,6 @@ export function buildWorkbenchActionHandlers(deps: WorkbenchActionHandlerDeps): 
     if (!request.proposalId) throw new Error("change.plan.accept requires proposalId.");
     return acceptPlanProposal(project, request.proposalId);
   },
-  "planning.generate": async (project, changeId, request, live) => generatePlanningDraft(project, changeId, request.prompt, live, false),
-  "planning.revise": async (project, changeId, request, live) => generatePlanningDraft(project, changeId, request.prompt, live, true),
-  "planning.confirm-execution": async (project, changeId, request, live) => confirmPlanningAndStartPipeline(project, changeId, request, live, handlers),
   "planning.decompose": async (project, changeId, request, live) => generateDecompositionPlan(project, changeId, request.prompt, live),
   "planning.decomposition.confirm": async (project, changeId, request, live) => confirmDecompositionPlan(project, changeId, request, live),
   "planning.decomposition.assess-readiness": async (project, changeId, request, live) => assessDecompositionReadiness(project, changeId, request, live),

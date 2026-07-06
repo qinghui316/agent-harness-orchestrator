@@ -38,9 +38,9 @@ The default interaction is one demand conversation:
 user demand
 -> read-only project understanding when needed
 -> main Agent explains understanding and delegates planning when needed
--> planning-agent draft in the right Agent workspace
--> user feedback / revised plan in the planning-agent workspace
--> user types "实施此计划" / "可以执行" in the planning-agent workspace
+-> Plan session or real planning-agent conversation in the right Agent workspace
+-> user feedback / revised plan in the owning Plan or child-agent workspace
+-> explicit execution handoff back to the main Agent / runtime
 -> coder-agent implements and self-tests in an AHO-owned worktree
 -> optional live steering while coder is running
 -> validator independently checks
@@ -75,17 +75,17 @@ and leaf-role results, but it cannot execute workflow actions.
 
 The right rail separates interaction surfaces by responsibility. The center
 conversation is the main Agent surface, so the right `Agent` workspace shows
-only child-agent or provider-owned plan/session surfaces such as planning-agent,
-coder, validator, auditor, rework, or scheduler worker. It shows transcript /
-process rows, plan items, runtime question cards, feedback, output summaries,
-and evidence refs for that selected child surface. `确认` shows only real Harness
+only provider-owned Plan sessions and child-agent surfaces such as
+planning-agent, coder, validator, auditor, rework, or scheduler worker. It
+shows transcript / process rows, plan items, runtime question cards, feedback,
+output summaries, and evidence refs for that selected surface. `确认` shows only real Harness
 gates such as source apply, landing/close, Scheduler/IntegrationCheck,
-remote/PR/merge, abandon/request-changes, or Harness evolution. Planning draft
-review is not a normal confirmationQueue primary card. The user-facing
-`实施此计划` intent in the planning-agent workspace still calls the existing
-`planning.confirm-execution` action with stale-target and cross-Change
-revalidation intact; the workspace is a projection and scoped interaction
-surface, not workflow truth or a permission system.
+remote/PR/merge, abandon/request-changes, or Harness evolution. Provider-native
+Plan sessions are runtime conversation surfaces: they show plan text, question
+cards, and user feedback, but they do not create a Harness Change, write a
+planning bundle, or expose a Workbench planning action. The workspace is a
+projection and scoped interaction surface, not workflow truth or a permission
+system.
 
 Provider runtime events are projected by ownership, not by parsing visible
 assistant text. Ordinary main-agent chat must not start planning-agent by
@@ -98,27 +98,27 @@ conversation or the wrong Agent workspace.
 
 Codex native Plan Mode is the preferred planning interaction. Native plan
 deltas, plan updates, completed plan items, and runtime user-input requests
-belong in the planning-agent workspace. They are runtime interaction events,
-not Harness gates and not canonical workflow truth. The older
+belong in the `plan-session` / Plan Agent workspace unless the provider emits
+a real child-agent owner such as `planning-agent`. They are runtime interaction
+events, not Harness gates and not canonical workflow truth. The older
 `<proposed_plan>` proposal block is a replay/fallback path only and must be
 labeled honestly when used.
 
 The plan body itself is written by the Agent/runtime path. Workbench must not
 turn a raw user request into invented goals, acceptance criteria, tasks, or a
-workflow plan by rule. AHO can validate an Agent-authored plan, derive stable
-internal targets from it, persist accepted artifacts, and fail closed when the
-plan is incomplete. If the plan does not clearly state goal, scope,
-acceptance, implementation direction, and tasks, the planning-agent workspace
+workflow plan by rule. AHO can project provider events and preserve execution
+boundaries, but it must not synthesize business planning artifacts from a chat
+message or Plan Mode transcript. If the plan is incomplete, the Plan session
 continues the conversation instead of showing a fake plan or hidden generated
 bundle.
 
 OpenSpec is the reference for the planning artifact flow. Proposal, spec,
-design, tasks, and AC are artifacts produced and revised through the
-planning-agent workspace and promoted only through the existing
-`planning.confirm-execution` path. They are not long assistant messages in the
-parent conversation and not separate workflow truth. When the user implements a
-plan, AHO promotes the accepted bundle into internal canonical artifacts; Phase
-7J no longer treats that confirmation as permission to start the role pipeline.
+design, tasks, and AC are artifacts produced by an Agent following project
+rules, skills, and repository docs. They are not long assistant messages in the
+parent conversation and not separate workflow truth. In normal conversation
+mode, the Agent enters or updates Harness state by using the project rules and
+tools; Workbench does not provide a product planning button, `latest-bundle`,
+or hidden bundle promotion path.
 
 Open Dynamic Workflows is the reference for deterministic workflow-as-artifact mechanics, not for the Workbench product surface. Phase 7H used only the proposal lesson: if a broad demand needs decomposition, the center conversation can show the main agent's DecompositionPlan in user language. Phase 7I adds a separate `DecompositionReadinessManifest` check after confirmation. Phase 7J uses that verdict as a gate: `ready-for-single-change` may expose `code.run`, while `ready-for-sequential-taskqueue-proposal` exposes TaskQueueProposal generation. Phase 7L adds a separate `WorkflowGraphPlan` compile action before confirmed queue start; graph compile is evidence and execution input, not execution. Phase 7K adds typed WorkflowRun progress recovery for that confirmed sequential queue. It still does not start a parallel scheduler, child Change, executable WorkflowPlan runtime, recovery replay from cached LLM output, or ODWF-style JavaScript script. Workflow scripts, resume keys, versioned graph refs, and raw orchestration internals belong in graph/details/evidence views, not the primary conversation.
 
@@ -374,9 +374,10 @@ Internal terms may appear in developer docs, tests, APIs, storage, and Agent Loo
 ## 5. Core UX Rules
 
 - A developer should understand the current demand, next required decision, and strongest evidence without opening raw files first.
-- Planning happens in the planning-agent workspace; the main conversation keeps
-  the parent Agent narrative and delegation/result process rows. There is no
-  separate user-visible bottom Plan mode.
+- Planning happens in the `plan-session` / Plan Agent workspace or in a real
+  provider-owned child-agent workspace; the main conversation keeps the parent
+  Agent narrative and delegation/result process rows. There is no separate
+  user-visible bottom Plan mode.
 - If Codex app-server is active, running input is sent to the current planning/coder turn. If fallback is active, the UI must say the input is recorded for the next turn.
 - A user confirming execution only agrees to implement the current plan; final source apply/merge still needs explicit confirmation.
 - A user confirming a Goal-loop or scheduler stage agrees to one described Harness transition, not to an unbounded autonomous loop.
@@ -394,7 +395,7 @@ Internal terms may appear in developer docs, tests, APIs, storage, and Agent Loo
 | --- | --- |
 | Project | Managed project registry entry |
 | Demand Conversation | Topic/Change/Workpad binding and interaction log |
-| Planning Draft | Proposal/spec/design/tasks/AC artifact bundle in the planning-agent workspace before implementation |
+| Plan Session | Provider-native Plan Mode transcript or real child-agent planning conversation before implementation |
 | Execution Result | Role pipeline run summaries and evidence |
 | Evidence | Run artifacts, validation, audit, worktree state, decisions |
 | Apply / Merge Decision | Human-gated source transition |

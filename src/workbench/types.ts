@@ -229,9 +229,7 @@ export interface WorkbenchWorkflowActionRequest {
   changeId?: string;
   prompt?: string;
   feedback?: string;
-  postPlanAutomationMode?: "request-approval" | "full-access";
   proposalId?: string;
-  planningBundleId?: string;
   decompositionPlanId?: string;
   readinessManifestId?: string;
   taskQueueProposalId?: string;
@@ -308,27 +306,4 @@ export interface WorkbenchWorkflowActionResult {
   result?: unknown;
   runId?: string;
   error?: string;
-}
-
-export interface PlanningArtifactBundle {
-  id: string;
-  status: "draft" | "confirmed";
-  planningMode?: "codex-native-plan" | "codex-plan-mode" | "prompt-plan-contract";
-  proposedPlanMd?: string;
-  proposedPlanRunId?: string;
-  planningWarnings?: string[];
-  goal: string;
-  constraints: string[];
-  sourceScopeConstraints?: string[];
-  acceptanceCriteria: string[];
-  design: string;
-  tasks: Array<{ id: string; title: string; acIds: string[] }>;
-  risks: string[];
-  openQuestions: string[];
-  specMd: string;
-  planMd: string;
-  tasksMd: string;
-  acMapCandidate?: unknown;
-  artifact: string;
-  updatedAt: string;
 }

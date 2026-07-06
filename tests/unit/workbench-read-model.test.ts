@@ -22,7 +22,7 @@ import { writeLandingArtifacts } from "../../src/landing/repository.js";
 import { landingRoot } from "../../src/landing/utils.js";
 import type { LandingReadinessPackage } from "../../src/landing/types.js";
 import { prDraftRoot } from "../../src/pr-draft/utils.js";
-import { getTempDir, minimalDecompositionPlan, minimalReadiness, prepareSeededSchedulerIntegrationHandoff, project, writeAcceptedSpecAndTasks, writePlanningBundleFixture } from "./workbench/fixtures.js";
+import { getTempDir, minimalDecompositionPlan, minimalReadiness, prepareSeededSchedulerIntegrationHandoff, project, writeAcceptedSpecAndTasks } from "./workbench/fixtures.js";
 import type { RunMetadata } from "../../src/types/index.js";
 import type { WorkbenchConfirmationQueueItem, WorkbenchDecisionInspector, WorkbenchMainAgentExecutionSummary } from "../../src/workbench/read-model-types.js";
 
@@ -231,6 +231,62 @@ describe("workbench read-model projections", () => {
     expect(snapshot.right.confirmationQueue.primary).toBeNull();
     expect(snapshot.right.confirmationQueue.current).toEqual([]);
     expect(snapshot.right.agentWorkspace.agents).toEqual([]);
+    expect(existsSync(join(getTempDir(), "harness", "changes", "active", conversation.conversationId))).toBe(false);
+  });
+
+  it("projects native Plan Mode output as a plan session, not planning-agent", async () => {
+    await initHarness(project());
+    const conversation = await createWorkbenchConversation(project(), { title: "Native Plan Session", body: "Use native plan mode." }, undefined, { runMainAgent: false });
+    const memory = await resolveProjectMemory(project());
+    const entry = {
+      id: "assistant:conv:run-plan:plan-session",
+      type: "assistant.message" as const,
+      timestamp: "2026-07-06T12:00:00.000Z",
+      conversationId: conversation.conversationId,
+      changeId: "",
+      text: "Native plan body.",
+      runId: "run-plan-session",
+      agentRoleId: "plan-session",
+      blocks: [{
+        id: "native-plan-block",
+        runId: "run-plan-session",
+        sequence: 1,
+        kind: "prose" as const,
+        timestamp: "2026-07-06T12:00:00.000Z",
+        source: "codex" as const,
+        text: "Native plan body.",
+      }],
+    };
+    const store = await WorkbenchStore.open(memory);
+    try {
+      store.appendMessage({
+        id: entry.id,
+        projectId: project().id,
+        conversationId: conversation.conversationId,
+        changeId: "",
+        type: entry.type,
+        timestamp: entry.timestamp,
+        text: entry.text,
+        actionRunId: null,
+        actionType: null,
+        status: null,
+        runId: entry.runId,
+        artifact: null,
+        error: null,
+        rawJson: JSON.stringify(entry),
+      });
+    } finally {
+      store.close();
+    }
+
+    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: conversation.conversationId });
+    const planSession = snapshot.right.agentWorkspace.agents.find((agent) => agent.id === "plan-session");
+
+    expect(snapshot.right.agentWorkspace.agents.find((agent) => agent.id === "planning-agent")).toBeUndefined();
+    expect(snapshot.right.agentWorkspace.selectedAgentId).toBe("plan-session");
+    expect(planSession?.label).toBe("Plan Agent");
+    expect(JSON.stringify(planSession?.transcript.cells)).toContain("Native plan body.");
+    expect(JSON.stringify(planSession?.transcript.cells)).not.toContain("计划会话");
     expect(existsSync(join(getTempDir(), "harness", "changes", "active", conversation.conversationId))).toBe(false);
   });
 
@@ -766,19 +822,16 @@ describe("workbench read-model projections", () => {
     })?.runs[0]?.summary).toBe("canonical summary");
   });
 
-  it("keeps planning draft review in the agent workspace instead of confirmation primary", async () => {
+  it("does not project removed planning bundle review into confirmation or agent workspace", async () => {
     await initHarness(project());
     const topic = await createWorkbenchTopic(project(), { title: "Planning Gate", body: "Generate a plan." });
-    await writePlanningBundleFixture(topic.changeId, "Generate a small plan.");
-    await appendTopicThreadEntry(project(), topic.changeId, {
-      type: "workflow.started",
-      actionRunId: "action-planning",
-      actionType: "planning.generate",
-      status: "running",
-    });
+    const stalePlanningDir = join(getTempDir(), "harness", "changes", "active", topic.changeId, "planning");
+    await mkdir(stalePlanningDir, { recursive: true });
+    await writeFile(join(stalePlanningDir, "latest-bundle.md"), "stale generated planning bundle", "utf8");
 
     let snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
-    expect(snapshot.right.confirmationQueue.primary).toBeNull();
+    expect(JSON.stringify(snapshot.right.confirmationQueue.primary)).not.toContain("planning.confirm-execution");
+    expect(JSON.stringify(snapshot.right.confirmationQueue.primary)).not.toContain("planning.generate");
 
     const automationInternalSnapshot = await getWorkbenchSnapshot(
       { project: project(), path: getTempDir() },
@@ -786,31 +839,22 @@ describe("workbench read-model projections", () => {
     );
     expect(JSON.stringify(automationInternalSnapshot.right.confirmationQueue)).not.toContain("planning.confirm-execution");
     expect(JSON.stringify(automationInternalSnapshot.right.confirmationQueue)).not.toContain("planning.generate");
-    expect(automationInternalSnapshot.right.agentWorkspace.selectedAgentId).toBe("planning-agent");
-    expect(automationInternalSnapshot.right.agentWorkspace.agents.find((agent) => agent.id === "planning-agent")?.actions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ actionType: "planning.confirm-execution", planningBundleId: expect.any(String), label: "实施此计划" }),
-    ]));
+    expect(JSON.stringify(automationInternalSnapshot.right.agentWorkspace)).not.toContain("latest-bundle");
+    expect(JSON.stringify(automationInternalSnapshot.right.agentWorkspace)).not.toContain("stale generated planning bundle");
+    expect(automationInternalSnapshot.right.agentWorkspace.agents.find((agent) => agent.id === "planning-agent")).toBeUndefined();
 
-    await appendTopicThreadEntry(project(), topic.changeId, {
-      type: "workflow.completed",
-      actionRunId: "action-planning",
-      actionType: "planning.generate",
-      status: "completed",
-    });
     snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
 
     expect(JSON.stringify(snapshot.right.confirmationQueue)).not.toContain("planning.confirm-execution");
     expect(JSON.stringify(snapshot.right.confirmationQueue)).not.toContain("planning.generate");
-    expect(JSON.stringify(snapshot.right.agentWorkspace.agents.find((agent) => agent.id === "planning-agent")?.transcript.cells ?? [])).not.toContain("方案材料");
-    expect(snapshot.right.agentWorkspace.agents.find((agent) => agent.id === "planning-agent")?.actions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ actionType: "planning.confirm-execution", planningBundleId: expect.any(String), label: "实施此计划" }),
-    ]));
+    expect(JSON.stringify(snapshot.right.agentWorkspace)).not.toContain("latest-bundle");
+    expect(JSON.stringify(snapshot.right.agentWorkspace)).not.toContain("stale generated planning bundle");
+    expect(snapshot.right.agentWorkspace.agents.find((agent) => agent.id === "planning-agent")).toBeUndefined();
   });
 
   it("keeps persisted planning-agent output out of the main transcript and restores it in the Agent workspace", async () => {
     await initHarness(project());
     const topic = await createWorkbenchTopic(project(), { title: "Planning Agent Transcript", body: "Create a reviewable plan." });
-    await writePlanningBundleFixture(topic.changeId, "Create a reviewable plan.");
     await appendTopicThreadEntry(project(), topic.changeId, {
       type: "assistant.message",
       status: "planning-agent-generated",
@@ -842,11 +886,10 @@ describe("workbench read-model projections", () => {
     expect(planningAgent?.clarifications).toBeUndefined();
   });
 
-  it("restores planning-agent workspace from the bound Change when selecting a conversation", async () => {
+  it("does not restore removed planning bundle workspace from a bound conversation", async () => {
     await initHarness(project());
     const conversation = await createWorkbenchConversation(project(), { title: "Bound Conversation", body: "Plan this demand." }, undefined, { runMainAgent: false });
     const topic = await createWorkbenchTopic(project(), { title: "Bound Change", body: "Plan this demand." });
-    await writePlanningBundleFixture(topic.changeId, "Create a bound-conversation plan.");
     await appendTopicThreadEntry(project(), topic.changeId, {
       type: "assistant.message",
       status: "planning-agent-generated",
@@ -867,11 +910,10 @@ describe("workbench read-model projections", () => {
     const planningAgent = snapshot.right.agentWorkspace.agents.find((agent) => agent.id === "planning-agent");
 
     expect(snapshot.center.selectedTopic?.id).toBe(topic.changeId);
-    expect(planningAgent?.planningBundle?.goal).toBe("Create a bound-conversation plan.");
-    expect(JSON.stringify(planningAgent?.transcript.cells)).toContain("Create a bound-conversation plan.");
-    expect(planningAgent?.actions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ actionType: "planning.confirm-execution", planningBundleId: expect.any(String) }),
-    ]));
+    expect(planningAgent).toBeUndefined();
+    expect(JSON.stringify(snapshot.right.agentWorkspace)).not.toContain("planningBundle");
+    expect(JSON.stringify(snapshot.right.agentWorkspace)).not.toContain("planning.confirm-execution");
+    expect(JSON.stringify(snapshot.right.agentWorkspace)).not.toContain("BOUND CHILD PLAN BODY");
   });
 
   it("prefers persisted assistant blocks over legacy activity when rebuilding the thread", async () => {
@@ -933,11 +975,9 @@ describe("workbench read-model projections", () => {
       "要覆盖会员满 100、会员未满 100、非会员三类测试",
     ]));
     expect(snapshot.center.workpad.intake.pendingClarifications).toHaveLength(0);
-    expect(snapshot.center.workpad.nextAction).toMatchObject({ actionType: "planning.generate", enabled: true });
+    expect(snapshot.center.workpad.nextAction).toMatchObject({ actionType: "intake.reanalyze", enabled: false });
     expect(JSON.stringify(snapshot.right.confirmationQueue)).not.toContain("planning.generate");
-    expect(snapshot.right.agentWorkspace.agents.find((agent) => agent.id === "planning-agent")?.actions).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ actionType: "planning.generate" }),
-    ]));
+    expect(JSON.stringify(snapshot.right.agentWorkspace)).not.toContain("planning.generate");
     expect(snapshot.center.thread.items).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "intake-summary", label: "需求分析" }),
       expect.objectContaining({ kind: "clarification", label: "需要确认" }),

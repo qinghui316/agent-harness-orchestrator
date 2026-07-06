@@ -337,35 +337,6 @@ process.exit(1);
   return { binDir };
 }
 
-export async function writePlanningBundleFixture(changeId: string, goal = "Implement pricing rule", suffix = changeId): Promise<string> {
-  const changeDir = join(tempDir, "harness", "changes", "active", changeId);
-  const planningDir = join(changeDir, "planning");
-  await mkdir(planningDir, { recursive: true });
-  const id = `bundle-${suffix}`;
-  const specMd = `# Spec\n\n## Goal\n\n${goal}\n\n## Acceptance Criteria\n\n- AC-001: Implement and test the requested behavior.\n`;
-  const planMd = "# Plan\n\n1. Update implementation.\n2. Add tests.\n";
-  const tasksMd = "- [ ] T-001: Implement requested behavior\n  - Covers: AC-001\n";
-  await writeFile(join(planningDir, "latest-bundle.json"), JSON.stringify({
-    id,
-    status: "draft",
-    goal,
-    constraints: ["Do not apply source root without confirmation."],
-    acceptanceCriteria: ["Implement and test the requested behavior."],
-    design: "Use existing pricing module and tests.",
-    tasks: [{ id: "T-001", title: "Implement requested behavior", acIds: ["AC-001"] }],
-    risks: [],
-    openQuestions: [],
-    specMd,
-    planMd,
-    tasksMd,
-    acMapCandidate: null,
-    artifact: `harness/changes/active/${changeId}/planning/latest-bundle.md`,
-    updatedAt: new Date().toISOString(),
-  }, null, 2), "utf8");
-  await writeFile(join(planningDir, "latest-bundle.md"), `# Planning Draft ${id}\n\n${goal}\n`, "utf8");
-  return id;
-}
-
 export async function writeAcceptedSpecAndTasks(changeId: string): Promise<void> {
   const changeDir = join(tempDir, "harness", "changes", "active", changeId);
   await writeFile(join(changeDir, "spec.md"), [
@@ -1321,17 +1292,6 @@ export async function prepareSchedulerFirstWorkerThroughResult(options: {
     "  - Covers: AC-001",
     "",
   ].join("\n"), "utf8");
-  await writePlanningBundleFixture(topic.changeId, "Implement independent parallel module updates.");
-  const bundlePath = join(changeDir, "planning", "latest-bundle.json");
-  const bundle = JSON.parse(await readFile(bundlePath, "utf8"));
-  bundle.status = "confirmed";
-  bundle.tasks = [
-    { id: "T-001", title: "Update module A", acIds: ["AC-001"] },
-    { id: "T-002", title: "Update module B", acIds: ["AC-001"] },
-  ];
-  bundle.tasksMd = "- [ ] T-001: Update module A\n  - Covers: AC-001\n- [ ] T-002: Update module B\n  - Covers: AC-001\n";
-  await writeFile(bundlePath, JSON.stringify(bundle, null, 2), "utf8");
-
   const draft = await executeWorkbenchAction({ project: project(), path: tempDir }, {
     actionType: "planning.decompose",
     changeId: topic.changeId,

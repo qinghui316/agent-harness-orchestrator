@@ -16,7 +16,6 @@ export function scopeConfirmationQueueItemActions(item: WorkbenchConfirmationQue
     actions: item.actions.map((action) => ({
       ...action,
       changeId: action.changeId ?? item.changeId,
-      planningBundleId: action.planningBundleId ?? item.planningBundleId,
       worktreeId: action.worktreeId ?? item.worktreeId,
       applyCheckId: action.applyCheckId ?? item.applyCheckId,
       landingPackageId: action.landingPackageId ?? item.landingPackageId,

@@ -25,7 +25,6 @@ import {
 import {
   DecompositionPlanCard,
   DecompositionReadinessCard,
-  PlanningArtifactBundleCard,
   SchedulerClaimReservationCard,
   SchedulerClaimReconcilePlanCard,
   SchedulerContractCard,
@@ -128,7 +127,6 @@ export function WorkpadDiagnosticDetails({
         </section>
       ) : null}
 
-      {workpad.planningArtifactBundle ? <PlanningArtifactBundleCard bundle={workpad.planningArtifactBundle} /> : null}
       {workpad.decompositionPlan ? <DecompositionPlanCard plan={workpad.decompositionPlan} /> : null}
       {workpad.decompositionReadiness ? <DecompositionReadinessCard readiness={workpad.decompositionReadiness} /> : null}
       {workpad.taskQueueProposal ? <TaskQueueProposalCard proposal={workpad.taskQueueProposal} /> : null}

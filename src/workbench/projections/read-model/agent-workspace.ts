@@ -1,11 +1,12 @@
-import type { WorkbenchAgentTaskSummary, WorkbenchAgentWorkspace, WorkbenchAgentWorkspaceAgent, WorkbenchDecisionAction, WorkbenchRoleRunSummary, WorkbenchTopicDetail, WorkbenchWorkpad } from "../../read-model-types.js";
+import type { WorkbenchAgentTaskSummary, WorkbenchAgentWorkspace, WorkbenchAgentWorkspaceAgent, WorkbenchRoleRunSummary, WorkbenchTopicDetail, WorkbenchWorkpad } from "../../read-model-types.js";
 import { buildAgentScopedTranscriptCells, type ParentAgentTranscript, type ParentAgentTranscriptCell } from "../../parent-agent-transcript.js";
 
-const KNOWN_ROLE_ORDER = ["planning-agent", "coder-agent", "validator", "auditor-agent", "rework-coder"];
+const PLAN_SESSION_ROLE_ID = "plan-session";
+const KNOWN_ROLE_ORDER = [PLAN_SESSION_ROLE_ID, "planning-agent", "coder-agent", "validator", "auditor-agent", "rework-coder"];
 
 export function emptyAgentWorkspace(): WorkbenchAgentWorkspace {
   return {
-    selectedAgentId: "planning-agent",
+    selectedAgentId: PLAN_SESSION_ROLE_ID,
     agents: [],
   };
 }
@@ -15,7 +16,11 @@ export function buildAgentWorkspace(input: {
   workpad: WorkbenchWorkpad;
 }): WorkbenchAgentWorkspace {
   const agents = new Map<string, WorkbenchAgentWorkspaceAgent>();
-  if (input.selectedTopic) agents.set("planning-agent", planningAgentWorkspace(input.selectedTopic, input.workpad));
+  const hasPlanningAgent = hasRealPlanningAgentEvidence(input.selectedTopic);
+  const planSession = planSessionWorkspace(input.selectedTopic);
+  if (planSession) agents.set(PLAN_SESSION_ROLE_ID, planSession);
+  const planningAgent = hasPlanningAgent ? planningAgentWorkspace(input.selectedTopic) : null;
+  if (planningAgent) agents.set("planning-agent", planningAgent);
 
   const execution = input.workpad.mainAgentExecution;
   if (execution) {
@@ -29,79 +34,49 @@ export function buildAgentWorkspace(input: {
     ...KNOWN_ROLE_ORDER.map((roleId) => agents.get(roleId)).filter((agent): agent is WorkbenchAgentWorkspaceAgent => Boolean(agent)),
     ...[...agents.values()].filter((agent) => !KNOWN_ROLE_ORDER.includes(agent.id)),
   ];
-  const selectedAgentId = input.workpad.planningArtifactBundle || input.workpad.nextAction.actionType === "planning.generate" || input.workpad.nextAction.actionType === "planning.confirm-execution"
-    ? "planning-agent"
-    : orderedAgents.find((agent) => agent.status === "running")?.id ?? orderedAgents[0]?.id ?? "planning-agent";
+  const selectedAgentId = orderedAgents.find((agent) => agent.status === "running")?.id ?? orderedAgents[0]?.id ?? PLAN_SESSION_ROLE_ID;
   return { selectedAgentId, agents: orderedAgents };
 }
 
-function planningAgentWorkspace(topic: WorkbenchTopicDetail | null, workpad: WorkbenchWorkpad): WorkbenchAgentWorkspaceAgent {
-  const bundle = workpad.planningArtifactBundle;
+function planSessionWorkspace(topic: WorkbenchTopicDetail | null): WorkbenchAgentWorkspaceAgent | null {
+  const cells = topic ? buildAgentScopedTranscriptCells(topic.threadItems, PLAN_SESSION_ROLE_ID) : [];
+  if (cells.length === 0) return null;
+  return {
+    id: PLAN_SESSION_ROLE_ID,
+    roleId: PLAN_SESSION_ROLE_ID,
+    label: "Plan Agent",
+    status: cells.some((cell) => cell.status === "running") ? "running" : "completed",
+    summary: "Codex Plan Mode 的计划对话。",
+    inputSummary: topic?.title,
+    outputSummary: cells.at(-1)?.text,
+    transcript: transcript(PLAN_SESSION_ROLE_ID, cells),
+    evidenceRefs: [],
+    actions: [],
+  };
+}
+
+function planningAgentWorkspace(topic: WorkbenchTopicDetail | null): WorkbenchAgentWorkspaceAgent | null {
   const persistedCells = topic ? buildAgentScopedTranscriptCells(topic.threadItems, "planning-agent") : [];
   const cells: ParentAgentTranscriptCell[] = [...persistedCells];
-  const actions: WorkbenchDecisionAction[] = [];
-  const planningRuns = workpad.mainAgentExecution?.runs.filter((run) => run.roleId === "planning-agent") ?? [];
-  const planningTasks = workpad.mainAgentExecution?.agentTasks.filter((task) => task.roleId === "planning-agent") ?? [];
-  for (const run of planningRuns) {
-    cells.push(processCell(`planning-agent:run:${run.runId ?? run.artifact ?? run.summary}`, "planning-agent 运行", run.summary, run.status, "planning-agent", run.runId, run.artifact));
-  }
-  for (const task of planningTasks) {
-    cells.push(processCell(`planning-agent:task:${task.id}`, "planning-agent 任务", task.resultSummary ?? task.summary, task.status, "planning-agent", task.runId, task.evidenceRefs[0]));
-  }
-
-  if (bundle) {
-    if (topic?.state === "active" && bundle.status === "draft") {
-      const reviseSource = workpad.nextAction.actionType === "planning.revise" ? workpad.nextAction : undefined;
-      const confirmSource = workpad.nextAction.actionType === "planning.confirm-execution" ? workpad.nextAction : undefined;
-      actions.push({
-        ...reviseSource,
-        id: `agent-workspace:planning.revise:${topic.id}:${bundle.id}`,
-        label: "让 planning-agent 修改方案",
-        kind: "workflow-action",
-        actionType: "planning.revise",
-        changeId: topic.id,
-        planningBundleId: bundle.id,
-        enabled: true,
-        requiresConfirmation: false,
-      }, {
-        ...confirmSource,
-        id: `agent-workspace:planning.confirm-execution:${topic.id}:${bundle.id}`,
-        label: "实施此计划",
-        kind: "workflow-action",
-        actionType: "planning.confirm-execution",
-        changeId: topic.id,
-        planningBundleId: bundle.id,
-        enabled: true,
-        requiresConfirmation: true,
-      });
-    }
-  } else if (topic?.state === "active" && cells.length > 0) {
-    const reviseSource = workpad.nextAction.actionType === "planning.generate" ? workpad.nextAction : undefined;
-    actions.push({
-      ...reviseSource,
-      id: `agent-workspace:planning.revise:${topic.id}:needs-input`,
-      label: "回复 planning-agent",
-      kind: "workflow-action",
-      actionType: "planning.revise",
-      changeId: topic.id,
-      enabled: true,
-      requiresConfirmation: false,
-    });
-  }
+  if (cells.length === 0) return null;
 
   return {
     id: "planning-agent",
     roleId: "planning-agent",
     label: "planning-agent",
-    status: bundle?.status ?? planningTasks.at(-1)?.status ?? planningRuns.at(-1)?.status ?? "idle",
-    summary: bundle ? (bundle.status === "confirmed" ? "计划已进入实施流程，主 Agent 可以继续判断下一步。" : "计划等待反馈或实施。") : "主 Agent 尚未委派 planning-agent，或正在等待真实运行结果。",
+    status: cells.some((cell) => cell.status === "running") ? "running" : "completed",
+    summary: "provider runtime 返回的 planning-agent 对话。",
     inputSummary: topic?.title,
-    outputSummary: bundle?.goal,
+    outputSummary: cells.at(-1)?.text,
     transcript: transcript("planning-agent", cells),
-    evidenceRefs: bundle?.artifact ? [{ label: "计划", ref: bundle.artifact, kind: "artifact" }] : [],
-    actions,
-    planningBundle: bundle,
+    evidenceRefs: [],
+    actions: [],
   };
+}
+
+function hasRealPlanningAgentEvidence(topic: WorkbenchTopicDetail | null): boolean {
+  const persistedCells = topic ? buildAgentScopedTranscriptCells(topic.threadItems, "planning-agent") : [];
+  return persistedCells.length > 0;
 }
 
 function roleWorkspace(roleId: string, runs: WorkbenchRoleRunSummary[], tasks: WorkbenchAgentTaskSummary[]): WorkbenchAgentWorkspaceAgent {
@@ -191,6 +166,7 @@ function normalizeAgentWorkspacePlanningText(value: string): string {
 
 function roleLabel(roleId: string): string {
   if (roleId === "main-agent") return "主 Agent";
+  if (roleId === PLAN_SESSION_ROLE_ID) return "Plan Agent";
   if (roleId === "planning-agent") return "planning-agent";
   if (roleId === "coder-agent" || roleId === "coder") return "coder-agent";
   if (roleId === "validator") return "validator";

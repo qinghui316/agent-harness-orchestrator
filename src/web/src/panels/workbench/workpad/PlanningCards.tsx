@@ -6,40 +6,7 @@ import {
   userFacingText,
 } from "../../../formatters.js";
 import type { Workpad } from "../../../types.js";
-import { parentSurfaceText, stripInternalPlanningText } from "./surface-text.js";
-
-export function PlanningNarrativeCard({ bundle }: { bundle: NonNullable<Workpad["planningArtifactBundle"]> }): ReactElement {
-  const criteria = bundle.acceptanceCriteria.filter((item) => !/^\s*(AC-\d+|TBD)\s*$/i.test(item)).slice(0, 4);
-  const tasks = bundle.tasks.filter((task) => task.title && !/^\s*TBD\s*$/i.test(task.title)).slice(0, 3);
-  return (
-    <section className="parent-agent-section" data-testid="planning-draft-card">
-      <div className="parent-section-header">
-        <h3>{bundle.status === "confirmed" ? "已确认计划" : "计划"}</h3>
-        <span>{bundle.status === "confirmed" ? "准备执行" : "等待确认"}</span>
-      </div>
-      <p className="parent-agent-lead">我理解你要做的是：{parentSurfaceText(bundle.goal)}</p>
-      {bundle.design ? <p>实现上，我会按现有代码结构处理：{userFacingText(stripInternalPlanningText(bundle.design))}</p> : null}
-      {criteria.length > 0 ? (
-        <div className="parent-chip-list">
-          {criteria.map((item) => <span key={item}>{userFacingText(stripInternalPlanningText(item))}</span>)}
-        </div>
-      ) : null}
-      {tasks.length > 0 ? (
-        <div className="role-result-list">
-          {tasks.map((task) => (
-            <div className="role-result-row" key={task.id}>
-              <strong>会处理</strong>
-              <span>{userFacingText(stripInternalPlanningText(task.title))}</span>
-            </div>
-          ))}
-        </div>
-      ) : null}
-      {bundle.openQuestions.length > 0 ? (
-        <p className="parent-agent-note">还有 {bundle.openQuestions.length} 个点需要确认后再执行。</p>
-      ) : null}
-    </section>
-  );
-}
+import { parentSurfaceText } from "./surface-text.js";
 
 export function RoleToolResultRows({ pipeline }: { pipeline: NonNullable<Workpad["mainAgentExecution"]> }): ReactElement {
   const rows = [

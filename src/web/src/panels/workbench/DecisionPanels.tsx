@@ -138,7 +138,6 @@ function confirmationItemToDecisionContext(item: ConfirmationQueueItem): Decisio
     changeId: item.changeId ?? item.conversationId,
     runId: item.runId,
     targetId: item.worktreeId ?? item.applyCheckId ?? item.resultId,
-    planningBundleId: item.planningBundleId,
     artifact: item.evidenceRefs[0],
     evidenceRefs: item.evidenceRefs,
     actions: item.actions,
@@ -168,7 +167,6 @@ function DecisionContextCard({
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
   const feedbackAction = context.actions.find((action) => action.id === feedbackActionId);
   const primaryAutomationAction = chooseScopedAutomationAction(context.actions);
-  const planningConfirmationAction = context.actions.find(isPlanningConfirmationAction);
   const scopedAutomationAvailable = Boolean(primaryAutomationAction);
   const actionBusy = busy || pendingActionId !== null;
   async function executeAction(action: DecisionAction): Promise<void> {
@@ -263,9 +261,7 @@ function DecisionContextCard({
       ) : null}
       <div className="approval-actions">
         {context.actions.map((action) => {
-          const effectiveAction = action === planningConfirmationAction
-            ? postPlanAutomationConfirmationActionFrom(action, automationMode)
-            : action === primaryAutomationAction && scopedAutomationAvailable && (automationMode === "full-access" || isScopedAutomationConfirming(confirming, action))
+          const effectiveAction = action === primaryAutomationAction && scopedAutomationAvailable && (automationMode === "full-access" || isScopedAutomationConfirming(confirming, action))
               ? scopedAutomationActionFrom(action, context)
               : action;
           const disabled = actionBusy || !effectiveAction.enabled;
@@ -326,24 +322,6 @@ function scopedAutomationActionFrom(action: DecisionAction, context: DecisionCon
     maxSteps: action.maxSteps ?? 10,
     requiresConfirmation: true,
   };
-}
-
-function postPlanAutomationConfirmationActionFrom(action: DecisionAction, mode: "request-approval" | "full-access"): DecisionAction {
-  return {
-    ...action,
-    id: postPlanAutomationConfirmationActionId(action, mode),
-    label: action.label,
-    postPlanAutomationMode: mode,
-    requiresConfirmation: true,
-  };
-}
-
-function isPlanningConfirmationAction(action: DecisionAction): boolean {
-  return action.kind === "workflow-action" && action.actionType === "planning.confirm-execution";
-}
-
-function postPlanAutomationConfirmationActionId(action: DecisionAction, mode: "request-approval" | "full-access"): string {
-  return `post-plan-automation:${mode}:${action.id}`;
 }
 
 function isScopedAutomationConfirming(confirming: string | null, action: DecisionAction): boolean {

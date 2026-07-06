@@ -129,9 +129,6 @@ export function summarizeActionResult(actionType: string, result: unknown): stri
     const status = typeof result.taskRun.status === "string" ? result.taskRun.status : "completed";
     return `TaskRun for ${taskId} finished with status ${status}.`;
   }
-  if ((actionType === "planning.generate" || actionType === "planning.revise") && isRecord(result) && isRecord(result.bundle)) {
-    return `Planning draft is ready: ${typeof result.bundle.goal === "string" ? result.bundle.goal : "draft bundle"}.`;
-  }
   if (actionType === "planning.decomposition.assess-readiness" && isRecord(result) && isRecord(result.manifest)) {
     return typeof result.manifest.status === "string"
       ? `Decomposition readiness assessed: ${result.manifest.status}. No execution was started.`
@@ -284,9 +281,6 @@ export function summarizeActionResult(actionType: string, result: unknown): stri
     const status = typeof result.closeout.status === "string" ? result.closeout.status : "closed";
     return `SchedulerRun closeout ${status} recorded before IntegrationCheck. No apply, landing, PR, merge, or next worker was started.`;
   }
-  if (actionType === "planning.confirm-execution" && isRecord(result)) {
-    return "计划已确认并保存。当前不会直接修改文件；下一步会继续走现有执行边界。";
-  }
   const isDemandWorkerAction = actionType.startsWith("demand.worker.");
   if ((isMainAgentExecutionAction(actionType) || isDemandWorkerAction) && isRecord(result)) {
     const status = typeof result.status === "string" ? result.status : "completed";
@@ -324,9 +318,6 @@ export function labelForAction(actionType: string): string {
     case "change.spec.accept": return "Spec proposal accepted";
     case "change.plan.propose": return "Plan proposal generated";
     case "change.plan.accept": return "Plan proposal accepted";
-    case "planning.generate": return "计划已生成";
-    case "planning.revise": return "计划已修改";
-    case "planning.confirm-execution": return "计划已确认";
     case "planning.decompose": return "DecompositionPlan drafted";
     case "planning.decomposition.confirm": return "DecompositionPlan confirmed";
     case "planning.decomposition.assess-readiness": return "Decomposition readiness assessed";

@@ -4,7 +4,6 @@ import type { DecompositionPlan, DecompositionReadinessManifest, TaskQueuePropos
 
 const recoveryKeyInputsSchema = z.object({
   changeId: z.string(),
-  planningBundleId: z.string().optional(),
   acceptedArtifactRefs: z.array(z.string()),
   contextScope: z.literal("selected-demand"),
   sourceRevision: z.string().optional(),

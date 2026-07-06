@@ -505,7 +505,6 @@ export type WorkpadNextAction = {
   requiresConfirmation: boolean;
   actionType?: ThreadStreamAction["actionType"];
   approvalId?: string;
-  planningBundleId?: string;
   decompositionPlanId?: string;
   readinessManifestId?: string;
   taskQueueProposalId?: string;
@@ -864,8 +863,6 @@ export type Workpad = {
   requiresUserInputReason?: string;
   scopedFeedbackTarget?: Record<string, unknown>;
   postArchiveEvolutionCandidate?: { changeId: string; status: "candidate"; sources: string[]; summary: string };
-  planningDraft?: PlanningArtifactBundle;
-  planningArtifactBundle?: PlanningArtifactBundle;
   decompositionPlan?: DecompositionPlanSummary;
   decompositionReadiness?: DecompositionReadinessSummary;
   taskQueueProposal?: TaskQueueProposalSummary;
@@ -1033,24 +1030,6 @@ export type Workpad = {
     writeBoundaries: string[];
     warnings: string[];
   };
-};
-export type PlanningArtifactBundle = {
-  id: string;
-  status?: "draft" | "confirmed";
-  planningMode?: "codex-native-plan" | "codex-plan-mode" | "prompt-plan-contract";
-  proposedPlanMd?: string;
-  proposedPlanRunId?: string;
-  planningWarnings?: string[];
-  goal: string;
-  constraints: string[];
-  sourceScopeConstraints?: string[];
-  acceptanceCriteria: string[];
-  design: string;
-  tasks: Array<{ id: string; title: string; acIds: string[] }>;
-  risks: string[];
-  openQuestions: string[];
-  artifact?: string;
-  updatedAt?: string;
 };
 export type DecompositionPlanSummary = {
   id: string;
@@ -2045,7 +2024,6 @@ export type ThreadStreamAction = {
   enabled: boolean;
   requiresConfirmation: boolean;
   disabledReason?: string;
-  planningBundleId?: string;
   decompositionPlanId?: string;
   readinessManifestId?: string;
   taskQueueProposalId?: string;
@@ -2080,7 +2058,6 @@ export type ThreadStreamAction = {
   goalLoopControllerPolicyId?: string;
   goalLoopGateReadinessPreflightId?: string;
   goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
-  postPlanAutomationMode?: "request-approval" | "full-access";
   maxSteps?: number;
   maintenanceProposalId?: string;
   maintenancePatchProposalId?: string;
@@ -2174,7 +2151,6 @@ export type DecisionAction = {
   };
   actionType?: ThreadStreamAction["actionType"];
   goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
-  postPlanAutomationMode?: "request-approval" | "full-access";
   automationMode?: "request-approval" | "full-access";
   automationCurrentGateActionType?: ThreadStreamAction["actionType"];
   automationCurrentGateApprovalActionId?: string;
@@ -2184,7 +2160,6 @@ export type DecisionAction = {
   automationAuthorizationId?: string;
   automationRunId?: string;
   maxSteps?: number;
-  planningBundleId?: string;
   decompositionPlanId?: string;
   readinessManifestId?: string;
   taskQueueProposalId?: string;
@@ -2241,7 +2216,6 @@ export type DecisionContext = {
   queueRunId?: string;
   runId?: string;
   targetId?: string;
-  planningBundleId?: string;
   artifact?: string;
   evidenceRefs?: string[];
   timestamp?: string;
@@ -2265,7 +2239,6 @@ export type AgentWorkspaceAgent = {
   transcript: ParentAgentTranscript;
   evidenceRefs: DemandAgentRunGraphEvidenceRef[];
   actions: DecisionAction[];
-  planningBundle?: PlanningArtifactBundle;
   clarifications?: ClarificationRequest[];
 };
 export type AgentWorkspace = {
@@ -2339,7 +2312,6 @@ export type ConfirmationQueueItem = {
   worktreeId?: string;
   applyCheckId?: string;
   landingPackageId?: string;
-  planningBundleId?: string;
   schedulerRunId?: string;
   schedulerReconcileSnapshotId?: string;
   schedulerClaimReservationId?: string;

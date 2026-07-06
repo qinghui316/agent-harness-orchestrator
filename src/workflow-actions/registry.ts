@@ -4,9 +4,6 @@ export const WORKFLOW_ACTION_TYPES = [
   "change.spec.accept",
   "change.plan.propose",
   "change.plan.accept",
-  "planning.generate",
-  "planning.revise",
-  "planning.confirm-execution",
   "planning.decompose",
   "planning.decomposition.confirm",
   "planning.decomposition.assess-readiness",
@@ -133,9 +130,6 @@ export const LIVE_WORKFLOW_ACTION_TYPES = [
   "chat.ask",
   "change.spec.propose",
   "change.plan.propose",
-  "planning.generate",
-  "planning.revise",
-  "planning.confirm-execution",
   "planning.decompose",
   "planning.decomposition.confirm",
   "planning.decomposition.assess-readiness",
@@ -245,7 +239,6 @@ export const LIVE_WORKFLOW_ACTION_TYPES = [
 export const HIGH_IMPACT_WORKFLOW_ACTION_TYPES = [
   "change.spec.accept",
   "change.plan.accept",
-  "planning.confirm-execution",
   "planning.decomposition.confirm",
   "planning.decomposition.assess-readiness",
   "planning.taskqueue.propose",
@@ -312,7 +305,6 @@ export const REVALIDATED_WORKFLOW_ACTION_TYPES = [
   "landing.prepare",
   "landing-queue.merge-next",
   "pr-draft.create",
-  "planning.confirm-execution",
   "planning.decompose",
   "planning.decomposition.confirm",
   "planning.decomposition.assess-readiness",
@@ -364,7 +356,6 @@ export const REVALIDATED_WORKFLOW_ACTION_TYPES = [
 
 export const WORKFLOW_ACTION_SCOPE_KEYS = [
   "proposalId",
-  "planningBundleId",
   "decompositionPlanId",
   "readinessManifestId",
   "taskQueueProposalId",
@@ -429,7 +420,6 @@ export type WorkflowActionScopeCarrier = {
   goalLoopRuntimeAuthorizationId?: string;
   goalLoopRuntimeRunId?: string;
   automationMode?: "request-approval" | "full-access";
-  postPlanAutomationMode?: "request-approval" | "full-access";
   automationCurrentGateActionType?: string;
   automationCurrentGateApprovalActionId?: string;
   automationCurrentGateTargetId?: string;
@@ -477,9 +467,6 @@ export function validateWorkflowActionRequiredTargets(request: WorkflowActionSco
     case "change.spec.accept":
     case "change.plan.accept":
       requireOne("proposalId", [request.proposalId]);
-      break;
-    case "planning.confirm-execution":
-      requireOne("planningBundleId", [request.planningBundleId]);
       break;
     case "planning.decompose":
       requireOne("changeId", [request.changeId]);
@@ -793,7 +780,6 @@ export function workflowActionScopePayload(request: WorkflowActionScopeCarrier, 
   return {
     changeId,
     proposalId: request.proposalId,
-    planningBundleId: request.planningBundleId,
     decompositionPlanId: request.decompositionPlanId,
     readinessManifestId: request.readinessManifestId ?? extractString(result, "manifest", "id"),
     taskQueueProposalId: request.taskQueueProposalId ?? extractString(result, "proposal", "id"),
@@ -1086,7 +1072,6 @@ export function workflowActionTargetId(request: WorkflowActionScopeCarrier, chan
     ?? request.readinessManifestId
     ?? extractString(result, "manifest", "id")
     ?? request.decompositionPlanId
-    ?? request.planningBundleId
     ?? request.proposalId
     ?? request.taskRunId
     ?? request.taskIds?.join(",")
@@ -1098,8 +1083,7 @@ export function workflowActionScopesMatch(left: WorkflowActionScopeCarrier, righ
 }
 
 export function workflowActionScopesMatchStrict(left: WorkflowActionScopeCarrier, right: WorkflowActionScopeCarrier): boolean {
-  return sameStrictOptional(left.planningBundleId, right.planningBundleId)
-    && sameStrictOptional(left.decompositionPlanId, right.decompositionPlanId)
+  return sameStrictOptional(left.decompositionPlanId, right.decompositionPlanId)
     && sameStrictOptional(left.readinessManifestId, right.readinessManifestId)
     && sameStrictOptional(left.taskQueueProposalId, right.taskQueueProposalId)
     && sameStrictOptional(left.workflowGraphPlanId, right.workflowGraphPlanId)
@@ -1163,8 +1147,7 @@ function sameSchedulerWorkerReworkPlanStrict(left: WorkflowActionScopeCarrier, r
 }
 
 export function workflowActionScopesMatchCompatible(left: WorkflowActionScopeCarrier, right: WorkflowActionScopeCarrier): boolean {
-  return sameCompatibleOptional(left.planningBundleId, right.planningBundleId)
-    && sameCompatibleOptional(left.decompositionPlanId, right.decompositionPlanId)
+  return sameCompatibleOptional(left.decompositionPlanId, right.decompositionPlanId)
     && sameCompatibleOptional(left.readinessManifestId, right.readinessManifestId)
     && sameCompatibleOptional(left.taskQueueProposalId, right.taskQueueProposalId)
     && sameCompatibleOptional(left.workflowGraphPlanId, right.workflowGraphPlanId)

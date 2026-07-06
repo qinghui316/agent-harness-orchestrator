@@ -9,36 +9,6 @@ import {
 import type { Workpad } from "../../../types.js";
 import { artifactName } from "../RunReplayPanel.js";
 
-export function PlanningArtifactBundleCard({ bundle }: { bundle: NonNullable<Workpad["planningArtifactBundle"]> }): ReactElement {
-  return (
-    <section className="workpad-section" data-testid="planning-draft-card">
-      <div className="workpad-section-header">
-        <h3>{bundle.status === "confirmed" ? "已确认计划" : "计划"}</h3>
-        <span>planning-agent</span>
-      </div>
-      <p className="workpad-goal">{bundle.goal}</p>
-      <div className="workpad-chip-list">
-        {bundle.acceptanceCriteria.slice(0, 5).map((item) => <span key={item}>{userFacingText(item)}</span>)}
-      </div>
-      <p>{bundle.design}</p>
-      <div className="workpad-evidence-list">
-        {bundle.tasks.map((task) => (
-          <div className="workpad-evidence" key={task.id}>
-            <strong>{task.id} {task.title}</strong>
-            <span>{task.acIds.join(" · ")}</span>
-          </div>
-        ))}
-      </div>
-      {bundle.openQuestions.length > 0 ? (
-        <ul className="workpad-issue-list">
-          {bundle.openQuestions.map((item) => <li key={item}>{userFacingText(item)}</li>)}
-        </ul>
-      ) : null}
-      {bundle.artifact ? <small className="artifact-link">查看证据：{artifactName(bundle.artifact)}</small> : null}
-    </section>
-  );
-}
-
 export function DecompositionPlanCard({ plan }: { plan: NonNullable<Workpad["decompositionPlan"]> }): ReactElement {
   return (
     <section className="workpad-section" data-testid="decomposition-plan-card">

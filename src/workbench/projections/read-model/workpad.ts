@@ -74,7 +74,6 @@ import type { ClarificationRequest } from "../../intake.js";
 import { isConcreteChangeFile } from "./thread-stream.js";
 import { buildAgentTaskSummaries } from "./agent-task-summary.js";
 import { buildMaintenanceSummary } from "./maintenance-summary.js";
-import { readLatestPlanningBundleProjection } from "./lazy-projections.js";
 import { filterGoalLoopSummaryForCurrentGate } from "./goal-loop-parity.js";
 import { latestByTimestamp, sortByTimestampDesc } from "./projection-summary.js";
 import {
@@ -107,7 +106,6 @@ import type {
   WorkbenchConversationLifecycle,
   WorkbenchDecisionItem,
   WorkbenchPendingFeedback,
-  WorkbenchPlanningArtifactBundle,
   WorkbenchPostArchiveEvolutionCandidate,
   WorkbenchResultReview,
   WorkbenchRolePipelineSummary,
@@ -288,7 +286,6 @@ export async function buildWorkbenchWorkpad(input: {
   const taskQueue = buildTaskQueueSummary(selectedTopic, { specReady, planReady, tasksReady });
   const taskGraph = buildTaskGraph(selectedTopic, { specReady, planReady, tasksReady }, taskQueue);
   const codingPackages = buildCodingPackages(selectedTopic, taskGraph);
-  const planningBundle = await readLatestPlanningBundleProjection(memory, selectedTopic.path);
   const decompositionPlan = await readLatestDecompositionPlanSummary(memory, selectedTopic.path);
   const decompositionReadiness = await readLatestDecompositionReadinessSummary(memory, selectedTopic.path);
   const taskQueueProposal = await readLatestTaskQueueProposalSummary(memory, selectedTopic.path);
@@ -336,7 +333,7 @@ export async function buildWorkbenchWorkpad(input: {
   const schedulerRunBlockedCloseout = await readLatestSchedulerRunBlockedCloseoutSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerIntegrationCandidate?.id);
   const workflowRun = await getLatestWorkflowRun(memory, selectedTopic.id).then((run) => run ? summarizeWorkflowRun(run) : null).catch(() => null);
   const agentTasks = await buildAgentTaskSummaries(memory, selectedTopic.id);
-  const rolePipeline = buildRolePipelineSummary(selectedTopic, planningBundle, agentTasks);
+  const rolePipeline = buildRolePipelineSummary(selectedTopic, agentTasks);
   const mainAgentExecution = rolePipeline;
   const resultReview = await buildResultReview(project, memory, selectedTopic);
   const maintenance = await buildMaintenanceSummary(memory);
@@ -346,7 +343,7 @@ export async function buildWorkbenchWorkpad(input: {
   const selectedUserState = selectedWorkpadSummary?.userStatus ?? (activeAgentTask ? "processing" : userDecisionStateForSelectedTopic(selectedTopic, topicApprovals, taskQueue, taskGraph));
   const selectedLifecycle = selectedWorkpadSummary?.conversationLifecycle ?? conversationLifecycleForTopic(selectedTopic, taskQueue);
   const nextAction = suppressStaleCodeRunAfterResultReview(
-    buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, planningBundle, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, scopedSchedulerDispatchDryRun, scopedSchedulerWorkerSessionPlan, scopedSchedulerClaimReconcilePlan, scopedSchedulerLaunchPreflight, scopedSchedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, schedulerWorkerAudit, schedulerWorkerReworkPlan, schedulerWorkerReworkStart, schedulerWorkerReworkResult, schedulerWorkerReworkValidation, schedulerWorkerReworkAudit, schedulerWorkerPaths, schedulerIntegrationCandidate, schedulerIntegrationCheckHandoff, schedulerIntegrationOutcome, schedulerRunCompletion, schedulerRunBlockedCloseout, workflowRun),
+    buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, scopedSchedulerDispatchDryRun, scopedSchedulerWorkerSessionPlan, scopedSchedulerClaimReconcilePlan, scopedSchedulerLaunchPreflight, scopedSchedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, schedulerWorkerAudit, schedulerWorkerReworkPlan, schedulerWorkerReworkStart, schedulerWorkerReworkResult, schedulerWorkerReworkValidation, schedulerWorkerReworkAudit, schedulerWorkerPaths, schedulerIntegrationCandidate, schedulerIntegrationCheckHandoff, schedulerIntegrationOutcome, schedulerRunCompletion, schedulerRunBlockedCloseout, workflowRun),
     resultReview,
   );
   const goalLoop = filterGoalLoopSummaryForCurrentGate(rawGoalLoop, nextAction);
@@ -382,8 +379,6 @@ export async function buildWorkbenchWorkpad(input: {
     requiresUserInputReason: requiresUserInputReason(selectedTopic, latestValidation, latestAudit, taskGraph),
     scopedFeedbackTarget: buildScopedFeedbackTarget(selectedTopic, taskGraph),
     postArchiveEvolutionCandidate: selectedTopic.state === "archive" ? buildPostArchiveEvolutionCandidate(selectedTopic) : undefined,
-    planningDraft: planningBundle?.status === "draft" ? planningBundle : undefined,
-    planningArtifactBundle: planningBundle ?? undefined,
     decompositionPlan: decompositionPlan ?? undefined,
     decompositionReadiness: decompositionReadiness ?? undefined,
     taskQueueProposal: taskQueueProposal ?? undefined,
@@ -646,18 +641,16 @@ function buildPostArchiveEvolutionCandidate(topic: WorkbenchTopicDetail): Workbe
 
 function buildRolePipelineSummary(
   topic: WorkbenchTopicDetail,
-  planningBundle: WorkbenchPlanningArtifactBundle | null,
   agentTasks: WorkbenchAgentTaskSummary[],
 ): WorkbenchRolePipelineSummary | undefined {
   const coderRuns = topic.runs.filter((run) => run.runtime === "coder-codex");
   const validationRuns = topic.validations as ValidationSummary[];
   const auditRuns = topic.audits as AuditSummary[];
-  if (!planningBundle && coderRuns.length === 0 && validationRuns.length === 0 && auditRuns.length === 0 && agentTasks.length === 0) return undefined;
+  if (coderRuns.length === 0 && validationRuns.length === 0 && auditRuns.length === 0 && agentTasks.length === 0) return undefined;
   const latestCoder = latestByTimestamp(coderRuns, (run) => run.finishedAt ?? run.startedAt);
   const latestValidation = latestByTimestamp(validationRuns, (validation) => validation.finishedAt);
   const latestAudit = latestByTimestamp(auditRuns, (audit) => audit.finishedAt);
   const runs: WorkbenchRoleRunSummary[] = [];
-  if (planningBundle) runs.push({ roleId: "planning-agent", status: planningBundle.status, summary: planningBundle.goal, artifact: planningBundle.artifact });
   if (latestCoder) runs.push({ roleId: "coder-agent", status: latestCoder.status, runId: latestCoder.id, summary: latestCoder.status === "completed" ? "Coder finished implementation/self-test attempt." : "Coder attempt is not completed.", artifact: latestCoder.artifacts.directory });
   if (latestValidation) runs.push({ roleId: "validator", status: latestValidation.status, runId: latestValidation.runId, summary: `Validation ${latestValidation.status}.` });
   if (latestAudit) runs.push({ roleId: "auditor-agent", status: latestAudit.status, runId: latestAudit.runId, summary: `Audit ${latestAudit.status}.` });
@@ -670,10 +663,10 @@ function buildRolePipelineSummary(
       ? (latestValidation.status === "passed" ? "audit" : "rework")
       : latestCoder
         ? (latestCoder.status === "completed" ? "validation" : "coding")
-        : "planning";
+        : "coding";
   const status: WorkbenchRolePipelineSummary["status"] = activeAgentTask || coderRuns.some((run) => run.status === "created" || run.status === "running")
     ? "running"
-    : stage === "needs-user-input" ? "needs-user-input" : stage === "done" ? "completed" : planningBundle?.status === "confirmed" ? "completed" : "draft";
+    : stage === "needs-user-input" ? "needs-user-input" : stage === "done" ? "completed" : "draft";
   return { stage, status, runs, agentTasks, reworkUsed: 0, reworkBudget: OFFICIAL_REWORK_BUDGET };
 }
 
@@ -851,7 +844,6 @@ function buildWorkpadNextAction(
   intake?: WorkpadIntakeSummary,
   queue?: WorkbenchTaskQueueSummary,
   taskGraph?: WorkbenchTaskGraph,
-  planningBundle?: WorkbenchPlanningArtifactBundle | null,
   decompositionPlan?: WorkbenchDecompositionPlanSummary | null,
   decompositionReadiness?: WorkbenchDecompositionReadinessSummary | null,
   taskQueueProposal?: WorkbenchTaskQueueProposalSummary | null,
@@ -903,7 +895,6 @@ function buildWorkpadNextAction(
       topic,
       readiness,
       intake,
-      planningBundle,
       decompositionPlan,
       decompositionReadiness,
       taskQueueProposal,
@@ -956,7 +947,6 @@ function buildWorkpadNextAction(
     topic,
     readiness,
     intake,
-    planningBundle,
     decompositionPlan,
     decompositionReadiness,
     taskQueueProposal,
