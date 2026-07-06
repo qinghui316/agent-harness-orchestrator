@@ -138,6 +138,11 @@ Decisions:
   text, user keywords, or fixed phrases. Child Agent / plan surfaces may appear
   only from real provider runtime ownership metadata or explicit Harness
   workflow actions.
+- Planning content must be Agent-authored. Provider-native Plan Mode, child
+  session output, or an explicitly labeled replay/fallback proposal may supply
+  the goal, scope, acceptance, implementation notes, and tasks. AHO may
+  validate, map, persist, and gate that content, but it must not invent the
+  business plan, ACs, task list, or workflow body from raw user demand.
 - Deleting a Workbench conversation is a conversation-layer cleanup only. It
   must not close, abandon, cancel, move, archive, or garbage-collect any
   Harness Change, ECL files, workflow evidence, ResumePoint, current gate, or

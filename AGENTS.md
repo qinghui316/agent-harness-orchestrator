@@ -6,8 +6,7 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 
 - Current date: 2026-07-06.
 - Active change: none.
-- Pending Harness evolution:
-  `harness/evolution/pending.md`.
+- Pending Harness evolution: none.
 - Latest archived product change:
   `harness/changes/archive/20260706-provider-native-agent-authored-planning-v1/summary.md`.
 - Previous archived product change:
@@ -203,6 +202,13 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Previous archived docs/reference change:
   `harness/changes/archive/20260626-document-desktop-cc-gui-reference-map-and-product-layer-roadmap/summary.md`.
 - Latest completed Harness evolution:
+  `harness/changes/archive/20260706-auto-evolve-post-provider-native-agent-authored-planning-window/summary.md`
+  (`docs_current_delta`; subagent Harvey score 86; existing
+  ECL/BOUNDARIES/WORKBENCH/RUNTIME coverage is sufficient for provider-native
+  A2A and Agent-authored planning; repaired current docs for planning
+  authorship and handoff drift; no rule/template/lint/CI/runtime change
+  required. Pending evolution was marked complete).
+- Previous completed Harness evolution:
   `harness/changes/archive/20260704-auto-evolve-post-native-codex-plan-mode-window/summary.md`
   (`docs_current_delta`; existing ECL/BOUNDARIES/WORKBENCH/RUNTIME coverage is
   sufficient for native Codex Plan Mode, conversation identity, real UI
@@ -411,8 +417,10 @@ Current baseline:
   authority. Arbitrary custom model ids are ignored/cleaned until a real
   provider capability/API mapping exists for non-Codex providers. Provider
   remains Codex-only; no fake Claude/OpenCode/Gemini controls are shown.
-- Planning prefers Codex Plan Mode proposal capture; plan confirmation remains
-  human.
+- Planning content is provider-native and Agent-authored. AHO validates,
+  persists, and gates Agent-authored plan content; it must not invent the
+  business plan, acceptance criteria, or task list from raw user demand. Plan
+  confirmation remains human.
 - `请求批准` and scoped `完全访问权限` share the same local Goal Loop coordinator.
   Request-approval waits on the real gate; full-access may consume only
   selected-Change local gates after plan confirmation.

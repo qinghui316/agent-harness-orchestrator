@@ -103,6 +103,15 @@ not Harness gates and not canonical workflow truth. The older
 `<proposed_plan>` proposal block is a replay/fallback path only and must be
 labeled honestly when used.
 
+The plan body itself is written by the Agent/runtime path. Workbench must not
+turn a raw user request into invented goals, acceptance criteria, tasks, or a
+workflow plan by rule. AHO can validate an Agent-authored plan, derive stable
+internal targets from it, persist accepted artifacts, and fail closed when the
+plan is incomplete. If the plan does not clearly state goal, scope,
+acceptance, implementation direction, and tasks, the planning-agent workspace
+continues the conversation instead of showing a fake plan or hidden generated
+bundle.
+
 OpenSpec is the reference for the planning artifact flow. Proposal, spec,
 design, tasks, and AC are artifacts produced and revised through the
 planning-agent workspace and promoted only through the existing

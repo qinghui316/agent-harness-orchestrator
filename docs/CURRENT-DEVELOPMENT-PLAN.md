@@ -17,6 +17,14 @@ The user should not need to know internal terms before asking for work. The main
 Current implementation state: no active implementation slice.
 
 Latest completed implementation slice:
+`harness/changes/archive/20260706-provider-native-agent-authored-planning-v1/summary.md`.
+It removes the remaining deterministic planning-content fallback. Planning
+content must come from Agent-authored native plan output or an explicitly
+labeled replay/fallback proposal; AHO validates, maps, persists, and gates that
+content, but does not invent business goals, acceptance criteria, tasks, or
+workflow body from raw user demand.
+
+Previous completed implementation slice:
 `harness/changes/archive/20260705-provider-native-a2a-runtime-alignment-v1/summary.md`.
 It removes Workbench-side guessed delegation from ordinary chat and separates
 provider runtime event ownership from Harness Change scope. Ordinary
@@ -446,7 +454,17 @@ Harness evolution remain human-confirmed transitions.
 - Conversation-first Workbench: project folders contain demand conversations, parent-agent transcript surfaces, chat-only active conversation centers, Agent orchestration graph overlays, right-rail confirmation/tool surfaces, and confirmation queues. The default transcript now uses cursor-incremental SQLite message paging, a transcript shell in the default snapshot, virtual rendering, long-message folding, and `@chenglou/pretext` measurement fallback so long conversations do not require full backend transcript construction or full DOM rendering. The reading surface follows the reference-style hierarchy: user prompts are lightweight bubbles, assistant output is clean Markdown prose, and ordinary tool/process/evidence/Agent activity is compact low-noise context while errors/blockers remain visible. Main conversation UI no longer exposes a broad "details and evidence" Workpad disclosure; evidence belongs in compact activity rows, the right `诊断` / `确认` tools, or Agent graph detail projections. Synthetic 100k / 500k message pressure acceptance passed without Codex tokens or durable large fixtures; workflow truth remains Change/artifact/validation/audit/apply/close evidence, not SQLite transcript paging.
 - Workbench agent orchestration surface: the selected-demand graph is now a read-only Rudder-style `Agent 编排图` with stage-based layout, avatar cards, status dots, SVG edges, and zoom/fit controls. It visualizes local loop, rework, scheduler worker branch/join, IntegrationCheck, landing, and terminal projection evidence while keeping `confirmationQueue.primary` as the only executable primary surface. The right side is a compact collapsed tool rail; expanding it exposes only real rail tools today: `确认` for the existing confirmation pane, `文件` for safe read-only project tree/preview/reference insertion, `Git` for safe read-only branch/dirty status plus staged/unstaged/untracked diff browsing inside the Git rail, and `诊断` for read-only runtime health plus bounded runtime activity log inside the diagnostics rail. Terminal is a separate Codex-style button beside the rail that opens the bottom xterm dock; it is not a right-rail tab. These tools do not execute workflow actions, change workflow authority, or occupy the center workspace by default.
 - Workbench product entry: Harness mode now has a Phase 1 desktop-style entry surface aligned toward `desktop-cc-gui`: app project home, selected/direct project entry, compact project/conversation sidebar, centered `创造任何东西` composer, a working workspace picker backed by registered projects, and a real Codex-style `Codex / model / 逐步确认|自动推进` execution-mode control strip. The strip is frontend-only project/topic session state; it is not Harness workflow truth and it does not change the underlying Codex full-access runtime profile. The sidebar supports reference-style non-destructive project removal from the App list, duplicate-name path context, and archived-conversation hiding without deleting Change evidence. Settings now open as an independent center workspace with `基础 / 项目 / Codex / 技能 / 高级诊断` categories; ordinary settings avoid raw diagnostics, while Skills have a dedicated roots/list/detail management page. Codex model selection is real and reference-style: AHO reads Codex `config.toml`, best-effort reads project-scoped runtime model candidates, falls back to the Codex default, persists only selections from real candidates, ignores/cleans stale arbitrary custom model ids, and routes Codex exec/app-server runs through one effective-model resolver without editing Codex config. Skills settings support custom roots, Codex bridge sync, native Codex Skills shown as available runtime capabilities, and real `/skill-name` / `$skill-name` composer selection backed by topic-scoped runtime hints. AHO now bundles the read-only `aho-harness-onboarding` system Skill as a proposal/context aid for first onboarding, mature-project context extraction, and main-Agent delegation input; it materializes through the AHO-managed Codex bridge and never writes to global `.codex/skills`. Home and topic composers also support reference-style `@file` project file references: search is scoped to the selected project, selected refs become chips, refs bind to the first/current user message, and Codex context receives relative path/kind metadata without full-file injection. The right `文件` tool gives a read-only tree and preview that can insert the same composer file refs. The right `Git` tool gives read-only branch/dirty status, staged/unstaged/untracked lists, safe file diff preview inside the Git rail, and the same file-ref insertion path. A separate terminal toggle opens the bottom project-scoped xterm dock, while the right `诊断` tool shows read-only runtime diagnostics and runtime activity inside the diagnostics rail. Marketplace, non-Codex provider controls, browser, attachment-management controls, arbitrary custom model entry, Git write controls, and other unsupported toolbar controls remain hidden until implemented. Direct `workbench serve <path>` still auto-selects the direct project while the picker can switch to other registered projects; browser refresh restores the last valid selected project. Codex trust, Harness init, create/add project, workflow actions, apply/close, remote, merge, PR, and Harness evolution remain explicit user actions.
-- Workbench planning and local autonomy: planning generation prefers Codex Plan Mode proposal capture and records `proposedPlanMd`; when native plan deltas are unavailable it uses the prompt-level `<proposed_plan>` fallback. Plan confirmation remains a human gate. The two execution modes share the local Goal Loop coordinator: `逐步确认` observes and leaves each current gate to the user, while `自动推进` may delegate allowed local gates to existing scoped automation after plan confirmation. Automatic advance can continue through local execution, validation/audit, safe `audit.accept`, local `result.apply`, local `landing.prepare`, and local `change.close`, then stops after archive.
+- Workbench planning and local autonomy: planning content is provider-native
+  and Agent-authored. Codex Plan Mode native plan output is the preferred
+  source; `<proposed_plan>` remains an honestly labeled replay/fallback path
+  only. AHO validates, maps, persists, and gates the plan, but does not invent
+  business goals, acceptance criteria, or tasks from raw user demand. Plan
+  confirmation remains a human gate. The two execution modes share the local
+  Goal Loop coordinator: `逐步确认` observes and leaves each current gate to the
+  user, while `自动推进` may delegate allowed local gates to existing scoped
+  automation after plan confirmation. Automatic advance can continue through
+  local execution, validation/audit, safe `audit.accept`, local `result.apply`,
+  local `landing.prepare`, and local `change.close`, then stops after archive.
 - Role execution: planning/coder turns may use Codex app-server when available; `codex exec` fallback remains valid and must be labeled honestly. Validator and auditor remain independent evidence runners.
 - Result safety: result review, apply readiness, source refresh rework, integration checks, aggregate validation/audit, IntegrationFix, local landing readiness, Draft PR handoff, PR feedback, ready-for-review, remote landing, and post-merge reconcile are staged and human-gated.
 - Scheduler path: scheduler artifacts now cover readiness contracts, launch preflight, SchedulerRun shell, runtime reconcile/claim reservation, first/next worker start, worker result/validation/audit, bounded rework, integration candidate/handoff/outcome, terminal completion, blocked/exhausted closeout, controlled-step result summaries, controlled-loop turn route summaries, controlled loop tick contract summaries, controlled loop continuation readiness summaries, controlled loop iteration summaries, controlled stop-summary resume handoff, a fail-closed controlled-advance continuation guard, a scheduler-owned controlled-advance candidate carrier reused by Workbench confirmation/reconfirmation/current-gate proof, a scheduler-runtime controlled loop-step owner for the existing one-confirmed-transition advance wrapper, a scheduler-runtime runtime-boundary evidence summary that composes the implemented observe/choose/human-gate/dispatch/reconcile/stop phases without becoming loop authority, durable pre-dispatch continuation decision evidence on controlled-step records, an embedded post-step routing decision that names the existing owner/gate for continuation while remaining prior-turn evidence only, and real UI evidence that scoped full-access reaches scheduler only through the controlled wrapper before stopping at manual IntegrationCheck.
@@ -588,10 +606,10 @@ Desktop product-layer work can continue when selected as a separate structured
 product phase.
 
 Latest product change:
-`harness/changes/archive/20260702-main-agent-goal-style-real-codex-ui-acceptance-fix-pass-v1/summary.md`.
+`harness/changes/archive/20260706-provider-native-agent-authored-planning-v1/summary.md`.
 
 Previous product change:
-`harness/changes/archive/20260702-main-agent-llm-strategy-advice-production-goal-acceptance-v1/summary.md`.
+`harness/changes/archive/20260705-provider-native-a2a-runtime-alignment-v1/summary.md`.
 
 Latest docs/architecture change:
 `harness/changes/archive/20260629-document-aho-hybrid-desktop-native-roadmap-v1/summary.md`.
@@ -616,12 +634,18 @@ Current Harness evolution:
 
 - Pending evolution: none.
 - Latest completed evolution:
-  `harness/changes/archive/20260702-auto-evolve-post-resume-continuation-window/summary.md`.
-  Decision: `docs_current_delta`; subagent Cicero. Existing ECL/BOUNDARIES
-  coverage was sufficient for non-executing strategy/resume evidence and
-  stable-key continuation; no ECL rule, Harness template, lint, or product
-  runtime change was made. Current handoff drift was repaired before
-  mark-complete.
+  `harness/changes/archive/20260706-auto-evolve-post-provider-native-agent-authored-planning-window/summary.md`.
+  Decision: `docs_current_delta`; subagent Harvey score `86/100`. Existing
+  ECL/BOUNDARIES/WORKBENCH/RUNTIME coverage is sufficient for provider-native
+  A2A and Agent-authored planning. Current docs were repaired for planning
+  authorship and handoff drift; no rule/template/lint/CI/runtime change was
+  made.
+- Previous completed evolution:
+  `harness/changes/archive/20260704-auto-evolve-post-native-codex-plan-mode-window/summary.md`.
+  Decision: `docs_current_delta`; existing ECL/BOUNDARIES/WORKBENCH/RUNTIME
+  coverage was sufficient for native Codex Plan Mode, conversation identity,
+  real UI acceptance, and A2A workspace scoping; no ECL rule, Harness
+  template, lint, CI, or product runtime change was made.
 - Previous completed evolution:
   `harness/changes/archive/20260702-auto-evolve-post-main-agent-strategy-consumption-window/summary.md`.
   Decision: `docs_current_delta`; subagents Beauvoir/Godel score `82/100`.

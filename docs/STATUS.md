@@ -4,8 +4,7 @@
 
 - Current date: 2026-07-06.
 - Active ECL change: none.
-- Pending Harness evolution:
-  `harness/evolution/pending.md`.
+- Pending Harness evolution: none.
 - Latest archived product change:
   `harness/changes/archive/20260706-provider-native-agent-authored-planning-v1/summary.md`.
 - Previous archived product change:
@@ -201,6 +200,13 @@
 - Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-skills-catalog-and-codex-bridge-v1/summary.md`.
 - Latest completed Harness evolution:
+  `harness/changes/archive/20260706-auto-evolve-post-provider-native-agent-authored-planning-window/summary.md`
+  (`docs_current_delta`; subagent Harvey score 86; existing
+  ECL/BOUNDARIES/WORKBENCH/RUNTIME coverage is sufficient for provider-native
+  A2A and Agent-authored planning; repaired current docs for planning
+  authorship and handoff drift; no rule/template/lint/CI/runtime change
+  required. Pending evolution was marked complete).
+- Previous completed Harness evolution:
   `harness/changes/archive/20260704-auto-evolve-post-native-codex-plan-mode-window/summary.md`
   (`docs_current_delta`; existing ECL/BOUNDARIES/WORKBENCH/RUNTIME coverage is
   sufficient for native Codex Plan Mode, conversation identity, real UI
@@ -875,9 +881,9 @@ Harness workflow truth.
 
 Current main-agent / Workbench architecture work has no active change. Latest
 completed product slice is
-`harness/changes/archive/20260704-native-codex-plan-question-flow-alignment-v1/summary.md`.
+`harness/changes/archive/20260706-provider-native-agent-authored-planning-v1/summary.md`.
 Pending Harness evolution is none; the latest evolution closeout is
-`harness/changes/archive/20260704-auto-evolve-post-native-codex-plan-mode-window/summary.md`.
+`harness/changes/archive/20260706-auto-evolve-post-provider-native-agent-authored-planning-window/summary.md`.
 
 Current Workbench state after the latest product closeout: conversations are
 chat windows and transcripts, not Harness Change ids. Ordinary project-scoped
@@ -887,6 +893,9 @@ requestUserInput belong to the planning-agent workspace, while the main
 conversation keeps only parent-level narration and process rows. Harness truth
 remains Change/ECL, accepted artifacts, target freshness, ToolPolicyGate,
 validation/audit, confirmationQueue, and apply/close owners.
+Planning content is now provider-native and Agent-authored: AHO validates,
+maps, persists, and gates the plan, but does not invent business goals,
+acceptance criteria, or tasks from raw user demand.
 
 Next structured work should be selected explicitly: continue desktop/A2A
 product polish, continue Goal-style autonomous loop runner acceptance, or take

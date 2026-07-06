@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-07-06T05:15:22.2493582Z",
+    "generated_at":  "2026-07-06T05:29:48.0761045Z",
     "active":  [
 
                ],
@@ -2533,6 +2533,10 @@
                     {
                         "name":  "20260705-provider-native-a2a-runtime-alignment-v1",
                         "path":  "harness/changes/archive/20260705-provider-native-a2a-runtime-alignment-v1"
+                    },
+                    {
+                        "name":  "20260706-auto-evolve-post-provider-native-agent-authored-planning-window",
+                        "path":  "harness/changes/archive/20260706-auto-evolve-post-provider-native-agent-authored-planning-window"
                     },
                     {
                         "name":  "20260706-provider-native-agent-authored-planning-v1",
