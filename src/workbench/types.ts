@@ -62,6 +62,7 @@ export interface TopicThreadEntry {
   clarification?: unknown;
   contextRefs?: TopicFileReference[];
   attachments?: TopicAttachment[];
+  planHandoff?: ValidatedPlanHandoffIntent;
 }
 
 export interface TopicFileReference {
@@ -222,6 +223,21 @@ export interface TopicMessageInput {
   text?: string;
   contextRefs?: TopicFileReference[];
   attachmentIds?: string[];
+  planHandoffIntent?: PlanHandoffIntent;
+}
+
+export type PlanHandoffAgentRoleId = "plan-session" | "planning-agent";
+export type PlanHandoffIntentKind = "execute-plan" | "revise-plan";
+
+export interface PlanHandoffIntent {
+  sourceRunId: string;
+  sourceAgentRoleId: PlanHandoffAgentRoleId;
+  kind: PlanHandoffIntentKind;
+  feedback?: string;
+}
+
+export interface ValidatedPlanHandoffIntent extends PlanHandoffIntent {
+  planText: string;
 }
 
 export interface WorkbenchWorkflowActionRequest {

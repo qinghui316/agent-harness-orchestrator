@@ -61,6 +61,57 @@ same-run, same-Change metadata; it is stripped from visible transcript / plan /
 live deltas and is passed explicitly to policy instead of being recovered from
 historical replay.
 
+## 1B. Harness Workflow Runtime Architecture Boundary
+
+The target architecture for stable multi-Agent work is recorded in
+`docs/design-docs/harness-workflow-runtime-target.md`. That target is a
+durable boundary for current refactors and future features, not only for the
+current TaskQueue/Scheduler migration.
+
+High-cohesion / low-coupling rules:
+
+- **Owner first:** every new feature must declare an owner module before
+  implementation. Broad facades such as Workbench chat/server shells,
+  frontend app shells, CLI composition, domain `manager.ts` files, and type
+  barrels may expose APIs or route calls, but they must not own new domain
+  policy by default.
+- **Single runtime owner:** multi-step, multi-Agent, or multi-gate execution
+  belongs in `src/workflow-runtime/` under the future
+  `HarnessWorkflowRunEngine`. TaskQueue, Scheduler, Goal Loop, Plan handoff,
+  and future agent teams must not each grow separate observe/decide/run/sync
+  runners. They may become workflow templates, modes, artifact inputs,
+  projections, or leaf executors.
+- **Leaf means leaf:** code, validation, audit, integration, scheduler worker,
+  and future Codex subagent leaves execute one scoped node or stage and return
+  evidence. They must not decide the next node, mutate the graph, start
+  sibling/child leaves, bypass ToolPolicyGate, bypass code execution gates, or
+  bypass human gates.
+- **Projection is not authority:** Workbench, server read models, web UI,
+  transcripts, right rails, graph canvases, and cards display facts or submit
+  user intent. They do not own workflow state transitions, scheduling policy,
+  permission decisions, execution truth, or completion truth.
+- **Artifacts before execution:** WorkflowPlan / WorkflowGraphPlan artifacts
+  must be confirmed and scoped before execution. Graph compile validates
+  Change scope, accepted artifact hashes, source scope, dependency graph,
+  permission profile, recovery-key inputs, and stale-target state; it does not
+  start execution.
+- **No long-term compatibility forks:** public action/API names may remain as
+  thin facades, but old internal runners must be deleted once the new runtime
+  covers the same behavior. Each replacement change must include new-path
+  takeover, old-path deletion, and negative tests.
+- **Skills are guidance, not enforcement:** Skills may guide Agents to read
+  project docs and author legal workflow artifacts. They cannot enforce
+  permissions, allocate worktrees, approve gates, validate source, or authorize
+  apply/close.
+- **Test the owner, not every duplicated path:** tests for multi-step or
+  multi-Agent behavior must follow owner modules. Compiler legality belongs in
+  `workflow-artifacts` tests; scheduling scenarios belong in
+  `workflow-runtime` tests; execution boundaries belong in leaf contract tests;
+  Workbench/server/web tests cover intent, stale-target revalidation, and
+  projections. Future features must not add another observe/decide/run/sync
+  test stack to justify a private runner, and replacement changes must include
+  negative tests proving the retired runner is not called.
+
 ## 2. Personal-First and Local-First Boundary
 
 The primary user is an individual developer managing local repositories with tools such as Codex CLI, Claude Code, and shell commands.

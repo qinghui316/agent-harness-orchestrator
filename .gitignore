@@ -28,6 +28,8 @@ docs/*
 !docs/AGENT-DEVELOPMENT-OS.md
 !docs/CURRENT-DEVELOPMENT-PLAN.md
 !docs/ecl-harness-engineer-skill-recommendations.md
+!docs/design-docs/
+!docs/design-docs/harness-workflow-runtime-target.md
 harness/*
 !harness/changes/
 harness/changes/*

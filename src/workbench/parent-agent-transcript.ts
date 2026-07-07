@@ -1,5 +1,5 @@
 import type { AssistantTurnActivity, AssistantTurnBlock, TopicAttachment, TopicFileReference } from "./types.js";
-import { stripAccidentalPlanningDraftFromMainAgentText } from "./main-agent-visible-text.js";
+import { sanitizeMainAgentVisibleText } from "./main-agent-visible-text.js";
 
 export type ParentAgentTranscriptActor = "user" | "parent-agent";
 export type ParentAgentTranscriptBlockKind = "prose" | "process" | "tool-result" | "evidence";
@@ -238,7 +238,7 @@ function transcriptCellFromAssistantBlock(
   const text = isGeneratedRunContext(rawText)
     ? ""
     : cleanPrimaryText(parentVisible && (!agentRoleId || agentRoleId === "main-agent")
-      ? stripAccidentalPlanningDraftFromMainAgentText(rawText)
+      ? sanitizeMainAgentVisibleText(rawText)
       : rawText);
   const itemId = item.id;
   const timestamp = item.timestamp;

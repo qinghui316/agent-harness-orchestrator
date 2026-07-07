@@ -195,6 +195,7 @@ export interface TopicMessageRequest {
   mode?: TopicMessageInput["mode"];
   contextRefs?: TopicMessageInput["contextRefs"];
   attachmentIds?: string[];
+  planHandoffIntent?: TopicMessageInput["planHandoffIntent"];
 }
 
 export interface FolderDialogResult {

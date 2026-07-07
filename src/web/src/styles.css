@@ -953,6 +953,147 @@ input:focus-visible {
   font-size: 11px;
 }
 
+.conversation-pending-action-stack {
+  display: grid;
+  gap: 10px;
+  width: min(760px, 100%);
+  margin: 0 auto 10px;
+  padding: 0 0 2px;
+}
+
+.conversation-pending-card {
+  display: grid;
+  gap: 10px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
+  border-radius: 10px;
+  background: var(--bg-panel);
+}
+
+.conversation-pending-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  background: color-mix(in srgb, var(--bg-subtle) 72%, var(--bg-panel));
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.conversation-pending-header strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-pending-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.conversation-pending-title svg {
+  color: var(--accent);
+}
+
+.conversation-pending-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 0 12px;
+}
+
+.conversation-pending-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.conversation-pending-primary {
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-panel));
+  color: var(--text-strong);
+}
+
+.conversation-pending-secondary,
+.conversation-pending-feedback-submit {
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.conversation-pending-feedback {
+  display: grid;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+
+.conversation-pending-feedback label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.conversation-pending-feedback-row {
+  display: grid;
+  gap: 8px;
+}
+
+.conversation-pending-feedback textarea {
+  min-height: 54px;
+  width: 100%;
+  resize: vertical;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-subtle);
+  color: var(--text);
+  font: inherit;
+  line-height: 1.45;
+}
+
+.conversation-pending-button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--border));
+  background: color-mix(in srgb, var(--bg-subtle) 58%, var(--bg-panel));
+}
+
+.conversation-pending-button:disabled,
+.conversation-pending-feedback textarea:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.conversation-pending-list {
+  display: grid;
+  gap: 10px;
+  padding: 0 12px 12px;
+}
+
+@media (max-width: 680px) {
+  .conversation-pending-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
 .parent-agent-message-list {
   display: grid;
   gap: 20px;
@@ -3811,77 +3952,12 @@ body.is-resizing-column {
   color: var(--text-strong);
 }
 
-.agent-workspace-summaries {
-  display: grid;
-  gap: 8px;
-  margin: 0;
-  padding: 0;
-}
-
-.agent-workspace-summaries div {
-  display: grid;
-  gap: 3px;
-  padding: 10px 12px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  background: var(--bg-subtle);
-}
-
-.agent-workspace-summaries dt {
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 650;
-}
-
-.agent-workspace-summaries dd {
-  margin: 0;
-  color: var(--text);
-  font-size: 12.5px;
-  line-height: 1.45;
-}
-
 .agent-workspace-transcript-region {
   min-height: 0;
   flex: 1 1 auto;
   overflow: auto;
   padding: 0 2px 8px 0;
   overscroll-behavior: contain;
-}
-
-.agent-workspace-handoff-card {
-  display: grid;
-  gap: 12px;
-  margin-top: 14px;
-  padding: 14px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  background: var(--bg-elevated);
-  box-shadow: 0 10px 24px rgba(28, 27, 26, 0.06);
-}
-
-.agent-workspace-handoff-card strong {
-  display: block;
-  margin-top: 2px;
-  color: var(--text-strong);
-  font-size: 15px;
-}
-
-.agent-workspace-handoff-card p {
-  margin: 6px 0 0;
-  color: var(--text-muted);
-  font-size: 12.5px;
-  line-height: 1.45;
-}
-
-.agent-workspace-handoff-eyebrow {
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.agent-workspace-handoff-button {
-  justify-content: center;
-  width: 100%;
 }
 
 .agent-transcript-pane {

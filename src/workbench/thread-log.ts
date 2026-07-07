@@ -205,6 +205,7 @@ export function fromStoredThreadMessage(row: StoredTopicMessage): TopicThreadEnt
     clarification: raw.clarification,
     contextRefs: Array.isArray(raw.contextRefs) ? raw.contextRefs.filter(isTopicFileReference) : undefined,
     attachments: Array.isArray(raw.attachments) ? raw.attachments.filter(isTopicAttachment) : undefined,
+    planHandoff: isValidatedPlanHandoffIntent(raw.planHandoff) ? raw.planHandoff : undefined,
     position: row.position,
   };
 }
@@ -220,6 +221,14 @@ function parseStoredRawJson(rawJson: string): Record<string, unknown> {
 
 function isPlanCard(value: unknown): value is OrchestrationPlanCard {
   return isRecord(value) && typeof value.title === "string" && typeof value.summary === "string" && Array.isArray(value.steps);
+}
+
+function isValidatedPlanHandoffIntent(value: unknown): value is import("./types.js").ValidatedPlanHandoffIntent {
+  return isRecord(value)
+    && (value.sourceAgentRoleId === "plan-session" || value.sourceAgentRoleId === "planning-agent")
+    && (value.kind === "execute-plan" || value.kind === "revise-plan")
+    && typeof value.sourceRunId === "string"
+    && typeof value.planText === "string";
 }
 
 function isAssistantTurnActivity(value: unknown): value is AssistantTurnActivity {

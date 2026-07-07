@@ -18,6 +18,7 @@ import type { ManagedProject, RunMetadata, RunStatus } from "../../types/index.j
 import { displayArtifactPath } from "../../workflow-artifacts/manager.js";
 import { emitAssistantEvent, emitLive } from "../live-events.js";
 import { codexImageInputsForAttachments } from "../attachments.js";
+import { buildMainAgentPlanHandoffPromptContext } from "../plan-handoff.js";
 import { appendTopicThreadEntry } from "../topic-thread.js";
 import { readTopicRuntime, writeTopicRuntime } from "../topic-runtime.js";
 import { resolveTopic } from "../topic-resolver.js";
@@ -30,6 +31,7 @@ import type {
   TopicMessageResult,
   TopicRoutingDecision,
   TopicThreadEntry,
+  ValidatedPlanHandoffIntent,
   WorkbenchLiveSink,
 } from "../types.js";
 import { createAssistantTranscriptCapture } from "../live-transcript.js";
@@ -260,6 +262,7 @@ export interface RunCodexChatOptions {
   omitWorkbenchContext?: boolean;
   transientSystemSkillIds?: string[];
   attachments?: TopicAttachment[];
+  planHandoff?: ValidatedPlanHandoffIntent;
 }
 
 export async function runCodexChat(project: ManagedProject, changeId: string, userMessage: string, live?: WorkbenchLiveSink, options: RunCodexChatOptions = {}): Promise<{ run: RunMetadata; message: string; codexSessionId: string | null; planText?: string }> {
@@ -329,6 +332,7 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
       "main-agent-strategy-advice-request",
       "user-message",
       ...(options.planningMode ? ["codex-plan-mode"] : []),
+      ...(options.planHandoff ? ["plan-handoff-intent"] : []),
     ],
     enabledSkills: allSkillRecords,
   };
@@ -368,9 +372,10 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
     "Do not expose Workbench internals, run ids, task ids, queues, close gates, audit/validation mechanics, Harness, AGENTS.md, Change ids, worktrees, bundles, or internal acceptance/task ids.",
     "Use plain user-facing wording such as project notes, current task, plan, checks, review, and finish confirmation.",
   ].join("\n");
+  const planHandoffContext = buildMainAgentPlanHandoffPromptContext(options.planHandoff).join("\n");
   const imageInputs = await codexImageInputsForAttachments(project, options.attachments);
   await writeFile(paths.context, context, "utf8");
-  const prompt = `${context}${skillPromptSections ? `\n\n${skillPromptSections}` : ""}\n\n## User Message\n\n${userMessage}\n`;
+  const prompt = `${context}${skillPromptSections ? `\n\n${skillPromptSections}` : ""}${planHandoffContext ? `\n\n## Plan Handoff Intent\n\n${planHandoffContext}` : ""}\n\n## User Message\n\n${userMessage}\n`;
   await writeFile(paths.prompt, prompt, "utf8");
   await appendRunEvent(paths.events, {
     timestamp: new Date().toISOString(),
@@ -737,20 +742,9 @@ function forwardAppServerNotification(runId: string, notification: CodexAppServe
 }
 
 function forwardAppServerCollabToolCall(runId: string, call: CodexAppServerCollabToolCall, live: WorkbenchLiveSink | undefined, owner: AppServerLiveOwner): void {
-  const agentRoleId = owner.agentRoleId ?? collabAgentRoleId(call);
-  const childOwner = agentRoleId ? { ...owner, agentRoleId } : owner;
+  const agentRoleId = owner.agentRoleId;
   const status = call.status ?? "running";
-  const receiverSummary = call.receiverThreadIds.length > 0 ? ` -> ${call.receiverThreadIds.join(", ")}` : "";
   const promptSummary = call.prompt ? truncateReadablePreview(call.prompt).preview : undefined;
-  emitScopedAssistantEvent(live, childOwner, {
-    itemId: call.itemId,
-    kind: "status",
-    phase: status,
-    title: call.tool === "spawn_agent" ? "planning-agent 会话" : `协作工具：${call.tool}`,
-    summary: call.tool === "spawn_agent"
-      ? `Codex 已启动原生子 Agent${receiverSummary}。${promptSummary ?? ""}`.trim()
-      : `Codex 原生协作事件：${call.tool}${receiverSummary}。${promptSummary ?? ""}`.trim(),
-  });
   emitLive(live, {
     event: "tool.event",
     data: {
@@ -764,11 +758,6 @@ function forwardAppServerCollabToolCall(runId: string, call: CodexAppServerColla
       status,
     },
   });
-}
-
-function collabAgentRoleId(call: CodexAppServerCollabToolCall): string | undefined {
-  if (call.tool === "spawn_agent" || call.tool === "send_input" || call.tool === "wait_agent") return "planning-agent";
-  return undefined;
 }
 
 function formatUsageSummary(usage: Record<string, unknown>): string {

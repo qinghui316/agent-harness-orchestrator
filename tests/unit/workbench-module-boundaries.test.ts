@@ -1891,9 +1891,10 @@ describe("Workbench module boundaries", () => {
 
   it("keeps ordinary project Plan Mode scoped to a plan session, not planning-agent", () => {
     const chat = readFileSync("src/workbench/chat.ts", "utf8");
+    const mainAgentVisibleText = readFileSync("src/workbench/main-agent-visible-text.ts", "utf8");
     const projectPlanMessage = chat.slice(
       chat.indexOf("function projectScopedPlanningMessage"),
-      chat.indexOf("function stripProjectScopedChildAgentLeak"),
+      chat.indexOf("function cleanUserVisibleAgentText"),
     );
     const projectPlanForwarder = chat.slice(
       chat.indexOf("function forwardProjectPlanEvent"),
@@ -1906,6 +1907,66 @@ describe("Workbench module boundaries", () => {
     expect(projectPlanMessage).not.toContain('agentRoleId: "planning-agent"');
     expect(projectPlanForwarder).not.toContain('agentRoleId: "planning-agent"');
     expect(chat).toContain('nativePlanText ? "" : stripProjectScopedPromptEcho');
+    expect(chat).not.toContain("function stripProjectScopedChildAgentLeak");
+    expect(chat).toContain("stripProjectScopedChildAgentLeakFromMainAgentText");
+    expect(mainAgentVisibleText).toContain("stripProjectScopedChildAgentLeakFromMainAgentText");
+  });
+
+  it("does not expose a main composer Plan/Chat switch or fake planning-agent collab text", () => {
+    const app = readFileSync("src/web/src/App.tsx", "utf8");
+    const composer = readFileSync("src/web/src/shell/composer.tsx", "utf8");
+    const chat = readFileSync("src/workbench/chat.ts", "utf8");
+    const bridge = readFileSync("src/workbench/codex-chat/bridge.ts", "utf8");
+    const projectCollabForwarder = chat.slice(
+      chat.indexOf("function forwardProjectCollabToolCall"),
+      chat.indexOf("export async function runInitialMainAgentTurn"),
+    );
+    const appServerCollabForwarder = bridge.slice(
+      bridge.indexOf("function forwardAppServerCollabToolCall"),
+      bridge.indexOf("function formatUsageSummary"),
+    );
+
+    expect(app).not.toContain("composerMode");
+    expect(app).not.toContain("setComposerMode");
+    expect(app).not.toContain('mode: composerMode');
+    expect(composer).not.toContain("composer-mode-switch");
+    expect(composer).not.toContain("对话模式");
+    expect(composer).not.toContain('mode: "chat" | "plan"');
+    expect(projectCollabForwarder).not.toContain("Codex 已启动原生子 Agent");
+    expect(projectCollabForwarder).not.toContain("planning-agent 会话");
+    expect(projectCollabForwarder).not.toContain('agentRoleId: "planning-agent"');
+    expect(appServerCollabForwarder).not.toContain("Codex 已启动原生子 Agent");
+    expect(appServerCollabForwarder).not.toContain("planning-agent 会话");
+    expect(appServerCollabForwarder).not.toContain("collabAgentRoleId");
+  });
+
+  it("keeps plan handoff separate from workflow plan cards and right-side user input", () => {
+    const app = readFileSync("src/web/src/App.tsx", "utf8");
+    const pendingStack = readFileSync("src/web/src/panels/workbench/ConversationPendingActionStack.tsx", "utf8");
+    const conversationPanel = readFileSync("src/web/src/panels/workbench/ConversationPanel.tsx", "utf8");
+    const handoffDerivation = readFileSync("src/web/src/panels/workbench/planHandoff.ts", "utf8");
+    const agentWorkspace = readFileSync("src/web/src/panels/workbench/AgentWorkspacePanel.tsx", "utf8");
+    const assistantRendering = readFileSync("src/web/src/shell/assistant-rendering.tsx", "utf8");
+    const catalog = readFileSync("src/agent/catalog.ts", "utf8");
+
+    expect(app).toContain('mode: "chat"');
+    expect(app).toContain("planHandoffIntent");
+    expect(app).toContain("ConversationPendingActionStack");
+    expect(pendingStack).toContain("CodexUserInputRequestCard");
+    expect(pendingStack).toContain('"execute-plan"');
+    expect(pendingStack).toContain('"revise-plan"');
+    expect(pendingStack).not.toContain("onAction(");
+    expect(pendingStack).not.toContain("PlanCardView");
+    expect(pendingStack).not.toContain("full-access");
+    expect(conversationPanel).not.toContain("PlanHandoff");
+    expect(conversationPanel).not.toContain("CodexUserInputRequestCard");
+    expect(handoffDerivation).toContain('cell.kind === "assistant-message"');
+    expect(handoffDerivation).not.toContain('cell.kind === "process-row"');
+    expect(assistantRendering).toContain("workflowActionPayloadFromScope(action)");
+    expect(agentWorkspace).not.toContain("CodexUserInputRequestCard");
+    expect(agentWorkspace).not.toContain("agent-workspace-codex-user-input");
+    expect(catalog).not.toContain("planning-artifact-bundle");
+    expect(catalog).not.toContain("confirm-execution");
   });
 
   it("keeps Codex native plan events scoped instead of flattening them into assistant deltas", () => {

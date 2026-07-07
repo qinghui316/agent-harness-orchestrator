@@ -257,8 +257,33 @@ describe("workbench read-model projections", () => {
         text: "Native plan body.",
       }],
     };
+    const planUserEntry = {
+      id: "user:conv:plan-feedback",
+      type: "user.message" as const,
+      timestamp: "2026-07-06T11:59:00.000Z",
+      conversationId: conversation.conversationId,
+      changeId: "",
+      text: "Please plan the change first.",
+      agentRoleId: "plan-session",
+    };
     const store = await WorkbenchStore.open(memory);
     try {
+      store.appendMessage({
+        id: planUserEntry.id,
+        projectId: project().id,
+        conversationId: conversation.conversationId,
+        changeId: "",
+        type: planUserEntry.type,
+        timestamp: planUserEntry.timestamp,
+        text: planUserEntry.text,
+        actionRunId: null,
+        actionType: null,
+        status: null,
+        runId: null,
+        artifact: null,
+        error: null,
+        rawJson: JSON.stringify(planUserEntry),
+      });
       store.appendMessage({
         id: entry.id,
         projectId: project().id,
@@ -285,7 +310,13 @@ describe("workbench read-model projections", () => {
     expect(snapshot.right.agentWorkspace.agents.find((agent) => agent.id === "planning-agent")).toBeUndefined();
     expect(snapshot.right.agentWorkspace.selectedAgentId).toBe("plan-session");
     expect(planSession?.label).toBe("Plan Agent");
+    expect(JSON.stringify(planSession?.transcript.cells)).toContain("Please plan the change first.");
     expect(JSON.stringify(planSession?.transcript.cells)).toContain("Native plan body.");
+    expect(planSession?.transcript.cells).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "user-message", agentRoleId: "plan-session" }),
+      expect.objectContaining({ kind: "assistant-message", agentRoleId: "plan-session", runId: "run-plan-session" }),
+    ]));
+    expect(planSession?.outputSummary).toBeUndefined();
     expect(JSON.stringify(planSession?.transcript.cells)).not.toContain("计划会话");
     expect(existsSync(join(getTempDir(), "harness", "changes", "active", conversation.conversationId))).toBe(false);
   });
@@ -909,7 +940,13 @@ describe("workbench read-model projections", () => {
     const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: conversation.conversationId });
     const planningAgent = snapshot.right.agentWorkspace.agents.find((agent) => agent.id === "planning-agent");
 
-    expect(snapshot.center.selectedTopic?.id).toBe(topic.changeId);
+    expect(snapshot.center.selectedTopic).toMatchObject({
+      id: conversation.conversationId,
+      kind: "conversation",
+      boundChangeId: topic.changeId,
+      change: null,
+    });
+    expect(snapshot.center.parentAgentTranscript.conversationId).toBe(conversation.conversationId);
     expect(planningAgent).toBeUndefined();
     expect(JSON.stringify(snapshot.right.agentWorkspace)).not.toContain("planningBundle");
     expect(JSON.stringify(snapshot.right.agentWorkspace)).not.toContain("planning.confirm-execution");

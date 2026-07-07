@@ -16,7 +16,8 @@ import { dispatchWorkbenchWorkflowAction } from "./actions/dispatcher.js";
 import { buildWorkbenchActionHandlers } from "./actions/handlers/index.js";
 import { recordWorkbenchDecision } from "./decisions.js";
 import { emitAssistantEvent } from "./live-events.js";
-import { stripAccidentalPlanningDraftFromMainAgentText } from "./main-agent-visible-text.js";
+import { stripAccidentalPlanningDraftFromMainAgentText, stripProjectScopedChildAgentLeakFromMainAgentText } from "./main-agent-visible-text.js";
+import { buildMainAgentPlanHandoffPromptContext, validatePlanHandoffIntent } from "./plan-handoff.js";
 import { resolveTopicAttachments } from "./attachments.js";
 import { resolveTopicFileReferences } from "./file-references.js";
 import { createAssistantTranscriptCapture } from "./live-transcript.js";
@@ -27,6 +28,7 @@ import { WorkbenchStore, type StoredTopicMessage } from "./store.js";
 import type {
   AssistantTurnBlock,
   TopicAttachment,
+  ValidatedPlanHandoffIntent,
   TopicMessageInput,
   TopicMessageResult,
   TopicThreadEntry,
@@ -160,18 +162,23 @@ export async function postConversationMessage(project: ManagedProject, conversat
     contextRefs: parsed.contextRefs,
     attachments: parsed.attachments,
   };
+  let planHandoff: ValidatedPlanHandoffIntent | undefined;
+  let storedUser: TopicThreadEntry = user;
   const store = await WorkbenchStore.open(memory);
   try {
     if (!store.readConversation(memory.projectId, conversationId)) throw new Error(`Conversation not found: ${conversationId}.`);
-    store.appendMessage(toConversationStoredMessage(memory.projectId, conversationId, user));
+    const existingMessages = store.listConversationMessages(memory.projectId, conversationId).map(fromStoredThreadMessage);
+    planHandoff = validatePlanHandoffIntent(existingMessages, parsed.planHandoffIntent);
+    storedUser = { ...user, planHandoff };
+    store.appendMessage(toConversationStoredMessage(memory.projectId, conversationId, storedUser));
   } finally {
     store.close();
   }
-  live?.emit({ event: "topic.message", data: user });
+  live?.emit({ event: "topic.message", data: storedUser });
   const assistant = parsed.mode === "plan"
     ? await runProjectScopedPlanAgentTurn(project, conversationId, parsed.message, live)
-    : await runProjectScopedMainAgentTurn(project, conversationId, parsed.message, live);
-  return { user, assistant, run: null, codexSessionId: null, mode: parsed.mode, routingDecision: "same-topic", assistantMessage: assistant.text ?? "" };
+    : await runProjectScopedMainAgentTurn(project, conversationId, parsed.message, live, planHandoff);
+  return { user: storedUser, assistant, run: null, codexSessionId: null, mode: parsed.mode, routingDecision: "same-topic", assistantMessage: assistant.text ?? "" };
 }
 
 export async function listConversationMessages(project: ManagedProject, conversationId: string): Promise<TopicThreadEntry[]> {
@@ -200,7 +207,7 @@ export function buildInitialMainAgentPrompt(userMessage: string): string {
   ].join("\n");
 }
 
-export function buildProjectScopedMainAgentPrompt(userMessage: string): string {
+export function buildProjectScopedMainAgentPrompt(userMessage: string, planHandoff?: ValidatedPlanHandoffIntent): string {
   return [
     "You are the main Agent for this project.",
     "Run as a short read-only parent conversation turn. Do not edit files, create working copies, apply changes, close work, or claim approval.",
@@ -215,13 +222,14 @@ export function buildProjectScopedMainAgentPrompt(userMessage: string): string {
     "Do not expose internal product terms in the user-visible reply, including Harness, AGENTS.md, Change, active change, worktree, AC, tasks, TaskRun, WorkflowRun, queue, scheduler, bundle, close gate, validation, or audit.",
     "Use plain user-facing words instead, such as 项目记录, 项目说明, 当前任务, 工作副本, 验收点, 计划, 检查, 审查, or 完成前确认.",
     "When you produce a visible parent reply, keep it to 2-4 sentences in the user's language.",
+    ...buildMainAgentPlanHandoffPromptContext(planHandoff),
     "",
     "User message:",
     userMessage,
   ].join("\n");
 }
 
-async function runProjectScopedMainAgentTurn(project: ManagedProject, conversationId: string, userMessage: string, live?: WorkbenchLiveSink): Promise<TopicThreadEntry> {
+async function runProjectScopedMainAgentTurn(project: ManagedProject, conversationId: string, userMessage: string, live?: WorkbenchLiveSink, planHandoff?: ValidatedPlanHandoffIntent): Promise<TopicThreadEntry> {
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "Project-scoped chat");
   if (!memory.projectId) throw new Error("Project id is required to run project-scoped chat.");
@@ -231,7 +239,7 @@ async function runProjectScopedMainAgentTurn(project: ManagedProject, conversati
   const capture = createAssistantTranscriptCapture(live);
   capture.sink.emit({ event: "run.started", data: { runId, conversationId, runtime: "codex-readonly", actionType: "chat.ask" } });
   capture.sink.emit({ event: "run.status", data: { runId, status: "connecting", label: "正在连接 Codex" } });
-  const prompt = buildProjectScopedMainAgentPrompt(userMessage);
+  const prompt = buildProjectScopedMainAgentPrompt(userMessage, planHandoff);
   await writeFile(join(directory, "prompt.md"), prompt, "utf8");
   const appServerCapabilities = await detectCodexAppServerCapability();
   if (!appServerCapabilities.available) {
@@ -295,7 +303,7 @@ async function runProjectScopedMainAgentTurn(project: ManagedProject, conversati
     || (nativePlanText ? "" : stripProjectScopedPromptEcho(result.lastMessage, userMessage).trim())
     || result.error
     || "";
-  const assistantText = cleanUserVisibleAgentText(stripProjectScopedChildAgentLeak(rawParentText)).trim();
+  const assistantText = cleanUserVisibleAgentText(stripProjectScopedChildAgentLeakFromMainAgentText(rawParentText)).trim();
   await writeFile(join(directory, "last-message.md"), assistantText, "utf8");
   const assistant: TopicThreadEntry | null = assistantText ? {
     id: `assistant:${conversationId}:${Date.now().toString(36)}`,
@@ -453,7 +461,7 @@ function createProjectScopedParentDeltaFilter(emit: (delta: string) => void): { 
 function segmentSurvivesProjectScopedLeakFilter(segment: string): boolean {
   const trimmed = segment.trim();
   if (!trimmed) return false;
-  return stripProjectScopedChildAgentLeak(trimmed) === trimmed;
+  return stripProjectScopedChildAgentLeakFromMainAgentText(trimmed) === trimmed;
 }
 
 function projectScopedPlanningMessage(conversationId: string, runId: string, planText: string): TopicThreadEntry {
@@ -478,33 +486,6 @@ function projectScopedPlanningMessage(conversationId: string, runId: string, pla
     agentRoleId: PROJECT_PLAN_SESSION_ROLE_ID,
     blocks: [block],
   };
-}
-
-function stripProjectScopedChildAgentLeak(message: string): string {
-  const normalized = message.trim();
-  if (!normalized) return "";
-  const leakPatterns = [
-    /(?:^|\n)\s*planning-agent\s*已启动/i,
-    /(?:^|\n)\s*我会按\s*planning-agent/i,
-    /(?:^|\n)\s*作为\s*planning-agent/i,
-    /(?:^|\n).*原生计划能力/i,
-    /(?:^|\n).*原生计划事件/i,
-    /(?:^|\n).*已通过原生/i,
-    /(?:^|\n).*规划会话已启动/i,
-    /(?:^|\n).*运行时.*规划能力/i,
-    /(?:^|\n).*已用.*(?:只读计划|计划能力|Plan Mode)/i,
-    /(?:^|\n).*已启动.*(?:只读规划|计划记录|计划会话|规划协作)/i,
-    /(?:^|\n).*记录了一个只读计划/i,
-    /子代理启动参数/i,
-    /专门的规划子代理/i,
-  ];
-  const indexes = leakPatterns
-    .map((pattern) => normalized.search(pattern))
-    .filter((index) => index >= 0);
-  if (indexes.length === 0) return normalized;
-  const cut = Math.min(...indexes);
-  const parentText = normalized.slice(0, cut).trim();
-  return parentText || "我已经理解目标。下一步需要先把需求和验收方式说清楚；在你确认前我不会修改文件或执行代码。";
 }
 
 function cleanUserVisibleAgentText(message: string): string {
@@ -586,33 +567,13 @@ function forwardProjectPlanEvent(runId: string, method: string, params: Record<s
 }
 
 function forwardProjectCollabToolCall(runId: string, call: CodexAppServerCollabToolCall, live: WorkbenchLiveSink | undefined): void {
-  const agentRoleId = (call.tool === "spawn_agent" || call.tool === "send_input" || call.tool === "wait_agent")
-    ? "planning-agent"
-    : undefined;
   const status = call.status ?? "running";
-  const agentTaskId = call.receiverThreadIds[0];
   const promptPreview = call.prompt ? boundedPreview(call.prompt) : undefined;
-  const title = call.tool === "spawn_agent" ? "planning-agent 会话" : `协作工具：${call.tool}`;
-  const summary = call.tool === "spawn_agent"
-    ? `Codex 已启动原生子 Agent。${promptPreview ?? ""}`.trim()
-    : `Codex 原生协作事件：${call.tool}。${promptPreview ?? ""}`.trim();
-  emitAssistantEvent(live, {
-    runId,
-    itemId: call.itemId,
-    agentRoleId,
-    agentTaskId,
-    kind: "status",
-    phase: status,
-    title,
-    summary,
-  });
   live?.emit({
     event: "tool.event",
     data: {
       runId,
       itemId: call.itemId,
-      agentRoleId,
-      agentTaskId,
       phase: status === "completed" || status === "succeeded" ? "completed" : "started",
       name: call.tool,
       outputTail: promptPreview,
@@ -671,8 +632,20 @@ export async function readTopicThreadLog(memory: ResolvedMemory, changePath: str
 export async function postTopicMessage(project: ManagedProject, changeId: string, input: string | TopicMessageInput, live?: WorkbenchLiveSink): Promise<TopicMessageResult> {
   const parsed = await normalizeTopicMessageInput(project, input);
   if (parsed.mode === "plan") return postTopicPlanMessage(project, changeId, parsed.message, live, parsed.contextRefs, parsed.attachments);
+  const existingMessages = await listTopicMessages(project, changeId);
+  const planHandoff = validatePlanHandoffIntent(existingMessages, parsed.planHandoffIntent);
   const topicState = await getTopicLifecycleState(project, changeId);
   const runningRun = await findRunningRunForChange(project, changeId);
+  if (planHandoff && topicState === "archive") {
+    const error = new Error("Plan handoff cannot be submitted to an archived conversation.");
+    error.name = "Conflict";
+    throw error;
+  }
+  if (planHandoff && runningRun) {
+    const error = new Error("Plan handoff cannot be submitted while a workflow run is active.");
+    error.name = "Conflict";
+    throw error;
+  }
   if (topicState === "archive" && looksLikeImplementationRequest(parsed.message)) {
     const user = await appendTopicThreadEntry(project, changeId, { type: "user.message", text: parsed.message, status: "follow-up-requested", contextRefs: parsed.contextRefs, attachments: parsed.attachments });
     live?.emit({ event: "topic.message", data: user });
@@ -724,10 +697,10 @@ export async function postTopicMessage(project: ManagedProject, changeId: string
     live?.emit({ event: "assistant.message", data: assistant });
     return { user, assistant, run: null, codexSessionId: null, mode: "chat", routingDecision: "same-topic", assistantMessage: assistant.text ?? "" };
   }
-  const user = await appendTopicThreadEntry(project, changeId, { type: "user.message", text: parsed.message, contextRefs: parsed.contextRefs, attachments: parsed.attachments });
+  const user = await appendTopicThreadEntry(project, changeId, { type: "user.message", text: parsed.message, contextRefs: parsed.contextRefs, attachments: parsed.attachments, planHandoff });
   live?.emit({ event: "topic.message", data: user });
   const capture = createAssistantTranscriptCapture(live);
-  const chat = await runCodexChat(project, changeId, parsed.message, capture.sink, { attachments: parsed.attachments });
+  const chat = await runCodexChat(project, changeId, parsed.message, capture.sink, { attachments: parsed.attachments, planHandoff });
   const assistantText = stripAccidentalPlanningDraftFromMainAgentText(chat.message.trim() || capture.text.trim());
   const assistant = await appendTopicThreadEntry(project, changeId, {
     type: "assistant.message",
@@ -827,10 +800,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-async function normalizeTopicMessageInput(project: ManagedProject, input: string | TopicMessageInput): Promise<Required<Pick<TopicMessageInput, "mode" | "message">> & { contextRefs?: TopicMessageInput["contextRefs"]; attachments?: TopicAttachment[] }> {
+async function normalizeTopicMessageInput(project: ManagedProject, input: string | TopicMessageInput): Promise<Required<Pick<TopicMessageInput, "mode" | "message">> & { contextRefs?: TopicMessageInput["contextRefs"]; attachments?: TopicAttachment[]; planHandoffIntent?: TopicMessageInput["planHandoffIntent"] }> {
   const mode = typeof input === "string" ? "chat" : input.mode ?? "chat";
   const message = typeof input === "string" ? input : input.message ?? input.text ?? "";
   if (mode !== "chat" && mode !== "plan") throw new Error("Message mode must be chat or plan.");
+  if (mode === "plan" && typeof input !== "string" && input.planHandoffIntent) throw new Error("Plan handoff intent must use chat mode.");
   const attachments = await resolveTopicAttachments(project, typeof input === "string" ? [] : input.attachmentIds);
   if (!message.trim() && attachments.length === 0) throw new Error("Message text is required.");
   const resolved = await resolveTopicFileReferences(project, message, typeof input === "string" ? [] : input.contextRefs);
@@ -841,6 +815,7 @@ async function normalizeTopicMessageInput(project: ManagedProject, input: string
     message: resolvedMessage,
     contextRefs: resolved.contextRefs.length > 0 ? resolved.contextRefs : undefined,
     attachments: attachments.length > 0 ? attachments : undefined,
+    planHandoffIntent: typeof input === "string" ? undefined : input.planHandoffIntent,
   };
 }
 

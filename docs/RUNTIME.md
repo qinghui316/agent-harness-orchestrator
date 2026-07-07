@@ -47,7 +47,7 @@ Project
 | DecompositionPlan | proposal artifact | Phase 7H selected-demand planning proposal that records decomposition recommendation, units, dependencies, risks, and recovery key inputs; not executable workflow truth |
 | DecompositionReadinessManifest | guardrail artifact | Phase 7I machine-checkable verdict for the latest confirmed DecompositionPlan; records whether later execution layers may consume the proposal and which guardrail blocks it; not executable workflow truth |
 | TaskQueueProposal | pre-execution proposal artifact | Phase 7J typed proposal generated only from valid sequential taskqueue readiness; it describes a queue candidate and must not carry execution state |
-| WorkflowGraphPlan | versioned typed execution input | Phase 7L immutable graph compiled from a matching TaskQueueProposal and DecompositionReadinessManifest. Sequential v1 nodes map proposal items to coder/validation/audit/bounded-rework stages. It is not an ODWF JavaScript script and does not start execution by itself |
+| WorkflowGraphPlan | versioned typed execution input | Phase 7L immutable graph compiled from a matching TaskQueueProposal and DecompositionReadinessManifest. Current `sequential-v1` nodes map proposal items to coder/validation/audit/bounded-rework stages. `sequential-v1` is an implementation limit, not the final architecture; the target is a unified typed graph for sequential, ready-set, barrier, pipeline, and scheduler-wave modes. It is not an ODWF JavaScript script and does not start execution by itself |
 | WorkflowRun | runtime coordination / recovery evidence | Phase 7K typed journal for confirmed sequential TaskQueue execution. Phase 7L binds it to versioned graph/proposal/readiness refs and hashes, not mutable latest files. It records queue/task progress and recovery keys, but Change/ECL, accepted artifacts, TaskRun/Run, validation/audit, apply/close, and human gates remain workflow truth |
 
 Phase 7M does not add new runtime authority. It tightens the typed scope that moves through Workbench actions, ToolPolicyGate audit, server stale-target revalidation, and low-level TaskQueue resume. It also makes the action registry, strict scope matcher, required target validation, projection summaries, and runtime facade shared modules rather than repeated branches.
@@ -124,7 +124,7 @@ Phase 9Y validates the runtime surface rather than extending it: Workbench snaps
 
 Phase 9Z adds a terminal scheduler closeout evidence path for blocked/exhausted runs before IntegrationCheck. A closeout can only be recorded against the latest scoped SchedulerRun, runtime state, claim reservation, and SchedulerIntegrationCandidate when ready targets remain below the IntegrationCheck threshold and no legal next worker or existing integration handoff/outcome/completion path remains. It appends SchedulerRun-scoped runtime and journal evidence, but it does not allocate leases, create WorkerSessions, start agents, run IntegrationCheck, mutate source, or authorize apply/landing/merge.
 | MainAgentOrchestrationStep | runtime coordination/projection record | Role result summary with selected input/output artifact refs, status, stoppedAt, and failure classification |
-| MainAgentOrchestrationDecisionEngine | runtime policy | Deterministic next-step policy for the default coder/validator/auditor/rework template; does not replace ToolPolicyGate, AgentTaskResult, validation, audit, or human gates |
+| MainAgentOrchestrationDecisionEngine | current compatibility runtime policy | Deterministic next-step policy for the default coder/validator/auditor/rework template; the target is to retire it as a runtime entrypoint and compile the same behavior as `default-code-change-workflow` for `HarnessWorkflowRunEngine`. It does not replace ToolPolicyGate, AgentTaskResult, validation, audit, or human gates |
 | DelegateTaskRequest | runtime request | Main-agent request to run a role task; must pass policy before dispatch |
 | ToolPolicyDecision | evidence record | Broker/gate decision for AHO-owned actions: allowed, denied, needs-user-confirmation, or unavailable |
 | WorkerPermissionProfile | runtime policy | Role-specific read/write/sandbox/delegation boundary used by policy and post-run audit |
@@ -195,6 +195,31 @@ Phase 9Z adds a terminal scheduler closeout evidence path for blocked/exhausted 
 | Session | runtime auxiliary | Optional future runtime continuity, never a replacement for Change |
 
 ## 4. Key Boundaries
+
+### HarnessWorkflowRunEngine Target
+
+The target runtime boundary is a single `HarnessWorkflowRunEngine` owned by
+`src/workflow-runtime/` and described in
+`docs/design-docs/harness-workflow-runtime-target.md`. Current fixed
+role-chain, TaskQueue, and Scheduler execution paths are compatibility paths
+until migrated; they must not become parallel long-term runtime owners.
+
+Runtime object ownership is intentionally split:
+
+- `workflow-artifacts` compiles and validates WorkflowPlan / WorkflowGraphPlan
+  input, but does not start execution.
+- `workflow-run` stores run state, events, journal, and recovery keys, but does
+  not choose next nodes.
+- `workflow-runtime` computes ready sets, applies dependency/barrier/pipeline
+  policy, dispatches leaf nodes, records events, and stops at gates.
+- `task-run`, `code`, `validation`, `audit`, integration, scheduler worker,
+  and future subagent leaves execute one scoped node and return typed evidence.
+- Workbench/server/web projections submit intent and display facts; they do
+  not own runtime policy.
+
+When an implementation phase moves a capability under the target runtime, the
+old internal runner must be removed in the same change. Public action names may
+remain only as thin facades to the single runtime owner.
 
 ### DemandConversation
 

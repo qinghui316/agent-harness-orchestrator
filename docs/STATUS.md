@@ -2,10 +2,22 @@
 
 ## Current Handoff
 
-- Current date: 2026-07-06.
+- Current date: 2026-07-07.
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260707-main-agent-transcript-lazy-restore-leak-fix-v1/summary.md`.
+  It fixed the post-handoff repair regression where opening/restoring a topic
+  could lazy-load persisted runtime transcript blocks back into the center
+  parent-agent conversation, and stopped bound conversations from redirecting
+  the selected topic to their bound Change.
+- Previous archived product change:
+  `harness/changes/archive/20260707-main-agent-plan-handoff-pending-composer-agent-transcript-repair-v1/summary.md`.
+- Previous archived product change:
+  `harness/changes/archive/20260707-main-agent-plan-handoff-question-surface-v1/summary.md`.
+- Latest archived docs/architecture change:
+  `harness/changes/archive/20260707-harness-workflow-runtime-target-architecture-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260707-provider-native-a2a-real-ui-acceptance-fix-pass-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260706-provider-native-agent-authored-planning-v1/summary.md`.
@@ -161,7 +173,7 @@
   `harness/changes/archive/20260629-workbench-reference-style-project-terminal-dock-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260629-workbench-composer-attachments-first-demand-staging-v2/summary.md`.
-- Latest archived docs/architecture change:
+- Previous archived docs/architecture change:
   `harness/changes/archive/20260629-document-aho-hybrid-desktop-native-roadmap-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260628-workbench-reference-style-composer-attachments-v1/summary.md`.
@@ -202,6 +214,14 @@
 - Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-skills-catalog-and-codex-bridge-v1/summary.md`.
 - Latest completed Harness evolution:
+  `harness/changes/archive/20260707-auto-evolve-post-workflow-runtime-and-handoff-window/summary.md`
+  (`docs_current_delta`; independent review; existing
+  ECL/BOUNDARIES/WORKBENCH/RUNTIME coverage is sufficient for Workflow Runtime
+  target architecture, provider-event truth, owner-aligned testing topology,
+  and corrected Plan handoff pending-stack state; no new
+  rule/template/lint/CI/runtime change required. Pending evolution was marked
+  complete).
+- Previous completed Harness evolution:
   `harness/changes/archive/20260706-auto-evolve-post-provider-native-agent-authored-planning-window/summary.md`
   (`docs_current_delta`; subagent Harvey score 86; existing
   ECL/BOUNDARIES/WORKBENCH/RUNTIME coverage is sufficient for provider-native
@@ -830,6 +850,13 @@ Harness workflow truth.
 
 - Local manual-gated Workbench has real acceptance through planning, code,
   validation/audit, human apply, and close/archive.
+- Current runtime architecture work is in transition: fixed role-chain,
+  sequential TaskQueue, and Scheduler worker paths are current compatibility
+  implementations, not the final target. The target is the
+  high-cohesion/low-coupling Harness Workflow Runtime documented in
+  `docs/design-docs/harness-workflow-runtime-target.md`, where
+  `workflow-runtime` becomes the single runner owner and old internal runners
+  are deleted after takeover.
 - Harness-mode product entry now follows the `desktop-cc-gui` reference for
   the current implemented surface: sparse project/session sidebar, centered
   `创造任何东西` composer, workspace picker, real execution-mode control strip,
@@ -881,30 +908,44 @@ Harness workflow truth.
 
 ## Next Resume Point
 
-Current main-agent / Workbench architecture work has no active change. Latest
+Latest architecture documentation work is
+`harness/changes/archive/20260707-harness-workflow-runtime-target-architecture-v1/summary.md`.
+It records the target Harness Workflow Runtime architecture, testing topology,
+reference routing, module ownership, and old runner retirement rules. Latest
 completed product slice is
-`harness/changes/archive/20260707-provider-native-a2a-real-ui-acceptance-fix-pass-v1/summary.md`.
-The previous completed product slice is
-`harness/changes/archive/20260706-provider-native-agent-authored-planning-v1/summary.md`.
-Pending Harness evolution is none; the latest evolution closeout is
-`harness/changes/archive/20260706-auto-evolve-post-provider-native-agent-authored-planning-window/summary.md`.
+`harness/changes/archive/20260707-main-agent-transcript-lazy-restore-leak-fix-v1/summary.md`.
+It closed the follow-up browser regression from the pending-composer repair:
+conversation restore now keeps the selected conversation id instead of jumping
+to a bound Change, and lazy transcript paging uses the shared main-agent
+visible-text sanitizer so old plan/subagent delegation text does not re-enter
+the center transcript. The previous completed product slice is
+`harness/changes/archive/20260707-main-agent-plan-handoff-pending-composer-agent-transcript-repair-v1/summary.md`.
+It repaired the visible pending composer and right Plan Agent transcript
+surface. The product slice before that is
+`harness/changes/archive/20260707-main-agent-plan-handoff-question-surface-v1/summary.md`.
+Latest completed evolution closeout is
+`harness/changes/archive/20260707-auto-evolve-post-workflow-runtime-and-handoff-window/summary.md`.
 
-Current Workbench state after the active closeout work: conversations are chat
-windows and transcripts, not Harness Change ids. Ordinary project-scoped main
-Agent chat does not create a Change. Codex app-server native Plan Mode projects
-native plan events and runtime requestUserInput into the `plan-session` / Plan
-Agent workspace unless the provider emits a real child-agent owner. The main
-conversation keeps only parent-level narration and process rows. Harness truth
-remains Change/ECL, accepted artifacts, target freshness, ToolPolicyGate,
+Current Workbench state after the latest product closeout: conversations are
+chat windows and transcripts, not Harness Change ids. Ordinary project-scoped
+main Agent chat does not create a Change. Codex app-server native Plan Mode
+projects native plan events and runtime requestUserInput into the
+`plan-session` / Plan Agent workspace unless the provider emits a real
+child-agent owner. The Plan handoff pending-stack repair is now archived:
+the target surface is a main-conversation bottom pending action stack, not a
+top-of-transcript card or a full-access handoff. The visible handoff card has
+one `执行` button and one feedback textarea. Handoff intent posts to the main
+Agent and must not create a Change, call workflow actions, enter
+`confirmationQueue.primary`, or grant permission. Harness truth remains
+Change/ECL, accepted artifacts, target freshness, ToolPolicyGate,
 validation/audit, confirmationQueue, and apply/close owners.
 Planning content is now provider-native and Agent-authored: AHO validates,
 maps, persists, and gates the plan, but does not invent business goals,
 acceptance criteria, or tasks from raw user demand.
 
-Next structured work should be selected explicitly: continue desktop/A2A
-product polish, continue Goal-style autonomous loop runner acceptance, or take
-up a new product request. Do not mix those tracks into Harness evolution
-closeout work.
+No active ECL change or pending Harness evolution remains. The next separate
+structured product work should be the first `HarnessWorkflowRunEngine`
+takeover slice or another explicitly selected product track.
 
 Desktop product work can continue from
 `docs/design-docs/ref-desktop-cc-gui.md` when selected.

@@ -2,15 +2,14 @@
 
 Status: Phase 12A design boundary. This document is an accepted implementation contract for later phases. It is not current runtime authority and does not add a scheduler loop, executor, Workbench action, ToolPolicy path, or source mutation path.
 
-Positioning: this document defines only the future Scheduler loop boundary. It
-is not the complete Goal-driven Workflow Loop architecture. The complete target
-is recorded in `docs/CURRENT-DEVELOPMENT-PLAN.md` under
-`Goal-Driven Workflow Loop Target`: the main Agent loops over current evidence
-and may choose read-only planning, sequential workflow steps, low-conflict
-parallel worktree slices, validation/audit, bounded rework, IntegrationFix,
-waiting, or user clarification. Scheduler loop behavior is one bounded
-execution strategy that the Goal Loop may call after the relevant evidence,
-target ids, ToolPolicy checks, and human gates are satisfied.
+Positioning: this document defines only the Scheduler-local boundary. It is
+not the complete Goal-driven Workflow Loop architecture and not the final
+Workflow Runtime architecture. The current target is recorded in
+`docs/design-docs/harness-workflow-runtime-target.md`: Scheduler behavior should
+eventually be absorbed into the unified Harness Workflow Runtime as a
+ready-set/wave/claim/lease execution mode. Until that migration exists, this
+document remains a local boundary for Scheduler evidence and gates, not
+permission to add a second long-term runtime owner.
 
 ## Purpose
 

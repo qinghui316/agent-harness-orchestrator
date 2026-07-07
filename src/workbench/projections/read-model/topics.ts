@@ -216,14 +216,7 @@ export async function selectTopicDetail(
     : topics.find((item) => item.state === "active") ?? topics[0];
   if (!topic) return null;
 
-  if (topic.kind === "conversation" && topic.boundChangeId) {
-    const boundTopic = await findChangeTopicById(memory, topic.boundChangeId);
-    if (boundTopic) {
-      return selectTopicDetail(project, memory, [boundTopic], boundTopic.id, options);
-    }
-  }
-
-  if (topic.kind === "conversation" && !topic.boundChangeId) {
+  if (topic.kind === "conversation") {
     const threadMode = options.threadMode ?? "full";
     const messages = threadMode === "none" || !memory.projectId
       ? []
@@ -297,18 +290,6 @@ export async function selectTopicDetail(
     audits,
     threadItems,
   };
-}
-
-async function findChangeTopicById(memory: ResolvedMemory, changeId: string): Promise<WorkbenchTopicSummary | null> {
-  const index = await buildChangeIndex(memory);
-  for (const [state, items] of [["active", index.active], ["archive", index.archive]] as const) {
-    for (const item of items) {
-      if (item.name === changeId) {
-        return topicSummaryFromItem(memory, state, item);
-      }
-    }
-  }
-  return null;
 }
 
 async function readConversationMessages(memory: ResolvedMemory, conversationId: string, limit: number): Promise<import("../../types.js").TopicThreadEntry[]> {

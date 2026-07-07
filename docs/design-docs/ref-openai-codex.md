@@ -200,3 +200,18 @@ Priority matters. If app-server or `codex exec` replay provides real assistant o
 - Whether future Codex app-server APIs become stable enough for a separate runtime adapter.
 - How much of Codex's app/server approval reviewer model should influence AHO's future independent auditor role.
 - Whether future AHO write mode should use `codex exec` only or also support interactive/desktop runtimes as separate adapters.
+
+## Native Subagent Boundary
+
+Codex native subagents are provider runtime capability, not AHO workflow truth.
+AHO may project real app-server collaboration events such as `collabToolCall` /
+`collabAgentToolCall` into the Workbench when the provider emits them, and a
+future leaf executor may explicitly ask Codex to use native subagents for
+bounded exploration. That does not replace WorkflowPlan, WorkflowGraphPlan,
+WorkflowRun, TaskRun, WorkerLease, validation, audit, ToolPolicyGate, or human
+gates.
+
+AHO must not fake `planning-agent` or child-agent activity when Codex did not
+emit real provider events. Parent/child thread links are projection and
+diagnostics; Harness-controlled execution remains owned by the target Workflow
+Runtime.

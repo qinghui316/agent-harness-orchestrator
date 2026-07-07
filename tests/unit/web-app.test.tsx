@@ -5,6 +5,7 @@ import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../src/web/src/App.js";
 import { DecisionInspectorPane } from "../../src/web/src/panels/workbench/DecisionPanels.js";
+import { ConversationPendingActionStack } from "../../src/web/src/panels/workbench/ConversationPendingActionStack.js";
 import { WorkpadView } from "../../src/web/src/panels/workbench/WorkpadPanel.js";
 import { mainAgentExecutionForWorkpad } from "../../src/web/src/panels/workbench/workpad/main-agent-execution.js";
 import { WorkpadDiagnosticDetails } from "../../src/web/src/panels/workbench/workpad/WorkpadDetails.js";
@@ -1071,8 +1072,6 @@ describe("Workbench web app", () => {
       <TopicComposer
         value=""
         onChange={() => undefined}
-        mode="chat"
-        onModeChange={() => undefined}
         automationMode="request-approval"
         onAutomationModeChange={() => undefined}
         modelLabel="gpt-5.5"
@@ -1120,8 +1119,6 @@ describe("Workbench web app", () => {
       <TopicComposer
         value=""
         onChange={() => undefined}
-        mode="chat"
-        onModeChange={() => undefined}
         automationMode="request-approval"
         onAutomationModeChange={() => undefined}
         modelLabel="gpt-5.5"
@@ -2135,6 +2132,44 @@ describe("Workbench web app", () => {
     expect(shell.style.getPropertyValue("--right-rail-width")).toBe("380px");
   });
 
+  it("renders plan handoff as execute, feedback submit, and cancel actions", async () => {
+    const onPlanHandoff = vi.fn(async () => undefined);
+    const onCancelPlanHandoff = vi.fn(async () => undefined);
+    render(
+      <ConversationPendingActionStack
+        codexUserInputRequests={[]}
+        planHandoffCandidate={{
+          sourceRunId: "run-plan-session",
+          sourceAgentRoleId: "plan-session",
+          title: "Plan Agent",
+          planText: "Plan text",
+        }}
+        busy={false}
+        onAnswerCodexUserInput={vi.fn(async () => undefined)}
+        onPlanHandoff={onPlanHandoff}
+        onCancelPlanHandoff={onCancelPlanHandoff}
+      />,
+    );
+    const handoffCard = screen.getByTestId("plan-handoff-pending-card");
+    expect(within(handoffCard).getAllByRole("button")).toHaveLength(3);
+    expect(within(handoffCard).getByRole("button", { name: "执行" })).toBeTruthy();
+    expect((within(handoffCard).getByRole("button", { name: "提交修改意见" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(within(handoffCard).getByRole("button", { name: "取消" })).toBeTruthy();
+    const feedbackInput = within(handoffCard).getByPlaceholderText("输入你希望 Plan Agent 修改的地方");
+    fireEvent.change(feedbackInput, { target: { value: "先补充 npm test 验收。" } });
+    expect((within(handoffCard).getByRole("button", { name: "提交修改意见" }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(within(handoffCard).getByRole("button", { name: "提交修改意见" }));
+    await waitFor(() => expect(onPlanHandoff).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceRunId: "run-plan-session", sourceAgentRoleId: "plan-session" }),
+      "revise-plan",
+      "先补充 npm test 验收。",
+    ));
+    fireEvent.click(within(handoffCard).getByRole("button", { name: "取消" }));
+    await waitFor(() => expect(onCancelPlanHandoff).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceRunId: "run-plan-session", sourceAgentRoleId: "plan-session" }),
+    ));
+  });
+
   it("uses a transcript-first plan session workspace without old planning workflow actions", async () => {
     const planSessionSnapshot = {
       ...snapshot,
@@ -2155,13 +2190,25 @@ describe("Workbench web app", () => {
             transcript: {
               title: "Plan Agent",
               emptyMessage: "暂无计划会话内容。",
-              cells: [{
-                id: "plan-session-plan",
-                kind: "assistant-message",
-                source: "codex-runtime",
-                text: "为 `message.txt` 增加指定文本的实施方案",
-                agentRoleId: "plan-session",
-              }],
+              cells: [
+                {
+                  id: "plan-session-user",
+                  kind: "user-message",
+                  source: "user",
+                  text: "请先规划 message.txt 的改动。",
+                  agentRoleId: "plan-session",
+                  timestamp: "2026-07-07T00:00:00.000Z",
+                },
+                {
+                  id: "plan-session-plan",
+                  kind: "assistant-message",
+                  source: "codex-runtime",
+                  text: "为 `message.txt` 增加指定文本的实施方案",
+                  agentRoleId: "plan-session",
+                  runId: "run-plan-session",
+                  timestamp: "2026-07-07T00:00:01.000Z",
+                },
+              ],
               items: [],
             },
             evidenceRefs: [],
@@ -2187,14 +2234,37 @@ describe("Workbench web app", () => {
     render(<App />);
 
     await waitFor(() => expect(screen.getByTestId("main-conversation-view")).toBeTruthy());
+    const pendingStack = screen.getByTestId("conversation-pending-action-stack");
+    const handoffCard = within(pendingStack).getByTestId("plan-handoff-pending-card");
+    expect(handoffCard.textContent).toContain("计划已准备");
+    expect(handoffCard.textContent).toContain("执行");
+    expect(handoffCard.textContent).toContain("提出意见再修改计划");
+    expect(handoffCard.textContent).toContain("提交修改意见");
+    expect(handoffCard.textContent).toContain("取消");
+    expect(within(handoffCard).getAllByRole("button")).toHaveLength(3);
+    expect(screen.queryByPlaceholderText("请先处理上方待处理操作。")).toBeNull();
+    expect(screen.queryByTestId("topic-composer")).toBeNull();
+    fireEvent.click(within(handoffCard).getByRole("button", { name: "执行" }));
+    await waitFor(() => expect(calls.some((call) => {
+      if (!call.url.endsWith("/workbench/topics/conv-plan/messages/live")) return false;
+      const body = JSON.parse(call.body) as Record<string, unknown>;
+      const intent = body.planHandoffIntent as Record<string, unknown> | undefined;
+      return body.mode === "chat"
+        && intent?.sourceRunId === "run-plan-session"
+        && intent.sourceAgentRoleId === "plan-session"
+        && intent.kind === "execute-plan";
+    })).toBe(true));
     fireEvent.click(screen.getByTestId("decision-pane-toggle"));
     fireEvent.click(await screen.findByTestId("right-tool-launcher-agent"));
     const panel = await screen.findByTestId("agent-workspace-panel");
     expect(panel.closest(".decision-pane-content")?.classList.contains("agent-content")).toBe(true);
     expect(within(panel).queryByText("AGENT 工作区")).toBeNull();
     expect(within(panel).queryByRole("button", { name: "逐步确认" })).toBeNull();
+    expect(panel.textContent).toContain("请先规划 message.txt 的改动。");
     expect(panel.textContent).toContain("为 message.txt 增加指定文本的实施方案");
     expect(within(panel).queryByTestId("agent-plan-handoff-card")).toBeNull();
+    expect(within(panel).queryByTestId("plan-handoff-pending-card")).toBeNull();
+    expect(within(panel).queryByTestId("agent-workspace-codex-user-input")).toBeNull();
     expect(within(panel).queryByRole("button", { name: "实施此计划" })).toBeNull();
 
     const composer = within(panel).getByTestId("agent-workspace-composer");
@@ -2205,6 +2275,88 @@ describe("Workbench web app", () => {
     await waitFor(() => expect(calls.some((call) => call.url.endsWith("/workbench/topics/conv-plan/messages/live") && call.body.includes("\"mode\":\"plan\"") && call.body.includes("补充 npm test 验收。"))).toBe(true));
     expect(calls.some((call) => call.url.endsWith("/workbench/actions/live"))).toBe(false);
     expect(calls.some((call) => call.body.includes("planning.revise") || call.body.includes("planning.confirm-execution"))).toBe(false);
+    expect(calls.some((call) => call.body.includes("full-access"))).toBe(false);
+  });
+
+  it("does not carry pending plan handoff state into another conversation", async () => {
+    const planSessionSnapshot = {
+      ...snapshot,
+      left: {
+        ...snapshot.left,
+        topics: [
+          { id: "conv-plan", title: "Plan conversation", state: "active" },
+          { id: "conv-empty", title: "Clean conversation", state: "active" },
+        ],
+        workpads: [
+          { id: "conv-plan", title: "Plan conversation", state: "active", runtimeStatus: "active", selected: true, waitingDecisionCount: 0, latestRunStatus: "completed" },
+          { id: "conv-empty", title: "Clean conversation", state: "active", runtimeStatus: "active", selected: false, waitingDecisionCount: 0, latestRunStatus: "idle" },
+        ],
+      },
+      center: {
+        ...snapshot.center,
+        selectedTopic: { id: "conv-plan", title: "Plan conversation", state: "active", kind: "conversation", boundChangeId: null },
+      },
+      right: {
+        ...snapshot.right,
+        agentWorkspace: {
+          selectedAgentId: "plan-session",
+          agents: [{
+            id: "plan-session",
+            roleId: "plan-session",
+            label: "Plan Agent",
+            status: "completed",
+            summary: "Codex Plan Mode 的计划对话。",
+            transcript: {
+              title: "Plan Agent",
+              emptyMessage: "暂无会话内容。",
+              cells: [{
+                id: "plan-session-plan",
+                kind: "assistant-message",
+                source: "codex-runtime",
+                text: "先调整状态文案，再运行测试。",
+                agentRoleId: "plan-session",
+                runId: "run-plan-session",
+              }],
+              items: [],
+            },
+            evidenceRefs: [],
+            actions: [],
+          }],
+        },
+      },
+    };
+    const cleanConversationSnapshot = {
+      ...planSessionSnapshot,
+      center: {
+        ...planSessionSnapshot.center,
+        selectedTopic: { id: "conv-empty", title: "Clean conversation", state: "active", kind: "conversation", boundChangeId: null },
+        parentAgentTranscript: { title: "Clean conversation", cells: [], items: [], emptyMessage: "暂无对话内容。" },
+      },
+      right: {
+        ...planSessionSnapshot.right,
+        agentWorkspace: { selectedAgentId: "planning-agent", agents: [] },
+      },
+    };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      if (url.includes("/workbench/snapshot?topic=conv-empty")) return jsonResponse(cleanConversationSnapshot);
+      if (url.includes("/workbench/projections/transcript/conv-empty")) return jsonResponse(cleanConversationSnapshot.center.parentAgentTranscript);
+      if (url.includes("/workbench/projections/run-graph/conv-empty")) return jsonResponse(cleanConversationSnapshot.center.agentRunGraph);
+      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(planSessionSnapshot.center.parentAgentTranscript);
+      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(planSessionSnapshot.center.agentRunGraph);
+      return jsonResponse(url.includes("/stream/") ? stream : planSessionSnapshot);
+    }));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByTestId("conversation-pending-action-stack")).toBeTruthy());
+    fireEvent.click(screen.getByText("Clean conversation"));
+
+    await waitFor(() => expect(screen.queryByTestId("conversation-pending-action-stack")).toBeNull());
+    expect(screen.getByPlaceholderText("输入问题或下一步需求")).toBeTruthy();
+    expect(screen.queryByTestId("plan-handoff-pending-card")).toBeNull();
   });
 
   it("sends Plan Agent workspace feedback through conversation Plan Mode instead of workflow actions", async () => {

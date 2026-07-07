@@ -184,6 +184,62 @@ describe("parent agent transcript paging", () => {
 
     expect(transcript.cells.map((cell) => cell.text)).toEqual(["我先确认需求，不会修改文件。"]);
   });
+
+  it("strips persisted project-scoped child-agent leaks when lazy transcript pages are rebuilt", () => {
+    const transcript = buildParentAgentTranscript({
+      workpad: { conversationId: "conv", boundChangeId: "change", title: "Lazy transcript leak" },
+      threadItems: [{
+        id: "persisted-main-leak",
+        kind: "assistant-turn",
+        label: "AI",
+        blocks: [{
+          id: "persisted-main-leak-block",
+          sequence: 1,
+          kind: "prose" as const,
+          source: "codex" as const,
+          text: [
+            "我会先确认当前约束，不修改文件。",
+            "",
+            "计划代理已经启动，我现在只等待它返回计划。",
+            "",
+            "实施计划：",
+            "1. 读取项目说明。",
+            "",
+            "验证方式：",
+            "打开页面检查。",
+          ].join("\n"),
+        }],
+      }],
+    });
+
+    const page = pageParentAgentTranscript(transcript, { limit: 100 });
+    const visibleText = page.cells.map((cell) => cell.text).join("\n");
+
+    expect(visibleText).toBe("我会先确认当前约束，不修改文件。");
+    expect(visibleText).not.toContain("计划代理");
+    expect(visibleText).not.toContain("实施计划");
+    expect(visibleText).not.toContain("验证方式");
+  });
+
+  it("strips assistant promises to delegate planning-agent from the parent transcript", () => {
+    const transcript = buildParentAgentTranscript({
+      workpad: { conversationId: "conv", boundChangeId: "change", title: "Planning delegation leak" },
+      threadItems: [{
+        id: "main-delegation-leak",
+        kind: "assistant-turn",
+        label: "AI",
+        blocks: [{
+          id: "main-delegation-leak-block",
+          sequence: 1,
+          kind: "prose" as const,
+          source: "codex" as const,
+          text: "我理解这次目标是完成验收，并保持当前回合只读。\n这条回复之后，我会把只读规划交给 planning-agent；当前不会修改文件。",
+        }],
+      }],
+    });
+
+    expect(transcript.cells.map((cell) => cell.text)).toEqual(["我理解这次目标是完成验收，并保持当前回合只读。"]);
+  });
 });
 
 function syntheticThreadItems(count: number) {

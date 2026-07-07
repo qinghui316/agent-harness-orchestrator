@@ -1,9 +1,13 @@
 ﻿{
-    "generated_at":  "2026-07-06T17:37:20.1898566Z",
+    "generated_at":  "2026-07-07T10:02:44.6759939Z",
     "active":  [
 
                ],
     "parking":  [
+                    {
+                        "name":  "harness-workflow-runtime-default-workflow-v0",
+                        "path":  "harness/changes/parking/harness-workflow-runtime-default-workflow-v0"
+                    },
                     {
                         "name":  "phase-5i-readable-stream-ui-followup",
                         "path":  "harness/changes/parking/phase-5i-readable-stream-ui-followup"
@@ -2541,6 +2545,30 @@
                     {
                         "name":  "20260706-provider-native-agent-authored-planning-v1",
                         "path":  "harness/changes/archive/20260706-provider-native-agent-authored-planning-v1"
+                    },
+                    {
+                        "name":  "20260707-auto-evolve-post-workflow-runtime-and-handoff-window",
+                        "path":  "harness/changes/archive/20260707-auto-evolve-post-workflow-runtime-and-handoff-window"
+                    },
+                    {
+                        "name":  "20260707-harness-workflow-runtime-target-architecture-v1",
+                        "path":  "harness/changes/archive/20260707-harness-workflow-runtime-target-architecture-v1"
+                    },
+                    {
+                        "name":  "20260707-main-agent-plan-handoff-pending-composer-agent-transcript-repair-v1",
+                        "path":  "harness/changes/archive/20260707-main-agent-plan-handoff-pending-composer-agent-transcript-repair-v1"
+                    },
+                    {
+                        "name":  "20260707-main-agent-plan-handoff-pending-stack-repair-v1",
+                        "path":  "harness/changes/archive/20260707-main-agent-plan-handoff-pending-stack-repair-v1"
+                    },
+                    {
+                        "name":  "20260707-main-agent-plan-handoff-question-surface-v1",
+                        "path":  "harness/changes/archive/20260707-main-agent-plan-handoff-question-surface-v1"
+                    },
+                    {
+                        "name":  "20260707-main-agent-transcript-lazy-restore-leak-fix-v1",
+                        "path":  "harness/changes/archive/20260707-main-agent-transcript-lazy-restore-leak-fix-v1"
                     },
                     {
                         "name":  "20260707-provider-native-a2a-real-ui-acceptance-fix-pass-v1",

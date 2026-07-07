@@ -490,6 +490,21 @@ export type ParentAgentTranscript = {
     nextBeforeCursor?: string;
   };
 };
+
+export type PlanHandoffAgentRoleId = "plan-session" | "planning-agent";
+export type PlanHandoffIntentKind = "execute-plan" | "revise-plan";
+export type PlanHandoffIntent = {
+  sourceRunId: string;
+  sourceAgentRoleId: PlanHandoffAgentRoleId;
+  kind: PlanHandoffIntentKind;
+  feedback?: string;
+};
+export type PlanHandoffCandidate = {
+  sourceRunId: string;
+  sourceAgentRoleId: PlanHandoffAgentRoleId;
+  title: string;
+  planText: string;
+};
 export type TopicDetail = Topic & {
   closeGate?: { ready: boolean; warnings: string[]; blockingIssues: string[] };
   reviewStatus?: string | null;

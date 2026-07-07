@@ -12,6 +12,7 @@ import { consumeWorkbenchLiveStream,
   fetchJson,
   postJson } from "./api.js";
 import { MainConversationView,
+  ConversationPendingActionStack,
   AgentRunGraphPanel,
   RightToolRailShell,
   DecisionInspectorPane,
@@ -59,6 +60,7 @@ import {
   writeComposerExecutionMode,
   type ComposerExecutionMode,
 } from "./shell/composer-session.js";
+import { derivePlanHandoffCandidate } from "./panels/workbench/planHandoff.js";
 
 import {
   projectDisplayName,
@@ -91,6 +93,8 @@ import type {
   RuntimeDiagnosticsSnapshot,
   CodexUserInputRequest,
   AgentWorkspaceAgent,
+  PlanHandoffCandidate,
+  PlanHandoffIntentKind,
 } from "./types.js";
 import { extractInlineSkillMentions } from "./shell/skill-mentions.js";
 import { extractInlineFileMentions } from "./shell/file-mentions.js";
@@ -214,7 +218,6 @@ export function App(): ReactElement {
   const [selectedDecisionContextId, setSelectedDecisionContextId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [composerText, setComposerText] = useState("");
-  const [composerMode, setComposerMode] = useState<"chat" | "plan">("chat");
   const [automationMode, setAutomationMode] = useState<ComposerExecutionMode>("request-approval");
   const [actionRunning, setActionRunning] = useState<string | null>(null);
   const [liveItems, setLiveItems] = useState<ThreadStreamItem[]>([]);
@@ -532,6 +535,7 @@ export function App(): ReactElement {
     persistSelectedProjectId(projectId);
     setExpandedProjects((current) => new Set([...current, projectId]));
     setSelectedTopic(null);
+    clearTopicScopedLiveState();
     setDraftSkillOverrides({});
     setComposerAttachments([]);
     setComposerFileRefs([]);
@@ -567,6 +571,7 @@ export function App(): ReactElement {
     setSelectedProjectId(projectId);
     persistSelectedProjectId(projectId);
     setSelectedTopic(null);
+    clearTopicScopedLiveState();
     setDraftSkillOverrides({});
     setOrchestrationOpen(false);
     setExpandedProjects((current) => new Set([...current, projectId]));
@@ -613,6 +618,7 @@ export function App(): ReactElement {
     setSelectedProjectId(projectId);
     persistSelectedProjectId(projectId);
     setSelectedTopic(conversationId);
+    clearTopicScopedLiveState();
     setDraftSkillOverrides({});
     setComposerAttachments([]);
     setComposerFileRefs([]);
@@ -1058,12 +1064,12 @@ export function App(): ReactElement {
       setComposerFileRefs([]);
       return;
     }
-    setActionRunning(composerMode === "plan" ? "orchestrator.plan" : "chat.ask");
+    setActionRunning("chat.ask");
     setComposerText("");
     setError(null);
     try {
       await consumeWorkbenchLiveStream(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/topics/${encodeURIComponent(activeTopic.id)}/messages/live`, {
-        mode: composerMode,
+        mode: "chat",
         message: outboundMessage,
         contextRefs: resolved.contextRefs,
         attachmentIds,
@@ -1187,6 +1193,41 @@ export function App(): ReactElement {
     } finally {
       setActionRunning(null);
     }
+  }
+
+  async function sendPlanHandoff(candidate: PlanHandoffCandidate, kind: PlanHandoffIntentKind, feedback?: string): Promise<void> {
+    if (!selectedProjectId || !activeTopic) return;
+    if (activeTopic.state !== "active") {
+      setError("已完成或稍后处理的需求对话为只读，不能继续交接计划。");
+      return;
+    }
+    setActionRunning("plan.handoff");
+    setError(null);
+    const trimmedFeedback = feedback?.trim();
+    const message = kind === "revise-plan"
+      ? `请主 Agent 先审查下面的计划修改意见，再决定是否让 Plan Agent 修改计划：\n\n${trimmedFeedback ?? ""}`
+      : "请主 Agent 基于当前计划继续判断执行路径。";
+    try {
+      await consumeWorkbenchLiveStream(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/topics/${encodeURIComponent(activeTopic.id)}/messages/live`, {
+        mode: "chat",
+        message,
+        planHandoffIntent: {
+          sourceRunId: candidate.sourceRunId,
+          sourceAgentRoleId: candidate.sourceAgentRoleId,
+          kind,
+          feedback: trimmedFeedback || undefined,
+        },
+      }, handleLiveEvent);
+      setDismissedPlanHandoffKeys((current) => new Set([...current, planHandoffCandidateKey(activeTopic.id, candidate)]));
+    } finally {
+      setActionRunning(null);
+    }
+  }
+
+  async function cancelPlanHandoff(candidate: PlanHandoffCandidate): Promise<void> {
+    if (!activeTopic) return;
+    setDismissedPlanHandoffKeys((current) => new Set([...current, planHandoffCandidateKey(activeTopic.id, candidate)]));
+    await runWorkflowAction("conversation.interrupt", { prompt: "用户取消本次计划交接并要求停止当前对话/任务。" });
   }
 
   function handleLiveEvent(event: WorkbenchLiveEvent): void {
@@ -1497,6 +1538,16 @@ export function App(): ReactElement {
     setProjectionVersion((value) => value + 1);
   }
 
+  function clearTopicScopedLiveState(): void {
+    setLiveItems([]);
+    setLiveTurns([]);
+    setAgentLiveTurns([]);
+    setCodexUserInputRequests([]);
+    setActionRunning(null);
+    setLatestHidden(false);
+    setSelectedAgentWorkspaceAgentId(null);
+  }
+
   const activePendingConversation = pendingDemandConversation
     && selectedProjectId === pendingDemandConversation.projectId
     && selectedTopic === pendingDemandConversation.id
@@ -1543,6 +1594,16 @@ export function App(): ReactElement {
   }, [selectedDecisionContextId, snapshot.right.decisionInspector]);
   const activeConfirmationQueue = snapshot.right.confirmationQueue ?? { primary: null, current: [], otherDemands: [], maintenance: [], history: [] };
   const activeAgentWorkspace = snapshot.right.agentWorkspace ?? { selectedAgentId: "planning-agent", agents: [] };
+  const [dismissedPlanHandoffKeys, setDismissedPlanHandoffKeys] = useState<Set<string>>(new Set());
+  const rawPlanHandoffCandidate = useMemo(() => derivePlanHandoffCandidate(activeAgentWorkspace), [activeAgentWorkspace]);
+  const planHandoffCandidate = activeTopic?.id && rawPlanHandoffCandidate && !dismissedPlanHandoffKeys.has(planHandoffCandidateKey(activeTopic.id, rawPlanHandoffCandidate))
+    ? rawPlanHandoffCandidate
+    : null;
+  const activeCodexUserInputRequests = activeTopic?.id
+    ? codexUserInputRequests.filter((request) => isRequestScopedToTopic(request, activeTopic.id))
+    : [];
+  const hasConversationPendingAction = Boolean(planHandoffCandidate)
+    || activeCodexUserInputRequests.some((request) => request.status === "pending");
   const pendingConfirmationCount = (activeConfirmationQueue.primary ? 1 : 0)
     + activeConfirmationQueue.otherDemands.length
     + activeConfirmationQueue.maintenance.length;
@@ -1832,7 +1893,6 @@ export function App(): ReactElement {
                   <MainConversationView
                     workpad={activeWorkpad}
                     transcript={activeTranscript}
-                    codexUserInputRequests={codexUserInputRequests.filter((request) => !request.agentRoleId || request.agentRoleId === "main-agent")}
                     scrollContainerRef={threadScrollRef}
                     onLoadEarlierTranscript={loadEarlierTranscriptPage}
                     loadingEarlierTranscript={loadingEarlierTranscript}
@@ -1842,43 +1902,53 @@ export function App(): ReactElement {
                     onAction={runWorkflowAction}
                     onConfirmApproval={confirmWorkpadApproval}
                     onAnswerClarification={answerClarification}
-                    onAnswerCodexUserInput={answerCodexUserInput}
                     onSelectDecisionContext={setSelectedDecisionContextId}
                   />
                 </div>
                 {latestHidden ? <button className="latest-button" onClick={() => { const node = threadScrollRef.current; if (node) node.scrollTop = node.scrollHeight; setLatestHidden(false); }}>最新</button> : null}
-                <TopicComposer
-                  value={composerText}
-                  onChange={setComposerText}
-                  mode={composerMode}
-                  onModeChange={setComposerMode}
-                  automationMode={automationMode}
-                  onAutomationModeChange={handleComposerExecutionModeChange}
-                  modelLabel={codexModelLabel}
-                  onOpenModelSettings={() => void openCodexModelPicker()}
-                  enabledSkillCount={enabledSkillCount}
-                  projectId={selectedProjectId}
-                  skills={skillItems}
-                  activeSkillIds={selectedComposerSkillIds}
-                  selectedFileRefs={composerFileRefs}
-                  attachments={composerAttachments}
-                  onAttachFiles={(files) => { void appendComposerAttachments(files); }}
-                  onRemoveAttachment={removeComposerAttachment}
-                  onSelectedFileRefsChange={setComposerFileRefs}
-                  onToggleSkill={toggleComposerSkill}
-                  onOpenSkillsSettings={() => openSettings("skills")}
-                  busy={actionRunning !== null || activeTopic.state !== "active"}
-                  disabledReason={activeTopic.state !== "active" ? "已完成或稍后处理的需求对话为只读。" : undefined}
-                  onSend={sendTopicMessage}
-                  onStopAndContinue={stopAndContinueCurrentRun}
-                  onNewWorkpad={createTopicFromComposer}
-                  onRunCode={() => runWorkflowAction("code.run", {
-                    readinessManifestId: activeWorkpad.nextAction.actionType === "code.run" ? activeWorkpad.nextAction.readinessManifestId : undefined,
-                  })}
-                  actionRunning={actionRunning}
-                  canRunCode={activeTopic.state === "active" && activeWorkpad.nextAction.actionType === "code.run" && Boolean(activeWorkpad.nextAction.readinessManifestId)}
-                  currentWorkpadStatus={activeWorkpad.conversationLifecycle === "running" || activeWorkpad.runControlState?.canStop ? "running" : currentWorkpadSummary(snapshot, activeTopic)?.runtimeStatus}
-                />
+                {hasConversationPendingAction ? (
+                  <ConversationPendingActionStack
+                    codexUserInputRequests={activeCodexUserInputRequests}
+                    planHandoffCandidate={planHandoffCandidate}
+                    busy={actionRunning !== null}
+                    onAnswerCodexUserInput={answerCodexUserInput}
+                    onPlanHandoff={sendPlanHandoff}
+                    onCancelPlanHandoff={cancelPlanHandoff}
+                  />
+                ) : (
+                  <TopicComposer
+                    value={composerText}
+                    onChange={setComposerText}
+                    automationMode={automationMode}
+                    onAutomationModeChange={handleComposerExecutionModeChange}
+                    modelLabel={codexModelLabel}
+                    onOpenModelSettings={() => void openCodexModelPicker()}
+                    enabledSkillCount={enabledSkillCount}
+                    projectId={selectedProjectId}
+                    skills={skillItems}
+                    activeSkillIds={selectedComposerSkillIds}
+                    selectedFileRefs={composerFileRefs}
+                    attachments={composerAttachments}
+                    onAttachFiles={(files) => { void appendComposerAttachments(files); }}
+                    onRemoveAttachment={removeComposerAttachment}
+                    onSelectedFileRefsChange={setComposerFileRefs}
+                    onToggleSkill={toggleComposerSkill}
+                    onOpenSkillsSettings={() => openSettings("skills")}
+                    busy={actionRunning !== null || activeTopic.state !== "active"}
+                    disabledReason={activeTopic.state !== "active"
+                      ? "已完成或稍后处理的需求对话为只读。"
+                      : undefined}
+                    onSend={sendTopicMessage}
+                    onStopAndContinue={stopAndContinueCurrentRun}
+                    onNewWorkpad={createTopicFromComposer}
+                    onRunCode={() => runWorkflowAction("code.run", {
+                      readinessManifestId: activeWorkpad.nextAction.actionType === "code.run" ? activeWorkpad.nextAction.readinessManifestId : undefined,
+                    })}
+                    actionRunning={actionRunning}
+                    canRunCode={activeTopic.state === "active" && activeWorkpad.nextAction.actionType === "code.run" && Boolean(activeWorkpad.nextAction.readinessManifestId)}
+                    currentWorkpadStatus={activeWorkpad.conversationLifecycle === "running" || activeWorkpad.runControlState?.canStop ? "running" : currentWorkpadSummary(snapshot, activeTopic)?.runtimeStatus}
+                  />
+                )}
               </div>
             </section>
           </>
@@ -1923,12 +1993,11 @@ export function App(): ReactElement {
           <AgentWorkspacePanel
             workspace={activeAgentWorkspace}
             selectedAgentId={selectedAgentWorkspaceAgentId}
+            liveItems={liveItems}
             liveTurns={agentLiveTurns}
-            codexUserInputRequests={codexUserInputRequests.filter((request) => Boolean(request.agentRoleId) && request.agentRoleId !== "main-agent")}
             busy={actionRunning !== null}
             onSelectAgent={setSelectedAgentWorkspaceAgentId}
             onAnswerClarification={answerClarification}
-            onAnswerCodexUserInput={answerCodexUserInput}
             onSendAgentMessage={sendAgentWorkspaceMessage}
             modelLabel={codexModelLabel}
             onOpenModelSettings={() => void openCodexModelPicker()}
@@ -2183,6 +2252,15 @@ function nonEmptyParam(value: string | null): string | null {
 function isOrchestrationTabParam(value: string | null): boolean {
   const normalized = value?.trim().toLowerCase();
   return normalized === "orchestration" || normalized === "agentgraph" || normalized === "agent-graph";
+}
+
+function planHandoffCandidateKey(topicId: string, candidate: PlanHandoffCandidate): string {
+  return `${topicId}:${candidate.sourceAgentRoleId}:${candidate.sourceRunId}`;
+}
+
+function isRequestScopedToTopic(request: CodexUserInputRequest, topicId: string): boolean {
+  return request.status === "pending"
+    && (request.conversationId === topicId || request.changeId === topicId || (!request.conversationId && !request.changeId));
 }
 
 function snapshotForProject(project: ProjectStatus | null | undefined): Snapshot {

@@ -14,6 +14,7 @@ import { TerminalRuntime } from "../../src/server/terminal/terminal-runtime.js";
 import { buildNativeFolderDialogCommand, executeWorkbenchAction, startWorkbenchServer, type WorkbenchServerHandle } from "../../src/server/workbench-server.js";
 import type { ManagedProject } from "../../src/types/index.js";
 import { appendTopicThreadEntry, buildInitialMainAgentPrompt, buildProjectScopedMainAgentPrompt } from "../../src/workbench/chat.js";
+import { validatePlanHandoffIntent } from "../../src/workbench/plan-handoff.js";
 import type { WorkbenchLiveSink } from "../../src/workbench/types.js";
 
 let tempDir: string;
@@ -250,6 +251,54 @@ describe("workbench server", () => {
     expect(prompt).toContain("Do not assume Workbench will create Harness records or execute the plan for you");
     expect(prompt).not.toContain("wait for the user or an explicit workflow action");
     expect(prompt).toContain("请用原生 Plan Mode 生成计划");
+  });
+
+  it("adds project-rule routing context for validated plan handoff turns", () => {
+    const handoff = validatePlanHandoffIntent([{
+      id: "assistant:conv:run-plan:plan-session",
+      type: "assistant.message",
+      timestamp: "2026-07-07T00:00:00.000Z",
+      conversationId: "conv-plan",
+      changeId: "",
+      runId: "run-plan",
+      agentRoleId: "plan-session",
+      text: "1. 修改 UI\n2. 补测试",
+    }], {
+      sourceRunId: "run-plan",
+      sourceAgentRoleId: "plan-session",
+      kind: "execute-plan",
+    });
+    const prompt = buildProjectScopedMainAgentPrompt("请主 Agent 基于当前计划继续判断执行路径。", handoff);
+
+    expect(prompt).toContain("visible Plan handoff card");
+    expect(prompt).toContain("AGENTS.md, docs/ECL.md");
+    expect(prompt).toContain("harness/changes/active");
+    expect(prompt).toContain("docs/STATUS.md");
+    expect(prompt).toContain("not as execution authorization");
+    expect(prompt).toContain("execute-plan");
+    expect(prompt).toContain("1. 修改 UI");
+  });
+
+  it("rejects forged or unsupported plan handoff sources", () => {
+    expect(() => validatePlanHandoffIntent([], {
+      sourceRunId: "missing-run",
+      sourceAgentRoleId: "plan-session",
+      kind: "execute-plan",
+    })).toThrow(/stale or unavailable/);
+    expect(() => validatePlanHandoffIntent([{
+      id: "assistant:conv:run-plan:main",
+      type: "assistant.message",
+      timestamp: "2026-07-07T00:00:00.000Z",
+      conversationId: "conv-plan",
+      changeId: "",
+      runId: "run-plan",
+      agentRoleId: "main-agent",
+      text: "not a plan session",
+    }], {
+      sourceRunId: "run-plan",
+      sourceAgentRoleId: "planning-agent",
+      kind: "execute-plan",
+    })).toThrow(/stale or unavailable/);
   });
 
   it("rejects composer attachment uploads before project preparation", async () => {

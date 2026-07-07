@@ -12,8 +12,6 @@ import { SkillMentionPicker } from "./SkillMentionPicker.js";
 export function TopicComposer({
   value,
   onChange,
-  mode: _mode,
-  onModeChange: _onModeChange,
   automationMode,
   onAutomationModeChange,
   modelLabel,
@@ -40,8 +38,6 @@ export function TopicComposer({
 }: {
   value: string;
   onChange: (value: string) => void;
-  mode: "chat" | "plan";
-  onModeChange: (mode: "chat" | "plan") => void;
   automationMode: ComposerExecutionMode;
   onAutomationModeChange: (mode: ComposerExecutionMode) => void;
   modelLabel: string;

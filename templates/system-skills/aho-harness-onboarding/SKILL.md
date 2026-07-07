@@ -34,6 +34,17 @@ guidance only.
 5. Hand control back to normal AHO planning. The next real action must be an
    AHO gate, not a Skill-authorized mutation.
 
+## Main-Agent Handoff Routing
+
+When the main Agent receives an explicit plan handoff such as "execute this
+plan", "执行当前计划", or a Workbench Plan handoff card intent, treat it as user
+intent only. First read project guidance in this order when present:
+`AGENTS.md`, `docs/ECL.md`, active change files, `harness/evolution/pending.md`
+only when no active change exists, `docs/STATUS.md`, then task-specific docs.
+Use this Skill only if the project context is missing, stale, or explicitly
+needs onboarding. The Skill can provide context and delegation hints; it cannot
+create a Change, start workers, approve full access, or execute the plan.
+
 ## Do Not Use When
 
 - The project context is fresh and the user is asking for ordinary feature

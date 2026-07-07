@@ -1,32 +1,30 @@
 import { Bot, Send } from "lucide-react";
 import { useMemo, useState, type ReactElement } from "react";
 import { humanStatus } from "../../formatters.js";
-import { parentTranscriptCellsFromLiveTurn } from "../../liveTranscript.js";
+import { parentTranscriptCellsFromLiveThreadItem, parentTranscriptCellsFromLiveTurn } from "../../liveTranscript.js";
 import { AgentTranscriptPane } from "./TranscriptReadingSurface.js";
-import { ClarificationCard, CodexUserInputRequestCard } from "./workpad/TaskGraphCards.js";
-import type { AgentWorkspace, AgentWorkspaceAgent, CodexUserInputRequest, LiveAssistantTurn } from "../../types.js";
+import { ClarificationCard } from "./workpad/TaskGraphCards.js";
+import type { AgentWorkspace, AgentWorkspaceAgent, LiveAssistantTurn, ParentAgentTranscriptCell, ThreadStreamItem } from "../../types.js";
 
 export function AgentWorkspacePanel({
   workspace,
   selectedAgentId,
+  liveItems,
   liveTurns,
-  codexUserInputRequests,
   busy,
   onSelectAgent,
   onAnswerClarification,
-  onAnswerCodexUserInput,
   onSendAgentMessage,
   modelLabel,
   onOpenModelSettings,
 }: {
   workspace: AgentWorkspace;
   selectedAgentId: string | null;
+  liveItems: ThreadStreamItem[];
   liveTurns: LiveAssistantTurn[];
-  codexUserInputRequests: CodexUserInputRequest[];
   busy: boolean;
   onSelectAgent: (agentId: string) => void;
   onAnswerClarification: (clarificationId: string, answer: string) => Promise<void>;
-  onAnswerCodexUserInput: (request: CodexUserInputRequest, answers: Record<string, string | string[]>) => Promise<void>;
   onSendAgentMessage: (agent: AgentWorkspaceAgent, message: string) => Promise<void>;
   modelLabel: string;
   onOpenModelSettings?: () => void;
@@ -36,11 +34,34 @@ export function AgentWorkspacePanel({
     ?? childAgents.find((agent) => agent.id === workspace.selectedAgentId)
     ?? childAgents[0]
     ?? emptyAgent();
+  const [optimisticUserCells, setOptimisticUserCells] = useState<ParentAgentTranscriptCell[]>([]);
+  const liveUserCells = useMemo(() => liveItems
+    .filter((item) => item.kind === "user-message" && isScopedToAgent(item.agentRoleId, selected))
+    .flatMap(parentTranscriptCellsFromLiveThreadItem), [liveItems, selected.id, selected.roleId]);
   const liveCells = useMemo(() => liveTurns
     .filter((turn) => turn.agentRoleId === selected.roleId || turn.agentRoleId === selected.id)
     .flatMap(parentTranscriptCellsFromLiveTurn), [liveTurns, selected.id, selected.roleId]);
-  const activeCodexUserInputRequests = codexUserInputRequests.filter((request) => request.status === "pending" && (request.agentRoleId === selected.roleId || request.agentRoleId === selected.id));
-  const cells = [...(selected.transcript.cells ?? []).filter((cell) => cell.kind !== "detail-only"), ...liveCells];
+  const persistedCells = (selected.transcript.cells ?? []).filter((cell) => cell.kind !== "detail-only");
+  const authoritativeCells = [...persistedCells, ...liveUserCells, ...liveCells];
+  const visibleOptimisticUserCells = optimisticUserCells.filter((cell) => (
+    isScopedToAgent(cell.agentRoleId, selected)
+    && !authoritativeCells.some((existing) => sameUserMessageCell(existing, cell))
+  ));
+  const cells = [...persistedCells, ...liveUserCells, ...visibleOptimisticUserCells, ...liveCells];
+  function appendOptimisticUserMessage(agent: AgentWorkspaceAgent, message: string): void {
+    const timestamp = new Date().toISOString();
+    setOptimisticUserCells((current) => [
+      ...current,
+      {
+        id: `optimistic-agent-user:${agent.id}:${timestamp}`,
+        kind: "user-message",
+        source: "user",
+        timestamp,
+        agentRoleId: agent.roleId,
+        text: message,
+      },
+    ]);
+  }
   return (
     <div className="agent-workspace-panel" data-testid="agent-workspace-panel">
       <div className="agent-workspace-agent-list" aria-label="Agent 列表">
@@ -67,15 +88,14 @@ export function AgentWorkspacePanel({
         <div className="agent-workspace-transcript-region">
           <AgentTranscriptPane cells={cells} emptyMessage={selected.transcript.emptyMessage} testId="agent-workspace-transcript" />
           <AgentClarifications agent={selected} busy={busy} onAnswer={onAnswerClarification} />
-          <AgentCodexUserInputRequests requests={activeCodexUserInputRequests} busy={busy} onAnswer={onAnswerCodexUserInput} />
         </div>
         <AgentWorkspaceComposer
           agent={selected}
-          busy={busy}
           modelLabel={modelLabel}
           onOpenModelSettings={onOpenModelSettings}
-          onSendAgentMessage={onSendAgentMessage}
-        />
+          onOptimisticUserMessage={appendOptimisticUserMessage}
+        onSendAgentMessage={onSendAgentMessage}
+      />
       </section>
     </div>
   );
@@ -120,7 +140,7 @@ function AgentClarifications({
   const clarifications = agent.clarifications?.filter((item) => item.status === "pending") ?? [];
   if (clarifications.length === 0) return <></>;
   return (
-    <section className="agent-workspace-clarifications" data-testid="agent-workspace-clarifications" aria-label="planning-agent 需要确认">
+    <section className="agent-workspace-clarifications" data-testid="agent-workspace-clarifications" aria-label="当前 Agent 需要确认">
       <div className="conversation-clarification-header">
         <span>需要确认</span>
         <strong>{clarifications.length}</strong>
@@ -134,54 +154,43 @@ function AgentClarifications({
   );
 }
 
-function AgentCodexUserInputRequests({
-  requests,
-  busy,
-  onAnswer,
-}: {
-  requests: CodexUserInputRequest[];
-  busy: boolean;
-  onAnswer: (request: CodexUserInputRequest, answers: Record<string, string | string[]>) => Promise<void>;
-}): ReactElement {
-  if (requests.length === 0) return <></>;
-  return (
-    <section className="agent-workspace-clarifications agent-workspace-runtime-questions" data-testid="agent-workspace-codex-user-input" aria-label="Codex 提问">
-      <div className="clarification-list">
-        {requests.map((request) => (
-          <CodexUserInputRequestCard key={request.requestId} request={request} busy={busy} onAnswer={onAnswer} />
-        ))}
-      </div>
-    </section>
-  );
-}
-
 function AgentWorkspaceComposer({
   agent,
-  busy,
   modelLabel,
   onOpenModelSettings,
+  onOptimisticUserMessage,
   onSendAgentMessage,
 }: {
   agent: AgentWorkspaceAgent;
-  busy: boolean;
   modelLabel: string;
   onOpenModelSettings?: () => void;
+  onOptimisticUserMessage: (agent: AgentWorkspaceAgent, message: string) => void;
   onSendAgentMessage: (agent: AgentWorkspaceAgent, message: string) => Promise<void>;
 }): ReactElement {
   const [value, setValue] = useState("");
   const [pending, setPending] = useState<string | null>(null);
-  const actionBusy = busy || pending !== null;
+  const actionBusy = pending !== null;
   const text = value.trim();
   const canInteract = agent.id === "plan-session" || agent.id === "planning-agent";
   const submitDisabled = actionBusy || !canInteract || !text;
   async function submit(): Promise<void> {
     if (submitDisabled) return;
-    setPending(`agent-message:${agent.id}`);
+    const message = text;
+    const pendingId = `agent-message:${agent.id}:${Date.now()}`;
+    setPending(pendingId);
+    setValue("");
+    onOptimisticUserMessage(agent, message);
+    const releasePending = globalThis.setTimeout(() => {
+      setPending((current) => current === pendingId ? null : current);
+    }, 1200);
     try {
-      await onSendAgentMessage(agent, text);
-      setValue("");
+      await onSendAgentMessage(agent, message);
+    } catch (error) {
+      setValue((current) => current || message);
+      throw error;
     } finally {
-      setPending(null);
+      globalThis.clearTimeout(releasePending);
+      setPending((current) => current === pendingId ? null : current);
     }
   }
   return (
@@ -210,13 +219,24 @@ function AgentWorkspaceComposer({
   );
 }
 
+function isScopedToAgent(agentRoleId: string | undefined, agent: AgentWorkspaceAgent): boolean {
+  return agentRoleId === agent.roleId || agentRoleId === agent.id;
+}
+
+function sameUserMessageCell(left: ParentAgentTranscriptCell, right: ParentAgentTranscriptCell): boolean {
+  return left.kind === "user-message"
+    && right.kind === "user-message"
+    && left.agentRoleId === right.agentRoleId
+    && left.text.trim() === right.text.trim();
+}
+
 function emptyAgent(): AgentWorkspaceAgent {
   return {
     id: "empty-agent-workspace",
     roleId: "empty-agent-workspace",
     label: "暂无会话",
     status: "idle",
-    summary: "暂无可显示的 Agent 或计划会话。",
+    summary: "暂无可显示的 Agent 对话。",
     transcript: { title: "暂无会话", cells: [], items: [], emptyMessage: "暂无会话内容。" },
     evidenceRefs: [],
     actions: [],

@@ -4,10 +4,22 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 
 ## 1. Current Handoff
 
-- Current date: 2026-07-06.
+- Current date: 2026-07-07.
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260707-main-agent-transcript-lazy-restore-leak-fix-v1/summary.md`.
+  It fixed the post-handoff repair regression where opening/restoring a topic
+  could lazy-load persisted runtime transcript blocks back into the center
+  parent-agent conversation, and stopped bound conversations from redirecting
+  the selected topic to their bound Change.
+- Previous archived product change:
+  `harness/changes/archive/20260707-main-agent-plan-handoff-pending-composer-agent-transcript-repair-v1/summary.md`.
+- Previous archived product change:
+  `harness/changes/archive/20260707-main-agent-plan-handoff-question-surface-v1/summary.md`.
+- Latest archived docs/architecture change:
+  `harness/changes/archive/20260707-harness-workflow-runtime-target-architecture-v1/summary.md`.
+- Previous archived product change:
   `harness/changes/archive/20260707-provider-native-a2a-real-ui-acceptance-fix-pass-v1/summary.md`.
 - Previous archived product change:
   `harness/changes/archive/20260706-provider-native-agent-authored-planning-v1/summary.md`.
@@ -204,6 +216,14 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Previous archived docs/reference change:
   `harness/changes/archive/20260626-document-desktop-cc-gui-reference-map-and-product-layer-roadmap/summary.md`.
 - Latest completed Harness evolution:
+  `harness/changes/archive/20260707-auto-evolve-post-workflow-runtime-and-handoff-window/summary.md`
+  (`docs_current_delta`; independent review; existing
+  ECL/BOUNDARIES/WORKBENCH/RUNTIME coverage is sufficient for Workflow Runtime
+  target architecture, provider-event truth, owner-aligned testing topology,
+  and corrected Plan handoff pending-stack state; no new
+  rule/template/lint/CI/runtime change required. Pending evolution was marked
+  complete).
+- Previous completed Harness evolution:
   `harness/changes/archive/20260706-auto-evolve-post-provider-native-agent-authored-planning-window/summary.md`
   (`docs_current_delta`; subagent Harvey score 86; existing
   ECL/BOUNDARIES/WORKBENCH/RUNTIME coverage is sufficient for provider-native
@@ -309,10 +329,19 @@ Current baseline:
 
 - Local manual-gated Workbench has real acceptance through planning, code,
   validation/audit, human apply, and close/archive.
-- Main-agent orchestration is the current architecture owner for local role
-  and sequential TaskQueue / WorkflowGraph execution. Role execution uses
-  observe/decide/run-one-leaf/record step loops; TaskQueue execution uses a
-  queue-level observe/decide/run-one-item/record step loop with non-executing
+- Main-agent orchestration remains the current compatibility path for local
+  role and sequential TaskQueue / WorkflowGraph execution, but it is no longer
+  the target architecture owner. The target is the high-cohesion,
+  low-coupling Harness Workflow Runtime documented in
+  `docs/design-docs/harness-workflow-runtime-target.md`: fixed role-chain,
+  TaskQueue, and Scheduler paths should migrate into one
+  `HarnessWorkflowRunEngine` and delete old internal runners after takeover.
+  Future Workflow Runtime implementation changes should test compiler,
+  runtime, leaf, and projection contracts at their owner modules instead of
+  repeating full feature-chain tests around each old runner.
+  Current role execution still uses observe/decide/run-one-leaf/record step
+  loops; TaskQueue execution still uses a queue-level
+  observe/decide/run-one-item/record step loop with non-executing
   `queue-decisions.jsonl` evidence. WorkflowGraph observation records
   non-executing `workflowgraph-decisions.jsonl` evidence, and the read-only
   replay summary builder now aggregates canonical manager state plus historical
@@ -444,6 +473,9 @@ Current baseline:
   projects are local-only optional clones and are not repository dependencies;
   current implementation remains Codex-first Harness mode, while normal Agent
   mode, Claude Code / OpenCode providers, and Tauri packaging are future tracks.
+  It is not the Harness Workflow Runtime authority; workflow scheduling
+  references are routed through `docs/references/index.md` and the target
+  runtime design doc.
 
 Daily `npm run test:workbench` is the fast Workbench unit-capability gate; slow
 scheduler/apply/Goal Loop coverage remains in explicit release/deep scripts.
