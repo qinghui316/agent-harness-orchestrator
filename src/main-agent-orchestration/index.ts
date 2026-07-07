@@ -7,21 +7,10 @@ export {
   runMainAgentOrchestration,
   runMainAgentFeedbackRework,
   runMainAgentSourceRefreshRework,
-  runMainAgentTaskRunAttempt,
   type MainAgentLeafAttemptResult,
   type MainAgentOrchestrationAttempt,
   type MainAgentOrchestrationResult,
 } from "./runner.js";
-export {
-  runMainAgentTaskRunLifecycle,
-  runMainAgentTaskRunReworkFromFinished,
-  type MainAgentStartedTaskRun,
-  type MainAgentTaskRunLifecycleResult,
-} from "./taskrun-lifecycle.js";
-export {
-  findMainAgentTaskQueueStageResumeCandidate,
-  executeMainAgentResumedTaskRunStage,
-} from "./taskqueue-stage-resume.js";
 export {
   createMainAgentLoopRunId,
   mainAgentLoopEventsPath,

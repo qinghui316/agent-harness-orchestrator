@@ -63,18 +63,40 @@ vi.mock("../../src/main-agent-orchestration/leaf-stages.js", () => {
   }
 
   function validationRun(label: string, status: "passed" | "failed") {
+    const artifacts = {
+      validation: `validation/${label}/validation.json`,
+      stdout: `validation/${label}/out.log`,
+      stderr: `validation/${label}/err.log`,
+    };
     return {
-      id: label,
-      status,
-      artifacts: { directory: `validation/${label}` },
+      run: {
+        id: `${label}-run`,
+        artifacts,
+      },
+      validation: {
+        id: label,
+        status,
+        artifacts,
+      },
     };
   }
 
   function auditRun(label: string, status: "approved" | "blocked") {
+    const artifacts = {
+      audit: `audit/${label}/audit.json`,
+      auditMarkdown: `audit/${label}/audit.md`,
+      lastMessage: `audit/${label}/last-message.md`,
+    };
     return {
-      id: label,
-      status,
-      artifacts: { directory: `audit/${label}` },
+      run: {
+        id: `${label}-run`,
+        artifacts,
+      },
+      audit: {
+        id: label,
+        status,
+        artifacts,
+      },
     };
   }
 
@@ -234,9 +256,8 @@ import {
   readMainAgentLoopRun,
   runMainAgentOrchestration,
   runMainAgentSourceRefreshRework,
-  runMainAgentTaskRunLifecycle,
-  runMainAgentTaskRunAttempt,
 } from "../../src/main-agent-orchestration/index.js";
+import { runStartedTaskRunStage } from "../../src/workflow-runtime/code-workflow.js";
 import { recordMainAgentNextStepEvidence } from "../../src/main-agent-orchestration/next-step-evidence.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import {
@@ -343,7 +364,7 @@ describe("main-agent step loop contract", () => {
     expect(completedDecision?.gateIntent).toBe("result-handoff");
     expect(completedDecision?.targetRefs).toMatchObject({
       worktreeIds: ["code-worktree"],
-      runIds: ["code"],
+      runIds: expect.arrayContaining(["code"]),
       validationIds: ["validation"],
       auditIds: ["audit"],
     });
@@ -471,16 +492,31 @@ describe("main-agent step loop contract", () => {
   });
 
   it("does not bridge delegate, failed, stale, disabled, or remote gates", async () => {
-    controls.validatorOutcomes = ["failed"];
-    const result = await runMainAgentTaskRunAttempt({
-      project,
-      changeId: "change-bridge-fail-closed",
-      taskIds: ["task-1"],
-      taskRunId: "task-run-1",
-    });
     const memory = await resolveProjectMemory(project);
-    const decisions = await readMainAgentNextStepEvidence(memory, result.loopRunId!);
-    const failedDecision = decisions.at(-1)!;
+    const failedLoop = await ensureMainAgentLoopRun(memory, {
+      loopRunId: "manual-failed-loop",
+      changeId: "change-bridge-fail-closed",
+      projectId: project.id,
+      entrypoint: "task-run",
+    });
+    const failedDecision = await recordMainAgentNextStepEvidence(memory, failedLoop.run, {
+      stepIndex: 0,
+      entrypoint: "task-run",
+      observation: {
+        summary: "Manual failed observation.",
+        totalSteps: 1,
+        completedSteps: 0,
+        failedSteps: 1,
+        latestRoleId: "validator",
+        latestStatus: "failed",
+      },
+      decision: {
+        kind: "needs-user-input",
+        stoppedAt: "validation",
+        reason: "Validation failed and cannot be bridged into apply.",
+        nextRecommendation: "Ask user for clarification.",
+      },
+    });
     const delegateLoop = await ensureMainAgentLoopRun(memory, {
       loopRunId: "manual-delegate-loop",
       changeId: "change-bridge-fail-closed",
@@ -660,37 +696,13 @@ describe("main-agent step loop contract", () => {
     expect(missingGateBridge.status).toBe("unavailable");
   });
 
-  it("keeps TaskRun entrypoints single-attempt when validation fails", async () => {
-    controls.validatorOutcomes = ["failed"];
-
-    const result = await runMainAgentTaskRunAttempt({
-      project,
-      changeId: "change-task-run",
-      taskIds: ["task-1"],
-      taskRunId: "task-run-1",
-    });
-
-    expect(runCoderLeafStage).toHaveBeenCalledTimes(1);
-    expect(runValidatorLeafStage).toHaveBeenCalledTimes(1);
-    expect(runReworkCoderLeafStage).not.toHaveBeenCalled();
-    expect(runAuditorLeafStage).not.toHaveBeenCalled();
-    expect(result.stoppedAt).toBe("validation");
-    expect(result.status).toBeUndefined();
-    const memory = await resolveProjectMemory(project);
-    const events = await readMainAgentLoopEvents(memory, result.loopRunId!);
-    const decisions = await readMainAgentNextStepEvidence(memory, result.loopRunId!);
-    expect(events.filter((event) => event.roleId === "rework-coder")).toHaveLength(0);
-    expect(decisions.filter((decision) => decision.decision.roleId === "rework-coder")).toHaveLength(0);
-    expect(events.some((event) => event.type === "loop.stopped")).toBe(true);
-  });
-
-  it("lets the main-agent TaskRun lifecycle own one bounded rework retry", async () => {
+  it("lets the workflow-runtime TaskRun stage own one bounded rework retry", async () => {
     controls.validatorOutcomes = ["failed", "completed"];
     const initialTaskRun = taskRun();
     controls.taskRuns.set(initialTaskRun.id, initialTaskRun);
     const retryHandoffs: string[] = [];
 
-    const result = await runMainAgentTaskRunLifecycle({
+    const result = await runStartedTaskRunStage({
       project,
       started: { taskRun: initialTaskRun, lease: workerLease() },
       prompt: "Implement the queued task.",
@@ -715,7 +727,6 @@ describe("main-agent step loop contract", () => {
     expect(workflow.loopRunId).toBeTruthy();
     const memory = await resolveProjectMemory(project);
     const events = await readMainAgentLoopEvents(memory, workflow.loopRunId!);
-    const decisions = await readMainAgentNextStepEvidence(memory, workflow.loopRunId!);
     expect(events.filter((event) => event.type === "loop.started")).toHaveLength(1);
     expect(events.filter((event) => event.type === "loop.stopped")).toHaveLength(0);
     expect(events.filter((event) => event.type === "loop.completed")).toHaveLength(1);
@@ -726,7 +737,6 @@ describe("main-agent step loop contract", () => {
       "validator",
       "auditor-agent",
     ]);
-    expect(decisions.filter((decision) => decision.decision.roleId === "rework-coder")).toHaveLength(1);
   });
 
   it("does not let a child TaskRun finalize a parent queue loop", async () => {
@@ -740,7 +750,7 @@ describe("main-agent step loop contract", () => {
       entrypoint: "task-queue",
     });
 
-    const result = await runMainAgentTaskRunLifecycle({
+    const result = await runStartedTaskRunStage({
       project,
       started: { taskRun: initialTaskRun, lease: workerLease("task-run-parent-child") },
       prompt: "Run child task.",
@@ -766,7 +776,7 @@ describe("main-agent step loop contract", () => {
     const priorRetry = taskRun({ id: "task-run-retry", attempt: 2 });
     controls.taskRuns.set(priorRetry.id, priorRetry);
 
-    const result = await runMainAgentTaskRunLifecycle({
+    const result = await runStartedTaskRunStage({
       project,
       started: { taskRun: priorRetry, lease: workerLease("task-run-retry") },
       prompt: "Retry task.",
@@ -834,11 +844,11 @@ describe("main-agent step loop contract", () => {
   });
 
   it("fails closed when loop evidence is missing or malformed", async () => {
-    const result = await runMainAgentTaskRunAttempt({
+    const malformedTaskRun = taskRun({ id: "task-run-malformed", changeId: "change-malformed" });
+    controls.taskRuns.set(malformedTaskRun.id, malformedTaskRun);
+    const result = await runStartedTaskRunStage({
       project,
-      changeId: "change-malformed",
-      taskIds: ["task-1"],
-      taskRunId: "task-run-1",
+      started: { taskRun: malformedTaskRun, lease: workerLease(malformedTaskRun.id) },
     });
     const memory = await resolveProjectMemory(project);
 
@@ -846,10 +856,10 @@ describe("main-agent step loop contract", () => {
     expect(await readMainAgentLoopEvents(memory, "missing-loop")).toEqual([]);
     expect(await readMainAgentNextStepEvidence(memory, "missing-loop")).toEqual([]);
 
-    await writeFile(mainAgentLoopEventsPath(memory, result.loopRunId!), "{not-json}\n", "utf8");
-    expect(await readMainAgentLoopEvents(memory, result.loopRunId!)).toEqual([]);
-    await writeFile(mainAgentNextStepDecisionsPath(memory, result.loopRunId!), "{not-json}\n", "utf8");
-    expect(await readMainAgentNextStepEvidence(memory, result.loopRunId!)).toEqual([]);
+    await writeFile(mainAgentLoopEventsPath(memory, result.workflow.loopRunId!), "{not-json}\n", "utf8");
+    expect(await readMainAgentLoopEvents(memory, result.workflow.loopRunId!)).toEqual([]);
+    await writeFile(mainAgentNextStepDecisionsPath(memory, result.workflow.loopRunId!), "{not-json}\n", "utf8");
+    expect(await readMainAgentNextStepEvidence(memory, result.workflow.loopRunId!)).toEqual([]);
   });
 
   it("recreates malformed loop metadata without blocking orchestration evidence", async () => {

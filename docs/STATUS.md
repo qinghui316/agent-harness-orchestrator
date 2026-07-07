@@ -13,11 +13,16 @@
   orchestration, write-capable leaves use AHO-owned worktrees, and Harness
   docs/evidence remain project memory.
 - Latest archived runtime change:
+  `harness/changes/archive/20260707-harness-workflow-runtime-taskrun-stage-v0/summary.md`.
+  It moved TaskRun stage execution into `workflow-runtime`, routed
+  `task.run.start` / `task.run.retry` and TaskQueue item stages through the
+  new owner, preserved TaskRun/WorkerLease/code/validation/audit leaf
+  authorities, and deleted the old TaskRun lifecycle/resume production files.
+- Previous runtime change:
   `harness/changes/archive/20260707-harness-workflow-runtime-taskqueue-sequential-v0/summary.md`.
   It moved confirmed TaskQueue start/resume queue-level scheduling into
-  `workflow-runtime`, deleted the old queue-level `main-agent-orchestration`
-  runner production path, and left TaskRun stage execution plus Scheduler paths
-  for later compatibility migrations.
+  `workflow-runtime` and deleted the old queue-level
+  `main-agent-orchestration` runner production path.
 - Previous runtime change:
   `harness/changes/archive/20260707-harness-workflow-runtime-default-code-change-v0/summary.md`.
   It moved ordinary `code.run` default code-change workflow scheduling into
@@ -33,10 +38,10 @@
   validation/audit, human apply, and close/archive.
 - Runtime architecture is in transition toward the high-cohesion / low-coupling
   Harness Workflow Runtime in
-  `docs/design-docs/harness-workflow-runtime-target.md`. Ordinary `code.run`
-  and confirmed TaskQueue queue-level start/resume now run through
-  `workflow-runtime`; remaining compatibility paths include TaskRun stage
-  execution, demand-worker role-chain entrypoints, and Scheduler worker paths.
+  `docs/design-docs/harness-workflow-runtime-target.md`. Ordinary `code.run`,
+  confirmed TaskQueue queue-level start/resume, and TaskRun stage execution now
+  run through `workflow-runtime`. Remaining compatibility paths are
+  demand-worker role-chain entrypoints and Scheduler worker paths.
 - New runtime takeover changes must include new-path takeover, old production
   runner deletion for the covered behavior, and negative tests proving the old
   runner is no longer called.
@@ -63,10 +68,11 @@
 
 The next structured runtime work should choose exactly one path:
 
-- migrate TaskRun stage execution into Workflow Runtime; or
-- begin Scheduler ready-set / wave migration.
+- begin Scheduler ready-set / wave migration; or
+- migrate demand-worker role-chain entrypoints.
 
-Do not combine TaskRun stage migration and Scheduler migration in one change.
+Do not combine Scheduler migration and demand-worker role-chain migration in
+one change.
 Do not widen `完全访问权限` into raw scheduler, manual IntegrationCheck,
 integration apply/discard, PR/remote/merge, Harness evolution, or full parallel
 execution without a separate structured change.

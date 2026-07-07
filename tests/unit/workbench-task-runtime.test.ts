@@ -8,7 +8,6 @@ import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import { getWorkbenchSnapshot } from "../../src/workbench/manager.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import {
-  findMainAgentTaskQueueStageResumeCandidate,
   mainAgentLoopRunsRoot,
 } from "../../src/main-agent-orchestration/index.js";
 import { listTaskQueueItems, listTaskQueues, pauseTaskQueue, reconcileTaskQueues, startOrResumeTaskQueue } from "../../src/task-queue/manager.js";
@@ -17,6 +16,7 @@ import { appendWorkflowTaskEvent, listWorkflowRuns, readWorkflowRun, readWorkflo
 import { buildTaskQueueProposalFromReadiness, compileWorkflowGraphPlan, hashArtifactRefs, hashFile, readLatestDecompositionPlan, readLatestDecompositionReadinessManifest, readLatestTaskQueueProposal, readLatestWorkflowGraphPlan, writeDecompositionReadinessManifest, writeTaskQueueProposal } from "../../src/workflow-artifacts/manager.js";
 import { compileSchedulerContract } from "../../src/workflow-scheduler/manager.js";
 import type { TaskQueueRun, WorkflowRun } from "../../src/types/index.js";
+import { findTaskRunStageResumeCandidate, runResumedTaskRunStage } from "../../src/workflow-runtime/code-workflow.js";
 import { runTaskQueueSequentialWorkflow } from "../../src/workflow-runtime/taskqueue.js";
 import {
   getTempDir,
@@ -635,6 +635,21 @@ describe("workbench task runtime domain", () => {
     await writeCoderRun("workflow-resume-evidence", "run-resume-coder", ["T-001"], "wt-resume-1", "completed", "taskrun-resume-1");
     await writeValidationResult("workflow-resume-evidence", "run-resume-validation", "wt-resume-1", "passed");
     await writeAuditResult("workflow-resume-evidence", "run-resume-audit", "wt-resume-1", "approved");
+    const [resumeItem] = await listTaskQueueItems(memory, "workflow-resume-evidence", startedQueue.queue.id);
+    if (!resumeItem) throw new Error("Expected resume queue item.");
+    const candidate = await findTaskRunStageResumeCandidate(memory, "workflow-resume-evidence", resumeItem);
+    if (!candidate) throw new Error("Expected completed resume candidate.");
+    const resumed = await runResumedTaskRunStage({
+      project: project(),
+      memory,
+      taskRun: candidate.taskRun,
+      verdict: candidate.verdict,
+    });
+    expect(resumed.workflow).toMatchObject({
+      stoppedAt: null,
+      validation: { validation: { status: "passed" } },
+      audit: { audit: { status: "approved" } },
+    });
 
     const result = await executeWorkbenchAction({ project: project(), path: tempDir }, {
       actionType: "task.queue.start",
@@ -686,7 +701,7 @@ describe("workbench task runtime domain", () => {
     const [currentItem] = await listTaskQueueItems(memory, "workflow-resume-queue-scope", "queue-new");
     if (!currentItem) throw new Error("Expected current queue item.");
 
-    await expect(findMainAgentTaskQueueStageResumeCandidate(memory, "workflow-resume-queue-scope", currentItem))
+    await expect(findTaskRunStageResumeCandidate(memory, "workflow-resume-queue-scope", currentItem))
       .resolves.toBeNull();
   });
 

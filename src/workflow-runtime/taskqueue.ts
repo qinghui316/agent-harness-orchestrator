@@ -32,15 +32,12 @@ import { isTaskQueueWorkflowRun } from "../workflow-run/guards.js";
 import { emitAssistantEvent } from "./kernel/live-events.js";
 import { isRecord, isTaskRunLike } from "./kernel/runtime-guards.js";
 import {
-  runMainAgentTaskRunLifecycle,
-  runMainAgentTaskRunReworkFromFinished,
-  type MainAgentStartedTaskRun,
-} from "../main-agent-orchestration/taskrun-lifecycle.js";
-import {
-  assertMainAgentResumeEvidenceScope,
-  executeMainAgentResumedTaskRunStage,
-  findMainAgentTaskQueueStageResumeCandidate,
-} from "../main-agent-orchestration/taskqueue-stage-resume.js";
+  assertTaskRunResumeEvidenceScope,
+  findTaskRunStageResumeCandidate,
+  runResumedTaskRunStage,
+  runStartedTaskRunStage,
+  type RuntimeStartedTaskRun,
+} from "./taskrun-stage.js";
 
 export interface WorkflowRuntimeLiveSink {
   emit(event: unknown): void;
@@ -205,9 +202,9 @@ async function runQueueItem(input: {
   item: TaskQueueItem;
 }): Promise<{ queue: TaskQueueRun; workflow: WorkflowRun | null; terminal: boolean; taskRunId: string | null; finishedItemStatus: string }> {
   const executionGate = taskQueueExecutionGate(input.queue, input.workflow, input.item);
-  const resume = await findMainAgentTaskQueueStageResumeCandidate(input.memory, input.changeId, input.item);
+  const resume = await findTaskRunStageResumeCandidate(input.memory, input.changeId, input.item);
   if (resume?.verdict.kind === "blocked") {
-    await assertMainAgentResumeEvidenceScope(input.memory, input.changeId, input.item, resume.verdict);
+    await assertTaskRunResumeEvidenceScope(input.memory, input.changeId, input.item, resume.verdict);
     emitAssistantEvent(input.live, {
       runId: input.queue.id,
       kind: "error",
@@ -226,11 +223,11 @@ async function runQueueItem(input: {
     ? { taskRun: resume.taskRun, lease: null }
     : await startTaskRun(input.project, { changeId: input.changeId, taskId: input.item.taskId });
   let runningItem = await markTaskQueueItemRunning(input.memory, input.item, started.taskRun);
-  const bindRetryTaskRunToItem = async (retryStarted: MainAgentStartedTaskRun) => {
+  const bindRetryTaskRunToItem = async (retryStarted: RuntimeStartedTaskRun) => {
     runningItem = await markTaskQueueItemRunning(input.memory, runningItem, retryStarted.taskRun);
   };
   if (resume) {
-    await assertMainAgentResumeEvidenceScope(input.memory, input.changeId, runningItem, resume.verdict);
+    await assertTaskRunResumeEvidenceScope(input.memory, input.changeId, runningItem, resume.verdict);
     emitAssistantEvent(input.live, {
       runId: input.queue.id,
       kind: "status",
@@ -241,9 +238,18 @@ async function runQueueItem(input: {
     });
   }
 
-  const stageResult = resume
-    ? await executeMainAgentResumedTaskRunStage(input.project, input.memory, started.taskRun, resume.verdict, input.prompt, input.live, executionGate)
-    : await runMainAgentTaskRunLifecycle({
+  const result = resume
+    ? await runResumedTaskRunStage({
+      project: input.project,
+      memory: input.memory,
+      taskRun: started.taskRun,
+      verdict: resume.verdict,
+      prompt: input.prompt,
+      live: input.live,
+      executionGate,
+      onRetryTaskRunStarted: bindRetryTaskRunToItem,
+    })
+    : await runStartedTaskRunStage({
       project: input.project,
       started,
       prompt: input.prompt,
@@ -252,19 +258,6 @@ async function runQueueItem(input: {
       ownsLoopFinalization: true,
       onRetryTaskRunStarted: bindRetryTaskRunToItem,
     });
-  const resumedTaskRun = isRecord(stageResult) && isTaskRunLike(stageResult.taskRun) ? stageResult.taskRun : null;
-  const result = resume && resumedTaskRun
-    ? await runMainAgentTaskRunReworkFromFinished({
-      project: input.project,
-      taskRun: resumedTaskRun,
-      workflow: isRecord(stageResult) && "workflow" in stageResult ? stageResult.workflow : stageResult,
-      prompt: input.prompt,
-      live: input.live,
-      executionGate,
-      ownsLoopFinalization: true,
-      onRetryTaskRunStarted: bindRetryTaskRunToItem,
-    })
-    : stageResult;
   const taskRun = isRecord(result) && isRecord(result.taskRun) ? result.taskRun : null;
   if (!isTaskRunLike(taskRun)) throw new Error(`Task ${input.item.taskId} did not return a TaskRun result.`);
   const finishedItem = await finishTaskQueueItem(input.memory, runningItem, taskRun);

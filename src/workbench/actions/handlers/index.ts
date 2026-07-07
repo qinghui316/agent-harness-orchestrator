@@ -4,7 +4,7 @@ import { runIntegrationCheck } from "../../../integration-check/manager.js";
 import { reconcileTaskRuns } from "../../../task-run/manager.js";
 import { reconcileWorkflowTaskQueue, runTaskQueueSequentialWorkflow } from "../../../workflow-runtime/taskqueue.js";
 import { runMainAgentSourceRefreshRework } from "../../../main-agent-orchestration/index.js";
-import { runDefaultCodeChangeWorkflow, runTaskRunMainAgentAttempt, sourceRefreshReworkPrompt } from "../../../workflow-runtime/code-workflow.js";
+import { runDefaultCodeChangeWorkflow, runTaskRunStageAction, sourceRefreshReworkPrompt } from "../../../workflow-runtime/code-workflow.js";
 import { startValidationRun } from "../../../validation/manager.js";
 import { getSpecTestDriftReport } from "../../../spec-test/drift.js";
 import type { ManagedProject, RunMetadata } from "../../../types/index.js";
@@ -147,8 +147,8 @@ export function buildWorkbenchActionHandlers(deps: WorkbenchActionHandlerDeps): 
     taskIds: request.taskIds,
     readinessManifestId: request.readinessManifestId,
   }),
-  "task.run.start": async (project, changeId, request, live) => runTaskRunMainAgentAttempt(project, changeId, request, live, "start"),
-  "task.run.retry": async (project, changeId, request, live) => runTaskRunMainAgentAttempt(project, changeId, request, live, "retry"),
+  "task.run.start": async (project, changeId, request, live) => runTaskRunStageAction(project, changeId, request, live, "start"),
+  "task.run.retry": async (project, changeId, request, live) => runTaskRunStageAction(project, changeId, request, live, "retry"),
   "task.run.reconcile": async (project, changeId, request) => reconcileTaskRuns(project, { changeId, taskRunId: request.taskRunId }),
   "task.queue.start": async (project, changeId, request, live) => runTaskQueueSequentialWorkflow({
     project,

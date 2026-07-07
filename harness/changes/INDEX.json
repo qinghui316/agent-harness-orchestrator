@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-07-07T13:16:44.4764535Z",
+    "generated_at":  "2026-07-07T13:57:42.6890597Z",
     "active":  [
 
                ],
@@ -2565,6 +2565,10 @@
                     {
                         "name":  "20260707-harness-workflow-runtime-taskqueue-sequential-v0",
                         "path":  "harness/changes/archive/20260707-harness-workflow-runtime-taskqueue-sequential-v0"
+                    },
+                    {
+                        "name":  "20260707-harness-workflow-runtime-taskrun-stage-v0",
+                        "path":  "harness/changes/archive/20260707-harness-workflow-runtime-taskrun-stage-v0"
                     },
                     {
                         "name":  "20260707-main-agent-plan-handoff-pending-composer-agent-transcript-repair-v1",

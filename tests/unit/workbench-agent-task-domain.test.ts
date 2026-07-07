@@ -12,8 +12,9 @@ import { buildDelegateTaskManifest, validateDelegateTaskPolicy } from "../../src
 import { findBoundaryViolations } from "../../src/agent-task/boundary-audit.js";
 import { dispatchForegroundRoleTask } from "../../src/agent-task/role-dispatcher.js";
 import { evaluateToolPolicy, workerPermissionProfileForRole } from "../../src/agent-task/tool-policy.js";
-import { runMainAgentTaskRunAttempt } from "../../src/main-agent-orchestration/index.js";
-import { project } from "./workbench/fixtures.js";
+import { startTaskRun } from "../../src/task-run/manager.js";
+import { runStartedTaskRunStage } from "../../src/workflow-runtime/code-workflow.js";
+import { project, writeAcceptedSpecAndTasks } from "./workbench/fixtures.js";
 
 describe("workbench AgentTask domain", () => {
   it("persists AgentTaskRepository results and projects them into the role pipeline", async () => {
@@ -149,15 +150,17 @@ describe("workbench AgentTask domain", () => {
   it("marks coder AgentTask failed when code setup fails before run artifacts exist", async () => {
     await initHarness(project());
     await createChange(project(), { title: "Code Setup Failure" });
+    await writeAcceptedSpecAndTasks("code-setup-failure");
     const memory = await resolveProjectMemory(project());
+    const started = await startTaskRun(project(), { changeId: "code-setup-failure", taskId: "T-001" });
 
-    const result = await runMainAgentTaskRunAttempt({
+    const result = await runStartedTaskRunStage({
       project: project(),
-      changeId: "code-setup-failure",
+      started,
       executionGate: { mode: "single-change-readiness", readinessManifestId: "readiness-missing" },
     });
 
-    expect(result).toMatchObject({
+    expect(result.workflow).toMatchObject({
       status: "failed",
       stoppedAt: "code",
       error: expect.any(String),

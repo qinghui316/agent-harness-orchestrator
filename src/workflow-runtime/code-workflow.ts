@@ -4,7 +4,16 @@ export {
   requireSingleTaskId,
   requireTaskRunId,
 } from "./kernel/runtime-guards.js";
-export { runTaskRunMainAgentAttempt } from "./kernel/task-run-sequence.js";
+export {
+  assertTaskRunResumeEvidenceScope,
+  findTaskRunStageResumeCandidate,
+  runResumedTaskRunStage,
+  runStartedTaskRunStage,
+  runTaskRunStageAction,
+  type RuntimeStartedTaskRun,
+  type RuntimeTaskRunStageResult,
+  type RuntimeTaskRunWorkflowResult,
+} from "./taskrun-stage.js";
 export {
   HarnessWorkflowRunEngine,
   runDefaultCodeChangeWorkflow,

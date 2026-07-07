@@ -14,10 +14,14 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
   Plan / WorkflowPlan, Workflow Runtime owns orchestration, write-capable leaves
   use AHO-owned worktrees, and Harness docs/evidence remain project memory.
 - Latest archived runtime change:
+  `harness/changes/archive/20260707-harness-workflow-runtime-taskrun-stage-v0/summary.md`.
+  It moved TaskRun stage execution into `workflow-runtime`, routed
+  `task.run.start` / `task.run.retry` and TaskQueue item stages through the
+  new owner, and deleted the old TaskRun lifecycle/resume production files.
+- Previous runtime change:
   `harness/changes/archive/20260707-harness-workflow-runtime-taskqueue-sequential-v0/summary.md`.
   It moved confirmed TaskQueue start/resume queue-level scheduling into
-  `workflow-runtime`; TaskRun stage execution and Scheduler worker paths remain
-  compatibility migration targets.
+  `workflow-runtime`.
 - Previous runtime change:
   `harness/changes/archive/20260707-harness-workflow-runtime-default-code-change-v0/summary.md`.
   It moved ordinary `code.run` default code-change workflow scheduling into
@@ -32,9 +36,9 @@ Current baseline:
 - Local manual-gated Workbench has real acceptance through planning, code,
   validation/audit, human apply, and close/archive.
 - Workflow Runtime is the target single runner owner. Ordinary `code.run` and
-  confirmed TaskQueue queue-level start/resume are already routed through
-  `workflow-runtime`; remaining compatibility paths include TaskRun stage
-  execution, demand-worker role-chain entrypoints, and Scheduler worker paths.
+  confirmed TaskQueue queue-level start/resume and TaskRun stage execution are
+  already routed through `workflow-runtime`. Remaining compatibility paths are
+  demand-worker role-chain entrypoints and Scheduler worker paths.
   New runtime takeover changes must delete the covered old production runner.
 - Goal is a visible main-Agent brief and completion standard, not hidden durable
   state and not project memory. Future sessions recover by reading Harness
@@ -55,9 +59,8 @@ Current baseline:
 
 Next recommended structured work:
 
-- Pick exactly one runtime migration: either TaskRun stage execution into
-  Workflow Runtime, or Scheduler ready-set/wave migration. Do not combine them
-  in one change.
+- Pick exactly one next runtime migration, preferably Scheduler ready-set/wave
+  migration. Do not mix it with demand-worker role-chain migration.
 - Keep `README.md` untracked unless the user explicitly scopes it into a
   change.
 

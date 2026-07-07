@@ -8,7 +8,6 @@ import {
 import type { ManagedProject } from "../types/index.js";
 import type { WorkbenchLiveSink } from "../workbench/types.js";
 import { emitAssistantEvent } from "../workflow-runtime/kernel/live-events.js";
-import type { CodeExecutionGateOptions } from "../code/manager.js";
 import { resolveProjectMemory } from "../memory/resolver.js";
 import { createMainAgentLoopRunId, finishMainAgentLoopRun } from "./loop-evidence.js";
 import { runMainAgentStepLoop, type MainAgentLeafAttemptResult } from "./step-loop.js";
@@ -121,37 +120,6 @@ export async function runMainAgentOrchestration(input: {
     stoppedAt: finalDecision.kind === "needs-user-input" || finalDecision.kind === "failed" ? finalDecision.stoppedAt : undefined,
     orchestration,
   };
-}
-
-export async function runMainAgentTaskRunAttempt(input: {
-  project: ManagedProject;
-  changeId: string;
-  prompt?: string;
-  live?: WorkbenchLiveSink;
-  taskIds?: string[];
-  taskRunId?: string;
-  executionGate?: CodeExecutionGateOptions;
-  initialRole?: MainAgentOrchestrationRole;
-  orchestrationState?: MainAgentOrchestrationState;
-  initialDecision?: Extract<MainAgentOrchestrationDecision, { kind: "delegate-role" }>;
-  loopRunId?: string;
-  finalizeLoop?: boolean;
-}): Promise<MainAgentLeafAttemptResult> {
-  return runMainAgentStepLoop({
-    project: input.project,
-    changeId: input.changeId,
-    prompt: input.prompt,
-    live: input.live,
-    taskIds: input.taskIds,
-    taskRunId: input.taskRunId,
-    entrypoint: "task-run",
-    initialRole: input.initialRole ?? "coder-agent",
-    orchestrationState: input.orchestrationState,
-    initialDecision: input.initialDecision,
-    executionGate: input.executionGate,
-    loopRunId: input.loopRunId,
-    finalizeLoop: input.finalizeLoop,
-  });
 }
 
 export async function runMainAgentSourceRefreshRework(input: {
