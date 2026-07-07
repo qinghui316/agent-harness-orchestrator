@@ -17,6 +17,34 @@ The user should not need to know internal terms before asking for work. The main
 Current implementation state: no active implementation slice.
 
 Latest completed implementation slice:
+`harness/changes/archive/20260707-harness-workflow-runtime-taskqueue-sequential-v0/summary.md`.
+It moves confirmed TaskQueue sequential start/resume queue-level scheduling into
+`workflow-runtime`, deletes the old queue-level `main-agent-orchestration`
+runner as a production path, and leaves TaskRun stage execution plus Scheduler
+migration for later changes. New queue-level execution is represented by
+WorkflowRun events plus canonical TaskQueue/TaskRun records rather than new
+queue-decision evidence.
+
+Previous completed implementation slice:
+`harness/changes/archive/20260707-harness-workflow-runtime-default-code-change-v0/summary.md`.
+It moves ordinary `code.run` default code-change workflow scheduling into
+`HarnessWorkflowRunEngine` v0. TaskQueue, Scheduler, `task.run.start`, and
+`task.run.retry` remained compatibility paths after that slice.
+
+Previous completed implementation slice:
+`harness/changes/archive/20260707-main-agent-transcript-lazy-restore-leak-fix-v1/summary.md`.
+It fixed the post-handoff repair regression where opening/restoring a topic
+could lazy-load persisted runtime transcript blocks back into the center
+parent-agent conversation, and stopped bound conversations from redirecting
+the selected topic to their bound Change.
+
+Previous completed implementation slice:
+`harness/changes/archive/20260707-main-agent-plan-handoff-pending-composer-agent-transcript-repair-v1/summary.md`.
+It repairs the Plan handoff pending composer and right-side Plan Agent
+transcript surface so the center conversation owns pending execute/revise
+intent and the right rail shows the scoped Plan Agent conversation.
+
+Previous completed implementation slice:
 `harness/changes/archive/20260707-provider-native-a2a-real-ui-acceptance-fix-pass-v1/summary.md`.
 It closes the provider-native Plan Mode / old planning-chain deletion pass:
 native Codex Plan Mode now projects as `plan-session` / Plan Agent instead of a
@@ -600,16 +628,15 @@ workflow truth, or hidden permission bypasses.
 
 ## Next Product Direction
 
-Pending Harness evolution: none.
+Pending Harness evolution: `harness/evolution/pending.md`.
 
 Current structured change: none.
 
-Recommended current architecture step: plan Goal-style autonomous loop runner
-acceptance. That work should verify that, after plan confirmation, full-access
-can repeatedly observe, decide, consume only existing scoped gates, and stop at
-complete / blocked / human-only gates without widening raw Scheduler,
-IntegrationCheck apply/discard, remote, PR, merge, Harness evolution, or
-apply/close authority.
+Recommended current architecture step: either handle the pending Harness
+evolution in a separate auto-evolve change, or continue Workflow Runtime
+migration with one focused product slice. The next product slice should migrate
+TaskRun stage execution into the runtime owner or begin Scheduler ready-set /
+wave migration, but not both in one change.
 
 Desktop product-layer work can continue when selected as a separate structured
 product phase.

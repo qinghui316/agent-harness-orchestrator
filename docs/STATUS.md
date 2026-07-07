@@ -4,8 +4,17 @@
 
 - Current date: 2026-07-07.
 - Active ECL change: none.
-- Pending Harness evolution: none.
+- Pending Harness evolution:
+  `harness/evolution/pending.md` generated after the TaskQueue sequential
+  runtime takeover close; handle it in a separate auto-evolve change if
+  selected.
 - Latest archived product change:
+  `harness/changes/archive/20260707-harness-workflow-runtime-taskqueue-sequential-v0/summary.md`.
+  It moved confirmed TaskQueue start/resume queue-level scheduling into
+  `workflow-runtime`, deleted the old queue-level
+  `main-agent-orchestration` runner production path, and kept TaskRun stage
+  execution plus Scheduler as later compatibility migrations.
+- Previous archived product change:
   `harness/changes/archive/20260707-harness-workflow-runtime-default-code-change-v0/summary.md`.
   It moved ordinary `code.run` default code-change workflow scheduling into
   `HarnessWorkflowRunEngine` v0 while leaving TaskQueue, Scheduler,
@@ -574,8 +583,10 @@ Earlier closeout:
 
 It fixes WorkflowGraph observation status semantics so a `created` WorkflowRun
 without a fresh matching TaskQueue binding is `wait`, not `queue-running`, and
-deletes the old public `runTaskQueueSequence` wrapper. `runMainAgentTaskQueueLifecycle`
-is the only production TaskQueue main-agent lifecycle entrypoint.
+deleted the old public `runTaskQueueSequence` wrapper. At that archive point,
+`runMainAgentTaskQueueLifecycle` was the production TaskQueue main-agent
+lifecycle entrypoint; the active TaskQueue runtime takeover supersedes that
+production ownership.
 
 Earlier closeout:
 `harness/changes/archive/20260630-main-agent-workflowgraph-queue-step-loop-contract-v1/summary.md`.
@@ -948,9 +959,11 @@ Planning content is now provider-native and Agent-authored: AHO validates,
 maps, persists, and gates the plan, but does not invent business goals,
 acceptance criteria, or tasks from raw user demand.
 
-No active ECL change or pending Harness evolution remains. The next separate
-structured product work should be the first `HarnessWorkflowRunEngine`
-takeover slice or another explicitly selected product track.
+No active ECL change remains. Pending Harness evolution exists at
+`harness/evolution/pending.md` and should be handled as a separate
+auto-evolve change when selected. The next product runtime work should migrate
+TaskRun stage execution into the Workflow Runtime or begin the Scheduler
+wave/ready-set migration, but not both in one change.
 
 Desktop product work can continue from
 `docs/design-docs/ref-desktop-cc-gui.md` when selected.

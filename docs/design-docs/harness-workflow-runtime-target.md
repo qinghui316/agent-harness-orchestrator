@@ -15,12 +15,14 @@ implementation changes must follow.
 
 ## Current State
 
-`src/workflow-runtime` is not yet the unified runner. It currently contains
-thin facades and kernel helpers such as `taskqueue.ts`, `code-workflow.ts`, and
-`kernel/*`. Real scheduling behavior is still spread across:
+`src/workflow-runtime` is not yet the unified runner. It now owns the ordinary
+`code.run` default code-change workflow and confirmed TaskQueue sequential
+start/resume queue-level scheduling. Some kernel helpers and compatibility
+facades remain. Real
+scheduling behavior is still spread across:
 
-- `src/main-agent-orchestration/` for the fixed role-chain lifecycle;
-- `src/task-queue/` and queue step-loop callers for sequential queue execution;
+- `src/main-agent-orchestration/` for the fixed TaskRun role-chain lifecycle;
+- `src/task-queue/` for queue state records and item transitions;
 - `src/scheduler-runtime/` for SchedulerRun-scoped worker path progression.
 
 The fixed role chain is a safe V1 compatibility policy, not the final
@@ -286,16 +288,14 @@ Phase 2 repairs the Plan handoff UI: remove the wrong top-of-transcript
 Agent first, and keep the right workspace free for real Plan/child Agent
 messaging without duplicate execute/question controls.
 
-Phase 3 implements `HarnessWorkflowRunEngine` for the default code-change
-workflow. The runtime compiles `default-code-change-workflow`, executes
-coder -> validation -> audit -> bounded rework through a graph, deletes
-`decideNextMainAgentOrchestration()` as a runtime entrypoint, and adds
-negative tests proving the old entry is not used.
+Phase 3 implemented `HarnessWorkflowRunEngine` for the default code-change
+workflow. Ordinary `code.run` now routes through the runtime owner instead of
+the old fixed role-chain entrypoint.
 
-Phase 4 migrates TaskQueue into `concurrency=1` workflow mode. It deletes
-`runMainAgentTaskQueueStepLoop()` as an independent runner. Historical
-TaskQueueRun records remain readable and projectable; new execution goes only
-through Workflow Runtime.
+Phase 4 migrates TaskQueue into `concurrency=1` workflow mode. It deletes the
+old queue-level `main-agent-orchestration` runner as an independent production
+path. Historical TaskQueueRun and queue-decision records remain readable and
+projectable; new queue-level execution goes only through Workflow Runtime.
 
 Phase 5 migrates Scheduler into ready-set/wave/claim/lease workflow mode. It
 moves worker start, validation, audit, and rework into scheduler leaf

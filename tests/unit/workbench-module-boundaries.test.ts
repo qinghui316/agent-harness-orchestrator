@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { Command } from "commander";
 import { createProgram } from "../../src/cli/program.js";
@@ -130,9 +130,6 @@ import {
   runMainAgentSourceRefreshRework,
   runMainAgentTaskRunLifecycle,
   runMainAgentTaskRunAttempt,
-  runMainAgentTaskQueueLifecycle,
-  runMainAgentTaskQueueStepLoop,
-  decideNextMainAgentQueueStep,
   readMainAgentQueueDecisionEvidence,
   evaluateMainAgentWorkflowGraphReplayPolicy,
   buildMainAgentWorkflowGraphReplaySummary,
@@ -165,7 +162,7 @@ import {
 import { closeSchedulerRunBlockedOrExhausted, compileSchedulerIntegrationCandidate } from "../../src/scheduler-runtime/manager.js";
 import { emitValidationAssistantEvents } from "../../src/workflow-runtime/kernel/live-events.js";
 import { executeStartedTaskRunWorkflow } from "../../src/workflow-runtime/kernel/task-run-sequence.js";
-import { startOrResumeWorkflowTaskQueue, validateWorkflowTaskQueueProposalStart } from "../../src/workflow-runtime/taskqueue.js";
+import { runTaskQueueSequentialWorkflow, startOrResumeWorkflowTaskQueue, validateWorkflowTaskQueueProposalStart } from "../../src/workflow-runtime/taskqueue.js";
 import { fetchJson } from "../../src/web/src/api.js";
 import { workflowActionLabel } from "../../src/web/src/action-labels.js";
 import { userFacingText } from "../../src/web/src/formatters.js";
@@ -625,52 +622,34 @@ describe("Workbench module boundaries", () => {
     }
 
     const planningHandlers = readFileSync(join(process.cwd(), "src/workbench/actions/handlers/planning.ts"), "utf8");
-    expect(planningHandlers).toContain("runMainAgentTaskQueueLifecycle");
+    expect(planningHandlers).toContain("runTaskQueueSequentialWorkflow");
     expect(planningHandlers).toContain("recordMainAgentWorkflowGraphObservationAndReplay");
     expect(planningHandlers).not.toContain("recordMainAgentWorkflowGraphObservation(");
     expect(planningHandlers).not.toContain("buildMainAgentWorkflowGraphReplaySummary");
     expect(planningHandlers).not.toContain("renderPlanningBundleSummary");
     expect(planningHandlers).not.toContain("runTaskQueueSequence");
+    expect(planningHandlers).not.toContain("runMainAgentTaskQueueLifecycle");
 
     const actionIndex = readFileSync(join(process.cwd(), "src/workbench/actions/handlers/index.ts"), "utf8");
-    expect(actionIndex).toContain("runMainAgentTaskQueueLifecycle");
+    expect(actionIndex).toContain("runTaskQueueSequentialWorkflow");
     expect(actionIndex).not.toContain("runTaskQueueSequence");
 
-    const taskQueueLifecycle = readFileSync(join(process.cwd(), "src/main-agent-orchestration/taskqueue-lifecycle.ts"), "utf8");
-    expect(taskQueueLifecycle).toContain("runMainAgentTaskQueueLifecycle");
-    expect(taskQueueLifecycle).toContain("runMainAgentTaskQueueStepLoop");
-    expect(taskQueueLifecycle).toContain("ensureMainAgentLoopRun");
-    expect(taskQueueLifecycle).toContain("finishMainAgentLoopRun");
-    expect(taskQueueLifecycle).toContain("recordMainAgentWorkflowGraphObservationAndReplay");
-    expect(taskQueueLifecycle).not.toContain("recordMainAgentWorkflowGraphObservation(");
-    expect(taskQueueLifecycle).not.toContain("buildMainAgentWorkflowGraphReplaySummary");
-    expect(taskQueueLifecycle).not.toContain("while (true)");
-    expect(taskQueueLifecycle).not.toContain("runMainAgentTaskRunLifecycle");
-    expect(taskQueueLifecycle).not.toContain("runMainAgentTaskRunReworkFromFinished");
-    expect(taskQueueLifecycle).not.toContain("startTaskRun");
-    expect(taskQueueLifecycle).not.toContain("findMainAgentTaskQueueStageResumeCandidate");
-    expect(taskQueueLifecycle).not.toContain("../scheduler-runtime/");
-    expect(taskQueueLifecycle).not.toContain("../workbench/actions/");
-    expect(taskQueueLifecycle).not.toContain("../apply/");
-    expect(taskQueueLifecycle).not.toContain("../terminal");
-    expect(taskQueueLifecycle).not.toContain("SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES");
+    expect(existsSync(join(process.cwd(), "src/main-agent-orchestration/taskqueue-lifecycle.ts"))).toBe(false);
+    expect(existsSync(join(process.cwd(), "src/main-agent-orchestration/taskqueue-step-loop.ts"))).toBe(false);
 
-    const taskQueueStepLoop = readFileSync(join(process.cwd(), "src/main-agent-orchestration/taskqueue-step-loop.ts"), "utf8");
-    expect(taskQueueStepLoop).toContain("observeMainAgentQueue");
-    expect(taskQueueStepLoop).toContain("decideNextMainAgentQueueStep");
-    expect(taskQueueStepLoop).toContain("runMainAgentTaskQueueStepLoop");
-    expect(taskQueueStepLoop).toContain("for (let queueStepIndex");
-    expect(taskQueueStepLoop).not.toContain("while (true)");
-    expect(taskQueueStepLoop).toContain("runMainAgentTaskRunLifecycle");
-    expect(taskQueueStepLoop).toContain("runMainAgentTaskRunReworkFromFinished");
-    expect(taskQueueStepLoop).toContain("taskQueueExecutionGate");
-    expect(taskQueueStepLoop).toContain("blockQueuedTaskItem");
-    expect(taskQueueStepLoop).toContain("ownsLoopFinalization: false");
-    expect(taskQueueStepLoop).not.toContain("../scheduler-runtime/");
-    expect(taskQueueStepLoop).not.toContain("../workbench/actions/");
-    expect(taskQueueStepLoop).not.toContain("../apply/");
-    expect(taskQueueStepLoop).not.toContain("../terminal");
-    expect(taskQueueStepLoop).not.toContain("SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES");
+    const taskQueueRuntime = readFileSync(join(process.cwd(), "src/workflow-runtime/taskqueue.ts"), "utf8");
+    expect(taskQueueRuntime).toContain("runTaskQueueSequentialWorkflow");
+    expect(taskQueueRuntime).toContain("getNextQueuedTaskQueueItem");
+    expect(taskQueueRuntime).toContain("runMainAgentTaskRunLifecycle");
+    expect(taskQueueRuntime).toContain("runMainAgentTaskRunReworkFromFinished");
+    expect(taskQueueRuntime).toContain("taskQueueExecutionGate");
+    expect(taskQueueRuntime).toContain("appendWorkflowRunEvent");
+    expect(taskQueueRuntime).not.toContain("recordMainAgentQueueDecisionEvidence");
+    expect(taskQueueRuntime).not.toContain("ensureMainAgentLoopRun");
+    expect(taskQueueRuntime).not.toContain("finishMainAgentLoopRun");
+    expect(taskQueueRuntime).not.toMatch(/from\s+["'](?:\.\.\/)+workbench\//);
+    expect(taskQueueRuntime).not.toMatch(/from\s+["'](?:\.\.\/)+server\//);
+    expect(taskQueueRuntime).not.toMatch(/from\s+["'](?:\.\.\/)+web\//);
 
     const workflowGraphObservation = readFileSync(join(process.cwd(), "src/main-agent-orchestration/workflowgraph-observation.ts"), "utf8");
     expect(workflowGraphObservation).toContain("non-executing-main-agent-workflowgraph-decision-evidence");
@@ -1173,8 +1152,6 @@ describe("Workbench module boundaries", () => {
     expect(typeof hashArtifactRefs).toBe("function");
     expect(typeof readLatestTaskQueueProposal).toBe("function");
     expect(typeof renderWorkflowGraphPlanMarkdown).toBe("function");
-    expect(typeof runMainAgentTaskQueueStepLoop).toBe("function");
-    expect(typeof decideNextMainAgentQueueStep).toBe("function");
     expect(typeof readMainAgentQueueDecisionEvidence).toBe("function");
     expect(typeof compileSchedulerContract).toBe("function");
     expect(typeof renderSchedulerContractMarkdown).toBe("function");
@@ -1190,10 +1167,10 @@ describe("Workbench module boundaries", () => {
     expect(typeof closeSchedulerRunBlockedOrExhausted).toBe("function");
     expect(typeof startOrResumeWorkflowTaskQueue).toBe("function");
     expect(typeof validateWorkflowTaskQueueProposalStart).toBe("function");
+    expect(typeof runTaskQueueSequentialWorkflow).toBe("function");
     expect(typeof runTaskRunMainAgentAttempt).toBe("function");
     expect(typeof runMainAgentTaskRunAttempt).toBe("function");
     expect(typeof runMainAgentTaskRunLifecycle).toBe("function");
-    expect(typeof runMainAgentTaskQueueLifecycle).toBe("function");
     expect(typeof findMainAgentTaskQueueStageResumeCandidate).toBe("function");
     expect(typeof evaluateMainAgentWorkflowGraphReplayPolicy).toBe("function");
     expect(typeof buildMainAgentWorkflowGraphReplaySummary).toBe("function");

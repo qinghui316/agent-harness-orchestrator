@@ -2,7 +2,6 @@ import { getChangeStatusForChange } from "../../../change/manager.js";
 import { assertWritableMemory } from "../../../memory/resolver.js";
 import {
   recordMainAgentWorkflowGraphObservationAndReplay,
-  runMainAgentTaskQueueLifecycle,
 } from "../../../main-agent-orchestration/index.js";
 import {
   initializeSchedulerRuntime,
@@ -64,6 +63,7 @@ import {
 import type { ManagedProject } from "../../../types/index.js";
 import {
   createWorkflowRunForValidatedTaskQueue,
+  runTaskQueueSequentialWorkflow,
   validateWorkflowTaskQueueProposalStart,
 } from "../../../workflow-runtime/taskqueue.js";
 import {
@@ -1963,7 +1963,6 @@ export async function confirmTaskQueueProposalAndStart(
   const latestGraph = await readLatestWorkflowGraphPlan(memory, changePath);
   if (latestGraph.id !== graph.id) throw new Error("planning.taskqueue.confirm-start requires the latest matching WorkflowGraphPlan.");
   const validated = await validateWorkflowTaskQueueProposalStart(memory, project, changeId, proposal.id, graph.id);
-  await recordMainAgentWorkflowGraphObservationAndReplay(memory, project, changeId, { changePath });
   const workflow = await createWorkflowRunForValidatedTaskQueue(memory, project, validated);
   await appendTopicThreadEntry(project, changeId, {
     type: "assistant.message",
@@ -1971,14 +1970,16 @@ export async function confirmTaskQueueProposalAndStart(
     text: `WorkflowGraphPlan ${graph.id} confirmed for start; starting scoped sequential TaskQueue through WorkflowRun ${workflow.id}.`,
     artifact: graph.artifact,
   });
-  const result = await runMainAgentTaskQueueLifecycle(project, changeId, {
-    ...request,
-    actionType: "task.queue.start",
+  const result = await runTaskQueueSequentialWorkflow({
+    project,
+    changeId,
+    prompt: request.prompt,
+    live,
     taskQueueProposalId: proposal.id,
     workflowGraphPlanId: graph.id,
     readinessManifestId: manifest.id,
     decompositionPlanId: proposal.decompositionPlanId,
     workflowRunId: workflow.id,
-  }, live);
+  });
   return result;
 }

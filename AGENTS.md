@@ -6,8 +6,17 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 
 - Current date: 2026-07-07.
 - Active change: none.
-- Pending Harness evolution: none.
+- Pending Harness evolution:
+  `harness/evolution/pending.md` generated after the TaskQueue sequential
+  runtime takeover close; handle it in a separate auto-evolve change if
+  selected.
 - Latest archived product change:
+  `harness/changes/archive/20260707-harness-workflow-runtime-taskqueue-sequential-v0/summary.md`.
+  It moved confirmed TaskQueue start/resume queue-level scheduling into
+  `workflow-runtime`, deleted the old queue-level
+  `main-agent-orchestration` runner production path, and kept TaskRun stage
+  execution plus Scheduler as later compatibility migrations.
+- Previous archived product change:
   `harness/changes/archive/20260707-harness-workflow-runtime-default-code-change-v0/summary.md`.
   It moved ordinary `code.run` default code-change workflow scheduling into
   `HarnessWorkflowRunEngine` v0 while leaving TaskQueue, Scheduler,
@@ -335,8 +344,11 @@ Current baseline:
 - Local manual-gated Workbench has real acceptance through planning, code,
   validation/audit, human apply, and close/archive.
 - Main-agent orchestration remains the current compatibility path for local
-  role and sequential TaskQueue / WorkflowGraph execution, but it is no longer
-  the target architecture owner. The target is the high-cohesion,
+  role execution, but it is no longer the target architecture owner. Confirmed
+  TaskQueue start/resume queue-level scheduling now belongs to
+  `workflow-runtime`; TaskRun stage execution and Scheduler still remain
+  compatibility paths until later migrations. The target is the
+  high-cohesion,
   low-coupling Harness Workflow Runtime documented in
   `docs/design-docs/harness-workflow-runtime-target.md`: fixed role-chain,
   TaskQueue, and Scheduler paths should migrate into one
@@ -345,10 +357,11 @@ Current baseline:
   runtime, leaf, and projection contracts at their owner modules instead of
   repeating full feature-chain tests around each old runner.
   Current role execution still uses observe/decide/run-one-leaf/record step
-  loops; TaskQueue execution still uses a queue-level
-  observe/decide/run-one-item/record step loop with non-executing
-  `queue-decisions.jsonl` evidence. WorkflowGraph observation records
-  non-executing `workflowgraph-decisions.jsonl` evidence, and the read-only
+  loops; after the TaskQueue migration, new queue-level scheduling
+  should be represented by WorkflowRun events plus canonical TaskQueue/TaskRun
+  state rather than new `queue-decisions.jsonl` evidence. WorkflowGraph
+  observation records non-executing `workflowgraph-decisions.jsonl` evidence,
+  and the read-only
   replay summary builder now aggregates canonical manager state plus historical
   graph/queue/role evidence; recovery summary labels evidence completeness;
   the read-only Scheduler candidate assessment can observe low-conflict

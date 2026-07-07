@@ -9,13 +9,7 @@ import { getWorkbenchSnapshot } from "../../src/workbench/manager.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import {
   findMainAgentTaskQueueStageResumeCandidate,
-  buildMainAgentWorkflowGraphReplaySummary,
   mainAgentLoopRunsRoot,
-  readMainAgentLoopEvents,
-  readMainAgentLoopRun,
-  readMainAgentQueueDecisionEvidence,
-  readMainAgentWorkflowGraphDecisionEvidence,
-  runMainAgentTaskQueueLifecycle,
 } from "../../src/main-agent-orchestration/index.js";
 import { listTaskQueueItems, listTaskQueues, pauseTaskQueue, reconcileTaskQueues, startOrResumeTaskQueue } from "../../src/task-queue/manager.js";
 import { finishTaskRunFromWorkflowResult, markTaskRunStarted } from "../../src/task-run/manager.js";
@@ -23,6 +17,7 @@ import { appendWorkflowTaskEvent, listWorkflowRuns, readWorkflowRun, readWorkflo
 import { buildTaskQueueProposalFromReadiness, compileWorkflowGraphPlan, hashArtifactRefs, hashFile, readLatestDecompositionPlan, readLatestDecompositionReadinessManifest, readLatestTaskQueueProposal, readLatestWorkflowGraphPlan, writeDecompositionReadinessManifest, writeTaskQueueProposal } from "../../src/workflow-artifacts/manager.js";
 import { compileSchedulerContract } from "../../src/workflow-scheduler/manager.js";
 import type { TaskQueueRun, WorkflowRun } from "../../src/types/index.js";
+import { runTaskQueueSequentialWorkflow } from "../../src/workflow-runtime/taskqueue.js";
 import {
   getTempDir,
   minimalDecompositionPlan,
@@ -46,12 +41,6 @@ let tempDir: string;
 beforeEach(() => {
   tempDir = getTempDir();
 });
-
-async function onlyMainAgentLoopRunId(memory: Awaited<ReturnType<typeof resolveProjectMemory>>): Promise<string> {
-  const entries = await readdir(mainAgentLoopRunsRoot(memory)).catch(() => []);
-  expect(entries).toHaveLength(1);
-  return entries[0]!;
-}
 
 describe("workbench task runtime domain", () => {
   it("disables task run actions for archived topics without losing TaskGraph facts", async () => {
@@ -674,34 +663,7 @@ describe("workbench task runtime domain", () => {
     await expect(readWorkflowRunEvents(memory, "workflow-resume-evidence", prepared.workflowRunId)).resolves.toEqual(
       expect.arrayContaining([expect.objectContaining({ type: "task.completed", taskId: "T-001" })]),
     );
-    const loopRunId = await onlyMainAgentLoopRunId(memory);
-    const loopRun = await readMainAgentLoopRun(memory, loopRunId);
-    const loopEvents = await readMainAgentLoopEvents(memory, loopRunId);
-    const queueDecisions = await readMainAgentQueueDecisionEvidence(memory, loopRunId);
-    expect(loopRun).toMatchObject({ entrypoint: "task-queue", status: "completed" });
-    expect(queueDecisions.map((decision) => decision.decision.kind)).toEqual(["run-next-item", "complete"]);
-    expect(queueDecisions.every((decision) => decision.authority === "non-executing-main-agent-queue-step-evidence")).toBe(true);
-    expect(queueDecisions.every((decision) => decision.executionStarted === false)).toBe(true);
-    expect(queueDecisions[0]).toMatchObject({
-      observation: {
-        queueRunId: startedQueue.queue.id,
-        workflowRunId: prepared.workflowRunId,
-        taskQueueProposalId: prepared.proposalId,
-        workflowGraphPlanId: prepared.workflowGraphPlanId,
-      },
-      decision: {
-        kind: "run-next-item",
-        selectedItemId: items[0]?.id,
-        taskId: "T-001",
-      },
-      refs: {
-        taskQueueRunIds: [startedQueue.queue.id],
-        taskQueueItemIds: [items[0]?.id],
-        workflowRunIds: [prepared.workflowRunId],
-      },
-    });
-    expect(loopEvents.filter((event) => event.entrypoint === "task-queue" && event.type === "decision.recorded").map((event) => event.decisionEvidenceId)).toEqual(queueDecisions.map((decision) => decision.id));
-    expect(loopEvents.some((event) => event.type === "loop.completed")).toBe(true);
+    await expect(readdir(mainAgentLoopRunsRoot(memory))).rejects.toThrow();
   });
 
   it("does not resume a queue item from TaskRun evidence bound to another queue", async () => {
@@ -735,45 +697,28 @@ describe("workbench task runtime domain", () => {
     const prepared = await prepareConfirmedTaskQueueProposalWithWorkflow("workflow-queue-pause", ["T-001"]);
     const memory = await resolveProjectMemory(project());
 
-    const result = await runMainAgentTaskQueueLifecycle(project(), "workflow-queue-pause", {
-      actionType: "task.queue.start",
+    const result = await runTaskQueueSequentialWorkflow({
+      project: project(),
       changeId: "workflow-queue-pause",
       workflowRunId: prepared.workflowRunId,
       taskQueueProposalId: prepared.proposalId,
       workflowGraphPlanId: prepared.workflowGraphPlanId,
       readinessManifestId: prepared.readinessManifestId,
       decompositionPlanId: prepared.decompositionPlanId,
-      confirm: true,
-    }, {
+      live: {
       emit: () => undefined,
       isClosed: () => true,
+      },
     });
     const queueResult = result as { queue: TaskQueueRun };
 
     expect(result).toMatchObject({
       queue: expect.objectContaining({ status: "paused", pausedReason: "队列已暂停，等待继续。" }),
     });
-    const loopRunId = await onlyMainAgentLoopRunId(memory);
-    const loopRun = await readMainAgentLoopRun(memory, loopRunId);
-    const queueDecisions = await readMainAgentQueueDecisionEvidence(memory, loopRunId);
-    const loopEvents = await readMainAgentLoopEvents(memory, loopRunId);
-    expect(loopRun).toMatchObject({ entrypoint: "task-queue", status: "stopped" });
-    expect(queueDecisions.map((decision) => decision.decision.kind)).toEqual(["pause"]);
-    expect(loopEvents.filter((event) => event.type === "leaf.started")).toHaveLength(0);
-    const graphDecisions = await readMainAgentWorkflowGraphDecisionEvidence(memory, "workflow-queue-pause");
-    expect(graphDecisions.at(-1)).toMatchObject({
-      authority: "non-executing-main-agent-workflowgraph-decision-evidence",
-      executionStarted: false,
-    });
-    const replay = await buildMainAgentWorkflowGraphReplaySummary(memory, project(), "workflow-queue-pause");
-    expect(replay).toMatchObject({
-      authority: "read-only-main-agent-workflowgraph-replay-summary",
-      executionStarted: false,
-    });
-    const nextObservation = JSON.stringify(replay.nextObservation);
-    expect(nextObservation).not.toContain("actionType");
-    expect(nextObservation).not.toContain("confirmationQueue");
-    expect(nextObservation).not.toContain("recommendedAction");
+    await expect(readdir(mainAgentLoopRunsRoot(memory))).rejects.toThrow();
+    await expect(readWorkflowRunEvents(memory, "workflow-queue-pause", prepared.workflowRunId)).resolves.toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: "workflow.paused", queueRunId: queueResult.queue.id })]),
+    );
     const items = await listTaskQueueItems(memory, "workflow-queue-pause", queueResult.queue.id);
     expect(items).toEqual([expect.objectContaining({ status: "queued" })]);
     expect(items[0]?.taskRunId).toBeUndefined();
@@ -803,8 +748,8 @@ describe("workbench task runtime domain", () => {
       decompositionPlanId: prepared.decompositionPlanId,
     });
 
-    const result = await runMainAgentTaskQueueLifecycle(project(), "workflow-item-scope-missing", {
-      actionType: "task.queue.start",
+    const result = await runTaskQueueSequentialWorkflow({
+      project: project(),
       changeId: "workflow-item-scope-missing",
       workflowRunId: prepared.workflowRunId,
       taskQueueProposalId: prepared.proposalId,
@@ -812,8 +757,7 @@ describe("workbench task runtime domain", () => {
       readinessManifestId: prepared.readinessManifestId,
       decompositionPlanId: prepared.decompositionPlanId,
       queueRunId: startedQueue.queue.id,
-      confirm: true,
-    }, undefined);
+    });
 
     expect(result).toMatchObject({
       queue: expect.objectContaining({ status: "failed" }),

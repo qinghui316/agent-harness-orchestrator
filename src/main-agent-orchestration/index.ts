@@ -19,17 +19,6 @@ export {
   type MainAgentTaskRunLifecycleResult,
 } from "./taskrun-lifecycle.js";
 export {
-  runMainAgentTaskQueueLifecycle,
-} from "./taskqueue-lifecycle.js";
-export {
-  decideNextMainAgentQueueStep,
-  observeMainAgentQueue,
-  runMainAgentTaskQueueStepLoop,
-  type MainAgentQueueDecision,
-  type MainAgentQueueObservation,
-  type MainAgentQueueStepResult,
-} from "./taskqueue-step-loop.js";
-export {
   findMainAgentTaskQueueStageResumeCandidate,
   executeMainAgentResumedTaskRunStage,
 } from "./taskqueue-stage-resume.js";
