@@ -37,10 +37,11 @@ The default interaction is one demand conversation:
 ```text
 user demand
 -> read-only project understanding when needed
--> main Agent explains understanding and delegates planning when needed
+-> main Agent forms the current Goal brief, state brief, and constraints
+-> main Agent delegates planning to Plan Agent when needed
 -> Plan session or real planning-agent conversation in the right Agent workspace
--> user feedback / revised plan in the owning Plan or child-agent workspace
--> explicit execution handoff back to the main Agent / runtime
+-> plan execution / revision handoff returns through the main conversation pending composer
+-> explicit execution intent goes back to the main Agent / runtime
 -> coder-agent implements and self-tests in an AHO-owned worktree
 -> optional live steering while coder is running
 -> validator independently checks
@@ -53,13 +54,14 @@ user demand
 This is the current default code-change template, not a universal agent-order rule. Future orchestration may let the main agent clarify, split, delegate, retry, or stop for user input in a different order, while write-capable actions and high-impact transitions still remain bound to Change, evidence, and human gates.
 
 Future Goal-driven loop UX should keep that same user surface. The center
-conversation should say what goal is active, what evidence changed, and why the
-main Agent wants to continue, run sequentially, fan out low-conflict worktree
-slices, wait, repair, or ask the user. The right confirmation queue should show
-only the current real gate. Users should not have to understand TaskRun,
-WorkerLease, SchedulerRun, WorkflowRun, recovery keys, or queue internals to
-complete the demand. Those terms belong in Agent orchestration graph details, evidence
-drawers, or developer docs.
+conversation should say what visible Goal is active, what evidence changed,
+and why the main Agent wants to continue, request a Plan revision, run
+sequentially, fan out low-conflict worktree slices, wait, repair, or ask the
+user. The right confirmation queue should show only the current real gate.
+Users should not have to understand TaskRun, WorkerLease, SchedulerRun,
+WorkflowRun, recovery keys, or queue internals to complete the demand. Those
+terms belong in Agent orchestration graph details, evidence drawers, or
+developer docs.
 
 For the chat-only Workbench center, the primary conversation must stay clean:
 real user messages, real Codex/assistant output, compact delegation/result
@@ -77,12 +79,14 @@ The right rail separates interaction surfaces by responsibility. The center
 conversation is the main Agent surface, so the right `Agent` workspace shows
 only provider-owned Plan sessions and child-agent surfaces such as
 planning-agent, coder, validator, auditor, rework, or scheduler worker. It
-shows transcript / process rows, plan items, runtime question cards, feedback,
-output summaries, and evidence refs for that selected surface. `确认` shows only real Harness
+shows transcript / process rows, plan items, compact runtime activity,
+output summaries, and evidence refs for that selected surface. User-blocking
+Plan handoff and provider question cards belong in the main composer pending
+stack, not duplicated in the right Agent workspace. `确认` shows only real Harness
 gates such as source apply, landing/close, Scheduler/IntegrationCheck,
 remote/PR/merge, abandon/request-changes, or Harness evolution. Provider-native
 Plan sessions are runtime conversation surfaces: they show plan text, question
-cards, and user feedback, but they do not create a Harness Change, write a
+conversation, and free user feedback, but they do not create a Harness Change, write a
 planning bundle, or expose a Workbench planning action. The workspace is a
 projection and scoped interaction surface, not workflow truth or a permission
 system.
@@ -111,6 +115,14 @@ boundaries, but it must not synthesize business planning artifacts from a chat
 message or Plan Mode transcript. If the plan is incomplete, the Plan session
 continues the conversation instead of showing a fake plan or hidden generated
 bundle.
+
+Plan handoff is a main-Agent intent surface. `Execute` and `revise plan`
+feedback go first to the main Agent, which checks the current Goal brief,
+project evidence, and Harness constraints before deciding whether to ask Plan
+Agent for revision or move a confirmed WorkflowPlan into runtime execution.
+The handoff must not directly call workflow actions, create a Change, grant
+permissions, or send revision feedback straight to Plan Agent without the main
+Agent review step.
 
 OpenSpec is the reference for the planning artifact flow. Proposal, spec,
 design, tasks, and AC are artifacts produced by an Agent following project

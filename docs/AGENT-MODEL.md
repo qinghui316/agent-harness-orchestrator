@@ -6,6 +6,24 @@ AHO's final agent model is a constrained development workflow model, not a gener
 
 Agents are role contracts that operate on accepted Change, Coding Work Package, TaskGraph, scoped worktrees, durable artifacts, validation, audit, and human gates. They hand off through evidence, not through unbounded shared conversation.
 
+The final Goal / Plan split is:
+
+```text
+Main Agent
+  -> owns current Goal brief, state review, constraints, handoff, and next-round completion judgment
+Plan Agent
+  -> owns Plan / WorkflowPlan drafting and revision from that Goal brief and scoped evidence
+Workflow Runtime
+  -> owns confirmed execution orchestration
+Leaf Agents
+  -> execute one scoped node and return evidence
+```
+
+Goal is required as a visible objective and done-criteria brief, but it is not
+hidden project memory. Project memory remains Harness docs/evidence. Plan
+Agent output is proposal content until user confirmation promotes it into
+runtime input.
+
 ## 2. Reference Grounding
 
 ### AgentScope 2.0
@@ -94,11 +112,21 @@ OpenSpec's useful lesson is the planning artifact flow:
 - implementation starts after the planning artifacts are coherent enough;
 - verification compares implementation against the artifacts before archive.
 
-AHO maps this to the main planning-agent stage. `spec-agent` and `planner-agent` are better treated as internal capabilities of one user-facing demand conversation, not as two mandatory conversations. The planning-agent may produce requirement, design, task, and AC artifacts, but those artifacts remain proposals until user confirmation promotes them into AHO's canonical Change state. In Phase 6E, `planning-agent` may run through Codex app-server so the user can steer or interrupt the active planning turn; when app-server is unavailable, the same role falls back to `codex exec` and feedback is applied on the next turn.
+AHO maps this to the Plan Agent stage inside one user-facing demand
+conversation. The main Agent supplies the current Goal brief and scoped
+evidence; Plan Agent may produce requirement, design, task, AC, and
+WorkflowPlan proposal content. `spec-agent` and `planner-agent` are better
+treated as internal capabilities of that Plan Agent surface, not as two
+mandatory conversations. Those artifacts remain proposals until user
+confirmation promotes them into AHO's canonical Change state or runtime input.
+In Phase 6E, `planning-agent` may run through Codex app-server so the user can
+steer or interrupt the active planning turn; when app-server is unavailable,
+the same role falls back to `codex exec` and feedback is applied on the next
+turn.
 
 ### Open Dynamic Workflows
 
-Open Dynamic Workflows adds the algorithm reference for the target Harness Workflow Runtime described in `docs/design-docs/harness-workflow-runtime-target.md`. Its useful shape is: the main model authors bounded control flow, the runtime executes leaf `agent()` calls, `pipeline()` advances independent items without unnecessary barriers, `parallel()` is used only when a later stage needs all prior results, and a journal can resume completed leaf calls.
+Open Dynamic Workflows adds the algorithm reference for the target Harness Workflow Runtime described in `docs/design-docs/harness-workflow-runtime-target.md`. Its useful shape is: an Agent-authored workflow artifact describes bounded control flow, the runtime executes leaf `agent()` calls, `pipeline()` advances independent items without unnecessary barriers, `parallel()` is used only when a later stage needs all prior results, worktree isolation is a write-leaf option, and a journal can resume completed leaf calls.
 
 AHO should borrow this as internal runtime mechanics, not as a generic agent framework. Phase 7H treats DecompositionPlan as a main-agent proposal only: user confirmation records the accepted direction but does not yet compile it into child Changes, TaskGraph execution units, AgentTasks, worktrees, runs, validation, audit, or synthesis records. Phase 7I adds DecompositionReadinessManifest as a guardrail verdict for that confirmed proposal. Phase 7J makes the verdict a code-producing execution precondition: `ready-for-single-change` can authorize direct `code.run`, while sequential readiness must pass through TaskQueueProposal generation. Phase 7L compiles a confirmed sequential proposal into a versioned WorkflowGraphPlan before TaskQueue start; the current graph is AHO-owned typed execution input, not a model-authored JavaScript script. Phase 7K adds WorkflowRun journal/recovery evidence for confirmed sequential queues. The target is to evolve that typed graph into the single `HarnessWorkflowRunEngine` input for default code-change, TaskQueue, Scheduler wave, and future leaf/subagent modes. Worker roles remain leaves. They cannot call `delegateTask`, create child Changes, spawn workflow agents, apply, merge, close, archive, or rewrite canonical docs unless a later AgentSpec and ToolPolicyGate explicitly grant a bounded capability.
 
@@ -164,7 +192,7 @@ Phase 7E adds the role context packet boundary to that path. Core worker runs re
 
 Phase 7F moves the default foreground role-order policy into `MainAgentOrchestrationDecisionEngine`. Workbench still executes the existing code-change template, but next-step selection is now derived from recorded role evidence and failure classification. Validation or audit failure can trigger one bounded `rework-coder` attempt; boundary or code failure stops the pipeline; exhausted rework budget returns to user input. This is current compatibility and a first step toward graph-owned orchestration, not the final runtime owner and not worker-to-worker delegation. The target is to retire this engine as a runtime entrypoint and compile the same behavior as `default-code-change-workflow`.
 
-Future WorkflowPlan / DecompositionPlan support sits above Phase 7F and should feed the target Workflow Runtime. The main agent may propose whether a demand remains one Coding Work Package, splits into TaskGraph execution units, splits into multiple child Changes, or needs clarification. User confirmation is required before Harness materializes those targets. Leaf agents still receive scoped context packets and return artifact-backed results; scheduling comes from `HarnessWorkflowRunEngine`, not from leaves mutually delegating or from Codex freely spawning Harness-authoritative workers.
+Future WorkflowPlan / DecompositionPlan support sits above Phase 7F and should feed the target Workflow Runtime. The main Agent may decide that a plan is needed, supply the Goal brief and scoped evidence, and review Plan Agent output. Plan Agent drafts whether a demand remains one Coding Work Package, splits into TaskGraph execution units, splits into multiple child Changes, or needs clarification. User confirmation is required before Harness materializes those targets. Leaf agents still receive scoped context packets and return artifact-backed results; scheduling comes from `HarnessWorkflowRunEngine`, not from leaves mutually delegating or from Codex freely spawning Harness-authoritative workers.
 
 Boundary enforcement has three explicit modes:
 

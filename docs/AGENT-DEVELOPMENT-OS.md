@@ -45,9 +45,11 @@ OpenSpec is the planning reference for this part of the loop. AHO should use one
 The target AHO loop combines several reference patterns without copying any one
 authority model:
 
-- Codex Goal contributes persistent objective state, continuation across turns,
-  explicit blocked/completed lifecycle, and completion audit. AHO maps this to a
-  persistent Goal/Change, not to Codex thread state as workflow truth.
+- Codex Goal contributes the provider pattern for a visible objective,
+  continuation across turns, explicit blocked/completed lifecycle, and
+  completion audit. AHO maps this to the main Agent's visible Goal brief plus
+  selected Change scope, not to hidden durable Goal state and not to Codex
+  thread state as workflow truth.
 - Loop Engineering contributes the control pattern: act, observe current
   evidence, reason about the next legal strategy, and repeat. AHO uses this to
   let the main Agent decide between read-only analysis, sequential work,

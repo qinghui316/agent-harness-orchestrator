@@ -16,6 +16,16 @@ The user should not need to know internal terms before asking for work. The main
 
 Current implementation state: no active implementation slice.
 
+Goal is the main Agent's visible objective brief and completion standard for a
+round, reconstructed from Harness docs/evidence. It is not project memory and
+not hidden durable state. Existing GoalLoop decision / packet / controller
+policy artifacts are compatibility evidence for prompt context, projection
+freshness, and explicit gate handoff; they are not the target architecture for
+continuing to grow a backend Goal state machine. Future Goal-loop work should
+keep the main Agent responsible for reading evidence, deciding whether the Goal
+is complete, asking Plan Agent to revise Plan / WorkflowPlan when needed, and
+letting Workflow Runtime execute only confirmed workflow input.
+
 Latest completed implementation slice:
 `harness/changes/archive/20260707-harness-workflow-runtime-taskqueue-sequential-v0/summary.md`.
 It moves confirmed TaskQueue sequential start/resume queue-level scheduling into
@@ -313,10 +323,11 @@ apply/close, remote, PR, merge, or Harness evolution authority.
 
 The target architecture is a Goal-driven Workflow Loop, not a Scheduler-first
 product. After the user confirms the goal, boundaries, accepted plan, and
-permission profile, the main Agent keeps a persistent Goal/Change in view,
-re-reads current evidence, chooses the next legal strategy, records new
-evidence, and repeats until the demand is completed, blocked, or reaches a
-high-impact human gate.
+permission profile, the main Agent keeps a visible Goal brief and selected
+Change scope in view, re-reads current evidence, chooses the next legal
+strategy, records new evidence, and repeats until the demand is completed,
+blocked, or reaches a high-impact human gate. The Goal brief is not hidden
+project memory; cross-session recovery comes from Harness docs/evidence.
 
 User responsibility stays small and explicit:
 

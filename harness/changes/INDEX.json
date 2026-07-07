@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-07-07T11:41:13.8761922Z",
+    "generated_at":  "2026-07-07T13:16:44.4764535Z",
     "active":  [
 
                ],
@@ -2585,6 +2585,10 @@
                     {
                         "name":  "20260707-provider-native-a2a-real-ui-acceptance-fix-pass-v1",
                         "path":  "harness/changes/archive/20260707-provider-native-a2a-real-ui-acceptance-fix-pass-v1"
+                    },
+                    {
+                        "name":  "20260707-unified-agent-authored-workflowplan-architecture-correction-v1",
+                        "path":  "harness/changes/archive/20260707-unified-agent-authored-workflowplan-architecture-correction-v1"
                     }
                 ]
 }

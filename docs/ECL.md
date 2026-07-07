@@ -404,7 +404,7 @@ Future autonomous, semi-autonomous, or Goal-driven loop changes must record how 
 
 The review must state:
 
-- the persistent Goal/Change or selected demand scope the loop uses;
+- the visible Goal brief and selected demand / Change scope the loop uses;
 - the owner module for loop policy or scheduler policy;
 - which evidence the loop reads before each continuation;
 - how low-conflict parallel slices are distinguished from high-conflict sequential / rework / IntegrationFix slices;

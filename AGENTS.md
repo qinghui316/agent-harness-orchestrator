@@ -1,4 +1,4 @@
-# Agent Harness Orchestrator Agent Guide
+﻿# Agent Harness Orchestrator Agent Guide
 
 Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Spec-Anchored Harness Kernel. It turns natural-language development demand into project-scoped conversations, durable Change/Workpad/TaskGraph state, constrained agent runs, validation/audit evidence, and human-gated apply/landing decisions.
 
@@ -7,507 +7,63 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Current date: 2026-07-07.
 - Active change: none.
 - Pending Harness evolution: none.
-- Latest archived product change:
+- Latest archived docs/architecture change:
+  `harness/changes/archive/20260707-unified-agent-authored-workflowplan-architecture-correction-v1/summary.md`.
+  It corrected the Goal / Plan / Workflow / worktree target: main Agent owns
+  the visible Goal brief and next-round judgment, Plan Agent drafts or revises
+  Plan / WorkflowPlan, Workflow Runtime owns orchestration, write-capable leaves
+  use AHO-owned worktrees, and Harness docs/evidence remain project memory.
+- Latest archived runtime change:
   `harness/changes/archive/20260707-harness-workflow-runtime-taskqueue-sequential-v0/summary.md`.
   It moved confirmed TaskQueue start/resume queue-level scheduling into
-  `workflow-runtime`, deleted the old queue-level
-  `main-agent-orchestration` runner production path, and kept TaskRun stage
-  execution plus Scheduler as later compatibility migrations.
-- Previous archived product change:
+  `workflow-runtime`; TaskRun stage execution and Scheduler worker paths remain
+  compatibility migration targets.
+- Previous runtime change:
   `harness/changes/archive/20260707-harness-workflow-runtime-default-code-change-v0/summary.md`.
   It moved ordinary `code.run` default code-change workflow scheduling into
-  `HarnessWorkflowRunEngine` v0 while leaving TaskQueue, Scheduler,
-  `task.run.start`, and `task.run.retry` on compatibility paths.
-- Previous archived product change:
+  `HarnessWorkflowRunEngine` v0.
+- Latest Workbench UI repair:
   `harness/changes/archive/20260707-main-agent-transcript-lazy-restore-leak-fix-v1/summary.md`.
-  It fixed the post-handoff repair regression where opening/restoring a topic
-  could lazy-load persisted runtime transcript blocks back into the center
-  parent-agent conversation, and stopped bound conversations from redirecting
-  the selected topic to their bound Change.
-- Previous archived product change:
+  Earlier Plan handoff repair is archived at
   `harness/changes/archive/20260707-main-agent-plan-handoff-pending-composer-agent-transcript-repair-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260707-main-agent-plan-handoff-question-surface-v1/summary.md`.
-- Latest archived docs/architecture change:
-  `harness/changes/archive/20260707-harness-workflow-runtime-target-architecture-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260707-provider-native-a2a-real-ui-acceptance-fix-pass-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260706-provider-native-agent-authored-planning-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260705-provider-native-a2a-runtime-alignment-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260704-native-codex-plan-question-flow-alignment-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260704-main-agent-a2a-native-interaction-alignment-v3/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260704-main-agent-native-codex-interaction-alignment-v2-1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260704-codex-native-plan-mode-planning-agent-repair-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260703-workbench-conversation-harness-identity-real-ui-acceptance-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260703-workbench-conversation-harness-identity-separation-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260703-workbench-conversation-delete-harness-resume-entry-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260703-main-agent-real-a2a-flow-audit-repair-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260702-main-agent-child-agent-workspace-flow-v2/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260702-main-agent-goal-style-real-codex-ui-acceptance-fix-pass-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260702-main-agent-llm-strategy-advice-production-goal-acceptance-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260702-main-agent-strategy-policy-v2b-bounded-advice-consumption/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260702-main-agent-strategy-policy-v2a-stale-first-readonly-advice/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260702-main-agent-resume-consumption-v1c-scoped-local-gated-continuation/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260702-main-agent-resume-consumption-context-v1b/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260702-main-agent-resumepoint-stable-key-safety-v1a/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260702-main-agent-odwf-style-human-stop-resume-point-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260702-main-agent-odwf-style-strategy-policy-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260702-main-agent-strategy-consumption-readonly-safety-fix-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260702-main-agent-strategy-consumption-execution-mode-bridge-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260702-main-agent-strategy-decision-contract-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260702-main-agent-loop-projection-retirement-v6/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260702-main-agent-old-seam-retirement-v5d-inbound-only-action-alias-finalization/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260701-main-agent-old-seam-retirement-v5c-role-pipeline-action-alias-readiness/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260701-main-agent-old-seam-retirement-v5b-remove-workpad-rolepipeline-read-model-output/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260701-main-agent-old-seam-retirement-v5a-rolepipeline-read-model-canonicalization/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260701-main-agent-old-seam-retirement-v4-canonical-payload-default-audit/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260701-main-agent-old-seam-retirement-v3-action-alias-compatibility-bridge/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260701-main-agent-old-seam-retirement-v2-action-normalization-bridge/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260701-main-agent-old-seam-retirement-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260701-main-agent-controlled-scheduler-integrationcheck-backflow-v1c/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260701-main-agent-controlled-scheduler-worker-runtime-backflow-v1b/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260701-main-agent-controlled-scheduler-state-backflow-v1a/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260701-main-agent-controlled-scheduler-result-policy-consumption-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260701-main-agent-controlled-scheduler-step-ownership-bridge-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260701-main-agent-controlled-scheduler-integration-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260701-main-agent-scheduler-candidate-assessment-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260701-main-agent-workflowgraph-recovery-evidence-summary-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260701-main-agent-bridge-integration-acceptance-closeout-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260701-main-agent-workflowgraph-policy-v2-replay-failure-boundary/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260701-main-agent-workflowgraph-replay-consumption-roadmap-sync-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260701-main-agent-workflowgraph-decision-policy-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260701-main-agent-workflowgraph-replay-summary-builder-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260701-main-agent-workflowgraph-observation-cleanup-queue-wrapper-removal-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260701-main-agent-workflowgraph-observation-evidence-queue-wrapper-drain-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260630-main-agent-workflowgraph-queue-step-loop-contract-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260630-main-agent-taskqueue-workflowgraph-lifecycle-ownership-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260630-main-agent-taskrun-lifecycle-rework-ownership-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260630-main-agent-decision-to-action-bridge-contract-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260630-main-agent-next-step-decision-evidence-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260630-main-agent-loop-evidence-envelope-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260630-main-agent-orchestration-step-loop-contract-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260630-main-agent-orchestration-legacy-facade-retirement-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260630-main-agent-orchestration-old-pipeline-removal-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260630-main-agent-projection-de-expose-safety-fix-v2/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260630-main-agent-loop-projection-contract-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260630-document-main-agent-continuous-orchestration-roadmap-and-clean-conversation-evidence-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260630-workbench-chat-only-center-orchestration-top-tool-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260630-workbench-reference-style-compact-composer-context-menu-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260630-workbench-reference-style-composer-context-sources-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260630-workbench-reference-style-full-page-settings-surface-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260630-workbench-reference-style-project-identity-display-name-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260629-workbench-reference-style-readonly-git-history-rail-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260629-workbench-right-rail-git-diagnostics-reference-polish-v2/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260629-workbench-reference-style-compact-git-diagnostics-rail-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260629-workbench-right-rail-owns-right-tool-content-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260629-workbench-runtime-activity-log-sanitize-private-paths-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260629-workbench-readonly-runtime-activity-log-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260629-workbench-provider-product-mode-runtime-boundary-v2/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260629-workbench-provider-capability-registry-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260629-workbench-codex-style-top-tool-alignment-right-launcher-terminal-squeeze-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260629-workbench-reference-style-light-terminal-dock-polish-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260629-workbench-codex-style-terminal-toggle-runtime-diagnostics-dock-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260629-workbench-reference-style-project-terminal-dock-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260629-workbench-composer-attachments-first-demand-staging-v2/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260628-workbench-reference-style-composer-attachments-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260628-aho-harness-onboarding-skill-quality-pass-v3/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260628-workbench-first-onboarding-aho-harness-skill-package-v2/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260628-workbench-system-aho-harness-onboarding-skill-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260628-workbench-reference-style-sidebar-and-skills-polish-v2/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260628-workbench-reference-style-sidebar-cleanup-and-skill-availability-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260628-workbench-reference-style-product-shell-polish-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260628-workbench-reference-style-left-sidebar-and-project-preparation-ux-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260628-workbench-reference-style-app-data-and-real-codex-skills-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260628-workbench-reference-style-sidebar-settings-skills-ui-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260628-workbench-ui-acceptance-deeplink-restore-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260627-workbench-reference-style-subtle-transcript-activity-rows-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260627-workbench-reference-style-transcript-reading-surface-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260627-workbench-reference-style-readonly-git-status-diff-panel-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260627-workbench-reference-style-codex-runtime-model-picker-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260627-workbench-reference-style-codex-model-selection-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260627-workbench-minimal-right-tool-rail-files-panel-v1/summary.md`.
-- Previous archived product change:
-  `harness/changes/archive/20260627-workbench-reference-style-file-reference-composer-v1/summary.md`.
-- Latest archived docs/reference change:
-  `harness/changes/archive/20260629-document-aho-hybrid-desktop-native-roadmap-v1/summary.md`.
-- Previous archived docs/reference change:
-  `harness/changes/archive/20260626-document-desktop-cc-gui-reference-map-and-product-layer-roadmap/summary.md`.
-- Latest completed Harness evolution:
-  `harness/changes/archive/20260707-auto-evolve-post-workflow-runtime-taskqueue-window/summary.md`
-  (`docs_current_delta`; subagent Russell; existing
-  ECL/BOUNDARIES/runtime-target coverage is sufficient for Workflow Runtime
-  default-code and TaskQueue takeover, old-runner retirement, owner-level
-  tests, Plan handoff UI honesty, provider-event truth, and transcript
-  source-boundary rules; repaired target-doc handoff drift; no new
-  rule/template/lint/CI/runtime change required. Pending evolution was marked
-  complete).
-- Previous completed Harness evolution:
-  `harness/changes/archive/20260707-auto-evolve-post-workflow-runtime-and-handoff-window/summary.md`
-  (`docs_current_delta`; independent review; existing
-  ECL/BOUNDARIES/WORKBENCH/RUNTIME coverage is sufficient for Workflow Runtime
-  target architecture, provider-event truth, owner-aligned testing topology,
-  and corrected Plan handoff pending-stack state; no new
-  rule/template/lint/CI/runtime change required. Pending evolution was marked
-  complete).
-- Previous completed Harness evolution:
-  `harness/changes/archive/20260706-auto-evolve-post-provider-native-agent-authored-planning-window/summary.md`
-  (`docs_current_delta`; subagent Harvey score 86; existing
-  ECL/BOUNDARIES/WORKBENCH/RUNTIME coverage is sufficient for provider-native
-  A2A and Agent-authored planning; repaired current docs for planning
-  authorship and handoff drift; no rule/template/lint/CI/runtime change
-  required. Pending evolution was marked complete).
-- Previous completed Harness evolution:
-  `harness/changes/archive/20260704-auto-evolve-post-native-codex-plan-mode-window/summary.md`
-  (`docs_current_delta`; existing ECL/BOUNDARIES/WORKBENCH/RUNTIME coverage is
-  sufficient for native Codex Plan Mode, conversation identity, real UI
-  acceptance, and A2A workspace scoping; no new rule/template/lint/CI/runtime
-  change required. Pending evolution was marked complete).
-- Previous completed Harness evolution:
-  `harness/changes/archive/20260703-auto-evolve-post-real-a2a-conversation-delete-window/summary.md`
-  (`docs_current_delta`; subagent Socrates; existing ECL/BOUNDARIES plus
-  Workbench/RUNTIME/BOUNDARIES docs cover real Codex A2A acceptance,
-  child-agent workspace projection, LLM strategy advice, and conversation
-  delete truth separation; no new rule/template/lint/CI/runtime change
-  required. Pending evolution was marked complete).
-- Previous completed Harness evolution:
-  `harness/changes/archive/20260702-auto-evolve-post-main-agent-llm-strategy-advice-window/summary.md`
-  (`docs_current_delta`; subagent Rawls score 88; existing ECL/BOUNDARIES
-  coverage is sufficient for current-run LLM strategy advice metadata,
-  one-shot bounded policy consumption, scoped resume/automation,
-  full-access/human gates, and worker boundary; no ECL/template/lint/CI or
-  product runtime change needed. Pending evolution was marked complete).
-- Previous completed Harness evolution:
-  `harness/changes/archive/20260702-auto-evolve-post-resume-continuation-window/summary.md`
-  (`docs_current_delta`; subagent Cicero; existing ECL/BOUNDARIES coverage is
-  sufficient for non-executing strategy/resume evidence and stable-key
-  continuation; no new Harness rule/template/lint/product runtime change
-  needed. Current handoff drift was repaired and pending evolution was marked
-  complete).
-- Previous completed Harness evolution:
-  `harness/changes/archive/20260702-auto-evolve-post-main-agent-strategy-consumption-window/summary.md`
-  (`docs_current_delta`; subagents Beauvoir/Godel score 82; existing
-  ECL/BOUNDARIES coverage is sufficient for the strategy decision/consumption
-  and read-only safety archive window; no new Harness rule/template/lint or
-  product runtime change needed. Current handoff drift was repaired before
-  pending evolution was marked complete).
-- Previous completed Harness evolution:
-  `harness/changes/archive/20260702-auto-evolve-post-main-agent-action-alias-window/summary.md`
-  (`docs_current_delta`; subagent Peirce score 78; existing ECL/BOUNDARIES
-  coverage is sufficient for V5a-V5d action-alias lessons; no ECL rule,
-  Harness template, lint, or product runtime change needed. Current-plan
-  pending-state drift was repaired before pending evolution was marked
-  complete).
-- Previous completed Harness evolution:
-  `harness/changes/archive/20260701-auto-evolve-post-main-agent-old-seam-retirement-window/summary.md`
-  (`noop`; subagent Singer score 86; existing ECL/BOUNDARIES coverage is
-  sufficient for the controlled Scheduler backflow and main-agent old-seam
-  retirement archive window; no new Harness rule/template/product runtime
-  change needed, pending evolution marked complete).
-- Previous completed Harness evolution:
-  `harness/changes/archive/20260701-auto-evolve-post-controlled-scheduler-backflow-window/summary.md`
-  (`noop`; subagent Carver score 88; existing ECL/BOUNDARIES coverage is
-  sufficient for the controlled Scheduler result/state/worker/IntegrationCheck
-  backflow archive window; no new Harness rule/template/product runtime change
-  needed, pending evolution marked complete).
-- Previous completed Harness evolution:
-  `harness/changes/archive/20260701-auto-evolve-post-controlled-scheduler-bridge-window/summary.md`
-  (`noop`; subagent Hilbert score 90; existing ECL/BOUNDARIES coverage is
-  sufficient for the main-agent recovery / Scheduler candidate / controlled
-  Scheduler bridge archive window; no new Harness rule/template/product
-  runtime change needed, pending evolution marked complete).
-- Previous completed Harness evolution:
-  `harness/changes/archive/20260701-auto-evolve-post-main-agent-policy-bridge-window/summary.md`
-  (`noop`; subagent Linnaeus score 92; existing ECL/BOUNDARIES coverage is
-  sufficient for the main-agent replay / policy / bridge evidence archive
-  window; no new Harness rule/template/product runtime change needed, pending
-  evolution marked complete).
-- Earlier completed Harness evolution:
-  `harness/changes/archive/20260701-auto-evolve-post-main-agent-workflowgraph-replay-window/summary.md`
-  (`noop`; subagents Bohr 91 and Zeno 92; existing ECL/BOUNDARIES coverage is
-  sufficient for the main-agent WorkflowGraph queue/replay evidence archive
-  window; no new Harness rule/template/product runtime change needed, pending
-  evolution marked complete).
-- Earlier completed Harness evolution:
-  `harness/changes/archive/20260630-auto-evolve-post-main-agent-taskqueue-workflowgraph-window/summary.md`
-  (`noop`; subagent Herschel score 88; existing ECL coverage is sufficient for
-  the main-agent TaskQueue / WorkflowGraph lifecycle archive window; no new
-  Harness rule/template/product runtime change needed, pending evolution marked
-  complete).
-- Earlier completed Harness evolution:
-  `harness/changes/archive/20260630-auto-evolve-post-main-agent-orchestration-migration-window/summary.md`
-  (`noop`; existing ECL coverage is sufficient for the main-agent orchestration
-  migration archive window; no new Harness rule/template/product runtime change
-  needed, pending evolution marked complete).
-- Earlier completed Harness evolution:
-  `harness/changes/archive/20260630-auto-evolve-post-main-agent-orchestration-window/summary.md`
-  (`noop`; existing ECL coverage is sufficient for the project identity,
-  full-page settings, composer context, chat-only center, and main-agent
-  projection archive window; pending evolution has been marked complete).
-- Earlier completed Harness evolution:
-  `harness/changes/archive/20260629-auto-evolve-post-right-rail-git-history-window/summary.md`
-  (`noop`; subagent Bernoulli score 91; existing ECL coverage is sufficient for
-  the right-rail Git/diagnostics/history archive window).
-- Recent detailed archives are discoverable through `docs/STATUS.md` and
-  `harness/changes/INDEX.json`; keep per-run ids, E-drive paths, patch hashes,
-  and gate sequences archive-only.
 
 Current baseline:
 
 - Local manual-gated Workbench has real acceptance through planning, code,
   validation/audit, human apply, and close/archive.
-- Main-agent orchestration remains the current compatibility path for local
-  role execution, but it is no longer the target architecture owner. Confirmed
-  TaskQueue start/resume queue-level scheduling now belongs to
-  `workflow-runtime`; TaskRun stage execution and Scheduler still remain
-  compatibility paths until later migrations. The target is the
-  high-cohesion,
-  low-coupling Harness Workflow Runtime documented in
-  `docs/design-docs/harness-workflow-runtime-target.md`: fixed role-chain,
-  TaskQueue, and Scheduler paths should migrate into one
-  `HarnessWorkflowRunEngine` and delete old internal runners after takeover.
-  Future Workflow Runtime implementation changes should test compiler,
-  runtime, leaf, and projection contracts at their owner modules instead of
-  repeating full feature-chain tests around each old runner.
-  Current role execution still uses observe/decide/run-one-leaf/record step
-  loops; after the TaskQueue migration, new queue-level scheduling
-  should be represented by WorkflowRun events plus canonical TaskQueue/TaskRun
-  state rather than new `queue-decisions.jsonl` evidence. WorkflowGraph
-  observation records non-executing `workflowgraph-decisions.jsonl` evidence,
-  and the read-only
-  replay summary builder now aggregates canonical manager state plus historical
-  graph/queue/role evidence; recovery summary labels evidence completeness;
-  the read-only Scheduler candidate assessment can observe low-conflict
-  Scheduler signals without becoming readiness authority; and the
-  non-executing controlled Scheduler route points future parallel integration
-  to the existing controlled Scheduler owner only. The existing
-  `planning.scheduler.controlled-advance.run` action now passes through a
-  main-agent bridge that records pre/post WorkflowGraph observation around one
-  controlled Scheduler step before delegating to the original Scheduler owner.
-  V1 remains deterministic and does not add SchedulerRun/WorkerLease/
-  IntegrationCheck fan-out, UI, confirmation queue, action bridge, automation
-  allowlist, apply/close, remote, PR, merge, or Harness evolution authority.
-- Main-agent resume now has ODWF-style stable-key evidence and read-only
-  continuation context. Scoped automation can record `MainAgentResumePoint`
-  evidence when a human stop/reject/feedback, budget, blocked, or stale
-  breakpoint occurs. A later explicit "continue / resume / follow feedback"
-  main-agent turn may bind only the latest same-project/same-Change point whose
-  rebuilt current gate/target, source/artifact, policy/runtime, and feedback
-  evidence still matches, then inject bounded quoted context into main-agent
-  chat/orchestrator prompts. It does not enter worker role packets, Workbench
-  UI, action payloads, automation execution, Scheduler, IntegrationCheck,
-  apply/close, remote/PR/merge, or Harness evolution.
-- Workbench conversation transcripts now use cursor-incremental SQLite message
-  paging by default, bounded virtual rendering, long-message folding, and
-  `@chenglou/pretext` height estimates with fallback. Synthetic 100k / 500k
-  message pressure acceptance passed without durable large fixtures. The
-  transcript surface follows the reference-style reading hierarchy: user
-  prompts are lightweight bubbles, assistant output is a clean Markdown flow,
-  and normal tool/Agent activity rows are compact and low-noise while
-  warning/error rows remain visible. Workflow truth remains unchanged.
-- Workbench `Agent 编排图` now renders a Rudder-style read-only orchestration
-  canvas with avatar cards, status dots, SVG edges, pan/zoom/fit controls, and
-  stage-based layout for local loop, rework, scheduler worker branch/join,
-  IntegrationCheck, landing, and terminal nodes. The graph is a projection only
-  and does not execute actions or replace `confirmationQueue.primary`.
-- The right tool surface defaults to a compact collapsed rail with a pending
-  count badge. Expanding it shows only implemented tabs: `确认` renders the
-  existing confirmation pane, `文件` provides safe read-only project
-  tree/preview/reference tools, `Git` provides safe read-only branch/dirty
-  status plus staged/unstaged/untracked diff browsing inside the Git rail, and
-  `诊断` shows read-only runtime health plus the bounded runtime activity log
-  inside the diagnostics rail. Right-rail tools do not switch or occupy the
-  center workspace. Terminal is no longer a right-rail tab; it is an
-  independent Codex-style button beside the rail that opens the bottom xterm
-  dock. The rail and dock state are frontend-only UI state and do not execute
-  actions.
-- Phase 1 desktop product-layer entry now follows the `desktop-cc-gui`
-  reference more closely for Harness mode: a sparse project/conversation
-  sidebar plus a centered "create anything" composer. The composer has a real
-  Codex-style execution-mode control strip; unsupported toolbar,
-  recent-session, and fake dropdown controls are hidden until implemented.
-  Codex diagnostics are advanced settings, not the main product home. Clean
-  browser profiles and headless acceptance can open deterministic Workbench
-  project/topic/tab URLs through validated direct-project and `?project=`
-  restore instead of relying on previous localStorage state.
-- Workbench Skills now follow the reference-style runtime-capability model:
-  Settings can register custom Skill roots, scan `SKILL.md` packages, enable
-  skills for the current project/topic, and expose `/skill-name` /
-  `$skill-name` composer selection backed by real topic enablement. Existing
-  `$CODEX_HOME/skills` entries are discovered as read-only native Codex Skills
-  and are not copied into the AHO bridge; custom/managed/project Skills use
-  the AHO-managed Codex bridge when synced. AHO also bundles the read-only
-  `aho-harness-onboarding` system Skill as a proposal/context aid for project
-  onboarding and main-Agent delegation input. Skills are runtime capabilities
-  only; they do not affect Harness gates or workflow truth.
-- AHO app data defaults to the user's stable `.agent-harness` directory under
-  the OS user home. Project source roots may live on any drive; `E:\aho-accept`
-  is temporary acceptance workspace only and is not a formal history source.
-  External-local Codex read-only resume must receive the memory root through
-  an explicit read dir when resume supports it; otherwise it fails closed
-  rather than hiding memory from Codex.
-- Workbench composer now supports reference-style `@file` project file
-  references. Home and topic composers search only the selected project,
-  display selected file chips, bind refs to the first/current user message, and
-  pass relative path/kind metadata into Codex runtime context without injecting
-  file contents. File refs are runtime context only, not Harness artifacts,
-  permissions, or workflow truth.
-- Workbench composer now supports reference-style attachments for prepared
-  projects. Users can paste/drop images or attach small text/code files; AHO
-  stores validated copies under app data, binds attachment metadata to the
-  first/current message, renders removable chips, passes bounded text previews
-  and Codex app-server local image inputs when available, and rejects
-  unprepared-project uploads to avoid accidental source-root `.agent-harness`
-  writes. Attachments are runtime context only, not workflow truth or
-  permissions.
-- Workbench composer now shows reference-style context source chips for the
-  current send: `技能 N`, `文件 N`, and `附件 N` appear only when real
-  message-scoped context is selected, and expand inside the composer instead of
-  opening the right rail or changing the center workspace. Sent user messages
-  can show small file/attachment summaries from stored metadata; Skill/system
-  context is not inferred from text.
-- Workbench Codex model selection now follows the reference-style Codex-first
-  pattern: AHO reads Codex `config.toml` with TOML parsing, best-effort reads
-  project-scoped runtime model candidates, falls back to Codex default,
-  persists only a lightweight selection from real candidates, exposes a real
-  composer/settings model picker, and routes Codex exec/app-server runs through
-  one effective-model resolver. Workbench also has a Codex-only Provider
-  Capability Registry for Harness mode: Settings can show spec support versus
-  runtime readiness, and Codex run events include provider/product-mode,
-  effective model, and capability snapshot metadata. The registry is
-  diagnostics/readiness only; it is not a permission system or workflow
-  authority. Arbitrary custom model ids are ignored/cleaned until a real
-  provider capability/API mapping exists for non-Codex providers. Provider
-  remains Codex-only; no fake Claude/OpenCode/Gemini controls are shown.
-- Planning content is provider-native and Agent-authored. AHO validates,
-  persists, and gates Agent-authored plan content; it must not invent the
-  business plan, acceptance criteria, or task list from raw user demand. Plan
-  confirmation remains human.
-- `请求批准` and scoped `完全访问权限` share the same local Goal Loop coordinator.
-  Request-approval waits on the real gate; full-access may consume only
-  selected-Change local gates after plan confirmation.
-- Full-access may run local execution/recovery, safe `audit.accept`, local
-  `result.apply`, local `landing.prepare`, and local `change.close`; it does
-  not auto-run plan confirmation, raw scheduler, manual IntegrationCheck,
-  integration apply/discard, merge, remote, PR, Harness evolution, scheduler
-  loops, or parallel execution.
-- Real browser acceptance has verified request-approval stop behavior,
-  full-access sequential local apply/landing/close, controlled scheduler
-  handoff stopping at manual IntegrationCheck, and same-Change scheduler
-  workers through human integration apply/discard. PR/remote/merge/Harness
-  evolution did not run.
-- One loop execution maps to one parent Change. Multi-worktree outputs may feed
-  IntegrationCheck only within that Change; cross-Change merge remains future
-  explicit design.
-- `desktop-cc-gui` is now a detailed product-layer reference for the next
-  desktop shell / workspace / tools / provider-settings roadmap. All reference
-  projects are local-only optional clones and are not repository dependencies;
-  current implementation remains Codex-first Harness mode, while normal Agent
-  mode, Claude Code / OpenCode providers, and Tauri packaging are future tracks.
-  It is not the Harness Workflow Runtime authority; workflow scheduling
-  references are routed through `docs/references/index.md` and the target
-  runtime design doc.
+- Workflow Runtime is the target single runner owner. Ordinary `code.run` and
+  confirmed TaskQueue queue-level start/resume are already routed through
+  `workflow-runtime`; remaining compatibility paths include TaskRun stage
+  execution, demand-worker role-chain entrypoints, and Scheduler worker paths.
+  New runtime takeover changes must delete the covered old production runner.
+- Goal is a visible main-Agent brief and completion standard, not hidden durable
+  state and not project memory. Future sessions recover by reading Harness
+  docs/evidence, not by restoring Goal state. Existing GoalLoop packet/controller
+  artifacts are compatibility evidence only, not a target state machine to keep
+  expanding.
+- Plan / WorkflowPlan drafting belongs to Plan Agent. Harness validates,
+  scopes, executes confirmed plans, records evidence, and enforces gates; it
+  must not invent business goals, acceptance criteria, tasks, or workflow bodies
+  from raw user demand.
+- Codex native Goal/subagents are provider capabilities. AHO may use real
+  provider events when available, but must not fake `planning-agent` or child
+  Agent activity.
+- Workbench conversations are chat windows and transcripts, not Harness Change
+  ids. Plan handoff execute/revise intent returns to the main Agent first and
+  must not directly call workflow actions, create a Change, enter
+  `confirmationQueue.primary`, or grant permissions.
 
-Daily `npm run test:workbench` is the fast Workbench unit-capability gate; slow
-scheduler/apply/Goal Loop coverage remains in explicit release/deep scripts.
+Next recommended structured work:
 
-Use `docs/STATUS.md` for short handoff context and
-`harness/changes/INDEX.json` plus archived `summary.md` files for historical
-detail. Do not rebuild current context by reading the full archive ledger unless
-the task requires it.
+- Pick exactly one runtime migration: either TaskRun stage execution into
+  Workflow Runtime, or Scheduler ready-set/wave migration. Do not combine them
+  in one change.
+- Keep `README.md` untracked unless the user explicitly scopes it into a
+  change.
+
+Recent detailed archives are discoverable through `harness/changes/INDEX.json`.
+Keep per-run ids, E-drive paths, patch hashes, screenshots, and long gate
+sequences archive-only.
 
 ## 2. Context Loading Order
 
@@ -658,3 +214,4 @@ When updating handoff docs, add only current behavior and links that change agen
 - PowerShell reads and writes must explicitly use UTF-8.
 - Do not hand-edit `harness/changes/INDEX.json`; regenerate it with `scripts/harness-change.ps1 reindex`.
 - Do not auto-apply Harness evolution from `pending.md`; use evidence, proposal, independent review, validation, and results logging.
+

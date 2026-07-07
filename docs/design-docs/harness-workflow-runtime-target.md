@@ -13,6 +13,29 @@ change schemas, start workers, repair the Plan handoff UI, or authorize any
 execution path by itself. It is the architecture reference that later
 implementation changes must follow.
 
+The final product flow is:
+
+```text
+User demand
+-> Main Agent reads Harness docs/evidence
+-> Main Agent forms the current Goal brief, state brief, and constraints
+-> Main Agent asks Plan Agent to draft or revise WorkflowPlan
+-> User confirms the Plan
+-> Workflow Runtime executes the confirmed WorkflowPlan
+-> leaf Agents execute scoped nodes, using AHO-owned worktrees for write-capable code work
+-> validation / audit / integration / apply / merge gates
+-> Main Agent reads evidence and decides whether the Goal is complete
+-> if incomplete: next Goal brief + Plan revision + Workflow round
+-> if complete: closeout / memory maintenance
+```
+
+Goal is a required product flow, but it is not hidden durable state and not
+project memory. It is the visible current objective, completion criteria, and
+state brief that the main Agent reconstructs from Harness docs and evidence for
+the current turn or round. Plan / WorkflowPlan drafting and revision belongs to
+Plan Agent. Harness validates, scopes, executes, records evidence, and enforces
+gates; it does not invent the business plan for the Agent.
+
 ## Current State
 
 `src/workflow-runtime` is not yet the unified runner. It now owns the ordinary
@@ -53,15 +76,23 @@ workflow action or permission grant.
 ## Final Layering
 
 ```text
-Plan / Intent Layer
-  Main Agent / Plan Agent / Skills / user handoff intent
-  -> produce or revise WorkflowPlan draft
-  -> user confirms
+Goal / Intent Layer
+  Main Agent / Skills / user handoff intent
+  -> read Harness docs/evidence
+  -> form visible Goal brief, current state, constraints, and completion criteria
+  -> decide whether to request or revise a Plan
+
+Plan Layer
+  Plan Agent / provider Plan session / future real child planning agent
+  -> draft or revise WorkflowPlan from the Goal brief and scoped evidence
+  -> ask questions when the plan is incomplete
+  -> return proposal to the main Agent and user
+  -> wait for user confirmation before execution
 
 Artifact / Compiler Layer
   workflow-artifacts
-  -> validate Change scope, artifact hashes, source scope, dependencies, policy preconditions
-  -> compile WorkflowGraphPlan
+  -> validate confirmed WorkflowPlan scope, artifact hashes, source scope, dependencies, and policy preconditions
+  -> normalize and lock runtime input without generating the business plan
 
 Workflow Runtime Layer
   workflow-runtime
@@ -78,6 +109,8 @@ Workflow Runtime Layer
 Leaf Execution Layer
   task-run / code / validation / audit / integration-check / scheduler worker / future subagent leaf
   -> execute one scoped node
+  -> use AHO-owned worktree for write-capable code leaves
+  -> use source-root or read-only workspace only for read-only leaves
   -> emit typed evidence
 
 Enforcement Layer
@@ -95,14 +128,20 @@ Projection Layer
 Open Dynamic Workflows is the workflow algorithm reference:
 
 - `runWorkflow()` maps to `HarnessWorkflowRunEngine`.
-- A JavaScript workflow script maps to typed `WorkflowPlan` /
-  `WorkflowGraphPlan` artifacts.
+- A JavaScript workflow script maps to an Agent-authored typed
+  `WorkflowPlan`; AHO does not let Harness design the business plan by itself.
 - `agent(prompt, opts)` maps to `LeafTaskRun`, `AgentTask`, `startCodeRun`,
-  validation, audit, or another bounded leaf executor.
+  Plan Agent turns, validation, audit, integration checks, or another bounded
+  leaf executor.
 - `parallel()` maps to ready-set same-wave scheduling.
 - `pipeline()` maps to independent item stage progression.
+- `isolation: "worktree"` maps to AHO worktree leaf isolation. In AHO,
+  write-capable code leaves must use an AHO-owned worktree; read-only planning,
+  exploration, and audit-style leaves do not need a worktree unless their
+  runtime needs isolation.
 - `journal.jsonl` and `events.jsonl` map to `WorkflowRun` events plus AHO's
-  stricter recovery key.
+  stricter recovery key. They are progress evidence, not project memory,
+  validation, audit, human approval, or workflow truth.
 - `Executor` maps to Codex app-server or `codex exec` behind AHO leaf
   interfaces.
 
@@ -118,7 +157,8 @@ assumptions.
 
 Loop Engineering is the objective-continuation reference:
 
-- persistent objective maps to Goal/Change plus evidence-aware continuation;
+- persistent objective maps to the main Agent's visible Goal brief and
+  evidence-aware continuation, not to hidden durable Goal state;
 - conflict-aware parallelism maps to ready-set execution only after dependency,
   source-scope, and conflict checks;
 - subagents, worktrees, skills, and connectors map to capabilities behind
@@ -129,6 +169,9 @@ AHO does not copy unattended confidence-based completion.
 OpenAI Codex is the provider runtime reference:
 
 - Codex is an executor and provider runtime boundary.
+- Codex native Goal can be a future provider carrier for the current Goal text,
+  but AHO's project memory remains Harness docs/evidence and AHO gates remain
+  outside Codex Goal state.
 - Codex app-server and native subagents can provide live turns, provider
   events, child-thread projection, and future leaf/explorer capabilities.
 - Codex goal/subagent state is not AHO workflow truth.
@@ -163,6 +206,19 @@ A leaf executor executes exactly one node or stage. It may produce evidence and
 return status. It must not choose the next node, mutate the graph, start a
 sibling or child leaf, bypass ToolPolicyGate, bypass code execution gates, or
 bypass human gates.
+
+Leaf execution must not turn the Agent's internal reasoning into backend state
+machines. The runtime can track node status, workspace, evidence, retries,
+gates, and stop reasons; the leaf Agent still owns how it solves the scoped
+task inside its prompt and allowed tools.
+
+### Goal, Plan, Workflow, Worktree Separation
+
+Goal is the main Agent's visible current objective and completion criteria for
+this round. Plan is the Plan Agent's proposal for how to satisfy that Goal.
+Workflow is the confirmed execution orchestration. Worktree is the isolation
+mechanism for write-capable leaf execution. Project memory is Harness
+docs/evidence. These responsibilities must not be collapsed into one object.
 
 ### Projection Is Not Authority
 
@@ -282,8 +338,8 @@ workflow decision policy.
 
 ## Replacement Roadmap
 
-Phase 1 is this documentation architecture closeout. It updates current docs,
-reference maps, and system skill guidance only.
+Phase 1 is the Goal / Plan / Workflow / worktree documentation correction. It
+updates current docs and reference maps only. It does not change runtime code.
 
 Phase 2 repairs the Plan handoff UI: remove the wrong top-of-transcript
 `PlanHandoffCard`, remove full-access handoff intent, add a bottom
@@ -291,14 +347,16 @@ Phase 2 repairs the Plan handoff UI: remove the wrong top-of-transcript
 Agent first, and keep the right workspace free for real Plan/child Agent
 messaging without duplicate execute/question controls.
 
-Phase 3 implemented `HarnessWorkflowRunEngine` for the default code-change
-workflow. Ordinary `code.run` now routes through the runtime owner instead of
-the old fixed role-chain entrypoint.
+Phase 3 completed Workflow Runtime v0 for the ordinary default code-change
+workflow: ordinary `code.run` routes through `HarnessWorkflowRunEngine`, the
+fixed role chain is demoted toward a default workflow template, and old runner
+usage is deleted for the covered path.
 
-Phase 4 migrates TaskQueue into `concurrency=1` workflow mode. It deletes the
-old queue-level `main-agent-orchestration` runner as an independent production
-path. Historical TaskQueueRun and queue-decision records remain readable and
-projectable; new queue-level execution goes only through Workflow Runtime.
+Phase 4 completed confirmed TaskQueue queue-level start/resume migration into
+Workflow Runtime's sequential / `concurrency=1` mode. The old queue-level
+`main-agent-orchestration` runner is no longer the production path. Historical
+TaskQueueRun and queue-decision records remain readable and projectable.
+TaskRun stage execution remains a compatibility migration target.
 
 Phase 5 migrates Scheduler into ready-set/wave/claim/lease workflow mode. It
 moves worker start, validation, audit, and rework into scheduler leaf
@@ -310,6 +368,15 @@ Phase 6 projects true Codex native subagents. AHO consumes only real
 `collabToolCall` / `collabAgentToolCall` events, links parent/child provider
 threads for UI projection, deletes fake planning-agent projection, and keeps
 Codex subagents outside Harness workflow truth.
+
+Phase 7 aligns Goal Loop with the main-Agent loop. Goal Loop must stop being an
+independent engineering state machine. The main Agent re-reads evidence after
+each Workflow round, decides whether the Goal is complete, and if needed asks
+Plan Agent for a revised WorkflowPlan.
+
+Phase 8 performs closeout and memory maintenance through documentation /
+architecture / evolution roles and Harness evolution. Goal is not cross-session
+memory; future sessions recover by reading Harness docs/evidence.
 
 ## Non-Goals
 

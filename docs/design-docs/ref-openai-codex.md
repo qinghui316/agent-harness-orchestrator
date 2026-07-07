@@ -107,7 +107,10 @@ Observed source behavior:
 
 AHO should borrow these rules:
 
-- A complex demand should keep a persistent Goal/Change rather than shrinking into the next small turn.
+- A complex demand should keep a visible Goal brief plus selected Change scope
+  rather than shrinking into the next small turn. If AHO later uses Codex
+  native Goal, it is a provider carrier for that current objective text, not
+  the source of AHO project memory.
 - Each loop turn should start from current repo and Harness evidence, not from stale chat memory alone.
 - Completion requires an evidence audit against the original objective, accepted artifacts, validation/audit, IntegrationCheck, apply/close state, and user requirements.
 - Blocked, paused, resumed, and budget-limited states must be explicit lifecycle states, not hidden model moods.

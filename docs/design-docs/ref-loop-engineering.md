@@ -30,7 +30,7 @@ Loop Engineering fits AHO as a main-Agent control pattern:
 act -> observe evidence -> reason about conflict and next step -> repeat
 ```
 
-The loop is useful because complex tasks should not be flattened into one giant parallel launch. The main Agent keeps a persistent Goal/Change, reads the current repo and Harness evidence, and decides which slices are safe to run now.
+The loop is useful because complex tasks should not be flattened into one giant parallel launch. The main Agent keeps a visible Goal brief plus selected Change scope, reads the current repo and Harness evidence, and decides which slices are safe to run now.
 
 Low-conflict independent slices may enter parallel worker/worktree execution. High-conflict or dependent slices must wait for predecessor evidence, run sequentially, or enter a rework / IntegrationFix loop after validation, audit, or IntegrationCheck evidence proves the issue.
 

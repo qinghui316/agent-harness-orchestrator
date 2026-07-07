@@ -42,10 +42,12 @@ Project
 | ParentAgentTranscript | projection | Codex-style demand transcript; default UI text is generated only from real Codex runtime or exec replay cells for the selected demand |
 | ParentAgentTranscriptCell | projection row | Phase 7A canonical conversation cell: user-message, assistant-message, process-row, evidence-row, or detail-only |
 | DemandAgentRunGraph | projection | Selected-demand parent-agent delegation graph; explains role/tool/background work without replacing workflow truth |
+| GoalBrief | visible objective brief / prompt context | Main-Agent-authored current objective, completion criteria, constraints, and state summary reconstructed from Harness docs/evidence for a turn or Workflow round. It is not hidden durable state and not project memory |
 | MainAgentDecision | runtime coordination/evidence record | Parent/orchestrator decision about the next role/tool action; not a human approval |
 | MainAgentOrchestrationState | runtime coordination/projection record | Phase 7F in-memory role-step evidence used to choose the next default foreground role; not a durable source of truth |
 | DecompositionPlan | proposal artifact | Phase 7H selected-demand planning proposal that records decomposition recommendation, units, dependencies, risks, and recovery key inputs; not executable workflow truth |
 | DecompositionReadinessManifest | guardrail artifact | Phase 7I machine-checkable verdict for the latest confirmed DecompositionPlan; records whether later execution layers may consume the proposal and which guardrail blocks it; not executable workflow truth |
+| WorkflowPlan | proposal artifact | Plan-Agent-authored plan for satisfying the current GoalBrief. Harness validates and locks scope before execution, but does not invent the business plan from raw demand text |
 | TaskQueueProposal | pre-execution proposal artifact | Phase 7J typed proposal generated only from valid sequential taskqueue readiness; it describes a queue candidate and must not carry execution state |
 | WorkflowGraphPlan | versioned typed execution input | Phase 7L immutable graph compiled from a matching TaskQueueProposal and DecompositionReadinessManifest. Current `sequential-v1` nodes map proposal items to coder/validation/audit/bounded-rework stages. `sequential-v1` is an implementation limit, not the final architecture; the target is a unified typed graph for sequential, ready-set, barrier, pipeline, and scheduler-wave modes. It is not an ODWF JavaScript script and does not start execution by itself |
 | WorkflowRun | runtime coordination / recovery evidence | Phase 7K typed journal for confirmed sequential TaskQueue execution. Phase 7L binds it to versioned graph/proposal/readiness refs and hashes, not mutable latest files. It records queue/task progress and recovery keys, but Change/ECL, accepted artifacts, TaskRun/Run, validation/audit, apply/close, and human gates remain workflow truth |
@@ -200,9 +202,11 @@ Phase 9Z adds a terminal scheduler closeout evidence path for blocked/exhausted 
 
 The target runtime boundary is a single `HarnessWorkflowRunEngine` owned by
 `src/workflow-runtime/` and described in
-`docs/design-docs/harness-workflow-runtime-target.md`. Current fixed
-role-chain, TaskQueue, and Scheduler execution paths are compatibility paths
-until migrated; they must not become parallel long-term runtime owners.
+`docs/design-docs/harness-workflow-runtime-target.md`. Ordinary `code.run` and
+confirmed TaskQueue queue-level start/resume scheduling already route through
+`workflow-runtime`. Remaining compatibility paths include TaskRun stage
+execution, demand-worker role-chain entrypoints, and Scheduler worker paths;
+they must not become parallel long-term runtime owners.
 
 Runtime object ownership is intentionally split:
 
@@ -635,7 +639,7 @@ If a GUI field cannot be derived from existing facts, that is a signal to add or
 
 Phase 10A keeps the scheduler runtime model evidence-driven while simplifying the ordinary user surface. Workbench may present user-facing scheduler stage labels, but those labels are projections over existing scoped scheduler actions. They do not become a scheduler loop, a slot allocator, source mutation authority, or execution authorization. Every high-impact scheduler transition must continue to re-read scoped evidence, pass stale-target checks, preserve decision/audit ids, and rely on ToolPolicyGate plus human confirmation before moving one legal step.
 
-Phase 10B defines the Goal-driven Adaptive Loop as main-agent runtime policy, not as a new runtime object. The loop may keep a persistent objective in conversation/Change context and use current evidence to decide the next legal action, but it does not itself create TaskRuns, WorkerLeases, worktrees, runs, SchedulerRun state, child Changes, or source mutations. Low-conflict independent slices may be proposed for parallel workers only after scheduler evidence proves their scope; high-conflict or dependent slices must stay sequential, wait for predecessor evidence, or enter rework / IntegrationFix. Completion must be audited against the original objective and current artifacts, not inferred from model confidence.
+Phase 10B defines the Goal-driven Adaptive Loop as main-agent runtime policy, not as a new runtime object. The loop may keep a visible Goal brief in conversation/Change context and use current evidence to decide the next legal action, but it is not hidden durable Goal state and it does not itself create TaskRuns, WorkerLeases, worktrees, runs, SchedulerRun state, child Changes, or source mutations. Low-conflict independent slices may be proposed for parallel workers only after scheduler evidence proves their scope; high-conflict or dependent slices must stay sequential, wait for predecessor evidence, or enter rework / IntegrationFix. Completion must be audited against the original objective and current artifacts, not inferred from model confidence. The Phase 10 GoalLoop artifacts, packets, and controller-policy records are legacy compatibility evidence for prompt/projection freshness and explicit gate handoff; they are not the target shape for a hidden Goal state machine. Future Goal work should keep the main Agent in charge of reconstructing the visible Goal brief from Harness docs/evidence, asking Plan Agent for Plan / WorkflowPlan revisions when needed, and handing confirmed plans to Workflow Runtime.
 
 Multi-worktree scheduler execution remains auxiliary runtime evidence. Worktrees isolate development but do not guarantee that outputs can be combined. Final merge safety must still be proven by SchedulerIntegrationCandidate, existing IntegrationCheck, aggregate validation/audit, and human apply gate. ToolPolicyGate and human gates remain authority for high-impact actions even when the model has broad local tool permissions.
 

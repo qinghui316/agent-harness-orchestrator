@@ -103,6 +103,22 @@ High-cohesion / low-coupling rules:
   project docs and author legal workflow artifacts. They cannot enforce
   permissions, allocate worktrees, approve gates, validate source, or authorize
   apply/close.
+- **Goal is visible brief, not hidden memory:** Goal is the main Agent's
+  current objective, completion criteria, and state brief for a turn or round.
+  It is reconstructed from Harness docs/evidence and must not become a hidden
+  durable store or project memory database.
+- **Plan Agent drafts Plan:** the main Agent owns Goal, state review, handoff,
+  and next-round judgment. Plan Agent owns Plan / WorkflowPlan drafting and
+  revision. Workbench or Harness code must not synthesize business plans,
+  acceptance criteria, or workflow bodies directly from raw user text.
+- **Workflow owns orchestration; worktree owns write isolation:** execution
+  scheduling, waves, barriers, dependencies, recovery, and stop points belong
+  to Workflow Runtime. AHO-owned worktrees isolate write-capable code leaves.
+  Read-only planning/exploration/audit leaves do not need worktrees unless
+  their runtime needs isolation.
+- **Do not engineer leaf reasoning:** backend state may track node status,
+  workspace, evidence, retries, and gates, but it must not decompose an
+  Agent's internal problem-solving into a feature-local state machine.
 - **Test the owner, not every duplicated path:** tests for multi-step or
   multi-Agent behavior must follow owner modules. Compiler legality belongs in
   `workflow-artifacts` tests; scheduling scenarios belong in
@@ -185,6 +201,10 @@ Decisions:
   chat may use a conversation/runtime scope, while workflow actions must carry
   explicit Change scope only when they cross into Harness planning, gated
   execution, apply, or close.
+- Goal is not project memory. A future Codex native Goal may carry the current
+  objective text for one provider thread, but cross-session recovery and
+  multi-person collaboration must come from Harness docs, accepted artifacts,
+  run/evidence records, and STATUS handoffs.
 - Workbench must not infer child-agent delegation by parsing visible main-agent
   text, user keywords, or fixed phrases. Child Agent / plan surfaces may appear
   only from real provider runtime ownership metadata or explicit Harness
@@ -194,6 +214,9 @@ Decisions:
   the goal, scope, acceptance, implementation notes, and tasks. AHO may
   validate, map, persist, and gate that content, but it must not invent the
   business plan, ACs, task list, or workflow body from raw user demand.
+- In the final target, the main Agent supplies the Goal brief and evidence
+  scope, then calls Plan Agent to draft or revise Plan / WorkflowPlan content.
+  User confirmation is required before that proposal becomes execution input.
 - Deleting a Workbench conversation is a conversation-layer cleanup only. It
   must not close, abandon, cancel, move, archive, or garbage-collect any
   Harness Change, ECL files, workflow evidence, ResumePoint, current gate, or
@@ -408,7 +431,7 @@ Phase 9Z keeps the blocked/exhausted closeout boundary in `src/scheduler-runtime
 
 Phase 10A keeps scheduler user-surface consolidation in owned modules. `src/scheduler-runtime/` remains the domain owner for scheduler legality and evidence; Workbench scheduler handler modules and confirmation read-model helpers may map existing scheduler action ids to user-facing labels and dispatch one scoped transition at a time. They must not own scheduler runtime decisions, hide multiple high-impact transitions behind one confirmation, bypass ToolPolicyGate or stale-target revalidation, write scheduler logic into `chat.ts`, server routes, frontend shells, projection facades, CLI modules, or manager facades, or create a scheduler loop, start-all control, slot allocator, source apply path, child Change path, or full parallel executor.
 
-Phase 10B adds the Goal Loop Boundary. Future autonomous or semi-autonomous main-agent loops may keep a persistent Goal/Change and repeat `act -> observe -> reason -> repeat`, but they are policy over evidence, not a new workflow truth. A loop must not bypass Change/ECL, accepted artifacts, owner modules, ToolPolicyGate, Validation, Audit, IntegrationCheck, Apply/Close human gates, or Harness evolution. Low-conflict independent tasks may be considered for parallel worker/worktree slices only when conflict/source scope evidence supports that decision. High-conflict, same-file, ordering-dependent, or ambiguous tasks must wait for predecessor evidence, run sequentially, or enter rework / IntegrationFix. Multi-worktree parallel development is not merge proof; final source mutation must route through SchedulerIntegrationCandidate, existing IntegrationCheck, aggregate validation/audit, and human apply gate.
+Phase 10B adds the Goal Loop Boundary. Future autonomous or semi-autonomous main-agent loops may keep a visible Goal brief for the selected demand and repeat `act -> observe -> reason -> repeat`, but they are policy over evidence, not hidden durable Goal state and not workflow truth. A loop must not bypass Change/ECL, accepted artifacts, owner modules, ToolPolicyGate, Validation, Audit, IntegrationCheck, Apply/Close human gates, or Harness evolution. Low-conflict independent tasks may be considered for parallel worker/worktree slices only when conflict/source scope evidence supports that decision. High-conflict, same-file, ordering-dependent, or ambiguous tasks must wait for predecessor evidence, run sequentially, or enter rework / IntegrationFix. Multi-worktree parallel development is not merge proof; final source mutation must route through SchedulerIntegrationCandidate, existing IntegrationCheck, aggregate validation/audit, and human apply gate.
 
 Phase 12A records the design boundary for a future controlled Scheduler loop in `docs/design-docs/controlled-scheduler-loop.md`. That design may guide later implementation of repeated evidence observation, conflict routing, bounded dispatch, reconcile, integration barriers, and terminal human-gate handoff. It does not implement scheduler loop runtime, whole-wave dispatch, slot allocation, worker auto-start, Workbench actions, ToolPolicy changes, child Change creation, source mutation, automatic apply/merge/close, or Harness evolution automation. Any later implementation must fail closed for stale, forged, superseded, missing, or cross-Change loop/scheduler targets and must extend owned Goal Loop, workflow-scheduler, scheduler-runtime, validation, audit, ToolPolicy/action-dispatch, integration-check/apply, and Workbench projection modules rather than broad facades.
 
