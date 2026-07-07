@@ -4,6 +4,7 @@ import {
   readWorkflowRun,
   validateTaskQueueProposalStart,
 } from "../workflow-run/manager.js";
+import { isTaskQueueWorkflowRun } from "../workflow-run/guards.js";
 import { workflowActionScopesMatchStrict } from "../workflow-actions/registry.js";
 import type { ManagedProject, ResolvedMemory, TaskQueueRun, WorkflowRun } from "../types/index.js";
 import type { TaskQueueStartOptions } from "./types.js";
@@ -14,12 +15,12 @@ type ValidatedTaskQueueStart = Awaited<ReturnType<typeof validateTaskQueuePropos
 
 export interface TaskQueueStartValidation {
   validated: ValidatedTaskQueueStart;
-  workflow: WorkflowRun;
+  workflow: Extract<WorkflowRun, { source: "taskqueue-proposal" }>;
 }
 
 export interface PausedTaskQueueResumeValidation {
   queue: TaskQueueRun;
-  workflow: WorkflowRun;
+  workflow: Extract<WorkflowRun, { source: "taskqueue-proposal" }>;
 }
 
 export async function validateNoConflictingActiveQueue(memory: ResolvedMemory, changeId: string): Promise<TaskQueueRun | null> {
@@ -77,6 +78,7 @@ export async function validateNewTaskQueueStart(
   const workflow = await readWorkflowRun(memory, options.changeId, options.workflowRunId).catch(() => null);
   if (
     !workflow
+    || !isTaskQueueWorkflowRun(workflow)
     || workflow.status !== "created"
     || workflow.changeId !== options.changeId
     || workflow.taskQueueProposalId !== validated.proposal.id

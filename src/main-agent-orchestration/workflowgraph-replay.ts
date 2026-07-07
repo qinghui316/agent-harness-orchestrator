@@ -4,8 +4,9 @@ import { z } from "zod";
 import { listAgentTasks } from "../agent-task/repository.js";
 import { listTaskQueues, getLatestTaskQueue } from "../task-queue/manager.js";
 import { listTaskRuns } from "../task-run/manager.js";
-import type { AgentTask, ManagedProject, ResolvedMemory, TaskQueueItem, TaskQueueRun, TaskRun, WorkflowRun } from "../types/index.js";
+import type { AgentTask, ManagedProject, ResolvedMemory, TaskQueueItem, TaskQueueRun, TaskQueueWorkflowRun, TaskRun } from "../types/index.js";
 import { getLatestWorkflowRun } from "../workflow-run/manager.js";
+import { isTaskQueueWorkflowRun } from "../workflow-run/guards.js";
 import {
   evaluateMainAgentWorkflowGraphReplayPolicy,
   mainAgentWorkflowGraphPolicyToNextObservation,
@@ -248,6 +249,7 @@ export async function buildMainAgentWorkflowGraphReplaySummary(
 ): Promise<MainAgentWorkflowGraphReplaySummary> {
   const latestQueue = await getLatestTaskQueue(memory, changeId).catch(() => null);
   const latestWorkflow = await getLatestWorkflowRun(memory, changeId).catch(() => null);
+  const latestQueueWorkflow = isTaskQueueWorkflowRun(latestWorkflow) ? latestWorkflow : null;
   const [taskRuns, agentTasks, allQueues] = await Promise.all([
     listTaskRuns(memory, changeId).catch(() => []),
     listAgentTasks(memory, changeId).catch(() => []),
@@ -255,7 +257,7 @@ export async function buildMainAgentWorkflowGraphReplaySummary(
   ]);
   const observation = await observeMainAgentWorkflowGraph(memory, project, changeId, {
     queue: latestQueue?.queue ?? null,
-    workflow: latestWorkflow,
+    workflow: latestQueueWorkflow,
   });
   const canonicalHealth = canonicalObservationHealth(observation);
   const workflowGraphHistory = await readHistoricalJsonl(
@@ -342,7 +344,7 @@ export async function buildMainAgentWorkflowGraphReplaySummary(
     },
   );
   const gaps = buildGaps(evidenceHealth);
-  const currentState = buildCurrentState(observation, latestWorkflow, latestQueue?.queue ?? null, latestQueue?.items ?? [], taskRuns, agentTasks);
+  const currentState = buildCurrentState(observation, latestQueueWorkflow, latestQueue?.queue ?? null, latestQueue?.items ?? [], taskRuns, agentTasks);
   const artifactRefs = dedupeStrings([
     ...observation.artifactRefs,
     ...workflowGraphHistory.artifactRefs,
@@ -678,7 +680,7 @@ function healthPriority(status: MainAgentReplayEvidenceHealthStatus): number {
 
 function buildCurrentState(
   observation: MainAgentWorkflowGraphObservation,
-  workflow: WorkflowRun | null,
+  workflow: TaskQueueWorkflowRun | null,
   queue: TaskQueueRun | null,
   queueItems: TaskQueueItem[],
   taskRuns: TaskRun[],

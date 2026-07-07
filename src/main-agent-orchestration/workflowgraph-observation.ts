@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { z } from "zod";
 import { agentTaskRoot } from "../agent-task/paths.js";
 import { shortHash } from "../fs/path.js";
-import type { ManagedProject, ResolvedMemory, TaskQueueRun, WorkflowRun } from "../types/index.js";
+import type { ManagedProject, ResolvedMemory, TaskQueueRun, TaskQueueWorkflowRun, WorkflowRun } from "../types/index.js";
 import {
   hashArtifactRefs,
   readLatestDecompositionPlan,
@@ -14,6 +14,7 @@ import {
 } from "../workflow-artifacts/manager.js";
 import type { DecompositionPlan, DecompositionReadinessManifest, TaskQueueProposal, WorkflowGraphPlan } from "../workflow-artifacts/manager.js";
 import { getLatestWorkflowRun } from "../workflow-run/manager.js";
+import { isTaskQueueWorkflowRun } from "../workflow-run/guards.js";
 import { activeChangePath, recomputeWorkflowRecoveryKey, sameJson } from "../workflow-run/recovery-key.js";
 
 export type MainAgentWorkflowGraphDecisionAuthority = "non-executing-main-agent-workflowgraph-decision-evidence";
@@ -211,10 +212,11 @@ export async function observeMainAgentWorkflowGraph(
   const changePath = options.changePath ?? await activeChangePath(memory, changeId).catch(() => null);
   const artifacts = changePath ? await readWorkflowGraphArtifacts(memory, changePath) : emptyArtifacts();
   const workflow = options.workflow ?? await getLatestWorkflowRun(memory, changeId).catch(() => null);
+  const queueWorkflow = isTaskQueueWorkflowRun(workflow) ? workflow : null;
   const refs = normalizeRefs({
     mainAgentLoopRunIds: options.loopRunId ? [options.loopRunId] : [],
     workflowRunIds: [workflow?.id, options.queue?.workflowRunId],
-    taskQueueRunIds: [options.queue?.id, workflow?.queueRunId],
+    taskQueueRunIds: [options.queue?.id, queueWorkflow?.queueRunId],
   });
   const artifactRefs = workflowGraphArtifactRefs(artifacts);
   return {
@@ -223,9 +225,9 @@ export async function observeMainAgentWorkflowGraph(
     projectId: project.id,
     observedAt: new Date().toISOString(),
     stage: summarizeArtifacts(artifacts),
-    queue: summarizeQueue(options.queue ?? null, workflow),
-    freshness: changePath ? await evaluateArtifactFreshness(memory, artifacts, options.queue ?? null, workflow) : { status: "unavailable", reasons: ["Active Change path is unavailable."] },
-    recovery: await evaluateRecoveryFreshness(memory, project, artifacts.graph, workflow),
+    queue: summarizeQueue(options.queue ?? null, queueWorkflow),
+    freshness: changePath ? await evaluateArtifactFreshness(memory, artifacts, options.queue ?? null, queueWorkflow) : { status: "unavailable", reasons: ["Active Change path is unavailable."] },
+    recovery: await evaluateRecoveryFreshness(memory, project, artifacts.graph, queueWorkflow),
     artifactRefs,
     refs,
   };
@@ -380,21 +382,22 @@ function summarizeArtifacts(artifacts: WorkflowGraphArtifacts): MainAgentWorkflo
   };
 }
 
-function summarizeQueue(queue: TaskQueueRun | null, workflow: WorkflowRun | null): MainAgentWorkflowGraphQueueSummary {
+function summarizeQueue(queue: TaskQueueRun | null, workflow: TaskQueueWorkflowRun | null): MainAgentWorkflowGraphQueueSummary {
+  const queueWorkflow = workflow;
   return {
-    queueRunId: queue?.id ?? workflow?.queueRunId ?? null,
-    workflowRunId: workflow?.id ?? queue?.workflowRunId ?? null,
-    scopeStatus: summarizeQueueScope(queue, workflow),
+    queueRunId: queue?.id ?? queueWorkflow?.queueRunId ?? null,
+    workflowRunId: queueWorkflow?.id ?? queue?.workflowRunId ?? null,
+    scopeStatus: summarizeQueueScope(queue, queueWorkflow),
     queueStatus: queue?.status ?? null,
-    workflowStatus: workflow?.status ?? null,
-    totalCount: queue?.totalCount ?? workflow?.items.length ?? null,
-    completedCount: queue?.completedCount ?? workflow?.items.filter((item) => item.status === "completed").length ?? null,
-    blockedCount: queue ? queueStatusCount(queue, "blocked") : workflow?.items.filter((item) => item.status === "blocked").length ?? null,
-    failedCount: queue ? queueStatusCount(queue, "failed") : workflow?.items.filter((item) => item.status === "failed").length ?? null,
+    workflowStatus: queueWorkflow?.status ?? null,
+    totalCount: queue?.totalCount ?? queueWorkflow?.items.length ?? null,
+    completedCount: queue?.completedCount ?? queueWorkflow?.items.filter((item) => item.status === "completed").length ?? null,
+    blockedCount: queue ? queueStatusCount(queue, "blocked") : queueWorkflow?.items.filter((item) => item.status === "blocked").length ?? null,
+    failedCount: queue ? queueStatusCount(queue, "failed") : queueWorkflow?.items.filter((item) => item.status === "failed").length ?? null,
   };
 }
 
-function summarizeQueueScope(queue: TaskQueueRun | null, workflow: WorkflowRun | null): MainAgentWorkflowGraphQueueSummary["scopeStatus"] {
+function summarizeQueueScope(queue: TaskQueueRun | null, workflow: TaskQueueWorkflowRun | null): MainAgentWorkflowGraphQueueSummary["scopeStatus"] {
   if (!queue && !workflow) return "unavailable";
   if (!queue || !workflow) return "unbound";
   const queuePointsAtWorkflow = queue.workflowRunId === workflow.id;
@@ -413,7 +416,7 @@ async function evaluateArtifactFreshness(
   memory: ResolvedMemory,
   artifacts: WorkflowGraphArtifacts,
   queue: TaskQueueRun | null,
-  workflow: WorkflowRun | null,
+  workflow: TaskQueueWorkflowRun | null,
 ): Promise<MainAgentWorkflowGraphFreshnessSummary> {
   const reasons: string[] = [];
   if (artifacts.decompositionPlan && artifacts.readiness && artifacts.readiness.decompositionPlanId !== artifacts.decompositionPlan.id) {
@@ -462,7 +465,7 @@ async function evaluateRecoveryFreshness(
   memory: ResolvedMemory,
   project: ManagedProject,
   graph: WorkflowGraphPlan | null,
-  workflow: WorkflowRun | null,
+  workflow: TaskQueueWorkflowRun | null,
 ): Promise<MainAgentWorkflowGraphFreshnessSummary> {
   if (!workflow) return { status: "unavailable", reasons: ["No WorkflowRun exists."] };
   if (graph && workflow.workflowGraphPlanId && workflow.workflowGraphPlanId !== graph.id) {

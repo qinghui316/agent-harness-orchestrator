@@ -2,18 +2,28 @@ import { startTaskRun, retryTaskRun, finishTaskRunFromWorkflowResult } from "../
 import { resolveProjectMemory } from "../../memory/resolver.js";
 import type { ManagedProject } from "../../types/index.js";
 import type { CodeExecutionGateOptions } from "../../code/manager.js";
-import type { WorkbenchLiveSink, WorkbenchWorkflowActionRequest } from "../../workbench/types.js";
 import { requireSingleTaskId, requireTaskRunId } from "./runtime-guards.js";
 import {
   runMainAgentTaskRunLifecycle,
   type MainAgentStartedTaskRun,
 } from "../../main-agent-orchestration/index.js";
 
+export interface WorkflowRuntimeActionRequest {
+  taskIds?: string[];
+  taskRunId?: string;
+  prompt?: string;
+}
+
+export interface WorkflowRuntimeLiveSink {
+  emit(event: unknown): void;
+  isClosed?(): boolean;
+}
+
 export async function runTaskRunMainAgentAttempt(
   project: ManagedProject,
   changeId: string,
-  request: WorkbenchWorkflowActionRequest,
-  live: WorkbenchLiveSink | undefined,
+  request: WorkflowRuntimeActionRequest,
+  live: WorkflowRuntimeLiveSink | undefined,
   mode: "start" | "retry",
 ): Promise<unknown> {
   const started = mode === "start"
@@ -26,7 +36,7 @@ export async function executeStartedTaskRunWorkflow(
   project: ManagedProject,
   started: Awaited<ReturnType<typeof startTaskRun>>,
   prompt: string | undefined,
-  live: WorkbenchLiveSink | undefined,
+  live: WorkflowRuntimeLiveSink | undefined,
   executionGate?: CodeExecutionGateOptions,
   onRetryTaskRunStarted?: (started: MainAgentStartedTaskRun) => Promise<void>,
 ): Promise<unknown> {

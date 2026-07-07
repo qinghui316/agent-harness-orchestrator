@@ -1,5 +1,5 @@
 import { shortHash } from "../fs/path.js";
-import type { ManagedProject, ResolvedMemory, TaskQueueItem, TaskQueueRun, WorkflowRun, WorkflowRunEventType, WorkflowRunStatus } from "../types/index.js";
+import type { ManagedProject, ResolvedMemory, TaskQueueItem, TaskQueueRun, TaskQueueWorkflowRun, WorkflowRun, WorkflowRunEventType, WorkflowRunItem, WorkflowRunStatus } from "../types/index.js";
 import { appendWorkflowRunEvent } from "./events.js";
 import { assertWorkflowRunQueueScope } from "./guards.js";
 import { readWorkflowRun, updateWorkflowRun, writeWorkflowRun } from "./repository.js";
@@ -37,7 +37,7 @@ export async function createWorkflowRunForTaskQueue(memory: ResolvedMemory, proj
   return run;
 }
 
-export async function assertWorkflowResumeAllowed(memory: ResolvedMemory, project: ManagedProject, workflowRunId: string, queue: TaskQueueRun): Promise<WorkflowRun> {
+export async function assertWorkflowResumeAllowed(memory: ResolvedMemory, project: ManagedProject, workflowRunId: string, queue: TaskQueueRun): Promise<TaskQueueWorkflowRun> {
   const run = await readWorkflowRun(memory, queue.changeId, workflowRunId);
   assertWorkflowRunQueueScope(run, queue);
   if (run.status !== "paused") throw new Error("TaskQueue resume requires a paused WorkflowRun.");
@@ -93,7 +93,7 @@ export async function syncWorkflowRunFromQueue(memory: ResolvedMemory, run: Work
   return next;
 }
 
-function workflowItemsFromQueueItems(items: TaskQueueItem[]): WorkflowRun["items"] {
+function workflowItemsFromQueueItems(items: TaskQueueItem[]): WorkflowRunItem[] {
   return items.map((item) => ({
     taskId: item.taskId,
     status: item.status,

@@ -4,7 +4,7 @@ import { runIntegrationCheck } from "../../../integration-check/manager.js";
 import { reconcileTaskRuns } from "../../../task-run/manager.js";
 import { reconcileWorkflowTaskQueue } from "../../../workflow-runtime/taskqueue.js";
 import { runMainAgentSourceRefreshRework, runMainAgentTaskQueueLifecycle } from "../../../main-agent-orchestration/index.js";
-import { runTaskRunMainAgentAttempt, sourceRefreshReworkPrompt } from "../../../workflow-runtime/code-workflow.js";
+import { runDefaultCodeChangeWorkflow, runTaskRunMainAgentAttempt, sourceRefreshReworkPrompt } from "../../../workflow-runtime/code-workflow.js";
 import { startValidationRun } from "../../../validation/manager.js";
 import { getSpecTestDriftReport } from "../../../spec-test/drift.js";
 import type { ManagedProject, RunMetadata } from "../../../types/index.js";
@@ -139,7 +139,14 @@ export function buildWorkbenchActionHandlers(deps: WorkbenchActionHandlerDeps): 
   "post-merge.sync-local.run": async (project, changeId, request, live) => syncLocalForAction(project, changeId, request, live),
   "post-merge.cleanup-branch.prepare": async (project, changeId, request, live) => prepareRemoteBranchCleanupForAction(project, changeId, request, live),
   "post-merge.cleanup-branch.run": async (project, changeId, request, live) => cleanupRemoteBranchForAction(project, changeId, request, live),
-  "code.run": async (project, changeId, request, live) => runMainAgentToolOrchestration(project, changeId, request.prompt, live, false, request.taskIds, request.readinessManifestId),
+  "code.run": async (project, changeId, request, live) => runDefaultCodeChangeWorkflow({
+    project,
+    changeId,
+    prompt: request.prompt,
+    live,
+    taskIds: request.taskIds,
+    readinessManifestId: request.readinessManifestId,
+  }),
   "task.run.start": async (project, changeId, request, live) => runTaskRunMainAgentAttempt(project, changeId, request, live, "start"),
   "task.run.retry": async (project, changeId, request, live) => runTaskRunMainAgentAttempt(project, changeId, request, live, "retry"),
   "task.run.reconcile": async (project, changeId, request) => reconcileTaskRuns(project, { changeId, taskRunId: request.taskRunId }),

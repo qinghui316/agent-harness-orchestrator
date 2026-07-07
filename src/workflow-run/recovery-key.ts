@@ -39,6 +39,7 @@ export async function buildWorkflowRecoveryKey(memory: ResolvedMemory, project: 
 }
 
 export async function recomputeWorkflowRecoveryKey(memory: ResolvedMemory, project: ManagedProject, run: WorkflowRun): Promise<WorkflowRecoveryKey> {
+  if (run.source !== "taskqueue-proposal") throw new Error("TaskQueue recovery key recompute requires a taskqueue-proposal WorkflowRun.");
   const changePath = await activeChangePath(memory, run.changeId);
   if (!run.workflowGraphPlanId) throw new Error("WorkflowRun resume requires workflowGraphPlanId.");
   const graph = await readWorkflowGraphPlan(memory, changePath, run.workflowGraphPlanId);

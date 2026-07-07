@@ -121,6 +121,7 @@ import {
   assertKnownTaskIds,
   requireSingleTaskId,
   requireTaskRunId,
+  runDefaultCodeChangeWorkflow,
   runTaskRunMainAgentAttempt,
   sourceRefreshReworkPrompt,
 } from "../../src/workflow-runtime/code-workflow.js";
@@ -1104,6 +1105,7 @@ describe("Workbench module boundaries", () => {
     expect(typeof mergeRemoteLandingForAction).toBe("function");
     expect(typeof runCodexChat).toBe("function");
     expect(typeof runMainAgentToolOrchestration).toBe("function");
+    expect(typeof runDefaultCodeChangeWorkflow).toBe("function");
     expect(typeof recordWorkbenchDecision).toBe("function");
     expect(typeof emitAssistantEvent).toBe("function");
     expect(typeof createLiveSink).toBe("function");
@@ -3042,6 +3044,7 @@ describe("Workbench module boundaries", () => {
     const facade = readFileSync("src/workflow-runtime/code-workflow.ts", "utf8");
     expect(facade).toContain('export { sourceRefreshReworkPrompt } from "./kernel/bounded-rework.js";');
     expect(facade).toContain('export { runTaskRunMainAgentAttempt } from "./kernel/task-run-sequence.js";');
+    expect(facade).toContain("runDefaultCodeChangeWorkflow");
     expect(facade).not.toContain("runTaskQueueSequence");
     expect(facade).not.toContain("task-queue-runner");
     expect(facade).not.toContain("runTaskRunCodeValidateAuditSequence");
@@ -3050,6 +3053,26 @@ describe("Workbench module boundaries", () => {
     expect(facade).not.toMatch(/startCodeRun\(/);
     expect(facade).not.toMatch(/startValidationRun\(/);
     expect(facade).not.toMatch(/startAuditRun\(/);
+  });
+
+  it("routes ordinary code.run through HarnessWorkflowRunEngine v0 without Workbench UI imports", () => {
+    const handlerIndex = readFileSync("src/workbench/actions/handlers/index.ts", "utf8");
+    expect(handlerIndex).toContain("runDefaultCodeChangeWorkflow({");
+    expect(handlerIndex).not.toMatch(/"code\.run": async[^\n]+runMainAgentToolOrchestration/);
+
+    const runtime = readFileSync("src/workflow-runtime/default-code-change.ts", "utf8");
+    expect(runtime).toContain("class HarnessWorkflowRunEngine");
+    expect(runtime).not.toContain("decideNextMainAgentOrchestration");
+    expect(runtime).not.toMatch(/from\s+["']\.\.\/workbench\//);
+    expect(runtime).not.toMatch(/from\s+["']\.\.\/server\//);
+    expect(runtime).not.toMatch(/from\s+["']\.\.\/web\//);
+
+    for (const file of listSourceFiles(["src/workflow-runtime"])) {
+      const source = readFileSync(file, "utf8");
+      expect(source, file).not.toMatch(/from\s+["'](?:\.\.\/)+workbench\//);
+      expect(source, file).not.toMatch(/from\s+["'](?:\.\.\/)+server\//);
+      expect(source, file).not.toMatch(/from\s+["'](?:\.\.\/)+web\//);
+    }
   });
 
   it("keeps main-agent resume continuation out of worker contexts and executors", () => {

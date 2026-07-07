@@ -1,7 +1,8 @@
 import { getLatestTaskQueue } from "../task-queue/manager.js";
 import { listTaskRuns } from "../task-run/manager.js";
-import type { ManagedProject, ResolvedMemory, StageResumeVerdict, TaskQueueItem, TaskQueueRun, TaskRun, WorkflowRun } from "../types/index.js";
+import type { ManagedProject, ResolvedMemory, StageResumeVerdict, TaskQueueItem, TaskQueueRun, TaskQueueWorkflowRun, TaskRun, WorkflowRun } from "../types/index.js";
 import { deriveStageResumeVerdict, getLatestWorkflowRun } from "../workflow-run/manager.js";
+import { isTaskQueueWorkflowRun } from "../workflow-run/guards.js";
 import { recomputeWorkflowRecoveryKey, sameJson } from "../workflow-run/recovery-key.js";
 import type { MainAgentWorkflowGraphReplaySummary } from "./workflowgraph-replay.js";
 
@@ -98,7 +99,8 @@ export async function buildMainAgentWorkflowGraphRecoverySummary(
   replaySummary: MainAgentWorkflowGraphReplaySummary,
 ): Promise<MainAgentWorkflowGraphRecoverySummary> {
   const latestQueue = await getLatestTaskQueue(memory, changeId).catch(() => null);
-  const workflow = await getLatestWorkflowRun(memory, changeId).catch(() => null);
+  const latestWorkflow = await getLatestWorkflowRun(memory, changeId).catch(() => null);
+  const workflow = isTaskQueueWorkflowRun(latestWorkflow) ? latestWorkflow : null;
   const taskRuns = await listTaskRuns(memory, changeId).catch(() => []);
   const queue = latestQueue?.queue ?? null;
   const queueItems = latestQueue?.items ?? [];
@@ -207,7 +209,7 @@ export function buildDegradedMainAgentWorkflowGraphRecoverySummary(
   };
 }
 
-function queueScopeStatus(workflow: WorkflowRun | null, queue: TaskQueueRun | null): MainAgentWorkflowGraphRecoverySummary["queue"]["scopeStatus"] {
+function queueScopeStatus(workflow: TaskQueueWorkflowRun | null, queue: TaskQueueRun | null): MainAgentWorkflowGraphRecoverySummary["queue"]["scopeStatus"] {
   if (!workflow && !queue) return "unavailable";
   if (workflow && !queue) return "unbound";
   if (!workflow && queue) return "queue-only";
@@ -221,7 +223,7 @@ function queueScopeStatus(workflow: WorkflowRun | null, queue: TaskQueueRun | nu
 async function evaluateRecoveryKeyFreshness(
   memory: ResolvedMemory,
   project: ManagedProject,
-  workflow: WorkflowRun | null,
+  workflow: TaskQueueWorkflowRun | null,
   gaps: MainAgentWorkflowGraphRecoveryGap[],
 ): Promise<MainAgentWorkflowGraphRecoverySummary["workflow"]["recoveryKeyFreshness"]> {
   if (!workflow) {
@@ -260,7 +262,7 @@ async function evaluateRecoveryKeyFreshness(
 async function summarizeBoundTaskRunStages(
   memory: ResolvedMemory,
   changeId: string,
-  workflow: WorkflowRun | null,
+  workflow: TaskQueueWorkflowRun | null,
   queueItems: TaskQueueItem[],
   taskRuns: TaskRun[],
 ): Promise<{ stages: MainAgentWorkflowGraphRecoveryStageSummary[]; gaps: MainAgentWorkflowGraphRecoveryGap[] }> {
@@ -342,7 +344,7 @@ function recoveryGapStatus(status: MainAgentWorkflowGraphReplaySummary["gaps"][n
 
 function buildRefs(
   replaySummary: MainAgentWorkflowGraphReplaySummary,
-  workflow: WorkflowRun | null,
+  workflow: TaskQueueWorkflowRun | null,
   queue: TaskQueueRun | null,
   stages: MainAgentWorkflowGraphRecoveryStageSummary[],
 ): MainAgentWorkflowGraphRecoverySummary["refs"] {

@@ -1,4 +1,4 @@
-import type { TaskQueueRun, WorkflowRun, WorkflowRunEvent } from "../types/index.js";
+import type { TaskQueueRun, TaskQueueWorkflowRun, WorkflowRun, WorkflowRunEvent } from "../types/index.js";
 import type { WorkflowRunEventInput } from "./types.js";
 
 export function assertWorkflowRunChangeScope(run: WorkflowRun, changeId: string): void {
@@ -28,7 +28,14 @@ export function canonicalWorkflowRunEventInput(input: WorkflowRunEventInput & Pa
   return next;
 }
 
-export function assertWorkflowRunQueueScope(run: WorkflowRun, queue: TaskQueueRun): void {
+export function isTaskQueueWorkflowRun(run: WorkflowRun | null | undefined): run is TaskQueueWorkflowRun {
+  return run?.source === "taskqueue-proposal";
+}
+
+export function assertWorkflowRunQueueScope(run: WorkflowRun, queue: TaskQueueRun): asserts run is TaskQueueWorkflowRun {
+  if (run.source !== "taskqueue-proposal") {
+    throw new Error("TaskQueue lifecycle requires a taskqueue-proposal WorkflowRun.");
+  }
   if (run.changeId !== queue.changeId) {
     throw new Error("WorkflowRun and TaskQueueRun must belong to the same Change.");
   }

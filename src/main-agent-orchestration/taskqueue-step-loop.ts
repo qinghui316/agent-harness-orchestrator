@@ -12,6 +12,7 @@ import {
 import { startTaskRun } from "../task-run/manager.js";
 import type { ManagedProject, ResolvedMemory, TaskQueueItem, TaskQueueRun, WorkflowRun } from "../types/index.js";
 import type { WorkbenchLiveSink } from "../workbench/types.js";
+import { isTaskQueueWorkflowRun } from "../workflow-run/guards.js";
 import { reconcileWorkflowTaskQueue, syncWorkflowRunFromTaskQueue } from "../workflow-runtime/taskqueue.js";
 import { emitAssistantEvent } from "../workflow-runtime/kernel/live-events.js";
 import { isRecord, isTaskRunLike } from "../workflow-runtime/kernel/runtime-guards.js";
@@ -364,19 +365,20 @@ async function syncQueue(
   reason?: string,
 ): Promise<WorkflowRun | null> {
   const reconciled = await reconcileWorkflowTaskQueue(project, { changeId, queueRunId: queue.id });
-  if (!workflow) return null;
+  if (!isTaskQueueWorkflowRun(workflow)) return null;
   return syncWorkflowRunFromTaskQueue(memory, workflow, queue, reconciled.items, eventType, reason);
 }
 
 function taskQueueExecutionGate(queue: TaskQueueRun, workflow: WorkflowRun | null, item: TaskQueueItem): CodeExecutionGateOptions {
-  const taskQueueProposalId = item.taskQueueProposalId ?? queue.taskQueueProposalId ?? workflow?.taskQueueProposalId;
-  const workflowGraphPlanId = item.workflowGraphPlanId ?? queue.workflowGraphPlanId ?? workflow?.workflowGraphPlanId;
+  const queueWorkflow = isTaskQueueWorkflowRun(workflow) ? workflow : null;
+  const taskQueueProposalId = item.taskQueueProposalId ?? queue.taskQueueProposalId ?? queueWorkflow?.taskQueueProposalId;
+  const workflowGraphPlanId = item.workflowGraphPlanId ?? queue.workflowGraphPlanId ?? queueWorkflow?.workflowGraphPlanId;
   if (!taskQueueProposalId) throw new Error("TaskQueue lifecycle requires taskQueueProposalId.");
   if (!workflowGraphPlanId) throw new Error("TaskQueue lifecycle requires workflowGraphPlanId.");
   if (queue.taskQueueProposalId && queue.taskQueueProposalId !== taskQueueProposalId) throw new Error("TaskQueue lifecycle proposal scope is stale.");
   if (queue.workflowGraphPlanId && queue.workflowGraphPlanId !== workflowGraphPlanId) throw new Error("TaskQueue lifecycle graph scope is stale.");
-  if (workflow?.taskQueueProposalId && workflow.taskQueueProposalId !== taskQueueProposalId) throw new Error("TaskQueue lifecycle WorkflowRun proposal scope is stale.");
-  if (workflow?.workflowGraphPlanId && workflow.workflowGraphPlanId !== workflowGraphPlanId) throw new Error("TaskQueue lifecycle WorkflowRun graph scope is stale.");
+  if (queueWorkflow?.taskQueueProposalId && queueWorkflow.taskQueueProposalId !== taskQueueProposalId) throw new Error("TaskQueue lifecycle WorkflowRun proposal scope is stale.");
+  if (queueWorkflow?.workflowGraphPlanId && queueWorkflow.workflowGraphPlanId !== workflowGraphPlanId) throw new Error("TaskQueue lifecycle WorkflowRun graph scope is stale.");
   if (item.taskQueueProposalId !== taskQueueProposalId) throw new Error("TaskQueue item proposal scope is stale.");
   if (item.workflowGraphPlanId !== workflowGraphPlanId) throw new Error("TaskQueue item graph scope is stale.");
   return { mode: "taskqueue-proposal", taskQueueProposalId, workflowGraphPlanId };
@@ -388,13 +390,14 @@ function summarizeQueueObservation(observation: MainAgentQueueObservation): stri
 }
 
 function summarizeQueueObservationForEvidence(observation: MainAgentQueueObservation): MainAgentQueueObservationSummary {
+  const queueWorkflow = isTaskQueueWorkflowRun(observation.workflow) ? observation.workflow : null;
   return {
     queueRunId: observation.queue.id,
     workflowRunId: observation.workflow?.id ?? observation.queue.workflowRunId ?? null,
-    taskQueueProposalId: observation.queue.taskQueueProposalId ?? observation.workflow?.taskQueueProposalId ?? null,
-    workflowGraphPlanId: observation.queue.workflowGraphPlanId ?? observation.workflow?.workflowGraphPlanId ?? null,
-    readinessManifestId: observation.queue.readinessManifestId ?? observation.workflow?.readinessManifestId ?? null,
-    decompositionPlanId: observation.queue.decompositionPlanId ?? observation.workflow?.decompositionPlanId ?? null,
+    taskQueueProposalId: observation.queue.taskQueueProposalId ?? queueWorkflow?.taskQueueProposalId ?? null,
+    workflowGraphPlanId: observation.queue.workflowGraphPlanId ?? queueWorkflow?.workflowGraphPlanId ?? null,
+    readinessManifestId: observation.queue.readinessManifestId ?? queueWorkflow?.readinessManifestId ?? null,
+    decompositionPlanId: observation.queue.decompositionPlanId ?? queueWorkflow?.decompositionPlanId ?? null,
     queueStatus: observation.queue.status,
     workflowStatus: observation.workflow?.status ?? null,
     totalCount: observation.queue.totalCount,

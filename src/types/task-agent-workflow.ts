@@ -85,6 +85,7 @@ export interface ToolEventAuditEntry {
 }
 
 export type WorkflowRunStatus = "created" | "running" | "paused" | "blocked" | "failed" | "completed";
+export type WorkflowRunSource = "taskqueue-proposal" | "default-code-change-workflow";
 
 export interface WorkflowRecoveryKey {
   version: "1.0";
@@ -102,6 +103,42 @@ export interface WorkflowRecoveryKey {
   capabilityHash: string;
   createdAt: string;
 }
+
+export type DefaultCodeChangeWorkflowTemplateId = "default-code-change-workflow";
+export type DefaultCodeChangeWorkflowNodeId = "coder" | "validation" | "audit" | "rework-coder";
+export type DefaultCodeChangeWorkflowNodeStatus = "queued" | "running" | "blocked" | "failed" | "completed" | "skipped";
+
+export interface DefaultCodeChangeWorkflowRecoveryKey {
+  version: "1.0";
+  changeId: string;
+  templateId: DefaultCodeChangeWorkflowTemplateId;
+  readinessManifestId?: string;
+  acceptedArtifactHashes?: Record<string, string>;
+  sourceHash?: string;
+  policyHash?: string;
+  capabilityHash?: string;
+  createdAt: string;
+}
+
+export interface DefaultCodeChangeWorkflowNodeState {
+  nodeId: DefaultCodeChangeWorkflowNodeId;
+  status: DefaultCodeChangeWorkflowNodeStatus;
+  roleId?: MainAgentOrchestrationRoleId;
+  attempt: number;
+  runId?: string;
+  worktreeId?: string;
+  validationId?: string;
+  auditId?: string;
+  agentTaskId?: string;
+  artifactRefs: string[];
+  failureClassification?: MainAgentFailureClassification;
+  stoppedAt?: "boundary" | "code" | "validation" | "audit";
+  reason?: string;
+  updatedAt: string;
+}
+
+export type MainAgentOrchestrationRoleId = "coder-agent" | "validator" | "auditor-agent" | "rework-coder";
+export type MainAgentFailureClassification = "boundary-violation" | "code-failure" | "validation-failure" | "audit-failure";
 
 export type WorkflowGraphPlanStatus = "compiled" | "superseded" | "rejected";
 export type WorkflowGraphStage = "coder" | "validation" | "audit" | "bounded-rework";
@@ -147,6 +184,10 @@ export type WorkflowRunEventType =
   | "workflow.created"
   | "workflow.started"
   | "queue.created"
+  | "node.started"
+  | "node.completed"
+  | "node.blocked"
+  | "node.failed"
   | "task.started"
   | "task.completed"
   | "task.blocked"
@@ -180,7 +221,7 @@ export interface WorkflowRunItem {
   updatedAt?: string;
 }
 
-export interface WorkflowRun {
+export interface TaskQueueWorkflowRun {
   version: "1.0";
   id: string;
   changeId: string;
@@ -202,10 +243,35 @@ export interface WorkflowRun {
   finishedAt: string | null;
 }
 
+export interface DefaultCodeChangeWorkflowRun {
+  version: "1.0";
+  id: string;
+  changeId: string;
+  status: WorkflowRunStatus;
+  source: "default-code-change-workflow";
+  templateId: DefaultCodeChangeWorkflowTemplateId;
+  currentNodeId?: DefaultCodeChangeWorkflowNodeId;
+  nodes: DefaultCodeChangeWorkflowNodeState[];
+  maxReworkAttempts: number;
+  reworkAttempts: number;
+  readinessManifestId?: string;
+  recoveryKey: DefaultCodeChangeWorkflowRecoveryKey;
+  statusReason?: string;
+  artifactRefs: string[];
+  createdAt: string;
+  updatedAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
+export type WorkflowRun = TaskQueueWorkflowRun | DefaultCodeChangeWorkflowRun;
+
 export interface WorkflowRunSummary {
   id: string;
   status: WorkflowRunStatus;
+  source: WorkflowRunSource;
   currentTaskId?: string;
+  currentNodeId?: DefaultCodeChangeWorkflowNodeId;
   completedCount: number;
   totalCount: number;
   queueRunId?: string;

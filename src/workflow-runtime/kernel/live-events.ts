@@ -1,11 +1,26 @@
 import { truncateReadablePreview, type CodexJsonlStreamEvent } from "../../codex/jsonl.js";
-import type { WorkbenchAssistantEvent, WorkbenchLiveSink } from "../../workbench/types.js";
 
-export function emitAssistantEvent(live: WorkbenchLiveSink | undefined, event: WorkbenchAssistantEvent): void {
+export interface WorkflowRuntimeAssistantEvent {
+  runId: string;
+  kind?: string;
+  phase?: string;
+  title?: string;
+  summary?: string;
+  artifactRef?: string;
+  isError?: boolean;
+  [key: string]: unknown;
+}
+
+export interface WorkflowRuntimeLiveSink {
+  emit(event: unknown): void;
+  isClosed?(): boolean;
+}
+
+export function emitAssistantEvent(live: WorkflowRuntimeLiveSink | undefined, event: WorkflowRuntimeAssistantEvent): void {
   live?.emit({ event: "assistant.event", data: event });
 }
 
-export function emitDelegatedRoleReturn(live: WorkbenchLiveSink | undefined, changeId: string, roleId: string, status: string, summary: string, artifactRef?: string): void {
+export function emitDelegatedRoleReturn(live: WorkflowRuntimeLiveSink | undefined, changeId: string, roleId: string, status: string, summary: string, artifactRef?: string): void {
   emitAssistantEvent(live, {
     runId: changeId,
     kind: "tool-result",
@@ -17,7 +32,7 @@ export function emitDelegatedRoleReturn(live: WorkbenchLiveSink | undefined, cha
   });
 }
 
-export function forwardCodexStreamEvent(runId: string, event: CodexJsonlStreamEvent, live: WorkbenchLiveSink | undefined): void {
+export function forwardCodexStreamEvent(runId: string, event: CodexJsonlStreamEvent, live: WorkflowRuntimeLiveSink | undefined): void {
   if (!live) return;
   if (event.type === "readable_event") {
     emitAssistantEvent(live, { ...event.event, runId });
@@ -64,7 +79,7 @@ export function forwardCodexStreamEvent(runId: string, event: CodexJsonlStreamEv
   }
 }
 
-export function emitValidationAssistantEvents(live: WorkbenchLiveSink | undefined, runId: string, result: unknown): void {
+export function emitValidationAssistantEvents(live: WorkflowRuntimeLiveSink | undefined, runId: string, result: unknown): void {
   if (!isRecord(result) || !isRecord(result.validation)) return;
   const status = typeof result.validation.status === "string" ? result.validation.status : "unknown";
   const summary = typeof result.validation.summary === "string" ? result.validation.summary : `Validation ${status}.`;
@@ -81,7 +96,7 @@ export function emitValidationAssistantEvents(live: WorkbenchLiveSink | undefine
   });
 }
 
-export function emitAuditAssistantEvent(live: WorkbenchLiveSink | undefined, runId: string, result: unknown): void {
+export function emitAuditAssistantEvent(live: WorkflowRuntimeLiveSink | undefined, runId: string, result: unknown): void {
   if (!isRecord(result) || !isRecord(result.audit)) return;
   const audit = result.audit;
   const status = typeof audit.status === "string" ? audit.status : "unknown";

@@ -8,6 +8,11 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Active change: none.
 - Pending Harness evolution: none.
 - Latest archived product change:
+  `harness/changes/archive/20260707-harness-workflow-runtime-default-code-change-v0/summary.md`.
+  It moved ordinary `code.run` default code-change workflow scheduling into
+  `HarnessWorkflowRunEngine` v0 while leaving TaskQueue, Scheduler,
+  `task.run.start`, and `task.run.retry` on compatibility paths.
+- Previous archived product change:
   `harness/changes/archive/20260707-main-agent-transcript-lazy-restore-leak-fix-v1/summary.md`.
   It fixed the post-handoff repair regression where opening/restoring a topic
   could lazy-load persisted runtime transcript blocks back into the center
