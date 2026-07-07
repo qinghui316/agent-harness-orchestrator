@@ -7,6 +7,11 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Current date: 2026-07-07.
 - Active change: none.
 - Pending Harness evolution: none.
+- Latest archived docs/current-state change:
+  `harness/changes/archive/20260707-workflow-runtime-current-state-drift-cleanup-v1/summary.md`.
+  It cleaned up current-state drift after the TaskRun stage runtime takeover:
+  TaskRun stage execution is no longer described as pending migration, and the
+  next recommended runtime slice is Scheduler owner migration.
 - Latest archived docs/architecture change:
   `harness/changes/archive/20260707-unified-agent-authored-workflowplan-architecture-correction-v1/summary.md`.
   It corrected the Goal / Plan / Workflow / worktree target: main Agent owns

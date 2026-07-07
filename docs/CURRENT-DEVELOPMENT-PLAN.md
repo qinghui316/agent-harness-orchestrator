@@ -27,13 +27,20 @@ is complete, asking Plan Agent to revise Plan / WorkflowPlan when needed, and
 letting Workflow Runtime execute only confirmed workflow input.
 
 Latest completed implementation slice:
+`harness/changes/archive/20260707-harness-workflow-runtime-taskrun-stage-v0/summary.md`.
+It moves TaskRun stage execution into `workflow-runtime`, routes
+`task.run.start` / `task.run.retry` and TaskQueue item stages through the new
+runtime owner, preserves TaskRun/WorkerLease/code/validation/audit leaf
+authorities, and deletes the old TaskRun lifecycle/resume production files.
+
+Previous completed implementation slice:
 `harness/changes/archive/20260707-harness-workflow-runtime-taskqueue-sequential-v0/summary.md`.
 It moves confirmed TaskQueue sequential start/resume queue-level scheduling into
 `workflow-runtime`, deletes the old queue-level `main-agent-orchestration`
-runner as a production path, and leaves TaskRun stage execution plus Scheduler
-migration for later changes. New queue-level execution is represented by
-WorkflowRun events plus canonical TaskQueue/TaskRun records rather than new
-queue-decision evidence.
+runner as a production path, and left TaskRun stage execution plus Scheduler
+migration for later changes at that time. New queue-level execution is
+represented by WorkflowRun events plus canonical TaskQueue/TaskRun records
+rather than new queue-decision evidence.
 
 Previous completed implementation slice:
 `harness/changes/archive/20260707-harness-workflow-runtime-default-code-change-v0/summary.md`.
@@ -644,14 +651,17 @@ Pending Harness evolution: none.
 Current structured change: none.
 
 Recommended current architecture step: continue Workflow Runtime migration with
-one focused product slice. The next product slice should migrate TaskRun stage
-execution into the runtime owner or begin Scheduler ready-set / wave migration,
-but not both in one change.
+one focused product slice. The next product slice should begin Scheduler
+ready-set / wave owner migration. Demand-worker role-chain migration remains a
+separate later slice and must not be combined with Scheduler migration.
 
 Desktop product-layer work can continue when selected as a separate structured
 product phase.
 
 Latest product change:
+`harness/changes/archive/20260707-harness-workflow-runtime-taskrun-stage-v0/summary.md`.
+
+Previous product change:
 `harness/changes/archive/20260707-harness-workflow-runtime-taskqueue-sequential-v0/summary.md`.
 
 Previous product change:

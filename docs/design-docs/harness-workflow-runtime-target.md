@@ -38,13 +38,15 @@ gates; it does not invent the business plan for the Agent.
 
 ## Current State
 
-`src/workflow-runtime` is not yet the unified runner. It now owns the ordinary
-`code.run` default code-change workflow and confirmed TaskQueue sequential
-start/resume queue-level scheduling. Some kernel helpers and compatibility
-facades remain. Real
-scheduling behavior is still spread across:
+`src/workflow-runtime` is not yet the unified runner, but it now owns the
+ordinary `code.run` default code-change workflow, confirmed TaskQueue
+sequential start/resume queue-level scheduling, and TaskRun stage execution for
+`task.run.start`, `task.run.retry`, and TaskQueue item stages. Some kernel
+helpers and compatibility facades remain. Real scheduling behavior is still
+spread across:
 
-- `src/main-agent-orchestration/` for the fixed TaskRun role-chain lifecycle;
+- `src/main-agent-orchestration/` for demand-worker role-chain entrypoints and
+  source-refresh / feedback rework compatibility paths;
 - `src/task-queue/` for queue state records and item transitions;
 - `src/scheduler-runtime/` for SchedulerRun-scoped worker path progression.
 
@@ -355,8 +357,10 @@ usage is deleted for the covered path.
 Phase 4 completed confirmed TaskQueue queue-level start/resume migration into
 Workflow Runtime's sequential / `concurrency=1` mode. The old queue-level
 `main-agent-orchestration` runner is no longer the production path. Historical
-TaskQueueRun and queue-decision records remain readable and projectable.
-TaskRun stage execution remains a compatibility migration target.
+TaskQueueRun and queue-decision records remain readable and projectable. The
+later TaskRun stage migration moved `task.run.start`, `task.run.retry`, and
+TaskQueue item stage execution into `workflow-runtime`, deleting the old
+TaskRun lifecycle/resume production files.
 
 Phase 5 migrates Scheduler into ready-set/wave/claim/lease workflow mode. It
 moves worker start, validation, audit, and rework into scheduler leaf

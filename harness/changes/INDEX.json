@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-07-07T13:57:42.6890597Z",
+    "generated_at":  "2026-07-07T14:42:59.8923683Z",
     "active":  [
 
                ],
@@ -2593,6 +2593,10 @@
                     {
                         "name":  "20260707-unified-agent-authored-workflowplan-architecture-correction-v1",
                         "path":  "harness/changes/archive/20260707-unified-agent-authored-workflowplan-architecture-correction-v1"
+                    },
+                    {
+                        "name":  "20260707-workflow-runtime-current-state-drift-cleanup-v1",
+                        "path":  "harness/changes/archive/20260707-workflow-runtime-current-state-drift-cleanup-v1"
                     }
                 ]
 }
