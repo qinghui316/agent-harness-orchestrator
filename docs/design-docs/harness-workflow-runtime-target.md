@@ -43,9 +43,12 @@ evidence, IntegrationCheck, and human gates are retained. The part that should
 not remain long term is an independent Scheduler runner separate from the
 Workflow Runtime.
 
-The latest Plan handoff archive is not the final correct state under this
-target. It removed part of the old planning path, but the handoff UI and
-interaction model need a separate repair change.
+The earlier Plan handoff archive that introduced the first handoff card is not
+the final correct state under this target. The later pending-composer repair
+archive supersedes it for UI shape: pending actions belong in the main
+composer slot, right-side Agent workspace remains a scoped conversation, and
+execution/revision handoff is user intent for the main Agent rather than a
+workflow action or permission grant.
 
 ## Final Layering
 

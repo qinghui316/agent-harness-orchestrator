@@ -6,10 +6,7 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 
 - Current date: 2026-07-07.
 - Active change: none.
-- Pending Harness evolution:
-  `harness/evolution/pending.md` generated after the TaskQueue sequential
-  runtime takeover close; handle it in a separate auto-evolve change if
-  selected.
+- Pending Harness evolution: none.
 - Latest archived product change:
   `harness/changes/archive/20260707-harness-workflow-runtime-taskqueue-sequential-v0/summary.md`.
   It moved confirmed TaskQueue start/resume queue-level scheduling into
@@ -230,6 +227,15 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Previous archived docs/reference change:
   `harness/changes/archive/20260626-document-desktop-cc-gui-reference-map-and-product-layer-roadmap/summary.md`.
 - Latest completed Harness evolution:
+  `harness/changes/archive/20260707-auto-evolve-post-workflow-runtime-taskqueue-window/summary.md`
+  (`docs_current_delta`; subagent Russell; existing
+  ECL/BOUNDARIES/runtime-target coverage is sufficient for Workflow Runtime
+  default-code and TaskQueue takeover, old-runner retirement, owner-level
+  tests, Plan handoff UI honesty, provider-event truth, and transcript
+  source-boundary rules; repaired target-doc handoff drift; no new
+  rule/template/lint/CI/runtime change required. Pending evolution was marked
+  complete).
+- Previous completed Harness evolution:
   `harness/changes/archive/20260707-auto-evolve-post-workflow-runtime-and-handoff-window/summary.md`
   (`docs_current_delta`; independent review; existing
   ECL/BOUNDARIES/WORKBENCH/RUNTIME coverage is sufficient for Workflow Runtime

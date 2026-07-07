@@ -628,20 +628,31 @@ workflow truth, or hidden permission bypasses.
 
 ## Next Product Direction
 
-Pending Harness evolution: `harness/evolution/pending.md`.
+Pending Harness evolution: none.
 
 Current structured change: none.
 
-Recommended current architecture step: either handle the pending Harness
-evolution in a separate auto-evolve change, or continue Workflow Runtime
-migration with one focused product slice. The next product slice should migrate
-TaskRun stage execution into the runtime owner or begin Scheduler ready-set /
-wave migration, but not both in one change.
+Recommended current architecture step: continue Workflow Runtime migration with
+one focused product slice. The next product slice should migrate TaskRun stage
+execution into the runtime owner or begin Scheduler ready-set / wave migration,
+but not both in one change.
 
 Desktop product-layer work can continue when selected as a separate structured
 product phase.
 
 Latest product change:
+`harness/changes/archive/20260707-harness-workflow-runtime-taskqueue-sequential-v0/summary.md`.
+
+Previous product change:
+`harness/changes/archive/20260707-harness-workflow-runtime-default-code-change-v0/summary.md`.
+
+Previous product change:
+`harness/changes/archive/20260707-main-agent-transcript-lazy-restore-leak-fix-v1/summary.md`.
+
+Previous product change:
+`harness/changes/archive/20260707-main-agent-plan-handoff-pending-composer-agent-transcript-repair-v1/summary.md`.
+
+Previous product change:
 `harness/changes/archive/20260707-provider-native-a2a-real-ui-acceptance-fix-pass-v1/summary.md`.
 
 Previous product change:
@@ -662,22 +673,25 @@ gate, planning-agent process rows, sanitized planning draft, and no automatic
 code execution in stepwise mode.
 
 Latest completed Harness evolution:
-`harness/changes/archive/20260702-auto-evolve-post-resume-continuation-window/summary.md`.
-Decision: `docs_current_delta`; subagent Cicero. Existing ECL/BOUNDARIES
-coverage is sufficient for the non-executing strategy/resume evidence and
-stable-key continuation archive window; no product runtime, Harness rule,
-template, or lint change was made. Current handoff drift was repaired before
-pending evolution was marked complete.
+`harness/changes/archive/20260707-auto-evolve-post-workflow-runtime-taskqueue-window/summary.md`.
+Decision: `docs_current_delta`; subagent Russell. Existing
+ECL/BOUNDARIES/runtime-target coverage is sufficient for Workflow Runtime
+default-code and TaskQueue takeover, old-runner retirement, owner-level tests,
+Plan handoff UI honesty, provider-event truth, and transcript source-boundary
+rules. Target-doc handoff drift was repaired; no rule/template/lint/CI/runtime
+change was needed.
 
 Current Harness evolution:
 
 - Pending evolution: none.
 - Latest completed evolution:
-  `harness/changes/archive/20260706-auto-evolve-post-provider-native-agent-authored-planning-window/summary.md`.
-  Decision: `docs_current_delta`; subagent Harvey score `86/100`. Existing
-  ECL/BOUNDARIES/WORKBENCH/RUNTIME coverage is sufficient for provider-native
-  A2A and Agent-authored planning. Current docs were repaired for planning
-  authorship and handoff drift; no rule/template/lint/CI/runtime change was
+  `harness/changes/archive/20260707-auto-evolve-post-workflow-runtime-taskqueue-window/summary.md`.
+  Decision: `docs_current_delta`; subagent Russell. Existing
+  ECL/BOUNDARIES/runtime-target coverage is sufficient for Workflow Runtime
+  default-code and TaskQueue takeover, old-runner retirement, owner-level
+  tests, Plan handoff UI honesty, provider-event truth, and transcript
+  source-boundary rules. Target-doc handoff drift was repaired; no
+  rule/template/lint/CI/runtime change was
   made.
 - Previous completed evolution:
   `harness/changes/archive/20260704-auto-evolve-post-native-codex-plan-mode-window/summary.md`.

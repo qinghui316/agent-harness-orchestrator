@@ -4,10 +4,7 @@
 
 - Current date: 2026-07-07.
 - Active ECL change: none.
-- Pending Harness evolution:
-  `harness/evolution/pending.md` generated after the TaskQueue sequential
-  runtime takeover close; handle it in a separate auto-evolve change if
-  selected.
+- Pending Harness evolution: none.
 - Latest archived product change:
   `harness/changes/archive/20260707-harness-workflow-runtime-taskqueue-sequential-v0/summary.md`.
   It moved confirmed TaskQueue start/resume queue-level scheduling into
@@ -228,6 +225,15 @@
 - Previous archived product change:
   `harness/changes/archive/20260627-workbench-reference-style-skills-catalog-and-codex-bridge-v1/summary.md`.
 - Latest completed Harness evolution:
+  `harness/changes/archive/20260707-auto-evolve-post-workflow-runtime-taskqueue-window/summary.md`
+  (`docs_current_delta`; subagent Russell; existing
+  ECL/BOUNDARIES/runtime-target coverage is sufficient for Workflow Runtime
+  default-code and TaskQueue takeover, old-runner retirement, owner-level
+  tests, Plan handoff UI honesty, provider-event truth, and transcript
+  source-boundary rules; repaired target-doc handoff drift; no new
+  rule/template/lint/CI/runtime change required. Pending evolution was marked
+  complete).
+- Previous completed Harness evolution:
   `harness/changes/archive/20260707-auto-evolve-post-workflow-runtime-and-handoff-window/summary.md`
   (`docs_current_delta`; independent review; existing
   ECL/BOUNDARIES/WORKBENCH/RUNTIME coverage is sufficient for Workflow Runtime
@@ -959,11 +965,10 @@ Planning content is now provider-native and Agent-authored: AHO validates,
 maps, persists, and gates the plan, but does not invent business goals,
 acceptance criteria, or tasks from raw user demand.
 
-No active ECL change remains. Pending Harness evolution exists at
-`harness/evolution/pending.md` and should be handled as a separate
-auto-evolve change when selected. The next product runtime work should migrate
-TaskRun stage execution into the Workflow Runtime or begin the Scheduler
-wave/ready-set migration, but not both in one change.
+No active ECL change remains, and no pending Harness evolution remains. The
+next product runtime work should migrate TaskRun stage execution into the
+Workflow Runtime or begin the Scheduler wave/ready-set migration, but not both
+in one change.
 
 Desktop product work can continue from
 `docs/design-docs/ref-desktop-cc-gui.md` when selected.
