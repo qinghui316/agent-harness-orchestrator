@@ -84,6 +84,12 @@ sequences archive-only.
 
 Archive history is loaded selectively through `docs/STATUS.md` paths or `harness/changes/INDEX.json`. Start with archived `summary.md` files; open specs, plans, reviews, or source only when the current task needs that evidence.
 
+For architecture, roadmap, next-step, old-code deletion, or reference-alignment
+answers, do not answer from memory. First do a targeted read of the current
+handoff docs, relevant target design doc, affected code owner, and reference map
+or reference source when cited; state the files or entrypoints checked in the
+answer.
+
 ## 3. Project Sources
 
 | Document | Purpose |
