@@ -2,9 +2,16 @@
 
 ## Current Handoff
 
-- Current date: 2026-07-07.
+- Current date: 2026-07-08.
 - Active ECL change: none.
-- Pending Harness evolution: none.
+- Pending Harness evolution: `harness/evolution/pending.md`.
+  It was generated after the Scheduler owner migration close and should be
+  handled as a separate Harness evolution change before broad new runtime work.
+- Latest archived runtime change:
+  `harness/changes/archive/20260708-harness-workflow-runtime-scheduler-owner-v0/summary.md`.
+  It moved SchedulerRun-scoped worker/barrier/integration/closeout progression
+  behind `workflow-runtime` ownership while preserving public Scheduler action
+  ids and existing Scheduler evidence.
 - Latest archived docs/current-state change:
   `harness/changes/archive/20260707-workflow-runtime-current-state-drift-cleanup-v1/summary.md`.
   It cleaned up current-state drift after the TaskRun stage runtime takeover:
@@ -17,7 +24,7 @@
   Plan Agent drafts or revises Plan / WorkflowPlan, Workflow Runtime owns
   orchestration, write-capable leaves use AHO-owned worktrees, and Harness
   docs/evidence remain project memory.
-- Latest archived runtime change:
+- Previous archived runtime change:
   `harness/changes/archive/20260707-harness-workflow-runtime-taskrun-stage-v0/summary.md`.
   It moved TaskRun stage execution into `workflow-runtime`, routed
   `task.run.start` / `task.run.retry` and TaskQueue item stages through the
@@ -44,9 +51,11 @@
 - Runtime architecture is in transition toward the high-cohesion / low-coupling
   Harness Workflow Runtime in
   `docs/design-docs/harness-workflow-runtime-target.md`. Ordinary `code.run`,
-  confirmed TaskQueue queue-level start/resume, and TaskRun stage execution now
-  run through `workflow-runtime`. Remaining compatibility paths are
-  demand-worker role-chain entrypoints and Scheduler worker paths.
+  confirmed TaskQueue queue-level start/resume, TaskRun stage execution, and
+  SchedulerRun-scoped progression now run through `workflow-runtime`.
+  Remaining old production owner path is the demand-worker role-chain
+  entrypoint. Full Scheduler ready-set/wave automation remains a future
+  capability under the Workflow Runtime owner.
 - New runtime takeover changes must include new-path takeover, old production
   runner deletion for the covered behavior, and negative tests proving the old
   runner is no longer called.
@@ -71,13 +80,17 @@
 
 ## Next Resume Point
 
-The next structured runtime work should choose exactly one path:
+First handle `harness/evolution/pending.md` in its own structured Harness
+evolution change.
 
-- begin Scheduler ready-set / wave migration; or
-- migrate demand-worker role-chain entrypoints.
+After that, the next structured runtime work should choose exactly one path:
 
-Do not combine Scheduler migration and demand-worker role-chain migration in
-one change.
+- migrate demand-worker role-chain entrypoints; or
+- add broader Scheduler ready-set / wave behavior under the existing Workflow
+  Runtime Scheduler owner.
+
+Do not combine demand-worker role-chain migration and broader Scheduler
+ready-set/wave automation in one change.
 Do not widen `完全访问权限` into raw scheduler, manual IntegrationCheck,
 integration apply/discard, PR/remote/merge, Harness evolution, or full parallel
 execution without a separate structured change.

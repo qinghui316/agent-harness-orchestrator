@@ -14,7 +14,9 @@ The user should not need to know internal terms before asking for work. The main
 
 ## Goal-Driven Workflow Loop Target
 
-Current implementation state: no active implementation slice.
+Current implementation state: no active implementation slice. Pending Harness
+evolution exists at `harness/evolution/pending.md` after the Scheduler owner
+migration close and should be handled before broad new runtime work.
 
 Goal is the main Agent's visible objective brief and completion standard for a
 round, reconstructed from Harness docs/evidence. It is not project memory and
@@ -27,6 +29,13 @@ is complete, asking Plan Agent to revise Plan / WorkflowPlan when needed, and
 letting Workflow Runtime execute only confirmed workflow input.
 
 Latest completed implementation slice:
+`harness/changes/archive/20260708-harness-workflow-runtime-scheduler-owner-v0/summary.md`.
+It moves SchedulerRun-scoped worker/barrier/integration/closeout progression
+behind `workflow-runtime` ownership, preserves public Scheduler action ids and
+existing Scheduler evidence, and leaves full Scheduler ready-set/wave
+automation as a future Workflow Runtime capability.
+
+Previous completed implementation slice:
 `harness/changes/archive/20260707-harness-workflow-runtime-taskrun-stage-v0/summary.md`.
 It moves TaskRun stage execution into `workflow-runtime`, routes
 `task.run.start` / `task.run.retry` and TaskQueue item stages through the new
@@ -646,19 +655,24 @@ workflow truth, or hidden permission bypasses.
 
 ## Next Product Direction
 
-Pending Harness evolution: none.
+Pending Harness evolution: `harness/evolution/pending.md`.
 
 Current structured change: none.
 
-Recommended current architecture step: continue Workflow Runtime migration with
-one focused product slice. The next product slice should begin Scheduler
-ready-set / wave owner migration. Demand-worker role-chain migration remains a
-separate later slice and must not be combined with Scheduler migration.
+Recommended current architecture step: first handle
+`harness/evolution/pending.md` as a separate Harness evolution change. After
+that, continue Workflow Runtime convergence with one focused slice. Prefer
+migrating the demand-worker role-chain entrypoint before adding broader
+Scheduler ready-set / wave automation. Do not combine demand-worker migration
+with Scheduler behavior expansion.
 
 Desktop product-layer work can continue when selected as a separate structured
 product phase.
 
 Latest product change:
+`harness/changes/archive/20260708-harness-workflow-runtime-scheduler-owner-v0/summary.md`.
+
+Previous product change:
 `harness/changes/archive/20260707-harness-workflow-runtime-taskrun-stage-v0/summary.md`.
 
 Previous product change:

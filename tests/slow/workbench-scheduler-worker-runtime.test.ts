@@ -12,7 +12,7 @@ import { listWorktreeStatuses } from "../../src/worktree/manager.js";
 import { listTaskQueues } from "../../src/task-queue/manager.js";
 import { listTaskRuns, listWorkerLeases } from "../../src/task-run/manager.js";
 import { listWorkflowRuns } from "../../src/workflow-run/manager.js";
-import { auditSchedulerFirstWorker, validateSchedulerFirstWorker } from "../../src/scheduler-runtime/manager.js";
+import { runSchedulerWorkerAudit, runSchedulerWorkerValidation } from "../../src/workflow-runtime/scheduler.js";
 import { createFakeCodex, findSchedulerGateAction, getTempDir, git, initGitRepository, project, unwrapControlledSchedulerAdvanceResult, writeAcceptedSpecAndTasks } from "../unit/workbench/fixtures.js";
 
 describe("workbench scheduler worker runtime slow path", () => {
@@ -577,7 +577,7 @@ describe("workbench scheduler worker runtime slow path", () => {
         schedulerRunId: schedulerRun?.id,
         schedulerWorkerValidationId: validatedResult?.schedulerValidation?.id,
       });
-      const repeatedValidation = await validateSchedulerFirstWorker(project(), {
+      const repeatedValidation = await runSchedulerWorkerValidation(project(), {
         changeId: topic.changeId,
         schedulerRunId: `${schedulerRun?.id}`,
         schedulerWorkerResultId: `${reconciledResult?.result?.id}`,
@@ -692,7 +692,7 @@ describe("workbench scheduler worker runtime slow path", () => {
         const actionType = action.actionType ?? "";
         return actionType === "apply-check.run" || actionType.startsWith("landing.") || actionType.startsWith("remote-landing.");
       })).toBe(false);
-      const repeatedAudit = await auditSchedulerFirstWorker(project(), {
+      const repeatedAudit = await runSchedulerWorkerAudit(project(), {
         changeId: topic.changeId,
         schedulerRunId: `${schedulerRun?.id}`,
         schedulerWorkerValidationId: `${validatedResult?.schedulerValidation?.id}`,

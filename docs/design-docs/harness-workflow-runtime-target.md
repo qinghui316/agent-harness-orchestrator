@@ -40,15 +40,17 @@ gates; it does not invent the business plan for the Agent.
 
 `src/workflow-runtime` is not yet the unified runner, but it now owns the
 ordinary `code.run` default code-change workflow, confirmed TaskQueue
-sequential start/resume queue-level scheduling, and TaskRun stage execution for
-`task.run.start`, `task.run.retry`, and TaskQueue item stages. Some kernel
-helpers and compatibility facades remain. Real scheduling behavior is still
-spread across:
+sequential start/resume queue-level scheduling, TaskRun stage execution for
+`task.run.start`, `task.run.retry`, and TaskQueue item stages, and
+SchedulerRun-scoped progression for worker, rework, integration, completion,
+and blocked-closeout gates. Some kernel helpers and compatibility facades
+remain. Real scheduling behavior is still spread across:
 
 - `src/main-agent-orchestration/` for demand-worker role-chain entrypoints and
   source-refresh / feedback rework compatibility paths;
 - `src/task-queue/` for queue state records and item transitions;
-- `src/scheduler-runtime/` for SchedulerRun-scoped worker path progression.
+- `src/scheduler-runtime/` for Scheduler evidence repositories, rendering,
+  history, projection, and low-level helper support.
 
 The fixed role chain is a safe V1 compatibility policy, not the final
 architecture. `decideNextMainAgentOrchestration()` currently chooses
@@ -64,9 +66,11 @@ waves, but this document does not change the schema.
 Scheduler evidence is valuable and must remain. SchedulerContract, dry-run,
 worker-plan, claim/reconcile, launch preflight, SchedulerRun,
 ClaimReservation, worker start/result/validation/audit/rework/integration
-evidence, IntegrationCheck, and human gates are retained. The part that should
-not remain long term is an independent Scheduler runner separate from the
-Workflow Runtime.
+evidence, IntegrationCheck, and human gates are retained. The independent
+Workbench-to-`scheduler-runtime` Scheduler production owner has been retired
+for SchedulerRun progression; future broader ready-set/wave behavior should
+extend the Workflow Runtime Scheduler owner rather than reintroducing a
+parallel Scheduler runner.
 
 The earlier Plan handoff archive that introduced the first handoff card is not
 the final correct state under this target. The later pending-composer repair

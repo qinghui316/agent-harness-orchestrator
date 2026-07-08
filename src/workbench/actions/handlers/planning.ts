@@ -4,15 +4,7 @@ import {
   recordMainAgentWorkflowGraphObservationAndReplay,
 } from "../../../main-agent-orchestration/index.js";
 import {
-  initializeSchedulerRuntime,
-  compileSchedulerIntegrationCandidate,
-  runSchedulerIntegrationCheckHandoff,
-  reconcileSchedulerIntegrationOutcome,
-  completeSchedulerRunFromIntegrationOutcome,
-  closeSchedulerRunBlockedOrExhausted,
   prepareSchedulerPlanEvidence,
-  reconcileSchedulerRuntime,
-  reserveSchedulerRuntimeClaims,
   renderSchedulerLaunchBriefMarkdown,
   renderSchedulerIntegrationCheckHandoffMarkdown,
   renderSchedulerIntegrationCandidateMarkdown,
@@ -31,33 +23,10 @@ import {
   renderSchedulerRuntimeWorkerValidationMarkdown,
   renderSchedulerReconcileSnapshotMarkdown,
   renderSchedulerRuntimeStateMarkdown,
-  reconcileSchedulerFirstWorkerResult,
-  reconcileSchedulerFirstWorkerReworkResult,
-  validateSchedulerFirstWorkerRework,
-  auditSchedulerFirstWorkerRework,
-  startFirstSchedulerCoderWorker,
-  startNextSchedulerCoderWorker,
-  auditSchedulerFirstWorker,
-  compileSchedulerFirstWorkerReworkPlan,
-  startFirstSchedulerWorkerRework,
-  validateSchedulerFirstWorker,
   type SchedulerReconcileSnapshot,
   type SchedulerRuntimeClaimReservation,
   type SchedulerRuntimeState,
   type SchedulerRuntimeWorkerStart,
-  type SchedulerIntegrationCheckHandoffResult,
-  type SchedulerIntegrationOutcomeResult,
-  type SchedulerRunBlockedCloseoutResult,
-  type SchedulerRunCompletionResult,
-  type SchedulerIntegrationCandidateResult,
-  type SchedulerWorkerResultReconcileResult,
-  type SchedulerWorkerAuditResult,
-  type SchedulerWorkerReworkPlanResult,
-  type SchedulerWorkerReworkResultReconcileResult,
-  type SchedulerWorkerReworkValidationResult,
-  type SchedulerWorkerReworkAuditResult,
-  type SchedulerFirstWorkerReworkStartResult,
-  type SchedulerWorkerValidationResult,
   type SchedulerPlanPreparationResult,
 } from "../../../scheduler-runtime/manager.js";
 import type { ManagedProject } from "../../../types/index.js";
@@ -66,6 +35,39 @@ import {
   runTaskQueueSequentialWorkflow,
   validateWorkflowTaskQueueProposalStart,
 } from "../../../workflow-runtime/taskqueue.js";
+import {
+  runSchedulerIntegrationCandidateCompile,
+  runSchedulerIntegrationCheck,
+  runSchedulerIntegrationOutcomeReconcile,
+  runSchedulerRunCloseBlocked,
+  runSchedulerRunComplete,
+  runSchedulerRuntimeInitialize,
+  runSchedulerRuntimeReconcile,
+  runSchedulerRuntimeReserveClaims,
+  runSchedulerWorkerAudit,
+  runSchedulerWorkerReworkAudit,
+  runSchedulerWorkerReworkPlanCompile,
+  runSchedulerWorkerReworkResultReconcile,
+  runSchedulerWorkerReworkStart,
+  runSchedulerWorkerReworkValidation,
+  runSchedulerWorkerResultReconcile,
+  runSchedulerWorkerStartFirst,
+  runSchedulerWorkerStartNext,
+  runSchedulerWorkerValidation,
+  type SchedulerFirstWorkerReworkStartResult,
+  type SchedulerIntegrationCandidateResult,
+  type SchedulerIntegrationCheckHandoffResult,
+  type SchedulerIntegrationOutcomeResult,
+  type SchedulerRunBlockedCloseoutResult,
+  type SchedulerRunCompletionResult,
+  type SchedulerWorkerAuditResult,
+  type SchedulerWorkerResultReconcileResult,
+  type SchedulerWorkerReworkAuditResult,
+  type SchedulerWorkerReworkPlanResult,
+  type SchedulerWorkerReworkResultReconcileResult,
+  type SchedulerWorkerReworkValidationResult,
+  type SchedulerWorkerValidationResult,
+} from "../../../workflow-runtime/scheduler.js";
 import {
   buildTaskQueueProposalFromReadiness,
   compileWorkflowGraphPlan,
@@ -750,7 +752,7 @@ export async function initializePlanningSchedulerRuntime(
   const { memory, changePath } = await resolveTopic(project, changeId);
   assertWritableMemory(memory, "Scheduler runtime initialize");
   if (!request.schedulerRunId) throw new Error("planning.scheduler.runtime.initialize requires schedulerRunId.");
-  const runtimeState = await initializeSchedulerRuntime(memory, changePath, request.schedulerRunId);
+  const runtimeState = await runSchedulerRuntimeInitialize(memory, changePath, request.schedulerRunId);
   await appendTopicThreadEntry(project, changeId, {
     type: "assistant.message",
     status: "scheduler-runtime-initialized",
@@ -791,7 +793,7 @@ export async function reconcilePlanningSchedulerRuntime(
   const { memory, changePath } = await resolveTopic(project, changeId);
   assertWritableMemory(memory, "Scheduler runtime reconcile");
   if (!request.schedulerRunId) throw new Error("planning.scheduler.runtime.reconcile requires schedulerRunId.");
-  const reconcileSnapshot = await reconcileSchedulerRuntime(memory, changePath, request.schedulerRunId);
+  const reconcileSnapshot = await runSchedulerRuntimeReconcile(memory, changePath, request.schedulerRunId);
   await appendTopicThreadEntry(project, changeId, {
     type: "assistant.message",
     status: "scheduler-runtime-reconciled",
@@ -833,7 +835,7 @@ export async function reservePlanningSchedulerRuntimeClaims(
   assertWritableMemory(memory, "Scheduler runtime claim reservation");
   if (!request.schedulerRunId) throw new Error("planning.scheduler.runtime.reserve-claims requires schedulerRunId.");
   if (!request.schedulerReconcileSnapshotId) throw new Error("planning.scheduler.runtime.reserve-claims requires schedulerReconcileSnapshotId.");
-  const claimReservation = await reserveSchedulerRuntimeClaims(memory, changePath, request.schedulerRunId, request.schedulerReconcileSnapshotId);
+  const claimReservation = await runSchedulerRuntimeReserveClaims(memory, changePath, request.schedulerRunId, request.schedulerReconcileSnapshotId);
   await appendTopicThreadEntry(project, changeId, {
     type: "assistant.message",
     status: claimReservation.status === "reserved" ? "scheduler-runtime-claim-reserved" : "scheduler-runtime-claim-blocked",
@@ -875,7 +877,7 @@ export async function startPlanningSchedulerFirstWorker(
   assertWritableMemory(memory, "Scheduler first worker start");
   if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.start-first requires schedulerRunId.");
   if (!request.schedulerClaimReservationId) throw new Error("planning.scheduler.worker.start-first requires schedulerClaimReservationId.");
-  const result = await startFirstSchedulerCoderWorker(project, {
+  const result = await runSchedulerWorkerStartFirst(project, {
     changeId,
     schedulerRunId: request.schedulerRunId,
     schedulerClaimReservationId: request.schedulerClaimReservationId,
@@ -938,7 +940,7 @@ export async function startPlanningSchedulerNextWorker(
   if (!request.schedulerClaimReservationId) throw new Error("planning.scheduler.worker.start-next requires schedulerClaimReservationId.");
   if (!request.reservationIntentId) throw new Error("planning.scheduler.worker.start-next requires reservationIntentId.");
   if (!request.claimIntentId) throw new Error("planning.scheduler.worker.start-next requires claimIntentId.");
-  const result = await startNextSchedulerCoderWorker(project, {
+  const result = await runSchedulerWorkerStartNext(project, {
     changeId,
     schedulerRunId: request.schedulerRunId,
     schedulerClaimReservationId: request.schedulerClaimReservationId,
@@ -999,7 +1001,7 @@ export async function reconcilePlanningSchedulerFirstWorkerResult(
   assertWritableMemory(memory, "Scheduler current worker result reconcile");
   if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.reconcile-result requires schedulerRunId.");
   if (!request.schedulerWorkerStartId) throw new Error("planning.scheduler.worker.reconcile-result requires schedulerWorkerStartId.");
-  const result = await reconcileSchedulerFirstWorkerResult(project, {
+  const result = await runSchedulerWorkerResultReconcile(project, {
     changeId,
     schedulerRunId: request.schedulerRunId,
     schedulerWorkerStartId: request.schedulerWorkerStartId,
@@ -1103,7 +1105,7 @@ export async function validatePlanningSchedulerFirstWorker(
   assertWritableMemory(memory, "Scheduler current worker validation");
   if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.validate-first requires schedulerRunId.");
   if (!request.schedulerWorkerResultId) throw new Error("planning.scheduler.worker.validate-first requires schedulerWorkerResultId.");
-  const result = await validateSchedulerFirstWorker(project, {
+  const result = await runSchedulerWorkerValidation(project, {
     changeId,
     schedulerRunId: request.schedulerRunId,
     schedulerWorkerResultId: request.schedulerWorkerResultId,
@@ -1168,7 +1170,7 @@ export async function auditPlanningSchedulerFirstWorker(
   assertWritableMemory(memory, "Scheduler current worker audit");
   if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.audit-first requires schedulerRunId.");
   if (!request.schedulerWorkerValidationId) throw new Error("planning.scheduler.worker.audit-first requires schedulerWorkerValidationId.");
-  const result = await auditSchedulerFirstWorker(project, {
+  const result = await runSchedulerWorkerAudit(project, {
     changeId,
     schedulerRunId: request.schedulerRunId,
     schedulerWorkerValidationId: request.schedulerWorkerValidationId,
@@ -1236,7 +1238,7 @@ export async function compilePlanningSchedulerFirstWorkerReworkPlan(
   assertWritableMemory(memory, "Scheduler current worker rework plan");
   if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.rework-plan.compile requires schedulerRunId.");
   if (!request.schedulerWorkerValidationId) throw new Error("planning.scheduler.worker.rework-plan.compile requires schedulerWorkerValidationId.");
-  const result = await compileSchedulerFirstWorkerReworkPlan(project, {
+  const result = await runSchedulerWorkerReworkPlanCompile(project, {
     changeId,
     schedulerRunId: request.schedulerRunId,
     schedulerWorkerValidationId: request.schedulerWorkerValidationId,
@@ -1303,7 +1305,7 @@ export async function startPlanningSchedulerFirstWorkerRework(
   assertWritableMemory(memory, "Scheduler current worker rework start");
   if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.rework-start-first requires schedulerRunId.");
   if (!request.schedulerWorkerReworkPlanId) throw new Error("planning.scheduler.worker.rework-start-first requires schedulerWorkerReworkPlanId.");
-  const result = await startFirstSchedulerWorkerRework(project, {
+  const result = await runSchedulerWorkerReworkStart(project, {
     changeId,
     schedulerRunId: request.schedulerRunId,
     schedulerWorkerReworkPlanId: request.schedulerWorkerReworkPlanId,
@@ -1386,7 +1388,7 @@ export async function reconcilePlanningSchedulerFirstWorkerReworkResult(
   assertWritableMemory(memory, "Scheduler current worker rework result reconcile");
   if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.rework-reconcile-result requires schedulerRunId.");
   if (!request.schedulerWorkerReworkStartId) throw new Error("planning.scheduler.worker.rework-reconcile-result requires schedulerWorkerReworkStartId.");
-  const result = await reconcileSchedulerFirstWorkerReworkResult(project, {
+  const result = await runSchedulerWorkerReworkResultReconcile(project, {
     changeId,
     schedulerRunId: request.schedulerRunId,
     schedulerWorkerReworkStartId: request.schedulerWorkerReworkStartId,
@@ -1497,7 +1499,7 @@ export async function validatePlanningSchedulerFirstWorkerRework(
   assertWritableMemory(memory, "Scheduler current worker rework validation");
   if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.rework-validate-first requires schedulerRunId.");
   if (!request.schedulerWorkerReworkResultId) throw new Error("planning.scheduler.worker.rework-validate-first requires schedulerWorkerReworkResultId.");
-  const result = await validateSchedulerFirstWorkerRework(project, {
+  const result = await runSchedulerWorkerReworkValidation(project, {
     changeId,
     schedulerRunId: request.schedulerRunId,
     schedulerWorkerReworkResultId: request.schedulerWorkerReworkResultId,
@@ -1571,7 +1573,7 @@ export async function auditPlanningSchedulerFirstWorkerRework(
   assertWritableMemory(memory, "Scheduler current worker rework audit");
   if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.rework-audit-first requires schedulerRunId.");
   if (!request.schedulerWorkerReworkValidationId) throw new Error("planning.scheduler.worker.rework-audit-first requires schedulerWorkerReworkValidationId.");
-  const result = await auditSchedulerFirstWorkerRework(project, {
+  const result = await runSchedulerWorkerReworkAudit(project, {
     changeId,
     schedulerRunId: request.schedulerRunId,
     schedulerWorkerReworkValidationId: request.schedulerWorkerReworkValidationId,
@@ -1648,7 +1650,7 @@ export async function compilePlanningSchedulerIntegrationCandidate(
   const { memory } = await resolveTopic(project, changeId);
   assertWritableMemory(memory, "Scheduler integration candidate");
   if (!request.schedulerRunId) throw new Error("planning.scheduler.integration-candidate.compile requires schedulerRunId.");
-  const result = await compileSchedulerIntegrationCandidate(project, {
+  const result = await runSchedulerIntegrationCandidateCompile(project, {
     changeId,
     schedulerRunId: request.schedulerRunId,
   });
@@ -1704,7 +1706,7 @@ export async function runPlanningSchedulerIntegrationCheckHandoff(
   assertWritableMemory(memory, "Scheduler IntegrationCheck handoff");
   if (!request.schedulerRunId) throw new Error("planning.scheduler.integration-check.run requires schedulerRunId.");
   if (!request.schedulerIntegrationCandidateId) throw new Error("planning.scheduler.integration-check.run requires schedulerIntegrationCandidateId.");
-  const result = await runSchedulerIntegrationCheckHandoff(project, {
+  const result = await runSchedulerIntegrationCheck(project, {
     changeId,
     schedulerRunId: request.schedulerRunId,
     schedulerIntegrationCandidateId: request.schedulerIntegrationCandidateId,
@@ -1762,7 +1764,7 @@ export async function reconcilePlanningSchedulerIntegrationOutcome(
   assertWritableMemory(memory, "Scheduler integration outcome");
   if (!request.schedulerRunId) throw new Error("planning.scheduler.integration-outcome.reconcile requires schedulerRunId.");
   if (!request.schedulerIntegrationCheckHandoffId) throw new Error("planning.scheduler.integration-outcome.reconcile requires schedulerIntegrationCheckHandoffId.");
-  const result = await reconcileSchedulerIntegrationOutcome(project, {
+  const result = await runSchedulerIntegrationOutcomeReconcile(project, {
     changeId,
     schedulerRunId: request.schedulerRunId,
     schedulerIntegrationCheckHandoffId: request.schedulerIntegrationCheckHandoffId,
@@ -1825,7 +1827,7 @@ export async function completePlanningSchedulerRun(
   assertWritableMemory(memory, "SchedulerRun completion");
   if (!request.schedulerRunId) throw new Error("planning.scheduler.run.complete requires schedulerRunId.");
   if (!request.schedulerIntegrationOutcomeId) throw new Error("planning.scheduler.run.complete requires schedulerIntegrationOutcomeId.");
-  const result = await completeSchedulerRunFromIntegrationOutcome(project, {
+  const result = await runSchedulerRunComplete(project, {
     changeId,
     schedulerRunId: request.schedulerRunId,
     schedulerIntegrationOutcomeId: request.schedulerIntegrationOutcomeId,
@@ -1885,7 +1887,7 @@ export async function closeBlockedPlanningSchedulerRun(
   if (!request.schedulerRunId) throw new Error("planning.scheduler.run.close-blocked requires schedulerRunId.");
   if (!request.schedulerClaimReservationId) throw new Error("planning.scheduler.run.close-blocked requires schedulerClaimReservationId.");
   if (!request.schedulerIntegrationCandidateId) throw new Error("planning.scheduler.run.close-blocked requires schedulerIntegrationCandidateId.");
-  const result = await closeSchedulerRunBlockedOrExhausted(project, {
+  const result = await runSchedulerRunCloseBlocked(project, {
     changeId,
     schedulerRunId: request.schedulerRunId,
     schedulerClaimReservationId: request.schedulerClaimReservationId,

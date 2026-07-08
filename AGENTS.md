@@ -4,9 +4,16 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 
 ## 1. Current Handoff
 
-- Current date: 2026-07-07.
+- Current date: 2026-07-08.
 - Active change: none.
-- Pending Harness evolution: none.
+- Pending Harness evolution: `harness/evolution/pending.md`.
+  It was generated after the Scheduler owner migration close and must be
+  handled by a separate Harness evolution change before broad new runtime work.
+- Latest archived runtime change:
+  `harness/changes/archive/20260708-harness-workflow-runtime-scheduler-owner-v0/summary.md`.
+  It moved SchedulerRun-scoped worker/barrier/integration/closeout progression
+  behind `workflow-runtime` ownership while preserving public Scheduler action
+  ids and existing Scheduler evidence.
 - Latest archived docs/current-state change:
   `harness/changes/archive/20260707-workflow-runtime-current-state-drift-cleanup-v1/summary.md`.
   It cleaned up current-state drift after the TaskRun stage runtime takeover:
@@ -18,7 +25,7 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
   the visible Goal brief and next-round judgment, Plan Agent drafts or revises
   Plan / WorkflowPlan, Workflow Runtime owns orchestration, write-capable leaves
   use AHO-owned worktrees, and Harness docs/evidence remain project memory.
-- Latest archived runtime change:
+- Previous archived runtime change:
   `harness/changes/archive/20260707-harness-workflow-runtime-taskrun-stage-v0/summary.md`.
   It moved TaskRun stage execution into `workflow-runtime`, routed
   `task.run.start` / `task.run.retry` and TaskQueue item stages through the
@@ -41,10 +48,11 @@ Current baseline:
 - Local manual-gated Workbench has real acceptance through planning, code,
   validation/audit, human apply, and close/archive.
 - Workflow Runtime is the target single runner owner. Ordinary `code.run` and
-  confirmed TaskQueue queue-level start/resume and TaskRun stage execution are
-  already routed through `workflow-runtime`. Remaining compatibility paths are
-  demand-worker role-chain entrypoints and Scheduler worker paths.
-  New runtime takeover changes must delete the covered old production runner.
+  confirmed TaskQueue queue-level start/resume, TaskRun stage execution, and
+  SchedulerRun-scoped progression are already routed through
+  `workflow-runtime`. Remaining old production owner path is the demand-worker
+  role-chain entrypoint. New runtime takeover changes must delete the covered
+  old production runner.
 - Goal is a visible main-Agent brief and completion standard, not hidden durable
   state and not project memory. Future sessions recover by reading Harness
   docs/evidence, not by restoring Goal state. Existing GoalLoop packet/controller
@@ -64,8 +72,11 @@ Current baseline:
 
 Next recommended structured work:
 
-- Pick exactly one next runtime migration, preferably Scheduler ready-set/wave
-  migration. Do not mix it with demand-worker role-chain migration.
+- First resolve `harness/evolution/pending.md` in its own structured Harness
+  evolution change.
+- After that, pick exactly one runtime convergence slice. Prefer migrating the
+  demand-worker role-chain entrypoint before adding broader Scheduler
+  ready-set/wave automation.
 - Keep `README.md` untracked unless the user explicitly scopes it into a
   change.
 

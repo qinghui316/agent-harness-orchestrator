@@ -159,7 +159,7 @@ import {
   schedulerWorkerReworkValidationEventType,
   schedulerWorkerValidationEventType,
 } from "../../src/scheduler-runtime/event-policy.js";
-import { closeSchedulerRunBlockedOrExhausted, compileSchedulerIntegrationCandidate } from "../../src/scheduler-runtime/manager.js";
+import { runSchedulerIntegrationCandidateCompile, runSchedulerRunCloseBlocked } from "../../src/workflow-runtime/scheduler.js";
 import { emitValidationAssistantEvents } from "../../src/workflow-runtime/kernel/live-events.js";
 import { runTaskQueueSequentialWorkflow, startOrResumeWorkflowTaskQueue, validateWorkflowTaskQueueProposalStart } from "../../src/workflow-runtime/taskqueue.js";
 import { fetchJson } from "../../src/web/src/api.js";
@@ -1170,8 +1170,8 @@ describe("Workbench module boundaries", () => {
     expect(typeof renderSchedulerClaimReconcilePlanMarkdown).toBe("function");
     expect(typeof prepareSchedulerRun).toBe("function");
     expect(typeof renderSchedulerRunMarkdown).toBe("function");
-    expect(typeof compileSchedulerIntegrationCandidate).toBe("function");
-    expect(typeof closeSchedulerRunBlockedOrExhausted).toBe("function");
+    expect(typeof runSchedulerIntegrationCandidateCompile).toBe("function");
+    expect(typeof runSchedulerRunCloseBlocked).toBe("function");
     expect(typeof startOrResumeWorkflowTaskQueue).toBe("function");
     expect(typeof validateWorkflowTaskQueueProposalStart).toBe("function");
     expect(typeof runTaskQueueSequentialWorkflow).toBe("function");
@@ -1566,6 +1566,7 @@ describe("Workbench module boundaries", () => {
   it("keeps scheduler user surface and handler glue in owned modules", () => {
     const handlerIndex = readFileSync("src/workbench/actions/handlers/index.ts", "utf8");
     const schedulerHandler = readFileSync("src/workbench/actions/handlers/scheduler.ts", "utf8");
+    const planningHandler = readFileSync("src/workbench/actions/handlers/planning.ts", "utf8");
     const visibleGoalLoopCurrentGate = readFileSync("src/workbench/actions/visible-goal-loop-current-gate.ts", "utf8");
     const schedulerSurface = readFileSync("src/workbench/projections/read-model/confirmation/scheduler-user-surface.ts", "utf8");
     const webSchedulerLabels = readFileSync("src/web/src/scheduler-action-labels.ts", "utf8");
@@ -1576,6 +1577,13 @@ describe("Workbench module boundaries", () => {
     expect(schedulerHandler).toContain("buildSchedulerActionHandlers");
     expect(schedulerHandler).toContain("resolveVisibleControlledSchedulerCurrentGate");
     expect(schedulerHandler).not.toContain("projections/read-model");
+    expect(planningHandler).toContain('from "../../../workflow-runtime/scheduler.js"');
+    expect(planningHandler).not.toContain("startFirstSchedulerCoderWorker");
+    expect(planningHandler).not.toContain("startNextSchedulerCoderWorker");
+    expect(planningHandler).not.toContain("reconcileSchedulerFirstWorkerResult");
+    expect(planningHandler).not.toContain("validateSchedulerFirstWorker(project");
+    expect(planningHandler).not.toContain("auditSchedulerFirstWorker(project");
+    expect(planningHandler).not.toContain("runSchedulerIntegrationCheckHandoff");
     expect(visibleGoalLoopCurrentGate).toContain("getWorkbenchWorkpadProjection");
     expect(visibleGoalLoopCurrentGate).toContain("assessGoalLoopSummaryCurrentGateParity");
     for (const source of [schedulerHandler, schedulerSurface, webSchedulerLabels]) {
@@ -2252,7 +2260,7 @@ describe("Workbench module boundaries", () => {
     expect(events).toContain("stripCanonicalScope");
   });
 
-  it("keeps scheduler-runtime as an owned runtime shell module", () => {
+  it("keeps scheduler-runtime as an evidence shell and workflow-runtime as Scheduler production owner", () => {
     const files = listSourceFiles(["src/scheduler-runtime"]);
     expect(files.map((file) => file.replace(/\\/g, "/"))).toEqual(expect.arrayContaining([
       "src/scheduler-runtime/types.ts",
@@ -2283,21 +2291,32 @@ describe("Workbench module boundaries", () => {
       "src/scheduler-runtime/manager.ts",
     ]));
     const manager = readFileSync("src/scheduler-runtime/manager.ts", "utf8");
-    expect(manager).toContain('export * from "./initialize.js";');
-    expect(manager).toContain('export * from "./reconcile.js";');
-    expect(manager).toContain('export * from "./claim-reservation.js";');
     expect(manager).toContain('export * from "./worker-path.js";');
-    expect(manager).toContain('export * from "./worker-start.js";');
-    expect(manager).toContain('export * from "./worker-result.js";');
-    expect(manager).toContain('export * from "./worker-validation.js";');
-    expect(manager).toContain('export * from "./worker-audit.js";');
-    expect(manager).toContain('export * from "./worker-rework-audit.js";');
-    expect(manager).toContain('export * from "./integration-candidate.js";');
-    expect(manager).toContain('export * from "./integration-check-handoff.js";');
-    expect(manager).toContain('export * from "./integration-outcome.js";');
-    expect(manager).toContain('export * from "./run-completion.js";');
-    expect(manager).toContain('export * from "./run-closeout.js";');
     expect(manager).toContain('export * from "./repository.js";');
+    expect(manager).toContain('export * from "./rendering.js";');
+    expect(manager).toContain('export * from "./types.js";');
+    expect(manager).not.toContain('export * from "./worker-start.js";');
+    expect(manager).not.toContain('export * from "./worker-result.js";');
+    expect(manager).not.toContain('export * from "./worker-validation.js";');
+    expect(manager).not.toContain('export * from "./worker-audit.js";');
+    expect(manager).not.toContain('export * from "./worker-rework.js";');
+    expect(manager).not.toContain('export * from "./worker-rework-audit.js";');
+    expect(manager).not.toContain('export * from "./integration-candidate.js";');
+    expect(manager).not.toContain('export * from "./integration-check-handoff.js";');
+    expect(manager).not.toContain('export * from "./integration-outcome.js";');
+    expect(manager).not.toContain('export * from "./run-completion.js";');
+    expect(manager).not.toContain('export * from "./run-closeout.js";');
+
+    const workflowSchedulerOwner = readFileSync("src/workflow-runtime/scheduler.ts", "utf8");
+    expect(workflowSchedulerOwner).toContain("runSchedulerWorkerStartFirst");
+    expect(workflowSchedulerOwner).toContain("runSchedulerWorkerStartNext");
+    expect(workflowSchedulerOwner).toContain("runSchedulerWorkerResultReconcile");
+    expect(workflowSchedulerOwner).toContain("runSchedulerWorkerValidation");
+    expect(workflowSchedulerOwner).toContain("runSchedulerWorkerAudit");
+    expect(workflowSchedulerOwner).toContain("runSchedulerWorkerReworkStart");
+    expect(workflowSchedulerOwner).toContain("runSchedulerIntegrationCheck");
+    expect(workflowSchedulerOwner).toContain("runSchedulerRunComplete");
+    expect(workflowSchedulerOwner).not.toMatch(/workbench\/|server\/|web\/src|cli\/commands/);
 
     const guards = readFileSync("src/scheduler-runtime/guards.ts", "utf8");
     expect(guards).toContain("assertLatestSchedulerRuntimeClaimReservation");
