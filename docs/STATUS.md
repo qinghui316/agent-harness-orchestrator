@@ -4,11 +4,14 @@
 
 - Current date: 2026-07-08.
 - Active ECL change: none.
-- Pending Harness evolution:
-  `harness/evolution/pending.md`. It was generated after the latest runtime
-  compression closeout and should be handled as a separate Harness evolution
-  change, not mixed into runtime work.
+- Pending Harness evolution: none.
 - Latest completed Harness evolution:
+  `harness/changes/archive/20260708-architecture-relationship-thinking-rule-v1/summary.md`.
+  Decision: `docs_current_delta`; subagent Averroes reviewed the delta. The
+  change promoted architecture relationship thinking into AGENTS/ECL while
+  leaving change templates unchanged, wrote the evolution result, and cleared
+  pending evolution.
+- Previous completed Harness evolution:
   `harness/changes/archive/20260708-auto-evolve-post-scheduler-owner-window/summary.md`.
   Decision: `docs_current_delta`; subagent Singer scored 85. Existing ECL,
   BOUNDARIES, and runtime-target coverage was sufficient for Workflow Runtime

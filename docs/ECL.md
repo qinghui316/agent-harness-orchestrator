@@ -88,6 +88,19 @@ adding local guards to one path. New modules are justified when they become a
 reusable owner for a responsibility; a one-off feature helper is not an
 architecture improvement by itself.
 
+Structured product, runtime, UI, schema, Harness-rule, or cross-module changes
+must include architecture relationship thinking before implementation. The agent
+should reason through the entry/composition point, stable contract or facade,
+owner module, adapter/provider boundary, projection/read-model direction,
+forbidden write-back locations, old path deletion or compression, and whether
+the change lowers the cost of the next similar feature. This relationship sketch
+is planning work, not a new document requirement: record the conclusion only
+when it affects the existing `plan.md` approach, module boundary, core mechanism
+reuse, compatibility surface, or review. Do not add a new abstraction merely
+because it sounds extensible; the new code must reuse an existing owner,
+replace/delete old logic, or create a reusable owner that removes real future
+duplication.
+
 Product/code/Harness-template/rule changes must include a lightweight
 `Complexity Deletion Review` in `reviews/review.md`. Keep it short:
 
@@ -337,6 +350,10 @@ If a future feature must temporarily place main logic in a facade, the plan and 
 The check must confirm that:
 
 - each new responsibility has an explicit module owner, such as action registry, action handler, projection builder, runtime facade, artifact manager, server route, or frontend panel;
+- the planned architecture relationship was respected when it affects the
+  implementation: facade/shell code stays thin, projections/read models do not
+  drive execution, adapters/providers do not own business policy, and forbidden
+  write-back locations did not receive new main logic;
 - large compatibility facades may remain, but newly added behavior should not continue to accumulate in broad files when a suitable module boundary exists;
 - public API shapes, Workbench projection shapes, and user-visible behavior remain compatible unless the change explicitly accepts a breaking change;
 - retained responsibilities are named, so later agents know what still belongs in a facade and what should move to a focused module;

@@ -6,11 +6,14 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 
 - Current date: 2026-07-08.
 - Active change: none.
-- Pending Harness evolution:
-  `harness/evolution/pending.md`. It was generated after the latest runtime
-  compression closeout and should be handled as a separate Harness evolution
-  change, not mixed into runtime work.
+- Pending Harness evolution: none.
 - Latest completed Harness evolution:
+  `harness/changes/archive/20260708-architecture-relationship-thinking-rule-v1/summary.md`.
+  Decision: `docs_current_delta`; subagent Averroes reviewed the delta. The
+  change promoted architecture relationship thinking into AGENTS/ECL while
+  leaving change templates unchanged, wrote the evolution result, and cleared
+  pending evolution.
+- Previous completed Harness evolution:
   `harness/changes/archive/20260708-auto-evolve-post-scheduler-owner-window/summary.md`.
   Decision: `docs_current_delta`; subagent Singer scored 85. Existing ECL,
   BOUNDARIES, and runtime-target coverage was sufficient for Workflow Runtime
@@ -189,6 +192,14 @@ summary, descriptor, or local framework layers are not justified unless they
 replace an older layer or make a real product action reachable. This gate must
 not weaken validation, source safety, stale revalidation, ToolPolicyGate, human
 gates, security, or required tests.
+
+For structured implementation work, first reason through the intended
+architecture relationship: entry/composition point, owner module, facade/shell
+limits, projection/read-model direction, adapter/provider boundary, old path
+deletion or compression, and whether the change makes the next similar feature
+easier rather than harder. The scratch relationship sketch does not need its own
+document; record only the implementation-affecting conclusion in the existing
+change plan or review.
 
 ## 6. Verification
 

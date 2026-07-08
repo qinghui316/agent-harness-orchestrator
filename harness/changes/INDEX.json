@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-07-08T08:55:48.8760414Z",
+    "generated_at":  "2026-07-08T09:26:49.0882984Z",
     "active":  [
 
                ],
@@ -2597,6 +2597,10 @@
                     {
                         "name":  "20260707-workflow-runtime-current-state-drift-cleanup-v1",
                         "path":  "harness/changes/archive/20260707-workflow-runtime-current-state-drift-cleanup-v1"
+                    },
+                    {
+                        "name":  "20260708-architecture-relationship-thinking-rule-v1",
+                        "path":  "harness/changes/archive/20260708-architecture-relationship-thinking-rule-v1"
                     },
                     {
                         "name":  "20260708-auto-evolve-post-scheduler-owner-window",
