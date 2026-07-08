@@ -880,30 +880,46 @@ describe("Workbench module boundaries", () => {
 
     const remoteHandoff = readFileSync(join(process.cwd(), "src/workbench/actions/handlers/remote-handoff.ts"), "utf8");
     expect(remoteHandoff).toContain("runPrFeedbackReworkWorkflow");
-    expect(remoteHandoff).not.toContain("runMainAgentFeedbackRework");
+    expect(remoteHandoff).not.toContain("runMainAgent" + "FeedbackRework");
+
+    const sourceRefreshRework = readFileSync(join(process.cwd(), "src/workflow-runtime/source-refresh-rework.ts"), "utf8");
+    expect(sourceRefreshRework).toContain("runReworkValidationAuditSequence");
+    expect(sourceRefreshRework).not.toContain("runReworkCoderLeafStage");
+    expect(sourceRefreshRework).not.toContain("runValidatorLeafStage");
+    expect(sourceRefreshRework).not.toContain("runAuditorLeafStage");
+    expect(sourceRefreshRework).not.toContain("appendMainAgentLoopEvent");
+    expect(sourceRefreshRework).not.toContain("recordMainAgentNextStepEvidence");
+
+    const prFeedbackRework = readFileSync(join(process.cwd(), "src/workflow-runtime/pr-feedback-rework.ts"), "utf8");
+    expect(prFeedbackRework).toContain("runReworkValidationAuditSequence");
+    expect(prFeedbackRework).not.toContain("runReworkCoderLeafStage");
+    expect(prFeedbackRework).not.toContain("runValidatorLeafStage");
+    expect(prFeedbackRework).not.toContain("runAuditorLeafStage");
+    expect(prFeedbackRework).not.toContain("appendMainAgentLoopEvent");
+    expect(prFeedbackRework).not.toContain("recordMainAgentNextStepEvidence");
+
+    const reworkSequence = readFileSync(join(process.cwd(), "src/workflow-runtime/rework-validation-audit-sequence.ts"), "utf8");
+    expect(reworkSequence).toContain("runReworkCoderLeafStage");
+    expect(reworkSequence).toContain("runValidatorLeafStage");
+    expect(reworkSequence).toContain("runAuditorLeafStage");
+    expect(reworkSequence).toContain("appendMainAgentLoopEvent");
+    expect(reworkSequence).toContain("recordMainAgentNextStepEvidence");
+    expect(reworkSequence).not.toContain("../workbench/");
+    expect(reworkSequence).not.toContain("../server/");
+    expect(reworkSequence).not.toContain("../web/");
 
     const leafStages = readFileSync(join(process.cwd(), "src/main-agent-orchestration/leaf-stages.ts"), "utf8");
     expect(leafStages).toContain("runCoderLeafStage");
     expect(leafStages).toContain("runValidatorLeafStage");
     expect(leafStages).toContain("runAuditorLeafStage");
     expect(leafStages).toContain("runReworkCoderLeafStage");
-    expect(leafStages).not.toContain("decideNextMainAgentOrchestration");
+    expect(leafStages).not.toContain("decideNextMainAgent" + "Orchestration");
     expect(leafStages).not.toContain("../workbench/actions/");
     expect(leafStages).not.toContain("../scheduler-runtime/");
     expect(leafStages).not.toContain("../apply/");
     expect(leafStages).not.toContain("../terminal");
 
-    const runner = readFileSync(join(process.cwd(), "src/main-agent-orchestration/runner.ts"), "utf8");
-    expect(runner).toContain("decideNextMainAgentOrchestration");
-    expect(runner).toContain("runMainAgentStepLoop");
-    expect(runner).not.toContain("runCodeValidateAuditAttempt");
-    expect(runner).not.toContain("../workbench/actions/");
-    expect(runner).not.toContain("../scheduler-runtime/");
-    expect(runner).not.toContain("../task-queue/");
-    expect(runner).not.toContain("../workflow-run/");
-    expect(runner).not.toContain("../apply/");
-    expect(runner).not.toContain("../terminal");
-    expect(runner).not.toContain("SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES");
+    expect(existsSync(join(process.cwd(), "src/main-agent-orchestration/runner.ts"))).toBe(false);
 
     expect(existsSync(join(process.cwd(), "src/main-agent-orchestration/taskrun-lifecycle.ts"))).toBe(false);
     expect(taskRunStageRuntime).toContain("maybeRunTaskRunRework");
@@ -915,23 +931,7 @@ describe("Workbench module boundaries", () => {
     expect(taskRunStageRuntime).not.toContain("../terminal");
     expect(taskRunStageRuntime).not.toContain("SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES");
 
-    const stepLoop = readFileSync(join(process.cwd(), "src/main-agent-orchestration/step-loop.ts"), "utf8");
-    expect(stepLoop).toContain("runMainAgentLeafStep");
-    expect(stepLoop).toContain("observeOrchestrationState");
-    expect(stepLoop).toContain("recordOrchestrationStepResult");
-    expect(stepLoop).toContain("decideNextMainAgentOrchestration");
-    expect(stepLoop).not.toContain("../workbench/actions/");
-    expect(stepLoop).not.toContain("../scheduler-runtime/");
-    expect(stepLoop).not.toContain("../task-queue/");
-    expect(stepLoop).not.toContain("../workflow-run/");
-    expect(stepLoop).not.toContain("../apply/");
-    expect(stepLoop).not.toContain("../terminal");
-    expect(stepLoop).not.toContain("SCOPED_AUTOMATION_ALLOWED_ACTION_TYPES");
-    const leafStepSource = stepLoop.slice(
-      stepLoop.indexOf("export async function runMainAgentLeafStep"),
-      stepLoop.indexOf("function synthesizeInitialDecision"),
-    );
-    expect(leafStepSource).not.toContain("decideNextMainAgentOrchestration");
+    expect(existsSync(join(process.cwd(), "src/main-agent-orchestration/step-loop.ts"))).toBe(false);
 
     const loopEvidence = readFileSync(join(process.cwd(), "src/main-agent-orchestration/loop-evidence.ts"), "utf8");
     expect(loopEvidence).toContain("main-agent-loop-runs");
@@ -3081,17 +3081,17 @@ describe("Workbench module boundaries", () => {
     const demandWorkerWrapper = readFileSync("src/workbench/demand-workers/orchestration.ts", "utf8");
     expect(demandWorkerWrapper).toContain("../../workflow-runtime/code-workflow.js");
     expect(demandWorkerWrapper).not.toContain("../../main-agent-orchestration");
-    expect(demandWorkerWrapper).not.toContain("runMainAgentOrchestration");
+    expect(demandWorkerWrapper).not.toContain("runMainAgent" + "Orchestration");
     expect(demandWorkerWrapper).not.toContain("runMainAgentToolOrchestration");
 
     const mainAgentIndex = readFileSync("src/main-agent-orchestration/index.ts", "utf8");
-    expect(mainAgentIndex).not.toContain("runMainAgentOrchestration");
+    expect(mainAgentIndex).not.toContain("runMainAgent" + "Orchestration");
     expect(mainAgentIndex).not.toContain("runMainAgentSourceRefreshRework");
-    expect(mainAgentIndex).not.toContain("runMainAgentFeedbackRework");
+    expect(mainAgentIndex).not.toContain("runMainAgent" + "FeedbackRework");
 
     const runtime = readFileSync("src/workflow-runtime/default-code-change.ts", "utf8");
     expect(runtime).toContain("class HarnessWorkflowRunEngine");
-    expect(runtime).not.toContain("decideNextMainAgentOrchestration");
+    expect(runtime).not.toContain("decideNextMainAgent" + "Orchestration");
     expect(runtime).not.toMatch(/from\s+["']\.\.\/workbench\//);
     expect(runtime).not.toMatch(/from\s+["']\.\.\/server\//);
     expect(runtime).not.toMatch(/from\s+["']\.\.\/web\//);

@@ -4,7 +4,10 @@
 
 - Current date: 2026-07-08.
 - Active ECL change: none.
-- Pending Harness evolution: none.
+- Pending Harness evolution:
+  `harness/evolution/pending.md`. It was generated after the latest runtime
+  compression closeout and should be handled as a separate Harness evolution
+  change, not mixed into runtime work.
 - Latest completed Harness evolution:
   `harness/changes/archive/20260708-auto-evolve-post-scheduler-owner-window/summary.md`.
   Decision: `docs_current_delta`; subagent Singer scored 85. Existing ECL,
@@ -12,6 +15,11 @@
   convergence and old-runner retirement; only a stale pending-evolution line in
   the current plan was repaired.
 - Latest archived runtime change:
+  `harness/changes/archive/20260708-harness-workflow-runtime-compression-v0/summary.md`.
+  It deleted the covered old main-agent role-chain runner/step-loop and fixed
+  decision policy, and merged source-refresh / PR feedback rework wrappers onto
+  one shared `workflow-runtime` rework validation/audit sequence owner.
+- Previous archived runtime change:
   `harness/changes/archive/20260708-harness-workflow-runtime-feedback-rework-owner-v0/summary.md`.
   It moved `pr-feedback.rework` / `pr-review.rework` behind
   `workflow-runtime`, tightened single-Change Draft PR feedback lineage, and
@@ -74,7 +82,9 @@
   confirmed TaskQueue queue-level start/resume, TaskRun stage execution, and
   SchedulerRun-scoped progression, DemandWorker claimed execution,
   top-level role-chain action entrypoints, source-refresh rework, and PR
-  feedback rework now run through `workflow-runtime`. Full Scheduler
+  feedback rework now run through `workflow-runtime`, and the covered old
+  role-chain runner/step-loop has been deleted. Source-refresh and PR feedback
+  rework share one rework-only runtime sequence owner. Full Scheduler
   ready-set/wave automation remains a future capability under the Workflow
   Runtime owner.
 - New runtime takeover changes must include new-path takeover, old production
@@ -101,7 +111,13 @@
 
 ## Next Resume Point
 
-The next structured runtime work should choose exactly one path:
+Next, choose exactly one path:
+
+- handle the pending Harness evolution as a separate docs/rules maintenance
+  change; or
+- continue runtime work after explicitly deferring pending evolution.
+
+If continuing runtime work, choose exactly one path:
 
 - add broader Scheduler ready-set / wave behavior under the existing Workflow
   Runtime Scheduler owner; or

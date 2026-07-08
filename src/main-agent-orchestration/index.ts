@@ -3,7 +3,6 @@ export {
   type MainAgentActionBridgeAssessment,
   type MainAgentActionBridgeGate,
 } from "./action-bridge.js";
-export type { MainAgentLeafAttemptResult } from "./step-loop.js";
 export {
   createMainAgentLoopRunId,
   mainAgentLoopEventsPath,

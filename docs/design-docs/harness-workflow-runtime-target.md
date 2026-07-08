@@ -57,10 +57,10 @@ Remaining runtime support behavior is still spread across:
   history, projection, and low-level helper support.
 
 The fixed role-chain behavior is now represented for covered production paths
-by the `default-code-change-workflow` runtime template. Historical
-`decideNextMainAgentOrchestration()` logic may remain only as compatibility
-or test evidence for legacy replay/support paths; it is not the target
-production runtime entrypoint for covered workflow execution.
+by the `default-code-change-workflow` runtime template. The covered old
+role-chain runner and fixed decision policy are retired; state/evidence helpers
+may remain only when they are still used by Workflow Runtime leaf evidence,
+replay, recovery, or projection support.
 
 `WorkflowGraphPlan` is also still sequential-TaskQueue shaped. Its current
 `graphMode: "sequential-v1"` is an implementation limit. The target graph can

@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-07-08T08:28:05.7584929Z",
+    "generated_at":  "2026-07-08T08:55:48.8760414Z",
     "active":  [
 
                ],
@@ -2601,6 +2601,10 @@
                     {
                         "name":  "20260708-auto-evolve-post-scheduler-owner-window",
                         "path":  "harness/changes/archive/20260708-auto-evolve-post-scheduler-owner-window"
+                    },
+                    {
+                        "name":  "20260708-harness-workflow-runtime-compression-v0",
+                        "path":  "harness/changes/archive/20260708-harness-workflow-runtime-compression-v0"
                     },
                     {
                         "name":  "20260708-harness-workflow-runtime-feedback-rework-owner-v0",

@@ -274,7 +274,6 @@ import {
   readMainAgentLoopEvents,
   readMainAgentLoopRun,
 } from "../../src/main-agent-orchestration/index.js";
-import { runMainAgentOrchestration } from "../../src/main-agent-orchestration/runner.js";
 import { runPrFeedbackReworkWorkflow, runSourceRefreshReworkWorkflow, runStartedTaskRunStage } from "../../src/workflow-runtime/code-workflow.js";
 import { recordMainAgentNextStepEvidence } from "../../src/main-agent-orchestration/next-step-evidence.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
@@ -344,64 +343,37 @@ describe("main-agent step loop contract", () => {
     if (controls.memoryRoot) await rm(controls.memoryRoot, { recursive: true, force: true });
   });
 
-  it("records bounded loop evidence for a successful top-level run", async () => {
-    const result = await runMainAgentOrchestration({
-      project,
-      changeId: "change-success",
-    });
-
-    const loopRunId = result.attempts[0]?.result.loopRunId;
-    expect(loopRunId).toBeTruthy();
-    const memory = await resolveProjectMemory(project);
-    const run = await readMainAgentLoopRun(memory, loopRunId!);
-    const events = await readMainAgentLoopEvents(memory, loopRunId!);
-    const decisions = await readMainAgentNextStepEvidence(memory, loopRunId!);
-
-    expect(run?.status).toBe("completed");
-    expect(events.map((event) => event.type)).toEqual(expect.arrayContaining([
-      "loop.started",
-      "observation.recorded",
-      "decision.recorded",
-      "leaf.started",
-      "leaf.completed",
-      "loop.completed",
-    ]));
-    expect(events.filter((event) => event.type === "leaf.started").map((event) => event.roleId)).toEqual([
-      "coder-agent",
-      "validator",
-      "auditor-agent",
-    ]);
-    const decisionEvents = events.filter((event) => event.type === "decision.recorded");
-    expect(decisionEvents.every((event) => event.decisionEvidenceId && event.decisionEvidenceRef)).toBe(true);
-    expect(decisions.filter((decision) => decision.decision.kind === "delegate-role").map((decision) => decision.decision.roleId)).toEqual([
-      "coder-agent",
-      "validator",
-      "auditor-agent",
-    ]);
-    const completedDecision = decisions.at(-1);
-    expect(completedDecision?.decision.kind).toBe("completed");
-    expect(completedDecision?.gateIntent).toBe("result-handoff");
-    expect(completedDecision?.targetRefs).toMatchObject({
-      worktreeIds: ["code-worktree"],
-      runIds: expect.arrayContaining(["code"]),
-      validationIds: ["validation"],
-      auditIds: ["audit"],
-    });
-    expect(decisions.every((decision) => decision.authority === "non-executing-main-agent-next-step-evidence")).toBe(true);
-    expect(decisions.every((decision) => decision.executionStarted === false)).toBe(true);
-    expect(decisionEvents.map((event) => event.decisionEvidenceId)).toEqual(decisions.map((decision) => decision.id));
-    expect(JSON.stringify([...events, ...decisions])).not.toContain("Check chat-only");
-    expect(JSON.stringify([...events, ...decisions])).not.toContain("stdout");
-  });
-
   it("assesses result-handoff evidence against the current visible gate without executing it", async () => {
-    const result = await runMainAgentOrchestration({
-      project,
-      changeId: "change-bridge",
-    });
     const memory = await resolveProjectMemory(project);
-    const decisions = await readMainAgentNextStepEvidence(memory, result.attempts[0]!.result.loopRunId!);
-    const completedDecision = decisions.at(-1)!;
+    const loop = await ensureMainAgentLoopRun(memory, {
+      loopRunId: "manual-success-loop",
+      changeId: "change-bridge",
+      projectId: project.id,
+      entrypoint: "task-run",
+    });
+    const completedDecision = await recordMainAgentNextStepEvidence(memory, loop.run, {
+      stepIndex: 0,
+      entrypoint: "task-run",
+      observation: {
+        summary: "Manual completed handoff evidence.",
+        totalSteps: 3,
+        completedSteps: 3,
+        failedSteps: 0,
+        latestRoleId: "auditor-agent",
+        latestStatus: "completed",
+      },
+      decision: {
+        kind: "completed",
+        reason: "Manual result handoff completed.",
+        nextRecommendation: "Show result review and apply handoff.",
+      },
+      targetRefs: {
+        worktreeIds: ["code-worktree"],
+        runIds: ["code"],
+        validationIds: ["validation"],
+        auditIds: ["audit"],
+      },
+    });
 
     const auditGate = await assessMainAgentActionBridge({
       memory,
@@ -813,31 +785,6 @@ describe("main-agent step loop contract", () => {
     const events = await readMainAgentLoopEvents(memory, workflow.loopRunId!);
     expect(events.filter((event) => event.roleId === "rework-coder")).toHaveLength(0);
     expect(events.filter((event) => event.type === "loop.stopped")).toHaveLength(1);
-  });
-
-  it("allows only the top-level runner to perform one automatic rework", async () => {
-    controls.validatorOutcomes = ["failed", "completed"];
-
-    const result = await runMainAgentOrchestration({
-      project,
-      changeId: "change-top-level",
-    });
-
-    expect(runCoderLeafStage).toHaveBeenCalledTimes(1);
-    expect(runReworkCoderLeafStage).toHaveBeenCalledTimes(1);
-    expect(runValidatorLeafStage).toHaveBeenCalledTimes(2);
-    expect(runAuditorLeafStage).toHaveBeenCalledTimes(1);
-    expect(result.status).toBe("completed");
-    expect(result.reworkUsed).toBe(1);
-    expect(result.attempts).toHaveLength(2);
-    expect(result.attempts[0]?.result.loopRunId).toBe(result.attempts[1]?.result.loopRunId);
-    const memory = await resolveProjectMemory(project);
-    const events = await readMainAgentLoopEvents(memory, result.attempts[0]!.result.loopRunId!);
-    const decisions = await readMainAgentNextStepEvidence(memory, result.attempts[0]!.result.loopRunId!);
-    expect(events.filter((event) => event.type === "loop.started")).toHaveLength(1);
-    expect(events.filter((event) => event.roleId === "rework-coder" && event.type === "leaf.started")).toHaveLength(1);
-    expect(decisions.filter((decision) => decision.decision.roleId === "rework-coder")).toHaveLength(1);
-    expect(events.filter((event) => event.type === "loop.completed")).toHaveLength(1);
   });
 
   it("does not nest automatic rework for source-refresh rework entrypoints", async () => {

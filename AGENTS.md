@@ -6,7 +6,10 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 
 - Current date: 2026-07-08.
 - Active change: none.
-- Pending Harness evolution: none.
+- Pending Harness evolution:
+  `harness/evolution/pending.md`. It was generated after the latest runtime
+  compression closeout and should be handled as a separate Harness evolution
+  change, not mixed into runtime work.
 - Latest completed Harness evolution:
   `harness/changes/archive/20260708-auto-evolve-post-scheduler-owner-window/summary.md`.
   Decision: `docs_current_delta`; subagent Singer scored 85. Existing ECL,
@@ -14,6 +17,11 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
   convergence and old-runner retirement; only a stale pending-evolution line in
   the current plan was repaired.
 - Latest archived runtime change:
+  `harness/changes/archive/20260708-harness-workflow-runtime-compression-v0/summary.md`.
+  It deleted the covered old main-agent role-chain runner/step-loop and fixed
+  decision policy, and merged source-refresh / PR feedback rework wrappers onto
+  one shared `workflow-runtime` rework validation/audit sequence owner.
+- Previous archived runtime change:
   `harness/changes/archive/20260708-harness-workflow-runtime-feedback-rework-owner-v0/summary.md`.
   It moved `pr-feedback.rework` / `pr-review.rework` behind
   `workflow-runtime`, tightened single-Change Draft PR feedback lineage, and
@@ -71,7 +79,9 @@ Current baseline:
   confirmed TaskQueue queue-level start/resume, TaskRun stage execution, and
   SchedulerRun-scoped progression, DemandWorker claimed execution, and
   top-level role-chain action entrypoints, source-refresh rework, and PR
-  feedback rework are already routed through `workflow-runtime`. New runtime
+  feedback rework are already routed through `workflow-runtime`, and the
+  covered old role-chain runner/step-loop has been deleted. Source-refresh and
+  PR feedback rework share one rework-only runtime sequence owner. New runtime
   takeover changes must delete the covered old production runner.
 - Goal is a visible main-Agent brief and completion standard, not hidden durable
   state and not project memory. Future sessions recover by reading Harness
@@ -92,7 +102,9 @@ Current baseline:
 
 Next recommended structured work:
 
-- Pick exactly one next architecture slice. Prefer broader Scheduler
+- Either handle the pending Harness evolution as a separate docs/rules
+  maintenance change, or explicitly defer it before continuing runtime work.
+- For runtime work, pick exactly one next architecture slice. Prefer broader Scheduler
   ready-set/wave automation or WorkflowGraphPlan execution expansion only
   after confirming the owner boundary in
   `docs/design-docs/harness-workflow-runtime-target.md`.
