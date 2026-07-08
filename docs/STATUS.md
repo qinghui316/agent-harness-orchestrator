@@ -4,9 +4,13 @@
 
 - Current date: 2026-07-08.
 - Active ECL change: none.
-- Pending Harness evolution: `harness/evolution/pending.md`.
-  It was generated after the Scheduler owner migration close and should be
-  handled as a separate Harness evolution change before broad new runtime work.
+- Pending Harness evolution: none.
+- Latest completed Harness evolution:
+  `harness/changes/archive/20260708-auto-evolve-post-scheduler-owner-window/summary.md`.
+  Decision: `docs_current_delta`; subagent Singer scored 85. Existing ECL,
+  BOUNDARIES, and runtime-target coverage was sufficient for Workflow Runtime
+  convergence and old-runner retirement; only a stale pending-evolution line in
+  the current plan was repaired.
 - Latest archived runtime change:
   `harness/changes/archive/20260708-harness-workflow-runtime-scheduler-owner-v0/summary.md`.
   It moved SchedulerRun-scoped worker/barrier/integration/closeout progression
@@ -80,10 +84,7 @@
 
 ## Next Resume Point
 
-First handle `harness/evolution/pending.md` in its own structured Harness
-evolution change.
-
-After that, the next structured runtime work should choose exactly one path:
+The next structured runtime work should choose exactly one path:
 
 - migrate demand-worker role-chain entrypoints; or
 - add broader Scheduler ready-set / wave behavior under the existing Workflow

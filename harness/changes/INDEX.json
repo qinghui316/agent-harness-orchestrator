@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-07-08T05:30:33.3034905Z",
+    "generated_at":  "2026-07-08T06:03:11.7732367Z",
     "active":  [
 
                ],
@@ -2597,6 +2597,10 @@
                     {
                         "name":  "20260707-workflow-runtime-current-state-drift-cleanup-v1",
                         "path":  "harness/changes/archive/20260707-workflow-runtime-current-state-drift-cleanup-v1"
+                    },
+                    {
+                        "name":  "20260708-auto-evolve-post-scheduler-owner-window",
+                        "path":  "harness/changes/archive/20260708-auto-evolve-post-scheduler-owner-window"
                     },
                     {
                         "name":  "20260708-harness-workflow-runtime-scheduler-owner-v0",

@@ -14,9 +14,7 @@ The user should not need to know internal terms before asking for work. The main
 
 ## Goal-Driven Workflow Loop Target
 
-Current implementation state: no active implementation slice. Pending Harness
-evolution exists at `harness/evolution/pending.md` after the Scheduler owner
-migration close and should be handled before broad new runtime work.
+Current implementation state: no active implementation slice.
 
 Goal is the main Agent's visible objective brief and completion standard for a
 round, reconstructed from Harness docs/evidence. It is not project memory and
@@ -655,13 +653,12 @@ workflow truth, or hidden permission bypasses.
 
 ## Next Product Direction
 
-Pending Harness evolution: `harness/evolution/pending.md`.
+Pending Harness evolution: none.
 
 Current structured change: none.
 
-Recommended current architecture step: first handle
-`harness/evolution/pending.md` as a separate Harness evolution change. After
-that, continue Workflow Runtime convergence with one focused slice. Prefer
+Recommended current architecture step: continue Workflow Runtime convergence
+with one focused slice. Prefer
 migrating the demand-worker role-chain entrypoint before adding broader
 Scheduler ready-set / wave automation. Do not combine demand-worker migration
 with Scheduler behavior expansion.
@@ -720,6 +717,12 @@ Current Harness evolution:
 
 - Pending evolution: none.
 - Latest completed evolution:
+  `harness/changes/archive/20260708-auto-evolve-post-scheduler-owner-window/summary.md`.
+  Decision: `docs_current_delta`; subagent Singer scored 85. Existing ECL,
+  BOUNDARIES, and runtime-target coverage was sufficient for Workflow Runtime
+  convergence and old-runner retirement; only a stale pending-evolution line in
+  this current plan was repaired.
+- Previous completed evolution:
   `harness/changes/archive/20260707-auto-evolve-post-workflow-runtime-taskqueue-window/summary.md`.
   Decision: `docs_current_delta`; subagent Russell. Existing
   ECL/BOUNDARIES/runtime-target coverage is sufficient for Workflow Runtime

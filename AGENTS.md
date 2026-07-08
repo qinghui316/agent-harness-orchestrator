@@ -6,9 +6,13 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 
 - Current date: 2026-07-08.
 - Active change: none.
-- Pending Harness evolution: `harness/evolution/pending.md`.
-  It was generated after the Scheduler owner migration close and must be
-  handled by a separate Harness evolution change before broad new runtime work.
+- Pending Harness evolution: none.
+- Latest completed Harness evolution:
+  `harness/changes/archive/20260708-auto-evolve-post-scheduler-owner-window/summary.md`.
+  Decision: `docs_current_delta`; subagent Singer scored 85. Existing ECL,
+  BOUNDARIES, and runtime-target coverage was sufficient for Workflow Runtime
+  convergence and old-runner retirement; only a stale pending-evolution line in
+  the current plan was repaired.
 - Latest archived runtime change:
   `harness/changes/archive/20260708-harness-workflow-runtime-scheduler-owner-v0/summary.md`.
   It moved SchedulerRun-scoped worker/barrier/integration/closeout progression
@@ -72,9 +76,7 @@ Current baseline:
 
 Next recommended structured work:
 
-- First resolve `harness/evolution/pending.md` in its own structured Harness
-  evolution change.
-- After that, pick exactly one runtime convergence slice. Prefer migrating the
+- Pick exactly one runtime convergence slice. Prefer migrating the
   demand-worker role-chain entrypoint before adding broader Scheduler
   ready-set/wave automation.
 - Keep `README.md` untracked unless the user explicitly scopes it into a
