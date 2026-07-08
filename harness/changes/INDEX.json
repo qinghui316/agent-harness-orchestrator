@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-07-08T15:40:10.1280553Z",
+    "generated_at":  "2026-07-08T15:52:11.3411828Z",
     "active":  [
 
                ],
@@ -2601,6 +2601,10 @@
                     {
                         "name":  "20260708-architecture-relationship-thinking-rule-v1",
                         "path":  "harness/changes/archive/20260708-architecture-relationship-thinking-rule-v1"
+                    },
+                    {
+                        "name":  "20260708-auto-evolve-harness-post-scheduler-transition-window-v1",
+                        "path":  "harness/changes/archive/20260708-auto-evolve-harness-post-scheduler-transition-window-v1"
                     },
                     {
                         "name":  "20260708-auto-evolve-post-scheduler-owner-window",

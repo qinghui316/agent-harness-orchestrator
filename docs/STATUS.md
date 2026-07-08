@@ -4,10 +4,13 @@
 
 - Current date: 2026-07-08.
 - Active ECL change: none.
-- Pending Harness evolution:
-  `harness/evolution/pending.md`.
-  It was generated after the Scheduler transition owner archive and must be
-  handled by a separate Harness evolution change before the next runtime slice.
+- Pending Harness evolution: none.
+- Latest completed Harness evolution:
+  `harness/changes/archive/20260708-auto-evolve-harness-post-scheduler-transition-window-v1/summary.md`.
+  Decision: `noop`; subagent Heisenberg scored 88. Existing ECL,
+  BOUNDARIES, and review-template coverage is sufficient for Scheduler
+  ready-set/current-gate/current-transition/code-growth lessons. The next useful
+  work is product runtime compression, not another Harness rule.
 - Latest archived relationship-hardening change:
   `harness/changes/archive/20260708-scheduler-ready-set-transition-owner-v0/summary.md`.
   It consolidated Scheduler current-transition selection into a shared
@@ -20,7 +23,7 @@
   nextAction, confirmation primary, Goal Loop visible gate evidence, controlled
   scheduler continuation, and server revalidation compare the same scoped gate
   while runtime dispatch keeps authoritative stale/reservation/barrier checks.
-- Latest completed Harness evolution:
+- Previous completed Harness evolution:
   `harness/changes/archive/20260708-architecture-relationship-thinking-rule-v1/summary.md`.
   Decision: `docs_current_delta`; subagent Averroes reviewed the delta. The
   change promoted architecture relationship thinking into AGENTS/ECL while
