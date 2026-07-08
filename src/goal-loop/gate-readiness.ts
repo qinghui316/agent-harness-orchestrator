@@ -4,6 +4,7 @@ import {
   validateWorkflowActionRequiredTargets,
   type WorkflowActionScopeCarrier,
 } from "../workflow-actions/registry.js";
+import { currentGateScopeMatches } from "../workflow-actions/current-gate.js";
 import { schedulerExecutionModeAssessmentsEqual } from "../workflow-scheduler/execution-mode.js";
 import { assessGoalLoopNextStepPacketFreshness } from "./freshness.js";
 import {
@@ -322,24 +323,9 @@ function assertScopeMatches(
   if (!scopeValuesEqual(actualChangeId, [changeId])) {
     throw new Error(`GoalLoopGateReadinessPreflight ${label} scope does not match current gate.`);
   }
-  if (!goalLoopCurrentGateScopeMatches(expected.actionType, changeId, expected.scope, actual)) {
+  if (!currentGateScopeMatches({ actionType: expected.actionType, changeId, expectedScope: expected.scope, actual })) {
     throw new Error(`GoalLoopGateReadinessPreflight ${label} scope does not match current gate.`);
   }
-}
-
-function goalLoopCurrentGateScopeMatches(
-  actionType: string,
-  changeId: string,
-  expectedScope: Record<string, string | string[]>,
-  actual: GoalLoopCurrentGateSnapshot,
-): boolean {
-  if (actual.actionType !== actionType) return false;
-  for (const [key, expected] of Object.entries(expectedScope)) {
-    const expectedValue = key === "changeId" ? changeId : expected;
-    const actualValue = key === "changeId" ? actual.scope.changeId ?? changeId : actual.scope[key];
-    if (!scopeValuesEqual(normalizeScopeValue(expectedValue), normalizeScopeValue(actualValue))) return false;
-  }
-  return true;
 }
 
 function normalizeScopeValue(value: string | string[] | undefined): string[] {

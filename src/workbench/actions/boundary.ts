@@ -39,6 +39,7 @@ import {
   workflowActionScopesMatchStrict,
   workflowActionTargetId as buildWorkflowActionTargetId,
 } from "../../workflow-actions/registry.js";
+import { readCurrentGateRequestScope } from "../../workflow-actions/current-gate.js";
 import { CONTROLLED_SCHEDULER_ADVANCE_ACTION_TYPE, CONTROLLED_SCHEDULER_STEP_ACTION_TYPE, buildControlledSchedulerStepRequest, isControlledSchedulerConcreteAction } from "../../workflow-scheduler/controlled-step.js";
 import { readWorkflowRun } from "../../workflow-run/manager.js";
 import type { WorkbenchLiveSink, WorkbenchWorkflowActionRequest } from "../types.js";
@@ -244,7 +245,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
       throw new Error("planning.goal-loop.gate-readiness.prepare target no longer matches the current gate.");
     }
     const expectedGate = { actionType: request.goalLoopCurrentGateActionType, changeId, ...packet.recommendedAction.scope };
-    const requestedGate = { actionType: request.goalLoopCurrentGateActionType, changeId, ...readConcreteGateRequestScope(request, packet.recommendedAction.scope) };
+    const requestedGate = { actionType: request.goalLoopCurrentGateActionType, changeId, ...readCurrentGateRequestScope(request, packet.recommendedAction.scope) };
     if (!workflowActionScopesMatchStrict(expectedGate, requestedGate)) {
       throw new Error("planning.goal-loop.gate-readiness.prepare concrete gate scope mismatch.");
     }
@@ -1223,16 +1224,4 @@ export function workflowActionTargetId(request: WorkbenchWorkflowActionRequest, 
 
 export function workflowActionScopePayload(request: WorkbenchWorkflowActionRequest, changeId: string, result?: unknown): Record<string, unknown> {
   return buildWorkflowActionScopePayload(request, changeId, result);
-}
-
-function readConcreteGateRequestScope(request: WorkbenchWorkflowActionRequest, expectedScope: Record<string, string | string[]>): Record<string, string | string[]> {
-  const result: Record<string, string | string[]> = {};
-  const values = request as unknown as Record<string, unknown>;
-  for (const key of Object.keys(expectedScope)) {
-    if (key === "changeId") continue;
-    const value = values[key];
-    if (typeof value === "string") result[key] = value;
-    if (Array.isArray(value) && value.every((item) => typeof item === "string")) result[key] = value;
-  }
-  return result;
 }

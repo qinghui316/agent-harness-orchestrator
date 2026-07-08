@@ -13,6 +13,12 @@ import {
   validateWorkflowActionRequiredTargets,
   type WorkflowActionScopeCarrier,
 } from "../../workflow-actions/registry.js";
+import {
+  assertCurrentGateContract,
+  buildCurrentGateCarrier,
+  buildRequestedCurrentGateFromScope,
+  currentGateScopeMatches,
+} from "../../workflow-actions/current-gate.js";
 import { schedulerExecutionModeAssessmentsEqual } from "../../workflow-scheduler/execution-mode.js";
 import type { SchedulerExecutionModeAssessment } from "../../workflow-scheduler/types.js";
 
@@ -103,9 +109,15 @@ export async function assertGoalLoopAssistedConcreteGateConfirmation(
   assertGateMatches("policy current gate", changeId, request.actionType, policy.currentGate, preflight.currentGate);
   assertGateMatches("preflight recommended action", changeId, request.actionType, preflight.recommendedAction, preflight.currentGate);
 
-  const expectedConcreteGate = concreteGateCarrier(changeId, request.actionType, preflight.currentGate.scope);
-  const requestedConcreteGate = concreteGateCarrierFromRequest(changeId, request.actionType, preflight.currentGate.scope, request);
-  if (!concreteGateScopeMatches(changeId, request.actionType, preflight.currentGate.scope, requestedConcreteGate)) {
+  const expectedConcreteGate = buildCurrentGateCarrier(preflight.currentGate.scope, request.actionType, changeId);
+  assertCurrentGateContract(expectedConcreteGate as WorkflowActionScopeCarrier & Record<string, unknown>, "Goal Loop-assisted concrete gate");
+  const requestedConcreteGate = buildRequestedCurrentGateFromScope({
+    changeId,
+    actionType: request.actionType,
+    expectedScope: preflight.currentGate.scope,
+    request,
+  });
+  if (!currentGateScopeMatches({ changeId, actionType: request.actionType, expectedScope: preflight.currentGate.scope, actual: requestedConcreteGate })) {
     throw new Error("Goal Loop-assisted concrete gate request scope mismatch.");
   }
   if (options.visibleGate) {
@@ -115,8 +127,13 @@ export async function assertGoalLoopAssistedConcreteGateConfirmation(
     if (options.visibleGate.changeId && options.visibleGate.changeId !== changeId) {
       throw new Error("Goal Loop-assisted concrete gate visible target is stale.");
     }
-    const visibleConcreteGate = concreteGateCarrierFromRequest(changeId, request.actionType, preflight.currentGate.scope, options.visibleGate);
-    if (!concreteGateScopeMatches(changeId, request.actionType, preflight.currentGate.scope, visibleConcreteGate)) {
+    const visibleConcreteGate = buildRequestedCurrentGateFromScope({
+      changeId,
+      actionType: request.actionType,
+      expectedScope: preflight.currentGate.scope,
+      request: options.visibleGate,
+    });
+    if (!currentGateScopeMatches({ changeId, actionType: request.actionType, expectedScope: preflight.currentGate.scope, actual: visibleConcreteGate })) {
       throw new Error("Goal Loop-assisted concrete gate visible target is stale.");
     }
     if (options.visibleGate.goalLoopGateReadinessPreflightId && options.visibleGate.goalLoopGateReadinessPreflightId !== preflight.id) {
@@ -150,83 +167,7 @@ function assertGateMatches(
   if (expected.actionType !== actionType || actual.actionType !== actionType) {
     throw new Error(`Goal Loop-assisted concrete gate ${label} action mismatch.`);
   }
-  if (!concreteGateScopeMatches(changeId, actionType, expected.scope, actual)) {
+  if (!currentGateScopeMatches({ changeId, actionType, expectedScope: expected.scope, actual })) {
     throw new Error(`Goal Loop-assisted concrete gate ${label} scope mismatch.`);
   }
-}
-
-function concreteGateScopeMatches(
-  changeId: string,
-  actionType: string,
-  expectedScope: Record<string, string | string[]>,
-  actual: GoalLoopCurrentGateSnapshot | WorkflowActionScopeCarrier,
-): boolean {
-  if (actual.actionType !== actionType) return false;
-  for (const [key, expected] of Object.entries(expectedScope)) {
-    const expectedValue = key === "changeId" ? changeId : expected;
-    const actualRecord = actual as unknown as Record<string, unknown>;
-    const nestedScope = actualRecord.scope as Record<string, unknown> | undefined;
-    const actualValue = key === "changeId" ? actualRecord.changeId ?? nestedScope?.changeId ?? changeId : nestedScope?.[key] ?? actualRecord[key];
-    if (!scopeValuesEqual(normalizeScopeValue(expectedValue), normalizeScopeValue(actualValue))) return false;
-  }
-  return true;
-}
-
-function concreteGateCarrier(
-  changeId: string,
-  actionType: string,
-  scope: Record<string, string | string[]>,
-): WorkflowActionScopeCarrier {
-  return {
-    actionType,
-    changeId,
-    ...scopeToCarrier(scope),
-  };
-}
-
-function concreteGateCarrierFromRequest(
-  changeId: string,
-  actionType: string,
-  expectedScope: Record<string, string | string[]>,
-  request: WorkflowActionScopeCarrier,
-): WorkflowActionScopeCarrier {
-  return {
-    actionType,
-    changeId,
-    ...readConcreteGateRequestScope(request, expectedScope),
-  };
-}
-
-function readConcreteGateRequestScope(
-  request: WorkflowActionScopeCarrier,
-  expectedScope: Record<string, string | string[]>,
-): WorkflowActionScopeCarrier {
-  const result: WorkflowActionScopeCarrier = {};
-  const values = request as Record<string, unknown>;
-  for (const key of Object.keys(expectedScope)) {
-    if (key === "changeId") continue;
-    const value = values[key];
-    if (typeof value === "string") (result as Record<string, string | string[]>)[key] = value;
-    if (Array.isArray(value) && value.every((item) => typeof item === "string")) (result as Record<string, string | string[]>)[key] = value;
-  }
-  return result;
-}
-
-function normalizeScopeValue(value: unknown): string[] {
-  if (typeof value === "string") return [value];
-  if (Array.isArray(value) && value.every((item) => typeof item === "string")) return [...value].sort();
-  return [];
-}
-
-function scopeValuesEqual(left: string[], right: string[]): boolean {
-  if (left.length !== right.length) return false;
-  return left.every((value, index) => value === right[index]);
-}
-
-function scopeToCarrier(scope: Record<string, string | string[]>): WorkflowActionScopeCarrier {
-  const result: WorkflowActionScopeCarrier = {};
-  for (const [key, value] of Object.entries(scope)) {
-    (result as Record<string, string | string[]>)[key] = Array.isArray(value) ? [...value] : value;
-  }
-  return result;
 }

@@ -183,6 +183,28 @@ import {
 import { workflowActionPayloadFromTaskAction } from "../../src/web/src/workflow-actions.js";
 
 describe("Workbench module boundaries", () => {
+  it("keeps WorkflowAction current-gate contract pure and below Workbench/runtime owners", () => {
+    const contract = readFileSync(join(process.cwd(), "src/workflow-actions/current-gate.ts"), "utf8");
+    expect(contract).not.toContain("../workbench/");
+    expect(contract).not.toContain("../workflow-runtime/");
+    expect(contract).not.toContain("../scheduler-runtime/");
+    expect(contract).not.toContain("../server/");
+    expect(contract).not.toContain("../web/");
+
+    const revalidation = readFileSync(join(process.cwd(), "src/workbench/actions/current-action-revalidation.ts"), "utf8");
+    expect(revalidation).toContain("../../workflow-actions/current-gate.js");
+    expect(revalidation).not.toContain("function goalLoopCurrentGateScopeMatches");
+
+    const goalLoopGateConfirmation = readFileSync(join(process.cwd(), "src/workbench/actions/goal-loop-gate-confirmation.ts"), "utf8");
+    expect(goalLoopGateConfirmation).toContain("../../workflow-actions/current-gate.js");
+    expect(goalLoopGateConfirmation).not.toContain("function concreteGateScopeMatches");
+
+    const schedulerAdvanceCandidate = readFileSync(join(process.cwd(), "src/workflow-scheduler/controlled-advance-candidate.ts"), "utf8");
+    expect(schedulerAdvanceCandidate).toContain("../workflow-actions/current-gate.js");
+    expect(schedulerAdvanceCandidate).not.toContain("const CURRENT_GATE_SCOPE_KEYS");
+    expect(schedulerAdvanceCandidate).not.toContain("function scopeValue");
+  });
+
   it("keeps retired MainAgentLoopProjection out of production sources and public DTOs", () => {
     for (const file of listSourceFiles(["src"])) {
       const source = readFileSync(file, "utf8");

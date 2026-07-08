@@ -5,6 +5,7 @@ import type { ManagedProject } from "../../types/index.js";
 import type { WorkbenchApprovalAction } from "../read-model-types.js";
 import { isScopedAutomationAllowedAction, isScopedAutomationAllowedApprovalAction } from "../../automation-runtime/policy.js";
 import { revalidatedWorkflowActionSet, workflowActionScopesMatchStrict } from "../../workflow-actions/registry.js";
+import { currentGateScopeMatches, readCurrentGateRequestScope } from "../../workflow-actions/current-gate.js";
 import { CONTROLLED_SCHEDULER_STEP_ACTION_TYPE, buildControlledSchedulerStepRequest } from "../../workflow-scheduler/controlled-step.js";
 import { assertGoalLoopAssistedConcreteGateConfirmation } from "./goal-loop-gate-confirmation.js";
 import type { WorkbenchWorkflowActionRequest } from "../types.js";
@@ -101,7 +102,7 @@ export async function assertCurrentWorkflowAction(input: CurrentWorkflowActionIn
       error.name = "Conflict";
       throw error;
     }
-    if (!goalLoopCurrentGateScopeMatches(goalLoop.recommendedActionType, body.changeId, goalLoop.recommendedActionScope, nextAction)) {
+    if (!currentGateScopeMatches({ actionType: goalLoop.recommendedActionType, changeId: body.changeId, expectedScope: goalLoop.recommendedActionScope, actual: nextAction })) {
       const error = new Error("Workflow action target is stale or no longer available.");
       error.name = "Conflict";
       throw error;
@@ -130,9 +131,9 @@ export async function assertCurrentWorkflowAction(input: CurrentWorkflowActionIn
     const requestedGate = {
       actionType: body.goalLoopCurrentGateActionType,
       changeId: body.changeId,
-      ...readGoalLoopCurrentGateRequestScope(body, goalLoop.recommendedActionScope),
+      ...readCurrentGateRequestScope(body, goalLoop.recommendedActionScope),
     };
-    if (!goalLoopCurrentGateScopeMatches(goalLoop.recommendedActionType, body.changeId, goalLoop.recommendedActionScope, nextAction) || !workflowActionScopesMatchStrict(expectedGate, requestedGate)) {
+    if (!currentGateScopeMatches({ actionType: goalLoop.recommendedActionType, changeId: body.changeId, expectedScope: goalLoop.recommendedActionScope, actual: nextAction }) || !workflowActionScopesMatchStrict(expectedGate, requestedGate)) {
       const error = new Error("Workflow action target is stale or no longer available.");
       error.name = "Conflict";
       throw error;
@@ -175,9 +176,9 @@ export async function assertCurrentWorkflowAction(input: CurrentWorkflowActionIn
     const requestedGate = {
       actionType: body.goalLoopCurrentGateActionType,
       changeId: body.changeId,
-      ...readGoalLoopCurrentGateRequestScope(body, goalLoop.recommendedActionScope),
+      ...readCurrentGateRequestScope(body, goalLoop.recommendedActionScope),
     };
-    if (!goalLoopCurrentGateScopeMatches(goalLoop.recommendedActionType, body.changeId, goalLoop.recommendedActionScope, nextAction) || !workflowActionScopesMatchStrict(expectedGate, requestedGate)) {
+    if (!currentGateScopeMatches({ actionType: goalLoop.recommendedActionType, changeId: body.changeId, expectedScope: goalLoop.recommendedActionScope, actual: nextAction }) || !workflowActionScopesMatchStrict(expectedGate, requestedGate)) {
       const error = new Error("Workflow action target is stale or no longer available.");
       error.name = "Conflict";
       throw error;
@@ -227,9 +228,9 @@ export async function assertCurrentWorkflowAction(input: CurrentWorkflowActionIn
     const requestedGate = {
       actionType: body.goalLoopCurrentGateActionType,
       changeId: body.changeId,
-      ...readGoalLoopCurrentGateRequestScope(body, goalLoop.recommendedActionScope),
+      ...readCurrentGateRequestScope(body, goalLoop.recommendedActionScope),
     };
-    if (!goalLoopCurrentGateScopeMatches(goalLoop.recommendedActionType, body.changeId, goalLoop.recommendedActionScope, nextAction) || !workflowActionScopesMatchStrict(expectedGate, requestedGate)) {
+    if (!currentGateScopeMatches({ actionType: goalLoop.recommendedActionType, changeId: body.changeId, expectedScope: goalLoop.recommendedActionScope, actual: nextAction }) || !workflowActionScopesMatchStrict(expectedGate, requestedGate)) {
       const error = new Error("Workflow action target is stale or no longer available.");
       error.name = "Conflict";
       throw error;
@@ -417,46 +418,4 @@ function throwStaleWorkflowTarget(): never {
   const error = new Error("Workflow action target is stale or no longer available.");
   error.name = "Conflict";
   throw error;
-}
-
-function readGoalLoopCurrentGateRequestScope(body: CurrentWorkflowActionRequest, expectedScope: Record<string, unknown>): Record<string, string | string[]> {
-  const result: Record<string, string | string[]> = {};
-  const values = body as unknown as Record<string, unknown>;
-  for (const key of Object.keys(expectedScope)) {
-    if (key === "changeId") continue;
-    const value = values[key];
-    if (typeof value === "string") result[key] = value;
-    if (Array.isArray(value) && value.every((item) => typeof item === "string")) result[key] = value;
-  }
-  return result;
-}
-
-function goalLoopCurrentGateScopeMatches(
-  actionType: string,
-  changeId: string | undefined,
-  expectedScope: Record<string, unknown>,
-  actual: unknown,
-): boolean {
-  const actualRecord = actual as Record<string, unknown>;
-  if (actualRecord.actionType !== actionType) return false;
-  if (changeId && actualRecord.changeId && actualRecord.changeId !== changeId) return false;
-  for (const [key, expected] of Object.entries(expectedScope)) {
-    const expectedValue = key === "changeId" ? changeId ?? expected : expected;
-    const actualValue = key === "changeId" ? actualRecord.changeId ?? changeId : actualRecord[key];
-    if (!goalLoopScopeValuesEqual(expectedValue, actualValue)) return false;
-  }
-  return true;
-}
-
-function goalLoopScopeValuesEqual(left: unknown, right: unknown): boolean {
-  const normalizedLeft = normalizeGoalLoopScopeValues(left);
-  const normalizedRight = normalizeGoalLoopScopeValues(right);
-  return normalizedLeft.length === normalizedRight.length
-    && normalizedLeft.every((value, index) => value === normalizedRight[index]);
-}
-
-function normalizeGoalLoopScopeValues(value: unknown): string[] {
-  if (typeof value === "string") return [value];
-  if (Array.isArray(value) && value.every((item) => typeof item === "string")) return [...value].sort();
-  return [];
 }

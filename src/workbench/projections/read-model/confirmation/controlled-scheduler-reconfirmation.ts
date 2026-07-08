@@ -4,6 +4,7 @@ import {
   controlledSchedulerSourceGateActionType as workflowControlledSchedulerSourceGateActionType,
 } from "../../../../workflow-scheduler/controlled-advance-candidate.js";
 import { validateWorkflowActionRequiredTargets, workflowActionScopesMatchStrict, type WorkflowActionScopeCarrier } from "../../../../workflow-actions/registry.js";
+import { currentGateScopeMatches } from "../../../../workflow-actions/current-gate.js";
 import type { WorkbenchConfirmationQueueItem, WorkbenchControlledSchedulerReconfirmation, WorkbenchControlledSchedulerStopPosture, WorkbenchDecisionAction, WorkbenchWorkpad } from "../../../read-model-types.js";
 import type { WorkbenchSchedulerControlledStepEvidenceSummary } from "../../../workflow-projection.js";
 import { schedulerUserFacingActionLabel } from "./scheduler-user-surface.js";
@@ -81,13 +82,11 @@ function buildControlledSchedulerReconfirmationStatus(input: {
 
   const goalLoopActionType = readGoalLoopActionType(input.workpad.goalLoop);
   const goalLoopScope = readGoalLoopScope(input.workpad.goalLoop);
+  const expectedGoalLoopChangeId = goalLoopScope ? singleScopeValue(goalLoopScope.changeId) : undefined;
   const goalLoopGateMatches = Boolean(goalLoopActionType && goalLoopScope
     && goalLoopActionType === input.currentGateActionType
-    && scopeValuesMatch(goalLoopScope.changeId, input.currentGate.changeId)
-    && workflowActionScopesMatchStrict(
-      { actionType: goalLoopActionType, ...goalLoopScope },
-      input.currentGate,
-    ));
+    && currentGateScopeMatches({ actionType: goalLoopActionType, changeId: expectedGoalLoopChangeId, expectedScope: goalLoopScope, actual: input.currentGate })
+    && workflowActionScopesMatchStrict({ actionType: goalLoopActionType, ...goalLoopScope }, input.currentGate));
   const labelMismatch = receipt.nextStepLabel && receipt.nextStepLabel !== input.currentStepLabel
     ? "stopped-step"
     : candidate?.actionLabel && candidate.actionLabel !== input.currentStepLabel
@@ -243,6 +242,11 @@ function scopeValuesMatch(expected: string | string[] | undefined, actual: strin
   const expectedValues = normalizeScopeValues(expected);
   const actualValues = normalizeScopeValues(actual);
   return expectedValues.length > 0 && expectedValues.length === actualValues.length && expectedValues.every((value, index) => value === actualValues[index]);
+}
+
+function singleScopeValue(value: string | string[] | undefined): string | undefined {
+  const values = normalizeScopeValues(value);
+  return values.length === 1 ? values[0] : undefined;
 }
 
 function normalizeScopeValues(value: string | string[] | undefined): string[] {

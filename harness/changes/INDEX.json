@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-07-08T11:42:23.8362942Z",
+    "generated_at":  "2026-07-08T14:43:03.7627509Z",
     "active":  [
 
                ],
@@ -2633,6 +2633,10 @@
                     {
                         "name":  "20260708-scheduler-same-wave-full-flow-acceptance-v1",
                         "path":  "harness/changes/archive/20260708-scheduler-same-wave-full-flow-acceptance-v1"
+                    },
+                    {
+                        "name":  "20260708-workflow-action-current-gate-contract-v0",
+                        "path":  "harness/changes/archive/20260708-workflow-action-current-gate-contract-v0"
                     }
                 ]
 }

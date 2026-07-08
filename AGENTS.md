@@ -7,6 +7,12 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
 - Current date: 2026-07-08.
 - Active change: none.
 - Pending Harness evolution: none.
+- Latest archived relationship-hardening change:
+  `harness/changes/archive/20260708-workflow-action-current-gate-contract-v0/summary.md`.
+  It added a pure `workflow-actions` current-gate contract so Workpad
+  nextAction, confirmation primary, Goal Loop visible gate evidence, controlled
+  scheduler continuation, and server revalidation compare the same scoped gate
+  while runtime dispatch keeps authoritative stale/reservation/barrier checks.
 - Latest completed Harness evolution:
   `harness/changes/archive/20260708-architecture-relationship-thinking-rule-v1/summary.md`.
   Decision: `docs_current_delta`; subagent Averroes reviewed the delta. The

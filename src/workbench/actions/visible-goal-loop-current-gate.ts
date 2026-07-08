@@ -89,15 +89,15 @@ export async function resolveVisibleControlledSchedulerCurrentGate(
     }
 
     const nextAction = workpad.nextAction;
-    const parity = assessGoalLoopSummaryCurrentGateParity(goalLoop, nextAction);
-    if (!parity.visible || parity.status !== "matches-current-gate") {
-      return readinessWarning(`visible Workbench gate does not match post-step evidence (${parity.status})`);
-    }
     if (nextAction.kind !== "workflow-action" || !nextAction.enabled || !nextAction.requiresConfirmation || !nextAction.actionType) {
       return readinessWarning("current Workbench gate is not an enabled confirmation-backed workflow action");
     }
     if (nextAction.changeId !== changeId) {
       return readinessWarning("current Workbench gate does not carry the selected Change scope");
+    }
+    const parity = assessGoalLoopSummaryCurrentGateParity(goalLoop, nextAction);
+    if (!parity.visible || parity.status !== "matches-current-gate") {
+      return readinessWarning(`visible Workbench gate does not match post-step evidence (${parity.status})`);
     }
     if (!isControlledSchedulerConcreteAction(nextAction.actionType)) {
       return readinessWarning("current Workbench gate is not a controlled scheduler concrete action");

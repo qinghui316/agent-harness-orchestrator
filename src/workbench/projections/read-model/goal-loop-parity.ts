@@ -1,4 +1,5 @@
 import { buildGoalLoopCloseGateHandoffFromState, isGoalLoopCloseGateHandoffReadyState } from "../../../goal-loop/manager.js";
+import { currentGateScopeMatches } from "../../../workflow-actions/current-gate.js";
 import type { WorkbenchGoalLoopSummary, WorkpadNextAction } from "../../read-model-types.js";
 
 type ScopeValue = string | string[] | undefined;
@@ -44,12 +45,24 @@ export function assessGoalLoopSummaryCurrentGateParity(
     return { visible: false, status: "change-id-mismatch", mismatchedKey: "changeId" };
   }
 
-  for (const [key, expectedValue] of Object.entries(summary.recommendedActionScope)) {
-    const expected = normalizeScopeValues(expectedValue);
-    const actual = key === "changeId" ? [summary.changeId] : normalizeScopeValues(readNextActionScopeValue(nextAction, key));
-    if (!scopeValuesEqual(expected, actual)) {
-      return { visible: false, status: "target-mismatch", mismatchedKey: key };
+  if (!currentGateScopeMatches({
+    actionType: summary.recommendedActionType,
+    changeId: summary.changeId,
+    expectedScope: summary.recommendedActionScope,
+    actual: nextAction,
+  })) {
+    for (const key of Object.keys(summary.recommendedActionScope)) {
+      if (key === "changeId") continue;
+      if (!currentGateScopeMatches({
+        actionType: summary.recommendedActionType,
+        changeId: summary.changeId,
+        expectedScope: { [key]: summary.recommendedActionScope[key] },
+        actual: nextAction,
+      })) {
+        return { visible: false, status: "target-mismatch", mismatchedKey: key };
+      }
     }
+    return { visible: false, status: "target-mismatch" };
   }
 
   return { visible: true, status: "matches-current-gate" };
@@ -106,21 +119,8 @@ function closeHandoffStateFromSummary(summary: WorkbenchGoalLoopSummary) {
   };
 }
 
-function readNextActionScopeValue(nextAction: WorkpadNextAction, key: string): ScopeValue {
-  const value = (nextAction as unknown as Record<string, unknown>)[key];
-  if (typeof value === "string") return value;
-  if (Array.isArray(value) && value.every((item) => typeof item === "string")) return value;
-  return undefined;
-}
-
 function normalizeScopeValues(value: ScopeValue): string[] {
   if (typeof value === "string") return [value];
   if (Array.isArray(value)) return [...value].sort();
   return [];
-}
-
-function scopeValuesEqual(left: string[], right: string[]): boolean {
-  if (left.length === 0 || right.length === 0) return left.length === right.length;
-  if (left.length !== right.length) return false;
-  return left.every((value, index) => value === right[index]);
 }

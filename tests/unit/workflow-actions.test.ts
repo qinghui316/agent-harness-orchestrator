@@ -6,6 +6,16 @@ import {
   normalizeMainAgentExecutionAction,
 } from "../../src/workflow-actions/main-agent-execution.js";
 import {
+  assertCurrentGateContract,
+  buildCurrentGateCarrier,
+  buildCurrentGateContract,
+  buildCurrentGateSnapshot,
+  buildRequestedCurrentGateFromScope,
+  classifyCurrentGateActionType,
+  currentGateScopeMatches,
+  validateCurrentGateContract,
+} from "../../src/workflow-actions/current-gate.js";
+import {
   HIGH_IMPACT_WORKFLOW_ACTION_TYPES,
   LIVE_WORKFLOW_ACTION_TYPES,
   REVALIDATED_WORKFLOW_ACTION_TYPES,
@@ -1692,5 +1702,174 @@ describe("workflow action registry", () => {
     expect(validateWorkflowActionRequiredTargets({ actionType: "landing-queue.merge-next", landingPackageId: "landing-1" })).toEqual([]);
     expect(REVALIDATED_WORKFLOW_ACTION_TYPES).toContain("landing.prepare");
     expect(REVALIDATED_WORKFLOW_ACTION_TYPES).toContain("pr-draft.create");
+  });
+});
+
+describe("workflow action current-gate contract", () => {
+  it("builds current-gate carriers and snapshots without copying Goal Loop evidence scope", () => {
+    const carrier = buildCurrentGateCarrier({
+      actionType: "planning.scheduler.worker.start-next",
+      changeId: "change-1",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "claim-reservation-1",
+      reservationIntentId: "reservation-2",
+      claimIntentId: "claim-2",
+      goalLoopDecisionId: "stale-decision",
+      goalLoopNextStepPacketId: "stale-packet",
+      artifact: "stale-artifact",
+    }, "planning.scheduler.worker.start-next");
+
+    expect(carrier).toEqual({
+      actionType: "planning.scheduler.worker.start-next",
+      changeId: "change-1",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "claim-reservation-1",
+      reservationIntentId: "reservation-2",
+      claimIntentId: "claim-2",
+    });
+    expect(buildCurrentGateSnapshot(carrier)).toEqual({
+      actionType: "planning.scheduler.worker.start-next",
+      scope: {
+        changeId: "change-1",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "claim-reservation-1",
+        reservationIntentId: "reservation-2",
+        claimIntentId: "claim-2",
+      },
+    });
+  });
+
+  it("matches requested gates against visible current gates with exact target ids", () => {
+    const expectedScope = {
+      changeId: "change-1",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "claim-reservation-1",
+      reservationIntentId: "reservation-2",
+      claimIntentId: "claim-2",
+    };
+    const request = buildRequestedCurrentGateFromScope({
+      changeId: "change-1",
+      actionType: "planning.scheduler.worker.start-next",
+      expectedScope,
+      request: {
+        actionType: "planning.scheduler.worker.start-next",
+        changeId: "change-1",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "claim-reservation-1",
+        reservationIntentId: "reservation-2",
+        claimIntentId: "claim-2",
+      },
+    });
+
+    expect(currentGateScopeMatches({
+      actionType: "planning.scheduler.worker.start-next",
+      changeId: "change-1",
+      expectedScope,
+      actual: request,
+    })).toBe(true);
+    expect(currentGateScopeMatches({
+      actionType: "planning.scheduler.worker.start-next",
+      changeId: "change-1",
+      expectedScope,
+      actual: { ...request, reservationIntentId: "reservation-other" },
+    })).toBe(false);
+    expect(currentGateScopeMatches({
+      actionType: "planning.scheduler.worker.start-next",
+      changeId: "change-1",
+      expectedScope,
+      actual: {
+        actionType: "planning.scheduler.worker.start-next",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "claim-reservation-1",
+        reservationIntentId: "reservation-2",
+        claimIntentId: "claim-2",
+      },
+    })).toBe(false);
+    expect(currentGateScopeMatches({
+      actionType: "planning.scheduler.worker.start-next",
+      changeId: "change-1",
+      expectedScope,
+      actual: {
+        actionType: "planning.scheduler.worker.start-next",
+        scope: { ...expectedScope, claimIntentId: "claim-other" },
+      },
+    })).toBe(false);
+  });
+
+  it("rejects recursive Goal Loop gates, missing required targets, and forbidden execution flags", () => {
+    expect(validateCurrentGateContract({
+      actionType: "planning.goal-loop.controller.refresh",
+      changeId: "change-1",
+      goalLoopNextStepPacketId: "packet-1",
+      goalLoopCurrentGateActionType: "planning.scheduler.worker.start-next",
+    }).map((issue) => issue.label)).toContain("concrete current gate");
+
+    expect(validateCurrentGateContract({
+      actionType: "planning.scheduler.worker.start-next",
+      changeId: "change-1",
+      schedulerRunId: "scheduler-run-1",
+    }).map((issue) => issue.label)).toEqual(expect.arrayContaining([
+      "schedulerClaimReservationId",
+      "reservationIntentId",
+      "claimIntentId",
+    ]));
+
+    expect(validateCurrentGateContract({
+      actionType: "planning.scheduler.worker.start-next",
+      changeId: "change-1",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "claim-reservation-1",
+      reservationIntentId: "reservation-2",
+      claimIntentId: "claim-2",
+      executionStarted: true,
+      sourceMutationAuthorized: true,
+    }).map((issue) => issue.label)).toEqual(expect.arrayContaining(["executionStarted", "sourceMutationAuthorized"]));
+
+    expect(() => assertCurrentGateContract({
+      actionType: "planning.scheduler.worker.start-next",
+      changeId: "change-1",
+      schedulerRunId: "scheduler-run-1",
+      schedulerClaimReservationId: "claim-reservation-1",
+      reservationIntentId: "reservation-2",
+      claimIntentId: "claim-2",
+      toolPolicyAuthorizedConcreteGate: true,
+    })).toThrow(/toolPolicyAuthorizedConcreteGate/);
+  });
+
+  it("classifies recursive, manual, and terminal gates without authorizing execution", () => {
+    expect(classifyCurrentGateActionType("planning.scheduler.worker.start-next")).toBe("concrete");
+    expect(classifyCurrentGateActionType("planning.goal-loop.controlled-continue.run")).toBe("recursive-goal-loop");
+    expect(classifyCurrentGateActionType("planning.scheduler.integration-check.run")).toBe("manual-barrier");
+    expect(classifyCurrentGateActionType("planning.scheduler.run.complete")).toBe("terminal-human-gate");
+
+    expect(buildCurrentGateContract({
+      source: {
+        actionType: "planning.scheduler.worker.start-next",
+        changeId: "change-1",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "claim-reservation-1",
+        reservationIntentId: "reservation-2",
+        claimIntentId: "claim-2",
+        enabled: true,
+        requiresConfirmation: true,
+        evidenceRefs: ["runs/scheduler.json"],
+      },
+      sourceProjection: "workpad.nextAction",
+    })).toEqual({
+      actionType: "planning.scheduler.worker.start-next",
+      changeId: "change-1",
+      enabled: true,
+      requiresConfirmation: true,
+      scope: {
+        changeId: "change-1",
+        schedulerRunId: "scheduler-run-1",
+        schedulerClaimReservationId: "claim-reservation-1",
+        reservationIntentId: "reservation-2",
+        claimIntentId: "claim-2",
+      },
+      evidenceRefs: ["runs/scheduler.json"],
+      sourceProjection: "workpad.nextAction",
+      nonExecuting: true,
+    });
   });
 });

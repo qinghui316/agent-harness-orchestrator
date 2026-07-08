@@ -1,5 +1,5 @@
 import type { ManagedProject } from "../../../../types/index.js";
-import { WORKFLOW_ACTION_SCOPE_KEYS } from "../../../../workflow-actions/registry.js";
+import { buildCurrentGateCarrier, CURRENT_GATE_SCOPE_KEYS, currentGateScopeMatches } from "../../../../workflow-actions/current-gate.js";
 import {
   buildControlledSchedulerAdvanceCandidate,
   controlledSchedulerAdvanceTargetKey,
@@ -10,8 +10,6 @@ import type { WorkbenchConfirmationQueueItem, WorkbenchDecisionAction, Workbench
 import { buildControlledSchedulerReconfirmation, controlledSchedulerSourceGateActionType } from "./controlled-scheduler-reconfirmation.js";
 import { schedulerControlledAdvanceCopy, schedulerUserFacingActionCopy } from "./scheduler-user-surface.js";
 
-type ScopeValue = string | string[] | undefined;
-const CURRENT_GATE_SCOPE_KEYS = WORKFLOW_ACTION_SCOPE_KEYS.filter((key) => !key.startsWith("goalLoop"));
 const MANUAL_SCHEDULER_GATE_ACTION_TYPES = new Set<string>([
   "planning.scheduler.integration-check.run",
 ]);
@@ -459,14 +457,8 @@ function actionRepresentsGoalLoopSchedulerGate(
   if (!action.enabled) return false;
   if (sourceGateActionType !== expectedType || nextAction.actionType !== expectedType) return false;
   if (nextAction.changeId !== goalLoop.changeId) return false;
-  for (const [key, expectedValue] of Object.entries(expectedScope)) {
-    const expected = normalizeScopeValues(expectedValue);
-    const actual = key === "changeId"
-      ? normalizeScopeValues(action.changeId ?? item.changeId)
-      : normalizeScopeValues(readQueueActionScopeValue(item, action, key));
-    if (!scopeValuesEqual(expected, actual)) return false;
-  }
-  return true;
+  const actualGate = buildCurrentGateCarrier(action, expectedType, action.changeId ?? item.changeId, item);
+  return currentGateScopeMatches({ actionType: expectedType, changeId: goalLoop.changeId, expectedScope, actual: actualGate });
 }
 
 function controlledAdvanceMatchesGoalLoop(
@@ -482,14 +474,8 @@ function controlledAdvanceMatchesGoalLoop(
   if (!action.enabled || action.actionType !== CONTROLLED_SCHEDULER_ADVANCE_ACTION_TYPE) return false;
   if (action.goalLoopCurrentGateActionType !== expectedType || nextAction.actionType !== expectedType) return false;
   if (nextAction.changeId !== goalLoop.changeId) return false;
-  for (const [key, expectedValue] of Object.entries(expectedScope)) {
-    const expected = normalizeScopeValues(expectedValue);
-    const actual = key === "changeId"
-      ? normalizeScopeValues(action.changeId ?? item.changeId)
-      : normalizeScopeValues(readQueueActionScopeValue(item, action, key));
-    if (!scopeValuesEqual(expected, actual)) return false;
-  }
-  return true;
+  const actualGate = buildCurrentGateCarrier(action, expectedType, action.changeId ?? item.changeId, item);
+  return currentGateScopeMatches({ actionType: expectedType, changeId: goalLoop.changeId, expectedScope, actual: actualGate });
 }
 
 function goalLoopControllerRefreshAction(workpad: WorkbenchWorkpad): WorkbenchDecisionAction | null {
@@ -559,37 +545,8 @@ function actionMatchesGoalLoopScope(
   if (!action.enabled) return false;
   if (action.actionType !== nextAction.actionType || action.actionType !== expectedType) return false;
   if (nextAction.changeId !== goalLoop.changeId) return false;
-  for (const [key, expectedValue] of Object.entries(expectedScope)) {
-    const expected = normalizeScopeValues(expectedValue);
-    const actual = key === "changeId"
-      ? normalizeScopeValues(action.changeId ?? item.changeId)
-      : normalizeScopeValues(readQueueActionScopeValue(item, action, key));
-    if (!scopeValuesEqual(expected, actual)) return false;
-  }
-  return true;
-}
-
-function readQueueActionScopeValue(
-  item: WorkbenchConfirmationQueueItem,
-  action: WorkbenchDecisionAction,
-  key: string,
-): ScopeValue {
-  const actionValue = (action as unknown as Record<string, unknown>)[key];
-  const itemValue = (item as unknown as Record<string, unknown>)[key];
-  if (typeof actionValue === "string" || isStringArray(actionValue)) return actionValue;
-  if (typeof itemValue === "string" || isStringArray(itemValue)) return itemValue;
-  return undefined;
-}
-
-function normalizeScopeValues(value: ScopeValue): string[] {
-  if (typeof value === "string") return [value];
-  if (Array.isArray(value)) return [...value].sort();
-  return [];
-}
-
-function scopeValuesEqual(left: string[], right: string[]): boolean {
-  if (left.length !== right.length) return false;
-  return left.every((value, index) => value === right[index]);
+  const actualGate = buildCurrentGateCarrier(action, expectedType, action.changeId ?? item.changeId, item);
+  return currentGateScopeMatches({ actionType: expectedType, changeId: goalLoop.changeId, expectedScope, actual: actualGate });
 }
 
 function isStringArray(value: unknown): value is string[] {
