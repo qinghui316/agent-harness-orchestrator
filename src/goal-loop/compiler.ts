@@ -13,15 +13,6 @@ import { assessSchedulerExecutionMode } from "../workflow-scheduler/execution-mo
 import { readLatestSchedulerRun } from "../workflow-scheduler/repository.js";
 import type { SchedulerRun } from "../workflow-scheduler/types.js";
 import {
-  findSchedulerRuntimeWorkerAuditForValidation,
-  findSchedulerRuntimeWorkerResultForStart,
-  findSchedulerRuntimeWorkerReworkAuditForValidation,
-  findSchedulerRuntimeWorkerReworkPlanForBlockingEvidence,
-  findSchedulerRuntimeWorkerReworkResultForStart,
-  findSchedulerRuntimeWorkerReworkStartForPlan,
-  findSchedulerRuntimeWorkerReworkValidationForResult,
-  findSchedulerRuntimeWorkerValidationForResult,
-  listSchedulerRuntimeWorkerStarts,
   readLatestSchedulerIntegrationCandidateProjection,
   readLatestSchedulerIntegrationCheckHandoffProjection,
   readLatestSchedulerIntegrationOutcomeProjection,
@@ -30,10 +21,14 @@ import {
   readSchedulerRuntimeClaimReservationProjection,
   readSchedulerRuntimeStateProjection,
 } from "../scheduler-runtime/repository.js";
+import { schedulerIntegrationCandidateNeedsRefresh } from "../scheduler-runtime/worker-path.js";
 import {
-  schedulerIntegrationCandidateNeedsRefresh,
-  type SchedulerWorkerPathLike,
-} from "../scheduler-runtime/worker-path.js";
+  hasApprovedSchedulerWorkerOutput,
+  readSchedulerWorkerPathReadModels,
+  schedulerWorkerPathEvidenceRefs,
+  schedulerWorkerPathsToLikes,
+  type SchedulerWorkerPathReadModel,
+} from "../scheduler-runtime/worker-path-read-model.js";
 import type {
   SchedulerIntegrationCandidate,
   SchedulerIntegrationCheckHandoff,
@@ -42,15 +37,7 @@ import type {
   SchedulerRunCompletion,
   SchedulerRuntimeClaimReservation,
   SchedulerRuntimeState,
-  SchedulerRuntimeWorkerAudit,
-  SchedulerRuntimeWorkerResult,
-  SchedulerRuntimeWorkerReworkAudit,
-  SchedulerRuntimeWorkerReworkPlan,
-  SchedulerRuntimeWorkerReworkResult,
-  SchedulerRuntimeWorkerReworkStart,
-  SchedulerRuntimeWorkerReworkValidation,
   SchedulerRuntimeWorkerStart,
-  SchedulerRuntimeWorkerValidation,
 } from "../scheduler-runtime/types.js";
 import {
   goalLoopContinuationBriefArtifactRefs,
@@ -116,18 +103,7 @@ interface EvidenceSnapshot {
 
 const ACCEPTED_ARTIFACT_FILES = ["spec.md", "plan.md", "tasks.md", "ac-map.json"] as const;
 
-interface GoalLoopSchedulerWorkerPath {
-  start: SchedulerRuntimeWorkerStart;
-  result: SchedulerRuntimeWorkerResult | null;
-  validation: SchedulerRuntimeWorkerValidation | null;
-  audit: SchedulerRuntimeWorkerAudit | null;
-  reworkPlan: SchedulerRuntimeWorkerReworkPlan | null;
-  reworkStart: SchedulerRuntimeWorkerReworkStart | null;
-  reworkResult: SchedulerRuntimeWorkerReworkResult | null;
-  reworkValidation: SchedulerRuntimeWorkerReworkValidation | null;
-  reworkAudit: SchedulerRuntimeWorkerReworkAudit | null;
-  terminal: boolean;
-}
+type GoalLoopSchedulerWorkerPath = SchedulerWorkerPathReadModel;
 
 export async function compileGoalLoopDecision(memory: ResolvedMemory, changePath: string): Promise<GoalLoopDecision> {
   const decision = await previewGoalLoopDecision(memory, changePath);
@@ -444,8 +420,10 @@ async function readEvidenceSnapshot(memory: ResolvedMemory, changePath: string):
   const claimReservation = runtimeState?.lastClaimReservationId
     ? await readSchedulerRuntimeClaimReservationProjection(memory, changePath, schedulerRun.id, runtimeState.lastClaimReservationId)
     : null;
-  const workerStarts = await listSchedulerRuntimeWorkerStarts(memory, changePath, schedulerRun.id).catch(() => []);
-  const workerPaths = await readWorkerPaths(memory, changePath, schedulerRun.id, workerStarts, claimReservation?.id);
+  const workerPaths = await readSchedulerWorkerPathReadModels(memory, changePath, schedulerRun.id, {
+    schedulerClaimReservationId: claimReservation?.id,
+  }).catch(() => []);
+  const workerStarts = workerPaths.map((path) => path.start);
   if (runtimeState) {
     sourceEvidenceRefs.push({
       kind: "SchedulerRuntimeState",
@@ -475,7 +453,7 @@ async function readEvidenceSnapshot(memory: ResolvedMemory, changePath: string):
   const integrationOutcome = await readLatestSchedulerIntegrationOutcomeProjection(memory, changePath, schedulerRun.id);
   const runCompletion = await readLatestSchedulerRunCompletionProjection(memory, changePath, schedulerRun.id);
   const runCloseout = await readLatestSchedulerRunBlockedCloseoutProjection(memory, changePath, schedulerRun.id);
-  const workerPathLikes = workerPaths.map(workerPathLike);
+  const workerPathLikes = schedulerWorkerPathsToLikes(workerPaths);
   const integrationCandidateNeedsRefresh = schedulerIntegrationCandidateNeedsRefresh(integrationCandidate, workerPathLikes);
   const schedulerTransition = claimReservation
     ? resolveSchedulerCurrentTransition({
@@ -610,7 +588,7 @@ function buildDecision(snapshot: EvidenceSnapshot, id: string, artifact: string,
         reservationIntentId: snapshot.schedulerTransition.reservationIntent.reservationIntentId,
         claimIntentId: snapshot.schedulerTransition.reservationIntent.claimIntentId,
       }, "Start exactly one next-wave scheduler worker through the existing scoped gate.");
-    } else if (snapshot.schedulerTransition?.kind === "integration-candidate" && snapshot.workerPaths?.some((path) => hasApprovedWorkerOutput(path))) {
+    } else if (snapshot.schedulerTransition?.kind === "integration-candidate" && snapshot.workerPaths?.some((path) => hasApprovedSchedulerWorkerOutput(path))) {
       decisionKind = "integration-needed";
       summary = "Scheduler worker output has passed audit and the SchedulerIntegrationCandidate is missing or stale; refresh the existing integration candidate evidence.";
       recommendedAction = buildRecommendedAction("planning.scheduler.integration-candidate.compile", {
@@ -709,113 +687,16 @@ function buildDecision(snapshot: EvidenceSnapshot, id: string, artifact: string,
   };
 }
 
-async function readWorkerPaths(
-  memory: ResolvedMemory,
-  changePath: string,
-  schedulerRunId: string,
-  workerStarts: SchedulerRuntimeWorkerStart[],
-  schedulerClaimReservationId?: string,
-): Promise<GoalLoopSchedulerWorkerPath[]> {
-  const scoped = schedulerClaimReservationId
-    ? workerStarts.filter((start) => start.schedulerClaimReservationId === schedulerClaimReservationId)
-    : workerStarts;
-  const paths: GoalLoopSchedulerWorkerPath[] = [];
-  for (const start of scoped) {
-    const result = await findSchedulerRuntimeWorkerResultForStart(memory, changePath, schedulerRunId, start.id).catch(() => null);
-    const validation = result ? await findSchedulerRuntimeWorkerValidationForResult(memory, changePath, schedulerRunId, result.id).catch(() => null) : null;
-    const audit = validation ? await findSchedulerRuntimeWorkerAuditForValidation(memory, changePath, schedulerRunId, validation.id).catch(() => null) : null;
-    const reworkPlan = validation ? await findSchedulerRuntimeWorkerReworkPlanForBlockingEvidence(memory, changePath, schedulerRunId, {
-      workerValidationId: validation.id,
-      ...(audit ? { workerAuditId: audit.id } : {}),
-    }).catch(() => null) : null;
-    const reworkStart = reworkPlan ? await findSchedulerRuntimeWorkerReworkStartForPlan(memory, changePath, schedulerRunId, reworkPlan.id).catch(() => null) : null;
-    const reworkResult = reworkStart ? await findSchedulerRuntimeWorkerReworkResultForStart(memory, changePath, schedulerRunId, reworkStart.id).catch(() => null) : null;
-    const reworkValidation = reworkResult ? await findSchedulerRuntimeWorkerReworkValidationForResult(memory, changePath, schedulerRunId, reworkResult.id).catch(() => null) : null;
-    const reworkAudit = reworkValidation ? await findSchedulerRuntimeWorkerReworkAuditForValidation(memory, changePath, schedulerRunId, reworkValidation.id).catch(() => null) : null;
-    paths.push({
-      start,
-      result,
-      validation,
-      audit,
-      reworkPlan,
-      reworkStart,
-      reworkResult,
-      reworkValidation,
-      reworkAudit,
-      terminal: isTerminalWorkerPath({
-        start,
-        result,
-        validation,
-        audit,
-        reworkPlan,
-        reworkStart,
-        reworkResult,
-        reworkValidation,
-        reworkAudit,
-      }),
-    });
-  }
-  return paths.sort((a, b) => (a.start.updatedAt ?? "").localeCompare(b.start.updatedAt ?? ""));
-}
-
 function pushWorkerPathEvidence(refs: GoalLoopSourceEvidenceRef[], path: GoalLoopSchedulerWorkerPath): void {
-  refs.push({
-    kind: "SchedulerRuntimeWorkerStart",
-    id: path.start.id,
-    status: path.start.status,
-    artifact: path.start.artifact,
-    summary: `Worker ${path.start.claimIntentId} start evidence exists.`,
-  });
-  for (const evidence of [
-    ["SchedulerRuntimeWorkerResult", path.result],
-    ["SchedulerRuntimeWorkerValidation", path.validation],
-    ["SchedulerRuntimeWorkerAudit", path.audit],
-    ["SchedulerRuntimeWorkerReworkPlan", path.reworkPlan],
-    ["SchedulerRuntimeWorkerReworkStart", path.reworkStart],
-    ["SchedulerRuntimeWorkerReworkResult", path.reworkResult],
-    ["SchedulerRuntimeWorkerReworkValidation", path.reworkValidation],
-    ["SchedulerRuntimeWorkerReworkAudit", path.reworkAudit],
-  ] as const) {
-    if (!evidence[1]) continue;
+  for (const evidence of schedulerWorkerPathEvidenceRefs(path)) {
     refs.push({
-      kind: evidence[0],
-      id: evidence[1].id,
-      status: evidence[1].status,
-      artifact: evidence[1].artifact,
-      summary: `${evidence[0]} is present for claim ${path.start.claimIntentId}.`,
+      kind: evidence.kind,
+      id: evidence.id,
+      status: evidence.status,
+      artifact: evidence.artifact,
+      summary: evidence.summary,
     });
   }
-}
-
-function workerPathLike(path: GoalLoopSchedulerWorkerPath): SchedulerWorkerPathLike {
-  return {
-    start: {
-      reservationIntentId: path.start.reservationIntentId,
-      updatedAt: path.start.updatedAt,
-    },
-    terminal: path.terminal,
-    ...(path.audit ? { audit: { status: path.audit.status, claimIntentId: path.audit.claimIntentId } } : {}),
-    ...(path.reworkAudit ? { reworkAudit: { status: path.reworkAudit.status, claimIntentId: path.reworkAudit.claimIntentId } } : {}),
-  };
-}
-
-function isTerminalWorkerPath(path: Omit<GoalLoopSchedulerWorkerPath, "terminal">): boolean {
-  if (path.start.status === "failed") return true;
-  if (path.result?.status === "failed") return true;
-  if (path.audit?.status === "approved" || path.audit?.status === "approved-with-notes") return true;
-  if (path.reworkStart?.status === "failed") return true;
-  if (path.reworkResult?.status === "failed") return true;
-  if (path.reworkValidation?.status === "failed") return true;
-  if (path.reworkAudit?.status === "approved" || path.reworkAudit?.status === "approved-with-notes") return true;
-  if (path.reworkAudit?.status === "blocked" || path.reworkAudit?.status === "failed") return true;
-  return false;
-}
-
-function hasApprovedWorkerOutput(path: GoalLoopSchedulerWorkerPath): boolean {
-  return path.audit?.status === "approved"
-    || path.audit?.status === "approved-with-notes"
-    || path.reworkAudit?.status === "approved"
-    || path.reworkAudit?.status === "approved-with-notes";
 }
 
 function buildRecommendedAction(actionType: WorkflowActionType, scope: Record<string, string | string[]>, reason: string): GoalLoopRecommendedAction | undefined {

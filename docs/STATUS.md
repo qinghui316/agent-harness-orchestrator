@@ -2,7 +2,7 @@
 
 ## Current Handoff
 
-- Current date: 2026-07-08.
+- Current date: 2026-07-09.
 - Active ECL change: none.
 - Pending Harness evolution: none.
 - Latest completed Harness evolution:
@@ -12,6 +12,12 @@
   ready-set/current-gate/current-transition/code-growth lessons. The next useful
   work is product runtime compression, not another Harness rule.
 - Latest archived relationship-hardening change:
+  `harness/changes/archive/20260709-scheduler-worker-path-read-model-compression-v0/summary.md`.
+  It compressed Scheduler worker-path evidence/status/pending/approved-ref
+  reads into one read-only `scheduler-runtime` worker-path read model consumed
+  by workflow-runtime, Workbench boundary/projection, GoalLoop, and closeout
+  paths without adding Scheduler feature behavior.
+- Previous archived relationship-hardening change:
   `harness/changes/archive/20260708-scheduler-ready-set-transition-owner-v0/summary.md`.
   It consolidated Scheduler current-transition selection into a shared
   transition contract, routed Workbench / GoalLoop projections through it, and

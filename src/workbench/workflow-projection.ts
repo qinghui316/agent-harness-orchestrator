@@ -30,6 +30,7 @@ import {
   readSchedulerRuntimeWorkerValidationProjection,
   readLatestSchedulerControlledStepEvidenceProjection,
   schedulerIntegrationCandidateNeedsRefresh,
+  readSchedulerWorkerPathReadModels,
   readSchedulerRuntimeClaimReservationProjection,
   readSchedulerRuntimeStateProjection,
   type SchedulerControlledStepEvidence,
@@ -1173,44 +1174,22 @@ export async function readSchedulerWorkerPathSummaries(
   schedulerClaimReservationId?: string,
 ): Promise<WorkbenchSchedulerWorkerPathSummary[]> {
   if (!schedulerRunId) return [];
-  const starts = await listSchedulerRuntimeWorkerStarts(memory, changePath, schedulerRunId).catch(() => []);
-  const scoped = schedulerClaimReservationId ? starts.filter((start) => start.schedulerClaimReservationId === schedulerClaimReservationId) : starts;
-  const summaries = await Promise.all(scoped.map(async (start) => {
-    const startSummary = summarizeSchedulerWorkerStart(start);
-    const result = await readSchedulerWorkerResultSummary(memory, changePath, schedulerRunId, start.id);
-    const validation = await readSchedulerWorkerValidationSummary(memory, changePath, schedulerRunId, result?.id);
-    const audit = await readSchedulerWorkerAuditSummary(memory, changePath, schedulerRunId, validation?.id);
-    const reworkPlan = await readSchedulerWorkerReworkPlanSummary(memory, changePath, schedulerRunId, validation?.id, audit?.id);
-    const reworkStart = await readSchedulerWorkerReworkStartSummary(memory, changePath, schedulerRunId, reworkPlan?.id);
-    const reworkResult = await readSchedulerWorkerReworkResultSummary(memory, changePath, schedulerRunId, reworkStart?.id);
-    const reworkValidation = await readSchedulerWorkerReworkValidationSummary(memory, changePath, schedulerRunId, reworkResult?.id);
-    const reworkAudit = await readSchedulerWorkerReworkAuditSummary(memory, changePath, schedulerRunId, reworkValidation?.id);
-    const status = classifySchedulerWorkerPathStatus({
-      start: startSummary,
-      result,
-      validation,
-      audit,
-      reworkPlan,
-      reworkStart,
-      reworkResult,
-      reworkValidation,
-      reworkAudit,
-    });
+  const paths = await readSchedulerWorkerPathReadModels(memory, changePath, schedulerRunId, { schedulerClaimReservationId }).catch(() => []);
+  return paths.map((path) => {
     return {
-      start: startSummary,
-      ...(result ? { result } : {}),
-      ...(validation ? { validation } : {}),
-      ...(audit ? { audit } : {}),
-      ...(reworkPlan ? { reworkPlan } : {}),
-      ...(reworkStart ? { reworkStart } : {}),
-      ...(reworkResult ? { reworkResult } : {}),
-      ...(reworkValidation ? { reworkValidation } : {}),
-      ...(reworkAudit ? { reworkAudit } : {}),
-      status,
-      terminal: isTerminalSchedulerWorkerPathStatus(status),
+      start: summarizeSchedulerWorkerStart(path.start),
+      ...(path.result ? { result: summarizeSchedulerWorkerResult(path.result) } : {}),
+      ...(path.validation ? { validation: summarizeSchedulerWorkerValidation(path.validation) } : {}),
+      ...(path.audit ? { audit: summarizeSchedulerWorkerAudit(path.audit) } : {}),
+      ...(path.reworkPlan ? { reworkPlan: summarizeSchedulerWorkerReworkPlan(path.reworkPlan) } : {}),
+      ...(path.reworkStart ? { reworkStart: summarizeSchedulerWorkerReworkStart(path.reworkStart) } : {}),
+      ...(path.reworkResult ? { reworkResult: summarizeSchedulerWorkerReworkResult(path.reworkResult) } : {}),
+      ...(path.reworkValidation ? { reworkValidation: summarizeSchedulerWorkerReworkValidation(path.reworkValidation) } : {}),
+      ...(path.reworkAudit ? { reworkAudit: summarizeSchedulerWorkerReworkAudit(path.reworkAudit) } : {}),
+      status: path.status,
+      terminal: path.terminal,
     };
-  }));
-  return summaries.sort((a, b) => (a.start.updatedAt ?? "").localeCompare(b.start.updatedAt ?? ""));
+  });
 }
 
 export async function readSchedulerWorkerResultSummary(
@@ -1369,67 +1348,6 @@ export async function readLatestSchedulerRunBlockedCloseoutSummary(
   if (!closeout) return null;
   if (closeout.schedulerIntegrationCandidateId !== schedulerIntegrationCandidateId) return null;
   return summarizeSchedulerRunBlockedCloseout(closeout);
-}
-
-function classifySchedulerWorkerPathStatus(path: {
-  start: WorkbenchSchedulerWorkerStartSummary;
-  result?: WorkbenchSchedulerWorkerResultSummary | null;
-  validation?: WorkbenchSchedulerWorkerValidationSummary | null;
-  audit?: WorkbenchSchedulerWorkerAuditSummary | null;
-  reworkPlan?: WorkbenchSchedulerWorkerReworkPlanSummary | null;
-  reworkStart?: WorkbenchSchedulerWorkerReworkStartSummary | null;
-  reworkResult?: WorkbenchSchedulerWorkerReworkResultSummary | null;
-  reworkValidation?: WorkbenchSchedulerWorkerReworkValidationSummary | null;
-  reworkAudit?: WorkbenchSchedulerWorkerReworkAuditSummary | null;
-}): WorkbenchSchedulerWorkerPathStatus {
-  if (path.start.status === "failed") return "start-failed";
-  if (!path.result) return "result-pending";
-  if (path.result.status === "failed") return "result-failed";
-  if (!path.validation) return "validation-pending";
-  if (path.validation.status === "failed") {
-    if (!path.reworkPlan) return "rework-plan-pending";
-    return classifySchedulerWorkerReworkPathStatus(path);
-  }
-  if (!path.audit) return "audit-pending";
-  if (path.audit.status === "approved" || path.audit.status === "approved-with-notes") return "audit-approved";
-  if (path.audit.status === "blocked" || path.audit.status === "failed") {
-    if (!path.reworkPlan) return path.audit.status === "blocked" ? "audit-blocked" : "audit-failed";
-    return classifySchedulerWorkerReworkPathStatus(path);
-  }
-  return "audit-failed";
-}
-
-function classifySchedulerWorkerReworkPathStatus(path: {
-  reworkPlan?: WorkbenchSchedulerWorkerReworkPlanSummary | null;
-  reworkStart?: WorkbenchSchedulerWorkerReworkStartSummary | null;
-  reworkResult?: WorkbenchSchedulerWorkerReworkResultSummary | null;
-  reworkValidation?: WorkbenchSchedulerWorkerReworkValidationSummary | null;
-  reworkAudit?: WorkbenchSchedulerWorkerReworkAuditSummary | null;
-}): WorkbenchSchedulerWorkerPathStatus {
-  if (!path.reworkPlan) return "rework-plan-pending";
-  if (!path.reworkStart) return "rework-start-pending";
-  if (path.reworkStart.status === "failed") return "rework-start-failed";
-  if (!path.reworkResult) return "rework-result-pending";
-  if (path.reworkResult.status === "failed") return "rework-result-failed";
-  if (!path.reworkValidation) return "rework-validation-pending";
-  if (path.reworkValidation.status === "failed") return "rework-validation-failed";
-  if (!path.reworkAudit) return "rework-audit-pending";
-  if (path.reworkAudit.status === "approved" || path.reworkAudit.status === "approved-with-notes") return "rework-audit-approved";
-  return path.reworkAudit.status === "blocked" ? "rework-audit-blocked" : "rework-audit-failed";
-}
-
-function isTerminalSchedulerWorkerPathStatus(status: WorkbenchSchedulerWorkerPathStatus): boolean {
-  return [
-    "start-failed",
-    "result-failed",
-    "audit-approved",
-    "rework-start-failed",
-    "rework-result-failed",
-    "rework-validation-failed",
-    "rework-audit-approved",
-    "rework-audit-blocked",
-    "rework-audit-failed",
-  ].includes(status);
 }
 
 function summarizeSchedulerWorkerStart(start: SchedulerRuntimeWorkerStart): WorkbenchSchedulerWorkerStartSummary {

@@ -2566,7 +2566,9 @@ describe("Workbench module boundaries", () => {
     expect(runCloseout).toContain("assertLatestSchedulerRuntimeClaimReservation");
     expect(runCloseout).toContain("SchedulerRunBlockedCloseout");
     expect(runCloseout).toContain("completeSchedulerRun");
-    expect(runCloseout).toContain("findNextSchedulerReservationIntentForWorkerPaths");
+    expect(runCloseout).toContain("resolveSchedulerCurrentTransition");
+    expect(runCloseout).toContain("readSchedulerWorkerPathReadModels");
+    expect(runCloseout).not.toContain("findNextSchedulerReservationIntentForWorkerPaths");
     expect(runCloseout).not.toContain("runIntegrationCheck");
     expect(runCloseout).not.toContain("applyIntegrationCheck");
     expect(runCloseout).not.toContain("discardIntegrationCheck");
@@ -2690,6 +2692,34 @@ describe("Workbench module boundaries", () => {
     expect(threadStream).toContain("Scheduler current worker validation");
     expect(threadStream).not.toContain("Scheduler first worker result reconcile");
     expect(threadStream).not.toContain("Scheduler first worker validation");
+  });
+
+  it("keeps scheduler worker-path evidence assembly in the shared read model", () => {
+    const readModel = readFileSync("src/scheduler-runtime/worker-path-read-model.ts", "utf8");
+    expect(readModel).toContain("readSchedulerWorkerPathReadModels");
+    expect(readModel).toContain("schedulerWorkerPathEvidenceRefs");
+
+    const runtimeScheduler = readFileSync("src/workflow-runtime/scheduler.ts", "utf8");
+    expect(runtimeScheduler).not.toContain("function readSchedulerWorkerPathLikes");
+    expect(runtimeScheduler).toContain("readSchedulerWorkerPathReadModelsForReservation");
+
+    const boundary = readFileSync("src/workbench/actions/boundary.ts", "utf8");
+    expect(boundary).not.toContain("function readSchedulerWorkerPathLikes");
+    expect(boundary).toContain("readSchedulerWorkerPathReadModelsForReservation");
+
+    const goalLoopCompiler = readFileSync("src/goal-loop/compiler.ts", "utf8");
+    expect(goalLoopCompiler).not.toContain("function readWorkerPaths");
+    expect(goalLoopCompiler).not.toContain("function workerPathLike");
+    expect(goalLoopCompiler).not.toContain("function isTerminalWorkerPath");
+    expect(goalLoopCompiler).toContain("readSchedulerWorkerPathReadModels");
+
+    const closeout = readFileSync("src/scheduler-runtime/run-closeout.ts", "utf8");
+    expect(closeout).not.toContain("function inspectWorkerPaths");
+    expect(closeout).toContain("readSchedulerWorkerPathReadModels");
+
+    const projection = readFileSync("src/workbench/workflow-projection.ts", "utf8");
+    expect(projection).not.toContain("function classifySchedulerWorkerPathStatus");
+    expect(projection).toContain("readSchedulerWorkerPathReadModels");
   });
 
   it("keeps store-backed maintenance artifact lifecycle reuse in owned helpers", () => {

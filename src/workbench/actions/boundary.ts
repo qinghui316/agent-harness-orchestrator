@@ -5,8 +5,9 @@ import { readIntegrationCheck } from "../../integration-check/manager.js";
 import { resolveProjectMemory } from "../../memory/resolver.js";
 import { readRun } from "../../run/repository.js";
 import { assertLatestSchedulerRuntimeClaimReservationForSnapshot, readSchedulerRuntimeLineage } from "../../scheduler-runtime/guards.js";
-import { findSchedulerClaimReservationForSnapshot, findSchedulerRuntimeWorkerAuditForValidation, findSchedulerRuntimeWorkerResultForStart, findSchedulerRuntimeWorkerReworkAuditForValidation, findSchedulerRuntimeWorkerReworkPlanForBlockingEvidence, findSchedulerRuntimeWorkerReworkResultForStart, findSchedulerRuntimeWorkerReworkStartForPlan, findSchedulerRuntimeWorkerReworkValidationForResult, findSchedulerRuntimeWorkerStartForReservationIntent, findSchedulerRuntimeWorkerValidationForResult, listSchedulerRuntimeWorkerStarts, readLatestSchedulerIntegrationCandidateProjection, readLatestSchedulerIntegrationCheckHandoffProjection, readLatestSchedulerIntegrationOutcomeProjection, readLatestSchedulerRunBlockedCloseoutProjection, readLatestSchedulerRunCompletionProjection, readSchedulerIntegrationOutcome, readSchedulerReconcileSnapshot, readSchedulerRuntimeClaimReservation, readSchedulerRuntimeStateProjection, readSchedulerRuntimeWorkerAudit, readSchedulerRuntimeWorkerResult, readSchedulerRuntimeWorkerReworkPlan, readSchedulerRuntimeWorkerReworkResult, readSchedulerRuntimeWorkerReworkStart, readSchedulerRuntimeWorkerReworkValidation, readSchedulerRuntimeWorkerStart, readSchedulerRuntimeWorkerValidation } from "../../scheduler-runtime/repository.js";
-import { assertNoSameWaveReservationSourceScopeConflict, schedulerIntegrationCandidateNeedsRefresh, type SchedulerWorkerPathLike } from "../../scheduler-runtime/worker-path.js";
+import { findSchedulerClaimReservationForSnapshot, findSchedulerRuntimeWorkerAuditForValidation, findSchedulerRuntimeWorkerResultForStart, findSchedulerRuntimeWorkerReworkAuditForValidation, findSchedulerRuntimeWorkerReworkPlanForBlockingEvidence, findSchedulerRuntimeWorkerReworkResultForStart, findSchedulerRuntimeWorkerReworkStartForPlan, findSchedulerRuntimeWorkerReworkValidationForResult, findSchedulerRuntimeWorkerStartForReservationIntent, findSchedulerRuntimeWorkerValidationForResult, readLatestSchedulerIntegrationCandidateProjection, readLatestSchedulerIntegrationCheckHandoffProjection, readLatestSchedulerIntegrationOutcomeProjection, readLatestSchedulerRunBlockedCloseoutProjection, readLatestSchedulerRunCompletionProjection, readSchedulerIntegrationOutcome, readSchedulerReconcileSnapshot, readSchedulerRuntimeClaimReservation, readSchedulerRuntimeStateProjection, readSchedulerRuntimeWorkerAudit, readSchedulerRuntimeWorkerResult, readSchedulerRuntimeWorkerReworkPlan, readSchedulerRuntimeWorkerReworkResult, readSchedulerRuntimeWorkerReworkStart, readSchedulerRuntimeWorkerReworkValidation, readSchedulerRuntimeWorkerStart, readSchedulerRuntimeWorkerValidation } from "../../scheduler-runtime/repository.js";
+import { assertNoSameWaveReservationSourceScopeConflict, schedulerIntegrationCandidateNeedsRefresh } from "../../scheduler-runtime/worker-path.js";
+import { readSchedulerWorkerPathReadModelsForReservation, schedulerWorkerPathsToLikes } from "../../scheduler-runtime/worker-path-read-model.js";
 import { latestLandingQueueSnapshot } from "../../landing-queue/manager.js";
 import { readLatestGoalLoopControllerPolicy, readLatestGoalLoopNextStepPacket } from "../../goal-loop/manager.js";
 import { listTaskQueues } from "../../task-queue/manager.js";
@@ -1137,7 +1138,7 @@ async function assertSchedulerCurrentTransitionForAction(
   reservation: { reservationIntents: Array<{ reservationIntentId: string; claimIntentId: string; status: string; waveIndex: number; sourceScopes?: string[] }> },
   actionType: string,
 ): Promise<void> {
-  const paths = await readSchedulerWorkerPathLikes(memory, changePath, schedulerRunId, reservation);
+  const paths = schedulerWorkerPathsToLikes(await readSchedulerWorkerPathReadModelsForReservation(memory, changePath, schedulerRunId, reservation));
   const integrationCandidate = await readLatestSchedulerIntegrationCandidateProjection(memory, changePath, schedulerRunId);
   const transition = resolveSchedulerCurrentTransition({
     reservation,
@@ -1152,71 +1153,6 @@ async function assertSchedulerCurrentTransitionForAction(
   if (transition.actionType !== actionType) {
     throw new Error(`${actionType} is not the current Scheduler transition.`);
   }
-}
-
-async function readSchedulerWorkerPathLikes(
-  memory: ResolvedMemory,
-  changePath: string,
-  schedulerRunId: string,
-  reservation: { id?: string; reservationIntents: Array<{ reservationIntentId: string; claimIntentId: string; status: string; waveIndex: number }> },
-): Promise<SchedulerWorkerPathLike[]> {
-  const starts = await listSchedulerRuntimeWorkerStarts(memory, changePath, schedulerRunId);
-  const reservationIntentIds = new Set(reservation.reservationIntents.map((intent) => intent.reservationIntentId));
-  const scopedStarts = starts.filter((start) =>
-    reservationIntentIds.has(start.reservationIntentId)
-    && (!reservation.id || start.schedulerClaimReservationId === reservation.id)
-  );
-  return Promise.all(scopedStarts.map(async (start): Promise<SchedulerWorkerPathLike> => {
-    const base: SchedulerWorkerPathLike = { start: { reservationIntentId: start.reservationIntentId, updatedAt: start.updatedAt }, terminal: false };
-    if (start.status === "failed") return { ...base, terminal: true };
-    const result = await findSchedulerRuntimeWorkerResultForStart(memory, changePath, schedulerRunId, start.id);
-    if (!result) return base;
-    if (result.status === "failed") return { ...base, terminal: true };
-    const validation = await findSchedulerRuntimeWorkerValidationForResult(memory, changePath, schedulerRunId, result.id);
-    if (!validation) return base;
-    if (validation.status === "passed") {
-      const audit = await findSchedulerRuntimeWorkerAuditForValidation(memory, changePath, schedulerRunId, validation.id);
-      if (!audit) return base;
-      const withAudit = { ...base, audit: { status: audit.status, claimIntentId: audit.claimIntentId } };
-      if (audit.status === "approved" || audit.status === "approved-with-notes") return { ...withAudit, terminal: true };
-      const reworkPlan = await findSchedulerRuntimeWorkerReworkPlanForBlockingEvidence(memory, changePath, schedulerRunId, {
-        workerValidationId: validation.id,
-        workerAuditId: audit.id,
-      });
-      if (!reworkPlan) return withAudit;
-      return readSchedulerReworkPathLike(memory, changePath, schedulerRunId, withAudit, reworkPlan.id);
-    }
-    const reworkPlan = await findSchedulerRuntimeWorkerReworkPlanForBlockingEvidence(memory, changePath, schedulerRunId, {
-      workerValidationId: validation.id,
-    });
-    if (!reworkPlan) return base;
-    return readSchedulerReworkPathLike(memory, changePath, schedulerRunId, base, reworkPlan.id);
-  }));
-}
-
-async function readSchedulerReworkPathLike(
-  memory: ResolvedMemory,
-  changePath: string,
-  schedulerRunId: string,
-  base: SchedulerWorkerPathLike,
-  reworkPlanId: string,
-): Promise<SchedulerWorkerPathLike> {
-  const reworkStart = await findSchedulerRuntimeWorkerReworkStartForPlan(memory, changePath, schedulerRunId, reworkPlanId);
-  if (!reworkStart) return base;
-  if (reworkStart.status === "failed") return { ...base, terminal: true };
-  const reworkResult = await findSchedulerRuntimeWorkerReworkResultForStart(memory, changePath, schedulerRunId, reworkStart.id);
-  if (!reworkResult) return base;
-  if (reworkResult.status === "failed") return { ...base, terminal: true };
-  const reworkValidation = await findSchedulerRuntimeWorkerReworkValidationForResult(memory, changePath, schedulerRunId, reworkResult.id);
-  if (!reworkValidation) return base;
-  if (reworkValidation.status !== "passed") return { ...base, terminal: true };
-  const reworkAudit = await findSchedulerRuntimeWorkerReworkAuditForValidation(memory, changePath, schedulerRunId, reworkValidation.id);
-  if (!reworkAudit) return base;
-  return {
-    ...base,
-    reworkAudit: { status: reworkAudit.status, claimIntentId: reworkAudit.claimIntentId },
-    terminal: true,
-  };
 }
 
 export function workflowActionTargetId(request: WorkbenchWorkflowActionRequest, changeId: string, result?: unknown): string {

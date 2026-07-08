@@ -15,4 +15,5 @@ export * from "./repository.js";
 export * from "./schemas.js";
 export * from "./types.js";
 export * from "./worker-path.js";
+export * from "./worker-path-read-model.js";
 export * from "./worker-scope.js";

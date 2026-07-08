@@ -4,20 +4,13 @@ import type { ManagedProject } from "../types/index.js";
 import { resolveRunnableChangeTarget } from "../change/target.js";
 import { completeSchedulerRun } from "../workflow-scheduler/scheduler-run.js";
 import { readSchedulerRun } from "../workflow-scheduler/repository.js";
+import { resolveSchedulerCurrentTransition } from "../workflow-actions/scheduler-current-transition.js";
 import { assertLatestSchedulerRuntimeClaimReservation, readSchedulerRuntimeLineage } from "./guards.js";
-import { findNextSchedulerReservationIntentForWorkerPaths, type SchedulerWorkerPathLike } from "./worker-path.js";
+import { schedulerIntegrationCandidateNeedsRefresh } from "./worker-path.js";
+import { readSchedulerWorkerPathReadModels, schedulerWorkerPathsToLikes, type SchedulerWorkerPathReadModel } from "./worker-path-read-model.js";
 import {
   appendSchedulerRuntimeEvent,
   findSchedulerRunBlockedCloseoutForCandidateStrict,
-  findSchedulerRuntimeWorkerAuditForValidation,
-  findSchedulerRuntimeWorkerResultForStart,
-  findSchedulerRuntimeWorkerReworkAuditForValidation,
-  findSchedulerRuntimeWorkerReworkPlanForBlockingEvidence,
-  findSchedulerRuntimeWorkerReworkResultForStart,
-  findSchedulerRuntimeWorkerReworkStartForPlan,
-  findSchedulerRuntimeWorkerReworkValidationForResult,
-  findSchedulerRuntimeWorkerValidationForResult,
-  listSchedulerRuntimeWorkerStarts,
   readLatestSchedulerIntegrationCandidateStrict,
   readLatestSchedulerIntegrationCheckHandoffStrict,
   readLatestSchedulerIntegrationOutcomeStrict,
@@ -35,7 +28,6 @@ import type {
   SchedulerRunBlockedCloseoutStatus,
   SchedulerRuntimeClaimReservation,
   SchedulerRuntimeState,
-  SchedulerRuntimeWorkerStart,
 } from "./types.js";
 
 export interface SchedulerRunBlockedCloseoutInput {
@@ -54,7 +46,7 @@ export interface SchedulerRunBlockedCloseoutResult {
 }
 
 interface WorkerPathInspection {
-  paths: SchedulerWorkerPathLike[];
+  paths: SchedulerWorkerPathReadModel[];
   pendingReasons: string[];
 }
 
@@ -119,13 +111,29 @@ export async function closeSchedulerRunBlockedOrExhausted(project: ManagedProjec
     throw new Error("planning.scheduler.run.close-blocked latest SchedulerRunBlockedCloseout target is stale.");
   }
 
-  const inspection = await inspectWorkerPaths(memory, changePath, run.id, reservation.id);
+  const paths = await readSchedulerWorkerPathReadModels(memory, changePath, run.id, { schedulerClaimReservationId: reservation.id });
+  const inspection: WorkerPathInspection = {
+    paths,
+    pendingReasons: paths.map((path) => path.pendingReason).filter((reason): reason is string => Boolean(reason)),
+  };
   if (inspection.pendingReasons.length) {
     throw new Error(`planning.scheduler.run.close-blocked cannot close while scheduler worker path is pending: ${inspection.pendingReasons[0]}`);
   }
-  const nextIntent = findNextSchedulerReservationIntentForWorkerPaths(reservation, inspection.paths);
-  if (nextIntent) {
-    throw new Error("planning.scheduler.run.close-blocked is not allowed while a legal next scheduler worker can start.");
+  const workerPathLikes = schedulerWorkerPathsToLikes(inspection.paths);
+  const transition = resolveSchedulerCurrentTransition({
+    reservation,
+    workerPaths: workerPathLikes,
+    integrationCandidate: latestCandidate,
+    integrationCandidateNeedsRefresh: schedulerIntegrationCandidateNeedsRefresh(latestCandidate, workerPathLikes),
+  });
+  if (transition.actionType !== "planning.scheduler.run.close-blocked") {
+    if (
+      transition.actionType === "planning.scheduler.worker.start-next"
+      || (transition.kind === "none" && transition.reason === "Scheduler first worker has not started.")
+    ) {
+      throw new Error("planning.scheduler.run.close-blocked is not allowed while a legal next scheduler worker can start.");
+    }
+    throw new Error(`planning.scheduler.run.close-blocked is not the current Scheduler transition.`);
   }
 
   if (existingCloseout) {
@@ -153,80 +161,6 @@ export async function closeSchedulerRunBlockedOrExhausted(project: ManagedProjec
     payload: closeoutPayload(closeout),
   });
   return { closeout, schedulerRunStatus: "completed", sourceMutated: false, executionStarted: false };
-}
-
-async function inspectWorkerPaths(
-  memory: Awaited<ReturnType<typeof resolveProjectMemory>>,
-  changePath: string,
-  schedulerRunId: string,
-  reservationId: string,
-): Promise<WorkerPathInspection> {
-  const starts = (await listSchedulerRuntimeWorkerStarts(memory, changePath, schedulerRunId))
-    .filter((start) => start.schedulerClaimReservationId === reservationId);
-  const paths: SchedulerWorkerPathLike[] = [];
-  const pendingReasons: string[] = [];
-  for (const start of starts) {
-    const inspected = await inspectWorkerPath(memory, changePath, schedulerRunId, start);
-    paths.push(inspected.path);
-    if (inspected.pendingReason) pendingReasons.push(inspected.pendingReason);
-  }
-  return { paths, pendingReasons };
-}
-
-async function inspectWorkerPath(
-  memory: Awaited<ReturnType<typeof resolveProjectMemory>>,
-  changePath: string,
-  schedulerRunId: string,
-  start: SchedulerRuntimeWorkerStart,
-): Promise<{ path: SchedulerWorkerPathLike; pendingReason?: string }> {
-  const base: SchedulerWorkerPathLike = { start: { reservationIntentId: start.reservationIntentId, updatedAt: start.updatedAt }, terminal: false };
-  if (start.status === "failed") return { path: { ...base, terminal: true } };
-  const result = await findSchedulerRuntimeWorkerResultForStart(memory, changePath, schedulerRunId, start.id);
-  if (!result) return { path: base, pendingReason: `worker result is pending for ${start.id}` };
-  if (result.status === "failed") return { path: { ...base, terminal: true } };
-  const validation = await findSchedulerRuntimeWorkerValidationForResult(memory, changePath, schedulerRunId, result.id);
-  if (!validation) return { path: base, pendingReason: `worker validation is pending for ${start.id}` };
-  if (validation.status === "passed") {
-    const audit = await findSchedulerRuntimeWorkerAuditForValidation(memory, changePath, schedulerRunId, validation.id);
-    if (!audit) return { path: base, pendingReason: `worker audit is pending for ${start.id}` };
-    if (audit.status === "approved" || audit.status === "approved-with-notes") {
-      return { path: { ...base, terminal: true, audit: { status: audit.status, claimIntentId: audit.claimIntentId } } };
-    }
-    const reworkPlan = await findSchedulerRuntimeWorkerReworkPlanForBlockingEvidence(memory, changePath, schedulerRunId, {
-      workerValidationId: validation.id,
-      workerAuditId: audit.id,
-    });
-    if (!reworkPlan) return { path: { ...base, audit: { status: audit.status, claimIntentId: audit.claimIntentId }, terminal: false }, pendingReason: `worker audit is ${audit.status} without rework plan for ${start.id}` };
-    return inspectReworkPath(memory, changePath, schedulerRunId, start, base, reworkPlan.id, { status: audit.status, claimIntentId: audit.claimIntentId });
-  }
-  const reworkPlan = await findSchedulerRuntimeWorkerReworkPlanForBlockingEvidence(memory, changePath, schedulerRunId, {
-    workerValidationId: validation.id,
-  });
-  if (!reworkPlan) return { path: base, pendingReason: `worker validation failed without rework plan for ${start.id}` };
-  return inspectReworkPath(memory, changePath, schedulerRunId, start, base, reworkPlan.id);
-}
-
-async function inspectReworkPath(
-  memory: Awaited<ReturnType<typeof resolveProjectMemory>>,
-  changePath: string,
-  schedulerRunId: string,
-  start: SchedulerRuntimeWorkerStart,
-  base: SchedulerWorkerPathLike,
-  reworkPlanId: string,
-  audit?: { status: string; claimIntentId?: string },
-): Promise<{ path: SchedulerWorkerPathLike; pendingReason?: string }> {
-  const reworkStart = await findSchedulerRuntimeWorkerReworkStartForPlan(memory, changePath, schedulerRunId, reworkPlanId);
-  if (!reworkStart) return { path: { ...base, audit, terminal: false }, pendingReason: `worker rework is not started for ${start.id}` };
-  if (reworkStart.status === "failed") return { path: { ...base, audit, terminal: true } };
-  const reworkResult = await findSchedulerRuntimeWorkerReworkResultForStart(memory, changePath, schedulerRunId, reworkStart.id);
-  if (!reworkResult) return { path: { ...base, audit, terminal: false }, pendingReason: `worker rework result is pending for ${start.id}` };
-  if (reworkResult.status === "failed") return { path: { ...base, audit, terminal: true } };
-  const reworkValidation = await findSchedulerRuntimeWorkerReworkValidationForResult(memory, changePath, schedulerRunId, reworkResult.id);
-  if (!reworkValidation) return { path: { ...base, audit, terminal: false }, pendingReason: `worker rework validation is pending for ${start.id}` };
-  if (reworkValidation.status !== "passed") return { path: { ...base, audit, terminal: true } };
-  const reworkAudit = await findSchedulerRuntimeWorkerReworkAuditForValidation(memory, changePath, schedulerRunId, reworkValidation.id);
-  if (!reworkAudit) return { path: { ...base, audit, terminal: false }, pendingReason: `worker rework audit is pending for ${start.id}` };
-  return { path: { ...base, audit, reworkAudit: { status: reworkAudit.status, claimIntentId: reworkAudit.claimIntentId }, terminal: true } };
 }
 
 function buildCloseout(
