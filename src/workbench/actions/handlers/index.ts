@@ -4,11 +4,11 @@ import { runIntegrationCheck } from "../../../integration-check/manager.js";
 import { reconcileTaskRuns } from "../../../task-run/manager.js";
 import { reconcileWorkflowTaskQueue, runTaskQueueSequentialWorkflow } from "../../../workflow-runtime/taskqueue.js";
 import { runMainAgentSourceRefreshRework } from "../../../main-agent-orchestration/index.js";
-import { runDefaultCodeChangeWorkflow, runTaskRunStageAction, sourceRefreshReworkPrompt } from "../../../workflow-runtime/code-workflow.js";
+import { runDefaultCodeChangeWorkflow, runTaskRunStageAction, runTopLevelRoleChainWorkflow, sourceRefreshReworkPrompt } from "../../../workflow-runtime/code-workflow.js";
 import { startValidationRun } from "../../../validation/manager.js";
 import { getSpecTestDriftReport } from "../../../spec-test/drift.js";
 import type { ManagedProject, RunMetadata } from "../../../types/index.js";
-import { enqueueDemandWorkerForAction, evaluateDemandOrchestrator, pumpDemandWorkersForAction, reconcileDemandWorkersForAction, releaseDemandWorkerForAction, runMainAgentToolOrchestration, startNextDemandWorkerForAction } from "../../demand-workers/orchestration.js";
+import { enqueueDemandWorkerForAction, evaluateDemandOrchestrator, pumpDemandWorkersForAction, reconcileDemandWorkersForAction, releaseDemandWorkerForAction, startNextDemandWorkerForAction } from "../../demand-workers/orchestration.js";
 import { assessDecompositionReadiness, compileTaskQueueWorkflowGraph, confirmDecompositionPlan, confirmTaskQueueProposalAndStart, generateDecompositionPlan, proposeTaskQueue } from "./planning.js";
 import { cleanupRemoteBranchForAction, createPrDraftForAction, mergeNextLandingQueueForAction, mergeRemoteLandingForAction, prepareLandingForAction, prepareLandingQueueForAction, prepareLocalSyncForAction, preparePostMergeForAction, preparePrDraftForAction, preparePrReviewForAction, preparePrReviewReplyForAction, prepareRemoteBranchCleanupForAction, prepareRemoteLandingForAction, refreshLandingQueueForAction, refreshPrDraftForAction, refreshPrFeedbackForAction, refreshPrReviewForAction, refreshRemoteLandingForAction, reworkPrFeedbackForAction, resolvePrReviewThreadForAction, reviewLandingForAction, submitPrReviewForAction, submitPrReviewReplyForAction, syncLocalForAction, updatePrDraftForAction } from "./remote-handoff.js";
 import { interruptConversation, steerConversation, stopRunningPipeline } from "./control.js";
@@ -26,9 +26,9 @@ export interface WorkbenchActionHandlerDeps {
 
 export function buildWorkbenchActionHandlers(deps: WorkbenchActionHandlerDeps): WorkbenchActionHandlerMap {
   const runMainAgentExecutionStart: WorkbenchActionHandler = async (project, changeId, request, live) =>
-    runMainAgentToolOrchestration(project, changeId, request.prompt, live, false);
+    runTopLevelRoleChainWorkflow({ project, changeId, prompt: request.prompt, live, continuation: false, taskIds: request.taskIds, readinessManifestId: request.readinessManifestId });
   const runMainAgentExecutionContinue: WorkbenchActionHandler = async (project, changeId, request, live) =>
-    runMainAgentToolOrchestration(project, changeId, request.prompt, live, true);
+    runTopLevelRoleChainWorkflow({ project, changeId, prompt: request.prompt, live, continuation: true, taskIds: request.taskIds, readinessManifestId: request.readinessManifestId });
   const runMainAgentExecutionStop: WorkbenchActionHandler = async (project, changeId, request, live) =>
     stopRunningPipeline(project, changeId, request.prompt, live, deps);
   const runMainAgentExecutionReconcile: WorkbenchActionHandler = async (project, changeId, request) =>
@@ -86,7 +86,7 @@ export function buildWorkbenchActionHandlers(deps: WorkbenchActionHandlerDeps): 
   "role.pipeline.reconcile": runMainAgentExecutionReconcile,
   "conversation.steer": async (project, changeId, request, live) => steerConversation(project, changeId, request.prompt, live, deps),
   "conversation.interrupt": async (project, changeId, request, live) => interruptConversation(project, changeId, request.prompt, live, deps),
-  "conversation.continue": async (project, changeId, request, live) => runMainAgentToolOrchestration(project, changeId, request.prompt, live, true),
+  "conversation.continue": async (project, changeId, request, live) => runTopLevelRoleChainWorkflow({ project, changeId, prompt: request.prompt, live, continuation: true, taskIds: request.taskIds, readinessManifestId: request.readinessManifestId }),
   "result.refresh-rework": async (project, changeId, request, live) => {
     if (!request.worktreeId) throw new Error("result.refresh-rework requires worktreeId.");
     return runMainAgentSourceRefreshRework({

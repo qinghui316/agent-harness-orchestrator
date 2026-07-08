@@ -203,10 +203,12 @@ Phase 9Z adds a terminal scheduler closeout evidence path for blocked/exhausted 
 The target runtime boundary is a single `HarnessWorkflowRunEngine` owned by
 `src/workflow-runtime/` and described in
 `docs/design-docs/harness-workflow-runtime-target.md`. Ordinary `code.run` and
-confirmed TaskQueue queue-level start/resume scheduling already route through
-`workflow-runtime`. Remaining compatibility paths include TaskRun stage
-execution, demand-worker role-chain entrypoints, and Scheduler worker paths;
-they must not become parallel long-term runtime owners.
+confirmed TaskQueue queue-level start/resume scheduling, TaskRun stage
+execution, SchedulerRun-scoped progression, DemandWorker claimed execution,
+and top-level role-chain action entrypoints already route through
+`workflow-runtime`. Remaining compatibility paths include source-refresh
+rework and feedback rework; they must not become parallel long-term runtime
+owners.
 
 Runtime object ownership is intentionally split:
 

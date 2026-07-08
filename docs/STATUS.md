@@ -12,6 +12,11 @@
   convergence and old-runner retirement; only a stale pending-evolution line in
   the current plan was repaired.
 - Latest archived runtime change:
+  `harness/changes/archive/20260708-harness-workflow-runtime-top-level-role-chain-owner-v0/summary.md`.
+  It moved DemandWorker claimed execution and top-level role-chain action
+  entrypoints behind `workflow-runtime`, reusing the default code-change
+  workflow and retiring covered old production exports.
+- Previous archived runtime change:
   `harness/changes/archive/20260708-harness-workflow-runtime-scheduler-owner-v0/summary.md`.
   It moved SchedulerRun-scoped worker/barrier/integration/closeout progression
   behind `workflow-runtime` ownership while preserving public Scheduler action
@@ -56,9 +61,10 @@
   Harness Workflow Runtime in
   `docs/design-docs/harness-workflow-runtime-target.md`. Ordinary `code.run`,
   confirmed TaskQueue queue-level start/resume, TaskRun stage execution, and
-  SchedulerRun-scoped progression now run through `workflow-runtime`.
-  Remaining old production owner path is the demand-worker role-chain
-  entrypoint. Full Scheduler ready-set/wave automation remains a future
+  SchedulerRun-scoped progression, DemandWorker claimed execution, and
+  top-level role-chain action entrypoints now run through `workflow-runtime`.
+  Remaining old production compatibility paths are source-refresh rework and
+  feedback rework. Full Scheduler ready-set/wave automation remains a future
   capability under the Workflow Runtime owner.
 - New runtime takeover changes must include new-path takeover, old production
   runner deletion for the covered behavior, and negative tests proving the old
@@ -86,11 +92,11 @@
 
 The next structured runtime work should choose exactly one path:
 
-- migrate demand-worker role-chain entrypoints; or
+- migrate source-refresh rework or feedback rework compatibility; or
 - add broader Scheduler ready-set / wave behavior under the existing Workflow
   Runtime Scheduler owner.
 
-Do not combine demand-worker role-chain migration and broader Scheduler
+Do not combine rework compatibility migration and broader Scheduler
 ready-set/wave automation in one change.
 Do not widen `完全访问权限` into raw scheduler, manual IntegrationCheck,
 integration apply/discard, PR/remote/merge, Harness evolution, or full parallel

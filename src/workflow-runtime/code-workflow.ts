@@ -19,6 +19,18 @@ export {
   runDefaultCodeChangeWorkflow,
   defaultHarnessWorkflowRunEngineServices,
 } from "./default-code-change.js";
+export {
+  runTopLevelRoleChainWorkflow,
+  type TopLevelRoleChainWorkflowInput,
+} from "./top-level-role-chain.js";
+export {
+  enqueueDemandWorkerForRuntime,
+  evaluateDemandOrchestratorRuntime,
+  pumpDemandWorkersForRuntime,
+  reconcileDemandWorkersForRuntime,
+  releaseDemandWorkerForRuntime,
+  startNextDemandWorkerForRuntime,
+} from "./demand-worker.js";
 export type {
   DefaultCodeChangeWorkflowAttempt,
   DefaultCodeChangeWorkflowInput,

@@ -254,9 +254,9 @@ import {
   readMainAgentNextStepEvidence,
   readMainAgentLoopEvents,
   readMainAgentLoopRun,
-  runMainAgentOrchestration,
   runMainAgentSourceRefreshRework,
 } from "../../src/main-agent-orchestration/index.js";
+import { runMainAgentOrchestration } from "../../src/main-agent-orchestration/runner.js";
 import { runStartedTaskRunStage } from "../../src/workflow-runtime/code-workflow.js";
 import { recordMainAgentNextStepEvidence } from "../../src/main-agent-orchestration/next-step-evidence.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";

@@ -86,7 +86,6 @@ import { buildWorkbenchActionHandlers } from "../../src/workbench/actions/handle
 import { interruptConversation, steerConversation, stopRunningPipeline } from "../../src/workbench/actions/handlers/control.js";
 import { mergeRemoteLandingForAction, prepareLandingForAction, preparePrDraftForAction } from "../../src/workbench/actions/handlers/remote-handoff.js";
 import { runCodexChat } from "../../src/workbench/codex-chat/bridge.js";
-import { runMainAgentToolOrchestration } from "../../src/workbench/demand-workers/orchestration.js";
 import { recordWorkbenchDecision } from "../../src/workbench/decisions.js";
 import { emitAssistantEvent } from "../../src/workbench/live-events.js";
 import { createLiveSink, readWorkbenchActionEvents } from "../../src/server/workbench/live.js";
@@ -123,6 +122,7 @@ import {
   requireSingleTaskId,
   requireTaskRunId,
   runDefaultCodeChangeWorkflow,
+  runTopLevelRoleChainWorkflow,
   runResumedTaskRunStage,
   runStartedTaskRunStage,
   runTaskRunStageAction,
@@ -214,7 +214,8 @@ describe("Workbench module boundaries", () => {
     expect(handlers).toContain('"role.pipeline.stop"');
     expect(handlers).toContain('"role.pipeline.continue"');
     expect(handlers).toContain('"role.pipeline.reconcile"');
-    expect(handlers).toContain("runMainAgentToolOrchestration");
+    expect(handlers).toContain("runTopLevelRoleChainWorkflow");
+    expect(handlers).not.toContain("runMainAgentToolOrchestration");
 
     const normalizer = readFileSync(join(process.cwd(), "src/workflow-actions/main-agent-execution.ts"), "utf8");
     expect(normalizer).toContain("normalizeMainAgentExecutionAction");
@@ -596,7 +597,8 @@ describe("Workbench module boundaries", () => {
 
   it("routes main-agent orchestration through the new owner instead of the old full sequence", () => {
     const demandWorker = readFileSync(join(process.cwd(), "src/workbench/demand-workers/orchestration.ts"), "utf8");
-    expect(demandWorker).toContain('from "../../main-agent-orchestration/index.js"');
+    expect(demandWorker).toContain('from "../../workflow-runtime/code-workflow.js"');
+    expect(demandWorker).not.toContain("../../main-agent-orchestration");
     expect(demandWorker).not.toContain("runCodeValidateAuditSequence");
 
     for (const file of listSourceFiles(["src"])) {
@@ -606,6 +608,8 @@ describe("Workbench module boundaries", () => {
     }
 
     const codeWorkflow = readFileSync(join(process.cwd(), "src/workflow-runtime/code-workflow.ts"), "utf8");
+    expect(codeWorkflow).toContain("runTopLevelRoleChainWorkflow");
+    expect(codeWorkflow).toContain("startNextDemandWorkerForRuntime");
     expect(codeWorkflow).not.toContain("role-stage-runner");
     expect(codeWorkflow).not.toContain("runCodeValidateAuditSequence");
 
@@ -1090,8 +1094,8 @@ describe("Workbench module boundaries", () => {
     expect(typeof preparePrDraftForAction).toBe("function");
     expect(typeof mergeRemoteLandingForAction).toBe("function");
     expect(typeof runCodexChat).toBe("function");
-    expect(typeof runMainAgentToolOrchestration).toBe("function");
     expect(typeof runDefaultCodeChangeWorkflow).toBe("function");
+    expect(typeof runTopLevelRoleChainWorkflow).toBe("function");
     expect(typeof recordWorkbenchDecision).toBe("function");
     expect(typeof emitAssistantEvent).toBe("function");
     expect(typeof createLiveSink).toBe("function");
@@ -3050,6 +3054,8 @@ describe("Workbench module boundaries", () => {
     expect(facade).toContain('runResumedTaskRunStage');
     expect(facade).toContain('findTaskRunStageResumeCandidate');
     expect(facade).toContain("runDefaultCodeChangeWorkflow");
+    expect(facade).toContain("runTopLevelRoleChainWorkflow");
+    expect(facade).toContain("startNextDemandWorkerForRuntime");
     expect(facade).not.toContain("task-run-sequence");
     expect(facade).not.toContain("runTaskRunMainAgentAttempt");
     expect(facade).not.toContain("runTaskQueueSequence");
@@ -3062,10 +3068,23 @@ describe("Workbench module boundaries", () => {
     expect(facade).not.toMatch(/startAuditRun\(/);
   });
 
-  it("routes ordinary code.run through HarnessWorkflowRunEngine v0 without Workbench UI imports", () => {
+  it("routes top-level role-chain paths through Workflow Runtime without Workbench UI imports", () => {
     const handlerIndex = readFileSync("src/workbench/actions/handlers/index.ts", "utf8");
     expect(handlerIndex).toContain("runDefaultCodeChangeWorkflow({");
+    expect(handlerIndex).toContain("runTopLevelRoleChainWorkflow({");
     expect(handlerIndex).not.toMatch(/"code\.run": async[^\n]+runMainAgentToolOrchestration/);
+    expect(handlerIndex).not.toContain("runMainAgentToolOrchestration");
+
+    const demandWorkerWrapper = readFileSync("src/workbench/demand-workers/orchestration.ts", "utf8");
+    expect(demandWorkerWrapper).toContain("../../workflow-runtime/code-workflow.js");
+    expect(demandWorkerWrapper).not.toContain("../../main-agent-orchestration");
+    expect(demandWorkerWrapper).not.toContain("runMainAgentOrchestration");
+    expect(demandWorkerWrapper).not.toContain("runMainAgentToolOrchestration");
+
+    const mainAgentIndex = readFileSync("src/main-agent-orchestration/index.ts", "utf8");
+    expect(mainAgentIndex).not.toContain("runMainAgentOrchestration");
+    expect(mainAgentIndex).toContain("runMainAgentSourceRefreshRework");
+    expect(mainAgentIndex).toContain("runMainAgentFeedbackRework");
 
     const runtime = readFileSync("src/workflow-runtime/default-code-change.ts", "utf8");
     expect(runtime).toContain("class HarnessWorkflowRunEngine");

@@ -27,6 +27,13 @@ is complete, asking Plan Agent to revise Plan / WorkflowPlan when needed, and
 letting Workflow Runtime execute only confirmed workflow input.
 
 Latest completed implementation slice:
+`harness/changes/archive/20260708-harness-workflow-runtime-top-level-role-chain-owner-v0/summary.md`.
+It moves DemandWorker claimed execution and top-level role-chain action
+entrypoints behind `workflow-runtime`, reuses the existing default code-change
+workflow, and retires covered old production exports while leaving
+source-refresh and feedback rework as explicit compatibility paths.
+
+Previous completed implementation slice:
 `harness/changes/archive/20260708-harness-workflow-runtime-scheduler-owner-v0/summary.md`.
 It moves SchedulerRun-scoped worker/barrier/integration/closeout progression
 behind `workflow-runtime` ownership, preserves public Scheduler action ids and
@@ -659,14 +666,17 @@ Current structured change: none.
 
 Recommended current architecture step: continue Workflow Runtime convergence
 with one focused slice. Prefer
-migrating the demand-worker role-chain entrypoint before adding broader
-Scheduler ready-set / wave automation. Do not combine demand-worker migration
-with Scheduler behavior expansion.
+migrating source-refresh or feedback rework compatibility before adding
+broader Scheduler ready-set / wave automation. Do not combine rework
+compatibility migration with Scheduler behavior expansion.
 
 Desktop product-layer work can continue when selected as a separate structured
 product phase.
 
 Latest product change:
+`harness/changes/archive/20260708-harness-workflow-runtime-top-level-role-chain-owner-v0/summary.md`.
+
+Previous product change:
 `harness/changes/archive/20260708-harness-workflow-runtime-scheduler-owner-v0/summary.md`.
 
 Previous product change:

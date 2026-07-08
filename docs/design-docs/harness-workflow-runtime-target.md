@@ -43,20 +43,22 @@ ordinary `code.run` default code-change workflow, confirmed TaskQueue
 sequential start/resume queue-level scheduling, TaskRun stage execution for
 `task.run.start`, `task.run.retry`, and TaskQueue item stages, and
 SchedulerRun-scoped progression for worker, rework, integration, completion,
-and blocked-closeout gates. Some kernel helpers and compatibility facades
-remain. Real scheduling behavior is still spread across:
+and blocked-closeout gates. It also owns DemandWorker claimed execution and
+top-level role-chain action entrypoints through the default code-change
+workflow. Some kernel helpers and compatibility facades remain. Remaining
+runtime compatibility behavior is still spread across:
 
-- `src/main-agent-orchestration/` for demand-worker role-chain entrypoints and
-  source-refresh / feedback rework compatibility paths;
+- `src/main-agent-orchestration/` for source-refresh / feedback rework
+  compatibility paths and historical strategy helpers;
 - `src/task-queue/` for queue state records and item transitions;
 - `src/scheduler-runtime/` for Scheduler evidence repositories, rendering,
   history, projection, and low-level helper support.
 
-The fixed role chain is a safe V1 compatibility policy, not the final
-architecture. `decideNextMainAgentOrchestration()` currently chooses
-`coder-agent -> validator -> auditor-agent -> rework-coder`, but the target is
-to retire that function as a runtime entrypoint and represent the same behavior
-as the `default-code-change-workflow` template compiled into a graph.
+The fixed role-chain behavior is now represented for covered production paths
+by the `default-code-change-workflow` runtime template. Historical
+`decideNextMainAgentOrchestration()` logic may remain only as compatibility
+or test evidence until the last rework compatibility paths are migrated; it is
+not the target production runtime entrypoint.
 
 `WorkflowGraphPlan` is also still sequential-TaskQueue shaped. Its current
 `graphMode: "sequential-v1"` is an implementation limit. The target graph can

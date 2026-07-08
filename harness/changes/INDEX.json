@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-07-08T06:03:11.7732367Z",
+    "generated_at":  "2026-07-08T06:42:01.3569937Z",
     "active":  [
 
                ],
@@ -2605,6 +2605,10 @@
                     {
                         "name":  "20260708-harness-workflow-runtime-scheduler-owner-v0",
                         "path":  "harness/changes/archive/20260708-harness-workflow-runtime-scheduler-owner-v0"
+                    },
+                    {
+                        "name":  "20260708-harness-workflow-runtime-top-level-role-chain-owner-v0",
+                        "path":  "harness/changes/archive/20260708-harness-workflow-runtime-top-level-role-chain-owner-v0"
                     }
                 ]
 }

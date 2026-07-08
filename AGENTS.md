@@ -14,6 +14,11 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
   convergence and old-runner retirement; only a stale pending-evolution line in
   the current plan was repaired.
 - Latest archived runtime change:
+  `harness/changes/archive/20260708-harness-workflow-runtime-top-level-role-chain-owner-v0/summary.md`.
+  It moved DemandWorker claimed execution and top-level role-chain action
+  entrypoints behind `workflow-runtime`, reusing the default code-change
+  workflow and retiring covered old production exports.
+- Previous archived runtime change:
   `harness/changes/archive/20260708-harness-workflow-runtime-scheduler-owner-v0/summary.md`.
   It moved SchedulerRun-scoped worker/barrier/integration/closeout progression
   behind `workflow-runtime` ownership while preserving public Scheduler action
@@ -53,10 +58,11 @@ Current baseline:
   validation/audit, human apply, and close/archive.
 - Workflow Runtime is the target single runner owner. Ordinary `code.run` and
   confirmed TaskQueue queue-level start/resume, TaskRun stage execution, and
-  SchedulerRun-scoped progression are already routed through
-  `workflow-runtime`. Remaining old production owner path is the demand-worker
-  role-chain entrypoint. New runtime takeover changes must delete the covered
-  old production runner.
+  SchedulerRun-scoped progression, DemandWorker claimed execution, and
+  top-level role-chain action entrypoints are already routed through
+  `workflow-runtime`. Remaining old production compatibility paths are
+  source-refresh rework and feedback rework. New runtime takeover changes must
+  delete the covered old production runner.
 - Goal is a visible main-Agent brief and completion standard, not hidden durable
   state and not project memory. Future sessions recover by reading Harness
   docs/evidence, not by restoring Goal state. Existing GoalLoop packet/controller
@@ -77,8 +83,8 @@ Current baseline:
 Next recommended structured work:
 
 - Pick exactly one runtime convergence slice. Prefer migrating the
-  demand-worker role-chain entrypoint before adding broader Scheduler
-  ready-set/wave automation.
+  source-refresh or feedback rework compatibility path before adding broader
+  Scheduler ready-set/wave automation.
 - Keep `README.md` untracked unless the user explicitly scopes it into a
   change.
 

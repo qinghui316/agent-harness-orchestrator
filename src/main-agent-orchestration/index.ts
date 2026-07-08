@@ -4,12 +4,9 @@ export {
   type MainAgentActionBridgeGate,
 } from "./action-bridge.js";
 export {
-  runMainAgentOrchestration,
   runMainAgentFeedbackRework,
   runMainAgentSourceRefreshRework,
   type MainAgentLeafAttemptResult,
-  type MainAgentOrchestrationAttempt,
-  type MainAgentOrchestrationResult,
 } from "./runner.js";
 export {
   createMainAgentLoopRunId,
