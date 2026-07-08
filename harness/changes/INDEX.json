@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-07-08T09:26:49.0882984Z",
+    "generated_at":  "2026-07-08T10:36:17.0974959Z",
     "active":  [
 
                ],
@@ -2617,6 +2617,10 @@
                     {
                         "name":  "20260708-harness-workflow-runtime-scheduler-owner-v0",
                         "path":  "harness/changes/archive/20260708-harness-workflow-runtime-scheduler-owner-v0"
+                    },
+                    {
+                        "name":  "20260708-harness-workflow-runtime-scheduler-same-wave-ready-set-v0",
+                        "path":  "harness/changes/archive/20260708-harness-workflow-runtime-scheduler-same-wave-ready-set-v0"
                     },
                     {
                         "name":  "20260708-harness-workflow-runtime-source-refresh-rework-owner-v0",

@@ -20,6 +20,12 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
   convergence and old-runner retirement; only a stale pending-evolution line in
   the current plan was repaired.
 - Latest archived runtime change:
+  `harness/changes/archive/20260708-harness-workflow-runtime-scheduler-same-wave-ready-set-v0/summary.md`.
+  It added Scheduler same-wave ready-set behavior under `workflow-runtime`:
+  reserved same-wave workers with non-conflicting source scopes can be started
+  explicitly one at a time while siblings run, while cross-wave and
+  integration/close barriers still require the current wave to be terminal.
+- Previous archived runtime change:
   `harness/changes/archive/20260708-harness-workflow-runtime-compression-v0/summary.md`.
   It deleted the covered old main-agent role-chain runner/step-loop and fixed
   decision policy, and merged source-refresh / PR feedback rework wrappers onto
@@ -80,12 +86,13 @@ Current baseline:
   validation/audit, human apply, and close/archive.
 - Workflow Runtime is the target single runner owner. Ordinary `code.run` and
   confirmed TaskQueue queue-level start/resume, TaskRun stage execution, and
-  SchedulerRun-scoped progression, DemandWorker claimed execution, and
-  top-level role-chain action entrypoints, source-refresh rework, and PR
-  feedback rework are already routed through `workflow-runtime`, and the
-  covered old role-chain runner/step-loop has been deleted. Source-refresh and
-  PR feedback rework share one rework-only runtime sequence owner. New runtime
-  takeover changes must delete the covered old production runner.
+  SchedulerRun-scoped progression, Scheduler same-wave ready-set start gates,
+  DemandWorker claimed execution, top-level role-chain action entrypoints,
+  source-refresh rework, and PR feedback rework are already routed through
+  `workflow-runtime`, and the covered old role-chain runner/step-loop has been
+  deleted. Source-refresh and PR feedback rework share one rework-only runtime
+  sequence owner. New runtime takeover changes must delete the covered old
+  production runner.
 - Goal is a visible main-Agent brief and completion standard, not hidden durable
   state and not project memory. Future sessions recover by reading Harness
   docs/evidence, not by restoring Goal state. Existing GoalLoop packet/controller
@@ -105,11 +112,9 @@ Current baseline:
 
 Next recommended structured work:
 
-- Either handle the pending Harness evolution as a separate docs/rules
-  maintenance change, or explicitly defer it before continuing runtime work.
-- For runtime work, pick exactly one next architecture slice. Prefer broader Scheduler
-  ready-set/wave automation or WorkflowGraphPlan execution expansion only
-  after confirming the owner boundary in
+- Pick exactly one next architecture slice. Prefer broader Scheduler wave
+  automation or WorkflowGraphPlan execution expansion only after confirming the
+  owner boundary in
   `docs/design-docs/harness-workflow-runtime-target.md`.
 - Keep `README.md` untracked unless the user explicitly scopes it into a
   change.

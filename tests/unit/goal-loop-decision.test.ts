@@ -3875,7 +3875,10 @@ describe("GoalLoopDecision", () => {
   });
 
   it("recommends IntegrationCheck when at least two candidate targets are ready", async () => {
-    const { schedulerRun, reservation } = await writeSchedulerEvidence({ withWorkerStart: false });
+    const { schedulerRun, reservation, workerStart } = await writeSchedulerEvidence({ withWorkerStart: true });
+    const result = await writeWorkerResult(workerStart!, "evidence-ready");
+    const validation = await writeWorkerValidation(result, "passed");
+    await writeWorkerAudit(validation, "approved");
     const candidate = await writeIntegrationCandidate(schedulerRun, reservation, { readyCount: 2, outputClaimIntentIds: ["claim-1", "claim-2"] });
 
     const decision = await compileGoalLoopDecision(memory, changePath);

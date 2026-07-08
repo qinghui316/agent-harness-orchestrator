@@ -93,7 +93,13 @@ import { getWorkbenchProjection } from "../../src/server/workbench/projections.j
 import { matchProjectWorkbenchRoute } from "../../src/server/workbench/routes.js";
 import { assertCurrentWorkflowAction } from "../../src/server/workbench/action-revalidation.js";
 import { executeWorkbenchAction as executeWorkbenchServerAction } from "../../src/server/workbench/actions.js";
-import { approvedSchedulerWorkerPathClaimIntentIds, findNextSchedulerReservationIntentForWorkerPaths, schedulerIntegrationCandidateNeedsRefresh } from "../../src/scheduler-runtime/worker-path.js";
+import {
+  approvedSchedulerWorkerPathClaimIntentIds,
+  findNextSameWaveSchedulerReservationIntentForWorkerPaths,
+  findNextSchedulerReservationIntentForWorkerPaths,
+  schedulerCurrentWaveStatus,
+  schedulerIntegrationCandidateNeedsRefresh,
+} from "../../src/scheduler-runtime/worker-path.js";
 import { handleApi } from "../../src/server/workbench/api-router.js";
 import { allowedActionIds } from "../../src/server/workbench/approval-actions.js";
 import { handleDirectWorkbenchApi } from "../../src/server/workbench/direct-routes.js";
@@ -2357,6 +2363,8 @@ describe("Workbench module boundaries", () => {
 
     const workerPath = readFileSync("src/scheduler-runtime/worker-path.ts", "utf8");
     expect(workerPath).toContain("schedulerIntegrationCandidateNeedsRefresh");
+    expect(workerPath).toContain("findNextSameWaveSchedulerReservationIntentForWorkerPaths");
+    expect(workerPath).toContain("schedulerCurrentWaveStatus");
     expect(workerPath).toContain("findNextSchedulerReservationIntentForWorkerPaths");
     expect(workerPath).not.toContain("workbench/");
     expect(workerPath).not.toContain("server/");
@@ -2368,6 +2376,8 @@ describe("Workbench module boundaries", () => {
     expect(workerStart).toContain("scheduler-claim-reservation");
     expect(workerStart).toContain("startCodeRun");
     expect(workerStart).toContain("startTaskRun");
+    expect(workerStart).not.toContain("assertStartNextAllowed");
+    expect(workerStart).not.toContain("SchedulerIntegrationCandidate");
     expect(workerStart).not.toContain("startValidationRun");
     expect(workerStart).not.toContain("startAuditRun");
     expect(workerStart).not.toContain("runTaskQueueSequence");
@@ -2605,6 +2615,37 @@ describe("Workbench module boundaries", () => {
         { reservationIntentId: "reservation-intent-3", claimIntentId: "claim-3", status: "reserved", waveIndex: 1 },
       ],
     }, workerPaths)).toMatchObject({ reservationIntentId: "reservation-intent-3", claimIntentId: "claim-3" });
+    expect(findNextSameWaveSchedulerReservationIntentForWorkerPaths({
+      reservationIntents: [
+        { reservationIntentId: "reservation-intent-1", claimIntentId: "claim-1", status: "reserved", waveIndex: 0 },
+        { reservationIntentId: "reservation-intent-2", claimIntentId: "claim-2", status: "reserved", waveIndex: 0 },
+        { reservationIntentId: "reservation-intent-3", claimIntentId: "claim-3", status: "reserved", waveIndex: 1 },
+      ],
+    }, [{ ...workerPaths[0], terminal: false }])).toMatchObject({ reservationIntentId: "reservation-intent-2", claimIntentId: "claim-2" });
+    expect(schedulerCurrentWaveStatus({
+      reservationIntents: [
+        { reservationIntentId: "reservation-intent-1", claimIntentId: "claim-1", status: "reserved", waveIndex: 0 },
+        { reservationIntentId: "reservation-intent-2", claimIntentId: "claim-2", status: "reserved", waveIndex: 0 },
+      ],
+    }, [{ ...workerPaths[0], terminal: false }])).toMatchObject({
+      waveIndex: 0,
+      startedCount: 1,
+      unstartedCount: 1,
+      nonTerminalStartedCount: 1,
+      terminal: false,
+    });
+    expect(schedulerCurrentWaveStatus({
+      reservationIntents: [
+        { reservationIntentId: "reservation-intent-1", claimIntentId: "claim-1", status: "reserved", waveIndex: 0 },
+        { reservationIntentId: "reservation-intent-2", claimIntentId: "claim-2", status: "reserved", waveIndex: 0 },
+      ],
+    }, workerPaths)).toMatchObject({
+      waveIndex: 0,
+      startedCount: 2,
+      unstartedCount: 0,
+      nonTerminalStartedCount: 0,
+      terminal: true,
+    });
     expect(findNextSchedulerReservationIntentForWorkerPaths({
       reservationIntents: [
         { reservationIntentId: "reservation-intent-1", claimIntentId: "claim-1", status: "reserved", waveIndex: 0 },

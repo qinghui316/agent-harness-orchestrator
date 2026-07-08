@@ -30,8 +30,11 @@ import {
   readSchedulerRuntimeStateProjection,
 } from "../scheduler-runtime/repository.js";
 import {
+  findNextSameWaveSchedulerReservationIntentForWorkerPaths,
   findNextSchedulerReservationIntentForWorkerPaths,
+  schedulerCurrentWaveStatus,
   schedulerIntegrationCandidateNeedsRefresh,
+  type SchedulerCurrentWaveStatus,
   type SchedulerReservationIntentLike,
   type SchedulerWorkerPathLike,
 } from "../scheduler-runtime/worker-path.js";
@@ -106,6 +109,8 @@ interface EvidenceSnapshot {
   workerPaths?: GoalLoopSchedulerWorkerPath[];
   currentWorkerPath?: GoalLoopSchedulerWorkerPath | null;
   nextReservationIntent?: SchedulerReservationIntentLike | null;
+  sameWaveNextReservationIntent?: SchedulerReservationIntentLike | null;
+  currentWaveStatus?: SchedulerCurrentWaveStatus;
   integrationCandidateNeedsRefresh?: boolean;
   integrationCandidate?: SchedulerIntegrationCandidate | null;
   integrationHandoff?: SchedulerIntegrationCheckHandoff | null;
@@ -478,6 +483,8 @@ async function readEvidenceSnapshot(memory: ResolvedMemory, changePath: string):
   const runCloseout = await readLatestSchedulerRunBlockedCloseoutProjection(memory, changePath, schedulerRun.id);
   const workerPathLikes = workerPaths.map(workerPathLike);
   const nextReservationIntent = claimReservation ? findNextSchedulerReservationIntentForWorkerPaths(claimReservation, workerPathLikes) : null;
+  const sameWaveNextReservationIntent = claimReservation ? findNextSameWaveSchedulerReservationIntentForWorkerPaths(claimReservation, workerPathLikes) : null;
+  const currentWaveStatus = claimReservation ? schedulerCurrentWaveStatus(claimReservation, workerPathLikes) : undefined;
   const integrationCandidateNeedsRefresh = schedulerIntegrationCandidateNeedsRefresh(integrationCandidate, workerPathLikes);
   for (const evidence of [
     ["SchedulerIntegrationCandidate", integrationCandidate],
@@ -513,6 +520,8 @@ async function readEvidenceSnapshot(memory: ResolvedMemory, changePath: string):
     workerPaths,
     currentWorkerPath: workerPaths.find((path) => !path.terminal) ?? null,
     nextReservationIntent,
+    sameWaveNextReservationIntent,
+    currentWaveStatus,
     integrationCandidateNeedsRefresh,
   };
 }
@@ -565,7 +574,7 @@ function buildDecision(snapshot: EvidenceSnapshot, id: string, artifact: string,
     } else {
       summary = "Scheduler IntegrationCheck handoff exists and is waiting on the existing apply/discard path before scheduler outcome reconciliation.";
     }
-  } else if (snapshot.integrationCandidate && snapshot.integrationCandidate.readyCount >= 2 && snapshot.schedulerRun) {
+  } else if (snapshot.currentWaveStatus?.terminal && snapshot.integrationCandidate && snapshot.integrationCandidate.readyCount >= 2 && snapshot.schedulerRun) {
     decisionKind = "integration-needed";
     summary = "At least two scheduler outputs are ready; the next legal step is the existing IntegrationCheck handoff.";
     recommendedAction = buildRecommendedAction("planning.scheduler.integration-check.run", {
@@ -576,18 +585,28 @@ function buildDecision(snapshot: EvidenceSnapshot, id: string, artifact: string,
     }, "Run the existing IntegrationCheck handoff for ready scheduler outputs.");
   } else if (snapshot.schedulerRun && snapshot.claimReservation) {
     const workerPathRecommendation = recommendCurrentWorkerPath(snapshot);
-    if (workerPathRecommendation) {
+    if ((snapshot.workerStarts?.length ?? 0) > 0 && snapshot.sameWaveNextReservationIntent) {
+      decisionKind = "scheduler-next-step";
+      summary = "The current scheduler wave has another reserved non-conflicting worker; the next legal step is the explicit same-wave start-next gate.";
+      recommendedAction = buildRecommendedAction("planning.scheduler.worker.start-next", {
+        changeId: snapshot.changeId,
+        schedulerRunId: snapshot.schedulerRun.id,
+        schedulerClaimReservationId: snapshot.claimReservation.id,
+        reservationIntentId: snapshot.sameWaveNextReservationIntent.reservationIntentId,
+        claimIntentId: snapshot.sameWaveNextReservationIntent.claimIntentId,
+      }, "Start exactly one additional same-wave scheduler worker through the existing scoped gate.");
+    } else if (workerPathRecommendation) {
       decisionKind = "scheduler-next-step";
       summary = workerPathRecommendation.summary;
       recommendedAction = workerPathRecommendation.recommendedAction;
-    } else if (snapshot.integrationCandidateNeedsRefresh && snapshot.workerPaths?.some((path) => hasApprovedWorkerOutput(path))) {
+    } else if (snapshot.currentWaveStatus?.terminal && snapshot.integrationCandidateNeedsRefresh && snapshot.workerPaths?.some((path) => hasApprovedWorkerOutput(path))) {
       decisionKind = "integration-needed";
       summary = "Scheduler worker output has passed audit and the SchedulerIntegrationCandidate is missing or stale; refresh the existing integration candidate evidence.";
       recommendedAction = buildRecommendedAction("planning.scheduler.integration-candidate.compile", {
         changeId: snapshot.changeId,
         schedulerRunId: snapshot.schedulerRun.id,
       }, "Compile or refresh scheduler-owned integration candidate evidence from approved worker outputs.");
-    } else if (snapshot.integrationCandidate && snapshot.integrationCandidate.readyCount < 2 && snapshot.nextReservationIntent) {
+    } else if (snapshot.currentWaveStatus?.terminal && snapshot.integrationCandidate && snapshot.integrationCandidate.readyCount < 2 && snapshot.nextReservationIntent) {
       decisionKind = "scheduler-next-step";
       summary = "Scheduler integration candidate is waiting for more ready targets and another reserved claim is available; the next legal step is the existing start-next gate.";
       recommendedAction = buildRecommendedAction("planning.scheduler.worker.start-next", {
@@ -597,7 +616,7 @@ function buildDecision(snapshot: EvidenceSnapshot, id: string, artifact: string,
         reservationIntentId: snapshot.nextReservationIntent.reservationIntentId,
         claimIntentId: snapshot.nextReservationIntent.claimIntentId,
       }, "Start exactly one additional scheduler worker through the existing scoped gate.");
-    } else if (snapshot.integrationCandidate && snapshot.integrationCandidate.readyCount < 2 && !snapshot.nextReservationIntent && (snapshot.workerPaths ?? []).every((path) => path.terminal)) {
+    } else if (snapshot.currentWaveStatus?.terminal && snapshot.integrationCandidate && snapshot.integrationCandidate.readyCount < 2 && !snapshot.nextReservationIntent) {
       decisionKind = "blocked";
       summary = "Scheduler candidate cannot reach IntegrationCheck readiness and no further reserved claim is available; the next legal step is blocked/exhausted closeout.";
       recommendedAction = buildRecommendedAction("planning.scheduler.run.close-blocked", {

@@ -18,6 +18,12 @@
   convergence and old-runner retirement; only a stale pending-evolution line in
   the current plan was repaired.
 - Latest archived runtime change:
+  `harness/changes/archive/20260708-harness-workflow-runtime-scheduler-same-wave-ready-set-v0/summary.md`.
+  It added Scheduler same-wave ready-set behavior under `workflow-runtime`:
+  reserved same-wave workers with non-conflicting source scopes can be started
+  explicitly one at a time while siblings run, while cross-wave and
+  integration/close barriers still require the current wave to be terminal.
+- Previous archived runtime change:
   `harness/changes/archive/20260708-harness-workflow-runtime-compression-v0/summary.md`.
   It deleted the covered old main-agent role-chain runner/step-loop and fixed
   decision policy, and merged source-refresh / PR feedback rework wrappers onto
@@ -83,13 +89,13 @@
   Harness Workflow Runtime in
   `docs/design-docs/harness-workflow-runtime-target.md`. Ordinary `code.run`,
   confirmed TaskQueue queue-level start/resume, TaskRun stage execution, and
-  SchedulerRun-scoped progression, DemandWorker claimed execution,
-  top-level role-chain action entrypoints, source-refresh rework, and PR
-  feedback rework now run through `workflow-runtime`, and the covered old
-  role-chain runner/step-loop has been deleted. Source-refresh and PR feedback
-  rework share one rework-only runtime sequence owner. Full Scheduler
-  ready-set/wave automation remains a future capability under the Workflow
-  Runtime owner.
+  SchedulerRun-scoped progression, Scheduler same-wave ready-set start gates,
+  DemandWorker claimed execution, top-level role-chain action entrypoints,
+  source-refresh rework, and PR feedback rework now run through
+  `workflow-runtime`, and the covered old role-chain runner/step-loop has been
+  deleted. Source-refresh and PR feedback rework share one rework-only runtime
+  sequence owner. Broader Scheduler wave automation remains a future capability
+  under the Workflow Runtime owner.
 - New runtime takeover changes must include new-path takeover, old production
   runner deletion for the covered behavior, and negative tests proving the old
   runner is no longer called.
@@ -114,20 +120,14 @@
 
 ## Next Resume Point
 
-Next, choose exactly one path:
+Next, choose exactly one runtime architecture path:
 
-- handle the pending Harness evolution as a separate docs/rules maintenance
-  change; or
-- continue runtime work after explicitly deferring pending evolution.
-
-If continuing runtime work, choose exactly one path:
-
-- add broader Scheduler ready-set / wave behavior under the existing Workflow
-  Runtime Scheduler owner; or
+- add broader Scheduler wave behavior under the existing Workflow Runtime
+  Scheduler owner; or
 - expand WorkflowGraphPlan execution after confirming the runtime owner
   boundary.
 
-Do not combine broader Scheduler ready-set/wave automation with unrelated
+Do not combine broader Scheduler wave automation with unrelated
 WorkflowGraphPlan, Goal loop, Plan UI, Codex subagent, or remote/merge work in
 one change.
 Do not widen `完全访问权限` into raw scheduler, manual IntegrationCheck,
