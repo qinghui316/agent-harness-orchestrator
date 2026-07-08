@@ -135,6 +135,12 @@ handoff docs, relevant target design doc, affected code owner, and reference map
 or reference source when cited; state the files or entrypoints checked in the
 answer.
 
+For architecture-affecting work, planning must start from the intended
+dependency relationship in the source graph before implementation. Do not plan
+from file names, current call sites, or feature-local fixes alone; derive the
+implementation from the relationship, and use `docs/BOUNDARIES.md` for the
+concrete ownership, projection, retirement, and test rules.
+
 ## 3. Project Sources
 
 | Document | Purpose |
