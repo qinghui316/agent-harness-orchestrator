@@ -3,8 +3,7 @@ import { acceptPlanProposal, acceptSpecProposal, startPlanProposalRun, startSpec
 import { runIntegrationCheck } from "../../../integration-check/manager.js";
 import { reconcileTaskRuns } from "../../../task-run/manager.js";
 import { reconcileWorkflowTaskQueue, runTaskQueueSequentialWorkflow } from "../../../workflow-runtime/taskqueue.js";
-import { runMainAgentSourceRefreshRework } from "../../../main-agent-orchestration/index.js";
-import { runDefaultCodeChangeWorkflow, runTaskRunStageAction, runTopLevelRoleChainWorkflow, sourceRefreshReworkPrompt } from "../../../workflow-runtime/code-workflow.js";
+import { runDefaultCodeChangeWorkflow, runSourceRefreshReworkWorkflow, runTaskRunStageAction, runTopLevelRoleChainWorkflow, sourceRefreshReworkPrompt } from "../../../workflow-runtime/code-workflow.js";
 import { startValidationRun } from "../../../validation/manager.js";
 import { getSpecTestDriftReport } from "../../../spec-test/drift.js";
 import type { ManagedProject, RunMetadata } from "../../../types/index.js";
@@ -89,7 +88,7 @@ export function buildWorkbenchActionHandlers(deps: WorkbenchActionHandlerDeps): 
   "conversation.continue": async (project, changeId, request, live) => runTopLevelRoleChainWorkflow({ project, changeId, prompt: request.prompt, live, continuation: true, taskIds: request.taskIds, readinessManifestId: request.readinessManifestId }),
   "result.refresh-rework": async (project, changeId, request, live) => {
     if (!request.worktreeId) throw new Error("result.refresh-rework requires worktreeId.");
-    return runMainAgentSourceRefreshRework({
+    return runSourceRefreshReworkWorkflow({
       project,
       changeId,
       prompt: sourceRefreshReworkPrompt(request.worktreeId, request.prompt),

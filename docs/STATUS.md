@@ -12,6 +12,12 @@
   convergence and old-runner retirement; only a stale pending-evolution line in
   the current plan was repaired.
 - Latest archived runtime change:
+  `harness/changes/archive/20260708-harness-workflow-runtime-source-refresh-rework-owner-v0/summary.md`.
+  It moved `result.refresh-rework` source-refresh rework behind
+  `workflow-runtime`, preserved the worktree-scoped prompt and validation/audit
+  evidence path, and retired the covered legacy source-refresh production
+  wrapper/export.
+- Previous archived runtime change:
   `harness/changes/archive/20260708-harness-workflow-runtime-top-level-role-chain-owner-v0/summary.md`.
   It moved DemandWorker claimed execution and top-level role-chain action
   entrypoints behind `workflow-runtime`, reusing the default code-change
@@ -61,9 +67,9 @@
   Harness Workflow Runtime in
   `docs/design-docs/harness-workflow-runtime-target.md`. Ordinary `code.run`,
   confirmed TaskQueue queue-level start/resume, TaskRun stage execution, and
-  SchedulerRun-scoped progression, DemandWorker claimed execution, and
-  top-level role-chain action entrypoints now run through `workflow-runtime`.
-  Remaining old production compatibility paths are source-refresh rework and
+  SchedulerRun-scoped progression, DemandWorker claimed execution,
+  top-level role-chain action entrypoints, and source-refresh rework now run
+  through `workflow-runtime`. Remaining old production compatibility is
   feedback rework. Full Scheduler ready-set/wave automation remains a future
   capability under the Workflow Runtime owner.
 - New runtime takeover changes must include new-path takeover, old production
@@ -92,7 +98,7 @@
 
 The next structured runtime work should choose exactly one path:
 
-- migrate source-refresh rework or feedback rework compatibility; or
+- migrate feedback rework compatibility; or
 - add broader Scheduler ready-set / wave behavior under the existing Workflow
   Runtime Scheduler owner.
 

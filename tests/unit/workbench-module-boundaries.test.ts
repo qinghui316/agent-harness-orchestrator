@@ -122,6 +122,7 @@ import {
   requireSingleTaskId,
   requireTaskRunId,
   runDefaultCodeChangeWorkflow,
+  runSourceRefreshReworkWorkflow,
   runTopLevelRoleChainWorkflow,
   runResumedTaskRunStage,
   runStartedTaskRunStage,
@@ -130,7 +131,6 @@ import {
 } from "../../src/workflow-runtime/code-workflow.js";
 import {
   runMainAgentFeedbackRework,
-  runMainAgentSourceRefreshRework,
   readMainAgentQueueDecisionEvidence,
   evaluateMainAgentWorkflowGraphReplayPolicy,
   buildMainAgentWorkflowGraphReplaySummary,
@@ -875,7 +875,8 @@ describe("Workbench module boundaries", () => {
     expect(taskRunStageRuntime).not.toContain("../scheduler-runtime/");
 
     const actionHandlers = readFileSync(join(process.cwd(), "src/workbench/actions/handlers/index.ts"), "utf8");
-    expect(actionHandlers).toContain("runMainAgentSourceRefreshRework");
+    expect(actionHandlers).toContain("runSourceRefreshReworkWorkflow");
+    expect(actionHandlers).not.toContain("runMainAgentSourceRefreshRework");
 
     const remoteHandoff = readFileSync(join(process.cwd(), "src/workbench/actions/handlers/remote-handoff.ts"), "utf8");
     expect(remoteHandoff).toContain("runMainAgentFeedbackRework");
@@ -1188,7 +1189,7 @@ describe("Workbench module boundaries", () => {
     expect(typeof recordMainAgentWorkflowGraphObservationAndReplay).toBe("function");
     expect(typeof runMainAgentControlledSchedulerStep).toBe("function");
     expect(typeof readMainAgentWorkflowGraphDecisionEvidence).toBe("function");
-    expect(typeof runMainAgentSourceRefreshRework).toBe("function");
+    expect(typeof runSourceRefreshReworkWorkflow).toBe("function");
     expect(typeof runMainAgentFeedbackRework).toBe("function");
     expect(typeof sourceRefreshReworkPrompt).toBe("function");
     expect(typeof requireSingleTaskId).toBe("function");
@@ -3055,6 +3056,7 @@ describe("Workbench module boundaries", () => {
     expect(facade).toContain('findTaskRunStageResumeCandidate');
     expect(facade).toContain("runDefaultCodeChangeWorkflow");
     expect(facade).toContain("runTopLevelRoleChainWorkflow");
+    expect(facade).toContain("runSourceRefreshReworkWorkflow");
     expect(facade).toContain("startNextDemandWorkerForRuntime");
     expect(facade).not.toContain("task-run-sequence");
     expect(facade).not.toContain("runTaskRunMainAgentAttempt");
@@ -3083,7 +3085,7 @@ describe("Workbench module boundaries", () => {
 
     const mainAgentIndex = readFileSync("src/main-agent-orchestration/index.ts", "utf8");
     expect(mainAgentIndex).not.toContain("runMainAgentOrchestration");
-    expect(mainAgentIndex).toContain("runMainAgentSourceRefreshRework");
+    expect(mainAgentIndex).not.toContain("runMainAgentSourceRefreshRework");
     expect(mainAgentIndex).toContain("runMainAgentFeedbackRework");
 
     const runtime = readFileSync("src/workflow-runtime/default-code-change.ts", "utf8");

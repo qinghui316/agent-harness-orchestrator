@@ -15,6 +15,7 @@ type MockLeafInput = {
 };
 
 const controls = vi.hoisted(() => ({
+  reworkOutcome: "completed" as "completed" | "failed",
   validatorOutcomes: [] as Array<"completed" | "failed">,
   auditorOutcomes: [] as Array<"completed" | "failed">,
   memoryRoot: "",
@@ -118,6 +119,24 @@ vi.mock("../../src/main-agent-orchestration/leaf-stages.js", () => {
       };
     }),
     runReworkCoderLeafStage: vi.fn(async (input: MockLeafInput) => {
+      if (controls.reworkOutcome === "failed") {
+        return {
+          leaf: "coder",
+          roleId: "rework-coder",
+          status: "failed",
+          stoppedAt: "code",
+          error: "Rework failed.",
+          orchestration: recordMainAgentOrchestrationStep(input.orchestration, {
+            roleId: "rework-coder",
+            status: "failed",
+            inputArtifacts: input.decision.inputArtifacts,
+            outputArtifacts: [],
+            failureClassification: "code-failure",
+            stoppedAt: "code",
+            summary: "Rework failed.",
+          }),
+        };
+      }
       const code = codeRun("rework");
       return {
         leaf: "coder",
@@ -254,10 +273,9 @@ import {
   readMainAgentNextStepEvidence,
   readMainAgentLoopEvents,
   readMainAgentLoopRun,
-  runMainAgentSourceRefreshRework,
 } from "../../src/main-agent-orchestration/index.js";
 import { runMainAgentOrchestration } from "../../src/main-agent-orchestration/runner.js";
-import { runStartedTaskRunStage } from "../../src/workflow-runtime/code-workflow.js";
+import { runSourceRefreshReworkWorkflow, runStartedTaskRunStage } from "../../src/workflow-runtime/code-workflow.js";
 import { recordMainAgentNextStepEvidence } from "../../src/main-agent-orchestration/next-step-evidence.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import {
@@ -314,6 +332,7 @@ function workerLease(taskRunId = "task-run-1"): WorkerLease {
 
 describe("main-agent step loop contract", () => {
   beforeEach(async () => {
+    controls.reworkOutcome = "completed";
     controls.validatorOutcomes = [];
     controls.auditorOutcomes = [];
     controls.memoryRoot = await mkdtemp(join(tmpdir(), "aho-main-agent-loop-"));
@@ -824,7 +843,7 @@ describe("main-agent step loop contract", () => {
   it("does not nest automatic rework for source-refresh rework entrypoints", async () => {
     controls.validatorOutcomes = ["failed"];
 
-    const result = await runMainAgentSourceRefreshRework({
+    const result = await runSourceRefreshReworkWorkflow({
       project,
       changeId: "change-source-refresh",
     });
@@ -834,13 +853,71 @@ describe("main-agent step loop contract", () => {
     expect(runValidatorLeafStage).toHaveBeenCalledTimes(1);
     expect(runAuditorLeafStage).not.toHaveBeenCalled();
     expect(result.stoppedAt).toBe("validation");
-    expect(result.status).toBeUndefined();
+    expect(result.status).toBe("needs-user-input");
     const memory = await resolveProjectMemory(project);
     const events = await readMainAgentLoopEvents(memory, result.loopRunId!);
     const decisions = await readMainAgentNextStepEvidence(memory, result.loopRunId!);
     expect(events.filter((event) => event.roleId === "rework-coder" && event.type === "leaf.started")).toHaveLength(1);
     expect(decisions.filter((decision) => decision.decision.roleId === "rework-coder")).toHaveLength(1);
     expect(events.filter((event) => event.type === "loop.stopped")).toHaveLength(1);
+  });
+
+  it("runs source-refresh rework through rework, validation, and audit", async () => {
+    const result = await runSourceRefreshReworkWorkflow({
+      project,
+      changeId: "change-source-refresh-success",
+    });
+
+    expect(runCoderLeafStage).not.toHaveBeenCalled();
+    expect(runReworkCoderLeafStage).toHaveBeenCalledTimes(1);
+    expect(runValidatorLeafStage).toHaveBeenCalledTimes(1);
+    expect(runAuditorLeafStage).toHaveBeenCalledTimes(1);
+    expect(result.stoppedAt).toBeNull();
+    expect(result.status).toBeUndefined();
+    const memory = await resolveProjectMemory(project);
+    const events = await readMainAgentLoopEvents(memory, result.loopRunId);
+    const decisions = await readMainAgentNextStepEvidence(memory, result.loopRunId);
+    expect(events.filter((event) => event.type === "loop.completed")).toHaveLength(1);
+    expect(decisions.at(-1)?.decision.kind).toBe("completed");
+  });
+
+  it("stops source-refresh rework at audit failure without apply or nested rework", async () => {
+    controls.auditorOutcomes = ["failed"];
+
+    const result = await runSourceRefreshReworkWorkflow({
+      project,
+      changeId: "change-source-refresh-audit",
+    });
+
+    expect(runCoderLeafStage).not.toHaveBeenCalled();
+    expect(runReworkCoderLeafStage).toHaveBeenCalledTimes(1);
+    expect(runValidatorLeafStage).toHaveBeenCalledTimes(1);
+    expect(runAuditorLeafStage).toHaveBeenCalledTimes(1);
+    expect(result.stoppedAt).toBe("audit");
+    expect(result.status).toBe("needs-user-input");
+    const memory = await resolveProjectMemory(project);
+    const decisions = await readMainAgentNextStepEvidence(memory, result.loopRunId);
+    expect(decisions.at(-1)?.decision.kind).toBe("needs-user-input");
+    expect(decisions.filter((decision) => decision.decision.roleId === "rework-coder")).toHaveLength(1);
+  });
+
+  it("fails source-refresh rework before validation when rework-coder cannot produce code", async () => {
+    controls.reworkOutcome = "failed";
+
+    const result = await runSourceRefreshReworkWorkflow({
+      project,
+      changeId: "change-source-refresh-code-failure",
+    });
+
+    expect(runCoderLeafStage).not.toHaveBeenCalled();
+    expect(runReworkCoderLeafStage).toHaveBeenCalledTimes(1);
+    expect(runValidatorLeafStage).not.toHaveBeenCalled();
+    expect(runAuditorLeafStage).not.toHaveBeenCalled();
+    expect(result.stoppedAt).toBe("code");
+    expect(result.status).toBe("failed");
+    const memory = await resolveProjectMemory(project);
+    const decisions = await readMainAgentNextStepEvidence(memory, result.loopRunId);
+    expect(decisions.at(-1)?.decision.kind).toBe("failed");
   });
 
   it("fails closed when loop evidence is missing or malformed", async () => {

@@ -205,10 +205,9 @@ The target runtime boundary is a single `HarnessWorkflowRunEngine` owned by
 `docs/design-docs/harness-workflow-runtime-target.md`. Ordinary `code.run` and
 confirmed TaskQueue queue-level start/resume scheduling, TaskRun stage
 execution, SchedulerRun-scoped progression, DemandWorker claimed execution,
-and top-level role-chain action entrypoints already route through
-`workflow-runtime`. Remaining compatibility paths include source-refresh
-rework and feedback rework; they must not become parallel long-term runtime
-owners.
+top-level role-chain action entrypoints, and source-refresh rework already
+route through `workflow-runtime`. Remaining compatibility path is feedback
+rework; it must not become a parallel long-term runtime owner.
 
 Runtime object ownership is intentionally split:
 

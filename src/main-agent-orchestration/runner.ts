@@ -122,22 +122,6 @@ export async function runMainAgentOrchestration(input: {
   };
 }
 
-export async function runMainAgentSourceRefreshRework(input: {
-  project: ManagedProject;
-  changeId: string;
-  prompt?: string;
-  live?: WorkbenchLiveSink;
-}): Promise<MainAgentLeafAttemptResult> {
-  return runMainAgentStepLoop({
-    project: input.project,
-    changeId: input.changeId,
-    prompt: input.prompt,
-    live: input.live,
-    entrypoint: "source-refresh-rework",
-    initialRole: "rework-coder",
-  });
-}
-
 export async function runMainAgentFeedbackRework(input: {
   project: ManagedProject;
   changeId: string;

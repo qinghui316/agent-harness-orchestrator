@@ -45,11 +45,12 @@ sequential start/resume queue-level scheduling, TaskRun stage execution for
 SchedulerRun-scoped progression for worker, rework, integration, completion,
 and blocked-closeout gates. It also owns DemandWorker claimed execution and
 top-level role-chain action entrypoints through the default code-change
-workflow. Some kernel helpers and compatibility facades remain. Remaining
-runtime compatibility behavior is still spread across:
+workflow, and source-refresh rework through a rework-only runtime owner. Some
+kernel helpers and compatibility facades remain. Remaining runtime
+compatibility behavior is still spread across:
 
-- `src/main-agent-orchestration/` for source-refresh / feedback rework
-  compatibility paths and historical strategy helpers;
+- `src/main-agent-orchestration/` for feedback rework compatibility and
+  historical strategy helpers;
 - `src/task-queue/` for queue state records and item transitions;
 - `src/scheduler-runtime/` for Scheduler evidence repositories, rendering,
   history, projection, and low-level helper support.
@@ -57,8 +58,8 @@ runtime compatibility behavior is still spread across:
 The fixed role-chain behavior is now represented for covered production paths
 by the `default-code-change-workflow` runtime template. Historical
 `decideNextMainAgentOrchestration()` logic may remain only as compatibility
-or test evidence until the last rework compatibility paths are migrated; it is
-not the target production runtime entrypoint.
+or test evidence until feedback rework is migrated; it is not the target
+production runtime entrypoint.
 
 `WorkflowGraphPlan` is also still sequential-TaskQueue shaped. Its current
 `graphMode: "sequential-v1"` is an implementation limit. The target graph can

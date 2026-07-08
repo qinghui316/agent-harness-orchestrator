@@ -5,7 +5,6 @@ export {
 } from "./action-bridge.js";
 export {
   runMainAgentFeedbackRework,
-  runMainAgentSourceRefreshRework,
   type MainAgentLeafAttemptResult,
 } from "./runner.js";
 export {

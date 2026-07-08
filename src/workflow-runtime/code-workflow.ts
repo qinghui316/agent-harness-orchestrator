@@ -24,6 +24,11 @@ export {
   type TopLevelRoleChainWorkflowInput,
 } from "./top-level-role-chain.js";
 export {
+  runSourceRefreshReworkWorkflow,
+  type SourceRefreshReworkWorkflowInput,
+  type SourceRefreshReworkWorkflowResult,
+} from "./source-refresh-rework.js";
+export {
   enqueueDemandWorkerForRuntime,
   evaluateDemandOrchestratorRuntime,
   pumpDemandWorkersForRuntime,

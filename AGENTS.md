@@ -14,6 +14,12 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
   convergence and old-runner retirement; only a stale pending-evolution line in
   the current plan was repaired.
 - Latest archived runtime change:
+  `harness/changes/archive/20260708-harness-workflow-runtime-source-refresh-rework-owner-v0/summary.md`.
+  It moved `result.refresh-rework` source-refresh rework behind
+  `workflow-runtime`, preserved the worktree-scoped prompt and validation/audit
+  evidence path, and retired the covered legacy source-refresh production
+  wrapper/export.
+- Previous archived runtime change:
   `harness/changes/archive/20260708-harness-workflow-runtime-top-level-role-chain-owner-v0/summary.md`.
   It moved DemandWorker claimed execution and top-level role-chain action
   entrypoints behind `workflow-runtime`, reusing the default code-change
@@ -59,10 +65,10 @@ Current baseline:
 - Workflow Runtime is the target single runner owner. Ordinary `code.run` and
   confirmed TaskQueue queue-level start/resume, TaskRun stage execution, and
   SchedulerRun-scoped progression, DemandWorker claimed execution, and
-  top-level role-chain action entrypoints are already routed through
-  `workflow-runtime`. Remaining old production compatibility paths are
-  source-refresh rework and feedback rework. New runtime takeover changes must
-  delete the covered old production runner.
+  top-level role-chain action entrypoints, and source-refresh rework are
+  already routed through `workflow-runtime`. Remaining old production
+  compatibility is feedback rework. New runtime takeover changes must delete
+  the covered old production runner.
 - Goal is a visible main-Agent brief and completion standard, not hidden durable
   state and not project memory. Future sessions recover by reading Harness
   docs/evidence, not by restoring Goal state. Existing GoalLoop packet/controller
@@ -83,8 +89,8 @@ Current baseline:
 Next recommended structured work:
 
 - Pick exactly one runtime convergence slice. Prefer migrating the
-  source-refresh or feedback rework compatibility path before adding broader
-  Scheduler ready-set/wave automation.
+  feedback rework compatibility path before adding broader Scheduler
+  ready-set/wave automation.
 - Keep `README.md` untracked unless the user explicitly scopes it into a
   change.
 

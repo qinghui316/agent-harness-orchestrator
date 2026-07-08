@@ -27,11 +27,19 @@ is complete, asking Plan Agent to revise Plan / WorkflowPlan when needed, and
 letting Workflow Runtime execute only confirmed workflow input.
 
 Latest completed implementation slice:
+`harness/changes/archive/20260708-harness-workflow-runtime-source-refresh-rework-owner-v0/summary.md`.
+It moves `result.refresh-rework` source-refresh rework behind
+`workflow-runtime`, preserves the existing worktree-scoped prompt and
+validation/audit evidence, and leaves feedback rework as the remaining explicit
+compatibility path.
+
+Previous completed implementation slice:
 `harness/changes/archive/20260708-harness-workflow-runtime-top-level-role-chain-owner-v0/summary.md`.
 It moves DemandWorker claimed execution and top-level role-chain action
 entrypoints behind `workflow-runtime`, reuses the existing default code-change
 workflow, and retires covered old production exports while leaving
-source-refresh and feedback rework as explicit compatibility paths.
+source-refresh and feedback rework as explicit compatibility paths at that
+time.
 
 Previous completed implementation slice:
 `harness/changes/archive/20260708-harness-workflow-runtime-scheduler-owner-v0/summary.md`.
@@ -665,15 +673,17 @@ Pending Harness evolution: none.
 Current structured change: none.
 
 Recommended current architecture step: continue Workflow Runtime convergence
-with one focused slice. Prefer
-migrating source-refresh or feedback rework compatibility before adding
-broader Scheduler ready-set / wave automation. Do not combine rework
+with one focused slice. Prefer migrating feedback rework compatibility before
+broader Scheduler ready-set / wave automation. Do not combine feedback rework
 compatibility migration with Scheduler behavior expansion.
 
 Desktop product-layer work can continue when selected as a separate structured
 product phase.
 
 Latest product change:
+`harness/changes/archive/20260708-harness-workflow-runtime-source-refresh-rework-owner-v0/summary.md`.
+
+Previous product change:
 `harness/changes/archive/20260708-harness-workflow-runtime-top-level-role-chain-owner-v0/summary.md`.
 
 Previous product change:
