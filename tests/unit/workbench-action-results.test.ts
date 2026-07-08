@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { labelForAction, summarizeActionResult } from "../../src/workbench/actions/results.js";
+import { artifactForActionResult, labelForAction, summarizeActionResult } from "../../src/workbench/actions/results.js";
 
 const CONTROLLED_LOOP_ACTIONS = [
   {
@@ -76,6 +76,22 @@ const FORBIDDEN_PRIMARY_TERMS = [
 ];
 
 describe("Workbench action result summaries", () => {
+  it("summarizes PR feedback rework from resolved output and links JSON result artifact", () => {
+    const result = {
+      result: {
+        resultArtifact: "memory://pr-feedback/rework-results/result/pr-feedback-rework-result.json",
+        resultMarkdownArtifact: "memory://pr-feedback/rework-results/result/pr-feedback-rework-result.md",
+        resolvedOutput: {
+          summary: "PR feedback rework completed validation and audit.",
+          nextRecommendation: "Prepare a new landing review before updating the Draft PR.",
+        },
+      },
+    };
+
+    expect(summarizeActionResult("pr-feedback.rework", result)).toBe("PR feedback rework completed validation and audit.");
+    expect(artifactForActionResult(result)).toBe("memory://pr-feedback/rework-results/result/pr-feedback-rework-result.json");
+  });
+
   it("summarizes role execution through main-agent execution semantics", () => {
     expect(labelForAction("main-agent.execution.start")).toBe("Main-agent execution started");
     expect(labelForAction("main-agent.execution.stop")).toBe("Main-agent execution stop requested");

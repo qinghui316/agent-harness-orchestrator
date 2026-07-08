@@ -27,11 +27,20 @@ is complete, asking Plan Agent to revise Plan / WorkflowPlan when needed, and
 letting Workflow Runtime execute only confirmed workflow input.
 
 Latest completed implementation slice:
+`harness/changes/archive/20260708-harness-workflow-runtime-feedback-rework-owner-v0/summary.md`.
+It moves `pr-feedback.rework` / `pr-review.rework` behind
+`workflow-runtime`, tightens single-Change Draft PR feedback lineage, and adds
+`PrFeedbackReworkResult` as the canonical resolved output for downstream
+agents. The result records scope, stop reason, code/validation/audit refs, and
+next gate without claiming comments are resolved, approving Draft PR update, or
+authorizing merge.
+
+Previous completed implementation slice:
 `harness/changes/archive/20260708-harness-workflow-runtime-source-refresh-rework-owner-v0/summary.md`.
 It moves `result.refresh-rework` source-refresh rework behind
 `workflow-runtime`, preserves the existing worktree-scoped prompt and
-validation/audit evidence, and leaves feedback rework as the remaining explicit
-compatibility path.
+validation/audit evidence, and retired the covered source-refresh production
+wrapper/export.
 
 Previous completed implementation slice:
 `harness/changes/archive/20260708-harness-workflow-runtime-top-level-role-chain-owner-v0/summary.md`.
@@ -673,17 +682,21 @@ Pending Harness evolution: none.
 Current structured change: none.
 
 Recommended current architecture step: continue Workflow Runtime convergence
-with one focused slice. Prefer migrating feedback rework compatibility before
-broader Scheduler ready-set / wave automation. Do not combine feedback rework
-compatibility migration with Scheduler behavior expansion.
+with one focused slice. Prefer broader Scheduler ready-set / wave automation or
+WorkflowGraphPlan execution expansion after confirming the owner boundary. Do
+not combine Scheduler wave behavior with unrelated WorkflowGraphPlan, Goal
+loop, Plan UI, Codex subagent, or remote/merge work.
 
 Desktop product-layer work can continue when selected as a separate structured
 product phase.
 
 Latest product change:
-`harness/changes/archive/20260708-harness-workflow-runtime-source-refresh-rework-owner-v0/summary.md`.
+`harness/changes/archive/20260708-harness-workflow-runtime-feedback-rework-owner-v0/summary.md`.
 
 Previous product change:
+`harness/changes/archive/20260708-harness-workflow-runtime-source-refresh-rework-owner-v0/summary.md`.
+
+Earlier product change:
 `harness/changes/archive/20260708-harness-workflow-runtime-top-level-role-chain-owner-v0/summary.md`.
 
 Previous product change:

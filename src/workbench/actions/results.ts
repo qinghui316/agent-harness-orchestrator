@@ -12,6 +12,7 @@ export function extractRunId(result: unknown): string | undefined {
 }
 
 export function artifactForActionResult(result: unknown): string | null {
+  if (isRecord(result) && isRecord(result.result) && typeof result.result.resultArtifact === "string") return result.result.resultArtifact;
   if (isRecord(result) && isRecord(result.package) && Array.isArray(result.package.artifactRefs) && typeof result.package.artifactRefs[0] === "string") return result.package.artifactRefs[0];
   if (isRecord(result) && isRecord(result.summary) && Array.isArray(result.summary.evidenceRefs) && typeof result.summary.evidenceRefs[0] === "string") return result.summary.evidenceRefs[0];
   if (isRecord(result) && isRecord(result.snapshot) && typeof result.snapshot.summaryArtifact === "string") return result.snapshot.summaryArtifact;
@@ -61,7 +62,11 @@ export function summarizeActionResult(actionType: string, result: unknown): stri
     return typeof result.summary.summary === "string" ? result.summary.summary : "PR feedback refreshed.";
   }
   if ((actionType === "pr-feedback.rework" || actionType === "pr-review.rework") && isRecord(result)) {
-    return "PR feedback rework was routed through the same demand.";
+    if (isRecord(result.result) && isRecord(result.result.resolvedOutput) && typeof result.result.resolvedOutput.summary === "string") {
+      return result.result.resolvedOutput.summary;
+    }
+    if (isRecord(result.result) && typeof result.result.summary === "string") return result.result.summary;
+    return "PR feedback rework was routed through workflow-runtime.";
   }
   if (actionType === "pr-review.reply-prepare" && isRecord(result) && isRecord(result.draft)) {
     return "PR review reply draft prepared.";

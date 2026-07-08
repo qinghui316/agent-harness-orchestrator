@@ -14,6 +14,11 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
   convergence and old-runner retirement; only a stale pending-evolution line in
   the current plan was repaired.
 - Latest archived runtime change:
+  `harness/changes/archive/20260708-harness-workflow-runtime-feedback-rework-owner-v0/summary.md`.
+  It moved `pr-feedback.rework` / `pr-review.rework` behind
+  `workflow-runtime`, tightened single-Change Draft PR feedback lineage, and
+  added a canonical `PrFeedbackReworkResult` artifact for downstream agents.
+- Previous archived runtime change:
   `harness/changes/archive/20260708-harness-workflow-runtime-source-refresh-rework-owner-v0/summary.md`.
   It moved `result.refresh-rework` source-refresh rework behind
   `workflow-runtime`, preserved the worktree-scoped prompt and validation/audit
@@ -65,10 +70,9 @@ Current baseline:
 - Workflow Runtime is the target single runner owner. Ordinary `code.run` and
   confirmed TaskQueue queue-level start/resume, TaskRun stage execution, and
   SchedulerRun-scoped progression, DemandWorker claimed execution, and
-  top-level role-chain action entrypoints, and source-refresh rework are
-  already routed through `workflow-runtime`. Remaining old production
-  compatibility is feedback rework. New runtime takeover changes must delete
-  the covered old production runner.
+  top-level role-chain action entrypoints, source-refresh rework, and PR
+  feedback rework are already routed through `workflow-runtime`. New runtime
+  takeover changes must delete the covered old production runner.
 - Goal is a visible main-Agent brief and completion standard, not hidden durable
   state and not project memory. Future sessions recover by reading Harness
   docs/evidence, not by restoring Goal state. Existing GoalLoop packet/controller
@@ -88,9 +92,10 @@ Current baseline:
 
 Next recommended structured work:
 
-- Pick exactly one runtime convergence slice. Prefer migrating the
-  feedback rework compatibility path before adding broader Scheduler
-  ready-set/wave automation.
+- Pick exactly one next architecture slice. Prefer broader Scheduler
+  ready-set/wave automation or WorkflowGraphPlan execution expansion only
+  after confirming the owner boundary in
+  `docs/design-docs/harness-workflow-runtime-target.md`.
 - Keep `README.md` untracked unless the user explicitly scopes it into a
   change.
 

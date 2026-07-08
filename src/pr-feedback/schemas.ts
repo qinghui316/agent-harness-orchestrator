@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { PrFeedbackSnapshot, PrFeedbackSummary, PrFeedbackReworkAttempt, ReviewFeedbackUserContext } from "../types/index.js";
+import type { PrFeedbackSnapshot, PrFeedbackSummary, PrFeedbackReworkAttempt, PrFeedbackReworkResult, ReviewFeedbackUserContext } from "../types/index.js";
 
 export const snapshotSchema: z.ZodType<PrFeedbackSnapshot> = z.object({
   version: z.literal("1.0"),
@@ -83,8 +83,52 @@ export const reworkSchema: z.ZodType<PrFeedbackReworkAttempt> = z.object({
   status: z.enum(["started", "completed", "failed"]),
   agentTaskId: z.string().optional(),
   artifactRefs: z.array(z.string()),
+  resultArtifact: z.string().optional(),
+  resultMarkdownArtifact: z.string().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
+});
+
+export const reworkResultSchema: z.ZodType<PrFeedbackReworkResult> = z.object({
+  version: z.literal("1.0"),
+  id: z.string(),
+  attemptId: z.string(),
+  agentTaskId: z.string().optional(),
+  changeId: z.string(),
+  landingPackageId: z.string(),
+  prDraftPackageId: z.string(),
+  snapshotId: z.string(),
+  status: z.enum(["completed", "failed"]),
+  stoppedAt: z.enum(["boundary", "code", "validation", "audit"]).nullable(),
+  classification: z.enum(["no-action", "checks-failed", "changes-requested", "inline-comments-actionable", "comments-only", "user-pushback-requested", "provider-unavailable", "stale-pr"]),
+  summary: z.string(),
+  resolvedOutput: z.object({
+    summary: z.string(),
+    nextRecommendation: z.string(),
+  }),
+  loopRunId: z.string().optional(),
+  code: z.object({
+    runId: z.string().optional(),
+    worktreeId: z.string().optional(),
+    artifactRefs: z.array(z.string()),
+  }).optional(),
+  validation: z.object({
+    runId: z.string().optional(),
+    validationId: z.string().optional(),
+    status: z.string().optional(),
+    artifactRefs: z.array(z.string()),
+  }).optional(),
+  audit: z.object({
+    runId: z.string().optional(),
+    auditId: z.string().optional(),
+    status: z.string().optional(),
+    artifactRefs: z.array(z.string()),
+  }).optional(),
+  evidenceRefs: z.array(z.string()),
+  nextGate: z.enum(["landing.prepare", "needs-user-input"]),
+  resultArtifact: z.string(),
+  resultMarkdownArtifact: z.string(),
+  createdAt: z.string(),
 });
 
 export const userContextSchema: z.ZodType<ReviewFeedbackUserContext> = z.object({

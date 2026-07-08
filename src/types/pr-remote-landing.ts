@@ -108,8 +108,52 @@ export interface PrFeedbackReworkAttempt {
   status: "started" | "completed" | "failed";
   agentTaskId?: string;
   artifactRefs: string[];
+  resultArtifact?: string;
+  resultMarkdownArtifact?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface PrFeedbackReworkResult {
+  version: "1.0";
+  id: string;
+  attemptId: string;
+  agentTaskId?: string;
+  changeId: string;
+  landingPackageId: string;
+  prDraftPackageId: string;
+  snapshotId: string;
+  status: "completed" | "failed";
+  stoppedAt: "boundary" | "code" | "validation" | "audit" | null;
+  classification: PrFeedbackClassification;
+  summary: string;
+  resolvedOutput: {
+    summary: string;
+    nextRecommendation: string;
+  };
+  loopRunId?: string;
+  code?: {
+    runId?: string;
+    worktreeId?: string;
+    artifactRefs: string[];
+  };
+  validation?: {
+    runId?: string;
+    validationId?: string;
+    status?: string;
+    artifactRefs: string[];
+  };
+  audit?: {
+    runId?: string;
+    auditId?: string;
+    status?: string;
+    artifactRefs: string[];
+  };
+  evidenceRefs: string[];
+  nextGate: "landing.prepare" | "needs-user-input";
+  resultArtifact: string;
+  resultMarkdownArtifact: string;
+  createdAt: string;
 }
 
 export interface PrDraftRevision {

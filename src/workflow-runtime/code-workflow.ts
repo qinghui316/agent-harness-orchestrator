@@ -29,6 +29,11 @@ export {
   type SourceRefreshReworkWorkflowResult,
 } from "./source-refresh-rework.js";
 export {
+  runPrFeedbackReworkWorkflow,
+  type PrFeedbackReworkWorkflowInput,
+  type PrFeedbackReworkWorkflowResult,
+} from "./pr-feedback-rework.js";
+export {
   enqueueDemandWorkerForRuntime,
   evaluateDemandOrchestratorRuntime,
   pumpDemandWorkersForRuntime,

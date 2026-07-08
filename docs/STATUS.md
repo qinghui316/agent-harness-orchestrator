@@ -12,6 +12,11 @@
   convergence and old-runner retirement; only a stale pending-evolution line in
   the current plan was repaired.
 - Latest archived runtime change:
+  `harness/changes/archive/20260708-harness-workflow-runtime-feedback-rework-owner-v0/summary.md`.
+  It moved `pr-feedback.rework` / `pr-review.rework` behind
+  `workflow-runtime`, tightened single-Change Draft PR feedback lineage, and
+  added a canonical `PrFeedbackReworkResult` artifact for downstream agents.
+- Previous archived runtime change:
   `harness/changes/archive/20260708-harness-workflow-runtime-source-refresh-rework-owner-v0/summary.md`.
   It moved `result.refresh-rework` source-refresh rework behind
   `workflow-runtime`, preserved the worktree-scoped prompt and validation/audit
@@ -68,10 +73,10 @@
   `docs/design-docs/harness-workflow-runtime-target.md`. Ordinary `code.run`,
   confirmed TaskQueue queue-level start/resume, TaskRun stage execution, and
   SchedulerRun-scoped progression, DemandWorker claimed execution,
-  top-level role-chain action entrypoints, and source-refresh rework now run
-  through `workflow-runtime`. Remaining old production compatibility is
-  feedback rework. Full Scheduler ready-set/wave automation remains a future
-  capability under the Workflow Runtime owner.
+  top-level role-chain action entrypoints, source-refresh rework, and PR
+  feedback rework now run through `workflow-runtime`. Full Scheduler
+  ready-set/wave automation remains a future capability under the Workflow
+  Runtime owner.
 - New runtime takeover changes must include new-path takeover, old production
   runner deletion for the covered behavior, and negative tests proving the old
   runner is no longer called.
@@ -98,12 +103,14 @@
 
 The next structured runtime work should choose exactly one path:
 
-- migrate feedback rework compatibility; or
 - add broader Scheduler ready-set / wave behavior under the existing Workflow
-  Runtime Scheduler owner.
+  Runtime Scheduler owner; or
+- expand WorkflowGraphPlan execution after confirming the runtime owner
+  boundary.
 
-Do not combine rework compatibility migration and broader Scheduler
-ready-set/wave automation in one change.
+Do not combine broader Scheduler ready-set/wave automation with unrelated
+WorkflowGraphPlan, Goal loop, Plan UI, Codex subagent, or remote/merge work in
+one change.
 Do not widen `完全访问权限` into raw scheduler, manual IntegrationCheck,
 integration apply/discard, PR/remote/merge, Harness evolution, or full parallel
 execution without a separate structured change.

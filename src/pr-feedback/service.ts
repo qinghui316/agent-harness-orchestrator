@@ -10,7 +10,6 @@ import { readLandingPackage } from "../landing/manager.js";
 import {
   detectRemoteProviderCapability,
   findPrDraftPackageForLanding,
-  findLatestCreatedPrDraftPackageForChanges,
   githubCliArgs,
   githubCliCommand,
   updateDraftPrFromLanding,
@@ -23,6 +22,7 @@ import type {
   PrDraftRevision,
   PrFeedbackClassification,
   PrFeedbackReworkAttempt,
+  PrFeedbackReworkResult,
   PrFeedbackSnapshot,
   PrFeedbackSummary,
   PrReviewInlineComment,
@@ -31,17 +31,22 @@ import type {
   ReviewFeedbackUserContext,
   ResolvedMemory,
 } from "../types/index.js";
+import type { LandingReadinessPackage } from "../landing/types.js";
 
-import { snapshotSchema, summarySchema, reworkSchema, userContextSchema } from "./schemas.js";
+import { snapshotSchema, summarySchema, reworkSchema, reworkResultSchema, userContextSchema } from "./schemas.js";
 
 const execFileAsync = promisify(execFile);
 
-export async function refreshPrFeedback(project: ManagedProject, landingPackageId: string): Promise<{ snapshot: PrFeedbackSnapshot; summary: PrFeedbackSummary }> {
+export async function refreshPrFeedback(
+  project: ManagedProject,
+  landingPackageId: string,
+  options: { expectedChangeId?: string } = {},
+): Promise<{ snapshot: PrFeedbackSnapshot; summary: PrFeedbackSummary }> {
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "PR feedback refresh");
   const landing = await readLandingPackage(memory, landingPackageId);
-  const pkg = await findPrDraftPackageForLanding(memory, landingPackageId)
-    ?? await findLatestCreatedPrDraftPackageForChanges(memory, landing.target.changeIds);
+  assertSingleChangeFeedbackLanding(landing, options.expectedChangeId);
+  const pkg = await findPrDraftPackageForLanding(memory, landingPackageId);
   if (!pkg || pkg.status !== "created" || !pkg.prUrl) {
     return writeProviderUnavailableFeedback(memory, landingPackageId, pkg);
   }
@@ -151,16 +156,20 @@ export async function startPrFeedbackReworkAttempt(
   project: ManagedProject,
   landingPackageId: string,
   feedbackPrompt?: string,
+  options: { expectedChangeId?: string } = {},
 ): Promise<{ attempt: PrFeedbackReworkAttempt; task: AgentTask; prompt: string; feedback: { snapshot: PrFeedbackSnapshot; summary: PrFeedbackSummary } }> {
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "PR feedback rework");
   const landing = await readLandingPackage(memory, landingPackageId);
-  const feedback = await refreshPrFeedback(project, landingPackageId);
+  const changeId = assertSingleChangeFeedbackLanding(landing, options.expectedChangeId);
+  const exactDraft = await requireExactFeedbackDraftPackage(memory, landingPackageId);
+  if (exactDraft.status !== "created" || !exactDraft.prUrl) {
+    throw new Error("PR feedback rework requires an exact created Draft PR package for the landing package.");
+  }
+  const feedback = await refreshPrFeedback(project, landingPackageId, { expectedChangeId: changeId });
   if (!feedback.summary.actionable) {
     throw new Error("PR feedback does not require automatic rework.");
   }
-  const changeId = landing.target.changeIds[0];
-  if (!changeId) throw new Error("PR feedback rework requires a landing package changeId.");
   const now = new Date().toISOString();
   const userContext = feedbackPrompt?.trim()
     ? await recordReviewFeedbackUserContext(memory, {
@@ -242,20 +251,150 @@ export async function recordReviewFeedbackUserContext(
   return context;
 }
 
-export async function completePrFeedbackReworkAttempt(memory: ResolvedMemory, attempt: PrFeedbackReworkAttempt, status: "completed" | "failed", artifactRefs: string[]): Promise<PrFeedbackReworkAttempt> {
+export interface CompletePrFeedbackReworkAttemptInput {
+  status: "completed" | "failed";
+  stoppedAt: PrFeedbackReworkResult["stoppedAt"];
+  classification: PrFeedbackClassification;
+  summary: string;
+  nextRecommendation: string;
+  loopRunId?: string;
+  code?: PrFeedbackReworkResult["code"];
+  validation?: PrFeedbackReworkResult["validation"];
+  audit?: PrFeedbackReworkResult["audit"];
+  evidenceRefs: string[];
+}
+
+export async function completePrFeedbackReworkAttempt(
+  memory: ResolvedMemory,
+  attempt: PrFeedbackReworkAttempt,
+  input: CompletePrFeedbackReworkAttemptInput,
+): Promise<{ attempt: PrFeedbackReworkAttempt; result: PrFeedbackReworkResult }> {
+  const result = await writePrFeedbackReworkResult(memory, attempt, input);
   const completed: PrFeedbackReworkAttempt = {
     ...attempt,
-    status,
-    artifactRefs: Array.from(new Set([...attempt.artifactRefs, ...artifactRefs])),
+    status: input.status,
+    artifactRefs: Array.from(new Set([...attempt.artifactRefs, ...input.evidenceRefs, result.resultArtifact, result.resultMarkdownArtifact])),
+    resultArtifact: result.resultArtifact,
+    resultMarkdownArtifact: result.resultMarkdownArtifact,
     updatedAt: new Date().toISOString(),
   };
   reworkSchema.parse(completed);
   await writeJsonFile(prFeedbackReworkPath(memory, completed.id), completed);
-  return completed;
+  return { attempt: completed, result };
 }
 
-export async function updatePrDraftFromFeedback(project: ManagedProject, landingPackageId: string): Promise<{ package: PrDraftPackage; revision: PrDraftRevision }> {
+export async function updatePrDraftFromFeedback(
+  project: ManagedProject,
+  landingPackageId: string,
+  options: { expectedChangeId?: string } = {},
+): Promise<{ package: PrDraftPackage; revision: PrDraftRevision }> {
+  const memory = await resolveProjectMemory(project);
+  const landing = await readLandingPackage(memory, landingPackageId);
+  assertSingleChangeFeedbackLanding(landing, options.expectedChangeId);
+  await requireExactFeedbackDraftPackage(memory, landingPackageId);
   return updateDraftPrFromLanding(project, landingPackageId);
+}
+
+function assertSingleChangeFeedbackLanding(landing: LandingReadinessPackage, expectedChangeId?: string): string {
+  if (landing.target.changeIds.length !== 1) {
+    throw new Error("PR feedback actions require a landing package with exactly one changeId.");
+  }
+  const changeId = landing.target.changeIds[0];
+  if (!changeId) {
+    throw new Error("PR feedback actions require a landing package changeId.");
+  }
+  if (expectedChangeId && changeId !== expectedChangeId) {
+    throw new Error("PR feedback action changeId does not match the landing package changeId.");
+  }
+  return changeId;
+}
+
+async function requireExactFeedbackDraftPackage(memory: ResolvedMemory, landingPackageId: string): Promise<PrDraftPackage> {
+  const pkg = await findPrDraftPackageForLanding(memory, landingPackageId);
+  if (!pkg) {
+    throw new Error("PR feedback actions require an exact Draft PR package for the landing package.");
+  }
+  return pkg;
+}
+
+async function writePrFeedbackReworkResult(
+  memory: ResolvedMemory,
+  attempt: PrFeedbackReworkAttempt,
+  input: CompletePrFeedbackReworkAttemptInput,
+): Promise<PrFeedbackReworkResult> {
+  const now = new Date().toISOString();
+  const id = `pr-feedback-rework-result-${contentHash(`${attempt.id}:${input.status}:${input.stoppedAt ?? "completed"}:${now}`).slice(0, 12)}`;
+  const directory = join(prFeedbackRoot(memory), "rework-results", id);
+  await mkdir(directory, { recursive: true });
+  const jsonPath = join(directory, "pr-feedback-rework-result.json");
+  const markdownPath = join(directory, "pr-feedback-rework-result.md");
+  const resultArtifact = displayArtifactPath(memory, jsonPath);
+  const resultMarkdownArtifact = displayArtifactPath(memory, markdownPath);
+  const evidenceRefs = Array.from(new Set([...attempt.artifactRefs, ...input.evidenceRefs, resultMarkdownArtifact]));
+  const result: PrFeedbackReworkResult = {
+    version: "1.0",
+    id,
+    attemptId: attempt.id,
+    ...(attempt.agentTaskId ? { agentTaskId: attempt.agentTaskId } : {}),
+    changeId: attempt.changeId,
+    landingPackageId: attempt.landingPackageId,
+    prDraftPackageId: attempt.prDraftPackageId,
+    snapshotId: attempt.snapshotId,
+    status: input.status,
+    stoppedAt: input.stoppedAt,
+    classification: input.classification,
+    summary: input.summary,
+    resolvedOutput: {
+      summary: input.summary,
+      nextRecommendation: input.nextRecommendation,
+    },
+    ...(input.loopRunId ? { loopRunId: input.loopRunId } : {}),
+    ...(input.code ? { code: input.code } : {}),
+    ...(input.validation ? { validation: input.validation } : {}),
+    ...(input.audit ? { audit: input.audit } : {}),
+    evidenceRefs,
+    nextGate: input.status === "completed" ? "landing.prepare" : "needs-user-input",
+    resultArtifact,
+    resultMarkdownArtifact,
+    createdAt: now,
+  };
+  reworkResultSchema.parse(result);
+  await writeJsonFile(jsonPath, result);
+  await writeFile(markdownPath, renderPrFeedbackReworkResultMarkdown(result), "utf8");
+  return result;
+}
+
+function renderPrFeedbackReworkResultMarkdown(result: PrFeedbackReworkResult): string {
+  const lines = [
+    "# PR Feedback Rework Result",
+    "",
+    `Status: ${result.status}`,
+    `Stopped at: ${result.stoppedAt ?? "completed"}`,
+    `Feedback classification: ${result.classification}`,
+    "",
+    "## Resolved Output",
+    "",
+    result.resolvedOutput.summary,
+    "",
+    "## Next Recommendation",
+    "",
+    result.resolvedOutput.nextRecommendation,
+    "",
+    "## Lineage",
+    "",
+    `- Attempt: ${result.attemptId}`,
+    `- Change: ${result.changeId}`,
+    `- Landing package: ${result.landingPackageId}`,
+    `- Draft PR package: ${result.prDraftPackageId}`,
+    `- Feedback snapshot: ${result.snapshotId}`,
+    ...(result.loopRunId ? [`- Loop run: ${result.loopRunId}`] : []),
+    "",
+    "## Evidence",
+    "",
+    ...result.evidenceRefs.map((ref) => `- ${ref}`),
+    "",
+  ];
+  return `${lines.join("\n")}\n`;
 }
 
 function buildSummary(snapshot: PrFeedbackSnapshot, classification: PrFeedbackClassification, failedChecksCount: number): PrFeedbackSummary {

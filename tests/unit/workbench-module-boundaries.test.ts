@@ -122,6 +122,7 @@ import {
   requireSingleTaskId,
   requireTaskRunId,
   runDefaultCodeChangeWorkflow,
+  runPrFeedbackReworkWorkflow,
   runSourceRefreshReworkWorkflow,
   runTopLevelRoleChainWorkflow,
   runResumedTaskRunStage,
@@ -130,7 +131,6 @@ import {
   sourceRefreshReworkPrompt,
 } from "../../src/workflow-runtime/code-workflow.js";
 import {
-  runMainAgentFeedbackRework,
   readMainAgentQueueDecisionEvidence,
   evaluateMainAgentWorkflowGraphReplayPolicy,
   buildMainAgentWorkflowGraphReplaySummary,
@@ -879,7 +879,8 @@ describe("Workbench module boundaries", () => {
     expect(actionHandlers).not.toContain("runMainAgentSourceRefreshRework");
 
     const remoteHandoff = readFileSync(join(process.cwd(), "src/workbench/actions/handlers/remote-handoff.ts"), "utf8");
-    expect(remoteHandoff).toContain("runMainAgentFeedbackRework");
+    expect(remoteHandoff).toContain("runPrFeedbackReworkWorkflow");
+    expect(remoteHandoff).not.toContain("runMainAgentFeedbackRework");
 
     const leafStages = readFileSync(join(process.cwd(), "src/main-agent-orchestration/leaf-stages.ts"), "utf8");
     expect(leafStages).toContain("runCoderLeafStage");
@@ -1190,7 +1191,7 @@ describe("Workbench module boundaries", () => {
     expect(typeof runMainAgentControlledSchedulerStep).toBe("function");
     expect(typeof readMainAgentWorkflowGraphDecisionEvidence).toBe("function");
     expect(typeof runSourceRefreshReworkWorkflow).toBe("function");
-    expect(typeof runMainAgentFeedbackRework).toBe("function");
+    expect(typeof runPrFeedbackReworkWorkflow).toBe("function");
     expect(typeof sourceRefreshReworkPrompt).toBe("function");
     expect(typeof requireSingleTaskId).toBe("function");
     expect(typeof requireTaskRunId).toBe("function");
@@ -3086,7 +3087,7 @@ describe("Workbench module boundaries", () => {
     const mainAgentIndex = readFileSync("src/main-agent-orchestration/index.ts", "utf8");
     expect(mainAgentIndex).not.toContain("runMainAgentOrchestration");
     expect(mainAgentIndex).not.toContain("runMainAgentSourceRefreshRework");
-    expect(mainAgentIndex).toContain("runMainAgentFeedbackRework");
+    expect(mainAgentIndex).not.toContain("runMainAgentFeedbackRework");
 
     const runtime = readFileSync("src/workflow-runtime/default-code-change.ts", "utf8");
     expect(runtime).toContain("class HarnessWorkflowRunEngine");

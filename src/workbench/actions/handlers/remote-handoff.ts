@@ -7,8 +7,8 @@ import { completePrFeedbackReworkAttempt, refreshPrFeedback, startPrFeedbackRewo
 import { preparePrReviewReadiness, preparePrReviewReplyDraft, refreshPrReviewState, resolvePrReviewThread, submitPrForHumanReview, submitPrReviewReply } from "../../../pr-review/manager.js";
 import { mergeRemoteLanding, prepareRemoteLandingReadiness, refreshRemoteLanding } from "../../../remote-landing/manager.js";
 import { cleanupRemoteBranchAfterMerge, prepareLocalSync, preparePostMergeHandoff, prepareRemoteBranchCleanup, syncLocalAfterMerge } from "../../../post-merge/manager.js";
-import { runMainAgentFeedbackRework } from "../../../main-agent-orchestration/index.js";
 import type { ManagedProject } from "../../../types/index.js";
+import { runPrFeedbackReworkWorkflow, type PrFeedbackReworkWorkflowResult } from "../../../workflow-runtime/code-workflow.js";
 import { selectLandingReviewArtifactRef, selectLandingSummaryArtifactRef } from "../../artifact-selection.js";
 import { emitAssistantEvent } from "../../live-events.js";
 import { appendTopicThreadEntry } from "../../topic-thread.js";
@@ -156,7 +156,7 @@ export async function refreshPrFeedbackForAction(
   live: WorkbenchLiveSink | undefined,
 ): Promise<unknown> {
   if (!request.landingPackageId) throw new Error("pr-feedback.refresh requires landingPackageId.");
-  const feedback = await refreshPrFeedback(project, request.landingPackageId);
+  const feedback = await refreshPrFeedback(project, request.landingPackageId, { expectedChangeId: changeId });
   const text = [
     "已读取 Draft PR 远端反馈。",
     "",
@@ -207,7 +207,7 @@ export async function reworkPrFeedbackForAction(
 ): Promise<unknown> {
   if (!request.landingPackageId) throw new Error("pr-feedback.rework requires landingPackageId.");
   const memory = await resolveProjectMemory(project);
-  const started = await startPrFeedbackReworkAttempt(project, request.landingPackageId, request.prompt);
+  const started = await startPrFeedbackReworkAttempt(project, request.landingPackageId, request.prompt, { expectedChangeId: changeId });
   const intro = await appendTopicThreadEntry(project, changeId, {
     type: "assistant.message",
     status: "pr-feedback-rework-started",
@@ -221,27 +221,34 @@ export async function reworkPrFeedbackForAction(
     artifact: started.feedback.summary.evidenceRefs[0],
   });
   live?.emit({ event: "assistant.message", data: intro });
-  const workflow = await runMainAgentFeedbackRework({
+  const workflow = await runPrFeedbackReworkWorkflow({
     project,
     changeId,
     prompt: started.prompt,
     live,
   });
-  const artifactRefs = compactArtifactRefs(
-    ...(isRecord(workflow) && isRecord(workflow.code) && isRecord(workflow.code.run) && isRecord(workflow.code.run.artifacts) && typeof workflow.code.run.artifacts.directory === "string"
-      ? [workflow.code.run.artifacts.directory]
-      : []),
-  );
-  const failed = isRecord(workflow) && typeof workflow.stoppedAt === "string" && workflow.stoppedAt;
-  await completePrFeedbackReworkAttempt(memory, started.attempt, failed ? "failed" : "completed", artifactRefs);
+  const artifactRefs = workflowEvidenceRefs(workflow);
+  const failed = Boolean(workflow.stoppedAt);
+  const completed = await completePrFeedbackReworkAttempt(memory, started.attempt, {
+    status: failed ? "failed" : "completed",
+    stoppedAt: workflow.stoppedAt,
+    classification: started.feedback.summary.classification,
+    summary: failed ? "PR feedback rework needs more attention." : "PR feedback rework completed validation and audit.",
+    nextRecommendation: failed ? "Return to the main conversation for next instructions." : "Prepare a new landing review before updating the Draft PR.",
+    loopRunId: workflow.loopRunId,
+    code: workflow.code ? codeResultRef(workflow) : undefined,
+    validation: workflow.validation ? validationResultRef(workflow) : undefined,
+    audit: workflow.audit ? auditResultRef(workflow) : undefined,
+    evidenceRefs: artifactRefs,
+  });
   await completeAgentTask(memory, started.task, {
     status: failed ? "failed" : "completed",
-    summary: failed ? "PR feedback rework needs more attention." : "PR feedback rework completed through main-agent role orchestration.",
-    artifactRefs: [...started.feedback.summary.evidenceRefs, ...artifactRefs],
-    nextRecommendation: failed ? "Return to the main conversation for next instructions." : "Prepare a new landing review before updating the Draft PR.",
+    summary: completed.result.resolvedOutput.summary,
+    artifactRefs: [completed.result.resultArtifact, ...completed.result.evidenceRefs],
+    nextRecommendation: completed.result.resolvedOutput.nextRecommendation,
     ...(failed ? { failureClassification: "pr-feedback-rework-failed", requiresUserInputReason: "Main-agent role orchestration did not complete after PR feedback rework." } : {}),
   });
-  return { attempt: started.attempt, task: started.task, workflow };
+  return { attempt: completed.attempt, task: started.task, workflow, result: completed.result };
 }
 
 export async function updatePrDraftForAction(
@@ -251,7 +258,7 @@ export async function updatePrDraftForAction(
   live: WorkbenchLiveSink | undefined,
 ): Promise<unknown> {
   if (!request.landingPackageId) throw new Error("pr-feedback.update-draft requires landingPackageId.");
-  const result = await updatePrDraftFromFeedback(project, request.landingPackageId);
+  const result = await updatePrDraftFromFeedback(project, request.landingPackageId, { expectedChangeId: changeId });
   const text = [
     "已更新同一个 Draft PR 分支。",
     "",
@@ -655,9 +662,49 @@ export async function cleanupRemoteBranchForAction(
   return result;
 }
 
+function workflowEvidenceRefs(workflow: PrFeedbackReworkWorkflowResult): string[] {
+  return compactArtifactRefs(
+    workflow.code?.run.artifacts.directory,
+    workflow.code?.run.artifacts.implementation,
+    workflow.validation?.run.artifacts.validation,
+    workflow.validation?.run.artifacts.stdout,
+    workflow.validation?.run.artifacts.stderr,
+    workflow.audit?.audit.artifacts.audit,
+    workflow.audit?.audit.artifacts.auditMarkdown,
+    workflow.audit?.audit.artifacts.lastMessage,
+  );
+}
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
+function codeResultRef(workflow: PrFeedbackReworkWorkflowResult) {
+  const code = workflow.code;
+  if (!code) return undefined;
+  return {
+    runId: code.run.id,
+    ...(code.run.worktree?.worktreeId ? { worktreeId: code.run.worktree.worktreeId } : {}),
+    artifactRefs: compactArtifactRefs(code.run.artifacts.directory, code.run.artifacts.implementation),
+  };
+}
+
+function validationResultRef(workflow: PrFeedbackReworkWorkflowResult) {
+  const validation = workflow.validation;
+  if (!validation) return undefined;
+  return {
+    runId: validation.run.id,
+    validationId: validation.validation.id,
+    status: validation.validation.status,
+    artifactRefs: compactArtifactRefs(validation.run.artifacts.validation, validation.run.artifacts.stdout, validation.run.artifacts.stderr),
+  };
+}
+
+function auditResultRef(workflow: PrFeedbackReworkWorkflowResult) {
+  const audit = workflow.audit;
+  if (!audit) return undefined;
+  return {
+    runId: audit.run.id,
+    auditId: audit.audit.id,
+    status: audit.audit.status,
+    artifactRefs: compactArtifactRefs(audit.audit.artifacts.audit, audit.audit.artifacts.auditMarkdown, audit.audit.artifacts.lastMessage),
+  };
 }
 
 function compactArtifactRefs(...refs: Array<string | undefined | null>): string[] {
