@@ -716,6 +716,8 @@ export interface SchedulerRuntimeClaimReservation {
   reservedCount: number;
   blockedCount: number;
   sourceLockCount: number;
+  launchConfirmed?: boolean;
+  launchConfirmedAt?: string;
   supersedesReservationId?: string;
   sourceArtifactHashes: Record<string, string>;
   artifactRefs: string[];

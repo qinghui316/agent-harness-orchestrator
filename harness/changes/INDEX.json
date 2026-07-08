@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-07-08T10:36:17.0974959Z",
+    "generated_at":  "2026-07-08T11:42:23.8362942Z",
     "active":  [
 
                ],
@@ -2629,6 +2629,10 @@
                     {
                         "name":  "20260708-harness-workflow-runtime-top-level-role-chain-owner-v0",
                         "path":  "harness/changes/archive/20260708-harness-workflow-runtime-top-level-role-chain-owner-v0"
+                    },
+                    {
+                        "name":  "20260708-scheduler-same-wave-full-flow-acceptance-v1",
+                        "path":  "harness/changes/archive/20260708-scheduler-same-wave-full-flow-acceptance-v1"
                     }
                 ]
 }

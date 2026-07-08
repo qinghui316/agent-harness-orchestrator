@@ -23,6 +23,7 @@ import {
   readSchedulerReconcileSnapshot,
   readSchedulerRuntimeClaimReservation,
   readSchedulerRuntimeState,
+  writeSchedulerRuntimeClaimReservation,
 } from "./repository.js";
 import { reserveSchedulerRuntimeClaims } from "./claim-reservation.js";
 import type { SchedulerRuntimeClaimReservation, SchedulerReconcileSnapshot, SchedulerRuntimeState } from "./types.js";
@@ -134,13 +135,23 @@ async function confirmPreparedSchedulerPlan(
     throw new Error("planning.scheduler.plan.prepare launch confirmation requires the latest SchedulerRuntimeClaimReservation.");
   }
   const launchBrief = buildSchedulerLaunchBrief(schedulerRun, runtimeState, reconcileSnapshot, claimReservation);
+  const confirmedReservation = launchBrief.status === "ready"
+    ? {
+      ...claimReservation,
+      launchConfirmed: true,
+      launchConfirmedAt: new Date().toISOString(),
+    }
+    : claimReservation;
+  if (confirmedReservation !== claimReservation) {
+    await writeSchedulerRuntimeClaimReservation(memory, changePath, confirmedReservation);
+  }
   return {
     status: launchBrief.status === "ready" ? "prepared" : "blocked",
     mode: "launch-confirmation",
     schedulerRun,
     runtimeState,
     reconcileSnapshot,
-    claimReservation,
+    claimReservation: confirmedReservation,
     launchBrief,
     blockedSummary: launchBrief.status === "blocked" ? launchBrief.summary : undefined,
     executionStarted: false,

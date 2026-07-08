@@ -17,6 +17,12 @@
   BOUNDARIES, and runtime-target coverage was sufficient for Workflow Runtime
   convergence and old-runner retirement; only a stale pending-evolution line in
   the current plan was repaired.
+- Latest archived Scheduler acceptance:
+  `harness/changes/archive/20260708-scheduler-same-wave-full-flow-acceptance-v1/summary.md`.
+  It locked the same-wave ready-set with a realistic two-worker slow flow,
+  persisted launch confirmation evidence, and aligned Workbench / Goal Loop
+  gate ordering so current worker result / validation / audit completes before
+  same-wave `start-next`.
 - Latest archived runtime change:
   `harness/changes/archive/20260708-harness-workflow-runtime-scheduler-same-wave-ready-set-v0/summary.md`.
   It added Scheduler same-wave ready-set behavior under `workflow-runtime`:

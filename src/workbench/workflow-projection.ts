@@ -2192,30 +2192,6 @@ export function buildTypedWorkflowNextAction(input: {
         }
         const currentWaveStatus = schedulerCurrentWaveStatus(schedulerClaimReservation, schedulerWorkerPaths);
         const sameWaveNextIntent = findNextSameWaveSchedulerReservationIntentForWorkerPaths(schedulerClaimReservation, schedulerWorkerPaths);
-        if (
-          sameWaveNextIntent
-          && schedulerWorkerPaths.length > 0
-          && !schedulerIntegrationCheckHandoff
-          && !schedulerIntegrationOutcome
-          && !schedulerRunCompletion
-          && !schedulerRunBlockedCloseout
-        ) {
-          return {
-            ...workflowNextAction("planning.scheduler.worker.start-next", "启动同波次下一个 worker", "当前 wave 还有未启动且 source scope 不冲突的 reservation intent；本操作只启动一个明确 coder stage，不启动整波、验证、审计、IntegrationCheck 或 scheduler loop。"),
-            decompositionPlanId: decompositionPlan.id,
-            readinessManifestId: decompositionReadiness.id,
-            schedulerContractId: schedulerRun.schedulerContractId,
-            schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
-            schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
-            schedulerClaimReconcilePlanId: schedulerRun.schedulerClaimReconcilePlanId,
-            schedulerLaunchPreflightId: schedulerRun.schedulerLaunchPreflightId,
-            schedulerRunId: schedulerRun.id,
-            schedulerReconcileSnapshotId: schedulerReconcileSnapshot.id,
-            schedulerClaimReservationId: schedulerClaimReservation.id,
-            reservationIntentId: sameWaveNextIntent.reservationIntentId,
-            claimIntentId: sameWaveNextIntent.claimIntentId,
-          };
-        }
         if (schedulerIntegrationCandidate && !schedulerIntegrationCandidateNeedsRefresh(schedulerIntegrationCandidate, schedulerWorkerPaths)) {
           if (currentWaveStatus.terminal && schedulerIntegrationCandidate.readyCount >= 2 && !schedulerIntegrationCheckHandoff) {
             return {
@@ -2508,6 +2484,29 @@ export function buildTypedWorkflowNextAction(input: {
             const workerAuditApproved = schedulerWorkerAudit?.status === "approved" || schedulerWorkerAudit?.status === "approved-with-notes";
             const reworkAuditApproved = schedulerWorkerReworkAudit?.status === "approved" || schedulerWorkerReworkAudit?.status === "approved-with-notes";
             if (workerAuditApproved || reworkAuditApproved) {
+              if (
+                sameWaveNextIntent
+                && !schedulerIntegrationCheckHandoff
+                && !schedulerIntegrationOutcome
+                && !schedulerRunCompletion
+                && !schedulerRunBlockedCloseout
+              ) {
+                return {
+                  ...workflowNextAction("planning.scheduler.worker.start-next", "启动同波次下一个 worker", "当前 wave 还有未启动且 source scope 不冲突的 reservation intent；本操作只启动一个明确 coder stage，不启动整波、验证、审计、IntegrationCheck 或 scheduler loop。"),
+                  decompositionPlanId: decompositionPlan.id,
+                  readinessManifestId: decompositionReadiness.id,
+                  schedulerContractId: schedulerRun.schedulerContractId,
+                  schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
+                  schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
+                  schedulerClaimReconcilePlanId: schedulerRun.schedulerClaimReconcilePlanId,
+                  schedulerLaunchPreflightId: schedulerRun.schedulerLaunchPreflightId,
+                  schedulerRunId: schedulerRun.id,
+                  schedulerReconcileSnapshotId: schedulerReconcileSnapshot.id,
+                  schedulerClaimReservationId: schedulerClaimReservation.id,
+                  reservationIntentId: sameWaveNextIntent.reservationIntentId,
+                  claimIntentId: sameWaveNextIntent.claimIntentId,
+                };
+              }
               if (currentWaveStatus.terminal && (!schedulerIntegrationCandidate || schedulerIntegrationCandidateNeedsRefresh(schedulerIntegrationCandidate, schedulerWorkerPaths))) {
                 return {
                   ...workflowNextAction("planning.scheduler.integration-candidate.compile", "生成 scheduler integration 候选", "把已通过 audit 的 scheduler worker 输出接回现有 apply readiness gate；只写 SchedulerIntegrationCandidate，不运行 IntegrationCheck、apply、merge 或 next worker。"),

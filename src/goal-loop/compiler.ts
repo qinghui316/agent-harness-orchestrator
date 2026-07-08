@@ -585,7 +585,11 @@ function buildDecision(snapshot: EvidenceSnapshot, id: string, artifact: string,
     }, "Run the existing IntegrationCheck handoff for ready scheduler outputs.");
   } else if (snapshot.schedulerRun && snapshot.claimReservation) {
     const workerPathRecommendation = recommendCurrentWorkerPath(snapshot);
-    if ((snapshot.workerStarts?.length ?? 0) > 0 && snapshot.sameWaveNextReservationIntent) {
+    if (workerPathRecommendation) {
+      decisionKind = "scheduler-next-step";
+      summary = workerPathRecommendation.summary;
+      recommendedAction = workerPathRecommendation.recommendedAction;
+    } else if ((snapshot.workerStarts?.length ?? 0) > 0 && snapshot.sameWaveNextReservationIntent) {
       decisionKind = "scheduler-next-step";
       summary = "The current scheduler wave has another reserved non-conflicting worker; the next legal step is the explicit same-wave start-next gate.";
       recommendedAction = buildRecommendedAction("planning.scheduler.worker.start-next", {
@@ -595,10 +599,6 @@ function buildDecision(snapshot: EvidenceSnapshot, id: string, artifact: string,
         reservationIntentId: snapshot.sameWaveNextReservationIntent.reservationIntentId,
         claimIntentId: snapshot.sameWaveNextReservationIntent.claimIntentId,
       }, "Start exactly one additional same-wave scheduler worker through the existing scoped gate.");
-    } else if (workerPathRecommendation) {
-      decisionKind = "scheduler-next-step";
-      summary = workerPathRecommendation.summary;
-      recommendedAction = workerPathRecommendation.recommendedAction;
     } else if (snapshot.currentWaveStatus?.terminal && snapshot.integrationCandidateNeedsRefresh && snapshot.workerPaths?.some((path) => hasApprovedWorkerOutput(path))) {
       decisionKind = "integration-needed";
       summary = "Scheduler worker output has passed audit and the SchedulerIntegrationCandidate is missing or stale; refresh the existing integration candidate evidence.";

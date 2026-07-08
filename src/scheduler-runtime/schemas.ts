@@ -661,6 +661,8 @@ export const schedulerRuntimeClaimReservationSchema: z.ZodType<SchedulerRuntimeC
   reservedCount: z.number(),
   blockedCount: z.number(),
   sourceLockCount: z.number(),
+  launchConfirmed: z.boolean().optional(),
+  launchConfirmedAt: z.string().optional(),
   supersedesReservationId: z.string().optional(),
   sourceArtifactHashes: z.record(z.string()),
   artifactRefs: z.array(z.string()),

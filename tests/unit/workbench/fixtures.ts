@@ -1322,6 +1322,26 @@ export async function prepareSchedulerFirstWorkerThroughResult(options: {
     confirm: true,
   });
   const manifest = (readiness.result as { result?: { manifest?: { id?: string } } }).result?.manifest;
+  await initGitRepository(tempDir);
+  await mkdir(join(tempDir, "src"), { recursive: true });
+  await writeFile(join(tempDir, ".gitignore"), "harness/\n.agent-harness/\nfake-codex-bin/\n", "utf8");
+  await writeFile(join(tempDir, "spec.md"), "# Spec\n\n## Acceptance Criteria\n\n- AC-001: Update module A and module B through same-wave Scheduler workers.\n", "utf8");
+  await writeFile(join(tempDir, "plan.md"), "# Plan\n\nRun module A and module B as same-wave Scheduler worker leaves, then integrate after both are terminal.\n", "utf8");
+  await writeFile(join(tempDir, "tasks.md"), [
+    "# Tasks",
+    "",
+    "- [ ] T-001: Update module A.",
+    "  - Covers: AC-001",
+    "- [ ] T-002: Update module B.",
+    "  - Covers: AC-001",
+    "",
+  ].join("\n"), "utf8");
+  await writeFile(join(tempDir, "ac-map.json"), JSON.stringify({ generatedAt: "2026-07-08T00:00:00.000Z", items: [] }, null, 2), "utf8");
+  await writeFile(join(tempDir, "package.json"), JSON.stringify({ scripts: { test: options.packageTestScript ?? "node -e \"process.exit(0)\"" } }), "utf8");
+  await writeFile(join(tempDir, "src", "module-a.ts"), "export const moduleA = 1;\n", "utf8");
+  await writeFile(join(tempDir, "src", "module-b.ts"), "export const moduleB = 1;\n", "utf8");
+  await git(tempDir, ["add", "."]);
+  await git(tempDir, ["commit", "-m", "initial"]);
   const prepared = await executeWorkbenchAction({ project: project(), path: tempDir }, {
     actionType: "planning.scheduler.plan.prepare",
     changeId: topic.changeId,
@@ -1336,6 +1356,9 @@ export async function prepareSchedulerFirstWorkerThroughResult(options: {
       reconcileSnapshot?: { id?: string };
     };
   }).result;
+  if (!preparedResult?.schedulerRun?.id || !preparedResult.claimReservation?.id || !preparedResult.reconcileSnapshot?.id) {
+    throw new Error(`Scheduler plan prepare did not return scoped run/reservation ids: ${JSON.stringify(prepared.result)}`);
+  }
   const schedulerRun = preparedResult?.schedulerRun ?? {};
   const claimReservation = preparedResult?.claimReservation ?? {};
   const runtimeEventsPath = join(changeDir, "planning", "scheduler-runs", `${schedulerRun.id}`, "scheduler-runtime-events.jsonl");
@@ -1345,31 +1368,70 @@ export async function prepareSchedulerFirstWorkerThroughResult(options: {
     .flatMap((item) => item.actions)
     .find((action) => findSchedulerGateAction([action], "planning.scheduler.plan.prepare", (candidate) => candidate.schedulerClaimReservationId === claimReservation.id));
   if (!launchAction) throw new Error("Missing scheduler launch confirmation action.");
+  if (!launchAction.schedulerRunId || !launchAction.schedulerReconcileSnapshotId || !launchAction.schedulerClaimReservationId) {
+    throw new Error(`Scheduler launch confirmation action is missing scoped ids: ${JSON.stringify(launchAction)}`);
+  }
   const launchResult = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...launchAction, confirm: true });
   if ((launchResult.result as { status?: string; error?: string }).status === "failed") {
     throw new Error((launchResult.result as { error?: string }).error ?? "scheduler launch confirmation action failed");
   }
-
-  await initGitRepository(tempDir);
-  await mkdir(join(tempDir, "src"), { recursive: true });
-  await writeFile(join(tempDir, ".gitignore"), "harness/\n.agent-harness/\nfake-codex-bin/\n", "utf8");
-  await writeFile(join(tempDir, "package.json"), JSON.stringify({ scripts: { test: options.packageTestScript ?? "node -e \"process.exit(0)\"" } }), "utf8");
-  await writeFile(join(tempDir, "src", "module-a.ts"), "export const moduleA = 1;\n", "utf8");
-  await writeFile(join(tempDir, "src", "module-b.ts"), "export const moduleB = 1;\n", "utf8");
-  await git(tempDir, ["add", "."]);
-  await git(tempDir, ["commit", "-m", "initial"]);
+  const launchPayload = ((launchResult.result as { result?: unknown }).result ?? launchResult.result) as {
+    status?: string;
+    blockedSummary?: string;
+    claimReservation?: { launchConfirmed?: boolean };
+  };
+  if (launchPayload.status !== "prepared" || launchPayload.claimReservation?.launchConfirmed !== true) {
+    throw new Error(`Scheduler launch confirmation did not mark reservation launch-confirmed: ${JSON.stringify(launchPayload)}`);
+  }
 
   const startSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
   const startAction = startSnapshot.right.confirmationQueue.current
     .flatMap((item) => item.actions)
     .find((action) => findSchedulerGateAction([action], "planning.scheduler.worker.start-first", (candidate) => candidate.schedulerClaimReservationId === claimReservation.id));
-  if (!startAction) throw new Error("Missing scheduler first worker action.");
+  if (!startAction) {
+    const actions = startSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).map((action) => ({
+      actionType: action.actionType,
+      goalLoopCurrentGateActionType: action.goalLoopCurrentGateActionType,
+      schedulerRunId: action.schedulerRunId,
+      schedulerClaimReservationId: action.schedulerClaimReservationId,
+      reservationIntentId: action.reservationIntentId,
+      claimIntentId: action.claimIntentId,
+      enabled: action.enabled,
+    }));
+    throw new Error(`Missing scheduler first worker action. nextAction=${JSON.stringify(startSnapshot.center.workpad.nextAction)} actions=${JSON.stringify(actions)}`);
+  }
 
   const oldPath = process.env.PATH;
   const fakeCodex = await createFakeCodex();
   try {
     process.env.PATH = `${fakeCodex.binDir}${delimiter}${oldPath ?? ""}`;
     const started = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...startAction, confirm: true });
+    const startedWorkflow = started.result as {
+      status?: string;
+      error?: string;
+      result?: {
+        postStepGoalLoopEvaluationWarning?: string;
+        postStepGoalLoopReadinessWarning?: string;
+        schedulerControlledStepEvidence?: {
+          controlledLoopBoundaryResult?: { status?: string; warning?: string; nextGateActionType?: string };
+          controlledLoopRuntimeBoundary?: { status?: string; warning?: string; nextGateActionType?: string };
+        };
+      };
+    };
+    const startedWarnings = startedWorkflow.result?.schedulerControlledStepEvidence;
+    if (
+      startedWorkflow.result?.postStepGoalLoopEvaluationWarning
+      || startedWorkflow.result?.postStepGoalLoopReadinessWarning
+      || startedWarnings?.controlledLoopBoundaryResult?.warning
+      || startedWarnings?.controlledLoopRuntimeBoundary?.warning
+    ) {
+      throw new Error(`scheduler first worker start recorded warning evidence: ${JSON.stringify({
+        postStepGoalLoopEvaluationWarning: startedWorkflow.result?.postStepGoalLoopEvaluationWarning,
+        postStepGoalLoopReadinessWarning: startedWorkflow.result?.postStepGoalLoopReadinessWarning,
+        controlledLoopBoundaryResult: startedWarnings?.controlledLoopBoundaryResult,
+        controlledLoopRuntimeBoundary: startedWarnings?.controlledLoopRuntimeBoundary,
+      })}`);
+    }
     const startedActionResult = unwrapControlledSchedulerAdvanceResult((started.result as { result?: unknown }).result ?? started.result);
     const startedResult = startedActionResult as {
         workerStart?: {
@@ -1389,10 +1451,22 @@ export async function prepareSchedulerFirstWorkerThroughResult(options: {
     const resultAction = resultSnapshot.right.confirmationQueue.current
       .flatMap((item) => item.actions)
       .find((action) => findSchedulerGateAction([action], "planning.scheduler.worker.reconcile-result", (candidate) => candidate.schedulerWorkerStartId === workerStart.id));
-    if (!resultAction) throw new Error("Missing scheduler first worker result reconcile action.");
+    if (!resultAction) {
+      const actions = resultSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).map((action) => ({
+        actionType: action.actionType,
+        goalLoopCurrentGateActionType: action.goalLoopCurrentGateActionType,
+        schedulerWorkerStartId: action.schedulerWorkerStartId,
+        schedulerRunId: action.schedulerRunId,
+        schedulerClaimReservationId: action.schedulerClaimReservationId,
+        reservationIntentId: action.reservationIntentId,
+        claimIntentId: action.claimIntentId,
+        enabled: action.enabled,
+      }));
+      throw new Error(`Missing scheduler first worker result reconcile action. workerStart=${JSON.stringify(workerStart)} nextAction=${JSON.stringify(resultSnapshot.center.workpad.nextAction)} actions=${JSON.stringify(actions)}`);
+    }
     const reconciled = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...resultAction, confirm: true });
     if ((reconciled.result as { status?: string; error?: string }).status === "failed") {
-      throw new Error((reconciled.result as { error?: string }).error ?? "scheduler first worker result reconcile action failed");
+      throw new Error(`scheduler first worker result reconcile action failed: ${JSON.stringify(reconciled.result)}`);
     }
     const reconciledResult = unwrapControlledSchedulerAdvanceResult((reconciled.result as { result?: unknown }).result ?? reconciled.result) as {
       result?: { id?: string; status?: string };
