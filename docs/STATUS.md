@@ -4,8 +4,17 @@
 
 - Current date: 2026-07-08.
 - Active ECL change: none.
-- Pending Harness evolution: none.
+- Pending Harness evolution:
+  `harness/evolution/pending.md`.
+  It was generated after the Scheduler transition owner archive and must be
+  handled by a separate Harness evolution change before the next runtime slice.
 - Latest archived relationship-hardening change:
+  `harness/changes/archive/20260708-scheduler-ready-set-transition-owner-v0/summary.md`.
+  It consolidated Scheduler current-transition selection into a shared
+  transition contract, routed Workbench / GoalLoop projections through it, and
+  kept `workflow-runtime` as the final stale/barrier/source revalidation and
+  dispatch authority.
+- Previous archived relationship-hardening change:
   `harness/changes/archive/20260708-workflow-action-current-gate-contract-v0/summary.md`.
   It added a pure `workflow-actions` current-gate contract so Workpad
   nextAction, confirmation primary, Goal Loop visible gate evidence, controlled

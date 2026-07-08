@@ -28,9 +28,6 @@ import {
   readSchedulerRuntimeWorkerReworkValidationProjection,
   readSchedulerRuntimeWorkerReworkStartProjection,
   readSchedulerRuntimeWorkerValidationProjection,
-  findNextSameWaveSchedulerReservationIntentForWorkerPaths,
-  findNextSchedulerReservationIntentForWorkerPaths,
-  schedulerCurrentWaveStatus,
   readLatestSchedulerControlledStepEvidenceProjection,
   schedulerIntegrationCandidateNeedsRefresh,
   readSchedulerRuntimeClaimReservationProjection,
@@ -56,6 +53,7 @@ import {
   type SchedulerRuntimeWorkerValidation,
 } from "../scheduler-runtime/manager.js";
 import { readIntegrationCheck } from "../integration-check/manager.js";
+import { resolveSchedulerCurrentTransition } from "../workflow-actions/scheduler-current-transition.js";
 import {
   readLatestDecompositionPlan,
   readLatestDecompositionReadinessManifest,
@@ -2190,10 +2188,21 @@ export function buildTypedWorkflowNextAction(input: {
             worktreeIds: schedulerRunBlockedCloseout.readyWorktreeIds,
           };
         }
-        const currentWaveStatus = schedulerCurrentWaveStatus(schedulerClaimReservation, schedulerWorkerPaths);
-        const sameWaveNextIntent = findNextSameWaveSchedulerReservationIntentForWorkerPaths(schedulerClaimReservation, schedulerWorkerPaths);
-        if (schedulerIntegrationCandidate && !schedulerIntegrationCandidateNeedsRefresh(schedulerIntegrationCandidate, schedulerWorkerPaths)) {
-          if (currentWaveStatus.terminal && schedulerIntegrationCandidate.readyCount >= 2 && !schedulerIntegrationCheckHandoff) {
+        const schedulerCandidateNeedsRefresh = schedulerIntegrationCandidate
+          ? schedulerIntegrationCandidateNeedsRefresh(schedulerIntegrationCandidate, schedulerWorkerPaths)
+          : true;
+        const schedulerTransition = resolveSchedulerCurrentTransition({
+          reservation: schedulerClaimReservation,
+          workerPaths: schedulerWorkerPaths,
+          integrationCandidate: schedulerIntegrationCandidate,
+          integrationCandidateNeedsRefresh: schedulerCandidateNeedsRefresh,
+          integrationCheckHandoffExists: Boolean(schedulerIntegrationCheckHandoff),
+          integrationOutcomeExists: Boolean(schedulerIntegrationOutcome),
+          runCompletionExists: Boolean(schedulerRunCompletion),
+          runBlockedCloseoutExists: Boolean(schedulerRunBlockedCloseout),
+        });
+        if (schedulerIntegrationCandidate && !schedulerCandidateNeedsRefresh) {
+          if (schedulerTransition.kind === "integration-check" && !schedulerIntegrationCheckHandoff) {
             return {
               ...workflowNextAction("planning.scheduler.integration-check.run", "运行 scheduler IntegrationCheck", "把 scheduler-owned ready worktree targets 显式交给现有 IntegrationCheck；只运行兼容性检查和 aggregate validation/audit，不 apply、landing、PR、merge 或启动 next worker。"),
               decompositionPlanId: decompositionPlan.id,
@@ -2272,8 +2281,7 @@ export function buildTypedWorkflowNextAction(input: {
               worktreeIds: schedulerIntegrationCandidate.readyWorktreeIds,
             };
           }
-          const nextIntent = findNextSchedulerReservationIntentForWorkerPaths(schedulerClaimReservation, schedulerWorkerPaths);
-          if (currentWaveStatus.terminal && schedulerIntegrationCandidate.readyCount < 2 && !nextIntent) {
+          if (schedulerTransition.kind === "close-blocked") {
             return {
               ...workflowNextAction("planning.scheduler.run.close-blocked", "结束本次 scheduler run", "当前 scheduler candidate 不能进入 IntegrationCheck，且没有可继续启动的 worker；本操作只记录 blocked/exhausted closeout，不启动执行或修改 source。"),
               decompositionPlanId: decompositionPlan.id,
@@ -2484,15 +2492,13 @@ export function buildTypedWorkflowNextAction(input: {
             const workerAuditApproved = schedulerWorkerAudit?.status === "approved" || schedulerWorkerAudit?.status === "approved-with-notes";
             const reworkAuditApproved = schedulerWorkerReworkAudit?.status === "approved" || schedulerWorkerReworkAudit?.status === "approved-with-notes";
             if (workerAuditApproved || reworkAuditApproved) {
-              if (
-                sameWaveNextIntent
-                && !schedulerIntegrationCheckHandoff
-                && !schedulerIntegrationOutcome
-                && !schedulerRunCompletion
-                && !schedulerRunBlockedCloseout
-              ) {
+              if (schedulerTransition.kind === "start-same-wave-worker" || schedulerTransition.kind === "start-next-wave-worker") {
+                const title = schedulerTransition.kind === "start-same-wave-worker" ? "启动同波次下一个 worker" : "启动下一个 wave worker";
+                const description = schedulerTransition.kind === "start-same-wave-worker"
+                  ? "当前 wave 还有未启动且 source scope 不冲突的 reservation intent；本操作只启动一个明确 coder stage，不启动整波、验证、审计、IntegrationCheck 或 scheduler loop。"
+                  : "当前 wave 已全部 terminal，下一 wave 有可启动的 reservation intent；本操作只启动一个明确 coder stage，不启动整波、验证、审计、IntegrationCheck 或 scheduler loop。";
                 return {
-                  ...workflowNextAction("planning.scheduler.worker.start-next", "启动同波次下一个 worker", "当前 wave 还有未启动且 source scope 不冲突的 reservation intent；本操作只启动一个明确 coder stage，不启动整波、验证、审计、IntegrationCheck 或 scheduler loop。"),
+                  ...workflowNextAction("planning.scheduler.worker.start-next", title, description),
                   decompositionPlanId: decompositionPlan.id,
                   readinessManifestId: decompositionReadiness.id,
                   schedulerContractId: schedulerRun.schedulerContractId,
@@ -2503,11 +2509,11 @@ export function buildTypedWorkflowNextAction(input: {
                   schedulerRunId: schedulerRun.id,
                   schedulerReconcileSnapshotId: schedulerReconcileSnapshot.id,
                   schedulerClaimReservationId: schedulerClaimReservation.id,
-                  reservationIntentId: sameWaveNextIntent.reservationIntentId,
-                  claimIntentId: sameWaveNextIntent.claimIntentId,
+                  reservationIntentId: schedulerTransition.reservationIntent.reservationIntentId,
+                  claimIntentId: schedulerTransition.reservationIntent.claimIntentId,
                 };
               }
-              if (currentWaveStatus.terminal && (!schedulerIntegrationCandidate || schedulerIntegrationCandidateNeedsRefresh(schedulerIntegrationCandidate, schedulerWorkerPaths))) {
+              if (schedulerTransition.kind === "integration-candidate") {
                 return {
                   ...workflowNextAction("planning.scheduler.integration-candidate.compile", "生成 scheduler integration 候选", "把已通过 audit 的 scheduler worker 输出接回现有 apply readiness gate；只写 SchedulerIntegrationCandidate，不运行 IntegrationCheck、apply、merge 或 next worker。"),
                   decompositionPlanId: decompositionPlan.id,
@@ -2526,36 +2532,7 @@ export function buildTypedWorkflowNextAction(input: {
                   claimIntentId: schedulerWorkerReworkAudit?.claimIntentId ?? schedulerWorkerAudit?.claimIntentId,
                 };
               }
-              const nextIntent = findNextSchedulerReservationIntentForWorkerPaths(schedulerClaimReservation, schedulerWorkerPaths);
-              if (
-                schedulerIntegrationCandidate
-                && currentWaveStatus.terminal
-                && nextIntent
-                && schedulerIntegrationCandidate.status === "waiting"
-                && schedulerIntegrationCandidate.readyCount === 1
-                && schedulerIntegrationCandidate.blockedCount === 0
-                && !schedulerIntegrationCheckHandoff
-                && !schedulerIntegrationOutcome
-                && !schedulerRunCompletion
-              ) {
-                return {
-                  ...workflowNextAction("planning.scheduler.worker.start-next", "启动下一个 worker", "当前 scheduler 只有一个 ready worker output，且所有已启动 worker path 已 terminal；本操作只启动下一个明确 reservation intent 的 coder stage。"),
-                  decompositionPlanId: decompositionPlan.id,
-                  readinessManifestId: decompositionReadiness.id,
-                  schedulerContractId: schedulerRun.schedulerContractId,
-                  schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
-                  schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
-                  schedulerClaimReconcilePlanId: schedulerRun.schedulerClaimReconcilePlanId,
-                  schedulerLaunchPreflightId: schedulerRun.schedulerLaunchPreflightId,
-                  schedulerRunId: schedulerRun.id,
-                  schedulerReconcileSnapshotId: schedulerReconcileSnapshot.id,
-                  schedulerClaimReservationId: schedulerClaimReservation.id,
-                  schedulerIntegrationCandidateId: schedulerIntegrationCandidate.id,
-                  reservationIntentId: nextIntent.reservationIntentId,
-                  claimIntentId: nextIntent.claimIntentId,
-                };
-              }
-              if (schedulerIntegrationCandidate && currentWaveStatus.terminal && schedulerIntegrationCandidate.readyCount >= 2 && !schedulerIntegrationCheckHandoff) {
+              if (schedulerTransition.kind === "integration-check" && schedulerIntegrationCandidate && !schedulerIntegrationCheckHandoff) {
                 return {
                   ...workflowNextAction("planning.scheduler.integration-check.run", "运行 scheduler IntegrationCheck", "把 scheduler-owned ready worktree targets 显式交给现有 IntegrationCheck；只运行兼容性检查和 aggregate validation/audit，不 apply、landing、PR、merge 或启动 next worker。"),
                   decompositionPlanId: decompositionPlan.id,
@@ -2572,15 +2549,7 @@ export function buildTypedWorkflowNextAction(input: {
                   worktreeIds: schedulerIntegrationCandidate.readyWorktreeIds,
                 };
               }
-              if (
-                schedulerIntegrationCandidate
-                && schedulerIntegrationCandidate.readyCount < 2
-                && currentWaveStatus.terminal
-                && !schedulerIntegrationCheckHandoff
-                && !schedulerIntegrationOutcome
-                && !schedulerRunCompletion
-                && !findNextSchedulerReservationIntentForWorkerPaths(schedulerClaimReservation, schedulerWorkerPaths)
-              ) {
+              if (schedulerTransition.kind === "close-blocked" && schedulerIntegrationCandidate && !schedulerIntegrationCheckHandoff && !schedulerIntegrationOutcome && !schedulerRunCompletion) {
                 return {
                   ...workflowNextAction("planning.scheduler.run.close-blocked", "结束本次 scheduler run", "当前 scheduler candidate 不能进入 IntegrationCheck，且没有可继续启动的 worker；本操作只记录 blocked/exhausted closeout，不启动执行或修改 source。"),
                   decompositionPlanId: decompositionPlan.id,

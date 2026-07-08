@@ -2344,6 +2344,8 @@ describe("Workbench module boundaries", () => {
     const workflowSchedulerOwner = readFileSync("src/workflow-runtime/scheduler.ts", "utf8");
     expect(workflowSchedulerOwner).toContain("runSchedulerWorkerStartFirst");
     expect(workflowSchedulerOwner).toContain("runSchedulerWorkerStartNext");
+    expect(workflowSchedulerOwner).toContain("resolveSchedulerCurrentTransition");
+    expect(workflowSchedulerOwner).toContain("schedulerTransitionMatchesStartNextRequest");
     expect(workflowSchedulerOwner).toContain("runSchedulerWorkerResultReconcile");
     expect(workflowSchedulerOwner).toContain("runSchedulerWorkerValidation");
     expect(workflowSchedulerOwner).toContain("runSchedulerWorkerAudit");
@@ -2392,6 +2394,14 @@ describe("Workbench module boundaries", () => {
     expect(workerPath).not.toContain("server/");
     expect(workerPath).not.toContain("src/web");
     expect(workerPath).not.toContain("cli/");
+
+    const workflowActionTransition = readFileSync("src/workflow-actions/scheduler-current-transition.ts", "utf8");
+    expect(workflowActionTransition).toContain("resolveSchedulerCurrentTransition");
+    expect(workflowActionTransition).not.toMatch(/startTaskRun|startCodeRun|createWorkerLease|writeScheduler|appendSchedulerRuntimeEvent|workbench\/|server\/|web\/src/);
+
+    const workbenchBoundary = readFileSync("src/workbench/actions/boundary.ts", "utf8");
+    expect(workbenchBoundary).not.toContain("findNextSameWaveSchedulerReservationIntentForWorkerPaths");
+    expect(workbenchBoundary).not.toContain("must target the first unstarted same-wave reservation intent");
 
     const workerStart = readFileSync("src/scheduler-runtime/worker-start.ts", "utf8");
     expect(workerStart).toContain("startFirstSchedulerCoderWorker");

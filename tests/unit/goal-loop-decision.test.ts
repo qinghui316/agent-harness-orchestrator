@@ -3874,6 +3874,29 @@ describe("GoalLoopDecision", () => {
     expect(decision.executionStarted).toBe(false);
   });
 
+  it("recommends next-wave start-next before compiling integration candidate", async () => {
+    const { schedulerRun, workerStart, reservation } = await writeSchedulerEvidence({ withWorkerStart: true, extraReservationIntent: true });
+    const result = await writeWorkerResult(workerStart!, "evidence-ready");
+    const validation = await writeWorkerValidation(result, "passed");
+    await writeWorkerAudit(validation, "approved");
+
+    const decision = await compileGoalLoopDecision(memory, changePath);
+
+    expect(decision.recommendedAction).toMatchObject({
+      actionType: "planning.scheduler.worker.start-next",
+      scope: {
+        changeId,
+        schedulerRunId: schedulerRun.id,
+        schedulerClaimReservationId: reservation.id,
+        reservationIntentId: "reservation-intent-2",
+        claimIntentId: "claim-2",
+      },
+    });
+    expect(decision.recommendedAction?.actionType).not.toBe("planning.scheduler.integration-candidate.compile");
+    expect(decision.summary).toContain("later wave");
+    expect(decision.executionStarted).toBe(false);
+  });
+
   it("recommends IntegrationCheck when at least two candidate targets are ready", async () => {
     const { schedulerRun, reservation, workerStart } = await writeSchedulerEvidence({ withWorkerStart: true });
     const result = await writeWorkerResult(workerStart!, "evidence-ready");
