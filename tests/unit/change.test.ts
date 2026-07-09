@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildAcMap, parseAcceptanceCriteria, parseReviewStatus, parseTasks } from "../../src/ecl/anchors.js";
-import { closeChange, closeChangeForChange, createChange, createConcurrentChange, getChangeStatus } from "../../src/change/manager.js";
+import { abandonChangeForChange, closeChange, closeChangeForChange, createChange, createConcurrentChange, getChangeStatus, getChangeStatusForChange } from "../../src/change/manager.js";
 import { resolveCloseableChangeTarget, resolveRunnableChangeTarget } from "../../src/change/target.js";
 import { initHarness } from "../../src/harness/init.js";
 import type { ManagedProject } from "../../src/types/index.js";
@@ -26,6 +26,12 @@ function project(path: string): ManagedProject {
     addedAt: new Date().toISOString(),
     lastSeenAt: new Date().toISOString(),
   };
+}
+
+async function rewriteChangeMetadata(changeId: string, update: Record<string, unknown>): Promise<void> {
+  const path = join(tempDir, "harness", "changes", "active", changeId, "change.json");
+  const metadata = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+  await writeFile(path, `${JSON.stringify({ ...metadata, ...update }, null, 2)}\n`, "utf8");
 }
 
 describe("change parsing", () => {
@@ -125,6 +131,28 @@ describe("change manager", () => {
     await expect(resolveCloseableChangeTarget(project(tempDir), { changeId: "archived-target" })).rejects.toThrow("Active demand conversation not found for scoped run: archived-target");
   });
 
+  it("fails closed when active Change metadata id does not match its directory", async () => {
+    await initHarness(project(tempDir));
+    await createChange(project(tempDir), { title: "Forged Metadata Target" });
+    await rewriteChangeMetadata("forged-metadata-target", { id: "forged-demand", title: "Forged demand" });
+
+    const scoped = await getChangeStatusForChange(project(tempDir), "forged-metadata-target");
+    const legacy = await getChangeStatus(project(tempDir));
+
+    expect(scoped.change).toBeNull();
+    expect(scoped.closeGate.ready).toBe(false);
+    expect(scoped.closeGate.blockingIssues).toEqual(expect.arrayContaining([
+      "Change metadata id mismatch: directory forged-metadata-target contains forged-demand.",
+    ]));
+    expect(legacy.change).toBeNull();
+    expect(legacy.closeGate.blockingIssues).toEqual(expect.arrayContaining([
+      "Change metadata id mismatch: directory forged-metadata-target contains forged-demand.",
+    ]));
+
+    await expect(closeChangeForChange(project(tempDir), "forged-metadata-target")).rejects.toThrow("Change metadata id mismatch");
+    await expect(abandonChangeForChange(project(tempDir), "forged-metadata-target")).rejects.toThrow("Change metadata id mismatch");
+  });
+
   it("blocks close while review is pending and archives when approved", async () => {
     await initHarness(project(tempDir));
     await createChange(project(tempDir), { title: "Closable" });
@@ -149,6 +177,17 @@ describe("change manager", () => {
     const closed = await closeChange(tempDir);
 
     expect(closed.archivePath).toMatch(/collision-\d{6}$/);
+  });
+
+  it("allocates stable unique ids for non-latin concurrent demand titles", async () => {
+    await initHarness(project(tempDir));
+
+    const first = await createConcurrentChange(project(tempDir), { title: "验证左侧会话历史第一条" });
+    const second = await createConcurrentChange(project(tempDir), { title: "验证左侧会话历史第二条" });
+
+    expect(first.change.id).toMatch(/^project-[a-f0-9]{8}$/);
+    expect(second.change.id).toMatch(/^project-[a-f0-9]{8}$/);
+    expect(second.change.id).not.toBe(first.change.id);
   });
 });
 

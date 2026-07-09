@@ -1,0 +1,154 @@
+import { delimiter, join } from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { writeFile } from "node:fs/promises";
+import { describe, expect, it } from "vitest";
+import { initHarness } from "../../src/harness/init.js";
+import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
+import { createWorkbenchTopic } from "../../src/workbench/chat.js";
+import { runIntakeScan } from "../../src/workbench/intake.js";
+import { getWorkbenchSnapshot } from "../../src/workbench/manager.js";
+import {
+  createFakeCodex,
+  getTempDir,
+  git,
+  initGitRepository,
+  project,
+  writeAcceptedSpecAndTasks,
+} from "../unit/workbench/fixtures.js";
+import type { WorkbenchDecisionAction } from "../../src/workbench/read-model-types.js";
+
+const execFileAsync = promisify(execFile);
+const SLOW_FLOW_TIMEOUT_MS = 120_000;
+
+describe("workbench demand-to-execution golden flow", () => {
+  it("carries a natural demand through planning, readiness, code, validation, and audit without source apply", async () => {
+    const oldAhoHome = process.env.AHO_HOME;
+    const oldPath = process.env.PATH;
+    process.env.AHO_HOME = join(getTempDir(), ".aho-home");
+    try {
+      await initGitRepository(getTempDir());
+      await writeFile(join(getTempDir(), ".gitignore"), ".aho-home/\n.agent-harness/\nfake-codex-bin/\nharness/\nAGENTS.md\ndocs/\nscripts/\n", "utf8");
+      await writeFile(join(getTempDir(), "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"process.exit(0)\\\"\"}}\n", "utf8");
+      await git(getTempDir(), ["add", "."]);
+      await git(getTempDir(), ["commit", "-m", "initial"]);
+      await initHarness(project());
+
+      const topic = await createWorkbenchTopic(project(), {
+        title: "Pricing Demand",
+        body: "会员订单满 100 元打九折，非会员不打折，需要测试。",
+      });
+      await runIntakeScan(project(), topic.changeId, "会员订单满 100 元打九折，非会员不打折，需要测试。");
+      await writeAcceptedSpecAndTasks(topic.changeId);
+      process.env.PATH = join(getTempDir(), "no-codex-bin");
+
+      let snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
+      const decompose = primaryWorkflowAction(snapshot, "planning.decompose");
+      expect(decompose).toMatchObject({ changeId: topic.changeId });
+
+      await executeWorkbenchAction({ project: project(), path: getTempDir() }, { ...decompose, confirm: true });
+      snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
+      const confirmDecomposition = primaryWorkflowAction(snapshot, "planning.decomposition.confirm");
+      expect(confirmDecomposition).toMatchObject({ changeId: topic.changeId, decompositionPlanId: expect.any(String) });
+      await executeWorkbenchAction({ project: project(), path: getTempDir() }, { ...confirmDecomposition, confirm: true });
+
+      snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
+      const assessReadiness = primaryWorkflowAction(snapshot, "planning.decomposition.assess-readiness");
+      expect(assessReadiness).toMatchObject({
+        changeId: topic.changeId,
+        decompositionPlanId: confirmDecomposition.decompositionPlanId,
+      });
+      const readinessResult = await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
+        ...assessReadiness,
+        confirm: true,
+      });
+      const readinessWorkflow = unwrapWorkflowActionResult(readinessResult.result) as { manifest: { id: string } };
+      expect(readinessWorkflow).toMatchObject({
+        manifest: expect.objectContaining({
+          status: "ready-for-single-change",
+          nextAllowedAction: "code.run",
+        }),
+        executionStarted: false,
+      });
+
+      snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
+      expect(snapshot.right.confirmationQueue.current.filter((item) => item.primary)).toHaveLength(1);
+      const runCode = primaryWorkflowAction(snapshot, "code.run");
+      expect(runCode).toMatchObject({
+        changeId: topic.changeId,
+        readinessManifestId: readinessWorkflow.manifest.id,
+      });
+      expect(JSON.stringify(snapshot.right.confirmationQueue)).not.toMatch(/full-auto|parallel executor|merge queue|slot allocator|whole-wave/i);
+      if (oldPath === undefined) delete process.env.PATH;
+      else process.env.PATH = oldPath;
+      expect(await gitStatus(getTempDir())).toBe("");
+
+      const fakeCodex = await createFakeCodex();
+      process.env.PATH = `${fakeCodex.binDir}${delimiter}${oldPath ?? ""}`;
+      const codeResult = await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
+        ...runCode,
+        confirm: true,
+      });
+      expect(unwrapWorkflowActionResult(codeResult.result)).toMatchObject({ status: "completed" });
+      expect(await gitStatus(getTempDir())).toBe("");
+
+      snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
+      expect(snapshot.center.workpad.resultReview).toMatchObject({
+        status: "not-ready",
+        validation: expect.objectContaining({ status: "passed" }),
+        audit: expect.objectContaining({ status: expect.stringMatching(/approved/) }),
+        applyReadiness: expect.objectContaining({ kind: "not-approved" }),
+      });
+      expect(snapshot.right.confirmationQueue.primary).toMatchObject({
+        id: expect.stringContaining("confirm:approval:audit:"),
+        changeId: topic.changeId,
+        primary: true,
+      });
+      const auditAccept = primaryApprovalAction(snapshot, "audit.accept");
+      await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
+        action: auditAccept.action,
+        confirm: true,
+      });
+
+      snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
+      expect(snapshot.center.workpad.resultReview).toMatchObject({
+        status: "ready-to-apply",
+        validation: expect.objectContaining({ status: "passed" }),
+        audit: expect.objectContaining({ status: expect.stringMatching(/approved/) }),
+      });
+      expect(snapshot.right.confirmationQueue.primary).toMatchObject({
+        kind: "single-result-apply",
+        changeId: topic.changeId,
+        primary: true,
+      });
+    } finally {
+      if (oldAhoHome === undefined) delete process.env.AHO_HOME;
+      else process.env.AHO_HOME = oldAhoHome;
+      if (oldPath === undefined) delete process.env.PATH;
+      else process.env.PATH = oldPath;
+    }
+  }, SLOW_FLOW_TIMEOUT_MS);
+});
+
+function primaryWorkflowAction(snapshot: Awaited<ReturnType<typeof getWorkbenchSnapshot>>, actionType: string): WorkbenchDecisionAction {
+  const action = snapshot.right.confirmationQueue.primary?.actions.find((candidate) => candidate.actionType === actionType);
+  if (!action) throw new Error(`Missing primary ${actionType} action.`);
+  return action;
+}
+
+function primaryApprovalAction(snapshot: Awaited<ReturnType<typeof getWorkbenchSnapshot>>, actionId: string): WorkbenchDecisionAction {
+  const action = snapshot.right.confirmationQueue.primary?.actions.find((candidate) => candidate.action?.actionId === actionId);
+  if (!action) throw new Error(`Missing primary ${actionId} approval action.`);
+  return action;
+}
+
+function unwrapWorkflowActionResult(value: unknown): unknown {
+  if (!value || typeof value !== "object") return value;
+  const record = value as Record<string, unknown>;
+  return record.result ?? value;
+}
+
+async function gitStatus(cwd: string): Promise<string> {
+  const { stdout } = await execFileAsync("git", ["status", "--porcelain"], { cwd });
+  return stdout.trim();
+}

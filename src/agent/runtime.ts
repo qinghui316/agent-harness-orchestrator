@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { resolveRunnableChangeTarget } from "../change/target.js";
 import { buildCodexReadonlyArgv, buildCodexWorkspaceWriteArgv, detectCodexCapabilities } from "../codex/capabilities.js";
 import { extractFinalMessageFromCodexJsonl } from "../codex/jsonl.js";
+import { resolveCodexEffectiveModel } from "../codex/model-settings.js";
 import { writeJsonFile } from "../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { displayArtifactPath, appendRunEvent, buildContextProjection, buildRunId } from "../run/manager.js";
@@ -140,19 +141,20 @@ export async function startAgentRun(project: ManagedProject, roleId: string, opt
   }
 
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.capabilities.detected", runId, data: { capabilities } });
+  const effectiveModel = await resolveCodexEffectiveModel(options.model);
   const argv = role.writeCapability === "worktree-write"
-    ? buildCodexWorkspaceWriteArgv(capabilities, { projectPath: cwd, lastMessagePath: paths.lastMessage, model: options.model, profile: options.profile })
+    ? buildCodexWorkspaceWriteArgv(capabilities, { projectPath: cwd, lastMessagePath: paths.lastMessage, model: effectiveModel.model ?? undefined, profile: options.profile })
     : buildCodexReadonlyArgv(capabilities, {
       projectPath: cwd,
       lastMessagePath: paths.lastMessage,
-      model: options.model,
+      model: effectiveModel.model ?? undefined,
       profile: options.profile,
       additionalReadDirs: memory.mode === "external-local" ? [memory.memoryRoot] : [],
     });
 
   run = { ...run, command: [argv.command, ...argv.args], status: "running" };
   await writeJsonFile(paths.run, run);
-  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.started", runId, data: { cwd, command: run.command, roleId: role.roleId, skillWarnings: skillContext.warnings } });
+  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.started", runId, data: { cwd, command: run.command, roleId: role.roleId, model: effectiveModel.model, modelSource: effectiveModel.source, skillWarnings: skillContext.warnings } });
   const result = await executeProcessStreaming({
     cwd,
     command: argv.command,

@@ -1,0 +1,294 @@
+import type {
+  DecompositionPlan,
+  DecompositionReadinessManifest,
+  TaskQueueProposal,
+  WorkflowGraphPlan,
+} from "../../../workflow-artifacts/manager.js";
+import type { SchedulerClaimReconcilePlan, SchedulerContract, SchedulerDispatchDryRun, SchedulerLaunchPreflight, SchedulerRun, SchedulerWorkerSessionPlan } from "../../../workflow-scheduler/manager.js";
+import type { SchedulerIntegrationCandidate, SchedulerIntegrationCheckHandoff, SchedulerIntegrationOutcome, SchedulerRunBlockedCloseout, SchedulerRunCompletion, SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkAudit, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkValidation, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerValidation } from "../../../scheduler-runtime/manager.js";
+import type { ResolvedMemory } from "../../../types/index.js";
+import type { WorkbenchProjectInput } from "../../read-model-types.js";
+import { resolveWorkbenchMemory } from "./support.js";
+import { listWorkbenchTopicsFromMemory as listTopicsFromMemory } from "./topics.js";
+import {
+  findWorkbenchTopicPath,
+  getDecompositionPlanProjectionForPath,
+  getDecompositionReadinessProjectionForPath,
+  getTaskQueueProposalProjectionForPath,
+  getWorkflowGraphPlanProjectionForPath,
+  getSchedulerContractProjectionForPath,
+  getSchedulerDispatchDryRunProjectionForPath,
+  getSchedulerClaimReconcilePlanProjectionForPath,
+  getSchedulerClaimReservationProjectionForPath,
+  getSchedulerWorkerAuditProjectionForPath,
+  getSchedulerWorkerReworkPlanProjectionForPath,
+  getSchedulerWorkerReworkAuditProjectionForPath,
+  getSchedulerWorkerReworkResultProjectionForPath,
+  getSchedulerWorkerReworkValidationProjectionForPath,
+  getSchedulerWorkerReworkStartProjectionForPath,
+  getSchedulerWorkerValidationProjectionForPath,
+  getSchedulerIntegrationCheckHandoffProjectionForPath,
+  getSchedulerIntegrationOutcomeProjectionForPath,
+  getSchedulerRunBlockedCloseoutProjectionForPath,
+  getSchedulerRunCompletionProjectionForPath,
+  getSchedulerIntegrationCandidateProjectionForPath,
+  getSchedulerLaunchPreflightProjectionForPath,
+  getSchedulerReconcileSnapshotProjectionForPath,
+  getSchedulerRuntimeProjectionForPath,
+  getSchedulerRunProjectionForPath,
+  getSchedulerWorkerSessionPlanProjectionForPath,
+  getWorkflowRunProjectionForChange,
+} from "../typed-workflow.js";
+
+function listWorkbenchTopicsFromMemory(memory: ResolvedMemory) {
+  return listTopicsFromMemory(memory, { includeDeleted: true });
+}
+
+export async function getWorkbenchDecompositionPlanProjection(input: WorkbenchProjectInput, changeId: string): Promise<DecompositionPlan | null> {
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return null;
+  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const changePath = findWorkbenchTopicPath(topics, changeId);
+  if (!changePath) return null;
+  return getDecompositionPlanProjectionForPath(memory, changePath);
+}
+
+export async function getWorkbenchDecompositionReadinessProjection(input: WorkbenchProjectInput, changeId: string): Promise<DecompositionReadinessManifest | null> {
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return null;
+  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const changePath = findWorkbenchTopicPath(topics, changeId);
+  if (!changePath) return null;
+  return getDecompositionReadinessProjectionForPath(memory, changePath);
+}
+
+export async function getWorkbenchTaskQueueProposalProjection(input: WorkbenchProjectInput, changeId: string): Promise<TaskQueueProposal | null> {
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return null;
+  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const changePath = findWorkbenchTopicPath(topics, changeId);
+  if (!changePath) return null;
+  return getTaskQueueProposalProjectionForPath(memory, changePath);
+}
+
+export async function getWorkbenchWorkflowGraphPlanProjection(input: WorkbenchProjectInput, changeId: string, workflowGraphPlanId?: string): Promise<WorkflowGraphPlan | null> {
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return null;
+  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const changePath = findWorkbenchTopicPath(topics, changeId);
+  if (!changePath) return null;
+  return getWorkflowGraphPlanProjectionForPath(memory, changePath, workflowGraphPlanId);
+}
+
+export async function getWorkbenchSchedulerContractProjection(input: WorkbenchProjectInput, changeId: string, schedulerContractId?: string): Promise<SchedulerContract | null> {
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return null;
+  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const changePath = findWorkbenchTopicPath(topics, changeId);
+  if (!changePath) return null;
+  return getSchedulerContractProjectionForPath(memory, changePath, schedulerContractId);
+}
+
+export async function getWorkbenchSchedulerDispatchDryRunProjection(input: WorkbenchProjectInput, changeId: string, dryRunId?: string): Promise<SchedulerDispatchDryRun | null> {
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return null;
+  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const changePath = findWorkbenchTopicPath(topics, changeId);
+  if (!changePath) return null;
+  return getSchedulerDispatchDryRunProjectionForPath(memory, changePath, dryRunId);
+}
+
+export async function getWorkbenchSchedulerWorkerSessionPlanProjection(input: WorkbenchProjectInput, changeId: string, workerPlanId?: string): Promise<SchedulerWorkerSessionPlan | null> {
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return null;
+  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const changePath = findWorkbenchTopicPath(topics, changeId);
+  if (!changePath) return null;
+  return getSchedulerWorkerSessionPlanProjectionForPath(memory, changePath, workerPlanId);
+}
+
+export async function getWorkbenchSchedulerClaimReconcilePlanProjection(input: WorkbenchProjectInput, changeId: string, claimReconcilePlanId?: string): Promise<SchedulerClaimReconcilePlan | null> {
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return null;
+  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const changePath = findWorkbenchTopicPath(topics, changeId);
+  if (!changePath) return null;
+  return getSchedulerClaimReconcilePlanProjectionForPath(memory, changePath, claimReconcilePlanId);
+}
+
+export async function getWorkbenchSchedulerLaunchPreflightProjection(input: WorkbenchProjectInput, changeId: string, preflightId?: string): Promise<SchedulerLaunchPreflight | null> {
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return null;
+  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const changePath = findWorkbenchTopicPath(topics, changeId);
+  if (!changePath) return null;
+  return getSchedulerLaunchPreflightProjectionForPath(memory, changePath, preflightId);
+}
+
+export async function getWorkbenchSchedulerRunProjection(input: WorkbenchProjectInput, changeId: string, schedulerRunId?: string): Promise<SchedulerRun | null> {
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return null;
+  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const changePath = findWorkbenchTopicPath(topics, changeId);
+  if (!changePath) return null;
+  return getSchedulerRunProjectionForPath(memory, changePath, schedulerRunId);
+}
+
+export async function getWorkbenchSchedulerRuntimeProjection(input: WorkbenchProjectInput, changeId: string, schedulerRunId?: string): Promise<SchedulerRuntimeState | null> {
+  if (!schedulerRunId) return null;
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return null;
+  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const changePath = findWorkbenchTopicPath(topics, changeId);
+  if (!changePath) return null;
+  return getSchedulerRuntimeProjectionForPath(memory, changePath, schedulerRunId);
+}
+
+export async function getWorkbenchSchedulerReconcileSnapshotProjection(input: WorkbenchProjectInput, changeId: string, snapshotId?: string, schedulerRunId?: string): Promise<SchedulerReconcileSnapshot | null> {
+  if (!snapshotId) return null;
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return null;
+  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const changePath = findWorkbenchTopicPath(topics, changeId);
+  if (!changePath) return null;
+  return getSchedulerReconcileSnapshotProjectionForPath(memory, changePath, snapshotId, schedulerRunId);
+}
+
+export async function getWorkbenchSchedulerClaimReservationProjection(input: WorkbenchProjectInput, changeId: string, schedulerRunId?: string, reservationId?: string): Promise<SchedulerRuntimeClaimReservation | null> {
+  if (!schedulerRunId || !reservationId) return null;
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return null;
+  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const changePath = findWorkbenchTopicPath(topics, changeId);
+  if (!changePath) return null;
+  return getSchedulerClaimReservationProjectionForPath(memory, changePath, schedulerRunId, reservationId);
+}
+
+export async function getWorkbenchSchedulerWorkerValidationProjection(input: WorkbenchProjectInput, changeId: string, schedulerRunId?: string, validationId?: string): Promise<SchedulerRuntimeWorkerValidation | null> {
+  if (!schedulerRunId || !validationId) return null;
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return null;
+  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const changePath = findWorkbenchTopicPath(topics, changeId);
+  if (!changePath) return null;
+  return getSchedulerWorkerValidationProjectionForPath(memory, changePath, schedulerRunId, validationId);
+}
+
+export async function getWorkbenchSchedulerWorkerAuditProjection(input: WorkbenchProjectInput, changeId: string, schedulerRunId?: string, auditId?: string): Promise<SchedulerRuntimeWorkerAudit | null> {
+  if (!schedulerRunId || !auditId) return null;
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return null;
+  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const changePath = findWorkbenchTopicPath(topics, changeId);
+  if (!changePath) return null;
+  return getSchedulerWorkerAuditProjectionForPath(memory, changePath, schedulerRunId, auditId);
+}
+
+export async function getWorkbenchSchedulerWorkerReworkPlanProjection(input: WorkbenchProjectInput, changeId: string, schedulerRunId?: string, reworkPlanId?: string): Promise<SchedulerRuntimeWorkerReworkPlan | null> {
+  if (!schedulerRunId || !reworkPlanId) return null;
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return null;
+  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const changePath = findWorkbenchTopicPath(topics, changeId);
+  if (!changePath) return null;
+  return getSchedulerWorkerReworkPlanProjectionForPath(memory, changePath, schedulerRunId, reworkPlanId);
+}
+
+export async function getWorkbenchSchedulerWorkerReworkStartProjection(input: WorkbenchProjectInput, changeId: string, schedulerRunId?: string, reworkStartId?: string): Promise<SchedulerRuntimeWorkerReworkStart | null> {
+  if (!schedulerRunId || !reworkStartId) return null;
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return null;
+  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const changePath = findWorkbenchTopicPath(topics, changeId);
+  if (!changePath) return null;
+  return getSchedulerWorkerReworkStartProjectionForPath(memory, changePath, schedulerRunId, reworkStartId);
+}
+
+export async function getWorkbenchSchedulerWorkerReworkResultProjection(input: WorkbenchProjectInput, changeId: string, schedulerRunId?: string, reworkResultId?: string): Promise<SchedulerRuntimeWorkerReworkResult | null> {
+  if (!schedulerRunId || !reworkResultId) return null;
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return null;
+  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const changePath = findWorkbenchTopicPath(topics, changeId);
+  if (!changePath) return null;
+  return getSchedulerWorkerReworkResultProjectionForPath(memory, changePath, schedulerRunId, reworkResultId);
+}
+
+export async function getWorkbenchSchedulerWorkerReworkValidationProjection(input: WorkbenchProjectInput, changeId: string, schedulerRunId?: string, reworkValidationId?: string): Promise<SchedulerRuntimeWorkerReworkValidation | null> {
+  if (!schedulerRunId || !reworkValidationId) return null;
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return null;
+  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const changePath = findWorkbenchTopicPath(topics, changeId);
+  if (!changePath) return null;
+  return getSchedulerWorkerReworkValidationProjectionForPath(memory, changePath, schedulerRunId, reworkValidationId);
+}
+
+export async function getWorkbenchSchedulerWorkerReworkAuditProjection(input: WorkbenchProjectInput, changeId: string, schedulerRunId?: string, reworkAuditId?: string): Promise<SchedulerRuntimeWorkerReworkAudit | null> {
+  if (!schedulerRunId || !reworkAuditId) return null;
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return null;
+  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const changePath = findWorkbenchTopicPath(topics, changeId);
+  if (!changePath) return null;
+  return getSchedulerWorkerReworkAuditProjectionForPath(memory, changePath, schedulerRunId, reworkAuditId);
+}
+
+export async function getWorkbenchSchedulerIntegrationCandidateProjection(input: WorkbenchProjectInput, changeId: string, schedulerRunId?: string, candidateId?: string): Promise<SchedulerIntegrationCandidate | null> {
+  if (!schedulerRunId || !candidateId) return null;
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return null;
+  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const changePath = findWorkbenchTopicPath(topics, changeId);
+  if (!changePath) return null;
+  return getSchedulerIntegrationCandidateProjectionForPath(memory, changePath, schedulerRunId, candidateId);
+}
+
+export async function getWorkbenchSchedulerIntegrationCheckHandoffProjection(input: WorkbenchProjectInput, changeId: string, schedulerRunId?: string, handoffId?: string): Promise<SchedulerIntegrationCheckHandoff | null> {
+  if (!schedulerRunId || !handoffId) return null;
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return null;
+  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const changePath = findWorkbenchTopicPath(topics, changeId);
+  if (!changePath) return null;
+  return getSchedulerIntegrationCheckHandoffProjectionForPath(memory, changePath, schedulerRunId, handoffId);
+}
+
+export async function getWorkbenchSchedulerIntegrationOutcomeProjection(input: WorkbenchProjectInput, changeId: string, schedulerRunId?: string, outcomeId?: string): Promise<SchedulerIntegrationOutcome | null> {
+  if (!schedulerRunId || !outcomeId) return null;
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return null;
+  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const changePath = findWorkbenchTopicPath(topics, changeId);
+  if (!changePath) return null;
+  return getSchedulerIntegrationOutcomeProjectionForPath(memory, changePath, schedulerRunId, outcomeId);
+}
+
+export async function getWorkbenchSchedulerRunCompletionProjection(input: WorkbenchProjectInput, changeId: string, schedulerRunId?: string, completionId?: string): Promise<SchedulerRunCompletion | null> {
+  if (!schedulerRunId || !completionId) return null;
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return null;
+  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const changePath = findWorkbenchTopicPath(topics, changeId);
+  if (!changePath) return null;
+  return getSchedulerRunCompletionProjectionForPath(memory, changePath, schedulerRunId, completionId);
+}
+
+export async function getWorkbenchSchedulerRunBlockedCloseoutProjection(input: WorkbenchProjectInput, changeId: string, schedulerRunId?: string, closeoutId?: string): Promise<SchedulerRunBlockedCloseout | null> {
+  if (!schedulerRunId || !closeoutId) return null;
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return null;
+  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const changePath = findWorkbenchTopicPath(topics, changeId);
+  if (!changePath) return null;
+  return getSchedulerRunBlockedCloseoutProjectionForPath(memory, changePath, schedulerRunId, closeoutId);
+}
+
+export async function getWorkbenchWorkflowRunProjection(input: WorkbenchProjectInput, changeId: string, workflowRunId: string): Promise<Awaited<ReturnType<typeof getWorkflowRunProjectionForChange>> | null> {
+  const memory = await resolveWorkbenchMemory(input);
+  if (!memory.supported) return null;
+  const topics = await listWorkbenchTopicsFromMemory(memory);
+  const changePath = findWorkbenchTopicPath(topics, changeId);
+  if (!changePath) return null;
+  return getWorkflowRunProjectionForChange(memory, changeId, workflowRunId);
+}

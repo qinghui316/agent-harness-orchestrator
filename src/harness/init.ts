@@ -83,7 +83,9 @@ export async function initHarness(project: ManagedProject, options: HarnessInitO
     await writeExternalAgentGuide(project, resolvedMemory, created, skipped);
   }
   const markerAlreadyExists = existsSync(resolvedMemory.markerPath);
-  await writeProjectMarker(project, requestedMode);
+  if (!markerAlreadyExists) {
+    await writeProjectMarker(project, requestedMode);
+  }
   (markerAlreadyExists ? skipped : created).push({ base: "project-root", path: ".agent-harness/project.json" });
   await ensureAgentHarnessIgnore(project.path, created, skipped);
   const templateRoot = getTemplateRoot();
@@ -110,7 +112,7 @@ async function ensureAgentHarnessIgnore(projectPath: string, created: HarnessIni
   const path = join(projectPath, ".agent-harness", ".gitignore");
   if (existsSync(path)) {
     const existing = await readFile(path, "utf8");
-    const required = ["runs/", "worktrees/"];
+    const required = ["runs/", "worktrees/", "workbench/"];
     const missing = required.filter((line) => !existing.split(/\r?\n/).includes(line));
     if (missing.length === 0) {
       skipped.push({ base: "project-root", path: ".agent-harness/.gitignore" });
@@ -121,7 +123,7 @@ async function ensureAgentHarnessIgnore(projectPath: string, created: HarnessIni
     created.push({ base: "project-root", path: ".agent-harness/.gitignore" });
     return;
   }
-  await writeFile(path, "runs/\nworktrees/\n", "utf8");
+  await writeFile(path, "runs/\nworktrees/\nworkbench/\n", "utf8");
   created.push({ base: "project-root", path: ".agent-harness/.gitignore" });
 }
 
@@ -184,12 +186,22 @@ async function writeExternalAgentGuide(
       skipped.push({ base: "project-root", path: "AGENTS.md" });
       return;
     }
+    if (!isGeneratedExternalAgentGuide(existing)) {
+      skipped.push({ base: "project-root", path: "AGENTS.md" });
+      return;
+    }
     const backup = nextAgentBackupPath(memory.agentGuidePath);
     await copyFile(memory.agentGuidePath, backup);
     created.push({ base: "project-root", path: basename(backup) });
   }
   await writeFile(memory.agentGuidePath, content, "utf8");
   created.push({ base: "project-root", path: "AGENTS.md" });
+}
+
+function isGeneratedExternalAgentGuide(content: string): boolean {
+  return content.includes("This project uses Agent Harness Orchestrator external-local memory.")
+    && content.includes("## Memory Resolution")
+    && content.includes("Durable Harness memory is outside this repository and must be resolved by AHO.");
 }
 
 function nextAgentBackupPath(agentGuidePath: string): string {

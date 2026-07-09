@@ -1,18 +1,23 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { join } from "node:path";
 import { resolveRunnableChangeTarget } from "../change/target.js";
 import { buildCodexReadonlyArgv, detectCodexCapabilities } from "../codex/capabilities.js";
 import { CodexCompletionTracker, codexLifecycleTiming, type CodexCompletionSnapshot } from "../codex/completion.js";
 import { createCodexJsonlStreamParser, extractFinalMessageFromCodexJsonl } from "../codex/jsonl.js";
+import { resolveCodexEffectiveModel } from "../codex/model-settings.js";
 import { composeCodexPrompt } from "../codex/prompt.js";
 import { writeJsonFile } from "../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
+import { codexProviderRunMetadata } from "../provider-runtime/index.js";
 import { getEnabledSkillContext } from "../skill/catalog.js";
-import type { ManagedProject, ResolvedMemory, RunMetadata, RunStatus } from "../types/index.js";
+import type { ManagedProject, RunMetadata, RunStatus } from "../types/index.js";
 import { isRunStopRequested } from "./control.js";
-import { appendRunEvent, buildContextProjection, buildRunId } from "./manager.js";
+import { buildContextProjection } from "./context-projection.js";
+import { appendRunEvent } from "./events.js";
+import { displayArtifactPath } from "./paths.js";
 import { executeProcessStreaming, type ProcessExecutionResult } from "./process.js";
+import { buildRunId } from "./run-id.js";
 
 export interface CodexReadonlyRunOptions {
   prompt: string;
@@ -108,15 +113,28 @@ export async function startCodexReadonlyRun(project: ManagedProject, options: Co
   }
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.capabilities.detected", runId, data: { capabilities } });
 
+  const effectiveModel = await resolveCodexEffectiveModel(options.model);
   const argv = buildCodexReadonlyArgv(capabilities, {
     projectPath: project.path,
     lastMessagePath: paths.lastMessage,
-    model: options.model,
+    model: effectiveModel.model ?? undefined,
     profile: options.profile,
   });
   run = { ...run, command: [argv.command, ...argv.args], status: "running" };
   await writeJsonFile(paths.run, run);
-  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.started", runId, data: { cwd: project.path, command: run.command, skillWarnings: skillContext.warnings } });
+  await appendRunEvent(paths.events, {
+    timestamp: new Date().toISOString(),
+    type: "codex.started",
+    runId,
+    data: {
+      cwd: project.path,
+      command: run.command,
+      model: effectiveModel.model,
+      modelSource: effectiveModel.source,
+      skillWarnings: skillContext.warnings,
+      ...codexProviderRunMetadata({ adapter: "codex-readonly", model: effectiveModel.model, modelSource: effectiveModel.source, capabilities }),
+    },
+  });
 
   const completion = new CodexCompletionTracker({ lastMessagePath: paths.lastMessage });
   const lifecycleTiming = codexLifecycleTiming(8 * 60 * 1000);
@@ -154,11 +172,6 @@ export async function startCodexReadonlyRun(project: ManagedProject, options: Co
   await appendRunEvent(paths.events, { timestamp: run.finishedAt ?? new Date().toISOString(), type: status === "completed" ? "run.completed" : "run.failed", runId });
 
   return { run };
-}
-
-function displayArtifactPath(memory: ResolvedMemory, absolutePath: string): string {
-  const base = memory.artifactBase === "memory-root" ? memory.memoryRoot : memory.projectRoot;
-  return relative(base, absolutePath).replace(/\\/g, "/");
 }
 
 function processDiagnosticsData(processResult: ProcessExecutionResult, completion: CodexCompletionSnapshot): Record<string, unknown> {

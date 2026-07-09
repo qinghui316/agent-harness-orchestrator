@@ -1,13 +1,34 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseAuditMessage } from "../../src/audit/parser.js";
 import { composeAuditPrompt } from "../../src/audit/prompt.js";
+import { acceptAudit, startAuditRun } from "../../src/audit/manager.js";
+import { listAuditResults, readAuditResult } from "../../src/audit/artifacts.js";
 import { createChange, getChangeStatus } from "../../src/change/manager.js";
 import { writeJsonFile } from "../../src/fs/json.js";
 import { initHarness } from "../../src/harness/init.js";
+import { repoLocalMemory } from "../../src/memory/resolver.js";
 import type { AuditResult, ManagedProject } from "../../src/types/index.js";
+import type { ValidationResult } from "../../src/types/index.js";
+
+vi.mock("../../src/codex/capabilities.js", () => ({
+  detectCodexCapabilities: vi.fn(async () => ({
+    available: false,
+    version: null,
+    approvalFlagPlacement: "unsupported",
+    supportsJson: false,
+    supportsSandbox: false,
+    supportsCd: false,
+    supportsAddDir: false,
+    supportsColor: false,
+    supportsOutputLastMessage: false,
+    supportsSafeResume: false,
+    errors: ["Codex CLI is not available on PATH."],
+  })),
+  buildCodexReadonlyArgv: vi.fn(() => ({ command: "codex", args: ["exec", "--json"] })),
+}));
 
 let tempDir: string;
 
@@ -68,6 +89,8 @@ describe("audit parser and prompt", () => {
 
     expect(prompt).toContain("Auditor Agent Profile");
     expect(prompt).toContain("Status: approved | approved-with-notes | blocked");
+    expect(prompt).toContain("Use Status: approved when the implementation satisfies the accepted demand");
+    expect(prompt).toContain("Do not turn positive evidence or passing validation into note findings");
     expect(prompt).toContain("Authoritative Audit Packet");
     expect(prompt).toContain("Do not block only because external-local durable memory is outside the Codex working directory.");
     expect(prompt).toContain("AC-001");
@@ -96,15 +119,113 @@ describe("audit close gate", () => {
     const blocked = await getChangeStatus(project(tempDir));
     expect(blocked.closeGate.blockingIssues).toContain("Latest audit blocked close: audit-blocked.");
   });
+
+  it("rejects forged audit evidence on direct read and skips it in list paths", async () => {
+    await initHarness(project(tempDir));
+    await createChange(project(tempDir), { title: "Audit Scope" });
+    const memory = repoLocalMemory(tempDir, "repo");
+
+    await mkdir(join(tempDir, ".agent-harness", "runs", "audit-good"), { recursive: true });
+    await writeAudit("audit-good", "audit-scope", "approved");
+    await mkdir(join(tempDir, ".agent-harness", "runs", "audit-forged"), { recursive: true });
+    await writeAuditAt("audit-forged", "audit-other-id", "audit-scope", "blocked");
+    await mkdir(join(tempDir, ".agent-harness", "runs", "audit-malformed"), { recursive: true });
+    await writeFile(join(tempDir, ".agent-harness", "runs", "audit-malformed", "audit.json"), "{", "utf8");
+
+    await expect(readAuditResult(memory, "audit-forged")).rejects.toThrow("does not match run directory");
+    await expect(readAuditResult(memory, "audit-good", { changeId: "other-change" })).rejects.toThrow("does not match requested change");
+    const listed = await listAuditResults(memory, "audit-scope");
+    expect(listed.map((item) => item.id)).toEqual(["audit-good"]);
+
+    const status = await getChangeStatus(project(tempDir));
+    expect(status.latestAudit?.id).toBe("audit-good");
+  });
+
+  it("rejects audit acceptance when referenced validation evidence is missing or cross-change", async () => {
+    await initHarness(project(tempDir));
+    await createChange(project(tempDir), { title: "Audit Accept Scope" });
+    const changeDir = join(tempDir, "harness", "changes", "active", "audit-accept-scope");
+    await writeFile(join(changeDir, "reviews", "review.md"), "Status: approved\n", "utf8");
+    await mkdir(join(tempDir, ".agent-harness", "runs", "audit-with-missing-validation"), { recursive: true });
+    await writeAudit("audit-with-missing-validation", "audit-accept-scope", "approved", "2026-01-01T00:00:00.000Z", "missing-validation");
+    await expect(acceptAudit(project(tempDir), "audit-with-missing-validation")).rejects.toThrow();
+
+    await mkdir(join(tempDir, ".agent-harness", "runs", "cross-validation"), { recursive: true });
+    await writeValidation("cross-validation", "other-change", "passed");
+    await mkdir(join(tempDir, ".agent-harness", "runs", "audit-with-cross-validation"), { recursive: true });
+    await writeAudit("audit-with-cross-validation", "audit-accept-scope", "approved", "2026-01-02T00:00:00.000Z", "cross-validation");
+    await expect(acceptAudit(project(tempDir), "audit-with-cross-validation")).rejects.toThrow("does not match requested change");
+  });
+
+  it("records runtime continuity sidecars for direct audit capability failures", async () => {
+    await initHarness(project(tempDir));
+    await createChange(project(tempDir), { title: "Audit Runtime Continuity" });
+
+    const result = await startAuditRun(project(tempDir));
+    const runDir = join(tempDir, result.run.artifacts.directory);
+    const workerSession = JSON.parse(await readFile(join(runDir, "worker-session.json"), "utf8"));
+    const runtimeWorkspace = JSON.parse(await readFile(join(runDir, "runtime-workspace.json"), "utf8"));
+    const eventSource = JSON.parse(await readFile(join(runDir, "event-source.json"), "utf8"));
+    const agentEvents = (await readFile(join(runDir, "agent-events.jsonl"), "utf8")).trim().split(/\r?\n/).map((line) => JSON.parse(line));
+
+    expect(result.run.status).toBe("failed");
+    expect(result.audit.status).toBe("failed");
+    expect(workerSession).toMatchObject({ adapter: "audit-codex-readonly", changeId: "audit-runtime-continuity", runId: result.run.id, roleId: "auditor-agent", status: "failed" });
+    expect(runtimeWorkspace).toMatchObject({ workspaceKind: "source-root", cwd: tempDir, roleId: "auditor-agent" });
+    expect(runtimeWorkspace.worktreeId).toBeUndefined();
+    expect(eventSource).toMatchObject({ adapter: "audit-codex-readonly", status: "failed", workerSessionId: workerSession.id });
+    expect(agentEvents.map((event) => event.eventType)).toEqual(expect.arrayContaining([
+      "permission.profile.attached",
+      "codex.capabilities.failed",
+      "external-execution.failed",
+    ]));
+    expect(agentEvents[0]).toMatchObject({ changeId: "audit-runtime-continuity", runId: result.run.id, roleId: "auditor-agent" });
+    expect(agentEvents[0].raw.changeId).toBeUndefined();
+  });
+
+  it("binds scheduler audit to the explicitly requested validation evidence", async () => {
+    await initHarness(project(tempDir));
+    await createChange(project(tempDir), { title: "Audit Exact Validation" });
+    await writeValidation("validation-old", "audit-exact-validation", "passed", "2026-01-01T00:00:00.000Z");
+    await writeValidation("validation-selected", "audit-exact-validation", "passed", "2026-01-02T00:00:00.000Z");
+
+    const result = await startAuditRun(project(tempDir), { validationId: "validation-old" });
+    expect(result.audit).toMatchObject({
+      changeId: "audit-exact-validation",
+      validationId: "validation-old",
+      status: "failed",
+    });
+
+    await writeValidation("validation-cross", "other-change", "passed", "2026-01-03T00:00:00.000Z");
+    await expect(startAuditRun(project(tempDir), { validationId: "validation-cross" })).rejects.toThrow("does not match requested change");
+  });
 });
 
-async function writeAudit(id: string, changeId: string, status: AuditResult["status"], startedAt = "2026-01-01T00:00:00.000Z"): Promise<void> {
+async function writeAudit(
+  id: string,
+  changeId: string,
+  status: AuditResult["status"],
+  startedAt = "2026-01-01T00:00:00.000Z",
+  validationId?: string,
+): Promise<void> {
+  await writeAuditAt(id, id, changeId, status, startedAt, validationId);
+}
+
+async function writeAuditAt(
+  directoryId: string,
+  id: string,
+  changeId: string,
+  status: AuditResult["status"],
+  startedAt = "2026-01-01T00:00:00.000Z",
+  validationId?: string,
+): Promise<void> {
   const audit: AuditResult = {
     version: "1.0",
     id,
     runId: id,
     changeId,
     status,
+    validationId,
     startedAt,
     finishedAt: startedAt,
     findings: [],
@@ -114,5 +235,21 @@ async function writeAudit(id: string, changeId: string, status: AuditResult["sta
       lastMessage: `.agent-harness/runs/${id}/last-message.md`,
     },
   };
-  await writeJsonFile(join(tempDir, ".agent-harness", "runs", id, "audit.json"), audit);
+  await writeJsonFile(join(tempDir, ".agent-harness", "runs", directoryId, "audit.json"), audit);
+}
+
+async function writeValidation(id: string, changeId: string, status: ValidationResult["status"], startedAt = "2026-01-01T00:00:00.000Z"): Promise<void> {
+  const validation: ValidationResult = {
+    version: "1.0",
+    id,
+    runId: id,
+    changeId,
+    profile: "default",
+    status,
+    executionMode: "direct",
+    startedAt,
+    finishedAt: startedAt,
+    commands: [],
+  };
+  await writeJsonFile(join(tempDir, ".agent-harness", "runs", id, "validation.json"), validation);
 }

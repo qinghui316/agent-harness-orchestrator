@@ -1,8 +1,9 @@
 import { join } from "node:path";
 import { z } from "zod";
 import type { ManagedProject, RegistryFile } from "../types/index.js";
-import { getAhoHome, normalizeForCompare, shortHash, slugify } from "../fs/path.js";
+import { defaultProjectName, getAhoHome, normalizeForCompare, shortHash, slugify } from "../fs/path.js";
 import { readJsonFile, writeJsonFile } from "../fs/json.js";
+import { readProjectMarker } from "../project/marker.js";
 
 const ManagedProjectSchema = z.object({
   id: z.string(),
@@ -46,9 +47,15 @@ export class ProjectRegistryStore {
       return existing;
     }
 
-    const displayName = name?.trim() || path.split(/[\\/]/).filter(Boolean).at(-1) || "project";
-    const baseId = slugify(displayName);
+    const marker = await readProjectMarker(path);
+    const displayName = name?.trim() || defaultProjectName(path) || "project";
+    const baseId = marker?.id ?? slugify(displayName);
     const ids = new Set(registry.projects.map((project) => project.id));
+    if (marker && ids.has(marker.id)) {
+      const error = new Error(`Project marker id is already registered for a different path: ${marker.id}`);
+      error.name = "Conflict";
+      throw error;
+    }
     const id = ids.has(baseId) ? `${baseId}-${shortHash(path)}` : baseId;
     const now = new Date().toISOString();
     const project: ManagedProject = {
@@ -65,6 +72,18 @@ export class ProjectRegistryStore {
 
   async listProjects(): Promise<ManagedProject[]> {
     return (await this.load()).projects;
+  }
+
+  async removeProject(query: string): Promise<ManagedProject | null> {
+    const registry = await this.load();
+    const comparable = normalizeForCompare(query);
+    const index = registry.projects.findIndex((project) =>
+      project.id === query || normalizeForCompare(project.path) === comparable
+    );
+    if (index === -1) return null;
+    const [removed] = registry.projects.splice(index, 1);
+    await this.save(registry);
+    return removed ?? null;
   }
 
   async resolveProject(query: string): Promise<ManagedProject | null> {

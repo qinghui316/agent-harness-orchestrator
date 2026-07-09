@@ -32,6 +32,7 @@ export async function recordToolEventAuditEntry(
     actorRoleId: string;
     actionType: string;
     targetId?: string;
+    scope?: Record<string, unknown>;
     decision: ToolPolicyDecision;
     evidenceRefs?: string[];
   },
@@ -44,6 +45,7 @@ export async function recordToolEventAuditEntry(
     actorRoleId: input.actorRoleId,
     actionType: input.actionType,
     ...(input.targetId ? { targetId: input.targetId } : {}),
+    ...(input.scope ? { scope: input.scope } : {}),
     decisionStatus: input.decision.status,
     enforcementMode: input.decision.enforcementMode,
     reason: input.decision.reason,

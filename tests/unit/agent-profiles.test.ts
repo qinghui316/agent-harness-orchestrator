@@ -113,4 +113,14 @@ describe("agent role profiles", () => {
       }
     }
   });
+
+  it("keeps planning-agent aligned with native Plan Mode instead of a forced AHO template", async () => {
+    const content = await readProfile("planning-agent");
+
+    expect(content).toContain("native Plan Mode surface");
+    expect(content).toContain("Do not write project files or Harness files.");
+    expect(content).toContain("Do not recursively delegate to another Agent.");
+    expect(content).not.toContain("Acceptance Criteria, Design, Tasks");
+    expect(content).not.toContain("JSON fields named");
+  });
 });

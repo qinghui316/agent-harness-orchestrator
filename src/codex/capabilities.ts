@@ -16,6 +16,7 @@ export interface CodexCapabilities {
   supportsColor: boolean;
   supportsOutputLastMessage: boolean;
   supportsSafeResume: boolean;
+  supportsResumeAddDir: boolean;
   errors: string[];
 }
 
@@ -30,6 +31,10 @@ export interface CodexArgvOptions {
   model?: string;
   profile?: string;
   additionalReadDirs?: string[];
+}
+
+export function codexRuntimeConfigArgs(): string[] {
+  return ["-c", 'service_tier="fast"'];
 }
 
 export function evaluateCodexCapabilities(versionOutput: string | null, rootHelp: string | null, execHelp: string | null, spawnError?: string, resumeHelp: string | null = null): CodexCapabilities {
@@ -48,6 +53,7 @@ export function evaluateCodexCapabilities(versionOutput: string | null, rootHelp
   const supportsAddDir = includesFlag(execHelp, "--add-dir");
   const supportsColor = includesFlag(execHelp, "--color");
   const supportsOutputLastMessage = includesFlag(execHelp, "--output-last-message");
+  const supportsResumeAddDir = includesFlag(resumeHelp, "--add-dir");
   const supportsSafeResume = includesFlag(resumeHelp, "--sandbox") && (includesFlag(resumeHelp, "--cd") || includesFlag(resumeHelp, "-C, --cd"));
 
   if (!available) errors.push("Codex CLI is not available on PATH.");
@@ -66,6 +72,7 @@ export function evaluateCodexCapabilities(versionOutput: string | null, rootHelp
     supportsColor,
     supportsOutputLastMessage,
     supportsSafeResume,
+    supportsResumeAddDir,
     errors,
   };
 }
@@ -108,7 +115,7 @@ export function assertCodexSafeToRun(capabilities: CodexCapabilities): void {
 export function buildCodexReadonlyArgv(capabilities: CodexCapabilities, options: CodexArgvOptions): CodexArgv {
   assertCodexSafeToRun(capabilities);
 
-  const args: string[] = [];
+  const args: string[] = [...codexRuntimeConfigArgs()];
   if (capabilities.approvalFlagPlacement === "root") {
     args.push("--ask-for-approval", "never");
   }
@@ -141,8 +148,16 @@ export function buildCodexReadonlyResumeArgv(capabilities: CodexCapabilities, op
   if (!capabilities.supportsSafeResume) {
     throw new Error("Codex resume does not expose equivalent read-only sandbox and cwd constraints; use a fresh read-only exec.");
   }
+  if ((options.additionalReadDirs?.length ?? 0) > 0 && !capabilities.supportsResumeAddDir) {
+    throw new Error("Codex resume does not expose --add-dir for external read-only memory; use a fresh read-only exec.");
+  }
 
-  const args: string[] = ["exec", "resume", "--json", "--sandbox", "read-only", "--cd", options.projectPath];
+  const args: string[] = [...codexRuntimeConfigArgs(), "exec", "resume", "--json", "--sandbox", "read-only", "--cd", options.projectPath];
+  if (capabilities.supportsResumeAddDir) {
+    for (const dir of options.additionalReadDirs ?? []) {
+      args.push("--add-dir", dir);
+    }
+  }
   if (capabilities.supportsOutputLastMessage) args.push("--output-last-message", options.lastMessagePath);
   if (options.model) args.push("--model", options.model);
   if (options.profile) args.push("--profile", options.profile);
@@ -154,7 +169,7 @@ export function buildCodexReadonlyResumeArgv(capabilities: CodexCapabilities, op
 export function buildCodexWorkspaceWriteArgv(capabilities: CodexCapabilities, options: CodexArgvOptions): CodexArgv {
   assertCodexSafeToRun(capabilities);
 
-  const args: string[] = [];
+  const args: string[] = [...codexRuntimeConfigArgs()];
   if (capabilities.approvalFlagPlacement === "root") {
     args.push("--ask-for-approval", "never");
   }
@@ -169,6 +184,11 @@ export function buildCodexWorkspaceWriteArgv(capabilities: CodexCapabilities, op
   if (capabilities.supportsColor) args.push("--color", "never");
   args.push("--sandbox", "workspace-write");
   args.push("--cd", options.projectPath);
+  if (capabilities.supportsAddDir) {
+    for (const dir of options.additionalReadDirs ?? []) {
+      args.push("--add-dir", dir);
+    }
+  }
   if (capabilities.supportsOutputLastMessage) args.push("--output-last-message", options.lastMessagePath);
   if (options.model) args.push("--model", options.model);
   if (options.profile) args.push("--profile", options.profile);

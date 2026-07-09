@@ -1,0 +1,219 @@
+import { join } from "node:path";
+import type { ResolvedMemory } from "../types/index.js";
+
+export function schedulerRuntimeDir(memory: ResolvedMemory, changePath: string, schedulerRunId: string): string {
+  return join(memory.memoryRoot, changePath, "planning", "scheduler-runs", schedulerRunId);
+}
+
+export function schedulerRuntimeStatePath(memory: ResolvedMemory, changePath: string, schedulerRunId: string): string {
+  return join(schedulerRuntimeDir(memory, changePath, schedulerRunId), "scheduler-runtime-state.json");
+}
+
+export function schedulerRuntimeEventsPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string): string {
+  return join(schedulerRuntimeDir(memory, changePath, schedulerRunId), "scheduler-runtime-events.jsonl");
+}
+
+export function schedulerControlledStepsDir(memory: ResolvedMemory, changePath: string, schedulerRunId?: string): string {
+  if (schedulerRunId) return join(schedulerRuntimeDir(memory, changePath, schedulerRunId), "scheduler-controlled-steps");
+  return join(memory.memoryRoot, changePath, "planning", "scheduler-controlled-steps");
+}
+
+export function schedulerControlledStepPath(memory: ResolvedMemory, changePath: string, stepId: string, schedulerRunId?: string): string {
+  return join(schedulerControlledStepsDir(memory, changePath, schedulerRunId), `${stepId}.json`);
+}
+
+export function schedulerControlledStepMarkdownPath(memory: ResolvedMemory, changePath: string, stepId: string, schedulerRunId?: string): string {
+  return join(schedulerControlledStepsDir(memory, changePath, schedulerRunId), `${stepId}.md`);
+}
+
+export function schedulerReconcileSnapshotsDir(memory: ResolvedMemory, changePath: string, schedulerRunId: string): string {
+  return join(schedulerRuntimeDir(memory, changePath, schedulerRunId), "scheduler-reconcile-snapshots");
+}
+
+export function schedulerReconcileSnapshotPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, snapshotId: string): string {
+  return join(schedulerReconcileSnapshotsDir(memory, changePath, schedulerRunId), `${snapshotId}.json`);
+}
+
+export function schedulerReconcileSnapshotMarkdownPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, snapshotId: string): string {
+  return join(schedulerReconcileSnapshotsDir(memory, changePath, schedulerRunId), `${snapshotId}.md`);
+}
+
+export function schedulerClaimReservationsDir(memory: ResolvedMemory, changePath: string, schedulerRunId: string): string {
+  return join(schedulerRuntimeDir(memory, changePath, schedulerRunId), "scheduler-runtime-claim-reservations");
+}
+
+export function schedulerClaimReservationPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reservationId: string): string {
+  return join(schedulerClaimReservationsDir(memory, changePath, schedulerRunId), `${reservationId}.json`);
+}
+
+export function schedulerClaimReservationMarkdownPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reservationId: string): string {
+  return join(schedulerClaimReservationsDir(memory, changePath, schedulerRunId), `${reservationId}.md`);
+}
+
+export function schedulerWorkerStartsDir(memory: ResolvedMemory, changePath: string, schedulerRunId: string): string {
+  return join(schedulerRuntimeDir(memory, changePath, schedulerRunId), "scheduler-worker-starts");
+}
+
+export function schedulerWorkerStartPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, workerStartId: string): string {
+  return join(schedulerWorkerStartsDir(memory, changePath, schedulerRunId), `${workerStartId}.json`);
+}
+
+export function schedulerWorkerStartMarkdownPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, workerStartId: string): string {
+  return join(schedulerWorkerStartsDir(memory, changePath, schedulerRunId), `${workerStartId}.md`);
+}
+
+export function schedulerWorkerResultsDir(memory: ResolvedMemory, changePath: string, schedulerRunId: string): string {
+  return join(schedulerRuntimeDir(memory, changePath, schedulerRunId), "scheduler-worker-results");
+}
+
+export function schedulerWorkerResultPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, workerResultId: string): string {
+  return join(schedulerWorkerResultsDir(memory, changePath, schedulerRunId), `${workerResultId}.json`);
+}
+
+export function schedulerWorkerResultMarkdownPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, workerResultId: string): string {
+  return join(schedulerWorkerResultsDir(memory, changePath, schedulerRunId), `${workerResultId}.md`);
+}
+
+export function schedulerWorkerValidationsDir(memory: ResolvedMemory, changePath: string, schedulerRunId: string): string {
+  return join(schedulerRuntimeDir(memory, changePath, schedulerRunId), "scheduler-worker-validations");
+}
+
+export function schedulerWorkerValidationPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, workerValidationId: string): string {
+  return join(schedulerWorkerValidationsDir(memory, changePath, schedulerRunId), `${workerValidationId}.json`);
+}
+
+export function schedulerWorkerValidationMarkdownPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, workerValidationId: string): string {
+  return join(schedulerWorkerValidationsDir(memory, changePath, schedulerRunId), `${workerValidationId}.md`);
+}
+
+export function schedulerWorkerAuditsDir(memory: ResolvedMemory, changePath: string, schedulerRunId: string): string {
+  return join(schedulerRuntimeDir(memory, changePath, schedulerRunId), "scheduler-worker-audits");
+}
+
+export function schedulerWorkerAuditPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, workerAuditId: string): string {
+  return join(schedulerWorkerAuditsDir(memory, changePath, schedulerRunId), `${workerAuditId}.json`);
+}
+
+export function schedulerWorkerAuditMarkdownPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, workerAuditId: string): string {
+  return join(schedulerWorkerAuditsDir(memory, changePath, schedulerRunId), `${workerAuditId}.md`);
+}
+
+export function schedulerWorkerReworkPlansDir(memory: ResolvedMemory, changePath: string, schedulerRunId: string): string {
+  return join(schedulerRuntimeDir(memory, changePath, schedulerRunId), "scheduler-worker-rework-plans");
+}
+
+export function schedulerWorkerReworkPlanPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reworkPlanId: string): string {
+  return join(schedulerWorkerReworkPlansDir(memory, changePath, schedulerRunId), `${reworkPlanId}.json`);
+}
+
+export function schedulerWorkerReworkPlanMarkdownPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reworkPlanId: string): string {
+  return join(schedulerWorkerReworkPlansDir(memory, changePath, schedulerRunId), `${reworkPlanId}.md`);
+}
+
+export function schedulerWorkerReworkStartsDir(memory: ResolvedMemory, changePath: string, schedulerRunId: string): string {
+  return join(schedulerRuntimeDir(memory, changePath, schedulerRunId), "scheduler-worker-rework-starts");
+}
+
+export function schedulerWorkerReworkStartPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reworkStartId: string): string {
+  return join(schedulerWorkerReworkStartsDir(memory, changePath, schedulerRunId), `${reworkStartId}.json`);
+}
+
+export function schedulerWorkerReworkStartMarkdownPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reworkStartId: string): string {
+  return join(schedulerWorkerReworkStartsDir(memory, changePath, schedulerRunId), `${reworkStartId}.md`);
+}
+
+export function schedulerWorkerReworkResultsDir(memory: ResolvedMemory, changePath: string, schedulerRunId: string): string {
+  return join(schedulerRuntimeDir(memory, changePath, schedulerRunId), "scheduler-worker-rework-results");
+}
+
+export function schedulerWorkerReworkResultPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reworkResultId: string): string {
+  return join(schedulerWorkerReworkResultsDir(memory, changePath, schedulerRunId), `${reworkResultId}.json`);
+}
+
+export function schedulerWorkerReworkResultMarkdownPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reworkResultId: string): string {
+  return join(schedulerWorkerReworkResultsDir(memory, changePath, schedulerRunId), `${reworkResultId}.md`);
+}
+
+export function schedulerWorkerReworkValidationsDir(memory: ResolvedMemory, changePath: string, schedulerRunId: string): string {
+  return join(schedulerRuntimeDir(memory, changePath, schedulerRunId), "scheduler-worker-rework-validations");
+}
+
+export function schedulerWorkerReworkValidationPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reworkValidationId: string): string {
+  return join(schedulerWorkerReworkValidationsDir(memory, changePath, schedulerRunId), `${reworkValidationId}.json`);
+}
+
+export function schedulerWorkerReworkValidationMarkdownPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reworkValidationId: string): string {
+  return join(schedulerWorkerReworkValidationsDir(memory, changePath, schedulerRunId), `${reworkValidationId}.md`);
+}
+
+export function schedulerWorkerReworkAuditsDir(memory: ResolvedMemory, changePath: string, schedulerRunId: string): string {
+  return join(schedulerRuntimeDir(memory, changePath, schedulerRunId), "scheduler-worker-rework-audits");
+}
+
+export function schedulerWorkerReworkAuditPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reworkAuditId: string): string {
+  return join(schedulerWorkerReworkAuditsDir(memory, changePath, schedulerRunId), `${reworkAuditId}.json`);
+}
+
+export function schedulerWorkerReworkAuditMarkdownPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reworkAuditId: string): string {
+  return join(schedulerWorkerReworkAuditsDir(memory, changePath, schedulerRunId), `${reworkAuditId}.md`);
+}
+
+export function schedulerIntegrationCandidatesDir(memory: ResolvedMemory, changePath: string, schedulerRunId: string): string {
+  return join(schedulerRuntimeDir(memory, changePath, schedulerRunId), "scheduler-integration-candidates");
+}
+
+export function schedulerIntegrationCandidatePath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, candidateId: string): string {
+  return join(schedulerIntegrationCandidatesDir(memory, changePath, schedulerRunId), `${candidateId}.json`);
+}
+
+export function schedulerIntegrationCandidateMarkdownPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, candidateId: string): string {
+  return join(schedulerIntegrationCandidatesDir(memory, changePath, schedulerRunId), `${candidateId}.md`);
+}
+
+export function schedulerIntegrationCheckHandoffsDir(memory: ResolvedMemory, changePath: string, schedulerRunId: string): string {
+  return join(schedulerRuntimeDir(memory, changePath, schedulerRunId), "scheduler-integration-check-handoffs");
+}
+
+export function schedulerIntegrationCheckHandoffPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, handoffId: string): string {
+  return join(schedulerIntegrationCheckHandoffsDir(memory, changePath, schedulerRunId), `${handoffId}.json`);
+}
+
+export function schedulerIntegrationCheckHandoffMarkdownPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, handoffId: string): string {
+  return join(schedulerIntegrationCheckHandoffsDir(memory, changePath, schedulerRunId), `${handoffId}.md`);
+}
+
+export function schedulerIntegrationOutcomesDir(memory: ResolvedMemory, changePath: string, schedulerRunId: string): string {
+  return join(schedulerRuntimeDir(memory, changePath, schedulerRunId), "scheduler-integration-outcomes");
+}
+
+export function schedulerIntegrationOutcomePath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, outcomeId: string): string {
+  return join(schedulerIntegrationOutcomesDir(memory, changePath, schedulerRunId), `${outcomeId}.json`);
+}
+
+export function schedulerIntegrationOutcomeMarkdownPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, outcomeId: string): string {
+  return join(schedulerIntegrationOutcomesDir(memory, changePath, schedulerRunId), `${outcomeId}.md`);
+}
+
+export function schedulerRunCompletionsDir(memory: ResolvedMemory, changePath: string, schedulerRunId: string): string {
+  return join(schedulerRuntimeDir(memory, changePath, schedulerRunId), "scheduler-run-completions");
+}
+
+export function schedulerRunCompletionPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, completionId: string): string {
+  return join(schedulerRunCompletionsDir(memory, changePath, schedulerRunId), `${completionId}.json`);
+}
+
+export function schedulerRunCompletionMarkdownPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, completionId: string): string {
+  return join(schedulerRunCompletionsDir(memory, changePath, schedulerRunId), `${completionId}.md`);
+}
+
+export function schedulerRunBlockedCloseoutsDir(memory: ResolvedMemory, changePath: string, schedulerRunId: string): string {
+  return join(schedulerRuntimeDir(memory, changePath, schedulerRunId), "scheduler-run-closeouts");
+}
+
+export function schedulerRunBlockedCloseoutPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, closeoutId: string): string {
+  return join(schedulerRunBlockedCloseoutsDir(memory, changePath, schedulerRunId), `${closeoutId}.json`);
+}
+
+export function schedulerRunBlockedCloseoutMarkdownPath(memory: ResolvedMemory, changePath: string, schedulerRunId: string, closeoutId: string): string {
+  return join(schedulerRunBlockedCloseoutsDir(memory, changePath, schedulerRunId), `${closeoutId}.md`);
+}

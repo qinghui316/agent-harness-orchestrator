@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,8 +7,12 @@ import { createChange, createConcurrentChange, getChangeStatus } from "../../src
 import { writeJsonFile } from "../../src/fs/json.js";
 import { initHarness } from "../../src/harness/init.js";
 import { repoLocalMemory } from "../../src/memory/resolver.js";
+import { git } from "../../src/project/git.js";
+import { collectWorktreeDiff } from "../../src/audit/diff.js";
 import { resolveValidationProfile } from "../../src/validation/profiles.js";
 import { startValidationRun } from "../../src/validation/manager.js";
+import { listValidationResults, readValidationResult } from "../../src/validation/artifacts.js";
+import { createWorktree } from "../../src/worktree/creation.js";
 import type { ManagedProject, ValidationResult } from "../../src/types/index.js";
 
 let tempDir: string;
@@ -122,6 +126,151 @@ describe("validation", () => {
     expect(await readFile(join(runDir, "context-packet.json"), "utf8")).toContain("\"roleId\": \"validator\"");
     expect(await readFile(join(runDir, "commands", "001-pass.stdout.log"), "utf8")).toContain("pass");
     expect(await readFile(join(runDir, "commands", "002-fail.stderr.log"), "utf8")).toContain("fail");
+    const workerSession = JSON.parse(await readFile(join(runDir, "worker-session.json"), "utf8"));
+    const runtimeWorkspace = JSON.parse(await readFile(join(runDir, "runtime-workspace.json"), "utf8"));
+    const eventSource = JSON.parse(await readFile(join(runDir, "event-source.json"), "utf8"));
+    const agentEvents = (await readFile(join(runDir, "agent-events.jsonl"), "utf8")).trim().split(/\r?\n/).map((line) => JSON.parse(line));
+    expect(workerSession).toMatchObject({ adapter: "validation-command", changeId: "validate-me", runId: result.run.id, roleId: "validator", status: "failed" });
+    expect(runtimeWorkspace).toMatchObject({ workspaceKind: "source-root", cwd: tempDir, roleId: "validator" });
+    expect(runtimeWorkspace.worktreeId).toBeUndefined();
+    expect(eventSource).toMatchObject({ adapter: "validation-command", status: "failed", workerSessionId: workerSession.id });
+    expect(agentEvents.map((event) => event.eventType)).toEqual(expect.arrayContaining([
+      "permission.profile.attached",
+      "external-execution.requested",
+      "external-execution.completed",
+      "external-execution.failed",
+      "validation.started",
+      "validation.command.started",
+      "validation.command.exited",
+      "validation.failed",
+    ]));
+    expect(agentEvents.filter((event) => event.eventType === "external-execution.requested")).toHaveLength(2);
+    expect(agentEvents.filter((event) => event.eventType === "external-execution.completed")).toHaveLength(1);
+    expect(agentEvents.filter((event) => event.eventType === "external-execution.failed")).toHaveLength(1);
+    expect(agentEvents[0]).toMatchObject({ changeId: "validate-me", runId: result.run.id, roleId: "validator" });
+    expect(agentEvents[0].raw.changeId).toBeUndefined();
+  });
+
+  it("records runtime continuity sidecars for worktree validation", async () => {
+    await initGitRepo(tempDir);
+    await initHarness(project(tempDir));
+    await createChange(project(tempDir), { title: "Worktree Validate" });
+    await writeFile(join(tempDir, "harness", "config", "environment.json"), JSON.stringify({
+      validation: {
+        profiles: {
+          default: [
+            { name: "pass", command: [process.execPath, "-e", "console.log('pass')"] },
+          ],
+        },
+      },
+    }), "utf8");
+
+    const result = await startValidationRun(project(tempDir), { worktree: true });
+    const runDir = join(tempDir, result.run.artifacts.directory);
+    const workerSession = JSON.parse(await readFile(join(runDir, "worker-session.json"), "utf8"));
+    const runtimeWorkspace = JSON.parse(await readFile(join(runDir, "runtime-workspace.json"), "utf8"));
+    const agentEvents = (await readFile(join(runDir, "agent-events.jsonl"), "utf8")).trim().split(/\r?\n/).map((line) => JSON.parse(line));
+
+    expect(result.validation.status).toBe("passed");
+    expect(workerSession).toMatchObject({ adapter: "validation-command", roleId: "validator", status: "completed", worktreeId: result.run.worktree?.worktreeId });
+    expect(runtimeWorkspace).toMatchObject({
+      workspaceKind: "local-worktree",
+      worktreeId: result.run.worktree?.worktreeId,
+      checkoutPath: result.run.worktree?.checkoutPath,
+    });
+    expect(agentEvents.map((event) => event.eventType)).toEqual(expect.arrayContaining([
+      "permission.profile.attached",
+      "external-execution.requested",
+      "external-execution.completed",
+    ]));
+  });
+
+  it("bridges source Node dependencies for worktree validation without entering the diff", async () => {
+    await initGitRepo(tempDir);
+    await writeFile(join(tempDir, ".gitignore"), "node_modules/\n", "utf8");
+    await writeFile(join(tempDir, "package.json"), JSON.stringify({
+      scripts: {
+        test: "probe-bin",
+      },
+    }), "utf8");
+    await git(tempDir, ["add", ".gitignore", "package.json"]);
+    await git(tempDir, ["commit", "-m", "add package"]);
+    await mkdir(join(tempDir, "node_modules", "local-probe"), { recursive: true });
+    await writeFile(join(tempDir, "node_modules", "local-probe", "index.js"), "module.exports = 'probe';\n", "utf8");
+    await mkdir(join(tempDir, "node_modules", ".bin"), { recursive: true });
+    await writeFile(join(tempDir, "node_modules", ".bin", "probe-bin"), "#!/usr/bin/env node\nrequire('local-probe'); console.log('probe-ok');\n", "utf8");
+    await chmod(join(tempDir, "node_modules", ".bin", "probe-bin"), 0o755);
+    await writeFile(join(tempDir, "node_modules", ".bin", "probe-bin.cmd"), "@echo off\r\nnode -e \"require('local-probe'); console.log('probe-ok')\"\r\n", "utf8");
+    await initHarness(project(tempDir));
+    await createChange(project(tempDir), { title: "Worktree Dependency Bridge" });
+
+    const result = await startValidationRun(project(tempDir), { worktree: true });
+    const runDir = join(tempDir, result.run.artifacts.directory);
+    const worktreeId = result.run.worktree?.worktreeId;
+    expect(worktreeId).toBeTruthy();
+    const diff = await collectWorktreeDiff(repoLocalMemory(tempDir, "repo"), worktreeId as string, "worktree-dependency-bridge");
+
+    expect(result.validation.status).toBe("passed");
+    expect(await readFile(join(runDir, "commands", "001-test.stdout.log"), "utf8")).toContain("probe-ok");
+    expect(existsSync(join(result.run.worktree?.checkoutPath ?? "", "node_modules"))).toBe(true);
+    expect(diff.diff).toBe("");
+    expect(diff.diffStat).not.toContain("node_modules");
+    expect(result.validation.worktreeDiffHash).toBe(diff.diffHash);
+  });
+
+  it("restores the candidate worktree diff after validation command side effects", async () => {
+    await git(tempDir, ["init"]);
+    await git(tempDir, ["config", "user.email", "test@example.com"]);
+    await git(tempDir, ["config", "user.name", "Test User"]);
+    await writeFile(join(tempDir, "package.json"), JSON.stringify({
+      scripts: {
+        test: `${process.execPath} -e "require('fs').writeFileSync('README.md','validation side effect\\n')"`,
+      },
+    }), "utf8");
+    await git(tempDir, ["add", "package.json"]);
+    await git(tempDir, ["commit", "-m", "initial"]);
+    await initHarness(project(tempDir));
+    const change = await createChange(project(tempDir), { title: "Validation Side Effects" });
+    const memory = repoLocalMemory(tempDir, "repo");
+    const worktree = await createWorktree(project(tempDir), memory, change.change.id, { runId: "candidate-run" });
+    await mkdir(join(worktree.metadata.checkoutPath, "src"), { recursive: true });
+    await writeFile(join(worktree.metadata.checkoutPath, "src", "proposal.ts"), "export const proposal = true;\n", "utf8");
+
+    const result = await startValidationRun(project(tempDir), { worktree: worktree.metadata.worktreeId });
+    const diff = await collectWorktreeDiff(memory, worktree.metadata.worktreeId, change.change.id);
+
+    expect(result.validation.status).toBe("passed");
+    expect(existsSync(join(worktree.metadata.checkoutPath, "README.md"))).toBe(false);
+    expect(existsSync(join(worktree.metadata.checkoutPath, "src", "proposal.ts"))).toBe(true);
+    expect(diff.diff).toContain("src/proposal.ts");
+    expect(diff.diff).not.toContain("validation side effect");
+    expect(result.validation.worktreeDiffHash).toBe(diff.diffHash);
+    const runDir = join(tempDir, result.run.artifacts.directory);
+    const events = await readFile(join(runDir, "agent-events.jsonl"), "utf8");
+    expect(events).toContain("validation.worktree_candidate_restored");
+    expect(events).toContain("README.md");
+  });
+
+  it("fails closed before worktree validation commands when source dependencies are missing", async () => {
+    await initGitRepo(tempDir);
+    await writeFile(join(tempDir, ".gitignore"), "node_modules/\n", "utf8");
+    await writeFile(join(tempDir, "package.json"), JSON.stringify({
+      scripts: { test: "node -e \"console.log('should-not-run')\"" },
+      devDependencies: { "dependency-that-is-not-installed": "1.0.0" },
+    }), "utf8");
+    await git(tempDir, ["add", ".gitignore", "package.json"]);
+    await git(tempDir, ["commit", "-m", "add package without dependencies"]);
+    await initHarness(project(tempDir));
+    await createChange(project(tempDir), { title: "Missing Source Dependencies" });
+
+    const result = await startValidationRun(project(tempDir), { worktree: true });
+    const runDir = join(tempDir, result.run.artifacts.directory);
+
+    expect(result.validation.status).toBe("failed");
+    expect(result.validation.commands).toEqual([]);
+    expect(result.run.status).toBe("failed");
+    expect(await readFile(join(runDir, "stderr.log"), "utf8")).toContain("source dependencies are missing");
+    expect(existsSync(join(runDir, "commands", "001-test.stdout.log"))).toBe(false);
   });
 
   it("runs validation for an explicit Change target when multiple active demands exist", async () => {
@@ -170,6 +319,27 @@ describe("validation", () => {
     expect(passed.closeGate.blockingIssues.join("\n")).not.toContain("Latest validation failed");
   });
 
+  it("rejects forged validation evidence on direct read and skips it in list paths", async () => {
+    await initHarness(project(tempDir));
+    await createChange(project(tempDir), { title: "Validation Scope" });
+    const memory = repoLocalMemory(tempDir, "repo");
+
+    await mkdir(join(tempDir, ".agent-harness", "runs", "validation-good"), { recursive: true });
+    await writeValidation("validation-good", "validation-scope", "passed");
+    await mkdir(join(tempDir, ".agent-harness", "runs", "validation-forged"), { recursive: true });
+    await writeValidationAt("validation-forged", "validation-other-id", "validation-scope", "failed");
+    await mkdir(join(tempDir, ".agent-harness", "runs", "validation-malformed"), { recursive: true });
+    await writeFile(join(tempDir, ".agent-harness", "runs", "validation-malformed", "validation.json"), "{", "utf8");
+
+    await expect(readValidationResult(memory, "validation-forged")).rejects.toThrow("does not match run directory");
+    await expect(readValidationResult(memory, "validation-good", { changeId: "other-change" })).rejects.toThrow("does not match requested change");
+    const listed = await listValidationResults(memory, "validation-scope");
+    expect(listed.map((item) => item.id)).toEqual(["validation-good"]);
+
+    const status = await getChangeStatus(project(tempDir));
+    expect(status.latestValidation?.id).toBe("validation-good");
+  });
+
   it("bundles agent role contracts with required sections", async () => {
     for (const name of ["validator", "auditor", "coder"]) {
       const content = await readFile(join(process.cwd(), "templates", "agent-profiles", `${name}.md`), "utf8");
@@ -190,6 +360,10 @@ describe("validation", () => {
 });
 
 async function writeValidation(id: string, changeId: string, status: "passed" | "failed", startedAt = "2026-01-01T00:00:00.000Z"): Promise<void> {
+  await writeValidationAt(id, id, changeId, status, startedAt);
+}
+
+async function writeValidationAt(directoryId: string, id: string, changeId: string, status: "passed" | "failed", startedAt = "2026-01-01T00:00:00.000Z"): Promise<void> {
   const validation: ValidationResult = {
     version: "1.0",
     id,
@@ -202,5 +376,14 @@ async function writeValidation(id: string, changeId: string, status: "passed" | 
     finishedAt: startedAt,
     commands: [],
   };
-  await writeJsonFile(join(tempDir, ".agent-harness", "runs", id, "validation.json"), validation);
+  await writeJsonFile(join(tempDir, ".agent-harness", "runs", directoryId, "validation.json"), validation);
+}
+
+async function initGitRepo(cwd: string): Promise<void> {
+  await git(cwd, ["init"]);
+  await git(cwd, ["config", "user.email", "test@example.com"]);
+  await git(cwd, ["config", "user.name", "Test User"]);
+  await writeFile(join(cwd, "README.md"), "initial\n", "utf8");
+  await git(cwd, ["add", "."]);
+  await git(cwd, ["commit", "-m", "initial"]);
 }

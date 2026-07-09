@@ -1,8 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { evaluateCodexAppServerCapabilities } from "../../src/codex/app-server.js";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { buildCodexAppServerCollaborationModePayload, evaluateCodexAppServerCapabilities, extractCodexAppServerCollabToolCall, extractCodexAppServerPlanText, shouldUseCodexAppServerForMemory, shouldUseCodexAppServerForReadOnlyTurn } from "../../src/codex/app-server.js";
 import { buildCodexReadonlyArgv, buildCodexReadonlyResumeArgv, buildCodexWorkspaceWriteArgv, evaluateCodexCapabilities } from "../../src/codex/capabilities.js";
 import { createCodexJsonlStreamParser, extractFinalMessageFromCodexJsonl, truncateReadablePreview, type CodexJsonlStreamEvent } from "../../src/codex/jsonl.js";
+import { candidatesFromModelListResponse, getCodexModelSettingsSnapshot, resolveCodexEffectiveModel, setSelectedCodexModel } from "../../src/codex/model-settings.js";
 import { composeCodexPrompt, readPromptInput } from "../../src/codex/prompt.js";
+import { readCodexConfigModelStatus, readCodexNativeCollabConfigStatus } from "../../src/codex/trust.js";
+import { codexProviderRunMetadata, isRunnableProductMode, RUNNABLE_PRODUCT_MODES, stableCapabilitySnapshotHash } from "../../src/provider-runtime/index.js";
+import { renderTopicFileReferencesForPrompt } from "../../src/workbench/file-references.js";
 
 const rootHelp = "Usage: codex [OPTIONS]\n  -a, --ask-for-approval <APPROVAL_POLICY>\n";
 const execHelp = [
@@ -37,6 +44,84 @@ describe("codex capabilities", () => {
     ]));
   });
 
+  it("skips app-server when project memory is external-local", () => {
+    expect(shouldUseCodexAppServerForMemory("repo-local")).toBe(true);
+    expect(shouldUseCodexAppServerForMemory("remote")).toBe(true);
+    expect(shouldUseCodexAppServerForMemory("external-local")).toBe(false);
+  });
+
+  it("allows app-server for read-only external-local main agent turns", () => {
+    expect(shouldUseCodexAppServerForReadOnlyTurn("repo-local")).toBe(true);
+    expect(shouldUseCodexAppServerForReadOnlyTurn("remote")).toBe(true);
+    expect(shouldUseCodexAppServerForReadOnlyTurn("external-local")).toBe(true);
+    expect(shouldUseCodexAppServerForMemory("external-local")).toBe(false);
+  });
+
+  it("extracts native Codex plan text from plan delta, turn update, and completed plan items", () => {
+    expect(extractCodexAppServerPlanText("item/plan/delta", { delta: "step 1" })).toBe("step 1");
+    expect(extractCodexAppServerPlanText("turn/plan/updated", {
+      plan: {
+        steps: [
+          { title: "确认目标", description: "先确认需求和验收标准。" },
+          { title: "实施", description: "按确认后的范围修改。" },
+        ],
+      },
+    })).toContain("确认目标");
+    const arrayPlan = extractCodexAppServerPlanText("turn/plan/updated", {
+      explanation: "只记录后续工作安排，不做任何文件修改或命令执行。",
+      plan: [
+        { step: "确认项目说明和当前记录中没有更高优先级限制。", status: "pending" },
+        { step: "修改后运行 `node test.mjs`，用测试结果确认目标字符串被接受。", status: "pending" },
+      ],
+    });
+    expect(arrayPlan).toContain("只记录后续工作安排");
+    expect(arrayPlan).toContain("[pending] 确认项目说明");
+    expect(arrayPlan).toContain("node test.mjs");
+    expect(extractCodexAppServerPlanText("item/completed", {
+      item: { type: "proposed-plan", markdown: "## 目标\n生成计划\n\n## 验收\n通过测试" },
+    })).toContain("## 目标");
+  });
+
+  it("keeps native Plan Mode collaboration payload even when no explicit model is selected", () => {
+    expect(buildCodexAppServerCollaborationModePayload("plan", null)).toEqual({
+      mode: "plan",
+      settings: {
+        model: null,
+        developer_instructions: null,
+        reasoning_effort: null,
+      },
+    });
+    expect(buildCodexAppServerCollaborationModePayload(undefined, null)).toBeUndefined();
+  });
+
+  it("extracts native Codex collab tool call items for child-agent projection", () => {
+    const call = extractCodexAppServerCollabToolCall("item/completed", {
+      item: {
+        type: "collabAgentToolCall",
+        id: "collab-1",
+        tool: "spawn_agent",
+        status: "completed",
+        senderThreadId: "thread-root",
+        receiverThreadIds: ["thread-child"],
+        prompt: "Draft a plan.",
+        model: "gpt-5.5",
+      },
+    });
+
+    expect(call).toEqual({
+      itemId: "collab-1",
+      tool: "spawn_agent",
+      status: "completed",
+      senderThreadId: "thread-root",
+      receiverThreadIds: ["thread-child"],
+      prompt: "Draft a plan.",
+      model: "gpt-5.5",
+      reasoningEffort: undefined,
+      agentsStates: undefined,
+    });
+    expect(extractCodexAppServerCollabToolCall("item/completed", { item: { type: "dynamicToolCall", tool: "spawn_agent" } })).toBeNull();
+  });
+
   it("builds root-level approval argv", () => {
     const capabilities = evaluateCodexCapabilities("codex-cli 1.0", rootHelp, execHelp);
 
@@ -47,7 +132,7 @@ describe("codex capabilities", () => {
       profile: "default",
     });
 
-    expect(argv.args.slice(0, 4)).toEqual(["--ask-for-approval", "never", "exec", "--json"]);
+    expect(argv.args.slice(0, 6)).toEqual(["-c", 'service_tier="fast"', "--ask-for-approval", "never", "exec", "--json"]);
     expect(argv.args).toContain("--sandbox");
     expect(argv.args).toContain("read-only");
     expect(argv.args).toContain("--output-last-message");
@@ -59,6 +144,7 @@ describe("codex capabilities", () => {
     expect(argv.args).not.toContain("--dangerously-bypass-approvals-and-sandbox");
     expect(argv.args).not.toContain("--ignore-user-config");
     expect(argv.args).not.toContain("--skip-git-repo-check");
+    expect(argv.args).toContain('service_tier="fast"');
   });
 
   it("builds exec-level approval argv", () => {
@@ -69,7 +155,7 @@ describe("codex capabilities", () => {
       lastMessagePath: "/repo/.agent-harness/runs/run/last-message.md",
     });
 
-    expect(argv.args.slice(0, 4)).toEqual(["exec", "--ask-for-approval", "never", "--json"]);
+    expect(argv.args.slice(0, 6)).toEqual(["-c", 'service_tier="fast"', "exec", "--ask-for-approval", "never", "--json"]);
   });
 
   it("fails capability evaluation without safe required flags", () => {
@@ -113,16 +199,27 @@ describe("codex capabilities", () => {
       sessionId: "session-1",
     })).toThrow("equivalent read-only");
 
-    const safe = evaluateCodexCapabilities("codex-cli 1.0", rootHelp, execHelp, undefined, "Usage: codex exec resume --sandbox <MODE> --cd <DIR>");
+    const safe = evaluateCodexCapabilities("codex-cli 1.0", rootHelp, execHelp, undefined, "Usage: codex exec resume --sandbox <MODE> --cd <DIR> --add-dir <DIR>");
     const argv = buildCodexReadonlyResumeArgv(safe, {
       projectPath: "/repo",
       lastMessagePath: "/repo/out.md",
       sessionId: "session-1",
+      additionalReadDirs: ["/memory"],
     });
     expect(argv.args).toContain("--sandbox");
     expect(argv.args).toContain("read-only");
     expect(argv.args).toContain("--cd");
     expect(argv.args).toContain("/repo");
+    expect(argv.args).toContain("--add-dir");
+    expect(argv.args).toContain("/memory");
+
+    const noAddDirResume = evaluateCodexCapabilities("codex-cli 1.0", rootHelp, execHelp, undefined, "Usage: codex exec resume --sandbox <MODE> --cd <DIR>");
+    expect(() => buildCodexReadonlyResumeArgv(noAddDirResume, {
+      projectPath: "/repo",
+      lastMessagePath: "/repo/out.md",
+      sessionId: "session-1",
+      additionalReadDirs: ["/memory"],
+    })).toThrow("--add-dir");
   });
 
   it("omits optional read-only memory directories when unsupported", () => {
@@ -145,6 +242,8 @@ describe("codex capabilities", () => {
     });
 
     expect(argv.args).toEqual([
+      "-c",
+      'service_tier="fast"',
       "exec",
       "--json",
       "--color",
@@ -163,6 +262,18 @@ describe("codex capabilities", () => {
     expect(argv.args).not.toContain("--ignore-user-config");
     expect(argv.args).not.toContain("--skip-git-repo-check");
   });
+
+  it("adds optional workspace-write memory directories when supported", () => {
+    const capabilities = evaluateCodexCapabilities("codex-cli 1.0", "Usage: codex", execHelp);
+    const argv = buildCodexWorkspaceWriteArgv(capabilities, {
+      projectPath: "/worktree",
+      lastMessagePath: "/memory/runs/run/last-message.md",
+      additionalReadDirs: ["/memory"],
+    });
+
+    expect(argv.args).toContain("--add-dir");
+    expect(argv.args).toContain("/memory");
+  });
 });
 
 describe("codex prompt and JSONL parsing", () => {
@@ -177,6 +288,18 @@ describe("codex prompt and JSONL parsing", () => {
     expect(prompt).toContain("AC-001");
     expect(prompt).toContain("T-001");
     expect(prompt).toContain("Propose an implementation plan.");
+  });
+
+  it("renders file references as bounded Codex runtime context", () => {
+    const section = renderTopicFileReferencesForPrompt([
+      { relativePath: "src/pricing.ts", name: "pricing.ts", kind: "file", extension: ".ts", size: 123 },
+      { relativePath: "docs", name: "docs", kind: "directory", size: 0 },
+    ]).join("\n");
+
+    expect(section).toContain("file: src/pricing.ts");
+    expect(section).toContain("directory: docs");
+    expect(section).toContain("runtime context only");
+    expect(section).not.toContain("export const");
   });
 
   it("requires exactly one prompt input", async () => {
@@ -253,5 +376,206 @@ describe("codex prompt and JSONL parsing", () => {
     expect(preview.preview).toContain("[truncated; see raw log]");
     expect(Buffer.byteLength(preview.preview ?? "", "utf8")).toBeLessThanOrEqual(2300);
     expect((preview.preview ?? "").split(/\r?\n/).length).toBeLessThanOrEqual(81);
+  });
+
+  it("records provider capability metadata for Codex run events", () => {
+    const capabilities = evaluateCodexCapabilities("codex-cli 1.0", rootHelp, execHelp);
+
+    const metadata = codexProviderRunMetadata({
+      model: "gpt-5.5",
+      modelSource: "selected",
+      capabilities,
+    });
+
+    expect(metadata).toMatchObject({
+      providerId: "codex",
+      productMode: "harness",
+      adapter: "codex-exec",
+      model: "gpt-5.5",
+      modelSource: "selected",
+      capabilitySnapshotVersion: 2,
+    });
+    expect(typeof metadata.capabilitySnapshotHash).toBe("string");
+    expect(String(metadata.capabilitySnapshotHash)).toHaveLength(16);
+  });
+
+  it("keeps provider capability snapshot identity stable across checkedAt refreshes", () => {
+    const base = {
+      providerId: "codex" as const,
+      displayName: "Codex",
+      productMode: "harness" as const,
+      status: "degraded" as const,
+      runnable: true,
+      checkedAt: "2026-06-29T00:00:00.000Z",
+      snapshotVersion: 2,
+      effectiveModel: "gpt-5.5",
+      effectiveModelSource: "selected" as const,
+      degradedReasons: ["model list unavailable"],
+      capabilities: [
+        {
+          key: "model.list" as const,
+          label: "模型列表",
+          spec: "supported" as const,
+          runtime: "degraded" as const,
+          summary: "模型列表不可用。",
+          reason: "model list unavailable",
+        },
+      ],
+    };
+
+    expect(stableCapabilitySnapshotHash(base)).toBe(stableCapabilitySnapshotHash({
+      ...base,
+      checkedAt: "2026-06-29T01:00:00.000Z",
+    }));
+  });
+
+  it("keeps normal Agent product mode typed but not runnable", () => {
+    expect(RUNNABLE_PRODUCT_MODES).toEqual(["harness"]);
+    expect(isRunnableProductMode("harness")).toBe(true);
+    expect(isRunnableProductMode("agent")).toBe(false);
+  });
+});
+
+describe("codex model settings", () => {
+  it("reads model from Codex config.toml with a TOML parser", async () => {
+    const temp = await mkdtemp(join(tmpdir(), "aho-codex-model-"));
+    const previousCodexHome = process.env.CODEX_HOME;
+    process.env.CODEX_HOME = temp;
+    try {
+      await writeFile(join(temp, "config.toml"), "model = \"gpt-5.5\"\n[profiles.dev]\nmodel = \"ignored-profile\"\n", "utf8");
+
+      const status = await readCodexConfigModelStatus();
+
+      expect(status.model).toBe("gpt-5.5");
+      expect(status.configExists).toBe(true);
+      expect(status.reason).toBeUndefined();
+    } finally {
+      if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previousCodexHome;
+      await rm(temp, { recursive: true, force: true });
+    }
+  });
+
+  it("degrades cleanly when Codex config.toml is invalid", async () => {
+    const temp = await mkdtemp(join(tmpdir(), "aho-codex-model-"));
+    const previousCodexHome = process.env.CODEX_HOME;
+    process.env.CODEX_HOME = temp;
+    try {
+      await writeFile(join(temp, "config.toml"), "model = [", "utf8");
+
+      const status = await readCodexConfigModelStatus();
+
+      expect(status.model).toBeNull();
+      expect(status.configExists).toBe(true);
+      expect(status.reason).toContain("Invalid Codex config.toml");
+    } finally {
+      if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previousCodexHome;
+      await rm(temp, { recursive: true, force: true });
+    }
+  });
+
+  it("reads native Codex collab feature config without requiring AHO-managed dynamic tools", async () => {
+    const temp = await mkdtemp(join(tmpdir(), "aho-codex-collab-"));
+    const previousCodexHome = process.env.CODEX_HOME;
+    process.env.CODEX_HOME = temp;
+    try {
+      await writeFile(join(temp, "config.toml"), [
+        "[features]",
+        "multi_agent = true",
+        "",
+        "[features.multi_agent_v2]",
+        "enabled = true",
+        "max_concurrent_threads_per_session = 4",
+        "",
+      ].join("\n"), "utf8");
+
+      const status = await readCodexNativeCollabConfigStatus();
+
+      expect(status.multiAgent).toBe("enabled");
+      expect(status.multiAgentV2).toBe("enabled");
+    } finally {
+      if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previousCodexHome;
+      await rm(temp, { recursive: true, force: true });
+    }
+  });
+
+  it("extracts runtime model candidates from model_list responses", () => {
+    const candidates = candidatesFromModelListResponse({
+      data: [
+        { id: "gpt-5.5", displayName: "GPT 5.5", isDefault: true },
+        { model: "gpt-5.3-codex", display_name: "GPT 5.3 Codex" },
+      ],
+    });
+
+    expect(candidates.map((candidate) => candidate.model)).toEqual(["gpt-5.5", "gpt-5.3-codex"]);
+    expect(candidates[0]).toMatchObject({ label: "GPT 5.5", source: "runtime", isDefault: true });
+  });
+
+  it("resolves selected model before Codex config model", async () => {
+    const temp = await mkdtemp(join(tmpdir(), "aho-codex-model-"));
+    const previousCodexHome = process.env.CODEX_HOME;
+    const previousAhoHome = process.env.AHO_HOME;
+    const previousPath = process.env.PATH;
+    process.env.CODEX_HOME = join(temp, "codex-home");
+    process.env.AHO_HOME = join(temp, "aho-home");
+    process.env.PATH = "";
+    try {
+      await mkdir(process.env.CODEX_HOME, { recursive: true });
+      await writeFile(join(process.env.CODEX_HOME, "config.toml"), "model = \"config-model\"\n", "utf8");
+      await setSelectedCodexModel("runtime-model");
+
+      const effective = await resolveCodexEffectiveModel();
+
+      expect(effective).toEqual({ model: "runtime-model", source: "selected" });
+    } finally {
+      if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previousCodexHome;
+      if (previousAhoHome === undefined) delete process.env.AHO_HOME;
+      else process.env.AHO_HOME = previousAhoHome;
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+      await rm(temp, { recursive: true, force: true });
+    }
+  });
+
+  it("cleans legacy custom model settings from the visible model snapshot", async () => {
+    const temp = await mkdtemp(join(tmpdir(), "aho-codex-model-"));
+    const previousCodexHome = process.env.CODEX_HOME;
+    const previousAhoHome = process.env.AHO_HOME;
+    const previousPath = process.env.PATH;
+    process.env.CODEX_HOME = join(temp, "codex-home");
+    process.env.AHO_HOME = join(temp, "aho-home");
+    process.env.PATH = "";
+    try {
+      await mkdir(process.env.CODEX_HOME, { recursive: true });
+      await mkdir(process.env.AHO_HOME, { recursive: true });
+      await writeFile(join(process.env.CODEX_HOME, "config.toml"), "model = \"config-model\"\n", "utf8");
+      await writeFile(join(process.env.AHO_HOME, "settings.json"), JSON.stringify({
+        version: "1.0",
+        codex: {
+          selectedModel: "custom-model",
+          customModels: [{ id: "custom-model", updatedAt: "2026-06-27T00:00:00.000Z" }],
+        },
+      }, null, 2), "utf8");
+
+      const snapshot = await getCodexModelSettingsSnapshot(temp);
+
+      expect(snapshot.selectedModel).toBeNull();
+      expect(snapshot.customModels).toEqual([]);
+      expect(snapshot.candidates.some((candidate) => candidate.source === "config" && candidate.model === "config-model")).toBe(true);
+      expect(snapshot.candidates.some((candidate) => candidate.model === "custom-model")).toBe(false);
+      expect(snapshot.effectiveModel).toBe("config-model");
+      expect(snapshot.effectiveModelSource).toBe("config");
+    } finally {
+      if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = previousCodexHome;
+      if (previousAhoHome === undefined) delete process.env.AHO_HOME;
+      else process.env.AHO_HOME = previousAhoHome;
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+      await rm(temp, { recursive: true, force: true });
+    }
   });
 });

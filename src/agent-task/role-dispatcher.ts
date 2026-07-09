@@ -1,6 +1,7 @@
 import type { AgentTask } from "../types/index.js";
 import type { ResolvedMemory } from "../types/index.js";
-import { claimAgentTask, createAgentTask, recordMainAgentDecision, startAgentTask } from "./manager.js";
+import { recordMainAgentDecision } from "./decisions.js";
+import { claimAgentTask, createAgentTask, startAgentTask } from "./repository.js";
 import { buildDelegateTaskDecisionInput, type AgentTaskRequest, validateDelegateTaskPolicy } from "./delegate-task.js";
 import { recordToolEventAuditEntry } from "./boundary-audit.js";
 import { evaluateToolPolicy } from "./tool-policy.js";

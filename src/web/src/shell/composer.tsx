@@ -1,0 +1,174 @@
+import { useMemo, useState, type ReactElement } from "react";
+import { Send, X } from "lucide-react";
+import { workflowActionLabel } from "../action-labels.js";
+import type { SkillListItem, TopicAttachment, TopicFileReference, WorkpadRuntimeStatus } from "../types.js";
+import { ComposerAttachButton, ComposerAttachmentList, filesFromDrop, hasFileDrag, imageFilesFromPaste } from "./ComposerAttachments.js";
+import { ComposerControls } from "./ComposerControls.js";
+import { buildComposerContextSummary, ComposerContextSourcesPopover, type ComposerContextKind } from "./ComposerContextSources.js";
+import type { ComposerExecutionMode } from "./composer-session.js";
+import { FileMentionPicker } from "./FileMentionPicker.js";
+import { SkillMentionPicker } from "./SkillMentionPicker.js";
+
+export function TopicComposer({
+  value,
+  onChange,
+  automationMode,
+  onAutomationModeChange,
+  modelLabel,
+  onOpenModelSettings,
+  enabledSkillCount,
+  projectId,
+  skills,
+  activeSkillIds,
+  selectedFileRefs,
+  attachments,
+  onAttachFiles,
+  onRemoveAttachment,
+  onToggleSkill,
+  onSelectedFileRefsChange,
+  busy: _busy,
+  disabledReason,
+  onSend,
+  onStopAndContinue,
+  onNewWorkpad: _onNewWorkpad,
+  onRunCode: _onRunCode,
+  actionRunning,
+  canRunCode: _canRunCode,
+  currentWorkpadStatus,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  automationMode: ComposerExecutionMode;
+  onAutomationModeChange: (mode: ComposerExecutionMode) => void;
+  modelLabel: string;
+  onOpenModelSettings?: () => void;
+  enabledSkillCount?: number;
+  projectId: string | null;
+  skills?: SkillListItem[];
+  activeSkillIds?: string[];
+  selectedFileRefs?: TopicFileReference[];
+  attachments?: TopicAttachment[];
+  onAttachFiles?: (files: File[]) => void | Promise<void>;
+  onRemoveAttachment?: (id: string) => void | Promise<void>;
+  onToggleSkill?: (skillId: string) => void | Promise<void>;
+  onSelectedFileRefsChange?: (refs: TopicFileReference[]) => void;
+  onOpenSkillsSettings?: () => void;
+  busy: boolean;
+  disabledReason?: string;
+  onSend: () => Promise<void>;
+  onStopAndContinue?: () => Promise<void>;
+  onNewWorkpad?: () => Promise<void>;
+  onRunCode?: () => Promise<void>;
+  actionRunning: string | null;
+  canRunCode: boolean;
+  currentWorkpadStatus?: WorkpadRuntimeStatus;
+}): ReactElement {
+  const [dragOver, setDragOver] = useState(false);
+  const [openContextKind, setOpenContextKind] = useState<ComposerContextKind | null>(null);
+  const runningConversation = Boolean(actionRunning) || currentWorkpadStatus === "running";
+  const canStop = runningConversation && Boolean(onStopAndContinue) && !value.trim();
+  const hasAttachments = (attachments?.length ?? 0) > 0;
+  const contextSummary = useMemo(() => buildComposerContextSummary({
+    skills,
+    activeSkillIds,
+    selectedFileRefs,
+    attachments,
+  }), [skills, activeSkillIds, selectedFileRefs, attachments]);
+  const canSend = Boolean(value.trim()) || hasAttachments;
+  const sendDisabled = Boolean(disabledReason) || (!canSend && !canStop);
+  const buttonTitle = canStop ? "停止当前执行" : runningConversation ? "发送给当前执行" : "发送";
+  const buttonIcon = canStop ? <X size={16} /> : <Send size={16} />;
+  function submit(): void {
+    if (canStop) void onStopAndContinue?.();
+    else void onSend();
+  }
+  return (
+    <div
+      className={`topic-composer ${dragOver ? "is-drag-over" : ""}`}
+      aria-label="需求对话输入框"
+      onDragOver={(event) => {
+        if (disabledReason || !hasFileDrag(event)) return;
+        event.preventDefault();
+        setDragOver(true);
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(event) => {
+        if (disabledReason) return;
+        const files = filesFromDrop(event);
+        if (files.length === 0) return;
+        event.preventDefault();
+        setDragOver(false);
+        void onAttachFiles?.(files);
+      }}
+    >
+      <ComposerControls
+        modelLabel={modelLabel}
+        onOpenModelSettings={onOpenModelSettings}
+        mode={automationMode}
+        onModeChange={onAutomationModeChange}
+        enabledSkillCount={enabledSkillCount}
+        contextSummary={contextSummary}
+        openContextKind={openContextKind}
+        onToggleContextKind={(kind) => setOpenContextKind((current) => current === kind ? null : kind)}
+      />
+      <ComposerContextSourcesPopover
+        kind={openContextKind}
+        skills={skills}
+        activeSkillIds={activeSkillIds}
+        selectedFileRefs={selectedFileRefs}
+        attachments={attachments}
+        onToggleSkill={onToggleSkill}
+        onSelectedFileRefsChange={onSelectedFileRefsChange}
+        onRemoveAttachment={onRemoveAttachment}
+        onClose={() => setOpenContextKind(null)}
+      />
+      <SkillMentionPicker
+        value={value}
+        onChange={onChange}
+        skills={skills ?? []}
+        activeSkillIds={activeSkillIds ?? []}
+        onToggleSkill={onToggleSkill ?? (() => undefined)}
+      />
+      <FileMentionPicker
+        projectId={projectId}
+        value={value}
+        onChange={onChange}
+        selectedRefs={selectedFileRefs ?? []}
+        onSelectedRefsChange={onSelectedFileRefsChange ?? (() => undefined)}
+      />
+      <ComposerAttachmentList attachments={attachments ?? []} onRemove={onRemoveAttachment ?? (() => undefined)} />
+      <textarea
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        onPaste={(event) => {
+          const files = imageFilesFromPaste(event);
+          if (files.length === 0) return;
+          event.preventDefault();
+          void onAttachFiles?.(files);
+        }}
+        disabled={Boolean(disabledReason)}
+        placeholder={disabledReason ?? (runningConversation ? "补充要求；支持实时引导时会发送给当前执行" : "输入问题或下一步需求")}
+      />
+      <div className="composer-toolbar">
+        <ComposerAttachButton disabled={Boolean(disabledReason)} onAttachFiles={onAttachFiles} />
+        {disabledReason ? <span className="composer-pill">只读</span> : null}
+        {runningConversation ? <span className="composer-pill subtle">{value.trim() ? "会发送给当前执行" : "可停止当前执行"}</span> : null}
+        <span className="composer-spacer" />
+        {actionRunning ? <span className="composer-pill subtle">正在运行：{runningActionLabel(actionRunning)}</span> : null}
+        <button
+          className={`composer-send ${actionRunning ? "running" : ""}`}
+          disabled={sendDisabled}
+          title={buttonTitle}
+          onClick={submit}
+        >
+          {buttonIcon}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function runningActionLabel(actionType: string): string {
+  if (actionType === "topic.create" || actionType === "chat.ask") return "正在生成回复";
+  return workflowActionLabel(actionType);
+}

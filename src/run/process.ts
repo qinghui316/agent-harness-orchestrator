@@ -152,27 +152,19 @@ export async function executeProcessStreaming(options: ProcessExecutionOptions):
       if (settled || terminated) return;
       terminated = true;
       terminationReason = reason;
-      killChildProcess();
-      killGraceTimer = setTimeout(() => {
-        settle(null, null);
-      }, options.killGraceMs ?? 3000);
+      void killChildProcess().finally(() => {
+        if (settled) return;
+        killGraceTimer = setTimeout(() => {
+          settle(null, null);
+        }, options.killGraceMs ?? 3000);
+      });
     }
 
-    function killChildProcess(): void {
+    async function killChildProcess(): Promise<void> {
       if (child.exitCode !== null || child.signalCode !== null) return;
       if (process.platform === "win32" && child.pid) {
         try {
-          const killer = spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
-            windowsHide: true,
-            stdio: "ignore",
-          });
-          killer.on("error", () => {
-            try {
-              child.kill();
-            } catch {
-              // Best-effort fallback.
-            }
-          });
+          await runTaskkill(child.pid);
         } catch {
           try {
             child.kill();
@@ -187,6 +179,17 @@ export async function executeProcessStreaming(options: ProcessExecutionOptions):
       } catch {
         // Best-effort termination. The kill grace timer still settles the result.
       }
+    }
+
+    async function runTaskkill(pid: number): Promise<void> {
+      await new Promise<void>((resolveTaskkill) => {
+        const killer = spawn("taskkill", ["/pid", String(pid), "/t", "/f"], {
+          windowsHide: true,
+          stdio: "ignore",
+        });
+        killer.on("error", () => resolveTaskkill());
+        killer.on("close", () => resolveTaskkill());
+      });
     }
 
     function clearTimers(): void {

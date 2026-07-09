@@ -1,6 +1,6 @@
 import type { AgentTaskKind, AgentTaskStatus } from "../types/index.js";
-import { listAgentTasks } from "./manager.js";
-import type { MainAgentDecision } from "./manager.js";
+import type { MainAgentDecision } from "./decisions.js";
+import { listAgentTasks } from "./repository.js";
 import type { ResolvedMemory } from "../types/index.js";
 
 export const DELEGATE_TASK_ALLOWED_ROLES = [
@@ -110,9 +110,6 @@ export async function validateDelegateTaskPolicy(memory: ResolvedMemory, request
   const role = request.roleId.trim();
   if (!isAllowedDelegateRole(role)) {
     return reject(request, `Unknown or unavailable role: ${role || "(empty)"}.`, "这个角色当前不能由主 agent 委派。");
-  }
-  if (request.changeId !== request.conversationId) {
-    return reject(request, "conversationId and changeId must match for a demand-scoped v1 role task.", "这个委派目标不属于当前需求对话。");
   }
   if (!request.goal.trim()) {
     return reject(request, "delegateTask requires a non-empty goal.", "主 agent 需要先说明要委派的具体目标。");

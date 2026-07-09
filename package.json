@@ -20,17 +20,31 @@
     "dev": "tsx src/index.ts",
     "dev:web": "vite --host 127.0.0.1",
     "lint": "eslint .",
-    "test": "vitest run",
+    "test": "npm run test:fast && npm run test:integration && npm run test:workbench",
+    "test:fast": "vitest run --exclude tests/unit/workbench-read-model.test.ts --exclude tests/unit/workbench-task-runtime.test.ts --exclude tests/unit/workbench-goal-loop-surface.test.ts --exclude tests/unit/workbench-planning-scheduler-prep.test.ts --exclude tests/unit/workbench-scheduler-runtime-surface.test.ts --exclude tests/unit/workbench-feedback-surface.test.ts --exclude tests/unit/workbench-conversation-lifecycle.test.ts --exclude tests/unit/workbench-agent-task-domain.test.ts --exclude tests/unit/workbench-demand-worker.test.ts --exclude tests/slow/** --exclude tests/integration/cli-flow.test.ts",
+    "test:workbench": "npm run test:workbench:unit",
+    "test:workbench:release": "npm run test:workbench:unit && npm run test:workbench:slow && npm run test:workbench:slow:release",
+    "test:workbench:unit": "vitest run tests/unit/workbench-read-model.test.ts tests/unit/workbench-task-runtime.test.ts tests/unit/workbench-goal-loop-surface.test.ts tests/unit/workbench-planning-scheduler-prep.test.ts tests/unit/workbench-scheduler-runtime-surface.test.ts tests/unit/workbench-feedback-surface.test.ts tests/unit/workbench-conversation-lifecycle.test.ts tests/unit/workbench-agent-task-domain.test.ts tests/unit/workbench-demand-worker.test.ts",
+    "test:workbench:slow": "npm run test:workbench:slow:scheduler && vitest run tests/slow/workbench-demand-to-execution-golden-flow.test.ts && vitest run tests/slow/workbench-remote-landing-flow.test.ts && vitest run tests/slow/workbench-maintenance-flow.test.ts",
+    "test:workbench:slow:release": "npm run test:workbench:slow:scheduler:release && vitest run tests/slow/workbench-apply-integration-flow.test.ts && vitest run tests/slow/workbench-goal-loop-prompt-flow.test.ts",
+    "test:workbench:slow:scheduler": "vitest run tests/slow/workbench-scheduler-discard-completion-flow.test.ts && vitest run tests/slow/workbench-scheduler-worker-rework-flow.test.ts && vitest run tests/slow/workbench-scheduler-worker-runtime.test.ts && vitest run tests/unit/scheduler-integration-outcome.test.ts tests/unit/scheduler-run-completion.test.ts tests/unit/scheduler-run-closeout.test.ts tests/unit/goal-loop-decision.test.ts",
+    "test:workbench:slow:scheduler:release": "vitest run tests/slow/workbench-scheduler-two-worker-integration-flow.test.ts",
+    "test:integration": "vitest run tests/integration/cli-flow.test.ts",
     "typecheck": "tsc --noEmit",
     "clean": "node scripts/clean.mjs"
   },
   "dependencies": {
+    "@chenglou/pretext": "^0.0.8",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "better-sqlite3": "^12.10.0",
     "commander": "^13.1.0",
     "cross-spawn": "^7.0.6",
     "lucide-react": "^1.16.0",
+    "node-pty": "^1.1.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
+    "smol-toml": "^1.7.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {
@@ -50,5 +64,21 @@
     "typescript-eslint": "^8.47.0",
     "vite": "^5.4.21",
     "vitest": "^2.1.9"
-  }
+  },
+  "main": "eslint.config.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/qinghui316/agent-harness-orchestrator.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/qinghui316/agent-harness-orchestrator/issues"
+  },
+  "homepage": "https://github.com/qinghui316/agent-harness-orchestrator#readme"
 }

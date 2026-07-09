@@ -20,8 +20,20 @@ Thumbs.db
 Desktop.ini
 
 # Local agent/Harness working state.
+.agent-harness/
 AGENTS.md
-docs/
-harness/
+docs/*
+!docs/PRODUCT.md
+!docs/MEMORY.md
+!docs/AGENT-DEVELOPMENT-OS.md
+!docs/CURRENT-DEVELOPMENT-PLAN.md
+!docs/ecl-harness-engineer-skill-recommendations.md
+!docs/design-docs/
+!docs/design-docs/harness-workflow-runtime-target.md
+harness/*
+!harness/changes/
+harness/changes/*
+!harness/changes/archive/
+harness/changes/archive/*
 reference-projects/
 .gitmodules
