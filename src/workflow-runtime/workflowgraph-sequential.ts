@@ -14,7 +14,7 @@ import {
 } from "../task-queue/manager.js";
 import { startTaskRun } from "../task-run/manager.js";
 import type { CodeExecutionGateOptions } from "../code/manager.js";
-import type { ResolvedMemory, TaskQueueItem, TaskQueueRun, WorkflowGraphPlan, WorkflowRun, WorkflowRunEventType } from "../types/index.js";
+import type { ResolvedMemory, SequentialWorkflowGraphPlan, TaskQueueItem, TaskQueueRun, WorkflowGraphPlan, WorkflowRun, WorkflowRunEventType } from "../types/index.js";
 import { appendWorkflowRunEvent, readWorkflowRun, syncWorkflowRunFromQueue } from "../workflow-run/manager.js";
 import { activeChangePath } from "../workflow-run/recovery-key.js";
 import { readWorkflowGraphPlan } from "../workflow-artifacts/manager.js";
@@ -329,7 +329,7 @@ async function resolveWorkflowRunForQueue(memory: ResolvedMemory, changeId: stri
   return workflow;
 }
 
-async function resolveSequentialGraph(memory: ResolvedMemory, changeId: string, queue: TaskQueueRun, workflow: WorkflowRun | null): Promise<WorkflowGraphPlan> {
+async function resolveSequentialGraph(memory: ResolvedMemory, changeId: string, queue: TaskQueueRun, workflow: WorkflowRun | null): Promise<SequentialWorkflowGraphPlan> {
   const graphId = queue.workflowGraphPlanId ?? (isTaskQueueWorkflowRun(workflow) ? workflow.workflowGraphPlanId : undefined);
   if (!graphId) throw new Error("WorkflowGraph sequential execution requires workflowGraphPlanId.");
   const changePath = await activeChangePath(memory, changeId);
@@ -346,7 +346,7 @@ async function resolveSequentialGraph(memory: ResolvedMemory, changeId: string, 
   return graph;
 }
 
-function assertSequentialGraphScope(graph: WorkflowGraphPlan, queue: TaskQueueRun): void {
+function assertSequentialGraphScope(graph: WorkflowGraphPlan, queue: TaskQueueRun): asserts graph is SequentialWorkflowGraphPlan {
   if (graph.graphMode !== "sequential-v1") throw new Error(`Unsupported WorkflowGraph mode: ${graph.graphMode}.`);
   if (graph.status !== "compiled") throw new Error("WorkflowGraph sequential execution requires a compiled graph.");
   if (graph.changeId !== queue.changeId) throw new Error("WorkflowGraph sequential execution change scope mismatch.");
@@ -356,7 +356,7 @@ function assertSequentialGraphScope(graph: WorkflowGraphPlan, queue: TaskQueueRu
   if (queue.readinessManifestId && queue.readinessManifestId !== graph.readinessManifestId) throw new Error("WorkflowGraph sequential execution readiness scope is stale.");
 }
 
-function orderedSequentialNodes(graph: WorkflowGraphPlan): WorkflowGraphPlan["nodes"] {
+function orderedSequentialNodes(graph: SequentialWorkflowGraphPlan): SequentialWorkflowGraphPlan["nodes"] {
   const nodes = graph.nodes.slice().sort((left, right) => left.order - right.order);
   const orderedIds = nodes.map((node) => node.id);
   const taskOrderEdges = graph.edges.filter((edge) => edge.kind === "task-order");
@@ -370,7 +370,7 @@ function orderedSequentialNodes(graph: WorkflowGraphPlan): WorkflowGraphPlan["no
   return nodes;
 }
 
-function graphNodeIdForItem(graph: WorkflowGraphPlan, item: TaskQueueItem): string | undefined {
+function graphNodeIdForItem(graph: SequentialWorkflowGraphPlan, item: TaskQueueItem): string | undefined {
   return graph.nodes.find((node) => node.taskId.toUpperCase() === item.taskId.toUpperCase())?.id;
 }
 

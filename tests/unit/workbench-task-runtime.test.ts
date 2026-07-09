@@ -11,10 +11,10 @@ import {
   mainAgentLoopRunsRoot,
 } from "../../src/main-agent-orchestration/index.js";
 import { listTaskQueueItems, listTaskQueues, pauseTaskQueue, reconcileTaskQueues, startOrResumeTaskQueue } from "../../src/task-queue/manager.js";
-import { finishTaskRunFromWorkflowResult, markTaskRunStarted } from "../../src/task-run/manager.js";
+import { finishTaskRunFromWorkflowResult, listTaskRuns, markTaskRunStarted } from "../../src/task-run/manager.js";
 import { appendWorkflowTaskEvent, listWorkflowRuns, readWorkflowRun, readWorkflowRunEvents, syncWorkflowRunFromQueue } from "../../src/workflow-run/manager.js";
 import { buildTaskQueueProposalFromReadiness, compileWorkflowGraphPlan, hashArtifactRefs, hashFile, readLatestDecompositionPlan, readLatestDecompositionReadinessManifest, readLatestTaskQueueProposal, readLatestWorkflowGraphPlan, writeDecompositionReadinessManifest, writeTaskQueueProposal } from "../../src/workflow-artifacts/manager.js";
-import { compileSchedulerContract } from "../../src/workflow-scheduler/manager.js";
+import { compileSchedulerClaimReconcilePlan, compileSchedulerContract, compileSchedulerDispatchDryRun, compileSchedulerReadySetWorkflowGraphPlan, compileSchedulerWorkerSessionPlan } from "../../src/workflow-scheduler/manager.js";
 import type { TaskQueueRun, WorkflowRun } from "../../src/types/index.js";
 import { findTaskRunStageResumeCandidate, runResumedTaskRunStage } from "../../src/workflow-runtime/code-workflow.js";
 import { runTaskQueueSequentialWorkflow } from "../../src/workflow-runtime/taskqueue.js";
@@ -446,6 +446,100 @@ describe("workbench task runtime domain", () => {
         { from: "DU-002", to: "DU-001", kind: "blocks" },
       ],
     })).rejects.toThrow("contains a cycle");
+  });
+
+  it("bridges Scheduler planning evidence into a non-executing ready-set WorkflowGraphPlan", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "Scheduler Ready Set Graph" });
+    await writeAcceptedSpecAndTasks("scheduler-ready-set-graph");
+    const memory = await resolveProjectMemory(project());
+    const changePath = join("harness", "changes", "active", "scheduler-ready-set-graph");
+    const planningDir = join(tempDir, changePath, "planning");
+    await mkdir(planningDir, { recursive: true });
+    const plan = minimalDecompositionPlan("scheduler-ready-set-graph");
+    plan.recommendation = "taskgraph-parallel-candidate";
+    plan.units = [
+      { ...plan.units[0], id: "DU-001", title: "Module A", taskIds: ["T-001"], scopeHints: ["src/module-a.ts"], dependsOn: [] },
+      { ...plan.units[0], id: "DU-002", title: "Module B", taskIds: ["T-002"], scopeHints: ["src/module-b.ts"], dependsOn: [] },
+      { ...plan.units[0], id: "DU-003", title: "Synthesis", taskIds: ["T-003"], scopeHints: ["src/synthesis.ts"], dependsOn: ["DU-001", "DU-002"] },
+    ];
+    plan.dependencies = [
+      { from: "DU-001", to: "DU-003", kind: "blocks" },
+      { from: "DU-002", to: "DU-003", kind: "blocks" },
+    ];
+    plan.conflictScopes = ["src/module-a.ts", "src/module-b.ts", "src/synthesis.ts"];
+    plan.artifactRefs = [`harness/changes/active/scheduler-ready-set-graph/spec.md`];
+    plan.recoveryKeyInputs.acceptedArtifactRefs = plan.artifactRefs;
+    const readiness = minimalReadiness("scheduler-ready-set-graph", ["T-001", "T-002", "T-003"]);
+    readiness.status = "ready-for-scheduler-contract";
+    readiness.recommendation = "taskgraph-parallel-candidate";
+    readiness.nextAllowedAction = "scheduler.contract";
+    readiness.decompositionPlanId = plan.id;
+    readiness.units = plan.units.map((unit) => ({
+      id: unit.id,
+      title: unit.title,
+      taskIds: unit.taskIds,
+      acIds: unit.acIds,
+      dependsOn: unit.dependsOn,
+      guardrailStatus: "passed",
+      sourceScopes: unit.scopeHints,
+    }));
+    readiness.dependencies = plan.dependencies;
+    readiness.conflictScopes = plan.conflictScopes;
+    readiness.artifactRefs = plan.artifactRefs;
+    readiness.recoveryKeyMaterial.decompositionPlanId = plan.id;
+    readiness.recoveryKeyMaterial.acceptedArtifactRefs = plan.artifactRefs;
+    await writeFile(join(planningDir, "decomposition-plan.json"), JSON.stringify(plan, null, 2), "utf8");
+    await writeFile(join(planningDir, "decomposition-plan.md"), `# ${plan.id}\n`, "utf8");
+    await writeFile(join(planningDir, "decomposition-readiness.json"), JSON.stringify(readiness, null, 2), "utf8");
+    await writeFile(join(planningDir, "decomposition-readiness.md"), `# ${readiness.id}\n`, "utf8");
+
+    const contract = await compileSchedulerContract(memory, changePath, plan, readiness);
+    const dryRun = await compileSchedulerDispatchDryRun(memory, changePath, contract);
+    const workerPlan = await compileSchedulerWorkerSessionPlan(memory, changePath, dryRun, contract);
+    const claimPlan = await compileSchedulerClaimReconcilePlan(memory, changePath, workerPlan, dryRun, contract);
+    const graph = await compileSchedulerReadySetWorkflowGraphPlan(memory, changePath, contract, workerPlan, claimPlan);
+    const latest = await readLatestWorkflowGraphPlan(memory, changePath);
+
+    expect(latest).toMatchObject({
+      id: graph.id,
+      changeId: "scheduler-ready-set-graph",
+      graphMode: "ready-set-v1",
+      schedulerContractId: contract.id,
+      schedulerWorkerPlanId: workerPlan.id,
+      schedulerClaimReconcilePlanId: claimPlan.id,
+      readinessManifestId: readiness.id,
+    });
+    expect(graph.nodes).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        schedulerNodeId: "scheduler-node-001",
+        waveIndex: 0,
+        claimIntentId: "claim-intent-scheduler-node-001",
+        sourceLocks: expect.arrayContaining([expect.objectContaining({ scope: "src/module-a.ts" })]),
+      }),
+      expect.objectContaining({
+        schedulerNodeId: "scheduler-node-003",
+        waveIndex: 1,
+        claimIntentId: "claim-intent-scheduler-node-003",
+      }),
+    ]));
+    expect(graph.waves).toEqual([
+      expect.objectContaining({ index: 0, nodeIds: ["ready-set-node-scheduler-node-001", "ready-set-node-scheduler-node-002"], claimIntentIds: ["claim-intent-scheduler-node-001", "claim-intent-scheduler-node-002"] }),
+      expect.objectContaining({ index: 1, nodeIds: ["ready-set-node-scheduler-node-003"], claimIntentIds: ["claim-intent-scheduler-node-003"] }),
+    ]);
+    expect(graph.edges).toEqual(expect.arrayContaining([
+      expect.objectContaining({ from: "ready-set-node-scheduler-node-001", to: "ready-set-node-scheduler-node-003", kind: "dependency" }),
+      expect.objectContaining({ from: "scheduler-node-001:coder:1", to: "scheduler-node-001:validation:2", kind: "stage-order" }),
+    ]));
+    await expect(selectNextSequentialGraphQueueItem(memory, graph, { changeId: "scheduler-ready-set-graph" } as TaskQueueRun))
+      .rejects.toThrow("Unsupported WorkflowGraph mode: ready-set-v1");
+    expect(await listWorkflowRuns(memory, "scheduler-ready-set-graph")).toEqual([]);
+    expect(await listTaskQueues(memory, "scheduler-ready-set-graph")).toEqual([]);
+    expect(await listTaskRuns(memory, "scheduler-ready-set-graph")).toEqual([]);
+
+    await writeFile(join(tempDir, changePath, "spec.md"), "# Spec\n\nChanged after graph compile.\n", "utf8");
+    await expect(compileSchedulerReadySetWorkflowGraphPlan(memory, changePath, contract, workerPlan, claimPlan))
+      .rejects.toThrow("source artifact hash mismatch");
   });
 
   it("keeps workflow artifact hash normalization stable", async () => {

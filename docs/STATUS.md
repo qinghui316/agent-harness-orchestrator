@@ -12,6 +12,12 @@
   ready-set/current-gate/current-transition/code-growth lessons. The next useful
   work is product runtime compression, not another Harness rule.
 - Latest archived runtime change:
+  `harness/changes/archive/20260709-workflowgraph-ready-set-bridge-contract-v0/summary.md`.
+  It added a non-executing `WorkflowGraphPlan graphMode: "ready-set-v1"`
+  contract and Scheduler-to-graph bridge compiler so Scheduler planning
+  evidence now has canonical graph lineage without changing Scheduler
+  execution gates or runtime dispatch authority.
+- Previous archived runtime change:
   `harness/changes/archive/20260709-workflowgraph-sequential-execution-owner-v0/summary.md`.
   It made existing `WorkflowGraphPlan graphMode: "sequential-v1"` the execution
   ordering owner for confirmed TaskQueue sequential runs, thinned
@@ -131,9 +137,12 @@
   source-refresh rework, and PR feedback rework now run through
   `workflow-runtime`, and the covered old role-chain runner/step-loop has been
   deleted. TaskQueue now acts as compatibility ledger/projection for the
-  sequential graph path. Source-refresh and PR feedback rework share one
-  rework-only runtime sequence owner. Broader Scheduler wave automation remains
-  a future capability under the Workflow Runtime owner.
+  sequential graph path. Scheduler planning evidence can now compile into a
+  non-executing `WorkflowGraphPlan graphMode: "ready-set-v1"` lineage contract,
+  but ready-set graph execution remains future work. Source-refresh and PR
+  feedback rework share one rework-only runtime sequence owner. Broader
+  Scheduler wave automation remains a future capability under the Workflow
+  Runtime owner.
 - New runtime takeover changes must include new-path takeover, old production
   runner deletion for the covered behavior, and negative tests proving the old
   runner is no longer called.
@@ -159,10 +168,10 @@
 ## Next Resume Point
 
 No active change remains. The latest runtime slice is
-`harness/changes/archive/20260709-workflowgraph-sequential-execution-owner-v0/summary.md`.
+`harness/changes/archive/20260709-workflowgraph-ready-set-bridge-contract-v0/summary.md`.
 Next work should pick exactly one architecture slice after reading
 `docs/design-docs/harness-workflow-runtime-target.md`; likely candidates are
-broader Scheduler wave automation or WorkflowGraphPlan execution expansion.
+ready-set graph execution owner or broader Scheduler wave automation.
 
 Do not combine broader Scheduler wave automation with unrelated
 WorkflowGraphPlan, Goal loop, Plan UI, Codex subagent, or remote/merge work in

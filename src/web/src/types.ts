@@ -1092,12 +1092,16 @@ export type TaskQueueProposalSummary = {
 export type WorkflowGraphPlanSummary = {
   id: string;
   changeId: string;
-  taskQueueProposalId: string;
+  taskQueueProposalId?: string;
+  schedulerContractId?: string;
+  schedulerWorkerPlanId?: string;
+  schedulerClaimReconcilePlanId?: string;
   readinessManifestId: string;
   status: "compiled" | "superseded" | "rejected";
-  graphMode: "sequential-v1";
+  graphMode: "sequential-v1" | "ready-set-v1";
   nodeCount: number;
   edgeCount: number;
+  waveCount?: number;
   stageCount: number;
   artifact?: string;
   markdownArtifact?: string;

@@ -14,6 +14,12 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
   ready-set/current-gate/current-transition/code-growth lessons. The next useful
   work is product runtime compression, not another Harness rule.
 - Latest archived runtime change:
+  `harness/changes/archive/20260709-workflowgraph-ready-set-bridge-contract-v0/summary.md`.
+  It added a non-executing `WorkflowGraphPlan graphMode: "ready-set-v1"`
+  contract and Scheduler-to-graph bridge compiler so Scheduler planning
+  evidence now has canonical graph lineage without changing Scheduler
+  execution gates or runtime dispatch authority.
+- Previous archived runtime change:
   `harness/changes/archive/20260709-workflowgraph-sequential-execution-owner-v0/summary.md`.
   It made existing `WorkflowGraphPlan graphMode: "sequential-v1"` the execution
   ordering owner for confirmed TaskQueue sequential runs, thinned
@@ -128,9 +134,11 @@ Current baseline:
   source-refresh rework, and PR feedback rework are already routed through
   `workflow-runtime`, and the covered old role-chain runner/step-loop has been
   deleted. TaskQueue now acts as compatibility ledger/projection for the
-  sequential graph path. Source-refresh and PR feedback rework share one
-  rework-only runtime sequence owner. New runtime takeover changes must delete
-  the covered old production runner.
+  sequential graph path. Scheduler planning evidence can now compile into a
+  non-executing `WorkflowGraphPlan graphMode: "ready-set-v1"` lineage contract,
+  but ready-set graph execution remains future work. Source-refresh and PR
+  feedback rework share one rework-only runtime sequence owner. New runtime
+  takeover changes must delete the covered old production runner.
 - Goal is a visible main-Agent brief and completion standard, not hidden durable
   state and not project memory. Future sessions recover by reading Harness
   docs/evidence, not by restoring Goal state. Existing GoalLoop packet/controller
@@ -149,9 +157,9 @@ Current baseline:
   `confirmationQueue.primary`, or grant permissions.
 
 - Current structured work: none.
-- Next structured work should pick one architecture slice after reading
+- Next structured work should pick one separate runtime slice after reading
   `docs/design-docs/harness-workflow-runtime-target.md`; likely candidates are
-  broader Scheduler wave automation or WorkflowGraphPlan execution expansion.
+  ready-set graph execution owner or broader Scheduler wave automation.
 - Keep `README.md` untracked unless the user explicitly scopes it into a
   change.
 

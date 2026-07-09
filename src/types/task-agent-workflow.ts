@@ -142,8 +142,9 @@ export type MainAgentFailureClassification = "boundary-violation" | "code-failur
 
 export type WorkflowGraphPlanStatus = "compiled" | "superseded" | "rejected";
 export type WorkflowGraphStage = "coder" | "validation" | "audit" | "bounded-rework";
+export type WorkflowGraphMode = "sequential-v1" | "ready-set-v1";
 
-export interface WorkflowGraphNode {
+export interface SequentialWorkflowGraphNode {
   id: string;
   taskId: string;
   taskQueueProposalItemId: string;
@@ -155,23 +156,77 @@ export interface WorkflowGraphNode {
   sourceScopes: string[];
 }
 
-export interface WorkflowGraphEdge {
+export interface SequentialWorkflowGraphEdge {
   from: string;
   to: string;
   kind: "task-order" | "stage-order";
 }
 
-export interface WorkflowGraphPlan {
+export interface ReadySetWorkflowGraphStageRef {
+  id: string;
+  stage: WorkflowGraphStage;
+  roleId: string;
+  adapterFamily: string;
+  status: "planned" | "blocked";
+  sourceScopes: string[];
+  recoveryKeyInputs: { key: string; value: string | string[] }[];
+  blockedReasons: string[];
+}
+
+export interface ReadySetWorkflowGraphSourceLock {
+  scope: string;
+  nodeId: string;
+  unitId: string;
+  waveIndex: number;
+  claimIntentId: string;
+  stageIds: string[];
+}
+
+export interface ReadySetWorkflowGraphNode {
+  id: string;
+  schedulerNodeId: string;
+  unitId: string;
+  taskIds: string[];
+  title: string;
+  waveIndex: number;
+  stages: WorkflowGraphStage[];
+  stageRefs: ReadySetWorkflowGraphStageRef[];
+  acIds: string[];
+  sourceScopes: string[];
+  claimIntentId: string;
+  plannedWorkerKey: string;
+  roleIds: string[];
+  plannedSlotDemand: number;
+  sourceLocks: ReadySetWorkflowGraphSourceLock[];
+  recoveryKeyInputs: { key: string; value: string | string[] }[];
+  status: "planned" | "blocked";
+  blockedReasons: string[];
+}
+
+export interface ReadySetWorkflowGraphEdge {
+  from: string;
+  to: string;
+  kind: "dependency" | "synthesis" | "stage-order";
+}
+
+export interface ReadySetWorkflowGraphWave {
+  index: number;
+  nodeIds: string[];
+  claimIntentIds: string[];
+  candidateCount: number;
+  blockedCount: number;
+  plannedSlotDemand: number;
+  blockedReasons: string[];
+}
+
+export interface WorkflowGraphPlanBase {
   version: "1.0";
   id: string;
   changeId: string;
   status: WorkflowGraphPlanStatus;
-  graphMode: "sequential-v1";
+  graphMode: WorkflowGraphMode;
   decompositionPlanId: string;
   readinessManifestId: string;
-  taskQueueProposalId: string;
-  nodes: WorkflowGraphNode[];
-  edges: WorkflowGraphEdge[];
   sourceArtifactHashes: Record<string, string>;
   artifactRefs: string[];
   artifact: string;
@@ -179,6 +234,30 @@ export interface WorkflowGraphPlan {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface SequentialWorkflowGraphPlan extends WorkflowGraphPlanBase {
+  graphMode: "sequential-v1";
+  taskQueueProposalId: string;
+  nodes: SequentialWorkflowGraphNode[];
+  edges: SequentialWorkflowGraphEdge[];
+}
+
+export interface ReadySetWorkflowGraphPlan extends WorkflowGraphPlanBase {
+  graphMode: "ready-set-v1";
+  schedulerMode: "parallel-readiness-v1";
+  schedulerContractId: string;
+  schedulerDispatchDryRunId: string;
+  schedulerWorkerPlanId: string;
+  schedulerClaimReconcilePlanId: string;
+  nodes: ReadySetWorkflowGraphNode[];
+  edges: ReadySetWorkflowGraphEdge[];
+  waves: ReadySetWorkflowGraphWave[];
+  plannedSlotDemand: number;
+  maxPlannedWaveWidth: number;
+  recoveryKeyCoverage: "complete" | "partial";
+}
+
+export type WorkflowGraphPlan = SequentialWorkflowGraphPlan | ReadySetWorkflowGraphPlan;
 
 export type WorkflowRunEventType =
   | "workflow.created"

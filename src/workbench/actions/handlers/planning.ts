@@ -1959,11 +1959,11 @@ export async function confirmTaskQueueProposalAndStart(
     throw new Error("planning.taskqueue.confirm-start readiness target is stale.");
   }
   const graph = await readWorkflowGraphPlan(memory, changePath, request.workflowGraphPlanId);
-  if (graph.status !== "compiled" || graph.changeId !== changeId || graph.taskQueueProposalId !== proposal.id || graph.readinessManifestId !== manifest.id) {
+  if (graph.graphMode !== "sequential-v1" || graph.status !== "compiled" || graph.changeId !== changeId || graph.taskQueueProposalId !== proposal.id || graph.readinessManifestId !== manifest.id) {
     throw new Error("planning.taskqueue.confirm-start graph target is stale.");
   }
   const latestGraph = await readLatestWorkflowGraphPlan(memory, changePath);
-  if (latestGraph.id !== graph.id) throw new Error("planning.taskqueue.confirm-start requires the latest matching WorkflowGraphPlan.");
+  if (latestGraph.graphMode !== "sequential-v1" || latestGraph.id !== graph.id) throw new Error("planning.taskqueue.confirm-start requires the latest matching WorkflowGraphPlan.");
   const validated = await validateWorkflowTaskQueueProposalStart(memory, project, changeId, proposal.id, graph.id);
   const workflow = await createWorkflowRunForValidatedTaskQueue(memory, project, validated);
   await appendTopicThreadEntry(project, changeId, {

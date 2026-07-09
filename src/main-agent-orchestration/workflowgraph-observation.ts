@@ -437,8 +437,12 @@ async function evaluateArtifactFreshness(
     }
   }
   if (artifacts.proposal && artifacts.graph) {
-    if (artifacts.graph.taskQueueProposalId !== artifacts.proposal.id) reasons.push("WorkflowGraphPlan does not match latest TaskQueueProposal.");
-    if (artifacts.graph.readinessManifestId !== artifacts.proposal.readinessManifestId) reasons.push("WorkflowGraphPlan does not match proposal readiness.");
+    if (artifacts.graph.graphMode !== "sequential-v1") {
+      reasons.push("Latest WorkflowGraphPlan is not a sequential TaskQueue graph.");
+    } else {
+      if (artifacts.graph.taskQueueProposalId !== artifacts.proposal.id) reasons.push("WorkflowGraphPlan does not match latest TaskQueueProposal.");
+      if (artifacts.graph.readinessManifestId !== artifacts.proposal.readinessManifestId) reasons.push("WorkflowGraphPlan does not match proposal readiness.");
+    }
     const graphSourceRefs = Object.keys(artifacts.graph.sourceArtifactHashes);
     const graphHashes = await hashArtifactRefs(memory, graphSourceRefs).catch(() => null);
     if (!graphHashes) {

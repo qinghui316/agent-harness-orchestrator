@@ -156,7 +156,7 @@ import { listDemandWorkers } from "../../src/demand-worker/repository.js";
 import { getDemandWorkerSlot } from "../../src/demand-worker/slot-policy.js";
 import { recordMainOrchestratorDecision } from "../../src/demand-worker/decisions.js";
 import { compileWorkflowGraphPlan, hashArtifactRefs, readLatestTaskQueueProposal, renderWorkflowGraphPlanMarkdown } from "../../src/workflow-artifacts/manager.js";
-import { compileSchedulerClaimReconcilePlan, compileSchedulerContract, compileSchedulerDispatchDryRun, compileSchedulerWorkerSessionPlan, prepareSchedulerRun, renderSchedulerClaimReconcilePlanMarkdown, renderSchedulerContractMarkdown, renderSchedulerDispatchDryRunMarkdown, renderSchedulerRunMarkdown, renderSchedulerWorkerSessionPlanMarkdown } from "../../src/workflow-scheduler/manager.js";
+import { compileSchedulerClaimReconcilePlan, compileSchedulerContract, compileSchedulerDispatchDryRun, compileSchedulerReadySetWorkflowGraphPlan, compileSchedulerWorkerSessionPlan, prepareSchedulerRun, renderSchedulerClaimReconcilePlanMarkdown, renderSchedulerContractMarkdown, renderSchedulerDispatchDryRunMarkdown, renderSchedulerRunMarkdown, renderSchedulerWorkerSessionPlanMarkdown } from "../../src/workflow-scheduler/manager.js";
 import {
   schedulerWorkerAuditEventType,
   schedulerWorkerResultEventType,
@@ -1212,6 +1212,7 @@ describe("Workbench module boundaries", () => {
     expect(typeof compileSchedulerWorkerSessionPlan).toBe("function");
     expect(typeof renderSchedulerWorkerSessionPlanMarkdown).toBe("function");
     expect(typeof compileSchedulerClaimReconcilePlan).toBe("function");
+    expect(typeof compileSchedulerReadySetWorkflowGraphPlan).toBe("function");
     expect(typeof renderSchedulerClaimReconcilePlanMarkdown).toBe("function");
     expect(typeof prepareSchedulerRun).toBe("function");
     expect(typeof renderSchedulerRunMarkdown).toBe("function");
@@ -2230,6 +2231,7 @@ describe("Workbench module boundaries", () => {
     expect(manager).toContain('export * from "./schemas.js";');
     expect(manager).toContain('export * from "./scheduler-run.js";');
     expect(manager).toContain('export * from "./worker-plan.js";');
+    expect(manager).toContain('export * from "./workflow-graph-bridge.js";');
 
     const compiler = readFileSync("src/workflow-scheduler/compiler.ts", "utf8");
     expect(compiler).toContain("compileSchedulerContract");
@@ -2261,6 +2263,18 @@ describe("Workbench module boundaries", () => {
     expect(schedulerRun).toContain("SchedulerRun requires a checked SchedulerLaunchPreflight");
     expect(schedulerRun).toContain("assertLatestSchedulerArtifact(latestPreflight, launchPreflight, \"SchedulerRun\", \"SchedulerLaunchPreflight\")");
     expect(schedulerRun).toContain("appendSchedulerRunJournalEvent");
+
+    const graphBridge = readFileSync("src/workflow-scheduler/workflow-graph-bridge.ts", "utf8");
+    expect(graphBridge).toContain("compileSchedulerReadySetWorkflowGraphPlan");
+    expect(graphBridge).toContain("writeWorkflowGraphPlan");
+    expect(graphBridge).toContain("assertLatestSchedulerArtifact");
+    expect(graphBridge).toContain("readLatestSchedulerClaimReconcilePlan");
+    expect(graphBridge).not.toContain("../workbench/");
+    expect(graphBridge).not.toContain("../web/");
+    expect(graphBridge).not.toContain("../server/");
+    expect(graphBridge).not.toContain("prepareSchedulerRun(");
+    expect(graphBridge).not.toContain("startTaskRun");
+    expect(graphBridge).not.toContain("WorkerLease");
 
     const guards = readFileSync("src/workflow-scheduler/guards.ts", "utf8");
     expect(typeof assertLatestSchedulerArtifact).toBe("function");

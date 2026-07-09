@@ -140,10 +140,14 @@ export interface WorkbenchWorkflowGraphPlanSummary {
   changeId: string;
   status: WorkflowGraphPlan["status"];
   graphMode: WorkflowGraphPlan["graphMode"];
-  taskQueueProposalId: string;
+  taskQueueProposalId?: string;
+  schedulerContractId?: string;
+  schedulerWorkerPlanId?: string;
+  schedulerClaimReconcilePlanId?: string;
   readinessManifestId: string;
   nodeCount: number;
   edgeCount: number;
+  waveCount?: number;
   artifact?: string;
   markdownArtifact?: string;
   updatedAt: string;
@@ -939,10 +943,14 @@ export async function readLatestWorkflowGraphPlanSummary(memory: ResolvedMemory,
     changeId: graph.changeId,
     status: graph.status,
     graphMode: graph.graphMode,
-    taskQueueProposalId: graph.taskQueueProposalId,
+    taskQueueProposalId: graph.graphMode === "sequential-v1" ? graph.taskQueueProposalId : undefined,
+    schedulerContractId: graph.graphMode === "ready-set-v1" ? graph.schedulerContractId : undefined,
+    schedulerWorkerPlanId: graph.graphMode === "ready-set-v1" ? graph.schedulerWorkerPlanId : undefined,
+    schedulerClaimReconcilePlanId: graph.graphMode === "ready-set-v1" ? graph.schedulerClaimReconcilePlanId : undefined,
     readinessManifestId: graph.readinessManifestId,
     nodeCount: graph.nodes.length,
     edgeCount: graph.edges.length,
+    waveCount: graph.graphMode === "ready-set-v1" ? graph.waves.length : undefined,
     artifact: graph.artifact,
     markdownArtifact: graph.markdownArtifact,
     updatedAt: graph.updatedAt,
@@ -1987,7 +1995,7 @@ export function buildTypedWorkflowNextAction(input: {
     if (!taskQueueProposal || taskQueueProposal.readinessManifestId !== decompositionReadiness.id || ["superseded", "rejected"].includes(taskQueueProposal.status)) {
       return { ...workflowNextAction("planning.taskqueue.propose", "生成 TaskQueue 提案", "生成顺序 TaskQueueProposal；不会启动执行。"), readinessManifestId: decompositionReadiness.id };
     }
-    if (!workflowGraphPlan || workflowGraphPlan.taskQueueProposalId !== taskQueueProposal.id || workflowGraphPlan.readinessManifestId !== decompositionReadiness.id) {
+    if (!workflowGraphPlan || workflowGraphPlan.graphMode !== "sequential-v1" || workflowGraphPlan.taskQueueProposalId !== taskQueueProposal.id || workflowGraphPlan.readinessManifestId !== decompositionReadiness.id) {
       return { ...workflowNextAction("planning.workflowgraph.compile", "编译执行图", "生成 versioned WorkflowGraphPlan；不会启动执行。"), taskQueueProposalId: taskQueueProposal.id, readinessManifestId: decompositionReadiness.id };
     }
     if (!workflowRun || workflowRun.workflowGraphPlanId !== workflowGraphPlan.id) {

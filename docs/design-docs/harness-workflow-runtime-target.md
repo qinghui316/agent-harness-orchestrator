@@ -62,10 +62,14 @@ role-chain runner and fixed decision policy are retired; state/evidence helpers
 may remain only when they are still used by Workflow Runtime leaf evidence,
 replay, recovery, or projection support.
 
-`WorkflowGraphPlan` is also still sequential-TaskQueue shaped. Its current
-`graphMode: "sequential-v1"` is an implementation limit. The target graph can
-express sequential execution, ready sets, barriers, pipelines, and scheduler
-waves, but this document does not change the schema.
+`WorkflowGraphPlan graphMode: "sequential-v1"` is now the execution owner for
+confirmed TaskQueue sequential runs. The next contract step is
+`graphMode: "ready-set-v1"` as a non-executing bridge from Scheduler planning
+evidence into graph lineage. That bridge may record waves, worker stages,
+claim intents, source locks, recovery keys, and artifact hash lineage, but it
+does not authorize Scheduler execution, create runtime records, or replace the
+current Scheduler reservation/current-transition gates. Future ready-set graph
+execution remains a separate Workflow Runtime implementation change.
 
 Scheduler evidence is valuable and must remain. SchedulerContract, dry-run,
 worker-plan, claim/reconcile, launch preflight, SchedulerRun,
@@ -370,6 +374,13 @@ later TaskRun stage migration moved `task.run.start`, `task.run.retry`, and
 TaskQueue item stage execution into `workflow-runtime`, deleting the old
 TaskRun lifecycle/resume production files.
 
+Phase 4B completed confirmed TaskQueue sequential graph execution:
+`WorkflowGraphPlan graphMode: "sequential-v1"` is the ordering owner for
+TaskQueue sequential runs, while TaskQueue remains the compatibility ledger.
+The ready-set graph bridge is the next contract-only step; it normalizes
+Scheduler planning evidence into `graphMode: "ready-set-v1"` lineage without
+changing Scheduler runtime authority.
+
 Phase 5 migrates Scheduler into ready-set/wave/claim/lease workflow mode. It
 moves worker start, validation, audit, and rework into scheduler leaf
 executors, deletes independent start-first/start-next runner logic, and
@@ -393,7 +404,9 @@ memory; future sessions recover by reading Harness docs/evidence.
 ## Non-Goals
 
 - Do not implement `HarnessWorkflowRunEngine` in the documentation change.
-- Do not change `WorkflowGraphPlan` schemas in this documentation change.
+- Do not treat `WorkflowGraphPlan` schema changes as execution authority. New
+  graph modes must fail closed in executors until a dedicated runtime owner
+  consumes them.
 - Do not repair Plan handoff UI in this documentation change.
 - Do not make Open Dynamic Workflows a dependency.
 - Do not copy reference-project source code.

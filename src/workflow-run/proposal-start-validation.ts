@@ -16,9 +16,9 @@ import type { ValidatedTaskQueueProposal } from "./types.js";
 export async function validateTaskQueueProposalStart(memory: ResolvedMemory, project: ManagedProject, changeId: string, taskQueueProposalId: string, workflowGraphPlanId: string): Promise<ValidatedTaskQueueProposal> {
   const changePath = await activeChangePath(memory, changeId);
   const latestGraph = await readRequiredJsonFile(join(memory.memoryRoot, changePath, "planning", "workflow-graph-plan.json"), workflowGraphPlanSchema);
-  if (latestGraph.id !== workflowGraphPlanId) throw new Error("TaskQueue start requires the latest WorkflowGraphPlan.");
+  if (latestGraph.graphMode !== "sequential-v1" || latestGraph.id !== workflowGraphPlanId) throw new Error("TaskQueue start requires the latest sequential WorkflowGraphPlan.");
   const graph = await readWorkflowGraphPlan(memory, changePath, workflowGraphPlanId);
-  if (graph.id !== latestGraph.id || graph.changeId !== changeId || graph.taskQueueProposalId !== taskQueueProposalId || graph.status !== "compiled") {
+  if (graph.graphMode !== "sequential-v1" || graph.id !== latestGraph.id || graph.changeId !== changeId || graph.taskQueueProposalId !== taskQueueProposalId || graph.status !== "compiled") {
     throw new Error("TaskQueue start requires a matching compiled WorkflowGraphPlan.");
   }
   const proposalRef = requiredGraphRef(graph, ".taskqueue-proposal.json");

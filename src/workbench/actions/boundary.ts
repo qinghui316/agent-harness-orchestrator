@@ -1091,7 +1091,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
       throw new Error("planning.taskqueue.confirm-start readiness target is stale.");
     }
     const graph = await readLatestWorkflowGraphPlan(memory, target.path);
-    if (graph.id !== request.workflowGraphPlanId || graph.taskQueueProposalId !== proposal.id || graph.readinessManifestId !== manifest.id || graph.status !== "compiled") {
+    if (graph.graphMode !== "sequential-v1" || graph.id !== request.workflowGraphPlanId || graph.taskQueueProposalId !== proposal.id || graph.readinessManifestId !== manifest.id || graph.status !== "compiled") {
       throw new Error("planning.taskqueue.confirm-start graph target is stale.");
     }
   }

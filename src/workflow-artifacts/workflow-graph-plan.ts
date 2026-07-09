@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { readRequiredJsonFile, writeJsonFile } from "../fs/json.js";
 import { shortHash } from "../fs/path.js";
-import type { ResolvedMemory, WorkflowGraphPlan, WorkflowGraphStage } from "../types/index.js";
+import type { ReadySetWorkflowGraphPlan, ResolvedMemory, SequentialWorkflowGraphPlan, WorkflowGraphPlan, WorkflowGraphStage } from "../types/index.js";
 import { displayArtifactPath } from "./artifact-refs.js";
 import { assertWorkflowArtifactScope } from "./guards.js";
 import { hashArtifactRefs } from "./hashes.js";
@@ -74,6 +74,14 @@ export async function compileWorkflowGraphPlan(memory: ResolvedMemory, changePat
   };
   await writeWorkflowGraphPlan(memory, changePath, graph);
   return graph;
+}
+
+export function isSequentialWorkflowGraphPlan(graph: WorkflowGraphPlan): graph is SequentialWorkflowGraphPlan {
+  return graph.graphMode === "sequential-v1";
+}
+
+export function isReadySetWorkflowGraphPlan(graph: WorkflowGraphPlan): graph is ReadySetWorkflowGraphPlan {
+  return graph.graphMode === "ready-set-v1";
 }
 
 export async function writeWorkflowGraphPlan(memory: ResolvedMemory, changePath: string, graph: WorkflowGraphPlan): Promise<void> {

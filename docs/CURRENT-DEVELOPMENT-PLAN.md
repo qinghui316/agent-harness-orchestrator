@@ -681,11 +681,14 @@ Pending Harness evolution: none.
 
 Current structured change: none.
 
-Recommended current architecture step: continue Workflow Runtime convergence
-with one focused slice. Prefer broader Scheduler ready-set / wave automation or
-WorkflowGraphPlan execution expansion after confirming the owner boundary. Do
-not combine Scheduler wave behavior with unrelated WorkflowGraphPlan, Goal
-loop, Plan UI, Codex subagent, or remote/merge work.
+Latest architecture slice:
+`harness/changes/archive/20260709-workflowgraph-ready-set-bridge-contract-v0/summary.md`.
+
+Recommended current architecture step: pick one focused runtime slice after
+reading `docs/design-docs/harness-workflow-runtime-target.md`. Likely
+candidates are ready-set graph execution owner or broader Scheduler wave
+automation. Do not combine Scheduler wave behavior with unrelated Goal loop,
+Plan UI, Codex subagent, or remote/merge work.
 
 Desktop product-layer work can continue when selected as a separate structured
 product phase.

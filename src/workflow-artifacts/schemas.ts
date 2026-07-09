@@ -131,14 +131,30 @@ export const taskQueueProposalSchema = z.object({
   updatedAt: z.string(),
 }) as z.ZodType<TaskQueueProposal>;
 
-export const workflowGraphPlanSchema: z.ZodType<WorkflowGraphPlan> = z.object({
+const workflowGraphPlanBaseSchema = z.object({
   version: z.literal("1.0"),
   id: z.string(),
   changeId: z.string(),
   status: z.enum(["compiled", "superseded", "rejected"]),
-  graphMode: z.literal("sequential-v1"),
   decompositionPlanId: z.string(),
   readinessManifestId: z.string(),
+  sourceArtifactHashes: z.record(z.string()),
+  artifactRefs: z.array(z.string()),
+  artifact: z.string(),
+  markdownArtifact: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+const workflowGraphStageSchema = z.enum(["coder", "validation", "audit", "bounded-rework"]);
+
+const workflowGraphRecoveryKeyInputSchema = z.object({
+  key: z.string(),
+  value: z.union([z.string(), z.array(z.string())]),
+});
+
+const sequentialWorkflowGraphPlanSchema = workflowGraphPlanBaseSchema.extend({
+  graphMode: z.literal("sequential-v1"),
   taskQueueProposalId: z.string(),
   nodes: z.array(z.object({
     id: z.string(),
@@ -147,7 +163,7 @@ export const workflowGraphPlanSchema: z.ZodType<WorkflowGraphPlan> = z.object({
     unitId: z.string(),
     title: z.string(),
     order: z.number(),
-    stages: z.array(z.enum(["coder", "validation", "audit", "bounded-rework"])),
+    stages: z.array(workflowGraphStageSchema),
     acIds: z.array(z.string()),
     sourceScopes: z.array(z.string()),
   })),
@@ -156,10 +172,71 @@ export const workflowGraphPlanSchema: z.ZodType<WorkflowGraphPlan> = z.object({
     to: z.string(),
     kind: z.enum(["task-order", "stage-order"]),
   })),
-  sourceArtifactHashes: z.record(z.string()),
-  artifactRefs: z.array(z.string()),
-  artifact: z.string(),
-  markdownArtifact: z.string(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
 });
+
+const readySetWorkflowGraphPlanSchema = workflowGraphPlanBaseSchema.extend({
+  graphMode: z.literal("ready-set-v1"),
+  schedulerMode: z.literal("parallel-readiness-v1"),
+  schedulerContractId: z.string(),
+  schedulerDispatchDryRunId: z.string(),
+  schedulerWorkerPlanId: z.string(),
+  schedulerClaimReconcilePlanId: z.string(),
+  nodes: z.array(z.object({
+    id: z.string(),
+    schedulerNodeId: z.string(),
+    unitId: z.string(),
+    taskIds: z.array(z.string()),
+    title: z.string(),
+    waveIndex: z.number(),
+    stages: z.array(workflowGraphStageSchema),
+    stageRefs: z.array(z.object({
+      id: z.string(),
+      stage: workflowGraphStageSchema,
+      roleId: z.string(),
+      adapterFamily: z.string(),
+      status: z.enum(["planned", "blocked"]),
+      sourceScopes: z.array(z.string()),
+      recoveryKeyInputs: z.array(workflowGraphRecoveryKeyInputSchema),
+      blockedReasons: z.array(z.string()),
+    })),
+    acIds: z.array(z.string()),
+    sourceScopes: z.array(z.string()),
+    claimIntentId: z.string(),
+    plannedWorkerKey: z.string(),
+    roleIds: z.array(z.string()),
+    plannedSlotDemand: z.number(),
+    sourceLocks: z.array(z.object({
+      scope: z.string(),
+      nodeId: z.string(),
+      unitId: z.string(),
+      waveIndex: z.number(),
+      claimIntentId: z.string(),
+      stageIds: z.array(z.string()),
+    })),
+    recoveryKeyInputs: z.array(workflowGraphRecoveryKeyInputSchema),
+    status: z.enum(["planned", "blocked"]),
+    blockedReasons: z.array(z.string()),
+  })),
+  edges: z.array(z.object({
+    from: z.string(),
+    to: z.string(),
+    kind: z.enum(["dependency", "synthesis", "stage-order"]),
+  })),
+  waves: z.array(z.object({
+    index: z.number(),
+    nodeIds: z.array(z.string()),
+    claimIntentIds: z.array(z.string()),
+    candidateCount: z.number(),
+    blockedCount: z.number(),
+    plannedSlotDemand: z.number(),
+    blockedReasons: z.array(z.string()),
+  })),
+  plannedSlotDemand: z.number(),
+  maxPlannedWaveWidth: z.number(),
+  recoveryKeyCoverage: z.enum(["complete", "partial"]),
+});
+
+export const workflowGraphPlanSchema: z.ZodType<WorkflowGraphPlan> = z.discriminatedUnion("graphMode", [
+  sequentialWorkflowGraphPlanSchema,
+  readySetWorkflowGraphPlanSchema,
+]);

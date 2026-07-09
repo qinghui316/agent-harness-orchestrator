@@ -41,6 +41,9 @@ export async function assertCodeExecutionGate(
     if (!workflowGraphPlanId) throw new Error("TaskQueue code execution requires workflowGraphPlanId.");
     if (!options.taskRunId) throw new Error("TaskQueue code execution requires taskRunId.");
     const graph = await readWorkflowGraphPlan(memory, changePath, workflowGraphPlanId);
+    if (graph.graphMode !== "sequential-v1") {
+      throw new Error("TaskQueue code execution requires a sequential WorkflowGraphPlan.");
+    }
     const proposalRef = graph.artifactRefs.find((item) => item.endsWith(".taskqueue-proposal.json"));
     if (!proposalRef) throw new Error("TaskQueue code execution graph is missing proposal snapshot.");
     const proposal = await readRequiredJsonFile(resolveArtifactRef(memory, proposalRef), taskQueueProposalSchema);

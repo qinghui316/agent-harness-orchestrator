@@ -956,7 +956,7 @@ export function taskQueueProposalToConfirmationItems(
     }];
   }
   const graph = workpad.workflowGraphPlan;
-  if (!graph || graph.taskQueueProposalId !== proposal.id || graph.readinessManifestId !== readiness.id) {
+  if (!graph || graph.graphMode !== "sequential-v1" || graph.taskQueueProposalId !== proposal.id || graph.readinessManifestId !== readiness.id) {
     return [{
       id: `confirm:workflowgraph-compile:${selectedTopic.id}:${proposal.id}`,
       kind: "planning-confirm",

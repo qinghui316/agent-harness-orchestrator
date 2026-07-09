@@ -1,10 +1,11 @@
-import type { ResolvedMemory } from "../types/index.js";
+import type { ResolvedMemory, WorkflowGraphPlan } from "../types/index.js";
 import { readLatestDecompositionPlan } from "../workflow-artifacts/decomposition-plan.js";
 import { readLatestDecompositionReadinessManifest } from "../workflow-artifacts/readiness-manifest.js";
 import { compileSchedulerClaimReconcilePlan } from "../workflow-scheduler/claim-reconcile.js";
 import { compileSchedulerContract } from "../workflow-scheduler/compiler.js";
 import { compileSchedulerDispatchDryRun } from "../workflow-scheduler/dry-run.js";
 import { compileSchedulerLaunchPreflight } from "../workflow-scheduler/launch-preflight.js";
+import { compileSchedulerReadySetWorkflowGraphPlan } from "../workflow-scheduler/workflow-graph-bridge.js";
 import { readSchedulerRun } from "../workflow-scheduler/repository.js";
 import { prepareSchedulerRun } from "../workflow-scheduler/scheduler-run.js";
 import type {
@@ -41,6 +42,7 @@ export interface SchedulerPlanPreparationResult {
   dryRun?: SchedulerDispatchDryRun;
   workerPlan?: SchedulerWorkerSessionPlan;
   claimReconcilePlan?: SchedulerClaimReconcilePlan;
+  workflowGraphPlan?: WorkflowGraphPlan;
   launchPreflight?: SchedulerLaunchPreflight;
   schedulerRun?: SchedulerRun;
   runtimeState?: SchedulerRuntimeState;
@@ -76,6 +78,7 @@ export async function prepareSchedulerPlanEvidence(
   const dryRun = await compileSchedulerDispatchDryRun(memory, changePath, contract);
   const workerPlan = await compileSchedulerWorkerSessionPlan(memory, changePath, dryRun, contract);
   const claimReconcilePlan = await compileSchedulerClaimReconcilePlan(memory, changePath, workerPlan, dryRun, contract);
+  const workflowGraphPlan = await compileSchedulerReadySetWorkflowGraphPlan(memory, changePath, contract, workerPlan, claimReconcilePlan);
   const launchPreflight = await compileSchedulerLaunchPreflight(memory, changePath, claimReconcilePlan, workerPlan, dryRun, contract);
   if (launchPreflight.status !== "checked") {
     return {
@@ -85,6 +88,7 @@ export async function prepareSchedulerPlanEvidence(
       dryRun,
       workerPlan,
       claimReconcilePlan,
+      workflowGraphPlan,
       launchPreflight,
       blockedSummary: launchPreflight.blockedReasons.length
         ? launchPreflight.blockedReasons.join("; ")
@@ -105,6 +109,7 @@ export async function prepareSchedulerPlanEvidence(
     dryRun,
     workerPlan,
     claimReconcilePlan,
+    workflowGraphPlan,
     launchPreflight,
     schedulerRun,
     runtimeState,

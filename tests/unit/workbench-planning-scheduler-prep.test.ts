@@ -415,6 +415,7 @@ describe("workbench planning and scheduler preparation", () => {
         dryRun?: { id?: string; schedulerContractId?: string; estimatedMaxWaveWidth?: number };
         workerPlan?: { id?: string; schedulerDispatchDryRunId?: string; plannedWorkerCount?: number; stageCount?: number };
         claimReconcilePlan?: { id?: string; schedulerWorkerPlanId?: string; claimIntents?: unknown[]; maxPlannedWaveWidth?: number };
+        workflowGraphPlan?: { id?: string; graphMode?: string; schedulerContractId?: string; schedulerWorkerPlanId?: string; schedulerClaimReconcilePlanId?: string; waves?: unknown[] };
         launchPreflight?: { id?: string; status?: string; schedulerClaimReconcilePlanId?: string; plannedSlotDemand?: number };
         schedulerRun?: { id?: string; status?: string; schedulerLaunchPreflightId?: string; claimIntentCount?: number; plannedSlotDemand?: number };
         runtimeState?: { id?: string; schedulerRunId?: string; blockedCount?: number; lastReconcileSnapshotId?: string; lastClaimReservationId?: string };
@@ -431,6 +432,7 @@ describe("workbench planning and scheduler preparation", () => {
     const dryRun = preparedResult?.dryRun;
     const workerPlan = preparedResult?.workerPlan;
     const claimReconcilePlan = preparedResult?.claimReconcilePlan;
+    const workflowGraphPlan = preparedResult?.workflowGraphPlan;
     const launchPreflight = preparedResult?.launchPreflight;
     const schedulerRun = preparedResult?.schedulerRun;
     const runtimeState = preparedResult?.runtimeState;
@@ -441,6 +443,13 @@ describe("workbench planning and scheduler preparation", () => {
     expect(workerPlan).toMatchObject({ schedulerDispatchDryRunId: dryRun?.id, plannedWorkerCount: 8, stageCount: 8 });
     expect(claimReconcilePlan).toMatchObject({ schedulerWorkerPlanId: workerPlan?.id, maxPlannedWaveWidth: 2 });
     expect(claimReconcilePlan?.claimIntents).toHaveLength(2);
+    expect(workflowGraphPlan).toMatchObject({
+      graphMode: "ready-set-v1",
+      schedulerContractId: contract?.id,
+      schedulerWorkerPlanId: workerPlan?.id,
+      schedulerClaimReconcilePlanId: claimReconcilePlan?.id,
+    });
+    expect(workflowGraphPlan?.waves).toHaveLength(1);
     expect(launchPreflight).toMatchObject({ status: "checked", schedulerClaimReconcilePlanId: claimReconcilePlan?.id, plannedSlotDemand: 2 });
     expect(schedulerRun).toMatchObject({ status: "prepared", schedulerLaunchPreflightId: launchPreflight?.id, claimIntentCount: 2, plannedSlotDemand: 2 });
     expect(runtimeState).toMatchObject({ schedulerRunId: schedulerRun?.id, blockedCount: 0 });
@@ -460,6 +469,14 @@ describe("workbench planning and scheduler preparation", () => {
       id: contract?.id,
       schedulerMode: "parallel-readiness-v1",
       waves: [expect.objectContaining({ nodeIds: expect.arrayContaining(["scheduler-node-001", "scheduler-node-002"]) })],
+    });
+    const fullGraph = await getWorkbenchWorkflowGraphPlanProjection({ project: project(), path: tempDir }, topic.changeId, workflowGraphPlan?.id);
+    expect(fullGraph).toMatchObject({
+      id: workflowGraphPlan?.id,
+      graphMode: "ready-set-v1",
+      schedulerContractId: contract?.id,
+      schedulerWorkerPlanId: workerPlan?.id,
+      schedulerClaimReconcilePlanId: claimReconcilePlan?.id,
     });
     const fullReservation = await getWorkbenchSchedulerClaimReservationProjection({ project: project(), path: tempDir }, topic.changeId, schedulerRun?.id, claimReservation?.id);
     expect(fullReservation).toMatchObject({
@@ -484,6 +501,14 @@ describe("workbench planning and scheduler preparation", () => {
       reservedCount: 2,
       blockedCount: 0,
     });
+    expect(reservedSnapshot.center.workpad.workflowGraphPlan).toMatchObject({
+      id: workflowGraphPlan?.id,
+      graphMode: "ready-set-v1",
+      schedulerContractId: contract?.id,
+      schedulerWorkerPlanId: workerPlan?.id,
+      schedulerClaimReconcilePlanId: claimReconcilePlan?.id,
+    });
+    expect(reservedSnapshot.center.workpad.nextAction.actionType).not.toBe("planning.taskqueue.confirm-start");
     expect(reservedSnapshot.center.workpad.nextAction).toMatchObject({
       actionType: "planning.scheduler.plan.prepare",
       label: "确认低冲突执行方向",
