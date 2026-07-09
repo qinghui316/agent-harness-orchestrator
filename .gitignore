@@ -35,9 +35,5 @@ harness/*
 harness/changes/*
 !harness/changes/archive/
 harness/changes/archive/*
-!harness/changes/archive/20260615-harness-doc-entropy-and-experience-lifecycle/
-!harness/changes/archive/20260615-harness-doc-entropy-and-experience-lifecycle/**
-!harness/changes/archive/20260615-harness-self-evolution-slimming-rule-tuning/
-!harness/changes/archive/20260615-harness-self-evolution-slimming-rule-tuning/**
 reference-projects/
 .gitmodules
