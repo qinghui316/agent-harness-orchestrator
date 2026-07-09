@@ -11,7 +11,7 @@ import { getWorkbenchSnapshot } from "../../../src/workbench/manager.js";
 import type { WorkbenchDecisionAction } from "../../../src/workbench/read-model-types.js";
 import { resolveProjectMemory } from "../../../src/memory/resolver.js";
 import { createWorkflowRunForTaskQueue, validateTaskQueueProposalStart } from "../../../src/workflow-run/manager.js";
-import { compileWorkflowGraphPlan, hashArtifactRefs, writeDecompositionPlan, writeDecompositionReadinessManifest } from "../../../src/workflow-artifacts/manager.js";
+import { compileWorkflowGraphPlan, hashArtifactRefs, writeDecompositionPlan, writeDecompositionReadinessManifest, writeWorkflowGraphPlan } from "../../../src/workflow-artifacts/manager.js";
 import {
   schedulerClaimReconcilePlanArtifactRefs,
   schedulerContractArtifactRefs,
@@ -50,6 +50,7 @@ import type {
   IntegrationCheckRecord,
   ManagedProject,
   RunMetadata,
+  ReadySetWorkflowGraphPlan,
   TaskQueueItem,
   TaskQueueProposal,
   TaskQueueRun,
@@ -897,6 +898,79 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
     updatedAt: now,
   };
   await writeSchedulerLaunchPreflight(memory, changePath, preflight);
+  const readySetGraph: ReadySetWorkflowGraphPlan = {
+    version: "1.0",
+    id: `ready-set-graph-${schedulerRunId}`,
+    changeId: topic.changeId,
+    status: "compiled",
+    graphMode: "ready-set-v1",
+    schedulerMode: "parallel-readiness-v1",
+    decompositionPlanId,
+    readinessManifestId,
+    schedulerContractId,
+    schedulerDispatchDryRunId,
+    schedulerWorkerPlanId,
+    schedulerClaimReconcilePlanId,
+    nodes: schedulerPlanClaimIntents.map((intent) => ({
+      id: `ready-node-${intent.nodeId}`,
+      schedulerNodeId: intent.nodeId,
+      unitId: intent.unitId,
+      taskIds: [`T-${intent.unitId.slice(-1).padStart(3, "0")}`],
+      title: `Seeded ${intent.unitId}`,
+      waveIndex: intent.waveIndex,
+      stages: ["coder", "validation", "audit"],
+      stageRefs: [{
+        id: intent.stageIds[0],
+        stage: "coder",
+        roleId: "coder",
+        adapterFamily: "codex-code",
+        status: "planned",
+        sourceScopes: intent.sourceScopes,
+        recoveryKeyInputs: intent.recoveryKeyInputs,
+        blockedReasons: [],
+      }],
+      acIds: ["AC-001"],
+      sourceScopes: intent.sourceScopes,
+      claimIntentId: intent.claimIntentId,
+      plannedWorkerKey: intent.plannedWorkerKey,
+      roleIds: intent.roleIds,
+      plannedSlotDemand: intent.plannedSlotDemand,
+      sourceLocks: intent.sourceLockIntents.map((lock) => ({
+        scope: lock.scope,
+        nodeId: lock.nodeId,
+        unitId: lock.unitId,
+        waveIndex: lock.waveIndex,
+        claimIntentId: intent.claimIntentId,
+        stageIds: lock.stageIds,
+      })),
+      recoveryKeyInputs: intent.recoveryKeyInputs,
+      status: "planned",
+      blockedReasons: [],
+    })),
+    edges: [],
+    waves: claimPlan.waveCheckpoints.map((wave) => ({
+      index: wave.waveIndex,
+      nodeIds: wave.claimIntentIds.map((claimIntentId) => {
+        const intent = schedulerPlanClaimIntents.find((candidate) => candidate.claimIntentId === claimIntentId);
+        return `ready-node-${intent?.nodeId ?? claimIntentId}`;
+      }),
+      claimIntentIds: wave.claimIntentIds,
+      candidateCount: wave.candidateCount,
+      blockedCount: wave.blockedCount,
+      plannedSlotDemand: wave.plannedSlotDemand,
+      blockedReasons: wave.blockedReasons,
+    })),
+    plannedSlotDemand: claimPlan.plannedSlotDemand,
+    maxPlannedWaveWidth: claimPlan.maxPlannedWaveWidth,
+    recoveryKeyCoverage: "complete",
+    sourceArtifactHashes,
+    artifactRefs: [`${changePath}/planning/workflow-graph-plan.json`, `${changePath}/planning/workflow-graph-plan.md`],
+    artifact: `${changePath}/planning/workflow-graph-plan.json`,
+    markdownArtifact: `${changePath}/planning/workflow-graph-plan.md`,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await writeWorkflowGraphPlan(memory, changePath, readySetGraph);
   const runRefs = schedulerRunArtifactRefs(memory, changePath, schedulerRunId);
   const reconcileRefs = schedulerReconcileSnapshotArtifactRefs(memory, changePath, schedulerRunId, reconcileSnapshotId);
   const candidateRefs = schedulerIntegrationCandidateArtifactRefs(memory, changePath, schedulerRunId, schedulerIntegrationCandidateId);

@@ -15,6 +15,8 @@ import type { ManagedProject, ResolvedMemory } from "../../src/types/index.js";
 import type { GoalLoopControlledSchedulerPostStepRoutingPreflightSupport, GoalLoopCurrentGateSnapshot } from "../../src/goal-loop/types.js";
 import { schedulerClaimReconcilePlanArtifactRefs, schedulerContractArtifactRefs, schedulerDispatchDryRunArtifactRefs, schedulerLaunchPreflightArtifactRefs, schedulerRunArtifactRefs, schedulerWorkerSessionPlanArtifactRefs, writeSchedulerClaimReconcilePlan, writeSchedulerContract, writeSchedulerDispatchDryRun, writeSchedulerLaunchPreflight, writeSchedulerRun, writeSchedulerWorkerSessionPlan } from "../../src/workflow-scheduler/repository.js";
 import type { SchedulerClaimReconcilePlan, SchedulerContract, SchedulerDispatchDryRun, SchedulerLaunchPreflight, SchedulerRun, SchedulerWorkerSessionPlan } from "../../src/workflow-scheduler/types.js";
+import { writeWorkflowGraphPlan } from "../../src/workflow-artifacts/workflow-graph-plan.js";
+import type { ReadySetWorkflowGraphPlan } from "../../src/types/index.js";
 import {
   schedulerClaimReservationArtifactRefs,
   schedulerIntegrationCandidateArtifactRefs,
@@ -5282,6 +5284,80 @@ async function writeSchedulerPlanningLineage(now: string, extraReservationIntent
     updatedAt: now,
   };
   await writeSchedulerLaunchPreflight(memory, changePath, launchPreflight);
+
+  const graph: ReadySetWorkflowGraphPlan = {
+    version: "1.0",
+    id: "ready-set-graph-1",
+    changeId,
+    status: "compiled",
+    graphMode: "ready-set-v1",
+    schedulerMode: "parallel-readiness-v1",
+    decompositionPlanId: "decomposition-1",
+    readinessManifestId: "readiness-1",
+    schedulerContractId: "contract-1",
+    schedulerDispatchDryRunId: "dry-run-1",
+    schedulerWorkerPlanId: "worker-plan-1",
+    schedulerClaimReconcilePlanId: "claim-plan-1",
+    nodes: claimPlan.claimIntents.map((intent) => ({
+      id: `ready-node-${intent.nodeId}`,
+      schedulerNodeId: intent.nodeId,
+      unitId: intent.unitId,
+      taskIds: [`T-${intent.unitId.slice(-1).padStart(3, "0")}`],
+      title: `Scheduler worker ${intent.unitId}`,
+      waveIndex: intent.waveIndex,
+      stages: ["coder", "validation", "audit"],
+      stageRefs: [{
+        id: `${intent.nodeId}-coder`,
+        stage: "coder",
+        roleId: "coder-agent",
+        adapterFamily: "codex-code",
+        status: "planned",
+        sourceScopes: intent.sourceScopes,
+        recoveryKeyInputs: [],
+        blockedReasons: [],
+      }],
+      acIds: [`AC-${intent.unitId.slice(-1).padStart(3, "0")}`],
+      sourceScopes: intent.sourceScopes,
+      claimIntentId: intent.claimIntentId,
+      plannedWorkerKey: intent.plannedWorkerKey,
+      roleIds: ["coder-agent"],
+      plannedSlotDemand: intent.plannedSlotDemand,
+      sourceLocks: intent.sourceScopes.map((scope) => ({
+        scope,
+        nodeId: intent.nodeId,
+        unitId: intent.unitId,
+        waveIndex: intent.waveIndex,
+        claimIntentId: intent.claimIntentId,
+        stageIds: [`${intent.nodeId}-coder`],
+      })),
+      recoveryKeyInputs: [],
+      status: "planned",
+      blockedReasons: [],
+    })),
+    edges: [],
+    waves: claimPlan.waveCheckpoints.map((wave) => ({
+      index: wave.waveIndex,
+      nodeIds: wave.claimIntentIds.map((claimIntentId) => {
+        const intent = claimPlan.claimIntents.find((candidate) => candidate.claimIntentId === claimIntentId);
+        return `ready-node-${intent?.nodeId ?? claimIntentId}`;
+      }),
+      claimIntentIds: wave.claimIntentIds,
+      candidateCount: wave.candidateCount,
+      blockedCount: wave.blockedCount,
+      plannedSlotDemand: wave.plannedSlotDemand,
+      blockedReasons: wave.blockedReasons,
+    })),
+    plannedSlotDemand: claimPlan.plannedSlotDemand,
+    maxPlannedWaveWidth: claimPlan.maxPlannedWaveWidth,
+    recoveryKeyCoverage: "complete",
+    sourceArtifactHashes,
+    artifactRefs: ["planning/workflow-graph-plan.json", "planning/workflow-graph-plan.md"],
+    artifact: "planning/workflow-graph-plan.json",
+    markdownArtifact: "planning/workflow-graph-plan.md",
+    createdAt: now,
+    updatedAt: now,
+  };
+  await writeWorkflowGraphPlan(memory, changePath, graph);
 }
 
 async function writeBlockedCloseoutEvidence(): Promise<{

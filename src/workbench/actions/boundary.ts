@@ -6,8 +6,6 @@ import { resolveProjectMemory } from "../../memory/resolver.js";
 import { readRun } from "../../run/repository.js";
 import { assertLatestSchedulerRuntimeClaimReservationForSnapshot, readSchedulerRuntimeLineage } from "../../scheduler-runtime/guards.js";
 import { findSchedulerClaimReservationForSnapshot, findSchedulerRuntimeWorkerAuditForValidation, findSchedulerRuntimeWorkerResultForStart, findSchedulerRuntimeWorkerReworkAuditForValidation, findSchedulerRuntimeWorkerReworkPlanForBlockingEvidence, findSchedulerRuntimeWorkerReworkResultForStart, findSchedulerRuntimeWorkerReworkStartForPlan, findSchedulerRuntimeWorkerReworkValidationForResult, findSchedulerRuntimeWorkerStartForReservationIntent, findSchedulerRuntimeWorkerValidationForResult, readLatestSchedulerIntegrationCandidateProjection, readLatestSchedulerIntegrationCheckHandoffProjection, readLatestSchedulerIntegrationOutcomeProjection, readLatestSchedulerRunBlockedCloseoutProjection, readLatestSchedulerRunCompletionProjection, readSchedulerIntegrationOutcome, readSchedulerReconcileSnapshot, readSchedulerRuntimeClaimReservation, readSchedulerRuntimeStateProjection, readSchedulerRuntimeWorkerAudit, readSchedulerRuntimeWorkerResult, readSchedulerRuntimeWorkerReworkPlan, readSchedulerRuntimeWorkerReworkResult, readSchedulerRuntimeWorkerReworkStart, readSchedulerRuntimeWorkerReworkValidation, readSchedulerRuntimeWorkerStart, readSchedulerRuntimeWorkerValidation } from "../../scheduler-runtime/repository.js";
-import { schedulerIntegrationCandidateNeedsRefresh } from "../../scheduler-runtime/worker-path.js";
-import { readSchedulerWorkerPathReadModelsForReservation, schedulerWorkerPathsToLikes } from "../../scheduler-runtime/worker-path-read-model.js";
 import { latestLandingQueueSnapshot } from "../../landing-queue/manager.js";
 import { readLatestGoalLoopControllerPolicy, readLatestGoalLoopNextStepPacket } from "../../goal-loop/manager.js";
 import { listTaskQueues } from "../../task-queue/manager.js";
@@ -41,7 +39,7 @@ import {
   workflowActionTargetId as buildWorkflowActionTargetId,
 } from "../../workflow-actions/registry.js";
 import { readCurrentGateRequestScope } from "../../workflow-actions/current-gate.js";
-import { resolveSchedulerCurrentTransition } from "../../workflow-actions/scheduler-current-transition.js";
+import { assertSchedulerCurrentTransitionAction, readSchedulerCurrentTransitionView } from "../../workflow-runtime/scheduler-current-transition-view.js";
 import { CONTROLLED_SCHEDULER_ADVANCE_ACTION_TYPE, CONTROLLED_SCHEDULER_STEP_ACTION_TYPE, buildControlledSchedulerStepRequest, isControlledSchedulerConcreteAction } from "../../workflow-scheduler/controlled-step.js";
 import { readWorkflowRun } from "../../workflow-run/manager.js";
 import type { WorkbenchLiveSink, WorkbenchWorkflowActionRequest } from "../types.js";
@@ -897,7 +895,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     const snapshot = await readSchedulerReconcileSnapshot(memory, target.path, run.id, runtimeState.lastReconcileSnapshotId);
     const reservation = await readSchedulerRuntimeClaimReservation(memory, target.path, run.id, runtimeState.lastClaimReservationId);
     assertLatestSchedulerRuntimeClaimReservationForSnapshot(reservation, runtimeState, snapshot, "planning.scheduler.integration-candidate.compile");
-    await assertSchedulerCurrentTransitionForAction(memory, target.path, run.id, reservation, "planning.scheduler.integration-candidate.compile");
+    await assertSchedulerCurrentTransitionForAction(memory, target.path, run, runtimeState, reservation, "planning.scheduler.integration-candidate.compile");
     assertWorkbenchActionOptionalStringTarget(request.schedulerClaimReservationId, reservation.id, "planning.scheduler.integration-candidate.compile", "SchedulerRuntimeClaimReservation");
     assertWorkbenchActionOptionalStringTarget(request.schedulerReconcileSnapshotId, snapshot.id, "planning.scheduler.integration-candidate.compile", "SchedulerReconcileSnapshot");
     const latestCandidate = await readLatestSchedulerIntegrationCandidateProjection(memory, target.path, run.id);
@@ -919,7 +917,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     const snapshot = await readSchedulerReconcileSnapshot(memory, target.path, run.id, runtimeState.lastReconcileSnapshotId);
     const reservation = await readSchedulerRuntimeClaimReservation(memory, target.path, run.id, runtimeState.lastClaimReservationId);
     assertLatestSchedulerRuntimeClaimReservationForSnapshot(reservation, runtimeState, snapshot, "planning.scheduler.integration-check.run");
-    await assertSchedulerCurrentTransitionForAction(memory, target.path, run.id, reservation, "planning.scheduler.integration-check.run");
+    await assertSchedulerCurrentTransitionForAction(memory, target.path, run, runtimeState, reservation, "planning.scheduler.integration-check.run");
     assertWorkbenchActionOptionalStringTarget(request.schedulerClaimReservationId, reservation.id, "planning.scheduler.integration-check.run", "SchedulerRuntimeClaimReservation");
     assertWorkbenchActionOptionalStringTarget(request.schedulerReconcileSnapshotId, snapshot.id, "planning.scheduler.integration-check.run", "SchedulerReconcileSnapshot");
     const latestCandidate = await readLatestSchedulerIntegrationCandidateProjection(memory, target.path, run.id);
@@ -987,7 +985,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     const snapshot = await readSchedulerReconcileSnapshot(memory, target.path, run.id, runtimeState.lastReconcileSnapshotId);
     const reservation = await readSchedulerRuntimeClaimReservation(memory, target.path, run.id, runtimeState.lastClaimReservationId);
     assertLatestSchedulerRuntimeClaimReservationForSnapshot(reservation, runtimeState, snapshot, "planning.scheduler.run.complete");
-    await assertSchedulerCurrentTransitionForAction(memory, target.path, run.id, reservation, "planning.scheduler.run.complete");
+    await assertSchedulerCurrentTransitionForAction(memory, target.path, run, runtimeState, reservation, "planning.scheduler.run.complete");
     const latestOutcome = await readLatestSchedulerIntegrationOutcomeProjection(memory, target.path, run.id);
     assertLatestWorkbenchActionTarget(latestOutcome, { id: request.schedulerIntegrationOutcomeId }, "planning.scheduler.run.complete", "SchedulerIntegrationOutcome");
     const outcome = await readSchedulerIntegrationOutcome(memory, target.path, run.id, request.schedulerIntegrationOutcomeId);
@@ -1033,7 +1031,7 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     const snapshot = await readSchedulerReconcileSnapshot(memory, target.path, run.id, runtimeState.lastReconcileSnapshotId);
     const reservation = await readSchedulerRuntimeClaimReservation(memory, target.path, run.id, runtimeState.lastClaimReservationId);
     assertLatestSchedulerRuntimeClaimReservationForSnapshot(reservation, runtimeState, snapshot, "planning.scheduler.run.close-blocked");
-    await assertSchedulerCurrentTransitionForAction(memory, target.path, run.id, reservation, "planning.scheduler.run.close-blocked");
+    await assertSchedulerCurrentTransitionForAction(memory, target.path, run, runtimeState, reservation, "planning.scheduler.run.close-blocked");
     assertLatestWorkbenchActionTarget({ id: runtimeState.lastClaimReservationId }, { id: request.schedulerClaimReservationId }, "planning.scheduler.run.close-blocked", "SchedulerRuntimeClaimReservation");
     const latestCandidate = await readLatestSchedulerIntegrationCandidateProjection(memory, target.path, run.id);
     assertLatestWorkbenchActionTarget(latestCandidate, { id: request.schedulerIntegrationCandidateId }, "planning.scheduler.run.close-blocked", "SchedulerIntegrationCandidate");
@@ -1127,27 +1125,19 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
 async function assertSchedulerCurrentTransitionForAction(
   memory: ResolvedMemory,
   changePath: string,
-  schedulerRunId: string,
-  reservation: { reservationIntents: Array<{ reservationIntentId: string; claimIntentId: string; status: string; waveIndex: number; sourceScopes?: string[] }> },
-  actionType: string,
+  run: Awaited<ReturnType<typeof readSchedulerRun>>,
+  runtimeState: NonNullable<Awaited<ReturnType<typeof readSchedulerRuntimeStateProjection>>>,
+  reservation: Awaited<ReturnType<typeof readSchedulerRuntimeClaimReservation>>,
+  actionType:
+    | "planning.scheduler.integration-candidate.compile"
+    | "planning.scheduler.integration-check.run"
+    | "planning.scheduler.run.complete"
+    | "planning.scheduler.run.close-blocked",
 ): Promise<void> {
-  const paths = schedulerWorkerPathsToLikes(await readSchedulerWorkerPathReadModelsForReservation(memory, changePath, schedulerRunId, reservation));
-  const integrationCandidate = await readLatestSchedulerIntegrationCandidateProjection(memory, changePath, schedulerRunId);
-  const latestGraph = await readLatestWorkflowGraphPlan(memory, changePath).catch(() => null);
-  const transition = resolveSchedulerCurrentTransition({
-    graph: latestGraph?.graphMode === "ready-set-v1" ? latestGraph : null,
-    reservation,
-    workerPaths: paths,
-    integrationCandidate,
-    integrationCandidateNeedsRefresh: integrationCandidate ? schedulerIntegrationCandidateNeedsRefresh(integrationCandidate, paths) : true,
-    integrationCheckHandoffExists: Boolean(await readLatestSchedulerIntegrationCheckHandoffProjection(memory, changePath, schedulerRunId)),
-    integrationOutcomeExists: Boolean(await readLatestSchedulerIntegrationOutcomeProjection(memory, changePath, schedulerRunId)),
-    runCompletionExists: Boolean(await readLatestSchedulerRunCompletionProjection(memory, changePath, schedulerRunId)),
-    runBlockedCloseoutExists: Boolean(await readLatestSchedulerRunBlockedCloseoutProjection(memory, changePath, schedulerRunId)),
-  });
-  if (transition.actionType !== actionType) {
-    throw new Error(`${actionType} is not the current Scheduler transition.`);
-  }
+  assertSchedulerCurrentTransitionAction(
+    await readSchedulerCurrentTransitionView(memory, changePath, run, runtimeState, reservation, actionType),
+    actionType,
+  );
 }
 
 export function workflowActionTargetId(request: WorkbenchWorkflowActionRequest, changeId: string, result?: unknown): string {

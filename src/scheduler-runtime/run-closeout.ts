@@ -4,10 +4,8 @@ import type { ManagedProject } from "../types/index.js";
 import { resolveRunnableChangeTarget } from "../change/target.js";
 import { completeSchedulerRun } from "../workflow-scheduler/scheduler-run.js";
 import { readSchedulerRun } from "../workflow-scheduler/repository.js";
-import { resolveSchedulerCurrentTransition } from "../workflow-actions/scheduler-current-transition.js";
 import { assertLatestSchedulerRuntimeClaimReservation, readSchedulerRuntimeLineage } from "./guards.js";
-import { schedulerIntegrationCandidateNeedsRefresh } from "./worker-path.js";
-import { readSchedulerWorkerPathReadModels, schedulerWorkerPathsToLikes, type SchedulerWorkerPathReadModel } from "./worker-path-read-model.js";
+import { readSchedulerWorkerPathReadModels, type SchedulerWorkerPathReadModel } from "./worker-path-read-model.js";
 import {
   appendSchedulerRuntimeEvent,
   findSchedulerRunBlockedCloseoutForCandidateStrict,
@@ -119,21 +117,12 @@ export async function closeSchedulerRunBlockedOrExhausted(project: ManagedProjec
   if (inspection.pendingReasons.length) {
     throw new Error(`planning.scheduler.run.close-blocked cannot close while scheduler worker path is pending: ${inspection.pendingReasons[0]}`);
   }
-  const workerPathLikes = schedulerWorkerPathsToLikes(inspection.paths);
-  const transition = resolveSchedulerCurrentTransition({
-    reservation,
-    workerPaths: workerPathLikes,
-    integrationCandidate: latestCandidate,
-    integrationCandidateNeedsRefresh: schedulerIntegrationCandidateNeedsRefresh(latestCandidate, workerPathLikes),
-  });
-  if (transition.actionType !== "planning.scheduler.run.close-blocked") {
-    if (
-      transition.actionType === "planning.scheduler.worker.start-first"
-      || transition.actionType === "planning.scheduler.worker.start-next"
-    ) {
-      throw new Error("planning.scheduler.run.close-blocked is not allowed while a legal next scheduler worker can start.");
-    }
-    throw new Error(`planning.scheduler.run.close-blocked is not the current Scheduler transition.`);
+  const startedReservationIntentIds = new Set(inspection.paths.map((path) => path.start.reservationIntentId));
+  const unstartedReservedIntent = reservation.reservationIntents.find((intent) =>
+    intent.status === "reserved" && !startedReservationIntentIds.has(intent.reservationIntentId)
+  );
+  if (unstartedReservedIntent) {
+    throw new Error("planning.scheduler.run.close-blocked is not allowed while a legal next scheduler worker can start.");
   }
 
   if (existingCloseout) {

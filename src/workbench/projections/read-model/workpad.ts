@@ -10,6 +10,8 @@ import {
 import { getLatestWorkflowRun, summarizeWorkflowRun } from "../../../workflow-run/manager.js";
 import { readLatestWorkflowGraphPlan } from "../../../workflow-artifacts/manager.js";
 import type { WorkflowActionScopeCarrier } from "../../../workflow-actions/registry.js";
+import type { SchedulerCurrentTransition } from "../../../workflow-actions/scheduler-current-transition.js";
+import { readLatestSchedulerCurrentTransitionView } from "../../../workflow-runtime/scheduler-current-transition-view.js";
 import type { ReadySetWorkflowGraphPlan } from "../../../types/index.js";
 import {
   buildTypedWorkflowNextAction,
@@ -334,6 +336,9 @@ export async function buildWorkbenchWorkpad(input: {
   const schedulerIntegrationOutcome = await readLatestSchedulerIntegrationOutcomeSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerIntegrationCheckHandoff?.id);
   const schedulerRunCompletion = await readLatestSchedulerRunCompletionSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerIntegrationOutcome?.id);
   const schedulerRunBlockedCloseout = await readLatestSchedulerRunBlockedCloseoutSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerIntegrationCandidate?.id);
+  const schedulerTransitionView = scopedSchedulerRun && schedulerRuntime?.lastClaimReservationId
+    ? await readLatestSchedulerCurrentTransitionView(memory, selectedTopic.path, scopedSchedulerRun.id, "workbench.workflow-projection").catch(() => null)
+    : null;
   const workflowRun = await getLatestWorkflowRun(memory, selectedTopic.id).then((run) => run ? summarizeWorkflowRun(run) : null).catch(() => null);
   const agentTasks = await buildAgentTaskSummaries(memory, selectedTopic.id);
   const rolePipeline = buildRolePipelineSummary(selectedTopic, agentTasks);
@@ -346,7 +351,7 @@ export async function buildWorkbenchWorkpad(input: {
   const selectedUserState = selectedWorkpadSummary?.userStatus ?? (activeAgentTask ? "processing" : userDecisionStateForSelectedTopic(selectedTopic, topicApprovals, taskQueue, taskGraph));
   const selectedLifecycle = selectedWorkpadSummary?.conversationLifecycle ?? conversationLifecycleForTopic(selectedTopic, taskQueue);
   const nextAction = suppressStaleCodeRunAfterResultReview(
-    buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, scopedSchedulerDispatchDryRun, scopedSchedulerWorkerSessionPlan, scopedSchedulerClaimReconcilePlan, scopedSchedulerLaunchPreflight, scopedSchedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, schedulerWorkerAudit, schedulerWorkerReworkPlan, schedulerWorkerReworkStart, schedulerWorkerReworkResult, schedulerWorkerReworkValidation, schedulerWorkerReworkAudit, schedulerWorkerPaths, schedulerReadySetGraph, schedulerIntegrationCandidate, schedulerIntegrationCheckHandoff, schedulerIntegrationOutcome, schedulerRunCompletion, schedulerRunBlockedCloseout, workflowRun),
+    buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, scopedSchedulerDispatchDryRun, scopedSchedulerWorkerSessionPlan, scopedSchedulerClaimReconcilePlan, scopedSchedulerLaunchPreflight, scopedSchedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, schedulerWorkerAudit, schedulerWorkerReworkPlan, schedulerWorkerReworkStart, schedulerWorkerReworkResult, schedulerWorkerReworkValidation, schedulerWorkerReworkAudit, schedulerWorkerPaths, schedulerReadySetGraph, schedulerIntegrationCandidate, schedulerIntegrationCheckHandoff, schedulerIntegrationOutcome, schedulerRunCompletion, schedulerRunBlockedCloseout, schedulerTransitionView?.transition ?? null, schedulerTransitionView?.integrationCandidateNeedsRefresh, workflowRun),
     resultReview,
   );
   const goalLoop = filterGoalLoopSummaryForCurrentGate(rawGoalLoop, nextAction);
@@ -876,6 +881,8 @@ function buildWorkpadNextAction(
   schedulerIntegrationOutcome?: WorkbenchSchedulerIntegrationOutcomeSummary | null,
   schedulerRunCompletion?: WorkbenchSchedulerRunCompletionSummary | null,
   schedulerRunBlockedCloseout?: WorkbenchSchedulerRunBlockedCloseoutSummary | null,
+  schedulerTransition?: SchedulerCurrentTransition | null,
+  schedulerIntegrationCandidateNeedsRefresh?: boolean,
   workflowRun?: WorkflowRunSummary | null,
 ): WorkpadNextAction {
   if (topic.state !== "active") {
@@ -928,6 +935,8 @@ function buildWorkpadNextAction(
       schedulerIntegrationOutcome,
       schedulerRunCompletion,
       schedulerRunBlockedCloseout,
+      schedulerTransition,
+      schedulerIntegrationCandidateNeedsRefresh,
       workflowRun,
     }));
   }
@@ -981,6 +990,8 @@ function buildWorkpadNextAction(
     schedulerIntegrationOutcome,
     schedulerRunCompletion,
     schedulerRunBlockedCloseout,
+    schedulerTransition,
+    schedulerIntegrationCandidateNeedsRefresh,
     workflowRun,
   }));
 }

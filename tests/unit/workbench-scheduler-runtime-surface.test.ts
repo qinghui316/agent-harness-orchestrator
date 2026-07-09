@@ -212,6 +212,11 @@ describe("workbench scheduler runtime surface", () => {
         readyWorktreeIds: ["worktree-1"],
         outputClaimIntentIds: ["claim-intent-1"],
       }),
+      schedulerIntegrationCandidateNeedsRefresh: true,
+      schedulerTransition: {
+        kind: "integration-candidate",
+        actionType: "planning.scheduler.integration-candidate.compile",
+      },
     } satisfies BuildTypedWorkflowNextActionInput;
 
     expect(buildTypedWorkflowNextAction(base)).toMatchObject({

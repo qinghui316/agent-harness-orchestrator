@@ -6,9 +6,9 @@ import { readChangePathChangeId } from "../workflow-artifacts/guards.js";
 import { hashArtifactRefs } from "../workflow-artifacts/hashes.js";
 import { readLatestDecompositionPlan } from "../workflow-artifacts/decomposition-plan.js";
 import { readLatestDecompositionReadinessManifest } from "../workflow-artifacts/readiness-manifest.js";
-import { readLatestWorkflowGraphPlan } from "../workflow-artifacts/manager.js";
 import { validateWorkflowActionRequiredTargets, type WorkflowActionType } from "../workflow-actions/registry.js";
-import { resolveSchedulerCurrentTransition, type SchedulerCurrentTransition } from "../workflow-actions/scheduler-current-transition.js";
+import type { SchedulerCurrentTransition } from "../workflow-actions/scheduler-current-transition.js";
+import { readSchedulerCurrentTransitionView } from "../workflow-runtime/scheduler-current-transition-view.js";
 import { readIntegrationCheck } from "../integration-check/repository.js";
 import { assessSchedulerExecutionMode } from "../workflow-scheduler/execution-mode.js";
 import { readLatestSchedulerRun } from "../workflow-scheduler/repository.js";
@@ -22,12 +22,10 @@ import {
   readSchedulerRuntimeClaimReservationProjection,
   readSchedulerRuntimeStateProjection,
 } from "../scheduler-runtime/repository.js";
-import { schedulerIntegrationCandidateNeedsRefresh } from "../scheduler-runtime/worker-path.js";
 import {
   hasApprovedSchedulerWorkerOutput,
   readSchedulerWorkerPathReadModels,
   schedulerWorkerPathEvidenceRefs,
-  schedulerWorkerPathsToLikes,
   type SchedulerWorkerPathReadModel,
 } from "../scheduler-runtime/worker-path-read-model.js";
 import type {
@@ -454,23 +452,16 @@ async function readEvidenceSnapshot(memory: ResolvedMemory, changePath: string):
   const integrationOutcome = await readLatestSchedulerIntegrationOutcomeProjection(memory, changePath, schedulerRun.id);
   const runCompletion = await readLatestSchedulerRunCompletionProjection(memory, changePath, schedulerRun.id);
   const runCloseout = await readLatestSchedulerRunBlockedCloseoutProjection(memory, changePath, schedulerRun.id);
-  const workerPathLikes = schedulerWorkerPathsToLikes(workerPaths);
-  const integrationCandidateNeedsRefresh = schedulerIntegrationCandidateNeedsRefresh(integrationCandidate, workerPathLikes);
-  const readySetGraph = await readOptional(() => readLatestWorkflowGraphPlan(memory, changePath))
-    .then((graph) => graph?.graphMode === "ready-set-v1" && graph.schedulerContractId === schedulerRun.schedulerContractId ? graph : null);
-  const schedulerTransition = claimReservation
-    ? resolveSchedulerCurrentTransition({
-      graph: readySetGraph,
-      reservation: claimReservation,
-      workerPaths: workerPathLikes,
-      integrationCandidate,
-      integrationCandidateNeedsRefresh,
+  const schedulerTransitionView = runtimeState && claimReservation
+    ? await readOptional(() => readSchedulerCurrentTransitionView(memory, changePath, schedulerRun, runtimeState, claimReservation, "goal-loop.scheduler-transition", {
       integrationCheckHandoffExists: Boolean(integrationHandoff),
       integrationOutcomeExists: Boolean(integrationOutcome),
       runCompletionExists: Boolean(runCompletion),
       runBlockedCloseoutExists: Boolean(runCloseout),
-    })
-    : undefined;
+    }))
+    : null;
+  const schedulerTransition = schedulerTransitionView?.transition;
+  const integrationCandidateNeedsRefresh = schedulerTransitionView?.integrationCandidateNeedsRefresh;
   for (const evidence of [
     ["SchedulerIntegrationCandidate", integrationCandidate],
     ["SchedulerIntegrationCheckHandoff", integrationHandoff],

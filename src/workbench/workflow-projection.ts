@@ -29,7 +29,6 @@ import {
   readSchedulerRuntimeWorkerReworkStartProjection,
   readSchedulerRuntimeWorkerValidationProjection,
   readLatestSchedulerControlledStepEvidenceProjection,
-  schedulerIntegrationCandidateNeedsRefresh,
   readSchedulerWorkerPathReadModels,
   readSchedulerRuntimeClaimReservationProjection,
   readSchedulerRuntimeStateProjection,
@@ -54,7 +53,7 @@ import {
   type SchedulerRuntimeWorkerValidation,
 } from "../scheduler-runtime/manager.js";
 import { readIntegrationCheck } from "../integration-check/manager.js";
-import { resolveSchedulerCurrentTransition } from "../workflow-actions/scheduler-current-transition.js";
+import type { SchedulerCurrentTransition } from "../workflow-actions/scheduler-current-transition.js";
 import {
   readLatestDecompositionPlan,
   readLatestDecompositionReadinessManifest,
@@ -1964,9 +1963,11 @@ export function buildTypedWorkflowNextAction(input: {
   schedulerIntegrationOutcome?: WorkbenchSchedulerIntegrationOutcomeSummary | null;
   schedulerRunCompletion?: WorkbenchSchedulerRunCompletionSummary | null;
   schedulerRunBlockedCloseout?: WorkbenchSchedulerRunBlockedCloseoutSummary | null;
+  schedulerTransition?: SchedulerCurrentTransition | null;
+  schedulerIntegrationCandidateNeedsRefresh?: boolean;
   workflowRun?: WorkflowRunSummary | null;
 }): WorkbenchTypedWorkflowNextAction {
-  const { topic, readiness, intake, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, schedulerWorkerAudit, schedulerWorkerReworkPlan, schedulerWorkerReworkStart, schedulerWorkerReworkResult, schedulerWorkerReworkValidation, schedulerWorkerReworkAudit, schedulerWorkerPaths = [], schedulerReadySetGraph, schedulerIntegrationCandidate, schedulerIntegrationCheckHandoff, schedulerIntegrationOutcome, schedulerRunCompletion, schedulerRunBlockedCloseout, workflowRun } = input;
+  const { topic, readiness, intake, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, schedulerWorkerAudit, schedulerWorkerReworkPlan, schedulerWorkerReworkStart, schedulerWorkerReworkResult, schedulerWorkerReworkValidation, schedulerWorkerReworkAudit, schedulerWorkerPaths = [], schedulerIntegrationCandidate, schedulerIntegrationCheckHandoff, schedulerIntegrationOutcome, schedulerRunCompletion, schedulerRunBlockedCloseout, schedulerTransition, schedulerIntegrationCandidateNeedsRefresh: schedulerCandidateNeedsRefresh, workflowRun } = input;
   if (!readiness.specReady && !topic.runs.some((run) => run.runtime === "intake-scan")) {
     return workflowNextAction("intake.scan", "分析需求", "先只读扫描项目，整理当前理解、相关文件和待确认问题。", false);
   }
@@ -2115,21 +2116,7 @@ export function buildTypedWorkflowNextAction(input: {
             worktreeIds: schedulerRunBlockedCloseout.readyWorktreeIds,
           };
         }
-        const schedulerCandidateNeedsRefresh = schedulerIntegrationCandidate
-          ? schedulerIntegrationCandidateNeedsRefresh(schedulerIntegrationCandidate, schedulerWorkerPaths)
-          : true;
-        const schedulerTransition = resolveSchedulerCurrentTransition({
-          graph: schedulerReadySetGraph,
-          reservation: schedulerClaimReservation,
-          workerPaths: schedulerWorkerPaths,
-          integrationCandidate: schedulerIntegrationCandidate,
-          integrationCandidateNeedsRefresh: schedulerCandidateNeedsRefresh,
-          integrationCheckHandoffExists: Boolean(schedulerIntegrationCheckHandoff),
-          integrationOutcomeExists: Boolean(schedulerIntegrationOutcome),
-          runCompletionExists: Boolean(schedulerRunCompletion),
-          runBlockedCloseoutExists: Boolean(schedulerRunBlockedCloseout),
-        });
-        if (schedulerIntegrationCandidate && !schedulerCandidateNeedsRefresh) {
+        if (schedulerIntegrationCandidate && schedulerCandidateNeedsRefresh === false && schedulerTransition) {
           if (schedulerTransition.kind === "integration-check" && !schedulerIntegrationCheckHandoff) {
             return {
               ...workflowNextAction("planning.scheduler.integration-check.run", "运行 scheduler IntegrationCheck", "把 scheduler-owned ready worktree targets 显式交给现有 IntegrationCheck；只运行兼容性检查和 aggregate validation/audit，不 apply、landing、PR、merge 或启动 next worker。"),
@@ -2419,8 +2406,8 @@ export function buildTypedWorkflowNextAction(input: {
             }
             const workerAuditApproved = schedulerWorkerAudit?.status === "approved" || schedulerWorkerAudit?.status === "approved-with-notes";
             const reworkAuditApproved = schedulerWorkerReworkAudit?.status === "approved" || schedulerWorkerReworkAudit?.status === "approved-with-notes";
-            if (workerAuditApproved || reworkAuditApproved) {
-              if (schedulerTransition.kind === "start-same-wave-worker" || schedulerTransition.kind === "start-next-wave-worker") {
+            if ((workerAuditApproved || reworkAuditApproved) && schedulerTransition) {
+            if (schedulerTransition.kind === "start-same-wave-worker" || schedulerTransition.kind === "start-next-wave-worker") {
                 const title = schedulerTransition.kind === "start-same-wave-worker" ? "启动同波次下一个 worker" : "启动下一个 wave worker";
                 const description = schedulerTransition.kind === "start-same-wave-worker"
                   ? "当前 wave 还有未启动且 source scope 不冲突的 reservation intent；本操作只启动一个明确 coder stage，不启动整波、验证、审计、IntegrationCheck 或 scheduler loop。"
@@ -2616,7 +2603,7 @@ export function buildTypedWorkflowNextAction(input: {
             claimIntentId: schedulerWorkerStart.claimIntentId,
           };
         }
-        if (schedulerTransition.kind === "start-first-worker") {
+        if (schedulerTransition?.kind === "start-first-worker") {
           return {
             ...workflowNextAction("planning.scheduler.worker.start-first", "开始第一个任务", "用户已确认低冲突执行方向；本操作只开始当前准备记录中的第一个可执行编码任务。"),
             decompositionPlanId: decompositionPlan.id,
@@ -2633,7 +2620,7 @@ export function buildTypedWorkflowNextAction(input: {
             claimIntentId: schedulerTransition.reservationIntent.claimIntentId,
           };
         }
-        const disabledSchedulerReason = "reason" in schedulerTransition
+        const disabledSchedulerReason = schedulerTransition && "reason" in schedulerTransition
           ? schedulerTransition.reason
           : "当前 Scheduler ready-set graph 没有可启动的 first-worker transition。";
         return {
