@@ -95,9 +95,6 @@ import { assertCurrentWorkflowAction } from "../../src/server/workbench/action-r
 import { executeWorkbenchAction as executeWorkbenchServerAction } from "../../src/server/workbench/actions.js";
 import {
   approvedSchedulerWorkerPathClaimIntentIds,
-  findNextSameWaveSchedulerReservationIntentForWorkerPaths,
-  findNextSchedulerReservationIntentForWorkerPaths,
-  schedulerCurrentWaveStatus,
   schedulerIntegrationCandidateNeedsRefresh,
 } from "../../src/scheduler-runtime/worker-path.js";
 import { handleApi } from "../../src/server/workbench/api-router.js";
@@ -2413,9 +2410,10 @@ describe("Workbench module boundaries", () => {
 
     const workerPath = readFileSync("src/scheduler-runtime/worker-path.ts", "utf8");
     expect(workerPath).toContain("schedulerIntegrationCandidateNeedsRefresh");
-    expect(workerPath).toContain("findNextSameWaveSchedulerReservationIntentForWorkerPaths");
-    expect(workerPath).toContain("schedulerCurrentWaveStatus");
-    expect(workerPath).toContain("findNextSchedulerReservationIntentForWorkerPaths");
+    expect(workerPath).not.toContain("findNextSameWaveSchedulerReservationIntentForWorkerPaths");
+    expect(workerPath).not.toContain("schedulerCurrentWaveStatus");
+    expect(workerPath).not.toContain("findNextSchedulerReservationIntentForWorkerPaths");
+    expect(workerPath).not.toContain("assertNoSameWaveReservationSourceScopeConflict");
     expect(workerPath).not.toContain("workbench/");
     expect(workerPath).not.toContain("server/");
     expect(workerPath).not.toContain("src/web");
@@ -2636,7 +2634,7 @@ describe("Workbench module boundaries", () => {
     expect(schedulerWorkerReworkAuditEventType("failed")).toBe("scheduler-runtime.worker-rework-audit-failed");
   });
 
-  it("keeps scheduler worker-path decisions in the scheduler runtime owner module", () => {
+  it("keeps scheduler worker-path read helpers out of transition selection", () => {
     const workerPaths = [
       {
         start: { reservationIntentId: "reservation-intent-1", updatedAt: "2026-06-13T00:00:00.000Z" },
@@ -2670,50 +2668,17 @@ describe("Workbench module boundaries", () => {
         terminal: true,
       },
     ])).toEqual(["claim-1", "claim-2"]);
-    expect(findNextSchedulerReservationIntentForWorkerPaths({
-      reservationIntents: [
-        { reservationIntentId: "reservation-intent-1", claimIntentId: "claim-1", status: "reserved", waveIndex: 0 },
-        { reservationIntentId: "reservation-intent-2", claimIntentId: "claim-2", status: "reserved", waveIndex: 0 },
-        { reservationIntentId: "reservation-intent-3", claimIntentId: "claim-3", status: "reserved", waveIndex: 1 },
-      ],
-    }, workerPaths)).toMatchObject({ reservationIntentId: "reservation-intent-3", claimIntentId: "claim-3" });
-    expect(findNextSameWaveSchedulerReservationIntentForWorkerPaths({
-      reservationIntents: [
-        { reservationIntentId: "reservation-intent-1", claimIntentId: "claim-1", status: "reserved", waveIndex: 0 },
-        { reservationIntentId: "reservation-intent-2", claimIntentId: "claim-2", status: "reserved", waveIndex: 0 },
-        { reservationIntentId: "reservation-intent-3", claimIntentId: "claim-3", status: "reserved", waveIndex: 1 },
-      ],
-    }, [{ ...workerPaths[0], terminal: false }])).toMatchObject({ reservationIntentId: "reservation-intent-2", claimIntentId: "claim-2" });
-    expect(schedulerCurrentWaveStatus({
-      reservationIntents: [
-        { reservationIntentId: "reservation-intent-1", claimIntentId: "claim-1", status: "reserved", waveIndex: 0 },
-        { reservationIntentId: "reservation-intent-2", claimIntentId: "claim-2", status: "reserved", waveIndex: 0 },
-      ],
-    }, [{ ...workerPaths[0], terminal: false }])).toMatchObject({
-      waveIndex: 0,
-      startedCount: 1,
-      unstartedCount: 1,
-      nonTerminalStartedCount: 1,
-      terminal: false,
-    });
-    expect(schedulerCurrentWaveStatus({
-      reservationIntents: [
-        { reservationIntentId: "reservation-intent-1", claimIntentId: "claim-1", status: "reserved", waveIndex: 0 },
-        { reservationIntentId: "reservation-intent-2", claimIntentId: "claim-2", status: "reserved", waveIndex: 0 },
-      ],
-    }, workerPaths)).toMatchObject({
-      waveIndex: 0,
-      startedCount: 2,
-      unstartedCount: 0,
-      nonTerminalStartedCount: 0,
-      terminal: true,
-    });
-    expect(findNextSchedulerReservationIntentForWorkerPaths({
-      reservationIntents: [
-        { reservationIntentId: "reservation-intent-1", claimIntentId: "claim-1", status: "reserved", waveIndex: 0 },
-        { reservationIntentId: "reservation-intent-2", claimIntentId: "claim-2", status: "reserved", waveIndex: 0 },
-      ],
-    }, [{ ...workerPaths[0], terminal: false }])).toBeNull();
+    const workerPath = readFileSync("src/scheduler-runtime/worker-path.ts", "utf8");
+    expect(workerPath).not.toContain("findNextSchedulerReservationIntentForWorkerPaths");
+    expect(workerPath).not.toContain("findNextSameWaveSchedulerReservationIntentForWorkerPaths");
+    expect(workerPath).not.toContain("schedulerCurrentWaveStatus");
+    expect(workerPath).not.toContain("assertNoSameWaveReservationSourceScopeConflict");
+
+    const transitionOwner = readFileSync("src/workflow-actions/scheduler-current-transition.ts", "utf8");
+    expect(transitionOwner).toContain("resolveSchedulerCurrentTransition");
+    expect(transitionOwner).toContain("findSameWaveNextIntent");
+    expect(transitionOwner).toContain("findNextWaveIntent");
+    expect(transitionOwner).toContain("hasWaveSourceScopeConflict");
 
     const threadStream = readFileSync("src/workbench/projections/read-model/thread-stream.ts", "utf8");
     expect(threadStream).toContain("Scheduler current worker result reconcile");

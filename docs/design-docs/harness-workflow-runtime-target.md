@@ -63,13 +63,13 @@ may remain only when they are still used by Workflow Runtime leaf evidence,
 replay, recovery, or projection support.
 
 `WorkflowGraphPlan graphMode: "sequential-v1"` is now the execution owner for
-confirmed TaskQueue sequential runs. The next contract step is
-`graphMode: "ready-set-v1"` as a non-executing bridge from Scheduler planning
-evidence into graph lineage. That bridge may record waves, worker stages,
-claim intents, source locks, recovery keys, and artifact hash lineage, but it
-does not authorize Scheduler execution, create runtime records, or replace the
-current Scheduler reservation/current-transition gates. Future ready-set graph
-execution remains a separate Workflow Runtime implementation change.
+confirmed TaskQueue sequential runs. `graphMode: "ready-set-v1"` now provides
+the Scheduler graph-backed current-transition input: it records waves, worker
+stages, claim intents, source locks, recovery keys, and artifact hash lineage
+for transition selection. It still does not authorize Scheduler execution,
+create runtime records, or replace `workflow-runtime` dispatch revalidation.
+Future ready-set graph execution remains a separate Workflow Runtime
+implementation change.
 
 Scheduler evidence is valuable and must remain. SchedulerContract, dry-run,
 worker-plan, claim/reconcile, launch preflight, SchedulerRun,
@@ -377,9 +377,9 @@ TaskRun lifecycle/resume production files.
 Phase 4B completed confirmed TaskQueue sequential graph execution:
 `WorkflowGraphPlan graphMode: "sequential-v1"` is the ordering owner for
 TaskQueue sequential runs, while TaskQueue remains the compatibility ledger.
-The ready-set graph bridge is the next contract-only step; it normalizes
-Scheduler planning evidence into `graphMode: "ready-set-v1"` lineage without
-changing Scheduler runtime authority.
+The ready-set graph contract now normalizes Scheduler planning evidence into
+`graphMode: "ready-set-v1"` lineage and feeds Scheduler current-transition
+selection without becoming execution authorization or a full graph executor.
 
 Phase 5 migrates Scheduler into ready-set/wave/claim/lease workflow mode. It
 moves worker start, validation, audit, and rework into scheduler leaf

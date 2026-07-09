@@ -682,7 +682,7 @@ Pending Harness evolution: none.
 Current structured change: none.
 
 Latest architecture slice:
-`harness/changes/archive/20260709-workflowgraph-ready-set-bridge-contract-v0/summary.md`.
+`harness/changes/archive/20260709-scheduler-ready-set-relationship-compression-v1/summary.md`.
 
 Recommended current architecture step: pick one focused runtime slice after
 reading `docs/design-docs/harness-workflow-runtime-target.md`. Likely
