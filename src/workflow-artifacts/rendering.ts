@@ -119,10 +119,9 @@ function renderReadySetWorkflowGraphPlanMarkdown(graph: WorkflowGraphPlan & { gr
     "",
     "## Boundary",
     "",
-    "- This is a non-executing ready-set graph contract and lineage artifact.",
+    "- This is a ready-set graph contract and lineage artifact, not execution authorization.",
     "- Compiling this graph does not create a WorkflowRun, SchedulerRun, TaskRun, WorkerLease, worktree, run, validation, audit, confirmation entry, or child Change.",
-    "- Current Scheduler worker execution remains authorized by SchedulerRuntimeClaimReservation, SchedulerContract, and workflow-runtime Scheduler revalidation.",
-    "- Future ready-set execution must add a separate Workflow Runtime owner before this graph can drive runnable nodes.",
+    "- Scheduler single-worker starts may use this graph to derive the current exact target, but execution still requires SchedulerRuntimeClaimReservation, SchedulerContract, human confirmation, and workflow-runtime Scheduler revalidation.",
     "",
   ].join("\n");
 }

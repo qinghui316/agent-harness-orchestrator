@@ -1,11 +1,10 @@
 import { existsSync } from "node:fs";
-import { appendFile, mkdir, readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { z } from "zod";
 import type { MainAgentOrchestrationDecision, MainAgentOrchestrationRole } from "../agent-task/orchestration-engine.js";
-import { shortHash } from "../fs/path.js";
 import type { ResolvedMemory } from "../types/index.js";
-import { mainAgentLoopRunRoot, type MainAgentLoopEntrypoint, type MainAgentLoopRun } from "./loop-evidence.js";
+import { mainAgentLoopRunRoot, type MainAgentLoopEntrypoint } from "./loop-evidence.js";
 
 export type MainAgentNextStepEvidenceAuthority = "non-executing-main-agent-next-step-evidence";
 export type MainAgentNextStepEntrypoint = Exclude<MainAgentLoopEntrypoint, "task-queue">;
@@ -65,17 +64,6 @@ export interface MainAgentNextStepEvidence {
   targetRefs?: MainAgentNextStepTargetRefs;
   artifactRefs: string[];
   refs: MainAgentNextStepEvidenceRefs;
-}
-
-export interface RecordMainAgentNextStepEvidenceInput {
-  stepIndex: number;
-  entrypoint: MainAgentNextStepEntrypoint;
-  observation: MainAgentNextStepObservationSummary;
-  decision: MainAgentOrchestrationDecision;
-  gateIntent?: MainAgentNextStepGateIntent;
-  targetRefs?: Partial<MainAgentNextStepTargetRefs>;
-  artifactRefs?: string[];
-  refs?: Partial<MainAgentNextStepEvidenceRefs>;
 }
 
 const refsSchema = z.object({
@@ -138,50 +126,6 @@ export function mainAgentNextStepEvidenceRef(loopRunId: string, evidenceId: stri
   return `agent-tasks/main-agent-loop-runs/${loopRunId}/decisions.jsonl#${evidenceId}`;
 }
 
-export async function recordMainAgentNextStepEvidence(
-  memory: ResolvedMemory,
-  run: MainAgentLoopRun,
-  input: RecordMainAgentNextStepEvidenceInput,
-): Promise<MainAgentNextStepEvidence> {
-  const now = new Date().toISOString();
-  const id = `next-step-${input.stepIndex}-${now.replace(/[-:.TZ]/g, "").slice(0, 14)}-${shortHash(`${run.id}:${input.stepIndex}:${decisionKey(input.decision)}:${now}`).slice(0, 8)}`;
-  const evidence: MainAgentNextStepEvidence = {
-    version: "1.0",
-    authority: "non-executing-main-agent-next-step-evidence",
-    executionStarted: false,
-    id,
-    ref: mainAgentNextStepEvidenceRef(run.id, id),
-    loopRunId: run.id,
-    changeId: run.changeId,
-    projectId: run.projectId,
-    entrypoint: input.entrypoint,
-    stepIndex: input.stepIndex,
-    createdAt: now,
-    observation: {
-      summary: truncate(input.observation.summary),
-      totalSteps: input.observation.totalSteps,
-      completedSteps: input.observation.completedSteps,
-      failedSteps: input.observation.failedSteps,
-      latestRoleId: input.observation.latestRoleId,
-      latestStatus: input.observation.latestStatus,
-    },
-    decision: normalizeDecision(input.decision),
-    gateIntent: input.gateIntent ?? gateIntentForDecision(input.decision),
-    targetRefs: normalizeTargetRefs(input.targetRefs),
-    artifactRefs: dedupeStrings(input.artifactRefs ?? []),
-    refs: {
-      agentTaskIds: dedupeStrings(input.refs?.agentTaskIds ?? []),
-      runIds: dedupeStrings(input.refs?.runIds ?? []),
-      validationIds: dedupeStrings(input.refs?.validationIds ?? []),
-      auditIds: dedupeStrings(input.refs?.auditIds ?? []),
-    },
-  };
-  const path = mainAgentNextStepDecisionsPath(memory, run.id);
-  await mkdir(dirname(path), { recursive: true });
-  await appendFile(path, `${JSON.stringify(evidence)}\n`, "utf8");
-  return evidence;
-}
-
 export async function readMainAgentNextStepEvidence(
   memory: ResolvedMemory,
   loopRunId: string,
@@ -202,74 +146,3 @@ export async function readMainAgentNextStepEvidence(
   }
 }
 
-function normalizeDecision(decision: MainAgentOrchestrationDecision): MainAgentNextStepEvidence["decision"] {
-  if (decision.kind === "delegate-role") {
-    return {
-      kind: decision.kind,
-      roleId: decision.roleId,
-      attemptKind: decision.attemptKind,
-      stoppedAt: null,
-      reason: truncate(decision.reason),
-      nextRecommendation: truncate(decision.nextRecommendation),
-    };
-  }
-  if (decision.kind === "completed") {
-    return {
-      kind: decision.kind,
-      roleId: null,
-      attemptKind: null,
-      stoppedAt: null,
-      reason: truncate(decision.reason),
-      nextRecommendation: truncate(decision.nextRecommendation),
-    };
-  }
-  return {
-    kind: decision.kind,
-    roleId: null,
-    attemptKind: null,
-    stoppedAt: decision.stoppedAt,
-    reason: truncate(decision.reason),
-    nextRecommendation: truncate(decision.nextRecommendation),
-  };
-}
-
-function gateIntentForDecision(decision: MainAgentOrchestrationDecision): MainAgentNextStepGateIntent {
-  if (decision.kind === "delegate-role") return "delegate-leaf";
-  if (decision.kind === "completed") return "result-handoff";
-  return "none";
-}
-
-function normalizeTargetRefs(refs: Partial<MainAgentNextStepTargetRefs> | undefined): MainAgentNextStepTargetRefs {
-  return {
-    worktreeIds: dedupeStrings(refs?.worktreeIds ?? []),
-    runIds: dedupeStrings(refs?.runIds ?? []),
-    validationIds: dedupeStrings(refs?.validationIds ?? []),
-    auditIds: dedupeStrings(refs?.auditIds ?? []),
-    applyCheckIds: dedupeStrings(refs?.applyCheckIds ?? []),
-    landingPackageIds: dedupeStrings(refs?.landingPackageIds ?? []),
-  };
-}
-
-function decisionKey(decision: MainAgentOrchestrationDecision): string {
-  if (decision.kind === "delegate-role") {
-    return `${decision.kind}:${decision.roleId}:${decision.attemptKind}`;
-  }
-  return `${decision.kind}:${"stoppedAt" in decision ? decision.stoppedAt : "complete"}`;
-}
-
-function truncate(value: string): string {
-  const normalized = value.replace(/\s+/g, " ").trim();
-  return normalized.length > 500 ? `${normalized.slice(0, 497)}...` : normalized;
-}
-
-function dedupeStrings(values: string[]): string[] {
-  const result: string[] = [];
-  const seen = new Set<string>();
-  for (const value of values) {
-    const normalized = `${value}`.trim();
-    if (!normalized || seen.has(normalized)) continue;
-    seen.add(normalized);
-    result.push(normalized);
-  }
-  return result;
-}

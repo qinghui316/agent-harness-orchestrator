@@ -4,7 +4,6 @@ export {
   type MainAgentActionBridgeGate,
 } from "./action-bridge.js";
 export {
-  createMainAgentLoopRunId,
   mainAgentLoopEventsPath,
   mainAgentLoopRunPath,
   mainAgentLoopRunsRoot,

@@ -938,8 +938,6 @@ describe("Workbench module boundaries", () => {
     expect(reworkSequence).toContain("runReworkCoderLeafStage");
     expect(reworkSequence).toContain("runValidatorLeafStage");
     expect(reworkSequence).toContain("runAuditorLeafStage");
-    expect(reworkSequence).toContain("appendWorkflowRuntimeEvidenceEvent");
-    expect(reworkSequence).toContain("recordWorkflowRuntimeDecisionEvidence");
     expect(reworkSequence).not.toContain("appendMainAgentLoopEvent");
     expect(reworkSequence).not.toContain("recordMainAgentNextStepEvidence");
     expect(reworkSequence).not.toContain("../workbench/");
@@ -966,7 +964,6 @@ describe("Workbench module boundaries", () => {
 
     expect(existsSync(join(process.cwd(), "src/main-agent-orchestration/taskrun-lifecycle.ts"))).toBe(false);
     expect(taskRunStageRuntime).toContain("maybeRunTaskRunRework");
-    expect(taskRunStageRuntime).toContain("appendWorkflowRuntimeEvidenceEvent");
     expect(taskRunStageRuntime).not.toContain("appendMainAgentLoopEvent");
     expect(taskRunStageRuntime).not.toContain("ensureMainAgentLoopRun");
     expect(taskRunStageRuntime).not.toContain("runMainAgentTaskRunLifecycle");
@@ -982,6 +979,9 @@ describe("Workbench module boundaries", () => {
     const loopEvidence = readFileSync(join(process.cwd(), "src/main-agent-orchestration/loop-evidence.ts"), "utf8");
     expect(loopEvidence).toContain("main-agent-loop-runs");
     expect(loopEvidence).toContain("events.jsonl");
+    expect(loopEvidence).not.toContain("ensureMainAgentLoopRun");
+    expect(loopEvidence).not.toContain("appendMainAgentLoopEvent");
+    expect(loopEvidence).not.toContain("finishMainAgentLoopRun");
     expect(loopEvidence).not.toContain("../workbench/actions/");
     expect(loopEvidence).not.toContain("../workbench/");
     expect(loopEvidence).not.toContain("../scheduler-runtime/");
@@ -996,6 +996,7 @@ describe("Workbench module boundaries", () => {
     expect(nextStepEvidence).toContain("executionStarted: false");
     expect(nextStepEvidence).toContain("decisions.jsonl");
     expect(nextStepEvidence).toContain('Exclude<MainAgentLoopEntrypoint, "task-queue">');
+    expect(nextStepEvidence).not.toContain("recordMainAgentNextStepEvidence");
     expect(nextStepEvidence).not.toContain("run-next-item");
     expect(nextStepEvidence).not.toContain("queue-decisions.jsonl");
     expect(nextStepEvidence).not.toContain("../workbench/actions/");
@@ -2376,8 +2377,10 @@ describe("Workbench module boundaries", () => {
     const workflowSchedulerOwner = readFileSync("src/workflow-runtime/scheduler.ts", "utf8");
     expect(workflowSchedulerOwner).toContain("runSchedulerWorkerStartFirst");
     expect(workflowSchedulerOwner).toContain("runSchedulerWorkerStartNext");
-    expect(workflowSchedulerOwner).toContain("readSchedulerCurrentTransitionView");
-    expect(workflowSchedulerOwner).toContain("schedulerTransitionMatchesStartRequest");
+    expect(workflowSchedulerOwner).toContain("runSchedulerReadySetCurrentStep");
+    expect(workflowSchedulerOwner).not.toContain("readSchedulerCurrentTransitionView");
+    expect(workflowSchedulerOwner).not.toContain("readSchedulerReadySetWorkerStartTarget");
+    expect(workflowSchedulerOwner).not.toContain("assertSchedulerCurrentTransitionActionAllowed");
     expect(workflowSchedulerOwner).toContain("runSchedulerWorkerResultReconcile");
     expect(workflowSchedulerOwner).toContain("runSchedulerWorkerValidation");
     expect(workflowSchedulerOwner).toContain("runSchedulerWorkerAudit");
@@ -2391,6 +2394,14 @@ describe("Workbench module boundaries", () => {
     expect(currentTransitionView).toContain("readSchedulerWorkerPathReadModelsForReservation");
     expect(currentTransitionView).toContain("resolveSchedulerCurrentTransition");
     expect(currentTransitionView).not.toMatch(/workbench\/|server\/|web\/src|cli\/commands/);
+
+    const readySetOwner = readFileSync("src/workflow-runtime/scheduler-ready-set.ts", "utf8");
+    expect(readySetOwner).toContain("runSchedulerReadySetCurrentStep");
+    expect(readySetOwner).toContain("readLatestSchedulerCurrentTransitionView");
+    expect(readySetOwner).toContain("resolveSchedulerReadySetWorkerStartTarget");
+    expect(readySetOwner).toContain("schedulerTransitionMatchesStartRequest");
+    expect(readySetOwner).toContain("assertSchedulerCurrentTransitionAction");
+    expect(readySetOwner).not.toMatch(/startTaskRun|startCodeRun|createWorkerLease|workbench\/|server\/|web\/src/);
 
     const guards = readFileSync("src/scheduler-runtime/guards.ts", "utf8");
     expect(guards).toContain("assertLatestSchedulerRuntimeClaimReservation");
@@ -2439,24 +2450,34 @@ describe("Workbench module boundaries", () => {
     expect(workflowActionTransition).not.toMatch(/startTaskRun|startCodeRun|createWorkerLease|writeScheduler|appendSchedulerRuntimeEvent|workbench\/|server\/|web\/src/);
 
     const workbenchBoundary = readFileSync("src/workbench/actions/boundary.ts", "utf8");
-    expect(workbenchBoundary).toContain("readSchedulerCurrentTransitionView");
+    expect(workbenchBoundary).not.toContain("readSchedulerCurrentTransitionView");
+    expect(workbenchBoundary).not.toContain("assertSchedulerCurrentTransitionForAction");
     expect(workbenchBoundary).not.toContain("resolveSchedulerCurrentTransition");
     expect(workbenchBoundary).not.toContain("schedulerWorkerPathsToLikes");
     expect(workbenchBoundary).not.toContain("findNextSameWaveSchedulerReservationIntentForWorkerPaths");
     expect(workbenchBoundary).not.toContain("must target the first unstarted same-wave reservation intent");
 
     const workerStart = readFileSync("src/scheduler-runtime/worker-start.ts", "utf8");
-    expect(workerStart).toContain("startFirstSchedulerCoderWorker");
+    expect(workerStart).toContain("startSchedulerCoderWorkerForReadySetTarget");
     expect(workerStart).toContain("scheduler-claim-reservation");
     expect(workerStart).toContain("startCodeRun");
     expect(workerStart).toContain("startTaskRun");
+    expect(workerStart).toContain("exactTarget");
     expect(workerStart).not.toContain("assertStartNextAllowed");
     expect(workerStart).not.toContain("intents[0]");
-    expect(workerStart).toContain("intent.reservationIntentId === input.reservationIntentId");
+    expect(workerStart).not.toContain("schedulerTransitionMatchesStartRequest");
+    expect(workerStart).not.toContain("readSchedulerCurrentTransitionView");
+    expect(workerStart).toContain("exactTarget.reservationIntentId !== input.reservationIntentId");
     expect(workerStart).not.toContain("SchedulerIntegrationCandidate");
     expect(workerStart).not.toContain("startValidationRun");
     expect(workerStart).not.toContain("startAuditRun");
     expect(workerStart).not.toContain("runTaskQueueSequence");
+
+    const readySetLeafHelperImporters = listSourceFiles(["src"])
+      .filter((file) => file.replace(/\\/g, "/") !== "src/scheduler-runtime/worker-start.ts")
+      .filter((file) => readFileSync(file, "utf8").includes("startSchedulerCoderWorkerForReadySetTarget"))
+      .map((file) => file.replace(/\\/g, "/"));
+    expect(readySetLeafHelperImporters).toEqual(["src/workflow-runtime/scheduler-ready-set.ts"]);
 
     const workerResult = readFileSync("src/scheduler-runtime/worker-result.ts", "utf8");
     expect(workerResult).toContain("reconcileSchedulerFirstWorkerResult");
@@ -2719,7 +2740,7 @@ describe("Workbench module boundaries", () => {
     const boundary = readFileSync("src/workbench/actions/boundary.ts", "utf8");
     expect(boundary).not.toContain("function readSchedulerWorkerPathLikes");
     expect(boundary).not.toContain("readSchedulerWorkerPathReadModelsForReservation");
-    expect(boundary).toContain("readSchedulerCurrentTransitionView");
+    expect(boundary).not.toContain("readSchedulerCurrentTransitionView");
 
     const goalLoopCompiler = readFileSync("src/goal-loop/compiler.ts", "utf8");
     expect(goalLoopCompiler).not.toContain("function readWorkerPaths");

@@ -3,7 +3,7 @@ import { resolveRunnableChangeTarget } from "../change/target.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { startCodeRun, type CodeRunLiveCallbacks, type CodeRunResult } from "../code/manager.js";
 import { markTaskRunRunning, startTaskRun } from "../task-run/manager.js";
-import type { ManagedProject, TaskRun, WorkerLease } from "../types/index.js";
+import type { ManagedProject, ReadySetWorkflowGraphSourceLock, TaskRun, WorkerLease } from "../types/index.js";
 import { readSchedulerRuntimeLineage } from "./guards.js";
 import {
   appendSchedulerRuntimeEvent,
@@ -27,6 +27,19 @@ export interface SchedulerFirstWorkerStartInput {
   live?: CodeRunLiveCallbacks;
 }
 
+export interface SchedulerWorkerStartExactTarget {
+  graphId: string;
+  graphNodeId: string;
+  schedulerNodeId: string;
+  unitId: string;
+  stageRefId: string;
+  taskId: string;
+  reservationIntentId: string;
+  claimIntentId: string;
+  sourceLocks: ReadySetWorkflowGraphSourceLock[];
+  recoveryKeyInputs: { key: string; value: string | string[] }[];
+}
+
 export interface SchedulerFirstWorkerStartResult {
   workerStart: SchedulerRuntimeWorkerStart;
   taskRun: TaskRun;
@@ -35,24 +48,15 @@ export interface SchedulerFirstWorkerStartResult {
   executionStarted: true;
 }
 
-export async function startFirstSchedulerCoderWorker(project: ManagedProject, input: SchedulerFirstWorkerStartInput): Promise<SchedulerFirstWorkerStartResult> {
-  return startOneSchedulerCoderWorker(project, input, "planning.scheduler.worker.start-first");
-}
-
 export interface SchedulerNextWorkerStartInput extends SchedulerFirstWorkerStartInput {
   reservationIntentId: string;
   claimIntentId: string;
 }
 
-export async function startNextSchedulerCoderWorker(project: ManagedProject, input: SchedulerNextWorkerStartInput): Promise<SchedulerFirstWorkerStartResult> {
-  if (!input.reservationIntentId) throw new Error("planning.scheduler.worker.start-next requires reservationIntentId.");
-  if (!input.claimIntentId) throw new Error("planning.scheduler.worker.start-next requires claimIntentId.");
-  return startOneSchedulerCoderWorker(project, input, "planning.scheduler.worker.start-next");
-}
-
-async function startOneSchedulerCoderWorker(
+export async function startSchedulerCoderWorkerForReadySetTarget(
   project: ManagedProject,
   input: SchedulerFirstWorkerStartInput,
+  exactTarget: SchedulerWorkerStartExactTarget,
   actionType: "planning.scheduler.worker.start-first" | "planning.scheduler.worker.start-next",
 ): Promise<SchedulerFirstWorkerStartResult> {
   const memory = await resolveProjectMemory(project);
@@ -80,22 +84,31 @@ async function startOneSchedulerCoderWorker(
   assertHashesMatch(runtimeState.sourceArtifactHashes, run.sourceArtifactHashes, actionType, "runtime state");
   assertHashesMatch(reservation.sourceArtifactHashes, runtimeState.sourceArtifactHashes, actionType, "claim reservation");
   assertHashesMatch(reconcileSnapshot.sourceArtifactHashes, runtimeState.sourceArtifactHashes, actionType, "reconcile snapshot");
-  const intent = selectReservationIntent(reservation.reservationIntents, input, actionType);
+  const intent = selectReservationIntent(reservation.reservationIntents, exactTarget, actionType);
+  if (
+    exactTarget.reservationIntentId !== input.reservationIntentId
+    || exactTarget.claimIntentId !== input.claimIntentId
+    || exactTarget.schedulerNodeId !== intent.nodeId
+    || exactTarget.unitId !== intent.unitId
+  ) {
+    throw new Error(`${actionType} exact ready-set worker target scope mismatch.`);
+  }
   const existing = await findSchedulerRuntimeWorkerStartForReservationIntent(memory, changePath, run.id, intent.reservationIntentId);
   if (existing) throw new Error(`${actionType} reservation intent already started.`);
   const stage = workerPlan.plannedStages.find((item) =>
-    item.nodeId === intent.nodeId
-    && item.unitId === intent.unitId
+    item.id === exactTarget.stageRefId
+    && item.nodeId === exactTarget.schedulerNodeId
+    && item.unitId === exactTarget.unitId
     && item.stage === "coder"
     && item.status === "planned"
   );
   if (!stage) throw new Error(`${actionType} could not resolve a planned coder stage.`);
-  const node = contract.nodes.find((item) => item.id === intent.nodeId && item.unitId === intent.unitId);
+  const node = contract.nodes.find((item) => item.id === exactTarget.schedulerNodeId && item.unitId === exactTarget.unitId);
   if (!node) throw new Error(`${actionType} could not resolve SchedulerContract node.`);
-  if (node.taskIds.length !== 1) {
-    throw new Error(`${actionType} currently requires a scheduler node with exactly one task id.`);
+  if (node.taskIds.length !== 1 || node.taskIds[0] !== exactTarget.taskId) {
+    throw new Error(`${actionType} SchedulerContract task scope mismatch.`);
   }
-  const taskId = node.taskIds[0];
+  const taskId = exactTarget.taskId;
   const scopeContext = buildSchedulerWorkerScopeContext(target.status, reservation, intent, taskId);
   const started = await startTaskRun(project, { changeId: input.changeId, taskId, roleId: "coder" });
   const workerStartId = buildWorkerStartId(run.id, intent.reservationIntentId, started.taskRun.id);
@@ -226,14 +239,14 @@ async function startOneSchedulerCoderWorker(
 
 function selectReservationIntent(
   intents: SchedulerRuntimeClaimReservationIntent[],
-  input: SchedulerFirstWorkerStartInput,
+  exactTarget: SchedulerWorkerStartExactTarget,
   actionType: "planning.scheduler.worker.start-first" | "planning.scheduler.worker.start-next",
 ): SchedulerRuntimeClaimReservationIntent {
-  if (!input.reservationIntentId) throw new Error(`${actionType} requires reservationIntentId.`);
-  if (!input.claimIntentId) throw new Error(`${actionType} requires claimIntentId.`);
-  const selected = intents.find((intent) => intent.status === "reserved" && intent.reservationIntentId === input.reservationIntentId);
+  if (!exactTarget.reservationIntentId) throw new Error(`${actionType} requires reservationIntentId.`);
+  if (!exactTarget.claimIntentId) throw new Error(`${actionType} requires claimIntentId.`);
+  const selected = intents.find((intent) => intent.status === "reserved" && intent.reservationIntentId === exactTarget.reservationIntentId);
   if (!selected) throw new Error(`${actionType} could not find a runnable reservation intent.`);
-  if (selected.claimIntentId !== input.claimIntentId) {
+  if (selected.claimIntentId !== exactTarget.claimIntentId) {
     throw new Error(`${actionType} claimIntentId scope mismatch.`);
   }
   return selected;

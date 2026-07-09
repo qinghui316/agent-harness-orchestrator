@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+﻿import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { appendFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
@@ -7,7 +7,7 @@ import {
   type MainAgentOrchestrationDecision,
   type MainAgentOrchestrationState,
 } from "../../src/agent-task/orchestration-engine.js";
-import type { ManagedProject, TaskRun, WorkerLease } from "../../src/types/index.js";
+import type { ManagedProject, ResolvedMemory, TaskRun, WorkerLease } from "../../src/types/index.js";
 
 type MockLeafInput = {
   orchestration: MainAgentOrchestrationState;
@@ -263,13 +263,16 @@ vi.mock("../../src/task-run/manager.js", () => ({
 }));
 
 import {
-  ensureMainAgentLoopRun,
-  mainAgentLoopRunPath,
-} from "../../src/main-agent-orchestration/loop-evidence.js";
-import {
   assessMainAgentActionBridge,
   readMainAgentLoopEvents,
   readMainAgentLoopRun,
+  mainAgentLoopRunPath,
+  mainAgentNextStepDecisionsPath,
+  mainAgentNextStepEvidenceRef,
+  type MainAgentLoopEntrypoint,
+  type MainAgentLoopRun,
+  type MainAgentNextStepEvidence,
+  type MainAgentNextStepEntrypoint,
 } from "../../src/main-agent-orchestration/index.js";
 import { runPrFeedbackReworkWorkflow, runSourceRefreshReworkWorkflow, runStartedTaskRunStage } from "../../src/workflow-runtime/code-workflow.js";
 import {
@@ -279,7 +282,6 @@ import {
   workflowRuntimeDecisionEvidencePath,
   workflowRuntimeEvidenceEventsPath,
 } from "../../src/workflow-runtime/evidence-journal.js";
-import { recordMainAgentNextStepEvidence } from "../../src/main-agent-orchestration/next-step-evidence.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import {
   runAuditorLeafStage,
@@ -295,6 +297,127 @@ const project: ManagedProject = {
   addedAt: "2026-06-30T00:00:00.000Z",
   lastSeenAt: "2026-06-30T00:00:00.000Z",
 };
+
+async function writeLegacyMainAgentLoopRun(
+  memory: ResolvedMemory,
+  input: {
+    loopRunId: string;
+    changeId: string;
+    projectId: string | null;
+    entrypoint: MainAgentLoopEntrypoint;
+    status?: "running" | "completed" | "stopped";
+  },
+): Promise<{ run: MainAgentLoopRun; created: boolean }> {
+  const now = "2026-06-30T00:00:00.000Z";
+  const run: MainAgentLoopRun = {
+    version: "1.0",
+    id: input.loopRunId,
+    changeId: input.changeId,
+    projectId: input.projectId,
+    entrypoint: input.entrypoint,
+    status: input.status ?? "running",
+    createdAt: now,
+    updatedAt: now,
+    finishedAt: input.status && input.status !== "running" ? now : null,
+  };
+  const path = mainAgentLoopRunPath(memory, run.id);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify(run, null, 2)}\n`, "utf8");
+  return { run, created: true };
+}
+
+async function writeLegacyMainAgentNextStepEvidence(
+  memory: ResolvedMemory,
+  run: MainAgentLoopRun,
+  input: {
+    stepIndex: number;
+    entrypoint: MainAgentNextStepEntrypoint;
+    observation: MainAgentNextStepEvidence["observation"];
+    decision: MainAgentOrchestrationDecision;
+    gateIntent?: MainAgentNextStepEvidence["gateIntent"];
+    targetRefs?: Partial<MainAgentNextStepEvidence["targetRefs"]>;
+    artifactRefs?: string[];
+    refs?: Partial<MainAgentNextStepEvidence["refs"]>;
+  },
+): Promise<MainAgentNextStepEvidence> {
+  const id = `legacy-next-step-${input.stepIndex}`;
+  const evidence: MainAgentNextStepEvidence = {
+    version: "1.0",
+    authority: "non-executing-main-agent-next-step-evidence",
+    executionStarted: false,
+    id,
+    ref: mainAgentNextStepEvidenceRef(run.id, id),
+    loopRunId: run.id,
+    changeId: run.changeId,
+    projectId: run.projectId,
+    entrypoint: input.entrypoint,
+    stepIndex: input.stepIndex,
+    createdAt: "2026-06-30T00:00:00.000Z",
+    observation: input.observation,
+    decision: normalizeLegacyNextStepDecision(input.decision),
+    gateIntent: input.gateIntent ?? legacyGateIntentForDecision(input.decision),
+    targetRefs: normalizeLegacyTargetRefs(input.targetRefs),
+    artifactRefs: input.artifactRefs ?? [],
+    refs: {
+      agentTaskIds: input.refs?.agentTaskIds ?? [],
+      runIds: input.refs?.runIds ?? [],
+      validationIds: input.refs?.validationIds ?? [],
+      auditIds: input.refs?.auditIds ?? [],
+    },
+  };
+  const path = mainAgentNextStepDecisionsPath(memory, run.id);
+  await mkdir(dirname(path), { recursive: true });
+  await appendFile(path, `${JSON.stringify(evidence)}\n`, "utf8");
+  return evidence;
+}
+
+function normalizeLegacyNextStepDecision(decision: MainAgentOrchestrationDecision): MainAgentNextStepEvidence["decision"] {
+  if (decision.kind === "delegate-role") {
+    return {
+      kind: decision.kind,
+      roleId: decision.roleId,
+      attemptKind: decision.attemptKind,
+      stoppedAt: null,
+      reason: decision.reason,
+      nextRecommendation: decision.nextRecommendation,
+    };
+  }
+  if (decision.kind === "completed") {
+    return {
+      kind: decision.kind,
+      roleId: null,
+      attemptKind: null,
+      stoppedAt: null,
+      reason: decision.reason,
+      nextRecommendation: decision.nextRecommendation,
+    };
+  }
+  return {
+    kind: decision.kind,
+    roleId: null,
+    attemptKind: null,
+    stoppedAt: decision.stoppedAt,
+    reason: decision.reason,
+    nextRecommendation: decision.nextRecommendation,
+  };
+}
+
+function legacyGateIntentForDecision(decision: MainAgentOrchestrationDecision): MainAgentNextStepEvidence["gateIntent"] {
+  if (decision.kind === "delegate-role") return "delegate-leaf";
+  if (decision.kind === "completed") return "result-handoff";
+  return "none";
+}
+
+function normalizeLegacyTargetRefs(refs: Partial<MainAgentNextStepEvidence["targetRefs"]> | undefined): MainAgentNextStepEvidence["targetRefs"] {
+  return {
+    worktreeIds: refs?.worktreeIds ?? [],
+    runIds: refs?.runIds ?? [],
+    validationIds: refs?.validationIds ?? [],
+    auditIds: refs?.auditIds ?? [],
+    applyCheckIds: refs?.applyCheckIds ?? [],
+    landingPackageIds: refs?.landingPackageIds ?? [],
+  };
+}
 
 function taskRun(overrides: Partial<TaskRun> = {}): TaskRun {
   return {
@@ -349,13 +472,13 @@ describe("main-agent step loop contract", () => {
 
   it("assesses result-handoff evidence against the current visible gate without executing it", async () => {
     const memory = await resolveProjectMemory(project);
-    const loop = await ensureMainAgentLoopRun(memory, {
+    const loop = await writeLegacyMainAgentLoopRun(memory, {
       loopRunId: "manual-success-loop",
       changeId: "change-bridge",
       projectId: project.id,
       entrypoint: "task-run",
     });
-    const completedDecision = await recordMainAgentNextStepEvidence(memory, loop.run, {
+    const completedDecision = await writeLegacyMainAgentNextStepEvidence(memory, loop.run, {
       stepIndex: 0,
       entrypoint: "task-run",
       observation: {
@@ -488,13 +611,13 @@ describe("main-agent step loop contract", () => {
 
   it("does not bridge delegate, failed, stale, disabled, or remote gates", async () => {
     const memory = await resolveProjectMemory(project);
-    const failedLoop = await ensureMainAgentLoopRun(memory, {
+    const failedLoop = await writeLegacyMainAgentLoopRun(memory, {
       loopRunId: "manual-failed-loop",
       changeId: "change-bridge-fail-closed",
       projectId: project.id,
       entrypoint: "task-run",
     });
-    const failedDecision = await recordMainAgentNextStepEvidence(memory, failedLoop.run, {
+    const failedDecision = await writeLegacyMainAgentNextStepEvidence(memory, failedLoop.run, {
       stepIndex: 0,
       entrypoint: "task-run",
       observation: {
@@ -512,13 +635,13 @@ describe("main-agent step loop contract", () => {
         nextRecommendation: "Ask user for clarification.",
       },
     });
-    const delegateLoop = await ensureMainAgentLoopRun(memory, {
+    const delegateLoop = await writeLegacyMainAgentLoopRun(memory, {
       loopRunId: "manual-delegate-loop",
       changeId: "change-bridge-fail-closed",
       projectId: project.id,
       entrypoint: "task-run",
     });
-    const delegateDecision = await recordMainAgentNextStepEvidence(memory, delegateLoop.run, {
+    const delegateDecision = await writeLegacyMainAgentNextStepEvidence(memory, delegateLoop.run, {
       stepIndex: 0,
       entrypoint: "task-run",
       observation: {
@@ -606,13 +729,13 @@ describe("main-agent step loop contract", () => {
 
   it("fails closed for stale or incomplete result-handoff bridge evidence", async () => {
     const memory = await resolveProjectMemory(project);
-    const loop = await ensureMainAgentLoopRun(memory, {
+    const loop = await writeLegacyMainAgentLoopRun(memory, {
       loopRunId: "manual-result-handoff-loop",
       changeId: "change-bridge-stale",
       projectId: project.id,
       entrypoint: "top-level",
     });
-    const staleDecision = await recordMainAgentNextStepEvidence(memory, loop.run, {
+    const staleDecision = await writeLegacyMainAgentNextStepEvidence(memory, loop.run, {
       stepIndex: 0,
       entrypoint: "top-level",
       observation: {
@@ -630,7 +753,7 @@ describe("main-agent step loop contract", () => {
       },
       targetRefs: { worktreeIds: ["wt-old"], auditIds: ["audit-old"] },
     });
-    const incompleteDecision = await recordMainAgentNextStepEvidence(memory, loop.run, {
+    const incompleteDecision = await writeLegacyMainAgentNextStepEvidence(memory, loop.run, {
       stepIndex: 1,
       entrypoint: "top-level",
       observation: {
@@ -738,7 +861,7 @@ describe("main-agent step loop contract", () => {
     const initialTaskRun = taskRun({ id: "task-run-parent-child" });
     controls.taskRuns.set(initialTaskRun.id, initialTaskRun);
     const memory = await resolveProjectMemory(project);
-    const parent = await ensureMainAgentLoopRun(memory, {
+    const parent = await writeLegacyMainAgentLoopRun(memory, {
       loopRunId: "queue-parent-loop",
       changeId: initialTaskRun.changeId,
       projectId: project.id,
@@ -950,21 +1073,13 @@ describe("main-agent step loop contract", () => {
     expect(await readWorkflowRuntimeDecisionEvidence(memory, result.workflow.loopRunId!)).toEqual([]);
   });
 
-  it("recreates malformed loop metadata without blocking orchestration evidence", async () => {
+  it("treats malformed legacy loop metadata as unreadable compatibility evidence", async () => {
     const memory = await resolveProjectMemory(project);
     const malformedPath = mainAgentLoopRunPath(memory, "malformed-loop");
     await mkdir(dirname(malformedPath), { recursive: true });
     await writeFile(malformedPath, "{not-json}\n", "utf8");
 
-    const ensured = await ensureMainAgentLoopRun(memory, {
-      loopRunId: "malformed-loop",
-      changeId: "change-malformed-loop",
-      projectId: project.id,
-      entrypoint: "task-run",
-    });
-
-    expect(ensured.created).toBe(true);
-    expect(ensured.run.id).toBe("malformed-loop");
-    expect(ensured.run.status).toBe("running");
+    expect(await readMainAgentLoopRun(memory, "malformed-loop")).toBeNull();
   });
 });
+

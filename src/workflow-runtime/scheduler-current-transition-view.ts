@@ -33,6 +33,9 @@ export interface SchedulerCurrentTransitionExistingEvidence {
 }
 
 export interface SchedulerCurrentTransitionView {
+  run: SchedulerRun;
+  runtimeState: SchedulerRuntimeState;
+  reservation: SchedulerRuntimeClaimReservation;
   graph: ReadySetWorkflowGraphPlan;
   workerPaths: SchedulerCurrentTransitionWorkerPath[];
   integrationCandidate: SchedulerIntegrationCandidate | null;
@@ -87,6 +90,9 @@ export async function readSchedulerCurrentTransitionView(
     ?? Boolean(await readLatestSchedulerRunBlockedCloseoutProjection(memory, changePath, run.id));
 
   return {
+    run,
+    runtimeState,
+    reservation,
     graph,
     workerPaths,
     integrationCandidate,

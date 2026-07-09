@@ -30,6 +30,30 @@ workflow template/mode. It must not enforce permissions, allocate worktrees,
 claim worker slots, approve gates, or make Workbench UI state into workflow
 truth.
 
+## WorkflowPlan Authoring Guidance
+
+When the main Agent decides planning is needed, it should give Plan Agent a
+compact Goal brief, state brief, constraints, and scoped evidence. Plan Agent's
+output is a WorkflowPlan proposal, not execution approval.
+
+Use the Open Dynamic Workflows authoring shape as the mental model, but not its
+JavaScript carrier:
+
+- design the workflow structure before assigning leaves;
+- choose sequential, pipeline, ready-set, or barrier behavior only when the
+  task evidence justifies it;
+- describe each leaf as `prompt + opts`: the prompt says what the Agent must do
+  and what output it must return; opts describe role, scope, worktree/write
+  mode, policy profile, and validation/audit needs for Harness;
+- keep user confirmation, stale Workbench buttons, Change matching, source
+  hashes, reservation ids, worktree ids, apply/merge/close gates, and
+  ToolPolicyGate internals out of the business plan body.
+
+The proposal may recommend where the runtime should stop for a human gate. It
+must not grant permission, call workflow actions, create Scheduler claims,
+pretend a fake subagent exists, update PRs, apply/merge source, close/archive,
+or bypass the main Agent review and user confirmation step.
+
 ## Plan Handoff Intents
 
 A plan handoff from the Workbench main conversation, or a user phrase such as

@@ -4,11 +4,11 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   buildMainAgentWorkflowGraphReplaySummary,
+  mainAgentLoopRunPath,
   mainAgentLoopRunsRoot,
   mainAgentWorkflowGraphDecisionsPath,
   recordMainAgentWorkflowGraphObservationAndReplay,
 } from "../../src/main-agent-orchestration/index.js";
-import { ensureMainAgentLoopRun } from "../../src/main-agent-orchestration/loop-evidence.js";
 import { recordMainAgentQueueDecisionEvidence } from "../../src/main-agent-orchestration/queue-step-evidence.js";
 import type { ManagedProject, ResolvedMemory, TaskQueueItem, TaskQueueRun, WorkflowRun } from "../../src/types/index.js";
 import { writeTaskQueueItem, writeTaskQueueRun } from "../../src/task-queue/manager.js";
@@ -30,8 +30,8 @@ describe("main-agent WorkflowGraph replay summary", () => {
   it("keeps canonical queue state ahead of stale historical queue decisions", async () => {
     root = await mkdtemp(join(tmpdir(), "aho-workflowgraph-replay-"));
     const mem = memory(root);
-    const loop = await ensureMainAgentLoopRun(mem, { changeId: "change-a", projectId: "project-a", entrypoint: "task-queue" });
-    await recordMainAgentQueueDecisionEvidence(mem, loop.run, {
+    const loop = await writeLegacyMainAgentLoopRun(mem, { loopRunId: "queue-loop-1", changeId: "change-a", projectId: "project-a", entrypoint: "task-queue" });
+    await recordMainAgentQueueDecisionEvidence(mem, loop, {
       queueStepIndex: 0,
       observation: {
         queueRunId: "queue-1",
@@ -308,6 +308,33 @@ describe("main-agent WorkflowGraph replay summary", () => {
     ]));
   });
 });
+
+async function writeLegacyMainAgentLoopRun(
+  memory: ResolvedMemory,
+  input: {
+    loopRunId: string;
+    changeId: string;
+    projectId: string | null;
+    entrypoint: "task-queue";
+  },
+) {
+  const now = "2026-07-01T00:00:00.000Z";
+  const run = {
+    version: "1.0" as const,
+    id: input.loopRunId,
+    changeId: input.changeId,
+    projectId: input.projectId,
+    entrypoint: input.entrypoint,
+    status: "running" as const,
+    createdAt: now,
+    updatedAt: now,
+    finishedAt: null,
+  };
+  const path = mainAgentLoopRunPath(memory, run.id);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify(run, null, 2)}\n`, "utf8");
+  return run;
+}
 
 async function writeControlledStep(
   mem: ResolvedMemory,
