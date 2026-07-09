@@ -3,66 +3,66 @@ import { completeAgentTask, recordMaintenanceLedgerEntry } from "../agent-task/m
 import { recordPostRunBoundaryAudit, boundaryAuditArtifactRef } from "../agent-task/boundary-audit.js";
 import { dispatchForegroundRoleTask } from "../agent-task/role-dispatcher.js";
 import {
-  recordMainAgentOrchestrationStep,
-  type MainAgentOrchestrationDecision,
-  type MainAgentOrchestrationRole,
-  type MainAgentOrchestrationState,
-} from "../agent-task/orchestration-engine.js";
+  recordWorkflowRuntimeExecutionStep,
+  type WorkflowRuntimeDecision,
+  type WorkflowRuntimeExecutionState,
+  type WorkflowRuntimeRole,
+} from "./execution-contract.js";
 import type { AgentTaskRequest } from "../agent-task/delegate-task.js";
 import { startCodeRun, type CodeExecutionGateOptions } from "../code/manager.js";
 import type { AgentTask, ManagedProject, ResolvedMemory } from "../types/index.js";
 import { startValidationRun } from "../validation/manager.js";
-import type { WorkbenchLiveSink } from "../workbench/types.js";
-import { compactArtifactRefs } from "../workflow-runtime/kernel/runtime-guards.js";
+import { compactArtifactRefs } from "./kernel/runtime-guards.js";
 import {
   emitAssistantEvent,
   emitAuditAssistantEvent,
   emitDelegatedRoleReturn,
   emitValidationAssistantEvents,
   forwardCodexStreamEvent,
-} from "../workflow-runtime/kernel/live-events.js";
+  type WorkflowRuntimeLiveSink,
+} from "./kernel/live-events.js";
 
 export type CodeLeafRun = Awaited<ReturnType<typeof startCodeRun>>;
 export type ValidationLeafRun = Awaited<ReturnType<typeof startValidationRun>>;
 export type AuditLeafRun = Awaited<ReturnType<typeof startAuditRun>>;
 
-export type MainAgentLeafStoppedAt = "boundary" | "code" | "validation" | "audit";
+export type WorkflowRuntimeLeafStoppedAt = "boundary" | "code" | "validation" | "audit";
 
-export interface MainAgentCoderLeafResult {
+export interface WorkflowRuntimeCoderLeafResult {
   leaf: "coder";
   roleId: "coder-agent" | "rework-coder";
   status: "completed" | "failed";
-  stoppedAt?: MainAgentLeafStoppedAt;
+  stoppedAt?: WorkflowRuntimeLeafStoppedAt;
   code?: CodeLeafRun;
   boundaryAudit?: Awaited<ReturnType<typeof recordPostRunBoundaryAudit>>;
   error?: string;
-  orchestration: MainAgentOrchestrationState;
+  orchestration: WorkflowRuntimeExecutionState;
 }
 
-export interface MainAgentValidatorLeafResult {
+export interface WorkflowRuntimeValidatorLeafResult {
   leaf: "validator";
   roleId: "validator";
   status: "completed" | "failed";
   stoppedAt?: "validation";
   validation?: ValidationLeafRun;
   error?: string;
-  orchestration: MainAgentOrchestrationState;
+  orchestration: WorkflowRuntimeExecutionState;
 }
 
-export interface MainAgentAuditorLeafResult {
+export interface WorkflowRuntimeAuditorLeafResult {
   leaf: "auditor";
   roleId: "auditor-agent";
   status: "completed" | "failed";
   stoppedAt?: "audit";
   audit?: AuditLeafRun;
   error?: string;
-  orchestration: MainAgentOrchestrationState;
+  orchestration: WorkflowRuntimeExecutionState;
 }
 
 async function createDelegatedForegroundTask(
   memory: ResolvedMemory,
   request: AgentTaskRequest,
-  live: WorkbenchLiveSink | undefined,
+  live: WorkflowRuntimeLiveSink | undefined,
 ): Promise<{ task: AgentTask; policyAuditRef: string }> {
   const result = await dispatchForegroundRoleTask(memory, { ...request, delegationMode: request.delegationMode ?? "orchestrator-policy" });
   emitAssistantEvent(live, {
@@ -89,14 +89,14 @@ export async function runCoderLeafStage(input: {
   memory: ResolvedMemory;
   changeId: string;
   prompt?: string;
-  live?: WorkbenchLiveSink;
+  live?: WorkflowRuntimeLiveSink;
   taskIds?: string[];
   taskRunId?: string;
   roleId: "coder-agent" | "rework-coder";
-  orchestration: MainAgentOrchestrationState;
-  decision?: Extract<MainAgentOrchestrationDecision, { kind: "delegate-role" }>;
+  orchestration: WorkflowRuntimeExecutionState;
+  decision?: Extract<WorkflowRuntimeDecision, { kind: "delegate-role" }>;
   executionGate?: CodeExecutionGateOptions;
-}): Promise<MainAgentCoderLeafResult> {
+}): Promise<WorkflowRuntimeCoderLeafResult> {
   const coderInputArtifacts = input.decision?.inputArtifacts.length ? input.decision.inputArtifacts : input.taskRunId ? [input.taskRunId] : [];
   const coderDispatch = await createDelegatedForegroundTask(input.memory, {
     conversationId: input.changeId,
@@ -132,8 +132,8 @@ export async function runCoderLeafStage(input: {
     });
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : String(cause);
-    orchestration = recordMainAgentOrchestrationStep(orchestration, {
-      roleId: orchestrationCoderRole(input.roleId),
+    orchestration = recordWorkflowRuntimeExecutionStep(orchestration, {
+      roleId: workflowRuntimeCoderRole(input.roleId),
       status: "failed",
       inputArtifacts: coderInputArtifacts,
       outputArtifacts: [],
@@ -184,8 +184,8 @@ export async function runCoderLeafStage(input: {
 
   if (coderBoundaryAudit.status === "failed") {
     const coderOutputArtifacts = compactArtifactRefs(code.run.artifacts.directory, code.run.artifacts.implementation, coderBoundaryRef);
-    orchestration = recordMainAgentOrchestrationStep(orchestration, {
-      roleId: orchestrationCoderRole(input.roleId),
+    orchestration = recordWorkflowRuntimeExecutionStep(orchestration, {
+      roleId: workflowRuntimeCoderRole(input.roleId),
       status: "failed",
       inputArtifacts: coderInputArtifacts,
       outputArtifacts: coderOutputArtifacts,
@@ -209,8 +209,8 @@ export async function runCoderLeafStage(input: {
 
   if (code.run.status !== "completed" || !code.run.worktree?.worktreeId) {
     const coderOutputArtifacts = compactArtifactRefs(code.run.artifacts.directory, code.run.artifacts.implementation);
-    orchestration = recordMainAgentOrchestrationStep(orchestration, {
-      roleId: orchestrationCoderRole(input.roleId),
+    orchestration = recordWorkflowRuntimeExecutionStep(orchestration, {
+      roleId: workflowRuntimeCoderRole(input.roleId),
       status: "failed",
       inputArtifacts: coderInputArtifacts,
       outputArtifacts: coderOutputArtifacts,
@@ -238,8 +238,8 @@ export async function runCoderLeafStage(input: {
   }
 
   const coderOutputArtifacts = compactArtifactRefs(code.run.artifacts.directory, code.run.artifacts.implementation);
-  orchestration = recordMainAgentOrchestrationStep(orchestration, {
-    roleId: orchestrationCoderRole(input.roleId),
+  orchestration = recordWorkflowRuntimeExecutionStep(orchestration, {
+    roleId: workflowRuntimeCoderRole(input.roleId),
     status: "completed",
     inputArtifacts: coderInputArtifacts,
     outputArtifacts: coderOutputArtifacts,
@@ -257,7 +257,7 @@ export async function runCoderLeafStage(input: {
   return { leaf: "coder", roleId: input.roleId, status: "completed", code, orchestration };
 }
 
-export async function runReworkCoderLeafStage(input: Omit<Parameters<typeof runCoderLeafStage>[0], "roleId">): Promise<MainAgentCoderLeafResult> {
+export async function runReworkCoderLeafStage(input: Omit<Parameters<typeof runCoderLeafStage>[0], "roleId">): Promise<WorkflowRuntimeCoderLeafResult> {
   return runCoderLeafStage({ ...input, roleId: "rework-coder" });
 }
 
@@ -265,11 +265,11 @@ export async function runValidatorLeafStage(input: {
   project: ManagedProject;
   memory: ResolvedMemory;
   changeId: string;
-  live?: WorkbenchLiveSink;
-  orchestration: MainAgentOrchestrationState;
-  decision: Extract<MainAgentOrchestrationDecision, { kind: "delegate-role" }> & { roleId: "validator" };
+  live?: WorkflowRuntimeLiveSink;
+  orchestration: WorkflowRuntimeExecutionState;
+  decision: Extract<WorkflowRuntimeDecision, { kind: "delegate-role" }> & { roleId: "validator" };
   code: CodeLeafRun;
-}): Promise<MainAgentValidatorLeafResult> {
+}): Promise<WorkflowRuntimeValidatorLeafResult> {
   let orchestration = input.orchestration;
   const validatorDispatch = await createDelegatedForegroundTask(input.memory, {
     conversationId: input.changeId,
@@ -289,7 +289,7 @@ export async function runValidatorLeafStage(input: {
     validation = await startValidationRun(input.project, { changeId: input.changeId, worktree: input.code.run.worktree!.worktreeId });
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : String(cause);
-    orchestration = recordMainAgentOrchestrationStep(orchestration, {
+    orchestration = recordWorkflowRuntimeExecutionStep(orchestration, {
       roleId: "validator",
       status: "failed",
       inputArtifacts: input.decision.inputArtifacts,
@@ -329,7 +329,7 @@ export async function runValidatorLeafStage(input: {
   const validationBoundaryRef = boundaryAuditArtifactRef(input.memory, validationBoundaryAudit);
   if (validation.validation.status !== "passed") {
     const validationOutputArtifacts = compactArtifactRefs(validation.run.artifacts.validation, validation.run.artifacts.stdout, validation.run.artifacts.stderr, validationBoundaryRef);
-    orchestration = recordMainAgentOrchestrationStep(orchestration, {
+    orchestration = recordWorkflowRuntimeExecutionStep(orchestration, {
       roleId: "validator",
       status: "failed",
       inputArtifacts: input.decision.inputArtifacts,
@@ -351,14 +351,14 @@ export async function runValidatorLeafStage(input: {
     await recordMaintenanceLedgerEntry(input.memory, {
       eventType: "failure",
       changeId: input.changeId,
-      summary: "Validation failed for a foreground main-agent role orchestration attempt.",
+      summary: "Validation failed for a foreground workflow runtime leaf attempt.",
       artifactRefs: compactArtifactRefs(validation.run.artifacts.validation, validation.run.artifacts.stderr),
     });
     return { leaf: "validator", roleId: "validator", status: "failed", validation, stoppedAt: "validation", orchestration };
   }
 
   const validationOutputArtifacts = compactArtifactRefs(validation.run.artifacts.validation, validation.run.artifacts.stdout, validationBoundaryRef);
-  orchestration = recordMainAgentOrchestrationStep(orchestration, {
+  orchestration = recordWorkflowRuntimeExecutionStep(orchestration, {
     roleId: "validator",
     status: "completed",
     inputArtifacts: input.decision.inputArtifacts,
@@ -381,12 +381,12 @@ export async function runAuditorLeafStage(input: {
   project: ManagedProject;
   memory: ResolvedMemory;
   changeId: string;
-  live?: WorkbenchLiveSink;
-  orchestration: MainAgentOrchestrationState;
-  decision: Extract<MainAgentOrchestrationDecision, { kind: "delegate-role" }> & { roleId: "auditor-agent" };
+  live?: WorkflowRuntimeLiveSink;
+  orchestration: WorkflowRuntimeExecutionState;
+  decision: Extract<WorkflowRuntimeDecision, { kind: "delegate-role" }> & { roleId: "auditor-agent" };
   code: CodeLeafRun;
   validation: ValidationLeafRun;
-}): Promise<MainAgentAuditorLeafResult> {
+}): Promise<WorkflowRuntimeAuditorLeafResult> {
   let orchestration = input.orchestration;
   const auditorDispatch = await createDelegatedForegroundTask(input.memory, {
     conversationId: input.changeId,
@@ -410,7 +410,7 @@ export async function runAuditorLeafStage(input: {
     });
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : String(cause);
-    orchestration = recordMainAgentOrchestrationStep(orchestration, {
+    orchestration = recordWorkflowRuntimeExecutionStep(orchestration, {
       roleId: "auditor-agent",
       status: "failed",
       inputArtifacts: input.decision.inputArtifacts,
@@ -450,7 +450,7 @@ export async function runAuditorLeafStage(input: {
   const auditBoundaryRef = boundaryAuditArtifactRef(input.memory, auditBoundaryAudit);
   const auditAccepted = audit.audit.status === "approved" || audit.audit.status === "approved-with-notes";
   const auditOutputArtifacts = compactArtifactRefs(audit.audit.artifacts.audit, audit.audit.artifacts.auditMarkdown, audit.audit.artifacts.lastMessage, auditBoundaryRef);
-  orchestration = recordMainAgentOrchestrationStep(orchestration, {
+  orchestration = recordWorkflowRuntimeExecutionStep(orchestration, {
     roleId: "auditor-agent",
     status: auditAccepted ? "completed" : "failed",
     inputArtifacts: input.decision.inputArtifacts,
@@ -483,13 +483,13 @@ export async function runAuditorLeafStage(input: {
     await recordMaintenanceLedgerEntry(input.memory, {
       eventType: "failure",
       changeId: input.changeId,
-      summary: "Audit did not accept foreground main-agent role orchestration evidence.",
+      summary: "Audit did not accept foreground workflow runtime leaf evidence.",
       artifactRefs: compactArtifactRefs(audit.audit.artifacts.auditMarkdown),
     });
   }
   return { leaf: "auditor", roleId: "auditor-agent", status: auditAccepted ? "completed" : "failed", audit, stoppedAt: auditAccepted ? undefined : "audit", orchestration };
 }
 
-function orchestrationCoderRole(roleId: string): MainAgentOrchestrationRole {
+function workflowRuntimeCoderRole(roleId: string): WorkflowRuntimeRole {
   return roleId === "rework-coder" ? "rework-coder" : "coder-agent";
 }

@@ -16,9 +16,8 @@ import {
 import { getActiveChanges } from "../ecl/index.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import type { ManagedProject, ResolvedMemory } from "../types/index.js";
-import { emitAssistantEvent } from "./kernel/live-events.js";
+import { emitAssistantEvent, type WorkflowRuntimeLiveSink } from "./kernel/live-events.js";
 import { runTopLevelRoleChainWorkflow } from "./top-level-role-chain.js";
-import type { WorkflowRuntimeLiveSink } from "./default-code-change.js";
 
 type ClaimedDemandWorker = NonNullable<Awaited<ReturnType<typeof claimNextDemandWorker>>>;
 

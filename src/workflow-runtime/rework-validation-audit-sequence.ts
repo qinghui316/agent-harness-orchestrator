@@ -1,20 +1,20 @@
 import {
-  createMainAgentOrchestrationState,
-  type MainAgentOrchestrationDecision,
-  type MainAgentOrchestrationState,
-} from "../agent-task/orchestration-engine.js";
+  createWorkflowRuntimeExecutionState,
+  type WorkflowRuntimeDecision,
+  type WorkflowRuntimeExecutionState,
+} from "./execution-contract.js";
 import { resolveProjectMemory } from "../memory/resolver.js";
 import {
   type AuditLeafRun,
   type CodeLeafRun,
-  type MainAgentAuditorLeafResult,
-  type MainAgentCoderLeafResult,
-  type MainAgentValidatorLeafResult,
+  type WorkflowRuntimeAuditorLeafResult,
+  type WorkflowRuntimeCoderLeafResult,
+  type WorkflowRuntimeValidatorLeafResult,
   runAuditorLeafStage,
   runReworkCoderLeafStage,
   runValidatorLeafStage,
   type ValidationLeafRun,
-} from "../main-agent-orchestration/leaf-stages.js";
+} from "./leaf-execution.js";
 import {
   appendWorkflowRuntimeEvidenceEvent,
   ensureWorkflowRuntimeEvidenceRun,
@@ -28,12 +28,8 @@ import {
   type WorkflowRuntimeEvidenceRun,
 } from "./evidence-journal.js";
 import type { ManagedProject, ResolvedMemory } from "../types/index.js";
+import type { WorkflowRuntimeLiveSink } from "./kernel/live-events.js";
 import { compactArtifactRefs } from "./kernel/runtime-guards.js";
-
-export interface WorkflowRuntimeLiveSink {
-  emit(event: unknown): void;
-  isClosed?(): boolean;
-}
 
 export interface ReworkValidationAuditSequenceInput {
   project: ManagedProject;
@@ -76,7 +72,7 @@ export interface ReworkValidationAuditSequenceResult {
   error?: string;
   stoppedAt: "boundary" | "code" | "validation" | "audit" | null;
   boundaryAudit?: unknown;
-  orchestration: MainAgentOrchestrationState;
+  orchestration: WorkflowRuntimeExecutionState;
   loopRunId: string;
 }
 
@@ -97,7 +93,7 @@ export async function runReworkValidationAuditSequence(
     });
   }
 
-  let orchestration = createMainAgentOrchestrationState({ changeId: input.changeId });
+  let orchestration = createWorkflowRuntimeExecutionState({ changeId: input.changeId });
   let stepIndex = 0;
 
   const reworkDecision = delegateReworkDecision(input.config, []);
@@ -269,7 +265,7 @@ export async function runReworkValidationAuditSequence(
     };
   }
 
-  const completedDecision: MainAgentOrchestrationDecision = {
+  const completedDecision: WorkflowRuntimeDecision = {
     kind: "completed",
     reason: input.config.completedReason,
     nextRecommendation: input.config.completedNextRecommendation,
@@ -300,8 +296,8 @@ async function recordDecision(
   memory: ResolvedMemory,
   loopRun: WorkflowRuntimeEvidenceRun,
   stepIndex: number,
-  orchestration: MainAgentOrchestrationState,
-  decision: MainAgentOrchestrationDecision,
+  orchestration: WorkflowRuntimeExecutionState,
+  decision: WorkflowRuntimeDecision,
   input: {
     artifacts?: string[];
     refs?: Partial<WorkflowRuntimeDecisionEvidenceRefs>;
@@ -347,7 +343,7 @@ async function appendLeafStarted(
   memory: ResolvedMemory,
   loopRun: WorkflowRuntimeEvidenceRun,
   stepIndex: number,
-  decision: Extract<MainAgentOrchestrationDecision, { kind: "delegate-role" }>,
+  decision: Extract<WorkflowRuntimeDecision, { kind: "delegate-role" }>,
   config: ReworkValidationAuditSequenceConfig,
 ): Promise<void> {
   await appendWorkflowRuntimeEvidenceEvent(memory, loopRun, {
@@ -366,7 +362,7 @@ async function appendLeafCompleted(
   memory: ResolvedMemory,
   loopRun: WorkflowRuntimeEvidenceRun,
   stepIndex: number,
-  decision: Extract<MainAgentOrchestrationDecision, { kind: "delegate-role" }>,
+  decision: Extract<WorkflowRuntimeDecision, { kind: "delegate-role" }>,
   status: "completed" | "failed",
   stoppedAt: "boundary" | "code" | "validation" | "audit" | null,
   reason: string | undefined,
@@ -390,7 +386,7 @@ async function appendLeafCompleted(
 }
 
 function observationSummary(
-  orchestration: MainAgentOrchestrationState,
+  orchestration: WorkflowRuntimeExecutionState,
   config: ReworkValidationAuditSequenceConfig,
 ): WorkflowRuntimeDecisionObservationSummary {
   const latest = orchestration.steps.at(-1);
@@ -411,7 +407,7 @@ function observationSummary(
 function delegateReworkDecision(
   config: ReworkValidationAuditSequenceConfig,
   inputArtifacts: string[],
-): Extract<MainAgentOrchestrationDecision, { kind: "delegate-role" }> & { roleId: "rework-coder" } {
+): Extract<WorkflowRuntimeDecision, { kind: "delegate-role" }> & { roleId: "rework-coder" } {
   return {
     kind: "delegate-role",
     roleId: "rework-coder",
@@ -426,7 +422,7 @@ function delegateReworkDecision(
 function delegateValidatorDecision(
   config: ReworkValidationAuditSequenceConfig,
   inputArtifacts: string[],
-): Extract<MainAgentOrchestrationDecision, { kind: "delegate-role" }> & { roleId: "validator" } {
+): Extract<WorkflowRuntimeDecision, { kind: "delegate-role" }> & { roleId: "validator" } {
   return {
     kind: "delegate-role",
     roleId: "validator",
@@ -441,7 +437,7 @@ function delegateValidatorDecision(
 function delegateAuditorDecision(
   config: ReworkValidationAuditSequenceConfig,
   inputArtifacts: string[],
-): Extract<MainAgentOrchestrationDecision, { kind: "delegate-role" }> & { roleId: "auditor-agent" } {
+): Extract<WorkflowRuntimeDecision, { kind: "delegate-role" }> & { roleId: "auditor-agent" } {
   return {
     kind: "delegate-role",
     roleId: "auditor-agent",
@@ -457,7 +453,7 @@ function terminalDecisionForCodeFailure(
   config: ReworkValidationAuditSequenceConfig,
   stoppedAt: "boundary" | "code" | "validation" | "audit",
   reason: string | undefined,
-): MainAgentOrchestrationDecision {
+): WorkflowRuntimeDecision {
   if (stoppedAt === "boundary" || stoppedAt === "code") {
     return {
       kind: "failed",
@@ -473,7 +469,7 @@ function terminalNeedsUserInput(
   _config: ReworkValidationAuditSequenceConfig,
   stoppedAt: "boundary" | "code" | "validation" | "audit",
   reason: string,
-): MainAgentOrchestrationDecision {
+): WorkflowRuntimeDecision {
   return {
     kind: "needs-user-input",
     stoppedAt,
@@ -482,11 +478,11 @@ function terminalNeedsUserInput(
   };
 }
 
-function artifactsFromCoder(result: MainAgentCoderLeafResult): string[] {
+function artifactsFromCoder(result: WorkflowRuntimeCoderLeafResult): string[] {
   return compactArtifactRefs(result.code?.run.artifacts.directory, result.code?.run.artifacts.implementation);
 }
 
-function artifactsFromValidation(coder: MainAgentCoderLeafResult, validation: MainAgentValidatorLeafResult): string[] {
+function artifactsFromValidation(coder: WorkflowRuntimeCoderLeafResult, validation: WorkflowRuntimeValidatorLeafResult): string[] {
   return compactArtifactRefs(
     ...artifactsFromCoder(coder),
     validation.validation?.run.artifacts.validation,
@@ -495,7 +491,7 @@ function artifactsFromValidation(coder: MainAgentCoderLeafResult, validation: Ma
   );
 }
 
-function artifactsFromAudit(coder: MainAgentCoderLeafResult, validation: MainAgentValidatorLeafResult, audit: MainAgentAuditorLeafResult): string[] {
+function artifactsFromAudit(coder: WorkflowRuntimeCoderLeafResult, validation: WorkflowRuntimeValidatorLeafResult, audit: WorkflowRuntimeAuditorLeafResult): string[] {
   return compactArtifactRefs(
     ...artifactsFromValidation(coder, validation),
     audit.audit?.audit.artifacts.audit,
@@ -504,15 +500,15 @@ function artifactsFromAudit(coder: MainAgentCoderLeafResult, validation: MainAge
   );
 }
 
-function refsFromCoder(result: MainAgentCoderLeafResult): Partial<WorkflowRuntimeDecisionEvidenceRefs & WorkflowRuntimeEvidenceEvent["refs"]> {
+function refsFromCoder(result: WorkflowRuntimeCoderLeafResult): Partial<WorkflowRuntimeDecisionEvidenceRefs & WorkflowRuntimeEvidenceEvent["refs"]> {
   return {
     runIds: compactArtifactRefs(result.code?.run.id),
   };
 }
 
 function refsFromValidation(
-  coder: MainAgentCoderLeafResult,
-  validation: MainAgentValidatorLeafResult,
+  coder: WorkflowRuntimeCoderLeafResult,
+  validation: WorkflowRuntimeValidatorLeafResult,
 ): Partial<WorkflowRuntimeDecisionEvidenceRefs & WorkflowRuntimeEvidenceEvent["refs"]> {
   return {
     runIds: compactArtifactRefs(coder.code?.run.id, validation.validation?.run.id),
@@ -521,9 +517,9 @@ function refsFromValidation(
 }
 
 function refsFromAudit(
-  coder: MainAgentCoderLeafResult,
-  validation: MainAgentValidatorLeafResult,
-  audit: MainAgentAuditorLeafResult,
+  coder: WorkflowRuntimeCoderLeafResult,
+  validation: WorkflowRuntimeValidatorLeafResult,
+  audit: WorkflowRuntimeAuditorLeafResult,
 ): Partial<WorkflowRuntimeDecisionEvidenceRefs & WorkflowRuntimeEvidenceEvent["refs"]> {
   return {
     runIds: compactArtifactRefs(coder.code?.run.id, validation.validation?.run.id, audit.audit?.run.id),
@@ -532,7 +528,7 @@ function refsFromAudit(
   };
 }
 
-function targetsFromCoder(result: MainAgentCoderLeafResult): Partial<WorkflowRuntimeDecisionTargetRefs> {
+function targetsFromCoder(result: WorkflowRuntimeCoderLeafResult): Partial<WorkflowRuntimeDecisionTargetRefs> {
   return {
     worktreeIds: compactArtifactRefs(result.code?.run.worktree?.worktreeId),
     runIds: compactArtifactRefs(result.code?.run.id),
@@ -540,8 +536,8 @@ function targetsFromCoder(result: MainAgentCoderLeafResult): Partial<WorkflowRun
 }
 
 function targetsFromValidation(
-  coder: MainAgentCoderLeafResult,
-  validation: MainAgentValidatorLeafResult,
+  coder: WorkflowRuntimeCoderLeafResult,
+  validation: WorkflowRuntimeValidatorLeafResult,
 ): Partial<WorkflowRuntimeDecisionTargetRefs> {
   return {
     worktreeIds: compactArtifactRefs(coder.code?.run.worktree?.worktreeId),
@@ -551,9 +547,9 @@ function targetsFromValidation(
 }
 
 function targetsFromAudit(
-  coder: MainAgentCoderLeafResult,
-  validation: MainAgentValidatorLeafResult,
-  audit: MainAgentAuditorLeafResult,
+  coder: WorkflowRuntimeCoderLeafResult,
+  validation: WorkflowRuntimeValidatorLeafResult,
+  audit: WorkflowRuntimeAuditorLeafResult,
 ): Partial<WorkflowRuntimeDecisionTargetRefs> {
   return {
     worktreeIds: compactArtifactRefs(coder.code?.run.worktree?.worktreeId),
@@ -563,7 +559,7 @@ function targetsFromAudit(
   };
 }
 
-function summarizeDecision(decision: MainAgentOrchestrationDecision): string {
+function summarizeDecision(decision: WorkflowRuntimeDecision): string {
   if (decision.kind === "delegate-role") return `Delegate ${decision.roleId}: ${decision.reason}`;
   return decision.reason;
 }

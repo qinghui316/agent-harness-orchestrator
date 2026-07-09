@@ -18,8 +18,8 @@ import {
   runWorkflowGraphSequentialExecution,
   type WorkflowGraphSequentialRuntimeInput,
   type WorkflowGraphSequentialRuntimeResult,
-  type WorkflowRuntimeLiveSink,
 } from "./workflowgraph-sequential.js";
+import type { WorkflowRuntimeLiveSink } from "./kernel/live-events.js";
 
 export type {
   WorkflowRuntimeLiveSink,

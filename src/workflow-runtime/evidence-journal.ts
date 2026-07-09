@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { agentTaskRoot } from "../agent-task/paths.js";
-import type { MainAgentOrchestrationDecision, MainAgentOrchestrationRole } from "../agent-task/orchestration-engine.js";
+import type { WorkflowRuntimeDecision, WorkflowRuntimeRole } from "./execution-contract.js";
 import { writeJsonFile } from "../fs/json.js";
 import { shortHash, slugify } from "../fs/path.js";
 import type { ResolvedMemory } from "../types/index.js";
@@ -91,7 +91,7 @@ export interface WorkflowRuntimeDecisionObservationSummary {
   totalSteps: number;
   completedSteps: number;
   failedSteps: number;
-  latestRoleId: MainAgentOrchestrationRole | null;
+  latestRoleId: WorkflowRuntimeRole | null;
   latestStatus: "completed" | "failed" | null;
 }
 
@@ -109,8 +109,8 @@ export interface WorkflowRuntimeDecisionEvidence {
   createdAt: string;
   observation: WorkflowRuntimeDecisionObservationSummary;
   decision: {
-    kind: MainAgentOrchestrationDecision["kind"];
-    roleId: MainAgentOrchestrationRole | null;
+    kind: WorkflowRuntimeDecision["kind"];
+    roleId: WorkflowRuntimeRole | null;
     attemptKind: "initial" | "rework" | "follow-up" | null;
     stoppedAt: "boundary" | "code" | "validation" | "audit" | null;
     reason: string;
@@ -150,7 +150,7 @@ export interface RecordWorkflowRuntimeDecisionEvidenceInput {
   stepIndex: number;
   entrypoint: WorkflowRuntimeEvidenceEntrypoint;
   observation: WorkflowRuntimeDecisionObservationSummary;
-  decision: MainAgentOrchestrationDecision;
+  decision: WorkflowRuntimeDecision;
   targetRefs?: Partial<WorkflowRuntimeDecisionTargetRefs>;
   artifactRefs?: string[];
   refs?: Partial<WorkflowRuntimeDecisionEvidenceRefs>;
@@ -375,7 +375,7 @@ function definedOptionalFields(input: WorkflowRuntimeEvidenceEventInput): Partia
   return value;
 }
 
-function normalizeDecision(decision: MainAgentOrchestrationDecision): WorkflowRuntimeDecisionEvidence["decision"] {
+function normalizeDecision(decision: WorkflowRuntimeDecision): WorkflowRuntimeDecisionEvidence["decision"] {
   if (decision.kind === "delegate-role") {
     return {
       kind: decision.kind,
@@ -406,13 +406,13 @@ function normalizeDecision(decision: MainAgentOrchestrationDecision): WorkflowRu
   };
 }
 
-function gateIntentForDecision(decision: MainAgentOrchestrationDecision): WorkflowRuntimeDecisionEvidence["gateIntent"] {
+function gateIntentForDecision(decision: WorkflowRuntimeDecision): WorkflowRuntimeDecisionEvidence["gateIntent"] {
   if (decision.kind === "delegate-role") return "delegate-leaf";
   if (decision.kind === "completed") return "result-handoff";
   return "none";
 }
 
-function decisionKey(decision: MainAgentOrchestrationDecision): string {
+function decisionKey(decision: WorkflowRuntimeDecision): string {
   if (decision.kind === "delegate-role") return `${decision.kind}:${decision.roleId}:${decision.attemptKind}`;
   return `${decision.kind}:${"stoppedAt" in decision ? decision.stoppedAt : "complete"}`;
 }

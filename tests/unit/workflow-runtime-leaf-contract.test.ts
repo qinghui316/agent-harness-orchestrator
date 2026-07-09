@@ -3,15 +3,15 @@ import { appendFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
-  recordMainAgentOrchestrationStep,
-  type MainAgentOrchestrationDecision,
-  type MainAgentOrchestrationState,
-} from "../../src/agent-task/orchestration-engine.js";
+  recordWorkflowRuntimeExecutionStep,
+  type WorkflowRuntimeDecision,
+  type WorkflowRuntimeExecutionState,
+} from "../../src/workflow-runtime/execution-contract.js";
 import type { ManagedProject, ResolvedMemory, TaskRun, WorkerLease } from "../../src/types/index.js";
 
 type MockLeafInput = {
-  orchestration: MainAgentOrchestrationState;
-  decision: Extract<MainAgentOrchestrationDecision, { kind: "delegate-role" }>;
+  orchestration: WorkflowRuntimeExecutionState;
+  decision: Extract<WorkflowRuntimeDecision, { kind: "delegate-role" }>;
 };
 
 const controls = vi.hoisted(() => ({
@@ -51,7 +51,7 @@ vi.mock("../../src/memory/resolver.js", () => ({
   })),
 }));
 
-vi.mock("../../src/main-agent-orchestration/leaf-stages.js", () => {
+vi.mock("../../src/workflow-runtime/leaf-execution.js", () => {
   function codeRun(label: string) {
     return {
       run: {
@@ -109,7 +109,7 @@ vi.mock("../../src/main-agent-orchestration/leaf-stages.js", () => {
         roleId: "coder-agent",
         status: "completed",
         code,
-        orchestration: recordMainAgentOrchestrationStep(input.orchestration, {
+        orchestration: recordWorkflowRuntimeExecutionStep(input.orchestration, {
           roleId: "coder-agent",
           status: "completed",
           inputArtifacts: input.decision.inputArtifacts,
@@ -126,7 +126,7 @@ vi.mock("../../src/main-agent-orchestration/leaf-stages.js", () => {
           status: "failed",
           stoppedAt: "code",
           error: "Rework failed.",
-          orchestration: recordMainAgentOrchestrationStep(input.orchestration, {
+          orchestration: recordWorkflowRuntimeExecutionStep(input.orchestration, {
             roleId: "rework-coder",
             status: "failed",
             inputArtifacts: input.decision.inputArtifacts,
@@ -143,7 +143,7 @@ vi.mock("../../src/main-agent-orchestration/leaf-stages.js", () => {
         roleId: "rework-coder",
         status: "completed",
         code,
-        orchestration: recordMainAgentOrchestrationStep(input.orchestration, {
+        orchestration: recordWorkflowRuntimeExecutionStep(input.orchestration, {
           roleId: "rework-coder",
           status: "completed",
           inputArtifacts: input.decision.inputArtifacts,
@@ -160,7 +160,7 @@ vi.mock("../../src/main-agent-orchestration/leaf-stages.js", () => {
         roleId: "validator",
         status: outcome,
         validation,
-        orchestration: recordMainAgentOrchestrationStep(input.orchestration, {
+        orchestration: recordWorkflowRuntimeExecutionStep(input.orchestration, {
           roleId: "validator",
           status: outcome,
           inputArtifacts: input.decision.inputArtifacts,
@@ -178,7 +178,7 @@ vi.mock("../../src/main-agent-orchestration/leaf-stages.js", () => {
         roleId: "auditor-agent",
         status: outcome,
         audit,
-        orchestration: recordMainAgentOrchestrationStep(input.orchestration, {
+        orchestration: recordWorkflowRuntimeExecutionStep(input.orchestration, {
           roleId: "auditor-agent",
           status: outcome,
           inputArtifacts: input.decision.inputArtifacts,
@@ -288,7 +288,7 @@ import {
   runCoderLeafStage,
   runReworkCoderLeafStage,
   runValidatorLeafStage,
-} from "../../src/main-agent-orchestration/leaf-stages.js";
+} from "../../src/workflow-runtime/leaf-execution.js";
 
 const project: ManagedProject = {
   id: "project",
@@ -333,7 +333,7 @@ async function writeLegacyMainAgentNextStepEvidence(
     stepIndex: number;
     entrypoint: MainAgentNextStepEntrypoint;
     observation: MainAgentNextStepEvidence["observation"];
-    decision: MainAgentOrchestrationDecision;
+    decision: WorkflowRuntimeDecision;
     gateIntent?: MainAgentNextStepEvidence["gateIntent"];
     targetRefs?: Partial<MainAgentNextStepEvidence["targetRefs"]>;
     artifactRefs?: string[];
@@ -371,7 +371,7 @@ async function writeLegacyMainAgentNextStepEvidence(
   return evidence;
 }
 
-function normalizeLegacyNextStepDecision(decision: MainAgentOrchestrationDecision): MainAgentNextStepEvidence["decision"] {
+function normalizeLegacyNextStepDecision(decision: WorkflowRuntimeDecision): MainAgentNextStepEvidence["decision"] {
   if (decision.kind === "delegate-role") {
     return {
       kind: decision.kind,
@@ -402,7 +402,7 @@ function normalizeLegacyNextStepDecision(decision: MainAgentOrchestrationDecisio
   };
 }
 
-function legacyGateIntentForDecision(decision: MainAgentOrchestrationDecision): MainAgentNextStepEvidence["gateIntent"] {
+function legacyGateIntentForDecision(decision: WorkflowRuntimeDecision): MainAgentNextStepEvidence["gateIntent"] {
   if (decision.kind === "delegate-role") return "delegate-leaf";
   if (decision.kind === "completed") return "result-handoff";
   return "none";
@@ -456,7 +456,7 @@ function workerLease(taskRunId = "task-run-1"): WorkerLease {
   };
 }
 
-describe("main-agent step loop contract", () => {
+describe("workflow runtime leaf contract", () => {
   beforeEach(async () => {
     controls.reworkOutcome = "completed";
     controls.validatorOutcomes = [];
@@ -470,6 +470,7 @@ describe("main-agent step loop contract", () => {
     if (controls.memoryRoot) await rm(controls.memoryRoot, { recursive: true, force: true });
   });
 
+  describe("legacy action bridge compatibility", () => {
   it("assesses result-handoff evidence against the current visible gate without executing it", async () => {
     const memory = await resolveProjectMemory(project);
     const loop = await writeLegacyMainAgentLoopRun(memory, {
@@ -814,6 +815,9 @@ describe("main-agent step loop contract", () => {
     expect(missingGateBridge.status).toBe("unavailable");
   });
 
+  });
+
+  describe("runtime leaf sequences", () => {
   it("lets the workflow-runtime TaskRun stage own one bounded rework retry", async () => {
     controls.validatorOutcomes = ["failed", "completed"];
     const initialTaskRun = taskRun();
@@ -1080,6 +1084,7 @@ describe("main-agent step loop contract", () => {
     await writeFile(malformedPath, "{not-json}\n", "utf8");
 
     expect(await readMainAgentLoopRun(memory, "malformed-loop")).toBeNull();
+  });
   });
 });
 

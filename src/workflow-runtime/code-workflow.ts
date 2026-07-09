@@ -47,5 +47,5 @@ export type {
   DefaultCodeChangeWorkflowResult,
   DefaultCodeChangeWorkflowStatus,
   HarnessWorkflowRunEngineServices,
-  WorkflowRuntimeLiveSink,
 } from "./default-code-change.js";
+export type { WorkflowRuntimeLiveSink } from "./kernel/live-events.js";

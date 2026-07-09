@@ -1,33 +1,33 @@
-export type MainAgentOrchestrationRole = "coder-agent" | "validator" | "auditor-agent" | "rework-coder";
+export type WorkflowRuntimeRole = "coder-agent" | "validator" | "auditor-agent" | "rework-coder";
 
-export type MainAgentOrchestrationStepStatus = "completed" | "failed";
+export type WorkflowRuntimeStepStatus = "completed" | "failed";
 
-export type MainAgentFailureClassification =
+export type WorkflowRuntimeFailureClassification =
   | "boundary-violation"
   | "code-failure"
   | "validation-failure"
   | "audit-failure";
 
-export interface MainAgentOrchestrationStep {
-  roleId: MainAgentOrchestrationRole;
-  status: MainAgentOrchestrationStepStatus;
+export interface WorkflowRuntimeExecutionStep {
+  roleId: WorkflowRuntimeRole;
+  status: WorkflowRuntimeStepStatus;
   inputArtifacts: string[];
   outputArtifacts: string[];
-  failureClassification?: MainAgentFailureClassification;
+  failureClassification?: WorkflowRuntimeFailureClassification;
   stoppedAt?: "boundary" | "code" | "validation" | "audit";
   summary: string;
 }
 
-export interface MainAgentOrchestrationState {
+export interface WorkflowRuntimeExecutionState {
   changeId: string;
-  steps: MainAgentOrchestrationStep[];
+  steps: WorkflowRuntimeExecutionStep[];
   maxReworkAttempts: number;
 }
 
-export type MainAgentOrchestrationDecision =
+export type WorkflowRuntimeDecision =
   | {
       kind: "delegate-role";
-      roleId: MainAgentOrchestrationRole;
+      roleId: WorkflowRuntimeRole;
       goal: string;
       inputArtifacts: string[];
       reason: string;
@@ -52,11 +52,11 @@ export type MainAgentOrchestrationDecision =
       nextRecommendation: string;
     };
 
-export function createMainAgentOrchestrationState(input: {
+export function createWorkflowRuntimeExecutionState(input: {
   changeId: string;
   maxReworkAttempts?: number;
-  steps?: MainAgentOrchestrationStep[];
-}): MainAgentOrchestrationState {
+  steps?: WorkflowRuntimeExecutionStep[];
+}): WorkflowRuntimeExecutionState {
   return {
     changeId: input.changeId,
     steps: input.steps ?? [],
@@ -64,10 +64,10 @@ export function createMainAgentOrchestrationState(input: {
   };
 }
 
-export function recordMainAgentOrchestrationStep(
-  state: MainAgentOrchestrationState,
-  step: MainAgentOrchestrationStep,
-): MainAgentOrchestrationState {
+export function recordWorkflowRuntimeExecutionStep(
+  state: WorkflowRuntimeExecutionState,
+  step: WorkflowRuntimeExecutionStep,
+): WorkflowRuntimeExecutionState {
   return {
     ...state,
     steps: [...state.steps, step],

@@ -5,15 +5,15 @@ import type {
   ManagedProject,
   ResolvedMemory,
 } from "../../src/types/index.js";
-import type { MainAgentOrchestrationState } from "../../src/agent-task/orchestration-engine.js";
+import type { WorkflowRuntimeExecutionState } from "../../src/workflow-runtime/execution-contract.js";
 import type {
   AuditLeafRun,
   CodeLeafRun,
-  MainAgentAuditorLeafResult,
-  MainAgentCoderLeafResult,
-  MainAgentValidatorLeafResult,
+  WorkflowRuntimeAuditorLeafResult,
+  WorkflowRuntimeCoderLeafResult,
+  WorkflowRuntimeValidatorLeafResult,
   ValidationLeafRun,
-} from "../../src/main-agent-orchestration/leaf-stages.js";
+} from "../../src/workflow-runtime/leaf-execution.js";
 
 describe("HarnessWorkflowRunEngine default code-change workflow", () => {
   it("runs coder, validation, and audit to completion", async () => {
@@ -149,7 +149,7 @@ function fakeServices(input: {
   void run;
 }
 
-function coderResult(roleId: "coder-agent" | "rework-coder", status: "completed" | "failed", orchestration: MainAgentOrchestrationState): MainAgentCoderLeafResult {
+function coderResult(roleId: "coder-agent" | "rework-coder", status: "completed" | "failed", orchestration: WorkflowRuntimeExecutionState): WorkflowRuntimeCoderLeafResult {
   return {
     leaf: "coder",
     roleId,
@@ -160,7 +160,7 @@ function coderResult(roleId: "coder-agent" | "rework-coder", status: "completed"
   };
 }
 
-function validatorResult(status: "completed" | "failed", orchestration: MainAgentOrchestrationState): MainAgentValidatorLeafResult {
+function validatorResult(status: "completed" | "failed", orchestration: WorkflowRuntimeExecutionState): WorkflowRuntimeValidatorLeafResult {
   return {
     leaf: "validator",
     roleId: "validator",
@@ -171,7 +171,7 @@ function validatorResult(status: "completed" | "failed", orchestration: MainAgen
   };
 }
 
-function auditorResult(status: "completed" | "failed", orchestration: MainAgentOrchestrationState): MainAgentAuditorLeafResult {
+function auditorResult(status: "completed" | "failed", orchestration: WorkflowRuntimeExecutionState): WorkflowRuntimeAuditorLeafResult {
   return {
     leaf: "auditor",
     roleId: "auditor-agent",
@@ -183,11 +183,11 @@ function auditorResult(status: "completed" | "failed", orchestration: MainAgentO
 }
 
 function appendStep(
-  orchestration: MainAgentOrchestrationState,
+  orchestration: WorkflowRuntimeExecutionState,
   roleId: "coder-agent" | "validator" | "auditor-agent" | "rework-coder",
   status: "completed" | "failed",
   failureClassification?: "code-failure" | "validation-failure" | "audit-failure",
-): MainAgentOrchestrationState {
+): WorkflowRuntimeExecutionState {
   return {
     ...orchestration,
     steps: [

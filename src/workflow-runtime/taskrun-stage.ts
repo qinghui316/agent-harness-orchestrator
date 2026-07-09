@@ -1,9 +1,9 @@
 import {
-  createMainAgentOrchestrationState,
-  type MainAgentOrchestrationDecision,
-  type MainAgentOrchestrationRole,
-  type MainAgentOrchestrationState,
-} from "../agent-task/orchestration-engine.js";
+  createWorkflowRuntimeExecutionState,
+  type WorkflowRuntimeDecision,
+  type WorkflowRuntimeRole,
+  type WorkflowRuntimeExecutionState,
+} from "./execution-contract.js";
 import { listAuditResults } from "../audit/artifacts.js";
 import { startAuditRun } from "../audit/manager.js";
 import type { CodeExecutionGateOptions } from "../code/manager.js";
@@ -38,11 +38,11 @@ import {
   runValidatorLeafStage,
   type AuditLeafRun,
   type CodeLeafRun,
-  type MainAgentAuditorLeafResult,
-  type MainAgentCoderLeafResult,
-  type MainAgentValidatorLeafResult,
+  type WorkflowRuntimeAuditorLeafResult,
+  type WorkflowRuntimeCoderLeafResult,
+  type WorkflowRuntimeValidatorLeafResult,
   type ValidationLeafRun,
-} from "../main-agent-orchestration/leaf-stages.js";
+} from "./leaf-execution.js";
 import {
   appendWorkflowRuntimeEvidenceEvent,
   createWorkflowRuntimeEvidenceRunId,
@@ -50,8 +50,12 @@ import {
   finishWorkflowRuntimeEvidenceRun,
   type WorkflowRuntimeEvidenceRun,
 } from "./evidence-journal.js";
-import { buildMainAgentTaskRunReworkPrompt, MAIN_AGENT_TASKRUN_REWORK_BUDGET } from "../main-agent-orchestration/rework-policy.js";
-import { emitAssistantEvent, emitAuditAssistantEvent, emitValidationAssistantEvents } from "./kernel/live-events.js";
+import {
+  emitAssistantEvent,
+  emitAuditAssistantEvent,
+  emitValidationAssistantEvents,
+  type WorkflowRuntimeLiveSink,
+} from "./kernel/live-events.js";
 import { compactArtifactRefs, isRecord, isTaskRunLike, requireSingleTaskId, requireTaskRunId } from "./kernel/runtime-guards.js";
 
 export interface WorkflowRuntimeActionRequest {
@@ -60,10 +64,7 @@ export interface WorkflowRuntimeActionRequest {
   prompt?: string;
 }
 
-export interface WorkflowRuntimeLiveSink {
-  emit(event: unknown): void;
-  isClosed?(): boolean;
-}
+const TASKRUN_REWORK_BUDGET = 1;
 
 export interface RuntimeStartedTaskRun {
   taskRun: TaskRun;
@@ -89,7 +90,7 @@ export interface RuntimeTaskRunStageOptions {
   loopRunId?: string;
   ownsLoopFinalization?: boolean;
   initialRole?: "coder-agent" | "rework-coder";
-  orchestrationState?: MainAgentOrchestrationState;
+  orchestrationState?: WorkflowRuntimeExecutionState;
   initialDecision?: DelegateDecision<"coder-agent" | "rework-coder">;
   onRetryTaskRunStarted?: (started: RuntimeStartedTaskRun) => Promise<void>;
 }
@@ -97,12 +98,12 @@ export interface RuntimeTaskRunStageOptions {
 export type RuntimeTaskRunWorkflowResult = RuntimeTaskRunAttemptWorkflowResult & {
   status?: "failed" | "needs-user-input";
   error?: string;
-  orchestration: MainAgentOrchestrationState;
+  orchestration: WorkflowRuntimeExecutionState;
   loopRunId?: string;
 };
 
-type DelegateDecision<RoleId extends MainAgentOrchestrationRole> =
-  Extract<MainAgentOrchestrationDecision, { kind: "delegate-role" }> & { roleId: RoleId };
+type DelegateDecision<RoleId extends WorkflowRuntimeRole> =
+  Extract<WorkflowRuntimeDecision, { kind: "delegate-role" }> & { roleId: RoleId };
 
 export async function runTaskRunStageAction(
   project: ManagedProject,
@@ -131,7 +132,7 @@ export async function runStartedTaskRunStage(input: RuntimeTaskRunStageOptions):
     loopRunId,
     ownsLoopFinalization: false,
     initialRole,
-    orchestrationState: input.orchestrationState ?? createMainAgentOrchestrationState({ changeId: input.started.taskRun.changeId }),
+    orchestrationState: input.orchestrationState ?? createWorkflowRuntimeExecutionState({ changeId: input.started.taskRun.changeId }),
     initialDecision: input.initialDecision ?? codeDecision(initialRole, input.started.taskRun),
   });
   const rework = await maybeRunTaskRunRework({
@@ -228,7 +229,7 @@ async function runOneStartedTaskRunAttempt(input: RuntimeTaskRunStageOptions & {
   loopRunId: string;
   ownsLoopFinalization: boolean;
   initialRole: "coder-agent" | "rework-coder";
-  orchestrationState: MainAgentOrchestrationState;
+  orchestrationState: WorkflowRuntimeExecutionState;
   initialDecision: DelegateDecision<"coder-agent" | "rework-coder">;
 }): Promise<RuntimeTaskRunStageResult> {
   const memory = await resolveProjectMemory(input.project);
@@ -292,7 +293,7 @@ async function runTaskRunAttempt(input: {
   executionGate?: CodeExecutionGateOptions;
   loopRun: WorkflowRuntimeEvidenceRun;
   initialRole: "coder-agent" | "rework-coder";
-  orchestration: MainAgentOrchestrationState;
+  orchestration: WorkflowRuntimeExecutionState;
   initialDecision: DelegateDecision<"coder-agent" | "rework-coder">;
 }): Promise<RuntimeTaskRunWorkflowResult> {
   let orchestration = input.orchestration;
@@ -353,9 +354,9 @@ async function runCodeLeaf(
   input: Parameters<typeof runTaskRunAttempt>[0],
   roleId: "coder-agent" | "rework-coder",
   decision: DelegateDecision<"coder-agent" | "rework-coder">,
-  orchestration: MainAgentOrchestrationState,
+  orchestration: WorkflowRuntimeExecutionState,
   stepIndex: number,
-): Promise<MainAgentCoderLeafResult> {
+): Promise<WorkflowRuntimeCoderLeafResult> {
   await appendLeafStarted(input.memory, input.loopRun, stepIndex, roleId, decision);
   const result = roleId === "rework-coder"
     ? await runReworkCoderLeafStage({
@@ -391,9 +392,9 @@ async function runValidationLeaf(
   input: Parameters<typeof runTaskRunAttempt>[0],
   decision: DelegateDecision<"validator">,
   code: CodeLeafRun,
-  orchestration: MainAgentOrchestrationState,
+  orchestration: WorkflowRuntimeExecutionState,
   stepIndex: number,
-): Promise<MainAgentValidatorLeafResult> {
+): Promise<WorkflowRuntimeValidatorLeafResult> {
   await appendLeafStarted(input.memory, input.loopRun, stepIndex, "validator", decision);
   const result = await runValidatorLeafStage({
     project: input.project,
@@ -413,9 +414,9 @@ async function runAuditLeaf(
   decision: DelegateDecision<"auditor-agent">,
   code: CodeLeafRun,
   validation: ValidationLeafRun,
-  orchestration: MainAgentOrchestrationState,
+  orchestration: WorkflowRuntimeExecutionState,
   stepIndex: number,
-): Promise<MainAgentAuditorLeafResult> {
+): Promise<WorkflowRuntimeAuditorLeafResult> {
   await appendLeafStarted(input.memory, input.loopRun, stepIndex, "auditor-agent", decision);
   const result = await runAuditorLeafStage({
     project: input.project,
@@ -439,7 +440,7 @@ async function maybeRunTaskRunRework(input: {
   live?: WorkflowRuntimeLiveSink;
   executionGate?: CodeExecutionGateOptions;
   loopRunId: string;
-  orchestrationState: MainAgentOrchestrationState;
+  orchestrationState: WorkflowRuntimeExecutionState;
   onRetryTaskRunStarted?: (started: RuntimeStartedTaskRun) => Promise<void>;
 }): Promise<RuntimeTaskRunStageResult | null> {
   if (!shouldRunRework(input.previousTaskRun, input.workflow)) return null;
@@ -460,7 +461,7 @@ async function maybeRunTaskRunRework(input: {
   return runOneStartedTaskRunAttempt({
     project: input.project,
     started: retryStarted,
-    prompt: buildMainAgentTaskRunReworkPrompt(input.prompt),
+    prompt: buildTaskRunReworkPrompt(input.prompt),
     live: input.live,
     executionGate: input.executionGate,
     loopRunId: input.loopRunId,
@@ -475,7 +476,7 @@ function shouldRunRework(taskRun: TaskRun, workflow: RuntimeTaskRunWorkflowResul
   if (taskRun.status !== "blocked" && taskRun.status !== "failed") return false;
   if (workflow.stoppedAt !== "validation" && workflow.stoppedAt !== "audit") return false;
   const officialReworkAttempt = Math.max(0, taskRun.attempt - 1);
-  return officialReworkAttempt < MAIN_AGENT_TASKRUN_REWORK_BUDGET;
+  return officialReworkAttempt < TASKRUN_REWORK_BUDGET;
 }
 
 async function executeResumedTaskRunStage(input: {
@@ -597,8 +598,8 @@ async function appendLeafStarted(
   memory: ResolvedMemory,
   loopRun: WorkflowRuntimeEvidenceRun,
   stepIndex: number,
-  roleId: MainAgentOrchestrationRole,
-  decision: Extract<MainAgentOrchestrationDecision, { kind: "delegate-role" }>,
+  roleId: WorkflowRuntimeRole,
+  decision: Extract<WorkflowRuntimeDecision, { kind: "delegate-role" }>,
 ): Promise<void> {
   await appendWorkflowRuntimeEvidenceEvent(memory, loopRun, {
     type: "leaf.started",
@@ -617,7 +618,7 @@ async function appendLeafCompleted(
   memory: ResolvedMemory,
   loopRun: WorkflowRuntimeEvidenceRun,
   stepIndex: number,
-  roleId: MainAgentOrchestrationRole,
+  roleId: WorkflowRuntimeRole,
   status: "completed" | "failed",
   stoppedAt: "boundary" | "code" | "validation" | "audit" | undefined,
   artifactRefs: string[],
@@ -684,6 +685,16 @@ function auditorDecision(inputArtifacts: string[]): DelegateDecision<"auditor-ag
   };
 }
 
+function buildTaskRunReworkPrompt(prompt: string | undefined): string {
+  return [
+    prompt,
+    "",
+    "AHO official validation/audit did not accept the previous attempt.",
+    "Read the latest validation/audit/run evidence for this Change and fix the assigned worktree proposal.",
+    "Do not ask the user unless the evidence shows requirement ambiguity, product tradeoff, environment failure, or no real code rework path.",
+  ].filter((item): item is string => Boolean(item)).join("\n");
+}
+
 function roleFromTaskRun(taskRun: TaskRun): "coder-agent" | "rework-coder" {
   return taskRun.roleId === "rework-coder" ? "rework-coder" : "coder-agent";
 }
@@ -700,7 +711,7 @@ function workflowFromUnknown(value: unknown, changeId: string): RuntimeTaskRunWo
   return {
     ...(workflow as unknown as Partial<RuntimeTaskRunAttemptWorkflowResult>),
     stoppedAt: stoppedAtFromUnknown(workflow),
-    orchestration: createMainAgentOrchestrationState({ changeId }),
+    orchestration: createWorkflowRuntimeExecutionState({ changeId }),
   };
 }
 

@@ -8,7 +8,7 @@ import type {
   ManagedProject,
   ResolvedMemory,
 } from "../types/index.js";
-import type { MainAgentOrchestrationDecision, MainAgentOrchestrationState } from "../agent-task/orchestration-engine.js";
+import type { WorkflowRuntimeDecision, WorkflowRuntimeExecutionState } from "./execution-contract.js";
 import {
   runAuditorLeafStage,
   runCoderLeafStage,
@@ -16,20 +16,16 @@ import {
   runValidatorLeafStage,
   type AuditLeafRun,
   type CodeLeafRun,
-  type MainAgentAuditorLeafResult,
-  type MainAgentCoderLeafResult,
-  type MainAgentValidatorLeafResult,
+  type WorkflowRuntimeAuditorLeafResult,
+  type WorkflowRuntimeCoderLeafResult,
+  type WorkflowRuntimeValidatorLeafResult,
   type ValidationLeafRun,
-} from "../main-agent-orchestration/leaf-stages.js";
+} from "./leaf-execution.js";
 import { appendWorkflowRunEvent, updateWorkflowRun, writeWorkflowRun } from "../workflow-run/manager.js";
+import type { WorkflowRuntimeLiveSink } from "./kernel/live-events.js";
 import { compactArtifactRefs } from "./kernel/runtime-guards.js";
 
 export type DefaultCodeChangeWorkflowStatus = "completed" | "failed" | "needs-user-input";
-
-export interface WorkflowRuntimeLiveSink {
-  emit(event: unknown): void;
-  isClosed?(): boolean;
-}
 
 export interface DefaultCodeChangeWorkflowInput {
   project: ManagedProject;
@@ -42,9 +38,9 @@ export interface DefaultCodeChangeWorkflowInput {
 
 export interface DefaultCodeChangeWorkflowAttempt {
   kind: "initial" | "automatic-rework";
-  code?: MainAgentCoderLeafResult;
-  validation?: MainAgentValidatorLeafResult;
-  audit?: MainAgentAuditorLeafResult;
+  code?: WorkflowRuntimeCoderLeafResult;
+  validation?: WorkflowRuntimeValidatorLeafResult;
+  audit?: WorkflowRuntimeAuditorLeafResult;
 }
 
 export interface DefaultCodeChangeWorkflowResult {
@@ -58,7 +54,7 @@ export interface DefaultCodeChangeWorkflowResult {
   audit?: AuditLeafRun;
   workflowRun: DefaultCodeChangeWorkflowRun;
   workflowRunId: string;
-  orchestration: MainAgentOrchestrationState;
+  orchestration: WorkflowRuntimeExecutionState;
 }
 
 export interface HarnessWorkflowRunEngineServices {
@@ -71,14 +67,14 @@ export interface HarnessWorkflowRunEngineServices {
     type: "workflow.created" | "workflow.started" | "node.started" | "node.completed" | "node.failed" | "node.blocked" | "workflow.completed" | "workflow.failed" | "workflow.blocked",
     input?: { status?: string; reason?: string; data?: Record<string, unknown> },
   ): Promise<void>;
-  runCoder(input: LeafInput & { roleId: "coder-agent"; executionGate?: CodeExecutionGateOptions }): Promise<MainAgentCoderLeafResult>;
-  runReworkCoder(input: LeafInput & { executionGate?: CodeExecutionGateOptions }): Promise<MainAgentCoderLeafResult>;
-  runValidator(input: LeafInput & { decision: DelegateDecision<"validator">; code: CodeLeafRun }): Promise<MainAgentValidatorLeafResult>;
-  runAuditor(input: LeafInput & { decision: DelegateDecision<"auditor-agent">; code: CodeLeafRun; validation: ValidationLeafRun }): Promise<MainAgentAuditorLeafResult>;
+  runCoder(input: LeafInput & { roleId: "coder-agent"; executionGate?: CodeExecutionGateOptions }): Promise<WorkflowRuntimeCoderLeafResult>;
+  runReworkCoder(input: LeafInput & { executionGate?: CodeExecutionGateOptions }): Promise<WorkflowRuntimeCoderLeafResult>;
+  runValidator(input: LeafInput & { decision: DelegateDecision<"validator">; code: CodeLeafRun }): Promise<WorkflowRuntimeValidatorLeafResult>;
+  runAuditor(input: LeafInput & { decision: DelegateDecision<"auditor-agent">; code: CodeLeafRun; validation: ValidationLeafRun }): Promise<WorkflowRuntimeAuditorLeafResult>;
 }
 
 type DelegateDecision<RoleId extends "coder-agent" | "validator" | "auditor-agent" | "rework-coder"> =
-  Extract<MainAgentOrchestrationDecision, { kind: "delegate-role" }> & { roleId: RoleId };
+  Extract<WorkflowRuntimeDecision, { kind: "delegate-role" }> & { roleId: RoleId };
 
 interface LeafInput {
   project: ManagedProject;
@@ -87,8 +83,8 @@ interface LeafInput {
   prompt?: string;
   live?: WorkflowRuntimeLiveSink;
   taskIds?: string[];
-  orchestration: MainAgentOrchestrationState;
-  decision?: Extract<MainAgentOrchestrationDecision, { kind: "delegate-role" }>;
+  orchestration: WorkflowRuntimeExecutionState;
+  decision?: Extract<WorkflowRuntimeDecision, { kind: "delegate-role" }>;
 }
 
 const DEFAULT_TEMPLATE_ID = "default-code-change-workflow" as const;
@@ -114,7 +110,7 @@ export class HarnessWorkflowRunEngine {
     await this.services.appendEvent(memory, workflowRun, "workflow.started", { data: { templateId: DEFAULT_TEMPLATE_ID } });
     workflowRun = await this.markWorkflowRunning(memory, workflowRun);
 
-    let orchestration: MainAgentOrchestrationState = {
+    let orchestration: WorkflowRuntimeExecutionState = {
       changeId: input.changeId,
       steps: [],
       maxReworkAttempts: MAX_REWORK_ATTEMPTS,
@@ -165,7 +161,7 @@ export class HarnessWorkflowRunEngine {
     memory: ResolvedMemory,
     workflowRun: DefaultCodeChangeWorkflowRun,
     input: DefaultCodeChangeWorkflowInput,
-    orchestration: MainAgentOrchestrationState,
+    orchestration: WorkflowRuntimeExecutionState,
     kind: "initial" | "automatic-rework",
     reworkReason: ReworkReason | undefined,
   ): Promise<AttemptRunResult> {
@@ -363,7 +359,7 @@ export class HarnessWorkflowRunEngine {
     return saved;
   }
 
-  private async markNodeFromCoder(memory: ResolvedMemory, run: DefaultCodeChangeWorkflowRun, nodeId: DefaultCodeChangeWorkflowNodeId, result: MainAgentCoderLeafResult): Promise<DefaultCodeChangeWorkflowRun> {
+  private async markNodeFromCoder(memory: ResolvedMemory, run: DefaultCodeChangeWorkflowRun, nodeId: DefaultCodeChangeWorkflowNodeId, result: WorkflowRuntimeCoderLeafResult): Promise<DefaultCodeChangeWorkflowRun> {
     return this.markNode(memory, run, nodeId, result.status === "completed" ? "completed" : "failed", {
       runId: result.code?.run.id,
       worktreeId: result.code?.run.worktree?.worktreeId,
@@ -374,7 +370,7 @@ export class HarnessWorkflowRunEngine {
     });
   }
 
-  private async markNodeFromValidation(memory: ResolvedMemory, run: DefaultCodeChangeWorkflowRun, result: MainAgentValidatorLeafResult): Promise<DefaultCodeChangeWorkflowRun> {
+  private async markNodeFromValidation(memory: ResolvedMemory, run: DefaultCodeChangeWorkflowRun, result: WorkflowRuntimeValidatorLeafResult): Promise<DefaultCodeChangeWorkflowRun> {
     return this.markNode(memory, run, "validation", result.status === "completed" ? "completed" : "failed", {
       runId: result.validation?.run.id,
       validationId: result.validation?.validation.id,
@@ -385,7 +381,7 @@ export class HarnessWorkflowRunEngine {
     });
   }
 
-  private async markNodeFromAudit(memory: ResolvedMemory, run: DefaultCodeChangeWorkflowRun, result: MainAgentAuditorLeafResult): Promise<DefaultCodeChangeWorkflowRun> {
+  private async markNodeFromAudit(memory: ResolvedMemory, run: DefaultCodeChangeWorkflowRun, result: WorkflowRuntimeAuditorLeafResult): Promise<DefaultCodeChangeWorkflowRun> {
     return this.markNode(memory, run, "audit", result.status === "completed" ? "completed" : "failed", {
       runId: result.audit?.run.id,
       auditId: result.audit?.audit.id,
@@ -402,7 +398,7 @@ export class HarnessWorkflowRunEngine {
     terminal: TerminalResult,
     attempts: DefaultCodeChangeWorkflowAttempt[],
     reworkUsed: number,
-    orchestration: MainAgentOrchestrationState,
+    orchestration: WorkflowRuntimeExecutionState,
   ): Promise<DefaultCodeChangeWorkflowResult> {
     const now = new Date().toISOString();
     const status = terminal.status === "completed" ? "completed" : terminal.status === "failed" ? "failed" : "blocked";
@@ -462,7 +458,7 @@ interface TerminalResult {
 
 interface AttemptRunResult {
   workflowRun: DefaultCodeChangeWorkflowRun;
-  orchestration: MainAgentOrchestrationState;
+  orchestration: WorkflowRuntimeExecutionState;
   attempt: DefaultCodeChangeWorkflowAttempt;
   terminal?: TerminalResult;
   reworkReason?: ReworkReason;

@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
-  createMainAgentOrchestrationState,
-  recordMainAgentOrchestrationStep,
-} from "../../src/agent-task/orchestration-engine.js";
+  createWorkflowRuntimeExecutionState,
+  recordWorkflowRuntimeExecutionStep,
+} from "../../src/workflow-runtime/execution-contract.js";
 
-describe("main-agent orchestration state helpers", () => {
+describe("workflow runtime execution contract", () => {
   it("creates empty state with the default bounded rework budget", () => {
-    expect(createMainAgentOrchestrationState({ changeId: "change-a" })).toEqual({
+    expect(createWorkflowRuntimeExecutionState({ changeId: "change-a" })).toEqual({
       changeId: "change-a",
       steps: [],
       maxReworkAttempts: 1,
@@ -14,7 +14,7 @@ describe("main-agent orchestration state helpers", () => {
   });
 
   it("preserves explicit steps and bounded rework budget", () => {
-    const state = createMainAgentOrchestrationState({
+    const state = createWorkflowRuntimeExecutionState({
       changeId: "change-b",
       maxReworkAttempts: 2,
       steps: [{
@@ -34,8 +34,8 @@ describe("main-agent orchestration state helpers", () => {
   });
 
   it("records steps immutably for runtime leaf evidence", () => {
-    const initial = createMainAgentOrchestrationState({ changeId: "change-c" });
-    const next = recordMainAgentOrchestrationStep(initial, {
+    const initial = createWorkflowRuntimeExecutionState({ changeId: "change-c" });
+    const next = recordWorkflowRuntimeExecutionStep(initial, {
       roleId: "validator",
       status: "failed",
       inputArtifacts: ["runs/run-code"],

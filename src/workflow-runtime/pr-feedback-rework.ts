@@ -1,11 +1,11 @@
-import type { MainAgentOrchestrationState } from "../agent-task/orchestration-engine.js";
-import type { AuditLeafRun, CodeLeafRun, ValidationLeafRun } from "../main-agent-orchestration/leaf-stages.js";
+import type { WorkflowRuntimeExecutionState } from "./execution-contract.js";
+import type { AuditLeafRun, CodeLeafRun, ValidationLeafRun } from "./leaf-execution.js";
 import type { ManagedProject } from "../types/index.js";
 import {
   runReworkValidationAuditSequence,
   type ReworkValidationAuditSequenceConfig,
-  type WorkflowRuntimeLiveSink,
 } from "./rework-validation-audit-sequence.js";
+import type { WorkflowRuntimeLiveSink } from "./kernel/live-events.js";
 
 export interface PrFeedbackReworkWorkflowInput {
   project: ManagedProject;
@@ -22,7 +22,7 @@ export interface PrFeedbackReworkWorkflowResult {
   error?: string;
   stoppedAt: "boundary" | "code" | "validation" | "audit" | null;
   boundaryAudit?: unknown;
-  orchestration: MainAgentOrchestrationState;
+  orchestration: WorkflowRuntimeExecutionState;
   loopRunId: string;
 }
 

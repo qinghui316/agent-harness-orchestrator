@@ -2,9 +2,8 @@ import type { ManagedProject } from "../types/index.js";
 import {
   runDefaultCodeChangeWorkflow,
   type DefaultCodeChangeWorkflowResult,
-  type WorkflowRuntimeLiveSink,
 } from "./default-code-change.js";
-import { emitAssistantEvent } from "./kernel/live-events.js";
+import { emitAssistantEvent, type WorkflowRuntimeLiveSink } from "./kernel/live-events.js";
 
 export interface TopLevelRoleChainWorkflowInput {
   project: ManagedProject;

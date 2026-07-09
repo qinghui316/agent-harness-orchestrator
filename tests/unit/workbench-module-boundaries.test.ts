@@ -508,7 +508,7 @@ describe("Workbench module boundaries", () => {
     const delegateTaskForAdvice = readFileSync(join(process.cwd(), "src/agent-task/delegate-task.ts"), "utf8");
     expect(delegateTaskForAdvice).not.toContain("MainAgentStrategyAdvice");
     expect(delegateTaskForAdvice).not.toContain("main_agent_strategy_advice");
-    const leafStagesForAdvice = readFileSync(join(process.cwd(), "src/main-agent-orchestration/leaf-stages.ts"), "utf8");
+    const leafStagesForAdvice = readFileSync(join(process.cwd(), "src/workflow-runtime/leaf-execution.ts"), "utf8");
     expect(leafStagesForAdvice).not.toContain("MainAgentStrategyAdvice");
     expect(leafStagesForAdvice).not.toContain("main_agent_strategy_advice");
     const contextPackets = readFileSync(join(process.cwd(), "src/context/packets.ts"), "utf8");
@@ -535,7 +535,7 @@ describe("Workbench module boundaries", () => {
     expect(resumePoint).not.toContain("applyIntegrationCheck");
     expect(resumePoint).not.toContain("discardIntegrationCheck");
     const delegateTask = readFileSync(join(process.cwd(), "src/agent-task/delegate-task.ts"), "utf8");
-    const leafStages = readFileSync(join(process.cwd(), "src/main-agent-orchestration/leaf-stages.ts"), "utf8");
+    const leafStages = readFileSync(join(process.cwd(), "src/workflow-runtime/leaf-execution.ts"), "utf8");
     expect(delegateTask).toContain("Worker roles cannot call delegateTask or spawn subagents.");
     expect(delegateTask).not.toContain("ResumeContinuationContext");
     expect(delegateTask).not.toContain("MainAgentResumePoint");
@@ -935,9 +935,6 @@ describe("Workbench module boundaries", () => {
     expect(prFeedbackRework).not.toContain("recordMainAgentNextStepEvidence");
 
     const reworkSequence = readFileSync(join(process.cwd(), "src/workflow-runtime/rework-validation-audit-sequence.ts"), "utf8");
-    expect(reworkSequence).toContain("runReworkCoderLeafStage");
-    expect(reworkSequence).toContain("runValidatorLeafStage");
-    expect(reworkSequence).toContain("runAuditorLeafStage");
     expect(reworkSequence).not.toContain("appendMainAgentLoopEvent");
     expect(reworkSequence).not.toContain("recordMainAgentNextStepEvidence");
     expect(reworkSequence).not.toContain("../workbench/");
@@ -949,16 +946,15 @@ describe("Workbench module boundaries", () => {
     expect(runtimeEvidenceJournal).toContain("workflow-runtime-decision-evidence");
     expect(runtimeEvidenceJournal).not.toContain("../main-agent-orchestration/");
 
-    const leafStages = readFileSync(join(process.cwd(), "src/main-agent-orchestration/leaf-stages.ts"), "utf8");
-    expect(leafStages).toContain("runCoderLeafStage");
-    expect(leafStages).toContain("runValidatorLeafStage");
-    expect(leafStages).toContain("runAuditorLeafStage");
-    expect(leafStages).toContain("runReworkCoderLeafStage");
+    const leafStages = readFileSync(join(process.cwd(), "src/workflow-runtime/leaf-execution.ts"), "utf8");
     expect(leafStages).not.toContain("decideNextMainAgent" + "Orchestration");
-    expect(leafStages).not.toContain("../workbench/actions/");
+    expect(leafStages).not.toContain("../workbench/");
     expect(leafStages).not.toContain("../scheduler-runtime/");
     expect(leafStages).not.toContain("../apply/");
     expect(leafStages).not.toContain("../terminal");
+    expect(existsSync(join(process.cwd(), "src/main-agent-orchestration/leaf-stages.ts"))).toBe(false);
+    expect(existsSync(join(process.cwd(), "src/main-agent-orchestration/rework-policy.ts"))).toBe(false);
+    expect(existsSync(join(process.cwd(), "src/agent-task/orchestration-engine.ts"))).toBe(false);
 
     expect(existsSync(join(process.cwd(), "src/main-agent-orchestration/runner.ts"))).toBe(false);
 
@@ -3245,6 +3241,7 @@ describe("Workbench module boundaries", () => {
       expect(source, file).not.toMatch(/from\s+["'](?:\.\.\/)+workbench\//);
       expect(source, file).not.toMatch(/from\s+["'](?:\.\.\/)+server\//);
       expect(source, file).not.toMatch(/from\s+["'](?:\.\.\/)+web\//);
+      expect(source, file).not.toMatch(/from\s+["'](?:\.\.\/)+main-agent-orchestration\//);
     }
   });
 
@@ -3254,7 +3251,7 @@ describe("Workbench module boundaries", () => {
     const chatContext = readFileSync("src/workbench/codex-chat/context.ts", "utf8");
     const chatPromptEvidence = readFileSync("src/workbench/codex-chat/goal-loop-prompt-evidence.ts", "utf8");
     const delegateTask = readFileSync("src/agent-task/delegate-task.ts", "utf8");
-    const leafStages = readFileSync("src/main-agent-orchestration/leaf-stages.ts", "utf8");
+    const leafStages = readFileSync("src/workflow-runtime/leaf-execution.ts", "utf8");
     const packets = readFileSync("src/context/packets.ts", "utf8");
     const automationHandler = readFileSync("src/workbench/actions/handlers/automation.ts", "utf8");
 

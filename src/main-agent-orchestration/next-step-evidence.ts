@@ -2,9 +2,11 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import type { MainAgentOrchestrationDecision, MainAgentOrchestrationRole } from "../agent-task/orchestration-engine.js";
 import type { ResolvedMemory } from "../types/index.js";
 import { mainAgentLoopRunRoot, type MainAgentLoopEntrypoint } from "./loop-evidence.js";
+
+type LegacyMainAgentOrchestrationRole = "coder-agent" | "validator" | "auditor-agent" | "rework-coder";
+type LegacyMainAgentOrchestrationDecisionKind = "delegate-role" | "completed" | "needs-user-input" | "failed";
 
 export type MainAgentNextStepEvidenceAuthority = "non-executing-main-agent-next-step-evidence";
 export type MainAgentNextStepEntrypoint = Exclude<MainAgentLoopEntrypoint, "task-queue">;
@@ -35,7 +37,7 @@ export interface MainAgentNextStepObservationSummary {
   totalSteps: number;
   completedSteps: number;
   failedSteps: number;
-  latestRoleId: MainAgentOrchestrationRole | null;
+  latestRoleId: LegacyMainAgentOrchestrationRole | null;
   latestStatus: "completed" | "failed" | null;
 }
 
@@ -53,8 +55,8 @@ export interface MainAgentNextStepEvidence {
   createdAt: string;
   observation: MainAgentNextStepObservationSummary;
   decision: {
-    kind: MainAgentOrchestrationDecision["kind"];
-    roleId: MainAgentOrchestrationRole | null;
+    kind: LegacyMainAgentOrchestrationDecisionKind;
+    roleId: LegacyMainAgentOrchestrationRole | null;
     attemptKind: "initial" | "rework" | "follow-up" | null;
     stoppedAt: "boundary" | "code" | "validation" | "audit" | null;
     reason: string;

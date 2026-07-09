@@ -19,7 +19,7 @@ import { appendWorkflowRunEvent, readWorkflowRun, syncWorkflowRunFromQueue } fro
 import { activeChangePath } from "../workflow-run/recovery-key.js";
 import { readWorkflowGraphPlan } from "../workflow-artifacts/manager.js";
 import { isTaskQueueWorkflowRun } from "../workflow-run/guards.js";
-import { emitAssistantEvent } from "./kernel/live-events.js";
+import { emitAssistantEvent, type WorkflowRuntimeLiveSink } from "./kernel/live-events.js";
 import { isRecord, isTaskRunLike } from "./kernel/runtime-guards.js";
 import {
   assertTaskRunResumeEvidenceScope,
@@ -28,11 +28,6 @@ import {
   runStartedTaskRunStage,
   type RuntimeStartedTaskRun,
 } from "./taskrun-stage.js";
-
-export interface WorkflowRuntimeLiveSink {
-  emit(event: unknown): void;
-  isClosed?(): boolean;
-}
 
 export interface WorkflowGraphSequentialRuntimeInput {
   project: ManagedProject;
