@@ -877,6 +877,8 @@ export async function startPlanningSchedulerFirstWorker(
   assertWritableMemory(memory, "Scheduler first worker start");
   if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.start-first requires schedulerRunId.");
   if (!request.schedulerClaimReservationId) throw new Error("planning.scheduler.worker.start-first requires schedulerClaimReservationId.");
+  if (!request.reservationIntentId) throw new Error("planning.scheduler.worker.start-first requires reservationIntentId.");
+  if (!request.claimIntentId) throw new Error("planning.scheduler.worker.start-first requires claimIntentId.");
   const result = await runSchedulerWorkerStartFirst(project, {
     changeId,
     schedulerRunId: request.schedulerRunId,

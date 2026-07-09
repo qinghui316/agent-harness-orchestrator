@@ -628,6 +628,8 @@ describe("GoalLoopDecision", () => {
         changeId,
         schedulerRunId: schedulerRun.id,
         schedulerClaimReservationId: reservation.id,
+        reservationIntentId: reservation.reservationIntents[0]?.reservationIntentId,
+        claimIntentId: reservation.reservationIntents[0]?.claimIntentId,
       },
     });
     expectConflict(decision, "low", true, "planning.scheduler.worker.start-first");
@@ -646,6 +648,8 @@ describe("GoalLoopDecision", () => {
         changeId,
         schedulerRunId: schedulerRun.id,
         schedulerClaimReservationId: reservation.id,
+        reservationIntentId: reservation.reservationIntents[0]?.reservationIntentId,
+        claimIntentId: reservation.reservationIntents[0]?.claimIntentId,
       },
     };
 
@@ -723,6 +727,8 @@ describe("GoalLoopDecision", () => {
       changeId,
       schedulerRunId: schedulerRun.id,
       schedulerClaimReservationId: reservation.id,
+      reservationIntentId: reservation.reservationIntents[0]?.reservationIntentId,
+      claimIntentId: reservation.reservationIntents[0]?.claimIntentId,
       goalLoopGateReadinessPreflightId: preflight.id,
     };
     const visibleGate = {
@@ -730,6 +736,8 @@ describe("GoalLoopDecision", () => {
       changeId,
       schedulerRunId: schedulerRun.id,
       schedulerClaimReservationId: reservation.id,
+      reservationIntentId: reservation.reservationIntents[0]?.reservationIntentId,
+      claimIntentId: reservation.reservationIntents[0]?.claimIntentId,
       enabled: true,
     };
 

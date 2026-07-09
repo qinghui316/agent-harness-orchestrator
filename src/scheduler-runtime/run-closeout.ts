@@ -128,8 +128,8 @@ export async function closeSchedulerRunBlockedOrExhausted(project: ManagedProjec
   });
   if (transition.actionType !== "planning.scheduler.run.close-blocked") {
     if (
-      transition.actionType === "planning.scheduler.worker.start-next"
-      || (transition.kind === "none" && transition.reason === "Scheduler first worker has not started.")
+      transition.actionType === "planning.scheduler.worker.start-first"
+      || transition.actionType === "planning.scheduler.worker.start-next"
     ) {
       throw new Error("planning.scheduler.run.close-blocked is not allowed while a legal next scheduler worker can start.");
     }

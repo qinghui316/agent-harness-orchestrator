@@ -833,6 +833,16 @@ export function taskQueueProposalToConfirmationItems(
             status: "pending",
           }];
         }
+        const startFirstTarget = workpad.nextAction.actionType === "planning.scheduler.worker.start-first"
+          && workpad.nextAction.schedulerClaimReservationId === claimReservation.id
+          && workpad.nextAction.reservationIntentId
+          && workpad.nextAction.claimIntentId
+          ? {
+            reservationIntentId: workpad.nextAction.reservationIntentId,
+            claimIntentId: workpad.nextAction.claimIntentId,
+          }
+          : null;
+        if (!startFirstTarget) return [];
         return [{
           id: `confirm:scheduler-first-worker:${selectedTopic.id}:${claimReservation.id}`,
           kind: "planning-confirm",
@@ -860,6 +870,8 @@ export function taskQueueProposalToConfirmationItems(
             schedulerRunId: schedulerRun.id,
             schedulerReconcileSnapshotId: reconcileSnapshot.id,
             schedulerClaimReservationId: claimReservation.id,
+            reservationIntentId: startFirstTarget.reservationIntentId,
+            claimIntentId: startFirstTarget.claimIntentId,
             enabled: true,
             requiresConfirmation: true,
           }],

@@ -8,7 +8,9 @@ import {
   type ControlledSchedulerFreshGateSnapshot,
 } from "../../../scheduler-runtime/controlled-loop-continuation-decision.js";
 import { getLatestWorkflowRun, summarizeWorkflowRun } from "../../../workflow-run/manager.js";
+import { readLatestWorkflowGraphPlan } from "../../../workflow-artifacts/manager.js";
 import type { WorkflowActionScopeCarrier } from "../../../workflow-actions/registry.js";
+import type { ReadySetWorkflowGraphPlan } from "../../../types/index.js";
 import {
   buildTypedWorkflowNextAction,
   readLatestDecompositionPlanSummary,
@@ -304,6 +306,7 @@ export async function buildWorkbenchWorkpad(input: {
   const scopedSchedulerClaimReconcilePlan = scopedSchedulerWorkerSessionPlan && schedulerClaimReconcilePlan?.schedulerWorkerPlanId === scopedSchedulerWorkerSessionPlan.id ? schedulerClaimReconcilePlan : null;
   const scopedSchedulerLaunchPreflight = scopedSchedulerClaimReconcilePlan && schedulerLaunchPreflight?.schedulerClaimReconcilePlanId === scopedSchedulerClaimReconcilePlan.id ? schedulerLaunchPreflight : null;
   const scopedSchedulerRun = scopedSchedulerLaunchPreflight && schedulerRun?.schedulerLaunchPreflightId === scopedSchedulerLaunchPreflight.id ? schedulerRun : null;
+  const schedulerReadySetGraph = await readLatestReadySetWorkflowGraphPlan(memory, selectedTopic.path, workflowGraphPlan?.id, scopedSchedulerRun?.schedulerContractId);
   const schedulerRuntime = await readSchedulerRuntimeSummary(memory, selectedTopic.path, scopedSchedulerRun?.id);
   const schedulerControlledStepEvidence = await readLatestSchedulerControlledStepEvidenceSummary(memory, selectedTopic.path, scopedSchedulerRun?.id);
   const schedulerReconcileSnapshot = await readSchedulerReconcileSnapshotSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerRuntime?.lastReconcileSnapshotId);
@@ -343,7 +346,7 @@ export async function buildWorkbenchWorkpad(input: {
   const selectedUserState = selectedWorkpadSummary?.userStatus ?? (activeAgentTask ? "processing" : userDecisionStateForSelectedTopic(selectedTopic, topicApprovals, taskQueue, taskGraph));
   const selectedLifecycle = selectedWorkpadSummary?.conversationLifecycle ?? conversationLifecycleForTopic(selectedTopic, taskQueue);
   const nextAction = suppressStaleCodeRunAfterResultReview(
-    buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, scopedSchedulerDispatchDryRun, scopedSchedulerWorkerSessionPlan, scopedSchedulerClaimReconcilePlan, scopedSchedulerLaunchPreflight, scopedSchedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, schedulerWorkerAudit, schedulerWorkerReworkPlan, schedulerWorkerReworkStart, schedulerWorkerReworkResult, schedulerWorkerReworkValidation, schedulerWorkerReworkAudit, schedulerWorkerPaths, schedulerIntegrationCandidate, schedulerIntegrationCheckHandoff, schedulerIntegrationOutcome, schedulerRunCompletion, schedulerRunBlockedCloseout, workflowRun),
+    buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, scopedSchedulerDispatchDryRun, scopedSchedulerWorkerSessionPlan, scopedSchedulerClaimReconcilePlan, scopedSchedulerLaunchPreflight, scopedSchedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, schedulerWorkerAudit, schedulerWorkerReworkPlan, schedulerWorkerReworkStart, schedulerWorkerReworkResult, schedulerWorkerReworkValidation, schedulerWorkerReworkAudit, schedulerWorkerPaths, schedulerReadySetGraph, schedulerIntegrationCandidate, schedulerIntegrationCheckHandoff, schedulerIntegrationOutcome, schedulerRunCompletion, schedulerRunBlockedCloseout, workflowRun),
     resultReview,
   );
   const goalLoop = filterGoalLoopSummaryForCurrentGate(rawGoalLoop, nextAction);
@@ -867,6 +870,7 @@ function buildWorkpadNextAction(
   schedulerWorkerReworkValidation?: WorkbenchSchedulerWorkerReworkValidationSummary | null,
   schedulerWorkerReworkAudit?: WorkbenchSchedulerWorkerReworkAuditSummary | null,
   schedulerWorkerPaths?: WorkbenchSchedulerWorkerPathSummary[],
+  schedulerReadySetGraph?: ReadySetWorkflowGraphPlan | null,
   schedulerIntegrationCandidate?: WorkbenchSchedulerIntegrationCandidateSummary | null,
   schedulerIntegrationCheckHandoff?: WorkbenchSchedulerIntegrationCheckHandoffSummary | null,
   schedulerIntegrationOutcome?: WorkbenchSchedulerIntegrationOutcomeSummary | null,
@@ -918,6 +922,7 @@ function buildWorkpadNextAction(
       schedulerWorkerReworkValidation,
       schedulerWorkerReworkAudit,
       schedulerWorkerPaths,
+      schedulerReadySetGraph,
       schedulerIntegrationCandidate,
       schedulerIntegrationCheckHandoff,
       schedulerIntegrationOutcome,
@@ -970,6 +975,7 @@ function buildWorkpadNextAction(
     schedulerWorkerReworkValidation,
     schedulerWorkerReworkAudit,
     schedulerWorkerPaths,
+    schedulerReadySetGraph,
     schedulerIntegrationCandidate,
     schedulerIntegrationCheckHandoff,
     schedulerIntegrationOutcome,
@@ -1014,6 +1020,19 @@ function selectActiveSchedulerWorkerPath(paths: WorkbenchSchedulerWorkerPathSumm
   const nonTerminal = paths.find((path) => !path.terminal);
   if (nonTerminal) return nonTerminal;
   return paths[paths.length - 1] ?? null;
+}
+
+async function readLatestReadySetWorkflowGraphPlan(
+  memory: ResolvedMemory,
+  changePath: string,
+  expectedGraphId?: string,
+  expectedSchedulerContractId?: string,
+): Promise<ReadySetWorkflowGraphPlan | null> {
+  const graph = await readLatestWorkflowGraphPlan(memory, changePath).catch(() => null);
+  if (!graph || graph.graphMode !== "ready-set-v1") return null;
+  if (expectedGraphId && graph.id !== expectedGraphId) return null;
+  if (expectedSchedulerContractId && graph.schedulerContractId !== expectedSchedulerContractId) return null;
+  return graph;
 }
 
 function buildQueueBlockedNextAction(queue?: WorkbenchTaskQueueSummary, taskGraph?: WorkbenchTaskGraph): WorkpadNextAction | null {

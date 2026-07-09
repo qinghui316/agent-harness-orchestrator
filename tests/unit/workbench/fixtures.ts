@@ -98,6 +98,8 @@ export async function readJsonl(path: string): Promise<Array<Record<string, unkn
 }
 
 export function findSchedulerGateAction(actions: WorkbenchDecisionAction[], concreteActionType: WorkbenchDecisionAction["actionType"], predicate: (action: WorkbenchDecisionAction) => boolean): WorkbenchDecisionAction | undefined {
+  const concrete = actions.find((action) => action.actionType === concreteActionType && predicate(action));
+  if (concrete) return concrete;
   return actions.find((action) => {
     if (action.actionType === concreteActionType && predicate(action)) return true;
     if (
@@ -1418,6 +1420,9 @@ export async function prepareSchedulerFirstWorkerThroughResult(options: {
         };
       };
     };
+    if (startedWorkflow.status === "failed") {
+      throw new Error(`scheduler first worker start action failed: ${startedWorkflow.error ?? JSON.stringify(started.result)}`);
+    }
     const startedWarnings = startedWorkflow.result?.schedulerControlledStepEvidence;
     if (
       startedWorkflow.result?.postStepGoalLoopEvaluationWarning

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { resolveSchedulerCurrentTransition } from "../../src/workflow-actions/scheduler-current-transition.js";
+import { resolveSchedulerCurrentTransition, schedulerTransitionMatchesStartRequest } from "../../src/workflow-actions/scheduler-current-transition.js";
+import type { ReadySetWorkflowGraphPlan } from "../../src/types/index.js";
 
 const reservation = {
   reservationIntents: [
@@ -10,15 +11,52 @@ const reservation = {
 };
 
 describe("Scheduler current transition", () => {
-  it("does not replace the existing start-first gate before any worker has started", () => {
+  it("returns exact start-first before any worker has started", () => {
     const transition = resolveSchedulerCurrentTransition({
       reservation,
       workerPaths: [],
     });
 
     expect(transition).toMatchObject({
+      kind: "start-first-worker",
+      actionType: "planning.scheduler.worker.start-first",
+      reservationIntent: { reservationIntentId: "wave-0-a", claimIntentId: "claim-0-a" },
+    });
+    expect(schedulerTransitionMatchesStartRequest({
+      transition,
+      actionType: "planning.scheduler.worker.start-first",
+      reservationIntentId: "wave-0-a",
+      claimIntentId: "claim-0-a",
+    })).toBe(true);
+    expect(schedulerTransitionMatchesStartRequest({
+      transition,
+      actionType: "planning.scheduler.worker.start-first",
+      reservationIntentId: "wave-0-b",
+      claimIntentId: "claim-0-b",
+    })).toBe(false);
+  });
+
+  it("uses ready-set graph order as the start target contract", () => {
+    const transition = resolveSchedulerCurrentTransition({
+      graph: readySetGraph(["claim-0-b", "claim-0-a", "claim-1-a"]),
+      reservation,
+      workerPaths: [],
+    });
+
+    expect(transition).toMatchObject({
+      kind: "start-first-worker",
+      actionType: "planning.scheduler.worker.start-first",
+      reservationIntent: { reservationIntentId: "wave-0-b", claimIntentId: "claim-0-b" },
+    });
+  });
+
+  it("treats legacy projections without reservation intents as non-runnable instead of throwing", () => {
+    expect(resolveSchedulerCurrentTransition({
+      reservation: {} as Parameters<typeof resolveSchedulerCurrentTransition>[0]["reservation"],
+      workerPaths: [],
+    })).toMatchObject({
       kind: "none",
-      reason: "Scheduler first worker has not started.",
+      reason: "Scheduler first worker has no runnable reservation intent.",
     });
   });
 
@@ -125,3 +163,77 @@ describe("Scheduler current transition", () => {
     });
   });
 });
+
+function readySetGraph(claimIntentIds: string[]): ReadySetWorkflowGraphPlan {
+  return {
+    version: "1.0",
+    id: "graph-ready-set",
+    changeId: "change-1",
+    status: "compiled",
+    graphMode: "ready-set-v1",
+    schedulerMode: "parallel-readiness-v1",
+    decompositionPlanId: "decomposition-1",
+    readinessManifestId: "readiness-1",
+    schedulerContractId: "contract-1",
+    schedulerDispatchDryRunId: "dry-run-1",
+    schedulerWorkerPlanId: "worker-plan-1",
+    schedulerClaimReconcilePlanId: "claim-plan-1",
+    nodes: claimIntentIds.map((claimIntentId) => ({
+      id: `node-${claimIntentId}`,
+      schedulerNodeId: `scheduler-node-${claimIntentId}`,
+      unitId: `unit-${claimIntentId}`,
+      taskIds: [`task-${claimIntentId}`],
+      title: claimIntentId,
+      waveIndex: claimIntentId === "claim-1-a" ? 1 : 0,
+      stages: ["coder", "validation", "audit"],
+      stageRefs: [],
+      acIds: [],
+      sourceScopes: [`src/${claimIntentId}.ts`],
+      claimIntentId,
+      plannedWorkerKey: `worker-${claimIntentId}`,
+      roleIds: ["coder-agent"],
+      plannedSlotDemand: 1,
+      sourceLocks: [{
+        scope: `src/${claimIntentId}.ts`,
+        nodeId: `node-${claimIntentId}`,
+        unitId: `unit-${claimIntentId}`,
+        waveIndex: claimIntentId === "claim-1-a" ? 1 : 0,
+        claimIntentId,
+        stageIds: [],
+      }],
+      recoveryKeyInputs: [],
+      status: "planned",
+      blockedReasons: [],
+    })),
+    edges: [],
+    waves: [
+      {
+        index: 0,
+        nodeIds: claimIntentIds.filter((id) => id !== "claim-1-a").map((id) => `node-${id}`),
+        claimIntentIds: claimIntentIds.filter((id) => id !== "claim-1-a"),
+        candidateCount: claimIntentIds.filter((id) => id !== "claim-1-a").length,
+        blockedCount: 0,
+        plannedSlotDemand: claimIntentIds.filter((id) => id !== "claim-1-a").length,
+        blockedReasons: [],
+      },
+      {
+        index: 1,
+        nodeIds: claimIntentIds.filter((id) => id === "claim-1-a").map((id) => `node-${id}`),
+        claimIntentIds: claimIntentIds.filter((id) => id === "claim-1-a"),
+        candidateCount: claimIntentIds.filter((id) => id === "claim-1-a").length,
+        blockedCount: 0,
+        plannedSlotDemand: claimIntentIds.filter((id) => id === "claim-1-a").length,
+        blockedReasons: [],
+      },
+    ],
+    plannedSlotDemand: claimIntentIds.length,
+    maxPlannedWaveWidth: 2,
+    recoveryKeyCoverage: "complete",
+    sourceArtifactHashes: {},
+    artifactRefs: [],
+    artifact: "graph.json",
+    markdownArtifact: "graph.md",
+    createdAt: "2026-07-09T00:00:00.000Z",
+    updatedAt: "2026-07-09T00:00:00.000Z",
+  };
+}

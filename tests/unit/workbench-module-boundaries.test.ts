@@ -2369,8 +2369,9 @@ describe("Workbench module boundaries", () => {
     const workflowSchedulerOwner = readFileSync("src/workflow-runtime/scheduler.ts", "utf8");
     expect(workflowSchedulerOwner).toContain("runSchedulerWorkerStartFirst");
     expect(workflowSchedulerOwner).toContain("runSchedulerWorkerStartNext");
+    expect(workflowSchedulerOwner).toContain("readLatestWorkflowGraphPlan");
     expect(workflowSchedulerOwner).toContain("resolveSchedulerCurrentTransition");
-    expect(workflowSchedulerOwner).toContain("schedulerTransitionMatchesStartNextRequest");
+    expect(workflowSchedulerOwner).toContain("schedulerTransitionMatchesStartRequest");
     expect(workflowSchedulerOwner).toContain("runSchedulerWorkerResultReconcile");
     expect(workflowSchedulerOwner).toContain("runSchedulerWorkerValidation");
     expect(workflowSchedulerOwner).toContain("runSchedulerWorkerAudit");
@@ -2434,6 +2435,8 @@ describe("Workbench module boundaries", () => {
     expect(workerStart).toContain("startCodeRun");
     expect(workerStart).toContain("startTaskRun");
     expect(workerStart).not.toContain("assertStartNextAllowed");
+    expect(workerStart).not.toContain("intents[0]");
+    expect(workerStart).toContain("intent.reservationIntentId === input.reservationIntentId");
     expect(workerStart).not.toContain("SchedulerIntegrationCandidate");
     expect(workerStart).not.toContain("startValidationRun");
     expect(workerStart).not.toContain("startAuditRun");

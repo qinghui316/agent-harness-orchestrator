@@ -21,8 +21,8 @@ export interface SchedulerFirstWorkerStartInput {
   changeId: string;
   schedulerRunId: string;
   schedulerClaimReservationId: string;
-  reservationIntentId?: string;
-  claimIntentId?: string;
+  reservationIntentId: string;
+  claimIntentId: string;
   prompt?: string;
   live?: CodeRunLiveCallbacks;
 }
@@ -229,14 +229,11 @@ function selectReservationIntent(
   input: SchedulerFirstWorkerStartInput,
   actionType: "planning.scheduler.worker.start-first" | "planning.scheduler.worker.start-next",
 ): SchedulerRuntimeClaimReservationIntent {
-  const candidates = intents
-    .filter((intent) => intent.status === "reserved")
-    .sort((a, b) => a.waveIndex - b.waveIndex || intents.indexOf(a) - intents.indexOf(b));
-  const selected = input.reservationIntentId
-    ? candidates.find((intent) => intent.reservationIntentId === input.reservationIntentId)
-    : candidates[0];
+  if (!input.reservationIntentId) throw new Error(`${actionType} requires reservationIntentId.`);
+  if (!input.claimIntentId) throw new Error(`${actionType} requires claimIntentId.`);
+  const selected = intents.find((intent) => intent.status === "reserved" && intent.reservationIntentId === input.reservationIntentId);
   if (!selected) throw new Error(`${actionType} could not find a runnable reservation intent.`);
-  if (input.claimIntentId && selected.claimIntentId !== input.claimIntentId) {
+  if (selected.claimIntentId !== input.claimIntentId) {
     throw new Error(`${actionType} claimIntentId scope mismatch.`);
   }
   return selected;

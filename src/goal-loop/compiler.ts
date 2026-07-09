@@ -6,6 +6,7 @@ import { readChangePathChangeId } from "../workflow-artifacts/guards.js";
 import { hashArtifactRefs } from "../workflow-artifacts/hashes.js";
 import { readLatestDecompositionPlan } from "../workflow-artifacts/decomposition-plan.js";
 import { readLatestDecompositionReadinessManifest } from "../workflow-artifacts/readiness-manifest.js";
+import { readLatestWorkflowGraphPlan } from "../workflow-artifacts/manager.js";
 import { validateWorkflowActionRequiredTargets, type WorkflowActionType } from "../workflow-actions/registry.js";
 import { resolveSchedulerCurrentTransition, type SchedulerCurrentTransition } from "../workflow-actions/scheduler-current-transition.js";
 import { readIntegrationCheck } from "../integration-check/repository.js";
@@ -455,8 +456,11 @@ async function readEvidenceSnapshot(memory: ResolvedMemory, changePath: string):
   const runCloseout = await readLatestSchedulerRunBlockedCloseoutProjection(memory, changePath, schedulerRun.id);
   const workerPathLikes = schedulerWorkerPathsToLikes(workerPaths);
   const integrationCandidateNeedsRefresh = schedulerIntegrationCandidateNeedsRefresh(integrationCandidate, workerPathLikes);
+  const readySetGraph = await readOptional(() => readLatestWorkflowGraphPlan(memory, changePath))
+    .then((graph) => graph?.graphMode === "ready-set-v1" && graph.schedulerContractId === schedulerRun.schedulerContractId ? graph : null);
   const schedulerTransition = claimReservation
     ? resolveSchedulerCurrentTransition({
+      graph: readySetGraph,
       reservation: claimReservation,
       workerPaths: workerPathLikes,
       integrationCandidate,
@@ -604,22 +608,22 @@ function buildDecision(snapshot: EvidenceSnapshot, id: string, artifact: string,
         schedulerClaimReservationId: snapshot.claimReservation.id,
         schedulerIntegrationCandidateId: snapshot.integrationCandidate.id,
       }, "Record scheduler blocked/exhausted closeout through the existing human-gated path.");
-    } else {
-      const workerStartCount = snapshot.workerStarts?.length ?? 0;
-      if (workerStartCount === 0 && snapshot.claimReservation.reservedCount > 0) {
+    } else if (snapshot.schedulerTransition?.kind === "start-first-worker") {
       decisionKind = "scheduler-next-step";
       summary = "A reserved scheduler claim is available and no scheduler worker has started yet; the first worker start remains a separate human-gated action.";
       recommendedAction = buildRecommendedAction("planning.scheduler.worker.start-first", {
         changeId: snapshot.changeId,
         schedulerRunId: snapshot.schedulerRun.id,
         schedulerClaimReservationId: snapshot.claimReservation.id,
+        reservationIntentId: snapshot.schedulerTransition.reservationIntent.reservationIntentId,
+        claimIntentId: snapshot.schedulerTransition.reservationIntent.claimIntentId,
       }, "Start exactly one first scheduler worker through the existing scoped worker gate.");
-      } else {
-        decisionKind = "wait-for-evidence";
-        summary = workerStartCount > 0
-          ? "Scheduler worker evidence already exists, but no current worker path has a legal next gate yet."
-          : "Scheduler claim reservation exists, but no reserved claim is currently recommendable.";
-      }
+    } else {
+      const workerStartCount = snapshot.workerStarts?.length ?? 0;
+      decisionKind = "wait-for-evidence";
+      summary = workerStartCount > 0
+        ? "Scheduler worker evidence already exists, but no current worker path has a legal next gate yet."
+        : "Scheduler claim reservation exists, but no reserved claim is currently recommendable.";
     }
   } else {
     decisionKind = "parallel-plan-needed";
