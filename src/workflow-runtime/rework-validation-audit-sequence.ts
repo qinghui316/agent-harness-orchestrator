@@ -16,19 +16,17 @@ import {
   type ValidationLeafRun,
 } from "../main-agent-orchestration/leaf-stages.js";
 import {
-  appendMainAgentLoopEvent,
-  ensureMainAgentLoopRun,
-  finishMainAgentLoopRun,
-  type MainAgentLoopEntrypoint,
-  type MainAgentLoopEvent,
-  type MainAgentLoopRun,
-} from "../main-agent-orchestration/loop-evidence.js";
-import {
-  recordMainAgentNextStepEvidence,
-  type MainAgentNextStepEvidenceRefs,
-  type MainAgentNextStepObservationSummary,
-  type MainAgentNextStepTargetRefs,
-} from "../main-agent-orchestration/next-step-evidence.js";
+  appendWorkflowRuntimeEvidenceEvent,
+  ensureWorkflowRuntimeEvidenceRun,
+  finishWorkflowRuntimeEvidenceRun,
+  recordWorkflowRuntimeDecisionEvidence,
+  type WorkflowRuntimeDecisionEvidenceRefs,
+  type WorkflowRuntimeDecisionObservationSummary,
+  type WorkflowRuntimeDecisionTargetRefs,
+  type WorkflowRuntimeEvidenceEntrypoint,
+  type WorkflowRuntimeEvidenceEvent,
+  type WorkflowRuntimeEvidenceRun,
+} from "./evidence-journal.js";
 import type { ManagedProject, ResolvedMemory } from "../types/index.js";
 import { compactArtifactRefs } from "./kernel/runtime-guards.js";
 
@@ -46,7 +44,7 @@ export interface ReworkValidationAuditSequenceInput {
 }
 
 export interface ReworkValidationAuditSequenceConfig {
-  entrypoint: Extract<MainAgentLoopEntrypoint, "source-refresh-rework" | "feedback-rework">;
+  entrypoint: Extract<WorkflowRuntimeEvidenceEntrypoint, "source-refresh-rework" | "feedback-rework">;
   loopStartedSummary: string;
   observationEmptySummary: string;
   observationProgressPrefix: string;
@@ -86,14 +84,14 @@ export async function runReworkValidationAuditSequence(
   input: ReworkValidationAuditSequenceInput,
 ): Promise<ReworkValidationAuditSequenceResult> {
   const memory = await resolveProjectMemory(input.project);
-  const { run: loopRun, created } = await ensureMainAgentLoopRun(memory, {
+  const { run: loopRun, created } = await ensureWorkflowRuntimeEvidenceRun(memory, {
     changeId: input.changeId,
     projectId: input.project.id,
     entrypoint: input.config.entrypoint,
   });
   if (created) {
-    await appendMainAgentLoopEvent(memory, loopRun, {
-      type: "loop.started",
+    await appendWorkflowRuntimeEvidenceEvent(memory, loopRun, {
+      type: "runtime.started",
       entrypoint: input.config.entrypoint,
       summary: input.config.loopStartedSummary,
     });
@@ -135,7 +133,7 @@ export async function runReworkValidationAuditSequence(
       refs: refsFromCoder(rework),
       targets: targetsFromCoder(rework),
     }, input.config);
-    await finishMainAgentLoopRun(memory, loopRun.id, {
+    await finishWorkflowRuntimeEvidenceRun(memory, loopRun, {
       status: "stopped",
       summary: decision.reason,
       stoppedAt,
@@ -193,7 +191,7 @@ export async function runReworkValidationAuditSequence(
       refs: refsFromValidation(rework, validation),
       targets: targetsFromValidation(rework, validation),
     }, input.config);
-    await finishMainAgentLoopRun(memory, loopRun.id, {
+    await finishWorkflowRuntimeEvidenceRun(memory, loopRun, {
       status: "stopped",
       summary: decision.reason,
       stoppedAt: "validation",
@@ -252,7 +250,7 @@ export async function runReworkValidationAuditSequence(
       refs: refsFromAudit(rework, validation, audit),
       targets: targetsFromAudit(rework, validation, audit),
     }, input.config);
-    await finishMainAgentLoopRun(memory, loopRun.id, {
+    await finishWorkflowRuntimeEvidenceRun(memory, loopRun, {
       status: "stopped",
       summary: decision.reason,
       stoppedAt: "audit",
@@ -281,7 +279,7 @@ export async function runReworkValidationAuditSequence(
     refs: refsFromAudit(rework, validation, audit),
     targets: targetsFromAudit(rework, validation, audit),
   }, input.config);
-  await finishMainAgentLoopRun(memory, loopRun.id, {
+  await finishWorkflowRuntimeEvidenceRun(memory, loopRun, {
     status: "completed",
     summary: completedDecision.reason,
     stoppedAt: null,
@@ -300,18 +298,18 @@ export async function runReworkValidationAuditSequence(
 
 async function recordDecision(
   memory: ResolvedMemory,
-  loopRun: MainAgentLoopRun,
+  loopRun: WorkflowRuntimeEvidenceRun,
   stepIndex: number,
   orchestration: MainAgentOrchestrationState,
   decision: MainAgentOrchestrationDecision,
   input: {
     artifacts?: string[];
-    refs?: Partial<MainAgentNextStepEvidenceRefs>;
-    targets?: Partial<MainAgentNextStepTargetRefs>;
+    refs?: Partial<WorkflowRuntimeDecisionEvidenceRefs>;
+    targets?: Partial<WorkflowRuntimeDecisionTargetRefs>;
   },
   config: ReworkValidationAuditSequenceConfig,
 ): Promise<void> {
-  await appendMainAgentLoopEvent(memory, loopRun, {
+  await appendWorkflowRuntimeEvidenceEvent(memory, loopRun, {
     type: "observation.recorded",
     stepIndex,
     entrypoint: config.entrypoint,
@@ -319,7 +317,7 @@ async function recordDecision(
     artifactRefs: input.artifacts,
     refs: input.refs,
   });
-  const evidence = await recordMainAgentNextStepEvidence(memory, loopRun, {
+  const evidence = await recordWorkflowRuntimeDecisionEvidence(memory, loopRun, {
     stepIndex,
     entrypoint: config.entrypoint,
     observation: observationSummary(orchestration, config),
@@ -328,7 +326,7 @@ async function recordDecision(
     refs: input.refs,
     targetRefs: input.targets,
   });
-  await appendMainAgentLoopEvent(memory, loopRun, {
+  await appendWorkflowRuntimeEvidenceEvent(memory, loopRun, {
     type: "decision.recorded",
     stepIndex,
     entrypoint: config.entrypoint,
@@ -347,12 +345,12 @@ async function recordDecision(
 
 async function appendLeafStarted(
   memory: ResolvedMemory,
-  loopRun: MainAgentLoopRun,
+  loopRun: WorkflowRuntimeEvidenceRun,
   stepIndex: number,
   decision: Extract<MainAgentOrchestrationDecision, { kind: "delegate-role" }>,
   config: ReworkValidationAuditSequenceConfig,
 ): Promise<void> {
-  await appendMainAgentLoopEvent(memory, loopRun, {
+  await appendWorkflowRuntimeEvidenceEvent(memory, loopRun, {
     type: "leaf.started",
     stepIndex,
     entrypoint: config.entrypoint,
@@ -366,17 +364,17 @@ async function appendLeafStarted(
 
 async function appendLeafCompleted(
   memory: ResolvedMemory,
-  loopRun: MainAgentLoopRun,
+  loopRun: WorkflowRuntimeEvidenceRun,
   stepIndex: number,
   decision: Extract<MainAgentOrchestrationDecision, { kind: "delegate-role" }>,
   status: "completed" | "failed",
   stoppedAt: "boundary" | "code" | "validation" | "audit" | null,
   reason: string | undefined,
-  refs: Partial<MainAgentLoopEvent["refs"]>,
+  refs: Partial<WorkflowRuntimeEvidenceEvent["refs"]>,
   artifactRefs: string[],
   config: ReworkValidationAuditSequenceConfig,
 ): Promise<void> {
-  await appendMainAgentLoopEvent(memory, loopRun, {
+  await appendWorkflowRuntimeEvidenceEvent(memory, loopRun, {
     type: "leaf.completed",
     stepIndex,
     entrypoint: config.entrypoint,
@@ -394,7 +392,7 @@ async function appendLeafCompleted(
 function observationSummary(
   orchestration: MainAgentOrchestrationState,
   config: ReworkValidationAuditSequenceConfig,
-): MainAgentNextStepObservationSummary {
+): WorkflowRuntimeDecisionObservationSummary {
   const latest = orchestration.steps.at(-1);
   const completedSteps = orchestration.steps.filter((step) => step.status === "completed").length;
   const failedSteps = orchestration.steps.filter((step) => step.status === "failed").length;
@@ -506,7 +504,7 @@ function artifactsFromAudit(coder: MainAgentCoderLeafResult, validation: MainAge
   );
 }
 
-function refsFromCoder(result: MainAgentCoderLeafResult): Partial<MainAgentNextStepEvidenceRefs & MainAgentLoopEvent["refs"]> {
+function refsFromCoder(result: MainAgentCoderLeafResult): Partial<WorkflowRuntimeDecisionEvidenceRefs & WorkflowRuntimeEvidenceEvent["refs"]> {
   return {
     runIds: compactArtifactRefs(result.code?.run.id),
   };
@@ -515,7 +513,7 @@ function refsFromCoder(result: MainAgentCoderLeafResult): Partial<MainAgentNextS
 function refsFromValidation(
   coder: MainAgentCoderLeafResult,
   validation: MainAgentValidatorLeafResult,
-): Partial<MainAgentNextStepEvidenceRefs & MainAgentLoopEvent["refs"]> {
+): Partial<WorkflowRuntimeDecisionEvidenceRefs & WorkflowRuntimeEvidenceEvent["refs"]> {
   return {
     runIds: compactArtifactRefs(coder.code?.run.id, validation.validation?.run.id),
     validationIds: compactArtifactRefs(validation.validation?.validation.id),
@@ -526,7 +524,7 @@ function refsFromAudit(
   coder: MainAgentCoderLeafResult,
   validation: MainAgentValidatorLeafResult,
   audit: MainAgentAuditorLeafResult,
-): Partial<MainAgentNextStepEvidenceRefs & MainAgentLoopEvent["refs"]> {
+): Partial<WorkflowRuntimeDecisionEvidenceRefs & WorkflowRuntimeEvidenceEvent["refs"]> {
   return {
     runIds: compactArtifactRefs(coder.code?.run.id, validation.validation?.run.id, audit.audit?.run.id),
     validationIds: compactArtifactRefs(validation.validation?.validation.id),
@@ -534,7 +532,7 @@ function refsFromAudit(
   };
 }
 
-function targetsFromCoder(result: MainAgentCoderLeafResult): Partial<MainAgentNextStepTargetRefs> {
+function targetsFromCoder(result: MainAgentCoderLeafResult): Partial<WorkflowRuntimeDecisionTargetRefs> {
   return {
     worktreeIds: compactArtifactRefs(result.code?.run.worktree?.worktreeId),
     runIds: compactArtifactRefs(result.code?.run.id),
@@ -544,7 +542,7 @@ function targetsFromCoder(result: MainAgentCoderLeafResult): Partial<MainAgentNe
 function targetsFromValidation(
   coder: MainAgentCoderLeafResult,
   validation: MainAgentValidatorLeafResult,
-): Partial<MainAgentNextStepTargetRefs> {
+): Partial<WorkflowRuntimeDecisionTargetRefs> {
   return {
     worktreeIds: compactArtifactRefs(coder.code?.run.worktree?.worktreeId),
     runIds: compactArtifactRefs(coder.code?.run.id, validation.validation?.run.id),
@@ -556,7 +554,7 @@ function targetsFromAudit(
   coder: MainAgentCoderLeafResult,
   validation: MainAgentValidatorLeafResult,
   audit: MainAgentAuditorLeafResult,
-): Partial<MainAgentNextStepTargetRefs> {
+): Partial<WorkflowRuntimeDecisionTargetRefs> {
   return {
     worktreeIds: compactArtifactRefs(coder.code?.run.worktree?.worktreeId),
     runIds: compactArtifactRefs(coder.code?.run.id, validation.validation?.run.id, audit.audit?.run.id),

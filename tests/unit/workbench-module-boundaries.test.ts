@@ -938,11 +938,18 @@ describe("Workbench module boundaries", () => {
     expect(reworkSequence).toContain("runReworkCoderLeafStage");
     expect(reworkSequence).toContain("runValidatorLeafStage");
     expect(reworkSequence).toContain("runAuditorLeafStage");
-    expect(reworkSequence).toContain("appendMainAgentLoopEvent");
-    expect(reworkSequence).toContain("recordMainAgentNextStepEvidence");
+    expect(reworkSequence).toContain("appendWorkflowRuntimeEvidenceEvent");
+    expect(reworkSequence).toContain("recordWorkflowRuntimeDecisionEvidence");
+    expect(reworkSequence).not.toContain("appendMainAgentLoopEvent");
+    expect(reworkSequence).not.toContain("recordMainAgentNextStepEvidence");
     expect(reworkSequence).not.toContain("../workbench/");
     expect(reworkSequence).not.toContain("../server/");
     expect(reworkSequence).not.toContain("../web/");
+
+    const runtimeEvidenceJournal = readFileSync(join(process.cwd(), "src/workflow-runtime/evidence-journal.ts"), "utf8");
+    expect(runtimeEvidenceJournal).toContain("workflow-runtime-evidence");
+    expect(runtimeEvidenceJournal).toContain("workflow-runtime-decision-evidence");
+    expect(runtimeEvidenceJournal).not.toContain("../main-agent-orchestration/");
 
     const leafStages = readFileSync(join(process.cwd(), "src/main-agent-orchestration/leaf-stages.ts"), "utf8");
     expect(leafStages).toContain("runCoderLeafStage");
@@ -959,6 +966,9 @@ describe("Workbench module boundaries", () => {
 
     expect(existsSync(join(process.cwd(), "src/main-agent-orchestration/taskrun-lifecycle.ts"))).toBe(false);
     expect(taskRunStageRuntime).toContain("maybeRunTaskRunRework");
+    expect(taskRunStageRuntime).toContain("appendWorkflowRuntimeEvidenceEvent");
+    expect(taskRunStageRuntime).not.toContain("appendMainAgentLoopEvent");
+    expect(taskRunStageRuntime).not.toContain("ensureMainAgentLoopRun");
     expect(taskRunStageRuntime).not.toContain("runMainAgentTaskRunLifecycle");
     expect(taskRunStageRuntime).not.toContain("runMainAgentTaskRunReworkFromFinished");
     expect(taskRunStageRuntime).not.toContain("../workbench/actions/");

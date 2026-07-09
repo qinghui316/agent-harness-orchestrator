@@ -44,12 +44,12 @@ import {
   type ValidationLeafRun,
 } from "../main-agent-orchestration/leaf-stages.js";
 import {
-  appendMainAgentLoopEvent,
-  createMainAgentLoopRunId,
-  ensureMainAgentLoopRun,
-  finishMainAgentLoopRun,
-  type MainAgentLoopRun,
-} from "../main-agent-orchestration/loop-evidence.js";
+  appendWorkflowRuntimeEvidenceEvent,
+  createWorkflowRuntimeEvidenceRunId,
+  ensureWorkflowRuntimeEvidenceRun,
+  finishWorkflowRuntimeEvidenceRun,
+  type WorkflowRuntimeEvidenceRun,
+} from "./evidence-journal.js";
 import { buildMainAgentTaskRunReworkPrompt, MAIN_AGENT_TASKRUN_REWORK_BUDGET } from "../main-agent-orchestration/rework-policy.js";
 import { emitAssistantEvent, emitAuditAssistantEvent, emitValidationAssistantEvents } from "./kernel/live-events.js";
 import { compactArtifactRefs, isRecord, isTaskRunLike, requireSingleTaskId, requireTaskRunId } from "./kernel/runtime-guards.js";
@@ -123,7 +123,7 @@ export async function runTaskRunStageAction(
 }
 
 export async function runStartedTaskRunStage(input: RuntimeTaskRunStageOptions): Promise<RuntimeTaskRunStageResult> {
-  const loopRunId = input.loopRunId ?? createMainAgentLoopRunId(input.started.taskRun.changeId);
+  const loopRunId = input.loopRunId ?? createWorkflowRuntimeEvidenceRunId(input.started.taskRun.changeId);
   const ownsLoopFinalization = input.ownsLoopFinalization ?? input.loopRunId === undefined;
   const initialRole = input.initialRole ?? roleFromTaskRun(input.started.taskRun);
   const initial = await runOneStartedTaskRunAttempt({
@@ -194,7 +194,7 @@ export async function runResumedTaskRunStage(input: {
     prompt: input.prompt,
     live: input.live,
     executionGate: input.executionGate,
-    loopRunId: createMainAgentLoopRunId(taskRun.changeId),
+    loopRunId: createWorkflowRuntimeEvidenceRunId(taskRun.changeId),
     orchestrationState: workflow.orchestration,
     onRetryTaskRunStarted: input.onRetryTaskRunStarted,
   });
@@ -232,15 +232,15 @@ async function runOneStartedTaskRunAttempt(input: RuntimeTaskRunStageOptions & {
   initialDecision: DelegateDecision<"coder-agent" | "rework-coder">;
 }): Promise<RuntimeTaskRunStageResult> {
   const memory = await resolveProjectMemory(input.project);
-  const { run: loopRun, created } = await ensureMainAgentLoopRun(memory, {
-    loopRunId: input.loopRunId,
+  const { run: loopRun, created } = await ensureWorkflowRuntimeEvidenceRun(memory, {
+    runtimeRunId: input.loopRunId,
     changeId: input.started.taskRun.changeId,
     projectId: input.project.id,
     entrypoint: "task-run",
   });
   if (created) {
-    await appendMainAgentLoopEvent(memory, loopRun, {
-      type: "loop.started",
+    await appendWorkflowRuntimeEvidenceEvent(memory, loopRun, {
+      type: "runtime.started",
       entrypoint: "task-run",
       summary: "TaskRun runtime stage loop started.",
     });
@@ -290,7 +290,7 @@ async function runTaskRunAttempt(input: {
   live?: WorkflowRuntimeLiveSink;
   taskIds: string[];
   executionGate?: CodeExecutionGateOptions;
-  loopRun: MainAgentLoopRun;
+  loopRun: WorkflowRuntimeEvidenceRun;
   initialRole: "coder-agent" | "rework-coder";
   orchestration: MainAgentOrchestrationState;
   initialDecision: DelegateDecision<"coder-agent" | "rework-coder">;
@@ -580,7 +580,13 @@ function auditRunFromEvidence(runs: RunMetadata[], audit: AuditResult): AuditLea
 
 async function finishLoopForTaskRun(project: ManagedProject, loopRunId: string, taskRun: TaskRun, workflow: RuntimeTaskRunWorkflowResult): Promise<void> {
   const memory = await resolveProjectMemory(project);
-  await finishMainAgentLoopRun(memory, loopRunId, {
+  const { run } = await ensureWorkflowRuntimeEvidenceRun(memory, {
+    runtimeRunId: loopRunId,
+    changeId: taskRun.changeId,
+    projectId: project.id,
+    entrypoint: "task-run",
+  });
+  await finishWorkflowRuntimeEvidenceRun(memory, run, {
     status: taskRun.status === "completed" ? "completed" : "stopped",
     summary: taskRun.status === "completed" ? "TaskRun runtime stage completed." : `TaskRun runtime stage stopped with status ${taskRun.status}.`,
     stoppedAt: workflow.stoppedAt,
@@ -589,12 +595,12 @@ async function finishLoopForTaskRun(project: ManagedProject, loopRunId: string, 
 
 async function appendLeafStarted(
   memory: ResolvedMemory,
-  loopRun: MainAgentLoopRun,
+  loopRun: WorkflowRuntimeEvidenceRun,
   stepIndex: number,
   roleId: MainAgentOrchestrationRole,
   decision: Extract<MainAgentOrchestrationDecision, { kind: "delegate-role" }>,
 ): Promise<void> {
-  await appendMainAgentLoopEvent(memory, loopRun, {
+  await appendWorkflowRuntimeEvidenceEvent(memory, loopRun, {
     type: "leaf.started",
     stepIndex,
     entrypoint: "task-run",
@@ -609,14 +615,14 @@ async function appendLeafStarted(
 
 async function appendLeafCompleted(
   memory: ResolvedMemory,
-  loopRun: MainAgentLoopRun,
+  loopRun: WorkflowRuntimeEvidenceRun,
   stepIndex: number,
   roleId: MainAgentOrchestrationRole,
   status: "completed" | "failed",
   stoppedAt: "boundary" | "code" | "validation" | "audit" | undefined,
   artifactRefs: string[],
 ): Promise<void> {
-  await appendMainAgentLoopEvent(memory, loopRun, {
+  await appendWorkflowRuntimeEvidenceEvent(memory, loopRun, {
     type: "leaf.completed",
     stepIndex,
     entrypoint: "task-run",

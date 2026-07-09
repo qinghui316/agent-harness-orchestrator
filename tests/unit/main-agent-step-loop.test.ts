@@ -268,13 +268,17 @@ import {
 } from "../../src/main-agent-orchestration/loop-evidence.js";
 import {
   assessMainAgentActionBridge,
-  mainAgentLoopEventsPath,
-  mainAgentNextStepDecisionsPath,
-  readMainAgentNextStepEvidence,
   readMainAgentLoopEvents,
   readMainAgentLoopRun,
 } from "../../src/main-agent-orchestration/index.js";
 import { runPrFeedbackReworkWorkflow, runSourceRefreshReworkWorkflow, runStartedTaskRunStage } from "../../src/workflow-runtime/code-workflow.js";
+import {
+  readWorkflowRuntimeDecisionEvidence,
+  readWorkflowRuntimeEvidenceEvents,
+  readWorkflowRuntimeEvidenceRun,
+  workflowRuntimeDecisionEvidencePath,
+  workflowRuntimeEvidenceEventsPath,
+} from "../../src/workflow-runtime/evidence-journal.js";
 import { recordMainAgentNextStepEvidence } from "../../src/main-agent-orchestration/next-step-evidence.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import {
@@ -717,10 +721,10 @@ describe("main-agent step loop contract", () => {
     const workflow = result.workflow as { loopRunId?: string };
     expect(workflow.loopRunId).toBeTruthy();
     const memory = await resolveProjectMemory(project);
-    const events = await readMainAgentLoopEvents(memory, workflow.loopRunId!);
-    expect(events.filter((event) => event.type === "loop.started")).toHaveLength(1);
-    expect(events.filter((event) => event.type === "loop.stopped")).toHaveLength(0);
-    expect(events.filter((event) => event.type === "loop.completed")).toHaveLength(1);
+    const events = await readWorkflowRuntimeEvidenceEvents(memory, workflow.loopRunId!);
+    expect(events.filter((event) => event.type === "runtime.started")).toHaveLength(1);
+    expect(events.filter((event) => event.type === "runtime.stopped")).toHaveLength(0);
+    expect(events.filter((event) => event.type === "runtime.completed")).toHaveLength(1);
     expect(events.filter((event) => event.type === "leaf.started").map((event) => event.roleId)).toEqual([
       "coder-agent",
       "validator",
@@ -751,15 +755,17 @@ describe("main-agent step loop contract", () => {
 
     expect(result.taskRun).toMatchObject({ id: "task-run-parent-child", status: "completed" });
     const parentAfterChild = await readMainAgentLoopRun(memory, parent.run.id);
-    const events = await readMainAgentLoopEvents(memory, parent.run.id);
+    const parentEvents = await readMainAgentLoopEvents(memory, parent.run.id);
+    const runtimeEvents = await readWorkflowRuntimeEvidenceEvents(memory, parent.run.id);
     expect(parentAfterChild?.entrypoint).toBe("task-queue");
     expect(parentAfterChild?.status).toBe("running");
-    expect(events.filter((event) => event.type === "leaf.started").map((event) => event.roleId)).toEqual([
+    expect(parentEvents).toEqual([]);
+    expect(runtimeEvents.filter((event) => event.type === "leaf.started").map((event) => event.roleId)).toEqual([
       "coder-agent",
       "validator",
       "auditor-agent",
     ]);
-    expect(events.some((event) => event.type === "loop.completed" || event.type === "loop.stopped")).toBe(false);
+    expect(runtimeEvents.some((event) => event.type === "runtime.completed" || event.type === "runtime.stopped")).toBe(false);
   });
 
   it("does not create a third TaskRun when bounded rework budget is exhausted", async () => {
@@ -782,9 +788,9 @@ describe("main-agent step loop contract", () => {
     expect([...controls.taskRuns.keys()]).toEqual(["task-run-retry"]);
     const workflow = result.workflow as { loopRunId?: string };
     const memory = await resolveProjectMemory(project);
-    const events = await readMainAgentLoopEvents(memory, workflow.loopRunId!);
+    const events = await readWorkflowRuntimeEvidenceEvents(memory, workflow.loopRunId!);
     expect(events.filter((event) => event.roleId === "rework-coder")).toHaveLength(0);
-    expect(events.filter((event) => event.type === "loop.stopped")).toHaveLength(1);
+    expect(events.filter((event) => event.type === "runtime.stopped")).toHaveLength(1);
   });
 
   it("does not nest automatic rework for source-refresh rework entrypoints", async () => {
@@ -802,11 +808,11 @@ describe("main-agent step loop contract", () => {
     expect(result.stoppedAt).toBe("validation");
     expect(result.status).toBe("needs-user-input");
     const memory = await resolveProjectMemory(project);
-    const events = await readMainAgentLoopEvents(memory, result.loopRunId!);
-    const decisions = await readMainAgentNextStepEvidence(memory, result.loopRunId!);
+    const events = await readWorkflowRuntimeEvidenceEvents(memory, result.loopRunId!);
+    const decisions = await readWorkflowRuntimeDecisionEvidence(memory, result.loopRunId!);
     expect(events.filter((event) => event.roleId === "rework-coder" && event.type === "leaf.started")).toHaveLength(1);
     expect(decisions.filter((decision) => decision.decision.roleId === "rework-coder")).toHaveLength(1);
-    expect(events.filter((event) => event.type === "loop.stopped")).toHaveLength(1);
+    expect(events.filter((event) => event.type === "runtime.stopped")).toHaveLength(1);
   });
 
   it("runs source-refresh rework through rework, validation, and audit", async () => {
@@ -822,9 +828,9 @@ describe("main-agent step loop contract", () => {
     expect(result.stoppedAt).toBeNull();
     expect(result.status).toBeUndefined();
     const memory = await resolveProjectMemory(project);
-    const events = await readMainAgentLoopEvents(memory, result.loopRunId);
-    const decisions = await readMainAgentNextStepEvidence(memory, result.loopRunId);
-    expect(events.filter((event) => event.type === "loop.completed")).toHaveLength(1);
+    const events = await readWorkflowRuntimeEvidenceEvents(memory, result.loopRunId);
+    const decisions = await readWorkflowRuntimeDecisionEvidence(memory, result.loopRunId);
+    expect(events.filter((event) => event.type === "runtime.completed")).toHaveLength(1);
     expect(decisions.at(-1)?.decision.kind).toBe("completed");
   });
 
@@ -843,7 +849,7 @@ describe("main-agent step loop contract", () => {
     expect(result.stoppedAt).toBe("audit");
     expect(result.status).toBe("needs-user-input");
     const memory = await resolveProjectMemory(project);
-    const decisions = await readMainAgentNextStepEvidence(memory, result.loopRunId);
+    const decisions = await readWorkflowRuntimeDecisionEvidence(memory, result.loopRunId);
     expect(decisions.at(-1)?.decision.kind).toBe("needs-user-input");
     expect(decisions.filter((decision) => decision.decision.roleId === "rework-coder")).toHaveLength(1);
   });
@@ -863,7 +869,7 @@ describe("main-agent step loop contract", () => {
     expect(result.stoppedAt).toBe("code");
     expect(result.status).toBe("failed");
     const memory = await resolveProjectMemory(project);
-    const decisions = await readMainAgentNextStepEvidence(memory, result.loopRunId);
+    const decisions = await readWorkflowRuntimeDecisionEvidence(memory, result.loopRunId);
     expect(decisions.at(-1)?.decision.kind).toBe("failed");
   });
 
@@ -880,9 +886,9 @@ describe("main-agent step loop contract", () => {
     expect(result.stoppedAt).toBeNull();
     expect(result.status).toBeUndefined();
     const memory = await resolveProjectMemory(project);
-    const events = await readMainAgentLoopEvents(memory, result.loopRunId);
-    const decisions = await readMainAgentNextStepEvidence(memory, result.loopRunId);
-    expect(events.filter((event) => event.type === "loop.completed")).toHaveLength(1);
+    const events = await readWorkflowRuntimeEvidenceEvents(memory, result.loopRunId);
+    const decisions = await readWorkflowRuntimeDecisionEvidence(memory, result.loopRunId);
+    expect(events.filter((event) => event.type === "runtime.completed")).toHaveLength(1);
     expect(decisions.at(-1)?.decision.kind).toBe("completed");
   });
 
@@ -901,7 +907,7 @@ describe("main-agent step loop contract", () => {
     expect(result.stoppedAt).toBe("validation");
     expect(result.status).toBe("needs-user-input");
     const memory = await resolveProjectMemory(project);
-    const decisions = await readMainAgentNextStepEvidence(memory, result.loopRunId);
+    const decisions = await readWorkflowRuntimeDecisionEvidence(memory, result.loopRunId);
     expect(decisions.filter((decision) => decision.entrypoint === "feedback-rework" && decision.decision.roleId === "rework-coder")).toHaveLength(1);
     expect(decisions.at(-1)?.decision.kind).toBe("needs-user-input");
   });
@@ -921,11 +927,11 @@ describe("main-agent step loop contract", () => {
     expect(result.stoppedAt).toBe("code");
     expect(result.status).toBe("failed");
     const memory = await resolveProjectMemory(project);
-    const decisions = await readMainAgentNextStepEvidence(memory, result.loopRunId);
+    const decisions = await readWorkflowRuntimeDecisionEvidence(memory, result.loopRunId);
     expect(decisions.at(-1)?.decision.kind).toBe("failed");
   });
 
-  it("fails closed when loop evidence is missing or malformed", async () => {
+  it("fails closed when runtime evidence is missing or malformed", async () => {
     const malformedTaskRun = taskRun({ id: "task-run-malformed", changeId: "change-malformed" });
     controls.taskRuns.set(malformedTaskRun.id, malformedTaskRun);
     const result = await runStartedTaskRunStage({
@@ -934,14 +940,14 @@ describe("main-agent step loop contract", () => {
     });
     const memory = await resolveProjectMemory(project);
 
-    expect(await readMainAgentLoopRun(memory, "missing-loop")).toBeNull();
-    expect(await readMainAgentLoopEvents(memory, "missing-loop")).toEqual([]);
-    expect(await readMainAgentNextStepEvidence(memory, "missing-loop")).toEqual([]);
+    expect(await readWorkflowRuntimeEvidenceRun(memory, "missing-runtime")).toBeNull();
+    expect(await readWorkflowRuntimeEvidenceEvents(memory, "missing-runtime")).toEqual([]);
+    expect(await readWorkflowRuntimeDecisionEvidence(memory, "missing-runtime")).toEqual([]);
 
-    await writeFile(mainAgentLoopEventsPath(memory, result.workflow.loopRunId!), "{not-json}\n", "utf8");
-    expect(await readMainAgentLoopEvents(memory, result.workflow.loopRunId!)).toEqual([]);
-    await writeFile(mainAgentNextStepDecisionsPath(memory, result.workflow.loopRunId!), "{not-json}\n", "utf8");
-    expect(await readMainAgentNextStepEvidence(memory, result.workflow.loopRunId!)).toEqual([]);
+    await writeFile(workflowRuntimeEvidenceEventsPath(memory, result.workflow.loopRunId!), "{not-json}\n", "utf8");
+    expect(await readWorkflowRuntimeEvidenceEvents(memory, result.workflow.loopRunId!)).toEqual([]);
+    await writeFile(workflowRuntimeDecisionEvidencePath(memory, result.workflow.loopRunId!), "{not-json}\n", "utf8");
+    expect(await readWorkflowRuntimeDecisionEvidence(memory, result.workflow.loopRunId!)).toEqual([]);
   });
 
   it("recreates malformed loop metadata without blocking orchestration evidence", async () => {
