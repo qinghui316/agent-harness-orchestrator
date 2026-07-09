@@ -18,6 +18,7 @@ import { compileSchedulerContract } from "../../src/workflow-scheduler/manager.j
 import type { TaskQueueRun, WorkflowRun } from "../../src/types/index.js";
 import { findTaskRunStageResumeCandidate, runResumedTaskRunStage } from "../../src/workflow-runtime/code-workflow.js";
 import { runTaskQueueSequentialWorkflow } from "../../src/workflow-runtime/taskqueue.js";
+import { selectNextSequentialGraphQueueItem } from "../../src/workflow-runtime/workflowgraph-sequential.js";
 import {
   getTempDir,
   minimalDecompositionPlan,
@@ -41,6 +42,16 @@ let tempDir: string;
 beforeEach(() => {
   tempDir = getTempDir();
 });
+
+async function pauseTaskQueueWithWorkflow(memory: Awaited<ReturnType<typeof resolveProjectMemory>>, queue: TaskQueueRun, reason: string): Promise<TaskQueueRun> {
+  const paused = await pauseTaskQueue(memory, queue, reason);
+  if (paused.workflowRunId) {
+    const workflow = await readWorkflowRun(memory, paused.changeId, paused.workflowRunId);
+    const items = await listTaskQueueItems(memory, paused.changeId, paused.id);
+    await syncWorkflowRunFromQueue(memory, workflow, paused, items, "workflow.paused", reason);
+  }
+  return paused;
+}
 
 describe("workbench task runtime domain", () => {
   it("disables task run actions for archived topics without losing TaskGraph facts", async () => {
@@ -491,6 +502,41 @@ describe("workbench task runtime domain", () => {
     });
   });
 
+  it("selects the next TaskQueue item from WorkflowGraph sequential order", async () => {
+    await initHarness(project());
+    await createChange(project(), { title: "WorkflowGraph Sequential Order" });
+    await writeAcceptedSpecAndTasks("workflowgraph-sequential-order");
+    await writeFile(join(tempDir, "harness", "changes", "active", "workflowgraph-sequential-order", "tasks.md"), [
+      "# Tasks",
+      "",
+      "- [ ] T-001: Implement first task.",
+      "  - Covers: AC-001",
+      "- [ ] T-002: Implement second task.",
+      "  - Covers: AC-001",
+      "",
+    ].join("\n"), "utf8");
+    const prepared = await prepareConfirmedTaskQueueProposalWithWorkflow("workflowgraph-sequential-order", ["T-001", "T-002"]);
+    const result = await startOrResumeTaskQueue(project(), {
+      changeId: "workflowgraph-sequential-order",
+      taskQueueProposalId: prepared.proposalId,
+      workflowGraphPlanId: prepared.workflowGraphPlanId,
+      readinessManifestId: prepared.readinessManifestId,
+      decompositionPlanId: prepared.decompositionPlanId,
+      workflowRunId: prepared.workflowRunId,
+    });
+    const memory = await resolveProjectMemory(project());
+    const graph = await readLatestWorkflowGraphPlan(memory, join("harness", "changes", "active", "workflowgraph-sequential-order"));
+    const reversedNodes = graph.nodes.slice().reverse().map((node, index) => ({ ...node, order: index + 1 }));
+    const reversedGraph = {
+      ...graph,
+      nodes: reversedNodes,
+      edges: [{ from: reversedNodes[0]?.id ?? "", to: reversedNodes[1]?.id ?? "", kind: "task-order" as const }],
+    };
+
+    await expect(selectNextSequentialGraphQueueItem(memory, reversedGraph, result.queue))
+      .resolves.toEqual(expect.objectContaining({ taskId: "T-002" }));
+  });
+
   it("guards WorkflowRun read, list, and event journal scope", async () => {
     await initHarness(project());
     await createChange(project(), { title: "Workflow Scope A" });
@@ -627,7 +673,7 @@ describe("workbench task runtime domain", () => {
       workflowRunId: prepared.workflowRunId,
     });
     const memory = await resolveProjectMemory(project());
-    await pauseTaskQueue(memory, startedQueue.queue, "test pause");
+    await pauseTaskQueueWithWorkflow(memory, startedQueue.queue, "test pause");
     await writeTaskRunRecord("workflow-resume-evidence", "taskrun-resume-1", "T-001", "evidence-ready", 1, {
       runId: "run-resume-coder",
       worktreeId: "wt-resume-1",
@@ -753,7 +799,7 @@ describe("workbench task runtime domain", () => {
       workflowRunId: prepared.workflowRunId,
     });
     const memory = await resolveProjectMemory(project());
-    await pauseTaskQueue(memory, startedQueue.queue, "test pause");
+    await pauseTaskQueueWithWorkflow(memory, startedQueue.queue, "test pause");
     const [item] = await listTaskQueueItems(memory, "workflow-item-scope-missing", startedQueue.queue.id);
     if (!item) throw new Error("Expected queued item.");
     await writeTaskQueueItemRecord("workflow-item-scope-missing", startedQueue.queue.id, item.id, item.taskId, item.order, "queued", {
@@ -799,7 +845,7 @@ describe("workbench task runtime domain", () => {
       workflowRunId: prepared.workflowRunId,
     });
     const memory = await resolveProjectMemory(project());
-    await pauseTaskQueue(memory, startedQueue.queue, "test pause");
+    await pauseTaskQueueWithWorkflow(memory, startedQueue.queue, "test pause");
 
     await expect(startOrResumeTaskQueue(project(), {
       changeId: "workflow-resume-forged-scope",

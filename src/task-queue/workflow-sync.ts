@@ -1,8 +1,7 @@
-import { syncWorkflowRunFromQueue } from "../workflow-run/manager.js";
-import type { ResolvedMemory, TaskQueueRun, WorkflowRun } from "../types/index.js";
+import type { ResolvedMemory, TaskQueueRun } from "../types/index.js";
 import { listTaskQueueItems, writeTaskQueueRun } from "./repository.js";
 
-export async function resumePausedTaskQueue(memory: ResolvedMemory, activeQueue: TaskQueueRun, workflow: WorkflowRun): Promise<{
+export async function resumePausedTaskQueue(memory: ResolvedMemory, activeQueue: TaskQueueRun): Promise<{
   queue: TaskQueueRun;
   items: Awaited<ReturnType<typeof listTaskQueueItems>>;
 }> {
@@ -18,6 +17,5 @@ export async function resumePausedTaskQueue(memory: ResolvedMemory, activeQueue:
     failureReason: undefined,
   });
   const items = await listTaskQueueItems(memory, activeQueue.changeId, queue.id);
-  await syncWorkflowRunFromQueue(memory, workflow, queue, items, "workflow.started");
   return { queue, items };
 }

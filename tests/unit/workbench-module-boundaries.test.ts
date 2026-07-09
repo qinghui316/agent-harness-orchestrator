@@ -674,21 +674,32 @@ describe("Workbench module boundaries", () => {
 
     const taskQueueRuntime = readFileSync(join(process.cwd(), "src/workflow-runtime/taskqueue.ts"), "utf8");
     expect(taskQueueRuntime).toContain("runTaskQueueSequentialWorkflow");
-    expect(taskQueueRuntime).toContain("getNextQueuedTaskQueueItem");
-    expect(taskQueueRuntime).toContain("runStartedTaskRunStage");
-    expect(taskQueueRuntime).toContain("runResumedTaskRunStage");
-    expect(taskQueueRuntime).toContain("findTaskRunStageResumeCandidate");
-    expect(taskQueueRuntime).toContain("assertTaskRunResumeEvidenceScope");
+    expect(taskQueueRuntime).toContain("runWorkflowGraphSequentialExecution");
+    expect(taskQueueRuntime).not.toContain("getNextQueuedTaskQueueItem");
+    expect(taskQueueRuntime).not.toContain("runStartedTaskRunStage");
+    expect(taskQueueRuntime).not.toContain("runResumedTaskRunStage");
+    expect(taskQueueRuntime).not.toContain("findTaskRunStageResumeCandidate");
+    expect(taskQueueRuntime).not.toContain("assertTaskRunResumeEvidenceScope");
     expect(taskQueueRuntime).not.toContain("runMainAgentTaskRunLifecycle");
     expect(taskQueueRuntime).not.toContain("runMainAgentTaskRunReworkFromFinished");
-    expect(taskQueueRuntime).toContain("taskQueueExecutionGate");
-    expect(taskQueueRuntime).toContain("appendWorkflowRunEvent");
+    expect(taskQueueRuntime).not.toContain("taskQueueExecutionGate");
+    expect(taskQueueRuntime).not.toContain("appendWorkflowRunEvent");
     expect(taskQueueRuntime).not.toContain("recordMainAgentQueueDecisionEvidence");
     expect(taskQueueRuntime).not.toContain("ensureMainAgentLoopRun");
     expect(taskQueueRuntime).not.toContain("finishMainAgentLoopRun");
     expect(taskQueueRuntime).not.toMatch(/from\s+["'](?:\.\.\/)+workbench\//);
     expect(taskQueueRuntime).not.toMatch(/from\s+["'](?:\.\.\/)+server\//);
     expect(taskQueueRuntime).not.toMatch(/from\s+["'](?:\.\.\/)+web\//);
+
+    const workflowGraphSequential = readFileSync(join(process.cwd(), "src/workflow-runtime/workflowgraph-sequential.ts"), "utf8");
+    expect(workflowGraphSequential).toContain("selectNextSequentialGraphQueueItem");
+    expect(workflowGraphSequential).toContain("orderedSequentialNodes");
+    expect(workflowGraphSequential).toContain("runStartedTaskRunStage");
+    expect(workflowGraphSequential).toContain("runResumedTaskRunStage");
+    expect(workflowGraphSequential).not.toContain("getNextQueuedTaskQueueItem");
+    expect(workflowGraphSequential).not.toMatch(/from\s+["'](?:\.\.\/)+workbench\//);
+    expect(workflowGraphSequential).not.toMatch(/from\s+["'](?:\.\.\/)+server\//);
+    expect(workflowGraphSequential).not.toMatch(/from\s+["'](?:\.\.\/)+web\//);
 
     const workflowGraphObservation = readFileSync(join(process.cwd(), "src/main-agent-orchestration/workflowgraph-observation.ts"), "utf8");
     expect(workflowGraphObservation).toContain("non-executing-main-agent-workflowgraph-decision-evidence");

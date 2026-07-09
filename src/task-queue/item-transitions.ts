@@ -1,4 +1,3 @@
-import { readWorkflowRun, syncWorkflowRunFromQueue } from "../workflow-run/manager.js";
 import type { ResolvedMemory, TaskQueueItem, TaskQueueRun, TaskRun } from "../types/index.js";
 import { appendTaskQueueTaskEvent } from "./events.js";
 import { listTaskQueueItems, writeTaskQueueItem, writeTaskQueueRun } from "./repository.js";
@@ -129,10 +128,6 @@ export async function pauseTaskQueue(memory: ResolvedMemory, queue: TaskQueueRun
     updatedAt: now,
     finishedAt: null,
   });
-  if (queue.workflowRunId) {
-    const workflow = await readWorkflowRun(memory, queue.changeId, queue.workflowRunId).catch(() => null);
-    if (workflow) await syncWorkflowRunFromQueue(memory, workflow, written, items, "workflow.paused", reason);
-  }
   return written;
 }
 

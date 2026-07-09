@@ -13,6 +13,12 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
   BOUNDARIES, and review-template coverage is sufficient for Scheduler
   ready-set/current-gate/current-transition/code-growth lessons. The next useful
   work is product runtime compression, not another Harness rule.
+- Latest archived runtime change:
+  `harness/changes/archive/20260709-workflowgraph-sequential-execution-owner-v0/summary.md`.
+  It made existing `WorkflowGraphPlan graphMode: "sequential-v1"` the execution
+  ordering owner for confirmed TaskQueue sequential runs, thinned
+  `workflow-runtime/taskqueue.ts` into facade/compatibility wiring, and kept
+  TaskQueueRun / TaskQueueItem as ledger/projection records.
 - Latest archived relationship-hardening change:
   `harness/changes/archive/20260709-scheduler-worker-path-read-model-compression-v0/summary.md`.
   It compressed Scheduler worker-path evidence/status/pending/approved-ref
@@ -49,7 +55,7 @@ Agent Harness Orchestrator (AHO) is a local-first Agent Development OS with a Sp
   persisted launch confirmation evidence, and aligned Workbench / Goal Loop
   gate ordering so current worker result / validation / audit completes before
   same-wave `start-next`.
-- Latest archived runtime change:
+- Previous archived runtime change:
   `harness/changes/archive/20260708-harness-workflow-runtime-scheduler-same-wave-ready-set-v0/summary.md`.
   It added Scheduler same-wave ready-set behavior under `workflow-runtime`:
   reserved same-wave workers with non-conflicting source scopes can be started
@@ -114,15 +120,17 @@ Current baseline:
 
 - Local manual-gated Workbench has real acceptance through planning, code,
   validation/audit, human apply, and close/archive.
-- Workflow Runtime is the target single runner owner. Ordinary `code.run` and
-  confirmed TaskQueue queue-level start/resume, TaskRun stage execution, and
+- Workflow Runtime is the target single runner owner. Ordinary `code.run`,
+  confirmed TaskQueue queue-level start/resume, TaskRun stage execution,
+  confirmed TaskQueue `WorkflowGraphPlan graphMode: "sequential-v1"` execution,
   SchedulerRun-scoped progression, Scheduler same-wave ready-set start gates,
   DemandWorker claimed execution, top-level role-chain action entrypoints,
   source-refresh rework, and PR feedback rework are already routed through
   `workflow-runtime`, and the covered old role-chain runner/step-loop has been
-  deleted. Source-refresh and PR feedback rework share one rework-only runtime
-  sequence owner. New runtime takeover changes must delete the covered old
-  production runner.
+  deleted. TaskQueue now acts as compatibility ledger/projection for the
+  sequential graph path. Source-refresh and PR feedback rework share one
+  rework-only runtime sequence owner. New runtime takeover changes must delete
+  the covered old production runner.
 - Goal is a visible main-Agent brief and completion standard, not hidden durable
   state and not project memory. Future sessions recover by reading Harness
   docs/evidence, not by restoring Goal state. Existing GoalLoop packet/controller
@@ -140,12 +148,10 @@ Current baseline:
   must not directly call workflow actions, create a Change, enter
   `confirmationQueue.primary`, or grant permissions.
 
-Next recommended structured work:
-
-- Pick exactly one next architecture slice. Prefer broader Scheduler wave
-  automation or WorkflowGraphPlan execution expansion only after confirming the
-  owner boundary in
-  `docs/design-docs/harness-workflow-runtime-target.md`.
+- Current structured work: none.
+- Next structured work should pick one architecture slice after reading
+  `docs/design-docs/harness-workflow-runtime-target.md`; likely candidates are
+  broader Scheduler wave automation or WorkflowGraphPlan execution expansion.
 - Keep `README.md` untracked unless the user explicitly scopes it into a
   change.
 

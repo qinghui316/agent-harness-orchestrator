@@ -11,6 +11,12 @@
   BOUNDARIES, and review-template coverage is sufficient for Scheduler
   ready-set/current-gate/current-transition/code-growth lessons. The next useful
   work is product runtime compression, not another Harness rule.
+- Latest archived runtime change:
+  `harness/changes/archive/20260709-workflowgraph-sequential-execution-owner-v0/summary.md`.
+  It made existing `WorkflowGraphPlan graphMode: "sequential-v1"` the execution
+  ordering owner for confirmed TaskQueue sequential runs, thinned
+  `workflow-runtime/taskqueue.ts` into facade/compatibility wiring, and kept
+  TaskQueueRun / TaskQueueItem as ledger/projection records.
 - Latest archived relationship-hardening change:
   `harness/changes/archive/20260709-scheduler-worker-path-read-model-compression-v0/summary.md`.
   It compressed Scheduler worker-path evidence/status/pending/approved-ref
@@ -47,7 +53,7 @@
   persisted launch confirmation evidence, and aligned Workbench / Goal Loop
   gate ordering so current worker result / validation / audit completes before
   same-wave `start-next`.
-- Latest archived runtime change:
+- Previous archived runtime change:
   `harness/changes/archive/20260708-harness-workflow-runtime-scheduler-same-wave-ready-set-v0/summary.md`.
   It added Scheduler same-wave ready-set behavior under `workflow-runtime`:
   reserved same-wave workers with non-conflicting source scopes can be started
@@ -118,14 +124,16 @@
 - Runtime architecture is in transition toward the high-cohesion / low-coupling
   Harness Workflow Runtime in
   `docs/design-docs/harness-workflow-runtime-target.md`. Ordinary `code.run`,
-  confirmed TaskQueue queue-level start/resume, TaskRun stage execution, and
+  confirmed TaskQueue queue-level start/resume, TaskRun stage execution,
+  confirmed TaskQueue `WorkflowGraphPlan graphMode: "sequential-v1"` execution,
   SchedulerRun-scoped progression, Scheduler same-wave ready-set start gates,
   DemandWorker claimed execution, top-level role-chain action entrypoints,
   source-refresh rework, and PR feedback rework now run through
   `workflow-runtime`, and the covered old role-chain runner/step-loop has been
-  deleted. Source-refresh and PR feedback rework share one rework-only runtime
-  sequence owner. Broader Scheduler wave automation remains a future capability
-  under the Workflow Runtime owner.
+  deleted. TaskQueue now acts as compatibility ledger/projection for the
+  sequential graph path. Source-refresh and PR feedback rework share one
+  rework-only runtime sequence owner. Broader Scheduler wave automation remains
+  a future capability under the Workflow Runtime owner.
 - New runtime takeover changes must include new-path takeover, old production
   runner deletion for the covered behavior, and negative tests proving the old
   runner is no longer called.
@@ -150,12 +158,11 @@
 
 ## Next Resume Point
 
-Next, choose exactly one runtime architecture path:
-
-- add broader Scheduler wave behavior under the existing Workflow Runtime
-  Scheduler owner; or
-- expand WorkflowGraphPlan execution after confirming the runtime owner
-  boundary.
+No active change remains. The latest runtime slice is
+`harness/changes/archive/20260709-workflowgraph-sequential-execution-owner-v0/summary.md`.
+Next work should pick exactly one architecture slice after reading
+`docs/design-docs/harness-workflow-runtime-target.md`; likely candidates are
+broader Scheduler wave automation or WorkflowGraphPlan execution expansion.
 
 Do not combine broader Scheduler wave automation with unrelated
 WorkflowGraphPlan, Goal loop, Plan UI, Codex subagent, or remote/merge work in

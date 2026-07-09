@@ -1,5 +1,5 @@
 ﻿{
-    "generated_at":  "2026-07-08T16:52:27.2162291Z",
+    "generated_at":  "2026-07-09T05:50:47.1660228Z",
     "active":  [
 
                ],
@@ -2649,6 +2649,10 @@
                     {
                         "name":  "20260709-scheduler-worker-path-read-model-compression-v0",
                         "path":  "harness/changes/archive/20260709-scheduler-worker-path-read-model-compression-v0"
+                    },
+                    {
+                        "name":  "20260709-workflowgraph-sequential-execution-owner-v0",
+                        "path":  "harness/changes/archive/20260709-workflowgraph-sequential-execution-owner-v0"
                     }
                 ]
 }

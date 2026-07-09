@@ -19,8 +19,8 @@ export async function startOrResumeTaskQueue(project: ManagedProject, options: T
   const acceptedTasks = target.status.acMap?.tasks ?? [];
   const activeQueue = await validateNoConflictingActiveQueue(memory, options.changeId);
   if (activeQueue?.status === "paused") {
-    const { workflow } = await validatePausedTaskQueueResume(memory, project, activeQueue, options);
-    const { queue, items } = await resumePausedTaskQueue(memory, activeQueue, workflow);
+    await validatePausedTaskQueueResume(memory, project, activeQueue, options);
+    const { queue, items } = await resumePausedTaskQueue(memory, activeQueue);
     return { queue, items, resumed: true };
   }
 
