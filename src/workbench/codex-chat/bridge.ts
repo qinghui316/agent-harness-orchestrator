@@ -20,6 +20,7 @@ import { emitAssistantEvent, emitLive } from "../live-events.js";
 import { codexImageInputsForAttachments } from "../attachments.js";
 import { buildMainAgentPlanHandoffPromptContext } from "../plan-handoff.js";
 import { appendTopicThreadEntry } from "../topic-thread.js";
+import { getWorkbenchSnapshot } from "../manager.js";
 import { readTopicRuntime, writeTopicRuntime } from "../topic-runtime.js";
 import { resolveTopic } from "../topic-resolver.js";
 import { readTopicThreadLog as readThreadLog } from "../thread-log.js";
@@ -35,15 +36,7 @@ import type {
   WorkbenchLiveSink,
 } from "../types.js";
 import { createAssistantTranscriptCapture } from "../live-transcript.js";
-import { buildChatContext, buildOrchestratorContext } from "./context.js";
-import { buildGoalLoopContextPreparedEvidence, goalLoopPromptStackLabels } from "./goal-loop-prompt-evidence.js";
-import {
-  buildMainAgentWorkflowGraphReplaySummary,
-  createMainAgentStrategyAdviceDeltaFilter,
-  extractMainAgentStrategyAdviceFromText,
-  stripMainAgentStrategyAdviceBlocks,
-  type MainAgentStrategyAdvice,
-} from "../../main-agent-orchestration/index.js";
+import { buildChatContext, buildMainAgentExecutionContext, buildOrchestratorContext } from "./context.js";
 export async function runOrchestratorPlan(project: ManagedProject, changeId: string, userMessage: string, live?: WorkbenchLiveSink): Promise<{
   run: RunMetadata;
   routingDecision: TopicRoutingDecision;
@@ -99,7 +92,7 @@ export async function runOrchestratorPlan(project: ManagedProject, changeId: str
       orchestrationPlan: `${relativeDir}/orchestration-plan.json`,
       orchestrationPlanMarkdown: `${relativeDir}/orchestration-plan.md`,
     },
-    promptStack: ["agent-role", "active-change", "topic-thread", "workflow-status", "main-agent-strategy-advice-request", "user-message"],
+    promptStack: ["agent-role", "active-change", "topic-thread", "workflow-status", "user-message"],
     agent: buildRunAgentRecord(role),
   };
   await writeJsonFile(paths.run, run);
@@ -108,12 +101,6 @@ export async function runOrchestratorPlan(project: ManagedProject, changeId: str
   await appendRunEvent(paths.events, { timestamp: now, type: "orchestrator.plan.started", runId, data: { changeId } });
 
   const contextResult = await buildOrchestratorContext(project, memory, changePath, changeId, userMessage);
-  const goalLoopLabels = goalLoopPromptStackLabels(contextResult);
-  if (goalLoopLabels.length > 0) {
-    run = { ...run, promptStack: [...(run.promptStack ?? []), ...goalLoopLabels] };
-    await writeJsonFile(paths.run, run);
-  }
-  const goalLoopPreparedEvidence = buildGoalLoopContextPreparedEvidence(contextResult);
   const context = contextResult.context;
   await writeFile(paths.context, context, "utf8");
   await appendRunEvent(paths.events, {
@@ -122,7 +109,6 @@ export async function runOrchestratorPlan(project: ManagedProject, changeId: str
     runId,
     data: {
       path: run.artifacts.context,
-      ...goalLoopPreparedEvidence,
     },
   });
   const prompt = `${buildAgentSystemPrompt(role)}\n\n${context}\n\n## User Message\n\n${userMessage}\n`;
@@ -164,8 +150,7 @@ export async function runOrchestratorPlan(project: ManagedProject, changeId: str
       ...codexProviderRunMetadata({ adapter: "codex-readonly-orchestrator", model: effectiveModel.model, modelSource: effectiveModel.source, capabilities }),
     },
   });
-  const codexDeltaFilter = createMainAgentStrategyAdviceDeltaFilter((delta) => emitLive(live, { event: "assistant.delta", data: { delta, runId } }));
-  const parser = createLiveCodexParser(runId, live, codexDeltaFilter);
+  const parser = createLiveCodexParser(runId, live);
   const processResult = await executeProcessStreaming({
     cwd: project.path,
     command: argv.command,
@@ -179,12 +164,10 @@ export async function runOrchestratorPlan(project: ManagedProject, changeId: str
     stopSignal: () => isRunStopRequested(runId),
   });
   parser.flush();
-  codexDeltaFilter.flush();
   const lastMessage = existsSync(paths.lastMessage)
     ? await readFile(paths.lastMessage, "utf8")
     : extractFinalMessageFromCodexJsonl(processResult.stdoutSample) ?? "";
-  const adviceExtraction = extractMainAgentStrategyAdviceFromText(lastMessage);
-  const visibleLastMessage = adviceExtraction.visibleText || "# Orchestrator Plan Not Captured";
+  const visibleLastMessage = lastMessage.trim() || "# Orchestrator Plan Not Captured";
   await writeFile(paths.lastMessage, `${visibleLastMessage}\n`, "utf8");
   const parsed = parseOrchestrationOutput(visibleLastMessage, userMessage, heuristicDecision);
   await writeJsonFile(paths.orchestrationPlan, parsed);
@@ -192,15 +175,6 @@ export async function runOrchestratorPlan(project: ManagedProject, changeId: str
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.exited", runId, data: { phase: "orchestrator", exitCode: processResult.exitCode, signal: processResult.signal } });
   const status: RunStatus = processResult.exitCode === 0 ? "completed" : "failed";
   run = await finishOrchestratorRun(paths.run, run, status, processResult.exitCode, processResult.signal);
-  run = await attachCurrentRunStrategyAdviceMetadata({
-    run,
-    runPath: paths.run,
-    memory,
-    project,
-    changeId,
-    changePath,
-    strategyAdvice: adviceExtraction.strategyAdvice,
-  });
   await appendRunEvent(paths.events, { timestamp: run.finishedAt ?? new Date().toISOString(), type: status === "completed" ? "orchestrator.plan.completed" : "orchestrator.plan.failed", runId, data: { routingDecision: parsed.routingDecision } });
   await appendRunEvent(paths.events, { timestamp: run.finishedAt ?? new Date().toISOString(), type: status === "completed" ? "run.completed" : "run.failed", runId });
   return { ...parsed, run };
@@ -263,6 +237,8 @@ export interface RunCodexChatOptions {
   transientSystemSkillIds?: string[];
   attachments?: TopicAttachment[];
   planHandoff?: ValidatedPlanHandoffIntent;
+  goalMode?: "start-or-resume";
+  goalResume?: { deliveryKey: string; contextText: string };
 }
 
 export async function runCodexChat(project: ManagedProject, changeId: string, userMessage: string, live?: WorkbenchLiveSink, options: RunCodexChatOptions = {}): Promise<{ run: RunMetadata; message: string; codexSessionId: string | null; planText?: string }> {
@@ -329,7 +305,6 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
       "topic-thread",
       "aho-skills",
       ...(transientSkillContext.records.length > 0 ? ["transient-aho-system-skill"] : []),
-      "main-agent-strategy-advice-request",
       "user-message",
       ...(options.planningMode ? ["codex-plan-mode"] : []),
       ...(options.planHandoff ? ["plan-handoff-intent"] : []),
@@ -359,12 +334,6 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
     },
   });
   const contextResult = options.omitWorkbenchContext ? null : await buildChatContext(project, memory, changeId, userMessage);
-  const goalLoopLabels = contextResult ? goalLoopPromptStackLabels(contextResult) : [];
-  if (goalLoopLabels.length > 0) {
-    run = { ...run, promptStack: [...(run.promptStack ?? []), ...goalLoopLabels] };
-    await writeJsonFile(paths.run, run);
-  }
-  const goalLoopPreparedEvidence = contextResult ? buildGoalLoopContextPreparedEvidence(contextResult) : {};
   const context = contextResult?.context ?? [
     "# Planning-Agent Turn",
     "",
@@ -373,9 +342,29 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
     "Use plain user-facing wording such as project notes, current task, plan, checks, review, and finish confirmation.",
   ].join("\n");
   const planHandoffContext = buildMainAgentPlanHandoffPromptContext(options.planHandoff).join("\n");
+  const nativeGoalRequested = options.goalMode === "start-or-resume"
+    || options.planHandoff?.kind === "execute-plan"
+    || Boolean(options.goalResume);
+  if (nativeGoalRequested && !options.goalResume) {
+    const snapshot = await getWorkbenchSnapshot({ project, path: project.path }, { topicId: changeId });
+    const current = snapshot.center.workpad.nextAction;
+    if (current.kind !== "workflow-action" || !current.enabled || !current.actionType) {
+      throw new Error("Native Goal start requires accepted Change artifacts and one current executable workflow gate.");
+    }
+  }
+  const nativeGoalInstructions = nativeGoalRequested ? [
+    "## Native Goal Execution",
+    "",
+    "The user explicitly requested continuation of this accepted Change.",
+    "If this provider thread has no active Goal, author one concrete objective from the accepted project records and call create_goal.",
+    "Keep the same Goal across rework or plan revision. Do not create another Goal for the same objective.",
+    "You decide whether the objective is complete. Workflow Runtime and human confirmation decide whether a concrete action may execute.",
+    "When you reach a human gate, need plan revision, or cannot make useful progress, explain the stop point and call aho_goal_yield as your last action.",
+    "Never treat aho_goal_yield output as execution permission. Never invent or submit action ids, Change ids, run ids, worktree ids, or scheduler targets.",
+  ].join("\n") : "";
   const imageInputs = await codexImageInputsForAttachments(project, options.attachments);
   await writeFile(paths.context, context, "utf8");
-  const prompt = `${context}${skillPromptSections ? `\n\n${skillPromptSections}` : ""}${planHandoffContext ? `\n\n## Plan Handoff Intent\n\n${planHandoffContext}` : ""}\n\n## User Message\n\n${userMessage}\n`;
+  const prompt = `${context}${skillPromptSections ? `\n\n${skillPromptSections}` : ""}${planHandoffContext ? `\n\n## Plan Handoff Intent\n\n${planHandoffContext}` : ""}${nativeGoalInstructions ? `\n\n${nativeGoalInstructions}` : ""}\n\n## User Message\n\n${userMessage}\n`;
   await writeFile(paths.prompt, prompt, "utf8");
   await appendRunEvent(paths.events, {
     timestamp: new Date().toISOString(),
@@ -383,7 +372,6 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
     runId,
     data: {
       path: run.artifacts.context,
-      ...goalLoopPreparedEvidence,
     },
   });
 
@@ -395,7 +383,6 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
     await writeJsonFile(paths.run, run);
     await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "app-server.started", runId, data: { phase: "chat", resumed: Boolean(runtime.codexSessionId), nativeCollab: appServerCapabilities.nativeCollab } });
     const liveOwner = appServerLiveOwner(runId, options.planningMode ? "planning-agent" : undefined);
-    const textDeltaFilter = createMainAgentStrategyAdviceDeltaFilter((delta) => emitScopedAssistantDelta(live, liveOwner, delta));
     let nativePlanText = "";
     const emitNativePlanEvent = (text: string, replace = false): void => {
       if (!options.planningMode || !text.trim()) return;
@@ -408,6 +395,8 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
         summary: nativePlanText,
       });
     };
+    const goalCapableThread = runtime.codexCapabilityProfile === "main-agent-goal-v1";
+    if (options.goalResume && !goalCapableThread) throw new Error("Native Goal resume requires a goal-capable provider thread.");
     const result = await runCodexAppServerTurn({
       projectId: project.id,
       changeId,
@@ -422,8 +411,26 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
         lastMessage: paths.appServerLastMessage,
         session: paths.agentSession,
       },
-      existingThreadId: runtime.codexSessionId,
-      onTextDelta: (delta) => textDeltaFilter.feed(delta),
+      existingThreadId: nativeGoalRequested && !goalCapableThread ? null : runtime.codexSessionId,
+      dynamicTools: nativeGoalRequested ? [{
+        name: "aho_goal_yield",
+        description: "Yield the current native Goal at a human gate or other explicit stop point. This tool never executes workflow actions.",
+        inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      }] : undefined,
+      goalSession: nativeGoalRequested,
+      goalResume: options.goalResume,
+      onDynamicToolCall: nativeGoalRequested ? async (call) => {
+        if (call.tool !== "aho_goal_yield" || Object.keys(call.arguments).length > 0) {
+          return { contentItems: [{ type: "inputText", text: "Only the no-argument aho_goal_yield tool is available." }], success: false };
+        }
+        const executionContext = await buildMainAgentExecutionContext(project, memory, changeId, "Native Goal yielded for the current project gate.");
+        return {
+          contentItems: [{ type: "inputText", text: executionContext }],
+          success: true,
+          yieldAfterResponse: true,
+        };
+      } : undefined,
+      onTextDelta: (delta) => emitScopedAssistantDelta(live, liveOwner, delta),
       onPlanDelta: (delta) => {
         emitNativePlanEvent(delta);
       },
@@ -454,28 +461,25 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
       model: effectiveModel.model,
       imageInputs,
     });
-    textDeltaFilter.flush();
-    const status: RunStatus = result.status === "completed" ? "completed" : "failed";
-    const combinedAdviceText = [result.lastMessage, options.planningMode ? result.planText : undefined].filter(Boolean).join("\n");
-    const adviceExtraction = extractMainAgentStrategyAdviceFromText(combinedAdviceText);
-    const visibleLastMessage = stripMainAgentStrategyAdviceBlocks(result.lastMessage).trim();
-    const visiblePlanText = options.planningMode && result.planText ? stripMainAgentStrategyAdviceBlocks(result.planText).trim() : undefined;
+    const yieldedAtGoalGate = result.status === "interrupted" && result.goal?.status === "paused";
+    const status: RunStatus = result.status === "completed" || yieldedAtGoalGate ? "completed" : "failed";
+    const visibleLastMessage = result.lastMessage.trim();
+    const visiblePlanText = options.planningMode && result.planText ? result.planText.trim() : undefined;
     const lastMessage = visibleLastMessage || visiblePlanText || result.error || "Codex app-server did not return a final message.";
     await writeFile(paths.lastMessage, lastMessage, "utf8");
-    await writeTopicRuntime(memory, changePath, { version: "1.0", changeId, codexSessionId: result.threadId ?? runtime.codexSessionId, updatedAt: new Date().toISOString() });
+    await writeTopicRuntime(memory, changePath, {
+      version: "1.0",
+      changeId,
+      codexSessionId: result.threadId ?? runtime.codexSessionId,
+      codexCapabilityProfile: nativeGoalRequested && result.threadId
+        ? "main-agent-goal-v1"
+        : runtime.codexCapabilityProfile ?? null,
+      updatedAt: new Date().toISOString(),
+    });
     await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "app-server.exited", runId, data: { phase: "chat", status: result.status, threadId: result.threadId, turnId: result.turnId, error: result.error } });
     run = { ...run, status, exitCode: status === "completed" ? 0 : 1, signal: null, finishedAt: new Date().toISOString() };
     await writeJsonFile(paths.run, run);
     await appendRunEvent(paths.events, { timestamp: run.finishedAt ?? new Date().toISOString(), type: status === "completed" ? "run.completed" : "run.failed", runId });
-    run = await attachCurrentRunStrategyAdviceMetadata({
-      run,
-      runPath: paths.run,
-      memory,
-      project,
-      changeId,
-      changePath,
-      strategyAdvice: adviceExtraction.strategyAdvice,
-    });
     live?.emit({ event: "run.status", data: { runId, status } });
     return { run, message: lastMessage, codexSessionId: result.threadId ?? runtime.codexSessionId, planText: visiblePlanText };
   }
@@ -519,8 +523,7 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
       ...codexProviderRunMetadata({ adapter: canResume ? "codex-readonly-resume-chat" : "codex-readonly-chat", model: effectiveModel.model, modelSource: effectiveModel.source, capabilities }),
     },
   });
-  const codexDeltaFilter = createMainAgentStrategyAdviceDeltaFilter((delta) => emitLive(live, { event: "assistant.delta", data: { delta, runId } }));
-  const parser = createLiveCodexParser(runId, live, codexDeltaFilter);
+  const parser = createLiveCodexParser(runId, live);
   const processResult = await executeProcessStreaming({
     cwd: project.path,
     command: argv.command,
@@ -534,80 +537,27 @@ export async function runCodexChat(project: ManagedProject, changeId: string, us
     stopSignal: () => isRunStopRequested(runId),
   });
   parser.flush();
-  codexDeltaFilter.flush();
   const stdout = processResult.stdoutSample;
   const lastMessage = existsSync(paths.lastMessage)
     ? await readFile(paths.lastMessage, "utf8")
     : extractFinalMessageFromCodexJsonl(stdout) ?? "";
-  const adviceExtraction = extractMainAgentStrategyAdviceFromText(lastMessage);
-  const visibleLastMessage = adviceExtraction.visibleText || "# Codex Chat Not Captured";
+  const visibleLastMessage = lastMessage.trim() || "# Codex Chat Not Captured";
   await writeFile(paths.lastMessage, `${visibleLastMessage}\n`, "utf8");
   const nextSessionId = extractCodexSessionIdFromJsonl(stdout) ?? runtime.codexSessionId;
-  await writeTopicRuntime(memory, changePath, { version: "1.0", changeId, codexSessionId: nextSessionId, updatedAt: new Date().toISOString() });
+  await writeTopicRuntime(memory, changePath, {
+    version: "1.0",
+    changeId,
+    codexSessionId: nextSessionId,
+    codexCapabilityProfile: runtime.codexCapabilityProfile ?? null,
+    updatedAt: new Date().toISOString(),
+  });
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.exited", runId, data: { phase: "chat", exitCode: processResult.exitCode, signal: processResult.signal, sessionLinked: Boolean(nextSessionId) } });
   const status: RunStatus = processResult.exitCode === 0 ? "completed" : "failed";
   run = { ...run, status, exitCode: processResult.exitCode, signal: processResult.signal, finishedAt: new Date().toISOString() };
   await writeJsonFile(paths.run, run);
   await appendRunEvent(paths.events, { timestamp: run.finishedAt ?? new Date().toISOString(), type: status === "completed" ? "run.completed" : "run.failed", runId });
-  run = await attachCurrentRunStrategyAdviceMetadata({
-    run,
-    runPath: paths.run,
-    memory,
-    project,
-    changeId,
-    changePath,
-    strategyAdvice: adviceExtraction.strategyAdvice,
-  });
   live?.emit({ event: "run.status", data: { runId, status } });
   return { run, message: visibleLastMessage.trim() || processResult.stderrSample || "Codex did not return a final message.", codexSessionId: nextSessionId };
-}
-
-async function attachCurrentRunStrategyAdviceMetadata(input: {
-  run: RunMetadata;
-  runPath: string;
-  memory: Awaited<ReturnType<typeof resolveProjectMemory>>;
-  project: ManagedProject;
-  changeId: string;
-  changePath: string;
-  strategyAdvice?: MainAgentStrategyAdvice;
-}): Promise<RunMetadata> {
-  if (!input.strategyAdvice) {
-    return input.run;
-  }
-  try {
-    const replaySummary = await buildMainAgentWorkflowGraphReplaySummary(input.memory, input.project, input.changeId, {
-      changePath: input.changePath,
-      strategyAdviceInput: input.strategyAdvice,
-    });
-    const nextRun: RunMetadata = {
-      ...input.run,
-      mainAgentStrategy: {
-        authority: "read-only-main-agent-current-run-strategy-metadata",
-        executionStarted: false,
-        advice: input.strategyAdvice,
-        adviceConsumption: replaySummary.strategyDecision.adviceConsumption,
-        strategyKind: replaySummary.strategyDecision.kind,
-        kindSource: replaySummary.strategyDecision.kindSource,
-        deterministicBaselineKind: replaySummary.strategyDecision.deterministicBaseline.kind,
-        nextObservationKind: replaySummary.nextObservation.kind,
-        builtAt: replaySummary.builtAt,
-      },
-    };
-    await writeJsonFile(input.runPath, nextRun);
-    return nextRun;
-  } catch (error) {
-    const nextRun: RunMetadata = {
-      ...input.run,
-      mainAgentStrategy: {
-        authority: "read-only-main-agent-current-run-strategy-metadata",
-        executionStarted: false,
-        advice: input.strategyAdvice,
-        error: error instanceof Error ? error.message : String(error),
-      },
-    };
-    await writeJsonFile(input.runPath, nextRun);
-    return nextRun;
-  }
 }
 
 function createLiveCodexParser(

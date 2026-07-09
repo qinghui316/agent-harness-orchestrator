@@ -15,25 +15,59 @@ export interface SchedulerCurrentTransitionReservation {
 
 export interface SchedulerCurrentTransitionWorkerPath {
   start: {
+    id?: string;
     reservationIntentId: string;
+    claimIntentId?: string;
     updatedAt?: string;
   };
+  status?: string;
   terminal: boolean;
-  audit?: {
-    status: string;
-    claimIntentId?: string;
-  };
-  reworkAudit?: {
-    status: string;
-    claimIntentId?: string;
-  };
+  result?: { id?: string } | null;
+  validation?: { id?: string } | null;
+  audit?: { id?: string; status: string; claimIntentId?: string } | null;
+  reworkPlan?: { id?: string } | null;
+  reworkStart?: { id?: string } | null;
+  reworkResult?: { id?: string } | null;
+  reworkValidation?: { id?: string } | null;
+  reworkAudit?: { id?: string; status: string; claimIntentId?: string } | null;
 }
 
 export interface SchedulerCurrentTransitionIntegrationCandidate {
+  id?: string;
   status?: string;
   readyCount?: number;
   blockedCount?: number;
 }
+
+export interface SchedulerCurrentTransitionIntegrationCheckHandoff {
+  id?: string;
+  integrationCheckStatus?: string;
+  currentIntegrationCheckStatus?: string;
+}
+
+export interface SchedulerCurrentTransitionWorkerTarget {
+  reservationIntentId: string;
+  claimIntentId?: string;
+  schedulerWorkerStartId: string;
+  schedulerWorkerResultId?: string;
+  schedulerWorkerValidationId?: string;
+  schedulerWorkerAuditId?: string;
+  schedulerWorkerReworkPlanId?: string;
+  schedulerWorkerReworkStartId?: string;
+  schedulerWorkerReworkResultId?: string;
+  schedulerWorkerReworkValidationId?: string;
+  schedulerWorkerReworkAuditId?: string;
+}
+
+export type SchedulerCurrentTransitionWorkerActionType =
+  | "planning.scheduler.worker.reconcile-result"
+  | "planning.scheduler.worker.validate-first"
+  | "planning.scheduler.worker.audit-first"
+  | "planning.scheduler.worker.rework-plan.compile"
+  | "planning.scheduler.worker.rework-start-first"
+  | "planning.scheduler.worker.rework-reconcile-result"
+  | "planning.scheduler.worker.rework-validate-first"
+  | "planning.scheduler.worker.rework-audit-first";
 
 export type SchedulerCurrentTransition =
   | {
@@ -47,20 +81,33 @@ export type SchedulerCurrentTransition =
       reservationIntent: SchedulerCurrentTransitionReservationIntent;
     }
   | {
+      kind: "worker-step";
+      actionType: SchedulerCurrentTransitionWorkerActionType;
+      worker: SchedulerCurrentTransitionWorkerTarget;
+    }
+  | {
       kind: "integration-candidate";
       actionType: "planning.scheduler.integration-candidate.compile";
     }
   | {
       kind: "integration-check";
       actionType: "planning.scheduler.integration-check.run";
+      schedulerIntegrationCandidateId?: string;
+    }
+  | {
+      kind: "integration-outcome";
+      actionType: "planning.scheduler.integration-outcome.reconcile";
+      schedulerIntegrationCheckHandoffId?: string;
     }
   | {
       kind: "close-blocked";
       actionType: "planning.scheduler.run.close-blocked";
+      schedulerIntegrationCandidateId?: string;
     }
   | {
       kind: "run-complete";
       actionType: "planning.scheduler.run.complete";
+      schedulerIntegrationOutcomeId?: string;
     }
   | {
       kind: "blocked" | "none";
@@ -74,8 +121,10 @@ export interface SchedulerCurrentTransitionInput {
   workerPaths: SchedulerCurrentTransitionWorkerPath[];
   integrationCandidate?: SchedulerCurrentTransitionIntegrationCandidate | null;
   integrationCandidateNeedsRefresh?: boolean;
+  integrationCheckHandoff?: SchedulerCurrentTransitionIntegrationCheckHandoff | null;
   integrationCheckHandoffExists?: boolean;
   integrationOutcomeExists?: boolean;
+  integrationOutcomeId?: string;
   runCompletionExists?: boolean;
   runBlockedCloseoutExists?: boolean;
 }
@@ -83,62 +132,147 @@ export interface SchedulerCurrentTransitionInput {
 export function resolveSchedulerCurrentTransition(input: SchedulerCurrentTransitionInput): SchedulerCurrentTransition {
   if (input.runCompletionExists) return { kind: "none", reason: "SchedulerRun completion already exists." };
   if (input.runBlockedCloseoutExists) return { kind: "none", reason: "SchedulerRun blocked closeout already exists." };
-  if (input.integrationOutcomeExists) return { kind: "run-complete", actionType: "planning.scheduler.run.complete" };
-  if (input.integrationCheckHandoffExists) return { kind: "blocked", reason: "Scheduler integration check handoff already exists." };
+  if (input.integrationOutcomeExists) {
+    return {
+      kind: "run-complete",
+      actionType: "planning.scheduler.run.complete",
+      schedulerIntegrationOutcomeId: input.integrationOutcomeId,
+    };
+  }
   const graphScope = input.graph ? validateGraphReservationScope(input.graph, input.reservation) : null;
   if (graphScope) return { kind: "blocked", reason: graphScope };
-  if (input.workerPaths.length === 0) {
-    const first = findFirstIntent(input.reservation, input.graph);
-    if (!first) return { kind: "none", reason: "Scheduler first worker has no runnable reservation intent." };
-    if (hasWaveSourceScopeConflict(input.reservation, first.waveIndex, input.graph)) {
-      return { kind: "blocked", reason: `Scheduler wave ${first.waveIndex} has conflicting source scopes.` };
-    }
-    return {
-      kind: "start-first-worker",
-      actionType: "planning.scheduler.worker.start-first",
-      reservationIntent: first,
-    };
-  }
-
-  const sameWaveNext = findSameWaveNextIntent(input.reservation, input.workerPaths, input.graph);
-  if (sameWaveNext) {
-    if (hasWaveSourceScopeConflict(input.reservation, sameWaveNext.waveIndex, input.graph)) {
-      return { kind: "blocked", reason: `Scheduler wave ${sameWaveNext.waveIndex} has conflicting source scopes.` };
-    }
-    return {
-      kind: "start-same-wave-worker",
-      actionType: "planning.scheduler.worker.start-next",
-      reservationIntent: sameWaveNext,
-    };
-  }
-
-  const currentWave = currentReservedWaveIndex(input.reservation);
-  const currentWaveTerminal = currentWave === null || isWaveTerminal(input.reservation, input.workerPaths, currentWave);
-  if (!currentWaveTerminal) {
-    return { kind: "blocked", reason: "Current scheduler wave is not terminal." };
-  }
-
-  const nextWaveIntent = findNextWaveIntent(input.reservation, input.workerPaths, input.graph);
-  if (nextWaveIntent) {
-    if (hasWaveSourceScopeConflict(input.reservation, nextWaveIntent.waveIndex, input.graph)) {
-      return { kind: "blocked", reason: `Scheduler wave ${nextWaveIntent.waveIndex} has conflicting source scopes.` };
-    }
-    return {
-      kind: "start-next-wave-worker",
-      actionType: "planning.scheduler.worker.start-next",
-      reservationIntent: nextWaveIntent,
-    };
-  }
+  const workerTransition = resolveCurrentWorkerTransition(input);
+  if (workerTransition) return workerTransition;
 
   const candidate = input.integrationCandidate;
   if (!candidate || input.integrationCandidateNeedsRefresh) {
     return { kind: "integration-candidate", actionType: "planning.scheduler.integration-candidate.compile" };
   }
+  const handoff = input.integrationCheckHandoff;
+  if (handoff || input.integrationCheckHandoffExists) {
+    if (!handoff) return { kind: "blocked", reason: "Scheduler integration check handoff already exists." };
+    const currentStatus = handoff.currentIntegrationCheckStatus ?? handoff.integrationCheckStatus;
+    if (currentStatus === "passed") {
+      return { kind: "blocked", reason: "Scheduler IntegrationCheck is waiting for apply/discard." };
+    }
+    return {
+      kind: "integration-outcome",
+      actionType: "planning.scheduler.integration-outcome.reconcile",
+      schedulerIntegrationCheckHandoffId: handoff.id,
+    };
+  }
   const readyCount = candidate.readyCount ?? 0;
   const blockedCount = candidate.blockedCount ?? 0;
-  if (readyCount >= 2) return { kind: "integration-check", actionType: "planning.scheduler.integration-check.run" };
-  if (readyCount < 2 && blockedCount >= 0) return { kind: "close-blocked", actionType: "planning.scheduler.run.close-blocked" };
+  if (readyCount >= 2) {
+    return {
+      kind: "integration-check",
+      actionType: "planning.scheduler.integration-check.run",
+      schedulerIntegrationCandidateId: candidate.id,
+    };
+  }
+  if (readyCount < 2 && blockedCount >= 0) {
+    return {
+      kind: "close-blocked",
+      actionType: "planning.scheduler.run.close-blocked",
+      schedulerIntegrationCandidateId: candidate.id,
+    };
+  }
   return { kind: "none", reason: "No Scheduler transition is currently legal." };
+}
+
+function resolveCurrentWorkerTransition(input: SchedulerCurrentTransitionInput): SchedulerCurrentTransition | null {
+  const intents = reservedIntents(input.reservation).sort(byGraphOrReservationOrder(input.reservation, input.graph));
+  if (intents.length === 0) {
+    return input.workerPaths.length === 0
+      ? { kind: "none", reason: "Scheduler first worker has no runnable reservation intent." }
+      : { kind: "blocked", reason: "Scheduler worker paths exist without runnable reservation intents." };
+  }
+  const pathByIntent = new Map(input.workerPaths.map((path) => [path.start.reservationIntentId, path]));
+  const waveIndexes = [...new Set(intents.map((intent) => intent.waveIndex))].sort((left, right) => left - right);
+  for (const waveIndex of waveIndexes) {
+    const waveIntents = intents.filter((intent) => intent.waveIndex === waveIndex);
+    const wavePaths = waveIntents.map((intent) => pathByIntent.get(intent.reservationIntentId)).filter((path): path is SchedulerCurrentTransitionWorkerPath => Boolean(path));
+    if (waveIntents.every((intent) => pathByIntent.get(intent.reservationIntentId)?.terminal === true)) continue;
+
+    const nextIntent = waveIntents.find((intent) => !pathByIntent.has(intent.reservationIntentId));
+    if (nextIntent) {
+      if (hasWaveSourceScopeConflict(input.reservation, waveIndex, input.graph)) {
+        return { kind: "blocked", reason: `Scheduler wave ${waveIndex} has conflicting source scopes.` };
+      }
+      if (input.workerPaths.length === 0) {
+        return { kind: "start-first-worker", actionType: "planning.scheduler.worker.start-first", reservationIntent: nextIntent };
+      }
+      return {
+        kind: wavePaths.length > 0 ? "start-same-wave-worker" : "start-next-wave-worker",
+        actionType: "planning.scheduler.worker.start-next",
+        reservationIntent: nextIntent,
+      };
+    }
+
+    const currentPath = waveIntents
+      .map((intent) => pathByIntent.get(intent.reservationIntentId))
+      .find((path): path is SchedulerCurrentTransitionWorkerPath => Boolean(path && !path.terminal));
+    if (!currentPath) return { kind: "blocked", reason: `Scheduler wave ${waveIndex} is not terminal but has no current worker path.` };
+    return resolveWorkerPathTransition(currentPath);
+  }
+  return null;
+}
+
+function resolveWorkerPathTransition(path: SchedulerCurrentTransitionWorkerPath): SchedulerCurrentTransition {
+  if (!path.start.id) return { kind: "blocked", reason: "Canonical Scheduler worker path is missing worker start id." };
+  const worker: SchedulerCurrentTransitionWorkerTarget = {
+    reservationIntentId: path.start.reservationIntentId,
+    claimIntentId: path.start.claimIntentId,
+    schedulerWorkerStartId: path.start.id,
+    schedulerWorkerResultId: path.result?.id,
+    schedulerWorkerValidationId: path.validation?.id,
+    schedulerWorkerAuditId: path.audit?.id,
+    schedulerWorkerReworkPlanId: path.reworkPlan?.id,
+    schedulerWorkerReworkStartId: path.reworkStart?.id,
+    schedulerWorkerReworkResultId: path.reworkResult?.id,
+    schedulerWorkerReworkValidationId: path.reworkValidation?.id,
+    schedulerWorkerReworkAuditId: path.reworkAudit?.id,
+  };
+  const actionType = workerActionTypeForStatus(path.status);
+  const targetKey = actionType ? schedulerCurrentTransitionWorkerTargetKey(actionType) : null;
+  if (targetKey && !worker[targetKey]) {
+    return { kind: "blocked", reason: `Canonical Scheduler worker path is missing ${targetKey}.` };
+  }
+  return actionType
+    ? { kind: "worker-step", actionType, worker }
+    : { kind: "blocked", reason: `Canonical Scheduler worker path status is not executable: ${path.status ?? "unknown"}.` };
+}
+
+export function schedulerCurrentTransitionWorkerTargetKey(
+  actionType: SchedulerCurrentTransitionWorkerActionType,
+): keyof SchedulerCurrentTransitionWorkerTarget {
+  switch (actionType) {
+    case "planning.scheduler.worker.reconcile-result": return "schedulerWorkerStartId";
+    case "planning.scheduler.worker.validate-first": return "schedulerWorkerResultId";
+    case "planning.scheduler.worker.audit-first": return "schedulerWorkerValidationId";
+    case "planning.scheduler.worker.rework-plan.compile": return "schedulerWorkerValidationId";
+    case "planning.scheduler.worker.rework-start-first": return "schedulerWorkerReworkPlanId";
+    case "planning.scheduler.worker.rework-reconcile-result": return "schedulerWorkerReworkStartId";
+    case "planning.scheduler.worker.rework-validate-first": return "schedulerWorkerReworkResultId";
+    case "planning.scheduler.worker.rework-audit-first": return "schedulerWorkerReworkValidationId";
+  }
+}
+
+function workerActionTypeForStatus(status?: string): SchedulerCurrentTransitionWorkerActionType | null {
+  switch (status) {
+    case "result-pending": return "planning.scheduler.worker.reconcile-result";
+    case "validation-pending": return "planning.scheduler.worker.validate-first";
+    case "audit-pending": return "planning.scheduler.worker.audit-first";
+    case "rework-plan-pending":
+    case "audit-blocked":
+    case "audit-failed":
+      return "planning.scheduler.worker.rework-plan.compile";
+    case "rework-start-pending": return "planning.scheduler.worker.rework-start-first";
+    case "rework-result-pending": return "planning.scheduler.worker.rework-reconcile-result";
+    case "rework-validation-pending": return "planning.scheduler.worker.rework-validate-first";
+    case "rework-audit-pending": return "planning.scheduler.worker.rework-audit-first";
+    default: return null;
+  }
 }
 
 export function schedulerTransitionMatchesStartNextRequest(input: {
@@ -165,46 +299,6 @@ export function schedulerTransitionMatchesStartRequest(input: {
   return schedulerTransitionMatchesStartNextRequest(input);
 }
 
-function findFirstIntent(reservation: SchedulerCurrentTransitionReservation, graph?: ReadySetWorkflowGraphPlan | null): SchedulerCurrentTransitionReservationIntent | null {
-  return reservedIntents(reservation)
-    .sort(byGraphOrReservationOrder(reservation, graph))[0] ?? null;
-}
-
-function findSameWaveNextIntent(
-  reservation: SchedulerCurrentTransitionReservation,
-  workerPaths: SchedulerCurrentTransitionWorkerPath[],
-  graph?: ReadySetWorkflowGraphPlan | null,
-): SchedulerCurrentTransitionReservationIntent | null {
-  const currentWave = currentReservedWaveIndex(reservation);
-  if (currentWave === null) return null;
-  const started = startedIntentIds(workerPaths);
-  return reservedIntents(reservation)
-    .filter((intent) => intent.waveIndex === currentWave && !started.has(intent.reservationIntentId))
-    .sort(byGraphOrReservationOrder(reservation, graph))[0] ?? null;
-}
-
-function findNextWaveIntent(
-  reservation: SchedulerCurrentTransitionReservation,
-  workerPaths: SchedulerCurrentTransitionWorkerPath[],
-  graph?: ReadySetWorkflowGraphPlan | null,
-): SchedulerCurrentTransitionReservationIntent | null {
-  const started = startedIntentIds(workerPaths);
-  return reservedIntents(reservation)
-    .filter((intent) => !started.has(intent.reservationIntentId))
-    .sort((left, right) => left.waveIndex - right.waveIndex || byGraphOrReservationOrder(reservation, graph)(left, right))[0] ?? null;
-}
-
-function isWaveTerminal(
-  reservation: SchedulerCurrentTransitionReservation,
-  workerPaths: SchedulerCurrentTransitionWorkerPath[],
-  waveIndex: number,
-): boolean {
-  const waveIntents = reservedIntents(reservation).filter((intent) => intent.waveIndex === waveIndex);
-  if (waveIntents.length === 0) return false;
-  const pathByIntent = new Map(workerPaths.map((path) => [path.start.reservationIntentId, path]));
-  return waveIntents.every((intent) => pathByIntent.get(intent.reservationIntentId)?.terminal === true);
-}
-
 function hasWaveSourceScopeConflict(reservation: SchedulerCurrentTransitionReservation, waveIndex: number, graph?: ReadySetWorkflowGraphPlan | null): boolean {
   const owners = new Map<string, string>();
   if (graph) {
@@ -227,17 +321,8 @@ function hasWaveSourceScopeConflict(reservation: SchedulerCurrentTransitionReser
   return false;
 }
 
-function currentReservedWaveIndex(reservation: SchedulerCurrentTransitionReservation): number | null {
-  const first = reservedIntents(reservation).sort((left, right) => left.waveIndex - right.waveIndex || byReservationOrder(reservation)(left, right))[0];
-  return first ? first.waveIndex : null;
-}
-
 function reservedIntents(reservation: SchedulerCurrentTransitionReservation): SchedulerCurrentTransitionReservationIntent[] {
   return (reservation.reservationIntents ?? []).filter((intent) => intent.status === "reserved");
-}
-
-function startedIntentIds(workerPaths: SchedulerCurrentTransitionWorkerPath[]): Set<string> {
-  return new Set(workerPaths.map((path) => path.start.reservationIntentId));
 }
 
 function byReservationOrder(reservation: SchedulerCurrentTransitionReservation) {

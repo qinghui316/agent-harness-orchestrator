@@ -12,7 +12,6 @@ import { ComposerAttachButton, ComposerAttachmentList, filesFromDrop, hasFileDra
 import { buildComposerContextSummary, ComposerContextSourcesPopover, type ComposerContextKind } from "../shell/ComposerContextSources.js";
 import { FileMentionPicker } from "../shell/FileMentionPicker.js";
 import { SkillMentionPicker } from "../shell/SkillMentionPicker.js";
-import type { ComposerExecutionMode } from "../shell/composer-session.js";
 import { WorkspacePicker } from "./WorkspacePicker.js";
 import { InfoRow } from "./ProjectPanels.js";
 import type { CodexDiagnostics, CodexModelCandidate, CodexModelSettingsSnapshot, ProjectStatus, SkillListItem, Snapshot, TopicFileReference } from "../types.js";
@@ -47,13 +46,11 @@ export function ProjectHomeView({
 export function ProjectReadinessHome({
   project,
   snapshot,
-  automationMode,
   modelLabel,
   onOpenModelSettings,
   projects,
   selectedProjectId,
   onCreateDemand,
-  onAutomationModeChange,
   enabledSkillCount,
   skills,
   activeSkillIds,
@@ -64,13 +61,11 @@ export function ProjectReadinessHome({
 }: {
   project: ProjectStatus;
   snapshot: Snapshot;
-  automationMode: ComposerExecutionMode;
   modelLabel: string;
   onOpenModelSettings?: () => void;
   projects: ProjectStatus[];
   selectedProjectId: string | null;
   onCreateDemand: (body: string, fileRefs?: TopicFileReference[], attachmentIds?: string[], attachmentFiles?: File[]) => Promise<void>;
-  onAutomationModeChange: (mode: ComposerExecutionMode) => void;
   enabledSkillCount?: number;
   skills?: SkillListItem[];
   activeSkillIds?: string[];
@@ -170,8 +165,6 @@ export function ProjectReadinessHome({
           <ComposerControls
             modelLabel={modelLabel}
             onOpenModelSettings={onOpenModelSettings}
-            mode={automationMode}
-            onModeChange={onAutomationModeChange}
             enabledSkillCount={enabledSkillCount}
             contextSummary={contextSummary}
             openContextKind={openContextKind}

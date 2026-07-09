@@ -8,12 +8,6 @@ export const WORKFLOW_ACTION_TYPES = [
   "planning.decomposition.confirm",
   "planning.decomposition.assess-readiness",
   "planning.taskqueue.propose",
-  "planning.goal-loop.evaluate",
-  "planning.goal-loop.feedback.evaluate",
-  "planning.goal-loop.controller.refresh",
-  "planning.goal-loop.gate-readiness.prepare",
-  "planning.goal-loop.controlled-continue.run",
-  "planning.automation.scoped-auto.run",
   "maintenance.canonical-update.decision.record",
   "maintenance.canonical-patch.application-gate.record",
   "maintenance.canonical-patch.apply",
@@ -27,8 +21,6 @@ export const WORKFLOW_ACTION_TYPES = [
   "planning.scheduler.runtime.initialize",
   "planning.scheduler.runtime.reconcile",
   "planning.scheduler.runtime.reserve-claims",
-  "planning.scheduler.controlled-step.run",
-  "planning.scheduler.controlled-advance.run",
   "planning.scheduler.worker.start-first",
   "planning.scheduler.worker.start-next",
   "planning.scheduler.worker.reconcile-result",
@@ -134,12 +126,6 @@ export const LIVE_WORKFLOW_ACTION_TYPES = [
   "planning.decomposition.confirm",
   "planning.decomposition.assess-readiness",
   "planning.taskqueue.propose",
-  "planning.goal-loop.evaluate",
-  "planning.goal-loop.feedback.evaluate",
-  "planning.goal-loop.controller.refresh",
-  "planning.goal-loop.gate-readiness.prepare",
-  "planning.goal-loop.controlled-continue.run",
-  "planning.automation.scoped-auto.run",
   "maintenance.canonical-update.decision.record",
   "maintenance.canonical-patch.application-gate.record",
   "maintenance.canonical-patch.apply",
@@ -153,8 +139,6 @@ export const LIVE_WORKFLOW_ACTION_TYPES = [
   "planning.scheduler.runtime.initialize",
   "planning.scheduler.runtime.reconcile",
   "planning.scheduler.runtime.reserve-claims",
-  "planning.scheduler.controlled-step.run",
-  "planning.scheduler.controlled-advance.run",
   "planning.scheduler.worker.start-first",
   "planning.scheduler.worker.start-next",
   "planning.scheduler.worker.reconcile-result",
@@ -242,12 +226,6 @@ export const HIGH_IMPACT_WORKFLOW_ACTION_TYPES = [
   "planning.decomposition.confirm",
   "planning.decomposition.assess-readiness",
   "planning.taskqueue.propose",
-  "planning.goal-loop.evaluate",
-  "planning.goal-loop.feedback.evaluate",
-  "planning.goal-loop.controller.refresh",
-  "planning.goal-loop.gate-readiness.prepare",
-  "planning.goal-loop.controlled-continue.run",
-  "planning.automation.scoped-auto.run",
   "maintenance.canonical-update.decision.record",
   "maintenance.canonical-patch.application-gate.record",
   "maintenance.canonical-patch.apply",
@@ -261,8 +239,6 @@ export const HIGH_IMPACT_WORKFLOW_ACTION_TYPES = [
   "planning.scheduler.runtime.initialize",
   "planning.scheduler.runtime.reconcile",
   "planning.scheduler.runtime.reserve-claims",
-  "planning.scheduler.controlled-step.run",
-  "planning.scheduler.controlled-advance.run",
   "planning.scheduler.worker.start-first",
   "planning.scheduler.worker.start-next",
   "planning.scheduler.worker.reconcile-result",
@@ -309,12 +285,6 @@ export const REVALIDATED_WORKFLOW_ACTION_TYPES = [
   "planning.decomposition.confirm",
   "planning.decomposition.assess-readiness",
   "planning.taskqueue.propose",
-  "planning.goal-loop.evaluate",
-  "planning.goal-loop.feedback.evaluate",
-  "planning.goal-loop.controller.refresh",
-  "planning.goal-loop.gate-readiness.prepare",
-  "planning.goal-loop.controlled-continue.run",
-  "planning.automation.scoped-auto.run",
   "maintenance.canonical-update.decision.record",
   "maintenance.canonical-patch.application-gate.record",
   "maintenance.canonical-patch.apply",
@@ -328,8 +298,6 @@ export const REVALIDATED_WORKFLOW_ACTION_TYPES = [
   "planning.scheduler.runtime.initialize",
   "planning.scheduler.runtime.reconcile",
   "planning.scheduler.runtime.reserve-claims",
-  "planning.scheduler.controlled-step.run",
-  "planning.scheduler.controlled-advance.run",
   "planning.scheduler.worker.start-first",
   "planning.scheduler.worker.start-next",
   "planning.scheduler.worker.reconcile-result",
@@ -382,13 +350,6 @@ export const WORKFLOW_ACTION_SCOPE_KEYS = [
   "schedulerIntegrationOutcomeId",
   "schedulerRunCompletionId",
   "schedulerRunBlockedCloseoutId",
-  "goalLoopDecisionId",
-  "goalLoopIterationId",
-  "goalLoopContinuationBriefId",
-  "goalLoopNextStepPacketId",
-  "goalLoopFeedbackId",
-  "goalLoopControllerPolicyId",
-  "goalLoopGateReadinessPreflightId",
   "maintenanceProposalId",
   "maintenancePatchProposalId",
   "maintenanceApplicationManifestId",
@@ -416,18 +377,6 @@ export type WorkflowActionScopeKey = typeof WORKFLOW_ACTION_SCOPE_KEYS[number];
 export type WorkflowActionScopeCarrier = {
   actionType?: string;
   changeId?: string;
-  goalLoopCurrentGateActionType?: string;
-  goalLoopRuntimeAuthorizationId?: string;
-  goalLoopRuntimeRunId?: string;
-  automationMode?: "request-approval" | "full-access";
-  automationCurrentGateActionType?: string;
-  automationCurrentGateApprovalActionId?: string;
-  automationCurrentGateTargetId?: string;
-  automationCurrentGateRunId?: string;
-  automationCurrentGateArtifact?: string;
-  automationAuthorizationId?: string;
-  automationRunId?: string;
-  maxSteps?: number;
 } & Partial<Record<Exclude<WorkflowActionScopeKey, "worktreeIds" | "taskIds">, string>> & {
   worktreeIds?: string[];
   taskIds?: string[];
@@ -478,72 +427,6 @@ export function validateWorkflowActionRequiredTargets(request: WorkflowActionSco
     case "planning.taskqueue.propose":
       requireOne("readinessManifestId", [request.readinessManifestId]);
       break;
-    case "planning.goal-loop.evaluate":
-      requireOne("changeId", [request.changeId]);
-      break;
-    case "planning.goal-loop.feedback.evaluate":
-      requireOne("changeId", [request.changeId]);
-      requireOne("goalLoopNextStepPacketId", [request.goalLoopNextStepPacketId]);
-      break;
-    case "planning.goal-loop.controller.refresh":
-      requireOne("changeId", [request.changeId]);
-      requireOne("goalLoopNextStepPacketId", [request.goalLoopNextStepPacketId]);
-      requireOne("goalLoopCurrentGateActionType", [request.goalLoopCurrentGateActionType]);
-      break;
-    case "planning.goal-loop.gate-readiness.prepare":
-      requireOne("changeId", [request.changeId]);
-      requireOne("goalLoopNextStepPacketId", [request.goalLoopNextStepPacketId]);
-      requireOne("goalLoopControllerPolicyId", [request.goalLoopControllerPolicyId]);
-      requireOne("goalLoopCurrentGateActionType", [request.goalLoopCurrentGateActionType]);
-      break;
-    case "planning.goal-loop.controlled-continue.run": {
-      requireOne("changeId", [request.changeId]);
-      requireOne("goalLoopNextStepPacketId", [request.goalLoopNextStepPacketId]);
-      requireOne("goalLoopControllerPolicyId", [request.goalLoopControllerPolicyId]);
-      requireOne("goalLoopGateReadinessPreflightId", [request.goalLoopGateReadinessPreflightId]);
-      requireOne("goalLoopCurrentGateActionType", [request.goalLoopCurrentGateActionType]);
-      const concreteActionType = request.goalLoopCurrentGateActionType;
-      if (!concreteActionType || concreteActionType === "planning.scheduler.controlled-step.run" || concreteActionType === "planning.scheduler.controlled-advance.run" || concreteActionType.startsWith("planning.goal-loop.") || !concreteActionType.startsWith("planning.scheduler.")) {
-        issues.push({ actionType, label: "planning.scheduler.* concrete gate", message: "planning.goal-loop.controlled-continue.run requires a concrete planning.scheduler.* current gate." });
-        break;
-      }
-      issues.push(...validateWorkflowActionRequiredTargets({
-        ...request,
-        actionType: concreteActionType,
-      }).map((issue) => ({
-        ...issue,
-        actionType,
-        message: `planning.goal-loop.controlled-continue.run concrete gate target is incomplete: ${issue.label}.`,
-      })));
-      break;
-    }
-    case "planning.automation.scoped-auto.run": {
-      requireOne("changeId", [request.changeId]);
-      requireOne("automationCurrentGateActionType or automationCurrentGateApprovalActionId", [request.automationCurrentGateActionType, request.automationCurrentGateApprovalActionId]);
-      const concreteActionType = request.automationCurrentGateActionType;
-      const concreteApprovalActionId = request.automationCurrentGateApprovalActionId;
-      if (concreteActionType && concreteApprovalActionId) {
-        issues.push({ actionType, label: "single current visible primary gate", message: "planning.automation.scoped-auto.run requires exactly one current workflow or approval gate." });
-        break;
-      }
-      if (concreteApprovalActionId) {
-        requireOne("automationCurrentGateTargetId", [request.automationCurrentGateTargetId]);
-        break;
-      }
-      if (!concreteActionType || concreteActionType === "planning.automation.scoped-auto.run") {
-        issues.push({ actionType, label: "current visible primary gate", message: "planning.automation.scoped-auto.run requires the current visible primary gate action type." });
-        break;
-      }
-      issues.push(...validateWorkflowActionRequiredTargets({
-        ...request,
-        actionType: concreteActionType,
-      }).map((issue) => ({
-        ...issue,
-        actionType,
-        message: `planning.automation.scoped-auto.run current gate target is incomplete: ${issue.label}.`,
-      })));
-      break;
-    }
     case "maintenance.canonical-update.decision.record":
       requireOne("maintenanceProposalId", [request.maintenanceProposalId]);
       break;
@@ -583,45 +466,6 @@ export function validateWorkflowActionRequiredTargets(request: WorkflowActionSco
       requireOne("schedulerRunId", [request.schedulerRunId]);
       requireOne("schedulerReconcileSnapshotId", [request.schedulerReconcileSnapshotId]);
       break;
-    case "planning.scheduler.controlled-step.run": {
-      requireOne("changeId", [request.changeId]);
-      requireOne("goalLoopNextStepPacketId", [request.goalLoopNextStepPacketId]);
-      requireOne("goalLoopControllerPolicyId", [request.goalLoopControllerPolicyId]);
-      requireOne("goalLoopGateReadinessPreflightId", [request.goalLoopGateReadinessPreflightId]);
-      requireOne("goalLoopCurrentGateActionType", [request.goalLoopCurrentGateActionType]);
-      const concreteActionType = request.goalLoopCurrentGateActionType;
-      if (!concreteActionType || concreteActionType === "planning.scheduler.controlled-step.run" || concreteActionType === "planning.scheduler.controlled-advance.run" || concreteActionType.startsWith("planning.goal-loop.") || !concreteActionType.startsWith("planning.scheduler.")) {
-        issues.push({ actionType, label: "planning.scheduler.* concrete gate", message: "planning.scheduler.controlled-step.run requires a concrete planning.scheduler.* current gate." });
-        break;
-      }
-      issues.push(...validateWorkflowActionRequiredTargets({
-        ...request,
-        actionType: concreteActionType,
-      }).map((issue) => ({
-        ...issue,
-        actionType,
-        message: `planning.scheduler.controlled-step.run concrete gate target is incomplete: ${issue.label}.`,
-      })));
-      break;
-    }
-    case "planning.scheduler.controlled-advance.run": {
-      requireOne("changeId", [request.changeId]);
-      requireOne("goalLoopCurrentGateActionType", [request.goalLoopCurrentGateActionType]);
-      const concreteActionType = request.goalLoopCurrentGateActionType;
-      if (!concreteActionType || concreteActionType === "planning.scheduler.controlled-step.run" || concreteActionType === "planning.scheduler.controlled-advance.run" || concreteActionType.startsWith("planning.goal-loop.") || !concreteActionType.startsWith("planning.scheduler.")) {
-        issues.push({ actionType, label: "planning.scheduler.* concrete gate", message: "planning.scheduler.controlled-advance.run requires a concrete planning.scheduler.* current gate." });
-        break;
-      }
-      issues.push(...validateWorkflowActionRequiredTargets({
-        ...request,
-        actionType: concreteActionType,
-      }).map((issue) => ({
-        ...issue,
-        actionType,
-        message: `planning.scheduler.controlled-advance.run concrete gate target is incomplete: ${issue.label}.`,
-      })));
-      break;
-    }
     case "planning.scheduler.worker.start-first":
       requireOne("schedulerRunId", [request.schedulerRunId]);
       requireOne("schedulerClaimReservationId", [request.schedulerClaimReservationId]);
@@ -806,25 +650,6 @@ export function workflowActionScopePayload(request: WorkflowActionScopeCarrier, 
     schedulerIntegrationOutcomeId: request.schedulerIntegrationOutcomeId ?? extractString(result, "outcome", "id") ?? extractString(result, "completion", "schedulerIntegrationOutcomeId"),
     schedulerRunCompletionId: request.schedulerRunCompletionId ?? extractString(result, "completion", "id"),
     schedulerRunBlockedCloseoutId: request.schedulerRunBlockedCloseoutId ?? extractString(result, "closeout", "id"),
-    goalLoopDecisionId: request.goalLoopDecisionId ?? extractString(result, "goalLoopDecision", "id") ?? extractString(result, "goalLoopIteration", "goalLoopDecisionId") ?? extractString(result, "goalLoopContinuationBrief", "sourceGoalLoopDecisionId") ?? extractString(result, "goalLoopNextStepPacket", "sourceGoalLoopDecisionId"),
-    goalLoopIterationId: request.goalLoopIterationId ?? extractString(result, "goalLoopIteration", "id") ?? extractString(result, "goalLoopNextStepPacket", "sourceGoalLoopIterationId"),
-    goalLoopContinuationBriefId: request.goalLoopContinuationBriefId ?? extractString(result, "goalLoopContinuationBrief", "id") ?? extractString(result, "goalLoopNextStepPacket", "sourceGoalLoopContinuationBriefId"),
-    goalLoopNextStepPacketId: request.goalLoopNextStepPacketId ?? extractString(result, "goalLoopNextStepPacket", "id") ?? extractString(result, "goalLoopFeedback", "sourceGoalLoopNextStepPacketId") ?? extractString(result, "goalLoopControllerPolicy", "sourceGoalLoopNextStepPacketId") ?? extractString(result, "goalLoopGateReadinessPreflight", "sourceGoalLoopNextStepPacketId"),
-    goalLoopFeedbackId: request.goalLoopFeedbackId ?? extractString(result, "goalLoopFeedback", "id"),
-    goalLoopControllerPolicyId: request.goalLoopControllerPolicyId ?? extractString(result, "goalLoopControllerPolicy", "id") ?? extractString(result, "goalLoopGateReadinessPreflight", "sourceGoalLoopControllerPolicyId"),
-    goalLoopGateReadinessPreflightId: request.goalLoopGateReadinessPreflightId ?? extractString(result, "goalLoopGateReadinessPreflight", "id"),
-    goalLoopCurrentGateActionType: request.goalLoopCurrentGateActionType,
-    goalLoopRuntimeAuthorizationId: request.goalLoopRuntimeAuthorizationId ?? extractString(result, "authorization", "id"),
-    goalLoopRuntimeRunId: request.goalLoopRuntimeRunId ?? extractString(result, "runtimeRun", "id"),
-    automationMode: request.automationMode,
-    automationCurrentGateActionType: request.automationCurrentGateActionType,
-    automationCurrentGateApprovalActionId: request.automationCurrentGateApprovalActionId,
-    automationCurrentGateTargetId: request.automationCurrentGateTargetId,
-    automationCurrentGateRunId: request.automationCurrentGateRunId,
-    automationCurrentGateArtifact: request.automationCurrentGateArtifact,
-    automationAuthorizationId: request.automationAuthorizationId ?? extractString(result, "authorization", "id"),
-    automationRunId: request.automationRunId ?? extractString(result, "automationRun", "id"),
-    maxSteps: request.maxSteps,
     maintenanceProposalId: request.maintenanceProposalId ?? extractString(result, "decision", "proposalId"),
     maintenancePatchProposalId: request.maintenancePatchProposalId ?? extractString(result, "gateRecord", "patchProposalId") ?? extractString(result, "applicationResult", "patchProposalId"),
     maintenanceApplicationManifestId: request.maintenanceApplicationManifestId ?? extractString(result, "applicationResult", "manifestId"),
@@ -849,78 +674,6 @@ export function workflowActionScopePayload(request: WorkflowActionScopeCarrier, 
 }
 
 export function workflowActionTargetId(request: WorkflowActionScopeCarrier, changeId: string, result?: unknown): string {
-  if (request.actionType === "planning.scheduler.controlled-step.run") {
-    return request.goalLoopGateReadinessPreflightId
-      ?? extractString(result, "controlledStep", "goalLoopGateReadinessPreflightId")
-      ?? request.goalLoopControllerPolicyId
-      ?? extractString(result, "controlledStep", "goalLoopControllerPolicyId")
-      ?? request.goalLoopNextStepPacketId
-      ?? extractString(result, "controlledStep", "goalLoopNextStepPacketId")
-      ?? request.schedulerClaimReservationId
-      ?? request.schedulerRunId
-      ?? changeId;
-  }
-  if (request.actionType === "planning.scheduler.controlled-advance.run") {
-    return extractString(result, "goalLoopGateReadinessPreflight", "id")
-      ?? extractString(result, "controlledAdvance", "goalLoopGateReadinessPreflightId")
-      ?? extractString(result, "goalLoopControllerPolicy", "id")
-      ?? extractString(result, "controlledAdvance", "goalLoopControllerPolicyId")
-      ?? extractString(result, "goalLoopNextStepPacket", "id")
-      ?? extractString(result, "controlledAdvance", "goalLoopNextStepPacketId")
-      ?? request.schedulerClaimReservationId
-      ?? request.schedulerRunId
-      ?? changeId;
-  }
-  if (request.actionType === "planning.goal-loop.controlled-continue.run") {
-    return extractString(result, "runtimeRun", "id")
-      ?? extractString(result, "authorization", "id")
-      ?? request.goalLoopGateReadinessPreflightId
-      ?? request.goalLoopControllerPolicyId
-      ?? request.goalLoopNextStepPacketId
-      ?? changeId;
-  }
-  if (request.actionType === "planning.automation.scoped-auto.run") {
-    return extractString(result, "automationRun", "id")
-      ?? extractString(result, "authorization", "id")
-      ?? request.automationCurrentGateTargetId
-      ?? request.automationCurrentGateApprovalActionId
-      ?? request.automationCurrentGateActionType
-      ?? changeId;
-  }
-  if (request.actionType === "planning.goal-loop.evaluate" || request.actionType === "planning.goal-loop.feedback.evaluate" || request.actionType === "planning.goal-loop.controller.refresh" || request.actionType === "planning.goal-loop.gate-readiness.prepare") {
-    if (request.actionType === "planning.goal-loop.gate-readiness.prepare") {
-      return request.goalLoopGateReadinessPreflightId
-        ?? extractString(result, "goalLoopGateReadinessPreflight", "id")
-        ?? request.goalLoopControllerPolicyId
-        ?? extractString(result, "goalLoopGateReadinessPreflight", "sourceGoalLoopControllerPolicyId")
-        ?? request.goalLoopNextStepPacketId
-        ?? extractString(result, "goalLoopGateReadinessPreflight", "sourceGoalLoopNextStepPacketId")
-        ?? changeId;
-    }
-    if (request.actionType === "planning.goal-loop.controller.refresh") {
-      return request.goalLoopControllerPolicyId
-        ?? extractString(result, "goalLoopControllerPolicy", "id")
-        ?? request.goalLoopNextStepPacketId
-        ?? extractString(result, "goalLoopControllerPolicy", "sourceGoalLoopNextStepPacketId")
-        ?? changeId;
-    }
-    if (request.actionType === "planning.goal-loop.feedback.evaluate") {
-      return request.goalLoopFeedbackId
-        ?? extractString(result, "goalLoopFeedback", "id")
-        ?? request.goalLoopNextStepPacketId
-        ?? extractString(result, "goalLoopFeedback", "sourceGoalLoopNextStepPacketId")
-        ?? changeId;
-    }
-    return request.goalLoopNextStepPacketId
-      ?? extractString(result, "goalLoopNextStepPacket", "id")
-      ?? request.goalLoopContinuationBriefId
-      ?? extractString(result, "goalLoopContinuationBrief", "id")
-      ?? request.goalLoopIterationId
-      ?? extractString(result, "goalLoopIteration", "id")
-      ?? request.goalLoopDecisionId
-      ?? extractString(result, "goalLoopDecision", "id")
-      ?? changeId;
-  }
   if (request.actionType === "planning.scheduler.worker.reconcile-result") {
     return request.schedulerWorkerResultId
       ?? extractString(result, "result", "id")
@@ -1109,14 +862,6 @@ export function workflowActionScopesMatchStrict(left: WorkflowActionScopeCarrier
     && sameStrictOptional(left.schedulerIntegrationOutcomeId, right.schedulerIntegrationOutcomeId)
     && sameStrictOptional(left.schedulerRunCompletionId, right.schedulerRunCompletionId)
     && sameStrictOptional(left.schedulerRunBlockedCloseoutId, right.schedulerRunBlockedCloseoutId)
-    && sameStrictOptional(left.goalLoopDecisionId, right.goalLoopDecisionId)
-    && sameStrictOptional(left.goalLoopIterationId, right.goalLoopIterationId)
-    && sameStrictOptional(left.goalLoopContinuationBriefId, right.goalLoopContinuationBriefId)
-    && sameStrictOptional(left.goalLoopNextStepPacketId, right.goalLoopNextStepPacketId)
-    && sameStrictOptional(left.goalLoopFeedbackId, right.goalLoopFeedbackId)
-    && sameStrictOptional(left.goalLoopControllerPolicyId, right.goalLoopControllerPolicyId)
-    && sameStrictOptional(left.goalLoopGateReadinessPreflightId, right.goalLoopGateReadinessPreflightId)
-    && sameStrictOptional(left.goalLoopCurrentGateActionType, right.goalLoopCurrentGateActionType)
     && sameStrictOptional(left.maintenanceProposalId, right.maintenanceProposalId)
     && sameStrictOptional(left.maintenancePatchProposalId, right.maintenancePatchProposalId)
     && sameStrictOptional(left.maintenanceApplicationManifestId, right.maintenanceApplicationManifestId)
@@ -1173,14 +918,6 @@ export function workflowActionScopesMatchCompatible(left: WorkflowActionScopeCar
     && sameCompatibleOptional(left.schedulerIntegrationOutcomeId, right.schedulerIntegrationOutcomeId)
     && sameCompatibleOptional(left.schedulerRunCompletionId, right.schedulerRunCompletionId)
     && sameCompatibleOptional(left.schedulerRunBlockedCloseoutId, right.schedulerRunBlockedCloseoutId)
-    && sameCompatibleOptional(left.goalLoopDecisionId, right.goalLoopDecisionId)
-    && sameCompatibleOptional(left.goalLoopIterationId, right.goalLoopIterationId)
-    && sameCompatibleOptional(left.goalLoopContinuationBriefId, right.goalLoopContinuationBriefId)
-    && sameCompatibleOptional(left.goalLoopNextStepPacketId, right.goalLoopNextStepPacketId)
-    && sameCompatibleOptional(left.goalLoopFeedbackId, right.goalLoopFeedbackId)
-    && sameCompatibleOptional(left.goalLoopControllerPolicyId, right.goalLoopControllerPolicyId)
-    && sameCompatibleOptional(left.goalLoopGateReadinessPreflightId, right.goalLoopGateReadinessPreflightId)
-    && sameCompatibleOptional(left.goalLoopCurrentGateActionType, right.goalLoopCurrentGateActionType)
     && sameCompatibleOptional(left.maintenanceProposalId, right.maintenanceProposalId)
     && sameCompatibleOptional(left.maintenancePatchProposalId, right.maintenancePatchProposalId)
     && sameCompatibleOptional(left.maintenanceApplicationManifestId, right.maintenanceApplicationManifestId)

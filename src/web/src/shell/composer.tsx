@@ -5,15 +5,12 @@ import type { SkillListItem, TopicAttachment, TopicFileReference, WorkpadRuntime
 import { ComposerAttachButton, ComposerAttachmentList, filesFromDrop, hasFileDrag, imageFilesFromPaste } from "./ComposerAttachments.js";
 import { ComposerControls } from "./ComposerControls.js";
 import { buildComposerContextSummary, ComposerContextSourcesPopover, type ComposerContextKind } from "./ComposerContextSources.js";
-import type { ComposerExecutionMode } from "./composer-session.js";
 import { FileMentionPicker } from "./FileMentionPicker.js";
 import { SkillMentionPicker } from "./SkillMentionPicker.js";
 
 export function TopicComposer({
   value,
   onChange,
-  automationMode,
-  onAutomationModeChange,
   modelLabel,
   onOpenModelSettings,
   enabledSkillCount,
@@ -38,8 +35,6 @@ export function TopicComposer({
 }: {
   value: string;
   onChange: (value: string) => void;
-  automationMode: ComposerExecutionMode;
-  onAutomationModeChange: (mode: ComposerExecutionMode) => void;
   modelLabel: string;
   onOpenModelSettings?: () => void;
   enabledSkillCount?: number;
@@ -104,8 +99,6 @@ export function TopicComposer({
       <ComposerControls
         modelLabel={modelLabel}
         onOpenModelSettings={onOpenModelSettings}
-        mode={automationMode}
-        onModeChange={onAutomationModeChange}
         enabledSkillCount={enabledSkillCount}
         contextSummary={contextSummary}
         openContextKind={openContextKind}

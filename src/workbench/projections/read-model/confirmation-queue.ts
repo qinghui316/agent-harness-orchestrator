@@ -4,7 +4,6 @@ import { latestLandingQueueSnapshot } from "../../../landing-queue/manager.js";
 import type { ManagedProject, ResolvedMemory } from "../../../types/index.js";
 import type { WorkbenchConfirmationQueue, WorkbenchDecisionInspector, WorkbenchTopicDetail, WorkbenchWorkpad } from "../../read-model-types.js";
 import { decisionContextToConfirmationItems } from "./confirmation/decision-context.js";
-import { attachControlledSchedulerAdvanceActions, attachGoalLoopAssistedConcreteGateActions, attachGoalLoopControlledContinuationActions, attachGoalLoopControllerRefreshActions, attachGoalLoopFeedbackActions, attachGoalLoopGateReadinessActions, attachGoalLoopSchedulerEvaluationActions, goalLoopEvaluationQueueItem } from "./confirmation/goal-loop.js";
 import { integrationCandidateQueueItem, integrationCheckHistoryItem, integrationCheckNeedsActionQueueItem, integrationCheckNeedsUserAction, integrationCheckQueueItem, sameIntegrationTargets } from "./confirmation/integration.js";
 import { landingCandidateQueueItem, landingLocalTerminalBlockerQueueItem, landingPackageQueueItem, landingQueuePrepareItem, landingQueueSnapshotItems, prDraftQueueItem } from "./confirmation/landing.js";
 import { maintenanceCanonicalUpdateDecisionQueueItems } from "./confirmation/maintenance.js";
@@ -134,14 +133,6 @@ export async function buildConfirmationQueue(input: {
       project: input.project,
       memory: input.memory,
     })).map(scopeConfirmationQueueItemActions));
-  if (!selectedTopicBusy && !selectedTopicInactive && queue.current.length === 0) {
-    const goalLoopItem = goalLoopEvaluationQueueItem(input.project, input.selectedTopic);
-    if (goalLoopItem) queue.current.push(goalLoopItem);
-  }
-  queue.current = attachGoalLoopControlledContinuationActions(attachGoalLoopSchedulerEvaluationActions(attachControlledSchedulerAdvanceActions(attachGoalLoopAssistedConcreteGateActions(attachGoalLoopGateReadinessActions(
-    attachGoalLoopControllerRefreshActions(attachGoalLoopFeedbackActions(queue.current, input.workpad), input.workpad),
-    input.workpad,
-  ), input.workpad), input.workpad), input.project, input.selectedTopic, input.workpad), input.workpad);
   queue.current = dedupeConfirmationItems(queue.current.filter((item) => item.kind !== "maintenance").map(scopeConfirmationQueueItemActions));
   queue.current = promoteSelectedWorkflowNextActionGate(queue.current, input.workpad.nextAction);
   queue.current = promoteSelectedLandingReadinessGate(queue.current, input.selectedTopic?.id);
@@ -217,7 +208,6 @@ function promoteSelectedWorkflowNextActionGate(items: WorkbenchConfirmationQueue
   const index = items.findIndex((item) =>
     item.actions.some((action) =>
       action.actionType === nextAction.actionType
-      || action.goalLoopCurrentGateActionType === nextAction.actionType
     )
   );
   if (index < 0) return items;

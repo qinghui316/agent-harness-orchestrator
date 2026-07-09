@@ -1,28 +1,14 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { delimiter, join } from "node:path";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
-import { runCodexChat, runOrchestratorPlan } from "../../src/workbench/codex-chat/bridge.js";
 import { getWorkbenchSchedulerRunCompletionProjection, getWorkbenchSnapshot } from "../../src/workbench/manager.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { listAgentTasks } from "../../src/agent-task/manager.js";
 import { markWorktreeApplied } from "../../src/worktree/manager.js";
 import { listTaskQueues } from "../../src/task-queue/manager.js";
 import { listWorkflowRuns } from "../../src/workflow-run/manager.js";
-import { compileGoalLoopEvaluation } from "../../src/goal-loop/manager.js";
-import { createFakeCodex, execFileAsync, findSchedulerGateAction, getTempDir, prepareSeededSchedulerIntegrationHandoff, project, readJsonl, unwrapControlledSchedulerAdvanceResult } from "../unit/workbench/fixtures.js";
-import type { RunMetadata } from "../../src/types/index.js";
-import type { WorkbenchDecisionAction } from "../../src/workbench/read-model-types.js";
-
-function findSchedulerGateOrContinuationAction(actions: WorkbenchDecisionAction[], concreteActionType: WorkbenchDecisionAction["actionType"], predicate: (action: WorkbenchDecisionAction) => boolean): WorkbenchDecisionAction | undefined {
-  return actions.find((action) =>
-    Boolean(findSchedulerGateAction([action], concreteActionType, predicate))
-    || (
-      action.actionType === "planning.goal-loop.controlled-continue.run"
-      && action.goalLoopCurrentGateActionType === concreteActionType
-      && predicate(action)
-    ));
-}
+import { execFileAsync, findSchedulerGateAction, getTempDir, prepareSeededSchedulerIntegrationHandoff, project, unwrapWorkflowActionResult } from "../unit/workbench/fixtures.js";
 
 describe("workbench scheduler discard completion slow flow", () => {
   it("records discarded SchedulerRun completion after existing IntegrationCheck discard without mutating source", async () => {
@@ -56,7 +42,7 @@ describe("workbench scheduler discard completion slow flow", () => {
     const outcomeResult = await executeWorkbenchAction({ project: project(), path: getTempDir() }, { ...outcomeAction, confirm: true });
     const outcomeWorkflow = outcomeResult.result as { status?: string; error?: string; result?: unknown };
     if (outcomeWorkflow.status === "failed") throw new Error(outcomeWorkflow.error ?? "discard outcome action failed");
-    const outcomePayload = unwrapControlledSchedulerAdvanceResult(outcomeWorkflow.result ?? outcomeResult.result) as {
+    const outcomePayload = unwrapWorkflowActionResult(outcomeResult.result) as {
       outcome?: {
         id?: string;
         status?: string;
@@ -79,7 +65,7 @@ describe("workbench scheduler discard completion slow flow", () => {
     snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: prepared.topic.changeId });
     const completeAction = snapshot.right.confirmationQueue.current
       .flatMap((item) => item.actions)
-      .find((action) => findSchedulerGateOrContinuationAction([action], "planning.scheduler.run.complete", (candidate) => candidate.schedulerIntegrationOutcomeId === outcomePayload.outcome?.id));
+      .find((action) => findSchedulerGateAction([action], "planning.scheduler.run.complete", (candidate) => candidate.schedulerIntegrationOutcomeId === outcomePayload.outcome?.id));
     let completionPayload = snapshot.center.workpad.schedulerRunCompletion?.schedulerIntegrationOutcomeId === outcomePayload.outcome?.id
       ? {
         completion: snapshot.center.workpad.schedulerRunCompletion,
@@ -92,7 +78,7 @@ describe("workbench scheduler discard completion slow flow", () => {
       const completionResult = await executeWorkbenchAction({ project: project(), path: getTempDir() }, { ...completeAction, confirm: true });
       const completionWorkflow = completionResult.result as { status?: string; error?: string; result?: unknown };
       if (completionWorkflow.status === "failed") throw new Error(completionWorkflow.error ?? "discard completion action failed");
-      const rawCompletionPayload = unwrapControlledSchedulerAdvanceResult(completionWorkflow.result ?? completionResult.result) as {
+      const rawCompletionPayload = unwrapWorkflowActionResult(completionResult.result) as {
         completion?: {
           id?: string;
           status?: string;
@@ -203,22 +189,7 @@ describe("workbench scheduler discard completion slow flow", () => {
       commands: [],
     }, null, 2), "utf8");
     await writeFile(join(terminalChangeDir, "reviews", "review.md"), "Status: approved\n", "utf8");
-    await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: prepared.topic.changeId });
-    const terminalGoalLoopEvaluation = await compileGoalLoopEvaluation(terminalMemory, terminalChangePath);
-    expect(terminalGoalLoopEvaluation.goalLoopDecision).toMatchObject({
-      decisionKind: "completed-ready-for-human-close-gate",
-      recommendedAction: undefined,
-      executionStarted: false,
-    });
-
     snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: prepared.topic.changeId });
-    expect(snapshot.center.workpad.goalLoop).toMatchObject({
-      goalLoopNextStepPacketId: terminalGoalLoopEvaluation.goalLoopNextStepPacket.id,
-      closeGateHandoff: expect.objectContaining({
-        changeId: prepared.topic.changeId,
-        closeActionId: "change.close",
-      }),
-    });
     expect(snapshot.center.workpad.schedulerRunCompletion).toMatchObject({
       id: typedCompletionPayload.completion?.id,
       status: "completed-discarded",
@@ -229,84 +200,6 @@ describe("workbench scheduler discard completion slow flow", () => {
       enabled: true,
       requiresConfirmation: true,
     });
-    const actionsBeforeTerminalPromptRuns = snapshot.right.confirmationQueue.current
-      .flatMap((item) => item.actions)
-      .map((action) => action.actionType)
-      .sort();
-    const oldPath = process.env.PATH;
-    const fakeCodex = await createFakeCodex({ mutateOnExec: false, message: "fake scheduler terminal handoff" });
-    process.env.PATH = `${fakeCodex.binDir}${delimiter}${oldPath ?? ""}`;
-    let terminalChatRun!: RunMetadata;
-    let terminalChatContext!: string;
-    let terminalChatEvents!: Array<Record<string, unknown>>;
-    let terminalOrchestratorRun!: RunMetadata;
-    let terminalOrchestratorContext!: string;
-    let terminalOrchestratorEvents!: Array<Record<string, unknown>>;
-    try {
-      const terminalChat = await runCodexChat(project(), prepared.topic.changeId, "Explain the terminal scheduler handoff.");
-      terminalChatRun = JSON.parse(await readFile(join(terminalMemory.runsRoot, terminalChat.run.id, "run.json"), "utf8")) as RunMetadata;
-      terminalChatContext = await readFile(join(terminalMemory.runsRoot, terminalChat.run.id, "context.md"), "utf8");
-      terminalChatEvents = await readJsonl(join(terminalMemory.runsRoot, terminalChat.run.id, "events.jsonl"));
-
-      const terminalOrchestrator = await runOrchestratorPlan(project(), prepared.topic.changeId, "Plan from the terminal scheduler handoff.");
-      terminalOrchestratorRun = JSON.parse(await readFile(join(terminalMemory.runsRoot, terminalOrchestrator.run.id, "run.json"), "utf8")) as RunMetadata;
-      terminalOrchestratorContext = await readFile(join(terminalMemory.runsRoot, terminalOrchestrator.run.id, "context.md"), "utf8");
-      terminalOrchestratorEvents = await readJsonl(join(terminalMemory.runsRoot, terminalOrchestrator.run.id, "events.jsonl"));
-    } finally {
-      if (oldPath === undefined) delete process.env.PATH;
-      else process.env.PATH = oldPath;
-    }
-    expect(terminalChatRun.promptStack).toEqual(expect.arrayContaining([
-      "goal-loop-next-step-packet",
-      "goal-loop-controlled-loop-state",
-      "goal-loop-scheduler-terminal-handoff",
-    ]));
-    expect(terminalChatContext).toContain("### Scheduler Terminal Handoff");
-    expect(terminalChatContext).toContain("Terminal kind: completion");
-    const terminalChatPrepared = terminalChatEvents.find((event) => event.type === "context.prepared")?.data as Record<string, unknown> | undefined;
-    expect(terminalChatPrepared?.goalLoopSchedulerTerminalHandoff).toEqual(expect.objectContaining({
-      authority: "non-executing-scheduler-terminal-handoff-prompt-evidence",
-      kind: "completion",
-      id: typedCompletionPayload.completion?.id,
-      changeId: prepared.topic.changeId,
-      schedulerRunId: prepared.schedulerRun.id,
-      status: "completed-discarded",
-      loopAuthorized: false,
-      fullParallelExecutorAuthorized: false,
-      wholeWaveDispatchAuthorized: false,
-      slotAllocatorAuthorized: false,
-      sourceMutationAuthorized: false,
-      applyAuthorized: false,
-      closeAuthorized: false,
-      harnessEvolutionAuthorized: false,
-    }));
-    expect(terminalChatPrepared?.goalLoopSchedulerTerminalHandoff).not.toHaveProperty("readyWorktreeIds");
-    expect(terminalChatPrepared?.goalLoopSchedulerTerminalHandoff).not.toHaveProperty("recommendedActionScope");
-    expect(terminalChatPrepared?.goalLoopSchedulerTerminalHandoff).not.toHaveProperty("actionPayload");
-    expect(terminalChatPrepared?.goalLoopSchedulerTerminalHandoff).not.toHaveProperty("markdown");
-
-    expect(terminalOrchestratorRun.promptStack).toEqual(expect.arrayContaining([
-      "goal-loop-next-step-packet",
-      "goal-loop-controlled-loop-state",
-      "goal-loop-scheduler-terminal-handoff",
-    ]));
-    expect(terminalOrchestratorContext).toContain("### Scheduler Terminal Handoff");
-    const terminalOrchestratorPrepared = terminalOrchestratorEvents.find((event) => event.type === "context.prepared")?.data as Record<string, unknown> | undefined;
-    expect(terminalOrchestratorPrepared?.goalLoopSchedulerTerminalHandoff).toEqual(expect.objectContaining({
-      kind: "completion",
-      id: typedCompletionPayload.completion?.id,
-      closeAuthorized: false,
-      harnessEvolutionAuthorized: false,
-    }));
-    expect(terminalOrchestratorPrepared?.goalLoopSchedulerTerminalHandoff).not.toHaveProperty("resultTargetWorktreeIds");
-    expect(terminalOrchestratorPrepared?.goalLoopSchedulerTerminalHandoff).not.toHaveProperty("scope");
-    expect(terminalOrchestratorPrepared?.goalLoopSchedulerTerminalHandoff).not.toHaveProperty("markdown");
-    const actionsAfterTerminalPromptRuns = (await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: prepared.topic.changeId }))
-      .right.confirmationQueue.current
-      .flatMap((item) => item.actions)
-      .map((action) => action.actionType)
-      .sort();
-    expect(actionsAfterTerminalPromptRuns).toEqual(actionsBeforeTerminalPromptRuns);
     expect(await listWorkflowRuns(terminalMemory, prepared.topic.changeId)).toHaveLength(0);
     expect(await listTaskQueues(terminalMemory, prepared.topic.changeId)).toHaveLength(0);
     expect(await listAgentTasks(terminalMemory, prepared.topic.changeId)).toHaveLength(0);

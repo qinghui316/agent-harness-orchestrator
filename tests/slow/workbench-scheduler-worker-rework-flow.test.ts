@@ -11,7 +11,7 @@ import { listTaskQueues } from "../../src/task-queue/manager.js";
 import { listTaskRuns, listWorkerLeases } from "../../src/task-run/manager.js";
 import { listWorkflowRuns } from "../../src/workflow-run/manager.js";
 import { validateSchedulerFirstWorkerRework } from "../../src/scheduler-runtime/worker-rework-validation.js";
-import { createFakeCodex, findSchedulerGateAction, getTempDir, prepareSchedulerFirstWorkerThroughResult, project, unwrapControlledSchedulerAdvanceResult } from "../unit/workbench/fixtures.js";
+import { createFakeCodex, findSchedulerGateAction, getTempDir, prepareSchedulerFirstWorkerThroughResult, project, unwrapWorkflowActionResult } from "../unit/workbench/fixtures.js";
 
 describe("workbench scheduler worker rework slow flow", () => {
   it("compiles a scheduler worker rework plan after first worker validation fails and starts bounded same-worktree rework", async () => {
@@ -27,17 +27,15 @@ describe("workbench scheduler worker rework slow flow", () => {
     if (!validationAction) {
       throw new Error(`Missing scheduler first worker validation action for ${prepared.workerResult.id}. Visible actions: ${JSON.stringify(postResultSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).map((action) => ({
         actionType: action.actionType,
-        goalLoopCurrentGateActionType: action.goalLoopCurrentGateActionType,
         schedulerWorkerResultId: action.schedulerWorkerResultId,
         schedulerWorkerValidationId: action.schedulerWorkerValidationId,
-        maxSteps: action.maxSteps,
       })))}`);
     }
     const validated = await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
       ...validationAction,
       confirm: true,
     });
-    const validatedResult = unwrapControlledSchedulerAdvanceResult((validated.result as { result?: unknown }).result ?? validated.result) as {
+    const validatedResult = unwrapWorkflowActionResult(validated.result) as {
         status?: "passed" | "failed";
         schedulerValidation?: {
           id?: string;
@@ -69,7 +67,7 @@ describe("workbench scheduler worker rework slow flow", () => {
     });
 
     const afterValidationMemory = await resolveProjectMemory(project());
-    expect((await listTaskRuns(afterValidationMemory, prepared.topic.changeId))[0]).toMatchObject({
+    expect((await listTaskRuns(afterValidationMemory, prepared.topic.changeId)).find((taskRun) => taskRun.id === prepared.workerStart.taskRunId)).toMatchObject({
       id: prepared.workerStart.taskRunId,
       status: "blocked",
     });
@@ -116,9 +114,7 @@ describe("workbench scheduler worker rework slow flow", () => {
       ...reworkAction,
       confirm: true,
     });
-    const reworkResult = unwrapControlledSchedulerAdvanceResult((compiled.result as {
-      result?: unknown;
-    }).result ?? compiled.result) as {
+    const reworkResult = unwrapWorkflowActionResult(compiled.result) as {
       existing?: boolean;
       executionStarted?: boolean;
       reworkPlan?: {
@@ -236,7 +232,7 @@ describe("workbench scheduler worker rework slow flow", () => {
         ...reworkStartAction,
         confirm: true,
       });
-      const reworkStartResult = unwrapControlledSchedulerAdvanceResult((startedRework.result as { result?: unknown }).result ?? startedRework.result) as {
+      const reworkStartResult = unwrapWorkflowActionResult(startedRework.result) as {
         executionStarted?: boolean;
         reworkStart?: {
           id?: string;
@@ -332,7 +328,7 @@ describe("workbench scheduler worker rework slow flow", () => {
         ...reworkResultAction,
         confirm: true,
       });
-      const reconciledReworkResult = unwrapControlledSchedulerAdvanceResult((reconciledRework.result as { result?: unknown }).result ?? reconciledRework.result) as {
+      const reconciledReworkResult = unwrapWorkflowActionResult(reconciledRework.result) as {
         status?: string;
         result?: {
           id?: string;
@@ -421,7 +417,7 @@ describe("workbench scheduler worker rework slow flow", () => {
         ...reworkValidationAction,
         confirm: true,
       });
-      const validatedReworkResult = unwrapControlledSchedulerAdvanceResult((validatedRework.result as { result?: unknown }).result ?? validatedRework.result) as {
+      const validatedReworkResult = unwrapWorkflowActionResult(validatedRework.result) as {
         existing?: boolean;
         status?: "passed" | "failed";
         schedulerReworkValidation?: {
@@ -488,11 +484,6 @@ describe("workbench scheduler worker rework slow flow", () => {
       expect(await listWorkflowRuns(afterReworkValidationMemory, prepared.topic.changeId)).toHaveLength(0);
       expect(await listAgentTasks(afterReworkValidationMemory, prepared.topic.changeId)).toHaveLength(0);
       const afterReworkValidationSnapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: prepared.topic.changeId });
-      expect(afterReworkValidationSnapshot.center.workpad.schedulerWorkerReworkValidation).toMatchObject({
-        id: validatedReworkResult.schedulerReworkValidation?.id,
-        status: "failed",
-        worktreeId: prepared.workerStart.worktreeId,
-      });
       expect(afterReworkValidationSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "planning.scheduler.worker.rework-validate-first")).toBe(false);
       expect(afterReworkValidationSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "planning.scheduler.worker.audit-first" || action.actionType === "planning.scheduler.worker.rework-start-first")).toBe(false);
 

@@ -2,14 +2,8 @@
 import { listRuns } from "../../../run/manager.js";
 import { listDemandWorkers } from "../../../demand-worker/manager.js";
 import { listTaskQueues } from "../../../task-queue/manager.js";
-import { buildSchedulerControlledLoopStopSummary, CONTROLLED_STEP_FORBIDDEN_AUTHORITY } from "../../../scheduler-runtime/manager.js";
-import {
-  evaluateControlledSchedulerBoundaryContinuation,
-  type ControlledSchedulerFreshGateSnapshot,
-} from "../../../scheduler-runtime/controlled-loop-continuation-decision.js";
 import { getLatestWorkflowRun, summarizeWorkflowRun } from "../../../workflow-run/manager.js";
 import { readLatestWorkflowGraphPlan } from "../../../workflow-artifacts/manager.js";
-import type { WorkflowActionScopeCarrier } from "../../../workflow-actions/registry.js";
 import type { SchedulerCurrentTransition } from "../../../workflow-actions/scheduler-current-transition.js";
 import { readLatestSchedulerCurrentTransitionView } from "../../../workflow-runtime/scheduler-current-transition-view.js";
 import type { ReadySetWorkflowGraphPlan } from "../../../types/index.js";
@@ -26,7 +20,6 @@ import {
   readSchedulerClaimReservationSummary,
   readSchedulerReconcileSnapshotSummary,
   readSchedulerRuntimeSummary,
-  readLatestSchedulerControlledStepEvidenceSummary,
   readLatestSchedulerWorkerStartSummary,
   readSchedulerWorkerResultSummary,
   readSchedulerWorkerAuditSummary,
@@ -54,7 +47,6 @@ import {
   type WorkbenchSchedulerReconcileSnapshotSummary,
   type WorkbenchSchedulerRunSummary,
   type WorkbenchSchedulerRuntimeSummary,
-  type WorkbenchSchedulerControlledStepEvidenceSummary,
   type WorkbenchSchedulerWorkerResultSummary,
   type WorkbenchSchedulerWorkerAuditSummary,
   type WorkbenchSchedulerWorkerReworkPlanSummary,
@@ -78,7 +70,6 @@ import type { ClarificationRequest } from "../../intake.js";
 import { isConcreteChangeFile } from "./thread-stream.js";
 import { buildAgentTaskSummaries } from "./agent-task-summary.js";
 import { buildMaintenanceSummary } from "./maintenance-summary.js";
-import { filterGoalLoopSummaryForCurrentGate } from "./goal-loop-parity.js";
 import { latestByTimestamp, sortByTimestampDesc } from "./projection-summary.js";
 import {
   buildResultReview,
@@ -93,9 +84,6 @@ import {
   latestOfficialReworkAttempt,
   taskNodeToPreview,
 } from "./task-graph.js";
-import { readLatestGoalLoopSummary } from "./goal-loop.js";
-import { readControlledSchedulerStepTrace, readLatestControlledSchedulerStepReceipt } from "./controlled-scheduler-step-receipt.js";
-import { buildControlledSchedulerWorkpadReconfirmation } from "./confirmation/controlled-scheduler-reconfirmation.js";
 import type {
   AuditSummary,
   ManagedProject,
@@ -294,9 +282,6 @@ export async function buildWorkbenchWorkpad(input: {
   const decompositionReadiness = await readLatestDecompositionReadinessSummary(memory, selectedTopic.path);
   const taskQueueProposal = await readLatestTaskQueueProposalSummary(memory, selectedTopic.path);
   const workflowGraphPlan = await readLatestWorkflowGraphPlanSummary(memory, selectedTopic.path);
-  const rawGoalLoop = await readLatestGoalLoopSummary(memory, selectedTopic.path, selectedTopic.id);
-  const controlledSchedulerStepReceipt = await readLatestControlledSchedulerStepReceipt(memory, selectedTopic.id);
-  const controlledSchedulerStepTrace = await readControlledSchedulerStepTrace(memory, selectedTopic.id);
   const schedulerContract = await readLatestSchedulerContractSummary(memory, selectedTopic.path);
   const schedulerDispatchDryRun = await readLatestSchedulerDispatchDryRunSummary(memory, selectedTopic.path);
   const schedulerWorkerSessionPlan = await readLatestSchedulerWorkerSessionPlanSummary(memory, selectedTopic.path);
@@ -310,7 +295,6 @@ export async function buildWorkbenchWorkpad(input: {
   const scopedSchedulerRun = scopedSchedulerLaunchPreflight && schedulerRun?.schedulerLaunchPreflightId === scopedSchedulerLaunchPreflight.id ? schedulerRun : null;
   const schedulerReadySetGraph = await readLatestReadySetWorkflowGraphPlan(memory, selectedTopic.path, workflowGraphPlan?.id, scopedSchedulerRun?.schedulerContractId);
   const schedulerRuntime = await readSchedulerRuntimeSummary(memory, selectedTopic.path, scopedSchedulerRun?.id);
-  const schedulerControlledStepEvidence = await readLatestSchedulerControlledStepEvidenceSummary(memory, selectedTopic.path, scopedSchedulerRun?.id);
   const schedulerReconcileSnapshot = await readSchedulerReconcileSnapshotSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerRuntime?.lastReconcileSnapshotId);
   const schedulerClaimReservationRaw = await readSchedulerClaimReservationSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerRuntime?.lastClaimReservationId);
   const schedulerLaunchConfirmed = Boolean(schedulerClaimReservationRaw && topicDecisions.some((decision) =>
@@ -320,8 +304,16 @@ export async function buildWorkbenchWorkpad(input: {
     && decision.id === `scheduler-plan-launch-confirmed:${schedulerClaimReservationRaw.id}`
   ));
   const schedulerClaimReservation = schedulerClaimReservationRaw ? { ...schedulerClaimReservationRaw, launchConfirmed: schedulerLaunchConfirmed } : null;
+  const schedulerTransitionView = scopedSchedulerRun && schedulerRuntime?.lastClaimReservationId
+    ? await readLatestSchedulerCurrentTransitionView(memory, selectedTopic.path, scopedSchedulerRun.id, "workbench.workflow-projection").catch(() => null)
+    : null;
   const schedulerWorkerPaths = await readSchedulerWorkerPathSummaries(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerClaimReservation?.id);
-  const activeSchedulerWorkerPath = selectActiveSchedulerWorkerPath(schedulerWorkerPaths);
+  const transitionWorkerStartId = schedulerTransitionView?.transition.kind === "worker-step"
+    ? schedulerTransitionView.transition.worker.schedulerWorkerStartId
+    : undefined;
+  const activeSchedulerWorkerPath = transitionWorkerStartId
+    ? schedulerWorkerPaths.find((path) => path.start.id === transitionWorkerStartId) ?? null
+    : schedulerWorkerPaths[schedulerWorkerPaths.length - 1] ?? null;
   const schedulerWorkerStart = activeSchedulerWorkerPath?.start ?? await readLatestSchedulerWorkerStartSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerClaimReservation?.id);
   const schedulerWorkerResult = activeSchedulerWorkerPath?.result ?? await readSchedulerWorkerResultSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerWorkerStart?.id);
   const schedulerWorkerValidation = activeSchedulerWorkerPath?.validation ?? await readSchedulerWorkerValidationSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerWorkerResult?.id);
@@ -336,9 +328,6 @@ export async function buildWorkbenchWorkpad(input: {
   const schedulerIntegrationOutcome = await readLatestSchedulerIntegrationOutcomeSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerIntegrationCheckHandoff?.id);
   const schedulerRunCompletion = await readLatestSchedulerRunCompletionSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerIntegrationOutcome?.id);
   const schedulerRunBlockedCloseout = await readLatestSchedulerRunBlockedCloseoutSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerIntegrationCandidate?.id);
-  const schedulerTransitionView = scopedSchedulerRun && schedulerRuntime?.lastClaimReservationId
-    ? await readLatestSchedulerCurrentTransitionView(memory, selectedTopic.path, scopedSchedulerRun.id, "workbench.workflow-projection").catch(() => null)
-    : null;
   const workflowRun = await getLatestWorkflowRun(memory, selectedTopic.id).then((run) => run ? summarizeWorkflowRun(run) : null).catch(() => null);
   const agentTasks = await buildAgentTaskSummaries(memory, selectedTopic.id);
   const rolePipeline = buildRolePipelineSummary(selectedTopic, agentTasks);
@@ -354,18 +343,6 @@ export async function buildWorkbenchWorkpad(input: {
     buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, scopedSchedulerDispatchDryRun, scopedSchedulerWorkerSessionPlan, scopedSchedulerClaimReconcilePlan, scopedSchedulerLaunchPreflight, scopedSchedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, schedulerWorkerAudit, schedulerWorkerReworkPlan, schedulerWorkerReworkStart, schedulerWorkerReworkResult, schedulerWorkerReworkValidation, schedulerWorkerReworkAudit, schedulerWorkerPaths, schedulerReadySetGraph, schedulerIntegrationCandidate, schedulerIntegrationCheckHandoff, schedulerIntegrationOutcome, schedulerRunCompletion, schedulerRunBlockedCloseout, schedulerTransitionView?.transition ?? null, schedulerTransitionView?.integrationCandidateNeedsRefresh, workflowRun),
     resultReview,
   );
-  const goalLoop = filterGoalLoopSummaryForCurrentGate(rawGoalLoop, nextAction);
-  const schedulerControlledStepEvidenceForWorkpad = alignControlledSchedulerContinuationReadiness(
-    schedulerControlledStepEvidence,
-    nextAction,
-  );
-  const controlledSchedulerReconfirmation = buildControlledSchedulerWorkpadReconfirmation({
-    nextAction,
-    goalLoop: goalLoop ?? undefined,
-    controlledSchedulerStepReceipt: controlledSchedulerStepReceipt ?? undefined,
-    controlledSchedulerStepTrace: controlledSchedulerStepTrace ?? undefined,
-    schedulerControlledStepEvidence: schedulerControlledStepEvidenceForWorkpad ?? undefined,
-  });
 
   return {
     title: selectedTopic.title,
@@ -398,7 +375,6 @@ export async function buildWorkbenchWorkpad(input: {
     schedulerLaunchPreflight: scopedSchedulerLaunchPreflight ?? undefined,
     schedulerRun: scopedSchedulerRun ?? undefined,
     schedulerRuntime: schedulerRuntime ?? undefined,
-    schedulerControlledStepEvidence: schedulerControlledStepEvidenceForWorkpad ?? undefined,
     schedulerReconcileSnapshot: schedulerReconcileSnapshot ?? undefined,
     schedulerClaimReservation: schedulerClaimReservation ?? undefined,
     schedulerWorkerStart: schedulerWorkerStart ?? undefined,
@@ -443,10 +419,6 @@ export async function buildWorkbenchWorkpad(input: {
     codingPackages,
     taskGraph,
     taskQueue,
-    goalLoop: goalLoop ?? undefined,
-    controlledSchedulerStepReceipt: controlledSchedulerStepReceipt ?? undefined,
-    controlledSchedulerStepTrace: controlledSchedulerStepTrace ?? undefined,
-    controlledSchedulerReconfirmation,
     evidence: buildWorkpadEvidence(selectedTopic, topicApprovals, topicDecisions),
     blockers: [
       ...(selectedTopic.closeGate?.blockingIssues ?? []),
@@ -460,114 +432,6 @@ export async function buildWorkbenchWorkpad(input: {
     nextAction,
     background: buildWorkpadBackground(workpads, selectedTopic.id),
     memoryIsolation: buildWorkpadMemoryIsolation(memory, selectedTopic, workpads),
-  };
-}
-
-export function alignControlledSchedulerContinuationReadiness(
-  step: WorkbenchSchedulerControlledStepEvidenceSummary | null,
-  nextAction: WorkpadNextAction,
-): WorkbenchSchedulerControlledStepEvidenceSummary | null {
-  const readiness = step?.controlledLoopContinuationReadiness;
-  if (!step || !readiness?.nextCandidateActionType) return step;
-  const decision = evaluateControlledSchedulerBoundaryContinuation({
-    changeId: step.changeId,
-    previousStep: step,
-    freshGate: freshGateSnapshotFromNextAction(nextAction),
-  });
-  const withDecision = { ...step, controlledLoopContinuationDecision: decision };
-  if (readiness.status !== "ready-for-human-gate") return withDecision;
-  if (decision.status !== "ready-for-human-gate") {
-    return downgradeContinuationReadiness(withDecision, decision.status, decision.reason);
-  }
-  return withDecision;
-}
-
-function workflowActionCarrierFromNextAction(nextAction: WorkpadNextAction): WorkflowActionScopeCarrier {
-  const carrier: WorkflowActionScopeCarrier = {
-    actionType: nextAction.actionType,
-    changeId: nextAction.changeId,
-  };
-  for (const key of Object.keys(nextAction) as Array<keyof WorkpadNextAction>) {
-    const value = nextAction[key];
-    if (typeof value === "string") {
-      (carrier as Record<string, string | string[]>)[key] = value;
-    } else if (Array.isArray(value) && value.every((item) => typeof item === "string")) {
-      (carrier as Record<string, string | string[]>)[key] = [...value];
-    }
-  }
-  return carrier;
-}
-
-function freshGateSnapshotFromNextAction(nextAction: WorkpadNextAction): ControlledSchedulerFreshGateSnapshot {
-  const scope = nextAction.kind === "workflow-action"
-    ? workflowActionCarrierFromNextAction(nextAction)
-    : { actionType: nextAction.actionType, changeId: nextAction.changeId };
-  return {
-    actionType: nextAction.actionType,
-    changeId: nextAction.changeId,
-    enabled: Boolean(nextAction.enabled),
-    requiresConfirmation: nextAction.kind === "workflow-action" && Boolean(nextAction.requiresConfirmation),
-    scope,
-  };
-}
-
-function downgradeContinuationReadiness(
-  step: WorkbenchSchedulerControlledStepEvidenceSummary,
-  status: NonNullable<WorkbenchSchedulerControlledStepEvidenceSummary["controlledLoopContinuationReadiness"]>["status"],
-  reason: string,
-): WorkbenchSchedulerControlledStepEvidenceSummary {
-  const readiness = step.controlledLoopContinuationReadiness;
-  if (!readiness) return step;
-  const downgraded = {
-    ...step,
-    controlledLoopContinuationReadiness: {
-      ...readiness,
-      status,
-      readinessEvidencePrepared: false,
-      reason,
-    },
-  };
-  return withRecomputedControlledLoopStopSummary(downgraded);
-}
-
-function withRecomputedControlledLoopStopSummary(
-  step: WorkbenchSchedulerControlledStepEvidenceSummary,
-): WorkbenchSchedulerControlledStepEvidenceSummary {
-  if (!step.controlledLoopTurnRouteSummary || !step.controlledLoopTick || !step.controlledLoopContinuationReadiness || !step.controlledLoopIteration) {
-    return step;
-  }
-  return {
-    ...step,
-    controlledLoopStopSummary: buildSchedulerControlledLoopStopSummary({
-      executedActionType: step.executedActionType,
-      postStepHandoff: {
-        status: step.postStepStatus,
-        stopReason: step.controlledLoopTick.routeStop.stopReason,
-        executedActionType: step.executedActionType,
-        needsReevaluation: step.needsReevaluation,
-        nextConfirmationCandidate: step.nextCandidateActionType ? {
-          actionType: step.nextCandidateActionType,
-          readinessEvidencePrepared: step.controlledLoopContinuationReadiness.readinessEvidencePrepared,
-          executionStarted: false,
-          authorizationGranted: false,
-          humanConfirmationStillRequired: true,
-        } : undefined,
-        executionStarted: false,
-        loopAuthorized: false,
-        wholeWaveDispatchAuthorized: false,
-        slotAllocatorAuthorized: false,
-      },
-      controlledLoopTurnRouteSummary: step.controlledLoopTurnRouteSummary,
-      controlledLoopTick: step.controlledLoopTick,
-      controlledLoopContinuationReadiness: step.controlledLoopContinuationReadiness,
-      controlledLoopIteration: step.controlledLoopIteration,
-      controlledStepResultSummary: step.controlledStepResultSummary,
-      forbiddenAuthority: CONTROLLED_STEP_FORBIDDEN_AUTHORITY,
-      evidenceRefs: [
-        ...(step.markdownArtifact ? [step.markdownArtifact] : []),
-        ...(step.artifact ? [step.artifact] : []),
-      ],
-    }),
   };
 }
 
@@ -1025,12 +889,6 @@ function approvalToNextAction(approval: WorkbenchApprovalItem): WorkpadNextActio
     changeId: approval.changeId,
     approvalId: approval.id,
   };
-}
-
-function selectActiveSchedulerWorkerPath(paths: WorkbenchSchedulerWorkerPathSummary[]): WorkbenchSchedulerWorkerPathSummary | null {
-  const nonTerminal = paths.find((path) => !path.terminal);
-  if (nonTerminal) return nonTerminal;
-  return paths[paths.length - 1] ?? null;
 }
 
 async function readLatestReadySetWorkflowGraphPlan(

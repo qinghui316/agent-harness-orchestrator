@@ -11,6 +11,11 @@ import {
   type SchedulerIntegrationCheckHandoffResult,
 } from "../scheduler-runtime/integration-check-handoff.js";
 import {
+  reconcileSchedulerIntegrationOutcome,
+  type SchedulerIntegrationOutcomeInput,
+  type SchedulerIntegrationOutcomeResult,
+} from "../scheduler-runtime/integration-outcome.js";
+import {
   closeSchedulerRunBlockedOrExhausted,
   type SchedulerRunBlockedCloseoutInput,
   type SchedulerRunBlockedCloseoutResult,
@@ -28,10 +33,19 @@ import {
   type SchedulerNextWorkerStartInput,
   type SchedulerWorkerStartExactTarget,
 } from "../scheduler-runtime/worker-start.js";
+import { reconcileSchedulerFirstWorkerResult, type SchedulerWorkerResultReconcileInput, type SchedulerWorkerResultReconcileResult } from "../scheduler-runtime/worker-result.js";
+import { validateSchedulerFirstWorker, type SchedulerWorkerValidationInput, type SchedulerWorkerValidationResult } from "../scheduler-runtime/worker-validation.js";
+import { auditSchedulerFirstWorker, type SchedulerWorkerAuditInput, type SchedulerWorkerAuditResult } from "../scheduler-runtime/worker-audit.js";
+import { compileSchedulerFirstWorkerReworkPlan, type SchedulerWorkerReworkPlanInput, type SchedulerWorkerReworkPlanResult } from "../scheduler-runtime/worker-rework-plan.js";
+import { startFirstSchedulerWorkerRework, type SchedulerFirstWorkerReworkStartInput, type SchedulerFirstWorkerReworkStartResult } from "../scheduler-runtime/worker-rework.js";
+import { reconcileSchedulerFirstWorkerReworkResult, type SchedulerWorkerReworkResultReconcileInput, type SchedulerWorkerReworkResultReconcileResult } from "../scheduler-runtime/worker-rework-result.js";
+import { validateSchedulerFirstWorkerRework, type SchedulerWorkerReworkValidationInput, type SchedulerWorkerReworkValidationResult } from "../scheduler-runtime/worker-rework-validation.js";
+import { auditSchedulerFirstWorkerRework, type SchedulerWorkerReworkAuditInput, type SchedulerWorkerReworkAuditResult } from "../scheduler-runtime/worker-rework-audit.js";
 import type { ManagedProject, ReadySetWorkflowGraphNode, ReadySetWorkflowGraphStageRef } from "../types/index.js";
 import { schedulerTransitionMatchesStartRequest } from "../workflow-actions/scheduler-current-transition.js";
 import {
   assertSchedulerCurrentTransitionAction,
+  assertSchedulerCurrentTransitionRequest,
   readLatestSchedulerCurrentTransitionView,
   type SchedulerCurrentTransitionActionType,
   type SchedulerCurrentTransitionView,
@@ -44,15 +58,33 @@ export type SchedulerReadySetWorkerStartAction =
 export type SchedulerReadySetCurrentStep =
   | { actionType: "planning.scheduler.worker.start-first"; input: SchedulerFirstWorkerStartInput }
   | { actionType: "planning.scheduler.worker.start-next"; input: SchedulerNextWorkerStartInput }
+  | { actionType: "planning.scheduler.worker.reconcile-result"; input: SchedulerWorkerResultReconcileInput }
+  | { actionType: "planning.scheduler.worker.validate-first"; input: SchedulerWorkerValidationInput }
+  | { actionType: "planning.scheduler.worker.audit-first"; input: SchedulerWorkerAuditInput }
+  | { actionType: "planning.scheduler.worker.rework-plan.compile"; input: SchedulerWorkerReworkPlanInput }
+  | { actionType: "planning.scheduler.worker.rework-start-first"; input: SchedulerFirstWorkerReworkStartInput }
+  | { actionType: "planning.scheduler.worker.rework-reconcile-result"; input: SchedulerWorkerReworkResultReconcileInput }
+  | { actionType: "planning.scheduler.worker.rework-validate-first"; input: SchedulerWorkerReworkValidationInput }
+  | { actionType: "planning.scheduler.worker.rework-audit-first"; input: SchedulerWorkerReworkAuditInput }
   | { actionType: "planning.scheduler.integration-candidate.compile"; input: SchedulerIntegrationCandidateInput }
   | { actionType: "planning.scheduler.integration-check.run"; input: SchedulerIntegrationCheckHandoffInput }
+  | { actionType: "planning.scheduler.integration-outcome.reconcile"; input: SchedulerIntegrationOutcomeInput }
   | { actionType: "planning.scheduler.run.complete"; input: SchedulerRunCompletionInput }
   | { actionType: "planning.scheduler.run.close-blocked"; input: SchedulerRunBlockedCloseoutInput };
 
 export type SchedulerReadySetCurrentStepResult =
   | SchedulerFirstWorkerStartResult
+  | SchedulerWorkerResultReconcileResult
+  | SchedulerWorkerValidationResult
+  | SchedulerWorkerAuditResult
+  | SchedulerWorkerReworkPlanResult
+  | SchedulerFirstWorkerReworkStartResult
+  | SchedulerWorkerReworkResultReconcileResult
+  | SchedulerWorkerReworkValidationResult
+  | SchedulerWorkerReworkAuditResult
   | SchedulerIntegrationCandidateResult
   | SchedulerIntegrationCheckHandoffResult
+  | SchedulerIntegrationOutcomeResult
   | SchedulerRunCompletionResult
   | SchedulerRunBlockedCloseoutResult;
 
@@ -60,6 +92,14 @@ export function runSchedulerReadySetCurrentStep(
   project: ManagedProject,
   step: { actionType: "planning.scheduler.worker.start-first"; input: SchedulerFirstWorkerStartInput },
 ): Promise<SchedulerFirstWorkerStartResult>;
+export function runSchedulerReadySetCurrentStep(project: ManagedProject, step: { actionType: "planning.scheduler.worker.reconcile-result"; input: SchedulerWorkerResultReconcileInput }): Promise<SchedulerWorkerResultReconcileResult>;
+export function runSchedulerReadySetCurrentStep(project: ManagedProject, step: { actionType: "planning.scheduler.worker.validate-first"; input: SchedulerWorkerValidationInput }): Promise<SchedulerWorkerValidationResult>;
+export function runSchedulerReadySetCurrentStep(project: ManagedProject, step: { actionType: "planning.scheduler.worker.audit-first"; input: SchedulerWorkerAuditInput }): Promise<SchedulerWorkerAuditResult>;
+export function runSchedulerReadySetCurrentStep(project: ManagedProject, step: { actionType: "planning.scheduler.worker.rework-plan.compile"; input: SchedulerWorkerReworkPlanInput }): Promise<SchedulerWorkerReworkPlanResult>;
+export function runSchedulerReadySetCurrentStep(project: ManagedProject, step: { actionType: "planning.scheduler.worker.rework-start-first"; input: SchedulerFirstWorkerReworkStartInput }): Promise<SchedulerFirstWorkerReworkStartResult>;
+export function runSchedulerReadySetCurrentStep(project: ManagedProject, step: { actionType: "planning.scheduler.worker.rework-reconcile-result"; input: SchedulerWorkerReworkResultReconcileInput }): Promise<SchedulerWorkerReworkResultReconcileResult>;
+export function runSchedulerReadySetCurrentStep(project: ManagedProject, step: { actionType: "planning.scheduler.worker.rework-validate-first"; input: SchedulerWorkerReworkValidationInput }): Promise<SchedulerWorkerReworkValidationResult>;
+export function runSchedulerReadySetCurrentStep(project: ManagedProject, step: { actionType: "planning.scheduler.worker.rework-audit-first"; input: SchedulerWorkerReworkAuditInput }): Promise<SchedulerWorkerReworkAuditResult>;
 export function runSchedulerReadySetCurrentStep(
   project: ManagedProject,
   step: { actionType: "planning.scheduler.worker.start-next"; input: SchedulerNextWorkerStartInput },
@@ -72,6 +112,7 @@ export function runSchedulerReadySetCurrentStep(
   project: ManagedProject,
   step: { actionType: "planning.scheduler.integration-check.run"; input: SchedulerIntegrationCheckHandoffInput },
 ): Promise<SchedulerIntegrationCheckHandoffResult>;
+export function runSchedulerReadySetCurrentStep(project: ManagedProject, step: { actionType: "planning.scheduler.integration-outcome.reconcile"; input: SchedulerIntegrationOutcomeInput }): Promise<SchedulerIntegrationOutcomeResult>;
 export function runSchedulerReadySetCurrentStep(
   project: ManagedProject,
   step: { actionType: "planning.scheduler.run.complete"; input: SchedulerRunCompletionInput },
@@ -93,19 +134,56 @@ export async function runSchedulerReadySetCurrentStep(
       const exactTarget = await resolveSchedulerReadySetCurrentWorkerExactTarget(project, step.input, step.actionType);
       return startSchedulerCoderWorkerForReadySetTarget(project, step.input, exactTarget, step.actionType);
     }
+    case "planning.scheduler.worker.reconcile-result":
+      await assertSchedulerReadySetCurrentRequest(project, step.input, step.actionType);
+      return reconcileSchedulerFirstWorkerResult(project, step.input);
+    case "planning.scheduler.worker.validate-first":
+      await assertSchedulerReadySetCurrentRequest(project, step.input, step.actionType);
+      return validateSchedulerFirstWorker(project, step.input);
+    case "planning.scheduler.worker.audit-first":
+      await assertSchedulerReadySetCurrentRequest(project, step.input, step.actionType);
+      return auditSchedulerFirstWorker(project, step.input);
+    case "planning.scheduler.worker.rework-plan.compile":
+      await assertSchedulerReadySetCurrentRequest(project, step.input, step.actionType);
+      return compileSchedulerFirstWorkerReworkPlan(project, step.input);
+    case "planning.scheduler.worker.rework-start-first":
+      await assertSchedulerReadySetCurrentRequest(project, step.input, step.actionType);
+      return startFirstSchedulerWorkerRework(project, step.input);
+    case "planning.scheduler.worker.rework-reconcile-result":
+      await assertSchedulerReadySetCurrentRequest(project, step.input, step.actionType);
+      return reconcileSchedulerFirstWorkerReworkResult(project, step.input);
+    case "planning.scheduler.worker.rework-validate-first":
+      await assertSchedulerReadySetCurrentRequest(project, step.input, step.actionType);
+      return validateSchedulerFirstWorkerRework(project, step.input);
+    case "planning.scheduler.worker.rework-audit-first":
+      await assertSchedulerReadySetCurrentRequest(project, step.input, step.actionType);
+      return auditSchedulerFirstWorkerRework(project, step.input);
     case "planning.scheduler.integration-candidate.compile":
       await assertSchedulerReadySetCurrentStep(project, step.input, step.actionType);
       return compileSchedulerIntegrationCandidate(project, step.input);
     case "planning.scheduler.integration-check.run":
-      await assertSchedulerReadySetCurrentStep(project, step.input, step.actionType);
+      await assertSchedulerReadySetCurrentRequest(project, step.input, step.actionType);
       return runSchedulerIntegrationCheckHandoff(project, step.input);
+    case "planning.scheduler.integration-outcome.reconcile":
+      await assertSchedulerReadySetCurrentRequest(project, step.input, step.actionType);
+      return reconcileSchedulerIntegrationOutcome(project, step.input);
     case "planning.scheduler.run.complete":
-      await assertSchedulerReadySetCurrentStep(project, step.input, step.actionType);
+      await assertSchedulerReadySetCurrentRequest(project, step.input, step.actionType);
       return completeSchedulerRunFromIntegrationOutcome(project, step.input);
     case "planning.scheduler.run.close-blocked":
-      await assertSchedulerReadySetCurrentStep(project, step.input, step.actionType);
+      await assertSchedulerReadySetCurrentRequest(project, step.input, step.actionType);
       return closeSchedulerRunBlockedOrExhausted(project, step.input);
   }
+}
+
+async function assertSchedulerReadySetCurrentRequest(
+  project: ManagedProject,
+  input: { changeId: string; schedulerRunId: string; schedulerClaimReservationId?: string },
+  actionType: SchedulerCurrentTransitionActionType,
+): Promise<SchedulerCurrentTransitionView> {
+  const view = await readSchedulerReadySetCurrentStepView(project, input, actionType);
+  assertSchedulerCurrentTransitionRequest(view, actionType, input);
+  return view;
 }
 
 export async function assertSchedulerReadySetCurrentStep(
@@ -243,10 +321,19 @@ function schedulerReadySetActionLabel(actionType: SchedulerCurrentTransitionActi
       return "Scheduler first worker start";
     case "planning.scheduler.worker.start-next":
       return "Scheduler next worker start";
+    case "planning.scheduler.worker.reconcile-result": return "Scheduler worker result reconcile";
+    case "planning.scheduler.worker.validate-first": return "Scheduler worker validation";
+    case "planning.scheduler.worker.audit-first": return "Scheduler worker audit";
+    case "planning.scheduler.worker.rework-plan.compile": return "Scheduler worker rework plan";
+    case "planning.scheduler.worker.rework-start-first": return "Scheduler worker rework start";
+    case "planning.scheduler.worker.rework-reconcile-result": return "Scheduler worker rework result reconcile";
+    case "planning.scheduler.worker.rework-validate-first": return "Scheduler worker rework validation";
+    case "planning.scheduler.worker.rework-audit-first": return "Scheduler worker rework audit";
     case "planning.scheduler.integration-candidate.compile":
       return "Scheduler integration candidate compile";
     case "planning.scheduler.integration-check.run":
       return "Scheduler IntegrationCheck run";
+    case "planning.scheduler.integration-outcome.reconcile": return "Scheduler integration outcome reconcile";
     case "planning.scheduler.run.complete":
       return "Scheduler run complete";
     case "planning.scheduler.run.close-blocked":

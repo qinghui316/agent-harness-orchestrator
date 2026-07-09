@@ -5,7 +5,6 @@ import {
   ResultReviewNarrative,
   RoleToolResultRows,
 } from "./workpad/PlanningCards.js";
-import { GoalLoopPrimarySummary } from "./workpad/GoalLoopCards.js";
 import { ClarificationCard } from "./workpad/TaskGraphCards.js";
 import { WorkpadActionButton } from "./workpad/WorkpadActionButton.js";
 import { WorkpadDiagnosticDetails } from "./workpad/WorkpadDetails.js";
@@ -26,7 +25,6 @@ export function WorkpadView(props: {
   const approval = workpad.nextAction.approvalId ? approvals.find((item) => item.id === workpad.nextAction.approvalId) : undefined;
   const maintenanceNotice = workpad.maintenance?.status && workpad.maintenance.status !== "idle" ? workpad.maintenance : null;
   const mainAgentExecution = mainAgentExecutionForWorkpad(workpad);
-  const hidePrimaryAction = Boolean(workpad.controlledSchedulerReconfirmation || (workpad.goalLoop && isControlledContinuationAction(workpad.nextAction.actionType)));
   return (
     <div className="parent-conversation" data-testid="workpad-view">
       <section className="parent-agent-card">
@@ -35,16 +33,14 @@ export function WorkpadView(props: {
           <h2>{workpad.title}</h2>
           <p>{parentAgentNarrative(workpad)}</p>
         </div>
-        {hidePrimaryAction ? null : (
-          <WorkpadActionButton
-            action={workpad.nextAction}
-            approval={approval}
-            busy={busy}
-            sanitizeInternal
-            onWorkflowAction={onWorkflowAction}
-            onConfirmApproval={onConfirmApproval}
-          />
-        )}
+        <WorkpadActionButton
+          action={workpad.nextAction}
+          approval={approval}
+          busy={busy}
+          sanitizeInternal
+          onWorkflowAction={onWorkflowAction}
+          onConfirmApproval={onConfirmApproval}
+        />
       </section>
 
       {workpad.pendingFeedback?.length ? (
@@ -54,13 +50,6 @@ export function WorkpadView(props: {
             <p key={feedback.id}>{feedback.text} <span className="muted-inline">本轮完成后会用于下一次调整。</span></p>
           ))}
         </section>
-      ) : null}
-
-      {workpad.goalLoop ? (
-        <GoalLoopPrimarySummary
-          goalLoop={workpad.goalLoop}
-          controlledSchedulerReconfirmation={workpad.controlledSchedulerReconfirmation}
-        />
       ) : null}
 
       {mainAgentExecution ? <RoleToolResultRows pipeline={mainAgentExecution} /> : null}
@@ -116,8 +105,4 @@ export function WorkpadView(props: {
       </details>
     </div>
   );
-}
-
-function isControlledContinuationAction(actionType: string | undefined): boolean {
-  return Boolean(actionType?.startsWith("planning.goal-loop.") || actionType?.startsWith("planning.scheduler."));
 }

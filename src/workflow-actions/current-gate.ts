@@ -6,11 +6,10 @@ import {
   type WorkflowActionType,
 } from "./registry.js";
 
-export const CURRENT_GATE_SCOPE_KEYS = WORKFLOW_ACTION_SCOPE_KEYS.filter((key) => !key.startsWith("goalLoop"));
+export const CURRENT_GATE_SCOPE_KEYS = WORKFLOW_ACTION_SCOPE_KEYS;
 
 export type CurrentGateClassification =
   | "concrete"
-  | "recursive-goal-loop"
   | "manual-barrier"
   | "terminal-human-gate";
 
@@ -177,7 +176,6 @@ export function readCurrentGateRequestScope(
 
 export function classifyCurrentGateActionType(actionType: string | undefined): CurrentGateClassification {
   if (!actionType) return "terminal-human-gate";
-  if (actionType.startsWith("planning.goal-loop.")) return "recursive-goal-loop";
   if (MANUAL_BARRIER_ACTION_TYPES.has(actionType)) return "manual-barrier";
   if (TERMINAL_HUMAN_GATE_ACTION_TYPES.has(actionType)) return "terminal-human-gate";
   return "concrete";
@@ -188,8 +186,6 @@ export function validateCurrentGateContract(source: WorkflowActionScopeCarrier &
   const actionType = source.actionType;
   if (!actionType) {
     issues.push({ label: "actionType", message: "Current gate requires actionType." });
-  } else if (actionType.startsWith("planning.goal-loop.")) {
-    issues.push({ label: "concrete current gate", message: "Current gate cannot target recursive Goal Loop actions." });
   }
   issues.push(...validateWorkflowActionRequiredTargets(source).map(requiredTargetIssue));
   for (const flag of FORBIDDEN_NON_EXECUTING_TRUE_FLAGS) {

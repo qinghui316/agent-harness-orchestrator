@@ -1,9 +1,6 @@
 import { getChangeStatusForChange } from "../../../change/manager.js";
 import { assertWritableMemory } from "../../../memory/resolver.js";
 import {
-  recordMainAgentWorkflowGraphObservationAndReplay,
-} from "../../../main-agent-orchestration/index.js";
-import {
   prepareSchedulerPlanEvidence,
   renderSchedulerLaunchBriefMarkdown,
   renderSchedulerIntegrationCheckHandoffMarkdown,
@@ -205,7 +202,6 @@ export async function generateDecompositionPlan(
     payload: { plan },
     completedAt: new Date().toISOString(),
   });
-  await recordMainAgentWorkflowGraphObservationAndReplay(memory, project, changeId, { changePath });
   return { plan };
 }
 
@@ -238,7 +234,6 @@ export async function confirmDecompositionPlan(
     summary: "Proposal acceptance was recorded without starting execution.",
     artifactRef: confirmed.artifact,
   });
-  await recordMainAgentWorkflowGraphObservationAndReplay(memory, project, changeId, { changePath });
   return { plan: confirmed, executionStarted: false };
 }
 
@@ -272,7 +267,6 @@ export async function assessDecompositionReadiness(
     summary: "Confirmed DecompositionPlan was checked against execution guardrails. No execution artifacts were created.",
     artifactRef: manifest.artifact,
   });
-  await recordMainAgentWorkflowGraphObservationAndReplay(memory, project, changeId, { changePath });
   return { manifest, executionStarted: false };
 }
 
@@ -306,7 +300,6 @@ export async function proposeTaskQueue(
     summary: "A typed TaskQueueProposal was generated; no execution records were created.",
     artifactRef: proposal.artifact,
   });
-  await recordMainAgentWorkflowGraphObservationAndReplay(memory, project, changeId, { changePath });
   return { proposal, executionStarted: false };
 }
 
@@ -353,7 +346,6 @@ export async function compileTaskQueueWorkflowGraph(
     summary: "A versioned typed workflow graph was generated; no TaskQueue or WorkflowRun was started.",
     artifactRef: graph.artifact,
   });
-  await recordMainAgentWorkflowGraphObservationAndReplay(memory, project, changeId, { changePath });
   return { graph, executionStarted: false };
 }
 

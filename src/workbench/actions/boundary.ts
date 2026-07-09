@@ -7,7 +7,6 @@ import { readRun } from "../../run/repository.js";
 import { assertLatestSchedulerRuntimeClaimReservationForSnapshot, readSchedulerRuntimeLineage } from "../../scheduler-runtime/guards.js";
 import { findSchedulerClaimReservationForSnapshot, findSchedulerRuntimeWorkerAuditForValidation, findSchedulerRuntimeWorkerResultForStart, findSchedulerRuntimeWorkerReworkAuditForValidation, findSchedulerRuntimeWorkerReworkPlanForBlockingEvidence, findSchedulerRuntimeWorkerReworkResultForStart, findSchedulerRuntimeWorkerReworkStartForPlan, findSchedulerRuntimeWorkerReworkValidationForResult, findSchedulerRuntimeWorkerStartForReservationIntent, findSchedulerRuntimeWorkerValidationForResult, readLatestSchedulerIntegrationCandidateProjection, readLatestSchedulerIntegrationCheckHandoffProjection, readLatestSchedulerIntegrationOutcomeProjection, readLatestSchedulerRunBlockedCloseoutProjection, readLatestSchedulerRunCompletionProjection, readSchedulerIntegrationOutcome, readSchedulerReconcileSnapshot, readSchedulerRuntimeClaimReservation, readSchedulerRuntimeStateProjection, readSchedulerRuntimeWorkerAudit, readSchedulerRuntimeWorkerResult, readSchedulerRuntimeWorkerReworkPlan, readSchedulerRuntimeWorkerReworkResult, readSchedulerRuntimeWorkerReworkStart, readSchedulerRuntimeWorkerReworkValidation, readSchedulerRuntimeWorkerStart, readSchedulerRuntimeWorkerValidation } from "../../scheduler-runtime/repository.js";
 import { latestLandingQueueSnapshot } from "../../landing-queue/manager.js";
-import { readLatestGoalLoopControllerPolicy, readLatestGoalLoopNextStepPacket } from "../../goal-loop/manager.js";
 import { listTaskQueues } from "../../task-queue/manager.js";
 import { listTaskRuns } from "../../task-run/manager.js";
 import type { ManagedProject, ResolvedMemory } from "../../types/index.js";
@@ -38,12 +37,9 @@ import {
   workflowActionScopesMatchStrict,
   workflowActionTargetId as buildWorkflowActionTargetId,
 } from "../../workflow-actions/registry.js";
-import { readCurrentGateRequestScope } from "../../workflow-actions/current-gate.js";
-import { CONTROLLED_SCHEDULER_ADVANCE_ACTION_TYPE, CONTROLLED_SCHEDULER_STEP_ACTION_TYPE, buildControlledSchedulerStepRequest, isControlledSchedulerConcreteAction } from "../../workflow-scheduler/controlled-step.js";
 import { readWorkflowRun } from "../../workflow-run/manager.js";
 import type { WorkbenchLiveSink, WorkbenchWorkflowActionRequest } from "../types.js";
 import { assertLatestWorkbenchActionTarget, assertPreparedWorkbenchActionTarget, assertWorkbenchActionChangeScope, assertWorkbenchActionOptionalStringTarget, assertWorkbenchActionStringArrayTarget, requireActiveChangeTarget } from "./active-target.js";
-import { assertGoalLoopAssistedConcreteGateConfirmation } from "./goal-loop-gate-confirmation.js";
 
 const HIGH_IMPACT_WORKBENCH_ACTIONS = new Set(highImpactActions());
 
@@ -116,55 +112,6 @@ export async function auditHighImpactWorkflowAction(project: ManagedProject, cha
 }
 
 async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, changeId: string, request: WorkbenchWorkflowActionRequest): Promise<void> {
-  if (request.actionType === CONTROLLED_SCHEDULER_ADVANCE_ACTION_TYPE) {
-    await requireActiveChangeTarget(memory, changeId, "planning.scheduler.controlled-advance.run");
-    assertWorkbenchActionChangeScope(request.changeId, changeId, "planning.scheduler.controlled-advance.run");
-    if (!isControlledSchedulerConcreteAction(request.goalLoopCurrentGateActionType)) {
-      throw new Error("planning.scheduler.controlled-advance.run requires a concrete planning.scheduler.* current gate.");
-    }
-    await assertCurrentHighImpactWorkflowTarget(memory, changeId, {
-      ...request,
-      actionType: request.goalLoopCurrentGateActionType,
-    });
-    return;
-  }
-  if (request.actionType === "planning.goal-loop.controlled-continue.run") {
-    const target = await requireActiveChangeTarget(memory, changeId, "planning.goal-loop.controlled-continue.run");
-    assertWorkbenchActionChangeScope(request.changeId, changeId, "planning.goal-loop.controlled-continue.run");
-    if (!request.goalLoopNextStepPacketId) throw new Error("planning.goal-loop.controlled-continue.run requires goalLoopNextStepPacketId.");
-    if (!request.goalLoopControllerPolicyId) throw new Error("planning.goal-loop.controlled-continue.run requires goalLoopControllerPolicyId.");
-    if (!request.goalLoopGateReadinessPreflightId) throw new Error("planning.goal-loop.controlled-continue.run requires goalLoopGateReadinessPreflightId.");
-    if (!isControlledSchedulerConcreteAction(request.goalLoopCurrentGateActionType)) {
-      throw new Error("planning.goal-loop.controlled-continue.run requires a concrete planning.scheduler.* current gate.");
-    }
-    await assertGoalLoopAssistedConcreteGateConfirmation(memory, target.path, changeId, {
-      ...request,
-      actionType: request.goalLoopCurrentGateActionType,
-    });
-    await assertCurrentHighImpactWorkflowTarget(memory, changeId, {
-      ...request,
-      actionType: request.goalLoopCurrentGateActionType,
-    });
-    return;
-  }
-  if (request.actionType === "planning.automation.scoped-auto.run") {
-    await requireActiveChangeTarget(memory, changeId, "planning.automation.scoped-auto.run");
-    assertWorkbenchActionChangeScope(request.changeId, changeId, "planning.automation.scoped-auto.run");
-    if (request.automationMode !== "full-access") throw new Error("planning.automation.scoped-auto.run requires automationMode full-access.");
-    if (!request.automationCurrentGateActionType && !request.automationCurrentGateApprovalActionId) throw new Error("planning.automation.scoped-auto.run requires a current gate target.");
-    if (request.automationCurrentGateActionType && request.automationCurrentGateApprovalActionId) throw new Error("planning.automation.scoped-auto.run requires exactly one current gate target.");
-    return;
-  }
-  if (request.actionType === CONTROLLED_SCHEDULER_STEP_ACTION_TYPE) {
-    const target = await requireActiveChangeTarget(memory, changeId, "planning.scheduler.controlled-step.run");
-    const { concrete } = buildControlledSchedulerStepRequest(request);
-    await assertGoalLoopAssistedConcreteGateConfirmation(memory, target.path, changeId, concrete);
-    return;
-  }
-  if (request.goalLoopGateReadinessPreflightId) {
-    const target = await requireActiveChangeTarget(memory, changeId, "Goal Loop-assisted concrete gate");
-    await assertGoalLoopAssistedConcreteGateConfirmation(memory, target.path, changeId, request);
-  }
   if (request.actionType === "planning.decomposition.confirm") {
     const target = await requireActiveChangeTarget(memory, changeId, "planning.decomposition.confirm");
     if (!request.decompositionPlanId) throw new Error("planning.decomposition.confirm requires decompositionPlanId.");
@@ -187,66 +134,6 @@ async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, cha
     const manifest = await readLatestDecompositionReadinessManifest(memory, target.path);
     if (manifest.id !== request.readinessManifestId || manifest.status !== "ready-for-sequential-taskqueue-proposal" || manifest.nextAllowedAction !== "taskqueue.proposal") {
       throw new Error("planning.taskqueue.propose target is stale or no longer proposal-ready.");
-    }
-  }
-  if (request.actionType === "planning.goal-loop.evaluate") {
-    await requireActiveChangeTarget(memory, changeId, "planning.goal-loop.evaluate");
-    assertWorkbenchActionChangeScope(request.changeId, changeId, "planning.goal-loop.evaluate");
-  }
-  if (request.actionType === "planning.goal-loop.feedback.evaluate") {
-    const target = await requireActiveChangeTarget(memory, changeId, "planning.goal-loop.feedback.evaluate");
-    assertWorkbenchActionChangeScope(request.changeId, changeId, "planning.goal-loop.feedback.evaluate");
-    if (!request.goalLoopNextStepPacketId) throw new Error("planning.goal-loop.feedback.evaluate requires goalLoopNextStepPacketId.");
-    const packet = await readLatestGoalLoopNextStepPacket(memory, target.path);
-    if (packet.id !== request.goalLoopNextStepPacketId || packet.changeId !== changeId || packet.executionStarted !== false) {
-      throw new Error("planning.goal-loop.feedback.evaluate target is stale or no longer feedback-ready.");
-    }
-  }
-  if (request.actionType === "planning.goal-loop.controller.refresh") {
-    const target = await requireActiveChangeTarget(memory, changeId, "planning.goal-loop.controller.refresh");
-    assertWorkbenchActionChangeScope(request.changeId, changeId, "planning.goal-loop.controller.refresh");
-    if (!request.goalLoopNextStepPacketId) throw new Error("planning.goal-loop.controller.refresh requires goalLoopNextStepPacketId.");
-    if (!request.goalLoopCurrentGateActionType) throw new Error("planning.goal-loop.controller.refresh requires goalLoopCurrentGateActionType.");
-    const packet = await readLatestGoalLoopNextStepPacket(memory, target.path);
-    if (packet.id !== request.goalLoopNextStepPacketId || packet.changeId !== changeId || packet.executionStarted !== false) {
-      throw new Error("planning.goal-loop.controller.refresh target is stale or no longer refreshable.");
-    }
-    if (!packet.recommendedAction || packet.recommendedAction.actionType !== request.goalLoopCurrentGateActionType) {
-      throw new Error("planning.goal-loop.controller.refresh target no longer matches the current gate.");
-    }
-  }
-  if (request.actionType === "planning.goal-loop.gate-readiness.prepare") {
-    const target = await requireActiveChangeTarget(memory, changeId, "planning.goal-loop.gate-readiness.prepare");
-    assertWorkbenchActionChangeScope(request.changeId, changeId, "planning.goal-loop.gate-readiness.prepare");
-    if (!request.goalLoopNextStepPacketId) throw new Error("planning.goal-loop.gate-readiness.prepare requires goalLoopNextStepPacketId.");
-    if (!request.goalLoopControllerPolicyId) throw new Error("planning.goal-loop.gate-readiness.prepare requires goalLoopControllerPolicyId.");
-    if (!request.goalLoopCurrentGateActionType) throw new Error("planning.goal-loop.gate-readiness.prepare requires goalLoopCurrentGateActionType.");
-    if (request.goalLoopCurrentGateActionType.startsWith("planning.goal-loop.")) throw new Error("planning.goal-loop.gate-readiness.prepare cannot target recursive Goal Loop actions.");
-    const [packet, policy] = await Promise.all([
-      readLatestGoalLoopNextStepPacket(memory, target.path),
-      readLatestGoalLoopControllerPolicy(memory, target.path),
-    ]);
-    if (packet.id !== request.goalLoopNextStepPacketId || packet.changeId !== changeId || packet.executionStarted !== false) {
-      throw new Error("planning.goal-loop.gate-readiness.prepare packet target is stale.");
-    }
-    if (
-      policy.id !== request.goalLoopControllerPolicyId
-      || policy.changeId !== changeId
-      || policy.sourceGoalLoopNextStepPacketId !== packet.id
-      || policy.verdict !== "recommend-existing-gate"
-      || policy.gateStatus !== "matches-current-gate"
-      || policy.executionStarted !== false
-      || !policy.currentGate
-    ) {
-      throw new Error("planning.goal-loop.gate-readiness.prepare controller policy target is stale.");
-    }
-    if (!packet.recommendedAction || packet.recommendedAction.actionType !== request.goalLoopCurrentGateActionType || policy.currentGate.actionType !== request.goalLoopCurrentGateActionType) {
-      throw new Error("planning.goal-loop.gate-readiness.prepare target no longer matches the current gate.");
-    }
-    const expectedGate = { actionType: request.goalLoopCurrentGateActionType, changeId, ...packet.recommendedAction.scope };
-    const requestedGate = { actionType: request.goalLoopCurrentGateActionType, changeId, ...readCurrentGateRequestScope(request, packet.recommendedAction.scope) };
-    if (!workflowActionScopesMatchStrict(expectedGate, requestedGate)) {
-      throw new Error("planning.goal-loop.gate-readiness.prepare concrete gate scope mismatch.");
     }
   }
   if (request.actionType === "planning.scheduler.plan.prepare") {

@@ -9,10 +9,11 @@ import {
   readSchedulerRuntimeClaimReservation,
   readSchedulerRuntimeState,
 } from "../scheduler-runtime/repository.js";
+import { readIntegrationCheck } from "../integration-check/repository.js";
 import { schedulerIntegrationCandidateNeedsRefresh } from "../scheduler-runtime/worker-path.js";
-import { readSchedulerWorkerPathReadModelsForReservation, schedulerWorkerPathsToLikes } from "../scheduler-runtime/worker-path-read-model.js";
+import { readSchedulerWorkerPathReadModelsForReservation, type SchedulerWorkerPathReadModel } from "../scheduler-runtime/worker-path-read-model.js";
 import { readLatestWorkflowGraphPlan } from "../workflow-artifacts/manager.js";
-import { resolveSchedulerCurrentTransition, type SchedulerCurrentTransition, type SchedulerCurrentTransitionWorkerPath } from "../workflow-actions/scheduler-current-transition.js";
+import { resolveSchedulerCurrentTransition, schedulerCurrentTransitionWorkerTargetKey, type SchedulerCurrentTransition } from "../workflow-actions/scheduler-current-transition.js";
 import type { ReadySetWorkflowGraphPlan, ResolvedMemory } from "../types/index.js";
 import type { SchedulerRun } from "../workflow-scheduler/manager.js";
 import type { SchedulerIntegrationCandidate, SchedulerRuntimeClaimReservation, SchedulerRuntimeState } from "../scheduler-runtime/manager.js";
@@ -20,8 +21,17 @@ import type { SchedulerIntegrationCandidate, SchedulerRuntimeClaimReservation, S
 export type SchedulerCurrentTransitionActionType =
   | "planning.scheduler.worker.start-first"
   | "planning.scheduler.worker.start-next"
+  | "planning.scheduler.worker.reconcile-result"
+  | "planning.scheduler.worker.validate-first"
+  | "planning.scheduler.worker.audit-first"
+  | "planning.scheduler.worker.rework-plan.compile"
+  | "planning.scheduler.worker.rework-start-first"
+  | "planning.scheduler.worker.rework-reconcile-result"
+  | "planning.scheduler.worker.rework-validate-first"
+  | "planning.scheduler.worker.rework-audit-first"
   | "planning.scheduler.integration-candidate.compile"
   | "planning.scheduler.integration-check.run"
+  | "planning.scheduler.integration-outcome.reconcile"
   | "planning.scheduler.run.complete"
   | "planning.scheduler.run.close-blocked";
 
@@ -37,7 +47,7 @@ export interface SchedulerCurrentTransitionView {
   runtimeState: SchedulerRuntimeState;
   reservation: SchedulerRuntimeClaimReservation;
   graph: ReadySetWorkflowGraphPlan;
-  workerPaths: SchedulerCurrentTransitionWorkerPath[];
+  workerPaths: SchedulerWorkerPathReadModel[];
   integrationCandidate: SchedulerIntegrationCandidate | null;
   integrationCandidateNeedsRefresh: boolean;
   integrationCheckHandoffExists: boolean;
@@ -75,15 +85,23 @@ export async function readSchedulerCurrentTransitionView(
   existingEvidence: SchedulerCurrentTransitionExistingEvidence = {},
 ): Promise<SchedulerCurrentTransitionView> {
   const graph = await readLatestReadySetGraph(memory, changePath, run, runtimeState, reservation, actionType);
-  const workerPaths = schedulerWorkerPathsToLikes(await readSchedulerWorkerPathReadModelsForReservation(memory, changePath, run.id, reservation));
+  const workerPaths = await readSchedulerWorkerPathReadModelsForReservation(memory, changePath, run.id, reservation);
   const integrationCandidate = await readLatestSchedulerIntegrationCandidateProjection(memory, changePath, run.id);
   const integrationCandidateNeedsRefresh = integrationCandidate
-    ? schedulerIntegrationCandidateNeedsRefresh(integrationCandidate, workerPaths)
+    ? schedulerIntegrationCandidateNeedsRefresh(integrationCandidate, workerPaths.map((path) => ({
+      start: path.start,
+      terminal: path.terminal,
+      ...(path.audit ? { audit: path.audit } : {}),
+      ...(path.reworkAudit ? { reworkAudit: path.reworkAudit } : {}),
+    })))
     : true;
-  const integrationCheckHandoffExists = existingEvidence.integrationCheckHandoffExists
-    ?? Boolean(await readLatestSchedulerIntegrationCheckHandoffProjection(memory, changePath, run.id));
-  const integrationOutcomeExists = existingEvidence.integrationOutcomeExists
-    ?? Boolean(await readLatestSchedulerIntegrationOutcomeProjection(memory, changePath, run.id));
+  const integrationCheckHandoff = await readLatestSchedulerIntegrationCheckHandoffProjection(memory, changePath, run.id);
+  const currentIntegrationCheck = integrationCheckHandoff
+    ? await readIntegrationCheck(memory, integrationCheckHandoff.integrationCheckId).catch(() => null)
+    : null;
+  const integrationCheckHandoffExists = existingEvidence.integrationCheckHandoffExists ?? Boolean(integrationCheckHandoff);
+  const integrationOutcome = await readLatestSchedulerIntegrationOutcomeProjection(memory, changePath, run.id);
+  const integrationOutcomeExists = existingEvidence.integrationOutcomeExists ?? Boolean(integrationOutcome);
   const runCompletionExists = existingEvidence.runCompletionExists
     ?? Boolean(await readLatestSchedulerRunCompletionProjection(memory, changePath, run.id));
   const runBlockedCloseoutExists = existingEvidence.runBlockedCloseoutExists
@@ -107,8 +125,14 @@ export async function readSchedulerCurrentTransitionView(
       workerPaths,
       integrationCandidate,
       integrationCandidateNeedsRefresh,
+      integrationCheckHandoff: integrationCheckHandoff ? {
+        id: integrationCheckHandoff.id,
+        integrationCheckStatus: integrationCheckHandoff.integrationCheckStatus,
+        currentIntegrationCheckStatus: currentIntegrationCheck?.status,
+      } : null,
       integrationCheckHandoffExists,
       integrationOutcomeExists,
+      integrationOutcomeId: integrationOutcome?.id,
       runCompletionExists,
       runBlockedCloseoutExists,
     }),
@@ -121,6 +145,37 @@ export function assertSchedulerCurrentTransitionAction(
 ): void {
   if (view.transition.actionType !== actionType) {
     throw new Error(`${actionType} is blocked by the current Scheduler ready-set transition.`);
+  }
+}
+
+export function assertSchedulerCurrentTransitionRequest(
+  view: SchedulerCurrentTransitionView,
+  actionType: SchedulerCurrentTransitionActionType,
+  input: Record<string, unknown>,
+): void {
+  assertSchedulerCurrentTransitionAction(view, actionType);
+  const transition = view.transition;
+  if (transition.kind === "worker-step") {
+    const targetKey = schedulerCurrentTransitionWorkerTargetKey(transition.actionType);
+    if (input[targetKey] !== transition.worker[targetKey]) {
+      throw new Error(`${actionType} must target the current Scheduler worker transition.`);
+    }
+  }
+  if (transition.kind === "integration-check" && transition.schedulerIntegrationCandidateId
+    && input.schedulerIntegrationCandidateId !== transition.schedulerIntegrationCandidateId) {
+    throw new Error(`${actionType} must target the current Scheduler integration candidate.`);
+  }
+  if (transition.kind === "integration-outcome" && transition.schedulerIntegrationCheckHandoffId
+    && input.schedulerIntegrationCheckHandoffId !== transition.schedulerIntegrationCheckHandoffId) {
+    throw new Error(`${actionType} must target the current Scheduler integration handoff.`);
+  }
+  if (transition.kind === "run-complete" && transition.schedulerIntegrationOutcomeId
+    && input.schedulerIntegrationOutcomeId !== transition.schedulerIntegrationOutcomeId) {
+    throw new Error(`${actionType} must target the current Scheduler integration outcome.`);
+  }
+  if (transition.kind === "close-blocked" && transition.schedulerIntegrationCandidateId
+    && input.schedulerIntegrationCandidateId !== transition.schedulerIntegrationCandidateId) {
+    throw new Error(`${actionType} must target the current Scheduler integration candidate.`);
   }
 }
 

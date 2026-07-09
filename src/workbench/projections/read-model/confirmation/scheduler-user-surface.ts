@@ -6,11 +6,6 @@ export interface SchedulerUserFacingActionCopy {
   riskSummary: string;
 }
 
-export interface SchedulerControlledAdvanceCopyOptions {
-  currentGateActionType?: string;
-  refreshed?: boolean;
-}
-
 const DEFAULT_COPY: SchedulerUserFacingActionCopy = {
   label: "继续当前执行步骤",
   summary: "主 Agent 已判断出低冲突任务路径的下一步。",
@@ -33,20 +28,6 @@ const COPY_BY_ACTION_TYPE: Record<string, SchedulerUserFacingActionCopy> = {
     whyNeedsConfirmation: "需要你确认认可这个低冲突执行方向；这仍不是批量启动。",
     confirmEffect: "只记录可恢复的执行入口和人工确认依据。",
     riskSummary: "不会启动任务、分配并行资源、创建工作副本或绕过后续单步确认。",
-  },
-  "planning.scheduler.controlled-step.run": {
-    label: "执行一个受控步骤",
-    summary: "主 Agent 已确认当前要处理的执行步骤；确认后只处理这一项。",
-    whyNeedsConfirmation: "需要你确认这次只推进当前这一步，不进入连续自动执行。",
-    confirmEffect: "服务端会重新读取当前状态，校验目标和权限，然后只执行一个已确认的执行步骤。",
-    riskSummary: "执行后立即停止；不会自动运行下一步、批量启动任务、组合检查后的应用、关闭、远端落地或维护演进。",
-  },
-  "planning.scheduler.controlled-advance.run": {
-    label: "按当前建议继续一个受控步骤",
-    summary: "主 Agent 将先刷新下一步判断，再只推进当前这一项。",
-    whyNeedsConfirmation: "需要你确认当前页面显示的下一步仍是要处理的步骤。",
-    confirmEffect: "服务端会重新读取当前状态，重新匹配目标和权限；匹配后只执行一个受控步骤。",
-    riskSummary: "执行后立即停止；不会自动运行下一步、连续循环、批量启动任务、组合检查后的应用、关闭、远端落地或维护演进。",
   },
   "planning.scheduler.worker.start-first": continueNextTaskCopy(),
   "planning.scheduler.worker.start-next": continueNextTaskCopy(),
@@ -82,39 +63,6 @@ export function schedulerUserFacingActionCopy(actionType: string | undefined): S
   return COPY_BY_ACTION_TYPE[actionType] ?? DEFAULT_COPY;
 }
 
-export function schedulerControlledAdvanceCopy(options: SchedulerControlledAdvanceCopyOptions = {}): SchedulerUserFacingActionCopy {
-  const baseCopy = COPY_BY_ACTION_TYPE["planning.scheduler.controlled-advance.run"];
-  const currentStepLabel = controlledAdvanceStepLabel(options.currentGateActionType);
-  if (options.refreshed) {
-    if (!currentStepLabel) return schedulerControlledAdvanceReconfirmCopy();
-    return {
-      label: baseCopy.label,
-      summary: `当前下一步判断和步骤检查已刷新；这次仍是新的单步确认，步骤类别是：${currentStepLabel}。`,
-      whyNeedsConfirmation: `需要你再次确认当前页面显示的“${currentStepLabel}”；这不是自动继续。`,
-      confirmEffect: `服务端会重新读取当前状态，重新匹配目标和权限；匹配后只执行“${currentStepLabel}”这一当前合法步骤。`,
-      riskSummary: "确认后仍会立即停止；不会自动循环、批量启动任务、组合检查后的应用、关闭、远端落地或维护演进。",
-    };
-  }
-  if (!currentStepLabel) return baseCopy;
-  return {
-    label: baseCopy.label,
-    summary: `主 Agent 将先刷新下一步判断；当前显示的步骤类别是：${currentStepLabel}。`,
-    whyNeedsConfirmation: `需要你确认当前页面显示的“${currentStepLabel}”仍是要处理的单步。`,
-    confirmEffect: `服务端会重新读取当前状态，重新匹配目标和权限；匹配后只执行“${currentStepLabel}”这一受控步骤。`,
-    riskSummary: "执行后立即停止；不会自动运行下一步、连续循环、批量启动任务、组合检查后的应用、关闭、远端落地或维护演进。",
-  };
-}
-
-export function schedulerControlledAdvanceReconfirmCopy(): SchedulerUserFacingActionCopy {
-  return {
-    label: COPY_BY_ACTION_TYPE["planning.scheduler.controlled-advance.run"].label,
-    summary: "当前下一步判断和步骤检查已刷新；这次仍是新的单步确认。",
-    whyNeedsConfirmation: "需要你再次确认当前页面显示的这一步；这不是自动继续。",
-    confirmEffect: "服务端会重新读取当前状态，重新匹配目标和权限；匹配后只执行一个当前合法步骤。",
-    riskSummary: "确认后仍会立即停止；不会自动循环、批量启动任务、组合检查后的应用、关闭、远端落地或维护演进。",
-  };
-}
-
 export function schedulerUserFacingActionLabel(actionType: string | undefined): string {
   return schedulerUserFacingActionCopy(actionType).label;
 }
@@ -122,14 +70,6 @@ export function schedulerUserFacingActionLabel(actionType: string | undefined): 
 export function knownSchedulerUserFacingActionLabel(actionType: string | undefined): string | undefined {
   if (!actionType) return undefined;
   return COPY_BY_ACTION_TYPE[actionType]?.label;
-}
-
-function controlledAdvanceStepLabel(actionType: string | undefined): string | undefined {
-  if (!actionType) return undefined;
-  if (actionType === "planning.scheduler.controlled-advance.run") return undefined;
-  if (actionType === "planning.scheduler.controlled-step.run") return undefined;
-  const copy = COPY_BY_ACTION_TYPE[actionType];
-  return copy?.label;
 }
 
 function continueNextTaskCopy(): SchedulerUserFacingActionCopy {

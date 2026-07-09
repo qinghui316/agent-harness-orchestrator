@@ -161,11 +161,11 @@ describe("Workbench helper boundaries", () => {
   });
 
   it("keeps Workbench action target revalidation helpers pure and fail-closed", () => {
-    expect(() => assertWorkbenchActionChangeScope("other-change", "current-change", "planning.goal-loop.evaluate"))
-      .toThrow("planning.goal-loop.evaluate changeId scope mismatch.");
-    expect(() => assertWorkbenchActionChangeScope("current-change", "current-change", "planning.goal-loop.evaluate"))
+    expect(() => assertWorkbenchActionChangeScope("other-change", "current-change", "code.run"))
+      .toThrow("code.run changeId scope mismatch.");
+    expect(() => assertWorkbenchActionChangeScope("current-change", "current-change", "code.run"))
       .not.toThrow();
-    expect(() => assertWorkbenchActionChangeScope(undefined, "current-change", "planning.goal-loop.evaluate"))
+    expect(() => assertWorkbenchActionChangeScope(undefined, "current-change", "code.run"))
       .not.toThrow();
 
     expect(() => assertLatestWorkbenchActionTarget(
@@ -301,6 +301,6 @@ describe("Workbench helper boundaries", () => {
     expect(helper).toContain("assertPreparedWorkbenchActionTarget");
     expect(helper).toContain("assertWorkbenchActionStringArrayTarget");
     expect(helper).toContain("assertWorkbenchActionOptionalStringTarget");
-    expect(helper).not.toMatch(/scheduler-runtime|goal-loop|ToolPolicy|server\/|web\/src|repository/);
+    expect(helper).not.toMatch(/scheduler-runtime|ToolPolicy|server\/|web\/src|repository/);
   });
 });

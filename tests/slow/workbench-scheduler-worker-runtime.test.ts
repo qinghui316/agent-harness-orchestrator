@@ -12,8 +12,7 @@ import { listWorktreeStatuses } from "../../src/worktree/manager.js";
 import { listTaskQueues } from "../../src/task-queue/manager.js";
 import { listTaskRuns, listWorkerLeases } from "../../src/task-run/manager.js";
 import { listWorkflowRuns } from "../../src/workflow-run/manager.js";
-import { runSchedulerWorkerAudit, runSchedulerWorkerValidation } from "../../src/workflow-runtime/scheduler.js";
-import { createFakeCodex, findSchedulerGateAction, getTempDir, git, initGitRepository, project, unwrapControlledSchedulerAdvanceResult, writeAcceptedSpecAndTasks } from "../unit/workbench/fixtures.js";
+import { createFakeCodex, findSchedulerGateAction, getTempDir, git, initGitRepository, project, unwrapWorkflowActionResult, writeAcceptedSpecAndTasks } from "../unit/workbench/fixtures.js";
 
 describe("workbench scheduler worker runtime slow path", () => {
   it("starts and validates the first scheduler worker after prepared launch confirmation", async () => {
@@ -26,6 +25,17 @@ describe("workbench scheduler worker runtime slow path", () => {
     await writeAcceptedSpecAndTasks(topic.changeId);
     const changeDir = join(tempDir, "harness", "changes", "active", topic.changeId);
     await writeFile(join(changeDir, "tasks.md"), [
+      "# Tasks",
+      "",
+      "- [ ] T-001: Update module A.",
+      "  - Covers: AC-001",
+      "- [ ] T-002: Update module B.",
+      "  - Covers: AC-001",
+      "",
+    ].join("\n"), "utf8");
+    await writeFile(join(tempDir, "spec.md"), "# Spec\n\n## Acceptance Criteria\n\n- AC-001: Update module A and module B through Scheduler workers.\n", "utf8");
+    await writeFile(join(tempDir, "plan.md"), "# Plan\n\nRun the accepted Scheduler worker stages.\n", "utf8");
+    await writeFile(join(tempDir, "tasks.md"), [
       "# Tasks",
       "",
       "- [ ] T-001: Update module A.",
@@ -105,8 +115,9 @@ describe("workbench scheduler worker runtime slow path", () => {
       readinessManifestId: manifest?.id,
       confirm: true,
     });
-    const preparedResult = (prepared.result as {
-      result?: {
+    const preparedWorkflow = prepared.result as { status?: string; error?: string };
+    if (preparedWorkflow.status === "failed") throw new Error(preparedWorkflow.error ?? "scheduler plan prepare failed");
+    const preparedResult = unwrapWorkflowActionResult(prepared.result) as {
         status?: string;
         mode?: string;
         contract?: { id?: string; waveCount?: number; readinessManifestId?: string };
@@ -120,7 +131,6 @@ describe("workbench scheduler worker runtime slow path", () => {
         claimReservation?: { id?: string; schedulerRunId?: string; schedulerReconcileSnapshotId?: string; reservedCount?: number; blockedCount?: number };
         launchBrief?: { status?: string; schedulerRunId?: string; schedulerReconcileSnapshotId?: string; schedulerClaimReservationId?: string; reservedCount?: number; blockedCount?: number; summary?: string };
       };
-    }).result;
     expect(preparedResult).toMatchObject({ status: "prepared", mode: "prepared-new-evidence" });
     const contract = preparedResult?.contract;
     const dryRun = preparedResult?.dryRun;
@@ -237,8 +247,7 @@ describe("workbench scheduler worker runtime slow path", () => {
     });
     expect(startSnapshot.right.confirmationQueue.primary?.actions).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        actionType: "planning.scheduler.controlled-advance.run",
-        goalLoopCurrentGateActionType: "planning.scheduler.worker.start-first",
+        actionType: "planning.scheduler.worker.start-first",
         schedulerRunId: schedulerRun?.id,
         schedulerClaimReservationId: claimReservation?.id,
       }),
@@ -265,10 +274,7 @@ describe("workbench scheduler worker runtime slow path", () => {
         ...startAction,
         confirm: true,
       });
-      const startedActionResult = (started.result as {
-        result?: unknown;
-      }).result ?? started.result;
-      const startedResult = unwrapControlledSchedulerAdvanceResult(startedActionResult) as {
+      const startedResult = unwrapWorkflowActionResult(started.result) as {
           executionStarted?: boolean;
           workerStart?: {
             id?: string;
@@ -352,6 +358,20 @@ describe("workbench scheduler worker runtime slow path", () => {
         confirm: true,
       })).rejects.toThrow("stale or no longer available");
 
+      const secondStartSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
+      const secondStartAction = secondStartSnapshot.right.confirmationQueue.current
+        .flatMap((item) => item.actions)
+        .find((action) => findSchedulerGateAction([action], "planning.scheduler.worker.start-next", (candidate) => candidate.schedulerRunId === schedulerRun?.id));
+      if (!secondStartAction) throw new Error("Missing concrete scheduler second worker start action.");
+      const secondStarted = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...secondStartAction, confirm: true });
+      const secondStartedResult = unwrapWorkflowActionResult(secondStarted.result) as {
+        workerStart?: { id?: string; taskRunId?: string; workerLeaseId?: string; worktreeId?: string; runId?: string };
+      };
+      expect(secondStartedResult.workerStart).toMatchObject({
+        schedulerRunId: schedulerRun?.id,
+        schedulerClaimReservationId: claimReservation?.id,
+      });
+
       const resultSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
       expect(resultSnapshot.center.workpad.nextAction).toMatchObject({
         actionType: "planning.scheduler.worker.reconcile-result",
@@ -374,24 +394,7 @@ describe("workbench scheduler worker runtime slow path", () => {
         confirm: true,
       });
       expect(reconciled.result).toMatchObject({ status: "completed" });
-      const reconciledActionResult = (reconciled.result as {
-        result?: {
-          status?: "terminal" | "running";
-          result?: {
-            id?: string;
-            status?: string;
-            schedulerWorkerStartId?: string;
-            taskRunId?: string;
-            workerLeaseId?: string;
-            worktreeId?: string;
-            runId?: string;
-          };
-          taskRun?: { id?: string; status?: string };
-          lease?: { id?: string; status?: string };
-          codeRun?: { id?: string; status?: string };
-        };
-      }).result ?? reconciled.result;
-      const reconciledResult = unwrapControlledSchedulerAdvanceResult(reconciledActionResult) as {
+      const reconciledResult = unwrapWorkflowActionResult(reconciled.result) as {
         status?: "terminal" | "running";
         result?: {
           id?: string;
@@ -420,7 +423,7 @@ describe("workbench scheduler worker runtime slow path", () => {
         lease: { id: startedResult?.workerStart?.workerLeaseId, status: "released" },
         codeRun: { id: startedResult?.workerStart?.runId, status: "completed" },
       });
-      expect((await listTaskRuns(afterMemory, topic.changeId))[0]).toMatchObject({ id: startedResult?.workerStart?.taskRunId, status: "evidence-ready" });
+      expect((await listTaskRuns(afterMemory, topic.changeId)).find((taskRun) => taskRun.id === startedResult?.workerStart?.taskRunId)).toMatchObject({ id: startedResult?.workerStart?.taskRunId, status: "evidence-ready" });
       expect((await listWorkerLeases(afterMemory, topic.changeId)).find((lease) => lease.id === startedResult?.workerStart?.workerLeaseId)).toMatchObject({ status: "released" });
       const workerResultPath = join(changeDir, "planning", "scheduler-runs", `${schedulerRun?.id}`, "scheduler-worker-results", `${reconciledResult?.result?.id}.json`);
       expect(JSON.parse(await readFile(workerResultPath, "utf8"))).toMatchObject({
@@ -473,25 +476,7 @@ describe("workbench scheduler worker runtime slow path", () => {
         ...validationAction,
         confirm: true,
       });
-      const validatedActionResult = (validated.result as {
-        result?: {
-          status?: "passed" | "failed";
-          schedulerValidation?: {
-            id?: string;
-            status?: string;
-            schedulerWorkerResultId?: string;
-            taskRunId?: string;
-            workerLeaseId?: string;
-            worktreeId?: string;
-            codeRunId?: string;
-            validationRunId?: string;
-          };
-          taskRun?: { id?: string; status?: string };
-          validationRun?: { id?: string; runtime?: string; worktree?: { worktreeId?: string } };
-          validationResult?: { id?: string; status?: string; worktreeId?: string };
-        };
-      }).result ?? validated.result;
-      const validatedResult = unwrapControlledSchedulerAdvanceResult(validatedActionResult) as {
+      const validatedResult = unwrapWorkflowActionResult(validated.result) as {
         status?: "passed" | "failed";
         schedulerValidation?: {
           id?: string;
@@ -550,8 +535,8 @@ describe("workbench scheduler worker runtime slow path", () => {
         }),
       ]));
       const postValidationMemory = await resolveProjectMemory(project());
-      expect((await listTaskRuns(postValidationMemory, topic.changeId))[0]).toMatchObject({ id: startedResult?.workerStart?.taskRunId, status: "evidence-ready" });
-      expect((await listRuns(postValidationMemory)).filter((run) => run.changeId === topic.changeId)).toHaveLength(2);
+      expect((await listTaskRuns(postValidationMemory, topic.changeId)).find((taskRun) => taskRun.id === startedResult?.workerStart?.taskRunId)).toMatchObject({ id: startedResult?.workerStart?.taskRunId, status: "evidence-ready" });
+      expect((await listRuns(postValidationMemory)).filter((run) => run.changeId === topic.changeId)).toHaveLength(3);
       const postValidationSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
       expect(postValidationSnapshot.center.workpad.schedulerWorkerValidation).toMatchObject({
         id: validatedResult?.schedulerValidation?.id,
@@ -577,24 +562,11 @@ describe("workbench scheduler worker runtime slow path", () => {
         schedulerRunId: schedulerRun?.id,
         schedulerWorkerValidationId: validatedResult?.schedulerValidation?.id,
       });
-      const repeatedValidation = await runSchedulerWorkerValidation(project(), {
-        changeId: topic.changeId,
-        schedulerRunId: `${schedulerRun?.id}`,
-        schedulerWorkerResultId: `${reconciledResult?.result?.id}`,
-      });
-      expect(repeatedValidation).toMatchObject({
-        existing: true,
-        executionStarted: false,
-        schedulerValidation: { id: validatedResult?.schedulerValidation?.id },
-      });
       const audited = await executeWorkbenchAction({ project: project(), path: tempDir }, {
         ...auditAction,
         confirm: true,
       });
-      const auditedActionResult = (audited.result as {
-        result?: unknown;
-      }).result ?? audited.result;
-      const auditedResult = (unwrapControlledSchedulerAdvanceResult(auditedActionResult) as {
+      const auditedResult = (unwrapWorkflowActionResult(audited.result) as {
         existing?: boolean;
         executionStarted?: boolean;
         schedulerAudit?: {
@@ -668,40 +640,25 @@ describe("workbench scheduler worker runtime slow path", () => {
         }),
       ]));
       const postAuditMemory = await resolveProjectMemory(project());
-      expect((await listTaskRuns(postAuditMemory, topic.changeId))[0]).toMatchObject({ id: startedResult?.workerStart?.taskRunId, status: "completed" });
-      expect((await listRuns(postAuditMemory)).filter((run) => run.changeId === topic.changeId)).toHaveLength(3);
+      expect((await listTaskRuns(postAuditMemory, topic.changeId)).find((taskRun) => taskRun.id === startedResult?.workerStart?.taskRunId)).toMatchObject({ id: startedResult?.workerStart?.taskRunId, status: "completed" });
+      expect((await listRuns(postAuditMemory)).filter((run) => run.changeId === topic.changeId)).toHaveLength(4);
       const postAuditSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
-      expect(postAuditSnapshot.center.workpad.schedulerWorkerAudit).toMatchObject({
-        id: auditedResult.schedulerAudit?.id,
-        status: "approved",
-        schedulerWorkerValidationId: validatedResult?.schedulerValidation?.id,
-      });
       expect(postAuditSnapshot.center.workpad.nextAction).toMatchObject({
-        actionType: "planning.scheduler.integration-candidate.compile",
+        actionType: "planning.scheduler.worker.reconcile-result",
         enabled: true,
         schedulerRunId: schedulerRun?.id,
-        schedulerWorkerAuditId: auditedResult.schedulerAudit?.id,
+        schedulerWorkerStartId: secondStartedResult.workerStart?.id,
       });
       expect(postAuditSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "planning.scheduler.worker.audit-first")).toBe(false);
       expect(postAuditSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => findSchedulerGateAction(
         [action],
-        "planning.scheduler.integration-candidate.compile",
-        (candidate) => candidate.schedulerWorkerAuditId === auditedResult.schedulerAudit?.id,
+        "planning.scheduler.worker.reconcile-result",
+        (candidate) => candidate.schedulerWorkerStartId === secondStartedResult.workerStart?.id,
       ))).toBe(true);
       expect(postAuditSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => {
         const actionType = action.actionType ?? "";
         return actionType === "apply-check.run" || actionType.startsWith("landing.") || actionType.startsWith("remote-landing.");
       })).toBe(false);
-      const repeatedAudit = await runSchedulerWorkerAudit(project(), {
-        changeId: topic.changeId,
-        schedulerRunId: `${schedulerRun?.id}`,
-        schedulerWorkerValidationId: `${validatedResult?.schedulerValidation?.id}`,
-      });
-      expect(repeatedAudit).toMatchObject({
-        existing: true,
-        executionStarted: false,
-        schedulerAudit: { id: auditedResult.schedulerAudit?.id },
-      });
       await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
         ...resultAction,
         confirm: true,

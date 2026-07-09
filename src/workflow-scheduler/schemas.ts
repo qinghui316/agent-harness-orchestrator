@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { SchedulerClaimReconcilePlan, SchedulerContract, SchedulerDispatchDryRun, SchedulerExecutionModeAssessment, SchedulerLaunchPreflight, SchedulerRun, SchedulerRunJournalEvent, SchedulerWorkerSessionPlan } from "./types.js";
+import type { SchedulerClaimReconcilePlan, SchedulerContract, SchedulerDispatchDryRun, SchedulerLaunchPreflight, SchedulerRun, SchedulerRunJournalEvent, SchedulerWorkerSessionPlan } from "./types.js";
 
 const workerPermissionProfileSchema = z.object({
   version: z.literal("1.0"),
@@ -294,21 +294,4 @@ export const schedulerRunJournalEventSchema: z.ZodType<SchedulerRunJournalEvent>
   summary: z.string().optional(),
   artifactRefs: z.array(z.string()).optional(),
   payload: z.record(z.unknown()).optional(),
-});
-
-export const schedulerExecutionModeAssessmentSchema: z.ZodType<SchedulerExecutionModeAssessment> = z.object({
-  authority: z.literal("non-executing-scheduler-execution-mode-evidence"),
-  mode: z.enum(["single-gate-staged", "terminal-human-close-gate", "blocked-or-waiting", "waiting-for-evidence"]),
-  loopAuthorized: z.literal(false),
-  fullParallelExecutorAuthorized: z.literal(false),
-  wholeWaveDispatchAuthorized: z.literal(false),
-  slotAllocatorAuthorized: z.literal(false),
-  currentGate: z.object({
-    actionType: z.string(),
-    separateHumanGateRequired: z.literal(true),
-  }).optional(),
-  humanGateRequired: z.boolean(),
-  summary: z.string(),
-  reasons: z.array(z.string()),
-  futureLoopRequirements: z.array(z.string()),
 });

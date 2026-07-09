@@ -36,7 +36,6 @@ export function landingCandidateQueueItem(project: ManagedProject, candidate: La
       applyCheckId: candidate.applyCheckId,
       enabled: true,
       requiresConfirmation: true,
-      automationEligible: true,
     }],
     primary: selected,
     status: "pending",

@@ -30,11 +30,19 @@ import {
   schedulerIntegrationCandidateArtifactRefs,
   schedulerIntegrationCheckHandoffArtifactRefs,
   schedulerReconcileSnapshotArtifactRefs,
+  schedulerWorkerAuditArtifactRefs,
+  schedulerWorkerResultArtifactRefs,
+  schedulerWorkerStartArtifactRefs,
+  schedulerWorkerValidationArtifactRefs,
   writeSchedulerReconcileSnapshot,
   writeSchedulerIntegrationCandidate,
   writeSchedulerIntegrationCheckHandoff,
   writeSchedulerRuntimeClaimReservation,
   writeSchedulerRuntimeState,
+  writeSchedulerRuntimeWorkerAudit,
+  writeSchedulerRuntimeWorkerResult,
+  writeSchedulerRuntimeWorkerStart,
+  writeSchedulerRuntimeWorkerValidation,
 } from "../../../src/scheduler-runtime/repository.js";
 import { integrationCheckRoot } from "../../../src/integration-check/paths.js";
 import { removeKnownIntegrationFailureMarkers } from "../../../src/integration-check/patch-workspace.js";
@@ -66,6 +74,10 @@ import type {
   SchedulerReconcileSnapshot,
   SchedulerRuntimeClaimReservation,
   SchedulerRuntimeState,
+  SchedulerRuntimeWorkerAudit,
+  SchedulerRuntimeWorkerResult,
+  SchedulerRuntimeWorkerStart,
+  SchedulerRuntimeWorkerValidation,
 } from "../../../src/scheduler-runtime/types.js";
 
 let tempDir: string;
@@ -99,35 +111,13 @@ export async function readJsonl(path: string): Promise<Array<Record<string, unkn
 }
 
 export function findSchedulerGateAction(actions: WorkbenchDecisionAction[], concreteActionType: WorkbenchDecisionAction["actionType"], predicate: (action: WorkbenchDecisionAction) => boolean): WorkbenchDecisionAction | undefined {
-  const concrete = actions.find((action) => action.actionType === concreteActionType && predicate(action));
-  if (concrete) return concrete;
-  return actions.find((action) => {
-    if (action.actionType === concreteActionType && predicate(action)) return true;
-    if (
-      (action.actionType === "planning.scheduler.controlled-advance.run" || action.actionType === "planning.goal-loop.controlled-continue.run")
-      && action.goalLoopCurrentGateActionType === concreteActionType
-      && predicate(action)
-    ) {
-      if (action.actionType === "planning.goal-loop.controlled-continue.run") {
-        (action as WorkbenchDecisionAction & { maxSteps?: number }).maxSteps = 1;
-      }
-      return true;
-    }
-    return false;
-  });
+  return actions.find((action) => action.actionType === concreteActionType && predicate(action));
 }
 
-export function unwrapControlledSchedulerAdvanceResult(result: unknown): unknown {
+export function unwrapWorkflowActionResult(result: unknown): unknown {
   if (!result || typeof result !== "object") return result;
   const record = result as Record<string, unknown>;
-  if (Array.isArray(record.childResults) && record.childResults.length > 0) {
-    return unwrapControlledSchedulerAdvanceResult(record.childResults[record.childResults.length - 1]);
-  }
-  const controlledStep = record.controlledStep;
-  if (record.controlledAdvance) return record.result ?? result;
-  if (!controlledStep || typeof controlledStep !== "object") return result;
-  const stepRecord = controlledStep as Record<string, unknown>;
-  return record.result ?? stepRecord.result ?? controlledStep;
+  return typeof record.actionRunId === "string" && "result" in record ? record.result : result;
 }
 
 export const deterministicMarkerRepairRunner: IntegrationFixRepairRunner = async ({ checkoutPath }) => {
@@ -388,9 +378,7 @@ export async function prepareSchedulerTwoWorkerIntegrationHandoff(title: string)
       .find((action) => findSchedulerGateAction([action], "planning.scheduler.worker.validate-first", (candidate) => candidate.schedulerWorkerResultId === prepared.workerResult.id));
     if (!firstValidationAction) throw new Error("Missing first worker validation action.");
     const firstValidation = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...firstValidationAction, confirm: true });
-    const firstValidationResult = unwrapControlledSchedulerAdvanceResult((firstValidation.result as {
-      result?: unknown;
-    }).result ?? firstValidation.result) as {
+    const firstValidationResult = unwrapWorkflowActionResult(firstValidation.result) as {
       result?: { schedulerValidation?: { id?: string } };
       schedulerValidation?: { id?: string };
     };
@@ -404,34 +392,7 @@ export async function prepareSchedulerTwoWorkerIntegrationHandoff(title: string)
     await executeWorkbenchAction({ project: project(), path: tempDir }, { ...firstAuditAction, confirm: true });
     await rm(join(tempDir, "README.md"), { force: true });
 
-    snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
-    const firstCandidateAction = snapshot.right.confirmationQueue.current
-      .flatMap((item) => item.actions)
-      .find((action) => findSchedulerGateAction([action], "planning.scheduler.integration-candidate.compile", (candidate) => candidate.schedulerRunId === prepared.schedulerRun.id));
-    if (!firstCandidateAction) throw new Error("Missing first scheduler integration candidate action.");
-    const firstCandidateResult = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...firstCandidateAction, confirm: true });
-    const firstCandidateWorkflow = firstCandidateResult.result as { status?: string; error?: string; result?: unknown };
-    if (firstCandidateWorkflow.status === "failed") throw new Error(firstCandidateWorkflow.error ?? "first candidate action failed");
-    const firstCandidate = (unwrapControlledSchedulerAdvanceResult(firstCandidateWorkflow.result ?? firstCandidateResult.result) as {
-      candidate?: { id?: string; readyCount?: number };
-    }).candidate;
-    expect(firstCandidate).toMatchObject({ readyCount: 1 });
-
-    snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
-    const startNextAction = snapshot.right.confirmationQueue.current
-      .flatMap((item) => item.actions)
-      .find((action) => findSchedulerGateAction([action], "planning.scheduler.worker.start-next", (candidate) => candidate.schedulerRunId === prepared.schedulerRun.id));
-    if (!startNextAction) throw new Error("Missing scheduler start-next action.");
-    const secondStartResult = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...startNextAction, confirm: true });
-    const secondStart = (unwrapControlledSchedulerAdvanceResult((secondStartResult.result as { result?: unknown }).result ?? secondStartResult.result) as {
-      workerStart?: {
-        id?: string;
-        taskRunId?: string;
-        workerLeaseId?: string;
-        worktreeId?: string;
-        runId?: string;
-      };
-    });
+    const secondStart = { workerStart: prepared.secondWorkerStart };
 
     snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
     const secondResultAction = snapshot.right.confirmationQueue.current
@@ -439,7 +400,7 @@ export async function prepareSchedulerTwoWorkerIntegrationHandoff(title: string)
       .find((action) => findSchedulerGateAction([action], "planning.scheduler.worker.reconcile-result", (candidate) => candidate.schedulerWorkerStartId === secondStart.workerStart?.id));
     if (!secondResultAction) throw new Error("Missing second worker result reconcile action.");
     const secondResult = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...secondResultAction, confirm: true });
-    const secondWorkerResult = unwrapControlledSchedulerAdvanceResult((secondResult.result as { result?: unknown }).result ?? secondResult.result) as { result?: { id?: string; status?: string } };
+    const secondWorkerResult = unwrapWorkflowActionResult(secondResult.result) as { result?: { id?: string; status?: string } };
     expect(secondWorkerResult).toMatchObject({ result: { status: "evidence-ready" } });
 
     snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
@@ -448,7 +409,7 @@ export async function prepareSchedulerTwoWorkerIntegrationHandoff(title: string)
       .find((action) => findSchedulerGateAction([action], "planning.scheduler.worker.validate-first", (candidate) => candidate.schedulerWorkerResultId === secondWorkerResult?.result?.id));
     if (!secondValidationAction) throw new Error("Missing second worker validation action.");
     const secondValidation = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...secondValidationAction, confirm: true });
-    const secondValidationResult = unwrapControlledSchedulerAdvanceResult((secondValidation.result as { result?: unknown }).result ?? secondValidation.result) as { schedulerValidation?: { id?: string; status?: string } };
+    const secondValidationResult = unwrapWorkflowActionResult(secondValidation.result) as { schedulerValidation?: { id?: string; status?: string } };
     expect(secondValidationResult).toMatchObject({ schedulerValidation: { status: "passed" } });
 
     snapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: prepared.topic.changeId });
@@ -457,7 +418,7 @@ export async function prepareSchedulerTwoWorkerIntegrationHandoff(title: string)
       .find((action) => findSchedulerGateAction([action], "planning.scheduler.worker.audit-first", (candidate) => candidate.schedulerWorkerValidationId === secondValidationResult?.schedulerValidation?.id));
     if (!secondAuditAction) throw new Error("Missing second worker audit action.");
     const secondAudit = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...secondAuditAction, confirm: true });
-    const secondAuditResult = unwrapControlledSchedulerAdvanceResult((secondAudit.result as { result?: unknown }).result ?? secondAudit.result) as {
+    const secondAuditResult = unwrapWorkflowActionResult(secondAudit.result) as {
       schedulerAudit?: { status?: string };
     };
     expect(secondAuditResult).toMatchObject({ schedulerAudit: { status: "approved" } });
@@ -471,7 +432,7 @@ export async function prepareSchedulerTwoWorkerIntegrationHandoff(title: string)
     const refreshedCandidateResult = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...refreshedCandidateAction, confirm: true });
     const refreshedCandidateWorkflow = refreshedCandidateResult.result as { status?: string; error?: string; result?: unknown };
     if (refreshedCandidateWorkflow.status === "failed") throw new Error(refreshedCandidateWorkflow.error ?? "refreshed candidate action failed");
-    const refreshedCandidate = (unwrapControlledSchedulerAdvanceResult(refreshedCandidateWorkflow.result ?? refreshedCandidateResult.result) as {
+    const refreshedCandidate = (unwrapWorkflowActionResult(refreshedCandidateResult.result) as {
       candidate?: { id?: string; status?: string; readyCount?: number; readyWorktreeIds?: string[] };
     }).candidate ?? {};
     expect(refreshedCandidate).toMatchObject({ status: "ready", readyCount: 2 });
@@ -484,7 +445,7 @@ export async function prepareSchedulerTwoWorkerIntegrationHandoff(title: string)
     const handoffResult = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...handoffAction, confirm: true });
     const handoffWorkflow = handoffResult.result as { status?: string; error?: string; result?: unknown };
     if (handoffWorkflow.status === "failed") throw new Error(handoffWorkflow.error ?? "handoff action failed");
-    const handoff = unwrapControlledSchedulerAdvanceResult(handoffWorkflow.result ?? handoffResult.result) as {
+    const handoff = unwrapWorkflowActionResult(handoffResult.result) as {
       handoff?: {
         id?: string;
         integrationCheckId?: string;
@@ -510,6 +471,147 @@ export async function prepareSchedulerTwoWorkerIntegrationHandoff(title: string)
     if (oldPath === undefined) delete process.env.PATH;
     else process.env.PATH = oldPath;
   }
+}
+
+async function writeSeededTerminalSchedulerWorkerPaths(input: {
+  memory: Parameters<typeof writeSchedulerRuntimeWorkerStart>[0];
+  changePath: string;
+  changeId: string;
+  schedulerRunId: string;
+  schedulerRuntimeStateId: string;
+  schedulerReconcileSnapshotId: string;
+  schedulerClaimReservationId: string;
+  schedulerContractId: string;
+  schedulerDispatchDryRunId: string;
+  schedulerWorkerPlanId: string;
+  schedulerClaimReconcilePlanId: string;
+  schedulerLaunchPreflightId: string;
+  sourceArtifactHashes: Record<string, string>;
+  now: string;
+  targets: Array<{
+    worktreeId: string;
+    validationRunId: string;
+    auditRunId: string;
+  }>;
+}): Promise<void> {
+  await Promise.all(input.targets.map(async (target, index) => {
+    const position = index + 1;
+    const nodeId = `node-${position}`;
+    const unitId = `unit-${position}`;
+    const taskId = `T-${String(position).padStart(3, "0")}`;
+    const taskRunId = `task-run-${target.worktreeId}`;
+    const workerLeaseId = `worker-lease-${target.worktreeId}`;
+    const runId = `run-${target.worktreeId}`;
+    const reservationIntentId = `reservation-intent-${position}`;
+    const claimIntentId = `claim-intent-${position}`;
+    const plannedWorkerKey = `worker-${position}`;
+    const workerStartId = `scheduler-worker-start-${input.schedulerRunId}-${position}`;
+    const workerResultId = `scheduler-worker-result-${input.schedulerRunId}-${position}`;
+    const workerValidationId = `scheduler-worker-validation-${input.schedulerRunId}-${position}`;
+    const workerAuditId = `scheduler-worker-audit-${input.schedulerRunId}-${position}`;
+    const startRefs = schedulerWorkerStartArtifactRefs(input.memory, input.changePath, input.schedulerRunId, workerStartId);
+    const resultRefs = schedulerWorkerResultArtifactRefs(input.memory, input.changePath, input.schedulerRunId, workerResultId);
+    const validationRefs = schedulerWorkerValidationArtifactRefs(input.memory, input.changePath, input.schedulerRunId, workerValidationId);
+    const auditRefs = schedulerWorkerAuditArtifactRefs(input.memory, input.changePath, input.schedulerRunId, workerAuditId);
+    const lineage = {
+      version: "1.0" as const,
+      changeId: input.changeId,
+      schedulerRunId: input.schedulerRunId,
+      schedulerMode: "parallel-readiness-v1" as const,
+      schedulerRuntimeStateId: input.schedulerRuntimeStateId,
+      schedulerReconcileSnapshotId: input.schedulerReconcileSnapshotId,
+      schedulerClaimReservationId: input.schedulerClaimReservationId,
+      schedulerContractId: input.schedulerContractId,
+      schedulerDispatchDryRunId: input.schedulerDispatchDryRunId,
+      schedulerWorkerPlanId: input.schedulerWorkerPlanId,
+      schedulerClaimReconcilePlanId: input.schedulerClaimReconcilePlanId,
+      schedulerLaunchPreflightId: input.schedulerLaunchPreflightId,
+      reservationIntentId,
+      claimIntentId,
+      plannedWorkerKey,
+      nodeId,
+      unitId,
+      waveIndex: 0,
+      taskId,
+      taskRunId,
+      workerLeaseId,
+      sourceArtifactHashes: input.sourceArtifactHashes,
+      createdAt: input.now,
+      updatedAt: input.now,
+    };
+    const workerStart: SchedulerRuntimeWorkerStart = {
+      ...lineage,
+      id: workerStartId,
+      status: "started",
+      stageId: `stage-${position}`,
+      stage: "coder",
+      taskRunRoleId: "coder",
+      agentRoleId: "coder-agent",
+      worktreeId: target.worktreeId,
+      runId,
+      artifactRefs: [startRefs.artifact, startRefs.markdownArtifact],
+      artifact: startRefs.artifact,
+      markdownArtifact: startRefs.markdownArtifact,
+    };
+    const workerResult: SchedulerRuntimeWorkerResult = {
+      ...lineage,
+      id: workerResultId,
+      status: "evidence-ready",
+      schedulerWorkerStartId: workerStartId,
+      stageId: workerStart.stageId,
+      stage: "coder",
+      taskRunStatus: "evidence-ready",
+      workerLeaseStatus: "released",
+      agentRoleId: workerStart.agentRoleId,
+      worktreeId: target.worktreeId,
+      runId,
+      runStatus: "completed",
+      artifactRefs: [resultRefs.artifact, resultRefs.markdownArtifact, startRefs.artifact],
+      artifact: resultRefs.artifact,
+      markdownArtifact: resultRefs.markdownArtifact,
+    };
+    const workerValidation: SchedulerRuntimeWorkerValidation = {
+      ...lineage,
+      id: workerValidationId,
+      status: "passed",
+      schedulerWorkerStartId: workerStartId,
+      schedulerWorkerResultId: workerResultId,
+      stageId: `${nodeId}:validation`,
+      stage: "validation",
+      taskRunStatus: "evidence-ready",
+      worktreeId: target.worktreeId,
+      codeRunId: runId,
+      validationRunId: target.validationRunId,
+      validationStatus: "passed",
+      artifactRefs: [validationRefs.artifact, validationRefs.markdownArtifact, resultRefs.artifact],
+      artifact: validationRefs.artifact,
+      markdownArtifact: validationRefs.markdownArtifact,
+    };
+    const workerAudit: SchedulerRuntimeWorkerAudit = {
+      ...lineage,
+      id: workerAuditId,
+      status: "approved",
+      schedulerWorkerStartId: workerStartId,
+      schedulerWorkerResultId: workerResultId,
+      schedulerWorkerValidationId: workerValidationId,
+      stageId: `${nodeId}:audit`,
+      stage: "audit",
+      taskRunStatus: "completed",
+      worktreeId: target.worktreeId,
+      codeRunId: runId,
+      validationRunId: target.validationRunId,
+      validationStatus: "passed",
+      auditRunId: target.auditRunId,
+      auditStatus: "approved",
+      artifactRefs: [auditRefs.artifact, auditRefs.markdownArtifact, validationRefs.artifact],
+      artifact: auditRefs.artifact,
+      markdownArtifact: auditRefs.markdownArtifact,
+    };
+    await writeSchedulerRuntimeWorkerStart(input.memory, input.changePath, workerStart);
+    await writeSchedulerRuntimeWorkerResult(input.memory, input.changePath, workerResult);
+    await writeSchedulerRuntimeWorkerValidation(input.memory, input.changePath, workerValidation);
+    await writeSchedulerRuntimeWorkerAudit(input.memory, input.changePath, workerAudit);
+  }));
 }
 
 export async function prepareSeededSchedulerIntegrationHandoff(title: string): Promise<{
@@ -1159,6 +1261,23 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
     createdAt: now,
   };
   await writeSchedulerRuntimeClaimReservation(memory, changePath, reservation);
+  await writeSeededTerminalSchedulerWorkerPaths({
+    memory,
+    changePath,
+    changeId: topic.changeId,
+    schedulerRunId,
+    schedulerRuntimeStateId,
+    schedulerReconcileSnapshotId: reconcileSnapshotId,
+    schedulerClaimReservationId: claimReservationId,
+    schedulerContractId,
+    schedulerDispatchDryRunId,
+    schedulerWorkerPlanId,
+    schedulerClaimReconcilePlanId,
+    schedulerLaunchPreflightId,
+    sourceArtifactHashes,
+    now,
+    targets: readyTargets,
+  });
 
   const candidate: SchedulerIntegrationCandidate = {
     version: "1.0",
@@ -1350,6 +1469,16 @@ export async function prepareSchedulerFirstWorkerThroughResult(options: {
     worktreeId?: string;
     runId?: string;
   };
+  secondWorkerStart: {
+    id?: string;
+    schedulerClaimReservationId?: string;
+    reservationIntentId?: string;
+    claimIntentId?: string;
+    taskRunId?: string;
+    workerLeaseId?: string;
+    worktreeId?: string;
+    runId?: string;
+  };
   workerResult: { id?: string; status?: string };
 }> {
   await initHarness(project());
@@ -1467,7 +1596,6 @@ export async function prepareSchedulerFirstWorkerThroughResult(options: {
   if (!startAction) {
     const actions = startSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).map((action) => ({
       actionType: action.actionType,
-      goalLoopCurrentGateActionType: action.goalLoopCurrentGateActionType,
       schedulerRunId: action.schedulerRunId,
       schedulerClaimReservationId: action.schedulerClaimReservationId,
       reservationIntentId: action.reservationIntentId,
@@ -1482,36 +1610,11 @@ export async function prepareSchedulerFirstWorkerThroughResult(options: {
   try {
     process.env.PATH = `${fakeCodex.binDir}${delimiter}${oldPath ?? ""}`;
     const started = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...startAction, confirm: true });
-    const startedWorkflow = started.result as {
-      status?: string;
-      error?: string;
-      result?: {
-        postStepGoalLoopEvaluationWarning?: string;
-        postStepGoalLoopReadinessWarning?: string;
-        schedulerControlledStepEvidence?: {
-          controlledLoopBoundaryResult?: { status?: string; warning?: string; nextGateActionType?: string };
-          controlledLoopRuntimeBoundary?: { status?: string; warning?: string; nextGateActionType?: string };
-        };
-      };
-    };
+    const startedWorkflow = started.result as { status?: string; error?: string };
     if (startedWorkflow.status === "failed") {
       throw new Error(`scheduler first worker start action failed: ${startedWorkflow.error ?? JSON.stringify(started.result)}`);
     }
-    const startedWarnings = startedWorkflow.result?.schedulerControlledStepEvidence;
-    if (
-      startedWorkflow.result?.postStepGoalLoopEvaluationWarning
-      || startedWorkflow.result?.postStepGoalLoopReadinessWarning
-      || startedWarnings?.controlledLoopBoundaryResult?.warning
-      || startedWarnings?.controlledLoopRuntimeBoundary?.warning
-    ) {
-      throw new Error(`scheduler first worker start recorded warning evidence: ${JSON.stringify({
-        postStepGoalLoopEvaluationWarning: startedWorkflow.result?.postStepGoalLoopEvaluationWarning,
-        postStepGoalLoopReadinessWarning: startedWorkflow.result?.postStepGoalLoopReadinessWarning,
-        controlledLoopBoundaryResult: startedWarnings?.controlledLoopBoundaryResult,
-        controlledLoopRuntimeBoundary: startedWarnings?.controlledLoopRuntimeBoundary,
-      })}`);
-    }
-    const startedActionResult = unwrapControlledSchedulerAdvanceResult((started.result as { result?: unknown }).result ?? started.result);
+    const startedActionResult = unwrapWorkflowActionResult(started.result);
     const startedResult = startedActionResult as {
         workerStart?: {
           id?: string;
@@ -1526,6 +1629,31 @@ export async function prepareSchedulerFirstWorkerThroughResult(options: {
       };
     const workerStart = startedResult?.workerStart ?? {};
 
+    const secondStartSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
+    const secondStartAction = secondStartSnapshot.right.confirmationQueue.current
+      .flatMap((item) => item.actions)
+      .find((action) => findSchedulerGateAction([action], "planning.scheduler.worker.start-next", (candidate) => candidate.schedulerRunId === schedulerRun.id));
+    if (!secondStartAction) {
+      throw new Error(`Missing concrete scheduler second worker start action. nextAction=${JSON.stringify(secondStartSnapshot.center.workpad.nextAction)}`);
+    }
+    const secondStarted = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...secondStartAction, confirm: true });
+    if ((secondStarted.result as { status?: string; error?: string }).status === "failed") {
+      throw new Error(`scheduler second worker start action failed: ${JSON.stringify(secondStarted.result)}`);
+    }
+    const secondStartedResult = unwrapWorkflowActionResult(secondStarted.result) as {
+      workerStart?: {
+        id?: string;
+        schedulerClaimReservationId?: string;
+        reservationIntentId?: string;
+        claimIntentId?: string;
+        taskRunId?: string;
+        workerLeaseId?: string;
+        worktreeId?: string;
+        runId?: string;
+      };
+    };
+    const secondWorkerStart = secondStartedResult.workerStart ?? {};
+
     const resultSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
     const resultAction = resultSnapshot.right.confirmationQueue.current
       .flatMap((item) => item.actions)
@@ -1533,7 +1661,6 @@ export async function prepareSchedulerFirstWorkerThroughResult(options: {
     if (!resultAction) {
       const actions = resultSnapshot.right.confirmationQueue.current.flatMap((item) => item.actions).map((action) => ({
         actionType: action.actionType,
-        goalLoopCurrentGateActionType: action.goalLoopCurrentGateActionType,
         schedulerWorkerStartId: action.schedulerWorkerStartId,
         schedulerRunId: action.schedulerRunId,
         schedulerClaimReservationId: action.schedulerClaimReservationId,
@@ -1547,7 +1674,7 @@ export async function prepareSchedulerFirstWorkerThroughResult(options: {
     if ((reconciled.result as { status?: string; error?: string }).status === "failed") {
       throw new Error(`scheduler first worker result reconcile action failed: ${JSON.stringify(reconciled.result)}`);
     }
-    const reconciledResult = unwrapControlledSchedulerAdvanceResult((reconciled.result as { result?: unknown }).result ?? reconciled.result) as {
+    const reconciledResult = unwrapWorkflowActionResult(reconciled.result) as {
       result?: { id?: string; status?: string };
     };
     const afterResultSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
@@ -1561,6 +1688,7 @@ export async function prepareSchedulerFirstWorkerThroughResult(options: {
       schedulerRun,
       claimReservation,
       workerStart,
+      secondWorkerStart,
       workerResult,
     };
   } finally {

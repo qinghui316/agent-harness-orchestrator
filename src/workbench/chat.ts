@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { detectCodexAppServerCapability, extractCodexAppServerCollabToolCall, extractCodexAppServerPlanText, getActiveCodexAppServerTurn, runCodexAppServerTurn, type CodexAppServerCollabToolCall } from "../codex/app-server.js";
 import { resolveCodexEffectiveModel } from "../codex/model-settings.js";
@@ -9,6 +9,7 @@ import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.j
 import { listRuns } from "../run/manager.js";
 import type { ManagedProject, ResolvedMemory, RunMetadata } from "../types/index.js";
 import { postTopicPlanMessage, runCodexChat } from "./codex-chat/bridge.js";
+import { buildMainAgentExecutionContext } from "./codex-chat/context.js";
 import { runWorkbenchWorkflowActionService } from "./actions/service.js";
 import { artifactForActionResult, extractRunId, labelForAction, summarizeActionResult, workflowFailureMessage } from "./actions/results.js";
 import { assertWorkflowActionScope, auditHighImpactWorkflowAction, workflowActionScopePayload, workflowActionTargetId } from "./actions/boundary.js";
@@ -22,6 +23,7 @@ import { resolveTopicAttachments } from "./attachments.js";
 import { resolveTopicFileReferences } from "./file-references.js";
 import { createAssistantTranscriptCapture } from "./live-transcript.js";
 import { getSingleActiveChangeId, resolveTopic } from "./topic-resolver.js";
+import { readTopicRuntime } from "./topic-runtime.js";
 import { appendTopicThreadEntry } from "./topic-thread.js";
 import { collectAllTopicThreadEntries, fromStoredThreadMessage, readTopicThreadLog as readThreadLog } from "./thread-log.js";
 import { WorkbenchStore, type StoredTopicMessage } from "./store.js";
@@ -745,7 +747,69 @@ export async function runWorkbenchWorkflowAction(project: ManagedProject, reques
     targetId: workflowActionTargetId,
     scopePayload: workflowActionScopePayload,
     recordDecision: recordWorkbenchDecision,
+    resumeGoalAfterAction: resumeNativeGoalAfterAction,
   });
+}
+
+async function resumeNativeGoalAfterAction(input: {
+  project: ManagedProject;
+  changeId: string;
+  actionRunId: string;
+  actionType: WorkbenchWorkflowActionRequest["actionType"];
+  status: "completed" | "failed";
+  result: unknown;
+}): Promise<void> {
+  const { memory, changePath } = await resolveTopic(input.project, input.changeId);
+  const runtime = await readTopicRuntime(memory, changePath, input.changeId);
+  if (runtime.codexCapabilityProfile !== "main-agent-goal-v1" || !runtime.codexSessionId) return;
+
+  const entries = await readThreadLog(memory, changePath);
+  const actionStartedIndex = entries.findIndex((entry) => entry.actionRunId === input.actionRunId && entry.type === "workflow.started");
+  if (actionStartedIndex >= 0 && entries.slice(actionStartedIndex + 1).some((entry) => entry.actionType === "conversation.interrupt" && entry.type === "workflow.started")) return;
+
+  const context = await buildMainAgentExecutionContext(
+    input.project,
+    memory,
+    input.changeId,
+    `Workflow action ${input.actionType} ${input.status}.`,
+  );
+  const evidenceHash = createHash("sha256").update(stableJson(input.result)).digest("hex");
+  await runCodexChat(
+    input.project,
+    input.changeId,
+    `Continue the current native Goal after ${input.actionType} ${input.status}.`,
+    undefined,
+    {
+      goalResume: {
+        deliveryKey: `${input.actionRunId}:${evidenceHash}`,
+        contextText: [
+          context,
+          "",
+          "Canonical action evidence:",
+          JSON.stringify({
+            actionRunId: input.actionRunId,
+            actionType: input.actionType,
+            status: input.status,
+            evidenceHash,
+            result: input.result,
+          }, null, 2),
+          "",
+          "Read this evidence and autonomously decide whether to continue the accepted workflow, request a Plan revision, wait for user confirmation, or complete the current Goal.",
+        ].join("\n"),
+      },
+    },
+  );
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
 }
 
 async function readWorkflowActionThreadEntries(project: ManagedProject, changeId: string): Promise<TopicThreadEntry[]> {
@@ -775,6 +839,13 @@ async function executeWorkflowAction(project: ManagedProject, changeId: string, 
 const workflowActionHandlers = buildWorkbenchActionHandlers({
   postTopicMessage,
   findRunningRunForChange,
+  continueTopicGoal: async (project, changeId, prompt, live) => runCodexChat(
+    project,
+    changeId,
+    prompt?.trim() || "Continue the current accepted objective from the latest project evidence.",
+    live,
+    { goalMode: "start-or-resume" },
+  ),
 });
 
 function toConversationStoredMessage(projectId: string, conversationId: string, entry: TopicThreadEntry): Omit<StoredTopicMessage, "position"> {

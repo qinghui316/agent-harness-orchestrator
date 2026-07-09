@@ -1,4 +1,3 @@
-import { controlledLoopDecisionSummary, controlledLoopResultLabel } from "../user-surface/controlled-loop-results.js";
 import { isMainAgentExecutionAction, normalizeMainAgentExecutionAction } from "../../workflow-actions/main-agent-execution.js";
 
 export function extractRunId(result: unknown): string | undefined {
@@ -21,10 +20,6 @@ export function artifactForActionResult(result: unknown): string | null {
   if (isRecord(result) && isRecord(result.manifest) && typeof result.manifest.artifact === "string") return result.manifest.artifact;
   if (isRecord(result) && isRecord(result.contract) && typeof result.contract.artifact === "string") return result.contract.artifact;
   if (isRecord(result) && isRecord(result.launchPreflight) && typeof result.launchPreflight.artifact === "string") return result.launchPreflight.artifact;
-  if (isRecord(result) && isRecord(result.goalLoopDecision) && typeof result.goalLoopDecision.artifact === "string") return result.goalLoopDecision.artifact;
-  if (isRecord(result) && isRecord(result.goalLoopControllerPolicy) && typeof result.goalLoopControllerPolicy.artifact === "string") return result.goalLoopControllerPolicy.artifact;
-  if (isRecord(result) && isRecord(result.runtimeRun) && typeof result.runtimeRun.artifact === "string") return result.runtimeRun.artifact;
-  if (isRecord(result) && isRecord(result.authorization) && typeof result.authorization.artifact === "string") return result.authorization.artifact;
   if (isRecord(result) && isRecord(result.schedulerRun) && typeof result.schedulerRun.artifact === "string") return result.schedulerRun.artifact;
   if (isRecord(result) && isRecord(result.runtimeState) && typeof result.runtimeState.artifact === "string") return result.runtimeState.artifact;
   if (isRecord(result) && isRecord(result.reconcileSnapshot) && typeof result.reconcileSnapshot.artifact === "string") return result.reconcileSnapshot.artifact;
@@ -41,8 +36,6 @@ export function artifactForActionResult(result: unknown): string | null {
 }
 
 export function summarizeActionResult(actionType: string, result: unknown): string {
-  const controlledLoopSummary = controlledLoopDecisionSummary(actionType, result);
-  if (controlledLoopSummary) return controlledLoopSummary;
 
   if ((actionType === "landing.prepare" || actionType === "landing.review" || actionType === "landing.refresh") && isRecord(result) && isRecord(result.package)) {
     const summary = typeof result.package.summary === "string" ? result.package.summary : "Landing readiness package updated.";
@@ -309,8 +302,6 @@ export function workflowFailureMessage(actionType: string, result: unknown): str
 }
 
 export function labelForAction(actionType: string): string {
-  const controlledLoopLabel = controlledLoopResultLabel(actionType);
-  if (controlledLoopLabel) return controlledLoopLabel;
 
   const mainAgentExecutionAction = normalizeMainAgentExecutionAction(actionType);
   if (mainAgentExecutionAction === "main-agent.execution.start") return "Main-agent execution started";
@@ -327,7 +318,6 @@ export function labelForAction(actionType: string): string {
     case "planning.decomposition.confirm": return "DecompositionPlan confirmed";
     case "planning.decomposition.assess-readiness": return "Decomposition readiness assessed";
     case "planning.taskqueue.propose": return "TaskQueueProposal generated";
-    case "planning.automation.scoped-auto.run": return "Scoped automation run";
     case "maintenance.canonical-update.decision.record": return "Maintenance canonical update decision recorded";
     case "maintenance.canonical-patch.application-gate.record": return "Maintenance canonical patch application gate recorded";
     case "maintenance.canonical-patch.apply": return "Maintenance canonical patch applied";

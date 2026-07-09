@@ -11,9 +11,6 @@ import { enqueueDemandWorkerForAction, evaluateDemandOrchestrator, pumpDemandWor
 import { assessDecompositionReadiness, compileTaskQueueWorkflowGraph, confirmDecompositionPlan, confirmTaskQueueProposalAndStart, generateDecompositionPlan, proposeTaskQueue } from "./planning.js";
 import { cleanupRemoteBranchForAction, createPrDraftForAction, mergeNextLandingQueueForAction, mergeRemoteLandingForAction, prepareLandingForAction, prepareLandingQueueForAction, prepareLocalSyncForAction, preparePostMergeForAction, preparePrDraftForAction, preparePrReviewForAction, preparePrReviewReplyForAction, prepareRemoteBranchCleanupForAction, prepareRemoteLandingForAction, refreshLandingQueueForAction, refreshPrDraftForAction, refreshPrFeedbackForAction, refreshPrReviewForAction, refreshRemoteLandingForAction, reworkPrFeedbackForAction, resolvePrReviewThreadForAction, reviewLandingForAction, submitPrReviewForAction, submitPrReviewReplyForAction, syncLocalForAction, updatePrDraftForAction } from "./remote-handoff.js";
 import { interruptConversation, steerConversation, stopRunningPipeline } from "./control.js";
-import { buildGoalLoopActionHandlers } from "./goal-loop.js";
-import { buildGoalLoopRuntimeActionHandlers } from "./goal-loop-runtime.js";
-import { runScopedAutomationAction } from "./automation.js";
 import { buildSchedulerActionHandlers } from "./scheduler.js";
 import type { WorkbenchActionHandler, WorkbenchActionHandlerMap } from "../dispatcher.js";
 import type { TopicMessageResult, WorkbenchLiveSink } from "../../types.js";
@@ -21,6 +18,7 @@ import type { TopicMessageResult, WorkbenchLiveSink } from "../../types.js";
 export interface WorkbenchActionHandlerDeps {
   postTopicMessage(project: ManagedProject, changeId: string, input: string, live?: WorkbenchLiveSink): Promise<TopicMessageResult>;
   findRunningRunForChange(project: ManagedProject, changeId: string): Promise<RunMetadata | null>;
+  continueTopicGoal(project: ManagedProject, changeId: string, prompt: string | undefined, live?: WorkbenchLiveSink): Promise<unknown>;
 }
 
 export function buildWorkbenchActionHandlers(deps: WorkbenchActionHandlerDeps): WorkbenchActionHandlerMap {
@@ -52,9 +50,6 @@ export function buildWorkbenchActionHandlers(deps: WorkbenchActionHandlerDeps): 
   "planning.decomposition.confirm": async (project, changeId, request, live) => confirmDecompositionPlan(project, changeId, request, live),
   "planning.decomposition.assess-readiness": async (project, changeId, request, live) => assessDecompositionReadiness(project, changeId, request, live),
   "planning.taskqueue.propose": async (project, changeId, request, live) => proposeTaskQueue(project, changeId, request, live),
-  ...buildGoalLoopActionHandlers(),
-  ...buildGoalLoopRuntimeActionHandlers(),
-  "planning.automation.scoped-auto.run": async (project, changeId, request, live) => runScopedAutomationAction(project, changeId, request, live, handlers),
   ...buildSchedulerActionHandlers(),
   "maintenance.canonical-update.decision.record": async () => {
     throw new Error("maintenance.canonical-update.decision.record is project-scoped and must not run through the demand topic workflow service.");
@@ -85,7 +80,7 @@ export function buildWorkbenchActionHandlers(deps: WorkbenchActionHandlerDeps): 
   "role.pipeline.reconcile": runMainAgentExecutionReconcile,
   "conversation.steer": async (project, changeId, request, live) => steerConversation(project, changeId, request.prompt, live, deps),
   "conversation.interrupt": async (project, changeId, request, live) => interruptConversation(project, changeId, request.prompt, live, deps),
-  "conversation.continue": async (project, changeId, request, live) => runTopLevelRoleChainWorkflow({ project, changeId, prompt: request.prompt, live, continuation: true, taskIds: request.taskIds, readinessManifestId: request.readinessManifestId }),
+  "conversation.continue": async (project, changeId, request, live) => deps.continueTopicGoal(project, changeId, request.prompt, live),
   "result.refresh-rework": async (project, changeId, request, live) => {
     if (!request.worktreeId) throw new Error("result.refresh-rework requires worktreeId.");
     return runSourceRefreshReworkWorkflow({

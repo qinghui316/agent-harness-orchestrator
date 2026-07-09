@@ -26,22 +26,6 @@ import { getTempDir, minimalDecompositionPlan, minimalReadiness, prepareSeededSc
 import type { RunMetadata } from "../../src/types/index.js";
 import type { WorkbenchConfirmationQueueItem, WorkbenchDecisionInspector, WorkbenchMainAgentExecutionSummary } from "../../src/workbench/read-model-types.js";
 
-const FORBIDDEN_CONTROLLED_LOOP_PRIMARY_TERMS = [
-  "Goal Loop",
-  "Goal loop",
-  "GoalLoop",
-  "planning.scheduler",
-  "SchedulerRun",
-  "Harness gate",
-  "continuation brief",
-  "concrete gate",
-  "whole-wave",
-  "slot allocator",
-  "artifactHash",
-  "preflight id",
-  "derived-non-executing-workbench-handoff",
-];
-
 it("aligns decision inspector primary with the manual scheduler IntegrationCheck gate", () => {
   const inspector: WorkbenchDecisionInspector = {
     primary: {
@@ -654,112 +638,6 @@ describe("workbench read-model projections", () => {
     expect(JSON.stringify(snapshot.right.confirmationQueue)).not.toMatch(/full-auto|parallel executor|merge queue|slot allocator|whole-wave/i);
   });
 
-  it("projects controlled loop workflow fallbacks in user-facing terms", async () => {
-    await initHarness(project());
-    const topic = await createWorkbenchTopic(project(), { title: "Controlled Loop Copy", body: "Show controlled loop results clearly." });
-    await appendTopicThreadEntry(project(), topic.changeId, {
-      type: "workflow.started",
-      actionRunId: "controlled-running",
-      actionType: "planning.goal-loop.controller.refresh",
-      status: "running",
-    });
-    await appendTopicThreadEntry(project(), topic.changeId, {
-      type: "workflow.started",
-      actionRunId: "controlled-completed",
-      actionType: "planning.scheduler.controlled-advance.run",
-      status: "running",
-    });
-    await appendTopicThreadEntry(project(), topic.changeId, {
-      type: "workflow.completed",
-      actionRunId: "controlled-completed",
-      actionType: "planning.scheduler.controlled-advance.run",
-      status: "completed",
-      resultSummary: "当前受控步骤已完成。下一步判断和当前步骤检查已经刷新；需要再次确认后才能继续。",
-    });
-    await appendTopicThreadEntry(project(), topic.changeId, {
-      type: "workflow.started",
-      actionRunId: "controlled-legacy-completed",
-      actionType: "planning.scheduler.controlled-advance.run",
-      status: "running",
-    });
-    await appendTopicThreadEntry(project(), topic.changeId, {
-      type: "workflow.completed",
-      actionRunId: "controlled-legacy-completed",
-      actionType: "planning.scheduler.controlled-advance.run",
-      status: "completed",
-    });
-    await appendTopicThreadEntry(project(), topic.changeId, {
-      type: "workflow.started",
-      actionRunId: "controlled-failed",
-      actionType: "planning.goal-loop.gate-readiness.prepare",
-      status: "running",
-    });
-    await appendTopicThreadEntry(project(), topic.changeId, {
-      type: "workflow.failed",
-      actionRunId: "controlled-failed",
-      actionType: "planning.goal-loop.gate-readiness.prepare",
-      status: "failed",
-    });
-
-    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
-    const controlledItems = snapshot.center.thread.items.filter((item) => item.actionRunId?.startsWith("controlled-"));
-
-    expect(controlledItems).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        actionRunId: "controlled-running",
-        label: "刷新下一步判断进行中",
-        body: "正在刷新下一步判断；这里只会更新是否适合继续的证据。",
-      }),
-      expect.objectContaining({
-        actionRunId: "controlled-completed",
-        label: "按当前建议继续一个受控步骤已完成",
-        body: "当前受控步骤已完成。下一步判断和当前步骤检查已经刷新；需要再次确认后才能继续。",
-        blocks: expect.arrayContaining([
-          expect.objectContaining({ kind: "prose", source: "workflow", title: "执行结果", text: "当前受控步骤已完成。下一步判断和当前步骤检查已经刷新；需要再次确认后才能继续。" }),
-          expect.objectContaining({ kind: "workflow-evidence", source: "workflow", text: "当前受控步骤已完成。下一步判断和当前步骤检查已经刷新；需要再次确认后才能继续。" }),
-        ]),
-        evidence: expect.arrayContaining([
-          expect.objectContaining({ source: "workflow", body: "当前受控步骤已完成。下一步判断和当前步骤检查已经刷新；需要再次确认后才能继续。" }),
-        ]),
-      }),
-      expect.objectContaining({
-        actionRunId: "controlled-legacy-completed",
-        label: "按当前建议继续一个受控步骤已完成",
-        body: expect.stringContaining("只按当前建议推进了一个受控步骤"),
-      }),
-      expect.objectContaining({
-        actionRunId: "controlled-failed",
-        label: "检查当前步骤未完成",
-        body: "当前步骤检查未完成；请查看错误和证据后再决定是否重试或调整。",
-      }),
-    ]));
-    expectUserCopyNotToContainInternalTerms(JSON.stringify(controlledItems));
-    const transcript = await getWorkbenchTranscriptProjection({ project: project(), path: getTempDir() }, topic.changeId);
-    expect(transcript.cells).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        kind: "assistant-message",
-        source: "workflow-evidence",
-        text: "当前受控步骤已完成。下一步判断和当前步骤检查已经刷新；需要再次确认后才能继续。",
-      }),
-    ]));
-  });
-
-  it("keeps running workflow fallback copy out of the parent transcript", async () => {
-    await initHarness(project());
-    const topic = await createWorkbenchTopic(project(), { title: "Running Workflow Copy", body: "Running workflow should stay out of the main transcript." });
-    await appendTopicThreadEntry(project(), topic.changeId, {
-      type: "workflow.started",
-      actionRunId: "controlled-running-only",
-      actionType: "planning.scheduler.controlled-advance.run",
-      status: "running",
-    });
-
-    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
-    const transcriptText = JSON.stringify(snapshot.center.parentAgentTranscript.cells);
-
-    expect(transcriptText).not.toContain("只会在确认后推进一个受控步骤");
-    expect(transcriptText).not.toContain("正在按当前建议推进一个受控步骤");
-  });
 
   it("projects user message file and attachment metadata into parent transcript cells", async () => {
     await initHarness(project());
@@ -1489,29 +1367,7 @@ describe("workbench read-model projections", () => {
     ]));
   });
 
-  it("marks only plain approved audit approvals as scoped-automation eligible", async () => {
-    await initHarness(project());
-    await createChange(project(), { title: "Audit Automation" });
-    await writeAuditResult("audit-automation", "audit-approved", "wt-approved", "approved");
-    await writeAuditResult("audit-automation", "audit-notes", "wt-notes", "approved-with-notes");
-
-    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "audit-automation" });
-    const approved = snapshot.right.approvals.find((item) => item.id === "audit:audit-approved");
-    const notes = snapshot.right.approvals.find((item) => item.id === "audit:audit-notes");
-
-    expect(approved).toMatchObject({
-      kind: "audit-proposal",
-      automationEligible: true,
-      action: expect.objectContaining({ actionId: "audit.accept" }),
-    });
-    expect(notes).toMatchObject({
-      kind: "audit-proposal",
-      automationEligible: false,
-      reason: expect.stringContaining("manual acceptance"),
-    });
-  });
-
-  it("projects IntegrationCheck apply/discard as human gates outside scoped automation", async () => {
+  it("projects IntegrationCheck apply/discard as direct human gates", async () => {
     const prepared = await prepareSeededSchedulerIntegrationHandoff("Integration Apply Discard Projection");
 
     const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: prepared.topic.changeId });
@@ -1534,8 +1390,6 @@ describe("workbench read-model projections", () => {
       command: "apply-check",
       args: ["discard", prepared.handoff.handoff?.integrationCheckId],
     });
-    expect(primary?.actions.some((action) => action.actionType === "planning.automation.scoped-auto.run")).toBe(false);
-    expect(primary?.actions.some((action) => action.automationEligible === true)).toBe(false);
     expect(JSON.stringify(primary)).not.toMatch(/full-auto|parallel executor|merge queue/i);
   });
 
@@ -1573,11 +1427,10 @@ describe("workbench read-model projections", () => {
       expect.objectContaining({
         actionType: "landing.prepare",
         applyCheckId: checkId,
-        automationEligible: true,
       }),
     ]));
     expect(afterApply.right.confirmationQueue.current.some((item) =>
-      item.actions.some((action) => action.goalLoopCurrentGateActionType === "planning.scheduler.integration-outcome.reconcile")
+      item.actions.some((action) => action.actionType === "planning.scheduler.integration-outcome.reconcile")
     )).toBe(true);
     expect(JSON.stringify(afterApply.right.decisionInspector.primary)).toContain("landing.prepare");
     expect(JSON.stringify(afterApply.right.decisionInspector.primary)).not.toContain("audit-approved");
@@ -1643,7 +1496,7 @@ describe("workbench read-model projections", () => {
     expect(JSON.stringify(snapshot.right.confirmationQueue.primary)).toContain("Draft PR 已创建");
   });
 
-  it("marks local landing.prepare as scoped-automation eligible without widening remote landing", () => {
+  it("projects local landing.prepare without widening remote landing", () => {
     const item = landingCandidateQueueItem(project(), {
       kind: "worktree",
       worktreeId: "wt-1",
@@ -1662,7 +1515,6 @@ describe("workbench read-model projections", () => {
       expect.objectContaining({
         actionType: "landing.prepare",
         worktreeId: "wt-1",
-        automationEligible: true,
       }),
     ]));
     expect(JSON.stringify(item)).not.toMatch(/remote-landing|pr-draft|merge-next|Harness evolution|full-auto|parallel executor/i);
@@ -1856,27 +1708,6 @@ describe("workbench read-model projections", () => {
     ]);
   });
 
-  it("preserves scoped automation eligibility on local apply and close approval surfaces", () => {
-    const inspector = buildDecisionInspector({
-      selectedTopic: { id: "change-1", title: "Change 1", state: "active", validations: [], audits: [] },
-      workpad: { taskGraph: { nodes: [] } },
-      approvals: [
-        { id: "apply:wt-1", kind: "worktree-apply", label: "apply", changeId: "change-1", targetId: "wt-1", severity: "info", automationEligible: true, action: { actionId: "result.apply", label: "Apply", command: "result", args: ["apply", "repo", "change-1", "wt-1"], mutates: true, requiresConfirmation: true } },
-        { id: "close:change-1", kind: "change-close", label: "close", changeId: "change-1", targetId: "change-1", severity: "info", automationEligible: true, action: { actionId: "change.close", label: "Close", command: "change", args: ["close", "repo", "change-1"], mutates: true, requiresConfirmation: true } },
-      ],
-      decisions: [],
-    } as Parameters<typeof buildDecisionInspector>[0]);
-
-    const approvalActions = [inspector.primary, ...inspector.related]
-      .flatMap((context) => context?.actions ?? [])
-      .filter((action) => action.kind === "approval");
-
-    expect(approvalActions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ action: expect.objectContaining({ actionId: "result.apply" }), automationEligible: true }),
-      expect.objectContaining({ action: expect.objectContaining({ actionId: "change.close" }), automationEligible: true }),
-    ]));
-  });
-
 });
 
 async function rewriteActiveChangeMetadata(changeId: string, update: Record<string, unknown>): Promise<void> {
@@ -2067,10 +1898,4 @@ async function writeSpecProposalRun(changeId: string): Promise<RunMetadata> {
   expect(existsSync(join(runDir, "spec-proposal.json"))).toBe(true);
   expect(await readFile(join(runDir, "events.jsonl"), "utf8")).toContain("change.spec.proposal.completed");
   return run;
-}
-
-function expectUserCopyNotToContainInternalTerms(copy: string): void {
-  for (const forbidden of FORBIDDEN_CONTROLLED_LOOP_PRIMARY_TERMS) {
-    expect(copy).not.toContain(forbidden);
-  }
 }

@@ -104,9 +104,9 @@ export function layoutAgentOrchestrationGraph(graph: DemandAgentRunGraph): Agent
 
 export function stageForNode(node: Pick<DemandAgentRunGraphNode, "kind" | "lane">): DemandAgentRunGraphStage {
   if (node.lane === "maintenance") return "maintenance";
-  if (node.kind === "main-agent" || node.kind === "goal-loop") return "demand";
+  if (node.kind === "main-agent") return "demand";
   if (node.kind === "planning-agent") return "planning";
-  if (["coder-agent", "rework-coder", "delegate-task", "tool-policy-gate", "scheduler-worker", "automation-loop"].includes(node.kind)) return "execution";
+  if (["coder-agent", "rework-coder", "delegate-task", "tool-policy-gate", "scheduler-worker"].includes(node.kind)) return "execution";
   if (node.kind === "validator" || node.kind === "boundary-audit") return "validation";
   if (node.kind === "auditor-agent" || node.kind === "result-review") return "review";
   if (["integration-check", "integration-fix-agent", "scheduler-integration-candidate", "scheduler-completion"].includes(node.kind)) return "integration";
@@ -118,7 +118,7 @@ export function stageForNode(node: Pick<DemandAgentRunGraphNode, "kind" | "lane"
 export function visualKindForNode(node: Pick<DemandAgentRunGraphNode, "kind">): DemandAgentRunGraphVisualKind {
   if (["main-agent", "planning-agent", "coder-agent", "rework-coder", "auditor-agent"].includes(node.kind)) return "agent";
   if (node.kind === "scheduler-worker") return "worker";
-  if (["validator", "tool-policy-gate", "boundary-audit", "automation-loop", "goal-loop"].includes(node.kind)) return "tool";
+  if (["validator", "tool-policy-gate", "boundary-audit"].includes(node.kind)) return "tool";
   if (["result-review", "integration-check", "integration-fix-agent", "scheduler-integration-candidate", "scheduler-completion", "merge-reviewer-agent"].includes(node.kind)) return "review";
   if (node.kind === "terminal-gate" || node.kind === "memory-closeout") return "terminal";
   if (node.kind.includes("pr") || node.kind.includes("remote") || node.kind.includes("merge")) return "gate";

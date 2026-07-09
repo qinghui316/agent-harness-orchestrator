@@ -5,6 +5,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { finished } from "node:stream/promises";
 import { tmpdir } from "node:os";
+import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { codexRuntimeConfigArgs } from "./capabilities.js";
 import { executeProcessStreaming } from "../run/process.js";
@@ -95,6 +96,38 @@ export interface CodexAppServerUserInputResponse {
   answers: Record<string, string | string[]>;
 }
 
+export interface CodexAppServerDynamicToolSpec {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+}
+
+export interface CodexAppServerDynamicToolCall {
+  requestId: string;
+  threadId: string;
+  turnId: string;
+  callId: string;
+  tool: string;
+  arguments: Record<string, unknown>;
+}
+
+export interface CodexAppServerDynamicToolResult {
+  contentItems: Array<{ type: "inputText"; text: string }>;
+  success: boolean;
+  yieldAfterResponse?: boolean;
+}
+
+export interface CodexAppServerThreadGoal {
+  threadId: string;
+  objective: string;
+  status: "active" | "paused" | "budgetLimited" | "complete";
+  tokenBudget: number | null;
+  tokensUsed: number;
+  timeUsedSeconds: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export type CodexAppServerUserInputRequestHandler = (request: CodexAppServerUserInputRequest) => void;
 
 export interface CodexAppServerTurnOptions {
@@ -111,6 +144,11 @@ export interface CodexAppServerTurnOptions {
   timeoutMs?: number;
   onNotification?: CodexAppServerNotificationHandler;
   onUserInputRequest?: CodexAppServerUserInputRequestHandler;
+  dynamicTools?: CodexAppServerDynamicToolSpec[];
+  onDynamicToolCall?: (call: CodexAppServerDynamicToolCall) => Promise<CodexAppServerDynamicToolResult>;
+  onGoalUpdate?: (goal: CodexAppServerThreadGoal) => void;
+  goalSession?: boolean;
+  goalResume?: { deliveryKey: string; contextText: string };
   onTextDelta?: (text: string) => void;
   onPlanDelta?: (text: string) => void;
   onPlanUpdate?: (text: string, params: Record<string, unknown>) => void;
@@ -126,6 +164,7 @@ export interface CodexAppServerTurnResult {
   turnId: string | null;
   lastMessage: string;
   planText?: string;
+  goal?: CodexAppServerThreadGoal | null;
   error?: string;
 }
 
@@ -143,6 +182,7 @@ export interface ActiveCodexAppServerTurn {
 }
 
 const activeTurns = new Map<string, ActiveCodexAppServerTurn>();
+const activeSessionScopes = new Set<string>();
 
 export function evaluateCodexAppServerCapabilities(help: string | null, spawnError?: string, nativeCollab: CodexNativeCollabConfigStatus = defaultNativeCollabStatus()): CodexAppServerCapabilities {
   const errors: string[] = [];
@@ -171,7 +211,6 @@ export function shouldUseCodexAppServerForReadOnlyTurn(_memoryMode: MemoryMode):
 
 export function extractCodexAppServerPlanText(method: string, params: Record<string, unknown>): string {
   if (method === "item/plan/delta" && typeof params.delta === "string") return params.delta;
-  if (method === "turn/plan/updated") return extractTurnPlanText(params);
   if (method === "item/completed" && isPlanItem(params)) return extractCompletedText(params);
   return "";
 }
@@ -241,12 +280,20 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
   const runtimeScopeId = options.runtimeScopeId ?? options.changeId;
   if (!runtimeScopeId) throw new Error("Codex app-server turn requires a runtimeScopeId or changeId.");
   const activeScopeId: string = runtimeScopeId;
-  await Promise.all([
-    prepareLogFile(options.paths.events),
-    prepareLogFile(options.paths.stderr),
-    prepareLogFile(options.paths.lastMessage),
-    prepareLogFile(options.paths.session),
-  ]);
+  const activeSessionKey = options.existingThreadId ? `thread:${options.existingThreadId}` : `scope:${activeScopeId}`;
+  if (activeSessionScopes.has(activeSessionKey)) throw new Error(`Codex app-server session is already active for ${activeSessionKey}.`);
+  activeSessionScopes.add(activeSessionKey);
+  try {
+    await Promise.all([
+      prepareLogFile(options.paths.events),
+      prepareLogFile(options.paths.stderr),
+      prepareLogFile(options.paths.lastMessage),
+      prepareLogFile(options.paths.session),
+    ]);
+  } catch (error) {
+    activeSessionScopes.delete(activeSessionKey);
+    throw error;
+  }
 
   const eventStream = createWriteStream(options.paths.events, { flags: "a", encoding: "utf8" });
   const stderrStream = createWriteStream(options.paths.stderr, { flags: "a", encoding: "utf8" });
@@ -257,6 +304,11 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
   let turnId: string | null = null;
   let lastMessage = "";
   let planText = "";
+  let goal: CodexAppServerThreadGoal | null = null;
+  let pendingYieldCallId: string | null = null;
+  let goalPauseRequested = false;
+  let goalPausePromise: Promise<void> | null = null;
+  let activeTurnRunning = false;
   let terminalStatus: CodexAppServerTurnResult["status"] | null = null;
   let terminalError: string | undefined;
   const pending = new Map<number, { resolve: (value: Record<string, unknown>) => void; reject: (error: Error) => void }>();
@@ -316,62 +368,115 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
       clientInfo: { name: "agent-harness-orchestrator", title: "Agent Harness Orchestrator", version: "0.1.0" },
     });
     sendNotification("initialized", {});
-    const threadResponse = threadId
-      ? await sendRequest("thread/resume", { threadId, cwd: options.cwd, sandbox: options.sandboxPolicy, approvalPolicy: "never" })
-      : await sendRequest("thread/start", { cwd: options.cwd, sandbox: options.sandboxPolicy, approvalPolicy: "never" });
-    threadId = extractThreadId(threadResponse) ?? threadId;
+    if (options.goalResume && !threadId) throw new Error("Goal resume requires an existing provider thread id.");
+    const goalBeforeSession = options.goalSession && threadId
+      ? parseThreadGoalResponse(await sendRequest("thread/goal/get", { threadId }))
+      : null;
+    if (options.goalResume && !goalBeforeSession) throw new Error("Goal resume requires an existing native Goal.");
+    if (goalBeforeSession?.status === "complete" || goalBeforeSession?.status === "budgetLimited") {
+      goal = goalBeforeSession;
+      terminalStatus = "completed";
+    }
+    const threadResponse = terminalStatus
+      ? null
+      : threadId
+        ? await sendRequest("thread/resume", { threadId, cwd: options.cwd, sandbox: options.sandboxPolicy, approvalPolicy: "never" })
+        : await sendRequest("thread/start", {
+          cwd: options.cwd,
+          sandbox: options.sandboxPolicy,
+          approvalPolicy: "never",
+          ...(options.dynamicTools?.length ? { dynamicTools: options.dynamicTools } : {}),
+        });
+    threadId = threadResponse ? extractThreadId(threadResponse) ?? threadId : threadId;
     if (!threadId) throw new Error("Codex app-server did not return a thread id.");
     await writeSession("started");
 
-    const turnModel = options.model?.trim() || null;
-    const collaborationMode = buildCodexAppServerCollaborationModePayload(options.collaborationMode, turnModel);
-    const turnRequest = {
-      threadId,
-      input: [userTextInput(options.prompt), ...imageInputs(options.imageInputs)],
-      cwd: options.cwd,
-      sandboxPolicy: sandboxPolicyFor(options.sandboxPolicy, options.cwd),
-      approvalPolicy: "never",
-      ...(turnModel ? { model: turnModel } : {}),
-      ...(collaborationMode ? { collaborationMode } : {}),
+    const installActiveTurn = (): void => {
+      if (!threadId || !turnId) throw new Error("Cannot expose a Codex turn before thread and turn ids are known.");
+      const activeThreadId = threadId;
+      const activeTurnId = turnId;
+      activeTurns.set(activeScopeId, {
+        ...(options.changeId ? { changeId: options.changeId } : {}),
+        runtimeScopeId: activeScopeId,
+        roleId: options.roleId,
+        runId: options.runId,
+        threadId: activeThreadId,
+        turnId: activeTurnId,
+        startedAt,
+        steer: async (input: string) => {
+          await sendRequest("turn/steer", { threadId: activeThreadId, expectedTurnId: activeTurnId, input: [userTextInput(input)] });
+        },
+        interrupt: async (reason?: string) => {
+          void reason;
+          if (options.goalSession) {
+            await requestNativeGoalPause(activeThreadId, activeTurnId);
+          } else {
+            await sendRequest("turn/interrupt", { threadId: activeThreadId, turnId: activeTurnId });
+          }
+        },
+        respondToUserInput: async (requestId: string, response: CodexAppServerUserInputResponse) => {
+          sendServerRequestResult(requestId, normalizeUserInputResponse(response));
+        },
+      });
     };
-    const turnResponse = await sendRequest("turn/start", turnRequest);
-    turnId = extractTurnId(turnResponse);
-    if (!turnId) throw new Error("Codex app-server did not return a turn id.");
-    await writeSession("running");
-    activeTurns.set(activeScopeId, {
-      ...(options.changeId ? { changeId: options.changeId } : {}),
-      runtimeScopeId: activeScopeId,
-      roleId: options.roleId,
-      runId: options.runId,
-      threadId,
-      turnId,
-      startedAt,
-      steer: async (input: string) => {
-        await sendRequest("turn/steer", { threadId, expectedTurnId: turnId, input: [userTextInput(input)] });
-      },
-      interrupt: async (reason?: string) => {
-        void reason;
-        await sendRequest("turn/interrupt", { threadId, turnId });
-      },
-      respondToUserInput: async (requestId: string, response: CodexAppServerUserInputResponse) => {
-        sendServerRequestResult(requestId, normalizeUserInputResponse(response));
-      },
-    });
 
-    await waitForTerminal(options.timeoutMs ?? 15 * 60 * 1000);
+    const pausedGoalContinuation = goalBeforeSession?.status === "paused"
+      ? options.goalResume ?? {
+          deliveryKey: createHash("sha256").update(options.prompt).digest("hex"),
+          contextText: options.prompt,
+        }
+      : null;
+    if (pausedGoalContinuation && goalBeforeSession && !terminalStatus) {
+      const deliveryKey = createHash("sha256")
+        .update([threadId, goalBeforeSession.createdAt, goalBeforeSession.objective, pausedGoalContinuation.deliveryKey].join("\n"))
+        .digest("hex");
+      const threadSnapshot = await sendRequest("thread/read", { threadId, includeTurns: true });
+      if (!JSON.stringify(threadSnapshot).includes(deliveryKey)) {
+        await sendRequest("thread/inject_items", {
+          threadId,
+          items: [{
+            type: "message",
+            role: "assistant",
+            content: [{ type: "output_text", text: `[AHO resume ${deliveryKey}]\n${pausedGoalContinuation.contextText}` }],
+          }],
+        });
+      }
+      const activation = parseThreadGoalResponse(await sendRequest("thread/goal/set", { threadId, status: "active" }));
+      if (activation) goal = activation;
+    } else if (!goalBeforeSession && !terminalStatus) {
+      const turnModel = options.model?.trim() || null;
+      const collaborationMode = buildCodexAppServerCollaborationModePayload(options.collaborationMode, turnModel);
+      const turnResponse = await sendRequest("turn/start", {
+        threadId,
+        input: [userTextInput(options.prompt), ...imageInputs(options.imageInputs)],
+        cwd: options.cwd,
+        sandboxPolicy: sandboxPolicyFor(options.sandboxPolicy, options.cwd),
+        approvalPolicy: "never",
+        ...(turnModel ? { model: turnModel } : {}),
+        ...(collaborationMode ? { collaborationMode } : {}),
+      });
+      turnId = extractTurnId(turnResponse);
+      if (!turnId) throw new Error("Codex app-server did not return a turn id.");
+      activeTurnRunning = true;
+      installActiveTurn();
+      await writeSession("running");
+    }
+
+    if (!terminalStatus) await waitForTerminal(options.timeoutMs ?? 15 * 60 * 1000);
     await writeFile(options.paths.lastMessage, lastMessage, "utf8");
     const finalStatus = terminalStatus ?? "failed";
     await writeSession(finalStatus);
-    return { status: finalStatus, threadId, turnId, lastMessage, planText };
+    return { status: finalStatus, threadId, turnId, lastMessage, planText, goal };
   } catch (error) {
     terminalStatus = "failed";
     terminalError = error instanceof Error ? error.message : String(error);
     options.onError?.(error);
     await writeFile(options.paths.lastMessage, lastMessage || terminalError, "utf8");
     await writeSession("failed", terminalError).catch(() => undefined);
-    return { status: "failed", threadId, turnId, lastMessage, planText, error: terminalError };
+    return { status: "failed", threadId, turnId, lastMessage, planText, goal, error: terminalError };
   } finally {
     activeTurns.delete(activeScopeId);
+    activeSessionScopes.delete(activeSessionKey);
     for (const [, item] of pending) item.reject(new Error("Codex app-server turn finished."));
     pending.clear();
     try {
@@ -439,6 +544,28 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
   }
 
   function handleServerRequest(id: number, method: string, params: Record<string, unknown>, raw: Record<string, unknown>): boolean {
+    if (method === "item/tool/call") {
+      options.onNotification?.({ method, params, raw });
+      const requestId = String(id);
+      const call = parseDynamicToolCall(requestId, params, threadId, turnId);
+      if (!call || !options.onDynamicToolCall) {
+        sendRawServerRequestResult(id, {
+          contentItems: [{ type: "inputText", text: "Unsupported AHO dynamic tool call." }],
+          success: false,
+        });
+        return true;
+      }
+      void options.onDynamicToolCall(call).then((result) => {
+        if (result.yieldAfterResponse) pendingYieldCallId = call.callId;
+        sendRawServerRequestResult(id, { contentItems: result.contentItems, success: result.success });
+      }).catch((error: unknown) => {
+        sendRawServerRequestResult(id, {
+          contentItems: [{ type: "inputText", text: error instanceof Error ? error.message : String(error) }],
+          success: false,
+        });
+      });
+      return true;
+    }
     if (method !== "item/tool/requestUserInput") {
       handleNotification(method, params, raw);
       return true;
@@ -480,12 +607,65 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
       planText = planEventText;
       options.onPlanUpdate?.(planEventText, params);
     }
+    if (method === "turn/started") {
+      const nextTurnId = stringValue((isRecord(params.turn) ? params.turn.id : undefined) ?? params.turnId);
+      if (nextTurnId) {
+        turnId = nextTurnId;
+        activeTurnRunning = true;
+        activeTurns.set(activeScopeId, {
+          ...(options.changeId ? { changeId: options.changeId } : {}),
+          runtimeScopeId: activeScopeId,
+          roleId: options.roleId,
+          runId: options.runId,
+          threadId: threadId ?? "",
+          turnId,
+          startedAt,
+          steer: async (input: string) => sendRequest("turn/steer", { threadId, expectedTurnId: turnId, input: [userTextInput(input)] }).then(() => undefined),
+          interrupt: async () => {
+            if (options.goalSession) {
+              await requestNativeGoalPause(threadId ?? "", turnId ?? "");
+            } else {
+              await sendRequest("turn/interrupt", { threadId, turnId });
+            }
+          },
+          respondToUserInput: async (requestId: string, response: CodexAppServerUserInputResponse) => sendServerRequestResult(requestId, normalizeUserInputResponse(response)),
+        });
+        void writeSession("running");
+        if (goalPauseRequested && threadId) {
+          void sendRequest("turn/interrupt", { threadId, turnId: nextTurnId }).catch(() => undefined);
+        }
+      }
+    }
+    if (method === "thread/goal/updated") {
+      const parsed = parseThreadGoal(isRecord(params.goal) ? params.goal : params);
+      if (parsed) {
+        goal = parsed;
+        options.onGoalUpdate?.(parsed);
+        if (parsed.status === "paused" && (!goalPauseRequested || !activeTurnRunning)) terminalStatus = "interrupted";
+        if (parsed.status === "complete" || parsed.status === "budgetLimited") terminalStatus = "completed";
+      }
+    }
     if (method === "turn/completed") {
-      terminalStatus = completionStatus(params) === "interrupted" ? "interrupted" : "completed";
+      activeTurnRunning = false;
+      const interrupted = completionStatus(params) === "interrupted";
+      const waitingForGoalPause = goalPauseRequested && goal?.status !== "paused";
+      if (!waitingForGoalPause && (!options.goalSession || interrupted || !goal || goal.status === "paused" || goal.status === "complete" || goal.status === "budgetLimited")) {
+        terminalStatus = interrupted ? "interrupted" : "completed";
+      }
     } else if (method === "turn/failed") {
+      activeTurnRunning = false;
       terminalStatus = "failed";
       terminalError = JSON.stringify(params);
     } else if (method === "item/completed") {
+      if (pendingYieldCallId && dynamicToolItemMatches(params, pendingYieldCallId) && !goalPauseRequested) {
+        const activeTurnId = turnId;
+        if (threadId && activeTurnId) {
+          const activeThreadId = threadId;
+          void requestNativeGoalPause(activeThreadId, activeTurnId).catch((error: unknown) => {
+            terminalError = error instanceof Error ? error.message : String(error);
+          });
+        }
+      }
       const finalText = extractCompletedText(params);
       if (isAssistantMessageItem(params) && finalText && !lastMessage.includes(finalText)) lastMessage += finalText;
       if (isPlanItem(params) && finalText) {
@@ -508,6 +688,91 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
     for (const [, item] of pending) item.reject(error);
     pending.clear();
   }
+
+  function requestNativeGoalPause(activeThreadId: string, activeTurnId: string): Promise<void> {
+    if (!activeThreadId || !activeTurnId) return Promise.reject(new Error("Codex native Goal pause requires an active provider turn."));
+    if (goalPausePromise) return goalPausePromise;
+    goalPauseRequested = true;
+    goalPausePromise = (async () => {
+      try {
+        await sendRequest("turn/interrupt", { threadId: activeThreadId, turnId: activeTurnId });
+      } catch {
+        // A turn that already ended still requires a confirmed Goal pause.
+      }
+      await waitForGoalTurnTerminal();
+      const current = parseThreadGoalResponse(await sendRequest("thread/goal/get", { threadId: activeThreadId }));
+      if (current?.status === "paused") {
+        goal = current;
+        terminalStatus = "interrupted";
+        return;
+      }
+      const paused = parseThreadGoalResponse(await sendRequest("thread/goal/set", { threadId: activeThreadId, status: "paused" }));
+      if (!paused || paused.status !== "paused") throw new Error("Codex native Goal did not confirm paused after interrupt.");
+      goal = paused;
+      terminalStatus = "interrupted";
+    })();
+    return goalPausePromise;
+  }
+
+  async function waitForGoalTurnTerminal(): Promise<void> {
+    const deadline = Date.now() + 10_000;
+    let stableSince: number | null = null;
+    while (Date.now() < deadline) {
+      if (!activeTurnRunning) {
+        stableSince ??= Date.now();
+        if (Date.now() - stableSince >= 100) return;
+      } else {
+        stableSince = null;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    throw new Error("Codex native Goal interrupt did not reach a terminal turn before pause.");
+  }
+
+  function sendRawServerRequestResult(id: number, result: Record<string, unknown>): void {
+    if (!child?.stdin?.writable) throw new Error("Codex app-server stdin is not writable.");
+    child.stdin.write(`${JSON.stringify({ id, result })}\n`);
+  }
+}
+
+function parseDynamicToolCall(requestId: string, params: Record<string, unknown>, fallbackThreadId: string | null, fallbackTurnId: string | null): CodexAppServerDynamicToolCall | null {
+  const tool = stringValue(params.tool);
+  const callId = stringValue(params.callId ?? params.call_id);
+  const threadId = stringValue(params.threadId ?? params.thread_id) || fallbackThreadId || "";
+  const turnId = stringValue(params.turnId ?? params.turn_id) || fallbackTurnId || "";
+  if (!tool || !callId || !threadId || !turnId) return null;
+  return { requestId, threadId, turnId, callId, tool, arguments: isRecord(params.arguments) ? params.arguments : {} };
+}
+
+function dynamicToolItemMatches(params: Record<string, unknown>, callId: string): boolean {
+  const item = isRecord(params.item) ? params.item : params;
+  const type = stringValue(item.type ?? item.kind);
+  return type === "dynamicToolCall" && stringValue(item.callId ?? item.call_id ?? item.id) === callId;
+}
+
+function parseThreadGoalResponse(response: Record<string, unknown>): CodexAppServerThreadGoal | null {
+  return parseThreadGoal(isRecord(response.goal) ? response.goal : response);
+}
+
+function parseThreadGoal(value: Record<string, unknown>): CodexAppServerThreadGoal | null {
+  const threadId = stringValue(value.threadId ?? value.thread_id);
+  const objective = stringValue(value.objective);
+  const status = stringValue(value.status) as CodexAppServerThreadGoal["status"];
+  if (!threadId || !objective || !["active", "paused", "budgetLimited", "complete"].includes(status)) return null;
+  return {
+    threadId,
+    objective,
+    status,
+    tokenBudget: typeof value.tokenBudget === "number" ? value.tokenBudget : null,
+    tokensUsed: numberValue(value.tokensUsed),
+    timeUsedSeconds: numberValue(value.timeUsedSeconds),
+    createdAt: numberValue(value.createdAt),
+    updatedAt: numberValue(value.updatedAt),
+  };
+}
+
+function numberValue(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
 function userTextInput(text: string): Record<string, unknown> {
@@ -675,77 +940,6 @@ function isAssistantMessageItem(params: Record<string, unknown>): boolean {
     || item.kind === "agent_message"
     || item.type === "assistant_message"
     || item.kind === "assistant_message";
-}
-
-function extractTurnPlanText(params: Record<string, unknown>): string {
-  const plan = params.plan;
-  if (typeof plan === "string") return plan.trim();
-  if (Array.isArray(plan)) {
-    const text = extractPlanStepsText(plan, typeof params.explanation === "string" ? params.explanation : "");
-    if (text) return text;
-  }
-  if (isRecord(plan)) {
-    const text = extractPlanObjectText(plan);
-    if (text) return text;
-  }
-  const item = isRecord(params.item) ? params.item : null;
-  if (item) {
-    const text = extractPlanObjectText(item);
-    if (text) return text;
-  }
-  const explanation = typeof params.explanation === "string" ? params.explanation.trim() : "";
-  return explanation;
-}
-
-function extractPlanStepsText(steps: unknown[], explanation: string): string {
-  const renderedSteps = steps
-    .map((step, index) => renderPlanStep(step, index))
-    .filter(Boolean);
-  const intro = explanation.trim();
-  return [
-    intro,
-    renderedSteps.length > 0 ? renderedSteps.join("\n") : "",
-  ].filter(Boolean).join("\n\n");
-}
-
-function extractPlanObjectText(plan: Record<string, unknown>): string {
-  const direct = [
-    plan.markdown,
-    plan.text,
-    plan.content,
-    plan.body,
-    plan.summary,
-    plan.explanation,
-  ].find((value): value is string => typeof value === "string" && value.trim().length > 0);
-  if (direct) return direct.trim();
-  if (Array.isArray(plan.steps)) {
-    const steps = plan.steps
-      .map((step, index) => {
-        if (typeof step === "string") return `${index + 1}. ${step}`;
-        if (isRecord(step)) {
-          const title = typeof step.title === "string" ? step.title : typeof step.label === "string" ? step.label : `Step ${index + 1}`;
-          const detail = typeof step.description === "string" ? step.description : typeof step.detail === "string" ? step.detail : "";
-          return detail ? `${index + 1}. ${title}: ${detail}` : `${index + 1}. ${title}`;
-        }
-        return "";
-      })
-      .filter(Boolean);
-    if (steps.length > 0) return steps.join("\n");
-  }
-  return "";
-}
-
-function renderPlanStep(step: unknown, index: number): string {
-  if (typeof step === "string") return `${index + 1}. ${step}`;
-  if (!isRecord(step)) return "";
-  const text = stringValue(step.step)
-    ?? stringValue(step.title)
-    ?? stringValue(step.label)
-    ?? stringValue(step.description)
-    ?? stringValue(step.detail);
-  if (!text) return "";
-  const status = stringValue(step.status);
-  return status ? `${index + 1}. [${status}] ${text}` : `${index + 1}. ${text}`;
 }
 
 function parseUserInputQuestions(value: unknown): CodexAppServerUserInputQuestion[] {

@@ -28,45 +28,19 @@ describe("web workflow action payload helpers", () => {
     });
   });
 
-  it("preserves bounded continuation budget and Goal Loop scheduler target ids", () => {
+  it("preserves direct Scheduler worker target ids", () => {
     expect(workflowActionPayloadFromScope({
       changeId: "change-1",
-      goalLoopNextStepPacketId: "packet-1",
-      goalLoopControllerPolicyId: "policy-1",
-      goalLoopGateReadinessPreflightId: "preflight-1",
-      goalLoopCurrentGateActionType: "planning.scheduler.worker.start-next",
       schedulerRunId: "scheduler-run-1",
       schedulerClaimReservationId: "claim-reservation-1",
       reservationIntentId: "reservation-1",
       claimIntentId: "claim-1",
-      maxSteps: 5,
     })).toEqual({
       changeId: "change-1",
-      goalLoopNextStepPacketId: "packet-1",
-      goalLoopControllerPolicyId: "policy-1",
-      goalLoopGateReadinessPreflightId: "preflight-1",
-      goalLoopCurrentGateActionType: "planning.scheduler.worker.start-next",
       schedulerRunId: "scheduler-run-1",
       schedulerClaimReservationId: "claim-reservation-1",
       reservationIntentId: "reservation-1",
       claimIntentId: "claim-1",
-      maxSteps: 5,
-    });
-  });
-
-  it("preserves scoped automation mode and current gate target ids", () => {
-    expect(workflowActionPayloadFromScope({
-      changeId: "change-1",
-      automationMode: "full-access",
-      automationCurrentGateActionType: "planning.decomposition.confirm",
-      decompositionPlanId: "decomp-1",
-      maxSteps: 5,
-    })).toEqual({
-      changeId: "change-1",
-      automationMode: "full-access",
-      automationCurrentGateActionType: "planning.decomposition.confirm",
-      decompositionPlanId: "decomp-1",
-      maxSteps: 5,
     });
   });
 });

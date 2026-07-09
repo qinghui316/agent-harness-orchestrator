@@ -11,7 +11,6 @@ import { calculateTranscriptVirtualRange } from "./TranscriptVirtualList.js";
 import {
   agentRunStatusLabel,
 } from "../../formatters.js";
-import { ControlledSchedulerStepReceiptCard, ControlledSchedulerStepTraceCard, GoalLoopPrimarySummary } from "./workpad/GoalLoopCards.js";
 import { ClarificationCard } from "./workpad/TaskGraphCards.js";
 import { ParentAgentTranscriptCellView } from "./TranscriptReadingSurface.js";
 import {
@@ -163,14 +162,6 @@ function ParentAgentTranscriptView({
 
   return (
     <div className="parent-agent-transcript" data-testid="parent-agent-transcript">
-      {workpad.controlledSchedulerStepReceipt ? <ControlledSchedulerStepReceiptCard receipt={workpad.controlledSchedulerStepReceipt} /> : null}
-      {workpad.controlledSchedulerStepTrace ? <ControlledSchedulerStepTraceCard trace={workpad.controlledSchedulerStepTrace} /> : null}
-      {workpad.goalLoop ? (
-        <GoalLoopPrimarySummary
-          goalLoop={workpad.goalLoop}
-          controlledSchedulerReconfirmation={workpad.controlledSchedulerReconfirmation}
-        />
-      ) : null}
       {workpad.intake.pendingClarifications?.length ? (
         <section className="conversation-clarification-strip" data-testid="conversation-clarification-strip" aria-label="需要确认">
           <div className="conversation-clarification-header">

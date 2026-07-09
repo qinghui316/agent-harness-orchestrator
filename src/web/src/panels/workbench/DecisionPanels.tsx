@@ -3,12 +3,10 @@ import { Check, FileText, X } from "lucide-react";
 import { confirmationKindLabel, decisionKindLabel, formatTime, userFacingText, userStatusLabel } from "../../formatters.js";
 import type { ConfirmationQueue, ConfirmationQueueItem, DecisionAction, DecisionContext, DecisionInspector } from "../../types.js";
 import { artifactName } from "./RunReplayPanel.js";
-import { ControlledSchedulerRoutingPosture } from "./ControlledSchedulerRoutingPosture.js";
 
 export function DecisionInspectorPane({
   inspector,
   confirmationQueue,
-  automationMode,
   confirming,
   busy,
   error,
@@ -19,7 +17,6 @@ export function DecisionInspectorPane({
 }: {
   inspector: DecisionInspector;
   confirmationQueue: ConfirmationQueue;
-  automationMode?: "request-approval" | "full-access";
   confirming: string | null;
   busy: boolean;
   error: string | null;
@@ -28,7 +25,6 @@ export function DecisionInspectorPane({
   onFeedback: (context: DecisionContext, action: DecisionAction, feedback: string) => Promise<void>;
   onSelectContext: (id: string | null) => void;
 }): ReactElement {
-  const effectiveAutomationMode = automationMode ?? "request-approval";
   const primaryQueueItem = confirmationQueue.primary;
   return (
     <>
@@ -47,7 +43,6 @@ export function DecisionInspectorPane({
           item={primaryQueueItem}
           confirming={confirming}
           busy={busy}
-          automationMode={effectiveAutomationMode}
           onConfirmingChange={onConfirmingChange}
           onExecuteAction={onExecuteAction}
           onFeedback={onFeedback}
@@ -79,7 +74,6 @@ export function DecisionInspectorPane({
               item={item}
               confirming={confirming}
               busy={busy}
-              automationMode={effectiveAutomationMode}
               onConfirmingChange={onConfirmingChange}
               onExecuteAction={onExecuteAction}
               onFeedback={onFeedback}
@@ -96,7 +90,6 @@ function ConfirmationQueueCard({
   item,
   confirming,
   busy,
-  automationMode,
   onConfirmingChange,
   onExecuteAction,
   onFeedback,
@@ -104,7 +97,6 @@ function ConfirmationQueueCard({
   item: ConfirmationQueueItem;
   confirming: string | null;
   busy: boolean;
-  automationMode: "request-approval" | "full-access";
   onConfirmingChange: (id: string | null) => void;
   onExecuteAction: (action: DecisionAction, context: DecisionContext) => Promise<void>;
   onFeedback: (context: DecisionContext, action: DecisionAction, feedback: string) => Promise<void>;
@@ -115,7 +107,6 @@ function ConfirmationQueueCard({
       context={context}
       confirming={confirming}
       busy={busy}
-      automationMode={automationMode}
       onConfirmingChange={onConfirmingChange}
       onExecuteAction={onExecuteAction}
       onFeedback={onFeedback}
@@ -132,8 +123,6 @@ function confirmationItemToDecisionContext(item: ConfirmationQueueItem): Decisio
     resultSummary: item.summary,
     recommendation: item.confirmEffect,
     explanation: item.riskSummary,
-    controlledSchedulerNextCandidate: item.controlledSchedulerNextCandidate,
-    controlledSchedulerReconfirmation: item.controlledSchedulerReconfirmation,
     severity: item.status === "failed" ? "blocking" : "info",
     changeId: item.changeId ?? item.conversationId,
     runId: item.runId,
@@ -149,7 +138,6 @@ function DecisionContextCard({
   context,
   confirming,
   busy,
-  automationMode,
   onConfirmingChange,
   onExecuteAction,
   onFeedback,
@@ -157,7 +145,6 @@ function DecisionContextCard({
   context: DecisionContext;
   confirming: string | null;
   busy: boolean;
-  automationMode: "request-approval" | "full-access";
   onConfirmingChange: (id: string | null) => void;
   onExecuteAction: (action: DecisionAction, context: DecisionContext) => Promise<void>;
   onFeedback: (context: DecisionContext, action: DecisionAction, feedback: string) => Promise<void>;
@@ -166,8 +153,6 @@ function DecisionContextCard({
   const [feedback, setFeedback] = useState("");
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
   const feedbackAction = context.actions.find((action) => action.id === feedbackActionId);
-  const primaryAutomationAction = chooseScopedAutomationAction(context.actions);
-  const scopedAutomationAvailable = Boolean(primaryAutomationAction);
   const actionBusy = busy || pendingActionId !== null;
   async function executeAction(action: DecisionAction): Promise<void> {
     if (!action.enabled || actionBusy) return;
@@ -204,47 +189,6 @@ function DecisionContextCard({
         <strong>说明</strong>
         <p>{userFacingText(context.explanation ?? "内部运行状态只作为证据和恢复信息，不是用户主决策语言。")}</p>
       </div>
-      {context.controlledSchedulerNextCandidate ? (
-        <div className="decision-explainer" aria-label="Controlled scheduler next candidate">
-          <strong>{userFacingText(context.controlledSchedulerNextCandidate.label)}</strong>
-          <p>{userFacingText(context.controlledSchedulerNextCandidate.body)}</p>
-          <p className="muted-inline">
-            {context.controlledSchedulerNextCandidate.readinessEvidencePrepared ? "当前步骤检查已准备好。" : "当前步骤检查还需要复核。"}
-            {" "}
-            {context.controlledSchedulerNextCandidate.humanConfirmationStillRequired ? "继续前仍需要你确认这个步骤。" : "等待新的证据。"}
-          </p>
-          {context.controlledSchedulerNextCandidate.routingPosture ? (
-            <ControlledSchedulerRoutingPosture posture={context.controlledSchedulerNextCandidate.routingPosture} />
-          ) : null}
-        </div>
-      ) : null}
-      {context.controlledSchedulerReconfirmation ? (
-        <div className="decision-explainer" aria-label="Controlled scheduler reconfirmation">
-          <strong>{userFacingText(context.controlledSchedulerReconfirmation.label)}</strong>
-          <p>{userFacingText(context.controlledSchedulerReconfirmation.body)}</p>
-          <dl className="approval-fields compact">
-            {context.controlledSchedulerReconfirmation.lastStoppedStepLabel ? (
-              <div><dt>上一步</dt><dd>{userFacingText(context.controlledSchedulerReconfirmation.lastStoppedStepLabel)}</dd></div>
-            ) : null}
-            <div><dt>当前确认</dt><dd>{userFacingText(context.controlledSchedulerReconfirmation.currentStepLabel)}</dd></div>
-            <div><dt>检查状态</dt><dd>{userFacingText(context.controlledSchedulerReconfirmation.freshnessLabel)}</dd></div>
-            {context.controlledSchedulerReconfirmation.stopPosture ? (
-              <div><dt>停止原因</dt><dd>{userFacingText(context.controlledSchedulerReconfirmation.stopPosture.stopReasonLabel)}</dd></div>
-            ) : null}
-          </dl>
-          {context.controlledSchedulerReconfirmation.stopPosture ? (
-            <p className="muted-inline">{userFacingText(context.controlledSchedulerReconfirmation.stopPosture.body)}</p>
-          ) : null}
-          <p className="muted-inline">{userFacingText(context.controlledSchedulerReconfirmation.boundary)}</p>
-          {context.controlledSchedulerReconfirmation.evidenceRefs.length ? (
-            <div className="workpad-links" aria-label="Controlled scheduler reconfirmation evidence refs">
-              {context.controlledSchedulerReconfirmation.evidenceRefs.slice(0, 4).map((artifact) => (
-                <span className="artifact-link" key={artifact}>查看证据：{artifactName(artifact)}</span>
-              ))}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
       <dl className="approval-fields">
         <div><dt>变更</dt><dd>{context.changeId ?? "-"}</dd></div>
         {context.taskId ? <div><dt>任务</dt><dd>{context.taskId}</dd></div> : null}
@@ -261,10 +205,7 @@ function DecisionContextCard({
       ) : null}
       <div className="approval-actions">
         {context.actions.map((action) => {
-          const effectiveAction = action === primaryAutomationAction && scopedAutomationAvailable && (automationMode === "full-access" || isScopedAutomationConfirming(confirming, action))
-              ? scopedAutomationActionFrom(action, context)
-              : action;
-          const disabled = actionBusy || !effectiveAction.enabled;
+          const disabled = actionBusy || !action.enabled;
           const title = action.disabledReason ?? (actionBusy ? "当前已有动作正在执行。" : undefined);
           if (action.kind === "feedback") {
             return <button key={action.id} className="outline-button" disabled={disabled} title={title} onClick={() => setFeedbackActionId(action.id)}><FileText size={15} />{userFacingText(action.label)}</button>;
@@ -273,13 +214,13 @@ function DecisionContextCard({
             return <button key={action.id} className="outline-button" disabled={disabled} title={title} onClick={() => void executeAction(action)}><FileText size={15} />{userFacingText(action.label)}</button>;
           }
           if (action.kind !== "approval" && action.kind !== "workflow-action" && action.kind !== "abandon") return null;
-          return confirming === effectiveAction.id ? (
+          return confirming === action.id ? (
             <span className="confirm-inline" key={action.id}>
-              <button className="primary-button" disabled={disabled} title={title} onClick={() => void executeAction(effectiveAction)}><Check size={15} />确认</button>
+              <button className="primary-button" disabled={disabled} title={title} onClick={() => void executeAction(action)}><Check size={15} />确认</button>
               <button className="outline-button" disabled={actionBusy} onClick={() => onConfirmingChange(null)}><X size={15} />取消</button>
             </span>
           ) : (
-            <button key={action.id} className="primary-button" disabled={disabled} title={title} onClick={() => effectiveAction.requiresConfirmation ? onConfirmingChange(effectiveAction.id) : void executeAction(effectiveAction)}><Check size={15} />{userFacingText(effectiveAction.label)}</button>
+            <button key={action.id} className="primary-button" disabled={disabled} title={title} onClick={() => action.requiresConfirmation ? onConfirmingChange(action.id) : void executeAction(action)}><Check size={15} />{userFacingText(action.label)}</button>
           );
         })}
       </div>
@@ -302,96 +243,6 @@ function DecisionContextCard({
       ) : null}
     </article>
   );
-}
-
-function scopedAutomationActionFrom(action: DecisionAction, context: DecisionContext): DecisionAction {
-  if (!action.actionType && !isScopedAutomationAllowedApprovalActionId(action.action?.actionId)) return action;
-  return {
-    ...action,
-    id: `automation:${action.id}`,
-    label: "自动推进",
-    kind: "workflow-action",
-    actionType: "planning.automation.scoped-auto.run",
-    automationMode: "full-access",
-    automationCurrentGateActionType: action.actionType,
-    automationCurrentGateApprovalActionId: isScopedAutomationAllowedApprovalActionId(action.action?.actionId) ? action.action?.actionId : undefined,
-    automationCurrentGateTargetId: context.targetId,
-    automationCurrentGateRunId: context.runId,
-    automationCurrentGateArtifact: context.artifact,
-    changeId: action.changeId ?? context.changeId,
-    maxSteps: action.maxSteps ?? 10,
-    requiresConfirmation: true,
-  };
-}
-
-function isScopedAutomationConfirming(confirming: string | null, action: DecisionAction): boolean {
-  return confirming === `automation:${action.id}`;
-}
-
-function isScopedAutomationAllowedAction(action: DecisionAction): boolean {
-  if (isTerminalHumanGateActionType(action.goalLoopCurrentGateActionType)) return false;
-  const actionType = action.actionType;
-  if (action.kind === "approval") {
-    return isScopedAutomationAllowedApprovalActionId(action.action?.actionId) && action.automationEligible === true;
-  }
-  return action.kind === "workflow-action" && (actionType === "planning.decompose"
-    || actionType === "planning.decomposition.confirm"
-    || actionType === "planning.decomposition.assess-readiness"
-    || actionType === "planning.goal-loop.evaluate"
-    || actionType === "planning.goal-loop.controller.refresh"
-    || actionType === "planning.goal-loop.gate-readiness.prepare"
-    || actionType === "code.run"
-    || actionType === "validate.run"
-    || actionType === "audit.run"
-    || actionType === "result.refresh-rework"
-    || actionType === "result.refresh-status"
-    || actionType === "result.revalidate"
-    || actionType === "result.reaudit"
-    || actionType === "landing.prepare"
-    || actionType === "planning.goal-loop.controlled-continue.run");
-}
-
-function isTerminalHumanGateActionType(actionType: string | undefined): boolean {
-  return actionType === "planning.scheduler.integration-check.run"
-    || actionType === "apply-check.apply"
-    || actionType === "apply-check.discard"
-    || actionType === "harness-evolve.apply"
-    || actionType === "harness-evolve.mark-complete"
-    || actionType === "landing-queue.merge-next"
-    || actionType === "remote-landing.merge"
-    || actionType === "pr-draft.create"
-    || actionType === "pr-feedback.update-draft"
-    || actionType === "pr-review.submit"
-    || actionType === "pr-review.reply-submit"
-    || actionType === "pr-review.thread-resolve";
-}
-
-function isScopedAutomationAllowedApprovalActionId(actionId: string | undefined): actionId is "audit.accept" | "result.apply" | "change.close" {
-  return actionId === "audit.accept" || actionId === "result.apply" || actionId === "change.close";
-}
-
-function chooseScopedAutomationAction(actions: DecisionAction[]): DecisionAction | undefined {
-  const candidates = actions
-    .map((action, index) => ({ action, index, priority: scopedAutomationActionPriority(action) }))
-    .filter((item) => item.priority >= 0);
-  candidates.sort((left, right) => right.priority - left.priority || left.index - right.index);
-  return candidates[0]?.action;
-}
-
-function scopedAutomationActionPriority(action: DecisionAction): number {
-  if (!isScopedAutomationAllowedAction(action)) return -1;
-  switch (action.actionType) {
-    case "planning.goal-loop.controlled-continue.run":
-      return 400;
-    case "planning.goal-loop.gate-readiness.prepare":
-      return 300;
-    case "planning.goal-loop.controller.refresh":
-      return 200;
-    case "planning.goal-loop.evaluate":
-      return 100;
-    default:
-      return 0;
-  }
 }
 
 function DecisionContextHistory({ contexts, onSelectContext }: { contexts: DecisionContext[]; onSelectContext: (id: string) => void }): ReactElement {

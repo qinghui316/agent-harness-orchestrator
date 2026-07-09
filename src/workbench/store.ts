@@ -37,6 +37,7 @@ export interface StoredCodexSessionLink {
   projectId: string;
   changeId: string;
   codexSessionId: string | null;
+  capabilityProfile: string | null;
   updatedAt: string;
 }
 
@@ -275,7 +276,8 @@ export class WorkbenchStore {
 
   readCodexSession(projectId: string, changeId: string): StoredCodexSessionLink | null {
     const row = this.db.prepare(`
-      SELECT project_id AS projectId, change_id AS changeId, codex_session_id AS codexSessionId, updated_at AS updatedAt
+      SELECT project_id AS projectId, change_id AS changeId, codex_session_id AS codexSessionId,
+        capability_profile AS capabilityProfile, updated_at AS updatedAt
       FROM codex_session_links WHERE project_id = ? AND change_id = ?
     `).get(projectId, changeId) as SqliteRow | undefined;
     return row ? mapSessionRow(row) : null;
@@ -358,12 +360,13 @@ export class WorkbenchStore {
 
   writeCodexSession(link: StoredCodexSessionLink): void {
     this.db.prepare(`
-      INSERT INTO codex_session_links (project_id, change_id, codex_session_id, updated_at)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO codex_session_links (project_id, change_id, codex_session_id, capability_profile, updated_at)
+      VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(project_id, change_id) DO UPDATE SET
         codex_session_id = excluded.codex_session_id,
+        capability_profile = excluded.capability_profile,
         updated_at = excluded.updated_at
-    `).run(link.projectId, link.changeId, link.codexSessionId, link.updatedAt);
+    `).run(link.projectId, link.changeId, link.codexSessionId, link.capabilityProfile, link.updatedAt);
   }
 
   upsertSkill(skill: StoredSkillIndex): void {
@@ -660,6 +663,7 @@ function migrate(db: Database.Database): void {
       project_id TEXT NOT NULL,
       change_id TEXT NOT NULL,
       codex_session_id TEXT,
+      capability_profile TEXT,
       updated_at TEXT NOT NULL,
       PRIMARY KEY(project_id, change_id)
     );
@@ -754,6 +758,7 @@ function migrate(db: Database.Database): void {
   db.exec("UPDATE messages SET conversation_id = change_id WHERE conversation_id = ''");
   db.exec("CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(project_id, conversation_id, position);");
   ensureColumn(db, "skills", "source_kind", "TEXT NOT NULL DEFAULT 'managed'");
+  ensureColumn(db, "codex_session_links", "capability_profile", "TEXT");
 }
 
 function mapMessageRow(row: SqliteRow): StoredTopicMessage {
@@ -794,6 +799,7 @@ function mapSessionRow(row: SqliteRow): StoredCodexSessionLink {
     projectId: String(row.projectId),
     changeId: String(row.changeId),
     codexSessionId: nullableString(row.codexSessionId),
+    capabilityProfile: nullableString(row.capabilityProfile),
     updatedAt: String(row.updatedAt),
   };
 }

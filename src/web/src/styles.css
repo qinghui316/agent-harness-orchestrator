@@ -3060,40 +3060,6 @@ input:focus-visible {
   color: var(--text-muted);
 }
 
-.composer-execution-mode-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 2px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-subtle);
-}
-
-.composer-execution-mode-toggle button {
-  min-height: 26px;
-  padding: 0 9px;
-  border: 0;
-  border-radius: calc(var(--radius-sm) - 2px);
-  background: transparent;
-  color: var(--text-muted);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 650;
-  cursor: pointer;
-}
-
-.composer-execution-mode-toggle button.selected {
-  background: var(--bg-panel);
-  color: var(--text);
-  box-shadow: 0 1px 3px rgba(35, 33, 28, 0.08);
-}
-
-.composer-execution-mode-toggle button:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
 .composer-context-chip-group {
   display: inline-flex;
   align-items: center;

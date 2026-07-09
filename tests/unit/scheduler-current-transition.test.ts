@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveSchedulerCurrentTransition, schedulerTransitionMatchesStartRequest } from "../../src/workflow-actions/scheduler-current-transition.js";
+import { resolveSchedulerCurrentTransition, schedulerTransitionMatchesStartRequest, type SchedulerCurrentTransitionWorkerPath } from "../../src/workflow-actions/scheduler-current-transition.js";
 import type { ReadySetWorkflowGraphPlan } from "../../src/types/index.js";
 
 const reservation = {
@@ -75,20 +75,56 @@ describe("Scheduler current transition", () => {
     });
   });
 
-  it("blocks next-wave and integration while the current wave is not terminal", () => {
+  it("keeps the current worker step behind the wave barrier", () => {
     const transition = resolveSchedulerCurrentTransition({
       reservation,
       workerPaths: [
         { start: { reservationIntentId: "wave-0-a" }, terminal: true },
-        { start: { reservationIntentId: "wave-0-b" }, terminal: false },
+        workerPath("result-pending", "wave-0-b"),
       ],
       integrationCandidate: { status: "waiting", readyCount: 2, blockedCount: 0 },
       integrationCandidateNeedsRefresh: false,
     });
 
     expect(transition).toMatchObject({
+      kind: "worker-step",
+      actionType: "planning.scheduler.worker.reconcile-result",
+      worker: { schedulerWorkerStartId: "start-wave-0-b" },
+    });
+  });
+
+  it.each([
+    ["result-pending", "planning.scheduler.worker.reconcile-result", "schedulerWorkerStartId", "start-wave-0-a"],
+    ["validation-pending", "planning.scheduler.worker.validate-first", "schedulerWorkerResultId", "result-wave-0-a"],
+    ["audit-pending", "planning.scheduler.worker.audit-first", "schedulerWorkerValidationId", "validation-wave-0-a"],
+    ["rework-plan-pending", "planning.scheduler.worker.rework-plan.compile", "schedulerWorkerValidationId", "validation-wave-0-a"],
+    ["rework-start-pending", "planning.scheduler.worker.rework-start-first", "schedulerWorkerReworkPlanId", "rework-plan-wave-0-a"],
+    ["rework-result-pending", "planning.scheduler.worker.rework-reconcile-result", "schedulerWorkerReworkStartId", "rework-start-wave-0-a"],
+    ["rework-validation-pending", "planning.scheduler.worker.rework-validate-first", "schedulerWorkerReworkResultId", "rework-result-wave-0-a"],
+    ["rework-audit-pending", "planning.scheduler.worker.rework-audit-first", "schedulerWorkerReworkValidationId", "rework-validation-wave-0-a"],
+  ] as const)("maps canonical worker status %s to %s", (status, actionType, targetKey, targetId) => {
+    const transition = resolveSchedulerCurrentTransition({
+      reservation: { reservationIntents: [reservation.reservationIntents[0]] },
+      workerPaths: [workerPath(status, "wave-0-a")],
+    });
+
+    expect(transition).toMatchObject({
+      kind: "worker-step",
+      actionType,
+      worker: { [targetKey]: targetId },
+    });
+  });
+
+  it("fails closed when canonical status lacks its exact evidence target", () => {
+    const path = workerPath("validation-pending", "wave-0-a");
+    path.result = null;
+
+    expect(resolveSchedulerCurrentTransition({
+      reservation: { reservationIntents: [reservation.reservationIntents[0]] },
+      workerPaths: [path],
+    })).toMatchObject({
       kind: "blocked",
-      reason: "Current scheduler wave is not terminal.",
+      reason: "Canonical Scheduler worker path is missing schedulerWorkerResultId.",
     });
   });
 
@@ -162,7 +198,39 @@ describe("Scheduler current transition", () => {
       reason: "Scheduler wave 0 has conflicting source scopes.",
     });
   });
+
+  it.each([
+    [{ integrationCheckHandoff: { id: "handoff-1", currentIntegrationCheckStatus: "conflict" } }, "integration-outcome", "planning.scheduler.integration-outcome.reconcile"],
+    [{ integrationOutcomeExists: true, integrationOutcomeId: "outcome-1" }, "run-complete", "planning.scheduler.run.complete"],
+    [{ integrationCandidate: { id: "candidate-1", readyCount: 1, blockedCount: 1 }, integrationCandidateNeedsRefresh: false }, "close-blocked", "planning.scheduler.run.close-blocked"],
+  ] as const)("covers terminal chain transition %s", (extra, kind, actionType) => {
+    const transition = resolveSchedulerCurrentTransition({
+      reservation,
+      workerPaths: reservation.reservationIntents.map((intent) => ({ start: { reservationIntentId: intent.reservationIntentId }, terminal: true })),
+      integrationCandidate: { id: "candidate-1", readyCount: 2, blockedCount: 0 },
+      integrationCandidateNeedsRefresh: false,
+      ...extra,
+    });
+
+    expect(transition).toMatchObject({ kind, actionType });
+  });
 });
+
+function workerPath(status: string, reservationIntentId: string): SchedulerCurrentTransitionWorkerPath {
+  return {
+    start: { id: `start-${reservationIntentId}`, reservationIntentId, claimIntentId: `claim-${reservationIntentId}` },
+    result: { id: `result-${reservationIntentId}` },
+    validation: { id: `validation-${reservationIntentId}` },
+    audit: null,
+    reworkPlan: { id: `rework-plan-${reservationIntentId}` },
+    reworkStart: { id: `rework-start-${reservationIntentId}` },
+    reworkResult: { id: `rework-result-${reservationIntentId}` },
+    reworkValidation: { id: `rework-validation-${reservationIntentId}` },
+    reworkAudit: null,
+    status,
+    terminal: false,
+  };
+}
 
 function readySetGraph(claimIntentIds: string[]): ReadySetWorkflowGraphPlan {
   return {

@@ -28,12 +28,9 @@ import {
   readSchedulerRuntimeWorkerReworkValidationProjection,
   readSchedulerRuntimeWorkerReworkStartProjection,
   readSchedulerRuntimeWorkerValidationProjection,
-  readLatestSchedulerControlledStepEvidenceProjection,
   readSchedulerWorkerPathReadModels,
   readSchedulerRuntimeClaimReservationProjection,
   readSchedulerRuntimeStateProjection,
-  type SchedulerControlledStepEvidence,
-  type ControlledSchedulerContinuationDecision,
   type SchedulerReconcileSnapshot,
   type SchedulerRuntimeClaimReservation,
   type SchedulerIntegrationCandidate,
@@ -280,41 +277,6 @@ export interface WorkbenchSchedulerRuntimeSummary {
   lastClaimReservationSnapshotId?: string;
   artifact?: string;
   eventsArtifact?: string;
-  updatedAt: string;
-}
-
-export interface WorkbenchSchedulerControlledStepEvidenceSummary {
-  id: string;
-  changeId: string;
-  schedulerRunId?: string;
-  status: SchedulerControlledStepEvidence["status"];
-  executedActionType: string;
-  postStepStatus: string;
-  nextCandidateActionType?: string;
-  needsReevaluation: boolean;
-  humanConfirmationStillRequired: true;
-  sourceMutated: false;
-  loopAuthorized: false;
-  wholeWaveDispatchAuthorized: false;
-  slotAllocatorAuthorized: false;
-  applyAuthorized: false;
-  closeAuthorized: false;
-  mergeAuthorized: false;
-  harnessEvolutionAuthorized: false;
-  controlledStepResultSummary?: Record<string, string | number | boolean | string[] | null>;
-  controlledLoopTurnRouteSummary?: SchedulerControlledStepEvidence["controlledLoopTurnRouteSummary"];
-  controlledLoopTick?: SchedulerControlledStepEvidence["controlledLoopTick"];
-  controlledLoopContinuationReadiness?: SchedulerControlledStepEvidence["controlledLoopContinuationReadiness"];
-  controlledLoopIteration?: SchedulerControlledStepEvidence["controlledLoopIteration"];
-  controlledLoopStopSummary?: SchedulerControlledStepEvidence["controlledLoopStopSummary"];
-  controlledLoopBoundaryResult?: SchedulerControlledStepEvidence["controlledLoopBoundaryResult"];
-  controlledLoopRuntimeBoundary?: SchedulerControlledStepEvidence["controlledLoopRuntimeBoundary"];
-  controlledLoopPostStepRoutingDecision?: SchedulerControlledStepEvidence["controlledLoopPostStepRoutingDecision"];
-  controlledLoopPreDispatchDecision?: ControlledSchedulerContinuationDecision;
-  controlledLoopContinuationDecision?: ControlledSchedulerContinuationDecision;
-  warning?: string;
-  artifact?: string;
-  markdownArtifact?: string;
   updatedAt: string;
 }
 
@@ -1117,19 +1079,6 @@ export async function readSchedulerRuntimeSummary(memory: ResolvedMemory, change
   };
 }
 
-export async function readLatestSchedulerControlledStepEvidenceSummary(
-  memory: ResolvedMemory,
-  changePath: string,
-  schedulerRunId?: string,
-): Promise<WorkbenchSchedulerControlledStepEvidenceSummary | null> {
-  const step = schedulerRunId
-    ? await readLatestSchedulerControlledStepEvidenceProjection(memory, changePath, schedulerRunId).catch(() => null)
-    : await readLatestSchedulerControlledStepEvidenceProjection(memory, changePath).catch(() => null);
-  if (!step) return null;
-  if (schedulerRunId && step.schedulerRunId && step.schedulerRunId !== schedulerRunId) return null;
-  return summarizeSchedulerControlledStepEvidence(step);
-}
-
 export async function readSchedulerClaimReservationSummary(memory: ResolvedMemory, changePath: string, schedulerRunId?: string, reservationId?: string): Promise<WorkbenchSchedulerClaimReservationSummary | null> {
   if (!schedulerRunId || !reservationId) return null;
   const reservation = await readSchedulerRuntimeClaimReservationProjection(memory, changePath, schedulerRunId, reservationId);
@@ -1727,42 +1676,6 @@ function summarizeSchedulerRunCompletion(completion: SchedulerRunCompletion): Wo
   };
 }
 
-function summarizeSchedulerControlledStepEvidence(step: SchedulerControlledStepEvidence): WorkbenchSchedulerControlledStepEvidenceSummary {
-  return {
-    id: step.id,
-    changeId: step.changeId,
-    schedulerRunId: step.schedulerRunId,
-    status: step.status,
-    executedActionType: step.executedActionType,
-    postStepStatus: step.postStepHandoff.status,
-    nextCandidateActionType: step.postStepHandoff.nextConfirmationCandidate?.actionType,
-    needsReevaluation: step.postStepHandoff.needsReevaluation,
-    humanConfirmationStillRequired: true,
-    sourceMutated: false,
-    loopAuthorized: step.forbiddenAuthority.loopAuthorized,
-    wholeWaveDispatchAuthorized: step.forbiddenAuthority.wholeWaveDispatchAuthorized,
-    slotAllocatorAuthorized: step.forbiddenAuthority.slotAllocatorAuthorized,
-    applyAuthorized: step.forbiddenAuthority.applyAuthorized,
-    closeAuthorized: step.forbiddenAuthority.closeAuthorized,
-    mergeAuthorized: step.forbiddenAuthority.mergeAuthorized,
-    harnessEvolutionAuthorized: step.forbiddenAuthority.harnessEvolutionAuthorized,
-    controlledStepResultSummary: step.controlledStepResultSummary,
-    controlledLoopTurnRouteSummary: step.controlledLoopTurnRouteSummary,
-    controlledLoopTick: step.controlledLoopTick,
-    controlledLoopContinuationReadiness: step.controlledLoopContinuationReadiness,
-    controlledLoopIteration: step.controlledLoopIteration,
-    controlledLoopStopSummary: step.controlledLoopStopSummary,
-    controlledLoopBoundaryResult: step.controlledLoopBoundaryResult,
-    controlledLoopRuntimeBoundary: step.controlledLoopRuntimeBoundary,
-    controlledLoopPostStepRoutingDecision: step.controlledLoopPostStepRoutingDecision,
-    controlledLoopPreDispatchDecision: step.controlledLoopPreDispatchDecision,
-    warning: step.postStepEvidence.evaluationWarning ?? step.postStepEvidence.readinessWarning ?? step.postStepHandoff.warning,
-    artifact: step.artifact,
-    markdownArtifact: step.markdownArtifact,
-    updatedAt: step.updatedAt,
-  };
-}
-
 function summarizeSchedulerRunBlockedCloseout(closeout: SchedulerRunBlockedCloseout): WorkbenchSchedulerRunBlockedCloseoutSummary {
   return {
     id: closeout.id,
@@ -2135,8 +2048,7 @@ export function buildTypedWorkflowNextAction(input: {
             };
           }
           const currentIntegrationStatus = schedulerIntegrationCheckHandoff?.currentIntegrationCheckStatus ?? schedulerIntegrationCheckHandoff?.integrationCheckStatus;
-          const terminalIntegrationStatus = currentIntegrationStatus && currentIntegrationStatus !== "passed";
-          if (schedulerIntegrationCheckHandoff && terminalIntegrationStatus && !schedulerIntegrationOutcome) {
+          if (schedulerTransition.kind === "integration-outcome" && schedulerIntegrationCheckHandoff && !schedulerIntegrationOutcome) {
             return {
               ...workflowNextAction("planning.scheduler.integration-outcome.reconcile", "记录 scheduler integration 结果", "把现有 IntegrationCheck 的 terminal/apply/discard 结果写回 scheduler-owned outcome evidence；不执行 apply、discard、landing、PR、merge 或 next worker。"),
               decompositionPlanId: decompositionPlan.id,
@@ -2155,7 +2067,7 @@ export function buildTypedWorkflowNextAction(input: {
               worktreeIds: schedulerIntegrationCandidate.readyWorktreeIds,
             };
           }
-          if (schedulerIntegrationOutcome) {
+          if (schedulerTransition.kind === "run-complete" && schedulerIntegrationOutcome) {
             return {
               ...workflowNextAction("planning.scheduler.run.complete", "记录 SchedulerRun 完成状态", "把 terminal scheduler integration outcome 写入 SchedulerRun completion/status evidence；不执行 apply、discard、landing、PR、merge 或 next worker。"),
               decompositionPlanId: decompositionPlan.id,
@@ -2214,9 +2126,30 @@ export function buildTypedWorkflowNextAction(input: {
             };
           }
         }
+        if (schedulerTransition?.kind === "start-same-wave-worker" || schedulerTransition?.kind === "start-next-wave-worker") {
+          const title = schedulerTransition.kind === "start-same-wave-worker" ? "启动同波次下一个 worker" : "启动下一个 wave worker";
+          const description = schedulerTransition.kind === "start-same-wave-worker"
+            ? "当前 wave 还有未启动且 source scope 不冲突的 reservation intent；本操作只启动一个明确 coder stage，不启动整波、验证、审计、IntegrationCheck 或 scheduler loop。"
+            : "当前 wave 已全部 terminal，下一 wave 有可启动的 reservation intent；本操作只启动一个明确 coder stage，不启动整波、验证、审计、IntegrationCheck 或 scheduler loop。";
+          return {
+            ...workflowNextAction("planning.scheduler.worker.start-next", title, description),
+            decompositionPlanId: decompositionPlan.id,
+            readinessManifestId: decompositionReadiness.id,
+            schedulerContractId: schedulerRun.schedulerContractId,
+            schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
+            schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
+            schedulerClaimReconcilePlanId: schedulerRun.schedulerClaimReconcilePlanId,
+            schedulerLaunchPreflightId: schedulerRun.schedulerLaunchPreflightId,
+            schedulerRunId: schedulerRun.id,
+            schedulerReconcileSnapshotId: schedulerReconcileSnapshot.id,
+            schedulerClaimReservationId: schedulerClaimReservation.id,
+            reservationIntentId: schedulerTransition.reservationIntent.reservationIntentId,
+            claimIntentId: schedulerTransition.reservationIntent.claimIntentId,
+          };
+        }
         if (schedulerWorkerStart?.schedulerClaimReservationId === schedulerClaimReservation.id && schedulerWorkerStart.schedulerRunId === schedulerRun.id) {
           if (schedulerWorkerResult?.schedulerWorkerStartId === schedulerWorkerStart.id) {
-            if (schedulerWorkerResult.status === "evidence-ready" && !schedulerWorkerValidation) {
+            if (schedulerTransition?.actionType === "planning.scheduler.worker.validate-first") {
               return {
                 ...workflowNextAction("planning.scheduler.worker.validate-first", "验证当前 worker 结果", "对当前 scheduler worker 的同一个 worktree 运行一次 scoped Validation；只写 scheduler validation evidence，不启动 audit、rework 或下一个 worker。"),
                 decompositionPlanId: decompositionPlan.id,
@@ -2239,7 +2172,7 @@ export function buildTypedWorkflowNextAction(input: {
                 runId: schedulerWorkerResult.runId,
               };
             }
-            if (schedulerWorkerValidation?.status === "passed" && !schedulerWorkerAudit) {
+            if (schedulerTransition?.actionType === "planning.scheduler.worker.audit-first" && schedulerWorkerValidation) {
               return {
                 ...workflowNextAction("planning.scheduler.worker.audit-first", "审计当前 worker 结果", "对当前 scheduler worker 的同一个 worktree 运行一次 scoped Audit；只写 scheduler audit evidence，不启动 rework、下一个 worker 或 whole wave。"),
                 decompositionPlanId: decompositionPlan.id,
@@ -2260,9 +2193,7 @@ export function buildTypedWorkflowNextAction(input: {
                 validationRunId: schedulerWorkerValidation.validationRunId,
               };
             }
-            const needsReworkPlan = schedulerWorkerValidation?.status === "failed"
-              || (schedulerWorkerValidation?.status === "passed" && (schedulerWorkerAudit?.status === "blocked" || schedulerWorkerAudit?.status === "failed"));
-            if (needsReworkPlan && !schedulerWorkerReworkPlan && schedulerWorkerValidation) {
+            if (schedulerTransition?.actionType === "planning.scheduler.worker.rework-plan.compile" && schedulerWorkerValidation) {
               return {
                 ...workflowNextAction("planning.scheduler.worker.rework-plan.compile", "生成当前 worker rework 计划", "根据当前 worker validation failed 或 audit blocked/failed evidence 生成 bounded rework 计划；不会启动 rework、下一个 worker 或 scheduler loop。"),
                 decompositionPlanId: decompositionPlan.id,
@@ -2289,7 +2220,7 @@ export function buildTypedWorkflowNextAction(input: {
                 auditRunId: schedulerWorkerAudit?.auditRunId,
               };
             }
-            if (schedulerWorkerReworkPlan && !schedulerWorkerReworkStart) {
+            if (schedulerTransition?.actionType === "planning.scheduler.worker.rework-start-first" && schedulerWorkerReworkPlan) {
               return {
                 ...workflowNextAction("planning.scheduler.worker.rework-start-first", "启动当前 worker rework", "在当前 worker 的原 worktree 上启动一次 scoped rework-coder；只创建 rework TaskRun、WorkerLease、code run 和 Runtime Continuity sidecars。"),
                 decompositionPlanId: decompositionPlan.id,
@@ -2317,7 +2248,7 @@ export function buildTypedWorkflowNextAction(input: {
                 auditRunId: schedulerWorkerReworkPlan.auditRunId,
               };
             }
-            if (schedulerWorkerReworkStart && !schedulerWorkerReworkResult) {
+            if (schedulerTransition?.actionType === "planning.scheduler.worker.rework-reconcile-result" && schedulerWorkerReworkStart) {
               return {
                 ...workflowNextAction("planning.scheduler.worker.rework-reconcile-result", "检查当前 worker rework 结果", "读取 rework TaskRun、WorkerLease、worktree 和 rework code run evidence；只写 scheduler rework result，不启动 validation、audit、next worker 或 whole wave。"),
                 decompositionPlanId: decompositionPlan.id,
@@ -2344,7 +2275,7 @@ export function buildTypedWorkflowNextAction(input: {
                 runId: schedulerWorkerReworkStart.reworkRunId,
               };
             }
-            if (schedulerWorkerReworkResult?.status === "evidence-ready" && !schedulerWorkerReworkValidation) {
+            if (schedulerTransition?.actionType === "planning.scheduler.worker.rework-validate-first" && schedulerWorkerReworkResult) {
               return {
                 ...workflowNextAction("planning.scheduler.worker.rework-validate-first", "验证当前 worker rework 结果", "对当前 worker rework 复用的同一个 worktree 运行一次 scoped Validation；只写 scheduler rework validation evidence，不启动 audit、next worker 或 whole wave。"),
                 decompositionPlanId: decompositionPlan.id,
@@ -2373,7 +2304,7 @@ export function buildTypedWorkflowNextAction(input: {
                 validationRunId: schedulerWorkerValidation?.validationRunId,
               };
             }
-            if (schedulerWorkerReworkValidation?.status === "passed" && !schedulerWorkerReworkAudit) {
+            if (schedulerTransition?.actionType === "planning.scheduler.worker.rework-audit-first" && schedulerWorkerReworkValidation) {
               return {
                 ...workflowNextAction("planning.scheduler.worker.rework-audit-first", "审计当前 worker rework 结果", "对当前 worker rework 复用的同一个 worktree 运行一次 scoped Audit；只写 scheduler rework audit evidence，不启动 next worker、integration 或 apply。"),
                 decompositionPlanId: decompositionPlan.id,
@@ -2404,30 +2335,7 @@ export function buildTypedWorkflowNextAction(input: {
                 reworkValidationRunId: schedulerWorkerReworkValidation.validationRunId,
               };
             }
-            const workerAuditApproved = schedulerWorkerAudit?.status === "approved" || schedulerWorkerAudit?.status === "approved-with-notes";
-            const reworkAuditApproved = schedulerWorkerReworkAudit?.status === "approved" || schedulerWorkerReworkAudit?.status === "approved-with-notes";
-            if ((workerAuditApproved || reworkAuditApproved) && schedulerTransition) {
-            if (schedulerTransition.kind === "start-same-wave-worker" || schedulerTransition.kind === "start-next-wave-worker") {
-                const title = schedulerTransition.kind === "start-same-wave-worker" ? "启动同波次下一个 worker" : "启动下一个 wave worker";
-                const description = schedulerTransition.kind === "start-same-wave-worker"
-                  ? "当前 wave 还有未启动且 source scope 不冲突的 reservation intent；本操作只启动一个明确 coder stage，不启动整波、验证、审计、IntegrationCheck 或 scheduler loop。"
-                  : "当前 wave 已全部 terminal，下一 wave 有可启动的 reservation intent；本操作只启动一个明确 coder stage，不启动整波、验证、审计、IntegrationCheck 或 scheduler loop。";
-                return {
-                  ...workflowNextAction("planning.scheduler.worker.start-next", title, description),
-                  decompositionPlanId: decompositionPlan.id,
-                  readinessManifestId: decompositionReadiness.id,
-                  schedulerContractId: schedulerRun.schedulerContractId,
-                  schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
-                  schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
-                  schedulerClaimReconcilePlanId: schedulerRun.schedulerClaimReconcilePlanId,
-                  schedulerLaunchPreflightId: schedulerRun.schedulerLaunchPreflightId,
-                  schedulerRunId: schedulerRun.id,
-                  schedulerReconcileSnapshotId: schedulerReconcileSnapshot.id,
-                  schedulerClaimReservationId: schedulerClaimReservation.id,
-                  reservationIntentId: schedulerTransition.reservationIntent.reservationIntentId,
-                  claimIntentId: schedulerTransition.reservationIntent.claimIntentId,
-                };
-              }
+            if (schedulerTransition) {
               if (schedulerTransition.kind === "integration-candidate") {
                 return {
                   ...workflowNextAction("planning.scheduler.integration-candidate.compile", "生成 scheduler integration 候选", "把已通过 audit 的 scheduler worker 输出接回现有 apply readiness gate；只写 SchedulerIntegrationCandidate，不运行 IntegrationCheck、apply、merge 或 next worker。"),
@@ -2483,8 +2391,7 @@ export function buildTypedWorkflowNextAction(input: {
               }
               if (schedulerIntegrationCandidate) {
                 const currentIntegrationStatus = schedulerIntegrationCheckHandoff?.currentIntegrationCheckStatus ?? schedulerIntegrationCheckHandoff?.integrationCheckStatus;
-                const terminalIntegrationStatus = currentIntegrationStatus && currentIntegrationStatus !== "passed";
-                if (schedulerIntegrationCheckHandoff && terminalIntegrationStatus && !schedulerIntegrationOutcome) {
+                if (schedulerTransition.kind === "integration-outcome" && schedulerIntegrationCheckHandoff && !schedulerIntegrationOutcome) {
                   return {
                     ...workflowNextAction("planning.scheduler.integration-outcome.reconcile", "记录 scheduler integration 结果", "把现有 IntegrationCheck 的 terminal/apply/discard 结果写回 scheduler-owned outcome evidence；不执行 apply、discard、landing、PR、merge 或 next worker。"),
                     decompositionPlanId: decompositionPlan.id,
@@ -2503,7 +2410,7 @@ export function buildTypedWorkflowNextAction(input: {
                     worktreeIds: schedulerIntegrationCandidate.readyWorktreeIds,
                   };
                 }
-                if (schedulerIntegrationOutcome) {
+                if (schedulerTransition.kind === "run-complete" && schedulerIntegrationOutcome) {
                   return {
                     ...workflowNextAction("planning.scheduler.run.complete", "记录 SchedulerRun 完成状态", "把 terminal scheduler integration outcome 写入 SchedulerRun completion/status evidence；不执行 apply、discard、landing、PR、merge 或 next worker。"),
                     decompositionPlanId: decompositionPlan.id,
@@ -2544,7 +2451,7 @@ export function buildTypedWorkflowNextAction(input: {
                 };
               }
             }
-            const waitingActionType = schedulerWorkerReworkAudit || schedulerWorkerReworkValidation || schedulerWorkerReworkResult || schedulerWorkerReworkStart || schedulerWorkerReworkPlan || needsReworkPlan
+            const waitingActionType = schedulerWorkerReworkAudit || schedulerWorkerReworkValidation || schedulerWorkerReworkResult || schedulerWorkerReworkStart || schedulerWorkerReworkPlan
               ? "planning.scheduler.worker.rework-plan.compile"
               : schedulerWorkerAudit
                 ? "planning.scheduler.worker.audit-first"
@@ -2586,7 +2493,7 @@ export function buildTypedWorkflowNextAction(input: {
               reworkAuditRunId: schedulerWorkerReworkAudit?.auditRunId,
             };
           }
-          return {
+          if (schedulerTransition?.actionType === "planning.scheduler.worker.reconcile-result") return {
             ...workflowNextAction("planning.scheduler.worker.reconcile-result", "检查当前 worker 结果", "读取 TaskRun、WorkerLease、worktree 和 code run evidence；只写 scheduler worker result，不启动 validation、audit、rework 或下一个 worker。"),
             decompositionPlanId: decompositionPlan.id,
             readinessManifestId: decompositionReadiness.id,

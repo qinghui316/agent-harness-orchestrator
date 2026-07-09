@@ -45,6 +45,14 @@ export interface WorkbenchActionServiceDeps {
   targetId(request: WorkbenchWorkflowActionRequest, changeId: string, result?: unknown): string;
   scopePayload(request: WorkbenchWorkflowActionRequest, changeId: string, result?: unknown): Record<string, unknown>;
   recordDecision(project: ManagedProject, input: WorkbenchActionDecisionInput): Promise<void>;
+  resumeGoalAfterAction?(input: {
+    project: ManagedProject;
+    changeId: string;
+    actionRunId: string;
+    actionType: WorkbenchWorkflowActionRequest["actionType"];
+    status: "completed" | "failed";
+    result: unknown;
+  }): Promise<void>;
 }
 
 export async function runWorkbenchWorkflowActionService(
@@ -106,6 +114,14 @@ export async function runWorkbenchWorkflowActionService(
       payload: { scope: deps.scopePayload(request, changeId, result), result },
       completedAt: new Date().toISOString(),
     });
+    await resumeGoalAfterAction(deps, capture, {
+      project,
+      changeId,
+      actionRunId,
+      actionType: request.actionType,
+      status: finalStatus,
+      result,
+    });
     return { actionRunId, actionType: request.actionType, status: finalStatus, result, runId, error: failureMessage ?? undefined };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -124,8 +140,40 @@ export async function runWorkbenchWorkflowActionService(
     });
     live?.emit({ event: "topic.message", data: failed });
     live?.emit({ event: "error", data: { message, actionRunId } });
+    await resumeGoalAfterAction(deps, capture, {
+      project,
+      changeId,
+      actionRunId,
+      actionType: request.actionType,
+      status: "failed",
+      result: { error: message },
+    });
     return { actionRunId, actionType: request.actionType, status: "failed", error: message };
   }
+}
+
+async function resumeGoalAfterAction(
+  deps: WorkbenchActionServiceDeps,
+  capture: AssistantTranscriptCapture,
+  input: Parameters<NonNullable<WorkbenchActionServiceDeps["resumeGoalAfterAction"]>>[0],
+): Promise<void> {
+  if (!deps.resumeGoalAfterAction || !shouldResumeGoalAfterAction(input.actionType)) return;
+  try {
+    await deps.resumeGoalAfterAction(input);
+  } catch (error) {
+    capture.sink.emit({
+      event: "error",
+      data: { message: `Workflow action finished, but native Goal resume failed: ${error instanceof Error ? error.message : String(error)}` },
+    });
+  }
+}
+
+function shouldResumeGoalAfterAction(actionType: WorkbenchWorkflowActionRequest["actionType"]): boolean {
+  return actionType !== "chat.ask"
+    && actionType !== "conversation.steer"
+    && actionType !== "conversation.interrupt"
+    && actionType !== "conversation.continue"
+    && !isMainAgentExecutionStopAction(actionType);
 }
 
 function isConcurrentControlAction(actionType: WorkbenchWorkflowActionRequest["actionType"]): boolean {

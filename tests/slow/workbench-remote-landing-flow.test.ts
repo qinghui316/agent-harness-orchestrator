@@ -59,9 +59,7 @@ describe("workbench remote landing slow flow", () => {
         });
 
         const prepared = await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
-          actionType: "landing.prepare",
-          changeId: "landing-demand",
-          worktreeId: worktree.metadata.worktreeId,
+          ...await landingPrepareActionAfterApply("landing-demand"),
           confirm: true,
         });
         const pkg = (prepared.result as { result: { package: { status: string; review?: { roleId: string; verdict: string }; artifactRefs: string[] } } }).result.package;
@@ -80,10 +78,10 @@ describe("workbench remote landing slow flow", () => {
 
         const reviewedSnapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "landing-demand" });
         expect(reviewedSnapshot.right.confirmationQueue.primary).toMatchObject({
-          kind: "pr-draft",
-          whyNeedsConfirmation: "远端 PR 能力未配置。",
+          kind: "request-changes",
+          whyNeedsConfirmation: "当前流程不使用 PR/remote；需要先满足本地完成门禁。",
         });
-        expect(reviewedSnapshot.right.confirmationQueue.primary?.actions.some((action) => action.actionType === "pr-draft.create")).toBe(false);
+        expect(reviewedSnapshot.right.confirmationQueue.primary?.actions.some((action) => action.actionType?.startsWith("pr-draft."))).toBe(false);
         const prPrepared = await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
           actionType: "pr-draft.prepare",
           changeId: "landing-demand",
@@ -140,9 +138,7 @@ describe("workbench remote landing slow flow", () => {
         expect(latestCommit).toBe("Apply AHO result: committed-landing-demand");
 
         const prepared = await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
-          actionType: "landing.prepare",
-          changeId: "committed-landing-demand",
-          worktreeId: worktree.metadata.worktreeId,
+          ...await landingPrepareActionAfterApply("committed-landing-demand"),
           confirm: true,
         });
         const pkg = (prepared.result as { result: { package: { status: string; review?: { roleId: string; verdict: string }; sourceDiffHash: string; changedFiles: string[] } } }).result.package;
@@ -188,9 +184,7 @@ describe("workbench remote landing slow flow", () => {
         const applyAction = await applyActionAfterAuditAcceptance("pr-review-demand");
         await executeWorkbenchAction({ project: project(), path: getTempDir() }, { action: applyAction, confirm: true });
         const landingPrepared = await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
-          actionType: "landing.prepare",
-          changeId: "pr-review-demand",
-          worktreeId: worktree.metadata.worktreeId,
+          ...await landingPrepareActionAfterApply("pr-review-demand"),
           confirm: true,
         });
         const landingPackage = (landingPrepared.result as { result: { package: { id: string } } }).result.package;
@@ -297,9 +291,7 @@ describe("workbench remote landing slow flow", () => {
           userDecision: "applied",
         });
         const landingPrepared = await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
-          actionType: "landing.prepare",
-          changeId: "remote-landing-demand",
-          worktreeId: worktree.metadata.worktreeId,
+          ...await landingPrepareActionAfterApply("remote-landing-demand"),
           confirm: true,
         });
         const landingPackage = (landingPrepared.result as { result: { package: { id: string } } }).result.package;
@@ -671,9 +663,7 @@ describe("workbench remote landing slow flow", () => {
         const applyAction = await applyActionAfterAuditAcceptance("pr-feedback-demand");
         await executeWorkbenchAction({ project: project(), path: getTempDir() }, { action: applyAction, confirm: true });
         const landingPrepared = await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
-          actionType: "landing.prepare",
-          changeId: "pr-feedback-demand",
-          worktreeId: worktree.metadata.worktreeId,
+          ...await landingPrepareActionAfterApply("pr-feedback-demand"),
           confirm: true,
         });
         const landingPackage = (landingPrepared.result as { result: { package: { id: string } } }).result.package;
@@ -770,4 +760,15 @@ async function applyActionAfterAuditAcceptance(topicId: string) {
     ?? snapshot.right.confirmationQueue.primary?.actions.find((action) => action.action?.actionId === "result.apply")?.action;
   if (!applyAction) throw new Error("Missing result.apply action.");
   return applyAction;
+}
+
+async function landingPrepareActionAfterApply(topicId: string) {
+  const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId });
+  const queue = snapshot.right.confirmationQueue;
+  const action = [queue.primary, ...queue.current, ...queue.otherDemands]
+    .filter((item): item is NonNullable<typeof item> => Boolean(item))
+    .flatMap((item) => item.actions)
+    .find((candidate) => candidate.actionType === "landing.prepare");
+  if (!action) throw new Error("Missing landing.prepare action.");
+  return { ...action, changeId: topicId };
 }

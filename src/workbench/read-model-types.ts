@@ -4,9 +4,6 @@ import type { TopicAttachment, TopicFileReference } from "./types.js";
 import type { ParentAgentTranscript } from "./parent-agent-transcript.js";
 import type { WorkbenchArtifactPreview } from "./artifact-types.js";
 import type { WorkbenchThreadActionType } from "../workflow-actions/registry.js";
-import type { GoalLoopCloseGateHandoff } from "../goal-loop/close-handoff.js";
-import type { GoalLoopControlledLoopStateContext, GoalLoopSchedulerLoopSnapshotContext } from "../goal-loop/scheduler-loop-context.js";
-import type { SchedulerExecutionModeAssessment } from "../workflow-scheduler/types.js";
 import type {
   AcMap,
   ChangeMetadata,
@@ -33,7 +30,6 @@ import type {
   WorkbenchSchedulerIntegrationOutcomeSummary,
   WorkbenchSchedulerRunCompletionSummary,
   WorkbenchSchedulerRunBlockedCloseoutSummary,
-  WorkbenchSchedulerControlledStepEvidenceSummary,
   WorkbenchSchedulerReconcileSnapshotSummary,
   WorkbenchSchedulerRunSummary,
   WorkbenchSchedulerRuntimeSummary,
@@ -149,23 +145,6 @@ export interface ThreadStreamAction {
   schedulerIntegrationOutcomeId?: string;
   schedulerRunCompletionId?: string;
   schedulerRunBlockedCloseoutId?: string;
-  goalLoopDecisionId?: string;
-  goalLoopIterationId?: string;
-  goalLoopContinuationBriefId?: string;
-  goalLoopNextStepPacketId?: string;
-  goalLoopFeedbackId?: string;
-  goalLoopControllerPolicyId?: string;
-  goalLoopGateReadinessPreflightId?: string;
-  goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
-  automationMode?: "request-approval" | "full-access";
-  automationCurrentGateActionType?: ThreadStreamAction["actionType"];
-  automationCurrentGateApprovalActionId?: string;
-  automationCurrentGateTargetId?: string;
-  automationCurrentGateRunId?: string;
-  automationCurrentGateArtifact?: string;
-  automationAuthorizationId?: string;
-  automationRunId?: string;
-  maxSteps?: number;
   maintenanceProposalId?: string;
   maintenancePatchProposalId?: string;
   maintenanceApplicationManifestId?: string;
@@ -238,7 +217,6 @@ export interface WorkbenchApprovalItem {
   action?: WorkbenchApprovalAction;
   artifact?: string;
   reason?: string;
-  automationEligible?: boolean;
 }
 
 export interface WorkbenchDecisionItem {
@@ -310,23 +288,6 @@ export interface WorkbenchDecisionAction {
   schedulerIntegrationOutcomeId?: string;
   schedulerRunCompletionId?: string;
   schedulerRunBlockedCloseoutId?: string;
-  goalLoopDecisionId?: string;
-  goalLoopIterationId?: string;
-  goalLoopContinuationBriefId?: string;
-  goalLoopNextStepPacketId?: string;
-  goalLoopFeedbackId?: string;
-  goalLoopControllerPolicyId?: string;
-  goalLoopGateReadinessPreflightId?: string;
-  goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
-  automationMode?: "request-approval" | "full-access";
-  automationCurrentGateActionType?: ThreadStreamAction["actionType"];
-  automationCurrentGateApprovalActionId?: string;
-  automationCurrentGateTargetId?: string;
-  automationCurrentGateRunId?: string;
-  automationCurrentGateArtifact?: string;
-  automationAuthorizationId?: string;
-  automationRunId?: string;
-  maxSteps?: number;
   maintenanceProposalId?: string;
   maintenancePatchProposalId?: string;
   maintenanceApplicationManifestId?: string;
@@ -349,7 +310,6 @@ export interface WorkbenchDecisionAction {
   remoteLandingResultId?: string;
   artifact?: string;
   disabledReason?: string;
-  automationEligible?: boolean;
 }
 
 export interface WorkbenchReworkPrompt {
@@ -450,23 +410,6 @@ export interface WorkbenchConfirmationQueueItem {
   schedulerIntegrationOutcomeId?: string;
   schedulerRunCompletionId?: string;
   schedulerRunBlockedCloseoutId?: string;
-  goalLoopDecisionId?: string;
-  goalLoopIterationId?: string;
-  goalLoopContinuationBriefId?: string;
-  goalLoopNextStepPacketId?: string;
-  goalLoopFeedbackId?: string;
-  goalLoopControllerPolicyId?: string;
-  goalLoopGateReadinessPreflightId?: string;
-  goalLoopCurrentGateActionType?: ThreadStreamAction["actionType"];
-  automationMode?: "request-approval" | "full-access";
-  automationCurrentGateActionType?: ThreadStreamAction["actionType"];
-  automationCurrentGateApprovalActionId?: string;
-  automationCurrentGateTargetId?: string;
-  automationCurrentGateRunId?: string;
-  automationCurrentGateArtifact?: string;
-  automationAuthorizationId?: string;
-  automationRunId?: string;
-  maxSteps?: number;
   maintenanceProposalId?: string;
   maintenancePatchProposalId?: string;
   maintenanceApplicationManifestId?: string;
@@ -482,8 +425,6 @@ export interface WorkbenchConfirmationQueueItem {
   whyNeedsConfirmation: string;
   confirmEffect: string;
   riskSummary: string;
-  controlledSchedulerNextCandidate?: WorkbenchControlledSchedulerNextCandidate;
-  controlledSchedulerReconfirmation?: WorkbenchControlledSchedulerReconfirmation;
   evidenceRefs: string[];
   actions: WorkbenchDecisionAction[];
   primary: boolean;
@@ -772,134 +713,6 @@ export interface WorkbenchTaskQueueSummary {
   items: WorkbenchTaskQueueItemSummary[];
 }
 
-export interface WorkbenchGoalLoopSummary {
-  id: string;
-  changeId: string;
-  goalLoopDecisionId: string;
-  goalLoopIterationId: string;
-  goalLoopNextStepPacketId?: string;
-  iterationOrdinal: number;
-  decisionKind: string;
-  continuationVerdict: string;
-  continuationState: string;
-  recommendationState?: string;
-  summary: string;
-  recommendedActionType?: WorkbenchThreadActionType;
-  recommendedActionScope?: Record<string, string | string[]>;
-  recommendedActionReason?: string;
-  separateGateRequired?: boolean;
-  humanGateRequired: boolean;
-  conflictLevel: string;
-  parallelEligible: boolean;
-  routingPosture: string;
-  routingLabel: string;
-  schedulerExecutionMode?: SchedulerExecutionModeAssessment;
-  schedulerLoopEvidenceSnapshot?: GoalLoopSchedulerLoopSnapshotContext;
-  controlledLoopState?: GoalLoopControlledLoopStateContext;
-  controlledSchedulerNextCandidate?: WorkbenchControlledSchedulerNextCandidate;
-  conflictReasons: string[];
-  completionStatus: string;
-  resumePreconditionCount: number;
-  revalidationChecklistCount?: number;
-  sourceEvidenceCount: number;
-  stalenessInstruction: string;
-  artifact?: string;
-  markdownArtifact?: string;
-  nextStepPacketArtifact?: string;
-  nextStepPacketMarkdownArtifact?: string;
-  controllerPolicyId?: string;
-  controllerVerdict?: string;
-  controllerGateStatus?: string;
-  controllerSummary?: string;
-  controllerArtifact?: string;
-  controllerMarkdownArtifact?: string;
-  gateReadinessPreflightId?: string;
-  gateReadinessPreflightArtifact?: string;
-  gateReadinessPreflightMarkdownArtifact?: string;
-  closeGateHandoff?: GoalLoopCloseGateHandoff;
-  updatedAt: string;
-  executionStarted: false;
-}
-
-export interface WorkbenchControlledSchedulerNextCandidate {
-  status: "ready-for-confirmation" | "needs-review";
-  label: string;
-  body: string;
-  actionLabel: string;
-  routingPosture?: WorkbenchControlledSchedulerRoutingPosture;
-  stopPosture?: WorkbenchControlledSchedulerStopPosture;
-  readinessEvidencePrepared: boolean;
-  humanConfirmationStillRequired: true;
-  evidenceRefs: string[];
-}
-
-export interface WorkbenchControlledSchedulerStepReceipt {
-  status: "ready-for-confirmation" | "needs-review" | "needs-reevaluation" | "refreshed";
-  label: string;
-  body: string;
-  executedStepLabel: string;
-  nextStepLabel?: string;
-  readinessLabel: string;
-  boundary: string;
-  humanConfirmationStillRequired: true;
-  evidenceRefs: string[];
-  decisionId: string;
-  updatedAt: string;
-}
-
-export interface WorkbenchControlledSchedulerStepTrace {
-  label: string;
-  body: string;
-  boundary: string;
-  items: WorkbenchControlledSchedulerStepReceipt[];
-  evidenceRefs: string[];
-  updatedAt?: string;
-}
-
-export interface WorkbenchControlledSchedulerRoutingPosture {
-  label: string;
-  body: string;
-  boundary: string;
-  reasons: string[];
-}
-
-export interface WorkbenchControlledSchedulerReconfirmation {
-  status: "aligned" | "needs-review" | "missing-receipt" | "stale-mismatch";
-  label: string;
-  body: string;
-  lastStoppedStepLabel?: string;
-  currentStepLabel: string;
-  freshnessLabel: string;
-  stopPosture?: WorkbenchControlledSchedulerStopPosture;
-  boundary: string;
-  evidenceRefs: string[];
-}
-
-export interface WorkbenchControlledSchedulerStopPosture {
-  authority: "non-executing-controlled-scheduler-stop-posture";
-  status: "aligned";
-  label: string;
-  body: string;
-  executedStepLabel: string;
-  stopReasonLabel: string;
-  nextStepLabel: string;
-  readinessLabel: string;
-  boundary: string;
-  evidenceRefs: string[];
-  humanConfirmationStillRequired: true;
-  executionStarted: false;
-  loopAuthorized: false;
-  fullParallelExecutorAuthorized: false;
-  wholeWaveDispatchAuthorized: false;
-  slotAllocatorAuthorized: false;
-  sourceMutationAuthorized: false;
-  applyAuthorized: false;
-  closeAuthorized: false;
-  mergeAuthorized: false;
-  remoteLandingAuthorized: false;
-  harnessEvolutionAuthorized: false;
-}
-
 export interface WorkbenchWorkpad {
   title: string;
   subtitle: string;
@@ -932,7 +745,6 @@ export interface WorkbenchWorkpad {
   schedulerLaunchPreflight?: WorkbenchSchedulerLaunchPreflightSummary;
   schedulerRun?: WorkbenchSchedulerRunSummary;
   schedulerRuntime?: WorkbenchSchedulerRuntimeSummary;
-  schedulerControlledStepEvidence?: WorkbenchSchedulerControlledStepEvidenceSummary;
   schedulerReconcileSnapshot?: WorkbenchSchedulerReconcileSnapshotSummary;
   schedulerClaimReservation?: WorkbenchSchedulerClaimReservationSummary;
   schedulerWorkerStart?: WorkbenchSchedulerWorkerStartSummary;
@@ -955,16 +767,12 @@ export interface WorkbenchWorkpad {
   resultReview?: WorkbenchResultReview;
   maintenance?: WorkbenchMaintenanceSummary;
   runControlState?: WorkbenchRunControlState;
-  controlledSchedulerStepReceipt?: WorkbenchControlledSchedulerStepReceipt;
-  controlledSchedulerStepTrace?: WorkbenchControlledSchedulerStepTrace;
-  controlledSchedulerReconfirmation?: WorkbenchControlledSchedulerReconfirmation;
   intake: WorkpadIntakeSummary;
   progress: WorkpadProgress;
   tasks: WorkpadTaskPreview[];
   codingPackages: WorkbenchCodingPackage[];
   taskGraph: WorkbenchTaskGraph;
   taskQueue?: WorkbenchTaskQueueSummary;
-  goalLoop?: WorkbenchGoalLoopSummary;
   evidence: WorkpadEvidenceSummary[];
   blockers: string[];
   warnings: string[];
@@ -1105,8 +913,6 @@ export type WorkbenchMainAgentExecutionSummary = WorkbenchRolePipelineSummary;
 export type DemandAgentRunGraphLaneId = "main" | "roles" | "integration" | "maintenance";
 export type DemandAgentRunGraphNodeKind =
   | "main-agent"
-  | "goal-loop"
-  | "automation-loop"
   | "delegate-task"
   | "tool-policy-gate"
   | "boundary-audit"

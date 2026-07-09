@@ -160,6 +160,7 @@ export interface TopicRuntimeMetadata {
   version: "1.0";
   changeId: string;
   codexSessionId: string | null;
+  codexCapabilityProfile?: "main-agent-goal-v1" | null;
   updatedAt: string;
 }
 
@@ -272,27 +273,6 @@ export interface WorkbenchWorkflowActionRequest {
   schedulerIntegrationOutcomeId?: string;
   schedulerRunCompletionId?: string;
   schedulerRunBlockedCloseoutId?: string;
-  goalLoopDecisionId?: string;
-  goalLoopIterationId?: string;
-  goalLoopContinuationBriefId?: string;
-  goalLoopNextStepPacketId?: string;
-  goalLoopFeedbackId?: string;
-  goalLoopControllerPolicyId?: string;
-  goalLoopGateReadinessPreflightId?: string;
-  goalLoopCurrentGateActionType?: WorkbenchWorkflowActionType;
-  mainAgentLoopRunId?: string;
-  mainAgentNextStepEvidenceId?: string;
-  goalLoopRuntimeAuthorizationId?: string;
-  goalLoopRuntimeRunId?: string;
-  automationMode?: "request-approval" | "full-access";
-  automationCurrentGateActionType?: WorkbenchWorkflowActionType;
-  automationCurrentGateApprovalActionId?: string;
-  automationCurrentGateTargetId?: string;
-  automationCurrentGateRunId?: string;
-  automationCurrentGateArtifact?: string;
-  automationAuthorizationId?: string;
-  automationRunId?: string;
-  maxSteps?: number;
   maintenanceProposalId?: string;
   maintenancePatchProposalId?: string;
   maintenanceApplicationManifestId?: string;

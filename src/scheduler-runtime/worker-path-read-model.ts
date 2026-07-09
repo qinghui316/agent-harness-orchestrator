@@ -1,7 +1,4 @@
 import type { ResolvedMemory } from "../types/index.js";
-import type {
-  SchedulerCurrentTransitionWorkerPath,
-} from "../workflow-actions/scheduler-current-transition.js";
 import {
   findSchedulerRuntimeWorkerAuditForValidation,
   findSchedulerRuntimeWorkerResultForStart,
@@ -24,7 +21,6 @@ import type {
   SchedulerRuntimeWorkerStart,
   SchedulerRuntimeWorkerValidation,
 } from "./types.js";
-import type { SchedulerWorkerPathLike } from "./worker-path.js";
 
 export type SchedulerWorkerPathStatus =
   | "result-pending"
@@ -102,26 +98,6 @@ export async function readSchedulerWorkerPathReadModelsForReservation(
     schedulerClaimReservationId: reservation.id,
     reservationIntentIds: reservation.reservationIntents.map((intent) => intent.reservationIntentId),
   });
-}
-
-export function schedulerWorkerPathToTransitionPath(path: SchedulerWorkerPathReadModel): SchedulerCurrentTransitionWorkerPath {
-  return {
-    start: {
-      reservationIntentId: path.start.reservationIntentId,
-      updatedAt: path.start.updatedAt,
-    },
-    terminal: path.terminal,
-    ...(path.audit ? { audit: { status: path.audit.status, claimIntentId: path.audit.claimIntentId } } : {}),
-    ...(path.reworkAudit ? { reworkAudit: { status: path.reworkAudit.status, claimIntentId: path.reworkAudit.claimIntentId } } : {}),
-  };
-}
-
-export function schedulerWorkerPathToLike(path: SchedulerWorkerPathReadModel): SchedulerWorkerPathLike {
-  return schedulerWorkerPathToTransitionPath(path);
-}
-
-export function schedulerWorkerPathsToLikes(paths: SchedulerWorkerPathReadModel[]): SchedulerWorkerPathLike[] {
-  return paths.map(schedulerWorkerPathToLike);
 }
 
 export function schedulerWorkerPathEvidenceRefs(path: SchedulerWorkerPathReadModel): SchedulerWorkerPathEvidenceRef[] {

@@ -10,6 +10,53 @@ function workflowFixture<K extends keyof BuildTypedWorkflowNextActionInput>(
 }
 
 describe("workbench scheduler runtime surface", () => {
+  it("maps the canonical same-wave target without waiting for sibling result evidence", () => {
+    const action = buildTypedWorkflowNextAction({
+      topic: workflowFixture<"topic">({ id: "change-1", name: "change-1", title: "Change 1", state: "active", path: "harness/changes/active/change-1", runs: [] }),
+      readiness: { specReady: true, planReady: true, tasksReady: true },
+      decompositionPlan: workflowFixture<"decompositionPlan">({ id: "decomposition-1", status: "confirmed" }),
+      decompositionReadiness: workflowFixture<"decompositionReadiness">({ id: "readiness-1", decompositionPlanId: "decomposition-1", status: "ready-for-scheduler-contract", nextAllowedAction: "scheduler.contract" }),
+      schedulerRun: workflowFixture<"schedulerRun">({
+        id: "scheduler-run-1",
+        status: "prepared",
+        schedulerContractId: "scheduler-contract-1",
+        schedulerDispatchDryRunId: "scheduler-dry-run-1",
+        schedulerWorkerPlanId: "scheduler-worker-plan-1",
+        schedulerClaimReconcilePlanId: "scheduler-claim-plan-1",
+        schedulerLaunchPreflightId: "scheduler-preflight-1",
+      }),
+      schedulerRuntime: workflowFixture<"schedulerRuntime">({
+        schedulerRunId: "scheduler-run-1",
+        lastReconcileSnapshotId: "scheduler-snapshot-1",
+        lastClaimReservationId: "scheduler-reservation-1",
+        lastClaimReservationSnapshotId: "scheduler-snapshot-1",
+      }),
+      schedulerReconcileSnapshot: workflowFixture<"schedulerReconcileSnapshot">({ id: "scheduler-snapshot-1" }),
+      schedulerClaimReservation: workflowFixture<"schedulerClaimReservation">({
+        id: "scheduler-reservation-1",
+        schedulerRunId: "scheduler-run-1",
+        schedulerReconcileSnapshotId: "scheduler-snapshot-1",
+        launchConfirmed: true,
+      }),
+      schedulerWorkerPaths: [workflowFixture<"schedulerWorkerPaths">({
+        start: { id: "scheduler-worker-start-1", reservationIntentId: "reservation-intent-1" },
+        status: "result-pending",
+        terminal: false,
+      })],
+      schedulerTransition: {
+        kind: "start-same-wave-worker",
+        actionType: "planning.scheduler.worker.start-next",
+        reservationIntent: { reservationIntentId: "reservation-intent-2", claimIntentId: "claim-intent-2", status: "reserved", waveIndex: 0 },
+      },
+    });
+
+    expect(action).toMatchObject({
+      actionType: "planning.scheduler.worker.start-next",
+      reservationIntentId: "reservation-intent-2",
+      claimIntentId: "claim-intent-2",
+    });
+  });
+
   it("shows the scheduler first worker rework audit gate after passed rework validation", () => {
     const action = buildTypedWorkflowNextAction({
       topic: workflowFixture<"topic">({ id: "change-1", name: "change-1", title: "Change 1", state: "active", path: "harness/changes/active/change-1", runs: [] }),
@@ -98,6 +145,21 @@ describe("workbench scheduler runtime surface", () => {
         reworkRunId: "run-rework-1",
         validationRunId: "validation-rework-1",
       }),
+      schedulerTransition: {
+        kind: "worker-step",
+        actionType: "planning.scheduler.worker.rework-audit-first",
+        worker: {
+          reservationIntentId: "reservation-intent-1",
+          claimIntentId: "claim-intent-1",
+          schedulerWorkerStartId: "scheduler-worker-start-1",
+          schedulerWorkerResultId: "scheduler-worker-result-1",
+          schedulerWorkerValidationId: "scheduler-worker-validation-1",
+          schedulerWorkerReworkPlanId: "scheduler-worker-rework-plan-1",
+          schedulerWorkerReworkStartId: "scheduler-worker-rework-start-1",
+          schedulerWorkerReworkResultId: "scheduler-worker-rework-result-1",
+          schedulerWorkerReworkValidationId: "scheduler-worker-rework-validation-1",
+        },
+      },
     });
 
     expect(action).toMatchObject({

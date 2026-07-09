@@ -57,7 +57,7 @@ describe("codex capabilities", () => {
     expect(shouldUseCodexAppServerForMemory("external-local")).toBe(false);
   });
 
-  it("extracts native Codex plan text from plan delta, turn update, and completed plan items", () => {
+  it("uses plan item content as the native Plan transcript and ignores turn checklist updates", () => {
     expect(extractCodexAppServerPlanText("item/plan/delta", { delta: "step 1" })).toBe("step 1");
     expect(extractCodexAppServerPlanText("turn/plan/updated", {
       plan: {
@@ -66,7 +66,7 @@ describe("codex capabilities", () => {
           { title: "实施", description: "按确认后的范围修改。" },
         ],
       },
-    })).toContain("确认目标");
+    })).toBe("");
     const arrayPlan = extractCodexAppServerPlanText("turn/plan/updated", {
       explanation: "只记录后续工作安排，不做任何文件修改或命令执行。",
       plan: [
@@ -74,9 +74,7 @@ describe("codex capabilities", () => {
         { step: "修改后运行 `node test.mjs`，用测试结果确认目标字符串被接受。", status: "pending" },
       ],
     });
-    expect(arrayPlan).toContain("只记录后续工作安排");
-    expect(arrayPlan).toContain("[pending] 确认项目说明");
-    expect(arrayPlan).toContain("node test.mjs");
+    expect(arrayPlan).toBe("");
     expect(extractCodexAppServerPlanText("item/completed", {
       item: { type: "proposed-plan", markdown: "## 目标\n生成计划\n\n## 验收\n通过测试" },
     })).toContain("## 目标");

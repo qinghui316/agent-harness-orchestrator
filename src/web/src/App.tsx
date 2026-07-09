@@ -54,12 +54,6 @@ import {
   mergeTranscriptPage,
   normalizeParentAgentTranscript
 } from "./liveTranscript.js";
-import {
-  migrateDraftComposerExecutionMode,
-  readComposerExecutionMode,
-  writeComposerExecutionMode,
-  type ComposerExecutionMode,
-} from "./shell/composer-session.js";
 import { derivePlanHandoffCandidate } from "./panels/workbench/planHandoff.js";
 
 import {
@@ -218,7 +212,6 @@ export function App(): ReactElement {
   const [selectedDecisionContextId, setSelectedDecisionContextId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [composerText, setComposerText] = useState("");
-  const [automationMode, setAutomationMode] = useState<ComposerExecutionMode>("request-approval");
   const [actionRunning, setActionRunning] = useState<string | null>(null);
   const [liveItems, setLiveItems] = useState<ThreadStreamItem[]>([]);
   const [liveTurns, setLiveTurns] = useState<LiveAssistantTurn[]>([]);
@@ -951,7 +944,6 @@ export function App(): ReactElement {
       const demandBody = resolved.text || defaultAttachmentPrompt(attachmentIds.length + attachmentFiles.length);
       if (!demandBody && attachmentIds.length === 0 && attachmentFiles.length === 0) return;
       const title = demandBody.split(/\r?\n/)[0].slice(0, 60);
-      const modeForNewTopic = automationMode;
       const effectiveProjectId = await ensureProjectReadyForDemand(selectedProjectId);
       if (!effectiveProjectId) return;
       const showPendingBeforeCreate = attachmentFiles.length === 0;
@@ -1004,8 +996,6 @@ export function App(): ReactElement {
       if (!createdTopicId) throw new Error("Demand conversation was not created.");
       uploadedDraft = [];
       await applyTopicSkillOverrides(createdTopicId, resolved.overrides, effectiveProjectId);
-      const migratedMode = migrateDraftComposerExecutionMode(effectiveProjectId, createdTopicId, modeForNewTopic);
-      setAutomationMode(migratedMode);
       setDraftSkillOverrides({});
       setComposerText("");
       setComposerFileRefs([]);
@@ -1028,11 +1018,6 @@ export function App(): ReactElement {
       }
       setActionRunning(null);
     }
-  }
-
-  function handleComposerExecutionModeChange(mode: ComposerExecutionMode): void {
-    setAutomationMode(mode);
-    writeComposerExecutionMode(selectedProjectId, activeTopic?.id ?? null, mode);
   }
 
   async function sendTopicMessage(): Promise<void> {
@@ -1666,10 +1651,6 @@ export function App(): ReactElement {
   }
 
   useEffect(() => {
-    setAutomationMode(readComposerExecutionMode(selectedProjectId, activeTopic?.id ?? null));
-  }, [selectedProjectId, activeTopic?.id]);
-
-  useEffect(() => {
     const restore = readWorkbenchRestoreParams();
     setOrchestrationOpen(Boolean(restore.topicId && restore.topicId === activeTopic?.id && restore.orchestrationOpen));
     setSelectedRunGraphNodeId(null);
@@ -1851,13 +1832,11 @@ export function App(): ReactElement {
           <ProjectReadinessHome
             project={selectedProjectStatus}
             snapshot={snapshot}
-            automationMode={automationMode}
             modelLabel={codexModelLabel}
             onOpenModelSettings={() => void openCodexModelPicker()}
             projects={projects}
             selectedProjectId={selectedProjectId}
             onCreateDemand={createTopicFromText}
-            onAutomationModeChange={handleComposerExecutionModeChange}
             enabledSkillCount={enabledSkillCount}
             skills={skillItems}
             activeSkillIds={selectedComposerSkillIds}
@@ -1919,8 +1898,6 @@ export function App(): ReactElement {
                   <TopicComposer
                     value={composerText}
                     onChange={setComposerText}
-                    automationMode={automationMode}
-                    onAutomationModeChange={handleComposerExecutionModeChange}
                     modelLabel={codexModelLabel}
                     onOpenModelSettings={() => void openCodexModelPicker()}
                     enabledSkillCount={enabledSkillCount}
@@ -2007,7 +1984,6 @@ export function App(): ReactElement {
           <DecisionInspectorPane
             inspector={activeDecisionInspector}
             confirmationQueue={activeConfirmationQueue}
-            automationMode={automationMode}
             confirming={confirming}
             busy={actionRunning !== null}
             error={error}

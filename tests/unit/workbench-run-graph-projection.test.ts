@@ -4,7 +4,7 @@ import type { WorkbenchConfirmationQueue, WorkbenchTopicDetail, WorkbenchWorkpad
 import type { ManagedProject } from "../../src/types/index.js";
 
 describe("Workbench run graph projection", () => {
-  it("adds visual metadata for goal-loop scheduler worker branches and integration joins", () => {
+  it("adds visual metadata for Scheduler worker branches and integration joins", () => {
     const graph = buildDemandAgentRunGraph({
       project: { id: "repo" } as ManagedProject,
       selectedTopic: { id: "change-1", title: "Two file task", updatedAt: "2026-06-26T00:00:00.000Z" } as WorkbenchTopicDetail,
@@ -125,42 +125,6 @@ function workpadWithTwoWorkers(): WorkbenchWorkpad {
   return {
     conversationLifecycle: "waiting-user",
     intake: { goal: "Edit two files", currentUnderstanding: "Two independent files" },
-    goalLoop: {
-      id: "goal-loop-1",
-      changeId: "change-1",
-      goalLoopDecisionId: "decision-1",
-      goalLoopIterationId: "iteration-1",
-      iterationOrdinal: 1,
-      decisionKind: "continue",
-      continuationVerdict: "continue",
-      continuationState: "ready",
-      summary: "继续低冲突任务执行。",
-      humanGateRequired: true,
-      conflictLevel: "low",
-      parallelEligible: true,
-      routingPosture: "continue",
-      routingLabel: "继续执行",
-      conflictReasons: [],
-      completionStatus: "in-progress",
-      resumePreconditionCount: 0,
-      sourceEvidenceCount: 1,
-      stalenessInstruction: "fresh",
-      updatedAt: "2026-06-26T00:00:00.000Z",
-      executionStarted: false,
-    },
-    controlledSchedulerStepReceipt: {
-      status: "ready-for-confirmation",
-      label: "受控推进",
-      body: "已推进 worker。",
-      executedStepLabel: "worker start",
-      nextStepLabel: "IntegrationCheck",
-      readinessLabel: "ready",
-      boundary: "bounded",
-      humanConfirmationStillRequired: true,
-      evidenceRefs: ["receipt.md"],
-      decisionId: "decision-1",
-      updatedAt: "2026-06-26T00:00:00.000Z",
-    },
     schedulerWorkerPaths: [workerPath("a"), workerPath("b")],
     schedulerIntegrationCandidate: {
       id: "candidate-1",

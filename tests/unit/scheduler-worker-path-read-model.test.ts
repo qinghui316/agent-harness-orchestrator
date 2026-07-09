@@ -3,8 +3,6 @@ import {
   hasApprovedSchedulerWorkerOutput,
   isTerminalSchedulerWorkerPathStatus,
   schedulerWorkerPathEvidenceRefs,
-  schedulerWorkerPathToTransitionPath,
-  schedulerWorkerPathsToLikes,
   type SchedulerWorkerPathReadModel,
 } from "../../src/scheduler-runtime/worker-path-read-model.js";
 
@@ -47,53 +45,6 @@ function path(overrides: Partial<SchedulerWorkerPathReadModel>): SchedulerWorker
 }
 
 describe("Scheduler worker-path read model adapters", () => {
-  it("adapts canonical paths to current-transition worker paths", () => {
-    const canonical = path({
-      audit: {
-        version: "1.0",
-        id: "audit-1",
-        changeId: "change-1",
-        schedulerRunId: "scheduler-run-1",
-        schedulerClaimReservationId: "reservation-1",
-        schedulerWorkerStartId: "worker-start-1",
-        schedulerWorkerResultId: "result-1",
-        schedulerWorkerValidationId: "validation-1",
-        status: "approved",
-        reservationIntentId: "reservation-intent-1",
-        claimIntentId: "claim-1",
-        nodeId: "node-1",
-        unitId: "unit-1",
-        stageId: "audit",
-        taskRunId: "task-run-1",
-        workerLeaseId: "lease-1",
-        worktreeId: "worktree-1",
-        codeRunId: "run-1",
-        validationRunId: "validation-run-1",
-        auditRunId: "audit-run-1",
-        auditStatus: "approved",
-        artifact: "audit.json",
-        markdownArtifact: "audit.md",
-        createdAt: "2026-07-08T00:01:00.000Z",
-        updatedAt: "2026-07-08T00:01:00.000Z",
-      },
-      status: "audit-approved",
-      terminal: true,
-    });
-
-    expect(schedulerWorkerPathToTransitionPath(canonical)).toEqual({
-      start: {
-        reservationIntentId: "reservation-intent-1",
-        updatedAt: "2026-07-08T00:00:00.000Z",
-      },
-      terminal: true,
-      audit: {
-        status: "approved",
-        claimIntentId: "claim-1",
-      },
-    });
-    expect(schedulerWorkerPathsToLikes([canonical])).toHaveLength(1);
-  });
-
   it("exposes terminal and approved-output facts without projection logic", () => {
     expect(isTerminalSchedulerWorkerPathStatus("result-pending")).toBe(false);
     expect(isTerminalSchedulerWorkerPathStatus("audit-approved")).toBe(true);
@@ -132,7 +83,7 @@ describe("Scheduler worker-path read model adapters", () => {
     }))).toBe(true);
   });
 
-  it("builds generic evidence refs for downstream GoalLoop context", () => {
+  it("builds generic evidence refs for downstream runtime context", () => {
     const refs = schedulerWorkerPathEvidenceRefs(path({
       result: {
         version: "1.0",

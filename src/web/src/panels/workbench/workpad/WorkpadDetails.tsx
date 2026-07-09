@@ -15,7 +15,6 @@ import {
 } from "../../../formatters.js";
 import type { Approval, Workpad } from "../../../types.js";
 import { artifactName } from "../RunReplayPanel.js";
-import { ControlledSchedulerReconfirmationCard, ControlledSchedulerStepReceiptCard, ControlledSchedulerStepTraceCard, GoalLoopEvidenceCard } from "./GoalLoopCards.js";
 import {
   ClarificationCard,
   CodingPackageCard,
@@ -31,7 +30,6 @@ import {
   SchedulerDispatchDryRunCard,
   SchedulerLaunchPreflightCard,
   SchedulerReconcileSnapshotCard,
-  SchedulerControlledStepEvidenceCard,
   SchedulerRuntimeCard,
   SchedulerIntegrationCandidateCard,
   SchedulerIntegrationCheckHandoffCard,
@@ -78,7 +76,6 @@ export function WorkpadDiagnosticDetails({
   const assumptions = workpad.intake.assumptions ?? [];
   const pendingClarifications = workpad.intake.pendingClarifications ?? [];
   const mainAgentExecution = mainAgentExecutionForWorkpad(workpad);
-  const hideHeroAction = Boolean(workpad.controlledSchedulerReconfirmation);
   return (
     <div className="workpad" data-testid="workpad-view">
       <section className="workpad-hero">
@@ -93,7 +90,6 @@ export function WorkpadDiagnosticDetails({
             </p>
           ) : null}
         </div>
-        {hideHeroAction ? null : (
           <WorkpadActionButton
             action={workpad.nextAction}
             approval={approval}
@@ -101,7 +97,6 @@ export function WorkpadDiagnosticDetails({
             onWorkflowAction={onWorkflowAction}
             onConfirmApproval={onConfirmApproval}
           />
-        )}
       </section>
 
       {(workpad.pendingFeedback?.length || workpad.coderSelfTestSummary || workpad.postArchiveEvolutionCandidate) ? (
@@ -138,7 +133,6 @@ export function WorkpadDiagnosticDetails({
       {workpad.schedulerLaunchPreflight ? <SchedulerLaunchPreflightCard preflight={workpad.schedulerLaunchPreflight} /> : null}
       {workpad.schedulerRun ? <SchedulerRunCard run={workpad.schedulerRun} /> : null}
       {workpad.schedulerRuntime ? <SchedulerRuntimeCard runtime={workpad.schedulerRuntime} /> : null}
-      {workpad.schedulerControlledStepEvidence ? <SchedulerControlledStepEvidenceCard step={workpad.schedulerControlledStepEvidence} /> : null}
       {workpad.schedulerReconcileSnapshot ? <SchedulerReconcileSnapshotCard snapshot={workpad.schedulerReconcileSnapshot} /> : null}
       {workpad.schedulerClaimReservation ? <SchedulerClaimReservationCard reservation={workpad.schedulerClaimReservation} /> : null}
       {workpad.schedulerWorkerStart ? <SchedulerWorkerStartCard start={workpad.schedulerWorkerStart} /> : null}
@@ -172,11 +166,6 @@ export function WorkpadDiagnosticDetails({
       {workpad.schedulerIntegrationOutcome ? <SchedulerIntegrationOutcomeCard outcome={workpad.schedulerIntegrationOutcome} /> : null}
       {workpad.schedulerRunCompletion ? <SchedulerRunCompletionCard completion={workpad.schedulerRunCompletion} /> : null}
       {workpad.schedulerRunBlockedCloseout ? <SchedulerRunBlockedCloseoutCard closeout={workpad.schedulerRunBlockedCloseout} /> : null}
-      {workpad.goalLoop ? <GoalLoopEvidenceCard goalLoop={workpad.goalLoop} /> : null}
-      {workpad.controlledSchedulerReconfirmation ? <ControlledSchedulerReconfirmationCard reconfirmation={workpad.controlledSchedulerReconfirmation} /> : null}
-      {workpad.controlledSchedulerStepReceipt ? <ControlledSchedulerStepReceiptCard receipt={workpad.controlledSchedulerStepReceipt} /> : null}
-      {workpad.controlledSchedulerStepTrace ? <ControlledSchedulerStepTraceCard trace={workpad.controlledSchedulerStepTrace} /> : null}
-
       {mainAgentExecution ? (
         <section className="workpad-section" data-testid="role-pipeline-summary">
           <div className="workpad-section-header">

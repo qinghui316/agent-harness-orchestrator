@@ -12,9 +12,6 @@ import {
   schedulerClaimReservationMarkdownPath,
   schedulerClaimReservationPath,
   schedulerClaimReservationsDir,
-  schedulerControlledStepMarkdownPath,
-  schedulerControlledStepPath,
-  schedulerControlledStepsDir,
   schedulerIntegrationCandidateMarkdownPath,
   schedulerIntegrationCandidatePath,
   schedulerIntegrationCandidatesDir,
@@ -63,21 +60,14 @@ import {
   schedulerWorkerValidationPath,
   schedulerWorkerValidationsDir,
 } from "./paths.js";
-import { renderSchedulerControlledStepEvidenceMarkdown, renderSchedulerIntegrationCandidateMarkdown, renderSchedulerIntegrationCheckHandoffMarkdown, renderSchedulerIntegrationOutcomeMarkdown, renderSchedulerReconcileSnapshotMarkdown, renderSchedulerRunBlockedCloseoutMarkdown, renderSchedulerRunCompletionMarkdown, renderSchedulerRuntimeClaimReservationMarkdown, renderSchedulerRuntimeStateMarkdown, renderSchedulerRuntimeWorkerAuditMarkdown, renderSchedulerRuntimeWorkerResultMarkdown, renderSchedulerRuntimeWorkerReworkAuditMarkdown, renderSchedulerRuntimeWorkerReworkPlanMarkdown, renderSchedulerRuntimeWorkerReworkResultMarkdown, renderSchedulerRuntimeWorkerReworkStartMarkdown, renderSchedulerRuntimeWorkerReworkValidationMarkdown, renderSchedulerRuntimeWorkerStartMarkdown, renderSchedulerRuntimeWorkerValidationMarkdown } from "./rendering.js";
-import { schedulerControlledStepEvidenceSchema, schedulerIntegrationCandidateSchema, schedulerIntegrationCheckHandoffSchema, schedulerIntegrationOutcomeSchema, schedulerReconcileSnapshotSchema, schedulerRunBlockedCloseoutSchema, schedulerRunCompletionSchema, schedulerRuntimeClaimReservationSchema, schedulerRuntimeEventSchema, schedulerRuntimeStateSchema, schedulerRuntimeWorkerAuditSchema, schedulerRuntimeWorkerResultSchema, schedulerRuntimeWorkerReworkAuditSchema, schedulerRuntimeWorkerReworkPlanSchema, schedulerRuntimeWorkerReworkResultSchema, schedulerRuntimeWorkerReworkStartSchema, schedulerRuntimeWorkerReworkValidationSchema, schedulerRuntimeWorkerStartSchema, schedulerRuntimeWorkerValidationSchema } from "./schemas.js";
-import type { SchedulerControlledStepEvidence, SchedulerIntegrationCandidate, SchedulerIntegrationCheckHandoff, SchedulerIntegrationOutcome, SchedulerReconcileSnapshot, SchedulerRunBlockedCloseout, SchedulerRunCompletion, SchedulerRuntimeClaimReservation, SchedulerRuntimeEvent, SchedulerRuntimeEventType, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerReworkAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerReworkValidation, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "./types.js";
+import { renderSchedulerIntegrationCandidateMarkdown, renderSchedulerIntegrationCheckHandoffMarkdown, renderSchedulerIntegrationOutcomeMarkdown, renderSchedulerReconcileSnapshotMarkdown, renderSchedulerRunBlockedCloseoutMarkdown, renderSchedulerRunCompletionMarkdown, renderSchedulerRuntimeClaimReservationMarkdown, renderSchedulerRuntimeStateMarkdown, renderSchedulerRuntimeWorkerAuditMarkdown, renderSchedulerRuntimeWorkerResultMarkdown, renderSchedulerRuntimeWorkerReworkAuditMarkdown, renderSchedulerRuntimeWorkerReworkPlanMarkdown, renderSchedulerRuntimeWorkerReworkResultMarkdown, renderSchedulerRuntimeWorkerReworkStartMarkdown, renderSchedulerRuntimeWorkerReworkValidationMarkdown, renderSchedulerRuntimeWorkerStartMarkdown, renderSchedulerRuntimeWorkerValidationMarkdown } from "./rendering.js";
+import { schedulerIntegrationCandidateSchema, schedulerIntegrationCheckHandoffSchema, schedulerIntegrationOutcomeSchema, schedulerReconcileSnapshotSchema, schedulerRunBlockedCloseoutSchema, schedulerRunCompletionSchema, schedulerRuntimeClaimReservationSchema, schedulerRuntimeEventSchema, schedulerRuntimeStateSchema, schedulerRuntimeWorkerAuditSchema, schedulerRuntimeWorkerResultSchema, schedulerRuntimeWorkerReworkAuditSchema, schedulerRuntimeWorkerReworkPlanSchema, schedulerRuntimeWorkerReworkResultSchema, schedulerRuntimeWorkerReworkStartSchema, schedulerRuntimeWorkerReworkValidationSchema, schedulerRuntimeWorkerStartSchema, schedulerRuntimeWorkerValidationSchema } from "./schemas.js";
+import type { SchedulerIntegrationCandidate, SchedulerIntegrationCheckHandoff, SchedulerIntegrationOutcome, SchedulerReconcileSnapshot, SchedulerRunBlockedCloseout, SchedulerRunCompletion, SchedulerRuntimeClaimReservation, SchedulerRuntimeEvent, SchedulerRuntimeEventType, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerReworkAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerReworkValidation, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "./types.js";
 
 export function schedulerRuntimeArtifactRefs(memory: ResolvedMemory, changePath: string, schedulerRunId: string): { artifact: string; eventsArtifact: string } {
   return {
     artifact: displayArtifactPath(memory, schedulerRuntimeStatePath(memory, changePath, schedulerRunId)),
     eventsArtifact: displayArtifactPath(memory, schedulerRuntimeEventsPath(memory, changePath, schedulerRunId)),
-  };
-}
-
-export function schedulerControlledStepArtifactRefs(memory: ResolvedMemory, changePath: string, stepId: string, schedulerRunId?: string): { artifact: string; markdownArtifact: string } {
-  return {
-    artifact: displayArtifactPath(memory, schedulerControlledStepPath(memory, changePath, stepId, schedulerRunId)),
-    markdownArtifact: displayArtifactPath(memory, schedulerControlledStepMarkdownPath(memory, changePath, stepId, schedulerRunId)),
   };
 }
 
@@ -254,67 +244,6 @@ export async function readSchedulerRuntimeEvents(memory: ResolvedMemory, changeP
     }
     return event;
   });
-}
-
-export async function writeSchedulerControlledStepEvidence(memory: ResolvedMemory, changePath: string, step: SchedulerControlledStepEvidence): Promise<void> {
-  await assertChangePathScope(memory, changePath, step.changeId, `SchedulerControlledStepEvidence ${step.id}`);
-  if (step.schedulerRunId && step.targetScope.schedulerRunId !== step.schedulerRunId) {
-    throw new Error("SchedulerControlledStepEvidence schedulerRunId scope mismatch.");
-  }
-  await mkdir(schedulerControlledStepsDir(memory, changePath, step.schedulerRunId), { recursive: true });
-  await writeJsonFile(schedulerControlledStepPath(memory, changePath, step.id, step.schedulerRunId), step);
-  await writeFile(schedulerControlledStepMarkdownPath(memory, changePath, step.id, step.schedulerRunId), renderSchedulerControlledStepEvidenceMarkdown(step), "utf8");
-}
-
-export async function readSchedulerControlledStepEvidence(memory: ResolvedMemory, changePath: string, stepId: string, schedulerRunId?: string): Promise<SchedulerControlledStepEvidence> {
-  const step = await readRequiredJsonFile(schedulerControlledStepPath(memory, changePath, stepId, schedulerRunId), schedulerControlledStepEvidenceSchema);
-  await assertChangePathScope(memory, changePath, step.changeId, `SchedulerControlledStepEvidence ${step.id}`);
-  if (step.id !== stepId) throw new Error("SchedulerControlledStepEvidence id mismatch.");
-  if ((step.schedulerRunId ?? undefined) !== (schedulerRunId ?? undefined)) throw new Error("SchedulerControlledStepEvidence schedulerRunId scope mismatch.");
-  if (step.targetScope.changeId !== step.changeId) throw new Error("SchedulerControlledStepEvidence change target mismatch.");
-  if (step.schedulerRunId && step.targetScope.schedulerRunId !== step.schedulerRunId) throw new Error("SchedulerControlledStepEvidence scheduler target mismatch.");
-  return step;
-}
-
-export async function readSchedulerControlledStepEvidenceProjection(memory: ResolvedMemory, changePath: string, stepId: string, schedulerRunId?: string): Promise<SchedulerControlledStepEvidence | null> {
-  try {
-    return await readSchedulerControlledStepEvidence(memory, changePath, stepId, schedulerRunId);
-  } catch {
-    return null;
-  }
-}
-
-export async function listSchedulerControlledStepEvidence(memory: ResolvedMemory, changePath: string, schedulerRunId?: string): Promise<SchedulerControlledStepEvidence[]> {
-  const dir = schedulerControlledStepsDir(memory, changePath, schedulerRunId);
-  if (!existsSync(dir)) return [];
-  const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
-  const steps: SchedulerControlledStepEvidence[] = [];
-  for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-    const step = await readSchedulerControlledStepEvidenceProjection(memory, changePath, entry.name.replace(/\.json$/, ""), schedulerRunId);
-    if (step) steps.push(step);
-  }
-  return steps.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-}
-
-export async function listSchedulerControlledStepEvidenceStrict(memory: ResolvedMemory, changePath: string, schedulerRunId?: string): Promise<SchedulerControlledStepEvidence[]> {
-  const dir = schedulerControlledStepsDir(memory, changePath, schedulerRunId);
-  if (!existsSync(dir)) return [];
-  const entries = await readdir(dir, { withFileTypes: true });
-  const steps: SchedulerControlledStepEvidence[] = [];
-  for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-    steps.push(await readSchedulerControlledStepEvidence(memory, changePath, entry.name.replace(/\.json$/, ""), schedulerRunId));
-  }
-  return steps.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-}
-
-export async function readLatestSchedulerControlledStepEvidenceProjection(memory: ResolvedMemory, changePath: string, schedulerRunId?: string): Promise<SchedulerControlledStepEvidence | null> {
-  return (await listSchedulerControlledStepEvidence(memory, changePath, schedulerRunId))[0] ?? null;
-}
-
-export async function readLatestSchedulerControlledStepEvidenceStrict(memory: ResolvedMemory, changePath: string, schedulerRunId?: string): Promise<SchedulerControlledStepEvidence | null> {
-  return (await listSchedulerControlledStepEvidenceStrict(memory, changePath, schedulerRunId))[0] ?? null;
 }
 
 export async function writeSchedulerReconcileSnapshot(memory: ResolvedMemory, changePath: string, snapshot: SchedulerReconcileSnapshot): Promise<void> {

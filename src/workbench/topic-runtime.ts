@@ -9,6 +9,7 @@ const runtimeMetadataSchema = z.object({
   version: z.literal("1.0"),
   changeId: z.string(),
   codexSessionId: z.string().nullable(),
+  codexCapabilityProfile: z.literal("main-agent-goal-v1").nullable().optional(),
   updatedAt: z.string(),
 });
 
@@ -17,7 +18,13 @@ export async function readTopicRuntime(memory: ResolvedMemory, changePath: strin
   const store = await WorkbenchStore.open(memory);
   try {
     const link = store.readCodexSession(projectId, changeId);
-    if (link) return { version: "1.0", changeId, codexSessionId: link.codexSessionId, updatedAt: link.updatedAt };
+    if (link) return {
+      version: "1.0",
+      changeId,
+      codexSessionId: link.codexSessionId,
+      codexCapabilityProfile: link.capabilityProfile === "main-agent-goal-v1" ? "main-agent-goal-v1" : null,
+      updatedAt: link.updatedAt,
+    };
   } finally {
     store.close();
   }
@@ -36,6 +43,7 @@ export async function writeTopicRuntime(memory: ResolvedMemory, changePath: stri
       projectId: memory.projectId ?? "unregistered",
       changeId: metadata.changeId,
       codexSessionId: metadata.codexSessionId,
+      capabilityProfile: metadata.codexCapabilityProfile ?? null,
       updatedAt: metadata.updatedAt,
     });
   } finally {

@@ -2,8 +2,6 @@ export function schedulerUserFacingActionLabel(actionType: string | undefined): 
   if (!actionType?.startsWith("planning.scheduler.")) return null;
   if (actionType === "planning.scheduler.plan.prepare") return "准备低冲突任务执行路径";
   if (actionType === "planning.scheduler.run.prepare") return "确认低冲突执行方向";
-  if (actionType === "planning.scheduler.controlled-advance.run") return "按当前建议继续一个受控步骤";
-  if (actionType === "planning.scheduler.controlled-step.run") return "执行一个受控步骤";
   if (actionType === "planning.scheduler.worker.start-first" || actionType === "planning.scheduler.worker.start-next") {
     return "继续执行下一个任务";
   }

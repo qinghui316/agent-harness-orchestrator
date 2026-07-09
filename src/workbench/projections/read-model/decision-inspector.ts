@@ -84,7 +84,6 @@ export function alignDecisionInspectorWithConfirmationPrimary(
   if (!primary || !selectedChangeId) return inspector;
   if (inspector.primary && !shouldOverrideDecisionInspectorPrimary(primary)) return inspector;
   if (primary.changeId !== selectedChangeId && primary.conversationId !== selectedChangeId) return inspector;
-  if (primary.actions.every((action) => action.actionType === "planning.goal-loop.evaluate")) return inspector;
   const context = enrichDecisionContext({
     id: `confirmation:${primary.id}`,
     kind: "workflow-gate",
@@ -159,7 +158,6 @@ function decisionActionsForResultReview(topic: WorkbenchTopicDetail, review: Wor
       },
       enabled: true,
       requiresConfirmation: true,
-      automationEligible: true,
     });
   } else if (review.applyReadiness.kind === "source-drift") {
     actions.push({
@@ -567,7 +565,6 @@ function decisionActionsForApproval(approval: WorkbenchApprovalItem, kind: Workb
       action: { ...approval.action, label: actionLabelForDecision(kind, approval.action.label) },
       enabled: true,
       requiresConfirmation: approval.action.requiresConfirmation,
-      automationEligible: approval.automationEligible,
     });
   }
   if (approval.artifact) actions.push(...evidenceActions(approval.artifact));
