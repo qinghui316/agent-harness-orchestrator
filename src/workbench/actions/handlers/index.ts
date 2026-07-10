@@ -1,5 +1,4 @@
-import { startAuditRun } from "../../../audit/manager.js";
-import { acceptPlanProposal, acceptSpecProposal, startPlanProposalRun, startSpecProposalRun } from "../../../change/proposals.js";
+﻿import { startAuditRun } from "../../../audit/manager.js";
 import { runIntegrationCheck } from "../../../integration-check/manager.js";
 import { reconcileTaskRuns } from "../../../task-run/manager.js";
 import { reconcileWorkflowTaskQueue, runTaskQueueSequentialWorkflow } from "../../../workflow-runtime/taskqueue.js";
@@ -8,7 +7,7 @@ import { startValidationRun } from "../../../validation/manager.js";
 import { getSpecTestDriftReport } from "../../../spec-test/drift.js";
 import type { ManagedProject, RunMetadata } from "../../../types/index.js";
 import { enqueueDemandWorkerForAction, evaluateDemandOrchestrator, pumpDemandWorkersForAction, reconcileDemandWorkersForAction, releaseDemandWorkerForAction, startNextDemandWorkerForAction } from "../../demand-workers/orchestration.js";
-import { assessDecompositionReadiness, compileTaskQueueWorkflowGraph, confirmDecompositionPlan, confirmTaskQueueProposalAndStart, generateDecompositionPlan, proposeTaskQueue } from "./planning.js";
+import { startAcceptedSequentialWorkflow } from "./planning.js";
 import { cleanupRemoteBranchForAction, createPrDraftForAction, mergeNextLandingQueueForAction, mergeRemoteLandingForAction, prepareLandingForAction, prepareLandingQueueForAction, prepareLocalSyncForAction, preparePostMergeForAction, preparePrDraftForAction, preparePrReviewForAction, preparePrReviewReplyForAction, prepareRemoteBranchCleanupForAction, prepareRemoteLandingForAction, refreshLandingQueueForAction, refreshPrDraftForAction, refreshPrFeedbackForAction, refreshPrReviewForAction, refreshRemoteLandingForAction, reworkPrFeedbackForAction, resolvePrReviewThreadForAction, reviewLandingForAction, submitPrReviewForAction, submitPrReviewReplyForAction, syncLocalForAction, updatePrDraftForAction } from "./remote-handoff.js";
 import { interruptConversation, steerConversation, stopRunningPipeline } from "./control.js";
 import { buildSchedulerActionHandlers } from "./scheduler.js";
@@ -16,16 +15,16 @@ import type { WorkbenchActionHandler, WorkbenchActionHandlerMap } from "../dispa
 import type { TopicMessageResult, WorkbenchLiveSink } from "../../types.js";
 
 export interface WorkbenchActionHandlerDeps {
-  postTopicMessage(project: ManagedProject, changeId: string, input: string, live?: WorkbenchLiveSink): Promise<TopicMessageResult>;
+  postConversationMessage(project: ManagedProject, conversationId: string, input: string, live?: WorkbenchLiveSink): Promise<TopicMessageResult>;
   findRunningRunForChange(project: ManagedProject, changeId: string): Promise<RunMetadata | null>;
   continueTopicGoal(project: ManagedProject, changeId: string, prompt: string | undefined, live?: WorkbenchLiveSink): Promise<unknown>;
 }
 
 export function buildWorkbenchActionHandlers(deps: WorkbenchActionHandlerDeps): WorkbenchActionHandlerMap {
   const runMainAgentExecutionStart: WorkbenchActionHandler = async (project, changeId, request, live) =>
-    runTopLevelRoleChainWorkflow({ project, changeId, prompt: request.prompt, live, continuation: false, taskIds: request.taskIds, readinessManifestId: request.readinessManifestId });
+    runTopLevelRoleChainWorkflow({ project, changeId, prompt: request.prompt, live, continuation: false, taskIds: request.taskIds, workflowGraphPlanId: request.workflowGraphPlanId });
   const runMainAgentExecutionContinue: WorkbenchActionHandler = async (project, changeId, request, live) =>
-    runTopLevelRoleChainWorkflow({ project, changeId, prompt: request.prompt, live, continuation: true, taskIds: request.taskIds, readinessManifestId: request.readinessManifestId });
+    runTopLevelRoleChainWorkflow({ project, changeId, prompt: request.prompt, live, continuation: true, taskIds: request.taskIds, workflowGraphPlanId: request.workflowGraphPlanId });
   const runMainAgentExecutionStop: WorkbenchActionHandler = async (project, changeId, request, live) =>
     stopRunningPipeline(project, changeId, request.prompt, live, deps);
   const runMainAgentExecutionReconcile: WorkbenchActionHandler = async (project, changeId, request) =>
@@ -34,22 +33,8 @@ export function buildWorkbenchActionHandlers(deps: WorkbenchActionHandlerDeps): 
   const handlers: WorkbenchActionHandlerMap = {
   "chat.ask": async (project, changeId, request, live) => {
     if (!request.prompt) throw new Error("chat.ask requires prompt.");
-    return deps.postTopicMessage(project, changeId, request.prompt, live);
+    return deps.postConversationMessage(project, changeId, request.prompt, live);
   },
-  "change.spec.propose": async (project, changeId, request) => startSpecProposalRun(project, { prompt: request.prompt, changeId }),
-  "change.spec.accept": async (project, _changeId, request) => {
-    if (!request.proposalId) throw new Error("change.spec.accept requires proposalId.");
-    return acceptSpecProposal(project, request.proposalId);
-  },
-  "change.plan.propose": async (project, changeId, request) => startPlanProposalRun(project, { prompt: request.prompt, changeId }),
-  "change.plan.accept": async (project, _changeId, request) => {
-    if (!request.proposalId) throw new Error("change.plan.accept requires proposalId.");
-    return acceptPlanProposal(project, request.proposalId);
-  },
-  "planning.decompose": async (project, changeId, request, live) => generateDecompositionPlan(project, changeId, request.prompt, live),
-  "planning.decomposition.confirm": async (project, changeId, request, live) => confirmDecompositionPlan(project, changeId, request, live),
-  "planning.decomposition.assess-readiness": async (project, changeId, request, live) => assessDecompositionReadiness(project, changeId, request, live),
-  "planning.taskqueue.propose": async (project, changeId, request, live) => proposeTaskQueue(project, changeId, request, live),
   ...buildSchedulerActionHandlers(),
   "maintenance.canonical-update.decision.record": async () => {
     throw new Error("maintenance.canonical-update.decision.record is project-scoped and must not run through the demand topic workflow service.");
@@ -60,8 +45,7 @@ export function buildWorkbenchActionHandlers(deps: WorkbenchActionHandlerDeps): 
   "maintenance.canonical-patch.apply": async () => {
     throw new Error("maintenance.canonical-patch.apply is project-scoped and must not run through the demand topic workflow service.");
   },
-  "planning.workflowgraph.compile": async (project, changeId, request, live) => compileTaskQueueWorkflowGraph(project, changeId, request, live),
-  "planning.taskqueue.confirm-start": async (project, changeId, request, live) => confirmTaskQueueProposalAndStart(project, changeId, request, live),
+  "workflow.run.start": async (project, changeId, request, live) => startAcceptedSequentialWorkflow(project, changeId, request, live),
   "orchestrator.evaluate": async (project, changeId) => evaluateDemandOrchestrator(project, changeId),
   "orchestrator.pump": async (project, changeId, request, live) => pumpDemandWorkersForAction(project, request.prompt, live, changeId),
   "demand.worker.enqueue": async (project, changeId) => enqueueDemandWorkerForAction(project, changeId),
@@ -139,7 +123,7 @@ export function buildWorkbenchActionHandlers(deps: WorkbenchActionHandlerDeps): 
     prompt: request.prompt,
     live,
     taskIds: request.taskIds,
-    readinessManifestId: request.readinessManifestId,
+    workflowGraphPlanId: request.workflowGraphPlanId,
   }),
   "task.run.start": async (project, changeId, request, live) => runTaskRunStageAction(project, changeId, request, live, "start"),
   "task.run.retry": async (project, changeId, request, live) => runTaskRunStageAction(project, changeId, request, live, "retry"),
@@ -149,10 +133,7 @@ export function buildWorkbenchActionHandlers(deps: WorkbenchActionHandlerDeps): 
     changeId,
     prompt: request.prompt,
     live,
-    taskQueueProposalId: request.taskQueueProposalId,
     workflowGraphPlanId: request.workflowGraphPlanId,
-    decompositionPlanId: request.decompositionPlanId,
-    readinessManifestId: request.readinessManifestId,
     workflowRunId: request.workflowRunId,
     queueRunId: request.queueRunId,
   }),

@@ -34,10 +34,7 @@ export interface WorkflowGraphSequentialRuntimeInput {
   changeId: string;
   prompt?: string;
   live?: WorkflowRuntimeLiveSink;
-  taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
-  decompositionPlanId?: string;
-  readinessManifestId?: string;
   workflowRunId?: string;
   queueRunId?: string;
 }
@@ -54,10 +51,7 @@ export async function runWorkflowGraphSequentialExecution(input: WorkflowGraphSe
   const memory = await resolveProjectMemory(input.project);
   const start = await startOrResumeTaskQueue(input.project, {
     changeId: input.changeId,
-    taskQueueProposalId: input.taskQueueProposalId,
     workflowGraphPlanId: input.workflowGraphPlanId,
-    decompositionPlanId: input.decompositionPlanId,
-    readinessManifestId: input.readinessManifestId,
     workflowRunId: input.workflowRunId,
     queueRunId: input.queueRunId,
   });
@@ -305,17 +299,12 @@ async function syncQueue(
 
 function taskQueueExecutionGate(queue: TaskQueueRun, workflow: WorkflowRun | null, item: TaskQueueItem): CodeExecutionGateOptions {
   const queueWorkflow = isTaskQueueWorkflowRun(workflow) ? workflow : null;
-  const taskQueueProposalId = item.taskQueueProposalId ?? queue.taskQueueProposalId ?? queueWorkflow?.taskQueueProposalId;
   const workflowGraphPlanId = item.workflowGraphPlanId ?? queue.workflowGraphPlanId ?? queueWorkflow?.workflowGraphPlanId;
-  if (!taskQueueProposalId) throw new Error("TaskQueue lifecycle requires taskQueueProposalId.");
   if (!workflowGraphPlanId) throw new Error("TaskQueue lifecycle requires workflowGraphPlanId.");
-  if (queue.taskQueueProposalId && queue.taskQueueProposalId !== taskQueueProposalId) throw new Error("TaskQueue lifecycle proposal scope is stale.");
   if (queue.workflowGraphPlanId && queue.workflowGraphPlanId !== workflowGraphPlanId) throw new Error("TaskQueue lifecycle graph scope is stale.");
-  if (queueWorkflow?.taskQueueProposalId && queueWorkflow.taskQueueProposalId !== taskQueueProposalId) throw new Error("TaskQueue lifecycle WorkflowRun proposal scope is stale.");
   if (queueWorkflow?.workflowGraphPlanId && queueWorkflow.workflowGraphPlanId !== workflowGraphPlanId) throw new Error("TaskQueue lifecycle WorkflowRun graph scope is stale.");
-  if (item.taskQueueProposalId !== taskQueueProposalId) throw new Error("TaskQueue item proposal scope is stale.");
   if (item.workflowGraphPlanId !== workflowGraphPlanId) throw new Error("TaskQueue item graph scope is stale.");
-  return { mode: "taskqueue-proposal", taskQueueProposalId, workflowGraphPlanId };
+  return { mode: "workflow-graph", workflowGraphPlanId };
 }
 
 async function resolveWorkflowRunForQueue(memory: ResolvedMemory, changeId: string, requestedWorkflowRunId: string | undefined, queue: TaskQueueRun): Promise<WorkflowRun | null> {
@@ -334,9 +323,6 @@ async function resolveSequentialGraph(memory: ResolvedMemory, changeId: string, 
     if (workflow.changeId !== changeId || workflow.workflowGraphPlanId !== graph.id) {
       throw new Error("WorkflowGraph sequential execution WorkflowRun scope is stale.");
     }
-    if (workflow.taskQueueProposalId !== graph.taskQueueProposalId) {
-      throw new Error("WorkflowGraph sequential execution proposal scope is stale.");
-    }
   }
   return graph;
 }
@@ -346,9 +332,6 @@ function assertSequentialGraphScope(graph: WorkflowGraphPlan, queue: TaskQueueRu
   if (graph.status !== "compiled") throw new Error("WorkflowGraph sequential execution requires a compiled graph.");
   if (graph.changeId !== queue.changeId) throw new Error("WorkflowGraph sequential execution change scope mismatch.");
   if (queue.workflowGraphPlanId && queue.workflowGraphPlanId !== graph.id) throw new Error("WorkflowGraph sequential execution graph scope is stale.");
-  if (queue.taskQueueProposalId && queue.taskQueueProposalId !== graph.taskQueueProposalId) throw new Error("WorkflowGraph sequential execution proposal scope is stale.");
-  if (queue.decompositionPlanId && queue.decompositionPlanId !== graph.decompositionPlanId) throw new Error("WorkflowGraph sequential execution decomposition scope is stale.");
-  if (queue.readinessManifestId && queue.readinessManifestId !== graph.readinessManifestId) throw new Error("WorkflowGraph sequential execution readiness scope is stale.");
 }
 
 function orderedSequentialNodes(graph: SequentialWorkflowGraphPlan): SequentialWorkflowGraphPlan["nodes"] {

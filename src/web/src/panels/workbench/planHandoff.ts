@@ -1,6 +1,6 @@
 import type { AgentWorkspace, PlanHandoffCandidate, PlanHandoffAgentRoleId } from "../../types.js";
 
-const PLAN_HANDOFF_AGENT_ROLES = new Set<PlanHandoffAgentRoleId>(["plan-session", "planning-agent"]);
+const PLAN_HANDOFF_AGENT_ROLES = new Set<PlanHandoffAgentRoleId>(["planning-agent"]);
 
 export function derivePlanHandoffCandidate(workspace: AgentWorkspace): PlanHandoffCandidate | null {
   const candidates = workspace.agents
@@ -10,7 +10,7 @@ export function derivePlanHandoffCandidate(workspace: AgentWorkspace): PlanHando
       .map((cell) => ({
         sourceRunId: cell.runId as string,
         sourceAgentRoleId: agent.roleId as PlanHandoffAgentRoleId,
-        title: agent.label || (agent.roleId === "plan-session" ? "Plan Agent" : "planning-agent"),
+        title: agent.label || "Plan Agent",
         planText: cell.text.trim(),
         timestamp: cell.timestamp ?? "",
       })));

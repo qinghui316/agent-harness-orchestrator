@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { canApplyResultFromGate, previewWorktreeApply } from "../../../apply/manager.js";
 import { listAuditResults } from "../../../audit/artifacts.js";
 import { getChangeStatusForChange } from "../../../change/manager.js";
-import { listPlanProposalSummaries, listSpecProposalSummaries } from "../../../change/proposals.js";
 import { hasPendingEvolution } from "../../../ecl/index.js";
 import { readRun } from "../../../run/manager.js";
 import { listSpecTestProposalSummaries } from "../../../spec-test/proposal.js";
@@ -17,38 +16,7 @@ import { readRunEvents } from "./thread-stream.js";
 export async function buildApprovalInbox(project: ManagedProject, memory: ResolvedMemory, topics: WorkbenchTopicSummary[]): Promise<WorkbenchApprovalItem[]> {
   const approvals: WorkbenchApprovalItem[] = [];
   const activeTopics = topics.filter((item) => item.state === "active");
-  const [specProposals, planProposals, specTestProposals] = await Promise.all([
-    listSpecProposalSummaries(project).catch(() => []),
-    listPlanProposalSummaries(project).catch(() => []),
-    listSpecTestProposalSummaries(project).catch(() => []),
-  ]);
-
-  for (const proposal of specProposals.filter((item) => item.status === "proposed")) {
-    if (await runHasEvent(memory, proposal.runId, "change.spec.proposal.accepted")) continue;
-    approvals.push({
-      id: `spec:${proposal.id}`,
-      kind: "spec-proposal",
-      label: `Spec proposal ready: ${proposal.id}`,
-      changeId: proposal.changeId,
-      runId: proposal.runId,
-      targetId: proposal.id,
-      severity: "info",
-      action: approvalAction("change.spec.accept", "Accept spec proposal", "change", ["spec", "accept", project.id, proposal.id], true),
-    });
-  }
-  for (const proposal of planProposals.filter((item) => item.status === "proposed")) {
-    if (await runHasEvent(memory, proposal.runId, "change.plan.proposal.accepted")) continue;
-    approvals.push({
-      id: `plan:${proposal.id}`,
-      kind: "plan-proposal",
-      label: `Plan proposal ready: ${proposal.id}`,
-      changeId: proposal.changeId,
-      runId: proposal.runId,
-      targetId: proposal.id,
-      severity: "info",
-      action: approvalAction("change.plan.accept", "Accept plan proposal", "change", ["plan", "accept", project.id, proposal.id], true),
-    });
-  }
+  const specTestProposals = await listSpecTestProposalSummaries(project).catch(() => []);
   for (const proposal of specTestProposals.filter((item) => item.status === "proposed" && item.acceptedSourceRootCount === 0)) {
     approvals.push({
       id: `spec-test:${proposal.id}`,
@@ -63,8 +31,9 @@ export async function buildApprovalInbox(project: ManagedProject, memory: Resolv
   }
 
   for (const activeTopic of activeTopics) {
-    const audits = await listAuditResults(memory, activeTopic.id).catch(() => []);
-    const validations = await listValidationResults(memory, activeTopic.id).catch(() => []);
+    const changeId = activeTopic.boundChangeId ?? activeTopic.id;
+    const audits = await listAuditResults(memory, changeId).catch(() => []);
+    const validations = await listValidationResults(memory, changeId).catch(() => []);
     for (const audit of audits.filter((item) => item.status === "approved" || item.status === "approved-with-notes").slice(0, 3)) {
       if (await auditAlreadyAccepted(memory, activeTopic.path, audit.id)) continue;
       approvals.push({
@@ -80,7 +49,7 @@ export async function buildApprovalInbox(project: ManagedProject, memory: Resolv
         reason: audit.status === "approved" ? undefined : "Audit approved with notes requires manual acceptance.",
       });
     }
-    const worktrees = await listWorktreesForChange(memory, activeTopic.id).catch(() => []);
+    const worktrees = await listWorktreesForChange(memory, changeId).catch(() => []);
     for (const worktree of worktrees.filter((item) => item.status !== "applied")) {
       if (!hasPotentialApplyEvidence(validations, audits, worktree.worktreeId)) continue;
       const preview = await previewWorktreeApply(project, worktree.worktreeId).catch(() => null);
@@ -97,24 +66,24 @@ export async function buildApprovalInbox(project: ManagedProject, memory: Resolv
         });
       }
     }
-    const status = await getChangeStatusForChange(project, activeTopic.id).catch(() => null);
+    const status = await getChangeStatusForChange(project, changeId).catch(() => null);
     if (status?.closeGate.ready) {
       approvals.push({
-        id: `close:${activeTopic.id}`,
+        id: `close:${changeId}`,
         kind: "change-close",
-        label: `Change ready to close: ${activeTopic.id}`,
-        changeId: activeTopic.id,
-        targetId: activeTopic.id,
+        label: `Change ready to close: ${changeId}`,
+        changeId,
+        targetId: changeId,
         severity: "info",
-        action: approvalAction("change.close", "Close change", "change", ["close", project.id, activeTopic.id], true),
+        action: approvalAction("change.close", "Close change", "change", ["close", project.id, changeId], true),
       });
     }
     if (status?.latestValidation?.status === "failed") {
       approvals.push({
-        id: `attention:validation:${activeTopic.id}:${status.latestValidation.id}`,
+        id: `attention:validation:${changeId}:${status.latestValidation.id}`,
         kind: "attention",
         label: `Latest validation failed: ${status.latestValidation.id}`,
-        changeId: activeTopic.id,
+        changeId,
         targetId: status.latestValidation.id,
         severity: "blocking",
         reason: "Failed validation blocks close.",
@@ -122,10 +91,10 @@ export async function buildApprovalInbox(project: ManagedProject, memory: Resolv
     }
     if (status?.latestAudit?.status === "blocked") {
       approvals.push({
-        id: `attention:audit:${activeTopic.id}:${status.latestAudit.id}`,
+        id: `attention:audit:${changeId}:${status.latestAudit.id}`,
         kind: "attention",
         label: `Latest audit blocked: ${status.latestAudit.id}`,
-        changeId: activeTopic.id,
+        changeId,
         targetId: status.latestAudit.id,
         severity: "blocking",
         reason: "Blocked audit prevents safe close.",

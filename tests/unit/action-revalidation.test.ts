@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+﻿import { describe, expect, it, vi } from "vitest";
 import { assertCurrentWorkflowAction } from "../../src/workbench/actions/current-action-revalidation.js";
 
 function snapshot(action: Record<string, unknown>) {
@@ -15,13 +15,14 @@ describe("Workbench action revalidation", () => {
   it("accepts the exact current visible workflow target", async () => {
     const getWorkbenchSnapshot = vi.fn(async () => snapshot({
       kind: "workflow-action",
-      actionType: "planning.decompose",
+      actionType: "workflow.run.start",
       changeId: "change-1",
+      workflowGraphPlanId: "graph-1",
       enabled: true,
     }));
     await expect(assertCurrentWorkflowAction(
       { project: null, path: "project" },
-      { actionType: "planning.decompose", changeId: "change-1" },
+      { actionType: "workflow.run.start", changeId: "change-1", workflowGraphPlanId: "graph-1" },
       { getWorkbenchSnapshot },
     )).resolves.toBeUndefined();
   });
@@ -29,13 +30,14 @@ describe("Workbench action revalidation", () => {
   it("rejects stale or disabled visible workflow targets", async () => {
     const getWorkbenchSnapshot = vi.fn(async () => snapshot({
       kind: "workflow-action",
-      actionType: "planning.decompose",
+      actionType: "workflow.run.start",
       changeId: "change-2",
+      workflowGraphPlanId: "graph-2",
       enabled: false,
     }));
     await expect(assertCurrentWorkflowAction(
       { project: null, path: "project" },
-      { actionType: "planning.decompose", changeId: "change-1" },
+      { actionType: "workflow.run.start", changeId: "change-1", workflowGraphPlanId: "graph-1" },
       { getWorkbenchSnapshot },
     )).rejects.toThrow("stale or no longer available");
   });

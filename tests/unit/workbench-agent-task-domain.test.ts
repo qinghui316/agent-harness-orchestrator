@@ -157,7 +157,7 @@ describe("workbench AgentTask domain", () => {
     const result = await runStartedTaskRunStage({
       project: project(),
       started,
-      executionGate: { mode: "single-change-readiness", readinessManifestId: "readiness-missing" },
+      executionGate: { mode: "workflow-graph", workflowGraphPlanId: "graph-missing" },
     });
 
     expect(result.workflow).toMatchObject({

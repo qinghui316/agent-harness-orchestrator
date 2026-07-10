@@ -1,17 +1,18 @@
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+﻿import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, expect } from "vitest";
+import { createConversationChangeFixture } from "../../helpers/conversation-change-fixture.js";
 import { initHarness } from "../../../src/harness/init.js";
 import { executeWorkbenchAction } from "../../../src/server/workbench-server.js";
-import { createWorkbenchTopic } from "../../../src/workbench/chat.js";
 import { getWorkbenchSnapshot } from "../../../src/workbench/manager.js";
 import type { WorkbenchDecisionAction } from "../../../src/workbench/read-model-types.js";
 import { resolveProjectMemory } from "../../../src/memory/resolver.js";
-import { createWorkflowRunForTaskQueue, validateTaskQueueProposalStart } from "../../../src/workflow-run/manager.js";
-import { compileWorkflowGraphPlan, hashArtifactRefs, writeDecompositionPlan, writeDecompositionReadinessManifest, writeWorkflowGraphPlan } from "../../../src/workflow-artifacts/manager.js";
+import { compileWorkflowGraphPlan, hashArtifactRefs, writeWorkflowGraphPlan, type WorkflowAuthoringPlan } from "../../../src/workflow-artifacts/manager.js";
+import { runSchedulerReadySetInitialization } from "../../../src/workflow-runtime/scheduler.js";
+import { readLatestSchedulerCurrentTransitionView } from "../../../src/workflow-runtime/scheduler-current-transition-view.js";
 import {
   schedulerClaimReconcilePlanArtifactRefs,
   schedulerContractArtifactRefs,
@@ -53,19 +54,15 @@ import { getGlobalWorktreeCheckoutRoot } from "../../../src/worktree/paths.js";
 import { writeWorktreeMetadata } from "../../../src/worktree/repository.js";
 import { writeWorktreeIndex } from "../../../src/worktree/manager.js";
 import type {
-  DecompositionPlan,
-  DecompositionReadinessManifest,
   IntegrationCheckRecord,
   ManagedProject,
-  RunMetadata,
   ReadySetWorkflowGraphPlan,
+  RunMetadata,
   TaskQueueItem,
-  TaskQueueProposal,
   TaskQueueRun,
   WorktreeMetadata,
   TaskRun,
   WorkerLease,
-  WorkflowGraphPlan,
 } from "../../../src/types/index.js";
 import type { SchedulerClaimReconcilePlan, SchedulerContract, SchedulerDispatchDryRun, SchedulerLaunchPreflight, SchedulerRun, SchedulerWorkerSessionPlan } from "../../../src/workflow-scheduler/types.js";
 import type {
@@ -492,19 +489,21 @@ async function writeSeededTerminalSchedulerWorkerPaths(input: {
     worktreeId: string;
     validationRunId: string;
     auditRunId: string;
+    node: ReadySetWorkflowGraphPlan["nodes"][number];
+    reservationIntentId: string;
   }>;
 }): Promise<void> {
   await Promise.all(input.targets.map(async (target, index) => {
     const position = index + 1;
-    const nodeId = `node-${position}`;
-    const unitId = `unit-${position}`;
-    const taskId = `T-${String(position).padStart(3, "0")}`;
+    const nodeId = target.node.id;
+    const unitId = target.node.unitId;
+    const taskId = target.node.taskIds[0];
     const taskRunId = `task-run-${target.worktreeId}`;
     const workerLeaseId = `worker-lease-${target.worktreeId}`;
     const runId = `run-${target.worktreeId}`;
-    const reservationIntentId = `reservation-intent-${position}`;
-    const claimIntentId = `claim-intent-${position}`;
-    const plannedWorkerKey = `worker-${position}`;
+    const reservationIntentId = target.reservationIntentId;
+    const claimIntentId = target.node.claimIntentId;
+    const plannedWorkerKey = target.node.plannedWorkerKey;
     const workerStartId = `scheduler-worker-start-${input.schedulerRunId}-${position}`;
     const workerResultId = `scheduler-worker-result-${input.schedulerRunId}-${position}`;
     const workerValidationId = `scheduler-worker-validation-${input.schedulerRunId}-${position}`;
@@ -632,7 +631,7 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
   latestArtifactHash: string;
 }> {
   await initHarness(project());
-  const topic = await createWorkbenchTopic(project(), {
+  const topic = await createConversationChangeFixture(project(), {
     title,
     body: "Seed a completed two-worker scheduler integration handoff for discard/completion verification.",
   });
@@ -657,115 +656,66 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
   const schedulerIntegrationCandidateId = `scheduler-integration-candidate-${schedulerRunId}`;
   const integrationCheckId = `integration-check-${schedulerRunId}`;
   const schedulerIntegrationCheckHandoffId = `scheduler-integration-check-handoff-${schedulerRunId}`;
-  const schedulerContractId = `scheduler-contract-${schedulerRunId}`;
-  const schedulerDispatchDryRunId = `scheduler-dispatch-dry-run-${schedulerRunId}`;
-  const schedulerWorkerPlanId = `scheduler-worker-plan-${schedulerRunId}`;
-  const schedulerClaimReconcilePlanId = `scheduler-claim-reconcile-plan-${schedulerRunId}`;
   const schedulerLaunchPreflightId = `scheduler-launch-preflight-${schedulerRunId}`;
-  const decompositionPlanId = `decomposition-plan-${schedulerRunId}`;
-  const readinessManifestId = `readiness-manifest-${schedulerRunId}`;
+  const workflowGraphPlanId = `workflow-graph-${schedulerRunId}`;
   const acceptedArtifactRefs = [
     `${changePath}/spec.md`,
     `${changePath}/plan.md`,
     `${changePath}/tasks.md`,
   ];
   const sourceArtifactHashes = await hashArtifactRefs(memory, acceptedArtifactRefs);
-  const decompositionPlan: DecompositionPlan = {
-    id: decompositionPlanId,
-    changeId: topic.changeId,
-    status: "confirmed",
-    recommendation: "taskgraph-parallel-candidate",
-    rationale: "Seeded scheduler discard completion fixture.",
-    units: [{
+  const graphBase = `${changePath}/planning/workflow-graphs/${workflowGraphPlanId}`;
+  const graph = compileWorkflowGraphPlan({
+    version: "1.0",
+    mode: "ready-set-v1",
+    nodes: [{
       id: "unit-1",
       title: "Update module A",
-      summary: "Seeded low-conflict unit for module A.",
       taskIds: ["T-001"],
       acIds: ["AC-001"],
-      scopeHints: ["src/module-a.ts"],
+      prompt: "Update module A.",
       dependsOn: [],
-      recommendedRoleId: "coder",
+      sourceScopes: ["src/module-a.ts"],
     }, {
       id: "unit-2",
       title: "Update module B",
-      summary: "Seeded low-conflict unit for module B.",
       taskIds: ["T-002"],
       acIds: ["AC-001"],
-      scopeHints: ["src/module-b.ts"],
+      prompt: "Update module B.",
       dependsOn: [],
-      recommendedRoleId: "coder",
+      sourceScopes: ["src/module-b.ts"],
     }],
-    dependencies: [],
-    conflictScopes: [],
-    riskSummary: "Seeded independent scheduler units.",
-    openQuestions: [],
-    artifactRefs: acceptedArtifactRefs,
-    recoveryKeyInputs: {
-      changeId: topic.changeId,
-      acceptedArtifactRefs,
-      contextScope: "selected-demand",
-      sourceRevision: sourceHead,
-      rolePolicyProfile: "test",
-      notes: ["Seeded scheduler discard completion fixture."],
-    },
-    artifact: `${changePath}/planning/decomposition-plan.json`,
-    markdownArtifact: `${changePath}/planning/decomposition-plan.md`,
-    createdAt: now,
-    updatedAt: now,
-  };
-  await writeDecompositionPlan(memory, changePath, decompositionPlan);
-  const readiness: DecompositionReadinessManifest = {
-    id: readinessManifestId,
+  }, {
+    id: workflowGraphPlanId,
     changeId: topic.changeId,
-    decompositionPlanId,
-    status: "ready-for-scheduler-contract",
-    recommendation: "taskgraph-parallel-candidate",
-    executable: false,
-    schedulerEligible: true,
-    nextAllowedAction: "scheduler.contract",
-    units: decompositionPlan.units.map((unit) => ({
-      id: unit.id,
-      title: unit.title,
-      taskIds: unit.taskIds,
-      acIds: unit.acIds,
-      dependsOn: unit.dependsOn,
-      guardrailStatus: "passed",
-      sourceScopes: unit.scopeHints,
-    })),
-    dependencies: [],
-    conflictScopes: [],
-    guardrails: [{
-      id: "parallel-scope",
-      status: "passed",
-      summary: "Seeded independent source scopes.",
-      refs: acceptedArtifactRefs,
-    }],
-    recoveryKeyMaterial: {
-      ...decompositionPlan.recoveryKeyInputs,
-      decompositionPlanId,
-      taskIds: ["T-001", "T-002"],
-      acIds: ["AC-001"],
-    },
+    planArtifactRef: `${changePath}/plan.md`,
+    taskIds: ["T-001", "T-002"],
+    acIds: ["AC-001"],
+    sourceArtifactHashes,
     artifactRefs: acceptedArtifactRefs,
-    artifact: `${changePath}/planning/decomposition-readiness.json`,
-    markdownArtifact: `${changePath}/planning/decomposition-readiness.md`,
+    artifact: `${graphBase}.json`,
+    markdownArtifact: `${graphBase}.md`,
     createdAt: now,
-    updatedAt: now,
-  };
-  await writeDecompositionReadinessManifest(memory, changePath, readiness);
+  });
+  if (graph.graphMode !== "ready-set-v1") throw new Error("Expected ready-set graph fixture.");
+  await writeWorkflowGraphPlan(memory, changePath, graph);
+  const schedulerContractId = graph.schedulerContractId;
+  const schedulerDispatchDryRunId = graph.schedulerDispatchDryRunId;
+  const schedulerWorkerPlanId = graph.schedulerWorkerPlanId;
+  const schedulerClaimReconcilePlanId = graph.schedulerClaimReconcilePlanId;
   const contractRefs = schedulerContractArtifactRefs(memory, changePath, schedulerContractId);
   const dryRunRefs = schedulerDispatchDryRunArtifactRefs(memory, changePath, schedulerDispatchDryRunId);
   const workerPlanRefs = schedulerWorkerSessionPlanArtifactRefs(memory, changePath, schedulerWorkerPlanId);
   const claimPlanRefs = schedulerClaimReconcilePlanArtifactRefs(memory, changePath, schedulerClaimReconcilePlanId);
   const preflightRefs = schedulerLaunchPreflightArtifactRefs(memory, changePath, schedulerLaunchPreflightId);
-  const contractNodes = decompositionPlan.units.map((unit, index) => ({
-    id: `node-${index + 1}`,
-    unitId: unit.id,
-    taskIds: unit.taskIds,
-    acIds: unit.acIds,
-    title: unit.title,
-    sourceScopes: unit.scopeHints,
-    stages: ["coder" as const],
+  const contractNodes = graph.nodes.map((node) => ({
+    id: node.id,
+    unitId: node.unitId,
+    taskIds: node.taskIds,
+    acIds: node.acIds,
+    title: node.title,
+    sourceScopes: node.sourceScopes,
+    stages: node.stages,
   }));
   const contract: SchedulerContract = {
     version: "1.0",
@@ -773,8 +723,7 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
     changeId: topic.changeId,
     status: "compiled",
     schedulerMode: "parallel-readiness-v1",
-    decompositionPlanId,
-    readinessManifestId,
+    workflowGraphPlanId,
     nodes: contractNodes,
     edges: [],
     waves: [{ index: 0, nodeIds: contractNodes.map((node) => node.id) }],
@@ -794,8 +743,7 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
     status: "generated",
     schedulerMode: "parallel-readiness-v1",
     schedulerContractId,
-    decompositionPlanId,
-    readinessManifestId,
+    workflowGraphPlanId,
     nodeVerdicts: contractNodes.map((node) => ({
       nodeId: node.id,
       unitId: node.unitId,
@@ -869,8 +817,7 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
     schedulerMode: "parallel-readiness-v1",
     schedulerContractId,
     schedulerDispatchDryRunId,
-    decompositionPlanId,
-    readinessManifestId,
+    workflowGraphPlanId,
     plannedNodes: contractNodes.map((node, index) => ({
       nodeId: node.id,
       unitId: node.unitId,
@@ -893,9 +840,9 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
     updatedAt: now,
   };
   await writeSchedulerWorkerSessionPlan(memory, changePath, workerPlan);
-  const schedulerPlanClaimIntents = contractNodes.map((node, index) => ({
-    claimIntentId: `claim-intent-${index + 1}`,
-    plannedWorkerKey: `worker-${index + 1}`,
+  const schedulerPlanClaimIntents = graph.nodes.map((node, index) => ({
+    claimIntentId: node.claimIntentId,
+    plannedWorkerKey: node.plannedWorkerKey,
     nodeId: node.id,
     unitId: node.unitId,
     waveIndex: 0,
@@ -923,8 +870,7 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
     schedulerContractId,
     schedulerDispatchDryRunId,
     schedulerWorkerPlanId,
-    decompositionPlanId,
-    readinessManifestId,
+    workflowGraphPlanId,
     claimIntents: schedulerPlanClaimIntents,
     waveCheckpoints: [{
       waveIndex: 0,
@@ -956,8 +902,7 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
     schedulerDispatchDryRunId,
     schedulerWorkerPlanId,
     schedulerClaimReconcilePlanId,
-    decompositionPlanId,
-    readinessManifestId,
+    workflowGraphPlanId,
     claimSummaries: schedulerPlanClaimIntents.map((claim) => ({
       claimIntentId: claim.claimIntentId,
       plannedWorkerKey: claim.plannedWorkerKey,
@@ -1000,79 +945,6 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
     updatedAt: now,
   };
   await writeSchedulerLaunchPreflight(memory, changePath, preflight);
-  const readySetGraph: ReadySetWorkflowGraphPlan = {
-    version: "1.0",
-    id: `ready-set-graph-${schedulerRunId}`,
-    changeId: topic.changeId,
-    status: "compiled",
-    graphMode: "ready-set-v1",
-    schedulerMode: "parallel-readiness-v1",
-    decompositionPlanId,
-    readinessManifestId,
-    schedulerContractId,
-    schedulerDispatchDryRunId,
-    schedulerWorkerPlanId,
-    schedulerClaimReconcilePlanId,
-    nodes: schedulerPlanClaimIntents.map((intent) => ({
-      id: `ready-node-${intent.nodeId}`,
-      schedulerNodeId: intent.nodeId,
-      unitId: intent.unitId,
-      taskIds: [`T-${intent.unitId.slice(-1).padStart(3, "0")}`],
-      title: `Seeded ${intent.unitId}`,
-      waveIndex: intent.waveIndex,
-      stages: ["coder", "validation", "audit"],
-      stageRefs: [{
-        id: intent.stageIds[0],
-        stage: "coder",
-        roleId: "coder",
-        adapterFamily: "codex-code",
-        status: "planned",
-        sourceScopes: intent.sourceScopes,
-        recoveryKeyInputs: intent.recoveryKeyInputs,
-        blockedReasons: [],
-      }],
-      acIds: ["AC-001"],
-      sourceScopes: intent.sourceScopes,
-      claimIntentId: intent.claimIntentId,
-      plannedWorkerKey: intent.plannedWorkerKey,
-      roleIds: intent.roleIds,
-      plannedSlotDemand: intent.plannedSlotDemand,
-      sourceLocks: intent.sourceLockIntents.map((lock) => ({
-        scope: lock.scope,
-        nodeId: lock.nodeId,
-        unitId: lock.unitId,
-        waveIndex: lock.waveIndex,
-        claimIntentId: intent.claimIntentId,
-        stageIds: lock.stageIds,
-      })),
-      recoveryKeyInputs: intent.recoveryKeyInputs,
-      status: "planned",
-      blockedReasons: [],
-    })),
-    edges: [],
-    waves: claimPlan.waveCheckpoints.map((wave) => ({
-      index: wave.waveIndex,
-      nodeIds: wave.claimIntentIds.map((claimIntentId) => {
-        const intent = schedulerPlanClaimIntents.find((candidate) => candidate.claimIntentId === claimIntentId);
-        return `ready-node-${intent?.nodeId ?? claimIntentId}`;
-      }),
-      claimIntentIds: wave.claimIntentIds,
-      candidateCount: wave.candidateCount,
-      blockedCount: wave.blockedCount,
-      plannedSlotDemand: wave.plannedSlotDemand,
-      blockedReasons: wave.blockedReasons,
-    })),
-    plannedSlotDemand: claimPlan.plannedSlotDemand,
-    maxPlannedWaveWidth: claimPlan.maxPlannedWaveWidth,
-    recoveryKeyCoverage: "complete",
-    sourceArtifactHashes,
-    artifactRefs: [`${changePath}/planning/workflow-graph-plan.json`, `${changePath}/planning/workflow-graph-plan.md`],
-    artifact: `${changePath}/planning/workflow-graph-plan.json`,
-    markdownArtifact: `${changePath}/planning/workflow-graph-plan.md`,
-    createdAt: now,
-    updatedAt: now,
-  };
-  await writeWorkflowGraphPlan(memory, changePath, readySetGraph);
   const runRefs = schedulerRunArtifactRefs(memory, changePath, schedulerRunId);
   const reconcileRefs = schedulerReconcileSnapshotArtifactRefs(memory, changePath, schedulerRunId, reconcileSnapshotId);
   const candidateRefs = schedulerIntegrationCandidateArtifactRefs(memory, changePath, schedulerRunId, schedulerIntegrationCandidateId);
@@ -1088,8 +960,7 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
     schedulerWorkerPlanId,
     schedulerClaimReconcilePlanId,
     schedulerLaunchPreflightId,
-    decompositionPlanId,
-    readinessManifestId,
+    workflowGraphPlanId,
     claimIntentCount: 2,
     plannedSlotDemand: 2,
     maxPlannedWaveWidth: 2,
@@ -1111,6 +982,8 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
   const checkoutRoot = getGlobalWorktreeCheckoutRoot(memory.projectId ?? project().id);
   const readyTargets = worktreeIds.map((worktreeId, index) => ({
     worktreeId,
+    node: graph.nodes[index],
+    reservationIntentId: `reservation-intent-${index + 1}`,
     worktreeDiffHash: `seed-diff-hash-${index + 1}`,
     diffStat: `src/module-${index === 0 ? "a" : "b"}.ts | 1 +`,
     sourceHead,
@@ -1137,20 +1010,20 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
   }
   await writeWorktreeIndex(memory);
 
-  const claimIntents = worktreeIds.map((_worktreeId, index) => ({
-    claimIntentId: `claim-intent-${index + 1}`,
-    plannedWorkerKey: `worker-${index + 1}`,
-    nodeId: `node-${index + 1}`,
-    unitId: `unit-${index + 1}`,
-    waveIndex: 0,
+  const claimIntents = readyTargets.map((target) => ({
+    claimIntentId: target.node.claimIntentId,
+    plannedWorkerKey: target.node.plannedWorkerKey,
+    nodeId: target.node.id,
+    unitId: target.node.unitId,
+    waveIndex: target.node.waveIndex,
     status: "pending" as const,
     plannedSlotDemand: 1,
-    sourceScopes: [`src/module-${index === 0 ? "a" : "b"}.ts`],
+    sourceScopes: target.node.sourceScopes,
     blockedReasons: [],
   }));
   const waves = [{
     waveIndex: 0,
-    claimIntentIds: ["claim-intent-1", "claim-intent-2"],
+    claimIntentIds: claimIntents.map((intent) => intent.claimIntentId),
     candidateCount: 2,
     blockedCount: 0,
     plannedSlotDemand: 2,
@@ -1198,8 +1071,7 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
     schedulerWorkerPlanId,
     schedulerClaimReconcilePlanId,
     schedulerLaunchPreflightId,
-    decompositionPlanId,
-    readinessManifestId,
+    workflowGraphPlanId,
     claimIntents,
     waves,
     plannedSlotDemand: 2,
@@ -1231,26 +1103,26 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
     schedulerWorkerPlanId,
     schedulerClaimReconcilePlanId,
     schedulerLaunchPreflightId,
-    reservationIntents: worktreeIds.map((_worktreeId, index) => ({
-      reservationIntentId: `reservation-intent-${index + 1}`,
-      claimIntentId: `claim-intent-${index + 1}`,
-      plannedWorkerKey: `worker-${index + 1}`,
-      nodeId: `node-${index + 1}`,
-      unitId: `unit-${index + 1}`,
-      waveIndex: 0,
+    reservationIntents: readyTargets.map((target) => ({
+      reservationIntentId: target.reservationIntentId,
+      claimIntentId: target.node.claimIntentId,
+      plannedWorkerKey: target.node.plannedWorkerKey,
+      nodeId: target.node.id,
+      unitId: target.node.unitId,
+      waveIndex: target.node.waveIndex,
       status: "reserved",
       plannedSlotDemand: 1,
-      sourceScopes: [`src/module-${index === 0 ? "a" : "b"}.ts`],
+      sourceScopes: target.node.sourceScopes,
       blockedReasons: [],
     })),
-    waves: [{ waveIndex: 0, reservationIntentIds: ["reservation-intent-1", "reservation-intent-2"], reservedCount: 2, blockedCount: 0, plannedSlotDemand: 2, status: "reserved", blockedReasons: [] }],
-    sourceLocks: readyTargets.map((target, index) => ({
-      scope: `src/module-${index === 0 ? "a" : "b"}.ts`,
-      waveIndex: 0,
-      reservationIntentIds: [`reservation-intent-${index + 1}`],
+    waves: [{ waveIndex: 0, reservationIntentIds: readyTargets.map((target) => target.reservationIntentId), reservedCount: 2, blockedCount: 0, plannedSlotDemand: 2, status: "reserved", blockedReasons: [] }],
+    sourceLocks: readyTargets.flatMap((target) => target.node.sourceScopes.map((scope) => ({
+      scope,
+      waveIndex: target.node.waveIndex,
+      reservationIntentIds: [target.reservationIntentId],
       status: "reserved",
       blockedReasons: [],
-    })),
+    }))),
     reservedCount: 2,
     blockedCount: 0,
     sourceLockCount: 2,
@@ -1299,13 +1171,13 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
       kind: "worker",
       status: "ready",
       blockingReasons: [],
-      reservationIntentId: `reservation-intent-${index + 1}`,
-      claimIntentId: `claim-intent-${index + 1}`,
-      plannedWorkerKey: `worker-${index + 1}`,
-      nodeId: `node-${index + 1}`,
-      unitId: `unit-${index + 1}`,
-      waveIndex: 0,
-      taskId: `T-00${index + 1}`,
+      reservationIntentId: target.reservationIntentId,
+      claimIntentId: target.node.claimIntentId,
+      plannedWorkerKey: target.node.plannedWorkerKey,
+      nodeId: target.node.id,
+      unitId: target.node.unitId,
+      waveIndex: target.node.waveIndex,
+      taskId: target.node.taskIds[0],
       taskRunId: `task-run-${target.worktreeId}`,
       workerLeaseId: `worker-lease-${target.worktreeId}`,
       worktreeId: target.worktreeId,
@@ -1482,7 +1354,7 @@ export async function prepareSchedulerFirstWorkerThroughResult(options: {
   workerResult: { id?: string; status?: string };
 }> {
   await initHarness(project());
-  const topic = await createWorkbenchTopic(project(), {
+  const topic = await createConversationChangeFixture(project(), {
     title: options.title ?? "Parallel Scheduler Worker",
     body: "Split this into independent parallel work across multiple modules.",
   });
@@ -1497,36 +1369,40 @@ export async function prepareSchedulerFirstWorkerThroughResult(options: {
     "  - Covers: AC-001",
     "",
   ].join("\n"), "utf8");
-  const draft = await executeWorkbenchAction({ project: project(), path: tempDir }, {
-    actionType: "planning.decompose",
-    changeId: topic.changeId,
-    prompt: "并行 独立 src/module-a.ts src/module-b.ts",
-    confirm: true,
-  });
-  const planId = (draft.result as { result?: { plan?: { id?: string } } }).result?.plan?.id;
-  const planPath = join(changeDir, "planning", "decomposition-plan.json");
-  const plan = JSON.parse(await readFile(planPath, "utf8"));
-  plan.units[0].scopeHints = ["src/module-a.ts"];
-  plan.units[1].scopeHints = ["src/module-b.ts"];
-  plan.units[0].dependsOn = [];
-  plan.units[1].dependsOn = [];
-  plan.dependencies = [];
-  plan.conflictScopes = ["src/module-a.ts", "src/module-b.ts"];
-  await writeFile(planPath, JSON.stringify(plan, null, 2), "utf8");
+  const workflowPlan: WorkflowAuthoringPlan = {
+    version: "1.0",
+    mode: "ready-set-v1",
+    nodes: [{
+      id: "module-a",
+      title: "Update module A",
+      taskIds: ["T-001"],
+      acIds: ["AC-001"],
+      prompt: "Update src/module-a.ts and return implementation evidence.",
+      dependsOn: [],
+      sourceScopes: ["src/module-a.ts"],
+    }, {
+      id: "module-b",
+      title: "Update module B",
+      taskIds: ["T-002"],
+      acIds: ["AC-001"],
+      prompt: "Update src/module-b.ts and return implementation evidence.",
+      dependsOn: [],
+      sourceScopes: ["src/module-b.ts"],
+    }],
+  };
+  await writeFile(join(changeDir, "plan.md"), [
+    "# Plan",
+    "",
+    "Run two independent same-wave worker leaves, then integrate after both are terminal.",
+    "",
+    "## Workflow",
+    "",
+    "```json",
+    JSON.stringify(workflowPlan, null, 2),
+    "```",
+    "",
+  ].join("\n"), "utf8");
 
-  await executeWorkbenchAction({ project: project(), path: tempDir }, {
-    actionType: "planning.decomposition.confirm",
-    changeId: topic.changeId,
-    decompositionPlanId: planId,
-    confirm: true,
-  });
-  const readiness = await executeWorkbenchAction({ project: project(), path: tempDir }, {
-    actionType: "planning.decomposition.assess-readiness",
-    changeId: topic.changeId,
-    decompositionPlanId: planId,
-    confirm: true,
-  });
-  const manifest = (readiness.result as { result?: { manifest?: { id?: string } } }).result?.manifest;
   await initGitRepository(tempDir);
   await mkdir(join(tempDir, "src"), { recursive: true });
   await writeFile(join(tempDir, ".gitignore"), "harness/\n.agent-harness/\nfake-codex-bin/\n", "utf8");
@@ -1547,49 +1423,37 @@ export async function prepareSchedulerFirstWorkerThroughResult(options: {
   await writeFile(join(tempDir, "src", "module-b.ts"), "export const moduleB = 1;\n", "utf8");
   await git(tempDir, ["add", "."]);
   await git(tempDir, ["commit", "-m", "initial"]);
-  const prepared = await executeWorkbenchAction({ project: project(), path: tempDir }, {
-    actionType: "planning.scheduler.plan.prepare",
-    changeId: topic.changeId,
-    decompositionPlanId: planId,
-    readinessManifestId: manifest?.id,
-    confirm: true,
-  });
-  const preparedResult = (prepared.result as {
-    result?: {
-      schedulerRun?: { id?: string };
-      claimReservation?: { id?: string };
-      reconcileSnapshot?: { id?: string };
-    };
-  }).result;
-  if (!preparedResult?.schedulerRun?.id || !preparedResult.claimReservation?.id || !preparedResult.reconcileSnapshot?.id) {
-    throw new Error(`Scheduler plan prepare did not return scoped run/reservation ids: ${JSON.stringify(prepared.result)}`);
-  }
-  const schedulerRun = preparedResult?.schedulerRun ?? {};
-  const claimReservation = preparedResult?.claimReservation ?? {};
-  const runtimeEventsPath = join(changeDir, "planning", "scheduler-runs", `${schedulerRun.id}`, "scheduler-runtime-events.jsonl");
 
-  const reservedSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
-  const launchAction = reservedSnapshot.right.confirmationQueue.current
-    .flatMap((item) => item.actions)
-    .find((action) => findSchedulerGateAction([action], "planning.scheduler.plan.prepare", (candidate) => candidate.schedulerClaimReservationId === claimReservation.id));
-  if (!launchAction) throw new Error("Missing scheduler launch confirmation action.");
-  if (!launchAction.schedulerRunId || !launchAction.schedulerReconcileSnapshotId || !launchAction.schedulerClaimReservationId) {
-    throw new Error(`Scheduler launch confirmation action is missing scoped ids: ${JSON.stringify(launchAction)}`);
-  }
-  const launchResult = await executeWorkbenchAction({ project: project(), path: tempDir }, { ...launchAction, confirm: true });
-  if ((launchResult.result as { status?: string; error?: string }).status === "failed") {
-    throw new Error((launchResult.result as { error?: string }).error ?? "scheduler launch confirmation action failed");
-  }
-  const launchPayload = ((launchResult.result as { result?: unknown }).result ?? launchResult.result) as {
-    status?: string;
-    blockedSummary?: string;
-    claimReservation?: { launchConfirmed?: boolean };
-  };
-  if (launchPayload.status !== "prepared" || launchPayload.claimReservation?.launchConfirmed !== true) {
-    throw new Error(`Scheduler launch confirmation did not mark reservation launch-confirmed: ${JSON.stringify(launchPayload)}`);
-  }
+  const memory = await resolveProjectMemory(project());
+  const changePath = join("harness", "changes", "active", topic.changeId);
+  const planRef = `${changePath.replaceAll("\\", "/")}/plan.md`;
+  const acceptedRefs = ["spec.md", "plan.md", "tasks.md", "ac-map.json"].map((name) => `${changePath.replaceAll("\\", "/")}/${name}`);
+  const graphId = `authored-ready-set-${topic.changeId}`;
+  const graphBase = `${changePath.replaceAll("\\", "/")}/planning/workflow-graphs/${graphId}`;
+  const graph = compileWorkflowGraphPlan(workflowPlan, {
+    id: graphId,
+    changeId: topic.changeId,
+    planArtifactRef: planRef,
+    taskIds: ["T-001", "T-002"],
+    acIds: ["AC-001"],
+    sourceArtifactHashes: await hashArtifactRefs(memory, acceptedRefs),
+    artifactRefs: acceptedRefs,
+    artifact: `${graphBase}.json`,
+    markdownArtifact: `${graphBase}.md`,
+    createdAt: new Date().toISOString(),
+  });
+  if (graph.graphMode !== "ready-set-v1") throw new Error("Expected ready-set graph fixture.");
+  await writeWorkflowGraphPlan(memory, changePath, graph);
+  const initialized = await runSchedulerReadySetInitialization(memory, changePath, graph);
+  const schedulerRun = initialized.schedulerRun;
+  const claimReservation = initialized.claimReservation;
+  const runtimeEventsPath = join(changeDir, "planning", "scheduler-runs", schedulerRun.id, "scheduler-runtime-events.jsonl");
 
   const startSnapshot = await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: topic.changeId });
+  const projectedTransition = await readLatestSchedulerCurrentTransitionView(memory, startSnapshot.center.selectedTopic.path, schedulerRun.id, "slow fixture projection path");
+  if (projectedTransition.transition.kind !== "start-first-worker") {
+    throw new Error(`Scheduler fixture projection path did not produce start-first: ${JSON.stringify(projectedTransition.transition)}`);
+  }
   const startAction = startSnapshot.right.confirmationQueue.current
     .flatMap((item) => item.actions)
     .find((action) => findSchedulerGateAction([action], "planning.scheduler.worker.start-first", (candidate) => candidate.schedulerClaimReservationId === claimReservation.id));
@@ -1766,239 +1630,39 @@ export async function writeAuditResultWithHash(changeId: string, runId: string, 
   await writeFile(join(dir, "diff-stat.txt"), " package.json | 2 +-\n", "utf8");
 }
 
-export async function prepareConfirmedTaskQueueProposalWithWorkflow(changeId: string, taskIds: string[]): Promise<{ proposalId: string; workflowGraphPlanId: string; workflowRunId: string; readinessManifestId: string; decompositionPlanId: string }> {
+export async function prepareAcceptedSequentialWorkflowGraph(changeId: string, taskIds: string[]): Promise<{ workflowGraphPlanId: string }> {
   const memory = await resolveProjectMemory(project());
-  const planningDir = join(tempDir, "harness", "changes", "active", changeId, "planning");
-  await mkdir(planningDir, { recursive: true });
+  const changePath = join("harness", "changes", "active", changeId);
   const now = new Date().toISOString();
-  const readinessArtifact = `harness/changes/active/${changeId}/planning/decomposition-readiness.json`;
-  const readinessMarkdown = `harness/changes/active/${changeId}/planning/decomposition-readiness.md`;
-  const readiness = {
-    id: `readiness-${changeId}`,
-    changeId,
-    decompositionPlanId: `decomposition-${changeId}`,
-    status: "ready-for-sequential-taskqueue-proposal",
-    recommendation: "taskgraph-sequential",
-    executable: false,
-    schedulerEligible: true,
-    nextAllowedAction: "taskqueue.proposal",
-    units: taskIds.map((taskId, index) => ({
-      id: `DU-${String(index + 1).padStart(3, "0")}`,
-      title: `Task ${taskId}`,
-      taskIds: [taskId],
-      acIds: ["AC-001"],
-      dependsOn: index === 0 ? [] : [`DU-${String(index).padStart(3, "0")}`],
-      guardrailStatus: "passed",
-      sourceScopes: ["src"],
-    })),
-    dependencies: taskIds.slice(1).map((_, index) => ({ from: `DU-${String(index + 1).padStart(3, "0")}`, to: `DU-${String(index + 2).padStart(3, "0")}`, kind: "blocks" })),
-    conflictScopes: [],
-    guardrails: [{ id: "tasks", status: "passed", summary: "Tasks are scoped.", refs: [] }],
-    recoveryKeyMaterial: {
-      changeId,
-      decompositionPlanId: `decomposition-${changeId}`,
-      taskIds,
-      acIds: ["AC-001"],
-      acceptedArtifactRefs: [`harness/changes/active/${changeId}/spec.md`, `harness/changes/active/${changeId}/plan.md`, `harness/changes/active/${changeId}/tasks.md`, `harness/changes/active/${changeId}/ac-map.json`],
-      contextScope: "selected-demand",
-      rolePolicyProfile: "test",
-      notes: [],
-    },
-    artifactRefs: [`harness/changes/active/${changeId}/spec.md`, `harness/changes/active/${changeId}/plan.md`, `harness/changes/active/${changeId}/tasks.md`, `harness/changes/active/${changeId}/ac-map.json`],
-    artifact: readinessArtifact,
-    markdownArtifact: readinessMarkdown,
-    createdAt: now,
-    updatedAt: now,
-  };
-  await writeFile(join(planningDir, "decomposition-readiness.json"), JSON.stringify(readiness, null, 2), "utf8");
-  await writeFile(join(planningDir, "decomposition-readiness.md"), `# ${readiness.id}\n`, "utf8");
-  await getWorkbenchSnapshot({ project: project(), path: tempDir }, { topicId: changeId });
-  const artifactRefs = [...readiness.artifactRefs, readiness.artifact, readiness.markdownArtifact];
-  const proposalId = `taskqueue-proposal-${changeId}`;
-  const proposal = {
-    id: proposalId,
-    changeId,
-    decompositionPlanId: readiness.decompositionPlanId,
-    readinessManifestId: readiness.id,
-    status: "confirmed",
-    recommendation: "taskgraph-sequential",
-    queueMode: "sequential",
-    items: taskIds.map((taskId, index) => ({
-      id: `${proposalId}-item-${String(index + 1).padStart(3, "0")}`,
-      taskId,
-      unitId: readiness.units[index]?.id,
-      title: `Task ${taskId}`,
-      order: index + 1,
-      dependsOn: index === 0 ? [] : [taskIds[index - 1]],
-      sourceScopes: ["src"],
-      acIds: ["AC-001"],
-    })),
-    dependencies: readiness.dependencies,
-    conflictScopes: [],
-    sourceArtifactHashes: await hashArtifactRefs(memory, artifactRefs),
-    recoveryKeyMaterial: readiness.recoveryKeyMaterial,
-    artifactRefs,
-    artifact: `harness/changes/active/${changeId}/planning/taskqueue-proposal.json`,
-    markdownArtifact: `harness/changes/active/${changeId}/planning/taskqueue-proposal.md`,
-    createdAt: now,
-    updatedAt: now,
-  };
-  await writeFile(join(planningDir, "taskqueue-proposal.json"), JSON.stringify(proposal, null, 2), "utf8");
-  await writeFile(join(planningDir, "taskqueue-proposal.md"), `# ${proposal.id}\n`, "utf8");
-  const graph = await compileWorkflowGraphPlan(memory, join("harness", "changes", "active", changeId), proposal, readiness);
-  const validated = await validateTaskQueueProposalStart(memory, project(), changeId, proposalId, graph.id);
-  const workflow = await createWorkflowRunForTaskQueue(memory, project(), validated);
-  return { proposalId, workflowGraphPlanId: graph.id, workflowRunId: workflow.id, readinessManifestId: readiness.id, decompositionPlanId: readiness.decompositionPlanId };
-}
-
-export function minimalDecompositionPlan(changeId: string): DecompositionPlan {
-  const now = new Date().toISOString();
-  return {
-    id: `decomposition-${changeId}`,
-    changeId,
-    status: "confirmed",
-    recommendation: "taskgraph-sequential",
-    rationale: "Test decomposition.",
-    units: [{
-      id: "DU-001",
-      title: "Task T-001",
-      summary: "Test unit.",
-      taskIds: ["T-001"],
-      acIds: ["AC-001"],
-      scopeHints: ["src"],
-      dependsOn: [],
-      recommendedRoleId: "coder-agent",
-    }],
-    dependencies: [],
-    conflictScopes: [],
-    riskSummary: "",
-    openQuestions: [],
-    artifactRefs: [`harness/changes/active/${changeId}/spec.md`],
-    recoveryKeyInputs: {
-      changeId,
-      acceptedArtifactRefs: [`harness/changes/active/${changeId}/spec.md`],
-      contextScope: "selected-demand",
-      rolePolicyProfile: "test",
-      notes: [],
-    },
-    artifact: `harness/changes/active/${changeId}/planning/decomposition-plan.json`,
-    markdownArtifact: `harness/changes/active/${changeId}/planning/decomposition-plan.md`,
-    createdAt: now,
-    updatedAt: now,
-  };
-}
-
-export function minimalReadiness(changeId: string, taskIds: string[]): DecompositionReadinessManifest {
-  const now = new Date().toISOString();
-  const artifactRefs = [
-    `harness/changes/active/${changeId}/spec.md`,
-    `harness/changes/active/${changeId}/plan.md`,
-    `harness/changes/active/${changeId}/tasks.md`,
-    `harness/changes/active/${changeId}/ac-map.json`,
-  ];
-  return {
-    id: `readiness-${changeId}`,
-    changeId,
-    decompositionPlanId: `decomposition-${changeId}`,
-    status: "ready-for-sequential-taskqueue-proposal",
-    recommendation: "taskgraph-sequential",
-    executable: false,
-    schedulerEligible: true,
-    nextAllowedAction: "taskqueue.proposal",
-    units: taskIds.map((taskId, index) => ({
-      id: `DU-${String(index + 1).padStart(3, "0")}`,
-      title: `Task ${taskId}`,
-      taskIds: [taskId],
-      acIds: ["AC-001"],
-      dependsOn: index === 0 ? [] : [`DU-${String(index).padStart(3, "0")}`],
-      guardrailStatus: "passed",
-      sourceScopes: ["src"],
-    })),
-    dependencies: taskIds.slice(1).map((_, index) => ({ from: `DU-${String(index + 1).padStart(3, "0")}`, to: `DU-${String(index + 2).padStart(3, "0")}`, kind: "blocks" })),
-    conflictScopes: [],
-    guardrails: [{ id: "tasks", status: "passed", summary: "Tasks are scoped.", refs: [] }],
-    recoveryKeyMaterial: {
-      changeId,
-      decompositionPlanId: `decomposition-${changeId}`,
-      taskIds,
-      acIds: ["AC-001"],
-      acceptedArtifactRefs: artifactRefs,
-      contextScope: "selected-demand",
-      rolePolicyProfile: "test",
-      notes: [],
-    },
-    artifactRefs,
-    artifact: `harness/changes/active/${changeId}/planning/decomposition-readiness.json`,
-    markdownArtifact: `harness/changes/active/${changeId}/planning/decomposition-readiness.md`,
-    createdAt: now,
-    updatedAt: now,
-  };
-}
-
-export function minimalTaskQueueProposal(changeId: string, readiness: DecompositionReadinessManifest, status: TaskQueueProposal["status"] = "draft"): TaskQueueProposal {
-  const now = new Date().toISOString();
-  const id = `taskqueue-proposal-${changeId}`;
-  return {
-    id,
-    changeId,
-    decompositionPlanId: readiness.decompositionPlanId,
-    readinessManifestId: readiness.id,
-    status,
-    recommendation: "taskgraph-sequential",
-    queueMode: "sequential",
-    items: readiness.units.map((unit, index) => ({
-      id: `${id}-item-${String(index + 1).padStart(3, "0")}`,
-      taskId: unit.taskIds[0] ?? `T-${String(index + 1).padStart(3, "0")}`,
-      unitId: unit.id,
-      title: unit.title,
-      order: index + 1,
-      dependsOn: unit.dependsOn,
-      sourceScopes: unit.sourceScopes,
-      acIds: unit.acIds,
-    })),
-    dependencies: readiness.dependencies,
-    conflictScopes: readiness.conflictScopes,
-    sourceArtifactHashes: {},
-    recoveryKeyMaterial: readiness.recoveryKeyMaterial,
-    artifactRefs: readiness.artifactRefs,
-    artifact: `harness/changes/active/${changeId}/planning/taskqueue-proposal.json`,
-    markdownArtifact: `harness/changes/active/${changeId}/planning/taskqueue-proposal.md`,
-    createdAt: now,
-    updatedAt: now,
-  };
-}
-
-export function minimalWorkflowGraphPlan(changeId: string, proposal: TaskQueueProposal, readiness: DecompositionReadinessManifest): WorkflowGraphPlan {
-  const now = new Date().toISOString();
+  const artifactRefs = ["spec.md", "plan.md", "tasks.md", "ac-map.json"].map((name) => `${changePath.replaceAll("\\", "/")}/${name}`);
   const id = `workflow-graph-${changeId}`;
-  return {
+  const graph = compileWorkflowGraphPlan({
     version: "1.0",
+    mode: "sequential-v1",
+    nodes: taskIds.map((taskId, index) => ({
+      id: `task-${String(index + 1).padStart(3, "0")}`,
+      title: `Task ${taskId}`,
+      taskIds: [taskId],
+      acIds: ["AC-001"],
+      prompt: `Implement accepted task ${taskId}.`,
+      dependsOn: index === 0 ? [] : [`task-${String(index).padStart(3, "0")}`],
+      sourceScopes: ["src/**"],
+    })),
+  }, {
     id,
     changeId,
-    status: "compiled",
-    graphMode: "sequential-v1",
-    decompositionPlanId: proposal.decompositionPlanId,
-    readinessManifestId: readiness.id,
-    taskQueueProposalId: proposal.id,
-    nodes: proposal.items.map((item) => ({
-      id: `${id}-node-${String(item.order).padStart(3, "0")}`,
-      taskId: item.taskId,
-      taskQueueProposalItemId: item.id,
-      unitId: item.unitId,
-      title: item.title,
-      order: item.order,
-      stages: ["coder", "validation", "audit", "bounded-rework"],
-      acIds: item.acIds,
-      sourceScopes: item.sourceScopes,
-    })),
-    edges: [],
-    sourceArtifactHashes: {},
-    artifactRefs: proposal.artifactRefs,
+    planArtifactRef: `${changePath.replaceAll("\\", "/")}/plan.md`,
+    taskIds,
+    acIds: ["AC-001"],
+    sourceArtifactHashes: await hashArtifactRefs(memory, artifactRefs),
+    artifactRefs,
     artifact: `harness/changes/active/${changeId}/planning/workflow-graphs/${id}.json`,
     markdownArtifact: `harness/changes/active/${changeId}/planning/workflow-graphs/${id}.md`,
     createdAt: now,
     updatedAt: now,
-  };
+  });
+  await writeWorkflowGraphPlan(memory, changePath, graph);
+  return { workflowGraphPlanId: graph.id };
 }
 
 export async function writeCoderRun(changeId: string, runId: string, taskIds: string[], worktreeId: string, status: RunMetadata["status"], taskRunId?: string): Promise<RunMetadata> {

@@ -1,20 +1,16 @@
-import { useState, type ReactElement } from "react";
+import type { ReactElement } from "react";
 import { Clock3, Code2 } from "lucide-react";
-import { workflowActionPayloadFromScope } from "../workflow-actions.js";
 import {
   formatTime,
   formatUsage,
   humanStatus,
   runtimeLabel,
-  userFacingText,
 } from "../formatters.js";
 import type {
   AssistantReadableEvent,
   AssistantTurnBlock,
   LiveAssistantTurn,
   LiveTurnEvent,
-  PlanCard,
-  ThreadStreamAction,
   ThreadStreamEvidence,
   WorkbenchLiveToolEvent,
 } from "../types.js";
@@ -97,16 +93,10 @@ export function LiveAssistantTurnView({ turn }: { turn: LiveAssistantTurn }): Re
 
 export function AssistantTurnBlocks({
   blocks,
-  actions = [],
-  busy = false,
-  onAction = async () => undefined,
   defaultOpenProcess = false,
   completed = true,
 }: {
   blocks: AssistantTurnBlock[];
-  actions?: ThreadStreamAction[];
-  busy?: boolean;
-  onAction?: (actionType: string, options?: Record<string, unknown>) => Promise<void>;
   defaultOpenProcess?: boolean;
   completed?: boolean;
 }): ReactElement {
@@ -126,9 +116,6 @@ export function AssistantTurnBlocks({
               </div>
             </details>
           );
-        }
-        if (block.kind === "plan-card" && block.planCard) {
-          return <div data-testid="assistant-block-plan-card" key={block.id}><PlanCardView planCard={block.planCard} actions={actions} busy={busy} onAction={onAction} /></div>;
         }
         return <AssistantBlockView block={block} key={block.id} />;
       })}
@@ -171,43 +158,6 @@ export function AssistantEvidenceBlocks({ evidence }: { evidence: ThreadStreamEv
           {item.artifact ? <small className="artifact-link">查看证据：{artifactName(item.artifact)}</small> : null}
         </div>
       ))}
-    </div>
-  );
-}
-
-export function PlanCardView({ planCard, actions, busy, onAction }: { planCard: PlanCard; actions: ThreadStreamAction[]; busy: boolean; onAction: (actionType: string, options?: Record<string, unknown>) => Promise<void> }): ReactElement {
-  const [confirmingAction, setConfirmingAction] = useState<ThreadStreamAction | null>(null);
-  const visibleActions = actions.filter((action) => action.actionType !== "code.run");
-  return (
-    <div className="plan-card">
-      <h3>{planCard.title}</h3>
-      <p>{userFacingText(planCard.summary)}</p>
-      <ol>
-        {planCard.steps.map((step, index) => <li key={`${step.label}-${index}`}><strong>{userFacingText(step.label)}</strong><span>{userFacingText(step.description)}</span></li>)}
-      </ol>
-      {planCard.warnings.length > 0 ? <div className="plan-warnings">{planCard.warnings.map(userFacingText).join(" · ")}</div> : null}
-      {visibleActions.length > 0 ? (
-        <div className="plan-actions">
-          {confirmingAction ? (
-            <div className="inline-confirm">
-              <span>确认执行 {userFacingText(confirmingAction.label)}</span>
-              <button className="primary-button" disabled={busy} onClick={() => { setConfirmingAction(null); void onAction(confirmingAction.actionType, workflowActionPayloadFromScope(confirmingAction)); }}>确认执行</button>
-              <button className="outline-button" disabled={busy} onClick={() => setConfirmingAction(null)}>取消</button>
-            </div>
-          ) : null}
-          {visibleActions.map((action) => (
-            <button
-              className={action.enabled ? "outline-button" : "outline-button disabled"}
-              disabled={busy || !action.enabled}
-              key={`${action.actionType}-${action.label}`}
-              title={action.disabledReason}
-              onClick={() => action.requiresConfirmation ? setConfirmingAction(action) : void onAction(action.actionType, workflowActionPayloadFromScope(action))}
-            >
-              {userFacingText(action.label)}
-            </button>
-          ))}
-        </div>
-      ) : null}
     </div>
   );
 }

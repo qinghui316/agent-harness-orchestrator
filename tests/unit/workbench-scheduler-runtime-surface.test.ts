@@ -14,8 +14,7 @@ describe("workbench scheduler runtime surface", () => {
     const action = buildTypedWorkflowNextAction({
       topic: workflowFixture<"topic">({ id: "change-1", name: "change-1", title: "Change 1", state: "active", path: "harness/changes/active/change-1", runs: [] }),
       readiness: { specReady: true, planReady: true, tasksReady: true },
-      decompositionPlan: workflowFixture<"decompositionPlan">({ id: "decomposition-1", status: "confirmed" }),
-      decompositionReadiness: workflowFixture<"decompositionReadiness">({ id: "readiness-1", decompositionPlanId: "decomposition-1", status: "ready-for-scheduler-contract", nextAllowedAction: "scheduler.contract" }),
+      workflowGraphPlan: workflowFixture<"workflowGraphPlan">({ id: "graph-1", changeId: "change-1", status: "compiled", graphMode: "ready-set-v1", authoringContractVersion: "1.0", nodeCount: 2, edgeCount: 0, waveCount: 1, updatedAt: "2026-07-10T00:00:00.000Z" }),
       schedulerRun: workflowFixture<"schedulerRun">({
         id: "scheduler-run-1",
         status: "prepared",
@@ -61,8 +60,7 @@ describe("workbench scheduler runtime surface", () => {
     const action = buildTypedWorkflowNextAction({
       topic: workflowFixture<"topic">({ id: "change-1", name: "change-1", title: "Change 1", state: "active", path: "harness/changes/active/change-1", runs: [] }),
       readiness: { specReady: true, planReady: true, tasksReady: true },
-      decompositionPlan: workflowFixture<"decompositionPlan">({ id: "decomposition-1", status: "confirmed" }),
-      decompositionReadiness: workflowFixture<"decompositionReadiness">({ id: "readiness-1", decompositionPlanId: "decomposition-1", status: "ready-for-scheduler-contract", nextAllowedAction: "scheduler.contract" }),
+      workflowGraphPlan: workflowFixture<"workflowGraphPlan">({ id: "graph-1", changeId: "change-1", status: "compiled", graphMode: "ready-set-v1", authoringContractVersion: "1.0", nodeCount: 1, edgeCount: 0, waveCount: 1, updatedAt: "2026-07-10T00:00:00.000Z" }),
       schedulerRun: workflowFixture<"schedulerRun">({
         id: "scheduler-run-1",
         status: "prepared",
@@ -179,8 +177,7 @@ describe("workbench scheduler runtime surface", () => {
     const base = {
       topic: workflowFixture<"topic">({ id: "change-1", name: "change-1", title: "Change 1", state: "active", path: "harness/changes/active/change-1", runs: [] }),
       readiness: { specReady: true, planReady: true, tasksReady: true },
-      decompositionPlan: workflowFixture<"decompositionPlan">({ id: "decomposition-1", status: "confirmed" }),
-      decompositionReadiness: workflowFixture<"decompositionReadiness">({ id: "readiness-1", decompositionPlanId: "decomposition-1", status: "ready-for-scheduler-contract", nextAllowedAction: "scheduler.contract" }),
+      workflowGraphPlan: workflowFixture<"workflowGraphPlan">({ id: "graph-1", changeId: "change-1", status: "compiled", graphMode: "ready-set-v1", authoringContractVersion: "1.0", nodeCount: 2, edgeCount: 0, waveCount: 1, updatedAt: "2026-07-10T00:00:00.000Z" }),
       schedulerRun: workflowFixture<"schedulerRun">({
         id: "scheduler-run-1",
         status: "prepared",

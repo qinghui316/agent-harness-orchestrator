@@ -1,4 +1,4 @@
-import { normalizeMainAgentExecutionAction } from "../../workflow-actions/main-agent-execution.js";
+﻿import { normalizeMainAgentExecutionAction } from "../../workflow-actions/main-agent-execution.js";
 import { schedulerUserFacingActionLabel } from "./scheduler-action-labels.js";
 
 export function workflowActionLabel(actionType: string | undefined): string {
@@ -8,29 +8,11 @@ export function workflowActionLabel(actionType: string | undefined): string {
   if (mainAgentExecutionAction === "main-agent.execution.continue") return "继续执行";
   if (mainAgentExecutionAction === "main-agent.execution.reconcile") return "恢复执行状态";
 
-  if (actionType === "change.spec.propose") return "Spec proposal";
-  if (actionType === "change.plan.propose") return "Plan/Tasks proposal";
-  if (actionType === "planning.decompose") return "拆分评估";
-  if (actionType === "planning.decomposition.confirm") return "确认拆分方向";
-  if (actionType === "planning.decomposition.assess-readiness") return "检查执行边界";
-  if (actionType === "taskqueue.proposal") return "TaskQueue proposal";
-  if (actionType === "scheduler.contract") return "Scheduler Contract";
-  if (actionType === "planning.taskqueue.propose") return "生成 TaskQueue 提案";
   if (actionType === "maintenance.canonical-update.decision.record") return "记录维护决策";
   if (actionType === "maintenance.canonical-patch.application-gate.record") return "记录 patch 应用 gate";
   if (actionType === "maintenance.canonical-patch.apply") return "应用 canonical patch";
   const schedulerLabel = schedulerUserFacingActionLabel(actionType);
   if (schedulerLabel) return schedulerLabel;
-  if (actionType === "planning.scheduler.plan.prepare") return "准备低冲突任务执行路径";
-  if (actionType === "planning.scheduler.contract.compile") return "编译 Scheduler Contract";
-  if (actionType === "planning.scheduler.dispatch.dry-run") return "生成调度预演";
-  if (actionType === "planning.scheduler.worker-plan.compile") return "编译 Worker Session Plan";
-  if (actionType === "planning.scheduler.claim-reconcile.compile") return "编译 Claim / Reconcile Plan";
-  if (actionType === "planning.scheduler.launch-preflight.check") return "检查 Launch Preflight";
-  if (actionType === "planning.scheduler.run.prepare") return "准备调度运行记录";
-  if (actionType === "planning.scheduler.runtime.initialize") return "初始化 Scheduler Runtime 壳";
-  if (actionType === "planning.scheduler.runtime.reconcile") return "生成 Reconcile Snapshot";
-  if (actionType === "planning.scheduler.runtime.reserve-claims") return "预占 Runtime Claims";
   if (actionType === "planning.scheduler.worker.start-first") return "开始第一个任务";
   if (actionType === "planning.scheduler.worker.start-next") return "开始下一个任务";
   if (actionType === "planning.scheduler.worker.reconcile-result") return "检查第一个 worker 结果";
@@ -46,8 +28,7 @@ export function workflowActionLabel(actionType: string | undefined): string {
   if (actionType === "planning.scheduler.integration-outcome.reconcile") return "记录 scheduler integration 结果";
   if (actionType === "planning.scheduler.run.complete") return "记录 SchedulerRun 完成状态";
   if (actionType === "planning.scheduler.run.close-blocked") return "结束本次 scheduler run";
-  if (actionType === "planning.workflowgraph.compile") return "编译执行图";
-  if (actionType === "planning.taskqueue.confirm-start") return "确认启动 TaskQueue";
+  if (actionType === "workflow.run.start") return "确认启动 TaskQueue";
   if (actionType === "none") return "无后续动作";
   if (actionType === "orchestrator.evaluate") return "检查处理状态";
   if (actionType === "orchestrator.pump") return "继续处理需求";

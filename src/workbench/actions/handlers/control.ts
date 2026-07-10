@@ -1,8 +1,8 @@
-import { getActiveCodexAppServerTurn } from "../../../codex/app-server.js";
+﻿import { getActiveCodexAppServerTurn } from "../../../codex/app-server.js";
 import { requestRunStop } from "../../../run/control.js";
 import type { ManagedProject, RunMetadata } from "../../../types/index.js";
 import { emitAssistantEvent } from "../../live-events.js";
-import { appendTopicThreadEntry } from "../../topic-thread.js";
+import { appendConversationThreadEntry } from "../../conversation-thread.js";
 import type { WorkbenchLiveSink } from "../../types.js";
 
 export interface ConversationControlDeps {
@@ -21,16 +21,16 @@ export async function stopRunningPipeline(
     const message = prompt?.trim()
       ? "当前执行已经结束，这条输入会作为完成后的修改反馈处理。"
       : "当前没有正在执行的本地 run。";
-    const assistant = await appendTopicThreadEntry(project, changeId, { type: "assistant.message", status: "stop-not-needed", text: message });
+    const assistant = await appendConversationThreadEntry(project, changeId, { type: "assistant.message", status: "stop-not-needed", text: message });
     live?.emit({ event: "assistant.message", data: assistant });
     return { status: "already-completed", message };
   }
   requestRunStop(runningRun.id, prompt?.trim() || "User requested stop from the main conversation.");
   const user = prompt?.trim()
-    ? await appendTopicThreadEntry(project, changeId, { type: "user.message", text: prompt.trim(), status: "stop-and-continue", runId: runningRun.id })
+    ? await appendConversationThreadEntry(project, changeId, { type: "user.message", text: prompt.trim(), status: "stop-and-continue", runId: runningRun.id })
     : null;
   if (user) live?.emit({ event: "topic.message", data: user });
-  const assistant = await appendTopicThreadEntry(project, changeId, {
+  const assistant = await appendConversationThreadEntry(project, changeId, {
     type: "assistant.message",
     status: "stop-requested",
     runId: runningRun.id,
@@ -59,9 +59,9 @@ export async function steerConversation(
   const activeTurn = getActiveCodexAppServerTurn(changeId);
   if (!activeTurn) {
     const runningRun = await deps.findRunningRunForChange(project, changeId);
-    const user = await appendTopicThreadEntry(project, changeId, { type: "user.message", text: message, status: "pending-feedback", runId: runningRun?.id });
+    const user = await appendConversationThreadEntry(project, changeId, { type: "user.message", text: message, status: "pending-feedback", runId: runningRun?.id });
     live?.emit({ event: "topic.message", data: user });
-    const assistant = await appendTopicThreadEntry(project, changeId, {
+    const assistant = await appendConversationThreadEntry(project, changeId, {
       type: "assistant.message",
       status: "pending-feedback",
       runId: runningRun?.id,
@@ -70,10 +70,10 @@ export async function steerConversation(
     live?.emit({ event: "assistant.message", data: assistant });
     return { status: "pending-feedback", realtime: false };
   }
-  const user = await appendTopicThreadEntry(project, changeId, { type: "user.message", text: message, status: "steering-sent", runId: activeTurn.runId });
+  const user = await appendConversationThreadEntry(project, changeId, { type: "user.message", text: message, status: "steering-sent", runId: activeTurn.runId });
   live?.emit({ event: "topic.message", data: user });
   await activeTurn.steer(message);
-  const assistant = await appendTopicThreadEntry(project, changeId, {
+  const assistant = await appendConversationThreadEntry(project, changeId, {
     type: "assistant.message",
     status: "steering-sent",
     runId: activeTurn.runId,
@@ -103,11 +103,11 @@ export async function interruptConversation(
   }
   const message = prompt?.trim();
   if (message) {
-    const user = await appendTopicThreadEntry(project, changeId, { type: "user.message", text: message, status: "interrupt-requested", runId: activeTurn.runId });
+    const user = await appendConversationThreadEntry(project, changeId, { type: "user.message", text: message, status: "interrupt-requested", runId: activeTurn.runId });
     live?.emit({ event: "topic.message", data: user });
   }
   await activeTurn.interrupt(message || "User requested interrupt from the main conversation.");
-  const assistant = await appendTopicThreadEntry(project, changeId, {
+  const assistant = await appendConversationThreadEntry(project, changeId, {
     type: "assistant.message",
     status: "interrupt-requested",
     runId: activeTurn.runId,

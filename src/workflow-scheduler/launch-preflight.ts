@@ -64,8 +64,7 @@ export async function compileSchedulerLaunchPreflight(
     schedulerDispatchDryRunId: dryRun.id,
     schedulerWorkerPlanId: workerPlan.id,
     schedulerClaimReconcilePlanId: claimPlan.id,
-    decompositionPlanId: claimPlan.decompositionPlanId,
-    readinessManifestId: claimPlan.readinessManifestId,
+    workflowGraphPlanId: claimPlan.workflowGraphPlanId,
     claimSummaries,
     sourceLockSummaries,
     plannedSlotDemand: claimPlan.plannedSlotDemand,
@@ -122,11 +121,8 @@ async function validateLaunchPreflightInput(
   if (claimPlan.schedulerContractId !== contract.id || workerPlan.schedulerContractId !== contract.id || dryRun.schedulerContractId !== contract.id) {
     throw new Error("SchedulerLaunchPreflight scheduler contract mismatch.");
   }
-  if (claimPlan.decompositionPlanId !== workerPlan.decompositionPlanId || claimPlan.decompositionPlanId !== dryRun.decompositionPlanId || claimPlan.decompositionPlanId !== contract.decompositionPlanId) {
-    throw new Error("SchedulerLaunchPreflight decompositionPlanId mismatch.");
-  }
-  if (claimPlan.readinessManifestId !== workerPlan.readinessManifestId || claimPlan.readinessManifestId !== dryRun.readinessManifestId || claimPlan.readinessManifestId !== contract.readinessManifestId) {
-    throw new Error("SchedulerLaunchPreflight readinessManifestId mismatch.");
+  if (claimPlan.workflowGraphPlanId !== workerPlan.workflowGraphPlanId || claimPlan.workflowGraphPlanId !== dryRun.workflowGraphPlanId || claimPlan.workflowGraphPlanId !== contract.workflowGraphPlanId) {
+    throw new Error("SchedulerLaunchPreflight WorkflowGraphPlan lineage mismatch.");
   }
 
   const latestClaimPlan = await readLatestSchedulerClaimReconcilePlan(memory, changePath);

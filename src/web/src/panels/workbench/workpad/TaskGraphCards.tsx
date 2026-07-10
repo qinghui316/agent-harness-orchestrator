@@ -1,7 +1,5 @@
 import { useState, type ReactElement } from "react";
 import {
-  codingPackageExecutionLabel,
-  codingPackageSplitLabel,
   codingPackageStatusLabel,
   humanStatus,
   taskStatusLabel,
@@ -29,8 +27,6 @@ export function CodingPackageCard({ item }: { item: WorkbenchCodingPackage }): R
       </div>
       <div className="coding-package-meta">
         <span>推荐角色：{item.recommendedRoleId}</span>
-        <span>执行粒度：{codingPackageExecutionLabel(item.executionUnit)}</span>
-        <span>分拆判断：{codingPackageSplitLabel(item.splitReadiness)}</span>
       </div>
       <div className="coding-package-grid">
         <div>
@@ -49,9 +45,6 @@ export function CodingPackageCard({ item }: { item: WorkbenchCodingPackage }): R
           </span>
         ))}
       </div>
-      <p className="panel-note">{item.splitRationale}</p>
-      <p className="panel-note">{item.mergeRisk}</p>
-      <p className="panel-note">5Y 只提供推荐执行单元；现有运行仍通过单任务或本地顺序执行入口触发，不提供执行单元级运行按钮。</p>
     </article>
   );
 }

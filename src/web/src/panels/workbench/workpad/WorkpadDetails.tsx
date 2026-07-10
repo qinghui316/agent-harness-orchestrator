@@ -22,8 +22,6 @@ import {
   WorkpadMetric,
 } from "./TaskGraphCards.js";
 import {
-  DecompositionPlanCard,
-  DecompositionReadinessCard,
   SchedulerClaimReservationCard,
   SchedulerClaimReconcilePlanCard,
   SchedulerContractCard,
@@ -47,7 +45,6 @@ import {
   SchedulerWorkerReworkValidationCard,
   SchedulerWorkerReworkStartCard,
   SchedulerWorkerValidationCard,
-  TaskQueueProposalCard,
   WorkflowGraphPlanCard,
 } from "./TypedWorkflowCards.js";
 import { WorkpadActionButton } from "./WorkpadActionButton.js";
@@ -122,9 +119,6 @@ export function WorkpadDiagnosticDetails({
         </section>
       ) : null}
 
-      {workpad.decompositionPlan ? <DecompositionPlanCard plan={workpad.decompositionPlan} /> : null}
-      {workpad.decompositionReadiness ? <DecompositionReadinessCard readiness={workpad.decompositionReadiness} /> : null}
-      {workpad.taskQueueProposal ? <TaskQueueProposalCard proposal={workpad.taskQueueProposal} /> : null}
       {workpad.workflowGraphPlan ? <WorkflowGraphPlanCard graph={workpad.workflowGraphPlan} /> : null}
       {workpad.schedulerContract ? <SchedulerContractCard contract={workpad.schedulerContract} /> : null}
       {workpad.schedulerDispatchDryRun ? <SchedulerDispatchDryRunCard dryRun={workpad.schedulerDispatchDryRun} /> : null}

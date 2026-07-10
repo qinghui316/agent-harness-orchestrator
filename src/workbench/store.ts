@@ -1,7 +1,6 @@
-import Database from "better-sqlite3";
-import { existsSync } from "node:fs";
-import { mkdir, readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+﻿import Database from "better-sqlite3";
+import { mkdir } from "node:fs/promises";
+import { dirname } from "node:path";
 import type { ResolvedMemory } from "../types/index.js";
 
 export interface StoredTopicMessage {
@@ -33,10 +32,13 @@ export interface StoredConversation {
   deletedAt: string | null;
 }
 
-export interface StoredCodexSessionLink {
+export interface StoredProviderThreadLink {
   projectId: string;
-  changeId: string;
-  codexSessionId: string | null;
+  conversationId: string;
+  providerThreadId: string;
+  roleId: string;
+  parentThreadId: string | null;
+  changeId: string | null;
   capabilityProfile: string | null;
   updatedAt: string;
 }
@@ -69,18 +71,6 @@ export interface StoredSkillEnablement {
   scope: SkillEnablementScope;
   enabled: boolean;
   updatedAt: string;
-}
-
-export interface StoredHiddenTopic {
-  projectId: string;
-  changeId: string;
-  hiddenAt: string;
-}
-
-export interface StoredDeletedTopic {
-  projectId: string;
-  changeId: string;
-  deletedAt: string;
 }
 
 export interface StoredBridgeSync {
@@ -274,15 +264,6 @@ export class WorkbenchStore {
     return transaction(messages) as number;
   }
 
-  readCodexSession(projectId: string, changeId: string): StoredCodexSessionLink | null {
-    const row = this.db.prepare(`
-      SELECT project_id AS projectId, change_id AS changeId, codex_session_id AS codexSessionId,
-        capability_profile AS capabilityProfile, updated_at AS updatedAt
-      FROM codex_session_links WHERE project_id = ? AND change_id = ?
-    `).get(projectId, changeId) as SqliteRow | undefined;
-    return row ? mapSessionRow(row) : null;
-  }
-
   createConversation(conversation: StoredConversation): void {
     this.db.prepare(`
       INSERT INTO conversations (
@@ -338,6 +319,22 @@ export class WorkbenchStore {
     return row ? mapConversationRow(row) : null;
   }
 
+  readConversationByChangeId(projectId: string, changeId: string): StoredConversation | null {
+    const row = this.db.prepare(`
+      SELECT c.project_id AS projectId, c.conversation_id AS conversationId, c.title, c.state,
+        c.bound_change_id AS boundChangeId, c.created_at AS createdAt, c.updated_at AS updatedAt,
+        c.deleted_at AS deletedAt
+      FROM conversations c
+      LEFT JOIN conversation_change_links l
+        ON l.project_id = c.project_id AND l.conversation_id = c.conversation_id
+      WHERE c.project_id = ? AND c.deleted_at IS NULL
+        AND (l.change_id = ? OR c.bound_change_id = ?)
+      ORDER BY CASE WHEN l.change_id = ? THEN 0 ELSE 1 END, c.updated_at DESC
+      LIMIT 1
+    `).get(projectId, changeId, changeId, changeId) as SqliteRow | undefined;
+    return row ? mapConversationRow(row) : null;
+  }
+
   bindConversationToChange(projectId: string, conversationId: string, changeId: string, updatedAt: string): void {
     this.db.prepare(`
       UPDATE conversations
@@ -358,15 +355,138 @@ export class WorkbenchStore {
     transaction();
   }
 
-  writeCodexSession(link: StoredCodexSessionLink): void {
+  hideConversation(projectId: string, conversationId: string, hiddenAt: string): void {
     this.db.prepare(`
-      INSERT INTO codex_session_links (project_id, change_id, codex_session_id, capability_profile, updated_at)
-      VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT(project_id, change_id) DO UPDATE SET
-        codex_session_id = excluded.codex_session_id,
+      UPDATE conversations
+      SET deleted_at = ?, updated_at = ?
+      WHERE project_id = ? AND conversation_id = ? AND deleted_at IS NULL
+    `).run(hiddenAt, hiddenAt, projectId, conversationId);
+  }
+
+  readProviderThread(projectId: string, conversationId: string, roleId: string): StoredProviderThreadLink | null {
+    const row = this.db.prepare(`
+      SELECT project_id AS projectId, conversation_id AS conversationId,
+        provider_thread_id AS providerThreadId, role_id AS roleId,
+        parent_thread_id AS parentThreadId, change_id AS changeId,
+        capability_profile AS capabilityProfile, updated_at AS updatedAt
+      FROM provider_thread_links
+      WHERE project_id = ? AND conversation_id = ? AND role_id = ?
+      ORDER BY updated_at DESC LIMIT 1
+    `).get(projectId, conversationId, roleId) as SqliteRow | undefined;
+    return row ? mapProviderThreadRow(row) : null;
+  }
+
+  setConversationState(projectId: string, conversationId: string, state: StoredConversation["state"], updatedAt: string): void {
+    this.db.prepare(`
+      UPDATE conversations
+      SET state = ?, updated_at = ?
+      WHERE project_id = ? AND conversation_id = ? AND deleted_at IS NULL
+    `).run(state, updatedAt, projectId, conversationId);
+  }
+
+  listProviderThreads(projectId: string, conversationId: string): StoredProviderThreadLink[] {
+    return (this.db.prepare(`
+      SELECT project_id AS projectId, conversation_id AS conversationId,
+        provider_thread_id AS providerThreadId, role_id AS roleId,
+        parent_thread_id AS parentThreadId, change_id AS changeId,
+        capability_profile AS capabilityProfile, updated_at AS updatedAt
+      FROM provider_thread_links
+      WHERE project_id = ? AND conversation_id = ?
+      ORDER BY updated_at ASC
+    `).all(projectId, conversationId) as SqliteRow[]).map(mapProviderThreadRow);
+  }
+
+  writeProviderThread(link: StoredProviderThreadLink): void {
+    this.db.prepare(`
+      INSERT INTO provider_thread_links (
+        project_id, conversation_id, provider_thread_id, role_id,
+        parent_thread_id, change_id, capability_profile, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(project_id, provider_thread_id) DO UPDATE SET
+        conversation_id = excluded.conversation_id,
+        role_id = excluded.role_id,
+        parent_thread_id = excluded.parent_thread_id,
+        change_id = excluded.change_id,
         capability_profile = excluded.capability_profile,
         updated_at = excluded.updated_at
-    `).run(link.projectId, link.changeId, link.codexSessionId, link.capabilityProfile, link.updatedAt);
+    `).run(
+      link.projectId,
+      link.conversationId,
+      link.providerThreadId,
+      link.roleId,
+      link.parentThreadId,
+      link.changeId,
+      link.capabilityProfile,
+      link.updatedAt,
+    );
+  }
+
+  linkConversationChange(projectId: string, conversationId: string, changeId: string, linkedAt: string): void {
+    this.db.prepare(`
+      INSERT INTO conversation_change_links (project_id, conversation_id, change_id, linked_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(project_id, conversation_id, change_id) DO NOTHING
+    `).run(projectId, conversationId, changeId, linkedAt);
+    this.db.prepare(`
+      UPDATE conversations SET bound_change_id = ?, updated_at = ?
+      WHERE project_id = ? AND conversation_id = ? AND deleted_at IS NULL
+    `).run(changeId, linkedAt, projectId, conversationId);
+  }
+
+  acceptConversationChangeBinding(
+    projectId: string,
+    conversationId: string,
+    changeId: string,
+    linkedAt: string,
+    acceptanceId?: string,
+    proposalHash?: string,
+  ): void {
+    this.db.transaction(() => {
+      this.linkConversationChange(projectId, conversationId, changeId, linkedAt);
+      this.db.prepare(`
+        UPDATE provider_thread_links SET change_id = ?, updated_at = ?
+        WHERE project_id = ? AND conversation_id = ?
+      `).run(changeId, linkedAt, projectId, conversationId);
+      if (acceptanceId && proposalHash) {
+        this.db.prepare(`
+          INSERT INTO planning_acceptance_commits (
+            id, project_id, conversation_id, change_id, proposal_hash, committed_at
+          ) VALUES (?, ?, ?, ?, ?, ?)
+        `).run(acceptanceId, projectId, conversationId, changeId, proposalHash, linkedAt);
+      }
+    })();
+  }
+
+  hasPlanningAcceptanceCommit(acceptanceId: string): boolean {
+    return Boolean(this.db.prepare(
+      "SELECT 1 FROM planning_acceptance_commits WHERE id = ? LIMIT 1",
+    ).get(acceptanceId));
+  }
+
+  deletePlanningAcceptanceCommit(acceptanceId: string): void {
+    this.db.prepare("DELETE FROM planning_acceptance_commits WHERE id = ?").run(acceptanceId);
+  }
+
+  listConversationChangeIds(projectId: string, conversationId: string): string[] {
+    return (this.db.prepare(`
+      SELECT change_id AS changeId FROM conversation_change_links
+      WHERE project_id = ? AND conversation_id = ? ORDER BY linked_at ASC
+    `).all(projectId, conversationId) as SqliteRow[]).map((row) => String(row.changeId));
+  }
+
+  findConversationForChange(projectId: string, changeId: string): StoredConversation | null {
+    const row = this.db.prepare(`
+      SELECT c.project_id AS projectId, c.conversation_id AS conversationId, c.title, c.state,
+        c.bound_change_id AS boundChangeId, c.created_at AS createdAt, c.updated_at AS updatedAt,
+        c.deleted_at AS deletedAt
+      FROM conversation_change_links l
+      JOIN conversations c
+        ON c.project_id = l.project_id AND c.conversation_id = l.conversation_id
+      WHERE l.project_id = ? AND l.change_id = ? AND c.deleted_at IS NULL
+      ORDER BY l.linked_at DESC
+      LIMIT 1
+    `).get(projectId, changeId) as SqliteRow | undefined;
+    return row ? mapConversationRow(row) : null;
   }
 
   upsertSkill(skill: StoredSkillIndex): void {
@@ -451,42 +571,6 @@ export class WorkbenchStore {
       SELECT project_id AS projectId, change_id AS changeId, skill_id AS skillId, scope, enabled, updated_at AS updatedAt
       FROM skill_enablement WHERE project_id = ?
     `).all(projectId) as SqliteRow[]).map(mapEnablementRow);
-  }
-
-  hideTopic(topic: StoredHiddenTopic): void {
-    this.db.prepare(`
-      INSERT INTO hidden_topics (project_id, change_id, hidden_at)
-      VALUES (?, ?, ?)
-      ON CONFLICT(project_id, change_id) DO UPDATE SET hidden_at = excluded.hidden_at
-    `).run(topic.projectId, topic.changeId, topic.hiddenAt);
-  }
-
-  listHiddenTopicIds(projectId: string): string[] {
-    const rows = this.db.prepare("SELECT change_id AS changeId FROM hidden_topics WHERE project_id = ?").all(projectId) as SqliteRow[];
-    return rows.map((row) => String(row.changeId));
-  }
-
-  deleteTopicConversation(topic: StoredDeletedTopic): void {
-    const transaction = this.db.transaction(() => {
-      this.deleteMessages(topic.projectId, topic.changeId);
-      this.db.prepare(`
-        INSERT INTO deleted_topics (project_id, change_id, deleted_at)
-        VALUES (?, ?, ?)
-        ON CONFLICT(project_id, change_id) DO UPDATE SET deleted_at = excluded.deleted_at
-      `).run(topic.projectId, topic.changeId, topic.deletedAt);
-      this.db.prepare("DELETE FROM hidden_topics WHERE project_id = ? AND change_id = ?").run(topic.projectId, topic.changeId);
-    });
-    transaction();
-  }
-
-  isTopicDeleted(projectId: string, changeId: string): boolean {
-    const row = this.db.prepare("SELECT 1 AS existsFlag FROM deleted_topics WHERE project_id = ? AND change_id = ?").get(projectId, changeId) as SqliteRow | undefined;
-    return Boolean(row);
-  }
-
-  listDeletedTopicIds(projectId: string): string[] {
-    const rows = this.db.prepare("SELECT change_id AS changeId FROM deleted_topics WHERE project_id = ?").all(projectId) as SqliteRow[];
-    return rows.map((row) => String(row.changeId));
   }
 
   upsertBridgeSync(sync: StoredBridgeSync): void {
@@ -575,43 +659,6 @@ export class WorkbenchStore {
   }
 }
 
-export async function importThreadJsonlIfNeeded(memory: ResolvedMemory, projectId: string, changeId: string, changePath: string): Promise<number> {
-  const store = await WorkbenchStore.open(memory);
-  try {
-    if (store.isTopicDeleted(projectId, changeId)) return 0;
-    if (store.hasMessages(projectId, changeId)) return 0;
-    const path = join(memory.memoryRoot, changePath, "thread.jsonl");
-    if (!existsSync(path)) return 0;
-    const content = await readFile(path, "utf8");
-    const messages = content
-      .split(/\r?\n/)
-      .filter((line) => line.trim().length > 0)
-      .map((line, index): StoredTopicMessage => {
-        const parsed = JSON.parse(line) as Record<string, unknown>;
-        return {
-          id: typeof parsed.id === "string" ? parsed.id : `${changeId}-import-${index + 1}`,
-          projectId,
-          conversationId: changeId,
-          changeId,
-          position: index + 1,
-          type: String(parsed.type ?? "assistant.message"),
-          timestamp: typeof parsed.timestamp === "string" ? parsed.timestamp : new Date(0).toISOString(),
-          text: typeof parsed.text === "string" ? parsed.text : null,
-          actionRunId: typeof parsed.actionRunId === "string" ? parsed.actionRunId : null,
-          actionType: typeof parsed.actionType === "string" ? parsed.actionType : null,
-          status: typeof parsed.status === "string" ? parsed.status : null,
-          runId: typeof parsed.runId === "string" ? parsed.runId : null,
-          artifact: typeof parsed.artifact === "string" ? parsed.artifact : null,
-          error: typeof parsed.error === "string" ? parsed.error : null,
-          rawJson: JSON.stringify(parsed),
-        };
-      });
-    return store.importMessages(messages);
-  } finally {
-    store.close();
-  }
-}
-
 function migrate(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS messages (
@@ -659,13 +706,35 @@ function migrate(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_action_runs_topic ON action_runs(project_id, change_id, started_at);
 
-    CREATE TABLE IF NOT EXISTS codex_session_links (
+    CREATE TABLE IF NOT EXISTS provider_thread_links (
       project_id TEXT NOT NULL,
-      change_id TEXT NOT NULL,
-      codex_session_id TEXT,
+      conversation_id TEXT NOT NULL,
+      provider_thread_id TEXT NOT NULL,
+      role_id TEXT NOT NULL,
+      parent_thread_id TEXT,
+      change_id TEXT,
       capability_profile TEXT,
       updated_at TEXT NOT NULL,
-      PRIMARY KEY(project_id, change_id)
+      PRIMARY KEY(project_id, provider_thread_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_provider_threads_conversation_role
+      ON provider_thread_links(project_id, conversation_id, role_id, updated_at);
+
+    CREATE TABLE IF NOT EXISTS conversation_change_links (
+      project_id TEXT NOT NULL,
+      conversation_id TEXT NOT NULL,
+      change_id TEXT NOT NULL,
+      linked_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, conversation_id, change_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS planning_acceptance_commits (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      conversation_id TEXT NOT NULL,
+      change_id TEXT NOT NULL,
+      proposal_hash TEXT NOT NULL,
+      committed_at TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS skills (
@@ -697,20 +766,6 @@ function migrate(db: Database.Database): void {
       enabled INTEGER NOT NULL,
       updated_at TEXT NOT NULL,
       PRIMARY KEY(project_id, change_id, skill_id, scope)
-    );
-
-    CREATE TABLE IF NOT EXISTS hidden_topics (
-      project_id TEXT NOT NULL,
-      change_id TEXT NOT NULL,
-      hidden_at TEXT NOT NULL,
-      PRIMARY KEY(project_id, change_id)
-    );
-
-    CREATE TABLE IF NOT EXISTS deleted_topics (
-      project_id TEXT NOT NULL,
-      change_id TEXT NOT NULL,
-      deleted_at TEXT NOT NULL,
-      PRIMARY KEY(project_id, change_id)
     );
 
     CREATE TABLE IF NOT EXISTS approval_cache (
@@ -754,18 +809,14 @@ function migrate(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_decision_records_topic ON decision_records(project_id, change_id, updated_at);
   `);
-  ensureColumn(db, "messages", "conversation_id", "TEXT NOT NULL DEFAULT ''");
-  db.exec("UPDATE messages SET conversation_id = change_id WHERE conversation_id = ''");
   db.exec("CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(project_id, conversation_id, position);");
-  ensureColumn(db, "skills", "source_kind", "TEXT NOT NULL DEFAULT 'managed'");
-  ensureColumn(db, "codex_session_links", "capability_profile", "TEXT");
 }
 
 function mapMessageRow(row: SqliteRow): StoredTopicMessage {
   return {
     id: String(row.id),
     projectId: String(row.projectId),
-    conversationId: String(row.conversationId ?? row.changeId),
+    conversationId: String(row.conversationId),
     changeId: String(row.changeId),
     position: Number(row.position),
     type: String(row.type),
@@ -794,11 +845,14 @@ function mapConversationRow(row: SqliteRow): StoredConversation {
   };
 }
 
-function mapSessionRow(row: SqliteRow): StoredCodexSessionLink {
+function mapProviderThreadRow(row: SqliteRow): StoredProviderThreadLink {
   return {
     projectId: String(row.projectId),
-    changeId: String(row.changeId),
-    codexSessionId: nullableString(row.codexSessionId),
+    conversationId: String(row.conversationId),
+    providerThreadId: String(row.providerThreadId),
+    roleId: String(row.roleId),
+    parentThreadId: nullableString(row.parentThreadId),
+    changeId: nullableString(row.changeId),
     capabilityProfile: nullableString(row.capabilityProfile),
     updatedAt: String(row.updatedAt),
   };
@@ -886,10 +940,4 @@ function decodeScopeChangeId(value: unknown): string | null {
 function normalizeDecisionStatus(value: unknown): StoredDecisionStatus {
   if (value === "accepted" || value === "requested-changes" || value === "dismissed" || value === "completed" || value === "failed") return value;
   return "pending";
-}
-
-function ensureColumn(db: Database.Database, table: string, column: string, definition: string): void {
-  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as SqliteRow[];
-  if (rows.some((row) => row.name === column)) return;
-  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
 }

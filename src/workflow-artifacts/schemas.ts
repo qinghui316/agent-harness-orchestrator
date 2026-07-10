@@ -1,149 +1,36 @@
 import { z } from "zod";
 import type { WorkflowGraphPlan } from "../types/index.js";
-import type { DecompositionPlan, DecompositionReadinessManifest, TaskQueueProposal } from "./types.js";
+import type { WorkflowAuthoringPlan } from "./types.js";
 
-const recoveryKeyInputsSchema = z.object({
-  changeId: z.string(),
-  acceptedArtifactRefs: z.array(z.string()),
-  contextScope: z.literal("selected-demand"),
-  sourceRevision: z.string().optional(),
-  worktreeBase: z.string().optional(),
-  rolePolicyProfile: z.string(),
-  notes: z.array(z.string()),
-});
+const requiredString = z.string().refine((value) => value.trim().length > 0, "Value must not be empty.");
 
-const scopeExpansionSchema = z.object({
-  scope: z.string(),
-  reason: z.string(),
-  accepted: z.boolean(),
-});
-
-export const decompositionPlanSchema: z.ZodType<DecompositionPlan> = z.object({
-  id: z.string(),
-  changeId: z.string(),
-  status: z.enum(["draft", "confirmed", "superseded", "rejected"]),
-  recommendation: z.enum(["single-change", "taskgraph-sequential", "taskgraph-parallel-candidate", "multi-change-candidate", "needs-clarification"]),
-  rationale: z.string(),
-  units: z.array(z.object({
-    id: z.string(),
-    title: z.string(),
-    summary: z.string(),
-    taskIds: z.array(z.string()),
-    acIds: z.array(z.string()),
-    scopeHints: z.array(z.string()),
-    dependsOn: z.array(z.string()),
-    recommendedRoleId: z.string(),
-  })),
-  dependencies: z.array(z.object({
-    from: z.string(),
-    to: z.string(),
-    kind: z.enum(["blocks", "synthesizes", "conflicts"]),
-  })),
-  conflictScopes: z.array(z.string()),
-  sourceScopeConstraints: z.array(z.string()).optional(),
-  scopeExpansions: z.array(scopeExpansionSchema).optional(),
-  riskSummary: z.string(),
-  openQuestions: z.array(z.string()),
-  artifactRefs: z.array(z.string()),
-  recoveryKeyInputs: recoveryKeyInputsSchema,
-  artifact: z.string(),
-  markdownArtifact: z.string(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-});
-
-export const decompositionReadinessManifestSchema = z.object({
-  id: z.string(),
-  changeId: z.string(),
-  decompositionPlanId: z.string(),
-  status: z.enum(["ready-for-single-change", "ready-for-sequential-taskqueue-proposal", "ready-for-scheduler-contract", "blocked-parallel-guardrails", "blocked-multi-change-boundary", "blocked-needs-clarification", "invalid"]),
-  recommendation: z.enum(["single-change", "taskgraph-sequential", "taskgraph-parallel-candidate", "multi-change-candidate", "needs-clarification"]),
-  executable: z.literal(false),
-  schedulerEligible: z.boolean(),
-  nextAllowedAction: z.enum(["code.run", "taskqueue.proposal", "scheduler.contract", "clarification.answer", "none"]),
-  units: z.array(z.object({
-    id: z.string(),
-    title: z.string(),
-    taskIds: z.array(z.string()),
-    acIds: z.array(z.string()),
-    dependsOn: z.array(z.string()),
-    guardrailStatus: z.enum(["passed", "blocked", "failed"]),
-    sourceScopes: z.array(z.string()),
-  })),
-  dependencies: z.array(z.object({
-    from: z.string(),
-    to: z.string(),
-    kind: z.enum(["blocks", "synthesizes", "conflicts"]),
-  })),
-  conflictScopes: z.array(z.string()),
-  guardrails: z.array(z.object({
-    id: z.string(),
-    status: z.enum(["passed", "blocked", "failed"]),
-    summary: z.string(),
-    refs: z.array(z.string()),
-  })),
-  recoveryKeyMaterial: recoveryKeyInputsSchema.extend({
-    decompositionPlanId: z.string(),
-    taskIds: z.array(z.string()),
-    acIds: z.array(z.string()),
-  }),
-  artifactRefs: z.array(z.string()),
-  artifact: z.string(),
-  markdownArtifact: z.string(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-}) as z.ZodType<DecompositionReadinessManifest>;
-
-export const taskQueueProposalSchema = z.object({
-  id: z.string(),
-  changeId: z.string(),
-  decompositionPlanId: z.string(),
-  readinessManifestId: z.string(),
-  status: z.enum(["draft", "confirmed", "started", "superseded", "rejected"]),
-  recommendation: z.literal("taskgraph-sequential"),
-  queueMode: z.literal("sequential"),
-  items: z.array(z.object({
-    id: z.string(),
-    taskId: z.string(),
-    unitId: z.string(),
-    title: z.string(),
-    order: z.number(),
-    dependsOn: z.array(z.string()),
-    sourceScopes: z.array(z.string()),
-    acIds: z.array(z.string()),
-  })),
-  dependencies: z.array(z.object({
-    from: z.string(),
-    to: z.string(),
-    kind: z.enum(["blocks", "synthesizes", "conflicts"]),
-  })),
-  conflictScopes: z.array(z.string()),
-  sourceArtifactHashes: z.record(z.string()),
-  recoveryKeyMaterial: recoveryKeyInputsSchema.extend({
-    decompositionPlanId: z.string(),
-    taskIds: z.array(z.string()),
-    acIds: z.array(z.string()),
-  }),
-  artifactRefs: z.array(z.string()),
-  artifact: z.string(),
-  markdownArtifact: z.string(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-}) as z.ZodType<TaskQueueProposal>;
+export const workflowAuthoringPlanSchema: z.ZodType<WorkflowAuthoringPlan> = z.object({
+  version: z.literal("1.0"),
+  mode: z.enum(["sequential-v1", "ready-set-v1"]),
+  nodes: z.array(z.object({
+    id: requiredString,
+    title: requiredString,
+    taskIds: z.array(requiredString).min(1),
+    acIds: z.array(requiredString).min(1),
+    prompt: requiredString,
+    dependsOn: z.array(requiredString),
+    sourceScopes: z.array(requiredString).min(1),
+  }).strict()).min(1),
+}).strict();
 
 const workflowGraphPlanBaseSchema = z.object({
   version: z.literal("1.0"),
   id: z.string(),
   changeId: z.string(),
   status: z.enum(["compiled", "superseded", "rejected"]),
-  decompositionPlanId: z.string(),
-  readinessManifestId: z.string(),
   sourceArtifactHashes: z.record(z.string()),
   artifactRefs: z.array(z.string()),
   artifact: z.string(),
   markdownArtifact: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),
+  authoringContractVersion: z.literal("1.0").optional(),
+  planArtifactRef: z.string().optional(),
 });
 
 const workflowGraphStageSchema = z.enum(["coder", "validation", "audit", "bounded-rework"]);
@@ -155,17 +42,18 @@ const workflowGraphRecoveryKeyInputSchema = z.object({
 
 const sequentialWorkflowGraphPlanSchema = workflowGraphPlanBaseSchema.extend({
   graphMode: z.literal("sequential-v1"),
-  taskQueueProposalId: z.string(),
   nodes: z.array(z.object({
     id: z.string(),
     taskId: z.string(),
-    taskQueueProposalItemId: z.string(),
     unitId: z.string(),
     title: z.string(),
     order: z.number(),
     stages: z.array(workflowGraphStageSchema),
     acIds: z.array(z.string()),
     sourceScopes: z.array(z.string()),
+    taskIds: z.array(z.string()).optional(),
+    prompt: z.string().optional(),
+    dependsOn: z.array(z.string()).optional(),
   })),
   edges: z.array(z.object({
     from: z.string(),
@@ -216,6 +104,8 @@ const readySetWorkflowGraphPlanSchema = workflowGraphPlanBaseSchema.extend({
     recoveryKeyInputs: z.array(workflowGraphRecoveryKeyInputSchema),
     status: z.enum(["planned", "blocked"]),
     blockedReasons: z.array(z.string()),
+    prompt: z.string().optional(),
+    dependsOn: z.array(z.string()).optional(),
   })),
   edges: z.array(z.object({
     from: z.string(),

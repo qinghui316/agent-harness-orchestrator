@@ -1,26 +1,8 @@
-export const WORKFLOW_ACTION_TYPES = [
+﻿export const WORKFLOW_ACTION_TYPES = [
   "chat.ask",
-  "change.spec.propose",
-  "change.spec.accept",
-  "change.plan.propose",
-  "change.plan.accept",
-  "planning.decompose",
-  "planning.decomposition.confirm",
-  "planning.decomposition.assess-readiness",
-  "planning.taskqueue.propose",
   "maintenance.canonical-update.decision.record",
   "maintenance.canonical-patch.application-gate.record",
   "maintenance.canonical-patch.apply",
-  "planning.scheduler.plan.prepare",
-  "planning.scheduler.contract.compile",
-  "planning.scheduler.dispatch.dry-run",
-  "planning.scheduler.worker-plan.compile",
-  "planning.scheduler.claim-reconcile.compile",
-  "planning.scheduler.launch-preflight.check",
-  "planning.scheduler.run.prepare",
-  "planning.scheduler.runtime.initialize",
-  "planning.scheduler.runtime.reconcile",
-  "planning.scheduler.runtime.reserve-claims",
   "planning.scheduler.worker.start-first",
   "planning.scheduler.worker.start-next",
   "planning.scheduler.worker.reconcile-result",
@@ -36,8 +18,7 @@ export const WORKFLOW_ACTION_TYPES = [
   "planning.scheduler.integration-outcome.reconcile",
   "planning.scheduler.run.complete",
   "planning.scheduler.run.close-blocked",
-  "planning.workflowgraph.compile",
-  "planning.taskqueue.confirm-start",
+  "workflow.run.start",
   "orchestrator.evaluate",
   "demand.worker.enqueue",
   "demand.worker.claim",
@@ -120,25 +101,9 @@ export type WorkbenchThreadActionType = typeof WORKBENCH_THREAD_ACTION_TYPES[num
 
 export const LIVE_WORKFLOW_ACTION_TYPES = [
   "chat.ask",
-  "change.spec.propose",
-  "change.plan.propose",
-  "planning.decompose",
-  "planning.decomposition.confirm",
-  "planning.decomposition.assess-readiness",
-  "planning.taskqueue.propose",
   "maintenance.canonical-update.decision.record",
   "maintenance.canonical-patch.application-gate.record",
   "maintenance.canonical-patch.apply",
-  "planning.scheduler.plan.prepare",
-  "planning.scheduler.contract.compile",
-  "planning.scheduler.dispatch.dry-run",
-  "planning.scheduler.worker-plan.compile",
-  "planning.scheduler.claim-reconcile.compile",
-  "planning.scheduler.launch-preflight.check",
-  "planning.scheduler.run.prepare",
-  "planning.scheduler.runtime.initialize",
-  "planning.scheduler.runtime.reconcile",
-  "planning.scheduler.runtime.reserve-claims",
   "planning.scheduler.worker.start-first",
   "planning.scheduler.worker.start-next",
   "planning.scheduler.worker.reconcile-result",
@@ -154,8 +119,7 @@ export const LIVE_WORKFLOW_ACTION_TYPES = [
   "planning.scheduler.integration-outcome.reconcile",
   "planning.scheduler.run.complete",
   "planning.scheduler.run.close-blocked",
-  "planning.workflowgraph.compile",
-  "planning.taskqueue.confirm-start",
+  "workflow.run.start",
   "orchestrator.evaluate",
   "orchestrator.pump",
   "demand.worker.enqueue",
@@ -221,24 +185,9 @@ export const LIVE_WORKFLOW_ACTION_TYPES = [
 ] as const satisfies readonly WorkflowActionType[];
 
 export const HIGH_IMPACT_WORKFLOW_ACTION_TYPES = [
-  "change.spec.accept",
-  "change.plan.accept",
-  "planning.decomposition.confirm",
-  "planning.decomposition.assess-readiness",
-  "planning.taskqueue.propose",
   "maintenance.canonical-update.decision.record",
   "maintenance.canonical-patch.application-gate.record",
   "maintenance.canonical-patch.apply",
-  "planning.scheduler.plan.prepare",
-  "planning.scheduler.contract.compile",
-  "planning.scheduler.dispatch.dry-run",
-  "planning.scheduler.worker-plan.compile",
-  "planning.scheduler.claim-reconcile.compile",
-  "planning.scheduler.launch-preflight.check",
-  "planning.scheduler.run.prepare",
-  "planning.scheduler.runtime.initialize",
-  "planning.scheduler.runtime.reconcile",
-  "planning.scheduler.runtime.reserve-claims",
   "planning.scheduler.worker.start-first",
   "planning.scheduler.worker.start-next",
   "planning.scheduler.worker.reconcile-result",
@@ -254,8 +203,7 @@ export const HIGH_IMPACT_WORKFLOW_ACTION_TYPES = [
   "planning.scheduler.integration-outcome.reconcile",
   "planning.scheduler.run.complete",
   "planning.scheduler.run.close-blocked",
-  "planning.workflowgraph.compile",
-  "planning.taskqueue.confirm-start",
+  "workflow.run.start",
   "code.run",
   "task.run.start",
   "task.run.retry",
@@ -281,23 +229,9 @@ export const REVALIDATED_WORKFLOW_ACTION_TYPES = [
   "landing.prepare",
   "landing-queue.merge-next",
   "pr-draft.create",
-  "planning.decompose",
-  "planning.decomposition.confirm",
-  "planning.decomposition.assess-readiness",
-  "planning.taskqueue.propose",
   "maintenance.canonical-update.decision.record",
   "maintenance.canonical-patch.application-gate.record",
   "maintenance.canonical-patch.apply",
-  "planning.scheduler.plan.prepare",
-  "planning.scheduler.contract.compile",
-  "planning.scheduler.dispatch.dry-run",
-  "planning.scheduler.worker-plan.compile",
-  "planning.scheduler.claim-reconcile.compile",
-  "planning.scheduler.launch-preflight.check",
-  "planning.scheduler.run.prepare",
-  "planning.scheduler.runtime.initialize",
-  "planning.scheduler.runtime.reconcile",
-  "planning.scheduler.runtime.reserve-claims",
   "planning.scheduler.worker.start-first",
   "planning.scheduler.worker.start-next",
   "planning.scheduler.worker.reconcile-result",
@@ -313,8 +247,7 @@ export const REVALIDATED_WORKFLOW_ACTION_TYPES = [
   "planning.scheduler.integration-outcome.reconcile",
   "planning.scheduler.run.complete",
   "planning.scheduler.run.close-blocked",
-  "planning.workflowgraph.compile",
-  "planning.taskqueue.confirm-start",
+  "workflow.run.start",
   "code.run",
   "task.queue.start",
   "remote-landing.merge",
@@ -324,9 +257,6 @@ export const REVALIDATED_WORKFLOW_ACTION_TYPES = [
 
 export const WORKFLOW_ACTION_SCOPE_KEYS = [
   "proposalId",
-  "decompositionPlanId",
-  "readinessManifestId",
-  "taskQueueProposalId",
   "workflowGraphPlanId",
   "schedulerContractId",
   "schedulerDispatchDryRunId",
@@ -413,20 +343,6 @@ export function validateWorkflowActionRequiredTargets(request: WorkflowActionSco
   };
 
   switch (actionType) {
-    case "change.spec.accept":
-    case "change.plan.accept":
-      requireOne("proposalId", [request.proposalId]);
-      break;
-    case "planning.decompose":
-      requireOne("changeId", [request.changeId]);
-      break;
-    case "planning.decomposition.confirm":
-    case "planning.decomposition.assess-readiness":
-      requireOne("decompositionPlanId", [request.decompositionPlanId]);
-      break;
-    case "planning.taskqueue.propose":
-      requireOne("readinessManifestId", [request.readinessManifestId]);
-      break;
     case "maintenance.canonical-update.decision.record":
       requireOne("maintenanceProposalId", [request.maintenanceProposalId]);
       break;
@@ -435,36 +351,6 @@ export function validateWorkflowActionRequiredTargets(request: WorkflowActionSco
       break;
     case "maintenance.canonical-patch.apply":
       requireOne("maintenanceApplicationManifestId", [request.maintenanceApplicationManifestId]);
-      break;
-    case "planning.scheduler.plan.prepare":
-      requireOne("changeId", [request.changeId]);
-      break;
-    case "planning.scheduler.contract.compile":
-      requireOne("decompositionPlanId", [request.decompositionPlanId]);
-      requireOne("readinessManifestId", [request.readinessManifestId]);
-      break;
-    case "planning.scheduler.dispatch.dry-run":
-      requireOne("schedulerContractId", [request.schedulerContractId]);
-      break;
-    case "planning.scheduler.worker-plan.compile":
-      requireOne("schedulerDispatchDryRunId", [request.schedulerDispatchDryRunId]);
-      break;
-    case "planning.scheduler.claim-reconcile.compile":
-      requireOne("schedulerWorkerPlanId", [request.schedulerWorkerPlanId]);
-      break;
-    case "planning.scheduler.launch-preflight.check":
-      requireOne("schedulerClaimReconcilePlanId", [request.schedulerClaimReconcilePlanId]);
-      break;
-    case "planning.scheduler.run.prepare":
-      requireOne("schedulerLaunchPreflightId", [request.schedulerLaunchPreflightId]);
-      break;
-    case "planning.scheduler.runtime.initialize":
-    case "planning.scheduler.runtime.reconcile":
-      requireOne("schedulerRunId", [request.schedulerRunId]);
-      break;
-    case "planning.scheduler.runtime.reserve-claims":
-      requireOne("schedulerRunId", [request.schedulerRunId]);
-      requireOne("schedulerReconcileSnapshotId", [request.schedulerReconcileSnapshotId]);
       break;
     case "planning.scheduler.worker.start-first":
       requireOne("schedulerRunId", [request.schedulerRunId]);
@@ -528,18 +414,11 @@ export function validateWorkflowActionRequiredTargets(request: WorkflowActionSco
       requireOne("schedulerClaimReservationId", [request.schedulerClaimReservationId]);
       requireOne("schedulerIntegrationCandidateId", [request.schedulerIntegrationCandidateId]);
       break;
-    case "planning.workflowgraph.compile":
-      requireOne("taskQueueProposalId", [request.taskQueueProposalId]);
-      requireOne("readinessManifestId", [request.readinessManifestId]);
-      break;
-    case "planning.taskqueue.confirm-start":
-      requireOne("taskQueueProposalId", [request.taskQueueProposalId]);
+    case "workflow.run.start":
       requireOne("workflowGraphPlanId", [request.workflowGraphPlanId]);
-      requireOne("readinessManifestId", [request.readinessManifestId]);
-      requireOne("decompositionPlanId", [request.decompositionPlanId]);
       break;
     case "code.run":
-      requireOne("readinessManifestId", [request.readinessManifestId]);
+      requireOne("workflowGraphPlanId", [request.workflowGraphPlanId]);
       break;
     case "task.run.start":
       requireSingleTaskId();
@@ -551,10 +430,7 @@ export function validateWorkflowActionRequiredTargets(request: WorkflowActionSco
     case "task.queue.start":
       requireOne("workflowRunId", [request.workflowRunId]);
       requireOne("queueRunId", [request.queueRunId]);
-      requireOne("taskQueueProposalId", [request.taskQueueProposalId]);
       requireOne("workflowGraphPlanId", [request.workflowGraphPlanId]);
-      requireOne("readinessManifestId", [request.readinessManifestId]);
-      requireOne("decompositionPlanId", [request.decompositionPlanId]);
       break;
     case "result.refresh-rework":
     case "result.revalidate":
@@ -624,9 +500,6 @@ export function workflowActionScopePayload(request: WorkflowActionScopeCarrier, 
   return {
     changeId,
     proposalId: request.proposalId,
-    decompositionPlanId: request.decompositionPlanId,
-    readinessManifestId: request.readinessManifestId ?? extractString(result, "manifest", "id"),
-    taskQueueProposalId: request.taskQueueProposalId ?? extractString(result, "proposal", "id"),
     workflowGraphPlanId: request.workflowGraphPlanId ?? extractString(result, "graph", "id"),
     schedulerContractId: request.schedulerContractId ?? extractString(result, "contract", "id") ?? extractString(result, "dryRun", "schedulerContractId") ?? extractString(result, "workerPlan", "schedulerContractId") ?? extractString(result, "claimReconcilePlan", "schedulerContractId") ?? extractString(result, "launchPreflight", "schedulerContractId") ?? extractString(result, "schedulerRun", "schedulerContractId") ?? extractString(result, "runtimeState", "schedulerContractId") ?? extractString(result, "reconcileSnapshot", "schedulerContractId") ?? extractString(result, "claimReservation", "schedulerContractId") ?? extractString(result, "reworkPlan", "schedulerContractId") ?? extractString(result, "result", "schedulerContractId") ?? extractString(result, "schedulerReworkValidation", "schedulerContractId") ?? extractString(result, "schedulerReworkAudit", "schedulerContractId") ?? extractString(result, "candidate", "schedulerContractId") ?? extractString(result, "handoff", "schedulerContractId") ?? extractString(result, "outcome", "schedulerContractId") ?? extractString(result, "completion", "schedulerContractId") ?? extractString(result, "closeout", "schedulerContractId"),
     schedulerDispatchDryRunId: request.schedulerDispatchDryRunId ?? extractString(result, "dryRun", "id") ?? extractString(result, "workerPlan", "schedulerDispatchDryRunId") ?? extractString(result, "claimReconcilePlan", "schedulerDispatchDryRunId") ?? extractString(result, "launchPreflight", "schedulerDispatchDryRunId") ?? extractString(result, "schedulerRun", "schedulerDispatchDryRunId") ?? extractString(result, "reworkPlan", "schedulerDispatchDryRunId") ?? extractString(result, "candidate", "schedulerDispatchDryRunId") ?? extractString(result, "handoff", "schedulerDispatchDryRunId") ?? extractString(result, "outcome", "schedulerDispatchDryRunId") ?? extractString(result, "completion", "schedulerDispatchDryRunId") ?? extractString(result, "closeout", "schedulerDispatchDryRunId"),
@@ -819,12 +692,7 @@ export function workflowActionTargetId(request: WorkflowActionScopeCarrier, chan
     ?? extractString(result, "claimReconcilePlan", "schedulerContractId")
     ?? extractString(result, "launchPreflight", "schedulerContractId")
     ?? extractString(result, "schedulerRun", "schedulerContractId")
-    ?? request.taskQueueProposalId
-    ?? extractString(result, "proposal", "id")
     ?? request.queueRunId
-    ?? request.readinessManifestId
-    ?? extractString(result, "manifest", "id")
-    ?? request.decompositionPlanId
     ?? request.proposalId
     ?? request.taskRunId
     ?? request.taskIds?.join(",")
@@ -836,10 +704,7 @@ export function workflowActionScopesMatch(left: WorkflowActionScopeCarrier, righ
 }
 
 export function workflowActionScopesMatchStrict(left: WorkflowActionScopeCarrier, right: WorkflowActionScopeCarrier): boolean {
-  return sameStrictOptional(left.decompositionPlanId, right.decompositionPlanId)
-    && sameStrictOptional(left.readinessManifestId, right.readinessManifestId)
-    && sameStrictOptional(left.taskQueueProposalId, right.taskQueueProposalId)
-    && sameStrictOptional(left.workflowGraphPlanId, right.workflowGraphPlanId)
+  return sameStrictOptional(left.workflowGraphPlanId, right.workflowGraphPlanId)
     && sameStrictOptional(left.schedulerContractId, right.schedulerContractId)
     && sameStrictOptional(left.schedulerDispatchDryRunId, right.schedulerDispatchDryRunId)
     && sameStrictOptional(left.schedulerWorkerPlanId, right.schedulerWorkerPlanId)
@@ -892,10 +757,7 @@ function sameSchedulerWorkerReworkPlanStrict(left: WorkflowActionScopeCarrier, r
 }
 
 export function workflowActionScopesMatchCompatible(left: WorkflowActionScopeCarrier, right: WorkflowActionScopeCarrier): boolean {
-  return sameCompatibleOptional(left.decompositionPlanId, right.decompositionPlanId)
-    && sameCompatibleOptional(left.readinessManifestId, right.readinessManifestId)
-    && sameCompatibleOptional(left.taskQueueProposalId, right.taskQueueProposalId)
-    && sameCompatibleOptional(left.workflowGraphPlanId, right.workflowGraphPlanId)
+  return sameCompatibleOptional(left.workflowGraphPlanId, right.workflowGraphPlanId)
     && sameCompatibleOptional(left.schedulerContractId, right.schedulerContractId)
     && sameCompatibleOptional(left.schedulerDispatchDryRunId, right.schedulerDispatchDryRunId)
     && sameCompatibleOptional(left.schedulerWorkerPlanId, right.schedulerWorkerPlanId)

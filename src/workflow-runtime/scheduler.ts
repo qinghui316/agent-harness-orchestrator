@@ -17,6 +17,7 @@ import type { SchedulerFirstWorkerReworkStartInput } from "../scheduler-runtime/
 import type { SchedulerFirstWorkerStartInput, SchedulerNextWorkerStartInput } from "../scheduler-runtime/worker-start.js";
 import type { ManagedProject } from "../types/index.js";
 import { runSchedulerReadySetCurrentStep } from "./scheduler-ready-set.js";
+import { initializeSchedulerReadySetFromGraph } from "./scheduler-ready-set-initialization.js";
 
 export type { SchedulerIntegrationCandidateResult } from "../scheduler-runtime/integration-candidate.js";
 export type { SchedulerIntegrationCheckHandoffResult } from "../scheduler-runtime/integration-check-handoff.js";
@@ -31,6 +32,10 @@ export type { SchedulerWorkerReworkResultReconcileResult } from "../scheduler-ru
 export type { SchedulerWorkerReworkValidationResult } from "../scheduler-runtime/worker-rework-validation.js";
 export type { SchedulerFirstWorkerReworkStartResult } from "../scheduler-runtime/worker-rework.js";
 export type { SchedulerWorkerValidationResult } from "../scheduler-runtime/worker-validation.js";
+
+export function runSchedulerReadySetInitialization(...args: Parameters<typeof initializeSchedulerReadySetFromGraph>) {
+  return initializeSchedulerReadySetFromGraph(...args);
+}
 
 export function runSchedulerRuntimeInitialize(...args: Parameters<typeof initializeSchedulerRuntime>) {
   return initializeSchedulerRuntime(...args);

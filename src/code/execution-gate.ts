@@ -1,21 +1,10 @@
-import { join } from "node:path";
-import { z } from "zod";
-import { readRequiredJsonFile } from "../fs/json.js";
 import { readSchedulerRuntimeLineage } from "../scheduler-runtime/guards.js";
 import { findSchedulerRuntimeWorkerReworkStartForPlan, findSchedulerRuntimeWorkerStartForReservationIntent, readSchedulerRuntimeClaimReservation, readSchedulerRuntimeStateProjection, readSchedulerRuntimeWorkerReworkPlan } from "../scheduler-runtime/repository.js";
 import { listTaskQueueItems } from "../task-queue/manager.js";
 import { readTaskRun } from "../task-run/repository.js";
 import type { ChangeStatus, ResolvedMemory } from "../types/index.js";
-import { readWorkflowGraphPlan, resolveArtifactRef, taskQueueProposalSchema } from "../workflow-artifacts/manager.js";
+import { readWorkflowGraphPlan } from "../workflow-artifacts/manager.js";
 import type { CodeExecutionGateVerdict, CodeRunOptions } from "./types.js";
-
-const codeReadinessGateSchema = z.object({
-  id: z.string(),
-  changeId: z.string(),
-  status: z.string(),
-  nextAllowedAction: z.string(),
-  decompositionPlanId: z.string(),
-});
 
 export async function assertCodeExecutionGate(
   memory: ResolvedMemory,
@@ -24,7 +13,8 @@ export async function assertCodeExecutionGate(
   options: CodeRunOptions,
   roleId: string,
 ): Promise<CodeExecutionGateVerdict> {
-  const mode = options.executionGate?.mode ?? (roleId === "rework-coder" ? "rework" : "single-change-readiness");
+  const mode = options.executionGate?.mode ?? (roleId === "rework-coder" ? "rework" : null);
+  if (!mode) throw new Error("Code execution requires an explicit Workflow Runtime execution gate.");
   if (options.existingWorktreeId && mode !== "scheduler-claim-rework") {
     throw new Error("existingWorktreeId is only allowed for scheduler-claim-rework code execution.");
   }
@@ -34,23 +24,14 @@ export async function assertCodeExecutionGate(
   const changePath = changeStatus.activeChanges.find((item) => item.name === changeId)?.path;
   if (!changePath) throw new Error(`Code execution gate cannot resolve active Change path for ${changeId}.`);
 
-  if (mode === "taskqueue-proposal") {
-    const taskQueueProposalId = options.executionGate?.taskQueueProposalId;
+  if (mode === "workflow-graph") {
     const workflowGraphPlanId = options.executionGate?.workflowGraphPlanId;
-    if (!taskQueueProposalId) throw new Error("TaskQueue code execution requires taskQueueProposalId.");
     if (!workflowGraphPlanId) throw new Error("TaskQueue code execution requires workflowGraphPlanId.");
-    if (!options.taskRunId) throw new Error("TaskQueue code execution requires taskRunId.");
     const graph = await readWorkflowGraphPlan(memory, changePath, workflowGraphPlanId);
     if (graph.graphMode !== "sequential-v1") {
       throw new Error("TaskQueue code execution requires a sequential WorkflowGraphPlan.");
     }
-    const proposalRef = graph.artifactRefs.find((item) => item.endsWith(".taskqueue-proposal.json"));
-    if (!proposalRef) throw new Error("TaskQueue code execution graph is missing proposal snapshot.");
-    const proposal = await readRequiredJsonFile(resolveArtifactRef(memory, proposalRef), taskQueueProposalSchema);
-    if (proposal.changeId !== changeId || proposal.id !== taskQueueProposalId || proposal.status !== "confirmed") {
-      throw new Error("TaskQueue code execution target is stale or not confirmed.");
-    }
-    if (graph.changeId !== changeId || graph.taskQueueProposalId !== taskQueueProposalId || graph.readinessManifestId !== proposal.readinessManifestId || graph.status !== "compiled") {
+    if (graph.changeId !== changeId || graph.authoringContractVersion !== "1.0" || graph.status !== "compiled") {
       throw new Error("TaskQueue code execution graph target is stale.");
     }
     const taskIds = options.taskIds ?? [];
@@ -59,18 +40,19 @@ export async function assertCodeExecutionGate(
       if (!graphTasks.has(taskId.toUpperCase())) throw new Error(`TaskQueue code execution task is not in WorkflowGraphPlan: ${taskId}.`);
     }
     const queueItems = await listTaskQueueItems(memory, changeId);
-    const matchingItem = queueItems.find((item) => item.taskRunId === options.taskRunId);
-    if (!matchingItem || matchingItem.taskQueueProposalId !== taskQueueProposalId || matchingItem.workflowGraphPlanId !== workflowGraphPlanId) {
-      throw new Error("TaskQueue code execution taskRun is not scoped to the WorkflowGraphPlan.");
+    if (options.taskRunId) {
+      const matchingItem = queueItems.find((item) => item.taskRunId === options.taskRunId);
+      if (!matchingItem || matchingItem.workflowGraphPlanId !== workflowGraphPlanId) {
+        throw new Error("TaskQueue code execution taskRun is not scoped to the WorkflowGraphPlan.");
+      }
+    } else if (graph.nodes.length !== 1) {
+      throw new Error("Direct code execution requires a single-node authored WorkflowGraphPlan.");
     }
     return {
       allowed: true,
       mode,
       changeId,
-      taskQueueProposalId,
       workflowGraphPlanId,
-      readinessManifestId: proposal.readinessManifestId,
-      decompositionPlanId: proposal.decompositionPlanId,
       taskRunId: options.taskRunId,
       taskIds: options.taskIds,
       reason: "Compiled WorkflowGraphPlan authorizes task-scoped code execution.",
@@ -226,25 +208,5 @@ export async function assertCodeExecutionGate(
     };
   }
 
-  const readiness = await readRequiredJsonFile(
-    join(memory.memoryRoot, changePath, "planning", "decomposition-readiness.json"),
-    codeReadinessGateSchema,
-  );
-  if (readiness.changeId !== changeId) throw new Error("Code execution readiness is not scoped to the selected Change.");
-  if (options.executionGate?.readinessManifestId && readiness.id !== options.executionGate.readinessManifestId) {
-    throw new Error("Code execution readiness target is stale.");
-  }
-  if (readiness.status !== "ready-for-single-change" || readiness.nextAllowedAction !== "code.run") {
-    throw new Error(`Code execution requires ready-for-single-change readiness; current readiness is ${readiness.status}.`);
-  }
-  return {
-    allowed: true,
-    mode,
-    changeId,
-    readinessManifestId: readiness.id,
-    decompositionPlanId: readiness.decompositionPlanId,
-    taskRunId: options.taskRunId,
-    taskIds: options.taskIds,
-    reason: "DecompositionReadinessManifest authorizes direct single-change code.run.",
-  };
+  throw new Error(`Unsupported code execution gate mode: ${mode}.`);
 }

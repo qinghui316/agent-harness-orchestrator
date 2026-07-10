@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+﻿import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getChangeStatusForChange } from "../../../change/manager.js";
@@ -17,7 +17,7 @@ import { listWorktreesForChange } from "../../../worktree/manager.js";
 import type { AcMap, ChangeIndexItem, ManagedProject, ResolvedMemory } from "../../../types/index.js";
 import type { WorkbenchTopicDetail, WorkbenchTopicState, WorkbenchTopicSummary } from "../../read-model-types.js";
 import { WorkbenchStore, type StoredConversation } from "../../store.js";
-import { fromStoredThreadMessage, readTopicThreadLogPage } from "../../thread-log.js";
+import { fromStoredThreadMessage, readConversationThreadPage } from "../../conversation-thread-log.js";
 import { buildThreadStream, buildThreadStreamFromMessages } from "./thread-stream.js";
 import { listWorkbenchDecisions } from "./decision-store.js";
 import { readChangeMetadataAt, stateRank } from "./support.js";
@@ -30,38 +30,32 @@ export interface ListWorkbenchTopicsOptions {
 
 export async function listWorkbenchTopicsFromMemory(memory: ResolvedMemory, options: ListWorkbenchTopicsOptions = {}): Promise<WorkbenchTopicSummary[]> {
   const index = await buildChangeIndex(memory);
-  const hiddenIds = options.includeDeleted ? new Set<string>() : await listHiddenTopicIds(memory).catch(() => new Set<string>());
-  const deletedIds = options.includeDeleted ? new Set<string>() : await listDeletedTopicIds(memory).catch(() => new Set<string>());
-  const conversationTopics = await listConversationTopics(memory, options);
+  const rawConversationTopics = await listConversationTopics(memory, options);
   const groups: Array<[WorkbenchTopicState, ChangeIndexItem[]]> = [
     ["active", index.active],
     ["archive", index.archive],
   ];
+  const changePathById = new Map([...index.active, ...index.archive].map((item) => [item.name, item.path]));
+  const conversationTopics = rawConversationTopics.map((topic) => topic.boundChangeId && changePathById.has(topic.boundChangeId)
+    ? { ...topic, path: changePathById.get(topic.boundChangeId)! }
+    : topic);
   const topics: WorkbenchTopicSummary[] = [...conversationTopics];
   const existingConversationIds = new Set(conversationTopics.map((item) => item.boundChangeId ?? item.id));
   for (const [state, items] of groups) {
     for (const item of items) {
       const topic = await topicSummaryFromItem(memory, state, item);
       if (existingConversationIds.has(topic.id) || existingConversationIds.has(topic.name)) continue;
-      if (
-        !hiddenIds.has(topic.id)
-        && !hiddenIds.has(topic.name)
-        && !deletedIds.has(topic.id)
-        && !deletedIds.has(topic.name)
-      ) {
-        topics.push(topic);
-      }
+      topics.push(topic);
     }
   }
   return topics.sort((a, b) => stateRank(a.state) - stateRank(b.state) || (b.updatedAt ?? b.name).localeCompare(a.updatedAt ?? a.name));
 }
 
 async function listConversationTopics(memory: ResolvedMemory, options: ListWorkbenchTopicsOptions): Promise<WorkbenchTopicSummary[]> {
-  void options;
   if (!memory.projectId) return [];
   const store = await WorkbenchStore.open(memory);
   try {
-    return store.listConversations(memory.projectId).map(conversationSummaryFromStore);
+    return store.listConversations(memory.projectId, options).map(conversationSummaryFromStore);
   } finally {
     store.close();
   }
@@ -79,94 +73,6 @@ function conversationSummaryFromStore(conversation: StoredConversation): Workben
     createdAt: conversation.createdAt,
     updatedAt: conversation.updatedAt,
   };
-}
-
-export async function deleteWorkbenchTopicConversation(memory: ResolvedMemory, changeId: string): Promise<void> {
-  if (memory.projectId) {
-    const store = await WorkbenchStore.open(memory);
-    try {
-      const conversation = store.readConversation(memory.projectId, changeId, { includeDeleted: true });
-      if (conversation) {
-        store.deleteConversation(memory.projectId, conversation.conversationId, new Date().toISOString());
-        return;
-      }
-    } finally {
-      store.close();
-    }
-  }
-  const topics = await listWorkbenchTopicsFromMemoryIncludingHidden(memory);
-  const topic = topics.find((item) => item.id === changeId || item.name === changeId);
-  if (!topic) {
-    const error = new Error(`Topic not found: ${changeId}.`);
-    error.name = "NotFound";
-    throw error;
-  }
-  if (!memory.projectId) {
-    const error = new Error("Project id is required to delete a conversation.");
-    error.name = "Conflict";
-    throw error;
-  }
-  const store = await WorkbenchStore.open(memory);
-  try {
-    store.deleteTopicConversation({ projectId: memory.projectId, changeId: topic.id, deletedAt: new Date().toISOString() });
-  } finally {
-    store.close();
-  }
-}
-
-export async function hideWorkbenchTopicFromSidebar(memory: ResolvedMemory, changeId: string): Promise<void> {
-  const topics = await listWorkbenchTopicsFromMemoryIncludingHidden(memory);
-  const topic = topics.find((item) => item.id === changeId || item.name === changeId);
-  if (!topic) {
-    const error = new Error(`Topic not found: ${changeId}.`);
-    error.name = "NotFound";
-    throw error;
-  }
-  if (topic.state !== "archive") {
-    const error = new Error("Only archived or completed conversations can be removed from the sidebar.");
-    error.name = "Conflict";
-    throw error;
-  }
-  const store = await WorkbenchStore.open(memory);
-  try {
-    if (!memory.projectId) {
-      const error = new Error("Project id is required to hide a conversation.");
-      error.name = "Conflict";
-      throw error;
-    }
-    store.hideTopic({ projectId: memory.projectId, changeId: topic.id, hiddenAt: new Date().toISOString() });
-  } finally {
-    store.close();
-  }
-}
-
-async function listWorkbenchTopicsFromMemoryIncludingHidden(memory: ResolvedMemory): Promise<WorkbenchTopicSummary[]> {
-  const index = await buildChangeIndex(memory);
-  const topics: WorkbenchTopicSummary[] = [];
-  for (const [state, items] of [["active", index.active], ["archive", index.archive]] as Array<[WorkbenchTopicState, ChangeIndexItem[]]>) {
-    for (const item of items) topics.push(await topicSummaryFromItem(memory, state, item));
-  }
-  return topics;
-}
-
-async function listHiddenTopicIds(memory: ResolvedMemory): Promise<Set<string>> {
-  if (!memory.projectId) return new Set();
-  const store = await WorkbenchStore.open(memory);
-  try {
-    return new Set(store.listHiddenTopicIds(memory.projectId));
-  } finally {
-    store.close();
-  }
-}
-
-async function listDeletedTopicIds(memory: ResolvedMemory): Promise<Set<string>> {
-  if (!memory.projectId) return new Set();
-  const store = await WorkbenchStore.open(memory);
-  try {
-    return new Set(store.listDeletedTopicIds(memory.projectId));
-  } finally {
-    store.close();
-  }
 }
 
 export async function topicSummaryFromItem(memory: ResolvedMemory, state: WorkbenchTopicState, item: ChangeIndexItem): Promise<WorkbenchTopicSummary> {
@@ -212,7 +118,7 @@ export async function selectTopicDetail(
   options: { threadMode?: TopicThreadDetailMode; threadLimit?: number } = {},
 ): Promise<WorkbenchTopicDetail | null> {
   const topic = topicId
-    ? topics.find((item) => item.id === topicId || item.name === topicId)
+    ? topics.find((item) => item.id === topicId || item.name === topicId || item.boundChangeId === topicId)
     : topics.find((item) => item.state === "active") ?? topics[0];
   if (!topic) return null;
 
@@ -221,7 +127,35 @@ export async function selectTopicDetail(
     const messages = threadMode === "none" || !memory.projectId
       ? []
       : await readConversationMessages(memory, topic.id, options.threadLimit ?? 100);
-    const threadItems = await buildThreadStreamFromMessages(memory, topic, messages, { includeChangeState: false });
+    let threadItems = await buildThreadStreamFromMessages(memory, topic, messages, { includeChangeState: false });
+    if (topic.boundChangeId) {
+      const boundTopic = await findChangeTopic(memory, topic.boundChangeId);
+      const boundDetail = boundTopic
+        ? await selectTopicDetail(project, memory, [boundTopic], boundTopic.id, { threadMode: "none" })
+        : null;
+      if (boundDetail) {
+        threadItems = await buildThreadStream(
+          memory,
+          topic,
+          boundDetail.runs,
+          boundDetail.validations,
+          boundDetail.audits,
+          project ? await listWorkbenchDecisions(memory, topic.boundChangeId) : [],
+          { messages, includeChangeState: false },
+        );
+        return {
+          ...boundDetail,
+          id: topic.id,
+          kind: "conversation",
+          name: topic.name,
+          title: topic.title,
+          boundChangeId: topic.boundChangeId,
+          createdAt: topic.createdAt,
+          updatedAt: topic.updatedAt,
+          threadItems,
+        };
+      }
+    }
     return {
       ...topic,
       change: null,
@@ -266,7 +200,7 @@ export async function selectTopicDetail(
   const threadItems = threadMode === "none"
     ? []
     : threadMode === "latest"
-      ? await readTopicThreadLogPage(memory, topic.path, { limit: options.threadLimit ?? 100 })
+      ? await readConversationThreadPage(memory, topic.path, { limit: options.threadLimit ?? 100 })
         .then((page) => buildThreadStreamFromMessages(memory, topic, page.entries, { includeChangeState: true }))
         .catch(() => [])
       : await buildThreadStream(memory, topic, runs, validations, audits, decisions);
@@ -290,6 +224,17 @@ export async function selectTopicDetail(
     audits,
     threadItems,
   };
+}
+
+async function findChangeTopic(memory: ResolvedMemory, changeId: string): Promise<WorkbenchTopicSummary | null> {
+  const index = await buildChangeIndex(memory);
+  for (const [state, items] of [["active", index.active], ["archive", index.archive]] as Array<[WorkbenchTopicState, ChangeIndexItem[]]>) {
+    for (const item of items) {
+      const topic = await topicSummaryFromItem(memory, state, item);
+      if (topic.id === changeId || topic.name === changeId) return topic;
+    }
+  }
+  return null;
 }
 
 async function readConversationMessages(memory: ResolvedMemory, conversationId: string, limit: number): Promise<import("../../types.js").TopicThreadEntry[]> {

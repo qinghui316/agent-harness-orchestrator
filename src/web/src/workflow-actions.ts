@@ -1,10 +1,7 @@
-import type { WorkbenchThreadActionType } from "../../workflow-actions/registry.js";
+﻿import type { WorkbenchThreadActionType } from "../../workflow-actions/registry.js";
 
 export type WorkflowActionPayloadSource = {
   changeId?: string;
-  decompositionPlanId?: string;
-  readinessManifestId?: string;
-  taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
   schedulerContractId?: string;
   schedulerDispatchDryRunId?: string;

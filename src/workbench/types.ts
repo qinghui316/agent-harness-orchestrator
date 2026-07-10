@@ -15,28 +15,8 @@ export type TopicThreadEventType =
   | "clarification.answer"
   | "clarification.skip";
 
-export type WorkbenchMessageMode = "chat" | "plan";
-export type TopicRoutingDecision = "same-topic" | "new-topic-required" | "clarify";
+export type WorkbenchMessageMode = "chat";
 export type WorkbenchWorkflowActionType = WorkflowActionType;
-
-export interface SuggestedAction {
-  actionType: Exclude<WorkbenchWorkflowActionType, "chat.ask" | "change.spec.accept" | "change.plan.accept" | "validate.run" | "audit.run">;
-  label: string;
-  requiresConfirmation: boolean;
-  prompt?: string;
-}
-
-export interface OrchestrationPlanCard {
-  title: string;
-  summary: string;
-  steps: Array<{
-    label: string;
-    description: string;
-    actionId?: string;
-    requiresConfirmation?: boolean;
-  }>;
-  warnings: string[];
-}
 
 export interface TopicThreadEntry {
   id: string;
@@ -55,7 +35,6 @@ export interface TopicThreadEntry {
   artifact?: string;
   error?: string;
   resultSummary?: string;
-  planCard?: OrchestrationPlanCard;
   activity?: AssistantTurnActivity[];
   blocks?: AssistantTurnBlock[];
   intake?: unknown;
@@ -99,7 +78,6 @@ export type AssistantTurnBlockKind =
   | "tool-result"
   | "file-change"
   | "reasoning-summary"
-  | "plan-card"
   | "workflow-evidence"
   | "usage"
   | "error";
@@ -110,7 +88,7 @@ export interface AssistantTurnBlock {
   sequence: number;
   kind: AssistantTurnBlockKind;
   timestamp: string;
-  source: "codex" | "aho" | "workflow" | "validation" | "audit" | "decision" | "legacy";
+  source: "codex" | "aho" | "workflow" | "validation" | "audit" | "decision";
   status?: string;
   title?: string;
   text?: string;
@@ -123,7 +101,6 @@ export interface AssistantTurnBlock {
   truncated?: boolean;
   itemId?: string;
   children?: AssistantTurnBlock[];
-  planCard?: OrchestrationPlanCard;
 }
 
 export type AssistantTurnActivity =
@@ -156,24 +133,13 @@ export interface WorkbenchCodexUserInputRequest {
   status: "pending" | "submitted";
 }
 
-export interface TopicRuntimeMetadata {
-  version: "1.0";
-  changeId: string;
-  codexSessionId: string | null;
-  codexCapabilityProfile?: "main-agent-goal-v1" | null;
-  updatedAt: string;
-}
-
 export interface TopicMessageResult {
   user: TopicThreadEntry;
   assistant: TopicThreadEntry | null;
   run: RunMetadata | null;
   codexSessionId: string | null;
   mode?: WorkbenchMessageMode;
-  routingDecision?: TopicRoutingDecision;
   assistantMessage?: string;
-  planCard?: OrchestrationPlanCard;
-  suggestedActions?: SuggestedAction[];
 }
 
 export type WorkbenchLiveEvent =
@@ -227,7 +193,7 @@ export interface TopicMessageInput {
   planHandoffIntent?: PlanHandoffIntent;
 }
 
-export type PlanHandoffAgentRoleId = "plan-session" | "planning-agent";
+export type PlanHandoffAgentRoleId = "planning-agent";
 export type PlanHandoffIntentKind = "execute-plan" | "revise-plan";
 
 export interface PlanHandoffIntent {
@@ -239,6 +205,7 @@ export interface PlanHandoffIntent {
 
 export interface ValidatedPlanHandoffIntent extends PlanHandoffIntent {
   planText: string;
+  sourceArtifact: string;
 }
 
 export interface WorkbenchWorkflowActionRequest {
@@ -247,9 +214,6 @@ export interface WorkbenchWorkflowActionRequest {
   prompt?: string;
   feedback?: string;
   proposalId?: string;
-  decompositionPlanId?: string;
-  readinessManifestId?: string;
-  taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
   schedulerContractId?: string;
   schedulerDispatchDryRunId?: string;

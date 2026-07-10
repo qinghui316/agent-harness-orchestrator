@@ -71,7 +71,11 @@ export function buildDemandAgentRunGraph(input: {
 
   const nodes = new Map<string, DemandAgentRunGraphNode>();
   const edges: DemandAgentRunGraphEdge[] = [];
-  const targetBase = { projectId: project?.id ?? null, conversationId: selectedTopic.id, changeId: selectedTopic.id };
+  const targetBase = {
+    projectId: project?.id ?? null,
+    conversationId: selectedTopic.kind === "conversation" ? selectedTopic.id : undefined,
+    changeId: selectedTopic.boundChangeId ?? (selectedTopic.kind === "change" ? selectedTopic.id : undefined),
+  };
 
   const mainStatus = graphStatusFromLifecycle(workpad.conversationLifecycle);
   addGraphNode(nodes, {
@@ -98,8 +102,8 @@ export function buildDemandAgentRunGraph(input: {
   const nodeList = [...nodes.values()];
   const nodeIds = new Set(nodeList.map((node) => node.id));
   return {
-    conversationId: selectedTopic.id,
-    changeId: selectedTopic.id,
+    conversationId: targetBase.conversationId ?? selectedTopic.id,
+    changeId: targetBase.changeId,
     title: selectedTopic.title,
     summary: `${nodes.size} 个 agent/tool 节点；项目维护不进入默认选中需求运行图。`,
     lanes: demandAgentRunGraphLanes(),

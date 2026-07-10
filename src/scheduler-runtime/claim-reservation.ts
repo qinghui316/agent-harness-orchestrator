@@ -40,7 +40,18 @@ export async function reserveSchedulerRuntimeClaims(
   await assertSourceHashes(memory, run.sourceArtifactHashes, state.sourceArtifactHashes, snapshot.sourceArtifactHashes);
   const existingForSnapshot = await findSchedulerClaimReservationForSnapshot(memory, changePath, run.id, snapshot.id);
   if (existingForSnapshot) {
-    throw new Error("Scheduler claim reservation already exists for this reconcile snapshot.");
+    if (
+      state.lastClaimReservationId !== existingForSnapshot.id
+      || state.lastClaimReservationSnapshotId !== snapshot.id
+    ) {
+      await writeSchedulerRuntimeState(memory, changePath, {
+        ...state,
+        lastClaimReservationId: existingForSnapshot.id,
+        lastClaimReservationSnapshotId: snapshot.id,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    return existingForSnapshot;
   }
 
   const now = new Date().toISOString();

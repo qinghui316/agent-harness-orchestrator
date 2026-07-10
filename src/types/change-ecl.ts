@@ -13,6 +13,7 @@ export interface ChangeMetadata {
   updatedAt: string;
   closedAt: string | null;
   archivePath: string | null;
+  originConversationId?: string;
 }
 
 export type ReviewStatus = "pending" | "approved" | "approved-with-notes" | "blocked" | "missing" | "unknown";

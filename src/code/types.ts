@@ -15,12 +15,10 @@ export interface CodeRunOptions {
   live?: CodeRunLiveCallbacks;
 }
 
-export type CodeExecutionGateMode = "single-change-readiness" | "taskqueue-proposal" | "scheduler-claim-reservation" | "scheduler-claim-rework" | "rework";
+export type CodeExecutionGateMode = "workflow-graph" | "scheduler-claim-reservation" | "scheduler-claim-rework" | "rework";
 
 export interface CodeExecutionGateOptions {
   mode?: CodeExecutionGateMode;
-  readinessManifestId?: string;
-  taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
   schedulerRunId?: string;
   schedulerClaimReservationId?: string;
@@ -37,9 +35,6 @@ export interface CodeExecutionGateVerdict {
   allowed: boolean;
   mode: CodeExecutionGateMode;
   changeId: string;
-  readinessManifestId?: string;
-  decompositionPlanId?: string;
-  taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
   schedulerRunId?: string;
   schedulerClaimReservationId?: string;

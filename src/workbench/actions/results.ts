@@ -1,4 +1,4 @@
-import { isMainAgentExecutionAction, normalizeMainAgentExecutionAction } from "../../workflow-actions/main-agent-execution.js";
+﻿import { isMainAgentExecutionAction, normalizeMainAgentExecutionAction } from "../../workflow-actions/main-agent-execution.js";
 
 export function extractRunId(result: unknown): string | undefined {
   if (isRecord(result) && isRecord(result.run) && typeof result.run.id === "string") return result.run.id;
@@ -127,75 +127,6 @@ export function summarizeActionResult(actionType: string, result: unknown): stri
     const status = typeof result.taskRun.status === "string" ? result.taskRun.status : "completed";
     return `TaskRun for ${taskId} finished with status ${status}.`;
   }
-  if (actionType === "planning.decomposition.assess-readiness" && isRecord(result) && isRecord(result.manifest)) {
-    return typeof result.manifest.status === "string"
-      ? `Decomposition readiness assessed: ${result.manifest.status}. No execution was started.`
-      : "Decomposition readiness assessed. No execution was started.";
-  }
-  if (actionType === "planning.taskqueue.propose" && isRecord(result) && isRecord(result.proposal)) {
-    return typeof result.proposal.id === "string"
-      ? `TaskQueueProposal ${result.proposal.id} generated. No execution was started.`
-      : "TaskQueueProposal generated. No execution was started.";
-  }
-  if (actionType === "planning.scheduler.plan.prepare" && isRecord(result)) {
-    if (isRecord(result.launchBrief) && typeof result.launchBrief.summary === "string") {
-      return `${result.launchBrief.summary} No execution was started.`;
-    }
-    if (typeof result.blockedSummary === "string") {
-      return `Parallel plan preparation blocked: ${result.blockedSummary}. No execution was started.`;
-    }
-    return "Parallel execution plan prepared. No execution was started.";
-  }
-  if (actionType === "planning.workflowgraph.compile" && isRecord(result) && isRecord(result.graph)) {
-    return typeof result.graph.id === "string"
-      ? `WorkflowGraphPlan ${result.graph.id} compiled. No execution was started.`
-      : "WorkflowGraphPlan compiled. No execution was started.";
-  }
-  if (actionType === "planning.scheduler.contract.compile" && isRecord(result) && isRecord(result.contract)) {
-    return typeof result.contract.id === "string"
-      ? `SchedulerContract ${result.contract.id} compiled. No execution was started.`
-      : "SchedulerContract compiled. No execution was started.";
-  }
-  if (actionType === "planning.scheduler.dispatch.dry-run" && isRecord(result) && isRecord(result.dryRun)) {
-    return typeof result.dryRun.id === "string"
-      ? `Scheduler dispatch dry-run ${result.dryRun.id} generated. No execution was started.`
-      : "Scheduler dispatch dry-run generated. No execution was started.";
-  }
-  if (actionType === "planning.scheduler.worker-plan.compile" && isRecord(result) && isRecord(result.workerPlan)) {
-    return typeof result.workerPlan.id === "string"
-      ? `Scheduler worker session plan ${result.workerPlan.id} compiled. No execution was started.`
-      : "Scheduler worker session plan compiled. No execution was started.";
-  }
-  if (actionType === "planning.scheduler.claim-reconcile.compile" && isRecord(result) && isRecord(result.claimReconcilePlan)) {
-    return typeof result.claimReconcilePlan.id === "string"
-      ? `Scheduler claim/reconcile plan ${result.claimReconcilePlan.id} compiled. No execution was started.`
-      : "Scheduler claim/reconcile plan compiled. No execution was started.";
-  }
-  if (actionType === "planning.scheduler.launch-preflight.check" && isRecord(result) && isRecord(result.launchPreflight)) {
-    return typeof result.launchPreflight.id === "string"
-      ? `Scheduler launch preflight ${result.launchPreflight.id} checked. No execution was started.`
-      : "Scheduler launch preflight checked. No execution was started.";
-  }
-  if (actionType === "planning.scheduler.run.prepare" && isRecord(result) && isRecord(result.schedulerRun)) {
-    return typeof result.schedulerRun.id === "string"
-      ? `SchedulerRun ${result.schedulerRun.id} prepared. No execution was started.`
-      : "SchedulerRun prepared. No execution was started.";
-  }
-  if (actionType === "planning.scheduler.runtime.initialize" && isRecord(result) && isRecord(result.runtimeState)) {
-    return typeof result.runtimeState.schedulerRunId === "string"
-      ? `Scheduler runtime shell for ${result.runtimeState.schedulerRunId} initialized. No execution was started.`
-      : "Scheduler runtime shell initialized. No execution was started.";
-  }
-  if (actionType === "planning.scheduler.runtime.reconcile" && isRecord(result) && isRecord(result.reconcileSnapshot)) {
-    return typeof result.reconcileSnapshot.id === "string"
-      ? `Scheduler reconcile snapshot ${result.reconcileSnapshot.id} generated. No execution was started.`
-      : "Scheduler reconcile snapshot generated. No execution was started.";
-  }
-  if (actionType === "planning.scheduler.runtime.reserve-claims" && isRecord(result) && isRecord(result.claimReservation)) {
-    return typeof result.claimReservation.id === "string"
-      ? `Scheduler claim reservation ${result.claimReservation.id} recorded. No execution was started.`
-      : "Scheduler claim reservation recorded. No execution was started.";
-  }
   if (actionType === "planning.scheduler.worker.start-first" && isRecord(result) && isRecord(result.workerStart)) {
     return typeof result.workerStart.id === "string"
       ? `Scheduler first coder worker ${result.workerStart.id} started.`
@@ -310,27 +241,9 @@ export function labelForAction(actionType: string): string {
   if (mainAgentExecutionAction === "main-agent.execution.reconcile") return "Main-agent execution reconciled";
 
   switch (actionType) {
-    case "change.spec.propose": return "Spec proposal generated";
-    case "change.spec.accept": return "Spec proposal accepted";
-    case "change.plan.propose": return "Plan proposal generated";
-    case "change.plan.accept": return "Plan proposal accepted";
-    case "planning.decompose": return "DecompositionPlan drafted";
-    case "planning.decomposition.confirm": return "DecompositionPlan confirmed";
-    case "planning.decomposition.assess-readiness": return "Decomposition readiness assessed";
-    case "planning.taskqueue.propose": return "TaskQueueProposal generated";
     case "maintenance.canonical-update.decision.record": return "Maintenance canonical update decision recorded";
     case "maintenance.canonical-patch.application-gate.record": return "Maintenance canonical patch application gate recorded";
     case "maintenance.canonical-patch.apply": return "Maintenance canonical patch applied";
-    case "planning.scheduler.plan.prepare": return "Parallel execution plan prepared";
-    case "planning.scheduler.contract.compile": return "SchedulerContract compiled";
-    case "planning.scheduler.dispatch.dry-run": return "Scheduler dispatch dry-run generated";
-    case "planning.scheduler.worker-plan.compile": return "Scheduler worker session plan compiled";
-    case "planning.scheduler.claim-reconcile.compile": return "Scheduler claim/reconcile plan compiled";
-    case "planning.scheduler.launch-preflight.check": return "Scheduler launch preflight checked";
-    case "planning.scheduler.run.prepare": return "SchedulerRun prepared";
-    case "planning.scheduler.runtime.initialize": return "Scheduler runtime shell initialized";
-    case "planning.scheduler.runtime.reconcile": return "Scheduler runtime reconciled";
-    case "planning.scheduler.runtime.reserve-claims": return "Scheduler runtime claims reserved";
     case "planning.scheduler.worker.start-first": return "Scheduler first coder worker started";
     case "planning.scheduler.worker.start-next": return "Scheduler next coder worker started";
     case "planning.scheduler.worker.reconcile-result": return "Scheduler first coder worker result reconciled";
@@ -346,8 +259,7 @@ export function labelForAction(actionType: string): string {
     case "planning.scheduler.integration-outcome.reconcile": return "Scheduler integration outcome reconciled";
     case "planning.scheduler.run.complete": return "SchedulerRun completion recorded";
     case "planning.scheduler.run.close-blocked": return "SchedulerRun closeout recorded";
-    case "planning.workflowgraph.compile": return "WorkflowGraphPlan compiled";
-    case "planning.taskqueue.confirm-start": return "TaskQueueProposal confirmed and started";
+    case "workflow.run.start": return "Accepted workflow started";
     case "orchestrator.evaluate": return "Main orchestrator evaluated";
     case "orchestrator.pump": return "Main orchestrator pumped available demands";
     case "demand.worker.enqueue": return "Demand enqueued";

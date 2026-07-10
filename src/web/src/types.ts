@@ -491,7 +491,7 @@ export type ParentAgentTranscript = {
   };
 };
 
-export type PlanHandoffAgentRoleId = "plan-session" | "planning-agent";
+export type PlanHandoffAgentRoleId = "planning-agent";
 export type PlanHandoffIntentKind = "execute-plan" | "revise-plan";
 export type PlanHandoffIntent = {
   sourceRunId: string;
@@ -520,9 +520,6 @@ export type WorkpadNextAction = {
   requiresConfirmation: boolean;
   actionType?: ThreadStreamAction["actionType"];
   approvalId?: string;
-  decompositionPlanId?: string;
-  readinessManifestId?: string;
-  taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
   schedulerContractId?: string;
   schedulerDispatchDryRunId?: string;
@@ -580,9 +577,6 @@ export type WorkbenchTaskNextAction = {
   actionType?: ThreadStreamAction["actionType"];
   taskIds?: string[];
   taskRunId?: string;
-  decompositionPlanId?: string;
-  readinessManifestId?: string;
-  taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
   schedulerContractId?: string;
   schedulerDispatchDryRunId?: string;
@@ -666,11 +660,7 @@ export type WorkbenchCodingPackage = {
   coveredAcIds: string[];
   missingEvidenceAcIds: string[];
   recommendedRoleId: string;
-  executionUnit: "single-agent" | "future-parallel-candidate";
   assignmentStatus: "suggested" | "not-assigned";
-  splitReadiness: "likely-single" | "candidate" | "unknown";
-  splitRationale: string;
-  mergeRisk: string;
   status: "missing" | "suggested" | "blocked" | "evidence-ready" | "readonly";
 };
 export type WorkbenchTaskQueueSummary = {
@@ -683,10 +673,7 @@ export type WorkbenchTaskQueueSummary = {
   failureReason?: string;
   pausedReason?: string;
   workflowRunId?: string;
-  taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
-  readinessManifestId?: string;
-  decompositionPlanId?: string;
   nextAction?: WorkbenchTaskNextAction;
   items: Array<{
     id: string;
@@ -739,9 +726,6 @@ export type Workpad = {
   requiresUserInputReason?: string;
   scopedFeedbackTarget?: Record<string, unknown>;
   postArchiveEvolutionCandidate?: { changeId: string; status: "candidate"; sources: string[]; summary: string };
-  decompositionPlan?: DecompositionPlanSummary;
-  decompositionReadiness?: DecompositionReadinessSummary;
-  taskQueueProposal?: TaskQueueProposalSummary;
   workflowGraphPlan?: WorkflowGraphPlanSummary;
   schedulerContract?: SchedulerContractSummary;
   schedulerDispatchDryRun?: SchedulerDispatchDryRunSummary;
@@ -902,57 +886,12 @@ export type Workpad = {
     warnings: string[];
   };
 };
-export type DecompositionPlanSummary = {
-  id: string;
-  changeId: string;
-  status: "draft" | "confirmed" | "superseded" | "rejected";
-  recommendation: "single-change" | "taskgraph-sequential" | "taskgraph-parallel-candidate" | "multi-change-candidate" | "needs-clarification";
-  rationale: string;
-  unitCount: number;
-  dependencyCount: number;
-  conflictScopeCount: number;
-  riskSummary: string;
-  openQuestionCount: number;
-  artifact?: string;
-  markdownArtifact?: string;
-  updatedAt: string;
-};
-export type DecompositionReadinessSummary = {
-  id: string;
-  changeId: string;
-  decompositionPlanId: string;
-  status: "ready-for-single-change" | "ready-for-sequential-taskqueue-proposal" | "ready-for-scheduler-contract" | "blocked-parallel-guardrails" | "blocked-multi-change-boundary" | "blocked-needs-clarification" | "invalid";
-  recommendation: DecompositionPlanSummary["recommendation"];
-  schedulerEligible: boolean;
-  nextAllowedAction: "code.run" | "taskqueue.proposal" | "scheduler.contract" | "clarification.answer" | "none";
-  guardrailStatus: "passed" | "blocked" | "failed";
-  unitCount: number;
-  artifact?: string;
-  markdownArtifact?: string;
-  updatedAt: string;
-};
-export type TaskQueueProposalSummary = {
-  id: string;
-  changeId: string;
-  decompositionPlanId: string;
-  readinessManifestId: string;
-  status: "draft" | "confirmed" | "started" | "superseded" | "rejected";
-  queueMode: "sequential";
-  itemCount: number;
-  dependencyCount: number;
-  conflictScopeCount: number;
-  artifact?: string;
-  markdownArtifact?: string;
-  updatedAt: string;
-};
 export type WorkflowGraphPlanSummary = {
   id: string;
   changeId: string;
-  taskQueueProposalId?: string;
   schedulerContractId?: string;
   schedulerWorkerPlanId?: string;
   schedulerClaimReconcilePlanId?: string;
-  readinessManifestId: string;
   status: "compiled" | "superseded" | "rejected";
   graphMode: "sequential-v1" | "ready-set-v1";
   nodeCount: number;
@@ -966,8 +905,6 @@ export type WorkflowGraphPlanSummary = {
 export type SchedulerContractSummary = {
   id: string;
   changeId: string;
-  decompositionPlanId: string;
-  readinessManifestId: string;
   status: "compiled" | "superseded" | "rejected";
   schedulerMode: "parallel-readiness-v1";
   nodeCount: number;
@@ -1520,22 +1457,13 @@ export type SchedulerReconcileSnapshotSummary = {
   markdownArtifact?: string;
   updatedAt: string;
 };
-export type PlanCard = {
-  title: string;
-  summary: string;
-  steps: Array<{ label: string; description: string; actionId?: string; requiresConfirmation?: boolean }>;
-  warnings: string[];
-};
-export type ThreadEvent = { id: string; type: string; label: string; timestamp?: string; status?: string; runId?: string; planCard?: PlanCard };
+export type ThreadEvent = { id: string; type: string; label: string; timestamp?: string; status?: string; runId?: string };
 export type ThreadStreamAction = {
   actionType: WorkbenchThreadActionType;
   label: string;
   enabled: boolean;
   requiresConfirmation: boolean;
   disabledReason?: string;
-  decompositionPlanId?: string;
-  readinessManifestId?: string;
-  taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
   schedulerContractId?: string;
   schedulerDispatchDryRunId?: string;
@@ -1580,7 +1508,7 @@ export type ThreadStreamAction = {
 };
 export type ThreadStreamItem = {
   id: string;
-  kind: "user-message" | "assistant-turn" | "assistant-message" | "plan-card" | "workflow-summary" | "evidence" | "decision" | "change-state" | "intake-summary" | "clarification";
+  kind: "user-message" | "assistant-turn" | "assistant-message" | "workflow-summary" | "evidence" | "decision" | "change-state" | "intake-summary" | "clarification";
   label: string;
   timestamp?: string;
   body?: string;
@@ -1593,7 +1521,6 @@ export type ThreadStreamItem = {
   actionType?: string;
   actionRunId?: string;
   semanticKey?: string;
-  planCard?: PlanCard;
   actions?: ThreadStreamAction[];
   activity?: LiveTurnEvent[];
   evidence?: ThreadStreamEvidence[];
@@ -1650,9 +1577,6 @@ export type DecisionAction = {
     message?: string;
   };
   actionType?: ThreadStreamAction["actionType"];
-  decompositionPlanId?: string;
-  readinessManifestId?: string;
-  taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
   schedulerContractId?: string;
   schedulerDispatchDryRunId?: string;
@@ -1867,9 +1791,9 @@ export type AssistantTurnBlock = {
   id: string;
   runId?: string;
   sequence: number;
-  kind: "prose" | "status" | "command-group" | "command" | "tool-result" | "file-change" | "reasoning-summary" | "plan-card" | "workflow-evidence" | "usage" | "error";
+  kind: "prose" | "status" | "command-group" | "command" | "tool-result" | "file-change" | "reasoning-summary" | "workflow-evidence" | "usage" | "error";
   timestamp: string;
-  source: "codex" | "aho" | "workflow" | "validation" | "audit" | "decision" | "legacy";
+  source: "codex" | "aho" | "workflow" | "validation" | "audit" | "decision";
   status?: string;
   title?: string;
   text?: string;
@@ -1882,7 +1806,6 @@ export type AssistantTurnBlock = {
   truncated?: boolean;
   itemId?: string;
   children?: AssistantTurnBlock[];
-  planCard?: PlanCard;
 };
 export type LiveTurnEvent =
   | { kind: "status"; label: string; detail?: string }
@@ -1919,7 +1842,6 @@ export type TopicMessageEntry = {
   artifact?: string;
   error?: string;
   resultSummary?: string;
-  planCard?: PlanCard;
   activity?: LiveTurnEvent[];
   blocks?: AssistantTurnBlock[];
   intake?: ThreadStreamItem["intake"];
@@ -1927,6 +1849,3 @@ export type TopicMessageEntry = {
   contextRefs?: TopicFileReference[];
   attachments?: TopicAttachment[];
 };
-
-
-

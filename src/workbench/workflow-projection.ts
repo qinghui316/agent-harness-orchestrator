@@ -1,4 +1,4 @@
-import type { ReadySetWorkflowGraphPlan, ResolvedMemory, WorkflowRunSummary } from "../types/index.js";
+﻿import type { ReadySetWorkflowGraphPlan, ResolvedMemory, WorkflowRunSummary } from "../types/index.js";
 import {
   readSchedulerReconcileSnapshotProjection,
   readSchedulerReconcileSnapshotByIdProjection,
@@ -51,16 +51,10 @@ import {
 } from "../scheduler-runtime/manager.js";
 import { readIntegrationCheck } from "../integration-check/manager.js";
 import type { SchedulerCurrentTransition } from "../workflow-actions/scheduler-current-transition.js";
+import type { WorkbenchThreadActionType } from "../workflow-actions/registry.js";
 import {
-  readLatestDecompositionPlan,
-  readLatestDecompositionReadinessManifest,
-  readLatestTaskQueueProposal,
   readLatestWorkflowGraphPlan,
   readWorkflowGraphPlan,
-  type DecompositionPlan,
-  type DecompositionReadinessManifest,
-  type DecompositionRecommendation,
-  type TaskQueueProposal,
   type WorkflowGraphPlan,
 } from "../workflow-artifacts/manager.js";
 import {
@@ -85,62 +79,15 @@ import {
   type SchedulerContract,
 } from "../workflow-scheduler/manager.js";
 
-export interface WorkbenchDecompositionPlanSummary {
-  id: string;
-  changeId: string;
-  status: DecompositionPlan["status"];
-  recommendation: DecompositionRecommendation;
-  rationale: string;
-  unitCount: number;
-  dependencyCount: number;
-  conflictScopeCount: number;
-  riskSummary: string;
-  openQuestionCount: number;
-  artifact?: string;
-  markdownArtifact?: string;
-  updatedAt: string;
-}
-
-export interface WorkbenchDecompositionReadinessSummary {
-  id: string;
-  changeId: string;
-  decompositionPlanId: string;
-  status: DecompositionReadinessManifest["status"];
-  recommendation: DecompositionRecommendation;
-  schedulerEligible: boolean;
-  nextAllowedAction: DecompositionReadinessManifest["nextAllowedAction"];
-  guardrailStatus: "passed" | "blocked" | "failed";
-  unitCount: number;
-  artifact?: string;
-  markdownArtifact?: string;
-  updatedAt: string;
-}
-
-export interface WorkbenchTaskQueueProposalSummary {
-  id: string;
-  changeId: string;
-  decompositionPlanId: string;
-  readinessManifestId: string;
-  status: TaskQueueProposal["status"];
-  queueMode: TaskQueueProposal["queueMode"];
-  itemCount: number;
-  dependencyCount: number;
-  conflictScopeCount: number;
-  artifact?: string;
-  markdownArtifact?: string;
-  updatedAt: string;
-}
-
 export interface WorkbenchWorkflowGraphPlanSummary {
   id: string;
   changeId: string;
   status: WorkflowGraphPlan["status"];
   graphMode: WorkflowGraphPlan["graphMode"];
-  taskQueueProposalId?: string;
+  authoringContractVersion?: "1.0";
   schedulerContractId?: string;
   schedulerWorkerPlanId?: string;
   schedulerClaimReconcilePlanId?: string;
-  readinessManifestId: string;
   nodeCount: number;
   edgeCount: number;
   waveCount?: number;
@@ -154,8 +101,7 @@ export interface WorkbenchSchedulerContractSummary {
   changeId: string;
   status: SchedulerContract["status"];
   schedulerMode: SchedulerContract["schedulerMode"];
-  decompositionPlanId: string;
-  readinessManifestId: string;
+  workflowGraphPlanId: string;
   nodeCount: number;
   waveCount: number;
   dependencyCount: number;
@@ -733,41 +679,7 @@ export interface WorkbenchSchedulerReconcileSnapshotSummary {
   updatedAt: string;
 }
 
-type WorkflowProjectionActionType =
-  | "intake.scan"
-  | "intake.reanalyze"
-  | "planning.decompose"
-  | "planning.decomposition.confirm"
-  | "planning.decomposition.assess-readiness"
-  | "planning.taskqueue.propose"
-  | "planning.scheduler.plan.prepare"
-  | "planning.scheduler.contract.compile"
-  | "planning.scheduler.dispatch.dry-run"
-  | "planning.scheduler.worker-plan.compile"
-  | "planning.scheduler.claim-reconcile.compile"
-  | "planning.scheduler.launch-preflight.check"
-  | "planning.scheduler.run.prepare"
-  | "planning.scheduler.runtime.initialize"
-  | "planning.scheduler.runtime.reconcile"
-  | "planning.scheduler.runtime.reserve-claims"
-  | "planning.scheduler.worker.start-first"
-  | "planning.scheduler.worker.start-next"
-  | "planning.scheduler.worker.reconcile-result"
-  | "planning.scheduler.worker.validate-first"
-  | "planning.scheduler.worker.audit-first"
-  | "planning.scheduler.worker.rework-plan.compile"
-  | "planning.scheduler.worker.rework-start-first"
-  | "planning.scheduler.worker.rework-reconcile-result"
-  | "planning.scheduler.worker.rework-validate-first"
-  | "planning.scheduler.worker.rework-audit-first"
-  | "planning.scheduler.integration-candidate.compile"
-  | "planning.scheduler.integration-check.run"
-  | "planning.scheduler.integration-outcome.reconcile"
-  | "planning.scheduler.run.complete"
-  | "planning.scheduler.run.close-blocked"
-  | "planning.workflowgraph.compile"
-  | "planning.taskqueue.confirm-start"
-  | "code.run";
+type WorkflowProjectionActionType = WorkbenchThreadActionType;
 
 export interface WorkbenchTypedWorkflowNextAction {
   id: string;
@@ -777,9 +689,6 @@ export interface WorkbenchTypedWorkflowNextAction {
   enabled: boolean;
   requiresConfirmation: boolean;
   actionType: WorkflowProjectionActionType;
-  decompositionPlanId?: string;
-  readinessManifestId?: string;
-  taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
   schedulerContractId?: string;
   schedulerDispatchDryRunId?: string;
@@ -833,69 +742,6 @@ export interface TypedWorkflowProjectionIntake {
   openQuestions: unknown[];
 }
 
-export async function readLatestDecompositionPlanSummary(memory: ResolvedMemory, changePath: string): Promise<WorkbenchDecompositionPlanSummary | null> {
-  const plan = await readLatestDecompositionPlan(memory, changePath).catch(() => null);
-  if (!plan) return null;
-  return {
-    id: plan.id,
-    changeId: plan.changeId,
-    status: plan.status,
-    recommendation: plan.recommendation,
-    rationale: plan.rationale,
-    unitCount: plan.units.length,
-    dependencyCount: plan.dependencies.length,
-    conflictScopeCount: plan.conflictScopes.length,
-    riskSummary: plan.riskSummary,
-    openQuestionCount: plan.openQuestions.length,
-    artifact: plan.artifact,
-    markdownArtifact: plan.markdownArtifact,
-    updatedAt: plan.updatedAt,
-  };
-}
-
-export async function readLatestDecompositionReadinessSummary(memory: ResolvedMemory, changePath: string): Promise<WorkbenchDecompositionReadinessSummary | null> {
-  const manifest = await readLatestDecompositionReadinessManifest(memory, changePath).catch(() => null);
-  if (!manifest) return null;
-  const guardrailStatus = manifest.guardrails.some((item) => item.status === "failed")
-    ? "failed"
-    : manifest.guardrails.some((item) => item.status === "blocked")
-      ? "blocked"
-      : "passed";
-  return {
-    id: manifest.id,
-    changeId: manifest.changeId,
-    decompositionPlanId: manifest.decompositionPlanId,
-    status: manifest.status,
-    recommendation: manifest.recommendation,
-    schedulerEligible: manifest.schedulerEligible,
-    nextAllowedAction: manifest.nextAllowedAction,
-    guardrailStatus,
-    unitCount: manifest.units.length,
-    artifact: manifest.artifact,
-    markdownArtifact: manifest.markdownArtifact,
-    updatedAt: manifest.updatedAt,
-  };
-}
-
-export async function readLatestTaskQueueProposalSummary(memory: ResolvedMemory, changePath: string): Promise<WorkbenchTaskQueueProposalSummary | null> {
-  const proposal = await readLatestTaskQueueProposal(memory, changePath).catch(() => null);
-  if (!proposal) return null;
-  return {
-    id: proposal.id,
-    changeId: proposal.changeId,
-    decompositionPlanId: proposal.decompositionPlanId,
-    readinessManifestId: proposal.readinessManifestId,
-    status: proposal.status,
-    queueMode: proposal.queueMode,
-    itemCount: proposal.items.length,
-    dependencyCount: proposal.dependencies.length,
-    conflictScopeCount: proposal.conflictScopes.length,
-    artifact: proposal.artifact,
-    markdownArtifact: proposal.markdownArtifact,
-    updatedAt: proposal.updatedAt,
-  };
-}
-
 export async function readLatestWorkflowGraphPlanSummary(memory: ResolvedMemory, changePath: string): Promise<WorkbenchWorkflowGraphPlanSummary | null> {
   const graph = await readLatestWorkflowGraphPlan(memory, changePath).catch(() => null);
   if (!graph) return null;
@@ -904,11 +750,10 @@ export async function readLatestWorkflowGraphPlanSummary(memory: ResolvedMemory,
     changeId: graph.changeId,
     status: graph.status,
     graphMode: graph.graphMode,
-    taskQueueProposalId: graph.graphMode === "sequential-v1" ? graph.taskQueueProposalId : undefined,
+    authoringContractVersion: graph.authoringContractVersion,
     schedulerContractId: graph.graphMode === "ready-set-v1" ? graph.schedulerContractId : undefined,
     schedulerWorkerPlanId: graph.graphMode === "ready-set-v1" ? graph.schedulerWorkerPlanId : undefined,
     schedulerClaimReconcilePlanId: graph.graphMode === "ready-set-v1" ? graph.schedulerClaimReconcilePlanId : undefined,
-    readinessManifestId: graph.readinessManifestId,
     nodeCount: graph.nodes.length,
     edgeCount: graph.edges.length,
     waveCount: graph.graphMode === "ready-set-v1" ? graph.waves.length : undefined,
@@ -926,8 +771,7 @@ export async function readLatestSchedulerContractSummary(memory: ResolvedMemory,
     changeId: contract.changeId,
     status: contract.status,
     schedulerMode: contract.schedulerMode,
-    decompositionPlanId: contract.decompositionPlanId,
-    readinessManifestId: contract.readinessManifestId,
+    workflowGraphPlanId: contract.workflowGraphPlanId,
     nodeCount: contract.nodes.length,
     waveCount: contract.waves.length,
     dependencyCount: contract.edges.length,
@@ -1727,18 +1571,6 @@ export async function readSchedulerReconcileSnapshotSummary(memory: ResolvedMemo
   };
 }
 
-export function readDecompositionPlanProjection(memory: ResolvedMemory, changePath: string): Promise<DecompositionPlan | null> {
-  return readLatestDecompositionPlan(memory, changePath).catch(() => null);
-}
-
-export function readDecompositionReadinessProjection(memory: ResolvedMemory, changePath: string): Promise<DecompositionReadinessManifest | null> {
-  return readLatestDecompositionReadinessManifest(memory, changePath).catch(() => null);
-}
-
-export function readTaskQueueProposalProjection(memory: ResolvedMemory, changePath: string): Promise<TaskQueueProposal | null> {
-  return readLatestTaskQueueProposal(memory, changePath).catch(() => null);
-}
-
 export function readWorkflowGraphPlanProjection(memory: ResolvedMemory, changePath: string, workflowGraphPlanId?: string): Promise<WorkflowGraphPlan | null> {
   return workflowGraphPlanId
     ? readWorkflowGraphPlan(memory, changePath, workflowGraphPlanId).catch(() => null)
@@ -1847,9 +1679,6 @@ export function buildTypedWorkflowNextAction(input: {
   topic: TypedWorkflowProjectionTopic;
   readiness: TypedWorkflowProjectionReadiness;
   intake?: TypedWorkflowProjectionIntake;
-  decompositionPlan?: WorkbenchDecompositionPlanSummary | null;
-  decompositionReadiness?: WorkbenchDecompositionReadinessSummary | null;
-  taskQueueProposal?: WorkbenchTaskQueueProposalSummary | null;
   workflowGraphPlan?: WorkbenchWorkflowGraphPlanSummary | null;
   schedulerContract?: WorkbenchSchedulerContractSummary | null;
   schedulerDispatchDryRun?: WorkbenchSchedulerDispatchDryRunSummary | null;
@@ -1880,7 +1709,7 @@ export function buildTypedWorkflowNextAction(input: {
   schedulerIntegrationCandidateNeedsRefresh?: boolean;
   workflowRun?: WorkflowRunSummary | null;
 }): WorkbenchTypedWorkflowNextAction {
-  const { topic, readiness, intake, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, schedulerWorkerAudit, schedulerWorkerReworkPlan, schedulerWorkerReworkStart, schedulerWorkerReworkResult, schedulerWorkerReworkValidation, schedulerWorkerReworkAudit, schedulerWorkerPaths = [], schedulerIntegrationCandidate, schedulerIntegrationCheckHandoff, schedulerIntegrationOutcome, schedulerRunCompletion, schedulerRunBlockedCloseout, schedulerTransition, schedulerIntegrationCandidateNeedsRefresh: schedulerCandidateNeedsRefresh, workflowRun } = input;
+  const { topic, readiness, intake, workflowGraphPlan, schedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, schedulerWorkerAudit, schedulerWorkerReworkPlan, schedulerWorkerReworkStart, schedulerWorkerReworkResult, schedulerWorkerReworkValidation, schedulerWorkerReworkAudit, schedulerWorkerPaths = [], schedulerIntegrationCandidate, schedulerIntegrationCheckHandoff, schedulerIntegrationOutcome, schedulerRunCompletion, schedulerRunBlockedCloseout, schedulerTransition, schedulerIntegrationCandidateNeedsRefresh: schedulerCandidateNeedsRefresh, workflowRun } = input;
   if (!readiness.specReady && !topic.runs.some((run) => run.runtime === "intake-scan")) {
     return workflowNextAction("intake.scan", "分析需求", "先只读扫描项目，整理当前理解、相关文件和待确认问题。", false);
   }
@@ -1894,50 +1723,29 @@ export function buildTypedWorkflowNextAction(input: {
       disabledReason: "项目规则和计划内容应由 Agent 读取项目文档后处理，Workbench 不再提供工程化 planning action。",
     };
   }
-  if (!decompositionPlan) {
-    return workflowNextAction("planning.decompose", "生成拆分提案", "根据已确认方案生成 DecompositionPlan；不会启动执行。");
-  }
-  if (decompositionPlan.status === "draft") {
-    return { ...workflowNextAction("planning.decomposition.confirm", "确认拆分方向", "确认这个 DecompositionPlan；不会启动执行。"), decompositionPlanId: decompositionPlan.id };
-  }
-  if (decompositionPlan.status === "confirmed" && decompositionReadiness?.decompositionPlanId !== decompositionPlan.id) {
-    return { ...workflowNextAction("planning.decomposition.assess-readiness", "检查执行边界", "生成 DecompositionReadinessManifest；不会启动执行。"), decompositionPlanId: decompositionPlan.id };
-  }
-  if (decompositionReadiness?.nextAllowedAction === "code.run") {
-    return { ...workflowNextAction("code.run", "运行 Code", "readiness 已授权单 Change code.run。"), readinessManifestId: decompositionReadiness.id };
-  }
-  if (decompositionReadiness?.nextAllowedAction === "taskqueue.proposal") {
-    if (!taskQueueProposal || taskQueueProposal.readinessManifestId !== decompositionReadiness.id || ["superseded", "rejected"].includes(taskQueueProposal.status)) {
-      return { ...workflowNextAction("planning.taskqueue.propose", "生成 TaskQueue 提案", "生成顺序 TaskQueueProposal；不会启动执行。"), readinessManifestId: decompositionReadiness.id };
-    }
-    if (!workflowGraphPlan || workflowGraphPlan.graphMode !== "sequential-v1" || workflowGraphPlan.taskQueueProposalId !== taskQueueProposal.id || workflowGraphPlan.readinessManifestId !== decompositionReadiness.id) {
-      return { ...workflowNextAction("planning.workflowgraph.compile", "编译执行图", "生成 versioned WorkflowGraphPlan；不会启动执行。"), taskQueueProposalId: taskQueueProposal.id, readinessManifestId: decompositionReadiness.id };
-    }
-    if (!workflowRun || workflowRun.workflowGraphPlanId !== workflowGraphPlan.id) {
+  const authoredGraph = workflowGraphPlan?.authoringContractVersion === "1.0" ? workflowGraphPlan : null;
+  if (authoredGraph?.graphMode === "sequential-v1") {
+    if (workflowRun?.workflowGraphPlanId === authoredGraph.id) {
       return {
-        ...workflowNextAction("planning.taskqueue.confirm-start", "确认启动 TaskQueue", "重新校验 graph/proposal/readiness 后创建 TaskQueue/TaskRun 并开始顺序执行。"),
-        taskQueueProposalId: taskQueueProposal.id,
-        workflowGraphPlanId: workflowGraphPlan.id,
-        readinessManifestId: decompositionReadiness.id,
-        decompositionPlanId: taskQueueProposal.decompositionPlanId,
-      };
-    }
-  }
-  if (decompositionReadiness?.nextAllowedAction === "scheduler.contract") {
-    if (!decompositionPlan || decompositionPlan.id !== decompositionReadiness.decompositionPlanId) {
-      return {
-        ...workflowNextAction("planning.decomposition.assess-readiness", "等待执行边界", "当前 readiness 与 DecompositionPlan 不匹配。"),
+        ...workflowNextAction("workflow.run.start", "执行计划已启动", "当前已接受的顺序执行图已经启动。"),
         enabled: false,
-        disabledReason: "当前 DecompositionReadinessManifest 与 DecompositionPlan 不匹配。",
+        disabledReason: "当前 WorkflowGraphPlan 已有运行记录。",
+        workflowGraphPlanId: authoredGraph.id,
       };
     }
+    return {
+      ...workflowNextAction("workflow.run.start", "开始执行计划", "重新校验已接受的顺序执行图后开始执行。"),
+      workflowGraphPlanId: authoredGraph.id,
+    };
+  }
+  const authoredReadySetGraph = authoredGraph?.graphMode === "ready-set-v1" ? authoredGraph : null;
+  if (authoredReadySetGraph) {
     if (schedulerRun?.status === "completed" && schedulerRunCompletion?.schedulerRunId === schedulerRun.id) {
       return {
         ...workflowNextAction("planning.scheduler.run.complete", "SchedulerRun 已完成", `SchedulerRun 已记录 terminal completion ${schedulerRunCompletion.status}；后续 source mutation、landing、PR、merge 仍只走既有独立 gate。`),
         enabled: false,
         disabledReason: "SchedulerRun terminal completion 已记录。",
-        decompositionPlanId: decompositionPlan.id,
-        readinessManifestId: decompositionReadiness.id,
+        workflowGraphPlanId: authoredReadySetGraph.id,
         schedulerContractId: schedulerRun.schedulerContractId,
         schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
         schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
@@ -1958,8 +1766,7 @@ export function buildTypedWorkflowNextAction(input: {
         ...workflowNextAction("planning.scheduler.run.close-blocked", "SchedulerRun 已结束", `SchedulerRun 已记录 ${schedulerRunBlockedCloseout.status} closeout：${schedulerRunBlockedCloseout.closeoutReason}`),
         enabled: false,
         disabledReason: "SchedulerRun blocked/exhausted closeout 已记录。",
-        decompositionPlanId: decompositionPlan.id,
-        readinessManifestId: decompositionReadiness.id,
+        workflowGraphPlanId: authoredReadySetGraph.id,
         schedulerContractId: schedulerRunBlockedCloseout.schedulerContractId,
         schedulerDispatchDryRunId: schedulerRunBlockedCloseout.schedulerDispatchDryRunId,
         schedulerWorkerPlanId: schedulerRunBlockedCloseout.schedulerWorkerPlanId,
@@ -1984,7 +1791,8 @@ export function buildTypedWorkflowNextAction(input: {
       && schedulerClaimReservation.schedulerRunId === schedulerRun.id
       && schedulerClaimReservation.schedulerReconcileSnapshotId === schedulerReconcileSnapshot.id
     ) {
-      const schedulerLaunchGateSatisfied = schedulerClaimReservation.launchConfirmed
+      const schedulerLaunchGateSatisfied = Boolean(authoredReadySetGraph)
+        || schedulerClaimReservation.launchConfirmed
         || Boolean(schedulerWorkerPaths.length || schedulerIntegrationCandidate || schedulerIntegrationCheckHandoff || schedulerIntegrationOutcome || schedulerRunCompletion);
       if (schedulerLaunchGateSatisfied) {
         if (schedulerRunCompletion) {
@@ -1992,8 +1800,7 @@ export function buildTypedWorkflowNextAction(input: {
             ...workflowNextAction("planning.scheduler.run.complete", "SchedulerRun 已完成", `SchedulerRun 已记录 terminal completion ${schedulerRunCompletion.status}；后续 source mutation、landing、PR、merge 仍只走既有独立 gate。`),
             enabled: false,
             disabledReason: "SchedulerRun terminal completion 已记录。",
-            decompositionPlanId: decompositionPlan.id,
-            readinessManifestId: decompositionReadiness.id,
+            workflowGraphPlanId: authoredReadySetGraph.id,
             schedulerContractId: schedulerRun.schedulerContractId,
             schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
             schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
@@ -2014,8 +1821,7 @@ export function buildTypedWorkflowNextAction(input: {
             ...workflowNextAction("planning.scheduler.run.close-blocked", "SchedulerRun 已结束", `SchedulerRun 已记录 ${schedulerRunBlockedCloseout.status} closeout：${schedulerRunBlockedCloseout.closeoutReason}`),
             enabled: false,
             disabledReason: "SchedulerRun blocked/exhausted closeout 已记录。",
-            decompositionPlanId: decompositionPlan.id,
-            readinessManifestId: decompositionReadiness.id,
+            workflowGraphPlanId: authoredReadySetGraph.id,
             schedulerContractId: schedulerRunBlockedCloseout.schedulerContractId,
             schedulerDispatchDryRunId: schedulerRunBlockedCloseout.schedulerDispatchDryRunId,
             schedulerWorkerPlanId: schedulerRunBlockedCloseout.schedulerWorkerPlanId,
@@ -2033,8 +1839,7 @@ export function buildTypedWorkflowNextAction(input: {
           if (schedulerTransition.kind === "integration-check" && !schedulerIntegrationCheckHandoff) {
             return {
               ...workflowNextAction("planning.scheduler.integration-check.run", "运行 scheduler IntegrationCheck", "把 scheduler-owned ready worktree targets 显式交给现有 IntegrationCheck；只运行兼容性检查和 aggregate validation/audit，不 apply、landing、PR、merge 或启动 next worker。"),
-              decompositionPlanId: decompositionPlan.id,
-              readinessManifestId: decompositionReadiness.id,
+              workflowGraphPlanId: authoredReadySetGraph.id,
               schedulerContractId: schedulerRun.schedulerContractId,
               schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
               schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
@@ -2051,8 +1856,7 @@ export function buildTypedWorkflowNextAction(input: {
           if (schedulerTransition.kind === "integration-outcome" && schedulerIntegrationCheckHandoff && !schedulerIntegrationOutcome) {
             return {
               ...workflowNextAction("planning.scheduler.integration-outcome.reconcile", "记录 scheduler integration 结果", "把现有 IntegrationCheck 的 terminal/apply/discard 结果写回 scheduler-owned outcome evidence；不执行 apply、discard、landing、PR、merge 或 next worker。"),
-              decompositionPlanId: decompositionPlan.id,
-              readinessManifestId: decompositionReadiness.id,
+              workflowGraphPlanId: authoredReadySetGraph.id,
               schedulerContractId: schedulerRun.schedulerContractId,
               schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
               schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
@@ -2070,8 +1874,7 @@ export function buildTypedWorkflowNextAction(input: {
           if (schedulerTransition.kind === "run-complete" && schedulerIntegrationOutcome) {
             return {
               ...workflowNextAction("planning.scheduler.run.complete", "记录 SchedulerRun 完成状态", "把 terminal scheduler integration outcome 写入 SchedulerRun completion/status evidence；不执行 apply、discard、landing、PR、merge 或 next worker。"),
-              decompositionPlanId: decompositionPlan.id,
-              readinessManifestId: decompositionReadiness.id,
+              workflowGraphPlanId: authoredReadySetGraph.id,
               schedulerContractId: schedulerRun.schedulerContractId,
               schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
               schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
@@ -2092,8 +1895,7 @@ export function buildTypedWorkflowNextAction(input: {
               ...workflowNextAction("planning.scheduler.integration-check.run", "Scheduler IntegrationCheck 等待 apply/discard", `IntegrationCheck ${schedulerIntegrationCheckHandoff.integrationCheckId} 已由 scheduler handoff 运行；当前状态 ${currentIntegrationStatus ?? "unknown"}，apply/discard 仍走既有后续人审门。`),
               enabled: false,
               disabledReason: "IntegrationCheck passed 时必须先使用既有 apply/discard 确认；terminal 后再记录 scheduler outcome。",
-              decompositionPlanId: decompositionPlan.id,
-              readinessManifestId: decompositionReadiness.id,
+              workflowGraphPlanId: authoredReadySetGraph.id,
               schedulerContractId: schedulerRun.schedulerContractId,
               schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
               schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
@@ -2111,8 +1913,7 @@ export function buildTypedWorkflowNextAction(input: {
           if (schedulerTransition.kind === "close-blocked") {
             return {
               ...workflowNextAction("planning.scheduler.run.close-blocked", "结束本次 scheduler run", "当前 scheduler candidate 不能进入 IntegrationCheck，且没有可继续启动的 worker；本操作只记录 blocked/exhausted closeout，不启动执行或修改 source。"),
-              decompositionPlanId: decompositionPlan.id,
-              readinessManifestId: decompositionReadiness.id,
+              workflowGraphPlanId: authoredReadySetGraph.id,
               schedulerContractId: schedulerRun.schedulerContractId,
               schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
               schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
@@ -2133,8 +1934,7 @@ export function buildTypedWorkflowNextAction(input: {
             : "当前 wave 已全部 terminal，下一 wave 有可启动的 reservation intent；本操作只启动一个明确 coder stage，不启动整波、验证、审计、IntegrationCheck 或 scheduler loop。";
           return {
             ...workflowNextAction("planning.scheduler.worker.start-next", title, description),
-            decompositionPlanId: decompositionPlan.id,
-            readinessManifestId: decompositionReadiness.id,
+            workflowGraphPlanId: authoredReadySetGraph.id,
             schedulerContractId: schedulerRun.schedulerContractId,
             schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
             schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
@@ -2152,8 +1952,7 @@ export function buildTypedWorkflowNextAction(input: {
             if (schedulerTransition?.actionType === "planning.scheduler.worker.validate-first") {
               return {
                 ...workflowNextAction("planning.scheduler.worker.validate-first", "验证当前 worker 结果", "对当前 scheduler worker 的同一个 worktree 运行一次 scoped Validation；只写 scheduler validation evidence，不启动 audit、rework 或下一个 worker。"),
-                decompositionPlanId: decompositionPlan.id,
-                readinessManifestId: decompositionReadiness.id,
+                workflowGraphPlanId: authoredReadySetGraph.id,
                 schedulerContractId: schedulerRun.schedulerContractId,
                 schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
                 schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
@@ -2175,8 +1974,7 @@ export function buildTypedWorkflowNextAction(input: {
             if (schedulerTransition?.actionType === "planning.scheduler.worker.audit-first" && schedulerWorkerValidation) {
               return {
                 ...workflowNextAction("planning.scheduler.worker.audit-first", "审计当前 worker 结果", "对当前 scheduler worker 的同一个 worktree 运行一次 scoped Audit；只写 scheduler audit evidence，不启动 rework、下一个 worker 或 whole wave。"),
-                decompositionPlanId: decompositionPlan.id,
-                readinessManifestId: decompositionReadiness.id,
+                workflowGraphPlanId: authoredReadySetGraph.id,
                 schedulerContractId: schedulerRun.schedulerContractId,
                 schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
                 schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
@@ -2196,8 +1994,7 @@ export function buildTypedWorkflowNextAction(input: {
             if (schedulerTransition?.actionType === "planning.scheduler.worker.rework-plan.compile" && schedulerWorkerValidation) {
               return {
                 ...workflowNextAction("planning.scheduler.worker.rework-plan.compile", "生成当前 worker rework 计划", "根据当前 worker validation failed 或 audit blocked/failed evidence 生成 bounded rework 计划；不会启动 rework、下一个 worker 或 scheduler loop。"),
-                decompositionPlanId: decompositionPlan.id,
-                readinessManifestId: decompositionReadiness.id,
+                workflowGraphPlanId: authoredReadySetGraph.id,
                 schedulerContractId: schedulerRun.schedulerContractId,
                 schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
                 schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
@@ -2223,8 +2020,7 @@ export function buildTypedWorkflowNextAction(input: {
             if (schedulerTransition?.actionType === "planning.scheduler.worker.rework-start-first" && schedulerWorkerReworkPlan) {
               return {
                 ...workflowNextAction("planning.scheduler.worker.rework-start-first", "启动当前 worker rework", "在当前 worker 的原 worktree 上启动一次 scoped rework-coder；只创建 rework TaskRun、WorkerLease、code run 和 Runtime Continuity sidecars。"),
-                decompositionPlanId: decompositionPlan.id,
-                readinessManifestId: decompositionReadiness.id,
+                workflowGraphPlanId: authoredReadySetGraph.id,
                 schedulerContractId: schedulerRun.schedulerContractId,
                 schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
                 schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
@@ -2251,8 +2047,7 @@ export function buildTypedWorkflowNextAction(input: {
             if (schedulerTransition?.actionType === "planning.scheduler.worker.rework-reconcile-result" && schedulerWorkerReworkStart) {
               return {
                 ...workflowNextAction("planning.scheduler.worker.rework-reconcile-result", "检查当前 worker rework 结果", "读取 rework TaskRun、WorkerLease、worktree 和 rework code run evidence；只写 scheduler rework result，不启动 validation、audit、next worker 或 whole wave。"),
-                decompositionPlanId: decompositionPlan.id,
-                readinessManifestId: decompositionReadiness.id,
+                workflowGraphPlanId: authoredReadySetGraph.id,
                 schedulerContractId: schedulerRun.schedulerContractId,
                 schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
                 schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
@@ -2278,8 +2073,7 @@ export function buildTypedWorkflowNextAction(input: {
             if (schedulerTransition?.actionType === "planning.scheduler.worker.rework-validate-first" && schedulerWorkerReworkResult) {
               return {
                 ...workflowNextAction("planning.scheduler.worker.rework-validate-first", "验证当前 worker rework 结果", "对当前 worker rework 复用的同一个 worktree 运行一次 scoped Validation；只写 scheduler rework validation evidence，不启动 audit、next worker 或 whole wave。"),
-                decompositionPlanId: decompositionPlan.id,
-                readinessManifestId: decompositionReadiness.id,
+                workflowGraphPlanId: authoredReadySetGraph.id,
                 schedulerContractId: schedulerRun.schedulerContractId,
                 schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
                 schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
@@ -2307,8 +2101,7 @@ export function buildTypedWorkflowNextAction(input: {
             if (schedulerTransition?.actionType === "planning.scheduler.worker.rework-audit-first" && schedulerWorkerReworkValidation) {
               return {
                 ...workflowNextAction("planning.scheduler.worker.rework-audit-first", "审计当前 worker rework 结果", "对当前 worker rework 复用的同一个 worktree 运行一次 scoped Audit；只写 scheduler rework audit evidence，不启动 next worker、integration 或 apply。"),
-                decompositionPlanId: decompositionPlan.id,
-                readinessManifestId: decompositionReadiness.id,
+                workflowGraphPlanId: authoredReadySetGraph.id,
                 schedulerContractId: schedulerRun.schedulerContractId,
                 schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
                 schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
@@ -2339,8 +2132,7 @@ export function buildTypedWorkflowNextAction(input: {
               if (schedulerTransition.kind === "integration-candidate") {
                 return {
                   ...workflowNextAction("planning.scheduler.integration-candidate.compile", "生成 scheduler integration 候选", "把已通过 audit 的 scheduler worker 输出接回现有 apply readiness gate；只写 SchedulerIntegrationCandidate，不运行 IntegrationCheck、apply、merge 或 next worker。"),
-                  decompositionPlanId: decompositionPlan.id,
-                  readinessManifestId: decompositionReadiness.id,
+                  workflowGraphPlanId: authoredReadySetGraph.id,
                   schedulerContractId: schedulerRun.schedulerContractId,
                   schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
                   schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
@@ -2358,8 +2150,7 @@ export function buildTypedWorkflowNextAction(input: {
               if (schedulerTransition.kind === "integration-check" && schedulerIntegrationCandidate && !schedulerIntegrationCheckHandoff) {
                 return {
                   ...workflowNextAction("planning.scheduler.integration-check.run", "运行 scheduler IntegrationCheck", "把 scheduler-owned ready worktree targets 显式交给现有 IntegrationCheck；只运行兼容性检查和 aggregate validation/audit，不 apply、landing、PR、merge 或启动 next worker。"),
-                  decompositionPlanId: decompositionPlan.id,
-                  readinessManifestId: decompositionReadiness.id,
+                  workflowGraphPlanId: authoredReadySetGraph.id,
                   schedulerContractId: schedulerRun.schedulerContractId,
                   schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
                   schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
@@ -2375,8 +2166,7 @@ export function buildTypedWorkflowNextAction(input: {
               if (schedulerTransition.kind === "close-blocked" && schedulerIntegrationCandidate && !schedulerIntegrationCheckHandoff && !schedulerIntegrationOutcome && !schedulerRunCompletion) {
                 return {
                   ...workflowNextAction("planning.scheduler.run.close-blocked", "结束本次 scheduler run", "当前 scheduler candidate 不能进入 IntegrationCheck，且没有可继续启动的 worker；本操作只记录 blocked/exhausted closeout，不启动执行或修改 source。"),
-                  decompositionPlanId: decompositionPlan.id,
-                  readinessManifestId: decompositionReadiness.id,
+                  workflowGraphPlanId: authoredReadySetGraph.id,
                   schedulerContractId: schedulerRun.schedulerContractId,
                   schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
                   schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
@@ -2394,8 +2184,7 @@ export function buildTypedWorkflowNextAction(input: {
                 if (schedulerTransition.kind === "integration-outcome" && schedulerIntegrationCheckHandoff && !schedulerIntegrationOutcome) {
                   return {
                     ...workflowNextAction("planning.scheduler.integration-outcome.reconcile", "记录 scheduler integration 结果", "把现有 IntegrationCheck 的 terminal/apply/discard 结果写回 scheduler-owned outcome evidence；不执行 apply、discard、landing、PR、merge 或 next worker。"),
-                    decompositionPlanId: decompositionPlan.id,
-                    readinessManifestId: decompositionReadiness.id,
+                    workflowGraphPlanId: authoredReadySetGraph.id,
                     schedulerContractId: schedulerRun.schedulerContractId,
                     schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
                     schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
@@ -2413,8 +2202,7 @@ export function buildTypedWorkflowNextAction(input: {
                 if (schedulerTransition.kind === "run-complete" && schedulerIntegrationOutcome) {
                   return {
                     ...workflowNextAction("planning.scheduler.run.complete", "记录 SchedulerRun 完成状态", "把 terminal scheduler integration outcome 写入 SchedulerRun completion/status evidence；不执行 apply、discard、landing、PR、merge 或 next worker。"),
-                    decompositionPlanId: decompositionPlan.id,
-                    readinessManifestId: decompositionReadiness.id,
+                    workflowGraphPlanId: authoredReadySetGraph.id,
                     schedulerContractId: schedulerRun.schedulerContractId,
                     schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
                     schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
@@ -2434,8 +2222,7 @@ export function buildTypedWorkflowNextAction(input: {
                   ...workflowNextAction("planning.scheduler.integration-check.run", schedulerIntegrationCheckHandoff ? "Scheduler IntegrationCheck 等待 apply/discard" : "等待更多 worker 输出", schedulerIntegrationCheckHandoff ? `IntegrationCheck ${schedulerIntegrationCheckHandoff.integrationCheckId} 已由 scheduler handoff 运行；当前状态 ${currentIntegrationStatus ?? "unknown"}，apply/discard 仍走既有后续人审门。` : "当前 ready target 少于 2；继续等待更多 scheduler worker 输出后再进入 IntegrationCheck handoff。"),
                   enabled: false,
                   disabledReason: schedulerIntegrationCheckHandoff ? "IntegrationCheck passed 时必须先使用既有 apply/discard 确认；terminal 后再记录 scheduler outcome。" : "ready scheduler worker output 少于 2。",
-                  decompositionPlanId: decompositionPlan.id,
-                  readinessManifestId: decompositionReadiness.id,
+                  workflowGraphPlanId: authoredReadySetGraph.id,
                   schedulerContractId: schedulerRun.schedulerContractId,
                   schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
                   schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
@@ -2462,8 +2249,7 @@ export function buildTypedWorkflowNextAction(input: {
               ...workflowNextAction(waitingActionType, schedulerWorkerReworkAudit ? "等待后续 scheduler 阶段" : schedulerWorkerReworkValidation ? "等待 rework audit 阶段" : schedulerWorkerReworkResult ? "等待 rework validation 阶段" : schedulerWorkerReworkStart ? "等待 rework 结果对账阶段" : schedulerWorkerReworkPlan ? "等待启动 rework" : schedulerWorkerAudit ? "等待后续 scheduler 阶段" : schedulerWorkerValidation ? "等待 Audit 阶段" : "等待验证阶段", schedulerWorkerReworkAudit ? "当前 scheduler worker rework audit 已记录；next-worker/integration 不是当前范围。" : schedulerWorkerReworkValidation ? "当前 scheduler worker rework validation 未通过或等待 rework audit 条件。" : schedulerWorkerReworkResult ? "当前 scheduler worker rework result 不是 evidence-ready 或等待 rework validation 阶段。" : schedulerWorkerReworkStart ? "当前 scheduler worker rework 已启动；可以检查 rework 结果。" : schedulerWorkerReworkPlan ? "当前 scheduler worker rework plan 已记录；可以启动一次 same-worktree rework。" : schedulerWorkerAudit ? "当前 scheduler worker audit 已记录；rework/next-worker 不是当前范围。" : schedulerWorkerValidation ? "当前 scheduler worker validation 未通过或 audit 条件未满足。" : "当前 scheduler coder worker result 不是 evidence-ready，不能启动 validation。"),
               enabled: false,
               disabledReason: schedulerWorkerReworkAudit ? "当前 worker rework audit 已记录，后续阶段另开。" : schedulerWorkerReworkValidation ? "当前 worker rework validation 不是 passed。" : schedulerWorkerReworkResult ? "当前 worker rework result 不是 evidence-ready 或等待 rework validation 阶段。" : schedulerWorkerReworkStart ? "当前 worker rework 已启动，等待检查 rework 结果。" : schedulerWorkerReworkPlan ? "当前 worker rework plan 已记录，等待用户确认启动 rework。" : schedulerWorkerAudit ? "当前 worker audit 已记录。rework/next-worker 不是当前范围。" : schedulerWorkerValidation ? "当前 worker validation 不是 passed。" : "当前 worker result 不是 evidence-ready。",
-              decompositionPlanId: decompositionPlan.id,
-              readinessManifestId: decompositionReadiness.id,
+              workflowGraphPlanId: authoredReadySetGraph.id,
               schedulerContractId: schedulerRun.schedulerContractId,
               schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
               schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
@@ -2495,8 +2281,7 @@ export function buildTypedWorkflowNextAction(input: {
           }
           if (schedulerTransition?.actionType === "planning.scheduler.worker.reconcile-result") return {
             ...workflowNextAction("planning.scheduler.worker.reconcile-result", "检查当前 worker 结果", "读取 TaskRun、WorkerLease、worktree 和 code run evidence；只写 scheduler worker result，不启动 validation、audit、rework 或下一个 worker。"),
-            decompositionPlanId: decompositionPlan.id,
-            readinessManifestId: decompositionReadiness.id,
+            workflowGraphPlanId: authoredReadySetGraph.id,
             schedulerContractId: schedulerRun.schedulerContractId,
             schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
             schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
@@ -2513,8 +2298,7 @@ export function buildTypedWorkflowNextAction(input: {
         if (schedulerTransition?.kind === "start-first-worker") {
           return {
             ...workflowNextAction("planning.scheduler.worker.start-first", "开始第一个任务", "用户已确认低冲突执行方向；本操作只开始当前准备记录中的第一个可执行编码任务。"),
-            decompositionPlanId: decompositionPlan.id,
-            readinessManifestId: decompositionReadiness.id,
+            workflowGraphPlanId: authoredReadySetGraph.id,
             schedulerContractId: schedulerRun.schedulerContractId,
             schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
             schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
@@ -2534,8 +2318,7 @@ export function buildTypedWorkflowNextAction(input: {
           ...workflowNextAction("planning.scheduler.worker.start-first", "等待 scheduler transition", disabledSchedulerReason),
           enabled: false,
           disabledReason: disabledSchedulerReason,
-          decompositionPlanId: decompositionPlan.id,
-          readinessManifestId: decompositionReadiness.id,
+          workflowGraphPlanId: authoredReadySetGraph.id,
           schedulerContractId: schedulerRun.schedulerContractId,
           schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
           schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
@@ -2547,9 +2330,10 @@ export function buildTypedWorkflowNextAction(input: {
         };
       }
       return {
-        ...workflowNextAction("planning.scheduler.plan.prepare", "确认低冲突执行方向", "主 Agent 会重读当前准备证据，输出可读启动摘要并记录你的整体启动意图；本阶段不会开始写代码。"),
-        decompositionPlanId: decompositionPlan.id,
-        readinessManifestId: decompositionReadiness.id,
+        ...workflowNextAction("planning.scheduler.worker.start-first", "等待执行确认迁移", "旧版 SchedulerRun 尚未记录启动确认，不能通过已删除的准备动作继续。"),
+        enabled: false,
+        disabledReason: "旧版未启动 SchedulerRun 需要重新生成计划。",
+        workflowGraphPlanId: authoredReadySetGraph.id,
         schedulerContractId: schedulerRun.schedulerContractId,
         schedulerDispatchDryRunId: schedulerRun.schedulerDispatchDryRunId,
         schedulerWorkerPlanId: schedulerRun.schedulerWorkerPlanId,
@@ -2561,15 +2345,16 @@ export function buildTypedWorkflowNextAction(input: {
       };
     }
     return {
-      ...workflowNextAction("planning.scheduler.plan.prepare", "准备低冲突任务执行路径", "主 Agent 会整理低冲突任务执行前的必要证据，并在对话里解释计划；不会开始任务、创建工作副本或运行代码。"),
-      decompositionPlanId: decompositionPlan.id,
-      readinessManifestId: decompositionReadiness.id,
+      ...workflowNextAction("planning.scheduler.worker.start-first", "等待 Scheduler 初始化", "当前计划尚无可执行的 SchedulerRun。"),
+      enabled: false,
+      disabledReason: "Scheduler 执行证据尚未初始化；请重新生成计划。",
+      workflowGraphPlanId: authoredReadySetGraph.id,
     };
   }
   return {
-    ...workflowNextAction("planning.decomposition.assess-readiness", "等待执行边界", "当前 readiness 不允许直接执行。"),
+    ...workflowNextAction("intake.reanalyze", "等待计划", "当前 Change 没有由 Plan child 产出并接受的 WorkflowGraphPlan。", false),
     enabled: false,
-    disabledReason: "当前 DecompositionReadinessManifest 未授权 code.run 或 TaskQueueProposal。",
+    disabledReason: "旧版未启动计划不能直接执行；请在主对话中重新规划并确认。",
   };
 }
 

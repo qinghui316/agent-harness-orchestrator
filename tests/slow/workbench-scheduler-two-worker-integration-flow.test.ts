@@ -223,8 +223,11 @@ describe("workbench scheduler two-worker integration slow flow", () => {
           resultTargetWorktreeIds?: string[];
           integrationCheckId?: string;
         };
-        integrationCheck?: { id?: string; resultTargets?: Array<{ worktreeId?: string }> };
+        integrationCheck?: { id?: string; status?: string; summary?: string; blockingIssues?: string[]; resultTargets?: Array<{ worktreeId?: string }> };
       };
+      if (handoff.integrationCheck?.status !== "passed") {
+        throw new Error(`Scheduler IntegrationCheck did not pass: ${JSON.stringify(handoff.integrationCheck)}`);
+      }
       expect(handoff.handoff).toMatchObject({
         schedulerIntegrationCandidateId: refreshedCandidate?.id,
         readyWorktreeIds: expect.arrayContaining(refreshedCandidate?.readyWorktreeIds ?? []),
@@ -434,11 +437,14 @@ describe("workbench scheduler two-worker integration slow flow", () => {
         schedulerIntegrationOutcomeId: outcomePayload.outcome?.id,
       });
       expect(snapshot.center.workpad.nextAction).toMatchObject({
-        actionType: "planning.scheduler.run.complete",
-        enabled: false,
-        schedulerRunCompletionId: completionPayload.completion?.id,
+        kind: "approval",
+        enabled: true,
+        requiresConfirmation: true,
       });
       snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: prepared.topic.changeId });
+      expect(snapshot.right.confirmationQueue.current.flatMap((item) => item.actions)).toEqual(expect.arrayContaining([
+        expect.objectContaining({ action: expect.objectContaining({ actionId: "audit.accept" }) }),
+      ]));
       expect(snapshot.right.confirmationQueue.current.flatMap((item) => item.actions).some((action) => action.actionType === "planning.scheduler.run.complete")).toBe(false);
       const forbiddenSchedulerFollowUpsAfterCompletion = new Set([
         "planning.scheduler.worker.start-first",

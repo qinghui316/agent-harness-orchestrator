@@ -1,4 +1,7 @@
 import type { ManagedProject } from "../types/index.js";
+import { resolveProjectMemory } from "../memory/resolver.js";
+import { readLatestWorkflowGraphPlan, readWorkflowGraphPlan } from "../workflow-artifacts/manager.js";
+import { activeChangePath } from "../workflow-run/recovery-key.js";
 import {
   runDefaultCodeChangeWorkflow,
   type DefaultCodeChangeWorkflowResult,
@@ -12,10 +15,18 @@ export interface TopLevelRoleChainWorkflowInput {
   live?: WorkflowRuntimeLiveSink;
   continuation?: boolean;
   taskIds?: string[];
-  readinessManifestId?: string;
+  workflowGraphPlanId?: string;
 }
 
 export async function runTopLevelRoleChainWorkflow(input: TopLevelRoleChainWorkflowInput): Promise<DefaultCodeChangeWorkflowResult> {
+  const memory = await resolveProjectMemory(input.project);
+  const changePath = await activeChangePath(memory, input.changeId);
+  const graph = input.workflowGraphPlanId
+    ? await readWorkflowGraphPlan(memory, changePath, input.workflowGraphPlanId)
+    : await readLatestWorkflowGraphPlan(memory, changePath);
+  if (graph.authoringContractVersion !== "1.0" || graph.graphMode !== "sequential-v1" || graph.nodes.length !== 1) {
+    throw new Error("Top-level default code workflow requires the latest authored single-node sequential WorkflowGraphPlan.");
+  }
   emitAssistantEvent(input.live, {
     runId: input.changeId,
     kind: "status",
@@ -29,6 +40,6 @@ export async function runTopLevelRoleChainWorkflow(input: TopLevelRoleChainWorkf
     prompt: input.prompt,
     live: input.live,
     taskIds: input.taskIds,
-    readinessManifestId: input.readinessManifestId,
+    workflowGraphPlanId: graph.id,
   });
 }

@@ -84,7 +84,7 @@ export function parentTranscriptCellsFromLiveThreadItem(item: ThreadStreamItem):
     if (block.kind === "usage") continue;
     const canRenderWithoutText = block.kind === "command" || block.kind === "command-group" || block.kind === "tool-result" || block.kind === "file-change" || block.kind === "status" || block.kind === "error";
     if (!text && !canRenderWithoutText) continue;
-    if (item.source === "workflow" && (block.source === "workflow" || block.source === "legacy")) {
+    if (item.source === "workflow" && (block.source === "workflow" || block.source === "aho")) {
       cells.push({
         id: `live-cell:${block.id}`,
         kind: block.kind === "error" ? "process-row" : "evidence-row",
@@ -102,7 +102,7 @@ export function parentTranscriptCellsFromLiveThreadItem(item: ThreadStreamItem):
       continue;
     }
     const source = block.source === "codex" ? "codex-runtime" : "aho-orchestration";
-    if (block.kind === "workflow-evidence" || block.kind === "plan-card") continue;
+    if (block.kind === "workflow-evidence") continue;
     const isProcess = block.kind === "command" || block.kind === "command-group" || block.kind === "tool-result" || block.kind === "file-change" || block.kind === "status" || block.kind === "error";
     const title = block.kind === "command" || block.kind === "command-group"
       ? block.isError || block.status === "failed" ? "命令需要关注" : block.status === "running" ? "命令执行中" : "已运行命令"

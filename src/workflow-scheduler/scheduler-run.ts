@@ -63,8 +63,7 @@ export async function prepareSchedulerRun(
     schedulerWorkerPlanId: workerPlan.id,
     schedulerClaimReconcilePlanId: claimPlan.id,
     schedulerLaunchPreflightId: launchPreflight.id,
-    decompositionPlanId: launchPreflight.decompositionPlanId,
-    readinessManifestId: launchPreflight.readinessManifestId,
+    workflowGraphPlanId: launchPreflight.workflowGraphPlanId,
     claimIntentCount: launchPreflight.claimSummaries.length,
     plannedSlotDemand: launchPreflight.plannedSlotDemand,
     maxPlannedWaveWidth: launchPreflight.maxPlannedWaveWidth,
@@ -152,11 +151,8 @@ async function validateSchedulerRunInput(
   if (launchPreflight.schedulerContractId !== contract.id || claimPlan.schedulerContractId !== contract.id || workerPlan.schedulerContractId !== contract.id || dryRun.schedulerContractId !== contract.id) {
     throw new Error("SchedulerRun SchedulerContract lineage mismatch.");
   }
-  if (launchPreflight.decompositionPlanId !== claimPlan.decompositionPlanId || launchPreflight.decompositionPlanId !== workerPlan.decompositionPlanId || launchPreflight.decompositionPlanId !== dryRun.decompositionPlanId || launchPreflight.decompositionPlanId !== contract.decompositionPlanId) {
-    throw new Error("SchedulerRun decompositionPlanId mismatch.");
-  }
-  if (launchPreflight.readinessManifestId !== claimPlan.readinessManifestId || launchPreflight.readinessManifestId !== workerPlan.readinessManifestId || launchPreflight.readinessManifestId !== dryRun.readinessManifestId || launchPreflight.readinessManifestId !== contract.readinessManifestId) {
-    throw new Error("SchedulerRun readinessManifestId mismatch.");
+  if (launchPreflight.workflowGraphPlanId !== claimPlan.workflowGraphPlanId || launchPreflight.workflowGraphPlanId !== workerPlan.workflowGraphPlanId || launchPreflight.workflowGraphPlanId !== dryRun.workflowGraphPlanId || launchPreflight.workflowGraphPlanId !== contract.workflowGraphPlanId) {
+    throw new Error("SchedulerRun WorkflowGraphPlan lineage mismatch.");
   }
 
   const latestPreflight = await readLatestSchedulerLaunchPreflight(memory, changePath);

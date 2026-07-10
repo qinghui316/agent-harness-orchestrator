@@ -1,8 +1,5 @@
 import type { ResolvedMemory, WorkflowRun } from "../../types/index.js";
 import {
-  readDecompositionPlanProjection,
-  readDecompositionReadinessProjection,
-  readTaskQueueProposalProjection,
   readWorkflowGraphPlanProjection,
   readSchedulerContractProjection,
   readSchedulerDispatchDryRunProjection,
@@ -27,12 +24,7 @@ import {
   readSchedulerWorkerValidationProjection,
 } from "../workflow-projection.js";
 import { readWorkflowRun, readWorkflowRunEvents } from "../../workflow-run/manager.js";
-import type {
-  DecompositionPlan,
-  DecompositionReadinessManifest,
-  TaskQueueProposal,
-  WorkflowGraphPlan,
-} from "../../workflow-artifacts/manager.js";
+import type { WorkflowGraphPlan } from "../../workflow-artifacts/manager.js";
 import type { SchedulerClaimReconcilePlan, SchedulerContract, SchedulerDispatchDryRun, SchedulerLaunchPreflight, SchedulerRun, SchedulerWorkerSessionPlan } from "../../workflow-scheduler/manager.js";
 import type { SchedulerIntegrationCandidate, SchedulerIntegrationCheckHandoff, SchedulerIntegrationOutcome, SchedulerRunBlockedCloseout, SchedulerRunCompletion, SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkAudit, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkValidation, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerValidation } from "../../scheduler-runtime/manager.js";
 
@@ -43,19 +35,11 @@ export interface WorkbenchTopicPathRef {
 }
 
 export function findWorkbenchTopicPath(topics: WorkbenchTopicPathRef[], changeId: string): string | null {
-  return topics.find((item) => item.id === changeId || item.name === changeId)?.path ?? null;
-}
-
-export function getDecompositionPlanProjectionForPath(memory: ResolvedMemory, changePath: string): Promise<DecompositionPlan | null> {
-  return readDecompositionPlanProjection(memory, changePath);
-}
-
-export function getDecompositionReadinessProjectionForPath(memory: ResolvedMemory, changePath: string): Promise<DecompositionReadinessManifest | null> {
-  return readDecompositionReadinessProjection(memory, changePath);
-}
-
-export function getTaskQueueProposalProjectionForPath(memory: ResolvedMemory, changePath: string): Promise<TaskQueueProposal | null> {
-  return readTaskQueueProposalProjection(memory, changePath);
+  return topics.find((item) =>
+    item.id === changeId
+    || item.name === changeId
+    || item.path.replaceAll("\\", "/").split("/").at(-1) === changeId
+  )?.path ?? null;
 }
 
 export function getWorkflowGraphPlanProjectionForPath(memory: ResolvedMemory, changePath: string, workflowGraphPlanId?: string): Promise<WorkflowGraphPlan | null> {

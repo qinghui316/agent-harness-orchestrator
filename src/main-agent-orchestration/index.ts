@@ -14,9 +14,3 @@ export {
   readMainAgentNextStepEvidence,
   type MainAgentNextStepEvidence,
 } from "./next-step-evidence.js";
-export {
-  mainAgentQueueDecisionsPath,
-  mainAgentQueueDecisionEvidenceRef,
-  readMainAgentQueueDecisionEvidence,
-  type MainAgentQueueDecisionEvidence,
-} from "./queue-step-evidence.js";

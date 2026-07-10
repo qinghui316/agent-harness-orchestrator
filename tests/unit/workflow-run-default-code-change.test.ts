@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { appendWorkflowRunEvent, readWorkflowRun, readWorkflowRunEvents, summarizeWorkflowRun, writeWorkflowRun } from "../../src/workflow-run/manager.js";
-import type { DefaultCodeChangeWorkflowRun, ResolvedMemory, TaskQueueWorkflowRun } from "../../src/types/index.js";
+import type { DefaultCodeChangeWorkflowRun, ResolvedMemory } from "../../src/types/index.js";
 
 describe("WorkflowRun default code-change source", () => {
   let root: string;
@@ -40,23 +40,6 @@ describe("WorkflowRun default code-change source", () => {
     });
   });
 
-  it("keeps old taskqueue-proposal WorkflowRuns compatible", async () => {
-    const run = taskQueueRun("change-taskqueue");
-
-    await writeWorkflowRun(memory, run);
-
-    await expect(readWorkflowRun(memory, "change-taskqueue", run.id)).resolves.toMatchObject({
-      source: "taskqueue-proposal",
-      taskQueueProposalId: "proposal-1",
-      items: [expect.objectContaining({ taskId: "T-001" })],
-    });
-    expect(summarizeWorkflowRun(run)).toMatchObject({
-      source: "taskqueue-proposal",
-      currentTaskId: "T-001",
-      totalCount: 1,
-      completedCount: 0,
-    });
-  });
 });
 
 function defaultRun(changeId: string): DefaultCodeChangeWorkflowRun {
@@ -86,43 +69,6 @@ function defaultRun(changeId: string): DefaultCodeChangeWorkflowRun {
     createdAt: "2026-07-07T00:00:00.000Z",
     updatedAt: "2026-07-07T00:00:00.000Z",
     startedAt: "2026-07-07T00:00:00.000Z",
-    finishedAt: null,
-  };
-}
-
-function taskQueueRun(changeId: string): TaskQueueWorkflowRun {
-  return {
-    version: "1.0",
-    id: "workflow-taskqueue-1",
-    changeId,
-    status: "created",
-    source: "taskqueue-proposal",
-    taskQueueProposalId: "proposal-1",
-    workflowGraphPlanId: "graph-1",
-    readinessManifestId: "ready-1",
-    decompositionPlanId: "decomp-1",
-    currentTaskId: "T-001",
-    items: [{ taskId: "T-001", status: "queued", order: 1, updatedAt: "2026-07-07T00:00:00.000Z" }],
-    recoveryKey: {
-      version: "1.0",
-      changeId,
-      decompositionPlanId: "decomp-1",
-      readinessManifestId: "ready-1",
-      taskQueueProposalId: "proposal-1",
-      workflowGraphPlanId: "graph-1",
-      acceptedArtifactHashes: {},
-      proposalHash: "proposal",
-      readinessHash: "ready",
-      workflowGraphPlanHash: "graph",
-      sourceHash: "source",
-      policyHash: "policy",
-      capabilityHash: "capability",
-      createdAt: "2026-07-07T00:00:00.000Z",
-    },
-    artifactRefs: ["workflow/graph-1.json"],
-    createdAt: "2026-07-07T00:00:00.000Z",
-    updatedAt: "2026-07-07T00:00:00.000Z",
-    startedAt: null,
     finishedAt: null,
   };
 }

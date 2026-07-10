@@ -1,7 +1,6 @@
 import { applyResultToProject, applyWorktree, discardWorktree } from "../../apply/manager.js";
 import { acceptAudit } from "../../audit/manager.js";
 import { closeChangeForChange } from "../../change/manager.js";
-import { acceptPlanProposal, acceptSpecProposal } from "../../change/proposals.js";
 import { applyIntegrationCheck, discardIntegrationCheck } from "../../integration-check/manager.js";
 import { acceptSpecTestProposal } from "../../spec-test/proposal.js";
 import type { ManagedProject } from "../../types/index.js";
@@ -13,8 +12,6 @@ export interface WorkbenchApprovalOptions {
 }
 
 export const allowedActionIds = new Set([
-  "change.spec.accept",
-  "change.plan.accept",
   "spec-test.proposal.accept-all-existing",
   "audit.accept",
   "result.apply",
@@ -28,12 +25,6 @@ export const allowedActionIds = new Set([
 export async function runAllowlistedAction(project: ManagedProject, action: WorkbenchApprovalAction, options: WorkbenchApprovalOptions | undefined): Promise<unknown> {
   const args = action.args;
   switch (action.actionId) {
-    case "change.spec.accept":
-      assertArgs(action, "change", ["spec", "accept"], 4);
-      return acceptSpecProposal(project, args[3]);
-    case "change.plan.accept":
-      assertArgs(action, "change", ["plan", "accept"], 4);
-      return acceptPlanProposal(project, args[3]);
     case "spec-test.proposal.accept-all-existing":
       assertArgs(action, "spec-test", ["proposal", "accept"], 5);
       return acceptSpecTestProposal(project, args[3], { allExisting: true });
@@ -67,7 +58,6 @@ export function inferTargetIdFromAction(action: WorkbenchApprovalAction, result:
   if (action.actionId === "change.close" && isRecord(result) && isRecord(result.change) && typeof result.change.id === "string") {
     return result.change.id;
   }
-  if (action.actionId === "change.spec.accept" || action.actionId === "change.plan.accept") return action.args[3] ?? null;
   if (action.actionId === "spec-test.proposal.accept-all-existing") return action.args[3] ?? null;
   if (action.actionId === "audit.accept") return action.args[2] ?? null;
   if (action.actionId === "result.apply") return scopedWorktreeArg(action) ?? null;

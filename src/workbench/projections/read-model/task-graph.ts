@@ -9,8 +9,6 @@ import type {
 import type {
   WorkbenchAutoReworkSummary,
   WorkbenchCodingPackage,
-  WorkbenchCodingPackageExecutionUnit,
-  WorkbenchCodingPackageSplitReadiness,
   WorkbenchCodingPackageStatus,
   WorkbenchTaskEvidence,
   WorkbenchTaskGraph,
@@ -57,8 +55,6 @@ export function buildCodingPackages(topic: WorkbenchTopicDetail, taskGraph: Work
       : pendingTasks.length === 0 && hasEvidence
         ? "evidence-ready"
         : "suggested";
-  const splitReadiness = codingPackageSplitReadiness(packageTasks);
-  const executionUnit: WorkbenchCodingPackageExecutionUnit = splitReadiness === "candidate" ? "future-parallel-candidate" : "single-agent";
   return [{
     id: `coding-package:${topic.id}:implementation`,
     title: `${topic.title} implementation package`,
@@ -71,11 +67,7 @@ export function buildCodingPackages(topic: WorkbenchTopicDetail, taskGraph: Work
     coveredAcIds,
     missingEvidenceAcIds,
     recommendedRoleId: "coder-agent",
-    executionUnit,
     assignmentStatus: pendingTasks.length > 0 ? "suggested" : "not-assigned",
-    splitReadiness,
-    splitRationale: codingPackageSplitRationale(splitReadiness, packageTasks),
-    mergeRisk: codingPackageMergeRisk(splitReadiness),
     status,
   }];
 }
@@ -105,10 +97,7 @@ export function buildTaskQueueSummary(
         requiresConfirmation: true,
         workflowRunId: queue.workflowRunId,
         queueRunId: queue.id,
-        taskQueueProposalId: queue.taskQueueProposalId,
         workflowGraphPlanId: queue.workflowGraphPlanId,
-        readinessManifestId: queue.readinessManifestId,
-        decompositionPlanId: queue.decompositionPlanId,
         disabledReason: topic.state === "active" ? undefined : "需求对话不是可执行状态。",
       }
     : undefined;
@@ -142,10 +131,7 @@ export function buildTaskQueueSummary(
     failureReason: queue.failureReason,
     pausedReason: queue.pausedReason,
     workflowRunId: queue.workflowRunId,
-    taskQueueProposalId: queue.taskQueueProposalId,
     workflowGraphPlanId: queue.workflowGraphPlanId,
-    readinessManifestId: queue.readinessManifestId,
-    decompositionPlanId: queue.decompositionPlanId,
     nextAction: baseAction,
     items,
   };
@@ -243,35 +229,6 @@ export function latestOfficialReworkAttempt(taskGraph: WorkbenchTaskGraph): numb
     .map((node) => node.taskRun?.attempt)
     .filter((attempt): attempt is number => typeof attempt === "number");
   return attempts.length > 0 ? Math.max(...attempts) - 1 : undefined;
-}
-
-function codingPackageSplitReadiness(tasks: WorkbenchTaskNode[]): WorkbenchCodingPackageSplitReadiness {
-  if (tasks.length === 0) return "unknown";
-  if (tasks.length === 1) return "likely-single";
-  const mappedTasks = tasks.filter((task) => task.acIds.length > 0);
-  if (mappedTasks.length !== tasks.length) return "likely-single";
-  const seen = new Set<string>();
-  for (const task of mappedTasks) {
-    for (const acId of task.acIds) {
-      if (seen.has(acId)) return "likely-single";
-      seen.add(acId);
-    }
-  }
-  return "candidate";
-}
-
-function codingPackageSplitRationale(readiness: WorkbenchCodingPackageSplitReadiness, tasks: WorkbenchTaskNode[]): string {
-  if (readiness === "candidate") return "这些未完成任务映射到不同 AC，未来可作为并行 worktree 候选；5Y 仍不自动拆分执行。";
-  if (readiness === "unknown") return "缺少任务/AC 映射，无法判断是否适合拆分。";
-  return tasks.length <= 1
-    ? "当前只有一个主要待执行任务，默认不拆分。"
-    : "多个任务仍属于同一个需求实现包，先由一个 coder-agent 处理，避免过早引入拆分和合并成本。";
-}
-
-function codingPackageMergeRisk(readiness: WorkbenchCodingPackageSplitReadiness): string {
-  if (readiness === "candidate") return "未来并行执行需要 integration worktree、aggregate validation/audit 和 merge/rework 链路。";
-  if (readiness === "unknown") return "拆分风险未知；保持单 agent 执行更稳妥。";
-  return "单 agent work package 的合并风险较低；任务覆盖检查用于确认验收范围，不强制拆分 coder。";
 }
 
 function uniqueStrings(items: string[]): string[] {

@@ -10,7 +10,7 @@ async function readProfile(name: string): Promise<string> {
 
 describe("agent role profiles", () => {
   it("bundles all profiles with ECL-derived required sections", async () => {
-    for (const name of ["validator", "auditor", "coder", "spec-test-proposer", "spec-test-generator", "spec-agent", "planner"]) {
+    for (const name of ["validator", "auditor", "coder", "spec-test-proposer", "spec-test-generator"]) {
       const content = await readProfile(name);
       for (const section of [
         "## Role",
@@ -84,24 +84,6 @@ describe("agent role profiles", () => {
     expect(content).toContain("Do not infer semantic correctness from passing commands.");
   });
 
-  it("keeps spec agent bounded to WHAT/WHY proposals", async () => {
-    const content = await readProfile("spec-agent");
-
-    expect(content).toContain("turn a raw user request and active Change context into a proposed `spec.md`");
-    expect(content).toContain("Do not create plans or tasks.");
-    expect(content).toContain("Acceptance Criteria use stable `AC-xxx` IDs and are testable.");
-    expect(content).toContain("Only `aho change spec accept`");
-  });
-
-  it("keeps planner bounded to HOW and task proposals", async () => {
-    const content = await readProfile("planner");
-
-    expect(content).toContain("turn accepted/manual `spec.md` into proposed `plan.md` and `tasks.md`");
-    expect(content).toContain("Every task has a `Covers: AC-xxx` line.");
-    expect(content).toContain("Do not write code.");
-    expect(content).toContain("Only `aho change plan accept`");
-  });
-
   it("bundles Phase 6B role prompt contracts", async () => {
     for (const name of ["planning-agent", "coder-agent", "validator", "auditor-agent", "rework-coder"]) {
       const content = await readProfile(name);
@@ -114,13 +96,12 @@ describe("agent role profiles", () => {
     }
   });
 
-  it("keeps planning-agent aligned with native Plan Mode instead of a forced AHO template", async () => {
+  it("keeps the real planning child routed through the single authoring Skill", async () => {
     const content = await readProfile("planning-agent");
 
-    expect(content).toContain("native Plan Mode surface");
-    expect(content).toContain("Do not write project files or Harness files.");
+    expect(content).toContain("$aho-workflow-authoring");
+    expect(content).toContain("Do not write project or Harness files.");
     expect(content).toContain("Do not recursively delegate to another Agent.");
-    expect(content).not.toContain("Acceptance Criteria, Design, Tasks");
-    expect(content).not.toContain("JSON fields named");
+    expect(content).toContain("Do not use parent-thread Plan Mode");
   });
 });

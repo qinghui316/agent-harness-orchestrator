@@ -1,0 +1,4 @@
+interface:
+  display_name: "AHO Workflow Authoring"
+  short_description: "Draft fixed AHO workflow proposals for review."
+  default_prompt: "Use $aho-workflow-authoring to draft a fixed Spec, Plan, Tasks, and Workflow JSON proposal for this demand."

@@ -22,21 +22,16 @@ import {
   AssistantEvidenceBlocks,
   AssistantTurnBlocks,
   LiveAssistantTurnView,
-  PlanCardView,
   artifactName,
 } from "./assistant-rendering.js";
 
 export function ThreadStreamView({
   items,
   liveTurns,
-  busy,
-  onAction,
   onSelectDecisionContext,
 }: {
   items: ThreadStreamItem[];
   liveTurns: LiveAssistantTurn[];
-  busy: boolean;
-  onAction: (actionType: string, options?: Record<string, unknown>) => Promise<void>;
   onSelectDecisionContext: (contextId: string) => void;
 }): ReactElement {
   if (items.length === 0 && liveTurns.length === 0) return <div className="empty-state">暂无对话内容。</div>;
@@ -48,13 +43,12 @@ export function ThreadStreamView({
           <div>
             <strong>{threadLabel(item)}</strong>
             {item.blocks && item.blocks.length > 0 ? (
-              <AssistantTurnBlocks blocks={item.blocks} actions={item.actions ?? []} busy={busy} onAction={onAction} completed={item.status !== "running"} />
+              <AssistantTurnBlocks blocks={item.blocks} completed={item.status !== "running"} />
             ) : (
               <>
                 <p>{item.body ?? item.label} {item.status ? `· ${item.status}` : ""}</p>
                 {item.activity && item.activity.length > 0 ? <AssistantActivity events={item.activity} /> : null}
                 {item.evidence && item.evidence.length > 0 ? <AssistantEvidenceBlocks evidence={item.evidence} /> : null}
-                {item.planCard ? <PlanCardView planCard={item.planCard} actions={item.actions ?? []} busy={busy} onAction={onAction} /> : null}
               </>
             )}
             {item.artifact && !(item.blocks && item.blocks.some((block) => block.artifactRef === item.artifact)) ? <small className="artifact-link">查看证据：{artifactName(item.artifact)}</small> : null}
@@ -80,7 +74,7 @@ export function threadItemFromTopicEntry(entry: TopicMessageEntry): ThreadStream
     return { id: `live:${entry.id}`, kind: "assistant-turn", label: "AI", timestamp: entry.timestamp, body: entry.text, source: "chat", artifact: entry.artifact, runId: entry.runId, agentRoleId: entry.agentRoleId, agentTaskId: entry.agentTaskId, activity: entry.activity, blocks: entry.blocks };
   }
   if (entry.type === "orchestrator.plan") {
-    return { id: `live:${entry.id}`, kind: "assistant-turn", label: "Orchestrator plan", timestamp: entry.timestamp, body: entry.text, source: "chat", artifact: entry.artifact, runId: entry.runId, agentRoleId: entry.agentRoleId, agentTaskId: entry.agentTaskId, planCard: entry.planCard, activity: entry.activity, blocks: entry.blocks };
+    return { id: `live:${entry.id}`, kind: "assistant-turn", label: "AI", timestamp: entry.timestamp, body: entry.text, source: "chat", artifact: entry.artifact, runId: entry.runId, agentRoleId: entry.agentRoleId, agentTaskId: entry.agentTaskId, activity: entry.activity, blocks: entry.blocks };
   }
   if (entry.type === "workflow.started" || entry.type === "workflow.completed" || entry.type === "workflow.failed") {
     return threadItemFromWorkflowEntry(entry);
@@ -128,7 +122,7 @@ function threadItemFromWorkflowEntry(entry: TopicMessageEntry): ThreadStreamItem
 
 function threadIcon(item: ThreadStreamItem): ReactElement {
   if (item.kind === "user-message" || item.kind === "change-state") return <UserRound size={16} />;
-  if (item.kind === "assistant-turn" || item.kind === "assistant-message" || item.kind === "plan-card") return <FileText size={16} />;
+  if (item.kind === "assistant-turn" || item.kind === "assistant-message") return <FileText size={16} />;
   if (item.source === "workflow") return <Code2 size={16} />;
   if (item.source === "decision") return <Upload size={16} />;
   if (item.source === "audit") return <ShieldCheck size={16} />;

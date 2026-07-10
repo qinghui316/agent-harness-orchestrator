@@ -1,23 +1,13 @@
 import {
   auditPlanningSchedulerFirstWorker,
   auditPlanningSchedulerFirstWorkerRework,
-  checkPlanningSchedulerLaunchPreflight,
   closeBlockedPlanningSchedulerRun,
-  compilePlanningSchedulerClaimReconcilePlan,
-  compilePlanningSchedulerContract,
   compilePlanningSchedulerFirstWorkerReworkPlan,
   compilePlanningSchedulerIntegrationCandidate,
-  compilePlanningSchedulerWorkerSessionPlan,
   completePlanningSchedulerRun,
-  generateSchedulerDispatchDryRun,
-  initializePlanningSchedulerRuntime,
-  preparePlanningSchedulerPlan,
-  preparePlanningSchedulerRun,
   reconcilePlanningSchedulerFirstWorkerResult,
   reconcilePlanningSchedulerFirstWorkerReworkResult,
   reconcilePlanningSchedulerIntegrationOutcome,
-  reconcilePlanningSchedulerRuntime,
-  reservePlanningSchedulerRuntimeClaims,
   runPlanningSchedulerIntegrationCheckHandoff,
   startPlanningSchedulerFirstWorker,
   startPlanningSchedulerFirstWorkerRework,
@@ -28,16 +18,6 @@ import {
 import type { WorkbenchActionHandlerMap } from "../dispatcher.js";
 
 type SchedulerWorkbenchActionType =
-  | "planning.scheduler.plan.prepare"
-  | "planning.scheduler.contract.compile"
-  | "planning.scheduler.dispatch.dry-run"
-  | "planning.scheduler.worker-plan.compile"
-  | "planning.scheduler.claim-reconcile.compile"
-  | "planning.scheduler.launch-preflight.check"
-  | "planning.scheduler.run.prepare"
-  | "planning.scheduler.runtime.initialize"
-  | "planning.scheduler.runtime.reconcile"
-  | "planning.scheduler.runtime.reserve-claims"
   | "planning.scheduler.worker.start-first"
   | "planning.scheduler.worker.start-next"
   | "planning.scheduler.worker.reconcile-result"
@@ -56,16 +36,6 @@ type SchedulerWorkbenchActionType =
 
 export function buildSchedulerActionHandlers(): Pick<WorkbenchActionHandlerMap, SchedulerWorkbenchActionType> {
   const concreteHandlers = {
-    "planning.scheduler.plan.prepare": async (project, changeId, request, live) => preparePlanningSchedulerPlan(project, changeId, request, live),
-    "planning.scheduler.contract.compile": async (project, changeId, request, live) => compilePlanningSchedulerContract(project, changeId, request, live),
-    "planning.scheduler.dispatch.dry-run": async (project, changeId, request, live) => generateSchedulerDispatchDryRun(project, changeId, request, live),
-    "planning.scheduler.worker-plan.compile": async (project, changeId, request, live) => compilePlanningSchedulerWorkerSessionPlan(project, changeId, request, live),
-    "planning.scheduler.claim-reconcile.compile": async (project, changeId, request, live) => compilePlanningSchedulerClaimReconcilePlan(project, changeId, request, live),
-    "planning.scheduler.launch-preflight.check": async (project, changeId, request, live) => checkPlanningSchedulerLaunchPreflight(project, changeId, request, live),
-    "planning.scheduler.run.prepare": async (project, changeId, request, live) => preparePlanningSchedulerRun(project, changeId, request, live),
-    "planning.scheduler.runtime.initialize": async (project, changeId, request, live) => initializePlanningSchedulerRuntime(project, changeId, request, live),
-    "planning.scheduler.runtime.reconcile": async (project, changeId, request, live) => reconcilePlanningSchedulerRuntime(project, changeId, request, live),
-    "planning.scheduler.runtime.reserve-claims": async (project, changeId, request, live) => reservePlanningSchedulerRuntimeClaims(project, changeId, request, live),
     "planning.scheduler.worker.start-first": async (project, changeId, request, live) => startPlanningSchedulerFirstWorker(project, changeId, request, live),
     "planning.scheduler.worker.start-next": async (project, changeId, request, live) => startPlanningSchedulerNextWorker(project, changeId, request, live),
     "planning.scheduler.worker.reconcile-result": async (project, changeId, request, live) => reconcilePlanningSchedulerFirstWorkerResult(project, changeId, request, live),

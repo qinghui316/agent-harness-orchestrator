@@ -122,49 +122,6 @@ describe("parent agent transcript paging", () => {
     ]);
   });
 
-  it("routes native Plan Mode output to a plan session instead of planning-agent", () => {
-    const threadItems = [
-      {
-        id: "user-1",
-        kind: "user-message",
-        label: "Plan a small change",
-        body: "Plan a small change",
-      },
-      {
-        id: "native-plan-message",
-        kind: "assistant-turn",
-        label: "计划会话",
-        agentRoleId: "plan-session",
-        runId: "run-native-plan",
-        body: "Native plan body from Codex Plan Mode.",
-        blocks: [{
-          id: "native-plan-block",
-          sequence: 1,
-          kind: "prose" as const,
-          source: "codex" as const,
-          text: "Native plan body from Codex Plan Mode.",
-        }],
-      },
-    ];
-
-    const parent = buildParentAgentTranscript({
-      workpad: { conversationId: "conv", title: "Native plan session" },
-      threadItems,
-    });
-    const planSession = buildAgentScopedTranscriptCells(threadItems, "plan-session");
-    const planningAgent = buildAgentScopedTranscriptCells(threadItems, "planning-agent");
-
-    expect(parent.cells.map((cell) => cell.text).join("\n")).toBe("Plan a small change");
-    expect(planSession).toEqual([
-      expect.objectContaining({
-        agentRoleId: "plan-session",
-        runId: "run-native-plan",
-        text: "Native plan body from Codex Plan Mode.",
-      }),
-    ]);
-    expect(planningAgent).toEqual([]);
-  });
-
   it("strips accidental planning sections from main-agent visible prose", () => {
     const transcript = buildParentAgentTranscript({
       workpad: { conversationId: "conv", boundChangeId: "change", title: "Main plan leak" },

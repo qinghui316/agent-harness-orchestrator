@@ -1172,7 +1172,7 @@ export function App(): ReactElement {
     setError(null);
     try {
       await consumeWorkbenchLiveStream(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/topics/${encodeURIComponent(activeTopic.id)}/messages/live`, {
-        mode: agent.id === "plan-session" || agent.id === "planning-agent" ? "plan" : "chat",
+        mode: "chat",
         message: message.trim(),
       }, handleLiveEvent);
     } finally {
@@ -1918,11 +1918,7 @@ export function App(): ReactElement {
                     onSend={sendTopicMessage}
                     onStopAndContinue={stopAndContinueCurrentRun}
                     onNewWorkpad={createTopicFromComposer}
-                    onRunCode={() => runWorkflowAction("code.run", {
-                      readinessManifestId: activeWorkpad.nextAction.actionType === "code.run" ? activeWorkpad.nextAction.readinessManifestId : undefined,
-                    })}
                     actionRunning={actionRunning}
-                    canRunCode={activeTopic.state === "active" && activeWorkpad.nextAction.actionType === "code.run" && Boolean(activeWorkpad.nextAction.readinessManifestId)}
                     currentWorkpadStatus={activeWorkpad.conversationLifecycle === "running" || activeWorkpad.runControlState?.canStop ? "running" : currentWorkpadSummary(snapshot, activeTopic)?.runtimeStatus}
                   />
                 )}

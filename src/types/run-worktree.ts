@@ -215,9 +215,6 @@ export interface RunMetadata {
     allowed: boolean;
     mode: string;
     changeId: string;
-    readinessManifestId?: string;
-    decompositionPlanId?: string;
-    taskQueueProposalId?: string;
     workflowGraphPlanId?: string;
     schedulerRunId?: string;
     schedulerClaimReservationId?: string;

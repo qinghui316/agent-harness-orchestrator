@@ -86,10 +86,7 @@ const catalogSchema = z.object({
 const defaultCatalog: AgentCatalog = {
   version: "1.0",
   agents: [
-    role("orchestrator", "Orchestrator", "Turns Topic requests into visible plan cards and suggested gated actions.", "read-only", ["active-change", "topic-thread", "approvals", "role-catalog"], ["orchestration-plan", "suggested-actions"], ["human-confirmation"]),
-    role("spec-agent", "Spec Agent", "Drafts WHAT/WHY and Acceptance Criteria proposals.", "read-only", ["active-change", "topic-thread"], ["spec-proposal"], ["spec-accept"]),
-    role("planner", "Planner", "Drafts HOW, plan, and executable tasks.", "read-only", ["accepted-spec", "ac-map"], ["plan-proposal", "tasks-proposal"], ["plan-accept"]),
-    role("planning-agent", "Planning Agent", "Runs a provider-native planning conversation and returns Agent-authored plan text for main-Agent handoff.", "read-only", ["active-change", "topic-thread", "project-summary", "reference-open-spec"], ["agent-authored-plan"], ["main-agent-handoff"]),
+    role("planning-agent", "Planning Agent", "Runs as a real provider child and returns a fixed WorkflowPlan proposal for main-Agent review.", "read-only", ["goal-brief", "state-brief", "project-guidance", "aho-workflow-authoring"], ["spec-plan-tasks-workflow-proposal"], ["main-agent-handoff"]),
     role("coder", "Coder", "Implements proposal diffs in AHO-owned worktrees.", "worktree-write", ["active-change", "tasks", "worktree"], ["diff", "implementation-notes"], ["validation", "audit", "human-apply"], false),
     role("coder-agent", "Coder Agent", "Implements one Coding Work Package in an AHO-owned worktree and performs internal self-tests.", "worktree-write", ["accepted-planning-artifacts", "task-context", "worktree"], ["diff", "implementation-notes", "self-test-summary"], ["validation", "audit", "human-apply"], false),
     role("validator", "Validator", "Runs deterministic validation commands.", "deterministic-writer", ["validation-profile"], ["validation-result"], [], false, "local"),

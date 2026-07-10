@@ -4,7 +4,6 @@ import { listAgentTasks } from "./repository.js";
 import type { ResolvedMemory } from "../types/index.js";
 
 export const DELEGATE_TASK_ALLOWED_ROLES = [
-  "planning-agent",
   "coder-agent",
   "validator",
   "auditor-agent",
@@ -28,7 +27,7 @@ export interface AgentTaskRequest {
 export interface DelegateTaskManifestRole {
   roleId: DelegateTaskRoleId;
   description: string;
-  writeCapability: "planning-artifacts" | "worktree" | "none";
+  writeCapability: "worktree" | "none";
   outputContract: string;
 }
 
@@ -57,12 +56,6 @@ export function buildDelegateTaskManifest(): DelegateTaskManifest {
     toolName: "delegateTask",
     availableTo: "main-agent",
     allowedRoles: [
-      {
-        roleId: "planning-agent",
-        description: "Draft or revise demand planning artifacts for the current conversation.",
-        writeCapability: "planning-artifacts",
-        outputContract: "planning draft summary and evidence refs",
-      },
       {
         roleId: "coder-agent",
         description: "Implement the confirmed demand in an AHO-owned worktree and self-test.",

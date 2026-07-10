@@ -29,12 +29,12 @@ export function canonicalWorkflowRunEventInput(input: WorkflowRunEventInput & Pa
 }
 
 export function isTaskQueueWorkflowRun(run: WorkflowRun | null | undefined): run is TaskQueueWorkflowRun {
-  return run?.source === "taskqueue-proposal";
+  return run?.source === "workflow-graph";
 }
 
 export function assertWorkflowRunQueueScope(run: WorkflowRun, queue: TaskQueueRun): asserts run is TaskQueueWorkflowRun {
-  if (run.source !== "taskqueue-proposal") {
-    throw new Error("TaskQueue lifecycle requires a taskqueue-proposal WorkflowRun.");
+  if (!isTaskQueueWorkflowRun(run)) {
+    throw new Error("TaskQueue lifecycle requires a queue-backed WorkflowRun.");
   }
   if (run.changeId !== queue.changeId) {
     throw new Error("WorkflowRun and TaskQueueRun must belong to the same Change.");

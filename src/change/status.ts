@@ -1,7 +1,6 @@
 import { join } from "node:path";
 import { buildAcMap, parseReviewStatus } from "../ecl/anchors.js";
-import { getActiveChanges, writeChangeIndex } from "../ecl/index.js";
-import { writeJsonFile } from "../fs/json.js";
+import { buildChangeIndex, getActiveChanges } from "../ecl/index.js";
 import { isGitDirtyIgnoringAhoMemory } from "../project/git.js";
 import { getSpecTestStatus } from "../spec-test/manager.js";
 import { getLatestAuditSummary } from "../audit/artifacts.js";
@@ -38,7 +37,7 @@ export async function getChangeStatus(project: ManagedProject | string | Resolve
 export async function getChangeStatusForChange(project: ManagedProject | string | ResolvedMemory, changeId: string): Promise<ChangeStatus> {
   const memory = await resolveChangeMemory(project);
   const activeChanges = await getActiveChanges(memory);
-  const index = await writeChangeIndex(memory);
+  const index = await buildChangeIndex(memory);
   const active = index.active.find((item) => item.name === changeId);
   if (!active) {
     return {
@@ -91,7 +90,6 @@ async function getChangeStatusForActive(
     : null;
 
   if (acMap) {
-    await writeJsonFile(join(changePath, "ac-map.json"), acMap);
     warnings.push(...acMap.warnings);
     blockingIssues.push(...acMap.blockingIssues);
   }

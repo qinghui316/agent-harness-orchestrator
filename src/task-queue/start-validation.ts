@@ -1,26 +1,14 @@
 import { isActiveTaskRunStatus, listTaskRuns } from "../task-run/manager.js";
-import {
-  assertWorkflowResumeAllowed,
-  readWorkflowRun,
-  validateTaskQueueProposalStart,
-} from "../workflow-run/manager.js";
-import { isTaskQueueWorkflowRun } from "../workflow-run/guards.js";
+import { assertWorkflowResumeAllowed } from "../workflow-run/manager.js";
 import { workflowActionScopesMatchStrict } from "../workflow-actions/registry.js";
-import type { ManagedProject, ResolvedMemory, TaskQueueRun, WorkflowRun } from "../types/index.js";
+import type { ManagedProject, ResolvedMemory, TaskQueueRun, TaskQueueWorkflowRun } from "../types/index.js";
 import type { TaskQueueStartOptions } from "./types.js";
 import { listTaskQueues, writeTaskQueueRun } from "./repository.js";
-import { isActiveQueueStatus, sameRecoveryKeyExceptCreatedAt } from "./status.js";
-
-type ValidatedTaskQueueStart = Awaited<ReturnType<typeof validateTaskQueueProposalStart>>;
-
-export interface TaskQueueStartValidation {
-  validated: ValidatedTaskQueueStart;
-  workflow: Extract<WorkflowRun, { source: "taskqueue-proposal" }>;
-}
+import { isActiveQueueStatus } from "./status.js";
 
 export interface PausedTaskQueueResumeValidation {
   queue: TaskQueueRun;
-  workflow: Extract<WorkflowRun, { source: "taskqueue-proposal" }>;
+  workflow: TaskQueueWorkflowRun;
 }
 
 export async function validateNoConflictingActiveQueue(memory: ResolvedMemory, changeId: string): Promise<TaskQueueRun | null> {
@@ -38,10 +26,7 @@ export async function validatePausedTaskQueueResume(
 ): Promise<PausedTaskQueueResumeValidation> {
   if (!options.queueRunId || activeQueue.id !== options.queueRunId) throw new Error("TaskQueue resume requires the paused queueRunId.");
   if (!options.workflowRunId) throw new Error("TaskQueue resume requires workflowRunId.");
-  if (!options.taskQueueProposalId) throw new Error("TaskQueue resume requires taskQueueProposalId.");
   if (!options.workflowGraphPlanId) throw new Error("TaskQueue resume requires workflowGraphPlanId.");
-  if (!options.readinessManifestId) throw new Error("TaskQueue resume requires readinessManifestId.");
-  if (!options.decompositionPlanId) throw new Error("TaskQueue resume requires decompositionPlanId.");
   if (!workflowActionScopesMatchStrict({ ...activeQueue, queueRunId: activeQueue.id }, options)) throw new Error("TaskQueue resume scope is stale or incomplete.");
   try {
     const workflow = await assertWorkflowResumeAllowed(memory, project, options.workflowRunId, activeQueue);
@@ -60,39 +45,6 @@ export async function validatePausedTaskQueueResume(
   }
 }
 
-export async function validateNewTaskQueueStart(
-  memory: ResolvedMemory,
-  project: ManagedProject,
-  options: TaskQueueStartOptions,
-): Promise<TaskQueueStartValidation> {
-  if (!options.taskQueueProposalId) throw new Error("TaskQueue start requires a confirmed TaskQueueProposal.");
-  if (!options.workflowGraphPlanId) throw new Error("TaskQueue start requires workflowGraphPlanId.");
-  if (!options.readinessManifestId) throw new Error("TaskQueue start requires readinessManifestId.");
-  if (!options.decompositionPlanId) throw new Error("TaskQueue start requires decompositionPlanId.");
-  if (!options.workflowRunId) throw new Error("TaskQueue start requires workflowRunId.");
-
-  const validated = await validateTaskQueueProposalStart(memory, project, options.changeId, options.taskQueueProposalId, options.workflowGraphPlanId);
-  if (options.decompositionPlanId !== validated.proposal.decompositionPlanId) throw new Error("TaskQueue start decompositionPlanId is stale.");
-  if (options.readinessManifestId !== validated.proposal.readinessManifestId) throw new Error("TaskQueue start readinessManifestId is stale.");
-
-  const workflow = await readWorkflowRun(memory, options.changeId, options.workflowRunId).catch(() => null);
-  if (
-    !workflow
-    || !isTaskQueueWorkflowRun(workflow)
-    || workflow.status !== "created"
-    || workflow.changeId !== options.changeId
-    || workflow.taskQueueProposalId !== validated.proposal.id
-    || workflow.workflowGraphPlanId !== validated.graph.id
-    || workflow.decompositionPlanId !== validated.proposal.decompositionPlanId
-    || workflow.readinessManifestId !== validated.proposal.readinessManifestId
-    || workflow.queueRunId
-    || !sameRecoveryKeyExceptCreatedAt(workflow.recoveryKey, validated.recoveryKey)
-  ) {
-    throw new Error("TaskQueue start requires a matching unstarted WorkflowRun.");
-  }
-  return { validated, workflow };
-}
-
 export async function assertNoActiveTaskRun(memory: ResolvedMemory, changeId: string): Promise<void> {
   const taskRuns = await listTaskRuns(memory, changeId);
   const activeTask = taskRuns.find((run) => isActiveTaskRunStatus(run.status));
@@ -103,5 +55,5 @@ export function assertProposalTasksKnown(acceptedTasks: { id: string; done?: boo
   if (acceptedTasks.length === 0) throw new Error("Task queue requires accepted tasks.");
   const knownTasks = new Set(acceptedTasks.map((task) => task.id.toUpperCase()));
   const unknown = proposalTaskIds.map((taskId) => taskId.toUpperCase()).filter((taskId) => !knownTasks.has(taskId));
-  if (unknown.length > 0) throw new Error(`TaskQueueProposal references unknown task id(s): ${Array.from(new Set(unknown)).join(", ")}.`);
+  if (unknown.length > 0) throw new Error(`WorkflowGraphPlan references unknown task id(s): ${Array.from(new Set(unknown)).join(", ")}.`);
 }

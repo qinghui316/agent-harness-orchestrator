@@ -1,20 +1,22 @@
-import { delimiter, join } from "node:path";
+﻿import { delimiter, join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { writeFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
+import { acceptConversationPlanningPackage } from "../../src/change/manager.js";
 import { initHarness } from "../../src/harness/init.js";
+import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
-import { createWorkbenchTopic } from "../../src/workbench/chat.js";
-import { runIntakeScan } from "../../src/workbench/intake.js";
+import { createWorkbenchConversation } from "../../src/workbench/chat.js";
 import { getWorkbenchSnapshot } from "../../src/workbench/manager.js";
+import { writePlannerChildProposal } from "../../src/workbench/planning/planner-child-proposal.js";
+import { WorkbenchStore } from "../../src/workbench/store.js";
 import {
   createFakeCodex,
   getTempDir,
   git,
   initGitRepository,
   project,
-  writeAcceptedSpecAndTasks,
 } from "../unit/workbench/fixtures.js";
 import type { WorkbenchDecisionAction } from "../../src/workbench/read-model-types.js";
 
@@ -34,49 +36,76 @@ describe("workbench demand-to-execution golden flow", () => {
       await git(getTempDir(), ["commit", "-m", "initial"]);
       await initHarness(project());
 
-      const topic = await createWorkbenchTopic(project(), {
+      const conversation = await createWorkbenchConversation(project(), {
         title: "Pricing Demand",
         body: "会员订单满 100 元打九折，非会员不打折，需要测试。",
+      }, undefined, { runMainAgent: false });
+      const memory = await resolveProjectMemory(project());
+      const runId = "planner-run-pricing";
+      const parentThreadId = "parent-pricing";
+      const childThreadId = "child-pricing";
+      const proposal = await writePlannerChildProposal({
+        directory: join(memory.workbenchRoot, "conversations", conversation.conversationId, "runs", runId),
+        projectId: project().id,
+        conversationId: conversation.conversationId,
+        runId,
+        parentThreadId,
+        childThreadId,
+        finalText: JSON.stringify({
+          status: "proposed",
+          specMd: "# Spec\n\n## Acceptance Criteria\n\n- AC-001: Member orders of at least 100 receive a ten percent discount; non-members do not.\n",
+          planMd: [
+            "# Plan", "", "Implement and test the pricing rule.", "", "## Workflow", "", "```json",
+            JSON.stringify({ version: "1.0", mode: "sequential-v1", nodes: [{
+              id: "pricing-rule",
+              title: "Implement pricing rule",
+              taskIds: ["T-001"],
+              acIds: ["AC-001"],
+              prompt: "Implement the accepted pricing rule and its tests.",
+              dependsOn: [],
+              sourceScopes: ["src/**", "tests/**"],
+            }] }, null, 2),
+            "```", "",
+          ].join("\n"),
+          tasksMd: "# Tasks\n\n- [ ] T-001: Implement and test the pricing rule.\n  - Covers: AC-001\n",
+          openQuestions: [],
+          assumptions: [],
+          warnings: [],
+        }),
       });
-      await runIntakeScan(project(), topic.changeId, "会员订单满 100 元打九折，非会员不打折，需要测试。");
-      await writeAcceptedSpecAndTasks(topic.changeId);
+      const store = await WorkbenchStore.open(memory);
+      try {
+        const now = new Date().toISOString();
+        store.writeProviderThread({ projectId: project().id, conversationId: conversation.conversationId, providerThreadId: parentThreadId, roleId: "main-agent", parentThreadId: null, changeId: null, capabilityProfile: "main-agent-goal-v1", updatedAt: now });
+        store.writeProviderThread({ projectId: project().id, conversationId: conversation.conversationId, providerThreadId: childThreadId, roleId: "planning-agent", parentThreadId, changeId: null, capabilityProfile: "planner-child-v1", updatedAt: now });
+        store.appendMessage({
+          id: `assistant:${conversation.conversationId}:${runId}:${childThreadId}`,
+          projectId: project().id,
+          conversationId: conversation.conversationId,
+          changeId: "",
+          type: "assistant.message",
+          timestamp: now,
+          text: proposal.planMd,
+          actionRunId: null,
+          actionType: null,
+          status: "completed",
+          runId,
+          artifact: proposal.artifact,
+          error: null,
+          rawJson: JSON.stringify({ agentRoleId: "planning-agent", artifact: proposal.artifact }),
+        });
+      } finally {
+        store.close();
+      }
+      const accepted = await acceptConversationPlanningPackage(project(), conversation.conversationId, proposal.artifact);
       process.env.PATH = join(getTempDir(), "no-codex-bin");
 
-      let snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
-      const decompose = primaryWorkflowAction(snapshot, "planning.decompose");
-      expect(decompose).toMatchObject({ changeId: topic.changeId });
-
-      await executeWorkbenchAction({ project: project(), path: getTempDir() }, { ...decompose, confirm: true });
-      snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
-      const confirmDecomposition = primaryWorkflowAction(snapshot, "planning.decomposition.confirm");
-      expect(confirmDecomposition).toMatchObject({ changeId: topic.changeId, decompositionPlanId: expect.any(String) });
-      await executeWorkbenchAction({ project: project(), path: getTempDir() }, { ...confirmDecomposition, confirm: true });
-
-      snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
-      const assessReadiness = primaryWorkflowAction(snapshot, "planning.decomposition.assess-readiness");
-      expect(assessReadiness).toMatchObject({
-        changeId: topic.changeId,
-        decompositionPlanId: confirmDecomposition.decompositionPlanId,
-      });
-      const readinessResult = await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
-        ...assessReadiness,
-        confirm: true,
-      });
-      const readinessWorkflow = unwrapWorkflowActionResult(readinessResult.result) as { manifest: { id: string } };
-      expect(readinessWorkflow).toMatchObject({
-        manifest: expect.objectContaining({
-          status: "ready-for-single-change",
-          nextAllowedAction: "code.run",
-        }),
-        executionStarted: false,
-      });
-
-      snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
+      let snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: conversation.conversationId });
       expect(snapshot.right.confirmationQueue.current.filter((item) => item.primary)).toHaveLength(1);
-      const runCode = primaryWorkflowAction(snapshot, "code.run");
+      const runCode = primaryWorkflowAction(snapshot, "workflow.run.start");
       expect(runCode).toMatchObject({
-        changeId: topic.changeId,
-        readinessManifestId: readinessWorkflow.manifest.id,
+        changeId: accepted.changeId,
+        workflowGraphPlanId: accepted.workflowGraphPlan.id,
       });
       expect(JSON.stringify(snapshot.right.confirmationQueue)).not.toMatch(/full-auto|parallel executor|merge queue|slot allocator|whole-wave/i);
       if (oldPath === undefined) delete process.env.PATH;
@@ -92,7 +121,7 @@ describe("workbench demand-to-execution golden flow", () => {
       expect(unwrapWorkflowActionResult(codeResult.result)).toMatchObject({ status: "completed" });
       expect(await gitStatus(getTempDir())).toBe("");
 
-      snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
+      snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: conversation.conversationId });
       expect(snapshot.center.workpad.resultReview).toMatchObject({
         status: "not-ready",
         validation: expect.objectContaining({ status: "passed" }),
@@ -101,7 +130,7 @@ describe("workbench demand-to-execution golden flow", () => {
       });
       expect(snapshot.right.confirmationQueue.primary).toMatchObject({
         id: expect.stringContaining("confirm:approval:audit:"),
-        changeId: topic.changeId,
+        changeId: accepted.changeId,
         primary: true,
       });
       const auditAccept = primaryApprovalAction(snapshot, "audit.accept");
@@ -110,7 +139,7 @@ describe("workbench demand-to-execution golden flow", () => {
         confirm: true,
       });
 
-      snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
+      snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: conversation.conversationId });
       expect(snapshot.center.workpad.resultReview).toMatchObject({
         status: "ready-to-apply",
         validation: expect.objectContaining({ status: "passed" }),
@@ -118,7 +147,7 @@ describe("workbench demand-to-execution golden flow", () => {
       });
       expect(snapshot.right.confirmationQueue.primary).toMatchObject({
         kind: "single-result-apply",
-        changeId: topic.changeId,
+        changeId: accepted.changeId,
         primary: true,
       });
     } finally {

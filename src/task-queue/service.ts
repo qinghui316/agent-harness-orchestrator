@@ -1,12 +1,13 @@
 import { resolveRunnableChangeTarget } from "../change/target.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import type { ManagedProject } from "../types/index.js";
-import { createTaskQueueRunFromProposal } from "./queue-creation.js";
+import { createTaskQueueRunFromGraph } from "./queue-creation.js";
+import { activeChangePath, createWorkflowRunForGraph } from "../workflow-run/manager.js";
+import { readWorkflowGraphPlan } from "../workflow-artifacts/manager.js";
 import { resumePausedTaskQueue } from "./workflow-sync.js";
 import {
   assertNoActiveTaskRun,
   assertProposalTasksKnown,
-  validateNewTaskQueueStart,
   validateNoConflictingActiveQueue,
   validatePausedTaskQueueResume,
 } from "./start-validation.js";
@@ -24,21 +25,26 @@ export async function startOrResumeTaskQueue(project: ManagedProject, options: T
     return { queue, items, resumed: true };
   }
 
-  const { validated, workflow } = await validateNewTaskQueueStart(memory, project, options);
-  const proposalTaskIds = validated.proposal.items.map((item) => item.taskId);
-  assertProposalTasksKnown(acceptedTasks, proposalTaskIds);
-  await assertNoActiveTaskRun(memory, options.changeId);
-  const { queue, items } = await createTaskQueueRunFromProposal({
-    project,
-    memory,
-    changeId: options.changeId,
-    workflow,
-    taskQueueProposalId: validated.proposal.id,
-    workflowGraphPlanId: validated.graph.id,
-    decompositionPlanId: validated.proposal.decompositionPlanId,
-    readinessManifestId: validated.proposal.readinessManifestId,
-    proposalItems: validated.proposal.items,
-    acceptedTasks,
-  });
-  return { queue, items, resumed: false };
+  if (options.workflowGraphPlanId) {
+    const changePath = await activeChangePath(memory, options.changeId);
+    const graph = await readWorkflowGraphPlan(memory, changePath, options.workflowGraphPlanId);
+    if (graph.changeId !== options.changeId || graph.graphMode !== "sequential-v1" || graph.authoringContractVersion !== "1.0") {
+      throw new Error("TaskQueue graph start requires the latest authored sequential-v1 WorkflowGraphPlan.");
+    }
+    const workflow = await createWorkflowRunForGraph(memory, project, changePath, graph);
+    assertProposalTasksKnown(acceptedTasks, graph.nodes.map((node) => node.taskId));
+    await assertNoActiveTaskRun(memory, options.changeId);
+    const created = await createTaskQueueRunFromGraph({
+      project,
+      memory,
+      changeId: options.changeId,
+      workflow,
+      workflowGraphPlanId: graph.id,
+      graphItems: graph.nodes.map((node) => ({ taskId: node.taskId, order: node.order })),
+      acceptedTasks,
+    });
+    return { ...created, resumed: false };
+  }
+
+  throw new Error("TaskQueue start requires an accepted authored sequential WorkflowGraphPlan.");
 }

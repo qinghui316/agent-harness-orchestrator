@@ -243,7 +243,7 @@ function transcriptCellFromAssistantBlock(
   const itemId = item.id;
   const timestamp = item.timestamp;
 
-  if (block.kind === "workflow-evidence" || block.kind === "plan-card") return null;
+  if (block.kind === "workflow-evidence") return null;
   if (source === "workflow-evidence" && block.kind === "prose") {
     if (!text) return null;
     return {

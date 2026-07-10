@@ -1,7 +1,7 @@
 import type { WorkbenchConfirmationQueueItem, WorkbenchConfirmationQueueItemKind, WorkbenchDecisionContext } from "../../../read-model-types.js";
 import { evidenceRefs } from "../evidence-refs.js";
 
-export function decisionContextToConfirmationItems(context: WorkbenchDecisionContext | null, primary: boolean): WorkbenchConfirmationQueueItem[] {
+export function decisionContextToConfirmationItems(context: WorkbenchDecisionContext | null, primary: boolean, conversationId?: string): WorkbenchConfirmationQueueItem[] {
   if (!context) return [];
   const confirmActions = context.actions.filter((action) => action.kind !== "none" && action.enabled);
   if (confirmActions.length === 0) return [];
@@ -17,7 +17,7 @@ export function decisionContextToConfirmationItems(context: WorkbenchDecisionCon
   return [{
     id: `confirm:${context.id}`,
     kind,
-    conversationId: context.changeId,
+    conversationId,
     changeId: context.changeId,
     resultId: context.targetId,
     runId: context.runId,

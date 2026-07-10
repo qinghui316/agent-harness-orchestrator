@@ -12,7 +12,6 @@ export {
   AssistantReadableEventCards,
   AssistantTurnBlocks,
   LiveAssistantTurnView,
-  PlanCardView,
   artifactName,
 } from "./assistant-rendering.js";
 export { TopicComposer } from "./composer.js";

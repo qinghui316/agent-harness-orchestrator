@@ -33,7 +33,7 @@ export interface DefaultCodeChangeWorkflowInput {
   prompt?: string;
   live?: WorkflowRuntimeLiveSink;
   taskIds?: string[];
-  readinessManifestId?: string;
+  workflowGraphPlanId?: string;
 }
 
 export interface DefaultCodeChangeWorkflowAttempt {
@@ -183,7 +183,7 @@ export class HarnessWorkflowRunEngine {
         roleId: "coder-agent",
         orchestration,
         decision: codeDecision,
-        executionGate: input.readinessManifestId ? { mode: "single-change-readiness", readinessManifestId: input.readinessManifestId } : undefined,
+        executionGate: input.workflowGraphPlanId ? { mode: "workflow-graph", workflowGraphPlanId: input.workflowGraphPlanId } : undefined,
       })
       : await this.services.runReworkCoder({
         project: input.project,
@@ -297,12 +297,11 @@ export class HarnessWorkflowRunEngine {
       })),
       maxReworkAttempts: MAX_REWORK_ATTEMPTS,
       reworkAttempts: 0,
-      readinessManifestId: input.readinessManifestId,
       recoveryKey: {
         version: "1.0",
         changeId: input.changeId,
         templateId: DEFAULT_TEMPLATE_ID,
-        readinessManifestId: input.readinessManifestId,
+        workflowGraphPlanId: input.workflowGraphPlanId,
         policyHash: "tool-policy-gate:default-code-change-workflow:v0",
         capabilityHash: "local-runtime:default-code-change-workflow:v0",
         createdAt: now,

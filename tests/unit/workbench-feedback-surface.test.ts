@@ -1,15 +1,11 @@
-import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { createChange } from "../../src/change/manager.js";
 import { initHarness } from "../../src/harness/init.js";
 import { resolveFeedbackRouteFromPrimary } from "../../src/server/workbench/feedback-routing.js";
 import { classifyPrFeedbackSnapshotData, refreshPrFeedback, startPrFeedbackReworkAttempt } from "../../src/pr-feedback/manager.js";
-import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import type { WorkbenchActionRequest } from "../../src/server/workbench/types.js";
-import type { LandingReadinessPackage, PrDraftPackage, RunMetadata } from "../../src/types/index.js";
-import { getWorkbenchSnapshot, getWorkbenchTopic } from "../../src/workbench/manager.js";
+import type { LandingReadinessPackage, PrDraftPackage } from "../../src/types/index.js";
 import { getTempDir, project } from "./workbench/fixtures.js";
 
 describe("workbench feedback surface", () => {
@@ -42,45 +38,6 @@ describe("workbench feedback surface", () => {
       comments: [],
       statusCheckRollup: [],
     })).toBe("stale-pr");
-  });
-
-  it("records proposal request-changes feedback without accepting the proposal", async () => {
-    await initHarness(project());
-    await createChange(project(), { title: "Feedback Proposal" });
-    const run = await writeSpecProposalRun("feedback-proposal");
-    const before = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "feedback-proposal" });
-    const action = before.right.approvals.find((item) => item.id === `spec:${run.id}`)?.action;
-    expect(action).toBeTruthy();
-    if (!action) throw new Error("Expected spec proposal action");
-
-    await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
-      action,
-      feedback: "补充边界后再生成 Spec。",
-      feedbackContext: {
-        contextId: `approval:spec:${run.id}`,
-        approvalId: `spec:${run.id}`,
-        changeId: "feedback-proposal",
-        targetId: run.id,
-        runId: run.id,
-      },
-    });
-
-    const after = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "feedback-proposal" });
-
-    expect(after.right.approvals.some((item) => item.id === `spec:${run.id}`)).toBe(true);
-    expect(after.right.decisions).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        status: "requested-changes",
-        changeId: "feedback-proposal",
-        targetId: run.id,
-        runId: run.id,
-        feedback: "补充边界后再生成 Spec。",
-      }),
-    ]));
-    const detail = await getWorkbenchTopic({ project: project(), path: getTempDir() }, "feedback-proposal");
-    expect(detail.threadItems).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: "decision", status: "requested-changes", body: "User requested changes instead of accepting this decision." }),
-    ]));
   });
 
   it("routes result apply feedback to bounded rework without applying source", () => {
@@ -182,65 +139,6 @@ function feedbackRequest(input: { feedback: string; changeId: string; actionId: 
       runId: input.runId,
     },
   };
-}
-
-async function writeSpecProposalRun(changeId: string): Promise<RunMetadata> {
-  const runId = `run-test-${changeId}`;
-  const runDir = join(getTempDir(), ".agent-harness", "runs", runId);
-  await mkdir(runDir, { recursive: true });
-  const now = new Date().toISOString();
-  const run: RunMetadata = {
-    version: "1.0",
-    id: runId,
-    changeId,
-    projectPath: getTempDir(),
-    runtime: "spec-agent",
-    executionMode: "direct",
-    proposalOnly: true,
-    command: ["codex", "exec"],
-    status: "completed",
-    exitCode: 0,
-    signal: null,
-    startedAt: now,
-    finishedAt: now,
-    artifacts: {
-      base: "project-root",
-      directory: `.agent-harness/runs/${runId}`,
-      context: `.agent-harness/runs/${runId}/context.md`,
-      events: `.agent-harness/runs/${runId}/events.jsonl`,
-      stdout: `.agent-harness/runs/${runId}/stdout.log`,
-      stderr: `.agent-harness/runs/${runId}/stderr.log`,
-      specProposal: `.agent-harness/runs/${runId}/spec-proposal.json`,
-      specProposalMarkdown: `.agent-harness/runs/${runId}/spec-proposal.md`,
-      lastMessage: `.agent-harness/runs/${runId}/last-message.md`,
-    },
-  };
-  await writeFile(join(runDir, "run.json"), JSON.stringify(run, null, 2), "utf8");
-  await writeFile(join(runDir, "events.jsonl"), `${JSON.stringify({ timestamp: now, type: "change.spec.proposal.completed", runId })}\n`, "utf8");
-  await writeFile(join(runDir, "spec-proposal.md"), "# Spec Proposal\n", "utf8");
-  await writeFile(join(runDir, "last-message.md"), "Status: proposed\n", "utf8");
-  await writeFile(join(runDir, "spec-proposal.json"), JSON.stringify({
-    version: "1.0",
-    id: runId,
-    runId,
-    changeId,
-    status: "proposed",
-    startedAt: now,
-    finishedAt: now,
-    targetHashes: {},
-    specMd: "# Spec\n\n## Acceptance Criteria\n\n- AC-001: Example\n",
-    openQuestions: [],
-    assumptions: [],
-    warnings: [],
-    artifacts: {
-      proposal: `.agent-harness/runs/${runId}/spec-proposal.json`,
-      proposalMarkdown: `.agent-harness/runs/${runId}/spec-proposal.md`,
-      lastMessage: `.agent-harness/runs/${runId}/last-message.md`,
-    },
-  }, null, 2), "utf8");
-  expect(existsSync(join(runDir, "spec-proposal.json"))).toBe(true);
-  expect(await readFile(join(runDir, "events.jsonl"), "utf8")).toContain("change.spec.proposal.completed");
-  return run;
 }
 
 async function writeLandingPackage(id: string, changeIds: string[]): Promise<void> {

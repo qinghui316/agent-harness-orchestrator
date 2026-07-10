@@ -74,7 +74,7 @@ async function createChangeInDirectory(project: ManagedProject, options: { title
   return { change, path: relativePath, acMap, index };
 }
 
-function allocateChangeId(changesRoot: string, title: string): string {
+export function allocateChangeId(changesRoot: string, title: string): string {
   const rawSlug = slugify(title);
   const base = rawSlug === "project" ? `project-${shortHash(title)}` : rawSlug;
   let candidate = base;

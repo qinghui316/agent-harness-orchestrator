@@ -1,4 +1,4 @@
-import { getChangeStatusForChange } from "../../change/manager.js";
+﻿import { getChangeStatusForChange } from "../../change/manager.js";
 import { buildContextProjection } from "../../run/manager.js";
 import type { ManagedProject, ResolvedMemory } from "../../types/index.js";
 import { renderTopicAttachmentsForPrompt } from "../attachments.js";
@@ -6,7 +6,7 @@ import { renderTopicFileReferencesForPrompt } from "../file-references.js";
 import { getWorkbenchSnapshot } from "../manager.js";
 import type { TopicAttachment, TopicFileReference } from "../types.js";
 import { resolveTopic } from "../topic-resolver.js";
-import { readTopicThreadLog as readThreadLog } from "../thread-log.js";
+import { readConversationThread as readThreadLog } from "../conversation-thread-log.js";
 
 export interface MainAgentContextResult {
   context: string;
@@ -47,17 +47,7 @@ export async function buildChatContext(
   userMessage: string,
 ): Promise<MainAgentContextResult> {
   const { changePath } = await resolveTopic(project, changeId);
-  return buildContext(project, memory, changePath, changeId, userMessage, false);
-}
-
-export async function buildOrchestratorContext(
-  project: ManagedProject,
-  memory: ResolvedMemory,
-  changePath: string,
-  changeId: string,
-  userMessage: string,
-): Promise<MainAgentContextResult> {
-  return buildContext(project, memory, changePath, changeId, userMessage, true);
+  return buildContext(project, memory, changePath, changeId, userMessage);
 }
 
 async function buildContext(
@@ -66,20 +56,17 @@ async function buildContext(
   changePath: string,
   changeId: string,
   userMessage: string,
-  orchestrator: boolean,
 ): Promise<MainAgentContextResult> {
   const status = await getChangeStatusForChange(project, changeId);
-  const recentMessages = (await readThreadLog(memory, changePath)).slice(orchestrator ? -16 : -12);
+  const recentMessages = (await readThreadLog(memory, changePath)).slice(-12);
   const referencedFiles = topicFileReferencesFromRecentMessages(recentMessages);
   const attachments = topicAttachmentsFromRecentMessages(recentMessages);
   const attachmentContext = await renderTopicAttachmentsForPrompt(project, attachments);
   return {
     context: [
-      orchestrator ? "# AHO Workbench Orchestrator Context" : "# AHO Topic Chat",
+      "# AHO Topic Chat",
       "",
-      orchestrator
-        ? "You are planning inside a single AHO Topic. The plan card is an interaction projection, not workflow truth."
-        : "You are answering inside the AHO Workbench Topic chat.",
+      "You are answering inside the AHO Workbench conversation.",
       "Use accepted Harness artifacts and current evidence as source of truth. Provider thread memory is runtime continuity, not project memory or execution authority.",
       "Do not mutate files, execute a workflow action, or claim approval from this read-only context.",
       "",
@@ -95,14 +82,6 @@ async function buildContext(
       "## Recent Topic Messages",
       "",
       ...recentMessages.map((entry) => `- ${entry.type}: ${entry.text ?? entry.actionType ?? entry.status ?? ""}`),
-      ...(orchestrator ? [
-        "",
-        "## Routing Policy",
-        "",
-        "- If the request is unrelated to this Topic, return routingDecision new-topic-required.",
-        "- If routing is uncertain, return routingDecision clarify.",
-        "- Otherwise return same-topic and suggest the next safe workflow action.",
-      ] : []),
       "",
       "## Current User Message",
       "",

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { buildCodexAppServerCollaborationModePayload, evaluateCodexAppServerCapabilities, extractCodexAppServerCollabToolCall, extractCodexAppServerPlanText, shouldUseCodexAppServerForMemory, shouldUseCodexAppServerForReadOnlyTurn } from "../../src/codex/app-server.js";
+import { evaluateCodexAppServerCapabilities, extractCodexAppServerCollabToolCall, extractCodexAppServerPlanText, extractCodexAppServerThreadFinalText, shouldUseCodexAppServerForMemory, shouldUseCodexAppServerForReadOnlyTurn } from "../../src/codex/app-server.js";
 import { buildCodexReadonlyArgv, buildCodexReadonlyResumeArgv, buildCodexWorkspaceWriteArgv, evaluateCodexCapabilities } from "../../src/codex/capabilities.js";
 import { createCodexJsonlStreamParser, extractFinalMessageFromCodexJsonl, truncateReadablePreview, type CodexJsonlStreamEvent } from "../../src/codex/jsonl.js";
 import { candidatesFromModelListResponse, getCodexModelSettingsSnapshot, resolveCodexEffectiveModel, setSelectedCodexModel } from "../../src/codex/model-settings.js";
@@ -80,18 +80,6 @@ describe("codex capabilities", () => {
     })).toContain("## 目标");
   });
 
-  it("keeps native Plan Mode collaboration payload even when no explicit model is selected", () => {
-    expect(buildCodexAppServerCollaborationModePayload("plan", null)).toEqual({
-      mode: "plan",
-      settings: {
-        model: null,
-        developer_instructions: null,
-        reasoning_effort: null,
-      },
-    });
-    expect(buildCodexAppServerCollaborationModePayload(undefined, null)).toBeUndefined();
-  });
-
   it("extracts native Codex collab tool call items for child-agent projection", () => {
     const call = extractCodexAppServerCollabToolCall("item/completed", {
       item: {
@@ -118,6 +106,18 @@ describe("codex capabilities", () => {
       agentsStates: undefined,
     });
     expect(extractCodexAppServerCollabToolCall("item/completed", { item: { type: "dynamicToolCall", tool: "spawn_agent" } })).toBeNull();
+  });
+
+  it("reads the final assistant output from a provider child thread snapshot", () => {
+    expect(extractCodexAppServerThreadFinalText({
+      thread: {
+        id: "thread-child",
+        turns: [{ items: [
+          { type: "userMessage", role: "user", content: [{ type: "input_text", text: "draft" }] },
+          { type: "agentMessage", role: "assistant", content: [{ type: "output_text", text: "{\"planMd\":\"# Plan\"}" }] },
+        ] }],
+      },
+    })).toBe('{"planMd":"# Plan"}');
   });
 
   it("builds root-level approval argv", () => {

@@ -8,7 +8,6 @@ import { listAgentRoles, showAgentRole, syncAgentCatalog } from "../../src/agent
 import { writeProjectMarker } from "../../src/project/marker.js";
 import { addSkillRoot, getEnabledSkillContext, getTransientSystemSkillContext, importSkill, listSkills, setSkillEnabled } from "../../src/skill/catalog.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
-import { WorkbenchStore } from "../../src/workbench/store.js";
 import type { ManagedProject } from "../../src/types/index.js";
 
 let root: string;
@@ -161,28 +160,43 @@ describe("AHO skill source and Codex bridge", () => {
     await writeProjectMarker(repo, "external-local");
 
     const skills = await listSkills(repo);
-    const systemSkill = skills.find((item) => item.skillId === "aho-harness-onboarding");
-    expect(systemSkill).toMatchObject({
+    const onboardingSkill = skills.find((item) => item.skillId === "aho-harness-onboarding");
+    expect(onboardingSkill).toMatchObject({
+      sourceKind: "system-aho",
+      runtimeTargets: [expect.objectContaining({ provider: "codex", status: "not-synced", materializationMode: "aho-managed" })],
+    });
+    const authoringSkill = skills.find((item) => item.skillId === "aho-workflow-authoring");
+    expect(authoringSkill).toMatchObject({
       sourceKind: "system-aho",
       runtimeTargets: [expect.objectContaining({ provider: "codex", status: "not-synced", materializationMode: "aho-managed" })],
     });
 
     await setSkillEnabled(repo, "aho-harness-onboarding", { topic: "change-a", enabled: true });
+    await setSkillEnabled(repo, "aho-workflow-authoring", { topic: "change-a", enabled: true });
     const beforeSync = await getEnabledSkillContext(repo, "change-a");
-    expect(beforeSync.records[0]).toMatchObject({
-      id: "aho-harness-onboarding",
-      sourceKind: "system-aho",
-      materializationMode: "aho-managed",
-    });
-    expect(beforeSync.warnings).toEqual(["Skill aho-harness-onboarding is not synced to the Codex bridge."]);
+    expect(beforeSync.records).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "aho-harness-onboarding", sourceKind: "system-aho", materializationMode: "aho-managed" }),
+      expect.objectContaining({ id: "aho-workflow-authoring", sourceKind: "system-aho", materializationMode: "aho-managed" }),
+    ]));
+    expect(beforeSync.warnings).toEqual([
+      "Skill aho-harness-onboarding is not synced to the Codex bridge.",
+      "Skill aho-workflow-authoring is not synced to the Codex bridge.",
+    ]);
 
     const synced = await syncCodexBridge(repo);
     const materialized = join(process.env.CODEX_HOME ?? "", "plugins", "aho-managed", "skills", "demo__aho-harness-onboarding", "SKILL.md");
+    const materializedAuthoring = join(process.env.CODEX_HOME ?? "", "plugins", "aho-managed", "skills", "demo__aho-workflow-authoring");
     expect(synced.synced.some((item) => item.skillId === "aho-harness-onboarding")).toBe(true);
+    expect(synced.synced.some((item) => item.skillId === "aho-workflow-authoring")).toBe(true);
     expect(existsSync(materialized)).toBe(true);
     expect(await readFile(materialized, "utf8")).toContain("name: demo__aho-harness-onboarding");
     expect(existsSync(join(process.env.CODEX_HOME ?? "", "plugins", "aho-managed", "skills", "demo__aho-harness-onboarding", "references", "first-demand-onboarding-flow.md"))).toBe(true);
+    expect(await readFile(join(materializedAuthoring, "SKILL.md"), "utf8")).toContain("name: demo__aho-workflow-authoring");
+    expect(existsSync(join(materializedAuthoring, "agents", "openai.yaml"))).toBe(true);
+    expect(existsSync(join(materializedAuthoring, "references", "fixed-plan-format.md"))).toBe(true);
+    expect(existsSync(join(materializedAuthoring, "references", "workflow-patterns.md"))).toBe(true);
     expect(existsSync(join(process.env.CODEX_HOME ?? "", "skills", "aho-harness-onboarding"))).toBe(false);
+    expect(existsSync(join(process.env.CODEX_HOME ?? "", "skills", "aho-workflow-authoring"))).toBe(false);
   });
 
   it("renders transient AHO system skill context without project or topic enablement", async () => {
@@ -225,31 +239,6 @@ describe("AHO skill source and Codex bridge", () => {
     expect(existsSync(join((await resolveProjectMemory(repo)).agentsRoot, "coder.md"))).toBe(true);
   });
 
-  it("persists messages and imports legacy thread.jsonl once", async () => {
-    const repo = project();
-    await mkdir(repo.path, { recursive: true });
-    await writeProjectMarker(repo, "external-local");
-    const memory = await resolveProjectMemory(repo);
-    const changePath = "harness/changes/active/change-a";
-    await mkdir(join(memory.memoryRoot, changePath), { recursive: true });
-    await writeFile(join(memory.memoryRoot, changePath, "thread.jsonl"), `${JSON.stringify({
-      id: "legacy-1",
-      type: "user.message",
-      timestamp: "2026-05-16T00:00:00.000Z",
-      changeId: "change-a",
-      text: "hello",
-    })}\n`, "utf8");
-
-    const store = await WorkbenchStore.open(memory);
-    try {
-      expect(store.hasMessages(repo.id, "change-a")).toBe(false);
-    } finally {
-      store.close();
-    }
-    const { importThreadJsonlIfNeeded } = await import("../../src/workbench/store.js");
-    expect(await importThreadJsonlIfNeeded(memory, repo.id, "change-a", changePath)).toBe(1);
-    expect(await importThreadJsonlIfNeeded(memory, repo.id, "change-a", changePath)).toBe(0);
-  });
 });
 
 async function createSkillSource(name: string, parent = join(root, "skill-source")): Promise<string> {

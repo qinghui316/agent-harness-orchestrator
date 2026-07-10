@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { assertLatestSchedulerRuntimeClaimReservationForSnapshot } from "../../src/scheduler-runtime/guards.js";
 import { assertLatestWorkbenchActionTarget, assertPreparedWorkbenchActionTarget, assertWorkbenchActionChangeScope, assertWorkbenchActionOptionalStringTarget, assertWorkbenchActionStringArrayTarget } from "../../src/workbench/actions/active-target.js";
@@ -171,27 +171,27 @@ describe("Workbench helper boundaries", () => {
     expect(() => assertLatestWorkbenchActionTarget(
       { id: "older-run" },
       { id: "current-run" },
-      "planning.scheduler.plan.prepare",
+      "planning.scheduler.worker.start-first",
       "SchedulerRun",
-    )).toThrow("planning.scheduler.plan.prepare requires the latest SchedulerRun.");
+    )).toThrow("planning.scheduler.worker.start-first requires the latest SchedulerRun.");
     expect(() => assertLatestWorkbenchActionTarget(
       { id: "current-run" },
       { id: "current-run" },
-      "planning.scheduler.plan.prepare",
+      "planning.scheduler.worker.start-first",
       "SchedulerRun",
     )).not.toThrow();
     expect(() => assertLatestWorkbenchActionTarget(
       { id: "older-snapshot" },
       { id: "current-snapshot" },
-      "planning.scheduler.plan.prepare",
+      "planning.scheduler.worker.start-first",
       "SchedulerReconcileSnapshot",
-    )).toThrow("planning.scheduler.plan.prepare requires the latest SchedulerReconcileSnapshot.");
+    )).toThrow("planning.scheduler.worker.start-first requires the latest SchedulerReconcileSnapshot.");
     expect(() => assertLatestWorkbenchActionTarget(
       { id: "older-reservation" },
       { id: "current-reservation" },
-      "planning.scheduler.plan.prepare",
+      "planning.scheduler.worker.start-first",
       "SchedulerRuntimeClaimReservation",
-    )).toThrow("planning.scheduler.plan.prepare requires the latest SchedulerRuntimeClaimReservation.");
+    )).toThrow("planning.scheduler.worker.start-first requires the latest SchedulerRuntimeClaimReservation.");
     expect(() => assertLatestSchedulerRuntimeClaimReservationForSnapshot(
       { id: "reservation-1", schedulerReconcileSnapshotId: "snapshot-1", status: "reserved" },
       { lastClaimReservationId: "reservation-1", lastClaimReservationSnapshotId: "snapshot-1", lastReconcileSnapshotId: "snapshot-1" },
@@ -228,28 +228,28 @@ describe("Workbench helper boundaries", () => {
       { id: "older-run", changeId: "current-change", status: "prepared" },
       "current-run",
       "current-change",
-      "planning.scheduler.runtime.initialize",
+      "planning.scheduler.worker.start-first",
       "SchedulerRun",
-    )).toThrow("planning.scheduler.runtime.initialize SchedulerRun target is stale or not prepared.");
+    )).toThrow("planning.scheduler.worker.start-first SchedulerRun target is stale or not prepared.");
     expect(() => assertPreparedWorkbenchActionTarget(
       { id: "current-run", changeId: "other-change", status: "prepared" },
       "current-run",
       "current-change",
-      "planning.scheduler.runtime.initialize",
+      "planning.scheduler.worker.start-first",
       "SchedulerRun",
-    )).toThrow("planning.scheduler.runtime.initialize SchedulerRun target is stale or not prepared.");
+    )).toThrow("planning.scheduler.worker.start-first SchedulerRun target is stale or not prepared.");
     expect(() => assertPreparedWorkbenchActionTarget(
       { id: "current-run", changeId: "current-change", status: "completed" },
       "current-run",
       "current-change",
-      "planning.scheduler.runtime.initialize",
+      "planning.scheduler.worker.start-first",
       "SchedulerRun",
-    )).toThrow("planning.scheduler.runtime.initialize SchedulerRun target is stale or not prepared.");
+    )).toThrow("planning.scheduler.worker.start-first SchedulerRun target is stale or not prepared.");
     expect(() => assertPreparedWorkbenchActionTarget(
       { id: "current-run", changeId: "current-change", status: "prepared" },
       "current-run",
       "current-change",
-      "planning.scheduler.runtime.initialize",
+      "planning.scheduler.worker.start-first",
       "SchedulerRun",
     )).not.toThrow();
     expect(() => assertWorkbenchActionStringArrayTarget(

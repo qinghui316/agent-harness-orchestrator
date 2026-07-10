@@ -25,34 +25,17 @@ AHO multi-agent work is driven by:
 
 Skill output is not one of those authorities.
 
-The Skill may help the main Agent describe a WorkflowPlan or identify a likely
-workflow template/mode. It must not enforce permissions, allocate worktrees,
-claim worker slots, approve gates, or make Workbench UI state into workflow
-truth.
+The Skill may identify when dedicated workflow authoring is needed. Route fixed
+Spec/Plan/Tasks proposal drafting to `$aho-workflow-authoring`. This onboarding
+Skill must not enforce permissions, allocate worktrees, claim worker slots,
+approve gates, or make Workbench UI state into workflow truth.
 
-## WorkflowPlan Authoring Guidance
+## Workflow Authoring Route
 
-When the main Agent decides planning is needed, it should give Plan Agent a
-compact Goal brief, state brief, constraints, and scoped evidence. Plan Agent's
-output is a WorkflowPlan proposal, not execution approval.
-
-Use the Open Dynamic Workflows authoring shape as the mental model, but not its
-JavaScript carrier:
-
-- design the workflow structure before assigning leaves;
-- choose sequential, pipeline, ready-set, or barrier behavior only when the
-  task evidence justifies it;
-- describe each leaf as `prompt + opts`: the prompt says what the Agent must do
-  and what output it must return; opts describe role, scope, worktree/write
-  mode, policy profile, and validation/audit needs for Harness;
-- keep user confirmation, stale Workbench buttons, Change matching, source
-  hashes, reservation ids, worktree ids, apply/merge/close gates, and
-  ToolPolicyGate internals out of the business plan body.
-
-The proposal may recommend where the runtime should stop for a human gate. It
-must not grant permission, call workflow actions, create Scheduler claims,
-pretend a fake subagent exists, update PRs, apply/merge source, close/archive,
-or bypass the main Agent review and user confirmation step.
+When planning is needed, give the Plan child a compact Goal brief, state brief,
+constraints, and scoped evidence, then invoke `$aho-workflow-authoring`. Its
+fixed proposal is review input only. It does not approve execution or replace
+AHO runtime and human gates.
 
 ## Plan Handoff Intents
 
@@ -69,14 +52,8 @@ permission grant.
 Produce hints in this form:
 
 - read-only analysis: for unclear product, architecture, or source questions;
-- default workflow template: for the current coder -> validation -> audit ->
-  bounded rework compatibility path, later compiled as
-  `default-code-change-workflow`;
-- sequential workflow mode: for dependent, high-conflict, or single-threaded
-  changes;
-- future ready-set / scheduler-wave mode: only when accepted tasks have
-  explicit, non-overlapping source scopes and current evidence proves low
-  conflict;
+- workflow authoring: route concrete topology and node drafting to
+  `$aho-workflow-authoring`;
 - validation/audit focus: what evidence would prove readiness;
 - human gate: which decision must stop for the user.
 

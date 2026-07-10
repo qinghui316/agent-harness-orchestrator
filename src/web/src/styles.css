@@ -2773,8 +2773,7 @@ input:focus-visible {
 .tool-event-card,
 .assistant-event-card,
 .assistant-block-card,
-.tool-event-details,
-.plan-card {
+.tool-event-details {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--bg-subtle);
@@ -2908,33 +2907,6 @@ input:focus-visible {
   padding: 9px 11px;
 }
 
-.plan-card {
-  margin-top: 12px;
-  padding: 14px;
-}
-
-.plan-card h3 {
-  margin: 0 0 8px;
-  color: var(--text-strong);
-  font-size: 14px;
-  font-weight: 650;
-}
-
-.plan-card ol {
-  display: grid;
-  gap: 8px;
-  margin: 12px 0 0;
-  padding-left: 18px;
-}
-
-.plan-card li span {
-  display: block;
-  margin-top: 2px;
-  color: var(--text-muted);
-  font-size: 12.5px;
-}
-
-.plan-warnings,
 .feedback-note {
   margin-top: 10px;
   padding: 8px 10px;
@@ -2944,7 +2916,6 @@ input:focus-visible {
   font-size: 12.5px;
 }
 
-.plan-actions,
 .approval-actions {
   display: flex;
   flex-wrap: wrap;

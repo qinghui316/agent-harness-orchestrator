@@ -1,11 +1,11 @@
-import { existsSync } from "node:fs";
+﻿import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { listAuditResults, summarizeAudit } from "../../audit/repository.js";
 import { getCodexProviderRuntimeSummary } from "../../provider-runtime/index.js";
 import { listRuns } from "../../run/repository.js";
 import { listValidationResults, summarizeValidation } from "../../validation/repository.js";
-import { collectAllTopicThreadEntries } from "../../workbench/thread-log.js";
+import { collectAllConversationThreadEntries } from "../../workbench/conversation-thread-log.js";
 import { resolveProjectInputWithDirect } from "./direct-project.js";
 import { getRuntimeDiagnostics } from "./runtime-diagnostics.js";
 import type { WorkbenchServerContext } from "./types.js";
@@ -204,7 +204,7 @@ async function appendAuditItems(items: RuntimeActivityItem[], memory: ResolvedMe
 }
 
 async function appendMessageContextItems(items: RuntimeActivityItem[], memory: ResolvedMemory, topicId: string | null): Promise<void> {
-  const entries = (await collectAllTopicThreadEntries(memory)).filter((entry) => !topicId || entry.changeId === topicId);
+  const entries = (await collectAllConversationThreadEntries(memory)).filter((entry) => !topicId || entry.changeId === topicId);
   for (const entry of entries.slice(-200)) {
     if (entry.error) {
       items.push({

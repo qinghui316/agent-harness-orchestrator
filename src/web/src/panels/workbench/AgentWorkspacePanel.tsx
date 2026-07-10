@@ -171,7 +171,7 @@ function AgentWorkspaceComposer({
   const [pending, setPending] = useState<string | null>(null);
   const actionBusy = pending !== null;
   const text = value.trim();
-  const canInteract = agent.id === "plan-session" || agent.id === "planning-agent";
+  const canInteract = agent.id === "planning-agent";
   const submitDisabled = actionBusy || !canInteract || !text;
   async function submit(): Promise<void> {
     if (submitDisabled) return;

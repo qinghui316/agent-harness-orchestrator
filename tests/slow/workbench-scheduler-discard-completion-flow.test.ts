@@ -8,11 +8,20 @@ import { listAgentTasks } from "../../src/agent-task/manager.js";
 import { markWorktreeApplied } from "../../src/worktree/manager.js";
 import { listTaskQueues } from "../../src/task-queue/manager.js";
 import { listWorkflowRuns } from "../../src/workflow-run/manager.js";
+import { readLatestWorkflowGraphPlan } from "../../src/workflow-artifacts/manager.js";
+import { readSchedulerRuntimeClaimReservation } from "../../src/scheduler-runtime/repository.js";
+import { readSchedulerWorkerPathReadModelsForReservation } from "../../src/scheduler-runtime/worker-path-read-model.js";
+import { readLatestSchedulerCurrentTransitionView } from "../../src/workflow-runtime/scheduler-current-transition-view.js";
 import { execFileAsync, findSchedulerGateAction, getTempDir, prepareSeededSchedulerIntegrationHandoff, project, unwrapWorkflowActionResult } from "../unit/workbench/fixtures.js";
 
 describe("workbench scheduler discard completion slow flow", () => {
   it("records discarded SchedulerRun completion after existing IntegrationCheck discard without mutating source", async () => {
     const prepared = await prepareSeededSchedulerIntegrationHandoff("Scheduler Discard Completion Acceptance");
+    const memory = await resolveProjectMemory(project());
+    const changePath = join("harness", "changes", "active", prepared.topic.changeId);
+    const reservation = await readSchedulerRuntimeClaimReservation(memory, changePath, prepared.schedulerRun.id, prepared.claimReservation.id);
+    const workerPaths = await readSchedulerWorkerPathReadModelsForReservation(memory, changePath, prepared.schedulerRun.id, reservation);
+    expect(workerPaths.map((path) => path.status)).toEqual(["audit-approved", "audit-approved"]);
     const moduleABeforeDiscard = await readFile(join(getTempDir(), "src", "module-a.ts"), "utf8");
     const moduleBBeforeDiscard = await readFile(join(getTempDir(), "src", "module-b.ts"), "utf8");
     const sourceStatusBeforeDiscard = await execFileAsync("git", ["status", "--short", "--untracked-files=all"], { cwd: getTempDir() });
@@ -34,11 +43,19 @@ describe("workbench scheduler discard completion slow flow", () => {
     const sourceStatusAfterDiscard = await execFileAsync("git", ["status", "--short", "--untracked-files=all"], { cwd: getTempDir() });
     expect(sourceStatusAfterDiscard.stdout.trim()).toBe("");
 
+    const afterDiscardMemory = await resolveProjectMemory(project());
+    await expect(readLatestWorkflowGraphPlan(afterDiscardMemory, join("harness", "changes", "active", prepared.topic.changeId))).resolves.toMatchObject({ graphMode: "ready-set-v1" });
+    const transitionView = await readLatestSchedulerCurrentTransitionView(afterDiscardMemory, join("harness", "changes", "active", prepared.topic.changeId), prepared.schedulerRun.id, "slow acceptance");
+    if (transitionView.transition.kind !== "integration-outcome") {
+      throw new Error(`Unexpected post-discard transition: ${JSON.stringify(transitionView.transition)}`);
+    }
+    expect(transitionView.transition).toMatchObject({ kind: "integration-outcome" });
+
     snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: prepared.topic.changeId });
     const outcomeAction = snapshot.right.confirmationQueue.current
       .flatMap((item) => item.actions)
       .find((action) => findSchedulerGateAction([action], "planning.scheduler.integration-outcome.reconcile", (candidate) => candidate.schedulerIntegrationCheckHandoffId === prepared.handoff.handoff?.id));
-    if (!outcomeAction) throw new Error("Missing scheduler integration outcome reconcile action after existing discard.");
+    if (!outcomeAction) throw new Error(`Missing scheduler integration outcome reconcile action after existing discard; current gate is ${snapshot.center.workpad.nextAction?.actionType ?? "none"}.`);
     const outcomeResult = await executeWorkbenchAction({ project: project(), path: getTempDir() }, { ...outcomeAction, confirm: true });
     const outcomeWorkflow = outcomeResult.result as { status?: string; error?: string; result?: unknown };
     if (outcomeWorkflow.status === "failed") throw new Error(outcomeWorkflow.error ?? "discard outcome action failed");

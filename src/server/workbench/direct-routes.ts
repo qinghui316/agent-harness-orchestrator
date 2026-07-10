@@ -3,7 +3,7 @@ import { getWorkbenchProjection } from "./projections.js";
 import { assertDirectProjectInput, assertRegisteredProject, readJsonBody, sendJson } from "./http.js";
 import { handleIntakeReanalyze, handleIntakeScan } from "./intake.js";
 import { sendWorkbenchActionLive } from "./live-actions.js";
-import { sendTopicMessageLive } from "./topic-messages.js";
+import { sendConversationMessageLive } from "./topic-messages.js";
 import { executeWorkbenchAction } from "./actions.js";
 import {
   getWorkbenchSnapshot,
@@ -40,7 +40,7 @@ export async function handleDirectWorkbenchApi(input: WorkbenchProjectInput | nu
   if (request.method === "POST" && directTopicMessagesLiveMatch?.[1]) {
     assertDirectProjectInput(input);
     assertRegisteredProject(input);
-    await sendTopicMessageLive(input, decodeURIComponent(directTopicMessagesLiveMatch[1]), request, response);
+    await sendConversationMessageLive(input, decodeURIComponent(directTopicMessagesLiveMatch[1]), request, response);
     return true;
   }
   if (request.method === "GET" && url.pathname.startsWith("/api/workbench/stream/")) {

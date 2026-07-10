@@ -8,19 +8,16 @@ interface CreateTaskQueueInput {
   memory: ResolvedMemory;
   changeId: string;
   workflow: WorkflowRun;
-  taskQueueProposalId: string;
   workflowGraphPlanId: string;
-  decompositionPlanId: string;
-  readinessManifestId: string;
-  proposalItems: { taskId: string; order: number }[];
+  graphItems: { taskId: string; order: number }[];
   acceptedTasks: { id: string; done?: boolean }[];
 }
 
-export async function createTaskQueueRunFromProposal(input: CreateTaskQueueInput): Promise<{ queue: TaskQueueRun; items: TaskQueueItem[] }> {
+export async function createTaskQueueRunFromGraph(input: CreateTaskQueueInput): Promise<{ queue: TaskQueueRun; items: TaskQueueItem[] }> {
   const now = new Date().toISOString();
   const queueId = `queue-${now.replace(/[-:.TZ]/g, "").slice(0, 14)}-${shortHash(`${input.changeId}:${now}`)}`;
   const doneTasks = new Set(input.acceptedTasks.filter((task) => task.done).map((task) => task.id.toUpperCase()));
-  const items: TaskQueueItem[] = input.proposalItems.slice().sort((a, b) => a.order - b.order).map((task, index) => ({
+  const items: TaskQueueItem[] = input.graphItems.slice().sort((a, b) => a.order - b.order).map((task, index) => ({
     version: "1.0",
     id: `${queueId}-item-${String(index + 1).padStart(3, "0")}`,
     projectId: input.project.id,
@@ -34,10 +31,7 @@ export async function createTaskQueueRunFromProposal(input: CreateTaskQueueInput
     startedAt: null,
     finishedAt: doneTasks.has(task.taskId.toUpperCase()) ? now : null,
     workflowRunId: input.workflow.id,
-    taskQueueProposalId: input.taskQueueProposalId,
     workflowGraphPlanId: input.workflowGraphPlanId,
-    decompositionPlanId: input.decompositionPlanId,
-    readinessManifestId: input.readinessManifestId,
   }));
   if (!items.some((item) => item.status === "queued")) throw new Error("Task queue has no runnable tasks.");
   const queue: TaskQueueRun = {
@@ -51,10 +45,7 @@ export async function createTaskQueueRunFromProposal(input: CreateTaskQueueInput
     startedAt: null,
     finishedAt: null,
     workflowRunId: input.workflow.id,
-    taskQueueProposalId: input.taskQueueProposalId,
     workflowGraphPlanId: input.workflowGraphPlanId,
-    decompositionPlanId: input.decompositionPlanId,
-    readinessManifestId: input.readinessManifestId,
     totalCount: items.filter((item) => item.status !== "skipped").length,
     completedCount: 0,
   };

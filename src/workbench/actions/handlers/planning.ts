@@ -1,14 +1,10 @@
-import { getChangeStatusForChange } from "../../../change/manager.js";
-import { assertWritableMemory } from "../../../memory/resolver.js";
+﻿import { assertWritableMemory } from "../../../memory/resolver.js";
 import {
-  prepareSchedulerPlanEvidence,
-  renderSchedulerLaunchBriefMarkdown,
   renderSchedulerIntegrationCheckHandoffMarkdown,
   renderSchedulerIntegrationCandidateMarkdown,
   renderSchedulerIntegrationOutcomeMarkdown,
   renderSchedulerRunBlockedCloseoutMarkdown,
   renderSchedulerRunCompletionMarkdown,
-  renderSchedulerRuntimeClaimReservationMarkdown,
   renderSchedulerRuntimeWorkerResultMarkdown,
   renderSchedulerRuntimeWorkerStartMarkdown,
   renderSchedulerRuntimeWorkerAuditMarkdown,
@@ -18,29 +14,16 @@ import {
   renderSchedulerRuntimeWorkerReworkAuditMarkdown,
   renderSchedulerRuntimeWorkerReworkValidationMarkdown,
   renderSchedulerRuntimeWorkerValidationMarkdown,
-  renderSchedulerReconcileSnapshotMarkdown,
-  renderSchedulerRuntimeStateMarkdown,
-  type SchedulerReconcileSnapshot,
-  type SchedulerRuntimeClaimReservation,
-  type SchedulerRuntimeState,
   type SchedulerRuntimeWorkerStart,
-  type SchedulerPlanPreparationResult,
 } from "../../../scheduler-runtime/manager.js";
 import type { ManagedProject } from "../../../types/index.js";
-import {
-  createWorkflowRunForValidatedTaskQueue,
-  runTaskQueueSequentialWorkflow,
-  validateWorkflowTaskQueueProposalStart,
-} from "../../../workflow-runtime/taskqueue.js";
+import { runTaskQueueSequentialWorkflow } from "../../../workflow-runtime/taskqueue.js";
 import {
   runSchedulerIntegrationCandidateCompile,
   runSchedulerIntegrationCheck,
   runSchedulerIntegrationOutcomeReconcile,
   runSchedulerRunCloseBlocked,
   runSchedulerRunComplete,
-  runSchedulerRuntimeInitialize,
-  runSchedulerRuntimeReconcile,
-  runSchedulerRuntimeReserveClaims,
   runSchedulerWorkerAudit,
   runSchedulerWorkerReworkAudit,
   runSchedulerWorkerReworkPlanCompile,
@@ -66,798 +49,17 @@ import {
   type SchedulerWorkerValidationResult,
 } from "../../../workflow-runtime/scheduler.js";
 import {
-  buildTaskQueueProposalFromReadiness,
-  compileWorkflowGraphPlan,
-  hashArtifactRefs,
-  readLatestDecompositionPlan,
-  readLatestDecompositionReadinessManifest,
-  readLatestTaskQueueProposal,
   readLatestWorkflowGraphPlan,
   readWorkflowGraphPlan,
-  renderTaskQueueProposalMarkdown,
-  supersedeExistingTaskQueueProposal,
-  writeDecompositionPlan,
-  writeDecompositionReadinessManifest,
-  writeTaskQueueProposal,
-  type DecompositionPlan,
-  type DecompositionReadinessManifest,
-  type TaskQueueProposal,
-  type WorkflowGraphPlan,
 } from "../../../workflow-artifacts/manager.js";
-import {
-  compileSchedulerDispatchDryRun,
-  compileSchedulerContract,
-  compileSchedulerClaimReconcilePlan,
-  compileSchedulerLaunchPreflight,
-  compileSchedulerWorkerSessionPlan,
-  prepareSchedulerRun,
-  readSchedulerClaimReconcilePlan,
-  readSchedulerContract,
-  readSchedulerDispatchDryRun,
-  readSchedulerLaunchPreflight,
-  readSchedulerWorkerSessionPlan,
-  renderSchedulerClaimReconcilePlanMarkdown,
-  renderSchedulerDispatchDryRunMarkdown,
-  renderSchedulerContractMarkdown,
-  renderSchedulerLaunchPreflightMarkdown,
-  renderSchedulerRunMarkdown,
-  renderSchedulerWorkerSessionPlanMarkdown,
-  type SchedulerClaimReconcilePlan,
-  type SchedulerContract,
-  type SchedulerDispatchDryRun,
-  type SchedulerLaunchPreflight,
-  type SchedulerRun,
-  type SchedulerWorkerSessionPlan,
-} from "../../../workflow-scheduler/manager.js";
 import { recordWorkbenchDecision } from "../../decisions.js";
 import { emitAssistantEvent } from "../../live-events.js";
-import { appendTopicThreadEntry } from "../../topic-thread.js";
+import { appendConversationThreadEntry } from "../../conversation-thread.js";
 import { resolveTopic } from "../../topic-resolver.js";
-import { readTopicThreadLog as readThreadLog } from "../../thread-log.js";
 import type {
-  OrchestrationPlanCard,
   WorkbenchLiveSink,
   WorkbenchWorkflowActionRequest,
 } from "../../types.js";
-import {
-  buildDecompositionReadinessManifest,
-  buildDeterministicDecompositionPlan,
-} from "../../planning/builders.js";
-import {
-  decompositionRecommendationLabel,
-  renderDecompositionPlanSummary,
-  renderDecompositionReadinessSummary,
-} from "../../planning/renderers.js";
-
-export async function generateDecompositionPlan(
-  project: ManagedProject,
-  changeId: string,
-  prompt: string | undefined,
-  live: WorkbenchLiveSink | undefined,
-): Promise<{ plan: DecompositionPlan }> {
-  const { memory, changePath } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "Generate decomposition plan");
-  const thread = await readThreadLog(memory, changePath);
-  const status = await getChangeStatusForChange(memory, changeId);
-  if (!status.acMap?.tasks.length) {
-    throw new Error("Decomposition requires accepted Agent-authored tasks; Workbench will not generate fallback planning tasks.");
-  }
-  const plan = buildDeterministicDecompositionPlan(memory, changePath, changeId, {
-    tasks: status.acMap.tasks.map((task) => ({ id: task.id, title: task.text, acIds: task.acIds })),
-    openQuestions: status.acMap.blockingIssues,
-    sourceScopeConstraints: [],
-    artifactRefs: ["spec.md", "plan.md", "tasks.md"],
-  }, thread, prompt);
-  await writeDecompositionPlan(memory, changePath, plan);
-  const planCard: OrchestrationPlanCard = {
-    title: "拆分评估",
-    summary: decompositionRecommendationLabel(plan.recommendation),
-    steps: [
-      { label: "建议", description: plan.rationale },
-      { label: "执行单元", description: plan.units.map((unit) => `${unit.id} ${unit.title}`).join("；") || "无需拆分。" },
-      { label: "恢复边界", description: plan.recoveryKeyInputs.notes.join("；") },
-    ],
-    warnings: [...plan.openQuestions, plan.riskSummary].filter(Boolean),
-  };
-  const assistant = await appendTopicThreadEntry(project, changeId, {
-    type: "assistant.message",
-    status: "decomposition-draft",
-    text: renderDecompositionPlanSummary(plan),
-    artifact: plan.artifact,
-    planCard,
-    blocks: [
-      {
-        id: `${plan.id}:plan-card`,
-        runId: plan.id,
-        sequence: 1,
-        kind: "plan-card",
-        timestamp: new Date().toISOString(),
-        source: "aho",
-        title: "拆分评估",
-        planCard,
-        artifactRef: plan.artifact,
-      },
-    ],
-  });
-  live?.emit({ event: "assistant.message", data: assistant });
-  emitAssistantEvent(live, {
-    runId: plan.id,
-    kind: "plan-update",
-    phase: "decomposition-draft",
-    title: "DecompositionPlan drafted",
-    summary: "Main-agent proposal was recorded for user review. It does not start execution.",
-    artifactRef: plan.artifact,
-  });
-  await recordWorkbenchDecision(project, {
-    id: `decomposition:${plan.id}`,
-    changeId,
-    decisionType: "planning.decompose",
-    status: "completed",
-    label: "拆分评估已生成",
-    summary: "Generated a proposal-only DecompositionPlan. No execution artifacts were created.",
-    targetId: plan.id,
-    runId: null,
-    artifact: plan.artifact,
-    actionId: "planning.decompose",
-    payload: { plan },
-    completedAt: new Date().toISOString(),
-  });
-  return { plan };
-}
-
-export async function confirmDecompositionPlan(
-  project: ManagedProject,
-  changeId: string,
-  request: WorkbenchWorkflowActionRequest,
-  live: WorkbenchLiveSink | undefined,
-): Promise<{ plan: DecompositionPlan; executionStarted: false }> {
-  const { memory, changePath } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "Confirm decomposition plan");
-  if (!request.decompositionPlanId) throw new Error("planning.decomposition.confirm requires decompositionPlanId.");
-  const plan = await readLatestDecompositionPlan(memory, changePath);
-  if (plan.id !== request.decompositionPlanId || plan.status !== "draft") {
-    throw new Error("planning.decomposition.confirm target is stale or no longer confirmable.");
-  }
-  const confirmed: DecompositionPlan = { ...plan, status: "confirmed", updatedAt: new Date().toISOString() };
-  await writeDecompositionPlan(memory, changePath, confirmed);
-  await appendTopicThreadEntry(project, changeId, {
-    type: "assistant.message",
-    status: "decomposition-confirmed",
-    text: "已确认拆分方向：本阶段只记录 DecompositionPlan 接受，不会创建子 Change、TaskRun、AgentTask 或启动执行。",
-    artifact: confirmed.artifact,
-  });
-  emitAssistantEvent(live, {
-    runId: confirmed.id,
-    kind: "status",
-    phase: "decomposition-confirmed",
-    title: "DecompositionPlan confirmed",
-    summary: "Proposal acceptance was recorded without starting execution.",
-    artifactRef: confirmed.artifact,
-  });
-  return { plan: confirmed, executionStarted: false };
-}
-
-export async function assessDecompositionReadiness(
-  project: ManagedProject,
-  changeId: string,
-  request: WorkbenchWorkflowActionRequest,
-  live: WorkbenchLiveSink | undefined,
-): Promise<{ manifest: DecompositionReadinessManifest; executionStarted: false }> {
-  const { memory, changePath } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "Assess decomposition readiness");
-  if (!request.decompositionPlanId) throw new Error("planning.decomposition.assess-readiness requires decompositionPlanId.");
-  const plan = await readLatestDecompositionPlan(memory, changePath);
-  if (plan.id !== request.decompositionPlanId || plan.status !== "confirmed") {
-    throw new Error("planning.decomposition.assess-readiness target is stale or no longer assessable.");
-  }
-  const manifest = await buildDecompositionReadinessManifest(memory, changePath, changeId, plan);
-  await writeDecompositionReadinessManifest(memory, changePath, manifest);
-  const assistant = await appendTopicThreadEntry(project, changeId, {
-    type: "assistant.message",
-    status: "decomposition-readiness",
-    text: renderDecompositionReadinessSummary(manifest),
-    artifact: manifest.artifact,
-  });
-  live?.emit({ event: "assistant.message", data: assistant });
-  emitAssistantEvent(live, {
-    runId: manifest.id,
-    kind: "status",
-    phase: "decomposition-readiness",
-    title: "Decomposition readiness assessed",
-    summary: "Confirmed DecompositionPlan was checked against execution guardrails. No execution artifacts were created.",
-    artifactRef: manifest.artifact,
-  });
-  return { manifest, executionStarted: false };
-}
-
-export async function proposeTaskQueue(
-  project: ManagedProject,
-  changeId: string,
-  request: WorkbenchWorkflowActionRequest,
-  live: WorkbenchLiveSink | undefined,
-): Promise<{ proposal: TaskQueueProposal; executionStarted: false }> {
-  const { memory, changePath } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "TaskQueueProposal generation");
-  if (!request.readinessManifestId) throw new Error("planning.taskqueue.propose requires readinessManifestId.");
-  const manifest = await readLatestDecompositionReadinessManifest(memory, changePath);
-  if (manifest.id !== request.readinessManifestId || manifest.changeId !== changeId) {
-    throw new Error("planning.taskqueue.propose target is stale or not scoped to the selected Change.");
-  }
-  await supersedeExistingTaskQueueProposal(memory, changePath);
-  const proposal = await buildTaskQueueProposalFromReadiness(memory, changePath, changeId, manifest);
-  await writeTaskQueueProposal(memory, changePath, proposal);
-  await appendTopicThreadEntry(project, changeId, {
-    type: "assistant.message",
-    status: "taskqueue-proposal",
-    text: renderTaskQueueProposalMarkdown(proposal),
-    artifact: proposal.artifact,
-  });
-  emitAssistantEvent(live, {
-    runId: proposal.id,
-    kind: "status",
-    phase: "taskqueue-proposal",
-    title: "TaskQueue proposal prepared",
-    summary: "A typed TaskQueueProposal was generated; no execution records were created.",
-    artifactRef: proposal.artifact,
-  });
-  return { proposal, executionStarted: false };
-}
-
-export async function compileTaskQueueWorkflowGraph(
-  project: ManagedProject,
-  changeId: string,
-  request: WorkbenchWorkflowActionRequest,
-  live: WorkbenchLiveSink | undefined,
-): Promise<{ graph: WorkflowGraphPlan; executionStarted: false }> {
-  const { memory, changePath } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "WorkflowGraphPlan compile");
-  if (!request.taskQueueProposalId) throw new Error("planning.workflowgraph.compile requires taskQueueProposalId.");
-  if (!request.readinessManifestId) throw new Error("planning.workflowgraph.compile requires readinessManifestId.");
-  const proposal = await readLatestTaskQueueProposal(memory, changePath);
-  if (proposal.id !== request.taskQueueProposalId || proposal.changeId !== changeId || !["draft", "confirmed"].includes(proposal.status)) {
-    throw new Error("planning.workflowgraph.compile target is stale or no longer compilable.");
-  }
-  const manifest = await readLatestDecompositionReadinessManifest(memory, changePath);
-  if (manifest.id !== request.readinessManifestId || manifest.id !== proposal.readinessManifestId || manifest.status !== "ready-for-sequential-taskqueue-proposal") {
-    throw new Error("planning.workflowgraph.compile readiness target is stale.");
-  }
-  const expectedSourceHashes = await hashArtifactRefs(memory, proposal.artifactRefs);
-  for (const [artifact, hash] of Object.entries(expectedSourceHashes)) {
-    if (proposal.sourceArtifactHashes[artifact] !== hash) {
-      throw new Error(`WorkflowGraphPlan compile source artifact hash mismatch: ${artifact}.`);
-    }
-  }
-  const confirmed = proposal.status === "confirmed"
-    ? proposal
-    : { ...proposal, status: "confirmed" as const, updatedAt: new Date().toISOString() };
-  if (proposal.status !== "confirmed") await writeTaskQueueProposal(memory, changePath, confirmed);
-  const graph = await compileWorkflowGraphPlan(memory, changePath, confirmed, manifest);
-  await appendTopicThreadEntry(project, changeId, {
-    type: "assistant.message",
-    status: "workflowgraph-compiled",
-    text: `WorkflowGraphPlan ${graph.id} compiled from TaskQueueProposal ${confirmed.id}. No execution records were created.`,
-    artifact: graph.artifact,
-  });
-  emitAssistantEvent(live, {
-    runId: graph.id,
-    kind: "file-change",
-    phase: "workflowgraph-compiled",
-    title: "WorkflowGraphPlan compiled",
-    summary: "A versioned typed workflow graph was generated; no TaskQueue or WorkflowRun was started.",
-    artifactRef: graph.artifact,
-  });
-  return { graph, executionStarted: false };
-}
-
-export async function preparePlanningSchedulerPlan(
-  project: ManagedProject,
-  changeId: string,
-  request: WorkbenchWorkflowActionRequest,
-  live: WorkbenchLiveSink | undefined,
-): Promise<SchedulerPlanPreparationResult> {
-  const { memory, changePath } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "Scheduler plan prepare");
-  if (request.changeId && request.changeId !== changeId) throw new Error("planning.scheduler.plan.prepare changeId scope mismatch.");
-  const result = await prepareSchedulerPlanEvidence(memory, changePath, {
-    schedulerRunId: request.schedulerRunId,
-    schedulerReconcileSnapshotId: request.schedulerReconcileSnapshotId,
-    schedulerClaimReservationId: request.schedulerClaimReservationId,
-  });
-  const artifact = result.claimReservation?.artifact ?? result.launchPreflight?.artifact ?? result.schedulerRun?.artifact ?? result.contract?.artifact;
-  const text = result.launchBrief
-    ? renderSchedulerLaunchBriefMarkdown(result.launchBrief)
-    : [
-      "# 并行执行计划准备受阻",
-      "",
-      result.blockedSummary ?? "Scheduler pre-executor evidence is blocked.",
-      "",
-      "没有启动 worker、TaskRun、WorkerLease、WorkerSession、worktree、run 或 child Change。",
-      "",
-    ].join("\n");
-  await appendTopicThreadEntry(project, changeId, {
-    type: "assistant.message",
-    status: result.status === "prepared" ? "scheduler-plan-prepared" : "scheduler-plan-blocked",
-    text,
-    artifact,
-  });
-  emitAssistantEvent(live, {
-    runId: result.schedulerRun?.id ?? result.launchPreflight?.id ?? result.contract?.id ?? changeId,
-    kind: "file-change",
-    phase: result.status === "prepared" ? "scheduler-plan-prepared" : "scheduler-plan-blocked",
-    title: result.status === "prepared" ? "并行执行计划已准备" : "并行执行计划准备受阻",
-    summary: result.launchBrief?.summary ?? result.blockedSummary ?? "Scheduler plan preparation stopped before any execution records were created.",
-    artifactRef: artifact,
-  });
-  await recordWorkbenchDecision(project, {
-    id: result.mode === "launch-confirmation"
-      ? `scheduler-plan-launch-confirmed:${result.claimReservation?.id ?? changeId}`
-      : `scheduler-plan-prepared:${result.claimReservation?.id ?? result.launchPreflight?.id ?? changeId}`,
-    changeId,
-    decisionType: "planning.scheduler.plan.prepare",
-    status: "completed",
-    label: result.mode === "launch-confirmation" ? "并行执行计划启动意图已确认" : "并行执行计划已准备",
-    summary: result.launchBrief?.summary ?? result.blockedSummary ?? "Prepared scheduler pre-executor evidence without starting execution.",
-    targetId: result.claimReservation?.id ?? result.schedulerRun?.id ?? result.launchPreflight?.id ?? changeId,
-    runId: null,
-    artifact: artifact ?? null,
-    actionId: "planning.scheduler.plan.prepare",
-    payload: {
-      mode: result.mode,
-      status: result.status,
-      contractId: result.contract?.id ?? result.schedulerRun?.schedulerContractId,
-      schedulerDispatchDryRunId: result.dryRun?.id ?? result.schedulerRun?.schedulerDispatchDryRunId,
-      schedulerWorkerPlanId: result.workerPlan?.id ?? result.schedulerRun?.schedulerWorkerPlanId,
-      schedulerClaimReconcilePlanId: result.claimReconcilePlan?.id ?? result.schedulerRun?.schedulerClaimReconcilePlanId,
-      schedulerLaunchPreflightId: result.launchPreflight?.id ?? result.schedulerRun?.schedulerLaunchPreflightId,
-      schedulerRunId: result.schedulerRun?.id,
-      schedulerReconcileSnapshotId: result.reconcileSnapshot?.id,
-      schedulerClaimReservationId: result.claimReservation?.id,
-      launchBrief: result.launchBrief,
-      blockedSummary: result.blockedSummary,
-    },
-    completedAt: new Date().toISOString(),
-  });
-  return result;
-}
-
-export async function compilePlanningSchedulerContract(
-  project: ManagedProject,
-  changeId: string,
-  request: WorkbenchWorkflowActionRequest,
-  live: WorkbenchLiveSink | undefined,
-): Promise<{ contract: SchedulerContract; executionStarted: false }> {
-  const { memory, changePath } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "SchedulerContract compile");
-  if (!request.decompositionPlanId) throw new Error("planning.scheduler.contract.compile requires decompositionPlanId.");
-  if (!request.readinessManifestId) throw new Error("planning.scheduler.contract.compile requires readinessManifestId.");
-  const plan = await readLatestDecompositionPlan(memory, changePath);
-  if (plan.id !== request.decompositionPlanId || plan.changeId !== changeId || plan.status !== "confirmed" || plan.recommendation !== "taskgraph-parallel-candidate") {
-    throw new Error("planning.scheduler.contract.compile plan target is stale or no longer compilable.");
-  }
-  const manifest = await readLatestDecompositionReadinessManifest(memory, changePath);
-  if (manifest.id !== request.readinessManifestId || manifest.changeId !== changeId || manifest.decompositionPlanId !== plan.id || manifest.status !== "ready-for-scheduler-contract" || manifest.nextAllowedAction !== "scheduler.contract") {
-    throw new Error("planning.scheduler.contract.compile readiness target is stale.");
-  }
-  const contract = await compileSchedulerContract(memory, changePath, plan, manifest);
-  await appendTopicThreadEntry(project, changeId, {
-    type: "assistant.message",
-    status: "scheduler-contract-compiled",
-    text: renderSchedulerContractMarkdown(contract),
-    artifact: contract.artifact,
-  });
-  emitAssistantEvent(live, {
-    runId: contract.id,
-    kind: "file-change",
-    phase: "scheduler-contract-compiled",
-    title: "SchedulerContract compiled",
-    summary: "A non-executing parallel scheduler contract was generated; no scheduler, TaskRun, WorkerLease, worktree, or run was started.",
-    artifactRef: contract.artifact,
-  });
-  await recordWorkbenchDecision(project, {
-    id: `scheduler-contract:${contract.id}`,
-    changeId,
-    decisionType: "planning.scheduler.contract.compile",
-    status: "completed",
-    label: "Scheduler Contract 已编译",
-    summary: "Generated a non-executing SchedulerContract from a parallel readiness manifest.",
-    targetId: contract.id,
-    runId: null,
-    artifact: contract.artifact,
-    actionId: "planning.scheduler.contract.compile",
-    payload: { contract },
-    completedAt: new Date().toISOString(),
-  });
-  return { contract, executionStarted: false };
-}
-
-export async function generateSchedulerDispatchDryRun(
-  project: ManagedProject,
-  changeId: string,
-  request: WorkbenchWorkflowActionRequest,
-  live: WorkbenchLiveSink | undefined,
-): Promise<{ dryRun: SchedulerDispatchDryRun; executionStarted: false }> {
-  const { memory, changePath } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "Scheduler dispatch dry-run");
-  if (!request.schedulerContractId) throw new Error("planning.scheduler.dispatch.dry-run requires schedulerContractId.");
-  const contract = await readSchedulerContract(memory, changePath, request.schedulerContractId);
-  if (contract.id !== request.schedulerContractId || contract.changeId !== changeId || contract.status !== "compiled") {
-    throw new Error("planning.scheduler.dispatch.dry-run SchedulerContract target is stale.");
-  }
-  const dryRun = await compileSchedulerDispatchDryRun(memory, changePath, contract);
-  await appendTopicThreadEntry(project, changeId, {
-    type: "assistant.message",
-    status: "scheduler-dispatch-dry-run-generated",
-    text: renderSchedulerDispatchDryRunMarkdown(dryRun),
-    artifact: dryRun.artifact,
-  });
-  emitAssistantEvent(live, {
-    runId: dryRun.id,
-    kind: "file-change",
-    phase: "scheduler-dispatch-dry-run-generated",
-    title: "Scheduler dispatch dry-run generated",
-    summary: "A non-executing scheduler dispatch/reconcile dry-run was generated; no worker, lease, TaskRun, worktree, run, or child Change was created.",
-    artifactRef: dryRun.artifact,
-  });
-  await recordWorkbenchDecision(project, {
-    id: `scheduler-dry-run:${dryRun.id}`,
-    changeId,
-    decisionType: "planning.scheduler.dispatch.dry-run",
-    status: "completed",
-    label: "调度预演已生成",
-    summary: "Generated a non-executing Scheduler Dispatch / Reconcile dry-run from a SchedulerContract.",
-    targetId: dryRun.id,
-    runId: null,
-    artifact: dryRun.artifact,
-    actionId: "planning.scheduler.dispatch.dry-run",
-    payload: { dryRun },
-    completedAt: new Date().toISOString(),
-  });
-  return { dryRun, executionStarted: false };
-}
-
-export async function compilePlanningSchedulerWorkerSessionPlan(
-  project: ManagedProject,
-  changeId: string,
-  request: WorkbenchWorkflowActionRequest,
-  live: WorkbenchLiveSink | undefined,
-): Promise<{ workerPlan: SchedulerWorkerSessionPlan; executionStarted: false }> {
-  const { memory, changePath } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "Scheduler worker session plan");
-  if (!request.schedulerDispatchDryRunId) throw new Error("planning.scheduler.worker-plan.compile requires schedulerDispatchDryRunId.");
-  const dryRun = await readSchedulerDispatchDryRun(memory, changePath, request.schedulerDispatchDryRunId);
-  if (dryRun.id !== request.schedulerDispatchDryRunId || dryRun.changeId !== changeId || dryRun.status !== "generated") {
-    throw new Error("planning.scheduler.worker-plan.compile SchedulerDispatchDryRun target is stale.");
-  }
-  const contract = await readSchedulerContract(memory, changePath, dryRun.schedulerContractId);
-  if (contract.id !== dryRun.schedulerContractId || contract.changeId !== changeId || contract.status !== "compiled") {
-    throw new Error("planning.scheduler.worker-plan.compile SchedulerContract lineage is stale.");
-  }
-  const workerPlan = await compileSchedulerWorkerSessionPlan(memory, changePath, dryRun, contract);
-  await appendTopicThreadEntry(project, changeId, {
-    type: "assistant.message",
-    status: "scheduler-worker-plan-compiled",
-    text: renderSchedulerWorkerSessionPlanMarkdown(workerPlan),
-    artifact: workerPlan.artifact,
-  });
-  emitAssistantEvent(live, {
-    runId: workerPlan.id,
-    kind: "file-change",
-    phase: "scheduler-worker-plan-compiled",
-    title: "Scheduler worker session plan compiled",
-    summary: "A non-executing worker session / workspace / permission / event / recovery contract was generated; no worker or scheduler was started.",
-    artifactRef: workerPlan.artifact,
-  });
-  await recordWorkbenchDecision(project, {
-    id: `scheduler-worker-plan:${workerPlan.id}`,
-    changeId,
-    decisionType: "planning.scheduler.worker-plan.compile",
-    status: "completed",
-    label: "Worker Session Plan 已编译",
-    summary: "Generated a non-executing SchedulerWorkerSessionPlan from a scheduler dispatch dry-run.",
-    targetId: workerPlan.id,
-    runId: null,
-    artifact: workerPlan.artifact,
-    actionId: "planning.scheduler.worker-plan.compile",
-    payload: { workerPlan },
-    completedAt: new Date().toISOString(),
-  });
-  return { workerPlan, executionStarted: false };
-}
-
-export async function compilePlanningSchedulerClaimReconcilePlan(
-  project: ManagedProject,
-  changeId: string,
-  request: WorkbenchWorkflowActionRequest,
-  live: WorkbenchLiveSink | undefined,
-): Promise<{ claimReconcilePlan: SchedulerClaimReconcilePlan; executionStarted: false }> {
-  const { memory, changePath } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "Scheduler claim/reconcile plan");
-  if (!request.schedulerWorkerPlanId) throw new Error("planning.scheduler.claim-reconcile.compile requires schedulerWorkerPlanId.");
-  const workerPlan = await readSchedulerWorkerSessionPlan(memory, changePath, request.schedulerWorkerPlanId);
-  if (workerPlan.id !== request.schedulerWorkerPlanId || workerPlan.changeId !== changeId || workerPlan.status !== "planned") {
-    throw new Error("planning.scheduler.claim-reconcile.compile SchedulerWorkerSessionPlan target is stale.");
-  }
-  const dryRun = await readSchedulerDispatchDryRun(memory, changePath, workerPlan.schedulerDispatchDryRunId);
-  if (dryRun.id !== workerPlan.schedulerDispatchDryRunId || dryRun.changeId !== changeId || dryRun.status !== "generated") {
-    throw new Error("planning.scheduler.claim-reconcile.compile SchedulerDispatchDryRun lineage is stale.");
-  }
-  const contract = await readSchedulerContract(memory, changePath, workerPlan.schedulerContractId);
-  if (contract.id !== workerPlan.schedulerContractId || contract.id !== dryRun.schedulerContractId || contract.changeId !== changeId || contract.status !== "compiled") {
-    throw new Error("planning.scheduler.claim-reconcile.compile SchedulerContract lineage is stale.");
-  }
-  const claimReconcilePlan = await compileSchedulerClaimReconcilePlan(memory, changePath, workerPlan, dryRun, contract);
-  await appendTopicThreadEntry(project, changeId, {
-    type: "assistant.message",
-    status: "scheduler-claim-reconcile-plan-compiled",
-    text: renderSchedulerClaimReconcilePlanMarkdown(claimReconcilePlan),
-    artifact: claimReconcilePlan.artifact,
-  });
-  emitAssistantEvent(live, {
-    runId: claimReconcilePlan.id,
-    kind: "file-change",
-    phase: "scheduler-claim-reconcile-plan-compiled",
-    title: "Scheduler claim/reconcile plan compiled",
-    summary: "A non-executing claim/reconcile plan was generated; no lease, worker session, scheduler loop, worker, run, worktree, or child Change was created.",
-    artifactRef: claimReconcilePlan.artifact,
-  });
-  await recordWorkbenchDecision(project, {
-    id: `scheduler-claim-reconcile:${claimReconcilePlan.id}`,
-    changeId,
-    decisionType: "planning.scheduler.claim-reconcile.compile",
-    status: "completed",
-    label: "Claim / Reconcile Plan 已编译",
-    summary: "Generated a non-executing SchedulerClaimReconcilePlan from a worker session plan.",
-    targetId: claimReconcilePlan.id,
-    runId: null,
-    artifact: claimReconcilePlan.artifact,
-    actionId: "planning.scheduler.claim-reconcile.compile",
-    payload: { claimReconcilePlan },
-    completedAt: new Date().toISOString(),
-  });
-  return { claimReconcilePlan, executionStarted: false };
-}
-
-export async function checkPlanningSchedulerLaunchPreflight(
-  project: ManagedProject,
-  changeId: string,
-  request: WorkbenchWorkflowActionRequest,
-  live: WorkbenchLiveSink | undefined,
-): Promise<{ launchPreflight: SchedulerLaunchPreflight; executionStarted: false }> {
-  const { memory, changePath } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "Scheduler launch preflight");
-  if (!request.schedulerClaimReconcilePlanId) throw new Error("planning.scheduler.launch-preflight.check requires schedulerClaimReconcilePlanId.");
-  const claimReconcilePlan = await readSchedulerClaimReconcilePlan(memory, changePath, request.schedulerClaimReconcilePlanId);
-  if (claimReconcilePlan.id !== request.schedulerClaimReconcilePlanId || claimReconcilePlan.changeId !== changeId || claimReconcilePlan.status !== "planned") {
-    throw new Error("planning.scheduler.launch-preflight.check SchedulerClaimReconcilePlan target is stale.");
-  }
-  const workerPlan = await readSchedulerWorkerSessionPlan(memory, changePath, claimReconcilePlan.schedulerWorkerPlanId);
-  if (workerPlan.id !== claimReconcilePlan.schedulerWorkerPlanId || workerPlan.changeId !== changeId || workerPlan.status !== "planned") {
-    throw new Error("planning.scheduler.launch-preflight.check SchedulerWorkerSessionPlan lineage is stale.");
-  }
-  const dryRun = await readSchedulerDispatchDryRun(memory, changePath, claimReconcilePlan.schedulerDispatchDryRunId);
-  if (dryRun.id !== claimReconcilePlan.schedulerDispatchDryRunId || dryRun.id !== workerPlan.schedulerDispatchDryRunId || dryRun.changeId !== changeId || dryRun.status !== "generated") {
-    throw new Error("planning.scheduler.launch-preflight.check SchedulerDispatchDryRun lineage is stale.");
-  }
-  const contract = await readSchedulerContract(memory, changePath, claimReconcilePlan.schedulerContractId);
-  if (contract.id !== claimReconcilePlan.schedulerContractId || contract.id !== workerPlan.schedulerContractId || contract.id !== dryRun.schedulerContractId || contract.changeId !== changeId || contract.status !== "compiled") {
-    throw new Error("planning.scheduler.launch-preflight.check SchedulerContract lineage is stale.");
-  }
-  const launchPreflight = await compileSchedulerLaunchPreflight(memory, changePath, claimReconcilePlan, workerPlan, dryRun, contract);
-  await appendTopicThreadEntry(project, changeId, {
-    type: "assistant.message",
-    status: "scheduler-launch-preflight-checked",
-    text: renderSchedulerLaunchPreflightMarkdown(launchPreflight),
-    artifact: launchPreflight.artifact,
-  });
-  emitAssistantEvent(live, {
-    runId: launchPreflight.id,
-    kind: "file-change",
-    phase: "scheduler-launch-preflight-checked",
-    title: "Scheduler launch preflight checked",
-    summary: "A non-executing launch preflight was generated; no scheduler loop, lease, worker session, run, worktree, or child Change was created.",
-    artifactRef: launchPreflight.artifact,
-  });
-  await recordWorkbenchDecision(project, {
-    id: `scheduler-launch-preflight:${launchPreflight.id}`,
-    changeId,
-    decisionType: "planning.scheduler.launch-preflight.check",
-    status: "completed",
-    label: "Launch Preflight 已检查",
-    summary: "Generated non-executing SchedulerLaunchPreflight evidence from a claim/reconcile plan.",
-    targetId: launchPreflight.id,
-    runId: null,
-    artifact: launchPreflight.artifact,
-    actionId: "planning.scheduler.launch-preflight.check",
-    payload: { launchPreflight },
-    completedAt: new Date().toISOString(),
-  });
-  return { launchPreflight, executionStarted: false };
-}
-
-export async function preparePlanningSchedulerRun(
-  project: ManagedProject,
-  changeId: string,
-  request: WorkbenchWorkflowActionRequest,
-  live: WorkbenchLiveSink | undefined,
-): Promise<{ schedulerRun: SchedulerRun; executionStarted: false }> {
-  const { memory, changePath } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "SchedulerRun prepare");
-  if (!request.schedulerLaunchPreflightId) throw new Error("planning.scheduler.run.prepare requires schedulerLaunchPreflightId.");
-  const launchPreflight = await readSchedulerLaunchPreflight(memory, changePath, request.schedulerLaunchPreflightId);
-  if (launchPreflight.id !== request.schedulerLaunchPreflightId || launchPreflight.changeId !== changeId || launchPreflight.status !== "checked") {
-    throw new Error("planning.scheduler.run.prepare SchedulerLaunchPreflight target is stale or not checked.");
-  }
-  const claimReconcilePlan = await readSchedulerClaimReconcilePlan(memory, changePath, launchPreflight.schedulerClaimReconcilePlanId);
-  if (claimReconcilePlan.id !== launchPreflight.schedulerClaimReconcilePlanId || claimReconcilePlan.changeId !== changeId || claimReconcilePlan.status !== "planned") {
-    throw new Error("planning.scheduler.run.prepare SchedulerClaimReconcilePlan lineage is stale.");
-  }
-  const workerPlan = await readSchedulerWorkerSessionPlan(memory, changePath, launchPreflight.schedulerWorkerPlanId);
-  if (workerPlan.id !== launchPreflight.schedulerWorkerPlanId || workerPlan.id !== claimReconcilePlan.schedulerWorkerPlanId || workerPlan.changeId !== changeId || workerPlan.status !== "planned") {
-    throw new Error("planning.scheduler.run.prepare SchedulerWorkerSessionPlan lineage is stale.");
-  }
-  const dryRun = await readSchedulerDispatchDryRun(memory, changePath, launchPreflight.schedulerDispatchDryRunId);
-  if (dryRun.id !== launchPreflight.schedulerDispatchDryRunId || dryRun.id !== claimReconcilePlan.schedulerDispatchDryRunId || dryRun.id !== workerPlan.schedulerDispatchDryRunId || dryRun.changeId !== changeId || dryRun.status !== "generated") {
-    throw new Error("planning.scheduler.run.prepare SchedulerDispatchDryRun lineage is stale.");
-  }
-  const contract = await readSchedulerContract(memory, changePath, launchPreflight.schedulerContractId);
-  if (contract.id !== launchPreflight.schedulerContractId || contract.id !== claimReconcilePlan.schedulerContractId || contract.id !== workerPlan.schedulerContractId || contract.id !== dryRun.schedulerContractId || contract.changeId !== changeId || contract.status !== "compiled") {
-    throw new Error("planning.scheduler.run.prepare SchedulerContract lineage is stale.");
-  }
-  const schedulerRun = await prepareSchedulerRun(memory, changePath, launchPreflight, claimReconcilePlan, workerPlan, dryRun, contract);
-  await appendTopicThreadEntry(project, changeId, {
-    type: "assistant.message",
-    status: "scheduler-run-prepared",
-    text: renderSchedulerRunMarkdown(schedulerRun),
-    artifact: schedulerRun.artifact,
-  });
-  emitAssistantEvent(live, {
-    runId: schedulerRun.id,
-    kind: "file-change",
-    phase: "scheduler-run-prepared",
-    title: "SchedulerRun journal shell prepared",
-    summary: "A non-executing SchedulerRun journal shell was prepared; no scheduler loop, lease, worker session, worktree, run, or child Change was created.",
-    artifactRef: schedulerRun.artifact,
-  });
-  await recordWorkbenchDecision(project, {
-    id: `scheduler-run:${schedulerRun.id}`,
-    changeId,
-    decisionType: "planning.scheduler.run.prepare",
-    status: "completed",
-    label: "SchedulerRun 已准备",
-    summary: "Prepared a non-executing SchedulerRun journal shell from a checked launch preflight.",
-    targetId: schedulerRun.id,
-    runId: null,
-    artifact: schedulerRun.artifact,
-    actionId: "planning.scheduler.run.prepare",
-    payload: { schedulerRun },
-    completedAt: new Date().toISOString(),
-  });
-  return { schedulerRun, executionStarted: false };
-}
-
-export async function initializePlanningSchedulerRuntime(
-  project: ManagedProject,
-  changeId: string,
-  request: WorkbenchWorkflowActionRequest,
-  live: WorkbenchLiveSink | undefined,
-): Promise<{ runtimeState: SchedulerRuntimeState; executionStarted: false }> {
-  const { memory, changePath } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "Scheduler runtime initialize");
-  if (!request.schedulerRunId) throw new Error("planning.scheduler.runtime.initialize requires schedulerRunId.");
-  const runtimeState = await runSchedulerRuntimeInitialize(memory, changePath, request.schedulerRunId);
-  await appendTopicThreadEntry(project, changeId, {
-    type: "assistant.message",
-    status: "scheduler-runtime-initialized",
-    text: renderSchedulerRuntimeStateMarkdown(runtimeState),
-    artifact: runtimeState.artifact,
-  });
-  emitAssistantEvent(live, {
-    runId: runtimeState.schedulerRunId,
-    kind: "file-change",
-    phase: "scheduler-runtime-initialized",
-    title: "Scheduler runtime shell initialized",
-    summary: "A SchedulerRun-scoped runtime shell was initialized; no workers, leases, TaskRuns, worktrees, runs, or scheduler loop were created.",
-    artifactRef: runtimeState.artifact,
-  });
-  await recordWorkbenchDecision(project, {
-    id: `scheduler-runtime:${runtimeState.schedulerRunId}`,
-    changeId,
-    decisionType: "planning.scheduler.runtime.initialize",
-    status: "completed",
-    label: "Scheduler Runtime 壳已初始化",
-    summary: "Initialized SchedulerRun-scoped runtime shell sidecars without starting execution.",
-    targetId: runtimeState.schedulerRunId,
-    runId: null,
-    artifact: runtimeState.artifact,
-    actionId: "planning.scheduler.runtime.initialize",
-    payload: { runtimeState },
-    completedAt: new Date().toISOString(),
-  });
-  return { runtimeState, executionStarted: false };
-}
-
-export async function reconcilePlanningSchedulerRuntime(
-  project: ManagedProject,
-  changeId: string,
-  request: WorkbenchWorkflowActionRequest,
-  live: WorkbenchLiveSink | undefined,
-): Promise<{ reconcileSnapshot: SchedulerReconcileSnapshot; executionStarted: false }> {
-  const { memory, changePath } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "Scheduler runtime reconcile");
-  if (!request.schedulerRunId) throw new Error("planning.scheduler.runtime.reconcile requires schedulerRunId.");
-  const reconcileSnapshot = await runSchedulerRuntimeReconcile(memory, changePath, request.schedulerRunId);
-  await appendTopicThreadEntry(project, changeId, {
-    type: "assistant.message",
-    status: "scheduler-runtime-reconciled",
-    text: renderSchedulerReconcileSnapshotMarkdown(reconcileSnapshot),
-    artifact: reconcileSnapshot.artifact,
-  });
-  emitAssistantEvent(live, {
-    runId: reconcileSnapshot.schedulerRunId,
-    kind: "file-change",
-    phase: "scheduler-runtime-reconciled",
-    title: "Scheduler runtime shell reconciled",
-    summary: "A SchedulerRun-scoped reconcile snapshot was generated; no workers, leases, TaskRuns, worktrees, runs, or scheduler loop were created.",
-    artifactRef: reconcileSnapshot.artifact,
-  });
-  await recordWorkbenchDecision(project, {
-    id: `scheduler-reconcile:${reconcileSnapshot.id}`,
-    changeId,
-    decisionType: "planning.scheduler.runtime.reconcile",
-    status: "completed",
-    label: "Scheduler Reconcile Snapshot 已生成",
-    summary: "Generated a SchedulerRun-scoped reconcile snapshot without starting execution.",
-    targetId: reconcileSnapshot.id,
-    runId: null,
-    artifact: reconcileSnapshot.artifact,
-    actionId: "planning.scheduler.runtime.reconcile",
-    payload: { reconcileSnapshot },
-    completedAt: new Date().toISOString(),
-  });
-  return { reconcileSnapshot, executionStarted: false };
-}
-
-export async function reservePlanningSchedulerRuntimeClaims(
-  project: ManagedProject,
-  changeId: string,
-  request: WorkbenchWorkflowActionRequest,
-  live: WorkbenchLiveSink | undefined,
-): Promise<{ claimReservation: SchedulerRuntimeClaimReservation; executionStarted: false }> {
-  const { memory, changePath } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "Scheduler runtime claim reservation");
-  if (!request.schedulerRunId) throw new Error("planning.scheduler.runtime.reserve-claims requires schedulerRunId.");
-  if (!request.schedulerReconcileSnapshotId) throw new Error("planning.scheduler.runtime.reserve-claims requires schedulerReconcileSnapshotId.");
-  const claimReservation = await runSchedulerRuntimeReserveClaims(memory, changePath, request.schedulerRunId, request.schedulerReconcileSnapshotId);
-  await appendTopicThreadEntry(project, changeId, {
-    type: "assistant.message",
-    status: claimReservation.status === "reserved" ? "scheduler-runtime-claim-reserved" : "scheduler-runtime-claim-blocked",
-    text: renderSchedulerRuntimeClaimReservationMarkdown(claimReservation),
-    artifact: claimReservation.artifact,
-  });
-  emitAssistantEvent(live, {
-    runId: claimReservation.schedulerRunId,
-    kind: "file-change",
-    phase: claimReservation.status === "reserved" ? "scheduler-runtime-claim-reserved" : "scheduler-runtime-claim-blocked",
-    title: "Scheduler runtime claims reserved",
-    summary: "SchedulerRun-scoped claim reservation evidence was recorded; no WorkerLeases, WorkerSessions, TaskRuns, slots, worktrees, runs, workers, or scheduler loop were created.",
-    artifactRef: claimReservation.artifact,
-  });
-  await recordWorkbenchDecision(project, {
-    id: `scheduler-claim-reservation:${claimReservation.id}`,
-    changeId,
-    decisionType: "planning.scheduler.runtime.reserve-claims",
-    status: "completed",
-    label: claimReservation.status === "reserved" ? "Runtime Claims 已预占" : "Runtime Claims 阻塞",
-    summary: "Generated SchedulerRun-scoped claim reservation evidence without starting execution.",
-    targetId: claimReservation.id,
-    runId: null,
-    artifact: claimReservation.artifact,
-    actionId: "planning.scheduler.runtime.reserve-claims",
-    payload: { claimReservation },
-    completedAt: new Date().toISOString(),
-  });
-  return { claimReservation, executionStarted: false };
-}
 
 export async function startPlanningSchedulerFirstWorker(
   project: ManagedProject,
@@ -879,7 +81,7 @@ export async function startPlanningSchedulerFirstWorker(
     claimIntentId: request.claimIntentId,
     prompt: request.prompt,
   });
-  await appendTopicThreadEntry(project, changeId, {
+  await appendConversationThreadEntry(project, changeId, {
     type: "assistant.message",
     status: "scheduler-first-worker-started",
     text: renderSchedulerRuntimeWorkerStartMarkdown(result.workerStart),
@@ -942,7 +144,7 @@ export async function startPlanningSchedulerNextWorker(
     claimIntentId: request.claimIntentId,
     prompt: request.prompt,
   });
-  await appendTopicThreadEntry(project, changeId, {
+  await appendConversationThreadEntry(project, changeId, {
     type: "assistant.message",
     status: "scheduler-next-worker-started",
     text: renderSchedulerRuntimeWorkerStartMarkdown(result.workerStart),
@@ -1001,7 +203,7 @@ export async function reconcilePlanningSchedulerFirstWorkerResult(
     schedulerWorkerStartId: request.schedulerWorkerStartId,
   });
   if (result.status === "running") {
-    await appendTopicThreadEntry(project, changeId, {
+    await appendConversationThreadEntry(project, changeId, {
       type: "assistant.message",
       status: "scheduler-first-worker-running",
       text: `第一个 scheduler coder worker 仍在运行：TaskRun ${result.taskRun.id}，WorkerLease ${result.lease.id}${result.codeRun?.id ? `，code run ${result.codeRun.id}` : ""}。未写入 terminal result，也未释放 lease。`,
@@ -1043,7 +245,7 @@ export async function reconcilePlanningSchedulerFirstWorkerResult(
     });
     return result;
   }
-  await appendTopicThreadEntry(project, changeId, {
+  await appendConversationThreadEntry(project, changeId, {
     type: "assistant.message",
     status: result.result.status === "evidence-ready" ? "scheduler-first-worker-result-ready" : "scheduler-first-worker-result-failed",
     text: renderSchedulerRuntimeWorkerResultMarkdown(result.result),
@@ -1104,7 +306,7 @@ export async function validatePlanningSchedulerFirstWorker(
     schedulerRunId: request.schedulerRunId,
     schedulerWorkerResultId: request.schedulerWorkerResultId,
   });
-  await appendTopicThreadEntry(project, changeId, {
+  await appendConversationThreadEntry(project, changeId, {
     type: "assistant.message",
     status: result.schedulerValidation.status === "passed" ? "scheduler-first-worker-validation-passed" : "scheduler-first-worker-validation-failed",
     text: renderSchedulerRuntimeWorkerValidationMarkdown(result.schedulerValidation),
@@ -1170,7 +372,7 @@ export async function auditPlanningSchedulerFirstWorker(
     schedulerWorkerValidationId: request.schedulerWorkerValidationId,
   });
   const approved = result.schedulerAudit.status === "approved" || result.schedulerAudit.status === "approved-with-notes";
-  await appendTopicThreadEntry(project, changeId, {
+  await appendConversationThreadEntry(project, changeId, {
     type: "assistant.message",
     status: approved ? "scheduler-first-worker-audit-approved" : "scheduler-first-worker-audit-blocked",
     text: renderSchedulerRuntimeWorkerAuditMarkdown(result.schedulerAudit),
@@ -1238,7 +440,7 @@ export async function compilePlanningSchedulerFirstWorkerReworkPlan(
     schedulerWorkerValidationId: request.schedulerWorkerValidationId,
     ...(request.schedulerWorkerAuditId ? { schedulerWorkerAuditId: request.schedulerWorkerAuditId } : {}),
   });
-  await appendTopicThreadEntry(project, changeId, {
+  await appendConversationThreadEntry(project, changeId, {
     type: "assistant.message",
     status: "scheduler-first-worker-rework-plan-compiled",
     text: renderSchedulerRuntimeWorkerReworkPlanMarkdown(result.reworkPlan),
@@ -1320,7 +522,7 @@ export async function startPlanningSchedulerFirstWorkerRework(
       }),
     } : undefined,
   });
-  await appendTopicThreadEntry(project, changeId, {
+  await appendConversationThreadEntry(project, changeId, {
     type: "assistant.message",
     status: "scheduler-first-worker-rework-started",
     text: renderSchedulerRuntimeWorkerReworkStartMarkdown(result.reworkStart),
@@ -1427,7 +629,7 @@ export async function reconcilePlanningSchedulerFirstWorkerReworkResult(
     });
     return result;
   }
-  await appendTopicThreadEntry(project, changeId, {
+  await appendConversationThreadEntry(project, changeId, {
     type: "assistant.message",
     status: result.result.status === "evidence-ready" ? "scheduler-first-worker-rework-result-ready" : "scheduler-first-worker-rework-result-failed",
     text: renderSchedulerRuntimeWorkerReworkResultMarkdown(result.result),
@@ -1498,7 +700,7 @@ export async function validatePlanningSchedulerFirstWorkerRework(
     schedulerRunId: request.schedulerRunId,
     schedulerWorkerReworkResultId: request.schedulerWorkerReworkResultId,
   });
-  await appendTopicThreadEntry(project, changeId, {
+  await appendConversationThreadEntry(project, changeId, {
     type: "assistant.message",
     status: result.schedulerReworkValidation.status === "passed" ? "scheduler-first-worker-rework-validation-passed" : "scheduler-first-worker-rework-validation-failed",
     text: renderSchedulerRuntimeWorkerReworkValidationMarkdown(result.schedulerReworkValidation),
@@ -1573,7 +775,7 @@ export async function auditPlanningSchedulerFirstWorkerRework(
     schedulerWorkerReworkValidationId: request.schedulerWorkerReworkValidationId,
   });
   const approved = result.schedulerReworkAudit.status === "approved" || result.schedulerReworkAudit.status === "approved-with-notes";
-  await appendTopicThreadEntry(project, changeId, {
+  await appendConversationThreadEntry(project, changeId, {
     type: "assistant.message",
     status: approved ? "scheduler-first-worker-rework-audit-approved" : "scheduler-first-worker-rework-audit-blocked",
     text: renderSchedulerRuntimeWorkerReworkAuditMarkdown(result.schedulerReworkAudit),
@@ -1648,7 +850,7 @@ export async function compilePlanningSchedulerIntegrationCandidate(
     changeId,
     schedulerRunId: request.schedulerRunId,
   });
-  await appendTopicThreadEntry(project, changeId, {
+  await appendConversationThreadEntry(project, changeId, {
     type: "assistant.message",
     status: "scheduler-integration-candidate-compiled",
     text: renderSchedulerIntegrationCandidateMarkdown(result.candidate),
@@ -1705,7 +907,7 @@ export async function runPlanningSchedulerIntegrationCheckHandoff(
     schedulerRunId: request.schedulerRunId,
     schedulerIntegrationCandidateId: request.schedulerIntegrationCandidateId,
   });
-  await appendTopicThreadEntry(project, changeId, {
+  await appendConversationThreadEntry(project, changeId, {
     type: "assistant.message",
     status: "scheduler-integration-check-handoff-completed",
     text: renderSchedulerIntegrationCheckHandoffMarkdown(result.handoff),
@@ -1802,7 +1004,7 @@ export async function reconcilePlanningSchedulerIntegrationOutcome(
     },
     completedAt: new Date().toISOString(),
   });
-  await appendTopicThreadEntry(project, changeId, {
+  await appendConversationThreadEntry(project, changeId, {
     type: "assistant.message",
     text: event.text,
     actionRunId: event.runId,
@@ -1861,7 +1063,7 @@ export async function completePlanningSchedulerRun(
     },
     completedAt: new Date().toISOString(),
   });
-  await appendTopicThreadEntry(project, changeId, {
+  await appendConversationThreadEntry(project, changeId, {
     type: "assistant.message",
     text,
     actionRunId: result.completion.integrationCheckId,
@@ -1923,7 +1125,7 @@ export async function closeBlockedPlanningSchedulerRun(
     },
     completedAt: new Date().toISOString(),
   });
-  await appendTopicThreadEntry(project, changeId, {
+  await appendConversationThreadEntry(project, changeId, {
     type: "assistant.message",
     text,
     actionRunId: result.closeout.schedulerRunId,
@@ -1932,50 +1134,25 @@ export async function closeBlockedPlanningSchedulerRun(
   return result;
 }
 
-export async function confirmTaskQueueProposalAndStart(
+export async function startAcceptedSequentialWorkflow(
   project: ManagedProject,
   changeId: string,
   request: WorkbenchWorkflowActionRequest,
   live: WorkbenchLiveSink | undefined,
 ): Promise<unknown> {
   const { memory, changePath } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "TaskQueueProposal start");
-  if (!request.taskQueueProposalId) throw new Error("planning.taskqueue.confirm-start requires taskQueueProposalId.");
-  if (!request.workflowGraphPlanId) throw new Error("planning.taskqueue.confirm-start requires workflowGraphPlanId.");
-  if (!request.readinessManifestId) throw new Error("planning.taskqueue.confirm-start requires readinessManifestId.");
-  if (!request.decompositionPlanId) throw new Error("planning.taskqueue.confirm-start requires decompositionPlanId.");
-  const proposal = await readLatestTaskQueueProposal(memory, changePath);
-  if (proposal.id !== request.taskQueueProposalId || proposal.changeId !== changeId || proposal.status !== "confirmed" || proposal.decompositionPlanId !== request.decompositionPlanId || proposal.readinessManifestId !== request.readinessManifestId) {
-    throw new Error("planning.taskqueue.confirm-start target is stale or no longer startable.");
-  }
-  const manifest = await readLatestDecompositionReadinessManifest(memory, changePath);
-  if (manifest.id !== proposal.readinessManifestId || manifest.status !== "ready-for-sequential-taskqueue-proposal") {
-    throw new Error("planning.taskqueue.confirm-start readiness target is stale.");
-  }
-  const graph = await readWorkflowGraphPlan(memory, changePath, request.workflowGraphPlanId);
-  if (graph.graphMode !== "sequential-v1" || graph.status !== "compiled" || graph.changeId !== changeId || graph.taskQueueProposalId !== proposal.id || graph.readinessManifestId !== manifest.id) {
-    throw new Error("planning.taskqueue.confirm-start graph target is stale.");
-  }
+  assertWritableMemory(memory, "accepted workflow start");
+  if (!request.workflowGraphPlanId) throw new Error("workflow.run.start requires workflowGraphPlanId.");
+  const authoredGraph = await readWorkflowGraphPlan(memory, changePath, request.workflowGraphPlanId);
   const latestGraph = await readLatestWorkflowGraphPlan(memory, changePath);
-  if (latestGraph.graphMode !== "sequential-v1" || latestGraph.id !== graph.id) throw new Error("planning.taskqueue.confirm-start requires the latest matching WorkflowGraphPlan.");
-  const validated = await validateWorkflowTaskQueueProposalStart(memory, project, changeId, proposal.id, graph.id);
-  const workflow = await createWorkflowRunForValidatedTaskQueue(memory, project, validated);
-  await appendTopicThreadEntry(project, changeId, {
+  if (authoredGraph.authoringContractVersion !== "1.0" || authoredGraph.graphMode !== "sequential-v1" || authoredGraph.status !== "compiled" || authoredGraph.changeId !== changeId || latestGraph.id !== authoredGraph.id) {
+    throw new Error("workflow.run.start authored graph target is stale.");
+  }
+  await appendConversationThreadEntry(project, changeId, {
     type: "assistant.message",
     status: "taskqueue-starting",
-    text: `WorkflowGraphPlan ${graph.id} confirmed for start; starting scoped sequential TaskQueue through WorkflowRun ${workflow.id}.`,
-    artifact: graph.artifact,
+    text: `WorkflowGraphPlan ${authoredGraph.id} confirmed for scoped sequential execution.`,
+    artifact: authoredGraph.artifact,
   });
-  const result = await runTaskQueueSequentialWorkflow({
-    project,
-    changeId,
-    prompt: request.prompt,
-    live,
-    taskQueueProposalId: proposal.id,
-    workflowGraphPlanId: graph.id,
-    readinessManifestId: manifest.id,
-    decompositionPlanId: proposal.decompositionPlanId,
-    workflowRunId: workflow.id,
-  });
-  return result;
+  return runTaskQueueSequentialWorkflow({ project, changeId, prompt: request.prompt, live, workflowGraphPlanId: authoredGraph.id });
 }

@@ -1,13 +1,12 @@
 ﻿import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { readTopicThreadLog } from "../../thread-log.js";
+import { readConversationThread } from "../../conversation-thread-log.js";
 import { normalizeMainAgentExecutionAction } from "../../../workflow-actions/main-agent-execution.js";
 import type { AssistantTurnActivity, AssistantTurnBlock, TopicThreadEntry } from "../../types.js";
 import type { ClarificationRequest, WorkbenchIntakeIteration, WorkbenchIntakeScan } from "../../intake.js";
 import type { AuditSummary, ResolvedMemory, RunEvent, RunMetadata, ValidationSummary } from "../../../types/index.js";
 import type {
-  ThreadStreamAction,
   ThreadStreamEvidence,
   ThreadStreamItem,
   WorkbenchDecisionItem,
@@ -26,9 +25,10 @@ export async function buildThreadStream(
   validations: unknown[],
   audits: unknown[],
   decisions: WorkbenchDecisionItem[],
+  options: { messages?: TopicThreadEntry[]; includeChangeState?: boolean } = {},
 ): Promise<ThreadStreamItem[]> {
-  const messages = await readTopicThreadLog(memory, topic.path).catch(() => []);
-  const { items, runAnchors, assistantByRun } = buildThreadStreamMessageDrafts(topic, messages, true);
+  const messages = options.messages ?? await readConversationThread(memory, topic.path).catch(() => []);
+  const { items, runAnchors, assistantByRun } = buildThreadStreamMessageDrafts(topic, messages, options.includeChangeState ?? true);
   for (const run of runs) {
     if (!runAnchors.has(run.id)) runAnchors.set(run.id, timestampSortKey(run.finishedAt ?? run.startedAt, 3000));
   }
@@ -100,7 +100,7 @@ export async function buildThreadStream(
     });
   }
 
-  return finalizeThreadStreamItems(memory, topic, items);
+  return finalizeThreadStreamItems(items);
 }
 
 export async function buildThreadStreamFromMessages(
@@ -110,7 +110,7 @@ export async function buildThreadStreamFromMessages(
   options: { includeChangeState?: boolean } = {},
 ): Promise<ThreadStreamItem[]> {
   const { items } = buildThreadStreamMessageDrafts(topic, messages, Boolean(options.includeChangeState));
-  return finalizeThreadStreamItems(memory, topic, items);
+  return finalizeThreadStreamItems(items);
 }
 
 function buildThreadStreamMessageDrafts(
@@ -175,14 +175,8 @@ function buildThreadStreamMessageDrafts(
   return { items, runAnchors, assistantByRun };
 }
 
-async function finalizeThreadStreamItems(
-  memory: ResolvedMemory,
-  topic: WorkbenchTopicSummary,
-  items: ThreadStreamDraft[],
-): Promise<ThreadStreamItem[]> {
-  const actions = await buildPlanCardActions(memory, topic);
+async function finalizeThreadStreamItems(items: ThreadStreamDraft[]): Promise<ThreadStreamItem[]> {
   for (const item of items) {
-    if (item.kind === "plan-card" || item.planCard) item.actions = actions;
     item.blocks = finalizeAssistantBlocks(item);
   }
   return dedupeThreadItems(items)
@@ -235,7 +229,7 @@ function threadItemFromMessage(message: TopicThreadEntry, sortKey: number): Thre
     return {
       id: message.id,
       kind: "assistant-turn",
-      label: "Orchestrator plan",
+      label: "AI",
       timestamp: message.timestamp,
       body: message.text,
       source: "chat",
@@ -244,7 +238,6 @@ function threadItemFromMessage(message: TopicThreadEntry, sortKey: number): Thre
       agentRoleId: message.agentRoleId,
       agentTaskId: message.agentTaskId,
       actionType: undefined,
-      planCard: message.planCard,
       activity: message.activity,
       blocks: blocksFromMessage(message),
       semanticKey: `message:${message.id}`,
@@ -363,12 +356,12 @@ function blocksFromMessage(message: TopicThreadEntry, evidence?: ThreadStreamEvi
   const displayText = terminalWorkflowResultSummary(message) ?? message.text;
   if (blocks.length === 0 && displayText?.trim()) {
     blocks.push({
-      id: `legacy-prose:${message.id}`,
+      id: `message-prose:${message.id}`,
       runId: message.runId,
       sequence: sequence++,
       kind: "prose",
       timestamp: message.timestamp,
-      source: message.type === "workflow.completed" || message.type === "workflow.failed" ? "workflow" : "legacy",
+      source: message.type === "workflow.completed" || message.type === "workflow.failed" ? "workflow" : "aho",
       title: message.type === "workflow.completed" || message.type === "workflow.failed" ? "执行结果" : undefined,
       text: displayText,
       isError: message.status === "failed",
@@ -376,7 +369,7 @@ function blocksFromMessage(message: TopicThreadEntry, evidence?: ThreadStreamEvi
   }
   if (blocks.length === 0 && message.error?.trim()) {
     blocks.push({
-      id: `legacy-error:${message.id}`,
+      id: `message-error:${message.id}`,
       runId: message.runId,
       sequence: sequence++,
       kind: "error",
@@ -392,20 +385,6 @@ function blocksFromMessage(message: TopicThreadEntry, evidence?: ThreadStreamEvi
       block.sequence = sequence++;
       blocks.push(block);
     }
-  }
-  if (!hasExplicitBlocks && message.planCard) {
-    blocks.push({
-      id: `plan-card:${message.id}`,
-      runId: message.runId,
-      sequence: sequence++,
-      kind: "plan-card",
-      timestamp: message.timestamp,
-      source: "aho",
-      title: message.planCard.title,
-      text: message.planCard.summary,
-      artifactRef: message.artifact,
-      planCard: message.planCard,
-    });
   }
   if (evidence) {
     blocks.push(workflowEvidenceBlock(evidence, sequence++, evidence.source));
@@ -435,7 +414,7 @@ function blocksFromActivity(activity: AssistantTurnActivity[] | undefined, messa
       const assistantEvent = event.event;
       const kind = assistantEventBlockKind(assistantEvent.kind);
       const block: AssistantTurnBlock = {
-        id: `legacy-activity:${message.id}:${index}`,
+        id: `message-activity:${message.id}:${index}`,
         runId: assistantEvent.runId ?? message.runId,
         sequence: index + 1,
         kind,
@@ -456,7 +435,7 @@ function blocksFromActivity(activity: AssistantTurnActivity[] | undefined, messa
       if (isMainThreadBlock(block)) blocks.push(block);
     } else if (event.kind === "tool" && event.tool.phase !== "stderr" && event.tool.command) {
       blocks.push({
-        id: `legacy-tool:${message.id}:${index}`,
+        id: `message-tool:${message.id}:${index}`,
         runId: event.tool.runId,
         sequence: index + 1,
         kind: "command",
@@ -471,7 +450,7 @@ function blocksFromActivity(activity: AssistantTurnActivity[] | undefined, messa
       });
     } else if (event.kind === "usage") {
       blocks.push({
-        id: `legacy-usage:${message.id}:${index}`,
+        id: `message-usage:${message.id}:${index}`,
         runId: message.runId,
         sequence: index + 1,
         kind: "usage",
@@ -482,7 +461,7 @@ function blocksFromActivity(activity: AssistantTurnActivity[] | undefined, messa
       });
     } else if (event.kind === "error") {
       blocks.push({
-        id: `legacy-error:${message.id}:${index}`,
+        id: `message-error:${message.id}:${index}`,
         runId: message.runId,
         sequence: index + 1,
         kind: "error",
@@ -514,7 +493,7 @@ function workflowEvidenceBlock(evidence: ThreadStreamEvidence, sequence: number,
 }
 
 function finalizeAssistantBlocks(item: ThreadStreamItem): AssistantTurnBlock[] | undefined {
-  if (item.kind !== "assistant-turn" && item.kind !== "plan-card") return item.blocks;
+  if (item.kind !== "assistant-turn") return item.blocks;
   let blocks = normalizeBlocks(item.blocks);
   let sequence = nextBlockSequence(blocks);
   if (blocks.length === 0 && item.body?.trim()) {
@@ -524,7 +503,7 @@ function finalizeAssistantBlocks(item: ThreadStreamItem): AssistantTurnBlock[] |
       sequence: sequence++,
       kind: "prose",
       timestamp: item.timestamp ?? new Date().toISOString(),
-      source: item.source === "workflow" ? "workflow" : "legacy",
+      source: item.source === "workflow" ? "workflow" : "aho",
       title: item.source === "workflow" ? "执行结果" : undefined,
       text: item.body,
       isError: item.status === "failed",
@@ -709,49 +688,6 @@ function mergeEvidence(left: ThreadStreamEvidence[] | undefined, right: ThreadSt
   });
 }
 
-async function buildPlanCardActions(memory: ResolvedMemory, topic: WorkbenchTopicSummary): Promise<ThreadStreamAction[]> {
-  const specReady = await isConcreteChangeFile(memory, topic.path, "spec.md");
-  const planReady = await isConcreteChangeFile(memory, topic.path, "plan.md");
-  const tasksReady = await isConcreteChangeFile(memory, topic.path, "tasks.md");
-  return [
-    {
-      actionType: "change.spec.propose",
-      label: "生成 Spec",
-      enabled: topic.state === "active" && !specReady,
-      requiresConfirmation: true,
-      disabledReason: specReady ? "需求说明已存在" : topic.state === "active" ? undefined : "归档或暂停的需求对话不能执行动作",
-    },
-    {
-      actionType: "change.plan.propose",
-      label: "生成 Plan",
-      enabled: topic.state === "active" && specReady && !planReady,
-      requiresConfirmation: true,
-      disabledReason: !specReady ? "先生成并接受需求说明" : planReady ? "执行方案已存在" : topic.state === "active" ? undefined : "归档或暂停的需求对话不能执行动作",
-    },
-    {
-      actionType: "change.plan.propose",
-      label: "生成 Tasks",
-      enabled: topic.state === "active" && specReady && planReady && !tasksReady,
-      requiresConfirmation: true,
-      disabledReason: !specReady ? "先生成并接受需求说明" : !planReady ? "先生成执行方案" : tasksReady ? "任务清单已存在" : topic.state === "active" ? undefined : "归档或暂停的需求对话不能执行动作",
-    },
-    {
-      actionType: "planning.decompose",
-      label: "拆分评估",
-      enabled: topic.state === "active" && specReady && planReady && tasksReady,
-      requiresConfirmation: true,
-      disabledReason: !specReady ? "先生成并接受需求说明" : !planReady ? "先生成执行方案" : !tasksReady ? "先生成任务清单" : topic.state === "active" ? undefined : "归档或暂停的需求对话不能执行动作",
-    },
-    {
-      actionType: "code.run",
-      label: "运行 Code",
-      enabled: topic.state === "active" && specReady && planReady && tasksReady,
-      requiresConfirmation: true,
-      disabledReason: !specReady ? "先生成并接受需求说明" : !planReady ? "先生成并接受执行方案" : !tasksReady ? "先生成任务清单" : topic.state === "active" ? undefined : "归档或暂停的需求对话不能执行动作",
-    },
-  ];
-}
-
 export async function isConcreteChangeFile(memory: ResolvedMemory, changePath: string, fileName: "spec.md" | "plan.md" | "tasks.md"): Promise<boolean> {
   const path = join(memory.memoryRoot, changePath, fileName);
   if (!existsSync(path)) return false;
@@ -782,22 +718,6 @@ function workflowActionLabel(actionType: string): string {
   if (mainAgentExecutionAction === "main-agent.execution.reconcile") return "Main-agent execution reconcile";
 
   switch (actionType) {
-    case "change.spec.propose": return "Spec proposal";
-    case "change.spec.accept": return "Spec acceptance";
-    case "change.plan.propose": return "Plan/Tasks proposal";
-    case "change.plan.accept": return "Plan/Tasks acceptance";
-    case "planning.decomposition.assess-readiness": return "Decomposition readiness";
-    case "planning.taskqueue.propose": return "TaskQueue proposal";
-    case "planning.scheduler.plan.prepare": return "Parallel execution plan prepare";
-    case "planning.scheduler.contract.compile": return "SchedulerContract compile";
-    case "planning.scheduler.dispatch.dry-run": return "Scheduler dispatch dry-run";
-    case "planning.scheduler.worker-plan.compile": return "Scheduler worker session plan compile";
-    case "planning.scheduler.claim-reconcile.compile": return "Scheduler claim/reconcile plan compile";
-    case "planning.scheduler.launch-preflight.check": return "Scheduler launch preflight check";
-    case "planning.scheduler.run.prepare": return "SchedulerRun prepare";
-    case "planning.scheduler.runtime.initialize": return "Scheduler runtime initialize";
-    case "planning.scheduler.runtime.reconcile": return "Scheduler runtime reconcile";
-    case "planning.scheduler.runtime.reserve-claims": return "Scheduler runtime claim reservation";
     case "planning.scheduler.worker.start-first": return "Scheduler current worker start";
     case "planning.scheduler.worker.start-next": return "Scheduler next worker start";
     case "planning.scheduler.worker.reconcile-result": return "Scheduler current worker result reconcile";
@@ -808,8 +728,7 @@ function workflowActionLabel(actionType: string): string {
     case "planning.scheduler.worker.rework-reconcile-result": return "Scheduler current worker rework result";
     case "planning.scheduler.worker.rework-validate-first": return "Scheduler current worker rework validation";
     case "planning.scheduler.worker.rework-audit-first": return "Scheduler current worker rework audit";
-    case "planning.workflowgraph.compile": return "WorkflowGraphPlan compile";
-    case "planning.taskqueue.confirm-start": return "TaskQueue start confirmation";
+    case "workflow.run.start": return "TaskQueue start confirmation";
     case "code.run": return "Code workflow";
     case "validate.run": return "Validation";
     case "audit.run": return "Audit";
@@ -871,5 +790,3 @@ function sourceForEvent(type: string): WorkbenchThreadEvent["source"] {
   if (type.startsWith("spec-test.")) return "spec-test";
   return "run";
 }
-
-

@@ -1,11 +1,8 @@
 import {
-  getWorkbenchDecompositionPlanProjection,
-  getWorkbenchDecompositionReadinessProjection,
   getWorkbenchEvidenceProjection,
   getWorkbenchLandingQueueProjection,
   getWorkbenchMaintenanceProjection,
   getWorkbenchRunGraphProjection,
-  getWorkbenchTaskQueueProposalProjection,
   getWorkbenchTranscriptPageProjection,
   getWorkbenchTranscriptProjection,
   getWorkbenchWorkflowGraphPlanProjection,
@@ -58,18 +55,6 @@ export async function getWorkbenchProjection(input: WorkbenchProjectInput, rest:
   if (kind === "evidence") {
     if (!changeId) throw badRequest("evidence projection requires changeId.");
     return getWorkbenchEvidenceProjection(input, changeId);
-  }
-  if (kind === "decomposition-plan") {
-    if (!changeId) throw badRequest("decomposition-plan projection requires changeId.");
-    return getWorkbenchDecompositionPlanProjection(input, changeId);
-  }
-  if (kind === "decomposition-readiness") {
-    if (!changeId) throw badRequest("decomposition-readiness projection requires changeId.");
-    return getWorkbenchDecompositionReadinessProjection(input, changeId);
-  }
-  if (kind === "taskqueue-proposal") {
-    if (!changeId) throw badRequest("taskqueue-proposal projection requires changeId.");
-    return getWorkbenchTaskQueueProposalProjection(input, changeId);
   }
   if (kind === "workflow-graph-plan") {
     if (!changeId) throw badRequest("workflow-graph-plan projection requires changeId.");

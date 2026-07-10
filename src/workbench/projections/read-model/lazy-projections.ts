@@ -1,9 +1,4 @@
-import type {
-  DecompositionPlan,
-  DecompositionReadinessManifest,
-  TaskQueueProposal,
-  WorkflowGraphPlan,
-} from "../../../workflow-artifacts/manager.js";
+import type { WorkflowGraphPlan } from "../../../workflow-artifacts/manager.js";
 import type { SchedulerClaimReconcilePlan, SchedulerContract, SchedulerDispatchDryRun, SchedulerLaunchPreflight, SchedulerRun, SchedulerWorkerSessionPlan } from "../../../workflow-scheduler/manager.js";
 import type { SchedulerIntegrationCandidate, SchedulerIntegrationCheckHandoff, SchedulerIntegrationOutcome, SchedulerRunBlockedCloseout, SchedulerRunCompletion, SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkAudit, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkValidation, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerValidation } from "../../../scheduler-runtime/manager.js";
 import type { ResolvedMemory } from "../../../types/index.js";
@@ -12,9 +7,6 @@ import { resolveWorkbenchMemory } from "./support.js";
 import { listWorkbenchTopicsFromMemory as listTopicsFromMemory } from "./topics.js";
 import {
   findWorkbenchTopicPath,
-  getDecompositionPlanProjectionForPath,
-  getDecompositionReadinessProjectionForPath,
-  getTaskQueueProposalProjectionForPath,
   getWorkflowGraphPlanProjectionForPath,
   getSchedulerContractProjectionForPath,
   getSchedulerDispatchDryRunProjectionForPath,
@@ -42,33 +34,6 @@ import {
 
 function listWorkbenchTopicsFromMemory(memory: ResolvedMemory) {
   return listTopicsFromMemory(memory, { includeDeleted: true });
-}
-
-export async function getWorkbenchDecompositionPlanProjection(input: WorkbenchProjectInput, changeId: string): Promise<DecompositionPlan | null> {
-  const memory = await resolveWorkbenchMemory(input);
-  if (!memory.supported) return null;
-  const topics = await listWorkbenchTopicsFromMemory(memory);
-  const changePath = findWorkbenchTopicPath(topics, changeId);
-  if (!changePath) return null;
-  return getDecompositionPlanProjectionForPath(memory, changePath);
-}
-
-export async function getWorkbenchDecompositionReadinessProjection(input: WorkbenchProjectInput, changeId: string): Promise<DecompositionReadinessManifest | null> {
-  const memory = await resolveWorkbenchMemory(input);
-  if (!memory.supported) return null;
-  const topics = await listWorkbenchTopicsFromMemory(memory);
-  const changePath = findWorkbenchTopicPath(topics, changeId);
-  if (!changePath) return null;
-  return getDecompositionReadinessProjectionForPath(memory, changePath);
-}
-
-export async function getWorkbenchTaskQueueProposalProjection(input: WorkbenchProjectInput, changeId: string): Promise<TaskQueueProposal | null> {
-  const memory = await resolveWorkbenchMemory(input);
-  if (!memory.supported) return null;
-  const topics = await listWorkbenchTopicsFromMemory(memory);
-  const changePath = findWorkbenchTopicPath(topics, changeId);
-  if (!changePath) return null;
-  return getTaskQueueProposalProjectionForPath(memory, changePath);
 }
 
 export async function getWorkbenchWorkflowGraphPlanProjection(input: WorkbenchProjectInput, changeId: string, workflowGraphPlanId?: string): Promise<WorkflowGraphPlan | null> {

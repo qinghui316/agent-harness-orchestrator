@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+﻿import { execFile } from "node:child_process";
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -8,7 +8,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createProgram } from "../../src/cli/program.js";
 import { getSpecTestStatus } from "../../src/spec-test/manager.js";
 import { getSpecTestDriftReport } from "../../src/spec-test/drift.js";
-import { createWorkbenchTopic, listTopicMessages, postTopicMessage } from "../../src/workbench/chat.js";
 import { getWorkbenchSnapshot, getWorkbenchStream, listWorkbenchApprovals } from "../../src/workbench/manager.js";
 import type { ManagedProject } from "../../src/types/index.js";
 
@@ -36,62 +35,6 @@ function managedProject(): ManagedProject {
     addedAt: new Date().toISOString(),
     lastSeenAt: new Date().toISOString(),
   };
-}
-
-async function writeCliSingleChangeReadiness(changeId: string, memoryRoot: string): Promise<string> {
-  const planningDir = join(memoryRoot, "harness", "changes", "active", changeId, "planning");
-  await mkdir(planningDir, { recursive: true });
-  const id = `readiness-${changeId}`;
-  const now = new Date().toISOString();
-  const manifest = {
-    id,
-    changeId,
-    decompositionPlanId: `decomposition-${changeId}`,
-    status: "ready-for-single-change",
-    recommendation: "single-change",
-    executable: false,
-    schedulerEligible: false,
-    nextAllowedAction: "code.run",
-    units: [{
-      id: "DU-001",
-      title: "Single change",
-      taskIds: ["T-001"],
-      acIds: ["AC-001"],
-      dependsOn: [],
-      guardrailStatus: "passed",
-      sourceScopes: ["selected-demand"],
-    }],
-    dependencies: [],
-    conflictScopes: [],
-    guardrails: [{
-      id: "test-readiness",
-      status: "passed",
-      summary: "CLI fixture authorizes single-change code.run.",
-      refs: [changeId],
-    }],
-    recoveryKeyMaterial: {
-      changeId,
-      decompositionPlanId: `decomposition-${changeId}`,
-      acceptedArtifactRefs: [
-        `harness/changes/active/${changeId}/spec.md`,
-        `harness/changes/active/${changeId}/plan.md`,
-        `harness/changes/active/${changeId}/tasks.md`,
-      ],
-      contextScope: "selected-demand",
-      rolePolicyProfile: "test-cli-single-change",
-      taskIds: ["T-001"],
-      acIds: ["AC-001"],
-      notes: ["Test fixture for the Phase 7J code execution gate."],
-    },
-    artifactRefs: [`harness/changes/active/${changeId}/planning/decomposition-readiness.json`],
-    artifact: `harness/changes/active/${changeId}/planning/decomposition-readiness.json`,
-    markdownArtifact: `harness/changes/active/${changeId}/planning/decomposition-readiness.md`,
-    createdAt: now,
-    updatedAt: now,
-  };
-  await writeFile(join(planningDir, "decomposition-readiness.json"), JSON.stringify(manifest, null, 2), "utf8");
-  await writeFile(join(planningDir, "decomposition-readiness.md"), `# Test readiness ${id}\n`, "utf8");
-  return id;
 }
 
 beforeEach(async () => {
@@ -190,7 +133,7 @@ describe("CLI flow", () => {
     expect(stream.events.some((item) => item.type === "run.completed")).toBe(true);
     expect(approvals.every((item) => !item.action?.mutates || item.action.requiresConfirmation)).toBe(true);
     expect(snapshot.harnessGaps.map((item) => item.id)).toEqual(expect.arrayContaining(["workspaceIndex", "subagentSpec"]));
-    expect(snapshot.roles.map((item) => item.id)).toEqual(expect.arrayContaining(["spec-agent", "planner", "coder"]));
+    expect(snapshot.roles.map((item) => item.id)).toEqual(expect.arrayContaining(["planning-agent", "coder-agent", "validator", "auditor-agent"]));
   });
 
   it("imports project skills and syncs them through the Codex bridge", async () => {
@@ -217,29 +160,6 @@ describe("CLI flow", () => {
     expect(existsSync(join(bridgeSkillRoot, "SKILL.md"))).toBe(true);
     expect(existsSync(join(bridgeSkillRoot, "scripts", "unsafe.ps1"))).toBe(true);
     expect(await readFile(join(bridgeSkillRoot, "SKILL.md"), "utf8")).toContain("name: repo__pricing-helper");
-  });
-
-  it("keeps ordinary Topic chat in one thread and resumes Codex sessions when available", async () => {
-    await installFakeCodex("chat-session");
-    process.env.AHO_FAKE_CODEX_ARGS_PATH = join(tempDir, "codex-args.jsonl");
-    await runCli(["project", "add", repoDir, "--name", "Repo"]);
-    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
-
-    const topic = await createWorkbenchTopic(managedProject(), { title: "Chat Topic", body: "Raw user intent" });
-    await postTopicMessage(managedProject(), topic.changeId, "这个项目现在能做什么？");
-    await postTopicMessage(managedProject(), topic.changeId, "继续沿用这个话题回答。");
-
-    const messages = await listTopicMessages(managedProject(), topic.changeId);
-    const argvLog = (await readFile(process.env.AHO_FAKE_CODEX_ARGS_PATH, "utf8")).trim().split(/\r?\n/).map((line) => JSON.parse(line) as string[]);
-    const snapshot = await getWorkbenchSnapshot({ project: managedProject(), path: repoDir }, { topicId: topic.changeId });
-
-    expect(messages.filter((item) => item.type === "user.message")).toHaveLength(3);
-    expect(messages.filter((item) => item.type === "assistant.message")).toHaveLength(2);
-    const execArgvLog = argvLog.filter((args) => args.includes("exec"));
-    expect(argvLog.some((args) => args[0] === "app-server" && args.includes("--help"))).toBe(true);
-    expect(execArgvLog[0]).toEqual(expect.arrayContaining(["exec", "--json", "--sandbox", "read-only"]));
-    expect(execArgvLog[1]).toEqual(expect.arrayContaining(["exec", "resume", "sess-chat-123"]));
-    expect(snapshot.center.thread.items.some((item) => item.kind === "assistant-turn")).toBe(true);
   });
 
   it("links spec-test evidence and joins direct validation results", async () => {
@@ -405,97 +325,6 @@ describe("CLI flow", () => {
     status = await getSpecTestStatus(managedProject());
     expect(status.mappings).toHaveLength(1);
     expect(status.mappings[0]?.refs).toHaveLength(3);
-  });
-
-  it("proposes and accepts spec and plan artifacts through human gates", async () => {
-    await installFakeCodex("change-spec-proposal");
-    await runCli(["project", "add", repoDir, "--name", "Repo"]);
-    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
-    await runCli(["change", "new", "repo", "--title", "Spec Planner", "--body", "Raw request for pricing behavior."]);
-
-    await runCli(["change", "spec", "propose", "repo", "--json"]);
-    const memoryRoot = join(homeDir, "projects", "repo");
-    const specRunId = await findRunWithArtifact(join(memoryRoot, "runs"), "spec-proposal.json");
-    const specProposal = JSON.parse(await readFile(join(memoryRoot, "runs", specRunId, "spec-proposal.json"), "utf8"));
-    expect(specProposal).toMatchObject({ status: "proposed", changeId: "spec-planner" });
-    expect(specProposal.specMd).toContain("AC-001");
-
-    await runCli(["change", "spec", "proposal", "list", "repo", "--json"]);
-    await runCli(["change", "spec", "proposal", "show", "repo", specRunId, "--json"]);
-    await runCli(["change", "spec", "accept", "repo", specRunId, "--json"]);
-    expect(await readFile(join(memoryRoot, "harness", "changes", "active", "spec-planner", "spec.md"), "utf8")).toContain("AC-002");
-
-    await installFakeCodex("change-plan-proposal");
-    await runCli(["change", "plan", "propose", "repo", "--json"]);
-    const planRunId = await findRunWithArtifact(join(memoryRoot, "runs"), "plan-proposal.json");
-    await runCli(["change", "plan", "proposal", "list", "repo", "--json"]);
-    await runCli(["change", "plan", "proposal", "show", "repo", planRunId, "--json"]);
-    await runCli(["change", "plan", "accept", "repo", planRunId, "--json"]);
-
-    const tasks = await readFile(join(memoryRoot, "harness", "changes", "active", "spec-planner", "tasks.md"), "utf8");
-    expect(tasks).toContain("T-001");
-    expect(tasks).toContain("Covers: AC-001");
-    await runCli(["change", "status", "repo", "--json"]);
-    const acMap = JSON.parse(await readFile(join(memoryRoot, "harness", "changes", "active", "spec-planner", "ac-map.json"), "utf8"));
-    expect(acMap.blockingIssues).toEqual([]);
-    expect(acMap.tasks).toHaveLength(2);
-  });
-
-  it("runs AHO-managed agent roles through ordinary Codex exec with role provenance", async () => {
-    await installFakeCodex("root");
-    await runCli(["project", "add", repoDir, "--name", "Repo"]);
-    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
-    await runCli(["change", "new", "repo", "--title", "Agent Bridge", "--body", "Raw request for a proposal."]);
-
-    await runCli(["agent", "list", "repo", "--json"]);
-    await runCli(["agent", "show", "repo", "spec-agent", "--json"]);
-    await runCli(["agent", "sync", "repo", "--json"]);
-    await runCli(["agent", "run", "repo", "spec-agent", "--prompt", "Explain the current active change.", "--json"]);
-    await expect(runCli(["agent", "run", "repo", "coder", "--prompt", "Write code without an assigned worktree.", "--json"])).rejects.toThrow("requires --worktree");
-
-    const memoryRoot = join(homeDir, "projects", "repo");
-    const runIds = await readdir(join(memoryRoot, "runs"));
-    expect(runIds).toHaveLength(1);
-    const runDir = join(memoryRoot, "runs", runIds[0]);
-    const run = JSON.parse(await readFile(join(runDir, "run.json"), "utf8"));
-    const prompt = await readFile(join(runDir, "prompt.md"), "utf8");
-
-    expect(run).toMatchObject({
-      runtime: "agent-codex",
-      executionMode: "direct",
-      proposalOnly: true,
-      status: "completed",
-      agent: { roleId: "spec-agent", source: "memory" },
-    });
-    expect(run.promptStack).toContain("agent-role");
-    expect(prompt).toContain("<system-instructions role=\"spec-agent\">");
-    expect(prompt).toContain("Explain the current active change.");
-    expect(await readFile(join(runDir, "last-message.md"), "utf8")).toContain("fake codex proposal");
-  });
-
-  it("rejects blocked and stale spec proposal acceptance", async () => {
-    await installFakeCodex("change-spec-blocked");
-    await runCli(["project", "add", repoDir, "--name", "Repo"]);
-    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
-    await runCli(["change", "new", "repo", "--title", "Blocked Spec", "--body", "Need unknown security behavior."]);
-    await runCli(["change", "spec", "propose", "repo", "--json"]);
-
-    const memoryRoot = join(homeDir, "projects", "repo");
-    const blockedRunId = await findRunWithArtifact(join(memoryRoot, "runs"), "spec-proposal.json");
-    await expect(runCli(["change", "spec", "accept", "repo", blockedRunId, "--json"])).rejects.toThrow("Cannot accept spec proposal with status blocked");
-
-    await installFakeCodex("change-spec-proposal");
-    await runCli(["change", "spec", "propose", "repo", "--json"]);
-    const proposals = (await readdir(join(memoryRoot, "runs"))).filter((id) => existsSync(join(memoryRoot, "runs", id, "spec-proposal.json"))).sort();
-    let proposedRunId = "";
-    for (const proposalId of proposals) {
-      const proposal = JSON.parse(await readFile(join(memoryRoot, "runs", proposalId, "spec-proposal.json"), "utf8"));
-      if (proposal.status === "proposed") proposedRunId = proposalId;
-    }
-    expect(proposedRunId).not.toBe("");
-    const specPath = join(memoryRoot, "harness", "changes", "active", "blocked-spec", "spec.md");
-    await writeFile(specPath, "# Manual edit\n\n## Acceptance Criteria\n\n- AC-001: Manual AC\n", "utf8");
-    await expect(runCli(["change", "spec", "accept", "repo", proposedRunId, "--json"])).rejects.toThrow("spec.md changed after proposal was generated");
   });
 
   it("generates test-only spec-test proposals and accepts them after apply", async () => {
@@ -901,163 +730,12 @@ describe("CLI flow", () => {
     expect(review).toContain(`Audit ID: ${runIds[0]}`);
   });
 
-  it("rejects CLI code runs before the readiness gate authorizes execution", async () => {
+  it("rejects CLI code runs without an explicit Workflow Runtime execution gate", async () => {
     await runCli(["project", "add", repoDir, "--name", "Repo"]);
     await runCli(["harness", "init", "repo", "--memory", "external-local"]);
     await runCli(["change", "new", "repo", "--title", "Ungated Code"]);
 
-    await expect(runCli(["code", "run", "repo", "--json"])).rejects.toThrow("decomposition-readiness.json");
-  });
-
-  it("records Codex coder worktree runs and validates the same worktree", async () => {
-    await installFakeCodex("code-write");
-    await writeFile(join(repoDir, "README.md"), "hello\n", "utf8");
-    await writeFile(join(repoDir, ".gitignore"), "node_modules/\n", "utf8");
-    await writeFile(join(repoDir, "package.json"), JSON.stringify({
-      scripts: {
-        typecheck: "node -e \"\"",
-        lint: "node -e \"\"",
-        test: "node -e \"\"",
-        build: "node -e \"\"",
-      },
-      devDependencies: {
-        "local-dev-tool": "1.0.0",
-      },
-    }), "utf8");
-    await mkdir(join(repoDir, "node_modules", "local-dev-tool"), { recursive: true });
-    await writeFile(join(repoDir, "node_modules", "local-dev-tool", "index.js"), "module.exports = 'tool';\n", "utf8");
-    await execFileAsync("git", ["-C", repoDir, "add", ".gitignore", "README.md", "package.json"]);
-    await execFileAsync("git", ["-C", repoDir, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "init"]);
-
-    await runCli(["project", "add", repoDir, "--name", "Repo"]);
-    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
-    await runCli(["change", "new", "repo", "--title", "Coder Worktree"]);
-    const memoryRoot = join(homeDir, "projects", "repo");
-    await writeCliSingleChangeReadiness("coder-worktree", memoryRoot);
-    await runCli(["code", "run", "repo", "--task", "T-001", "--prompt", "Append a Usage section", "--json"]);
-
-    const runIds = await readdir(join(memoryRoot, "runs"));
-    expect(runIds).toHaveLength(1);
-    const runDir = join(memoryRoot, "runs", runIds[0]);
-    const run = JSON.parse(await readFile(join(runDir, "run.json"), "utf8"));
-
-    expect(run).toMatchObject({ runtime: "coder-codex", executionMode: "worktree", proposalOnly: true, status: "completed" });
-    expect(run.command).toContain("workspace-write");
-    expect(run.command).not.toContain("--full-auto");
-    expect(run.command).not.toContain("--dangerously-bypass-approvals-and-sandbox");
-    expect(await readFile(join(runDir, "prompt.md"), "utf8")).toContain("Selected Task Scope");
-    expect(await readFile(join(runDir, "diff.patch"), "utf8")).toContain("Usage: generated by fake coder");
-    expect(await readFile(join(runDir, "diff.patch"), "utf8")).not.toContain("node_modules");
-    expect(await readFile(join(runDir, "implementation.md"), "utf8")).toContain("fake codex proposal from output file");
-    expect(await readFile(join(run.worktree.checkoutPath, "README.md"), "utf8")).toContain("Usage: generated by fake coder");
-    expect(existsSync(join(run.worktree.checkoutPath, "node_modules"))).toBe(true);
-    expect(await readFile(join(repoDir, "README.md"), "utf8")).not.toContain("Usage: generated by fake coder");
-    expect(await readFile(join(runDir, "events.jsonl"), "utf8")).toContain("code.dependency_bridge.prepared");
-    expect(run.artifacts.workerSession).toBeUndefined();
-    const workerSession = JSON.parse(await readFile(join(runDir, "worker-session.json"), "utf8"));
-    const runtimeWorkspace = JSON.parse(await readFile(join(runDir, "runtime-workspace.json"), "utf8"));
-    const eventSource = JSON.parse(await readFile(join(runDir, "event-source.json"), "utf8"));
-    const agentEvents = (await readFile(join(runDir, "agent-events.jsonl"), "utf8")).trim().split(/\r?\n/).map((line) => JSON.parse(line));
-    expect(workerSession).toMatchObject({
-      kind: "worker-session",
-      adapter: "codex-exec",
-      projectId: "repo",
-      changeId: "coder-worktree",
-      runId: run.id,
-      roleId: "coder-agent",
-      worktreeId: run.worktree.worktreeId,
-      status: "completed",
-    });
-    expect(runtimeWorkspace).toMatchObject({
-      kind: "runtime-workspace",
-      workspaceKind: "local-worktree",
-      changeId: "coder-worktree",
-      runId: run.id,
-      roleId: "coder-agent",
-      worktreeId: run.worktree.worktreeId,
-      sandboxPolicy: "workspace-write",
-    });
-    expect(eventSource).toMatchObject({
-      kind: "event-source",
-      adapter: "codex-exec",
-      workerSessionId: workerSession.id,
-      runtimeWorkspaceId: runtimeWorkspace.id,
-      status: "completed",
-    });
-    expect(agentEvents).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        kind: "agent-event-envelope",
-        adapter: "codex-exec",
-        changeId: "coder-worktree",
-        runId: run.id,
-        roleId: "coder-agent",
-        eventType: "text_delta",
-      }),
-    ]));
-
-    await runCli(["code", "status", "repo", "--json"]);
-    await runCli(["code", "list", "repo", "--json"]);
-    await runCli(["code", "show", "repo", runIds[0], "--json"]);
-
-    await runCli(["validate", "run", "repo", "--worktree", run.worktree.worktreeId, "--json"]);
-    const updatedRunIds = await readdir(join(memoryRoot, "runs"));
-    expect(updatedRunIds).toHaveLength(2);
-    const validationRunId = updatedRunIds.find((id) => id !== runIds[0]);
-    expect(validationRunId).toBeDefined();
-    const validation = JSON.parse(await readFile(join(memoryRoot, "runs", validationRunId!, "validation.json"), "utf8"));
-    expect(validation).toMatchObject({ status: "passed", worktreeId: run.worktree.worktreeId });
-
-    await installFakeCodex("audit-approved");
-    await runCli(["audit", "run", "repo", "--worktree", run.worktree.worktreeId, "--json"]);
-    await expect(runCli(["change", "close", "repo"])).rejects.toThrow("Dirty worktree blocks close");
-  });
-
-  it("applies an accepted validated coder worktree back to the source repo", async () => {
-    await installFakeCodex("code-write");
-    await writeFile(join(repoDir, "README.md"), "hello\n", "utf8");
-    await writeFile(join(repoDir, "package.json"), JSON.stringify({
-      scripts: {
-        typecheck: "node -e \"\"",
-        lint: "node -e \"\"",
-        test: "node -e \"\"",
-        build: "node -e \"\"",
-      },
-    }), "utf8");
-    await execFileAsync("git", ["-C", repoDir, "config", "user.name", "Test"]);
-    await execFileAsync("git", ["-C", repoDir, "config", "user.email", "test@example.com"]);
-    await execFileAsync("git", ["-C", repoDir, "add", "README.md", "package.json"]);
-    await execFileAsync("git", ["-C", repoDir, "commit", "-m", "init"]);
-
-    await runCli(["project", "add", repoDir, "--name", "Repo"]);
-    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
-    await execFileAsync("git", ["-C", repoDir, "add", "AGENTS.md", ".agent-harness"]);
-    await execFileAsync("git", ["-C", repoDir, "commit", "-m", "init aho marker"]);
-    await runCli(["change", "new", "repo", "--title", "Apply Worktree"]);
-    const memoryRoot = join(homeDir, "projects", "repo");
-    await writeCliSingleChangeReadiness("apply-worktree", memoryRoot);
-    await runCli(["code", "run", "repo", "--prompt", "Append a Usage section", "--json"]);
-
-    const coderRunId = (await readdir(join(memoryRoot, "runs")))[0];
-    const coderRun = JSON.parse(await readFile(join(memoryRoot, "runs", coderRunId, "run.json"), "utf8"));
-    const worktreeId = coderRun.worktree.worktreeId;
-
-    await runCli(["validate", "run", "repo", "--worktree", worktreeId, "--json"]);
-    await installFakeCodex("audit-approved");
-    await runCli(["audit", "run", "repo", "--worktree", worktreeId, "--json"]);
-    const auditRunId = (await readdir(join(memoryRoot, "runs"))).find((id) => existsSync(join(memoryRoot, "runs", id, "audit.json")));
-    expect(auditRunId).toBeDefined();
-    await runCli(["audit", "accept", "repo", auditRunId!]);
-    await runCli(["worktree", "preview", "repo", worktreeId, "--json"]);
-    await runCli(["worktree", "apply", "repo", worktreeId, "--commit", "--message", "apply coder proposal", "--json"]);
-
-    expect(await readFile(join(repoDir, "README.md"), "utf8")).toContain("Usage: generated by fake coder");
-    const log = await execFileAsync("git", ["-C", repoDir, "log", "-1", "--pretty=%s"]);
-    expect(log.stdout.trim()).toBe("apply coder proposal");
-    const metadata = JSON.parse(await readFile(join(memoryRoot, "worktrees", "metadata", `${worktreeId}.json`), "utf8"));
-    expect(metadata.status).toBe("applied");
-    expect(metadata.worktreeDiffHash).toBeTruthy();
-
-    await runCli(["change", "close", "repo"]);
+    await expect(runCli(["code", "run", "repo", "--json"])).rejects.toThrow("explicit Workflow Runtime execution gate");
   });
 
   it("discards an unapplied worktree proposal without changing the source repo", async () => {
@@ -1083,81 +761,6 @@ describe("CLI flow", () => {
     expect(existsSync(join(memoryRoot, "worktrees", "metadata", `${worktreeId}.json`))).toBe(false);
     const discardRunId = (await readdir(join(memoryRoot, "runs"))).find((id) => existsSync(join(memoryRoot, "runs", id, "discard.json")));
     expect(discardRunId).toBeDefined();
-  });
-
-  it("blocks apply when the worktree diff changes after validation and audit", async () => {
-    await installFakeCodex("code-write");
-    await writeFile(join(repoDir, "README.md"), "hello\n", "utf8");
-    await writeFile(join(repoDir, "package.json"), JSON.stringify({
-      scripts: {
-        typecheck: "node -e \"\"",
-        lint: "node -e \"\"",
-        test: "node -e \"\"",
-        build: "node -e \"\"",
-      },
-    }), "utf8");
-    await execFileAsync("git", ["-C", repoDir, "add", "README.md", "package.json"]);
-    await execFileAsync("git", ["-C", repoDir, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "init"]);
-
-    await runCli(["project", "add", repoDir, "--name", "Repo"]);
-    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
-    await execFileAsync("git", ["-C", repoDir, "add", "AGENTS.md", ".agent-harness"]);
-    await execFileAsync("git", ["-C", repoDir, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "init aho marker"]);
-    await runCli(["change", "new", "repo", "--title", "Stale Apply"]);
-    const memoryRoot = join(homeDir, "projects", "repo");
-    await writeCliSingleChangeReadiness("stale-apply", memoryRoot);
-    await runCli(["code", "run", "repo", "--json"]);
-
-    const coderRunId = (await readdir(join(memoryRoot, "runs")))[0];
-    const coderRun = JSON.parse(await readFile(join(memoryRoot, "runs", coderRunId, "run.json"), "utf8"));
-    const worktreeId = coderRun.worktree.worktreeId;
-    await runCli(["validate", "run", "repo", "--worktree", worktreeId, "--json"]);
-    await installFakeCodex("audit-approved");
-    await runCli(["audit", "run", "repo", "--worktree", worktreeId, "--json"]);
-    const auditRunId = (await readdir(join(memoryRoot, "runs"))).find((id) => existsSync(join(memoryRoot, "runs", id, "audit.json")));
-    await runCli(["audit", "accept", "repo", auditRunId!]);
-
-    await writeFile(join(coderRun.worktree.checkoutPath, "README.md"), "hello\nstale mutation\n", "utf8");
-    await expect(runCli(["worktree", "apply", "repo", worktreeId])).rejects.toThrow("No passed validation found for the current worktree diff hash");
-  });
-
-  it("records coder warnings for no-diff runs", async () => {
-    await installFakeCodex("code-no-diff");
-    await writeFile(join(repoDir, "README.md"), "hello\n", "utf8");
-    await execFileAsync("git", ["-C", repoDir, "add", "README.md"]);
-    await execFileAsync("git", ["-C", repoDir, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "init"]);
-
-    await runCli(["project", "add", repoDir, "--name", "Repo"]);
-    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
-    await runCli(["change", "new", "repo", "--title", "No Diff Code"]);
-    const memoryRoot = join(homeDir, "projects", "repo");
-    await writeCliSingleChangeReadiness("no-diff-code", memoryRoot);
-    await runCli(["code", "run", "repo", "--json"]);
-
-    const runIds = await readdir(join(memoryRoot, "runs"));
-    const implementation = await readFile(join(memoryRoot, "runs", runIds[0], "implementation.md"), "utf8");
-    expect(implementation).toContain("without producing a worktree diff");
-  });
-
-  it("fails coder runs when Codex pollutes the source repo", async () => {
-    await installFakeCodex("code-pollute");
-    process.env.AHO_FAKE_CODEX_POLLUTE_PATH = repoDir;
-    await writeFile(join(repoDir, "README.md"), "hello\n", "utf8");
-    await execFileAsync("git", ["-C", repoDir, "add", "README.md"]);
-    await execFileAsync("git", ["-C", repoDir, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "init"]);
-
-    await runCli(["project", "add", repoDir, "--name", "Repo"]);
-    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
-    await runCli(["change", "new", "repo", "--title", "Source Pollution"]);
-    const memoryRoot = join(homeDir, "projects", "repo");
-    await writeCliSingleChangeReadiness("source-pollution", memoryRoot);
-    await runCli(["code", "run", "repo", "--json"]);
-
-    const runIds = await readdir(join(memoryRoot, "runs"));
-    const run = JSON.parse(await readFile(join(memoryRoot, "runs", runIds[0], "run.json"), "utf8"));
-    expect(run).toMatchObject({ runtime: "coder-codex", status: "failed", exitCode: 1 });
-    expect(await readFile(join(memoryRoot, "runs", runIds[0], "implementation.md"), "utf8")).toContain("Source project git status changed");
-    expect(process.exitCode).toBe(1);
   });
 
   it("uses blocked and failed audit results in the change close gate", async () => {

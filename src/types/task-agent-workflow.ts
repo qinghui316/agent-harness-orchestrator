@@ -85,24 +85,7 @@ export interface ToolEventAuditEntry {
 }
 
 export type WorkflowRunStatus = "created" | "running" | "paused" | "blocked" | "failed" | "completed";
-export type WorkflowRunSource = "taskqueue-proposal" | "default-code-change-workflow";
-
-export interface WorkflowRecoveryKey {
-  version: "1.0";
-  changeId: string;
-  decompositionPlanId: string;
-  readinessManifestId: string;
-  taskQueueProposalId: string;
-  workflowGraphPlanId?: string;
-  acceptedArtifactHashes: Record<string, string>;
-  proposalHash: string;
-  readinessHash: string;
-  workflowGraphPlanHash?: string;
-  sourceHash: string;
-  policyHash: string;
-  capabilityHash: string;
-  createdAt: string;
-}
+export type WorkflowRunSource = "workflow-graph" | "default-code-change-workflow";
 
 export type DefaultCodeChangeWorkflowTemplateId = "default-code-change-workflow";
 export type DefaultCodeChangeWorkflowNodeId = "coder" | "validation" | "audit" | "rework-coder";
@@ -112,7 +95,7 @@ export interface DefaultCodeChangeWorkflowRecoveryKey {
   version: "1.0";
   changeId: string;
   templateId: DefaultCodeChangeWorkflowTemplateId;
-  readinessManifestId?: string;
+  workflowGraphPlanId?: string;
   acceptedArtifactHashes?: Record<string, string>;
   sourceHash?: string;
   policyHash?: string;
@@ -147,13 +130,15 @@ export type WorkflowGraphMode = "sequential-v1" | "ready-set-v1";
 export interface SequentialWorkflowGraphNode {
   id: string;
   taskId: string;
-  taskQueueProposalItemId: string;
   unitId: string;
   title: string;
   order: number;
   stages: WorkflowGraphStage[];
   acIds: string[];
   sourceScopes: string[];
+  taskIds?: string[];
+  prompt?: string;
+  dependsOn?: string[];
 }
 
 export interface SequentialWorkflowGraphEdge {
@@ -201,6 +186,8 @@ export interface ReadySetWorkflowGraphNode {
   recoveryKeyInputs: { key: string; value: string | string[] }[];
   status: "planned" | "blocked";
   blockedReasons: string[];
+  prompt?: string;
+  dependsOn?: string[];
 }
 
 export interface ReadySetWorkflowGraphEdge {
@@ -225,19 +212,18 @@ export interface WorkflowGraphPlanBase {
   changeId: string;
   status: WorkflowGraphPlanStatus;
   graphMode: WorkflowGraphMode;
-  decompositionPlanId: string;
-  readinessManifestId: string;
   sourceArtifactHashes: Record<string, string>;
   artifactRefs: string[];
   artifact: string;
   markdownArtifact: string;
   createdAt: string;
   updatedAt: string;
+  authoringContractVersion?: "1.0";
+  planArtifactRef?: string;
 }
 
 export interface SequentialWorkflowGraphPlan extends WorkflowGraphPlanBase {
   graphMode: "sequential-v1";
-  taskQueueProposalId: string;
   nodes: SequentialWorkflowGraphNode[];
   edges: SequentialWorkflowGraphEdge[];
 }
@@ -305,21 +291,30 @@ export interface TaskQueueWorkflowRun {
   id: string;
   changeId: string;
   status: WorkflowRunStatus;
-  source: "taskqueue-proposal";
-  taskQueueProposalId: string;
+  source: "workflow-graph";
   workflowGraphPlanId?: string;
-  readinessManifestId: string;
-  decompositionPlanId: string;
   queueRunId?: string;
   currentTaskId?: string;
   items: WorkflowRunItem[];
-  recoveryKey: WorkflowRecoveryKey;
+  recoveryKey: WorkflowGraphRecoveryKey;
   statusReason?: string;
   artifactRefs: string[];
   createdAt: string;
   updatedAt: string;
   startedAt: string | null;
   finishedAt: string | null;
+}
+
+export interface WorkflowGraphRecoveryKey {
+  version: "1.0";
+  changeId: string;
+  workflowGraphPlanId: string;
+  acceptedArtifactHashes: Record<string, string>;
+  workflowGraphPlanHash: string;
+  sourceHash: string;
+  policyHash: string;
+  capabilityHash: string;
+  createdAt: string;
 }
 
 export interface DefaultCodeChangeWorkflowRun {
@@ -333,7 +328,6 @@ export interface DefaultCodeChangeWorkflowRun {
   nodes: DefaultCodeChangeWorkflowNodeState[];
   maxReworkAttempts: number;
   reworkAttempts: number;
-  readinessManifestId?: string;
   recoveryKey: DefaultCodeChangeWorkflowRecoveryKey;
   statusReason?: string;
   artifactRefs: string[];
@@ -445,10 +439,7 @@ export interface TaskQueueRun {
   finishedAt: string | null;
   currentTaskId?: string;
   workflowRunId?: string;
-  taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
-  decompositionPlanId?: string;
-  readinessManifestId?: string;
   totalCount: number;
   completedCount: number;
   blockedReason?: string;
@@ -471,10 +462,7 @@ export interface TaskQueueItem {
   finishedAt: string | null;
   taskRunId?: string;
   workflowRunId?: string;
-  taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
-  decompositionPlanId?: string;
-  readinessManifestId?: string;
   blockedReason?: string;
   failureReason?: string;
 }

@@ -1,10 +1,8 @@
-import { writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { describe, expect, it } from "vitest";
-import { closeChange, createChange } from "../../src/change/manager.js";
+﻿import { describe, expect, it } from "vitest";
+import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
+import { createChange } from "../../src/change/manager.js";
 import { initHarness } from "../../src/harness/init.js";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
-import { createWorkbenchTopic, postTopicMessage } from "../../src/workbench/chat.js";
 import { getWorkbenchSnapshot, listWorkbenchTopics } from "../../src/workbench/manager.js";
 import { writeRawActiveChange } from "./workbench/change-fixtures.js";
 import {
@@ -90,59 +88,22 @@ describe("workbench conversation lifecycle", () => {
     await initHarness(project());
     await createChange(project(), { title: "Current Active Demand" });
 
-    const next = await createWorkbenchTopic(project(), {
+    const next = await createConversationChangeFixture(project(), {
       title: "Independent Follow-up Demand",
       body: "这是另一个独立需求，不应污染当前 Workpad。",
     });
     const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: next.changeId });
 
     expect(next.changeId).toBe("independent-follow-up-demand");
-    expect(snapshot.center.selectedTopic).toMatchObject({ id: next.changeId, state: "active" });
+    expect(snapshot.center.selectedTopic).toMatchObject({ id: next.conversationId, boundChangeId: next.changeId, state: "active" });
     expect(snapshot.center.workpad.state).toBe("active");
     expect(snapshot.left.workpads).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "current-active-demand", runtimeStatus: "active" }),
-      expect.objectContaining({ id: "independent-follow-up-demand", runtimeStatus: "active", selected: true }),
+      expect.objectContaining({ id: next.conversationId, runtimeStatus: "active", selected: true }),
     ]));
     expect(snapshot.center.thread.items).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "user-message", body: "这是另一个独立需求，不应污染当前 Workpad。" }),
     ]));
   });
 
-  it("records supplemental input as pending feedback while a demand run is still running", async () => {
-    await initHarness(project());
-    await createChange(project(), { title: "Running Demand" });
-    await writeAcceptedSpecAndTasks("running-demand");
-    await writeCoderRun("running-demand", "run-running-1", ["T-001"], "wt-running-1", "running");
-
-    const result = await postTopicMessage(project(), "running-demand", "补充：金额需要四舍五入到分。");
-    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "running-demand" });
-
-    expect(result).toMatchObject({ run: null, routingDecision: "same-topic", assistantMessage: "已记录，将在下一轮生效。" });
-    expect(snapshot.center.workpad.pendingFeedback).toEqual(expect.arrayContaining([
-      expect.objectContaining({ text: "补充：金额需要四舍五入到分。", runId: "run-running-1", status: "pending-next-turn" }),
-    ]));
-    expect(snapshot.center.thread.items).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: "user-message", body: "补充：金额需要四舍五入到分。", runId: "run-running-1" }),
-      expect.objectContaining({ kind: "assistant-turn", body: "已记录，将在下一轮生效。", runId: "run-running-1" }),
-    ]));
-  });
-
-  it("creates a linked follow-up demand instead of mutating an archived conversation", async () => {
-    await initHarness(project());
-    await createChange(project(), { title: "Archived Demand" });
-    await writeFile(join(getTempDir(), "harness", "changes", "active", "archived-demand", "reviews", "review.md"), "Status: approved\n", "utf8");
-    await closeChange(getTempDir());
-
-    const result = await postTopicMessage(project(), "archived-demand", "继续修改实现并补测试。");
-    const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "archived-demand" });
-
-    expect(result.routingDecision).toBe("new-topic-required");
-    expect(result.assistantMessage).toContain("linked follow-up");
-    const followUpId = snapshot.center.thread.items.find((item) => item.kind === "assistant-turn" && item.body?.includes("linked follow-up"))?.artifact;
-    expect(followUpId).toBeTruthy();
-    expect(snapshot.center.workpad.conversationLifecycle).toBe("archived-readonly");
-    expect(snapshot.center.thread.items).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: "user-message", body: "继续修改实现并补测试。" }),
-    ]));
-  });
 });

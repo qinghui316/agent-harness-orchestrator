@@ -91,8 +91,7 @@ export interface SchedulerRuntimeState {
   schedulerWorkerPlanId: string;
   schedulerClaimReconcilePlanId: string;
   schedulerLaunchPreflightId: string;
-  decompositionPlanId: string;
-  readinessManifestId: string;
+  workflowGraphPlanId: string;
   claimIntents: SchedulerRuntimeClaimIntentState[];
   waves: SchedulerRuntimeWaveState[];
   plannedSlotDemand: number;

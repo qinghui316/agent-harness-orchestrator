@@ -6,6 +6,7 @@ import { resolveProjectMemory } from "../../memory/resolver.js";
 import type { ManagedProject } from "../../types/index.js";
 import { recordWorkbenchDecision, runWorkbenchWorkflowAction } from "../../workbench/chat.js";
 import { getWorkbenchSnapshot, type WorkbenchProjectInput } from "../../workbench/manager.js";
+import { WorkbenchStore } from "../../workbench/store.js";
 import { workflowActionScopePayload, workflowActionTargetId } from "../../workflow-actions/registry.js";
 import { assertCurrentWorkflowAction } from "./action-revalidation.js";
 import {
@@ -121,9 +122,6 @@ async function executeWorkflowAction(input: WorkbenchProjectInput & { project: M
     prompt: body.prompt,
     feedback: body.feedback,
     proposalId: body.proposalId,
-    decompositionPlanId: body.decompositionPlanId,
-    readinessManifestId: body.readinessManifestId,
-    taskQueueProposalId: body.taskQueueProposalId,
     workflowGraphPlanId: body.workflowGraphPlanId,
     schedulerContractId: body.schedulerContractId,
     schedulerDispatchDryRunId: body.schedulerDispatchDryRunId,
@@ -402,6 +400,16 @@ async function executeApprovalOrFeedbackAction(input: WorkbenchProjectInput & { 
     completedAt: new Date().toISOString(),
   });
   if (action.actionId === "change.close" && isRecord(result) && isRecord(result.change) && typeof result.change.id === "string") {
+    const memory = await resolveProjectMemory(input.project);
+    if (memory.projectId) {
+      const store = await WorkbenchStore.open(memory);
+      try {
+        const conversation = store.readConversationByChangeId(memory.projectId, result.change.id);
+        if (conversation) store.setConversationState(memory.projectId, conversation.conversationId, "archive", new Date().toISOString());
+      } finally {
+        store.close();
+      }
+    }
     const archiveRef = typeof result.archivePath === "string" ? result.archivePath : undefined;
     await recordPostDecisionMaintenance(
       input.project,

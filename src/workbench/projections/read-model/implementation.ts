@@ -4,7 +4,8 @@ import { getMemoryStatus } from "../../../memory/status.js";
 import { getProjectStatus } from "../../../project/status.js";
 import { readRun } from "../../../run/manager.js";
 import { buildParentAgentTranscript, type ParentAgentTranscript } from "../../parent-agent-transcript.js";
-import { readTopicThreadLogPage, type TopicThreadLogPageOptions } from "../../thread-log.js";
+import { deleteConversation, hideConversation } from "../../conversation-thread.js";
+import { readConversationThreadPage, type ConversationThreadPageOptions } from "../../conversation-thread-log.js";
 import { summarizeRunArtifacts } from "../artifact-preview.js";
 import { buildThreadStreamFromMessages, readRunEvents } from "./thread-stream.js";
 import { buildAgentWorkspace, emptyAgentWorkspace } from "./agent-workspace.js";
@@ -16,7 +17,7 @@ import { buildMaintenanceSummary } from "./maintenance-summary.js";
 import { buildDemandAgentRunGraph, emptyAgentRunGraph, emptyParentAgentTranscript, shellWorkbenchWorkpad } from "./run-graph.js";
 import { listWorkbenchRoles } from "./roles.js";
 import { buildHarnessGaps, buildRepoSummary, resolveWorkbenchMemory } from "./support.js";
-import { deleteWorkbenchTopicConversation, hideWorkbenchTopicFromSidebar, listWorkbenchTopicsFromMemory, selectTopicDetail } from "./topics.js";
+import { listWorkbenchTopicsFromMemory, selectTopicDetail } from "./topics.js";
 import { buildDiagnosticWorkpad, buildMultiWorkpadSummaries, buildWorkbenchWorkpad } from "./workpad.js";
 import type { LandingQueueSnapshot, ResolvedMemory } from "../../../types/index.js";
 import type {
@@ -57,8 +58,6 @@ export type {
   WorkbenchAutoReworkSummary,
   WorkbenchCodingPackage,
   WorkbenchCodingPackageAssignmentStatus,
-  WorkbenchCodingPackageExecutionUnit,
-  WorkbenchCodingPackageSplitReadiness,
   WorkbenchCodingPackageStatus,
   WorkbenchConfirmationQueue,
   WorkbenchConfirmationQueueItem,
@@ -113,9 +112,6 @@ export type {
 
 export { listWorkbenchRoles } from "./roles.js";
 export {
-  getWorkbenchDecompositionPlanProjection,
-  getWorkbenchDecompositionReadinessProjection,
-  getWorkbenchTaskQueueProposalProjection,
   getWorkbenchWorkflowGraphPlanProjection,
   getWorkbenchSchedulerContractProjection,
   getWorkbenchSchedulerDispatchDryRunProjection,
@@ -189,8 +185,9 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
   const workflowTopics = workflowScopedTopics(allTopics);
   const selectableTopics = options.topicId ? allTopics : visibleTopics;
   const selectedTopic = await selectTopicDetail(input.project, memory, selectableTopics, options.topicId, { threadMode: "latest", threadLimit: 100 });
+  const selectedChangeId = executionChangeId(selectedTopic);
   const approvals = input.project ? await buildApprovalInbox(input.project, memory, workflowTopics) : [];
-  const decisions = input.project ? await listWorkbenchDecisions(memory, options.topicId) : [];
+  const decisions = input.project ? await listWorkbenchDecisions(memory, selectedChangeId) : [];
   const workpads = await buildMultiWorkpadSummaries(memory, visibleTopics, approvals, selectedTopic?.id);
   const workpad = await buildWorkbenchWorkpad({
     project: input.project,
@@ -204,7 +201,7 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
     gaps,
   });
   const decisionInspector = buildDecisionInspector({
-    selectedTopic,
+    selectedTopic: executionScopedTopic(selectedTopic),
     workpad,
     approvals,
     decisions,
@@ -272,14 +269,14 @@ export async function getWorkbenchTranscriptProjection(input: WorkbenchProjectIn
 export async function getWorkbenchTranscriptPageProjection(
   input: WorkbenchProjectInput,
   changeId: string,
-  paging: TopicThreadLogPageOptions,
+  paging: ConversationThreadPageOptions,
 ): Promise<ParentAgentTranscript> {
   const memory = await resolveWorkbenchMemory(input);
   if (!memory.supported) return emptyParentAgentTranscript();
   const topics = await listWorkbenchTopicsFromMemory(memory, { includeDeleted: true });
   const topic = topics.find((item) => item.id === changeId || item.name === changeId);
   if (!topic) return emptyParentAgentTranscript();
-  const page = await readTopicThreadLogPage(memory, topic.path, paging);
+  const page = await readConversationThreadPage(memory, topic.path, paging);
   const threadItems = await buildThreadStreamFromMessages(memory, topic, page.entries, { includeChangeState: topic.kind !== "conversation" });
   const transcript = buildParentAgentTranscript({
     workpad: {
@@ -308,7 +305,7 @@ export async function getWorkbenchRunGraphProjection(input: WorkbenchProjectInpu
   if (!selectedTopic) return emptyAgentRunGraph();
   const workflowTopics = workflowScopedTopics(topics);
   const approvals = input.project ? await buildApprovalInbox(input.project, memory, workflowTopics) : [];
-  const decisions = input.project ? await listWorkbenchDecisions(memory, changeId) : [];
+  const decisions = input.project ? await listWorkbenchDecisions(memory, executionChangeId(selectedTopic)) : [];
   const workpads = await buildMultiWorkpadSummaries(memory, topics, approvals, selectedTopic.id);
   const workpad = await buildWorkbenchWorkpad({
     project: input.project,
@@ -321,7 +318,7 @@ export async function getWorkbenchRunGraphProjection(input: WorkbenchProjectInpu
     warnings: [],
     gaps: buildHarnessGaps(),
   });
-  const decisionInspector = buildDecisionInspector({ selectedTopic, workpad, approvals, decisions });
+  const decisionInspector = buildDecisionInspector({ selectedTopic: executionScopedTopic(selectedTopic), workpad, approvals, decisions });
   const confirmationQueue = await buildConfirmationQueue({
     project: input.project,
     memory,
@@ -375,7 +372,7 @@ async function buildWorkbenchProjectionWorkpad(
 ): Promise<WorkbenchWorkpad> {
   const workflowTopics = workflowScopedTopics(topics);
   const approvals = input.project ? await buildApprovalInbox(input.project, memory, workflowTopics) : [];
-  const decisions = input.project ? await listWorkbenchDecisions(memory, selectedTopic?.id) : [];
+  const decisions = input.project ? await listWorkbenchDecisions(memory, executionChangeId(selectedTopic)) : [];
   const workpads = await buildMultiWorkpadSummaries(memory, topics, approvals, selectedTopic?.id);
   return buildWorkbenchWorkpad({
     project: input.project,
@@ -403,7 +400,7 @@ export async function hideWorkbenchTopic(input: WorkbenchProjectInput, topicId: 
     error.name = "Conflict";
     throw error;
   }
-  await hideWorkbenchTopicFromSidebar(memory, topicId);
+  await hideConversation(memory, topicId);
   return { hidden: true, topicId };
 }
 
@@ -414,13 +411,13 @@ export async function deleteWorkbenchConversation(input: WorkbenchProjectInput, 
     error.name = "Conflict";
     throw error;
   }
-  await deleteWorkbenchTopicConversation(memory, topicId);
+  await deleteConversation(memory, topicId);
   return { deleted: true, topicId };
 }
 
 export async function getWorkbenchTopic(input: WorkbenchProjectInput, topicId: string): Promise<WorkbenchTopicDetail> {
   const memory = await resolveWorkbenchMemory(input);
-  const topics = await listWorkbenchTopicsFromMemory(memory, { includeDeleted: true });
+  const topics = await listWorkbenchTopicsFromMemory(memory);
   const detail = await selectTopicDetail(input.project, memory, topics, topicId);
   if (!detail) throw new Error(`Topic not found: ${topicId}.`);
   return detail;
@@ -451,11 +448,31 @@ export async function listWorkbenchApprovals(input: WorkbenchProjectInput, optio
   const topics = await listWorkbenchTopicsFromMemory(memory, { includeDeleted: true });
   const approvals = await buildApprovalInbox(input.project, memory, workflowScopedTopics(topics));
   if (!options.topicId) return approvals;
-  return approvals.filter((item) => !item.changeId || item.changeId === options.topicId);
+  const topic = topics.find((item) => item.id === options.topicId || item.name === options.topicId);
+  const changeId = topic?.boundChangeId ?? options.topicId;
+  return approvals.filter((item) => !item.changeId || item.changeId === changeId);
 }
 
 function workflowScopedTopics(topics: WorkbenchTopicSummary[]): WorkbenchTopicSummary[] {
-  return topics.filter((topic) => topic.kind !== "conversation" || Boolean(topic.boundChangeId));
+  return topics.flatMap((topic) => {
+    if (topic.kind !== "conversation") return [topic];
+    if (!topic.boundChangeId) return [];
+    return [{
+      ...topic,
+      id: topic.boundChangeId,
+      kind: "change" as const,
+      name: topic.boundChangeId,
+    }];
+  });
+}
+
+function executionChangeId(topic: WorkbenchTopicSummary | null | undefined): string | undefined {
+  return topic?.boundChangeId ?? topic?.id;
+}
+
+function executionScopedTopic(topic: WorkbenchTopicDetail | null): WorkbenchTopicDetail | null {
+  if (!topic?.boundChangeId || topic.boundChangeId === topic.id) return topic;
+  return { ...topic, id: topic.boundChangeId, name: topic.boundChangeId };
 }
 
 

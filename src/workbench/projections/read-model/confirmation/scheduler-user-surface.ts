@@ -15,20 +15,6 @@ const DEFAULT_COPY: SchedulerUserFacingActionCopy = {
 };
 
 const COPY_BY_ACTION_TYPE: Record<string, SchedulerUserFacingActionCopy> = {
-  "planning.scheduler.plan.prepare": {
-    label: "准备低冲突任务执行路径",
-    summary: "主 Agent 将整理并校验低冲突任务执行前的必要证据，并在对话里解释计划。",
-    whyNeedsConfirmation: "需要你确认进入低冲突任务执行准备阶段；这不是开始写代码。",
-    confirmEffect: "只生成或读取执行准备证据和可读启动摘要。",
-    riskSummary: "不会启动任务、创建工作副本、写入项目源码、应用结果或关闭需求。",
-  },
-  "planning.scheduler.run.prepare": {
-    label: "确认低冲突执行方向",
-    summary: "主 Agent 已解释执行方向；确认后只记录你的启动意图。",
-    whyNeedsConfirmation: "需要你确认认可这个低冲突执行方向；这仍不是批量启动。",
-    confirmEffect: "只记录可恢复的执行入口和人工确认依据。",
-    riskSummary: "不会启动任务、分配并行资源、创建工作副本或绕过后续单步确认。",
-  },
   "planning.scheduler.worker.start-first": continueNextTaskCopy(),
   "planning.scheduler.worker.start-next": continueNextTaskCopy(),
   "planning.scheduler.worker.reconcile-result": checkCurrentEvidenceCopy(),

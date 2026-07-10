@@ -1,6 +1,7 @@
-import { writeFile } from "node:fs/promises";
+﻿import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
 import {
   claimAvailableDemandWorkers,
   claimNextDemandWorker,
@@ -14,7 +15,6 @@ import {
 } from "../../src/demand-worker/manager.js";
 import { initHarness } from "../../src/harness/init.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
-import { createWorkbenchTopic } from "../../src/workbench/chat.js";
 import { getWorkbenchSnapshot } from "../../src/workbench/manager.js";
 import { getTempDir, project } from "./workbench/fixtures.js";
 import { startNextDemandWorkerForRuntime } from "../../src/workflow-runtime/code-workflow.js";
@@ -55,8 +55,8 @@ describe("workbench demand worker domain", () => {
 
   it("claims one demand at a time when configured for sequential execution", async () => {
     await initHarness(project());
-    const first = await createWorkbenchTopic(project(), { title: "First Demand", body: "A" });
-    const second = await createWorkbenchTopic(project(), { title: "Second Demand", body: "B" });
+    const first = await createConversationChangeFixture(project(), { title: "First Demand", body: "A" });
+    const second = await createConversationChangeFixture(project(), { title: "Second Demand", body: "B" });
     const memory = await resolveProjectMemory(project());
     await enqueueDemandWorker(memory, { changeId: first.changeId });
     await enqueueDemandWorker(memory, { changeId: second.changeId });
@@ -78,7 +78,7 @@ describe("workbench demand worker domain", () => {
 
   it("resumes existing demand workers instead of creating duplicates", async () => {
     await initHarness(project());
-    const topic = await createWorkbenchTopic(project(), { title: "Duplicate Demand", body: "A" });
+    const topic = await createConversationChangeFixture(project(), { title: "Duplicate Demand", body: "A" });
     const memory = await resolveProjectMemory(project());
 
     const first = await enqueueDemandWorker(memory, { changeId: topic.changeId });
@@ -91,8 +91,8 @@ describe("workbench demand worker domain", () => {
 
   it("scoped demand worker claims do not claim other queued demands", async () => {
     await initHarness(project());
-    const first = await createWorkbenchTopic(project(), { title: "First Demand", body: "A" });
-    const second = await createWorkbenchTopic(project(), { title: "Second Demand", body: "B" });
+    const first = await createConversationChangeFixture(project(), { title: "First Demand", body: "A" });
+    const second = await createConversationChangeFixture(project(), { title: "Second Demand", body: "B" });
     const memory = await resolveProjectMemory(project());
     await enqueueDemandWorker(memory, { changeId: first.changeId });
     await enqueueDemandWorker(memory, { changeId: second.changeId });
@@ -109,7 +109,7 @@ describe("workbench demand worker domain", () => {
 
   it("fails closed when a queued worker already has an active attempt", async () => {
     await initHarness(project());
-    const topic = await createWorkbenchTopic(project(), { title: "Guard Demand", body: "A" });
+    const topic = await createConversationChangeFixture(project(), { title: "Guard Demand", body: "A" });
     const memory = await resolveProjectMemory(project());
     await enqueueDemandWorker(memory, { changeId: topic.changeId });
     const claimed = await claimNextDemandWorker(memory, { changeId: topic.changeId });
@@ -122,9 +122,9 @@ describe("workbench demand worker domain", () => {
 
   it("claims available demand workers up to the default bounded worker slots", async () => {
     await initHarness(project());
-    const first = await createWorkbenchTopic(project(), { title: "First Demand", body: "A" });
-    const second = await createWorkbenchTopic(project(), { title: "Second Demand", body: "B" });
-    const third = await createWorkbenchTopic(project(), { title: "Third Demand", body: "C" });
+    const first = await createConversationChangeFixture(project(), { title: "First Demand", body: "A" });
+    const second = await createConversationChangeFixture(project(), { title: "Second Demand", body: "B" });
+    const third = await createConversationChangeFixture(project(), { title: "Third Demand", body: "C" });
     const memory = await resolveProjectMemory(project());
     await enqueueDemandWorker(memory, { changeId: first.changeId });
     await enqueueDemandWorker(memory, { changeId: second.changeId });
@@ -146,8 +146,8 @@ describe("workbench demand worker domain", () => {
 
   it("projects demand worker state into conversation summaries without task-level queue coupling", async () => {
     await initHarness(project());
-    const running = await createWorkbenchTopic(project(), { title: "Running Demand", body: "A" });
-    const queued = await createWorkbenchTopic(project(), { title: "Queued Demand", body: "B" });
+    const running = await createConversationChangeFixture(project(), { title: "Running Demand", body: "A" });
+    const queued = await createConversationChangeFixture(project(), { title: "Queued Demand", body: "B" });
     const memory = await resolveProjectMemory(project());
     await enqueueDemandWorker(memory, { changeId: running.changeId });
     const claimed = await claimNextDemandWorker(memory, { changeId: running.changeId });
@@ -158,16 +158,16 @@ describe("workbench demand worker domain", () => {
     const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: running.changeId });
 
     expect(snapshot.left.workpads).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: running.changeId, userStatusLabel: "处理中" }),
-      expect.objectContaining({ id: queued.changeId, userStatusLabel: "稍后处理" }),
+      expect.objectContaining({ id: running.conversationId, userStatusLabel: "处理中" }),
+      expect.objectContaining({ id: queued.conversationId, userStatusLabel: "稍后处理" }),
     ]));
     expect(snapshot.center.workpad.background).toMatchObject({ queuedCount: 1 });
-    expect(snapshot.center.workpad.background.items[0]).toMatchObject({ id: queued.changeId, userStatusLabel: "稍后处理" });
+    expect(snapshot.center.workpad.background.items[0]).toMatchObject({ id: queued.conversationId, userStatusLabel: "稍后处理" });
   });
 
   it("records MainOrchestrator decisions for demand enqueue and claim", async () => {
     await initHarness(project());
-    const topic = await createWorkbenchTopic(project(), { title: "Decision Demand", body: "A" });
+    const topic = await createConversationChangeFixture(project(), { title: "Decision Demand", body: "A" });
     const memory = await resolveProjectMemory(project());
     await enqueueDemandWorker(memory, { changeId: topic.changeId });
     const claimed = await claimNextDemandWorker(memory, { changeId: topic.changeId });
@@ -180,7 +180,7 @@ describe("workbench demand worker domain", () => {
 
   it("reconciles demand worker evidence without changing worker state", async () => {
     await initHarness(project());
-    const topic = await createWorkbenchTopic(project(), { title: "Reconcile Demand", body: "A" });
+    const topic = await createConversationChangeFixture(project(), { title: "Reconcile Demand", body: "A" });
     const memory = await resolveProjectMemory(project());
     await enqueueDemandWorker(memory, { changeId: topic.changeId });
     const claimed = await claimNextDemandWorker(memory, { changeId: topic.changeId });
@@ -196,7 +196,7 @@ describe("workbench demand worker domain", () => {
 
   it("fails closed before Workflow Runtime when confirmed planning artifacts are missing", async () => {
     await initHarness(project());
-    const topic = await createWorkbenchTopic(project(), { title: "Missing Plan Demand", body: "A" });
+    const topic = await createConversationChangeFixture(project(), { title: "Missing Plan Demand", body: "A" });
     const memory = await resolveProjectMemory(project());
     await enqueueDemandWorker(memory, { changeId: topic.changeId });
 
@@ -214,7 +214,7 @@ describe("workbench demand worker domain", () => {
 
   it("runs claimed DemandWorker execution through Workflow Runtime and preserves new AgentTask ids", async () => {
     await initHarness(project());
-    const topic = await createWorkbenchTopic(project(), { title: "Runtime Demand", body: "A" });
+    const topic = await createConversationChangeFixture(project(), { title: "Runtime Demand", body: "A" });
     const memory = await resolveProjectMemory(project());
     await writeConfirmedPlanningArtifacts(memory, topic.changeId);
     await enqueueDemandWorker(memory, { changeId: topic.changeId });

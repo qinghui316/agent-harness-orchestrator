@@ -28,9 +28,7 @@ export function TopicComposer({
   onSend,
   onStopAndContinue,
   onNewWorkpad: _onNewWorkpad,
-  onRunCode: _onRunCode,
   actionRunning,
-  canRunCode: _canRunCode,
   currentWorkpadStatus,
 }: {
   value: string;
@@ -53,9 +51,7 @@ export function TopicComposer({
   onSend: () => Promise<void>;
   onStopAndContinue?: () => Promise<void>;
   onNewWorkpad?: () => Promise<void>;
-  onRunCode?: () => Promise<void>;
   actionRunning: string | null;
-  canRunCode: boolean;
   currentWorkpadStatus?: WorkpadRuntimeStatus;
 }): ReactElement {
   const [dragOver, setDragOver] = useState(false);

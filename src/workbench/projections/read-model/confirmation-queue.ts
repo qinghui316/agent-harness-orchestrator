@@ -9,7 +9,7 @@ import { landingCandidateQueueItem, landingLocalTerminalBlockerQueueItem, landin
 import { maintenanceCanonicalUpdateDecisionQueueItems } from "./confirmation/maintenance.js";
 import { mainAgentExecutionForWorkpad } from "./main-agent-execution.js";
 import { dedupeConfirmationItems, emptyConfirmationQueue, scopeConfirmationQueueItemActions } from "./confirmation/shared.js";
-import { decompositionPlanToConfirmationItems, schedulerNextActionToConfirmationItems, taskQueueProposalToConfirmationItems, workpadNextActionToConfirmationItems } from "./confirmation/typed-workflow.js";
+import { schedulerNextActionToConfirmationItems, sequentialWorkflowToConfirmationItems } from "./confirmation/typed-workflow.js";
 
 export { emptyConfirmationQueue, scopeConfirmationQueueItemActions } from "./confirmation/shared.js";
 
@@ -24,6 +24,8 @@ export async function buildConfirmationQueue(input: {
   ignoreActiveWorkflowActionTypes?: string[];
 }): Promise<WorkbenchConfirmationQueue> {
   const queue = emptyConfirmationQueue();
+  const selectedConversationId = input.selectedTopic?.id;
+  const selectedChangeId = input.selectedTopic?.boundChangeId ?? selectedConversationId;
   const ignoredActiveWorkflowActionTypes = new Set(input.ignoreActiveWorkflowActionTypes ?? []);
   const selectedTopicBusy = Boolean(input.selectedTopic && (
     hasActiveExecutionRun(input.selectedTopic)
@@ -32,8 +34,8 @@ export async function buildConfirmationQueue(input: {
   ));
   const selectedTopicInactive = Boolean(input.selectedTopic && input.selectedTopic.state !== "active");
   const enqueueCurrentOrOther = (item: WorkbenchConfirmationQueue["current"][number]): void => {
-    if (selectedTopicBusy && isSelectedTopicItem(item, input.selectedTopic?.id)) return;
-    if (input.selectedTopic && input.selectedTopic.state !== "active" && isSelectedTopicItem(item, input.selectedTopic.id)) {
+    if (selectedTopicBusy && isSelectedTopicItem(item, selectedChangeId)) return;
+    if (input.selectedTopic && input.selectedTopic.state !== "active" && isSelectedTopicItem(item, selectedChangeId)) {
       queue.otherDemands.push({ ...item, primary: false });
       return;
     }
@@ -43,11 +45,13 @@ export async function buildConfirmationQueue(input: {
   const currentItems = (selectedTopicBusy || selectedTopicInactive
     ? []
     : [
-      ...workpadNextActionToConfirmationItems(input.project, input.selectedTopic, input.workpad),
-      ...decompositionPlanToConfirmationItems(input.project, input.selectedTopic, input.workpad),
-      ...taskQueueProposalToConfirmationItems(input.project, input.selectedTopic, input.workpad),
-      ...decisionContextToConfirmationItems(input.decisionInspector.primary, true),
-      ...input.decisionInspector.related.flatMap((context) => decisionContextToConfirmationItems(context, false)),
+      ...sequentialWorkflowToConfirmationItems(input.project, input.selectedTopic, input.workpad),
+      ...decisionContextToConfirmationItems(input.decisionInspector.primary, true, selectedConversationId),
+      ...input.decisionInspector.related.flatMap((context) => decisionContextToConfirmationItems(
+        context,
+        false,
+        context.changeId === selectedChangeId ? selectedConversationId : undefined,
+      )),
     ]);
   const nextActionType = input.workpad.nextAction.actionType;
   if (!selectedTopicBusy && !selectedTopicInactive && nextActionType?.startsWith("planning.scheduler.") && !currentItems.some((item) => item.actions.some((action) => action.actionType === nextActionType))) {
@@ -60,10 +64,10 @@ export async function buildConfirmationQueue(input: {
     const checks = await listIntegrationChecks(input.memory).catch(() => []);
     const latestActionableCheck = checks.find((check) => integrationCheckNeedsUserAction(check.status));
     if (latestActionableCheck) {
-      const item = integrationCheckNeedsActionQueueItem(project, latestActionableCheck, input.selectedTopic?.id);
+      const item = integrationCheckNeedsActionQueueItem(project, latestActionableCheck, selectedChangeId);
       enqueueCurrentOrOther(item);
     }
-    const candidate = await findIntegrationCheckCandidate(project, input.selectedTopic?.id).catch(() => null);
+    const candidate = await findIntegrationCheckCandidate(project, selectedChangeId).catch(() => null);
     const candidateAlreadyChecked = candidate && latestActionableCheck
       ? sameIntegrationTargets(candidate.targets, latestActionableCheck.resultTargets)
       : false;
@@ -71,25 +75,25 @@ export async function buildConfirmationQueue(input: {
       ? schedulerIntegrationCandidateCoversApplyCandidate(input.workpad, candidate.targets.map((target) => target.worktreeId))
       : false;
     if (candidate && !candidateAlreadyChecked && !candidateHandledByScheduler) {
-      const item = integrationCandidateQueueItem(project, candidate, input.selectedTopic?.id);
+      const item = integrationCandidateQueueItem(project, candidate, selectedChangeId);
       enqueueCurrentOrOther(item);
     }
     const latestPassed = checks.find((check) => check.status === "passed");
     if (latestPassed) {
-      const item = integrationCheckQueueItem(project, latestPassed, input.selectedTopic?.id);
+      const item = integrationCheckQueueItem(project, latestPassed, selectedChangeId);
       enqueueCurrentOrOther(item);
     }
     const landingPackages = await listLandingPackages(input.memory).catch(() => []);
     const queueSnapshot = await latestLandingQueueSnapshot(input.memory).catch(() => null);
     const queuedLandingPackageIds = new Set<string>();
     if (queueSnapshot) {
-      const queueItems = landingQueueSnapshotItems(project, queueSnapshot, input.selectedTopic?.id);
+      const queueItems = landingQueueSnapshotItems(project, queueSnapshot, selectedChangeId);
       for (const item of queueItems) {
         if (item.landingPackageId) queuedLandingPackageIds.add(item.landingPackageId);
         enqueueCurrentOrOther(item);
       }
     } else {
-      const prepareItem = await landingQueuePrepareItem(project, input.memory, landingPackages, input.selectedTopic?.id).catch(() => null);
+      const prepareItem = await landingQueuePrepareItem(project, input.memory, landingPackages, selectedChangeId).catch(() => null);
       if (prepareItem) {
         enqueueCurrentOrOther(prepareItem);
       }
@@ -97,14 +101,14 @@ export async function buildConfirmationQueue(input: {
     const latestLanding = landingPackages[0];
     if (latestLanding && latestLanding.reviewedAt && !queuedLandingPackageIds.has(latestLanding.id)) {
       if (latestLanding.review?.verdict === "ready") {
-        const item = await prDraftQueueItem(project, input.memory, latestLanding, input.selectedTopic?.id);
-        const selectedLanding = isSelectedLandingPackage(latestLanding, input.selectedTopic?.id);
+        const item = await prDraftQueueItem(project, input.memory, latestLanding, selectedChangeId);
+        const selectedLanding = isSelectedLandingPackage(latestLanding, selectedChangeId);
         if (selectedLanding && isProviderUnavailablePrDraftItem(item)) {
-          if (!selectedTopicHasCloseGate(queue.current, input.selectedTopic?.id)) {
+          if (!selectedTopicHasCloseGate(queue.current, selectedChangeId)) {
             enqueueCurrentOrOther(landingLocalTerminalBlockerQueueItem(
               project,
               latestLanding,
-              input.selectedTopic?.id,
+              selectedChangeId,
               input.selectedTopic?.closeGate?.blockingIssues ?? [],
             ));
           }
@@ -113,12 +117,12 @@ export async function buildConfirmationQueue(input: {
           enqueueCurrentOrOther(item);
         }
       } else {
-        enqueueCurrentOrOther(landingPackageQueueItem(project, latestLanding, input.selectedTopic?.id));
+        enqueueCurrentOrOther(landingPackageQueueItem(project, latestLanding, selectedChangeId));
       }
     }
     const landingCandidate = await findLandingCandidate(project).catch(() => null);
     if (landingCandidate) {
-      const item = landingCandidateQueueItem(project, landingCandidate, input.selectedTopic?.id);
+      const item = landingCandidateQueueItem(project, landingCandidate, selectedChangeId);
       enqueueCurrentOrOther(item);
     }
     queue.history = checks
@@ -135,13 +139,31 @@ export async function buildConfirmationQueue(input: {
     })).map(scopeConfirmationQueueItemActions));
   queue.current = dedupeConfirmationItems(queue.current.filter((item) => item.kind !== "maintenance").map(scopeConfirmationQueueItemActions));
   queue.current = promoteSelectedWorkflowNextActionGate(queue.current, input.workpad.nextAction);
-  queue.current = promoteSelectedLandingReadinessGate(queue.current, input.selectedTopic?.id);
-  queue.current = promoteSelectedCloseGate(queue.current, input.selectedTopic?.id);
+  queue.current = promoteSelectedLandingReadinessGate(queue.current, selectedChangeId);
+  queue.current = promoteSelectedCloseGate(queue.current, selectedChangeId);
   queue.current = promoteSelectedWorkpadApprovalGate(queue.current, input.workpad.nextAction);
   queue.otherDemands = dedupeConfirmationItems(queue.otherDemands.map(scopeConfirmationQueueItemActions));
   queue.history = dedupeConfirmationItems(queue.history.map(scopeConfirmationQueueItemActions));
+  if (selectedConversationId && selectedChangeId && selectedConversationId !== selectedChangeId) {
+    queue.current = queue.current.map((item) => bindSelectedConversation(item, selectedConversationId, selectedChangeId));
+    queue.otherDemands = queue.otherDemands.map((item) => bindSelectedConversation(item, selectedConversationId, selectedChangeId));
+    queue.history = queue.history.map((item) => bindSelectedConversation(item, selectedConversationId, selectedChangeId));
+  }
   queue.primary = queue.current.find((item) => item.primary) ?? queue.current[0] ?? null;
   return queue;
+}
+
+function bindSelectedConversation(
+  item: WorkbenchConfirmationQueue["current"][number],
+  conversationId: string,
+  changeId: string,
+): WorkbenchConfirmationQueue["current"][number] {
+  if (item.changeId !== changeId) return item;
+  return {
+    ...item,
+    conversationId,
+    actions: item.actions.map((action) => ({ ...action, changeId })),
+  };
 }
 
 function isSelectedLandingPackage(pkg: { target: { changeIds: string[] } }, selectedChangeId: string | undefined): boolean {

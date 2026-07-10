@@ -1,44 +1,29 @@
 import { z } from "zod";
-import type { DefaultCodeChangeWorkflowRecoveryKey, WorkflowRecoveryKey, WorkflowRun } from "../types/index.js";
+import type { DefaultCodeChangeWorkflowRecoveryKey, WorkflowRun } from "../types/index.js";
 
 export const workflowRunStatusSchema = z.enum(["created", "running", "paused", "blocked", "failed", "completed"]);
-
-export const readinessSchema = z.object({
-  id: z.string(),
-  changeId: z.string(),
-  decompositionPlanId: z.string(),
-  status: z.string(),
-  nextAllowedAction: z.string(),
-  artifact: z.string(),
-  markdownArtifact: z.string(),
-});
-
-export const workflowRecoveryKeySchema: z.ZodType<WorkflowRecoveryKey> = z.object({
-  version: z.literal("1.0"),
-  changeId: z.string(),
-  decompositionPlanId: z.string(),
-  readinessManifestId: z.string(),
-  taskQueueProposalId: z.string(),
-  workflowGraphPlanId: z.string().optional(),
-  acceptedArtifactHashes: z.record(z.string()),
-  proposalHash: z.string(),
-  readinessHash: z.string(),
-  workflowGraphPlanHash: z.string().optional(),
-  sourceHash: z.string(),
-  policyHash: z.string(),
-  capabilityHash: z.string(),
-  createdAt: z.string(),
-});
 
 export const defaultCodeChangeWorkflowRecoveryKeySchema: z.ZodType<DefaultCodeChangeWorkflowRecoveryKey> = z.object({
   version: z.literal("1.0"),
   changeId: z.string(),
   templateId: z.literal("default-code-change-workflow"),
-  readinessManifestId: z.string().optional(),
+  workflowGraphPlanId: z.string().optional(),
   acceptedArtifactHashes: z.record(z.string()).optional(),
   sourceHash: z.string().optional(),
   policyHash: z.string().optional(),
   capabilityHash: z.string().optional(),
+  createdAt: z.string(),
+});
+
+export const workflowGraphRecoveryKeySchema = z.object({
+  version: z.literal("1.0"),
+  changeId: z.string(),
+  workflowGraphPlanId: z.string(),
+  acceptedArtifactHashes: z.record(z.string()),
+  workflowGraphPlanHash: z.string(),
+  sourceHash: z.string(),
+  policyHash: z.string(),
+  capabilityHash: z.string(),
   createdAt: z.string(),
 });
 
@@ -47,11 +32,8 @@ const taskQueueWorkflowRunSchema = z.object({
   id: z.string(),
   changeId: z.string(),
   status: workflowRunStatusSchema,
-  source: z.literal("taskqueue-proposal"),
-  taskQueueProposalId: z.string(),
+  source: z.literal("workflow-graph"),
   workflowGraphPlanId: z.string().optional(),
-  readinessManifestId: z.string(),
-  decompositionPlanId: z.string(),
   queueRunId: z.string().optional(),
   currentTaskId: z.string().optional(),
   items: z.array(z.object({
@@ -61,7 +43,7 @@ const taskQueueWorkflowRunSchema = z.object({
     order: z.number(),
     updatedAt: z.string().optional(),
   })),
-  recoveryKey: workflowRecoveryKeySchema,
+  recoveryKey: workflowGraphRecoveryKeySchema,
   statusReason: z.string().optional(),
   artifactRefs: z.array(z.string()),
   createdAt: z.string(),
@@ -96,7 +78,6 @@ const defaultCodeChangeWorkflowRunSchema = z.object({
   })),
   maxReworkAttempts: z.number(),
   reworkAttempts: z.number(),
-  readinessManifestId: z.string().optional(),
   recoveryKey: defaultCodeChangeWorkflowRecoveryKeySchema,
   statusReason: z.string().optional(),
   artifactRefs: z.array(z.string()),

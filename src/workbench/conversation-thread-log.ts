@@ -1,14 +1,11 @@
-import { existsSync } from "node:fs";
-import { appendFile, readFile, readdir } from "node:fs/promises";
-import { join, relative } from "node:path";
+﻿import { join } from "node:path";
 import { canonicalThreadChangeIdForPath, readChangeMetadataFile } from "../change/metadata.js";
 import type { ResolvedMemory } from "../types/index.js";
-import { importThreadJsonlIfNeeded, WorkbenchStore, type StoredTopicMessage } from "./store.js";
+import { WorkbenchStore, type StoredTopicMessage } from "./store.js";
 import type {
   AssistantTurnActivity,
   AssistantTurnBlock,
   AssistantTurnBlockKind,
-  OrchestrationPlanCard,
   TopicFileReference,
   TopicAttachment,
   TopicThreadEntry,
@@ -16,28 +13,20 @@ import type {
   WorkbenchAssistantEvent,
 } from "./types.js";
 
-export async function readTopicThreadLog(memory: ResolvedMemory, changePath: string): Promise<TopicThreadEntry[]> {
+export async function readConversationThread(memory: ResolvedMemory, changePath: string): Promise<TopicThreadEntry[]> {
   const changeId = await readCanonicalThreadChangeId(memory, changePath);
   const projectId = memory.projectId ?? "unregistered";
-  await importThreadJsonlIfNeeded(memory, projectId, changeId, changePath);
   const store = await WorkbenchStore.open(memory);
   try {
-    const rows = store.listMessages(projectId, changeId);
-    if (rows.length > 0) return rows.map(fromStoredThreadMessage);
-    if (store.isTopicDeleted(projectId, changeId)) return [];
+    const conversation = store.readConversation(projectId, changeId) ?? store.findConversationForChange(projectId, changeId);
+    if (!conversation) return [];
+    return store.listConversationMessages(projectId, conversation.conversationId).map(fromStoredThreadMessage);
   } finally {
     store.close();
   }
-  const path = join(memory.memoryRoot, changePath, "thread.jsonl");
-  if (!existsSync(path)) return [];
-  const content = await readFile(path, "utf8");
-  return content
-    .split(/\r?\n/)
-    .filter((line) => line.trim().length > 0)
-    .map((line, index) => ({ ...(JSON.parse(line) as TopicThreadEntry), position: index + 1 }));
 }
 
-export interface TopicThreadLogPageOptions {
+export interface ConversationThreadPageOptions {
   limit?: number;
   beforeCursor?: string;
 }
@@ -53,19 +42,19 @@ export interface TopicThreadLogPage {
 const DEFAULT_THREAD_PAGE_LIMIT = 100;
 const MAX_THREAD_PAGE_LIMIT = 500;
 
-export async function readTopicThreadLogPage(
+export async function readConversationThreadPage(
   memory: ResolvedMemory,
   changePath: string,
-  options: TopicThreadLogPageOptions = {},
+  options: ConversationThreadPageOptions = {},
 ): Promise<TopicThreadLogPage> {
   const changeId = await readCanonicalThreadChangeId(memory, changePath);
   const projectId = memory.projectId ?? "unregistered";
   const limit = normalizeThreadPageLimit(options.limit);
   const beforePosition = options.beforeCursor ? decodeTopicThreadCursor(options.beforeCursor) : undefined;
-  await importThreadJsonlIfNeeded(memory, projectId, changeId, changePath);
   const store = await WorkbenchStore.open(memory);
   try {
-    if (store.isTopicDeleted(projectId, changeId) && !store.hasMessages(projectId, changeId)) {
+    const conversation = store.readConversation(projectId, changeId) ?? store.findConversationForChange(projectId, changeId);
+    if (!conversation) {
       return {
         entries: [],
         limit,
@@ -73,11 +62,11 @@ export async function readTopicThreadLogPage(
         hasMoreBefore: false,
       };
     }
-    const totalCount = store.countMessages(projectId, changeId);
+    const totalCount = store.countMessages(projectId, conversation.conversationId);
     if (beforePosition !== undefined && beforePosition > totalCount) throw invalidCursor();
     const rows = beforePosition !== undefined
-      ? store.listMessagesBeforePosition(projectId, changeId, beforePosition, limit)
-      : store.listLatestMessages(projectId, changeId, limit);
+      ? store.listMessagesBeforePosition(projectId, conversation.conversationId, beforePosition, limit)
+      : store.listLatestMessages(projectId, conversation.conversationId, limit);
     const firstPosition = rows[0]?.position;
     return {
       entries: rows.map(fromStoredThreadMessage),
@@ -121,37 +110,14 @@ function invalidCursor(): Error {
   return error;
 }
 
-export async function appendTopicThreadLogEntry(memory: ResolvedMemory, changePath: string, entry: TopicThreadEntry): Promise<void> {
-  await appendFile(join(memory.memoryRoot, changePath, "thread.jsonl"), `${JSON.stringify(entry)}\n`, "utf8");
+export async function collectAllConversationThreadEntries(memory: ResolvedMemory): Promise<TopicThreadEntry[]> {
+  if (!memory.projectId) return [];
   const store = await WorkbenchStore.open(memory);
   try {
-    store.appendMessage(toStoredThreadMessage(memory, entry));
+    return store.listAllMessages(memory.projectId).map(fromStoredThreadMessage);
   } finally {
     store.close();
   }
-}
-
-export async function collectAllTopicThreadEntries(memory: ResolvedMemory): Promise<TopicThreadEntry[]> {
-  if (memory.projectId) {
-    const store = await WorkbenchStore.open(memory);
-    try {
-      const rows = store.listAllMessages(memory.projectId);
-      if (rows.length > 0) return rows.map(fromStoredThreadMessage);
-    } finally {
-      store.close();
-    }
-  }
-  const roots = [join(memory.changesRoot, "active"), join(memory.changesRoot, "archive")];
-  const entries: TopicThreadEntry[] = [];
-  for (const root of roots) {
-    if (!existsSync(root)) continue;
-    for (const entry of await readdir(root, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
-      const changePath = relative(memory.memoryRoot, join(root, entry.name)).replace(/\\/g, "/");
-      entries.push(...await readTopicThreadLog(memory, changePath));
-    }
-  }
-  return entries.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 }
 
 async function readCanonicalThreadChangeId(memory: ResolvedMemory, changePath: string): Promise<string> {
@@ -159,25 +125,6 @@ async function readCanonicalThreadChangeId(memory: ResolvedMemory, changePath: s
   const metadata = await readChangeMetadataFile(join(memory.memoryRoot, changePath)).catch(() => null);
   if (metadata) return canonicalThreadChangeIdForPath(memory, changePath, metadata);
   return fallback;
-}
-
-function toStoredThreadMessage(memory: ResolvedMemory, entry: TopicThreadEntry): Omit<StoredTopicMessage, "position"> {
-  return {
-    id: entry.id,
-    projectId: memory.projectId ?? "unregistered",
-    conversationId: entry.conversationId ?? entry.changeId,
-    changeId: entry.changeId,
-    type: entry.type,
-    timestamp: entry.timestamp,
-    text: entry.text ?? null,
-    actionRunId: entry.actionRunId ?? null,
-    actionType: entry.actionType ?? null,
-    status: entry.status ?? null,
-    runId: entry.runId ?? null,
-    artifact: entry.artifact ?? null,
-    error: entry.error ?? null,
-    rawJson: JSON.stringify(entry),
-  };
 }
 
 export function fromStoredThreadMessage(row: StoredTopicMessage): TopicThreadEntry {
@@ -198,7 +145,6 @@ export function fromStoredThreadMessage(row: StoredTopicMessage): TopicThreadEnt
     artifact: row.artifact ?? undefined,
     error: row.error ?? undefined,
     resultSummary: typeof raw.resultSummary === "string" ? raw.resultSummary : undefined,
-    planCard: isPlanCard(raw.planCard) ? raw.planCard : undefined,
     activity: Array.isArray(raw.activity) ? raw.activity.filter(isAssistantTurnActivity) : undefined,
     blocks: Array.isArray(raw.blocks) ? raw.blocks.filter(isAssistantTurnBlock) : undefined,
     intake: raw.intake,
@@ -219,13 +165,9 @@ function parseStoredRawJson(rawJson: string): Record<string, unknown> {
   }
 }
 
-function isPlanCard(value: unknown): value is OrchestrationPlanCard {
-  return isRecord(value) && typeof value.title === "string" && typeof value.summary === "string" && Array.isArray(value.steps);
-}
-
 function isValidatedPlanHandoffIntent(value: unknown): value is import("./types.js").ValidatedPlanHandoffIntent {
   return isRecord(value)
-    && (value.sourceAgentRoleId === "plan-session" || value.sourceAgentRoleId === "planning-agent")
+    && value.sourceAgentRoleId === "planning-agent"
     && (value.kind === "execute-plan" || value.kind === "revise-plan")
     && typeof value.sourceRunId === "string"
     && typeof value.planText === "string";
@@ -246,7 +188,6 @@ function isAssistantTurnBlock(value: unknown): value is AssistantTurnBlock {
   if (typeof value.id !== "string" || typeof value.sequence !== "number" || typeof value.timestamp !== "string") return false;
   if (!isAssistantTurnBlockKind(value.kind) || typeof value.source !== "string") return false;
   if (value.children !== undefined && (!Array.isArray(value.children) || !value.children.every(isAssistantTurnBlock))) return false;
-  if (value.planCard !== undefined && !isPlanCard(value.planCard)) return false;
   return true;
 }
 
@@ -259,7 +200,6 @@ function isAssistantTurnBlockKind(value: unknown): value is AssistantTurnBlockKi
     "tool-result",
     "file-change",
     "reasoning-summary",
-    "plan-card",
     "workflow-evidence",
     "usage",
     "error",

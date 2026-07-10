@@ -54,11 +54,11 @@ describe("Workbench module boundaries", () => {
 
   it("keeps native Goal lifecycle provider-owned without an AHO Goal state store", () => {
     const provider = readFileSync("src/codex/app-server.ts", "utf8");
-    const bridge = readFileSync("src/workbench/codex-chat/bridge.ts", "utf8");
+    const conversation = readFileSync("src/workbench/chat.ts", "utf8");
     expect(provider).toContain('sendRequest("thread/goal/get"');
     expect(provider).toContain('sendRequest("thread/goal/set"');
-    expect(bridge).toContain('name: "aho_goal_yield"');
-    expect(bridge.match(/name: "aho_goal_yield"/g)).toHaveLength(1);
+    expect(conversation).toContain('name: "aho_goal_yield"');
+    expect(existsSync("src/workbench/codex-chat/bridge.ts")).toBe(false);
     expect(existsSync("src/goal-manager")).toBe(false);
   });
 });

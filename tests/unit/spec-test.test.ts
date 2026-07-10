@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promise
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createChange, createConcurrentChange } from "../../src/change/manager.js";
+import { createChange } from "../../src/change/manager.js";
 import { initHarness } from "../../src/harness/init.js";
 import { getSpecTestContextForChange, getSpecTestStatus, linkSpecTest, linkSpecTestRefs, unlinkSpecTest } from "../../src/spec-test/manager.js";
 import { parseSpecTestProposalMessage } from "../../src/spec-test/proposal.js";
@@ -15,6 +15,7 @@ import { createWorktree } from "../../src/worktree/manager.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { git } from "../../src/project/git.js";
 import type { ChangeStatus, ManagedProject, RunWorktreeInfo, SpecTestAcStatus, ValidationResult } from "../../src/types/index.js";
+import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
 
 let tempDir: string;
 
@@ -117,7 +118,7 @@ describe("spec-test manager", () => {
     const item = project(tempDir);
     await initHarness(item);
     await createChange(item, { title: "Demand A" });
-    await createConcurrentChange(item, { title: "Demand B" });
+    await createConversationChangeFixture(item, { title: "Demand B" });
     const contextB = await getSpecTestContextForChange(item, "demand-b");
     await linkSpecTestRefs(item, "AC-001", [{ type: "command", commandName: "test-b" }], contextB);
     await writeValidation("run-b", { changeId: "demand-b", commandName: "test-b", commandStatus: "passed" });
@@ -139,7 +140,7 @@ describe("spec-test manager", () => {
     const item = project(tempDir);
     await initHarness(item);
     await createChange(item, { title: "Demand A" });
-    await createConcurrentChange(item, { title: "Demand B" });
+    await createConversationChangeFixture(item, { title: "Demand B" });
     const contextB = await getSpecTestContextForChange(item, "demand-b");
     await linkSpecTestRefs(item, "AC-001", [{ type: "command", commandName: "test-b" }], contextB);
     await writeValidation("run-b", { changeId: "demand-b", commandName: "test-b", commandStatus: "passed" });
@@ -156,7 +157,7 @@ describe("spec-test manager", () => {
     await initGitRepository(tempDir);
     await initHarness(item);
     await createChange(item, { title: "Demand A" });
-    await createConcurrentChange(item, { title: "Demand B" });
+    await createConversationChangeFixture(item, { title: "Demand B" });
     await git(tempDir, ["add", "."]);
     await git(tempDir, ["commit", "-m", "initial"]);
     const memory = await resolveProjectMemory(item);

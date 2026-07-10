@@ -1,4 +1,4 @@
-﻿import type { AssistantTurnActivity, AssistantTurnBlock, OrchestrationPlanCard } from "./types.js";
+﻿import type { AssistantTurnActivity, AssistantTurnBlock } from "./types.js";
 import type { ClarificationRequest, WorkbenchIntakeIteration, WorkbenchIntakeScan } from "./intake.js";
 import type { TopicAttachment, TopicFileReference } from "./types.js";
 import type { ParentAgentTranscript } from "./parent-agent-transcript.js";
@@ -18,8 +18,6 @@ import type {
 } from "../types/index.js";
 import type { ApplyReadinessKind } from "../apply/manager.js";
 import type {
-  WorkbenchDecompositionPlanSummary,
-  WorkbenchDecompositionReadinessSummary,
   WorkbenchSchedulerClaimReconcilePlanSummary,
   WorkbenchSchedulerContractSummary,
   WorkbenchSchedulerDispatchDryRunSummary,
@@ -44,7 +42,6 @@ import type {
   WorkbenchSchedulerWorkerPathSummary,
   WorkbenchSchedulerWorkerValidationSummary,
   WorkbenchSchedulerWorkerSessionPlanSummary,
-  WorkbenchTaskQueueProposalSummary,
   WorkbenchWorkflowGraphPlanSummary,
 } from "./workflow-projection.js";
 export type WorkbenchTopicState = "active" | "archive";
@@ -110,7 +107,6 @@ export interface WorkbenchThreadEvent {
   artifact?: string;
   status?: string;
   runId?: string;
-  planCard?: OrchestrationPlanCard;
 }
 
 export interface ThreadStreamAction {
@@ -119,9 +115,6 @@ export interface ThreadStreamAction {
   enabled: boolean;
   requiresConfirmation: boolean;
   disabledReason?: string;
-  decompositionPlanId?: string;
-  readinessManifestId?: string;
-  taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
   schedulerContractId?: string;
   schedulerDispatchDryRunId?: string;
@@ -179,7 +172,7 @@ export interface ThreadStreamEvidence {
 
 export interface ThreadStreamItem {
   id: string;
-  kind: "user-message" | "assistant-turn" | "assistant-message" | "plan-card" | "workflow-summary" | "evidence" | "decision" | "change-state" | "intake-summary" | "clarification";
+  kind: "user-message" | "assistant-turn" | "assistant-message" | "workflow-summary" | "evidence" | "decision" | "change-state" | "intake-summary" | "clarification";
   label: string;
   timestamp?: string;
   body?: string;
@@ -192,7 +185,6 @@ export interface ThreadStreamItem {
   actionRunId?: string;
   actionType?: string;
   semanticKey?: string;
-  planCard?: OrchestrationPlanCard;
   actions?: ThreadStreamAction[];
   activity?: AssistantTurnActivity[];
   evidence?: ThreadStreamEvidence[];
@@ -262,9 +254,6 @@ export interface WorkbenchDecisionAction {
     message?: string;
   };
   actionType?: ThreadStreamAction["actionType"];
-  decompositionPlanId?: string;
-  readinessManifestId?: string;
-  taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
   schedulerContractId?: string;
   schedulerDispatchDryRunId?: string;
@@ -483,9 +472,6 @@ export interface WorkpadNextAction {
   actionType?: ThreadStreamAction["actionType"];
   changeId?: string;
   approvalId?: string;
-  decompositionPlanId?: string;
-  readinessManifestId?: string;
-  taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
   schedulerContractId?: string;
   schedulerDispatchDryRunId?: string;
@@ -583,9 +569,6 @@ export interface WorkbenchTaskNextAction {
   actionType?: ThreadStreamAction["actionType"];
   taskIds?: string[];
   taskRunId?: string;
-  decompositionPlanId?: string;
-  readinessManifestId?: string;
-  taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
   schedulerContractId?: string;
   schedulerDispatchDryRunId?: string;
@@ -662,9 +645,7 @@ export interface WorkbenchTaskGraph {
   warnings: string[];
 }
 
-export type WorkbenchCodingPackageExecutionUnit = "single-agent" | "future-parallel-candidate";
 export type WorkbenchCodingPackageAssignmentStatus = "suggested" | "not-assigned";
-export type WorkbenchCodingPackageSplitReadiness = "likely-single" | "candidate" | "unknown";
 export type WorkbenchCodingPackageStatus = "missing" | "suggested" | "blocked" | "evidence-ready" | "readonly";
 
 export interface WorkbenchCodingPackage {
@@ -677,11 +658,7 @@ export interface WorkbenchCodingPackage {
   coveredAcIds: string[];
   missingEvidenceAcIds: string[];
   recommendedRoleId: string;
-  executionUnit: WorkbenchCodingPackageExecutionUnit;
   assignmentStatus: WorkbenchCodingPackageAssignmentStatus;
-  splitReadiness: WorkbenchCodingPackageSplitReadiness;
-  splitRationale: string;
-  mergeRisk: string;
   status: WorkbenchCodingPackageStatus;
 }
 
@@ -705,10 +682,7 @@ export interface WorkbenchTaskQueueSummary {
   failureReason?: string;
   pausedReason?: string;
   workflowRunId?: string;
-  taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
-  readinessManifestId?: string;
-  decompositionPlanId?: string;
   nextAction?: WorkbenchTaskNextAction;
   items: WorkbenchTaskQueueItemSummary[];
 }
@@ -734,9 +708,6 @@ export interface WorkbenchWorkpad {
   requiresUserInputReason?: string;
   scopedFeedbackTarget?: WorkbenchScopedFeedbackTarget;
   postArchiveEvolutionCandidate?: WorkbenchPostArchiveEvolutionCandidate;
-  decompositionPlan?: WorkbenchDecompositionPlanSummary;
-  decompositionReadiness?: WorkbenchDecompositionReadinessSummary;
-  taskQueueProposal?: WorkbenchTaskQueueProposalSummary;
   workflowGraphPlan?: WorkbenchWorkflowGraphPlanSummary;
   schedulerContract?: WorkbenchSchedulerContractSummary;
   schedulerDispatchDryRun?: WorkbenchSchedulerDispatchDryRunSummary;
@@ -1201,7 +1172,3 @@ export interface WorkbenchSnapshot {
   harnessGaps: HarnessGap[];
   warnings: string[];
 }
-
-
-
-

@@ -1,7 +1,7 @@
 ﻿import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { createChange } from "../../src/change/manager.js";
+import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
 import { initHarness } from "../../src/harness/init.js";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
@@ -34,7 +34,7 @@ describe("workbench remote landing slow flow", () => {
         await git(getTempDir(), ["add", "."]);
         await git(getTempDir(), ["commit", "-m", "initial"]);
         await initHarness(project());
-        await createChange(project(), { title: "Landing Demand" });
+        await createConversationChangeFixture(project(), { title: "Landing Demand" });
         await writeAcceptedSpecAndTasks("landing-demand");
         const memory = await resolveProjectMemory(project());
         const worktree = await createWorktree(project(), memory, "landing-demand");
@@ -116,7 +116,7 @@ describe("workbench remote landing slow flow", () => {
         await git(getTempDir(), ["add", "."]);
         await git(getTempDir(), ["commit", "-m", "initial"]);
         await initHarness(project());
-        await createChange(project(), { title: "Committed Landing Demand" });
+        await createConversationChangeFixture(project(), { title: "Committed Landing Demand" });
         await writeAcceptedSpecAndTasks("committed-landing-demand");
         const memory = await resolveProjectMemory(project());
         const worktree = await createWorktree(project(), memory, "committed-landing-demand");
@@ -172,7 +172,7 @@ describe("workbench remote landing slow flow", () => {
         await git(getTempDir(), ["add", "."]);
         await git(getTempDir(), ["commit", "-m", "initial"]);
         await initHarness(project());
-        await createChange(project(), { title: "PR Review Demand" });
+        await createConversationChangeFixture(project(), { title: "PR Review Demand" });
         await writeAcceptedSpecAndTasks("pr-review-demand");
         const memory = await resolveProjectMemory(project());
         const worktree = await createWorktree(project(), memory, "pr-review-demand");
@@ -272,7 +272,7 @@ describe("workbench remote landing slow flow", () => {
         await git(getTempDir(), ["add", "."]);
         await git(getTempDir(), ["commit", "-m", "initial"]);
         await initHarness(project());
-        await createChange(project(), { title: "Remote Landing Demand" });
+        await createConversationChangeFixture(project(), { title: "Remote Landing Demand" });
         await writeAcceptedSpecAndTasks("remote-landing-demand");
         const memory = await resolveProjectMemory(project());
         const worktree = await createWorktree(project(), memory, "remote-landing-demand");
@@ -651,7 +651,7 @@ describe("workbench remote landing slow flow", () => {
         await git(getTempDir(), ["add", "."]);
         await git(getTempDir(), ["commit", "-m", "initial"]);
         await initHarness(project());
-        await createChange(project(), { title: "PR Feedback Demand" });
+        await createConversationChangeFixture(project(), { title: "PR Feedback Demand" });
         await writeAcceptedSpecAndTasks("pr-feedback-demand");
         const memory = await resolveProjectMemory(project());
         const worktree = await createWorktree(project(), memory, "pr-feedback-demand");

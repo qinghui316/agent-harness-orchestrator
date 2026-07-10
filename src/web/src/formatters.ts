@@ -1,4 +1,4 @@
-import type { ConversationLifecycle, DecompositionPlanSummary, DecompositionReadinessSummary, DemandAgentRunGraphNodeStatus, ThreadStreamItem, WorkbenchCodingPackage, WorkbenchTaskNode, Workpad, WorkpadRuntimeStatus, WorkpadUserStatus } from "./types.js";
+import type { ConversationLifecycle, DemandAgentRunGraphNodeStatus, ThreadStreamItem, WorkbenchCodingPackage, WorkbenchTaskNode, Workpad, WorkpadRuntimeStatus, WorkpadUserStatus } from "./types.js";
 
 type ProjectDisplayInput = {
   id?: string | null;
@@ -89,16 +89,6 @@ export function codingPackageStatusLabel(status: WorkbenchCodingPackage["status"
   if (status === "evidence-ready") return "证据就绪";
   if (status === "readonly") return "只读";
   return "缺失";
-}
-
-export function codingPackageExecutionLabel(value: WorkbenchCodingPackage["executionUnit"]): string {
-  return value === "future-parallel-candidate" ? "未来并行候选" : "单一 coder-agent";
-}
-
-export function codingPackageSplitLabel(value: WorkbenchCodingPackage["splitReadiness"]): string {
-  if (value === "candidate") return "可作为未来拆分候选";
-  if (value === "unknown") return "信息不足";
-  return "默认不拆分";
 }
 
 export function statusOrDash(value?: string): string {
@@ -222,26 +212,6 @@ export function humanStatus(status: string): string {
   return status;
 }
 
-export function decompositionRecommendationLabel(recommendation: DecompositionPlanSummary["recommendation"]): string {
-  if (recommendation === "single-change") return "建议保持单 Change";
-  if (recommendation === "taskgraph-sequential") return "建议按 TaskGraph 顺序执行";
-  if (recommendation === "taskgraph-parallel-candidate") return "可作为 TaskGraph 并行候选";
-  if (recommendation === "multi-change-candidate") return "可考虑拆成多个 Change";
-  if (recommendation === "needs-clarification") return "需要先澄清";
-  return recommendation;
-}
-
-export function decompositionReadinessLabel(status: DecompositionReadinessSummary["status"]): string {
-  if (status === "ready-for-single-change") return "可回到单 Change Code 执行";
-  if (status === "ready-for-sequential-taskqueue-proposal") return "可进入后续 TaskQueue proposal";
-  if (status === "ready-for-scheduler-contract") return "可编译 Scheduler Contract";
-  if (status === "blocked-parallel-guardrails") return "并行边界未通过";
-  if (status === "blocked-multi-change-boundary") return "多 Change 仍需后续边界";
-  if (status === "blocked-needs-clarification") return "需要先澄清需求";
-  if (status === "invalid") return "拆分提案无效";
-  return status;
-}
-
 export function resultReviewStatusLabel(status: NonNullable<Workpad["resultReview"]>["status"]): string {
   if (status === "ready-to-apply") return "可应用";
   if (status === "needs-rework") return "需要修改";
@@ -289,7 +259,6 @@ export function threadLabel(item: ThreadStreamItem): string {
   if (item.kind === "user-message") return "用户消息";
   if (item.kind === "assistant-turn") return item.source === "workflow" ? "执行结果" : "AI";
   if (item.kind === "assistant-message") return "AI 回复";
-  if (item.kind === "plan-card") return "AI 计划";
   if (item.kind === "workflow-summary") return "工作流摘要";
   if (item.source === "validation") return "验证证据";
   if (item.source === "audit") return "审查证据";
@@ -301,7 +270,7 @@ export function threadLabel(item: ThreadStreamItem): string {
 export function threadTone(item: ThreadStreamItem): string {
   if (item.status === "failed" || item.status === "blocked" || item.label.toLowerCase().includes("failed")) return "danger";
   if (item.kind === "decision") return "action";
-  if (item.kind === "plan-card" || item.label.toLowerCase().includes("spec") || item.label.toLowerCase().includes("plan")) return "coral";
+  if (item.label.toLowerCase().includes("spec") || item.label.toLowerCase().includes("plan")) return "coral";
   return "success";
 }
 

@@ -9,8 +9,6 @@ import { readLatestSchedulerCurrentTransitionView } from "../../../workflow-runt
 import type { ReadySetWorkflowGraphPlan } from "../../../types/index.js";
 import {
   buildTypedWorkflowNextAction,
-  readLatestDecompositionPlanSummary,
-  readLatestDecompositionReadinessSummary,
   readLatestSchedulerDispatchDryRunSummary,
   readLatestSchedulerContractSummary,
   readLatestSchedulerClaimReconcilePlanSummary,
@@ -35,10 +33,7 @@ import {
   readLatestSchedulerIntegrationOutcomeSummary,
   readLatestSchedulerRunCompletionSummary,
   readLatestSchedulerRunBlockedCloseoutSummary,
-  readLatestTaskQueueProposalSummary,
   readLatestWorkflowGraphPlanSummary,
-  type WorkbenchDecompositionPlanSummary,
-  type WorkbenchDecompositionReadinessSummary,
   type WorkbenchSchedulerContractSummary,
   type WorkbenchSchedulerClaimReconcilePlanSummary,
   type WorkbenchSchedulerDispatchDryRunSummary,
@@ -63,7 +58,6 @@ import {
   type WorkbenchSchedulerWorkerValidationSummary,
   type WorkbenchSchedulerWorkerSessionPlanSummary,
   type WorkbenchSchedulerWorkerPathSummary,
-  type WorkbenchTaskQueueProposalSummary,
   type WorkbenchWorkflowGraphPlanSummary,
 } from "../../workflow-projection.js";
 import type { ClarificationRequest } from "../../intake.js";
@@ -264,23 +258,26 @@ export async function buildWorkbenchWorkpad(input: {
     };
   }
 
+  const conversationId = selectedTopic.id;
+  const changeId = selectedTopic.boundChangeId ?? selectedTopic.id;
+  const workflowTopic = changeId === selectedTopic.id
+    ? selectedTopic
+    : { ...selectedTopic, id: changeId, name: changeId };
+
   const [specReady, planReady, tasksReady] = await Promise.all([
     isConcreteChangeFile(memory, selectedTopic.path, "spec.md"),
     isConcreteChangeFile(memory, selectedTopic.path, "plan.md"),
     isConcreteChangeFile(memory, selectedTopic.path, "tasks.md"),
   ]);
-  const topicApprovals = approvals.filter((approval) => !approval.changeId || approval.changeId === selectedTopic.id);
-  const topicDecisions = decisions.filter((decision) => !decision.changeId || decision.changeId === selectedTopic.id);
+  const topicApprovals = approvals.filter((approval) => !approval.changeId || approval.changeId === changeId);
+  const topicDecisions = decisions.filter((decision) => !decision.changeId || decision.changeId === changeId);
   const latestRun = latestByTimestamp(selectedTopic.runs, (run) => run.finishedAt ?? run.startedAt);
   const latestValidation = latestByTimestamp(selectedTopic.validations as ValidationSummary[], (validation) => validation.finishedAt);
   const latestAudit = latestByTimestamp(selectedTopic.audits as AuditSummary[], (audit) => audit.finishedAt);
-  const intake = buildWorkpadIntake(selectedTopic);
-  const taskQueue = buildTaskQueueSummary(selectedTopic, { specReady, planReady, tasksReady });
-  const taskGraph = buildTaskGraph(selectedTopic, { specReady, planReady, tasksReady }, taskQueue);
-  const codingPackages = buildCodingPackages(selectedTopic, taskGraph);
-  const decompositionPlan = await readLatestDecompositionPlanSummary(memory, selectedTopic.path);
-  const decompositionReadiness = await readLatestDecompositionReadinessSummary(memory, selectedTopic.path);
-  const taskQueueProposal = await readLatestTaskQueueProposalSummary(memory, selectedTopic.path);
+  const intake = buildWorkpadIntake(workflowTopic);
+  const taskQueue = buildTaskQueueSummary(workflowTopic, { specReady, planReady, tasksReady });
+  const taskGraph = buildTaskGraph(workflowTopic, { specReady, planReady, tasksReady }, taskQueue);
+  const codingPackages = buildCodingPackages(workflowTopic, taskGraph);
   const workflowGraphPlan = await readLatestWorkflowGraphPlanSummary(memory, selectedTopic.path);
   const schedulerContract = await readLatestSchedulerContractSummary(memory, selectedTopic.path);
   const schedulerDispatchDryRun = await readLatestSchedulerDispatchDryRunSummary(memory, selectedTopic.path);
@@ -297,12 +294,8 @@ export async function buildWorkbenchWorkpad(input: {
   const schedulerRuntime = await readSchedulerRuntimeSummary(memory, selectedTopic.path, scopedSchedulerRun?.id);
   const schedulerReconcileSnapshot = await readSchedulerReconcileSnapshotSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerRuntime?.lastReconcileSnapshotId);
   const schedulerClaimReservationRaw = await readSchedulerClaimReservationSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerRuntime?.lastClaimReservationId);
-  const schedulerLaunchConfirmed = Boolean(schedulerClaimReservationRaw && topicDecisions.some((decision) =>
-    decision.kind === "planning.scheduler.plan.prepare"
-    && decision.status === "completed"
-    && decision.targetId === schedulerClaimReservationRaw.id
-    && decision.id === `scheduler-plan-launch-confirmed:${schedulerClaimReservationRaw.id}`
-  ));
+  const schedulerLaunchConfirmed = workflowGraphPlan?.authoringContractVersion === "1.0"
+    && workflowGraphPlan.graphMode === "ready-set-v1";
   const schedulerClaimReservation = schedulerClaimReservationRaw ? { ...schedulerClaimReservationRaw, launchConfirmed: schedulerLaunchConfirmed } : null;
   const schedulerTransitionView = scopedSchedulerRun && schedulerRuntime?.lastClaimReservationId
     ? await readLatestSchedulerCurrentTransitionView(memory, selectedTopic.path, scopedSchedulerRun.id, "workbench.workflow-projection").catch(() => null)
@@ -328,19 +321,19 @@ export async function buildWorkbenchWorkpad(input: {
   const schedulerIntegrationOutcome = await readLatestSchedulerIntegrationOutcomeSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerIntegrationCheckHandoff?.id);
   const schedulerRunCompletion = await readLatestSchedulerRunCompletionSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerIntegrationOutcome?.id);
   const schedulerRunBlockedCloseout = await readLatestSchedulerRunBlockedCloseoutSummary(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerIntegrationCandidate?.id);
-  const workflowRun = await getLatestWorkflowRun(memory, selectedTopic.id).then((run) => run ? summarizeWorkflowRun(run) : null).catch(() => null);
-  const agentTasks = await buildAgentTaskSummaries(memory, selectedTopic.id);
-  const rolePipeline = buildRolePipelineSummary(selectedTopic, agentTasks);
+  const workflowRun = await getLatestWorkflowRun(memory, changeId).then((run) => run ? summarizeWorkflowRun(run) : null).catch(() => null);
+  const agentTasks = await buildAgentTaskSummaries(memory, changeId);
+  const rolePipeline = buildRolePipelineSummary(workflowTopic, agentTasks);
   const mainAgentExecution = rolePipeline;
-  const resultReview = await buildResultReview(project, memory, selectedTopic);
+  const resultReview = await buildResultReview(project, memory, workflowTopic);
   const maintenance = await buildMaintenanceSummary(memory);
   const runningRun = selectedTopic.runs.find((run) => run.status === "created" || run.status === "running");
   const activeAgentTask = agentTasks.find((task) => isActiveAgentTaskStatus(task.status));
-  const selectedWorkpadSummary = workpads.find((item) => item.id === selectedTopic.id || item.id === selectedTopic.name);
-  const selectedUserState = selectedWorkpadSummary?.userStatus ?? (activeAgentTask ? "processing" : userDecisionStateForSelectedTopic(selectedTopic, topicApprovals, taskQueue, taskGraph));
-  const selectedLifecycle = selectedWorkpadSummary?.conversationLifecycle ?? conversationLifecycleForTopic(selectedTopic, taskQueue);
+  const selectedWorkpadSummary = workpads.find((item) => item.id === conversationId || item.id === selectedTopic.name);
+  const selectedUserState = selectedWorkpadSummary?.userStatus ?? (activeAgentTask ? "processing" : userDecisionStateForSelectedTopic(workflowTopic, topicApprovals, taskQueue, taskGraph));
+  const selectedLifecycle = selectedWorkpadSummary?.conversationLifecycle ?? conversationLifecycleForTopic(workflowTopic, taskQueue);
   const nextAction = suppressStaleCodeRunAfterResultReview(
-    buildWorkpadNextAction(selectedTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, decompositionPlan, decompositionReadiness, taskQueueProposal, workflowGraphPlan, schedulerContract, scopedSchedulerDispatchDryRun, scopedSchedulerWorkerSessionPlan, scopedSchedulerClaimReconcilePlan, scopedSchedulerLaunchPreflight, scopedSchedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, schedulerWorkerAudit, schedulerWorkerReworkPlan, schedulerWorkerReworkStart, schedulerWorkerReworkResult, schedulerWorkerReworkValidation, schedulerWorkerReworkAudit, schedulerWorkerPaths, schedulerReadySetGraph, schedulerIntegrationCandidate, schedulerIntegrationCheckHandoff, schedulerIntegrationOutcome, schedulerRunCompletion, schedulerRunBlockedCloseout, schedulerTransitionView?.transition ?? null, schedulerTransitionView?.integrationCandidateNeedsRefresh, workflowRun),
+    buildWorkpadNextAction(workflowTopic, topicApprovals, { specReady, planReady, tasksReady }, intake, taskQueue, taskGraph, workflowGraphPlan, schedulerContract, scopedSchedulerDispatchDryRun, scopedSchedulerWorkerSessionPlan, scopedSchedulerClaimReconcilePlan, scopedSchedulerLaunchPreflight, scopedSchedulerRun, schedulerRuntime, schedulerReconcileSnapshot, schedulerClaimReservation, schedulerWorkerStart, schedulerWorkerResult, schedulerWorkerValidation, schedulerWorkerAudit, schedulerWorkerReworkPlan, schedulerWorkerReworkStart, schedulerWorkerReworkResult, schedulerWorkerReworkValidation, schedulerWorkerReworkAudit, schedulerWorkerPaths, schedulerReadySetGraph, schedulerIntegrationCandidate, schedulerIntegrationCheckHandoff, schedulerIntegrationOutcome, schedulerRunCompletion, schedulerRunBlockedCloseout, schedulerTransitionView?.transition ?? null, schedulerTransitionView?.integrationCandidateNeedsRefresh, workflowRun),
     resultReview,
   );
 
@@ -350,9 +343,9 @@ export async function buildWorkbenchWorkpad(input: {
     state: selectedTopic.state === "active" ? "active" : "readonly",
     userStatus: selectedUserState,
     userStatusLabel: userDecisionStateLabel(selectedUserState),
-    conversationId: selectedTopic.id,
-    demandId: selectedTopic.id,
-    boundChangeId: selectedTopic.id,
+    conversationId,
+    demandId: conversationId,
+    boundChangeId: changeId,
     conversationLifecycle: selectedLifecycle,
     pendingFeedback: buildPendingFeedback(selectedTopic),
     coderSelfTestSummary: summarizeCoderSelfTest(selectedTopic),
@@ -362,11 +355,8 @@ export async function buildWorkbenchWorkpad(input: {
     reworkBudget: OFFICIAL_REWORK_BUDGET,
     failureClassification: classifySelectedTopicFailure(selectedTopic, latestValidation, latestAudit, taskGraph),
     requiresUserInputReason: requiresUserInputReason(selectedTopic, latestValidation, latestAudit, taskGraph),
-    scopedFeedbackTarget: buildScopedFeedbackTarget(selectedTopic, taskGraph),
-    postArchiveEvolutionCandidate: selectedTopic.state === "archive" ? buildPostArchiveEvolutionCandidate(selectedTopic) : undefined,
-    decompositionPlan: decompositionPlan ?? undefined,
-    decompositionReadiness: decompositionReadiness ?? undefined,
-    taskQueueProposal: taskQueueProposal ?? undefined,
+    scopedFeedbackTarget: buildScopedFeedbackTarget(workflowTopic, taskGraph),
+    postArchiveEvolutionCandidate: selectedTopic.state === "archive" ? buildPostArchiveEvolutionCandidate(workflowTopic) : undefined,
     workflowGraphPlan: workflowGraphPlan ?? undefined,
     schedulerContract: schedulerContract ?? undefined,
     schedulerDispatchDryRun: scopedSchedulerDispatchDryRun ?? undefined,
@@ -419,7 +409,7 @@ export async function buildWorkbenchWorkpad(input: {
     codingPackages,
     taskGraph,
     taskQueue,
-    evidence: buildWorkpadEvidence(selectedTopic, topicApprovals, topicDecisions),
+    evidence: buildWorkpadEvidence(workflowTopic, topicApprovals, topicDecisions),
     blockers: [
       ...(selectedTopic.closeGate?.blockingIssues ?? []),
       ...(selectedTopic.closeGate?.warnings ?? []),
@@ -579,8 +569,10 @@ function diagnosticMemoryIsolation(warnings: string[]): WorkpadMemoryIsolationSu
 }
 
 function buildWorkpadMemoryIsolation(memory: ResolvedMemory, selectedTopic: WorkbenchTopicDetail | null, workpads: WorkbenchWorkpadSummary[]): WorkpadMemoryIsolationSummary {
+  const selectedConversationId = selectedTopic?.id;
+  const selectedChangeId = selectedTopic?.boundChangeId ?? selectedConversationId;
   const relatedWorkpads = workpads
-    .filter((item) => item.id !== selectedTopic?.id && ["running", "queued", "blocked", "waiting-decision"].includes(item.runtimeStatus))
+    .filter((item) => item.id !== selectedConversationId && item.id !== selectedChangeId && ["running", "queued", "blocked", "waiting-decision"].includes(item.runtimeStatus))
     .slice(0, 6)
     .map((item): WorkpadRelatedMemorySummary => ({
       changeId: item.id,
@@ -595,7 +587,7 @@ function buildWorkpadMemoryIsolation(memory: ResolvedMemory, selectedTopic: Work
   if (!memory.supported || !existsSync(memory.memoryRoot)) warnings.unshift("Durable memory is unavailable; initialize, sync, or repair memory before relying on history.");
   return {
     projectStableNamespace: "project/stable",
-    currentChangeNamespace: selectedTopic ? `change/${selectedTopic.id}` : undefined,
+    currentChangeNamespace: selectedChangeId ? `change/${selectedChangeId}` : undefined,
     runNamespaces: selectedTopic ? selectedTopic.runs.slice(0, 5).map((run) => `run/${run.id}`) : [],
     agentSessionNamespace: "agent/{roleId}/session/{sessionId}",
     relatedWorkpads,
@@ -716,9 +708,6 @@ function buildWorkpadNextAction(
   intake?: WorkpadIntakeSummary,
   queue?: WorkbenchTaskQueueSummary,
   taskGraph?: WorkbenchTaskGraph,
-  decompositionPlan?: WorkbenchDecompositionPlanSummary | null,
-  decompositionReadiness?: WorkbenchDecompositionReadinessSummary | null,
-  taskQueueProposal?: WorkbenchTaskQueueProposalSummary | null,
   workflowGraphPlan?: WorkbenchWorkflowGraphPlanSummary | null,
   schedulerContract?: WorkbenchSchedulerContractSummary | null,
   schedulerDispatchDryRun?: WorkbenchSchedulerDispatchDryRunSummary | null,
@@ -762,50 +751,14 @@ function buildWorkpadNextAction(
   }
   const actionableApproval = approvals.find((approval) => approval.action);
   const actionableCloseApproval = approvals.find((approval) => approval.kind === "change-close" && approval.action);
+  const schedulerWaitingForIntegrationDecision = (schedulerIntegrationCheckHandoff?.currentIntegrationCheckStatus
+    ?? schedulerIntegrationCheckHandoff?.integrationCheckStatus) === "passed"
+    && !schedulerIntegrationOutcome;
   if (schedulerRunCompletion && actionableCloseApproval) {
     return approvalToNextAction(actionableCloseApproval);
   }
-  if (decompositionReadiness?.nextAllowedAction === "scheduler.contract") {
-    return scopeTypedWorkflowNextAction(topic, buildTypedWorkflowNextAction({
-      topic,
-      readiness,
-      intake,
-      decompositionPlan,
-      decompositionReadiness,
-      taskQueueProposal,
-      workflowGraphPlan,
-      schedulerContract,
-      schedulerDispatchDryRun,
-      schedulerWorkerSessionPlan,
-      schedulerClaimReconcilePlan,
-      schedulerLaunchPreflight,
-      schedulerRun,
-      schedulerRuntime,
-      schedulerReconcileSnapshot,
-      schedulerClaimReservation,
-      schedulerWorkerStart,
-      schedulerWorkerResult,
-      schedulerWorkerValidation,
-      schedulerWorkerAudit,
-      schedulerWorkerReworkPlan,
-      schedulerWorkerReworkStart,
-      schedulerWorkerReworkResult,
-      schedulerWorkerReworkValidation,
-      schedulerWorkerReworkAudit,
-      schedulerWorkerPaths,
-      schedulerReadySetGraph,
-      schedulerIntegrationCandidate,
-      schedulerIntegrationCheckHandoff,
-      schedulerIntegrationOutcome,
-      schedulerRunCompletion,
-      schedulerRunBlockedCloseout,
-      schedulerTransition,
-      schedulerIntegrationCandidateNeedsRefresh,
-      workflowRun,
-    }));
-  }
   const autoReworkTask = taskGraph?.nodes.find((node) => node.autoRework?.available);
-  if (autoReworkTask?.autoRework) {
+  if (!schedulerTransition && autoReworkTask?.autoRework) {
     return {
       id: `auto-rework:${autoReworkTask.taskId}:${autoReworkTask.taskRun?.id ?? "latest"}`,
       label: "正在自动修改",
@@ -818,16 +771,13 @@ function buildWorkpadNextAction(
   }
   const queueBlockedAction = buildQueueBlockedNextAction(queue, taskGraph);
   if (queueBlockedAction) return queueBlockedAction;
-  if (actionableApproval) {
+  if (actionableApproval && !schedulerTransition?.actionType && !schedulerWaitingForIntegrationDecision) {
     return approvalToNextAction(actionableApproval);
   }
   return scopeTypedWorkflowNextAction(topic, buildTypedWorkflowNextAction({
     topic,
     readiness,
     intake,
-    decompositionPlan,
-    decompositionReadiness,
-    taskQueueProposal,
     workflowGraphPlan,
     schedulerContract,
     schedulerDispatchDryRun,
@@ -933,10 +883,7 @@ function buildQueueBlockedNextAction(queue?: WorkbenchTaskQueueSummary, taskGrap
       actionType: reconcile,
       workflowRunId: queue.nextAction?.workflowRunId,
       queueRunId: queue.nextAction?.queueRunId,
-      taskQueueProposalId: queue.nextAction?.taskQueueProposalId,
       workflowGraphPlanId: queue.nextAction?.workflowGraphPlanId,
-      readinessManifestId: queue.nextAction?.readinessManifestId,
-      decompositionPlanId: queue.nextAction?.decompositionPlanId,
       disabledReason: queue.nextAction?.disabledReason,
     };
   }
@@ -974,18 +921,19 @@ export async function buildMultiWorkpadSummaries(
         updatedAt: topic.updatedAt,
       };
     }
-    const runs = allRuns.filter((run) => run.changeId === topic.id || run.changeId === topic.name);
+    const changeId = topic.boundChangeId ?? topic.id;
+    const runs = allRuns.filter((run) => run.changeId === changeId || run.changeId === topic.name);
     const latestRun = latestByTimestamp(runs, (run) => run.finishedAt ?? run.startedAt);
     const runningRun = runs.find((run) => run.status === "created" || run.status === "running");
-    const demandWorker = demandWorkers.find((worker) => worker.changeId === topic.id || worker.changeId === topic.name);
+    const demandWorker = demandWorkers.find((worker) => worker.changeId === changeId || worker.changeId === topic.name);
     const queues = topic.state === "active"
-      ? await listTaskQueues(memory, topic.id).catch(() => [])
+      ? await listTaskQueues(memory, changeId).catch(() => [])
       : [];
     const latestQueue = latestByTimestamp(queues, (queue) => queue.updatedAt ?? queue.createdAt);
-    const topicApprovals = approvals.filter((approval) => approval.changeId === topic.id || approval.changeId === topic.name);
+    const topicApprovals = approvals.filter((approval) => approval.changeId === changeId || approval.changeId === topic.name);
     const blockingApproval = topicApprovals.find((approval) => approval.severity === "blocking");
     const agentTasks = topic.state === "active"
-      ? await buildAgentTaskSummaries(memory, topic.id).catch(() => [])
+      ? await buildAgentTaskSummaries(memory, changeId).catch(() => [])
       : [];
     const activeAgentTask = agentTasks.find((task) => isActiveAgentTaskStatus(task.status));
     let runtimeStatus: WorkbenchWorkpadRuntimeStatus = topic.state === "archive" ? "archived" : "active";

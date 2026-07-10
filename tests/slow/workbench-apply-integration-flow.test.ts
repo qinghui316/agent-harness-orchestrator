@@ -1,19 +1,17 @@
-import { existsSync } from "node:fs";
+﻿import { existsSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
+import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
 import { collectWorktreeDiff } from "../../src/audit/diff.js";
-import { createChange } from "../../src/change/manager.js";
 import { initHarness } from "../../src/harness/init.js";
 import { listIntegrationChecks, runIntegrationCheck } from "../../src/integration-check/manager.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
-import { createWorkbenchTopic } from "../../src/workbench/chat.js";
 import { getWorkbenchSnapshot, listWorkbenchTopics } from "../../src/workbench/manager.js";
 import { createWorktree } from "../../src/worktree/manager.js";
-import { writeRawActiveChange } from "../unit/workbench/change-fixtures.js";
 import {
   getTempDir,
   git,
@@ -38,7 +36,7 @@ describe("workbench apply and integration slow flows", () => {
       await git(getTempDir(), ["add", "."]);
       await git(getTempDir(), ["commit", "-m", "initial"]);
       await initHarness(project());
-      await createChange(project(), { title: "Result Review Demand" });
+      await createConversationChangeFixture(project(), { title: "Result Review Demand" });
       await writeAcceptedSpecAndTasks("result-review-demand");
       const memory = await resolveProjectMemory(project());
       const worktree = await createWorktree(project(), memory, "result-review-demand");
@@ -92,8 +90,8 @@ describe("workbench apply and integration slow flows", () => {
       await git(getTempDir(), ["add", "."]);
       await git(getTempDir(), ["commit", "-m", "initial"]);
       await initHarness(project());
-      const topic = await createWorkbenchTopic(project(), { title: "Finalize Target", body: "Make the package test print finalize." });
-      await createWorkbenchTopic(project(), { title: "Other Active Demand", body: "Keep open." });
+      const topic = await createConversationChangeFixture(project(), { title: "Finalize Target", body: "Make the package test print finalize." });
+      const otherTopic = await createConversationChangeFixture(project(), { title: "Other Active Demand", body: "Keep open." });
       await writeAcceptedSpecAndTasks(topic.changeId);
       const memory = await resolveProjectMemory(project());
       const worktree = await createWorktree(project(), memory, topic.changeId);
@@ -161,8 +159,8 @@ describe("workbench apply and integration slow flows", () => {
         archivePath: expect.stringContaining(topic.changeId),
       });
       const topics = await listWorkbenchTopics(project());
-      expect(topics.find((item) => item.id === topic.changeId)).toMatchObject({ state: "archive" });
-      expect(topics.find((item) => item.id === "other-active-demand")).toMatchObject({ state: "active" });
+      expect(topics.find((item) => item.id === topic.conversationId)).toMatchObject({ state: "archive" });
+      expect(topics.find((item) => item.id === otherTopic.conversationId)).toMatchObject({ state: "active" });
       const archivedSnapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
       expect(archivedSnapshot.center.selectedTopic?.state).toBe("archive");
       expect(archivedSnapshot.right.confirmationQueue.primary?.changeId).not.toBe(topic.changeId);
@@ -183,8 +181,8 @@ describe("workbench apply and integration slow flows", () => {
       await git(getTempDir(), ["add", "."]);
       await git(getTempDir(), ["commit", "-m", "initial"]);
       await initHarness(project());
-      await writeRawActiveChange(getTempDir(), "demand-a", "Demand A");
-      await writeRawActiveChange(getTempDir(), "demand-b", "Demand B");
+      await createConversationChangeFixture(project(), { title: "Demand A" });
+      const demandB = await createConversationChangeFixture(project(), { title: "Demand B" });
       await writeAcceptedSpecAndTasks("demand-a");
       await writeAcceptedSpecAndTasks("demand-b");
       const memory = await resolveProjectMemory(project());
@@ -197,7 +195,7 @@ describe("workbench apply and integration slow flows", () => {
       const snapshot = await acceptAuditAndGetSnapshot("demand-b");
       const applyAction = snapshot.right.decisionInspector.primary?.actions.find((action) => action.action?.actionId === "result.apply")?.action;
 
-      expect(snapshot.center.selectedTopic?.id).toBe("demand-b");
+      expect(snapshot.center.selectedTopic?.id).toBe(demandB.conversationId);
       expect(snapshot.center.workpad.resultReview).toMatchObject({
         status: "ready-to-apply",
         worktreeId: worktreeB.metadata.worktreeId,
@@ -224,7 +222,7 @@ describe("workbench apply and integration slow flows", () => {
       await git(getTempDir(), ["add", "."]);
       await git(getTempDir(), ["commit", "-m", "initial"]);
       await initHarness(project());
-      await writeRawActiveChange(getTempDir(), "demand-a", "Demand A");
+      await createConversationChangeFixture(project(), { title: "Demand A" });
       await writeAcceptedSpecAndTasks("demand-a");
       const memory = await resolveProjectMemory(project());
       const worktreeA = await createWorktree(project(), memory, "demand-a");
@@ -238,13 +236,14 @@ describe("workbench apply and integration slow flows", () => {
       await writeValidationResultWithHash("demand-a", "run-validation-b", worktreeB.metadata.worktreeId, diffB.diffHash, "passed");
       await writeAuditResultWithHash("demand-a", "run-audit-b", worktreeB.metadata.worktreeId, diffB.diffHash, "approved");
 
-      const snapshot = await acceptAllAuditGatesAndGetSnapshot("demand-a");
-      expect(snapshot.right.confirmationQueue.primary).toMatchObject({
+      const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "demand-a" });
+      const integrationGate = snapshot.right.confirmationQueue.current.find((item) => item.kind === "integration-check");
+      expect(integrationGate).toMatchObject({
         kind: "integration-check",
         changeId: "demand-a",
         whyNeedsConfirmation: "多个结果都已准备好应用。",
       });
-      expect(snapshot.right.confirmationQueue.primary?.actions[0]).toMatchObject({
+      expect(integrationGate?.actions[0]).toMatchObject({
         actionType: "apply-check.run",
         worktreeIds: expect.arrayContaining([worktreeA.metadata.worktreeId, worktreeB.metadata.worktreeId]),
       });
@@ -264,8 +263,8 @@ describe("workbench apply and integration slow flows", () => {
       await git(getTempDir(), ["add", "."]);
       await git(getTempDir(), ["commit", "-m", "initial"]);
       await initHarness(project());
-      await writeRawActiveChange(getTempDir(), "demand-a", "Demand A");
-      await writeRawActiveChange(getTempDir(), "demand-b", "Demand B");
+      await createConversationChangeFixture(project(), { title: "Demand A" });
+      await createConversationChangeFixture(project(), { title: "Demand B" });
       await writeAcceptedSpecAndTasks("demand-a");
       await writeAcceptedSpecAndTasks("demand-b");
       const memory = await resolveProjectMemory(project());
@@ -326,7 +325,7 @@ describe("workbench apply and integration slow flows", () => {
       await git(getTempDir(), ["add", "."]);
       await git(getTempDir(), ["commit", "-m", "initial"]);
       await initHarness(project());
-      await writeRawActiveChange(getTempDir(), "demand-a", "Demand A");
+      await createConversationChangeFixture(project(), { title: "Demand A" });
       await writeAcceptedSpecAndTasks("demand-a");
       const memory = await resolveProjectMemory(project());
       const worktreeA = await createWorktree(project(), memory, "demand-a");
@@ -340,7 +339,6 @@ describe("workbench apply and integration slow flows", () => {
       await writeValidationResultWithHash("demand-a", "run-validation-b", worktreeB.metadata.worktreeId, diffB.diffHash, "passed");
       await writeAuditResultWithHash("demand-a", "run-audit-b", worktreeB.metadata.worktreeId, diffB.diffHash, "approved");
 
-      await acceptAllAuditGatesAndGetSnapshot("demand-a");
       const checked = await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
         actionType: "apply-check.run",
         changeId: "demand-a",
@@ -356,7 +354,8 @@ describe("workbench apply and integration slow flows", () => {
       expect(existsSync(join(getTempDir(), "b.txt"))).toBe(false);
 
       const after = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "demand-a" });
-      expect(after.right.confirmationQueue.primary).toMatchObject({
+      const integrationApply = after.right.confirmationQueue.current.find((item) => item.kind === "integration-apply");
+      expect(integrationApply).toMatchObject({
         kind: "integration-apply",
         whyNeedsConfirmation: "兼容性检查已通过，是否应用这些结果需要你确认。",
       });
@@ -376,8 +375,8 @@ describe("workbench apply and integration slow flows", () => {
       await git(getTempDir(), ["add", "."]);
       await git(getTempDir(), ["commit", "-m", "initial"]);
       await initHarness(project());
-      await writeRawActiveChange(getTempDir(), "demand-a", "Demand A");
-      await writeRawActiveChange(getTempDir(), "demand-b", "Demand B");
+      await createConversationChangeFixture(project(), { title: "Demand A" });
+      await createConversationChangeFixture(project(), { title: "Demand B" });
       await writeAcceptedSpecAndTasks("demand-a");
       await writeAcceptedSpecAndTasks("demand-b");
       const memory = await resolveProjectMemory(project());
@@ -419,7 +418,7 @@ describe("workbench apply and integration slow flows", () => {
       await git(getTempDir(), ["add", "."]);
       await git(getTempDir(), ["commit", "-m", "initial"]);
       await initHarness(project());
-      await writeRawActiveChange(getTempDir(), "demand-a", "Demand A");
+      await createConversationChangeFixture(project(), { title: "Demand A" });
       await writeAcceptedSpecAndTasks("demand-a");
       const memory = await resolveProjectMemory(project());
       const worktreeA = await createWorktree(project(), memory, "demand-a");
@@ -479,7 +478,7 @@ describe("workbench apply and integration slow flows", () => {
       await git(getTempDir(), ["add", "."]);
       await git(getTempDir(), ["commit", "-m", "initial"]);
       await initHarness(project());
-      await createChange(project(), { title: "Source Drift Demand" });
+      await createConversationChangeFixture(project(), { title: "Source Drift Demand" });
       await writeAcceptedSpecAndTasks("source-drift-demand");
       const memory = await resolveProjectMemory(project());
       const worktree = await createWorktree(project(), memory, "source-drift-demand");
@@ -522,7 +521,7 @@ describe("workbench apply and integration slow flows", () => {
       await git(getTempDir(), ["add", "."]);
       await git(getTempDir(), ["commit", "-m", "initial"]);
       await initHarness(project());
-      await createChange(project(), { title: "Dirty Source Demand" });
+      await createConversationChangeFixture(project(), { title: "Dirty Source Demand" });
       await writeAcceptedSpecAndTasks("dirty-source-demand");
       const memory = await resolveProjectMemory(project());
       const worktree = await createWorktree(project(), memory, "dirty-source-demand");
@@ -562,15 +561,4 @@ async function acceptAuditAndGetSnapshot(topicId: string) {
   await executeWorkbenchAction({ project: project(), path: getTempDir() }, { action: auditAccept, confirm: true });
   snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId });
   return snapshot;
-}
-
-async function acceptAllAuditGatesAndGetSnapshot(topicId: string) {
-  let snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId });
-  for (let index = 0; index < 10; index += 1) {
-    const auditAccept = snapshot.right.confirmationQueue.primary?.actions.find((action) => action.action?.actionId === "audit.accept")?.action;
-    if (!auditAccept) return snapshot;
-    await executeWorkbenchAction({ project: project(), path: getTempDir() }, { action: auditAccept, confirm: true });
-    snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId });
-  }
-  throw new Error(`Audit gate did not settle for ${topicId}.`);
 }

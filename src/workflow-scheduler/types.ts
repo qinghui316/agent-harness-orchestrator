@@ -1,5 +1,4 @@
 import type { WorkerPermissionProfile, WorkflowGraphStage } from "../types/index.js";
-import type { DecompositionPlan, DecompositionReadinessManifest } from "../workflow-artifacts/types.js";
 
 export type SchedulerContractStatus = "compiled" | "superseded" | "rejected";
 export type SchedulerDispatchDryRunStatus = "generated" | "superseded" | "rejected";
@@ -42,8 +41,7 @@ export interface SchedulerContract {
   changeId: string;
   status: SchedulerContractStatus;
   schedulerMode: SchedulerMode;
-  decompositionPlanId: string;
-  readinessManifestId: string;
+  workflowGraphPlanId: string;
   nodes: SchedulerContractNode[];
   edges: SchedulerContractEdge[];
   waves: SchedulerContractWave[];
@@ -54,11 +52,6 @@ export interface SchedulerContract {
   markdownArtifact: string;
   createdAt: string;
   updatedAt: string;
-}
-
-export interface SchedulerContractCompileInput {
-  plan: DecompositionPlan;
-  readiness: DecompositionReadinessManifest;
 }
 
 export interface SchedulerDryRunNodeVerdict {
@@ -90,8 +83,7 @@ export interface SchedulerDispatchDryRun {
   status: SchedulerDispatchDryRunStatus;
   schedulerMode: SchedulerMode;
   schedulerContractId: string;
-  decompositionPlanId: string;
-  readinessManifestId: string;
+  workflowGraphPlanId: string;
   nodeVerdicts: SchedulerDryRunNodeVerdict[];
   waveVerdicts: SchedulerDryRunWaveVerdict[];
   estimatedMaxWaveWidth: number;
@@ -157,8 +149,7 @@ export interface SchedulerWorkerSessionPlan {
   schedulerMode: SchedulerMode;
   schedulerContractId: string;
   schedulerDispatchDryRunId: string;
-  decompositionPlanId: string;
-  readinessManifestId: string;
+  workflowGraphPlanId: string;
   plannedNodes: SchedulerWorkerPlanNode[];
   plannedStages: SchedulerWorkerPlanStage[];
   plannedWorkerCount: number;
@@ -216,8 +207,7 @@ export interface SchedulerClaimReconcilePlan {
   schedulerContractId: string;
   schedulerDispatchDryRunId: string;
   schedulerWorkerPlanId: string;
-  decompositionPlanId: string;
-  readinessManifestId: string;
+  workflowGraphPlanId: string;
   claimIntents: SchedulerClaimIntent[];
   waveCheckpoints: SchedulerReconcileWaveCheckpoint[];
   plannedSlotDemand: number;
@@ -268,8 +258,7 @@ export interface SchedulerLaunchPreflight {
   schedulerDispatchDryRunId: string;
   schedulerWorkerPlanId: string;
   schedulerClaimReconcilePlanId: string;
-  decompositionPlanId: string;
-  readinessManifestId: string;
+  workflowGraphPlanId: string;
   claimSummaries: SchedulerLaunchPreflightClaimSummary[];
   sourceLockSummaries: SchedulerLaunchPreflightSourceLockSummary[];
   plannedSlotDemand: number;
@@ -299,8 +288,7 @@ export interface SchedulerRun {
   schedulerWorkerPlanId: string;
   schedulerClaimReconcilePlanId: string;
   schedulerLaunchPreflightId: string;
-  decompositionPlanId: string;
-  readinessManifestId: string;
+  workflowGraphPlanId: string;
   claimIntentCount: number;
   plannedSlotDemand: number;
   maxPlannedWaveWidth: number;

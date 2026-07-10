@@ -13,9 +13,10 @@ import { startLocalCommandRun } from "../../src/run/manager.js";
 import { TerminalRuntime } from "../../src/server/terminal/terminal-runtime.js";
 import { buildNativeFolderDialogCommand, executeWorkbenchAction, startWorkbenchServer, type WorkbenchServerHandle } from "../../src/server/workbench-server.js";
 import type { ManagedProject } from "../../src/types/index.js";
-import { appendTopicThreadEntry, buildInitialMainAgentPrompt, buildProjectScopedMainAgentPrompt } from "../../src/workbench/chat.js";
+import { appendConversationThreadEntry, buildInitialMainAgentPrompt, buildProjectScopedMainAgentPrompt } from "../../src/workbench/chat.js";
 import { validatePlanHandoffIntent } from "../../src/workbench/plan-handoff.js";
 import type { WorkbenchLiveSink } from "../../src/workbench/types.js";
+import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
 
 let tempDir: string;
 let staticRoot: string;
@@ -23,6 +24,7 @@ let registryRoot: string;
 let handle: WorkbenchServerHandle | null = null;
 let originalCodexHome: string | undefined;
 let originalAhoHome: string | undefined;
+let serverConversationId: string;
 const execFileAsync = promisify(execFile);
 
 interface SnapshotResponse {
@@ -47,7 +49,7 @@ async function fakeInitialMainAgentTurn(
   live?: WorkbenchLiveSink,
 ) {
   live?.emit({ event: "run.status", data: { runId: "run-main-agent-initial-test", status: "running", label: "Codex" } });
-  const entry = await appendTopicThreadEntry(inputProject, changeId, {
+  const entry = await appendConversationThreadEntry(inputProject, changeId, {
     type: "assistant.message",
     status: "main-agent-initial-turn",
     text: `主 Agent 已读取需求，下一步会先判断规划边界：${userMessage}`,
@@ -77,7 +79,8 @@ describe("workbench server", () => {
     process.env.CODEX_HOME = join(tempDir, "codex-home");
     await writeFile(join(staticRoot, "index.html"), "<div>AHO</div>", "utf8");
     await initHarness(project());
-    await createChange(project(), { title: "Server Topic" });
+    const conversation = await createConversationChangeFixture(project(), { title: "Server Topic" });
+    serverConversationId = conversation.conversationId;
     await startLocalCommandRun(project(), [process.execPath, "-e", "console.log('server stream')"]);
     handle = await startWorkbenchServer({ project: project(), path: tempDir }, {
       port: 0,
@@ -99,7 +102,7 @@ describe("workbench server", () => {
 
   it("serves workbench JSON routes and static index", async () => {
     const snapshot = await getJson<SnapshotResponse>(`${handle!.url}/api/workbench/snapshot`);
-    expect(snapshot.left.topics[0]).toMatchObject({ id: "server-topic" });
+    expect(snapshot.left.topics[0]).toMatchObject({ id: serverConversationId, boundChangeId: "server-topic" });
 
     const topics = await getJson<unknown[]>(`${handle!.url}/api/workbench/topics`);
     expect(topics).toHaveLength(1);
@@ -109,6 +112,23 @@ describe("workbench server", () => {
 
     const page = await fetch(`${handle!.url}/`);
     expect(await page.text()).toContain("AHO");
+  });
+
+  it("serves messages and replay through the bound conversation id", async () => {
+    await appendConversationThreadEntry(project(), "server-topic", { type: "user.message", text: "Conversation route message." });
+
+    const payload = await getJson<{ messages: Array<{ conversationId: string; changeId: string; text?: string }> }>(
+      `${handle!.url}/api/projects/repo/workbench/topics/${serverConversationId}/messages`,
+    );
+    const conversationId = payload.messages[0]?.conversationId;
+    expect(conversationId).toBe(serverConversationId);
+    expect(payload.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ conversationId, changeId: "server-topic", text: "Conversation route message." }),
+    ]));
+
+    const replay = await fetch(`${handle!.url}/api/projects/repo/workbench/topics/${serverConversationId}/messages/stream`);
+    expect(replay.ok).toBe(true);
+    expect(await replay.text()).toContain(`"conversationId":"${conversationId}"`);
   });
 
   it("serves project Skill catalog and Codex bridge routes", async () => {
@@ -240,32 +260,34 @@ describe("workbench server", () => {
     expect(prompt).not.toContain("planning-agent");
   });
 
-  it("allows project-scoped parent turns to use provider-native planning without simulating child output", () => {
-    const prompt = buildProjectScopedMainAgentPrompt("请用原生 Plan Mode 生成计划");
+  it("requires project-scoped parent turns to use a real workflow-authoring child", () => {
+    const prompt = buildProjectScopedMainAgentPrompt("请让计划子 Agent 生成计划");
 
-    expect(prompt).toContain("you may use provider-native planning or collaboration tools");
-    expect(prompt).toContain("Prefer provider-native Plan Mode or child-Agent collaboration");
+    expect(prompt).toContain("MUST use the real spawn_agent collaboration tool");
+    expect(prompt).toContain("$aho-workflow-authoring");
     expect(prompt).toContain("Only native runtime tool/Plan/question events count as child-Agent or planning-session work");
+    expect(prompt).toContain("Do not fall back to Plan Mode, codex exec, or fabricated child output");
     expect(prompt).toContain("read project guidance, enabled skills, and docs");
     expect(prompt).toContain("use available tools according to the project rules");
     expect(prompt).toContain("Do not assume Workbench will create Harness records or execute the plan for you");
     expect(prompt).not.toContain("wait for the user or an explicit workflow action");
-    expect(prompt).toContain("请用原生 Plan Mode 生成计划");
+    expect(prompt).toContain("请让计划子 Agent 生成计划");
   });
 
   it("adds project-rule routing context for validated plan handoff turns", () => {
     const handoff = validatePlanHandoffIntent([{
-      id: "assistant:conv:run-plan:plan-session",
+      id: "assistant:conv:run-plan:planning-agent",
       type: "assistant.message",
       timestamp: "2026-07-07T00:00:00.000Z",
       conversationId: "conv-plan",
       changeId: "",
       runId: "run-plan",
-      agentRoleId: "plan-session",
+      agentRoleId: "planning-agent",
       text: "1. 修改 UI\n2. 补测试",
+      artifact: "conversation-runs/conv-plan/run-plan/planner-proposal.json",
     }], {
       sourceRunId: "run-plan",
-      sourceAgentRoleId: "plan-session",
+      sourceAgentRoleId: "planning-agent",
       kind: "execute-plan",
     });
     const prompt = buildProjectScopedMainAgentPrompt("请主 Agent 基于当前计划继续判断执行路径。", handoff);
@@ -282,7 +304,7 @@ describe("workbench server", () => {
   it("rejects forged or unsupported plan handoff sources", () => {
     expect(() => validatePlanHandoffIntent([], {
       sourceRunId: "missing-run",
-      sourceAgentRoleId: "plan-session",
+      sourceAgentRoleId: "planning-agent",
       kind: "execute-plan",
     })).toThrow(/stale or unavailable/);
     expect(() => validatePlanHandoffIntent([{
@@ -602,18 +624,18 @@ describe("workbench server", () => {
   });
 
   it("serves lazy Workbench projections separately from the snapshot shell", async () => {
-    const snapshot = await getJson<SnapshotResponse & { center: { agentRunGraph: { nodes: unknown[] }; agentLoop: { runs: Array<{ id: string }> } } }>(`${handle!.url}/api/workbench/snapshot?topic=server-topic`);
+    const snapshot = await getJson<SnapshotResponse & { center: { agentRunGraph: { nodes: unknown[] }; agentLoop: { runs: Array<{ id: string }> } } }>(`${handle!.url}/api/workbench/snapshot?topic=${serverConversationId}`);
     expect(snapshot.center.agentRunGraph.nodes).toEqual([]);
 
-    const transcript = await getJson<{ cells: unknown[] }>(`${handle!.url}/api/workbench/projections/transcript/server-topic`);
+    const transcript = await getJson<{ cells: unknown[] }>(`${handle!.url}/api/workbench/projections/transcript/${serverConversationId}`);
     expect(Array.isArray(transcript.cells)).toBe(true);
 
-    const pagedTranscript = await getJson<{ cells: unknown[]; paging?: { limit: number; totalCount: number; hasMoreBefore: boolean } }>(`${handle!.url}/api/workbench/projections/transcript/server-topic?limit=2`);
+    const pagedTranscript = await getJson<{ cells: unknown[]; paging?: { limit: number; totalCount: number; hasMoreBefore: boolean } }>(`${handle!.url}/api/workbench/projections/transcript/${serverConversationId}?limit=2`);
     expect(Array.isArray(pagedTranscript.cells)).toBe(true);
     expect(pagedTranscript.paging?.limit).toBe(2);
     expect(typeof pagedTranscript.paging?.totalCount).toBe("number");
 
-    const graph = await getJson<{ nodes: Array<{ id: string }> }>(`${handle!.url}/api/workbench/projections/run-graph/server-topic`);
+    const graph = await getJson<{ nodes: Array<{ id: string }> }>(`${handle!.url}/api/workbench/projections/run-graph/${serverConversationId}`);
     expect(graph.nodes.some((node) => node.id === "main-agent")).toBe(true);
   });
 
@@ -665,7 +687,7 @@ describe("workbench server", () => {
         `${appHandle.url}/api/projects/${addedBody.project.id}/workbench/projections/transcript/${projectTopicId}?limit=100`,
       );
       expect(Array.isArray(projectTranscript.cells)).toBe(true);
-      await appendTopicThreadEntry({ ...project(), id: addedBody.project.id, name: "Server Repo" }, "server-topic", {
+      await appendConversationThreadEntry({ ...project(), id: addedBody.project.id, name: "Server Repo" }, "server-topic", {
         type: "workflow.completed",
         actionRunId: "action-private-path",
         actionType: "code.run",

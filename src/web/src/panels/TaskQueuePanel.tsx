@@ -1,4 +1,4 @@
-import type { ReactElement } from "react";
+﻿import type { ReactElement } from "react";
 import { workflowActionPayloadFromScope } from "../workflow-actions.js";
 
 type QueueActionScope = {
@@ -8,9 +8,6 @@ type QueueActionScope = {
   disabledReason?: string;
   changeId?: string;
   proposalId?: string;
-  decompositionPlanId?: string;
-  readinessManifestId?: string;
-  taskQueueProposalId?: string;
   workflowGraphPlanId?: string;
   workflowRunId?: string;
   queueRunId?: string;
