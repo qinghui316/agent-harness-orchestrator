@@ -1,8 +1,18 @@
 import { createHash } from "node:crypto";
 import { join } from "node:path";
+import { isAbsolute, relative, resolve } from "node:path";
 import { z } from "zod";
+import {
+  acceptPlanningPackage,
+  type AcceptedPlanningPackage,
+  type PlanningAcceptanceCommitPort,
+  type ValidatedPlanningPackageInput,
+} from "../../change/manager.js";
 import { writeJsonFile } from "../../fs/json.js";
 import { readRequiredJsonFile } from "../../fs/json.js";
+import { resolveProjectMemory } from "../../memory/resolver.js";
+import type { ManagedProject } from "../../types/index.js";
+import { WorkbenchStore } from "../store.js";
 
 const plannerChildOutputSchema = z.object({
   status: z.enum(["proposed", "blocked", "failed"]).default("proposed"),
@@ -39,6 +49,8 @@ const plannerChildProposalSchema = plannerChildOutputSchema.extend({
   createdAt: z.string(),
   artifact: z.string(),
 });
+
+const planningAcceptanceLocks = new Map<string, Promise<void>>();
 
 export async function readPlannerChildProposal(path: string): Promise<PlannerChildProposal> {
   const proposal = await readRequiredJsonFile(path, plannerChildProposalSchema) as PlannerChildProposal;
@@ -109,6 +121,105 @@ export async function writePlannerChildProposal(input: {
   return proposal;
 }
 
+export async function acceptCurrentConversationPlanningPackage(
+  project: ManagedProject,
+  conversationId: string,
+  proposalArtifact: string,
+): Promise<AcceptedPlanningPackage> {
+  const key = `${project.path}:${project.id}:${conversationId}`;
+  const previous = planningAcceptanceLocks.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolvePromise) => { release = resolvePromise; });
+  const queued = previous.then(() => current);
+  planningAcceptanceLocks.set(key, queued);
+  await previous;
+  try {
+    return await acceptCurrentConversationPlanningPackageUnlocked(project, conversationId, proposalArtifact);
+  } finally {
+    release();
+    if (planningAcceptanceLocks.get(key) === queued) planningAcceptanceLocks.delete(key);
+  }
+}
+
+async function acceptCurrentConversationPlanningPackageUnlocked(
+  project: ManagedProject,
+  conversationId: string,
+  proposalArtifact: string,
+): Promise<AcceptedPlanningPackage> {
+  const memory = await resolveProjectMemory(project);
+  if (!memory.projectId) throw new Error("Project id is required to accept a conversation planning package.");
+  const input = await validateCurrentConversationPlanningPackage(memory, conversationId, proposalArtifact);
+  const store = await WorkbenchStore.open(memory);
+  try {
+    const commitPort: PlanningAcceptanceCommitPort = {
+      hasCommit: (transactionId) => store.hasPlanningAcceptanceCommit(transactionId),
+      commit: (commit) => store.acceptConversationChangeBinding(
+        commit.projectId,
+        commit.conversationId,
+        commit.changeId,
+        commit.acceptedAt,
+        commit.transactionId,
+        commit.proposalHash,
+      ),
+      deleteCommit: (transactionId) => store.deletePlanningAcceptanceCommit(transactionId),
+    };
+    return await acceptPlanningPackage(project, input, commitPort);
+  } finally {
+    store.close();
+  }
+}
+
+async function validateCurrentConversationPlanningPackage(
+  memory: Awaited<ReturnType<typeof resolveProjectMemory>>,
+  conversationId: string,
+  proposalArtifact: string,
+): Promise<ValidatedPlanningPackageInput> {
+  const proposalRoot = resolve(memory.workbenchRoot, "conversations", conversationId, "runs");
+  const proposalPath = resolve(proposalArtifact);
+  const proposalScope = relative(proposalRoot, proposalPath);
+  if (!proposalScope || proposalScope.startsWith("..") || isAbsolute(proposalScope)) {
+    throw new Error("Planner proposal artifact is outside the selected conversation run scope.");
+  }
+  const proposal = await readPlannerChildProposal(proposalPath);
+  if (proposal.projectId !== memory.projectId || proposal.conversationId !== conversationId) {
+    throw new Error("Planner proposal is not scoped to the selected conversation.");
+  }
+  if (proposal.status !== "proposed" || proposal.openQuestions.length > 0) {
+    throw new Error("Only a complete proposed planner result with no open questions can be accepted.");
+  }
+
+  const store = await WorkbenchStore.open(memory);
+  try {
+    const conversation = store.readConversation(memory.projectId, conversationId);
+    if (!conversation) throw new Error(`Conversation not found: ${conversationId}.`);
+    const mainThread = store.readProviderThread(memory.projectId, conversationId, "main-agent");
+    const childThread = store.listProviderThreads(memory.projectId, conversationId)
+      .find((link) => link.providerThreadId === proposal.childThreadId && link.roleId === "planning-agent");
+    if (!mainThread || !childThread || childThread.parentThreadId !== proposal.parentThreadId || proposal.parentThreadId !== mainThread.providerThreadId) {
+      throw new Error("Planner proposal does not belong to the current Main/child provider lineage.");
+    }
+    const latestProposalArtifact = store.listConversationMessages(memory.projectId, conversationId)
+      .filter((message) => storedAgentRoleId(message.rawJson) === "planning-agent" && Boolean(message.artifact))
+      .at(-1)?.artifact;
+    if (latestProposalArtifact !== proposal.artifact) throw new Error("Planner proposal is stale or superseded.");
+    return {
+      conversationId,
+      conversationTitle: conversation.title,
+      boundChangeId: conversation.boundChangeId,
+      proposal: {
+        id: proposal.id,
+        hash: proposal.hash,
+        artifact: proposal.artifact,
+        specMd: proposal.specMd,
+        planMd: proposal.planMd,
+        tasksMd: proposal.tasksMd,
+      },
+    };
+  } finally {
+    store.close();
+  }
+}
+
 function proposalHash(input: {
   projectId: string;
   conversationId: string;
@@ -131,4 +242,13 @@ function unwrapJsonFence(value: string): string {
   const trimmed = value.trim();
   const match = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
   return (match?.[1] ?? trimmed).trim();
+}
+
+function storedAgentRoleId(rawJson: string): string | undefined {
+  try {
+    const value = JSON.parse(rawJson) as { agentRoleId?: unknown };
+    return typeof value.agentRoleId === "string" ? value.agentRoleId : undefined;
+  } catch {
+    return undefined;
+  }
 }

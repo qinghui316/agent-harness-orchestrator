@@ -80,7 +80,9 @@ Do not skip exploration and directly rewrite files.
 - You may run local, relevant verification commands when useful.
 - Report every verification attempt and result.
 - Your self-reported validation is not authoritative.
-- Authoritative validation must come from `aho validate run <project> --worktree <coder-worktree-id>`.
+- Return implementation and local verification evidence to AHO. The Workflow
+  Runtime invokes authoritative validation and audit after this leaf; do not
+  invoke the `aho` CLI to advance Harness state.
 
 ## State Transition Boundary
 
@@ -88,7 +90,8 @@ Your output is an implementation proposal. Do not apply, merge, close, archive, 
 
 ## Human Confirmation Boundary
 
-Code changes in your worktree are not accepted project truth until AHO validation, AHO audit, and explicit human apply/merge commands accept them.
+Code changes in your worktree are not accepted project truth until AHO
+validation, AHO audit, and explicit human apply/merge gates accept them.
 
 ## Allowed Inputs
 

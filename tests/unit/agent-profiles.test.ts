@@ -47,7 +47,8 @@ describe("agent role profiles", () => {
   it("keeps spec-test proposer as a proposal-only evidence suggester", async () => {
     const content = await readProfile("spec-test-proposer");
 
-    expect(content).toContain("Only `aho spec-test proposal accept` may write accepted mappings to `spec-tests.json`");
+    expect(content).toContain("Return it to AHO and wait for the existing explicit");
+    expect(content).toContain("Do not invoke the `aho`");
     expect(content).toContain('"refId": "ev-001"');
     expect(content).toContain('"source": "source-root | worktree-only | suggested | unknown"');
     expect(content).toContain("Do not invent test names, files, command names, command results, or Acceptance Criteria.");
@@ -103,5 +104,13 @@ describe("agent role profiles", () => {
     expect(content).toContain("Do not write project or Harness files.");
     expect(content).toContain("Do not recursively delegate to another Agent.");
     expect(content).toContain("Do not use parent-thread Plan Mode");
+    expect(content).toContain("Do not invoke the `aho` CLI");
+  });
+
+  it("keeps Runtime-owned transitions out of Agent self-CLI control", async () => {
+    for (const name of ["planning-agent", "coder", "spec-test-proposer", "spec-test-generator"]) {
+      const content = await readProfile(name);
+      expect(content).not.toMatch(/`aho\s+(validate|audit|code|spec-test|worktree|change|run)\b/);
+    }
   });
 });

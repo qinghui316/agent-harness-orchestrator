@@ -3,6 +3,7 @@ import { writeFile } from "node:fs/promises";
 import { workerPermissionProfileForRole } from "../agent-task/tool-policy.js";
 import { collectWorktreeDiff } from "../audit/diff.js";
 import { runCodexAppServerTurn } from "../codex/app-server.js";
+import { resolveCodexExecutable } from "../codex/executable.js";
 import { resolveCodexEffectiveModel } from "../codex/model-settings.js";
 import { writeJsonFile } from "../fs/json.js";
 import { codexProviderRunMetadata } from "../provider-runtime/index.js";
@@ -28,7 +29,8 @@ export async function runCodexAppServerCode(input: {
   createdWarnings: string[];
   live?: CodeRunLiveCallbacks;
 }): Promise<CodeRunResult> {
-  let run: RunMetadata = { ...input.run, command: ["codex", "app-server", "--listen", "stdio://"], status: "running" };
+  const codexExecutable = resolveCodexExecutable();
+  let run: RunMetadata = { ...input.run, command: [codexExecutable, "app-server", "--listen", "stdio://"], status: "running" };
   await writeRunAndStartedEvents(input.paths, run, input.worktree, input.live);
   let continuity = await createRuntimeContinuityArtifacts(input.paths, {
     projectId: input.project.id,
@@ -55,7 +57,7 @@ export async function runCodexAppServerCode(input: {
   recordContinuity(appendPermissionProfileAttached(input.paths, continuity, { source: "code.app-server" }));
   recordContinuity(appendExternalExecutionRequested(input.paths, continuity, {
     requestId: `${run.id}:codex-app-server`,
-    command: "codex",
+    command: codexExecutable,
     args: ["app-server", "--listen", "stdio://"],
     cwd: input.worktree.checkoutPath,
     adapter: "codex-app-server",

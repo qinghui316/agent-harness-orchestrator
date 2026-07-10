@@ -4,6 +4,7 @@ import { z } from "zod";
 import { getAhoHome } from "../fs/path.js";
 import { readJsonFile, writeJsonFile } from "../fs/json.js";
 import { codexRuntimeConfigArgs } from "./capabilities.js";
+import { resolveCodexExecutable } from "./executable.js";
 import { readCodexConfigModelStatus } from "./trust.js";
 
 export type CodexModelCandidateSource = "runtime" | "config";
@@ -145,7 +146,7 @@ export async function listCodexRuntimeModels(projectPath = process.cwd()): Promi
   let requestId = 1;
   const pending = new Map<number, { resolve: (value: Record<string, unknown>) => void; reject: (error: Error) => void }>();
   try {
-    child = spawn("codex", [...codexRuntimeConfigArgs(), "app-server", "--listen", "stdio://"], {
+    child = spawn(resolveCodexExecutable(), [...codexRuntimeConfigArgs(), "app-server", "--listen", "stdio://"], {
       cwd: projectPath,
       shell: false,
       windowsHide: true,

@@ -1,0 +1,8 @@
+{
+  "name": "aho-provider-golden-project",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  }
+}

@@ -57,11 +57,16 @@ Do not treat chat history, hidden session memory, model memory, or unprovided re
 
 ## State Transition Boundary
 
-Your output is a proposal. Only `aho spec-test proposal accept` may write accepted mappings to `spec-tests.json`. Do not accept evidence on behalf of the user, do not close the change, and do not mark any AC as proven.
+Your output is a proposal. Return it to AHO and wait for the existing explicit
+acceptance gate to write mappings to `spec-tests.json`. Do not invoke the `aho`
+CLI, accept evidence on behalf of the user, close the change, or mark any AC as
+proven.
 
 ## Human Confirmation Boundary
 
-Human confirmation is represented by an explicit AHO command after your proposal. Your proposal is not accepted project truth until AHO writes it through its deterministic writer.
+Human confirmation is represented by an explicit AHO gate after your proposal.
+Your proposal is not accepted project truth until AHO writes it through its
+deterministic writer.
 
 ## Allowed Inputs
 

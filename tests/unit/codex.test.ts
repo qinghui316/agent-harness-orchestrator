@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { evaluateCodexAppServerCapabilities, extractCodexAppServerCollabToolCall, extractCodexAppServerPlanText, extractCodexAppServerThreadFinalText, shouldUseCodexAppServerForMemory, shouldUseCodexAppServerForReadOnlyTurn } from "../../src/codex/app-server.js";
-import { buildCodexReadonlyArgv, buildCodexReadonlyResumeArgv, buildCodexWorkspaceWriteArgv, evaluateCodexCapabilities } from "../../src/codex/capabilities.js";
+import { evaluateCodexAppServerCapabilities, extractCodexAppServerCollabToolCall, extractCodexAppServerPlanText, extractCodexAppServerThreadFinalText, extractCodexAppServerThreadInitialPrompt, shouldUseCodexAppServerForMemory, shouldUseCodexAppServerForReadOnlyTurn } from "../../src/codex/app-server.js";
+import { buildCodexReadonlyArgv, buildCodexReadonlyResumeArgv, buildCodexWorkspaceWriteArgv, detectCodexCapabilities, evaluateCodexCapabilities } from "../../src/codex/capabilities.js";
+import { codexExecutableEnvironmentKey, resolveCodexExecutable } from "../../src/codex/executable.js";
 import { createCodexJsonlStreamParser, extractFinalMessageFromCodexJsonl, truncateReadablePreview, type CodexJsonlStreamEvent } from "../../src/codex/jsonl.js";
 import { candidatesFromModelListResponse, getCodexModelSettingsSnapshot, resolveCodexEffectiveModel, setSelectedCodexModel } from "../../src/codex/model-settings.js";
 import { composeCodexPrompt, readPromptInput } from "../../src/codex/prompt.js";
@@ -23,6 +24,37 @@ const execHelp = [
 ].join("\n");
 
 describe("codex capabilities", () => {
+  it("resolves one explicit Codex executable without depending on an AHO CLI", () => {
+    expect(resolveCodexExecutable({})).toBe("codex");
+    expect(resolveCodexExecutable({ AHO_CODEX_BIN: " C:\\Tools\\codex.cmd " })).toBe("C:\\Tools\\codex.cmd");
+    expect(codexExecutableEnvironmentKey()).toBe("AHO_CODEX_BIN");
+  });
+
+  it.runIf(process.platform === "win32")("starts an explicitly configured Windows .cmd executable during capability probing", async () => {
+    const temp = await mkdtemp(join(tmpdir(), "aho codex cmd "));
+    const executable = join(temp, "fake codex.cmd");
+    const previous = process.env.AHO_CODEX_BIN;
+    try {
+      await writeFile(executable, [
+        "@echo off",
+        "echo codex-cli fixture",
+        "echo --json --sandbox --cd --add-dir --color --output-last-message",
+      ].join("\r\n"), "utf8");
+      process.env.AHO_CODEX_BIN = executable;
+
+      const capabilities = await detectCodexCapabilities();
+
+      expect(capabilities.available).toBe(true);
+      expect(capabilities.version).toContain("codex-cli fixture");
+      expect(capabilities.supportsJson).toBe(true);
+      expect(capabilities.supportsSandbox).toBe(true);
+      expect(capabilities.supportsCd).toBe(true);
+    } finally {
+      if (previous === undefined) delete process.env.AHO_CODEX_BIN;
+      else process.env.AHO_CODEX_BIN = previous;
+      await rm(temp, { recursive: true, force: true });
+    }
+  });
   it("detects app-server stdio lifecycle support from help", () => {
     const capabilities = evaluateCodexAppServerCapabilities("Usage: codex app-server [OPTIONS]\n  --listen <URL>  default: stdio://\nRun the app server");
 
@@ -109,15 +141,17 @@ describe("codex capabilities", () => {
   });
 
   it("reads the final assistant output from a provider child thread snapshot", () => {
-    expect(extractCodexAppServerThreadFinalText({
+    const snapshot = {
       thread: {
         id: "thread-child",
         turns: [{ items: [
-          { type: "userMessage", role: "user", content: [{ type: "input_text", text: "draft" }] },
+          { type: "userMessage", role: "user", content: [{ type: "input_text", text: "Use $aho-workflow-authoring and draft the proposal." }] },
           { type: "agentMessage", role: "assistant", content: [{ type: "output_text", text: "{\"planMd\":\"# Plan\"}" }] },
         ] }],
       },
-    })).toBe('{"planMd":"# Plan"}');
+    };
+    expect(extractCodexAppServerThreadInitialPrompt(snapshot)).toBe("Use $aho-workflow-authoring and draft the proposal.");
+    expect(extractCodexAppServerThreadFinalText(snapshot)).toBe('{"planMd":"# Plan"}');
   });
 
   it("builds root-level approval argv", () => {

@@ -2,6 +2,7 @@ import { executeProcessStreaming } from "../run/process.js";
 import { join } from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { resolveCodexExecutable } from "./executable.js";
 
 export type ApprovalFlagPlacement = "root" | "exec" | "unsupported";
 
@@ -21,7 +22,7 @@ export interface CodexCapabilities {
 }
 
 export interface CodexArgv {
-  command: "codex";
+  command: string;
   args: string[];
 }
 
@@ -56,7 +57,7 @@ export function evaluateCodexCapabilities(versionOutput: string | null, rootHelp
   const supportsResumeAddDir = includesFlag(resumeHelp, "--add-dir");
   const supportsSafeResume = includesFlag(resumeHelp, "--sandbox") && (includesFlag(resumeHelp, "--cd") || includesFlag(resumeHelp, "-C, --cd"));
 
-  if (!available) errors.push("Codex CLI is not available on PATH.");
+  if (!available) errors.push(`Codex CLI is unavailable at ${resolveCodexExecutable()}.`);
   if (!supportsJson) errors.push("Codex exec does not support --json.");
   if (!supportsSandbox) errors.push("Codex exec does not support --sandbox.");
   if (!supportsCd) errors.push("Codex exec does not support --cd.");
@@ -140,7 +141,7 @@ export function buildCodexReadonlyArgv(capabilities: CodexCapabilities, options:
   if (options.profile) args.push("--profile", options.profile);
   args.push("-");
 
-  return { command: "codex", args };
+  return { command: resolveCodexExecutable(), args };
 }
 
 export function buildCodexReadonlyResumeArgv(capabilities: CodexCapabilities, options: CodexArgvOptions & { sessionId: string }): CodexArgv {
@@ -163,7 +164,7 @@ export function buildCodexReadonlyResumeArgv(capabilities: CodexCapabilities, op
   if (options.profile) args.push("--profile", options.profile);
   args.push(options.sessionId, "-");
 
-  return { command: "codex", args };
+  return { command: resolveCodexExecutable(), args };
 }
 
 export function buildCodexWorkspaceWriteArgv(capabilities: CodexCapabilities, options: CodexArgvOptions): CodexArgv {
@@ -194,7 +195,7 @@ export function buildCodexWorkspaceWriteArgv(capabilities: CodexCapabilities, op
   if (options.profile) args.push("--profile", options.profile);
   args.push("-");
 
-  return { command: "codex", args };
+  return { command: resolveCodexExecutable(), args };
 }
 
 async function captureCodexHelp(args: string[]): Promise<string> {
@@ -204,7 +205,7 @@ async function captureCodexHelp(args: string[]): Promise<string> {
   try {
     const result = await executeProcessStreaming({
       cwd: process.cwd(),
-      command: "codex",
+      command: resolveCodexExecutable(),
       args,
       stdoutPath,
       stderrPath,

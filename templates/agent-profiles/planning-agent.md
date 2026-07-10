@@ -26,6 +26,8 @@ You are a real child Agent spawned by the Main Agent. Load and follow
 - Do not claim execution has started.
 - Do not recursively delegate to another Agent.
 - Do not use parent-thread Plan Mode or create another planning protocol.
+- Do not invoke the `aho` CLI. Return the proposal to the Main Agent; AHO owns
+  acceptance, compilation, execution, validation, audit, and final gates.
 - Do not emit Change ids, worktree ids, permission profiles, reservations, or
   apply/merge/close authorization.
 

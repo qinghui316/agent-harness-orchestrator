@@ -4,9 +4,9 @@ import { createHash, randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { detectCodexAppServerCapability, extractCodexAppServerCollabToolCall, runCodexAppServerTurn, type CodexAppServerCollabToolCall } from "../codex/app-server.js";
 import { resolveCodexEffectiveModel } from "../codex/model-settings.js";
-import { acceptConversationPlanningPackage } from "../change/manager.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { listRuns } from "../run/manager.js";
+import { getTransientSystemSkillContext } from "../skill/catalog.js";
 import { runSchedulerReadySetInitialization } from "../workflow-runtime/scheduler.js";
 import type { ManagedProject, ResolvedMemory, RunMetadata } from "../types/index.js";
 import { buildMainAgentExecutionContext } from "./codex-chat/context.js";
@@ -25,7 +25,7 @@ import { getSingleActiveChangeId, resolveTopic } from "./topic-resolver.js";
 import { appendConversationThreadEntry } from "./conversation-thread.js";
 import { collectAllConversationThreadEntries, fromStoredThreadMessage, readConversationThread as readThreadLog } from "./conversation-thread-log.js";
 import { WorkbenchStore, type StoredTopicMessage } from "./store.js";
-import { writePlannerChildProposal } from "./planning/planner-child-proposal.js";
+import { acceptCurrentConversationPlanningPackage, writePlannerChildProposal } from "./planning/planner-child-proposal.js";
 import type {
   AssistantTurnBlock,
   TopicAttachment,
@@ -204,14 +204,22 @@ export function buildInitialMainAgentPrompt(userMessage: string): string {
   ].join("\n");
 }
 
-export function buildProjectScopedMainAgentPrompt(userMessage: string, planHandoff?: ValidatedPlanHandoffIntent): string {
+export function buildProjectScopedMainAgentPrompt(
+  userMessage: string,
+  planHandoff?: ValidatedPlanHandoffIntent,
+  workflowAuthoringContext = "",
+): string {
   return [
     "You are the main Agent for this project.",
     "Run as a short read-only parent conversation turn. Do not edit files, create working copies, apply changes, close work, or claim approval.",
     "Use the project root and project records as the source of truth. Read the project guidance and docs yourself when needed.",
     "Workbench conversation history is only interaction context; it is not workflow truth.",
-    "You own the current native Goal and decide whether planning is needed. For structured work, create or maintain the native Goal before planning.",
-    "When planning is needed, you MUST use the real spawn_agent collaboration tool to create a planner child and instruct it to load $aho-workflow-authoring. Never use parent-thread Plan Mode as the planner.",
+    "You own the current native Goal. Decide whether this demand warrants a durable multi-turn Goal; do not create one for every ordinary conversation.",
+    "If you decide real planner-child work is needed, create or maintain the native Goal before planning so the accepted objective can resume across gates.",
+    "After every resumed evidence cycle, autonomously decide whether to continue, request plan revision, wait for the user, or call native update_goal(complete) only when the objective is actually satisfied.",
+    "When planning is needed, you MUST use the real spawn_agent collaboration tool to create a planner child. Never use parent-thread Plan Mode as the planner.",
+    "The bundled $aho-workflow-authoring contract is attached to this turn. Include that complete contract in the planner child prompt; do not ask the child to discover a global or project-installed Skill.",
+    "Do not invoke the aho CLI from the shell. Use project files for read-only evidence and the provider tools exposed by this turn for AHO-owned transitions.",
     "Do not write child-Agent output, child-Agent logs, implementation plans, acceptance lists, task lists, or internal runtime details as parent prose.",
     "Only native runtime tool/Plan/question events count as child-Agent or planning-session work; never simulate that work in text.",
     "If real provider-native child collaboration is unavailable, say that plainly. Do not fall back to Plan Mode, codex exec, or fabricated child output.",
@@ -220,6 +228,7 @@ export function buildProjectScopedMainAgentPrompt(userMessage: string, planHando
     "Use plain user-facing words instead, such as 项目记录, 项目说明, 当前任务, 工作副本, 验收点, 计划, 检查, 审查, or 完成前确认.",
     "When you produce a visible parent reply, keep it to 2-4 sentences in the user's language.",
     ...buildMainAgentPlanHandoffPromptContext(planHandoff),
+    ...(workflowAuthoringContext ? ["", workflowAuthoringContext] : []),
     "",
     "User message:",
     userMessage,
@@ -243,7 +252,21 @@ async function runProjectScopedMainAgentTurn(
   const capture = createAssistantTranscriptCapture(live);
   capture.sink.emit({ event: "run.started", data: { runId, conversationId, runtime: "codex-readonly", actionType: "chat.ask" } });
   capture.sink.emit({ event: "run.status", data: { runId, status: "connecting", label: "正在连接 Codex" } });
-  const prompt = buildProjectScopedMainAgentPrompt(userMessage, planHandoff);
+  const authoringSkill = await getTransientSystemSkillContext(project, ["aho-workflow-authoring"]);
+  if (!authoringSkill.promptSection) {
+    throw new Error(`Workflow authoring Skill is unavailable: ${authoringSkill.warnings.join("; ") || "bundled Skill was not found"}.`);
+  }
+  const prompt = buildProjectScopedMainAgentPrompt(userMessage, planHandoff, authoringSkill.promptSection);
+  const planHandoffResume = planHandoff ? {
+    deliveryKey: `plan-handoff:${createHash("sha256").update(JSON.stringify({
+      conversationId,
+      kind: planHandoff.kind,
+      sourceRunId: planHandoff.sourceRunId,
+      sourceArtifact: planHandoff.sourceArtifact,
+      feedback: planHandoff.feedback ?? null,
+    })).digest("hex")}`,
+    contextText: prompt,
+  } : undefined;
   await writeFile(join(directory, "prompt.md"), prompt, "utf8");
   const appServerCapabilities = await detectCodexAppServerCapability();
   if (!appServerCapabilities.available) {
@@ -278,7 +301,7 @@ async function runProjectScopedMainAgentTurn(
     sandboxPolicy: "read-only",
     existingThreadId: mainThreadId,
     goalSession: true,
-    goalResume: options.goalResume,
+    goalResume: options.goalResume ?? planHandoffResume,
     dynamicTools: [
       {
         name: "aho_goal_yield",
@@ -296,7 +319,7 @@ async function runProjectScopedMainAgentTurn(
         return { contentItems: [{ type: "inputText", text: "AHO conversation tools do not accept caller-selected targets." }], success: false };
       }
       if (call.tool === "aho_accept_current_plan" && planHandoff?.kind === "execute-plan") {
-        const accepted = await acceptConversationPlanningPackage(project, conversationId, planHandoff.sourceArtifact);
+        const accepted = await acceptCurrentConversationPlanningPackage(project, conversationId, planHandoff.sourceArtifact);
         boundChangeId = accepted.changeId;
         if (accepted.workflowGraphPlan.graphMode === "ready-set-v1") {
           const acceptedTopic = await resolveTopic(project, accepted.changeId);
@@ -345,7 +368,15 @@ async function runProjectScopedMainAgentTurn(
     onError: (error) => capture.sink.emit({ event: "error", data: { runId, message: error instanceof Error ? error.message : String(error) } }),
     model: effectiveModel.model,
   });
-  const plannerChildren = result.childThreads.filter((child) => child.prompt?.includes("aho-workflow-authoring"));
+  const explicitlyIdentifiedPlannerChildren = result.childThreads.filter((child) => child.prompt?.includes("aho-workflow-authoring"));
+  const plannerChildren = explicitlyIdentifiedPlannerChildren.length > 0
+    ? explicitlyIdentifiedPlannerChildren
+    : result.childThreads.length === 1
+      ? result.childThreads
+      : [];
+  if (result.childThreads.length > 0 && plannerChildren.length !== 1) {
+    throw new Error("Main Agent planning requires exactly one identifiable real planner child.");
+  }
   if ((plannerChildren.length > 0 || planHandoff?.kind === "execute-plan") && !result.goal) {
     throw new Error("Main Agent planning and execution handoff requires a native Goal on the provider thread.");
   }
@@ -382,7 +413,7 @@ async function runProjectScopedMainAgentTurn(
       updatedAt: new Date().toISOString(),
     });
     for (const child of result.childThreads) {
-      const isPlannerChild = child.prompt?.includes("aho-workflow-authoring") ?? false;
+      const isPlannerChild = plannerChildren.some((planner) => planner.threadId === child.threadId);
       store.writeProviderThread({
         projectId: memory.projectId,
         conversationId,

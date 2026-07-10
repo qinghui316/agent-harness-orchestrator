@@ -42,6 +42,22 @@ describe("Workbench module boundaries", () => {
     expect(output.trim()).toBe("");
   });
 
+  it("keeps Change acceptance independent of Workbench, web, and server storage", () => {
+    const output = rgOutput(["-n", "workbench|src/web|src/server|WorkbenchStore", "src/change"]);
+    expect(output.trim()).toBe("");
+  });
+
+  it("keeps Codex launch sites behind the shared executable resolver", () => {
+    const output = rgOutput([
+      "-n",
+      'spawn\\("codex"|command:\\s*"codex"|command:\\s*\\["codex"|return \\{ command: "codex"',
+      "src/codex",
+      "src/agent",
+      "src/code",
+    ]);
+    expect(output.trim()).toBe("");
+  });
+
   it("keeps Scheduler current-step selection in workflow-runtime and the leaf helper exact-target only", () => {
     const owner = readFileSync("src/workflow-runtime/scheduler-ready-set.ts", "utf8");
     const leaf = readFileSync("src/scheduler-runtime/worker-start.ts", "utf8");

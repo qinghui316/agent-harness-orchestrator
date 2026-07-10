@@ -261,15 +261,24 @@ describe("workbench server", () => {
   });
 
   it("requires project-scoped parent turns to use a real workflow-authoring child", () => {
-    const prompt = buildProjectScopedMainAgentPrompt("请让计划子 Agent 生成计划");
+    const prompt = buildProjectScopedMainAgentPrompt(
+      "请让计划子 Agent 生成计划",
+      undefined,
+      "# Transient AHO System Skill Context\n\n## aho-workflow-authoring: SKILL.md\n\nfixed contract",
+    );
 
     expect(prompt).toContain("MUST use the real spawn_agent collaboration tool");
     expect(prompt).toContain("$aho-workflow-authoring");
+    expect(prompt).toContain("do not create one for every ordinary conversation");
+    expect(prompt).toContain("call native update_goal(complete) only when the objective is actually satisfied");
+    expect(prompt).toContain("Include that complete contract in the planner child prompt");
+    expect(prompt).toContain("## aho-workflow-authoring: SKILL.md");
     expect(prompt).toContain("Only native runtime tool/Plan/question events count as child-Agent or planning-session work");
     expect(prompt).toContain("Do not fall back to Plan Mode, codex exec, or fabricated child output");
     expect(prompt).toContain("read project guidance, enabled skills, and docs");
     expect(prompt).toContain("use available tools according to the project rules");
     expect(prompt).toContain("Do not assume Workbench will create Harness records or execute the plan for you");
+    expect(prompt).toContain("Do not invoke the aho CLI from the shell");
     expect(prompt).not.toContain("wait for the user or an explicit workflow action");
     expect(prompt).toContain("请让计划子 Agent 生成计划");
   });

@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { codexRuntimeConfigArgs } from "./capabilities.js";
+import { resolveCodexExecutable } from "./executable.js";
 import { executeProcessStreaming } from "../run/process.js";
 import type { MemoryMode } from "../types/index.js";
 import { readCodexNativeCollabConfigStatus, type CodexNativeCollabConfigStatus } from "./trust.js";
@@ -308,9 +309,11 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
   let pendingYieldCallId: string | null = null;
   let goalPauseRequested = false;
   let goalPausePromise: Promise<void> | null = null;
+  let pausedGoalAttachPending = false;
   let activeTurnRunning = false;
   const childThreads: CodexAppServerChildThreadResult[] = [];
   const childThreadPrompts = new Map<string, string>();
+  const subAgentThreadItems = new Map<string, string>();
   const pendingChildReads = new Set<Promise<void>>();
   const readChildThreadIds = new Set<string>();
   let terminalStatus: CodexAppServerTurnResult["status"] | null = null;
@@ -342,7 +345,7 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
 
   const startedAt = new Date().toISOString();
   try {
-    child = spawn("codex", [...codexRuntimeConfigArgs(), "app-server", "--listen", "stdio://"], {
+    child = spawn(resolveCodexExecutable(), [...codexRuntimeConfigArgs(), "app-server", "--listen", "stdio://"], {
       cwd: options.cwd,
       shell: false,
       windowsHide: true,
@@ -376,6 +379,7 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
     const goalBeforeSession = options.goalSession && threadId
       ? parseThreadGoalResponse(await sendRequest("thread/goal/get", { threadId }))
       : null;
+    pausedGoalAttachPending = goalBeforeSession?.status === "paused";
     if (options.goalResume && !goalBeforeSession) throw new Error("Goal resume requires an existing native Goal.");
     if (goalBeforeSession?.status === "complete" || goalBeforeSession?.status === "budgetLimited") {
       goal = goalBeforeSession;
@@ -442,6 +446,7 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
       }
       const activation = parseThreadGoalResponse(await sendRequest("thread/goal/set", { threadId, status: "active" }));
       if (activation) goal = activation;
+      pausedGoalAttachPending = false;
     } else if ((!goalBeforeSession || goalBeforeSession.status === "paused") && !terminalStatus) {
       const turnModel = options.model?.trim() || null;
       const turnResponse = await sendRequest("turn/start", {
@@ -454,6 +459,7 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
       });
       turnId = extractTurnId(turnResponse);
       if (!turnId) throw new Error("Codex app-server did not return a turn id.");
+      pausedGoalAttachPending = false;
       activeTurnRunning = true;
       installActiveTurn();
       await writeSession("running");
@@ -598,7 +604,9 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
 
   function handleNotification(method: string, params: Record<string, unknown>, raw: Record<string, unknown>): void {
     const notification = { method, params, raw };
-    options.onNotification?.(notification);
+    const notificationThreadId = stringValue(params.threadId ?? params.thread_id);
+    const isParentNotification = !notificationThreadId || !threadId || notificationThreadId === threadId;
+    if (isParentNotification) options.onNotification?.(notification);
     const collab = extractCodexAppServerCollabToolCall(method, params);
     if (collab?.tool === "spawn_agent") {
       for (const childThreadId of collab.receiverThreadIds) {
@@ -606,21 +614,33 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
         if (isTerminalCollabStatus(collab.status)) queueChildThreadRead(collab, childThreadId);
       }
     }
-    const text = extractTextDelta(method, params);
+    const subAgent = extractSubAgentActivity(method, params);
+    if (subAgent) subAgentThreadItems.set(subAgent.threadId, subAgent.itemId);
+    if (method === "turn/completed" && notificationThreadId && subAgentThreadItems.has(notificationThreadId)) {
+      queueChildThreadRead({
+        itemId: subAgentThreadItems.get(notificationThreadId),
+        tool: "spawn_agent",
+        status: completionStatus(params) ?? undefined,
+        senderThreadId: threadId ?? undefined,
+        receiverThreadIds: [notificationThreadId],
+      }, notificationThreadId);
+      return;
+    }
+    const text = isParentNotification ? extractTextDelta(method, params) : "";
     if (text) {
       lastMessage += text;
       options.onTextDelta?.(text);
     }
     const planEventText = extractCodexAppServerPlanText(method, params);
-    if (method === "item/plan/delta" && planEventText) {
+    if (isParentNotification && method === "item/plan/delta" && planEventText) {
       planText += planEventText;
       options.onPlanDelta?.(planEventText);
     }
-    if (method === "turn/plan/updated" && planEventText) {
+    if (isParentNotification && method === "turn/plan/updated" && planEventText) {
       planText = planEventText;
       options.onPlanUpdate?.(planEventText, params);
     }
-    if (method === "turn/started") {
+    if (isParentNotification && method === "turn/started") {
       const nextTurnId = stringValue((isRecord(params.turn) ? params.turn.id : undefined) ?? params.turnId);
       if (nextTurnId) {
         turnId = nextTurnId;
@@ -649,27 +669,27 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
         }
       }
     }
-    if (method === "thread/goal/updated") {
+    if (isParentNotification && method === "thread/goal/updated") {
       const parsed = parseThreadGoal(isRecord(params.goal) ? params.goal : params);
       if (parsed) {
         goal = parsed;
         options.onGoalUpdate?.(parsed);
-        if (parsed.status === "paused" && (!goalPauseRequested || !activeTurnRunning)) terminalStatus = "interrupted";
+        if (parsed.status === "paused" && !pausedGoalAttachPending && (!goalPauseRequested || !activeTurnRunning)) terminalStatus = "interrupted";
         if (parsed.status === "complete" || parsed.status === "budgetLimited") terminalStatus = "completed";
       }
     }
-    if (method === "turn/completed") {
+    if (isParentNotification && method === "turn/completed") {
       activeTurnRunning = false;
       const interrupted = completionStatus(params) === "interrupted";
       const waitingForGoalPause = goalPauseRequested && goal?.status !== "paused";
       if (!waitingForGoalPause && (!options.goalSession || interrupted || !goal || goal.status === "paused" || goal.status === "complete" || goal.status === "budgetLimited")) {
         terminalStatus = interrupted ? "interrupted" : "completed";
       }
-    } else if (method === "turn/failed") {
+    } else if (isParentNotification && method === "turn/failed") {
       activeTurnRunning = false;
       terminalStatus = "failed";
       terminalError = JSON.stringify(params);
-    } else if (method === "item/completed") {
+    } else if (isParentNotification && method === "item/completed") {
       if (pendingYieldCallId && dynamicToolItemMatches(params, pendingYieldCallId) && !goalPauseRequested) {
         const activeTurnId = turnId;
         if (threadId && activeTurnId) {
@@ -713,7 +733,9 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
         parentThreadId,
         threadId: childThreadId,
         ...(call.status ? { status: call.status } : {}),
-        ...(call.prompt ? { prompt: call.prompt } : {}),
+        ...((call.prompt || extractCodexAppServerThreadInitialPrompt(snapshot))
+          ? { prompt: call.prompt || extractCodexAppServerThreadInitialPrompt(snapshot) }
+          : {}),
         finalText: extractCodexAppServerThreadFinalText(snapshot),
         snapshot,
       };
@@ -790,6 +812,35 @@ export function extractCodexAppServerThreadFinalText(snapshot: Record<string, un
     if (text) return text;
   }
   return "";
+}
+
+export function extractCodexAppServerThreadInitialPrompt(snapshot: Record<string, unknown>): string {
+  const thread = isRecord(snapshot.thread) ? snapshot.thread : snapshot;
+  const turns = Array.isArray(thread.turns) ? thread.turns : [];
+  for (const turn of turns) {
+    if (!isRecord(turn)) continue;
+    const items = Array.isArray(turn.items) ? turn.items : Array.isArray(turn.output) ? turn.output : [];
+    for (const item of items) {
+      if (!isRecord(item)) continue;
+      const role = stringValue(item.role);
+      const type = stringValue(item.type ?? item.kind);
+      if (role && role !== "user") continue;
+      if (type && !/userMessage|user|message|input/i.test(type)) continue;
+      const text = textFromThreadItem(item);
+      if (text) return text;
+    }
+  }
+  return "";
+}
+
+function extractSubAgentActivity(method: string, params: Record<string, unknown>): { itemId: string; threadId: string } | null {
+  if (method !== "item/started" && method !== "item/completed") return null;
+  const item = isRecord(params.item) ? params.item : params;
+  if (stringValue(item.type ?? item.kind) !== "subAgentActivity") return null;
+  if (stringValue(item.kind) !== "started") return null;
+  const itemId = stringValue(item.id);
+  const threadId = stringValue(item.agentThreadId ?? item.agent_thread_id);
+  return itemId && threadId ? { itemId, threadId } : null;
 }
 
 function textFromThreadItem(value: Record<string, unknown>): string {
@@ -885,7 +936,7 @@ async function captureCodexAppServerHelp(): Promise<string> {
     const stderrPath = join(dir, "stderr.log");
     const result = await executeProcessStreaming({
       cwd: dir,
-      command: "codex",
+      command: resolveCodexExecutable(),
       args: ["app-server", "--help"],
       stdoutPath,
       stderrPath,
@@ -937,7 +988,7 @@ async function captureCodexAppServerStartupError(): Promise<string | null> {
         return stderr.trim() || "Codex app-server did not respond to initialize during startup check.";
       };
       const timer = setTimeout(() => requestStop(evaluateStartup()), 3000);
-      child = spawn("codex", [...codexRuntimeConfigArgs(), "app-server", "--listen", "stdio://"], { cwd: dir });
+      child = spawn(resolveCodexExecutable(), [...codexRuntimeConfigArgs(), "app-server", "--listen", "stdio://"], { cwd: dir });
       child.stdout?.on("data", (chunk) => {
         stdout += Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
         if (stdout.includes('"id"') && stdout.includes('"result"')) requestStop(null);

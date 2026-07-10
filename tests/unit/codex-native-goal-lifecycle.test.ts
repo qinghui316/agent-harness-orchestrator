@@ -23,6 +23,7 @@ describe("Codex native Goal lifecycle", () => {
     const server = new FakePlannerChildAppServer();
     spawnMock.mockReturnValue(server as unknown as ChildProcess);
     const observed: string[] = [];
+    const parentLifecycle: string[] = [];
 
     const result = await runCodexAppServerTurn(await options({
       existingThreadId: null,
@@ -32,6 +33,9 @@ describe("Codex native Goal lifecycle", () => {
         { name: "aho_accept_current_plan", description: "Accept", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
       ],
       onChildThreadResult: (child) => observed.push(child.finalText),
+      onNotification: (notification) => {
+        if (notification.method === "turn/completed") parentLifecycle.push(String(notification.params.threadId));
+      },
     }));
 
     expect(result.status).toBe("completed");
@@ -42,6 +46,7 @@ describe("Codex native Goal lifecycle", () => {
       finalText: '{"specMd":"# Spec","planMd":"# Plan","tasksMd":"# Tasks"}',
     })]);
     expect(observed).toEqual(['{"specMd":"# Spec","planMd":"# Plan","tasksMd":"# Tasks"}']);
+    expect(parentLifecycle).toEqual(["thread-parent"]);
     expect(server.methods).toContain("thread/read");
     expect(server.threadStartParams.dynamicTools).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "aho_goal_yield" }),
@@ -266,6 +271,8 @@ class FakeGoalAppServer extends EventEmitter {
         if (this.goal.status === "active") {
           this.notify("turn/started", { threadId: "thread-1", turn: { id: "turn-1", status: "inProgress" } });
           this.requestTool();
+        } else {
+          this.notify("thread/goal/updated", { threadId: "thread-1", goal: this.goal });
         }
         return;
       case "thread/read":
@@ -283,7 +290,8 @@ class FakeGoalAppServer extends EventEmitter {
         if (status === "active") {
           this.notify("turn/started", { threadId: "thread-1", turn: { id: "turn-1", status: "inProgress" } });
           this.requestTool();
-        } else if (status === "paused") {
+        }
+        if (status === "paused") {
           this.events.push("goal-paused");
         }
         return;
@@ -380,15 +388,15 @@ class FakePlannerChildAppServer extends EventEmitter {
         this.notify("turn/started", { threadId: "thread-parent", turn: { id: "turn-parent" } });
         this.notify("item/completed", {
           item: {
-            type: "collabAgentToolCall",
+            type: "subAgentActivity",
             id: "collab-plan",
-            tool: "spawn_agent",
-            status: "completed",
-            senderThreadId: "thread-parent",
-            receiverThreadIds: ["thread-planner"],
-            prompt: "Use $aho-workflow-authoring and draft the proposal.",
+            kind: "started",
+            agentThreadId: "thread-planner",
           },
+          threadId: "thread-parent",
         });
+        this.notify("item/agentMessage/delta", { threadId: "thread-planner", delta: "child output must not leak" });
+        this.notify("turn/completed", { threadId: "thread-planner", turn: { id: "turn-planner", status: "completed" } });
         this.notify("turn/completed", { threadId: "thread-parent", turn: { id: "turn-parent", status: "completed" } });
         return;
       case "thread/read":

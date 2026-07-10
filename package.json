@@ -19,6 +19,7 @@
     "build": "tsc && vite build && node scripts/copy-templates.mjs",
     "dev": "tsx src/index.ts",
     "dev:web": "vite --host 127.0.0.1",
+    "acceptance:provider": "npm run build && node scripts/run-provider-golden-workbench.mjs",
     "lint": "eslint .",
     "test": "npm run test:fast && npm run test:integration && npm run test:workbench",
     "test:fast": "vitest run --exclude tests/unit/workbench-read-model.test.ts --exclude tests/unit/workbench-task-runtime.test.ts --exclude tests/unit/workbench-scheduler-runtime-surface.test.ts --exclude tests/unit/workbench-feedback-surface.test.ts --exclude tests/unit/workbench-conversation-lifecycle.test.ts --exclude tests/unit/workbench-agent-task-domain.test.ts --exclude tests/unit/workbench-demand-worker.test.ts --exclude tests/slow/** --exclude tests/integration/cli-flow.test.ts",

@@ -17,8 +17,6 @@ import { listValidationResults } from "../validation/artifacts.js";
 import { listWorkflowRuns } from "../workflow-run/manager.js";
 import { listWorktreesForChange } from "../worktree/manager.js";
 import { compileWorkflowGraphPlan, parseWorkflowAuthoringPlan, readLatestWorkflowGraphPlan, writeWorkflowGraphPlan } from "../workflow-artifacts/manager.js";
-import { WorkbenchStore } from "../workbench/store.js";
-import { readPlannerChildProposal } from "../workbench/planning/planner-child-proposal.js";
 import { allocateChangeId } from "./creation.js";
 import { requiredChangeFiles } from "./schemas.js";
 import { renderTemplate } from "./templates.js";
@@ -27,6 +25,35 @@ export interface AcceptedPlanningPackage {
   changeId: string;
   proposalId: string;
   workflowGraphPlan: WorkflowGraphPlan;
+}
+
+export interface ValidatedPlanningProposal {
+  id: string;
+  hash: string;
+  artifact: string;
+  specMd: string;
+  planMd: string;
+  tasksMd: string;
+}
+
+export interface ValidatedPlanningPackageInput {
+  conversationId: string;
+  conversationTitle: string;
+  boundChangeId: string | null;
+  proposal: ValidatedPlanningProposal;
+}
+
+export interface PlanningAcceptanceCommitPort {
+  hasCommit(transactionId: string): boolean;
+  commit(input: {
+    projectId: string;
+    conversationId: string;
+    changeId: string;
+    acceptedAt: string;
+    transactionId: string;
+    proposalHash: string;
+  }): void;
+  deleteCommit(transactionId: string): void;
 }
 
 interface PlanningAcceptanceTransaction {
@@ -39,49 +66,23 @@ interface PlanningAcceptanceTransaction {
   replacing: boolean;
 }
 
-const acceptanceLocks = new Map<string, Promise<void>>();
-
-export async function acceptConversationPlanningPackage(
+export async function acceptPlanningPackage(
   project: ManagedProject,
-  conversationId: string,
-  proposalArtifact: string,
+  input: ValidatedPlanningPackageInput,
+  commitPort: PlanningAcceptanceCommitPort,
 ): Promise<AcceptedPlanningPackage> {
-  const key = `${project.path}:${project.id}:${conversationId}`;
-  const previous = acceptanceLocks.get(key) ?? Promise.resolve();
-  let release!: () => void;
-  const current = new Promise<void>((resolvePromise) => { release = resolvePromise; });
-  const queued = previous.then(() => current);
-  acceptanceLocks.set(key, queued);
-  await previous;
-  try {
-    return await acceptConversationPlanningPackageUnlocked(project, conversationId, proposalArtifact);
-  } finally {
-    release();
-    if (acceptanceLocks.get(key) === queued) acceptanceLocks.delete(key);
-  }
+  return await acceptPlanningPackageUnlocked(project, input, commitPort);
 }
 
-async function acceptConversationPlanningPackageUnlocked(
+async function acceptPlanningPackageUnlocked(
   project: ManagedProject,
-  conversationId: string,
-  proposalArtifact: string,
+  input: ValidatedPlanningPackageInput,
+  commitPort: PlanningAcceptanceCommitPort,
 ): Promise<AcceptedPlanningPackage> {
+  const { conversationId, conversationTitle, boundChangeId, proposal } = input;
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "Conversation planning package accept");
   if (!memory.projectId) throw new Error("Project id is required to accept a conversation planning package.");
-  const proposalRoot = resolve(memory.workbenchRoot, "conversations", conversationId, "runs");
-  const proposalPath = resolve(proposalArtifact);
-  const proposalScope = relative(proposalRoot, proposalPath);
-  if (!proposalScope || proposalScope.startsWith("..") || isAbsolute(proposalScope)) {
-    throw new Error("Planner proposal artifact is outside the selected conversation run scope.");
-  }
-  const proposal = await readPlannerChildProposal(proposalPath);
-  if (proposal.projectId !== memory.projectId || proposal.conversationId !== conversationId) {
-    throw new Error("Planner proposal is not scoped to the selected conversation.");
-  }
-  if (proposal.status !== "proposed" || proposal.openQuestions.length > 0) {
-    throw new Error("Only a complete proposed planner result with no open questions can be accepted.");
-  }
 
   const criteria = parseAcceptanceCriteria(proposal.specMd).criteria;
   const tasks = parseTasks(proposal.tasksMd).tasks;
@@ -102,28 +103,7 @@ async function acceptConversationPlanningPackageUnlocked(
     acIds: criteria.map((criterion) => criterion.id),
   });
 
-  const store = await WorkbenchStore.open(memory);
-  let conversationTitle = "planned-change";
-  let boundChangeId: string | null = null;
-  try {
-    await recoverPlanningAcceptanceTransactions(memory, store);
-    const conversation = store.readConversation(memory.projectId, conversationId);
-    if (!conversation) throw new Error(`Conversation not found: ${conversationId}.`);
-    const mainThread = store.readProviderThread(memory.projectId, conversationId, "main-agent");
-    const childThread = store.listProviderThreads(memory.projectId, conversationId)
-      .find((link) => link.providerThreadId === proposal.childThreadId && link.roleId === "planning-agent");
-    if (!mainThread || !childThread || childThread.parentThreadId !== proposal.parentThreadId || proposal.parentThreadId !== mainThread.providerThreadId) {
-      throw new Error("Planner proposal does not belong to the current Main/child provider lineage.");
-    }
-    const latestProposalArtifact = store.listConversationMessages(memory.projectId, conversationId)
-      .filter((message) => storedAgentRoleId(message.rawJson) === "planning-agent" && Boolean(message.artifact))
-      .at(-1)?.artifact;
-    if (latestProposalArtifact !== proposal.artifact) throw new Error("Planner proposal is stale or superseded.");
-    conversationTitle = conversation.title;
-    boundChangeId = conversation.boundChangeId;
-  } finally {
-    store.close();
-  }
+  await recoverPlanningAcceptanceTransactions(memory, commitPort);
   const boundActive = boundChangeId && existsSync(join(memory.changesRoot, "active", boundChangeId))
     ? boundChangeId
     : null;
@@ -215,19 +195,14 @@ async function acceptConversationPlanningPackageUnlocked(
   await writeJsonFile(markerPath, { ...transaction, phase: "swapped", replacing });
   try {
     await writeChangeIndex(memory);
-    const projectionStore = await WorkbenchStore.open(memory);
-    try {
-      projectionStore.acceptConversationChangeBinding(
-        memory.projectId,
-        conversationId,
-        changeId,
-        now,
-        transactionId,
-        proposal.hash,
-      );
-    } finally {
-      projectionStore.close();
-    }
+    commitPort.commit({
+      projectId: memory.projectId,
+      conversationId,
+      changeId,
+      acceptedAt: now,
+      transactionId,
+      proposalHash: proposal.hash,
+    });
   } catch (error) {
     await rollbackStagingSwap(activePath, backupPath, replacing);
     await writeChangeIndex(memory).catch(() => undefined);
@@ -236,7 +211,11 @@ async function acceptConversationPlanningPackageUnlocked(
   await writeJsonFile(markerPath, { ...transaction, phase: "committed", replacing });
   await rm(backupPath, { recursive: true, force: true }).catch(() => undefined);
   await rm(markerPath, { force: true }).catch(() => undefined);
-  await deletePlanningAcceptanceCommit(memory, transactionId).catch(() => undefined);
+  try {
+    commitPort.deleteCommit(transactionId);
+  } catch {
+    // The committed Change remains authoritative; stale projection commit markers are cleaned on recovery.
+  }
   return { changeId, proposalId: proposal.id, workflowGraphPlan: graph };
 }
 
@@ -250,7 +229,7 @@ async function initializeStagingChange(memory: Awaited<ReturnType<typeof resolve
 
 async function recoverPlanningAcceptanceTransactions(
   memory: Awaited<ReturnType<typeof resolveProjectMemory>>,
-  store: WorkbenchStore,
+  commitPort: PlanningAcceptanceCommitPort,
 ): Promise<void> {
   const transactionRoot = join(memory.changesRoot, ".transactions");
   if (!existsSync(transactionRoot)) return;
@@ -262,7 +241,7 @@ async function recoverPlanningAcceptanceTransactions(
     assertTransactionPath(memory.changesRoot, transaction.activePath);
     assertTransactionPath(transactionRoot, transaction.stagingPath);
     assertTransactionPath(transactionRoot, transaction.backupPath);
-    const committed = transaction.phase === "committed" || store.hasPlanningAcceptanceCommit(transaction.id);
+    const committed = transaction.phase === "committed" || commitPort.hasCommit(transaction.id);
     if (committed) {
       await rm(transaction.stagingPath, { recursive: true, force: true });
       await rm(transaction.backupPath, { recursive: true, force: true });
@@ -278,7 +257,7 @@ async function recoverPlanningAcceptanceTransactions(
       await rm(transaction.stagingPath, { recursive: true, force: true });
     }
     await rm(markerPath, { force: true });
-    if (committed) store.deletePlanningAcceptanceCommit(transaction.id);
+    if (committed) commitPort.deleteCommit(transaction.id);
     recovered = true;
   }
   if (recovered) await writeChangeIndex(memory);
@@ -288,18 +267,6 @@ function assertTransactionPath(root: string, candidate: string): void {
   const scoped = relative(resolve(root), resolve(candidate));
   if (!scoped || scoped.startsWith("..") || isAbsolute(scoped)) {
     throw new Error(`Planning acceptance transaction path escaped its owner root: ${candidate}`);
-  }
-}
-
-async function deletePlanningAcceptanceCommit(
-  memory: Awaited<ReturnType<typeof resolveProjectMemory>>,
-  transactionId: string,
-): Promise<void> {
-  const store = await WorkbenchStore.open(memory);
-  try {
-    store.deletePlanningAcceptanceCommit(transactionId);
-  } finally {
-    store.close();
   }
 }
 
@@ -371,13 +338,4 @@ function trailingNewline(value: string): string {
 
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
-}
-
-function storedAgentRoleId(rawJson: string): string | undefined {
-  try {
-    const value = JSON.parse(rawJson) as { agentRoleId?: unknown };
-    return typeof value.agentRoleId === "string" ? value.agentRoleId : undefined;
-  } catch {
-    return undefined;
-  }
 }

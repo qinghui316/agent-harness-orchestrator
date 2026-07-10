@@ -3,12 +3,11 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { acceptConversationPlanningPackage } from "../../src/change/manager.js";
 import { initHarness } from "../../src/harness/init.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import type { ManagedProject } from "../../src/types/index.js";
 import { createWorkbenchConversation } from "../../src/workbench/chat.js";
-import { writePlannerChildProposal } from "../../src/workbench/planning/planner-child-proposal.js";
+import { acceptCurrentConversationPlanningPackage, writePlannerChildProposal } from "../../src/workbench/planning/planner-child-proposal.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import { startOrResumeTaskQueue } from "../../src/task-queue/manager.js";
 
@@ -27,7 +26,7 @@ describe("conversation planner-child package acceptance", () => {
     const memory = await resolveProjectMemory(project());
     const proposal = await proposalFor(memory.workbenchRoot, conversation.conversationId, "Return ok.");
 
-    const accepted = await acceptConversationPlanningPackage(project(), conversation.conversationId, proposal.artifact);
+    const accepted = await acceptCurrentConversationPlanningPackage(project(), conversation.conversationId, proposal.artifact);
     const changePath = join(memory.changesRoot, "active", accepted.changeId);
 
     expect(await readFile(join(changePath, "spec.md"), "utf8")).toContain("AC-001");
@@ -54,24 +53,24 @@ describe("conversation planner-child package acceptance", () => {
     const other = await createWorkbenchConversation(project(), { title: "Other", body: "Other." }, undefined, { runMainAgent: false });
     const memory = await resolveProjectMemory(project());
     const first = await proposalFor(memory.workbenchRoot, conversation.conversationId, "Return ok.");
-    const accepted = await acceptConversationPlanningPackage(project(), conversation.conversationId, first.artifact);
+    const accepted = await acceptCurrentConversationPlanningPackage(project(), conversation.conversationId, first.artifact);
     const second = await proposalFor(memory.workbenchRoot, conversation.conversationId, "Return healthy.", "run-2", "child-2");
-    const revised = await acceptConversationPlanningPackage(project(), conversation.conversationId, second.artifact);
+    const revised = await acceptCurrentConversationPlanningPackage(project(), conversation.conversationId, second.artifact);
 
     expect(revised.changeId).toBe(accepted.changeId);
     expect(await readFile(join(memory.changesRoot, "active", accepted.changeId, "plan.md"), "utf8")).toContain("Return healthy.");
-    await expect(acceptConversationPlanningPackage(project(), other.conversationId, second.artifact)).rejects.toThrow(/scope/);
+    await expect(acceptCurrentConversationPlanningPackage(project(), other.conversationId, second.artifact)).rejects.toThrow(/scope/);
   });
 
   it("creates a new Change when revising after execution evidence exists", async () => {
     const conversation = await createWorkbenchConversation(project(), { title: "Add a health endpoint", body: "Add it." }, undefined, { runMainAgent: false });
     const memory = await resolveProjectMemory(project());
     const first = await proposalFor(memory.workbenchRoot, conversation.conversationId, "Return ok.");
-    const accepted = await acceptConversationPlanningPackage(project(), conversation.conversationId, first.artifact);
+    const accepted = await acceptCurrentConversationPlanningPackage(project(), conversation.conversationId, first.artifact);
     await startOrResumeTaskQueue(project(), { changeId: accepted.changeId, workflowGraphPlanId: accepted.workflowGraphPlan.id });
     const second = await proposalFor(memory.workbenchRoot, conversation.conversationId, "Return healthy.", "run-2", "child-2");
 
-    const revised = await acceptConversationPlanningPackage(project(), conversation.conversationId, second.artifact);
+    const revised = await acceptCurrentConversationPlanningPackage(project(), conversation.conversationId, second.artifact);
 
     expect(revised.changeId).not.toBe(accepted.changeId);
     expect(existsSync(join(memory.changesRoot, "active", accepted.changeId))).toBe(true);
@@ -84,8 +83,8 @@ describe("conversation planner-child package acceptance", () => {
     const proposal = await proposalFor(memory.workbenchRoot, conversation.conversationId, "Return ok.");
 
     const [first, second] = await Promise.all([
-      acceptConversationPlanningPackage(project(), conversation.conversationId, proposal.artifact),
-      acceptConversationPlanningPackage(project(), conversation.conversationId, proposal.artifact),
+      acceptCurrentConversationPlanningPackage(project(), conversation.conversationId, proposal.artifact),
+      acceptCurrentConversationPlanningPackage(project(), conversation.conversationId, proposal.artifact),
     ]);
 
     expect(second.changeId).toBe(first.changeId);
@@ -96,7 +95,7 @@ describe("conversation planner-child package acceptance", () => {
     const conversation = await createWorkbenchConversation(project(), { title: "Add a health endpoint", body: "Add it." }, undefined, { runMainAgent: false });
     const memory = await resolveProjectMemory(project());
     const proposal = await proposalFor(memory.workbenchRoot, conversation.conversationId, "Return ok.");
-    const accepted = await acceptConversationPlanningPackage(project(), conversation.conversationId, proposal.artifact);
+    const accepted = await acceptCurrentConversationPlanningPackage(project(), conversation.conversationId, proposal.artifact);
     const activePath = join(memory.changesRoot, "active", accepted.changeId);
     const transactionRoot = join(memory.changesRoot, ".transactions");
     const backupPath = join(transactionRoot, "crash-before-db.backup");
@@ -113,7 +112,7 @@ describe("conversation planner-child package acceptance", () => {
       replacing: true,
     }), "utf8");
 
-    await acceptConversationPlanningPackage(project(), conversation.conversationId, proposal.artifact);
+    await acceptCurrentConversationPlanningPackage(project(), conversation.conversationId, proposal.artifact);
 
     expect(await readFile(join(activePath, "spec.md"), "utf8")).toContain("AC-001");
     expect(existsSync(backupPath)).toBe(false);
@@ -123,7 +122,7 @@ describe("conversation planner-child package acceptance", () => {
     const conversation = await createWorkbenchConversation(project(), { title: "Add a health endpoint", body: "Add it." }, undefined, { runMainAgent: false });
     const memory = await resolveProjectMemory(project());
     const proposal = await proposalFor(memory.workbenchRoot, conversation.conversationId, "Return ok.");
-    const accepted = await acceptConversationPlanningPackage(project(), conversation.conversationId, proposal.artifact);
+    const accepted = await acceptCurrentConversationPlanningPackage(project(), conversation.conversationId, proposal.artifact);
     const activePath = join(memory.changesRoot, "active", accepted.changeId);
     const transactionRoot = join(memory.changesRoot, ".transactions");
     const backupPath = join(transactionRoot, "crash-after-db.backup");
@@ -146,7 +145,7 @@ describe("conversation planner-child package acceptance", () => {
       store.close();
     }
 
-    await acceptConversationPlanningPackage(project(), conversation.conversationId, proposal.artifact);
+    await acceptCurrentConversationPlanningPackage(project(), conversation.conversationId, proposal.artifact);
 
     expect(await readFile(join(activePath, "spec.md"), "utf8")).toContain("AC-001");
     expect(existsSync(backupPath)).toBe(false);

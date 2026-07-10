@@ -3,13 +3,12 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { writeFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { acceptConversationPlanningPackage } from "../../src/change/manager.js";
 import { initHarness } from "../../src/harness/init.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import { createWorkbenchConversation } from "../../src/workbench/chat.js";
 import { getWorkbenchSnapshot } from "../../src/workbench/manager.js";
-import { writePlannerChildProposal } from "../../src/workbench/planning/planner-child-proposal.js";
+import { acceptCurrentConversationPlanningPackage, writePlannerChildProposal } from "../../src/workbench/planning/planner-child-proposal.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import {
   createFakeCodex,
@@ -23,7 +22,7 @@ import type { WorkbenchDecisionAction } from "../../src/workbench/read-model-typ
 const execFileAsync = promisify(execFile);
 const SLOW_FLOW_TIMEOUT_MS = 120_000;
 
-describe("workbench demand-to-execution golden flow", () => {
+describe("workbench accepted-graph-to-execution runtime flow", () => {
   it("carries a natural demand through planning, readiness, code, validation, and audit without source apply", async () => {
     const oldAhoHome = process.env.AHO_HOME;
     const oldPath = process.env.PATH;
@@ -97,7 +96,7 @@ describe("workbench demand-to-execution golden flow", () => {
       } finally {
         store.close();
       }
-      const accepted = await acceptConversationPlanningPackage(project(), conversation.conversationId, proposal.artifact);
+      const accepted = await acceptCurrentConversationPlanningPackage(project(), conversation.conversationId, proposal.artifact);
       process.env.PATH = join(getTempDir(), "no-codex-bin");
 
       let snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: conversation.conversationId });

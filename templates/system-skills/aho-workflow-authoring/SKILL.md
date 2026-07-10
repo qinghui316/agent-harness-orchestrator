@@ -36,6 +36,8 @@ Read `references/fixed-plan-format.md` before drafting. Read
 
 - Produce proposal text only. Do not write Change artifacts, compile a
   `WorkflowGraphPlan`, start agents, dispatch nodes, or authorize execution.
+- Do not invoke the `aho` CLI. Return the fixed proposal envelope to the parent
+  Agent and let AHO's application/runtime owners perform accepted transitions.
 - Do not emit a standalone `WorkflowPlan` JSON artifact. The only machine-readable
   authoring carrier is the JSON block embedded in `planMd`.
 - Support only `sequential-v1` and `ready-set-v1`. Do not describe pipeline,

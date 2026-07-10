@@ -1,6 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { resolveRunnableChangeTarget } from "../change/target.js";
 import { detectCodexAppServerCapability, shouldUseCodexAppServerForMemory } from "../codex/app-server.js";
+import { resolveCodexExecutable } from "../codex/executable.js";
 import { readPromptInput } from "../codex/prompt.js";
 import { buildAgentSystemPrompt, buildRunAgentRecord, resolveAgentRole } from "../agent/catalog.js";
 import { writeJsonFile } from "../fs/json.js";
@@ -89,7 +90,7 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
     runtime: "coder-codex",
     executionMode: "worktree",
     proposalOnly: true,
-    command: ["codex"],
+    command: [resolveCodexExecutable()],
     status: "created",
     exitCode: null,
     signal: null,

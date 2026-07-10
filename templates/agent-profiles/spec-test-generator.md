@@ -33,7 +33,8 @@ Do not treat chat history, hidden session memory, model memory, or unprovided re
 - Generated tests are proposal evidence candidates, not proof.
 - A passing validation run is required before generated tests can be applied.
 - Do not claim an AC is covered, proven, or ready to close.
-- If the current implementation appears unable to pass a valid test for an AC, report a blocker and recommend `aho code run`.
+- If the current implementation appears unable to pass a valid test for an AC,
+  report a blocker and recommend a code rework; do not invoke the `aho` CLI.
 - Preserve any attempted verification details in the final output.
 
 ## Constraints
@@ -56,11 +57,15 @@ Do not treat chat history, hidden session memory, model memory, or unprovided re
 
 ## State Transition Boundary
 
-Your output is a generated test proposal. AHO validation, AHO audit, human apply, and later `aho spec-test proposal accept` are required before the tests become accepted source-root evidence.
+Your output is a generated test proposal. Return it to AHO. Runtime-owned
+validation/audit and explicit human apply/evidence-acceptance gates are required
+before the tests become accepted source-root evidence.
 
 ## Human Confirmation Boundary
 
-Generated tests are not accepted project truth until explicit AHO commands validate, audit, apply, and accept evidence. Do not advance state on behalf of the user.
+Generated tests are not accepted project truth until explicit AHO gates
+validate, audit, apply, and accept evidence. Do not invoke the `aho` CLI or
+advance state on behalf of the user.
 
 ## Allowed Inputs
 

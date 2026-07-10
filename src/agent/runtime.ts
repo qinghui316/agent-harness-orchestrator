@@ -4,6 +4,7 @@ import { resolveRunnableChangeTarget } from "../change/target.js";
 import { buildCodexReadonlyArgv, buildCodexWorkspaceWriteArgv, detectCodexCapabilities } from "../codex/capabilities.js";
 import { extractFinalMessageFromCodexJsonl } from "../codex/jsonl.js";
 import { resolveCodexEffectiveModel } from "../codex/model-settings.js";
+import { resolveCodexExecutable } from "../codex/executable.js";
 import { writeJsonFile } from "../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { displayArtifactPath, appendRunEvent, buildContextProjection, buildRunId } from "../run/manager.js";
@@ -108,7 +109,7 @@ export async function startAgentRun(project: ManagedProject, roleId: string, opt
     runtime: "agent-codex",
     executionMode: worktree ? "worktree" : "direct",
     proposalOnly: true,
-    command: ["codex"],
+    command: [resolveCodexExecutable()],
     status: "created",
     exitCode: null,
     signal: null,
