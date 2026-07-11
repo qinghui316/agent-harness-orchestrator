@@ -5,6 +5,7 @@ import type { ClarificationAnswer } from "../../workbench/intake.js";
 import type { WorkbenchApprovalAction, WorkbenchProjectInput } from "../../workbench/manager.js";
 import type { TopicMessageInput, WorkbenchWorkflowActionRequest } from "../../workbench/chat.js";
 import type { MemoryMode } from "../../types/index.js";
+import type { BackgroundWorkerOptions } from "../../agent-task/background-worker.js";
 
 export interface WorkbenchServeOptions {
   host?: string;
@@ -12,11 +13,15 @@ export interface WorkbenchServeOptions {
   staticRoot?: string;
   store?: ProjectRegistryStore;
   terminalRuntime?: TerminalRuntime;
+  backgroundWorker?: Omit<BackgroundWorkerOptions, "assignmentFactory"> & {
+    assignmentFactory?: BackgroundWorkerOptions["assignmentFactory"];
+  };
 }
 
 export interface WorkbenchServerHandle {
   server: Server;
   url: string;
+  close(): Promise<void>;
 }
 
 export interface WorkbenchServerContext {
@@ -46,9 +51,6 @@ export interface WorkbenchActionRequest {
   schedulerIntegrationOutcomeId?: string;
   schedulerRunCompletionId?: string;
   schedulerRunBlockedCloseoutId?: string;
-  maintenanceProposalId?: string;
-  maintenancePatchProposalId?: string;
-  maintenanceApplicationManifestId?: string;
   schedulerWorkerStartId?: string;
   schedulerWorkerResultId?: string;
   schedulerWorkerValidationId?: string;

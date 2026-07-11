@@ -1,14 +1,18 @@
 export type { MainAgentDecision } from "./decisions.js";
-export type { CreateAgentTaskInput, CompleteAgentTaskInput } from "./repository.js";
+export type { AgentTaskLeaseInput, AgentTaskWriterIdentity, CreateAgentTaskInput, CompleteAgentTaskInput } from "./repository.js";
 export type { RecordDemandMemoryCloseoutInput } from "./closeouts.js";
 
 export { recordMainAgentDecision } from "./decisions.js";
 export {
   claimAgentTask,
+  checkpointAgentTask,
   completeAgentTask,
   createAgentTask,
+  failAgentTask,
+  heartbeatAgentTask,
   listAgentTasks,
   readAgentTaskResult,
+  recoverExpiredAgentTasks,
   startAgentTask,
 } from "./repository.js";
 export {
@@ -19,62 +23,26 @@ export {
   listDemandMemoryCloseouts,
   recordDemandMemoryCloseout,
 } from "./closeouts.js";
-export {
-  maybeRunMaintenanceReviewWindow,
-  readMaintenanceReviewWatermark,
-  runMaintenanceReviewWindow,
-} from "./maintenance-review.js";
 export { checkDocBudgets } from "./doc-budget.js";
+export { dispatchChangeCloseOutbox } from "./close-outbox-dispatcher.js";
+export type { CloseOutboxDispatchResult } from "./close-outbox-dispatcher.js";
+export { runMaintenanceProviderAssignment } from "./maintenance-provider-runner.js";
+export type {
+  MaintenanceProviderExecutionRequest,
+  MaintenanceProviderExecutionResult,
+  MaintenanceProviderExecutor,
+  MaintenanceProviderRunEvidence,
+  RunMaintenanceProviderAssignmentInput,
+} from "./maintenance-provider-runner.js";
+export { createCodexMaintenanceProviderExecutor, runCodexMaintenanceAssignment } from "./maintenance-codex-executor.js";
+export { NonRetryableBackgroundWorkerError, startBackgroundWorker } from "./background-worker.js";
+export type {
+  BackgroundAssignmentRunResult,
+  BackgroundWorkerHandle,
+  BackgroundWorkerOptions,
+} from "./background-worker.js";
 export {
   createEvolutionCandidate,
-  reviewEvolutionCandidate,
-  runMaintenanceCandidatePipeline,
-  scoreEvolutionCandidate,
+  listEvolutionCandidates,
 } from "./candidates.js";
-export {
-  eligibleCanonicalUpdateResolutions,
-  listMaintenanceCanonicalPatchApplicationGateRecords,
-  listMaintenanceCanonicalPatchProposals,
-  listMaintenanceCanonicalUpdateDecisions,
-  listMaintenanceCanonicalUpdateProposals,
-  maintenanceCanonicalPatchApplicationGateArtifactRef,
-  maintenanceCanonicalPatchProposalArtifactRef,
-  maintenanceCanonicalUpdateDecisionArtifactRef,
-  maintenanceCanonicalUpdateProposalArtifactRef,
-  proposeMaintenanceCanonicalPatch,
-  proposeMaintenanceCanonicalUpdate,
-  readMaintenanceCanonicalPatchApplicationGate,
-  readMaintenanceCanonicalPatchApplicationGateForPatchProposal,
-  readMaintenanceCanonicalPatchProposal,
-  readMaintenanceCanonicalPatchProposalForDecision,
-  readMaintenanceCanonicalUpdateDecision,
-  readMaintenanceCanonicalUpdateProposal,
-  recordMaintenanceCanonicalPatchApplicationGate,
-  recordMaintenanceCanonicalUpdateDecision,
-} from "./canonical-updates.js";
-export {
-  applyMaintenanceCanonicalPatchApplicationManifest,
-  generateMaintenanceCanonicalPatchApplicationManifest,
-  listMaintenanceCanonicalPatchApplicationManifests,
-  listMaintenanceCanonicalPatchApplicationResults,
-  maintenanceCanonicalPatchApplicationManifestArtifactRef,
-  maintenanceCanonicalPatchApplicationResultArtifactRef,
-  readMaintenanceCanonicalPatchApplicationManifest,
-  readMaintenanceCanonicalPatchApplicationManifestForGate,
-  readMaintenanceCanonicalPatchApplicationResult,
-  readMaintenanceCanonicalPatchApplicationResultForManifest,
-} from "./canonical-patch-application.js";
-export {
-  generateMaintenanceCanonicalPatchApplicationReport,
-  listMaintenanceCanonicalPatchApplicationReports,
-  maintenanceCanonicalPatchApplicationReportArtifactRef,
-  readMaintenanceCanonicalPatchApplicationReport,
-  readMaintenanceCanonicalPatchApplicationReportForResult,
-} from "./canonical-patch-application-report.js";
-export {
-  listMaintenanceCandidateResolutions,
-  maintenanceResolutionArtifactRef,
-  readMaintenanceCandidateResolution,
-  resolveMaintenanceCandidate,
-} from "./resolutions.js";
 export { buildRoleScopedContextProjection } from "./role-context.js";

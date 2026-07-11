@@ -238,25 +238,7 @@ export function WorkpadDiagnosticDetails({
             <span>{workpad.maintenance.closeoutCount ?? workpad.maintenance.ledgerCount}</span>
           </div>
           <p>{userFacingText(workpad.maintenance.note)}</p>
-          <p className="panel-note">终态需求：{workpad.maintenance.closeoutCount ?? 0} · 待维护审查：{workpad.maintenance.unreviewedTerminalCount ?? 0} · 生命周期决议：{workpad.maintenance.resolutionCount ?? 0} · canonical 提案：{workpad.maintenance.proposalCount ?? 0} · patch 提案：{workpad.maintenance.patchProposalCount ?? 0} · 应用结果：{workpad.maintenance.applicationResultCount ?? 0}</p>
-          {workpad.maintenance.latestPatchProposal ? (
-            <p className="panel-note">
-              <strong>{userFacingText(workpad.maintenance.latestPatchProposal.status)}</strong>
-              <span>{userFacingText(workpad.maintenance.latestPatchProposal.summary)}</span>
-            </p>
-          ) : null}
-          {workpad.maintenance.latestProposal ? (
-            <p className="panel-note">
-              <strong>{userFacingText(workpad.maintenance.latestProposal.status)}</strong>
-              <span>{userFacingText(workpad.maintenance.latestProposal.summary)}</span>
-            </p>
-          ) : null}
-          {workpad.maintenance.latestResolution ? (
-            <div className="workpad-evidence">
-              <strong>{userFacingText(workpad.maintenance.latestResolution.outcome)}</strong>
-              <span>{userFacingText(workpad.maintenance.latestResolution.rationale)}</span>
-            </div>
-          ) : null}
+          <p className="panel-note">终态需求：{workpad.maintenance.closeoutCount ?? 0} · 维护记录：{workpad.maintenance.ledgerCount}</p>
           {workpad.maintenance.latest ? (
             <div className="workpad-evidence">
               <strong>{userFacingText(workpad.maintenance.latest.eventType)}</strong>

@@ -137,9 +137,6 @@ export interface ThreadStreamAction {
   schedulerIntegrationOutcomeId?: string;
   schedulerRunCompletionId?: string;
   schedulerRunBlockedCloseoutId?: string;
-  maintenanceProposalId?: string;
-  maintenancePatchProposalId?: string;
-  maintenanceApplicationManifestId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -275,9 +272,6 @@ export interface WorkbenchDecisionAction {
   schedulerIntegrationOutcomeId?: string;
   schedulerRunCompletionId?: string;
   schedulerRunBlockedCloseoutId?: string;
-  maintenanceProposalId?: string;
-  maintenancePatchProposalId?: string;
-  maintenanceApplicationManifestId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   workflowRunId?: string;
@@ -397,9 +391,6 @@ export interface WorkbenchConfirmationQueueItem {
   schedulerIntegrationOutcomeId?: string;
   schedulerRunCompletionId?: string;
   schedulerRunBlockedCloseoutId?: string;
-  maintenanceProposalId?: string;
-  maintenancePatchProposalId?: string;
-  maintenanceApplicationManifestId?: string;
   reservationIntentId?: string;
   claimIntentId?: string;
   taskRunId?: string;
@@ -778,84 +769,6 @@ export interface WorkbenchAgentTaskSummary {
 export interface WorkbenchMaintenanceSummary {
   ledgerCount: number;
   closeoutCount: number;
-  resolutionCount: number;
-  proposalCount: number;
-  patchProposalCount?: number;
-  applicationManifestCount?: number;
-  applicationResultCount?: number;
-  applicationReportCount?: number;
-  latestReviewWindowId?: string;
-  unreviewedTerminalCount: number;
-  latestPatchProposal?: {
-    id: string;
-    status: string;
-    proposalId: string;
-    decisionId: string;
-    targetKinds: string[];
-    operationCount: number;
-    applicationAuthorized: boolean;
-    canonicalUpdateAuthorized: boolean;
-    summary: string;
-    createdAt: string;
-  };
-  latestApplicationManifest?: {
-    id: string;
-    status: string;
-    applicationStatus: string;
-    patchProposalId: string;
-    gateRecordId: string;
-    targetKinds: string[];
-    operationCount: number;
-    blockedReasons: string[];
-    canonicalPatchApplied: boolean;
-    summary: string;
-    createdAt: string;
-  };
-  latestApplicationResult?: {
-    id: string;
-    status: string;
-    manifestId: string;
-    patchProposalId: string;
-    gateRecordId: string;
-    targetKinds: string[];
-    operationCount: number;
-    canonicalPatchApplied: boolean;
-    summary: string;
-    createdAt: string;
-  };
-  latestApplicationReport?: {
-    id: string;
-    status: string;
-    resultId: string;
-    manifestId: string;
-    patchProposalId: string;
-    gateRecordId: string;
-    targetKinds: string[];
-    operationCount: number;
-    canonicalPatchApplied: boolean;
-    summary: string;
-    createdAt: string;
-  };
-  latestProposal?: {
-    id: string;
-    status: string;
-    targetKinds: string[];
-    resolutionCount: number;
-    humanGateRequired: boolean;
-    canonicalUpdateAuthorized: boolean;
-    summary: string;
-    createdAt: string;
-  };
-  latestResolution?: {
-    candidateId: string;
-    outcome: string;
-    candidateSubtype?: string;
-    reviewRecommendation: string;
-    canonicalUpdateRequired: boolean;
-    humanGateRequired: boolean;
-    rationale: string;
-    createdAt: string;
-  };
   latest?: {
     id: string;
     eventType: string;
@@ -864,7 +777,7 @@ export interface WorkbenchMaintenanceSummary {
     severity: string;
     createdAt: string;
   };
-  status: "idle" | "collecting" | "review-ready" | "reviewed";
+  status: "idle" | "collecting";
   note: string;
 }
 

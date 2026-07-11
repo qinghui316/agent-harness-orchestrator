@@ -4,7 +4,6 @@ import { join } from "node:path";
 import type {
   DemandMemoryCloseout,
   DocsDriftCandidate,
-  MaintenanceCanonicalPatchPayloadDraft,
   ResolvedMemory,
   ReusableLessonCandidate,
 } from "../types/index.js";
@@ -79,21 +78,19 @@ export function normalizeLessonCandidates(changeId: string, candidates: Array<{ 
 
 export function normalizeDocsDriftCandidates(
   changeId: string,
-  candidates: Array<{ document: string; summary: string; patch?: MaintenanceCanonicalPatchPayloadDraft; evidenceRefs?: string[] }>,
+  candidates: Array<{ document: string; summary: string; evidenceRefs?: string[] }>,
   fallbackRefs: string[],
 ): DocsDriftCandidate[] {
   return candidates
     .filter((candidate) => candidate.document.trim().length > 0 && candidate.summary.trim().length > 0)
     .map((candidate, index) => {
       const document = candidate.document.trim().replace(/\\/g, "/");
-      const patchFingerprint = candidate.patch ? `:${contentHash(JSON.stringify(candidate.patch))}` : "";
-      const fingerprint = contentHash(`docs-drift:${document}:${normalizeCandidateText(candidate.summary)}${patchFingerprint}`);
+      const fingerprint = contentHash(`docs-drift:${document}:${normalizeCandidateText(candidate.summary)}`);
       return {
         id: `docs-drift-${safeSegment(changeId)}-${index + 1}-${fingerprint.slice(0, 8)}`,
         fingerprint,
         document,
         summary: candidate.summary.trim(),
-        ...(candidate.patch ? { patch: candidate.patch } : {}),
         evidenceRefs: uniqueSorted(candidate.evidenceRefs?.length ? candidate.evidenceRefs : fallbackRefs),
         status: "candidate",
       };

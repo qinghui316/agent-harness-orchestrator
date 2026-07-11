@@ -1069,10 +1069,7 @@ export function App(): ReactElement {
   async function runWorkflowAction(actionType: string, options: Record<string, unknown> = {}): Promise<void> {
     const { preserveSelectedTopic, ...actionOptions } = options;
     const shouldPreserveSelectedTopic = preserveSelectedTopic === true;
-    const projectScopedAction = actionType === "maintenance.canonical-update.decision.record"
-      || actionType === "maintenance.canonical-patch.application-gate.record"
-      || actionType === "maintenance.canonical-patch.apply";
-    if (!selectedProjectId || (!activeTopic && !projectScopedAction)) return;
+    if (!selectedProjectId || !activeTopic) return;
     const topicBeforeAction = activeTopic?.id ?? selectedTopic;
     const snapshotBeforeAction = snapshot;
     setActionRunning(actionType);
@@ -1098,16 +1095,6 @@ export function App(): ReactElement {
         });
         setSnapshot(result.snapshot);
         setComposerText("");
-        return;
-      }
-      if (projectScopedAction) {
-        const result = await postJson<{ snapshot: Snapshot }>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/actions`, {
-          actionType,
-          changeId: activeTopic?.id,
-          confirm: true,
-          ...actionOptions,
-        });
-        setSnapshot(result.snapshot);
         return;
       }
       await consumeWorkbenchLiveStream(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/actions/live`, {

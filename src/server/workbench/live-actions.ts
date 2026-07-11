@@ -28,10 +28,6 @@ export async function sendWorkbenchActionLive(input: WorkbenchProjectInput & { p
         error.name = "BadRequest";
         throw error;
       }
-      if (isProjectScopedMaintenanceWorkflowAction(body.actionType)) {
-        await executeWorkbenchAction(input, body);
-        terminalStatus = "completed";
-      } else {
       await assertCurrentWorkflowAction(input, body, { getWorkbenchSnapshot });
       const result = await runWorkbenchWorkflowAction(input.project, {
         actionType: body.actionType,
@@ -53,9 +49,6 @@ export async function sendWorkbenchActionLive(input: WorkbenchProjectInput & { p
         schedulerIntegrationOutcomeId: body.schedulerIntegrationOutcomeId,
         schedulerRunCompletionId: body.schedulerRunCompletionId,
         schedulerRunBlockedCloseoutId: body.schedulerRunBlockedCloseoutId,
-        maintenancePatchProposalId: body.maintenancePatchProposalId,
-        maintenanceProposalId: body.maintenanceProposalId,
-        maintenanceApplicationManifestId: body.maintenanceApplicationManifestId,
         schedulerWorkerStartId: body.schedulerWorkerStartId,
         schedulerWorkerResultId: body.schedulerWorkerResultId,
         schedulerWorkerValidationId: body.schedulerWorkerValidationId,
@@ -83,7 +76,6 @@ export async function sendWorkbenchActionLive(input: WorkbenchProjectInput & { p
         auditRunId: body.auditRunId,
       }, sink);
       terminalStatus = result.status;
-      }
     } else {
       await executeWorkbenchAction(input, body);
     }
@@ -100,10 +92,4 @@ export async function sendWorkbenchActionLive(input: WorkbenchProjectInput & { p
 
 function isLiveWorkflowAction(actionType: string): actionType is WorkbenchWorkflowActionRequest["actionType"] {
   return isLiveWorkflowActionType(actionType);
-}
-
-function isProjectScopedMaintenanceWorkflowAction(actionType: string): boolean {
-  return actionType === "maintenance.canonical-update.decision.record"
-    || actionType === "maintenance.canonical-patch.application-gate.record"
-    || actionType === "maintenance.canonical-patch.apply";
 }

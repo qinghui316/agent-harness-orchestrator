@@ -14,14 +14,6 @@ describe("web workflow action payload helpers", () => {
     });
   });
 
-  it("preserves maintenance patch proposal scope", () => {
-    expect(workflowActionPayloadFromScope({
-      maintenancePatchProposalId: "canonical-patch-proposal-1",
-    })).toEqual({
-      maintenancePatchProposalId: "canonical-patch-proposal-1",
-    });
-  });
-
   it("preserves direct Scheduler worker target ids", () => {
     expect(workflowActionPayloadFromScope({
       changeId: "change-1",

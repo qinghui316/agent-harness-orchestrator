@@ -1,25 +1,16 @@
 # Output Contract
 
-For maintenance/evolution modes return one declarative `PatchPackage`:
+The authoritative output is the final Markdown state in the assigned workspace. Make each justified change directly on disk and leave unrelated files unchanged. Runtime computes the diff after the Agent exits.
 
-```json
-{
-  "mode": "maintain-assigned-closeout",
-  "assignmentId": "assigned-id",
-  "inputCheckpoint": "checkpoint-hash",
-  "policyVersion": "policy-v1",
-  "sourceWindowHash": "window-hash",
-  "summary": "Evidence-backed result",
-  "observations": [{"text":"...","evidenceRefs":["..."]}],
-  "decisions": [{"kind":"retain","subject":"...","reason":"...","evidenceRefs":["..."]}],
-  "patches": [{"targetId":"allowed-target-id","beforeHash":"...","afterHash":"...","reason":"...","evidenceRefs":["..."],"operations":[{"kind":"hunk","oldText":"old","newText":"new"}]}],
-  "context": null,
-  "verificationRequests": ["assigned-verification-id"],
-  "warnings": [],
-  "status": "ready"
-}
-```
+Return a concise final summary with:
 
-`kind` is one of `promote`, `retain`, `merge`, `retire`, or `archive-only`. Use target IDs from the envelope, never filesystem paths. Return `status: "noop"` with no patches when no durable delta is justified, or `status: "blocked"` with warnings for unresolved conflicts.
+- mode and assignment identity;
+- status: `ready`, `noop`, or `blocked`;
+- Markdown files created, edited, deleted, split, merged, or renamed;
+- evidence references supporting semantic decisions;
+- assigned verification run and result;
+- warnings, conflicts, or follow-up requests for Runtime.
 
-For onboarding/audit modes, use the same envelope and set `context` to `{ "projectState": "...", "uncertainty": [], "recommendations": [] }`. Unknown keys, filesystem paths, commands, lifecycle actions, and operation kinds other than `replacement` or `hunk` are invalid.
+For `noop`, leave the workspace unchanged and explain why no durable delta is justified. For `blocked`, avoid speculative edits and identify the missing or conflicting Runtime fact. For `ready`, ensure the summary matches the actual workspace state.
+
+Do not place file contents, edit instructions, lifecycle commands, or a machine-authored change payload in the final response. The response is not an alternate write channel.

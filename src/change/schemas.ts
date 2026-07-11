@@ -18,4 +18,5 @@ export const changeMetadataSchema = z.object({
   closedAt: z.string().nullable(),
   archivePath: z.string().nullable(),
   originConversationId: z.string().optional(),
+  maintenanceSequenceEligible: z.boolean().optional(),
 });

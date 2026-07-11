@@ -1,7 +1,19 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { createHash } from "node:crypto";
+import { join } from "node:path";
 import { ProjectRegistryStore } from "../registry/store.js";
 import { recoverPendingApplyTransactions } from "../apply/manager.js";
 import { recoverChangeCloseTransactions } from "../change/manager.js";
+import {
+  dispatchChangeCloseOutbox,
+  recoverExpiredAgentTasks,
+  startBackgroundWorker,
+  runCodexMaintenanceAssignment,
+  type BackgroundWorkerHandle,
+} from "../agent-task/manager.js";
+import { createMaintenanceWorkspace } from "../agent-task/maintenance-workspace.js";
+import { parseHarnessEngineeringAssignment } from "../agent-task/harness-engineering-contract.js";
+import { resolveProjectMemory } from "../memory/resolver.js";
 import type { WorkbenchProjectInput } from "../workbench/manager.js";
 import { TerminalRuntime } from "./terminal/terminal-runtime.js";
 import { handleApi } from "./workbench/api-router.js";
@@ -22,6 +34,7 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
   const terminalRuntime = options.terminalRuntime ?? new TerminalRuntime();
   const restoredInput = await restoreDirectProjectInput(input, store);
   await recoverWorkbenchProjects(store, restoredInput);
+  const workers = await startProjectBackgroundWorkers(store, restoredInput, options);
   const context: WorkbenchServerContext = {
     input: restoredInput,
     staticRoot,
@@ -33,11 +46,89 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
       sendJson(response, statusForError(error), { error: error instanceof Error ? error.message : String(error) });
     });
   });
-  server.on("close", () => terminalRuntime.cleanup());
+  server.on("close", () => {
+    void Promise.all(workers.map((worker) => worker.drain())).finally(() => terminalRuntime.cleanup());
+  });
   await new Promise<void>((resolvePromise) => server.listen(port, host, resolvePromise));
   const address = server.address();
   const actualPort = typeof address === "object" && address ? address.port : port;
-  return { server, url: `http://${host}:${actualPort}` };
+  return {
+    server,
+    url: `http://${host}:${actualPort}`,
+    async close() {
+      await Promise.all(workers.map((worker) => worker.drain()));
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+      terminalRuntime.cleanup();
+    },
+  };
+}
+
+async function startProjectBackgroundWorkers(
+  store: ProjectRegistryStore,
+  directInput: WorkbenchProjectInput | null,
+  options: WorkbenchServeOptions,
+): Promise<BackgroundWorkerHandle[]> {
+  const projects = await store.listProjects();
+  if (directInput?.project && !projects.some((project) => project.id === directInput.project?.id || project.path === directInput.project?.path)) {
+    projects.push(directInput.project);
+  }
+  const workers: BackgroundWorkerHandle[] = [];
+  for (const project of projects) {
+    const memory = await resolveProjectMemory(project);
+    const worker = startBackgroundWorker(memory, project, {
+      ...options.backgroundWorker,
+      enabled: options.backgroundWorker?.enabled ?? false,
+      assignmentFactory: options.backgroundWorker?.assignmentFactory ?? ((task, targetProject) => createServerHarnessAssignment(memory, task, targetProject)),
+      runAssignment: options.backgroundWorker?.runAssignment ?? (async ({ assignment, signal }) => runCodexMaintenanceAssignment(memory, project, assignment, signal)),
+    });
+    workers.push(worker);
+    await worker.poll();
+  }
+  return workers;
+}
+
+async function createServerHarnessAssignment(
+  memory: import("../types/index.js").ResolvedMemory,
+  task: import("../types/index.js").AgentTask,
+  project: import("../types/index.js").ManagedProject,
+) {
+  const mode = task.roleId.startsWith("memory-maintenance-agent:")
+    ? "maintain-assigned-closeout"
+    : task.roleId.startsWith("harness-evolution-agent:")
+      ? "evolve-assigned-window"
+      : null;
+  if (!mode) throw new Error(`Unsupported maintenance-policy AgentTask role: ${task.roleId}.`);
+  const checkpoint = createHash("sha256").update(JSON.stringify({
+    taskId: task.id,
+    projectId: project.id,
+    changeId: task.changeId,
+    roleId: task.roleId,
+    inputArtifacts: task.inputArtifacts,
+  })).digest("hex");
+  const namespaces = memory.mode === "repo-local"
+    ? ["AGENTS.md", "docs", "harness", "templates/system-skills"]
+    : ["docs", "harness", "templates/system-skills"];
+  const workspace = await createMaintenanceWorkspace({
+    assignmentId: task.id,
+    memoryMode: memory.mode,
+    memoryRoot: memory.memoryRoot,
+    maintenanceRoot: join(memory.workbenchRoot, "maintenance"),
+    namespaces,
+  });
+  return parseHarnessEngineeringAssignment({
+    mode,
+    projectId: project.id,
+    assignmentId: task.id,
+    inputCheckpoint: checkpoint,
+    policyVersion: "durable-maintenance-v1",
+    sourceWindowHash: checkpoint,
+    evidenceRefs: task.inputArtifacts.length > 0 ? task.inputArtifacts : [`agent-task:${task.id}`],
+    currentDocumentRefs: [],
+    currentStableMemoryRefs: [],
+    workspace,
+    namespaceClasses: ["content", "control-plane"],
+    requiredVerification: [],
+  });
 }
 
 export async function recoverWorkbenchProjects(store: ProjectRegistryStore, directInput: WorkbenchProjectInput | null): Promise<void> {
@@ -48,6 +139,9 @@ export async function recoverWorkbenchProjects(store: ProjectRegistryStore, dire
   for (const project of projects) {
     await recoverPendingApplyTransactions(project);
     await recoverChangeCloseTransactions(project);
+    const memory = await resolveProjectMemory(project);
+    await dispatchChangeCloseOutbox(memory);
+    await recoverExpiredAgentTasks(memory);
   }
 }
 

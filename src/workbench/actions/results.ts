@@ -241,9 +241,6 @@ export function labelForAction(actionType: string): string {
   if (mainAgentExecutionAction === "main-agent.execution.reconcile") return "Main-agent execution reconciled";
 
   switch (actionType) {
-    case "maintenance.canonical-update.decision.record": return "Maintenance canonical update decision recorded";
-    case "maintenance.canonical-patch.application-gate.record": return "Maintenance canonical patch application gate recorded";
-    case "maintenance.canonical-patch.apply": return "Maintenance canonical patch applied";
     case "planning.scheduler.worker.start-first": return "Scheduler first coder worker started";
     case "planning.scheduler.worker.start-next": return "Scheduler next coder worker started";
     case "planning.scheduler.worker.reconcile-result": return "Scheduler first coder worker result reconciled";

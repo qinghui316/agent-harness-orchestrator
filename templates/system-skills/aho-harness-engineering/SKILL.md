@@ -1,58 +1,53 @@
 ---
 name: aho-harness-engineering
-description: "Use only for AHO-assigned Harness engineering work with a typed runtime mode: project onboarding/context audit, incremental closeout memory maintenance, or a fixed evolution window. Produces context or declarative patch packages from bounded evidence; never triggers, claims, schedules, applies, closes, or marks maintenance/evolution complete."
+description: "Use only for AHO Runtime-assigned Harness engineering in one isolated workspace: onboard a project, audit Harness context, maintain one assigned closeout, or evolve one assigned archive window. Directly edits Markdown while Runtime owns assignment, diff capture, review, apply, and lifecycle authority."
 ---
 
 # AHO Harness Engineering
 
-Work only from the Runtime assignment envelope. The envelope selects exactly one mode:
+Work only from the assignment and isolated workspace prepared by AHO Runtime. The assignment selects exactly one mode:
 
-- `onboard`: classify and prepare project context for first use.
-- `audit`: refresh or inspect Harness context without source mutation.
-- `maintain-assigned-closeout`: maintain memory for the assigned terminal Change.
-- `evolve-assigned-window`: evaluate only the assigned fixed archive window.
+- `onboard`: create or reconcile initial project-specific Harness Markdown.
+- `audit`: inspect current Harness context and repair assigned Markdown drift when justified.
+- `maintain-assigned-closeout`: update durable memory from one assigned terminal Change.
+- `evolve-assigned-window`: improve Harness guidance from one fixed archive window.
 
-If `mode`, assignment identity, evidence refs, or allowed targets are missing, stop with a blocker. Never infer a mode from `pending.md`, archive counts, user prose, or repository state.
+Never infer a mode from user prose, repository state, `pending.md`, or archive counts. If the mode, assignment identity, evidence references, workspace root, writable Markdown namespaces, or required verification are missing or inconsistent, stop and report the blocker.
 
 ## Workflow
 
-1. Validate the assignment envelope and read only referenced canonical evidence.
-2. Load the mode reference below. Do not load every reference by default.
-3. Separate current facts, durable experience, archive-only history, assumptions, and conflicts.
-4. Produce the exact output contract for the assigned mode.
-5. Return the package to Runtime. Do not write canonical files or execute lifecycle actions.
+1. Validate the Runtime assignment and confirm the current directory is the assigned isolated workspace.
+2. Read only the supplied evidence and current Markdown needed for the selected mode.
+3. Classify candidate knowledge as `promote`, `retain`, `merge`, `retire`, or `archive-only`.
+4. Directly create, edit, delete, split, merge, or rename Markdown inside the writable namespaces.
+5. Re-read the resulting files, check links and document roles, and run only the verification assigned by Runtime.
+6. Return a concise summary of changed files, evidence used, verification, warnings, or why no change was needed.
+
+Runtime captures the filesystem/Git diff from the workspace. The final response is evidence and summary only; it is never the diff source.
 
 ## Reference Routing
 
-- `onboard` or `audit`: read `references/onboarding-context.md`, plus project-state, memory-layout, or document-generation references only as needed.
-- `maintain-assigned-closeout`: read `references/incremental-closeout.md`, `references/document-roles.md`, and `references/output-contract.md`.
-- `evolve-assigned-window`: read `references/evolution-window.md`, `references/document-roles.md`, `references/output-contract.md`, and `references/failure-and-recovery.md`.
-- For every result, read `references/runtime-contract.md`, `references/evidence-selection.md`, and `references/output-contract.md`.
-- For concrete shapes, read `references/worked-examples.md`.
+- Always read `references/runtime-contract.md`, `references/evidence-selection.md`, and `references/output-contract.md`.
+- For `onboard` or `audit`, read `references/onboarding-context.md`; load project-state, memory-layout, or document-generation guidance only as needed.
+- For `maintain-assigned-closeout`, read `references/incremental-closeout.md` and `references/document-roles.md`.
+- For `evolve-assigned-window`, read `references/evolution-window.md`, `references/document-roles.md`, and `references/failure-and-recovery.md`.
+- Read `references/worked-examples.md` before a non-trivial edit or when deciding between no-op, merge, split, rename, and delete.
 
-## Decision Method
+## Editing Rules
 
-Classify every candidate:
+- Prefer no change when bounded evidence does not justify durable current guidance.
+- Keep `AGENTS.md` and status documents compact; preserve detailed chronology in Change archives.
+- Preserve project-specific content unless evidence proves it stale, duplicated, or misplaced.
+- Use filesystem operations for structural changes. Do not encode edits in the final response.
+- Touch only Markdown in Runtime-provided writable namespaces. Never follow symlinks or escape the workspace.
+- Treat generated indexes, product source, executable scripts, CI, configuration, secrets, and runtime state as read-only or out of scope.
 
-- `promote`: durable evidence should change current memory or guidance.
-- `retain`: current guidance is still necessary and correct.
-- `merge`: combine overlapping current guidance into one narrower statement.
-- `retire`: remove current guidance that is stale or contradicted.
-- `archive-only`: preserve history without promoting it into current memory.
+## Authority Boundaries
 
-Prefer no patch when evidence does not justify a durable current-state change. A single incident is not a permanent rule unless it exposes a general boundary or reproducible failure.
+The Agent cannot trigger work, create or claim assignments, choose or count archive windows, schedule workers, apply workspace changes to canonical memory, close Changes, advance watermarks, or mark maintenance/evolution complete. Do not invoke AHO lifecycle commands or start maintenance/reviewer agents.
 
-## Hard Boundaries
-
-- Do not detect thresholds, create or claim tasks, choose archive windows, or inspect `pending.md` to start work.
-- Do not invoke AHO CLI lifecycle commands or spawn your own maintenance/reviewer agents.
-- Do not edit files, apply patches, close Changes, mark evolution complete, or change watermarks.
-- Do not target product/runtime source, permission policy, automation policy, executable scripts, CI, or arbitrary paths.
-- Do not weaken ToolPolicy, source safety, validation/audit, ownership, gates, or target taxonomy.
-- Do not copy raw transcripts, stdout/stderr, secrets, temporary paths, superseded proposals, or archive narration into stable memory.
-
-Runtime owns assignment, target allowlist, hashes, idempotency, review, verification, atomic application, rollback, ledger, and status. This Skill owns only semantic analysis and declarative content.
+Runtime owns workspace creation, namespace enforcement, task claim and fencing, retries, diff capture, review, verification policy, canonical apply/rollback, ledger updates, watermarks, and close/finalization. Report requests or blockers to Runtime instead of attempting those actions.
 
 ## Stop Conditions
 
-Return `blocked` with explicit conflicts when evidence is missing, hashes or assignment identity are inconsistent, an allowed target is insufficient, facts conflict without a safe resolution, or the requested change would alter a forbidden control-plane boundary.
+Stop without editing when assignment lineage is inconsistent, required evidence is unavailable, the workspace is not isolated, a needed path is outside writable Markdown namespaces, facts conflict without a safe resolution, or the requested result would weaken source safety, validation, ownership, or human gates.

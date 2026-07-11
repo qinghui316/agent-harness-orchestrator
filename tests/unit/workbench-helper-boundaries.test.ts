@@ -60,13 +60,6 @@ describe("Workbench helper boundaries", () => {
     expect(helper).not.toContain("from \"../../../server");
     expect(helper).not.toContain("from \"../../../agent-task");
 
-    const maintenanceConfirmation = readFileSync("src/workbench/projections/read-model/confirmation/maintenance.ts", "utf8");
-    expect(maintenanceConfirmation).toContain('from "../projection-summary.js"');
-    expect(maintenanceConfirmation).toContain("latestUnhandledByCreatedAt(proposals, decisions");
-    expect(maintenanceConfirmation).toContain("latestUnhandledByCreatedAt(patchProposals, gateRecords");
-    expect(maintenanceConfirmation).toContain("latestUnhandledByCreatedAt(");
-    expect(maintenanceConfirmation).toContain('applicationStatus === "ready-for-application"');
-
     const taskGraph = readFileSync("src/workbench/projections/read-model/task-graph.ts", "utf8");
     const workpad = readFileSync("src/workbench/projections/read-model/workpad.ts", "utf8");
     const resultReview = readFileSync("src/workbench/projections/read-model/result-review.ts", "utf8");

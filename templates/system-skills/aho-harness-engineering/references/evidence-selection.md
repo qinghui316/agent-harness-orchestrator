@@ -4,4 +4,4 @@ Use accepted Change artifacts, validation/audit/apply/close evidence, archive su
 
 Exclude raw transcripts, raw process logs, secrets, caches, dependency trees, temporary paths, unaccepted or superseded proposals, and evidence outside the assigned source window.
 
-Every observation and patch reason must cite bounded evidence refs. Report conflicts instead of silently choosing one source.
+Every semantic change and final-summary claim must cite bounded evidence refs. Report conflicts instead of silently choosing one source.

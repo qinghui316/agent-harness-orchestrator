@@ -6,7 +6,6 @@ import type { WorkbenchConfirmationQueue, WorkbenchDecisionInspector, WorkbenchT
 import { decisionContextToConfirmationItems } from "./confirmation/decision-context.js";
 import { integrationCandidateQueueItem, integrationCheckHistoryItem, integrationCheckNeedsActionQueueItem, integrationCheckNeedsUserAction, integrationCheckQueueItem, sameIntegrationTargets } from "./confirmation/integration.js";
 import { landingCandidateQueueItem, landingLocalTerminalBlockerQueueItem, landingPackageQueueItem, landingQueuePrepareItem, landingQueueSnapshotItems, prDraftQueueItem } from "./confirmation/landing.js";
-import { maintenanceCanonicalUpdateDecisionQueueItems } from "./confirmation/maintenance.js";
 import { mainAgentExecutionForWorkpad } from "./main-agent-execution.js";
 import { dedupeConfirmationItems, emptyConfirmationQueue, scopeConfirmationQueueItemActions } from "./confirmation/shared.js";
 import { schedulerNextActionToConfirmationItems, sequentialWorkflowToConfirmationItems } from "./confirmation/typed-workflow.js";
@@ -129,12 +128,7 @@ export async function buildConfirmationQueue(input: {
       .map((check) => integrationCheckHistoryItem(project, check));
   }
 
-  queue.maintenance = input.includeProjectWideActions === false
-    ? []
-    : dedupeConfirmationItems((await maintenanceCanonicalUpdateDecisionQueueItems({
-      project: input.project,
-      memory: input.memory,
-    })).map(scopeConfirmationQueueItemActions));
+  queue.maintenance = [];
   queue.current = dedupeConfirmationItems(queue.current.filter((item) => item.kind !== "maintenance").map(scopeConfirmationQueueItemActions));
   queue.current = promoteSelectedWorkflowNextActionGate(queue.current, input.workpad.nextAction);
   queue.current = promoteSelectedLandingReadinessGate(queue.current, selectedChangeId);

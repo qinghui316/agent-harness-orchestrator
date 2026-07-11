@@ -26,7 +26,7 @@
     "test:workbench": "npm run test:workbench:unit",
     "test:workbench:release": "npm run test:workbench:unit && npm run test:workbench:slow && npm run test:workbench:slow:release",
     "test:workbench:unit": "vitest run tests/unit/workbench-read-model.test.ts tests/unit/workbench-task-runtime.test.ts tests/unit/workbench-scheduler-runtime-surface.test.ts tests/unit/workbench-feedback-surface.test.ts tests/unit/workbench-conversation-lifecycle.test.ts tests/unit/workbench-agent-task-domain.test.ts tests/unit/workbench-demand-worker.test.ts",
-    "test:workbench:slow": "npm run test:workbench:slow:scheduler && vitest run tests/slow/workbench-demand-to-execution-golden-flow.test.ts && vitest run tests/slow/workbench-remote-landing-flow.test.ts && vitest run tests/slow/workbench-maintenance-flow.test.ts",
+    "test:workbench:slow": "npm run test:workbench:slow:scheduler && vitest run tests/slow/workbench-demand-to-execution-golden-flow.test.ts && vitest run tests/slow/workbench-remote-landing-flow.test.ts",
     "test:workbench:slow:release": "npm run test:workbench:slow:scheduler:release && vitest run tests/slow/workbench-apply-integration-flow.test.ts",
     "test:workbench:slow:scheduler": "vitest run tests/slow/workbench-scheduler-discard-completion-flow.test.ts && vitest run tests/slow/workbench-scheduler-worker-rework-flow.test.ts && vitest run tests/unit/scheduler-integration-outcome.test.ts tests/unit/scheduler-run-completion.test.ts tests/unit/scheduler-run-closeout.test.ts",
     "test:workbench:slow:scheduler:release": "vitest run tests/slow/workbench-scheduler-two-worker-integration-flow.test.ts",

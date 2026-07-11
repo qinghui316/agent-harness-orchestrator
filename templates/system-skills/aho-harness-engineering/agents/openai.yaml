@@ -1,6 +1,6 @@
 display_name: AHO Harness Engineering
-short_description: Analyze assigned Harness context, closeout memory, or evolution windows.
+short_description: Edit assigned Harness Markdown in an isolated workspace.
 default_prompt: >-
-  Use the typed AHO Runtime assignment and the matching mode reference to return
-  a bounded context or declarative patch package. Do not trigger, claim, apply,
-  close, or mark any Harness lifecycle operation complete.
+  Use the AHO Runtime assignment and matching mode guidance. Edit only assigned
+  Markdown in the isolated workspace, let Runtime capture the diff, and return
+  a concise evidence and verification summary without taking lifecycle actions.

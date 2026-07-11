@@ -36,15 +36,6 @@ export function buildWorkbenchActionHandlers(deps: WorkbenchActionHandlerDeps): 
     return deps.postConversationMessage(project, changeId, request.prompt, live);
   },
   ...buildSchedulerActionHandlers(),
-  "maintenance.canonical-update.decision.record": async () => {
-    throw new Error("maintenance.canonical-update.decision.record is project-scoped and must not run through the demand topic workflow service.");
-  },
-  "maintenance.canonical-patch.application-gate.record": async () => {
-    throw new Error("maintenance.canonical-patch.application-gate.record is project-scoped and must not run through the demand topic workflow service.");
-  },
-  "maintenance.canonical-patch.apply": async () => {
-    throw new Error("maintenance.canonical-patch.apply is project-scoped and must not run through the demand topic workflow service.");
-  },
   "workflow.run.start": async (project, changeId, request, live) => startAcceptedSequentialWorkflow(project, changeId, request, live),
   "orchestrator.evaluate": async (project, changeId) => evaluateDemandOrchestrator(project, changeId),
   "orchestrator.pump": async (project, changeId, request, live) => pumpDemandWorkersForAction(project, request.prompt, live, changeId),

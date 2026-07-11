@@ -1,6 +1,7 @@
 # Harness Document Generation
 
-Use this reference when proposing AHO docs or scripts.
+Use this reference when editing AHO Harness Markdown. Script or linter gaps are
+reported to Runtime and are never edited by this Skill.
 
 ## Document Roles
 
@@ -44,16 +45,15 @@ Do not copy:
 - old subagent prompts as AHO execution logic;
 - greenfield business code scaffolds as default output.
 
-## Proposal Quality
+## Edit Quality
 
-Each proposed doc change should state:
+Each final summary should state:
 
-- Runtime-provided target ID;
+- changed Markdown path inside the assigned workspace;
 - why it is needed;
 - evidence supporting it;
-- whether it is deterministic prep or project-specific content;
-- Runtime-provided verification request ID;
-- evidence and expected semantic result. Runtime owns later review and canonical application.
+- whether it is deterministic preparation or project-specific content;
+- assigned verification and its result. Runtime owns diff capture, later review, and canonical application.
 
 ## Document Quality Gates
 
@@ -65,8 +65,8 @@ AHO terms:
 - Technical claims should point to bounded source evidence when available.
 - Generated docs should separate current facts, assumptions, open decisions,
   and historical/archive references.
-- Existing project-specific docs take precedence over generic templates; propose
-  merges instead of replacing user-written guidance.
+- Existing project-specific docs take precedence over generic templates; merge
+  evidence-backed content instead of replacing user-written guidance wholesale.
 - Verification guidance should map to the detected project command surface and
   should not weaken existing business gates.
 

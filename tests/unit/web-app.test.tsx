@@ -2044,64 +2044,6 @@ describe("Workbench web app", () => {
     expect(timelineText.toLowerCase()).not.toContain("whole-wave");
   });
 
-  it("submits project-scoped maintenance patch gates through the non-live action endpoint", async () => {
-    const maintenanceSnapshot = {
-      ...snapshot,
-      right: {
-        ...snapshot.right,
-        confirmationQueue: {
-          ...snapshot.right.confirmationQueue,
-          primary: null,
-          maintenance: [{
-            id: "maintenance-canonical-patch-application-gate:canonical-patch-proposal-1",
-            kind: "maintenance",
-            projectId: "repo",
-            maintenancePatchProposalId: "canonical-patch-proposal-1",
-            summary: "Prepare non-executing canonical patch proposal.",
-            whyNeedsConfirmation: "该 canonical patch 提案进入后续应用路径前必须由人类确认。",
-            confirmEffect: "记录一条项目级 canonical patch application gate evidence。",
-            riskSummary: "确认只记录 accepted-for-application-follow-up evidence。",
-            evidenceRefs: ["workbench/maintenance/canonical-patch-proposals/canonical-patch-proposal-1.json"],
-            actions: [{
-              id: "maintenance-canonical-patch-application-gate-record:canonical-patch-proposal-1",
-              label: "记录 patch 应用 gate",
-              kind: "workflow-action",
-              enabled: true,
-              requiresConfirmation: true,
-              actionType: "maintenance.canonical-patch.application-gate.record",
-              maintenancePatchProposalId: "canonical-patch-proposal-1",
-            }],
-            primary: false,
-            status: "pending",
-          }],
-        },
-      },
-    };
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
-      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
-      if (url.endsWith("/workbench/actions/live")) throw new Error("Project-scoped maintenance patch gate must not use the live workflow endpoint.");
-      if (url.endsWith("/workbench/actions")) {
-        expect(init?.body).toContain("\"actionType\":\"maintenance.canonical-patch.application-gate.record\"");
-        expect(init?.body).toContain("\"maintenancePatchProposalId\":\"canonical-patch-proposal-1\"");
-        return jsonResponse({ snapshot: maintenanceSnapshot });
-      }
-      return jsonResponse(url.includes("/stream/") ? stream : maintenanceSnapshot);
-    }));
-
-    render(<App />);
-
-    await openDecisionPane();
-    await waitFor(() => expect(screen.getByText("记录 patch 应用 gate")).toBeTruthy());
-    fireEvent.click(screen.getByText("记录 patch 应用 gate"));
-    expect(screen.getByText("确认")).toBeTruthy();
-    fireEvent.click(screen.getByText("确认"));
-    await waitFor(() => {
-      expect(fetch).toHaveBeenCalledWith("/api/projects/repo/workbench/actions", expect.objectContaining({ method: "POST" }));
-    });
-  });
-
   it("renders SchedulerRun terminal cards as read-only boundary evidence", async () => {
     const terminalSnapshot = {
       ...snapshot,

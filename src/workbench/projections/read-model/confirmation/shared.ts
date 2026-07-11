@@ -24,9 +24,6 @@ export function scopeConfirmationQueueItemActions(item: WorkbenchConfirmationQue
       schedulerClaimReservationId: action.schedulerClaimReservationId ?? item.schedulerClaimReservationId,
       reservationIntentId: action.reservationIntentId ?? item.reservationIntentId,
       claimIntentId: action.claimIntentId ?? item.claimIntentId,
-      maintenanceProposalId: action.maintenanceProposalId ?? item.maintenanceProposalId,
-      maintenancePatchProposalId: action.maintenancePatchProposalId ?? item.maintenancePatchProposalId,
-      maintenanceApplicationManifestId: action.maintenanceApplicationManifestId ?? item.maintenanceApplicationManifestId,
     })),
   };
 }

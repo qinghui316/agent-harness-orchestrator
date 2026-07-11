@@ -3,6 +3,22 @@ export type TaskRunStatus = "queued" | "claimed" | "running" | "evidence-ready" 
 export type AgentTaskKind = "foreground" | "background";
 export type AgentTaskStatus = "queued" | "claimed" | "running" | "completed" | "failed" | "needs-user-input" | "cancelled";
 export type AgentTaskCreatedBy = "main-agent-policy" | "maintenance-policy" | "system";
+export type AgentTaskFailureDisposition = "retryable" | "terminal";
+
+export interface AgentTaskLease {
+  owner: string;
+  claimToken: string;
+  fencingToken: number;
+  expiresAt: string;
+  heartbeatAt: string;
+}
+
+export interface AgentTaskCheckpoint {
+  sequence: number;
+  summary: string;
+  artifactRefs: string[];
+  createdAt: string;
+}
 
 export interface AgentTask {
   version: "1.0";
@@ -13,6 +29,12 @@ export interface AgentTask {
   roleId: string;
   kind: AgentTaskKind;
   status: AgentTaskStatus;
+  idempotencyKey?: string;
+  attempt?: number;
+  maxAttempts?: number;
+  lease?: AgentTaskLease | null;
+  checkpoint?: AgentTaskCheckpoint | null;
+  failureDisposition?: AgentTaskFailureDisposition;
   inputArtifacts: string[];
   outputArtifacts: string[];
   parentTaskId?: string;
@@ -29,6 +51,10 @@ export interface AgentTaskResult {
   taskId: string;
   roleId: string;
   status: AgentTaskStatus;
+  attempt?: number;
+  claimToken?: string;
+  fencingToken?: number;
+  failureDisposition?: AgentTaskFailureDisposition;
   summary: string;
   artifactRefs: string[];
   policyAuditRefs?: string[];

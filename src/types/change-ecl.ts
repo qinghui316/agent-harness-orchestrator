@@ -14,6 +14,7 @@ export interface ChangeMetadata {
   closedAt: string | null;
   archivePath: string | null;
   originConversationId?: string;
+  maintenanceSequenceEligible?: boolean;
 }
 
 export type ReviewStatus = "pending" | "approved" | "approved-with-notes" | "blocked" | "missing" | "unknown";

@@ -205,7 +205,13 @@ describe("AHO skill source and Codex bridge", () => {
       evidenceRefs: ["change://terminal"],
       currentDocumentRefs: [],
       currentStableMemoryRefs: [],
-      allowedTargets: [],
+      workspace: {
+        version: "1.0", assignmentId: "maintenance-1", mode: "immutable-snapshot", memoryMode: "external-local",
+        maintenanceRoot: "C:/maintenance",
+        baseRoot: "C:/memory", baseSnapshotRoot: "C:/workspace.base", workspaceRoot: "C:/workspace",
+        namespaces: ["docs"], baseRef: "snapshot", baseHash: "base", baseTreeHash: "tree",
+      },
+      namespaceClasses: ["content"],
       requiredVerification: [],
     });
     expect(context.records).toEqual([expect.objectContaining({
@@ -220,7 +226,7 @@ describe("AHO skill source and Codex bridge", () => {
     expect(context.promptSection).toContain("external-local");
     expect(context.promptSection).toContain("Stop Conditions");
     expect(context.promptSection).toContain("Evidence Selection");
-    expect(context.promptSection).toContain("Runtime assignment envelope");
+    expect(context.promptSection).toContain("Runtime supplies a typed assignment");
     expect(context.promptSection).toContain("Server-Bound Harness Engineering Assignment");
     expect(context.promptSection).toContain('"mode": "maintain-assigned-closeout"');
     expect(context.promptSection).toContain('"assignmentId": "maintenance-1"');

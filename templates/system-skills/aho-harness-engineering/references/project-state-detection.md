@@ -23,17 +23,17 @@ large binary data.
 
 | State | Criteria | Response |
 | --- | --- | --- |
-| Empty | No meaningful source or docs | Ask for product/stack/entrypoint decisions and propose a minimal doc plan |
-| Code Only | Source exists but no useful AHO map | Build `ProjectContextPack`, then propose Harness docs/scripts deltas |
-| Partial Harness | Some AHO files or marker exist, but gaps remain | Identify missing or stale pieces and propose reconcile work |
-| Harness Ready | AHO map, ECL, status, scripts, and handoff exist | Produce compact context refresh and continue ordinary planning |
+| Empty | No meaningful source or docs | Record missing product/stack/entrypoint decisions; do not invent them |
+| Code Only | Source exists but no useful AHO map | Create the assigned minimal Harness Markdown from verified project evidence |
+| Partial Harness | Some AHO files or marker exist, but gaps remain | Reconcile assigned Markdown and report non-Markdown gaps to Runtime |
+| Harness Ready | AHO map, ECL, status, scripts, and handoff exist | Refresh only stale assigned context |
 
 ## ECL Readiness
 
 | ECL State | Criteria | Response |
 | --- | --- | --- |
-| Missing | `docs/ECL.md` or change directories absent | Propose core ECL docs and lifecycle scripts through a Change |
-| Partial | ECL exists but scripts/templates/lints missing | Propose the smallest completion delta |
+| Missing | `docs/ECL.md` or change directories absent | Create assigned core ECL Markdown; report lifecycle-script needs to Runtime |
+| Partial | ECL exists but scripts/templates/lints missing | Edit assigned Markdown only and report executable gaps to Runtime |
 | Ready | ECL docs, changes, templates, reindex, evolve check, and lints exist | Check freshness and documentation entropy only |
 
 ## Small vs Structured Work
@@ -51,8 +51,8 @@ small.
 
 ## Baseline Verification Snapshot
 
-For existing projects, capture available verification commands as proposal
-evidence:
+For existing projects, capture available verification commands as bounded
+evidence for assigned Markdown:
 
 - TypeScript/Node: existing `lint`, `typecheck`, `test`, `build` scripts;
 - Go: existing `go test ./...`, `go build ./...`, or Makefile scripts;

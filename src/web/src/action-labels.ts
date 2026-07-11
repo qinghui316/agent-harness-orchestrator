@@ -8,9 +8,6 @@ export function workflowActionLabel(actionType: string | undefined): string {
   if (mainAgentExecutionAction === "main-agent.execution.continue") return "继续执行";
   if (mainAgentExecutionAction === "main-agent.execution.reconcile") return "恢复执行状态";
 
-  if (actionType === "maintenance.canonical-update.decision.record") return "记录维护决策";
-  if (actionType === "maintenance.canonical-patch.application-gate.record") return "记录 patch 应用 gate";
-  if (actionType === "maintenance.canonical-patch.apply") return "应用 canonical patch";
   const schedulerLabel = schedulerUserFacingActionLabel(actionType);
   if (schedulerLabel) return schedulerLabel;
   if (actionType === "planning.scheduler.worker.start-first") return "开始第一个任务";

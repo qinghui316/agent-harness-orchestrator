@@ -36,15 +36,16 @@ The resolved memory root contains:
 - runs, Workbench state, agent catalog, commands, managed skills, and related
   runtime evidence.
 
-For external-local projects, never propose `docs/` or `harness/` paths in the
-source root unless the user is explicitly migrating to repo-local/team-share
-mode.
+For external-local projects, never create `docs/` or `harness/` paths in the
+source root. Edit only the Runtime-resolved workspace namespaces; migration to
+repo-local/team-share mode requires a separate explicit decision.
 
 ## Existing AGENTS.md
 
 If external-local preparation finds a hand-written `AGENTS.md`, deterministic
-init may skip overwriting it. The Skill may propose a merge, but it must not
-overwrite it directly.
+init may preserve it. Merge only when Runtime includes its workspace copy in a
+writable Markdown namespace and evidence identifies which content to retain;
+otherwise report the conflict without overwriting it.
 
 ## Codex Access
 

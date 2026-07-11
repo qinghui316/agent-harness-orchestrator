@@ -1,7 +1,7 @@
 # Assigned Evolution Window
 
-Analyze exactly the archive window supplied by Runtime. Do not count Changes or read `pending.md` to redefine the window.
+Analyze exactly the fixed archive window supplied by Runtime. Do not count Changes or inspect `pending.md` to select, expand, or redefine the window.
 
-Compare repeated failures, user corrections, validation gaps, mechanical-rule opportunities, and current documentation drift against canonical current guidance. Apply Promote/Retain/Merge/Retire/Archive-only classification.
+Compare repeated failures, user corrections, validation gaps, mechanical-rule opportunities, and current documentation drift against the Markdown materialized in the workspace. Classify each candidate as Promote, Retain, Merge, Retire, or Archive-only.
 
-Prefer consolidating or deleting stale guidance over appending phase history. A valid result may be `noop` after both new-rule gaps and old-experience retention are checked.
+Make justified edits directly in the workspace. Prefer consolidating, splitting, renaming, or deleting stale guidance over appending phase history. A valid result may leave every file unchanged after both new-rule gaps and old-experience retention are checked.

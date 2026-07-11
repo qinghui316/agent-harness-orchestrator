@@ -1,12 +1,9 @@
-import { recordToolEventAuditEntry } from "../../agent-task/boundary-audit.js";
-import { applyMaintenanceCanonicalPatchApplicationManifest, maintenanceCanonicalPatchApplicationGateArtifactRef, maintenanceCanonicalPatchApplicationResultArtifactRef, maintenanceCanonicalUpdateDecisionArtifactRef, recordDemandMemoryCloseout, recordMaintenanceLedgerEntry, recordMaintenanceCanonicalPatchApplicationGate, recordMaintenanceCanonicalUpdateDecision, runMaintenanceCandidatePipeline } from "../../agent-task/manager.js";
-import { evaluateToolPolicy } from "../../agent-task/tool-policy.js";
+import { recordDemandMemoryCloseout, recordMaintenanceLedgerEntry } from "../../agent-task/manager.js";
 import { abandonChangeForChange } from "../../change/manager.js";
 import { resolveProjectMemory } from "../../memory/resolver.js";
 import type { ManagedProject } from "../../types/index.js";
 import { recordWorkbenchDecision, resumeNativeGoalAfterAction, runWorkbenchWorkflowAction } from "../../workbench/chat.js";
 import { getWorkbenchSnapshot, type WorkbenchProjectInput } from "../../workbench/manager.js";
-import { workflowActionScopePayload, workflowActionTargetId } from "../../workflow-actions/registry.js";
 import { assertCurrentWorkflowAction } from "./action-revalidation.js";
 import {
   allowedActionIds,
@@ -59,7 +56,6 @@ export async function recordPostDecisionMaintenance(
         summary,
         artifactRefs,
       });
-      await runMaintenanceCandidatePipeline(memory);
     }
   } catch {
     // Maintenance suggestions are advisory; action results must not depend on them.
@@ -111,9 +107,6 @@ async function executeWorkflowAction(input: WorkbenchProjectInput & { project: M
     throw error;
   }
   await assertCurrentWorkflowAction(input, body, { getWorkbenchSnapshot });
-  if (actionType === "maintenance.canonical-update.decision.record" || actionType === "maintenance.canonical-patch.application-gate.record" || actionType === "maintenance.canonical-patch.apply") {
-    return executeProjectScopedMaintenanceAction(input, body);
-  }
   const result = await runWorkbenchWorkflowAction(input.project, {
     actionType,
     changeId: body.changeId,
@@ -134,9 +127,6 @@ async function executeWorkflowAction(input: WorkbenchProjectInput & { project: M
     schedulerIntegrationOutcomeId: body.schedulerIntegrationOutcomeId,
     schedulerRunCompletionId: body.schedulerRunCompletionId,
     schedulerRunBlockedCloseoutId: body.schedulerRunBlockedCloseoutId,
-    maintenanceProposalId: body.maintenanceProposalId,
-    maintenancePatchProposalId: body.maintenancePatchProposalId,
-    maintenanceApplicationManifestId: body.maintenanceApplicationManifestId,
     schedulerWorkerStartId: body.schedulerWorkerStartId,
     schedulerWorkerResultId: body.schedulerWorkerResultId,
     schedulerWorkerValidationId: body.schedulerWorkerValidationId,
@@ -164,175 +154,6 @@ async function executeWorkflowAction(input: WorkbenchProjectInput & { project: M
     auditRunId: body.auditRunId,
   });
   return { result, snapshot: await getWorkbenchSnapshot(input, { topicId: body.changeId }) };
-}
-
-async function executeProjectScopedMaintenanceAction(input: WorkbenchProjectInput & { project: ManagedProject }, body: WorkbenchActionRequest): Promise<{ result: unknown; snapshot: unknown }> {
-  if (body.actionType === "maintenance.canonical-patch.apply") {
-    return executeProjectScopedMaintenancePatchApplyAction(input, body);
-  }
-  if (body.actionType === "maintenance.canonical-patch.application-gate.record") {
-    return executeProjectScopedMaintenancePatchApplicationGateAction(input, body);
-  }
-  return executeProjectScopedMaintenanceDecisionAction(input, body);
-}
-
-async function executeProjectScopedMaintenanceDecisionAction(input: WorkbenchProjectInput & { project: ManagedProject }, body: WorkbenchActionRequest): Promise<{ result: unknown; snapshot: unknown }> {
-  if (!body.maintenanceProposalId) {
-    const error = new Error("maintenance.canonical-update.decision.record requires maintenanceProposalId.");
-    error.name = "BadRequest";
-    throw error;
-  }
-  const request = {
-    actionType: "maintenance.canonical-update.decision.record" as const,
-    changeId: body.changeId,
-    maintenanceProposalId: body.maintenanceProposalId,
-  };
-  const memory = await resolveProjectMemory(input.project);
-  const targetId = workflowActionTargetId(request, "maintenance");
-  const scope = workflowActionScopePayload(request, "maintenance");
-  const policyDecision = evaluateToolPolicy({
-    actionType: request.actionType,
-    actorRoleId: "main-agent",
-    targetId,
-    enforcementMode: "broker-enforced",
-  });
-  const policyAuditRef = await recordToolEventAuditEntry(memory, {
-    actorRoleId: "main-agent",
-    actionType: request.actionType,
-    targetId,
-    scope,
-    decision: policyDecision,
-  });
-  if (policyDecision.status === "denied" || policyDecision.status === "unavailable") {
-    throw new Error(`${policyDecision.readableMessage} Evidence: ${policyAuditRef}`);
-  }
-  const decision = await recordMaintenanceCanonicalUpdateDecision(memory, body.maintenanceProposalId);
-  const artifact = maintenanceCanonicalUpdateDecisionArtifactRef(memory, decision.id);
-  await recordWorkbenchDecision(input.project, {
-    id: `maintenance:${request.actionType}:${decision.id}`,
-    changeId: null,
-    decisionType: request.actionType,
-    status: "completed",
-    label: "Maintenance canonical update decision recorded",
-    summary: decision.summary,
-    targetId: body.maintenanceProposalId,
-    runId: null,
-    artifact,
-    actionId: request.actionType,
-    payload: { scope, policyAuditRef, decision },
-    completedAt: new Date().toISOString(),
-  });
-  return {
-    result: { actionType: request.actionType, status: "completed", decision, policyAuditRef },
-    snapshot: await getWorkbenchSnapshot(input, { topicId: body.changeId }),
-  };
-}
-
-async function executeProjectScopedMaintenancePatchApplicationGateAction(input: WorkbenchProjectInput & { project: ManagedProject }, body: WorkbenchActionRequest): Promise<{ result: unknown; snapshot: unknown }> {
-  if (!body.maintenancePatchProposalId) {
-    const error = new Error("maintenance.canonical-patch.application-gate.record requires maintenancePatchProposalId.");
-    error.name = "BadRequest";
-    throw error;
-  }
-  const request = {
-    actionType: "maintenance.canonical-patch.application-gate.record" as const,
-    changeId: body.changeId,
-    maintenancePatchProposalId: body.maintenancePatchProposalId,
-  };
-  const memory = await resolveProjectMemory(input.project);
-  const targetId = workflowActionTargetId(request, "maintenance");
-  const scope = workflowActionScopePayload(request, "maintenance");
-  const policyDecision = evaluateToolPolicy({
-    actionType: request.actionType,
-    actorRoleId: "main-agent",
-    targetId,
-    enforcementMode: "broker-enforced",
-  });
-  const policyAuditRef = await recordToolEventAuditEntry(memory, {
-    actorRoleId: "main-agent",
-    actionType: request.actionType,
-    targetId,
-    scope,
-    decision: policyDecision,
-  });
-  if (policyDecision.status === "denied" || policyDecision.status === "unavailable") {
-    throw new Error(`${policyDecision.readableMessage} Evidence: ${policyAuditRef}`);
-  }
-  const gateRecord = await recordMaintenanceCanonicalPatchApplicationGate(memory, body.maintenancePatchProposalId);
-  const artifact = maintenanceCanonicalPatchApplicationGateArtifactRef(memory, gateRecord.id);
-  await recordWorkbenchDecision(input.project, {
-    id: `maintenance:${request.actionType}:${gateRecord.id}`,
-    changeId: null,
-    decisionType: request.actionType,
-    status: "completed",
-    label: "Maintenance canonical patch application gate recorded",
-    summary: gateRecord.summary,
-    targetId: body.maintenancePatchProposalId,
-    runId: null,
-    artifact,
-    actionId: request.actionType,
-    payload: { scope, policyAuditRef, gateRecord },
-    completedAt: new Date().toISOString(),
-  });
-  return {
-    result: { actionType: request.actionType, status: "completed", gateRecord, policyAuditRef },
-    snapshot: await getWorkbenchSnapshot(input, { topicId: body.changeId }),
-  };
-}
-
-async function executeProjectScopedMaintenancePatchApplyAction(input: WorkbenchProjectInput & { project: ManagedProject }, body: WorkbenchActionRequest): Promise<{ result: unknown; snapshot: unknown }> {
-  if (!body.maintenanceApplicationManifestId) {
-    const error = new Error("maintenance.canonical-patch.apply requires maintenanceApplicationManifestId.");
-    error.name = "BadRequest";
-    throw error;
-  }
-  const request = {
-    actionType: "maintenance.canonical-patch.apply" as const,
-    changeId: body.changeId,
-    maintenanceApplicationManifestId: body.maintenanceApplicationManifestId,
-  };
-  const memory = await resolveProjectMemory(input.project);
-  const targetId = workflowActionTargetId(request, "maintenance");
-  const scope = workflowActionScopePayload(request, "maintenance");
-  const policyDecision = evaluateToolPolicy({
-    actionType: request.actionType,
-    actorRoleId: "main-agent",
-    targetId,
-    enforcementMode: "broker-enforced",
-  });
-  const policyAuditRef = await recordToolEventAuditEntry(memory, {
-    actorRoleId: "main-agent",
-    actionType: request.actionType,
-    targetId,
-    scope,
-    decision: policyDecision,
-  });
-  if (policyDecision.status === "denied" || policyDecision.status === "unavailable") {
-    throw new Error(`${policyDecision.readableMessage} Evidence: ${policyAuditRef}`);
-  }
-  const applicationResult = await applyMaintenanceCanonicalPatchApplicationManifest(memory, body.maintenanceApplicationManifestId, {
-    policyAuditRefs: [policyAuditRef],
-    confirmedBy: "workbench-human-gate",
-  });
-  const artifact = maintenanceCanonicalPatchApplicationResultArtifactRef(memory, applicationResult.id);
-  await recordWorkbenchDecision(input.project, {
-    id: `maintenance:${request.actionType}:${applicationResult.id}`,
-    changeId: null,
-    decisionType: request.actionType,
-    status: "completed",
-    label: "Maintenance canonical patch applied",
-    summary: applicationResult.summary,
-    targetId: body.maintenanceApplicationManifestId,
-    runId: null,
-    artifact,
-    actionId: request.actionType,
-    payload: { scope, policyAuditRef, applicationResult },
-    completedAt: new Date().toISOString(),
-  });
-  return {
-    result: { actionType: request.actionType, status: "completed", applicationResult, policyAuditRef },
-    snapshot: await getWorkbenchSnapshot(input, { topicId: body.changeId }),
-  };
 }
 
 async function executeApprovalOrFeedbackAction(input: WorkbenchProjectInput & { project: ManagedProject }, body: WorkbenchActionRequest): Promise<{ result: unknown; snapshot: unknown }> {

@@ -1,8 +1,5 @@
 ﻿export const WORKFLOW_ACTION_TYPES = [
   "chat.ask",
-  "maintenance.canonical-update.decision.record",
-  "maintenance.canonical-patch.application-gate.record",
-  "maintenance.canonical-patch.apply",
   "planning.scheduler.worker.start-first",
   "planning.scheduler.worker.start-next",
   "planning.scheduler.worker.reconcile-result",
@@ -101,9 +98,6 @@ export type WorkbenchThreadActionType = typeof WORKBENCH_THREAD_ACTION_TYPES[num
 
 export const LIVE_WORKFLOW_ACTION_TYPES = [
   "chat.ask",
-  "maintenance.canonical-update.decision.record",
-  "maintenance.canonical-patch.application-gate.record",
-  "maintenance.canonical-patch.apply",
   "planning.scheduler.worker.start-first",
   "planning.scheduler.worker.start-next",
   "planning.scheduler.worker.reconcile-result",
@@ -185,9 +179,6 @@ export const LIVE_WORKFLOW_ACTION_TYPES = [
 ] as const satisfies readonly WorkflowActionType[];
 
 export const HIGH_IMPACT_WORKFLOW_ACTION_TYPES = [
-  "maintenance.canonical-update.decision.record",
-  "maintenance.canonical-patch.application-gate.record",
-  "maintenance.canonical-patch.apply",
   "planning.scheduler.worker.start-first",
   "planning.scheduler.worker.start-next",
   "planning.scheduler.worker.reconcile-result",
@@ -229,9 +220,6 @@ export const REVALIDATED_WORKFLOW_ACTION_TYPES = [
   "landing.prepare",
   "landing-queue.merge-next",
   "pr-draft.create",
-  "maintenance.canonical-update.decision.record",
-  "maintenance.canonical-patch.application-gate.record",
-  "maintenance.canonical-patch.apply",
   "planning.scheduler.worker.start-first",
   "planning.scheduler.worker.start-next",
   "planning.scheduler.worker.reconcile-result",
@@ -280,9 +268,6 @@ export const WORKFLOW_ACTION_SCOPE_KEYS = [
   "schedulerIntegrationOutcomeId",
   "schedulerRunCompletionId",
   "schedulerRunBlockedCloseoutId",
-  "maintenanceProposalId",
-  "maintenancePatchProposalId",
-  "maintenanceApplicationManifestId",
   "reservationIntentId",
   "claimIntentId",
   "workflowRunId",
@@ -343,15 +328,6 @@ export function validateWorkflowActionRequiredTargets(request: WorkflowActionSco
   };
 
   switch (actionType) {
-    case "maintenance.canonical-update.decision.record":
-      requireOne("maintenanceProposalId", [request.maintenanceProposalId]);
-      break;
-    case "maintenance.canonical-patch.application-gate.record":
-      requireOne("maintenancePatchProposalId", [request.maintenancePatchProposalId]);
-      break;
-    case "maintenance.canonical-patch.apply":
-      requireOne("maintenanceApplicationManifestId", [request.maintenanceApplicationManifestId]);
-      break;
     case "planning.scheduler.worker.start-first":
       requireOne("schedulerRunId", [request.schedulerRunId]);
       requireOne("schedulerClaimReservationId", [request.schedulerClaimReservationId]);
@@ -523,9 +499,6 @@ export function workflowActionScopePayload(request: WorkflowActionScopeCarrier, 
     schedulerIntegrationOutcomeId: request.schedulerIntegrationOutcomeId ?? extractString(result, "outcome", "id") ?? extractString(result, "completion", "schedulerIntegrationOutcomeId"),
     schedulerRunCompletionId: request.schedulerRunCompletionId ?? extractString(result, "completion", "id"),
     schedulerRunBlockedCloseoutId: request.schedulerRunBlockedCloseoutId ?? extractString(result, "closeout", "id"),
-    maintenanceProposalId: request.maintenanceProposalId ?? extractString(result, "decision", "proposalId"),
-    maintenancePatchProposalId: request.maintenancePatchProposalId ?? extractString(result, "gateRecord", "patchProposalId") ?? extractString(result, "applicationResult", "patchProposalId"),
-    maintenanceApplicationManifestId: request.maintenanceApplicationManifestId ?? extractString(result, "applicationResult", "manifestId"),
     reservationIntentId: request.reservationIntentId ?? extractString(result, "workerStart", "reservationIntentId") ?? extractString(result, "result", "reservationIntentId") ?? extractString(result, "schedulerValidation", "reservationIntentId") ?? extractString(result, "schedulerAudit", "reservationIntentId") ?? extractString(result, "reworkPlan", "reservationIntentId"),
     claimIntentId: request.claimIntentId ?? extractString(result, "workerStart", "claimIntentId") ?? extractString(result, "result", "claimIntentId") ?? extractString(result, "schedulerValidation", "claimIntentId") ?? extractString(result, "schedulerAudit", "claimIntentId") ?? extractString(result, "reworkPlan", "claimIntentId"),
     workflowRunId: request.workflowRunId ?? extractString(result, "workflowRun", "id") ?? extractString(result, "workflow", "id"),
@@ -643,11 +616,8 @@ export function workflowActionTargetId(request: WorkflowActionScopeCarrier, chan
       ?? changeId;
   }
   return request.remoteLandingResultId
-    ?? request.maintenanceApplicationManifestId
     ?? extractString(result, "applicationResult", "manifestId")
-    ?? request.maintenancePatchProposalId
     ?? extractString(result, "gateRecord", "patchProposalId")
-    ?? request.maintenanceProposalId
     ?? extractString(result, "decision", "proposalId")
     ?? request.landingPackageId
     ?? request.applyCheckId
@@ -727,9 +697,6 @@ export function workflowActionScopesMatchStrict(left: WorkflowActionScopeCarrier
     && sameStrictOptional(left.schedulerIntegrationOutcomeId, right.schedulerIntegrationOutcomeId)
     && sameStrictOptional(left.schedulerRunCompletionId, right.schedulerRunCompletionId)
     && sameStrictOptional(left.schedulerRunBlockedCloseoutId, right.schedulerRunBlockedCloseoutId)
-    && sameStrictOptional(left.maintenanceProposalId, right.maintenanceProposalId)
-    && sameStrictOptional(left.maintenancePatchProposalId, right.maintenancePatchProposalId)
-    && sameStrictOptional(left.maintenanceApplicationManifestId, right.maintenanceApplicationManifestId)
     && sameStrictOptional(left.reservationIntentId, right.reservationIntentId)
     && sameStrictOptional(left.claimIntentId, right.claimIntentId)
     && sameStrictOptional(left.workflowRunId, right.workflowRunId)
@@ -780,9 +747,6 @@ export function workflowActionScopesMatchCompatible(left: WorkflowActionScopeCar
     && sameCompatibleOptional(left.schedulerIntegrationOutcomeId, right.schedulerIntegrationOutcomeId)
     && sameCompatibleOptional(left.schedulerRunCompletionId, right.schedulerRunCompletionId)
     && sameCompatibleOptional(left.schedulerRunBlockedCloseoutId, right.schedulerRunBlockedCloseoutId)
-    && sameCompatibleOptional(left.maintenanceProposalId, right.maintenanceProposalId)
-    && sameCompatibleOptional(left.maintenancePatchProposalId, right.maintenancePatchProposalId)
-    && sameCompatibleOptional(left.maintenanceApplicationManifestId, right.maintenanceApplicationManifestId)
     && sameCompatibleOptional(left.reservationIntentId, right.reservationIntentId)
     && sameCompatibleOptional(left.claimIntentId, right.claimIntentId)
     && sameCompatibleOptional(left.workflowRunId, right.workflowRunId)

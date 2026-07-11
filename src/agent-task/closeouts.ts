@@ -1,16 +1,13 @@
 import { join } from "node:path";
 import type {
   DemandMemoryCloseout,
-  MaintenanceCanonicalPatchPayloadDraft,
   MaintenanceLedgerEntry,
-  MaintenanceReviewRun,
   ResolvedMemory,
 } from "../types/index.js";
 import { writeJsonFile } from "../fs/json.js";
 import { closeoutsRoot, displayMaintenancePath } from "./paths.js";
 import { closeoutSchema } from "./schemas.js";
 import { recordMaintenanceLedgerEntry } from "./ledger.js";
-import { maybeRunMaintenanceReviewWindow } from "./maintenance-review.js";
 import {
   listDemandMemoryCloseouts,
   normalizeDocsDriftCandidates,
@@ -30,14 +27,13 @@ export interface RecordDemandMemoryCloseoutInput {
   affectedModules?: string[];
   evidenceRefs?: string[];
   reusableLessonCandidates?: Array<{ summary: string; evidenceRefs?: string[] }>;
-  docsDriftCandidates?: Array<{ document: string; summary: string; patch?: MaintenanceCanonicalPatchPayloadDraft; evidenceRefs?: string[] }>;
+  docsDriftCandidates?: Array<{ document: string; summary: string; evidenceRefs?: string[] }>;
   memoryBoundaryNotes?: string[];
 }
 
 export async function recordDemandMemoryCloseout(memory: ResolvedMemory, input: RecordDemandMemoryCloseoutInput): Promise<{
   closeout: DemandMemoryCloseout;
   ledger?: MaintenanceLedgerEntry;
-  review?: MaintenanceReviewRun;
 }> {
   const existingCloseout = (await listDemandMemoryCloseouts(memory)).find((closeout) => closeout.changeId === input.changeId && closeout.terminalKind === input.terminalKind);
   if (existingCloseout) {
@@ -62,7 +58,7 @@ export async function recordDemandMemoryCloseout(memory: ResolvedMemory, input: 
     reusableLessonCandidates: normalizeLessonCandidates(input.changeId, input.reusableLessonCandidates ?? [], input.evidenceRefs ?? []),
     docsDriftCandidates: normalizeDocsDriftCandidates(input.changeId, input.docsDriftCandidates ?? [], input.evidenceRefs ?? []),
     memoryBoundaryNotes: input.memoryBoundaryNotes ?? [
-      "Closeout, ledger, candidates, scores, reviews, generated indexes, and generated caches may be written automatically.",
+      "Closeout, ledger, candidates, generated indexes, and generated caches may be written automatically.",
       "Canonical docs, ECL rules, product roadmap, curated project/stable memory, and source root remain human-gated.",
     ],
     createdAt: now,
@@ -76,8 +72,7 @@ export async function recordDemandMemoryCloseout(memory: ResolvedMemory, input: 
     summary: `${input.terminalKind} closeout recorded: ${input.title}`,
     artifactRefs: [displayMaintenancePath(memory, closeoutPath), ...closeout.evidenceRefs],
   });
-  const maybeReview = await maybeRunMaintenanceReviewWindow(memory);
-  return { closeout, ledger, ...(maybeReview.status === "reviewed" ? { review: maybeReview.review } : {}) };
+  return { closeout, ledger };
 }
 
 export { listDemandMemoryCloseouts } from "./closeout-store.js";
