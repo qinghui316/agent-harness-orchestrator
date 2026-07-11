@@ -195,13 +195,13 @@ const snapshot = {
       blockers: [],
       warnings: [],
       nextAction: {
-        id: "approval:close:member-discount",
-        label: "Close",
-        description: "关闭已完成变更。",
+        id: "approval:apply:wt-1",
+        label: "应用到项目",
+        description: "应用已审查结果。",
         kind: "approval",
         enabled: true,
         requiresConfirmation: true,
-        approvalId: "close:member-discount",
+        approvalId: "apply:wt-1",
       },
       background: {
         totalCount: 1,
@@ -309,11 +309,11 @@ const snapshot = {
   },
   right: {
     approvals: [{
-      id: "close:member-discount",
-      kind: "change-close",
-      label: "关闭变更",
+      id: "apply:wt-1",
+      kind: "worktree-apply",
+      label: "应用到项目",
       severity: "info",
-      action: { actionId: "change.close", label: "Close", command: "change", args: ["close", "repo"], mutates: true, requiresConfirmation: true },
+      action: { actionId: "result.apply", label: "应用到项目", command: "result", args: ["apply", "repo", "member-discount", "wt-1"], mutates: true, requiresConfirmation: true },
     }],
     decisions: [{
       id: "decision-1",
@@ -327,23 +327,23 @@ const snapshot = {
     }],
     decisionInspector: {
       primary: {
-        id: "approval:close:member-discount",
-        kind: "close-gate",
-        title: "确认完成需求对话",
-        summary: "关闭已完成变更。",
+        id: "approval:apply:wt-1",
+        kind: "apply-gate",
+        title: "应用已审查结果",
+        summary: "把结果应用到项目。",
         userStatus: "waiting-confirmation",
-        resultSummary: "这个需求对话可以结束并归档。",
-        recommendation: "同意会完成并归档这个需求对话。",
-        explanation: "归档是需求生命周期收口，之后仍可从历史查看。",
+        resultSummary: "结果已通过验证和审查。",
+        recommendation: "确认后精确应用当前结果。",
+        explanation: "应用只修改已审查的文件。",
         severity: "info",
         changeId: "member-discount",
         targetId: "member-discount",
         actions: [{
-          id: "accept:close:member-discount",
-          label: "同意",
+          id: "accept:apply:wt-1",
+          label: "应用到项目",
           kind: "approval",
-          approvalId: "close:member-discount",
-          action: { actionId: "change.close", label: "同意", command: "change", args: ["close", "repo"], mutates: true, requiresConfirmation: true },
+          approvalId: "apply:wt-1",
+          action: { actionId: "result.apply", label: "应用到项目", command: "result", args: ["apply", "repo", "member-discount", "wt-1"], mutates: true, requiresConfirmation: true },
           enabled: true,
           requiresConfirmation: true,
         }],
@@ -362,21 +362,21 @@ const snapshot = {
     },
     confirmationQueue: {
       primary: {
-        id: "confirm:close:member-discount",
-        kind: "planning-confirm",
+        id: "confirm:apply:wt-1",
+        kind: "single-result-apply",
         conversationId: "member-discount",
         changeId: "member-discount",
-        summary: "这个需求对话可以结束并归档。",
-        whyNeedsConfirmation: "确认完成需求对话",
-        confirmEffect: "同意会完成并归档这个需求对话。",
-        riskSummary: "归档后仍可从历史查看。",
+        summary: "结果已通过验证和审查。",
+        whyNeedsConfirmation: "应用会修改项目源码",
+        confirmEffect: "只应用已审查的文件。",
+        riskSummary: "源码写入前会重新校验。",
         evidenceRefs: [],
         actions: [{
-          id: "accept:close:member-discount",
-          label: "同意",
+          id: "accept:apply:wt-1",
+          label: "应用到项目",
           kind: "approval",
-          approvalId: "close:member-discount",
-          action: { actionId: "change.close", label: "同意", command: "change", args: ["close", "repo"], mutates: true, requiresConfirmation: true },
+          approvalId: "apply:wt-1",
+          action: { actionId: "result.apply", label: "应用到项目", command: "result", args: ["apply", "repo", "member-discount", "wt-1"], mutates: true, requiresConfirmation: true },
           enabled: true,
           requiresConfirmation: true,
         }],
@@ -1085,7 +1085,7 @@ describe("Workbench web app", () => {
     expect(document.querySelector(".parent-agent-transcript")?.textContent).not.toContain("结果摘要");
     expect(document.querySelector(".parent-agent-transcript")?.textContent).not.toContain("已生成本地结果");
     await openDecisionPane();
-    expect(screen.getByText("确认完成需求对话")).toBeTruthy();
+    expect(screen.getByText("应用会修改项目源码")).toBeTruthy();
     expect(screen.getByLabelText("在 Repo 中开始新对话")).toBeTruthy();
     expect(screen.getByLabelText("搜索已加载对话")).toBeTruthy();
     expect(screen.getAllByText("项目").length).toBeGreaterThan(0);
@@ -1137,7 +1137,7 @@ describe("Workbench web app", () => {
     await waitFor(() => expect(screen.getByText("模型事件转录")).toBeTruthy());
 
     await openDecisionPane();
-    fireEvent.click(screen.getAllByText("同意")[0] as HTMLElement);
+    fireEvent.click(screen.getAllByText("应用到项目")[0] as HTMLElement);
     expect(screen.getByText("确认")).toBeTruthy();
     fireEvent.click(screen.getByText("确认"));
     await waitFor(() => {
@@ -1172,7 +1172,7 @@ describe("Workbench web app", () => {
     fireEvent.click(screen.getByTestId("right-tool-launcher-confirm"));
     const card = await screen.findByTestId("decision-inspector-primary");
     expect(document.querySelector(".app-shell")?.classList.contains("decision-pane-expanded")).toBe(true);
-    expect(within(card).getByText("确认完成需求对话")).toBeTruthy();
+    expect(within(card).getByText("应用会修改项目源码")).toBeTruthy();
     expect(fetchCallUrls().filter((url) => url.endsWith("/workbench/actions"))).toHaveLength(actionCallCount);
 
     fireEvent.click(screen.getByTestId("decision-pane-collapse"));
@@ -2825,7 +2825,7 @@ describe("Workbench web app", () => {
     expect(screen.getByText("查看历史决策")).toBeTruthy();
   });
 
-  it("shows the close confirmation queue primary instead of a stale failed inspector card", async () => {
+  it("shows the current apply confirmation instead of a stale failed inspector card", async () => {
     const staleFailedPrimary = {
       id: "validation:validation-old-failed:failed",
       kind: "validation-failed",
@@ -2857,16 +2857,16 @@ describe("Workbench web app", () => {
       changeId: "member-discount",
       resultId: "member-discount",
       summary: "这个需求可以结束并归档。",
-      whyNeedsConfirmation: "确认完成需求",
-      confirmEffect: "同意会完成并归档这个需求。",
+      whyNeedsConfirmation: "确认将结果应用到项目",
+      confirmEffect: "应用会把已验证的结果提交到项目。",
       riskSummary: "归档是需求生命周期收口，之后仍可从历史查看。",
       evidenceRefs: [],
       actions: [{
         id: "accept:close:member-discount",
-        label: "同意",
+        label: "应用到项目",
         kind: "approval",
         approvalId: "close:member-discount",
-        action: { actionId: "change.close", label: "同意", command: "change", args: ["close", "repo", "member-discount"], mutates: true, requiresConfirmation: true },
+        action: { actionId: "result.apply", label: "应用到项目", command: "result", args: ["apply", "repo", "member-discount", "wt-1"], mutates: true, requiresConfirmation: true },
         enabled: true,
         requiresConfirmation: true,
       }],
@@ -2903,12 +2903,12 @@ describe("Workbench web app", () => {
     render(<App />);
 
     const card = await openDecisionPane();
-    expect(within(card).getByText("确认完成需求")).toBeTruthy();
+    expect(within(card).getByText("确认将结果应用到项目")).toBeTruthy();
     expect(within(card).getByText("这个需求可以结束并归档。")).toBeTruthy();
     expect(card.textContent).not.toContain("验证未通过：validation-old-failed");
     expect(screen.queryByRole("button", { name: /full-auto|全自动|parallel|merge queue|slot/i })).toBeNull();
 
-    fireEvent.click(within(card).getByRole("button", { name: "同意" }));
+    fireEvent.click(within(card).getByRole("button", { name: "应用到项目" }));
     fireEvent.click(within(card).getByRole("button", { name: "确认" }));
     await waitFor(() => {
       const actionCall = vi.mocked(fetch).mock.calls.find(([url, init]) =>
@@ -2916,7 +2916,7 @@ describe("Workbench web app", () => {
       );
       expect(actionCall).toBeTruthy();
       expect(JSON.parse(String(actionCall?.[1]?.body))).toMatchObject({
-        action: { actionId: "change.close", args: ["close", "repo", "member-discount"] },
+        action: { actionId: "result.apply", args: ["apply", "repo", "member-discount", "wt-1"] },
         confirm: true,
       });
     });
@@ -3531,7 +3531,7 @@ describe("Workbench web app", () => {
     render(<App />);
 
     const card = await openDecisionPane();
-    fireEvent.click(within(card).getByRole("button", { name: "同意" }));
+    fireEvent.click(within(card).getByRole("button", { name: "应用到项目" }));
     const confirmButton = await within(card).findByRole("button", { name: "确认" }) as HTMLButtonElement;
     fireEvent.click(confirmButton);
     expect(confirmButton.disabled).toBe(true);

@@ -1,6 +1,5 @@
 import { applyResultToProject, applyWorktree, discardWorktree } from "../../apply/manager.js";
 import { acceptAudit } from "../../audit/manager.js";
-import { closeChangeForChange } from "../../change/manager.js";
 import { applyIntegrationCheck, discardIntegrationCheck } from "../../integration-check/manager.js";
 import { acceptSpecTestProposal } from "../../spec-test/proposal.js";
 import type { ManagedProject } from "../../types/index.js";
@@ -19,7 +18,6 @@ export const allowedActionIds = new Set([
   "worktree.discard",
   "apply-check.apply",
   "apply-check.discard",
-  "change.close",
 ]);
 
 export async function runAllowlistedAction(project: ManagedProject, action: WorkbenchApprovalAction, options: WorkbenchApprovalOptions | undefined): Promise<unknown> {
@@ -33,10 +31,10 @@ export async function runAllowlistedAction(project: ManagedProject, action: Work
       return acceptAudit(project, args[2]);
     case "result.apply":
       assertArgs(action, "result", ["apply"], 3);
-      return applyResultToProject(project, scopedWorktreeArgOrThrow(action), { commit: options?.commit === true, message: options?.message });
+      return applyResultToProject(project, scopedWorktreeArgOrThrow(action), { commit: options?.commit === true, message: options?.message, userConfirmed: true });
     case "worktree.apply":
       assertArgs(action, "worktree", ["apply"], 3);
-      return applyWorktree(project, scopedWorktreeArgOrThrow(action), { commit: options?.commit === true, message: options?.message });
+      return applyWorktree(project, scopedWorktreeArgOrThrow(action), { commit: options?.commit === true, message: options?.message, userConfirmed: true });
     case "worktree.discard":
       assertArgs(action, "worktree", ["discard"], 3);
       return discardWorktree(project, scopedWorktreeArgOrThrow(action));
@@ -46,25 +44,18 @@ export async function runAllowlistedAction(project: ManagedProject, action: Work
     case "apply-check.discard":
       assertArgs(action, "apply-check", ["discard"], 2);
       return discardIntegrationCheck(project, args[2] ?? args[1]);
-    case "change.close":
-      assertArgs(action, "change", ["close"], 3);
-      return closeChangeForChange(project, args[2] as string);
     default:
       throw new Error("Unsupported Workbench action.");
   }
 }
 
-export function inferTargetIdFromAction(action: WorkbenchApprovalAction, result: unknown): string | null {
-  if (action.actionId === "change.close" && isRecord(result) && isRecord(result.change) && typeof result.change.id === "string") {
-    return result.change.id;
-  }
+export function inferTargetIdFromAction(action: WorkbenchApprovalAction, _result: unknown): string | null {
   if (action.actionId === "spec-test.proposal.accept-all-existing") return action.args[3] ?? null;
   if (action.actionId === "audit.accept") return action.args[2] ?? null;
   if (action.actionId === "result.apply") return scopedWorktreeArg(action) ?? null;
   if (action.actionId === "worktree.apply") return scopedWorktreeArg(action) ?? null;
   if (action.actionId === "worktree.discard") return scopedWorktreeArg(action) ?? null;
   if (action.actionId === "apply-check.apply" || action.actionId === "apply-check.discard") return action.args[1] ?? null;
-  if (action.actionId === "change.close") return action.args[2] ?? null;
   return null;
 }
 

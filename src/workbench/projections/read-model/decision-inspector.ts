@@ -303,7 +303,6 @@ function userDecisionTitle(context: WorkbenchDecisionContext): string {
         ? "确认应用并本地提交"
       : "确认应用到项目";
   }
-  if (context.kind === "close-gate") return "确认完成需求";
   if (context.kind === "evolution-pending") return "确认 Harness 演进";
   return context.title;
 }
@@ -317,7 +316,6 @@ function userResultSummary(context: WorkbenchDecisionContext): string {
   if (context.kind === "plan-proposal") return context.summary || "AI 提出了 Plan / Tasks 草案。";
   if (context.kind === "audit-approved") return context.summary || "审查证据显示结果可以接受。";
   if (context.kind === "apply-gate") return context.summary || "当前结果已准备应用到项目。";
-  if (context.kind === "close-gate") return context.summary || "这个需求可以结束并归档。";
   return context.summary;
 }
 
@@ -335,7 +333,6 @@ function userRecommendation(context: WorkbenchDecisionContext): string {
     if (resultApplyCommits(context)) return "应用会把当前结果写入项目并创建本地提交；要求修改会进入下一轮修改；放弃只丢弃这次结果。";
     return "应用会把当前结果写入项目；要求修改会进入下一轮修改；放弃只丢弃这次结果。";
   }
-  if (context.kind === "close-gate") return "同意会完成并归档这个需求。";
   return "查看历史决策和证据。";
 }
 
@@ -347,7 +344,6 @@ function userDecisionExplanation(context: WorkbenchDecisionContext): string {
     if (resultApplyCommits(context)) return "应用和本地提交都是高影响动作，仍需要明确确认；这不会执行远端提交、PR 或合并。";
     return "应用是高影响动作，仍需要明确确认；这不会执行远端提交或合并。";
   }
-  if (context.kind === "close-gate") return "归档是需求生命周期收口，之后仍可从历史查看。";
   return "右侧只显示当前对象的主决策，旧决策折叠到历史。";
 }
 
@@ -594,7 +590,7 @@ function decisionActionsForApproval(approval: WorkbenchApprovalItem, kind: Workb
     });
     return actions;
   }
-  if (kind === "spec-proposal" || kind === "plan-proposal" || kind === "audit-approved" || kind === "apply-gate" || kind === "close-gate") {
+  if (kind === "spec-proposal" || kind === "plan-proposal" || kind === "audit-approved" || kind === "apply-gate") {
     actions.push({
       id: `abandon:${approval.id}`,
       label: "放弃",
@@ -618,7 +614,6 @@ function decisionKindForApproval(kind: WorkbenchApprovalKind): WorkbenchDecision
   if (kind === "plan-proposal" || kind === "spec-test-proposal") return "plan-proposal";
   if (kind === "audit-proposal") return "audit-approved";
   if (kind === "worktree-apply") return "apply-gate";
-  if (kind === "change-close") return "close-gate";
   if (kind === "evolution") return "evolution-pending";
   return "history";
 }
@@ -628,13 +623,12 @@ function decisionTitleForApproval(approval: WorkbenchApprovalItem): string {
   if (approval.kind === "plan-proposal") return `Plan proposal: ${approval.targetId ?? approval.id}`;
   if (approval.kind === "audit-proposal") return `审查证据可接受：${approval.targetId ?? approval.id}`;
   if (approval.kind === "worktree-apply") return `结果可应用到项目：${approval.targetId ?? approval.id}`;
-  if (approval.kind === "change-close") return `Change 可关闭：${approval.targetId ?? approval.id}`;
   return approval.label;
 }
 
 function actionLabelForDecision(kind: WorkbenchDecisionContextKind, fallback: string): string {
   if (kind === "apply-gate") return "应用到项目";
-  if (kind === "spec-proposal" || kind === "plan-proposal" || kind === "audit-approved" || kind === "close-gate") return "同意";
+  if (kind === "spec-proposal" || kind === "plan-proposal" || kind === "audit-approved") return "同意";
   return fallback;
 }
 
@@ -663,14 +657,8 @@ function compareDecisionContexts(a: WorkbenchDecisionContext, b: WorkbenchDecisi
 }
 
 function choosePrimaryDecisionContext(contexts: WorkbenchDecisionContext[], selectedChangeId: string | undefined): WorkbenchDecisionContext | null {
-  const selectedCloseGate = selectedChangeId
-    ? contexts.find((context) =>
-      context.kind === "close-gate"
-      && context.changeId === selectedChangeId
-      && context.actions.some((action) => action.kind === "approval" && action.action?.actionId === "change.close")
-    )
-    : undefined;
-  return selectedCloseGate ?? [...contexts].sort(compareDecisionContexts)[0] ?? null;
+  const scoped = selectedChangeId ? contexts.filter((context) => context.changeId === selectedChangeId) : contexts;
+  return [...(scoped.length > 0 ? scoped : contexts)].sort(compareDecisionContexts)[0] ?? null;
 }
 
 function decisionPriority(context: WorkbenchDecisionContext): number {
@@ -679,7 +667,7 @@ function decisionPriority(context: WorkbenchDecisionContext): number {
   if (context.kind === "validation-failed" || context.kind === "audit-blocked") return 2;
   if (context.kind === "spec-proposal" || context.kind === "plan-proposal") return 3;
   if (context.kind === "apply-gate") return 4;
-  if (context.kind === "audit-approved" || context.kind === "close-gate") return 5;
+  if (context.kind === "audit-approved") return 5;
   if (context.kind === "evolution-pending") return 6;
   return 99;
 }

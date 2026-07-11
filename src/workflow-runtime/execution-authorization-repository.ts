@@ -13,7 +13,7 @@ export interface ExecutionAuthorizationTransaction {
   putAuthorization(value: LocalExecutionAuthorization): void;
   getExecution(operationId: string): TransitionExecution | null;
   putExecution(value: TransitionExecution): void;
-  countCompleted(authorizationId: string): number;
+  countCompletionReservations(authorizationId: string): number;
 }
 
 function root(memory: ResolvedMemory): string {
@@ -154,12 +154,12 @@ function transactionStore(database: Database.Database): ExecutionAuthorizationTr
           json = excluded.json
       `).run(parsed.operationId, parsed.authorizationId, parsed.status, parsed.fencingToken, JSON.stringify(parsed));
     },
-    countCompleted(authorizationId) {
-      const row = database.prepare(`
-        SELECT COUNT(*) AS count FROM transition_executions
-        WHERE authorization_id = ? AND status = 'completed'
-      `).get(authorizationId) as { count: number };
-      return Number(row.count);
+    countCompletionReservations(authorizationId) {
+      const rows = database.prepare("SELECT json FROM transition_executions WHERE authorization_id = ?").all(authorizationId) as JsonRow[];
+      return rows
+        .map((row) => transitionExecutionSchema.parse(JSON.parse(row.json)))
+        .filter((execution) => execution.commitPointReservedAt !== null || execution.status === "completed")
+        .length;
     },
   };
 }

@@ -283,7 +283,6 @@ export function decisionKindLabel(kind: string): string {
   if (kind === "plan-proposal") return "计划";
   if (kind === "audit-approved") return "审查";
   if (kind === "apply-gate") return "应用";
-  if (kind === "close-gate") return "完成";
   if (kind === "evolution-pending") return "Harness";
   return "历史";
 }

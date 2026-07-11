@@ -1,17 +1,23 @@
 ﻿import { existsSync } from "node:fs";
 import { execFile } from "node:child_process";
-import { writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
 import { collectWorktreeDiff } from "../../src/audit/diff.js";
+import { applyWorktree } from "../../src/apply/manager.js";
+import { closeChangeForFinalization, recoverChangeCloseTransactions } from "../../src/change/manager.js";
 import { initHarness } from "../../src/harness/init.js";
 import { listIntegrationChecks, runIntegrationCheck } from "../../src/integration-check/manager.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
+import { getGitCommit, getGitStatusShort } from "../../src/project/git.js";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import { getWorkbenchSnapshot, listWorkbenchTopics } from "../../src/workbench/manager.js";
 import { createWorktree } from "../../src/worktree/manager.js";
+import { claimTransitionExecution, issueLocalExecutionAuthorization, markTransitionExecutionStarted, readExecutionAuthorization, readTransitionExecution, revokeLocalExecutionAuthorization } from "../../src/workflow-runtime/execution-authorization.js";
+import { runExecutionAuthorizationTransaction } from "../../src/workflow-runtime/execution-authorization-repository.js";
 import {
   getTempDir,
   git,
@@ -96,7 +102,38 @@ describe("workbench apply and integration slow flows", () => {
       const memory = await resolveProjectMemory(project());
       const worktree = await createWorktree(project(), memory, topic.changeId);
       await writeFile(join(worktree.metadata.checkoutPath, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"console.log('finalize')\\\"\"}}\n", "utf8");
+      await writeFile(join(worktree.metadata.checkoutPath, "health-proof.bin"), Buffer.from([0, 255, 1, 2, 3, 0]));
       const diff = await collectWorktreeDiff(memory, worktree.metadata.worktreeId, topic.changeId);
+      const hash = "a".repeat(64);
+      const sourceHead = await getGitCommit(getTempDir());
+      if (!sourceHead) throw new Error("Expected source commit.");
+      const authorization = await issueLocalExecutionAuthorization(memory, {
+        projectId: memory.projectId,
+        changeId: topic.changeId,
+        conversationId: topic.conversationId,
+        providerThreadId: "thread-finalize",
+        goalIdentityHash: hash,
+        mode: "stepwise",
+        acceptedPlanId: "plan-finalize",
+        acceptedPlanHash: hash,
+        graphId: "graph-finalize",
+        graphHash: hash,
+        artifactManifestHash: hash,
+        sourceHead,
+        sourceStateHash: createHash("sha256").update(JSON.stringify(await getGitStatusShort(getTempDir()))).digest("hex"),
+        permissionProfileHash: hash,
+        providerScopeHash: hash,
+        policyHash: hash,
+        targets: [{ transition: "change.finalize", targetId: topic.changeId, manifestHash: hash }],
+        budget: { maxCompletedOperations: 8, maxReworks: 1, maxChangedFiles: 20, maxChangedBytes: 1_000_000 },
+        userDecision: { decisionId: "execute-finalize", actorId: "user", decidedAt: new Date().toISOString() },
+        issuedAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+      });
+      await mkdir(join(memory.changesRoot, "active", topic.changeId, "planning"), { recursive: true });
+      await writeFile(join(memory.changesRoot, "active", topic.changeId, "planning", "execution-authorization-intent.json"), JSON.stringify({
+        version: "1.0", status: "issued", authorizationId: authorization.id,
+      }), "utf8");
       await writeValidationResultWithHash(topic.changeId, "run-validation-finalize", worktree.metadata.worktreeId, diff.diffHash, "passed");
       await writeAuditResultWithHash(topic.changeId, "run-audit-finalize", worktree.metadata.worktreeId, diff.diffHash, "approved");
 
@@ -138,28 +175,134 @@ describe("workbench apply and integration slow flows", () => {
       expect(applied.result).toMatchObject({
         apply: expect.objectContaining({ status: "applied", committed: true }),
       });
+      expect([...await readFile(join(getTempDir(), "health-proof.bin"))]).toEqual([0, 255, 1, 2, 3, 0]);
+      const firstApply = applied.result as Awaited<ReturnType<typeof applyWorktree>>;
+      const applyTransaction = JSON.parse(await readFile(join(memory.memoryRoot, firstApply.run.artifacts.directory, "apply-transaction.json"), "utf8")) as {
+        authorization: { operationId: string };
+      };
+      expect(await readTransitionExecution(memory, applyTransaction.authorization.operationId)).toMatchObject({
+        transition: "source.apply",
+        status: "completed",
+        commitPointReservedAt: expect.any(String),
+      });
+      const duplicateApply = await applyWorktree(project(), worktree.metadata.worktreeId, {
+        commit: true,
+        message: "Apply finalize target",
+        userConfirmed: true,
+      });
+      expect(duplicateApply.run.id).toBe(firstApply.run.id);
+      expect(duplicateApply.apply.commitHash).toBe(firstApply.apply.commitHash);
+      const amendedAuthorization = await readExecutionAuthorization(memory, authorization.id);
+      expect(amendedAuthorization).toMatchObject({
+        epoch: 1,
+        targets: expect.arrayContaining([expect.objectContaining({ transition: "source.apply", targetId: worktree.metadata.worktreeId })]),
+      });
       expect(await gitStatus(getTempDir())).toBe("");
       const afterApply = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
       expect(afterApply.center.selectedTopic?.state).toBe("active");
       expect(afterApply.center.workpad.resultReview).toMatchObject({ status: "applied-clean" });
-      expect(afterApply.right.confirmationQueue.primary).toMatchObject({
+      expect(JSON.stringify(afterApply.right)).not.toContain("change.close");
+      const finalizeClaim = await claimTransitionExecution(memory, {
+        authorizationId: amendedAuthorization.id,
+        authorizationEpoch: amendedAuthorization.epoch,
+        transition: "change.finalize",
+        targetId: topic.changeId,
+        manifestHash: hash,
+        snapshot: {
+          acceptedPlanHash: amendedAuthorization.acceptedPlanHash,
+          graphHash: amendedAuthorization.graphHash,
+          artifactManifestHash: amendedAuthorization.artifactManifestHash,
+          sourceHead: amendedAuthorization.sourceHead,
+          sourceStateHash: amendedAuthorization.sourceStateHash,
+          permissionProfileHash: amendedAuthorization.permissionProfileHash,
+          providerScopeHash: amendedAuthorization.providerScopeHash,
+          policyHash: amendedAuthorization.policyHash,
+        },
+        claimedBy: "test-finalization",
+      });
+      await markTransitionExecutionStarted(memory, finalizeClaim.operationId, finalizeClaim.claimToken, finalizeClaim.fencingToken);
+      const requestId = `finalize-${createHash("sha256").update(`${amendedAuthorization.id}:${amendedAuthorization.epoch}:turn-finalize`).digest("hex")}`;
+      const requestArtifact = join(memory.changesRoot, "active", topic.changeId, "finalization", "requests", `${requestId}.json`);
+      await mkdir(join(memory.changesRoot, "active", topic.changeId, "finalization", "requests"), { recursive: true });
+      await writeFile(requestArtifact, `${JSON.stringify({
+        version: "1.0", id: requestId, changeId: topic.changeId, conversationId: topic.conversationId,
+        providerThreadId: "thread-finalize", turnId: "turn-finalize", authorizationId: amendedAuthorization.id,
+        authorizationEpoch: amendedAuthorization.epoch, manifestHash: hash, goalIdentityHash: hash,
+        status: "requested", createdAt: new Date().toISOString(), artifact: requestArtifact,
+      }, null, 2)}\n`, "utf8");
+      await expect(closeChangeForFinalization(project(), {
         changeId: topic.changeId,
-        whyNeedsConfirmation: "确认完成需求",
-        primary: true,
+        requestId: `finalize-${"0".repeat(64)}`,
+        authorizationId: amendedAuthorization.id,
+        authorizationEpoch: amendedAuthorization.epoch,
+        conversationId: topic.conversationId,
+        providerThreadId: "thread-finalize",
+        goalIdentityHash: hash,
+        operationId: finalizeClaim.operationId,
+        claimToken: finalizeClaim.claimToken,
+        fencingToken: finalizeClaim.fencingToken,
+      })).rejects.toThrow("Persisted FinalizeRequest was not found");
+      const auditArtifact = join(memory.runsRoot, "run-audit-finalize", "audit.json");
+      const matchingAudit = JSON.parse(await readFile(auditArtifact, "utf8")) as Record<string, unknown>;
+      await writeFile(auditArtifact, `${JSON.stringify({ ...matchingAudit, worktreeDiffHash: "b".repeat(64) }, null, 2)}\n`, "utf8");
+      await expect(closeChangeForFinalization(project(), {
+        changeId: topic.changeId,
+        requestId,
+        authorizationId: amendedAuthorization.id,
+        authorizationEpoch: amendedAuthorization.epoch,
+        conversationId: topic.conversationId,
+        providerThreadId: "thread-finalize",
+        goalIdentityHash: hash,
+        operationId: finalizeClaim.operationId,
+        claimToken: finalizeClaim.claimToken,
+        fencingToken: finalizeClaim.fencingToken,
+      })).rejects.toThrow("same worktree diff");
+      await writeFile(auditArtifact, `${JSON.stringify(matchingAudit, null, 2)}\n`, "utf8");
+      const closed = await closeChangeForFinalization(project(), {
+        changeId: topic.changeId,
+        requestId,
+        authorizationId: amendedAuthorization.id,
+        authorizationEpoch: amendedAuthorization.epoch,
+        conversationId: topic.conversationId,
+        providerThreadId: "thread-finalize",
+        goalIdentityHash: hash,
+        operationId: finalizeClaim.operationId,
+        claimToken: finalizeClaim.claimToken,
+        fencingToken: finalizeClaim.fencingToken,
       });
-      const closeAction = afterApply.right.decisionInspector.primary?.actions.find((action) => action.action?.actionId === "change.close")?.action;
-      if (!closeAction) throw new Error("Missing change.close action after apply.");
-      expect(closeAction.args).toEqual(["close", "repo", topic.changeId]);
-      const closed = await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
-        action: closeAction,
-        confirm: true,
+      expect(await readTransitionExecution(memory, finalizeClaim.operationId)).toMatchObject({
+        status: "completed",
+        commitPointReservedAt: expect.any(String),
+        receipt: { evidenceRefs: [closed.receiptPath] },
       });
-      expect(closed.result).toMatchObject({
+      const completedExecution = await readTransitionExecution(memory, finalizeClaim.operationId);
+      runExecutionAuthorizationTransaction(memory, (transaction) => {
+        transaction.putExecution({
+          ...completedExecution,
+          status: "executing",
+          claimExpiresAt: "2026-07-11T00:00:00.000Z",
+          terminalAt: null,
+          receipt: null,
+        });
+      });
+      await revokeLocalExecutionAuthorization(memory, amendedAuthorization.id, "revoked after close commit point");
+      const closeMarkerPath = join(memory.changesRoot, ".close-transactions", `${topic.changeId}.json`);
+      const closeMarker = JSON.parse(await readFile(closeMarkerPath, "utf8")) as Record<string, unknown>;
+      await rm(join(memory.memoryRoot, closed.receiptPath as string), { force: true });
+      await rm(closeMarker.outboxPath as string, { force: true });
+      await writeFile(closeMarkerPath, `${JSON.stringify({ ...closeMarker, stage: "renamed" }, null, 2)}\n`, "utf8");
+      await recoverChangeCloseTransactions(project());
+      expect(await readTransitionExecution(memory, finalizeClaim.operationId)).toMatchObject({
+        status: "completed",
+        receipt: { evidenceRefs: [closed.receiptPath] },
+      });
+      expect(closed).toMatchObject({
         change: expect.objectContaining({ id: topic.changeId }),
         archivePath: expect.stringContaining(topic.changeId),
+        transactionId: expect.stringMatching(/^close-/),
       });
       const topics = await listWorkbenchTopics(project());
-      expect(topics.find((item) => item.id === topic.conversationId)).toMatchObject({ state: "archive" });
+      expect(topics.find((item) => item.id === topic.conversationId)).toMatchObject({ state: "active" });
       expect(topics.find((item) => item.id === otherTopic.conversationId)).toMatchObject({ state: "active" });
       const archivedSnapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
       expect(archivedSnapshot.center.selectedTopic?.state).toBe("archive");

@@ -5,7 +5,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ExecutionAuthorizationSnapshot, ResolvedMemory } from "../../src/types/index.js";
 import {
   SCOPED_AUTO_EXECUTION_ENABLED,
+  appendLocalExecutionAuthorizationTargets,
   assertScopedAutoExecutionEnabled,
+  assertTransitionExecutionCurrent,
   claimTransitionExecution,
   deterministicTransitionOperationId,
   heartbeatTransitionExecution,
@@ -13,6 +15,8 @@ import {
   markTransitionExecutionStarted,
   recordTransitionExecutionTerminal,
   recoverTransitionExecution,
+  reconcileCommittedTransitionExecution,
+  reserveTransitionExecutionCommitPoint,
   reactivateLocalExecutionAuthorizationAfterRollback,
   revokeLocalExecutionAuthorization,
 } from "../../src/workflow-runtime/execution-authorization.js";
@@ -117,6 +121,21 @@ function claimInput(authorizationId: string, overrides: Partial<Parameters<typeo
   };
 }
 
+async function startAndReserve(claim: Awaited<ReturnType<typeof claimTransitionExecution>>, now = NOW) {
+  await markTransitionExecutionStarted(memory, claim.operationId, claim.claimToken, claim.fencingToken, now);
+  return reserveTransitionExecutionCommitPoint(memory, {
+    operationId: claim.operationId,
+    authorizationId: claim.authorizationId,
+    authorizationEpoch: claim.authorizationEpoch,
+    transition: claim.transition,
+    targetId: claim.targetId,
+    manifestHash: claim.manifestHash,
+    claimToken: claim.claimToken,
+    fencingToken: claim.fencingToken,
+    now,
+  });
+}
+
 describe("workflow runtime execution authorization", () => {
   it("persists stepwise and scoped-auto modes while scoped-auto dispatch stays disabled", async () => {
     const stepwise = await issue();
@@ -144,7 +163,7 @@ describe("workflow runtime execution authorization", () => {
   it("recovers incomplete work and records a single terminal completion receipt", async () => {
     const authorization = await issue();
     const claim = await claimTransitionExecution(memory, claimInput(authorization.id));
-    const executing = await markTransitionExecutionStarted(memory, claim.operationId, claim.claimToken, claim.fencingToken, NOW);
+    const executing = await startAndReserve(claim);
 
     expect(await recoverTransitionExecution(memory, claim.operationId)).toEqual(executing);
     const completed = await recordTransitionExecutionTerminal(memory, {
@@ -165,6 +184,75 @@ describe("workflow runtime execution authorization", () => {
     })).rejects.toThrow("terminal receipt");
   });
 
+  it("reconciles a durably committed transition after its claim and authorization expire", async () => {
+    const authorization = await issue({ expiresAt: "2026-07-11T00:00:01.000Z" });
+    const claim = await claimTransitionExecution(memory, claimInput(authorization.id, { claimTtlMs: 500 }));
+    await startAndReserve(claim);
+
+    const completed = await reconcileCommittedTransitionExecution(memory, {
+      operationId: claim.operationId,
+      authorizationId: authorization.id,
+      authorizationEpoch: authorization.epoch,
+      transition: "task.start",
+      targetId: "task-1",
+      manifestHash: H,
+      claimToken: claim.claimToken,
+      fencingToken: claim.fencingToken,
+      evidenceRefs: ["runs/apply-1/apply.json"],
+      now: new Date(NOW.getTime() + 2_000),
+    });
+
+    expect(completed).toMatchObject({
+      status: "completed",
+      receipt: { outcome: "completed", evidenceRefs: ["runs/apply-1/apply.json"] },
+    });
+    await expect(reconcileCommittedTransitionExecution(memory, {
+      operationId: claim.operationId,
+      authorizationId: authorization.id,
+      authorizationEpoch: authorization.epoch,
+      transition: "task.start",
+      targetId: "forged-target",
+      manifestHash: H,
+      claimToken: claim.claimToken,
+      fencingToken: claim.fencingToken,
+      evidenceRefs: [],
+      now: new Date(NOW.getTime() + 2_001),
+    })).rejects.toThrow(/stale or forged/);
+  });
+
+  it("rejects expired claims and revoked authorization at the commit point", async () => {
+    const expiredAuthorization = await issue({ decisionId: "decision-expiring", expiresAt: "2026-07-11T00:00:10.000Z" });
+    const expiredClaim = await claimTransitionExecution(memory, claimInput(expiredAuthorization.id, { claimTtlMs: 500 }));
+    await markTransitionExecutionStarted(memory, expiredClaim.operationId, expiredClaim.claimToken, expiredClaim.fencingToken, NOW);
+    await expect(assertTransitionExecutionCurrent(memory, {
+      operationId: expiredClaim.operationId,
+      authorizationId: expiredAuthorization.id,
+      authorizationEpoch: expiredAuthorization.epoch,
+      transition: "task.start",
+      targetId: "task-1",
+      manifestHash: H,
+      claimToken: expiredClaim.claimToken,
+      fencingToken: expiredClaim.fencingToken,
+      now: new Date(NOW.getTime() + 501),
+    })).rejects.toThrow("claim is expired");
+
+    const active = await issue({ decisionId: "decision-revoked-before-commit" });
+    const claim = await claimTransitionExecution(memory, claimInput(active.id, { targetId: "task-2", manifestHash: H2 }));
+    await markTransitionExecutionStarted(memory, claim.operationId, claim.claimToken, claim.fencingToken, NOW);
+    await revokeLocalExecutionAuthorization(memory, active.id, "cancel before commit", new Date(NOW.getTime() + 1));
+    await expect(assertTransitionExecutionCurrent(memory, {
+      operationId: claim.operationId,
+      authorizationId: active.id,
+      authorizationEpoch: active.epoch,
+      transition: "task.start",
+      targetId: "task-2",
+      manifestHash: H2,
+      claimToken: claim.claimToken,
+      fencingToken: claim.fencingToken,
+      now: new Date(NOW.getTime() + 2),
+    })).rejects.toThrow(/epoch|revoked/);
+  });
+
   it("does not consume budget for a failed terminal receipt", async () => {
     const authorization = await issue({ maxCompletedOperations: 1 });
     const failedClaim = await claimTransitionExecution(memory, claimInput(authorization.id));
@@ -182,6 +270,7 @@ describe("workflow runtime execution authorization", () => {
       targetId: "task-2",
       manifestHash: H2,
     }));
+    await startAndReserve(second);
     await recordTransitionExecutionTerminal(memory, {
       operationId: second.operationId,
       claimToken: second.claimToken,
@@ -223,34 +312,141 @@ describe("workflow runtime execution authorization", () => {
     await expect(issue()).rejects.toThrow("cannot be reissued");
   });
 
-  it("serializes concurrent completions so the authorization budget cannot be exceeded", async () => {
-    const authorization = await issue({ maxCompletedOperations: 1 });
-    const first = await claimTransitionExecution(memory, claimInput(authorization.id));
-    const second = await claimTransitionExecution(memory, claimInput(authorization.id, {
-      targetId: "task-2",
-      manifestHash: H2,
-      claimedBy: "runtime-2",
-    }));
+  it("appends a broker-derived target with a new epoch and invalidates old claims", async () => {
+    const authorization = await issue();
+    const oldClaim = await claimTransitionExecution(memory, claimInput(authorization.id));
+    const amended = await appendLocalExecutionAuthorizationTargets(memory, authorization.id, authorization.epoch, snapshot, { projectId: memory.projectId, changeId: "change-1" }, [
+      { transition: "source.apply", targetId: "worktree-1", manifestHash: H2 },
+    ], NOW);
+    expect(amended).toMatchObject({ epoch: 1, targets: expect.arrayContaining([expect.objectContaining({ transition: "source.apply" })]) });
+    await expect(markTransitionExecutionStarted(memory, oldClaim.operationId, oldClaim.claimToken, oldClaim.fencingToken, NOW))
+      .rejects.toThrow(/epoch/);
+    const retried = await appendLocalExecutionAuthorizationTargets(memory, authorization.id, amended.epoch, snapshot, { projectId: memory.projectId, changeId: "change-1" }, [
+      { transition: "source.apply", targetId: "worktree-1", manifestHash: H2 },
+    ], NOW);
+    expect(retried.epoch).toBe(1);
+  });
 
-    const completions = await Promise.allSettled([
-      recordTransitionExecutionTerminal(memory, {
-        operationId: first.operationId,
-        claimToken: first.claimToken,
-        fencingToken: first.fencingToken,
-        outcome: "completed",
-        now: NOW,
-      }),
-      recordTransitionExecutionTerminal(memory, {
-        operationId: second.operationId,
-        claimToken: second.claimToken,
-        fencingToken: second.fencingToken,
-        outcome: "completed",
-        now: NOW,
-      }),
+  it("rejects target amendments from another project or Change", async () => {
+    const authorization = await issue();
+    await expect(appendLocalExecutionAuthorizationTargets(
+      memory,
+      authorization.id,
+      authorization.epoch,
+      snapshot,
+      { projectId: memory.projectId, changeId: "change-2" },
+      [{ transition: "source.apply", targetId: "worktree-2", manifestHash: H2 }],
+      NOW,
+    )).rejects.toThrow(/scope does not match/);
+  });
+
+  it("atomically reserves completion budget across concurrent commit points", async () => {
+    const authorization = await issue({ maxCompletedOperations: 1 });
+    const claims = await Promise.all([
+      claimTransitionExecution(memory, claimInput(authorization.id, { claimTtlMs: 100 })),
+      claimTransitionExecution(memory, claimInput(authorization.id, {
+        targetId: "task-2",
+        manifestHash: H2,
+        claimedBy: "runtime-2",
+      })),
+    ]);
+    await Promise.all(claims.map((claim) => markTransitionExecutionStarted(memory, claim.operationId, claim.claimToken, claim.fencingToken, NOW)));
+    const reservations = await Promise.allSettled(claims.map((claim) => reserveTransitionExecutionCommitPoint(memory, {
+      operationId: claim.operationId,
+      authorizationId: claim.authorizationId,
+      authorizationEpoch: claim.authorizationEpoch,
+      transition: claim.transition,
+      targetId: claim.targetId,
+      manifestHash: claim.manifestHash,
+      claimToken: claim.claimToken,
+      fencingToken: claim.fencingToken,
+      now: NOW,
+    })));
+    expect(reservations.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(reservations.filter((result) => result.status === "rejected")).toHaveLength(1);
+
+    const reserved = reservations.find((result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof reserveTransitionExecutionCommitPoint>>> => result.status === "fulfilled")!.value;
+    await expect(reserveTransitionExecutionCommitPoint(memory, {
+      operationId: reserved.operationId,
+      authorizationId: reserved.authorizationId,
+      authorizationEpoch: reserved.authorizationEpoch,
+      transition: reserved.transition,
+      targetId: reserved.targetId,
+      manifestHash: reserved.manifestHash,
+      claimToken: reserved.claimToken,
+      fencingToken: reserved.fencingToken,
+      now: new Date(NOW.getTime() + 101),
+    })).resolves.toMatchObject({ operationId: reserved.operationId, commitPointReservedAt: NOW.toISOString() });
+  });
+
+  it("serializes commit-point reservation with revocation without cancelling a won reservation", async () => {
+    const authorization = await issue({ decisionId: "decision-reserve-revoke", maxCompletedOperations: 1 });
+    const claim = await claimTransitionExecution(memory, claimInput(authorization.id));
+    await markTransitionExecutionStarted(memory, claim.operationId, claim.claimToken, claim.fencingToken, NOW);
+    const reservationInput = {
+      operationId: claim.operationId,
+      authorizationId: claim.authorizationId,
+      authorizationEpoch: claim.authorizationEpoch,
+      transition: claim.transition,
+      targetId: claim.targetId,
+      manifestHash: claim.manifestHash,
+      claimToken: claim.claimToken,
+      fencingToken: claim.fencingToken,
+      now: NOW,
+    };
+
+    const [reservation, revocation] = await Promise.allSettled([
+      reserveTransitionExecutionCommitPoint(memory, reservationInput),
+      revokeLocalExecutionAuthorization(memory, authorization.id, "concurrent cancellation", NOW),
     ]);
 
-    expect(completions.filter((result) => result.status === "fulfilled")).toHaveLength(1);
-    expect(completions.filter((result) => result.status === "rejected")).toHaveLength(1);
+    expect(revocation.status).toBe("fulfilled");
+    if (reservation.status === "fulfilled") {
+      expect(reservation.value.commitPointReservedAt).toBe(NOW.toISOString());
+      await expect(reconcileCommittedTransitionExecution(memory, {
+        ...reservationInput,
+        evidenceRefs: ["runs/committed/result.json"],
+        now: new Date(NOW.getTime() + 1),
+      })).resolves.toMatchObject({ status: "completed" });
+    } else {
+      expect(reservation.reason).toBeInstanceOf(Error);
+      expect(String(reservation.reason)).toMatch(/epoch|revoked/);
+    }
+  });
+
+  it("keeps an old-epoch commit reservation charged against the authorization budget", async () => {
+    const authorization = await issue({ decisionId: "decision-epoch-budget", maxCompletedOperations: 1 });
+    const oldClaim = await claimTransitionExecution(memory, claimInput(authorization.id));
+    await startAndReserve(oldClaim);
+    const amended = await appendLocalExecutionAuthorizationTargets(
+      memory,
+      authorization.id,
+      authorization.epoch,
+      snapshot,
+      { projectId: memory.projectId, changeId: "change-1" },
+      [{ transition: "source.apply", targetId: "worktree-epoch-1", manifestHash: H2 }],
+      NOW,
+    );
+    const newClaim = await claimTransitionExecution(memory, claimInput(amended.id, {
+      authorizationEpoch: amended.epoch,
+      transition: "source.apply",
+      targetId: "worktree-epoch-1",
+      manifestHash: H2,
+    }));
+
+    await expect(startAndReserve(newClaim)).rejects.toThrow("budget is exhausted");
+    await expect(reconcileCommittedTransitionExecution(memory, {
+      operationId: oldClaim.operationId,
+      authorizationId: oldClaim.authorizationId,
+      authorizationEpoch: oldClaim.authorizationEpoch,
+      transition: oldClaim.transition,
+      targetId: oldClaim.targetId,
+      manifestHash: oldClaim.manifestHash,
+      claimToken: oldClaim.claimToken,
+      fencingToken: oldClaim.fencingToken,
+      evidenceRefs: ["runs/old-epoch/result.json"],
+      now: new Date(NOW.getTime() + 1),
+    })).resolves.toMatchObject({ status: "completed" });
   });
 
   it("takes over expired claimed and executing work with a monotonic fence", async () => {
@@ -322,6 +518,7 @@ describe("workflow runtime execution authorization", () => {
       targetId: "task-2",
       manifestHash: H2,
     }));
+    await startAndReserve(completedClaim);
     await recordTransitionExecutionTerminal(memory, {
       operationId: completedClaim.operationId,
       claimToken: completedClaim.claimToken,

@@ -24,10 +24,11 @@ import { initHarness } from "../../src/harness/init.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { git } from "../../src/project/git.js";
 import type { ManagedProject } from "../../src/types/index.js";
-import { createWorkbenchConversation, listConversationMessages, postConversationMessage, runWorkbenchWorkflowAction } from "../../src/workbench/chat.js";
+import { createWorkbenchConversation, listConversationMessages, postConversationMessage, resumeNativeGoalAfterAction, runWorkbenchWorkflowAction } from "../../src/workbench/chat.js";
 import { getWorkbenchSnapshot } from "../../src/workbench/manager.js";
 import { readLatestWorkflowGraphPlan } from "../../src/workflow-artifacts/manager.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
+import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
 
 let root: string;
 let originalAhoHome: string | undefined;
@@ -53,10 +54,48 @@ afterEach(async () => {
 });
 
 describe("Workbench provider planning flow", () => {
+  it("resumes the bound native Goal from committed post-apply evidence", async () => {
+    const conversation = await createConversationChangeFixture(project(), { title: "Post apply continuity", body: "Apply and finalize." });
+    const memory = await resolveProjectMemory(project());
+    const store = await WorkbenchStore.open(memory);
+    const changeId = conversation.changeId;
+    store.writeProviderThread({
+      projectId: project().id,
+      conversationId: conversation.conversationId,
+      providerThreadId: "thread-main",
+      roleId: "main-agent",
+      parentThreadId: null,
+      changeId,
+      capabilityProfile: "main-agent-goal-v1",
+      updatedAt: new Date().toISOString(),
+    });
+    store.close();
+    appServerTurn.mockImplementationOnce(async (options) => {
+      expect(options.goalResume).toMatchObject({
+        deliveryKey: expect.stringMatching(/^approval:result\.apply:/),
+        contextText: expect.stringContaining('"actionType": "result.apply"'),
+      });
+      return {
+        status: "completed", threadId: "thread-main", turnId: "turn-post-apply",
+        lastMessage: "Applied result is ready for finalization.", goal: nativeGoal("blocked"), childThreads: [],
+      };
+    });
+
+    await resumeNativeGoalAfterAction({
+      project: project(), changeId, actionRunId: "approval:result.apply:wt-1", actionType: "result.apply",
+      status: "completed", result: { apply: { status: "applied", committed: true, commitHash: "abc" } },
+    });
+
+    expect(appServerTurn).toHaveBeenCalledTimes(1);
+  });
+
   it("carries a real planner-child result through execute intent into an accepted graph and concrete gate", async () => {
     let continueDeliveryKey = "";
     appServerTurn
       .mockImplementationOnce(async (options) => {
+        expect(options.dynamicTools).toEqual(expect.arrayContaining([
+          expect.objectContaining({ name: "aho_finalize_current_change", inputSchema: expect.objectContaining({ additionalProperties: false }) }),
+        ]));
         options.onTextDelta?.("我已让计划子 Agent 根据当前项目准备方案。");
         return {
           status: "completed",

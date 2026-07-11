@@ -3,10 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildAcMap, parseAcceptanceCriteria, parseReviewStatus, parseTasks } from "../../src/ecl/anchors.js";
-import { abandonChangeForChange, closeChange, closeChangeForChange, createChange, createConcurrentChange, getChangeStatus, getChangeStatusForChange } from "../../src/change/manager.js";
+import { abandonChangeForChange, assertChangeFinalizationReady, closeChange, closeChangeForChange, createChange, createConcurrentChange, getChangeStatus, getChangeStatusForChange, recoverChangeCloseTransactions } from "../../src/change/manager.js";
 import { resolveCloseableChangeTarget, resolveRunnableChangeTarget } from "../../src/change/target.js";
 import { initHarness } from "../../src/harness/init.js";
-import type { ManagedProject } from "../../src/types/index.js";
+import { resolveProjectMemory } from "../../src/memory/resolver.js";
+import { claimTransitionExecution, issueLocalExecutionAuthorization, markTransitionExecutionStarted, readTransitionExecution, reserveTransitionExecutionCommitPoint, revokeLocalExecutionAuthorization } from "../../src/workflow-runtime/execution-authorization.js";
+import type { ExecutionAuthorizationSnapshot, ManagedProject } from "../../src/types/index.js";
 
 let tempDir: string;
 
@@ -179,6 +181,60 @@ describe("change manager", () => {
     expect(closed.archivePath).toMatch(/collision-\d{6}$/);
   });
 
+  it("keeps automatic finalization stricter than the administrative close gate", async () => {
+    await initHarness(project(tempDir));
+    await createChange(project(tempDir), { title: "Strict Finalization" });
+    await writeFile(join(tempDir, "harness", "changes", "active", "strict-finalization", "reviews", "review.md"), "Status: approved\n", "utf8");
+
+    await expect(assertChangeFinalizationReady(project(tempDir), "strict-finalization"))
+      .rejects.toThrow(/passed latest validation/);
+    await expect(closeChangeForChange(project(tempDir), "strict-finalization")).resolves.toMatchObject({
+      change: { id: "strict-finalization" },
+    });
+  });
+
+  it("returns one close receipt on duplicate close and recovers post-rename side effects", async () => {
+    await initHarness(project(tempDir));
+    await createChange(project(tempDir), { title: "Recover Close" });
+    await writeFile(join(tempDir, "harness", "changes", "active", "recover-close", "reviews", "review.md"), "Status: approved\n", "utf8");
+    const closed = await closeChangeForChange(project(tempDir), "recover-close");
+    const markerPath = join(tempDir, "harness", "changes", ".close-transactions", "recover-close.json");
+    const marker = JSON.parse(await readFile(markerPath, "utf8")) as Record<string, unknown>;
+    expect(marker.stage).toBe("completed");
+    expect(closed.receiptPath).toBe(`${closed.archivePath}/close-receipt.json`);
+
+    await rm(join(tempDir, closed.receiptPath as string), { force: true });
+    await rm(marker.outboxPath as string, { force: true });
+    const recovered = await closeChangeForChange(project(tempDir), "recover-close");
+
+    expect(recovered.transactionId).toBe(closed.transactionId);
+    expect(JSON.parse(await readFile(markerPath, "utf8"))).toMatchObject({ stage: "completed" });
+    expect(JSON.parse(await readFile(marker.outboxPath as string, "utf8"))).toMatchObject({ type: "change.closed", changeId: "recover-close" });
+  });
+
+  it.each(["expired", "revoked"] as const)("does not write Change metadata from prepared close when authority is %s", async (mode) => {
+    const fixture = await prepareAuthorizedCloseRecovery(mode);
+    const before = await readFile(fixture.changeMetadataPath);
+
+    await expect(recoverChangeCloseTransactions(project(tempDir))).rejects.toThrow(mode === "expired" ? "claim is expired" : /epoch|revoked/);
+
+    expect(await readFile(fixture.changeMetadataPath)).toEqual(before);
+    expect(JSON.parse(await readFile(fixture.changeMetadataPath, "utf8"))).toMatchObject({ state: "active" });
+    expect((await readTransitionExecution(fixture.memory, fixture.operationId)).commitPointReservedAt).toBeFalsy();
+  });
+
+  it("continues a prepared close after its reserved commit point is revoked", async () => {
+    const fixture = await prepareAuthorizedCloseRecovery("reserved-revoked");
+
+    await expect(recoverChangeCloseTransactions(project(tempDir))).resolves.toHaveLength(1);
+
+    expect(JSON.parse(await readFile(fixture.archiveMetadataPath, "utf8"))).toMatchObject({ state: "archived" });
+    expect(await readTransitionExecution(fixture.memory, fixture.operationId)).toMatchObject({
+      status: "completed",
+      commitPointReservedAt: expect.any(String),
+    });
+  });
+
   it("allocates stable unique ids for non-latin concurrent demand titles", async () => {
     await initHarness(project(tempDir));
 
@@ -193,4 +249,85 @@ describe("change manager", () => {
 
 function localDate(date = new Date()): string {
   return `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, "0")}${String(date.getDate()).padStart(2, "0")}`;
+}
+
+async function prepareAuthorizedCloseRecovery(mode: "expired" | "revoked" | "reserved-revoked") {
+  const hash = "a".repeat(64);
+  await initHarness(project(tempDir));
+  await createChange(project(tempDir), { title: "Prepared Authority" });
+  const memory = await resolveProjectMemory(project(tempDir));
+  const changeId = "prepared-authority";
+  const now = new Date();
+  const claimNow = mode === "expired" ? new Date(now.getTime() - 10_000) : now;
+  const authorization = await issueLocalExecutionAuthorization(memory, {
+    projectId: memory.projectId,
+    changeId,
+    conversationId: "conversation-prepared",
+    providerThreadId: "thread-prepared",
+    goalIdentityHash: hash,
+    mode: "stepwise",
+    acceptedPlanId: "plan-prepared",
+    acceptedPlanHash: hash,
+    graphId: "graph-prepared",
+    graphHash: hash,
+    artifactManifestHash: hash,
+    sourceHead: "commit-prepared",
+    sourceStateHash: hash,
+    permissionProfileHash: hash,
+    providerScopeHash: hash,
+    policyHash: hash,
+    targets: [{ transition: "change.finalize", targetId: changeId, manifestHash: hash }],
+    budget: { maxCompletedOperations: 1, maxReworks: 0, maxChangedFiles: 1, maxChangedBytes: 1 },
+    userDecision: { decisionId: `decision-${mode}`, actorId: "user", decidedAt: claimNow.toISOString() },
+    issuedAt: claimNow.toISOString(),
+    expiresAt: new Date(now.getTime() + 60_000).toISOString(),
+  });
+  const snapshot: ExecutionAuthorizationSnapshot = {
+    acceptedPlanHash: hash, graphHash: hash, artifactManifestHash: hash, sourceHead: "commit-prepared",
+    sourceStateHash: hash, permissionProfileHash: hash, providerScopeHash: hash, policyHash: hash,
+  };
+  const claim = await claimTransitionExecution(memory, {
+    authorizationId: authorization.id,
+    authorizationEpoch: authorization.epoch,
+    transition: "change.finalize",
+    targetId: changeId,
+    manifestHash: hash,
+    snapshot,
+    claimedBy: "change-finalization",
+    claimTtlMs: mode === "expired" ? 1_000 : 60_000,
+    now: claimNow,
+  });
+  await markTransitionExecutionStarted(memory, claim.operationId, claim.claimToken, claim.fencingToken, claimNow);
+  if (mode === "reserved-revoked") {
+    await reserveTransitionExecutionCommitPoint(memory, {
+      operationId: claim.operationId, authorizationId: authorization.id, authorizationEpoch: authorization.epoch,
+      transition: "change.finalize", targetId: changeId, manifestHash: hash,
+      claimToken: claim.claimToken, fencingToken: claim.fencingToken, now,
+    });
+  }
+  if (mode === "revoked" || mode === "reserved-revoked") {
+    await revokeLocalExecutionAuthorization(memory, authorization.id, "cancel before rename", new Date(now.getTime() + 1));
+  }
+  const activePath = join(memory.changesRoot, "active", changeId);
+  const archiveRelativePath = `harness/changes/archive/20990101-${changeId}`;
+  const archivePath = join(memory.memoryRoot, archiveRelativePath);
+  const marker = {
+    version: "1.0", id: `close-${mode}`, projectId: memory.projectId, changeId, activePath, archivePath, archiveRelativePath,
+    outboxPath: join(memory.harnessRoot, "outbox", "change-close", `close-${mode}.json`),
+    receiptPath: `${archiveRelativePath}/close-receipt.json`, closeTimestamp: now.toISOString(), stage: "prepared", error: null,
+    finalization: {
+      requestId: `finalize-${hash}`, authorizationId: authorization.id, authorizationEpoch: authorization.epoch,
+      conversationId: "conversation-prepared", providerThreadId: "thread-prepared", goalIdentityHash: hash, manifestHash: hash,
+      operationId: claim.operationId, claimToken: claim.claimToken, fencingToken: claim.fencingToken,
+    },
+  };
+  const markerRoot = join(memory.changesRoot, ".close-transactions");
+  await mkdir(markerRoot, { recursive: true });
+  await writeFile(join(markerRoot, `${changeId}.json`), `${JSON.stringify(marker, null, 2)}\n`, "utf8");
+  return {
+    changeMetadataPath: join(activePath, "change.json"),
+    archiveMetadataPath: join(archivePath, "change.json"),
+    memory,
+    operationId: claim.operationId,
+  };
 }

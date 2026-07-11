@@ -115,7 +115,7 @@ export function installWorktreeCommands(program: Command, context: CliContext): 
     .option("--json", "print JSON")
     .action(async (query: string, worktreeId: string, options: { commit?: boolean; message?: string; json?: boolean }) => {
       const project = await resolveManagedProject(store, query);
-      const result = await applyWorktree(project, worktreeId, { commit: options.commit === true, message: options.message });
+      const result = await applyWorktree(project, worktreeId, { commit: options.commit === true, message: options.message, userConfirmed: true });
       if (options.json) printJson(result);
       else {
         console.log(`Applied worktree ${result.apply.worktreeId}: ${result.apply.status}`);

@@ -18,6 +18,26 @@ export async function gitRaw(cwd: string, args: string[]): Promise<Buffer> {
   return Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout);
 }
 
+export async function gitTextWithEnv(cwd: string, args: string[], env: NodeJS.ProcessEnv): Promise<string> {
+  const { stdout } = await execFileAsync("git", args, { cwd, env: { ...process.env, ...env }, maxBuffer: 50 * 1024 * 1024 });
+  return stdout;
+}
+
+export async function gitRawWithEnv(cwd: string, args: string[], env: NodeJS.ProcessEnv): Promise<Buffer> {
+  const { stdout } = await execFileAsync("git", args, { cwd, env: { ...process.env, ...env }, encoding: "buffer", maxBuffer: 50 * 1024 * 1024 });
+  return Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout);
+}
+
+export async function commitTreeAndUpdateHead(
+  cwd: string,
+  input: { tree: string; parent: string; message: string },
+): Promise<string> {
+  const commit = await git(cwd, ["commit-tree", input.tree, "-p", input.parent, "-m", input.message]);
+  if (!commit) throw new Error("Git commit-tree did not produce a commit hash.");
+  await git(cwd, ["update-ref", "HEAD", commit, input.parent]);
+  return commit;
+}
+
 export async function isGitRepo(path: string): Promise<boolean> {
   try {
     await git(path, ["rev-parse", "--show-toplevel"]);
@@ -68,7 +88,7 @@ function normalizeGitStatusPath(path: string): string {
   return trimmed.startsWith("./") ? trimmed.slice(2) : trimmed;
 }
 
-function isAhoOwnedMemoryPath(path: string): boolean {
+export function isAhoOwnedMemoryPath(path: string): boolean {
   return path === "harness/changes/INDEX.json"
     || path.startsWith("harness/changes/active/")
     || path.startsWith("harness/changes/archive/")

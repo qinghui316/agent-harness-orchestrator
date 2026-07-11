@@ -5,13 +5,13 @@ import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createChange } from "../../src/change/manager.js";
+import { closeChangeForChange, createChange } from "../../src/change/manager.js";
 import { initHarness } from "../../src/harness/init.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { ProjectRegistryStore } from "../../src/registry/store.js";
 import { startLocalCommandRun } from "../../src/run/manager.js";
 import { TerminalRuntime } from "../../src/server/terminal/terminal-runtime.js";
-import { buildNativeFolderDialogCommand, executeWorkbenchAction, startWorkbenchServer, type WorkbenchServerHandle } from "../../src/server/workbench-server.js";
+import { buildNativeFolderDialogCommand, executeWorkbenchAction, recoverWorkbenchProjects, startWorkbenchServer, type WorkbenchServerHandle } from "../../src/server/workbench-server.js";
 import type { ManagedProject } from "../../src/types/index.js";
 import { appendConversationThreadEntry, buildInitialMainAgentPrompt, buildProjectScopedMainAgentPrompt } from "../../src/workbench/chat.js";
 import { validatePlanHandoffIntent } from "../../src/workbench/plan-handoff.js";
@@ -527,7 +527,7 @@ describe("workbench server", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        action: { actionId: "change.close", label: "Close", command: "change", args: ["close", "repo"], mutates: true, requiresConfirmation: true },
+        action: { actionId: "audit.accept", label: "Accept", command: "audit", args: ["accept", "repo", "audit-1"], mutates: true, requiresConfirmation: true },
       }),
     });
     expect(unconfirmed.status).toBe(409);
@@ -601,7 +601,7 @@ describe("workbench server", () => {
     })).rejects.toThrow("Unknown");
 
     await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
-      action: { actionId: "change.close", label: "Close", command: "change", args: ["close", "repo"], mutates: true, requiresConfirmation: true },
+      action: { actionId: "audit.accept", label: "Accept", command: "audit", args: ["accept", "repo", "audit-1"], mutates: true, requiresConfirmation: true },
     })).rejects.toThrow("confirm");
 
     await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
@@ -914,6 +914,29 @@ describe("workbench server", () => {
     expect(linux).toMatchObject({ command: "zenity" });
 
     expect(buildNativeFolderDialogCommand("freebsd")).toBeNull();
+  });
+
+  it("recovers close transactions for every registered project at startup", async () => {
+    const secondRoot = await mkdtemp(join(tmpdir(), "aho-server-recovery-"));
+    const store = new ProjectRegistryStore(join(registryRoot, "multi-project-recovery"));
+    const registered = await store.addProject(secondRoot, "Recovery project");
+    await initHarness(registered);
+    await createChange(registered, { title: "Recover Registered" });
+    const reviewPath = join(secondRoot, "harness", "changes", "active", "recover-registered", "reviews", "review.md");
+    await writeFile(reviewPath, "Status: approved\n", "utf8");
+    const closed = await closeChangeForChange(registered, "recover-registered");
+    const markerPath = join(secondRoot, "harness", "changes", ".close-transactions", "recover-registered.json");
+    const marker = JSON.parse(await readFile(markerPath, "utf8")) as Record<string, unknown>;
+    await rm(join(secondRoot, closed.receiptPath as string), { force: true });
+    await rm(marker.outboxPath as string, { force: true });
+    await writeFile(markerPath, `${JSON.stringify({ ...marker, stage: "renamed" }, null, 2)}\n`, "utf8");
+
+    await recoverWorkbenchProjects(store, null);
+
+    expect(JSON.parse(await readFile(markerPath, "utf8"))).toMatchObject({ stage: "completed" });
+    expect(existsSync(join(secondRoot, closed.receiptPath as string))).toBe(true);
+    expect(existsSync(marker.outboxPath as string)).toBe(true);
+    await rm(secondRoot, { recursive: true, force: true });
   });
 });
 

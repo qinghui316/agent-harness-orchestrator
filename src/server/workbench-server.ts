@@ -1,5 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { ProjectRegistryStore } from "../registry/store.js";
+import { recoverPendingApplyTransactions } from "../apply/manager.js";
+import { recoverChangeCloseTransactions } from "../change/manager.js";
 import type { WorkbenchProjectInput } from "../workbench/manager.js";
 import { TerminalRuntime } from "./terminal/terminal-runtime.js";
 import { handleApi } from "./workbench/api-router.js";
@@ -18,8 +20,10 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
   const staticRoot = options.staticRoot ?? defaultStaticRoot();
   const store = options.store ?? new ProjectRegistryStore();
   const terminalRuntime = options.terminalRuntime ?? new TerminalRuntime();
+  const restoredInput = await restoreDirectProjectInput(input, store);
+  await recoverWorkbenchProjects(store, restoredInput);
   const context: WorkbenchServerContext = {
-    input: await restoreDirectProjectInput(input, store),
+    input: restoredInput,
     staticRoot,
     store,
     terminalRuntime,
@@ -34,6 +38,17 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
   const address = server.address();
   const actualPort = typeof address === "object" && address ? address.port : port;
   return { server, url: `http://${host}:${actualPort}` };
+}
+
+export async function recoverWorkbenchProjects(store: ProjectRegistryStore, directInput: WorkbenchProjectInput | null): Promise<void> {
+  const projects = await store.listProjects();
+  if (directInput?.project && !projects.some((project) => project.id === directInput.project?.id || project.path === directInput.project?.path)) {
+    projects.push(directInput.project);
+  }
+  for (const project of projects) {
+    await recoverPendingApplyTransactions(project);
+    await recoverChangeCloseTransactions(project);
+  }
 }
 
 async function handleRequest(context: WorkbenchServerContext, request: IncomingMessage, response: ServerResponse): Promise<void> {

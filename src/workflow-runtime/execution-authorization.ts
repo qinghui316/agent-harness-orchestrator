@@ -71,6 +71,36 @@ export async function revokeLocalExecutionAuthorization(
   return result;
 }
 
+export async function appendLocalExecutionAuthorizationTargets(
+  memory: ResolvedMemory,
+  authorizationId: string,
+  expectedEpoch: number,
+  snapshot: ExecutionAuthorizationSnapshot,
+  scope: { projectId: string | null; changeId: string },
+  targets: ExecutionAuthorizationTarget[],
+  now = new Date(),
+): Promise<LocalExecutionAuthorization> {
+  if (targets.length === 0) throw new Error("At least one execution authorization target is required.");
+  const result = runExecutionAuthorizationTransaction(memory, (transaction) => {
+    const current = requireAuthorizationCurrent(transaction.getAuthorization(authorizationId), authorizationId, expectedEpoch, snapshot, now);
+    if (current.projectId !== scope.projectId || current.changeId !== scope.changeId) {
+      throw new Error(`Execution authorization scope does not match target Change: ${authorizationId}.`);
+    }
+    const byIdentity = new Map(current.targets.map((target) => [`${target.transition}:${target.targetId}:${target.manifestHash}`, target]));
+    for (const target of targets) byIdentity.set(`${target.transition}:${target.targetId}:${target.manifestHash}`, target);
+    if (byIdentity.size === current.targets.length) return current;
+    const amended: LocalExecutionAuthorization = {
+      ...current,
+      epoch: current.epoch + 1,
+      targets: [...byIdentity.values()].sort((a, b) => `${a.transition}:${a.targetId}:${a.manifestHash}`.localeCompare(`${b.transition}:${b.targetId}:${b.manifestHash}`)),
+    };
+    transaction.putAuthorization(amended);
+    return amended;
+  });
+  await projectExecutionAuthorizationState(memory, result);
+  return result;
+}
+
 export async function reactivateLocalExecutionAuthorizationAfterRollback(
   memory: ResolvedMemory,
   authorizationId: string,
@@ -132,7 +162,6 @@ export async function claimTransitionExecution(memory: ResolvedMemory, input: {
   const execution = runExecutionAuthorizationTransaction(memory, (transaction) => {
     const authorization = requireAuthorizationCurrent(transaction.getAuthorization(input.authorizationId), input.authorizationId, input.authorizationEpoch, input.snapshot, now);
     assertAuthorizedTarget(authorization.targets, input);
-    assertBudgetAvailable(transaction.countCompleted(authorization.id), authorization);
     const existing = transaction.getExecution(operationId);
     if (existing && !canTakeOver(existing, now)) {
       throw new Error(`Transition operation is already ${existing.status}: ${operationId}.`);
@@ -152,6 +181,7 @@ export async function claimTransitionExecution(memory: ResolvedMemory, input: {
       claimedAt: now.toISOString(),
       claimExpiresAt: new Date(now.getTime() + claimTtlMs).toISOString(),
       executionStartedAt: null,
+      commitPointReservedAt: existing?.commitPointReservedAt ?? null,
       terminalAt: null,
       receipt: null,
     };
@@ -223,9 +253,16 @@ export async function recordTransitionExecutionTerminal(memory: ResolvedMemory, 
     if (current.status === "completed" || current.status === "retryable-failed" || current.status === "terminal-failed") {
       throw new Error(`Transition operation already has a terminal receipt: ${input.operationId}.`);
     }
-    const authorization = requireAuthorizationEpochActive(transaction.getAuthorization(current.authorizationId), current, now);
     const outcome = input.outcome;
-    if (outcome === "completed") assertBudgetAvailable(transaction.countCompleted(authorization.id), authorization);
+    if (outcome === "completed" && !current.commitPointReservedAt) {
+      throw new Error(`Transition completion requires a durable commit-point reservation: ${input.operationId}.`);
+    }
+    if (outcome !== "completed" && current.commitPointReservedAt) {
+      throw new Error(`Reserved commit-point transition must reconcile as completed: ${input.operationId}.`);
+    }
+    if (!current.commitPointReservedAt) {
+      requireAuthorizationEpochActive(transaction.getAuthorization(current.authorizationId), current, now);
+    }
     const receipt: TransitionExecutionReceipt = {
       version: "1.0",
       operationId: current.operationId,
@@ -250,6 +287,125 @@ export async function recoverTransitionExecution(
   return readTransitionExecution(memory, operationId);
 }
 
+export async function assertTransitionExecutionCurrent(memory: ResolvedMemory, input: {
+  operationId: string;
+  authorizationId: string;
+  authorizationEpoch: number;
+  transition: string;
+  targetId: string;
+  manifestHash: string;
+  claimToken: string;
+  fencingToken: number;
+  now?: Date;
+}): Promise<TransitionExecution> {
+  const now = input.now ?? new Date();
+  return runExecutionAuthorizationTransaction(memory, (transaction) => {
+    const current = requireClaim(transaction.getExecution(input.operationId), input.operationId, input.claimToken, input.fencingToken, now);
+    const authorization = requireAuthorizationEpochActive(transaction.getAuthorization(input.authorizationId), current, now);
+    if (current.status !== "executing"
+      || current.authorizationId !== input.authorizationId
+      || current.authorizationEpoch !== input.authorizationEpoch
+      || current.transition !== input.transition
+      || current.targetId !== input.targetId
+      || current.manifestHash !== input.manifestHash) {
+      throw new Error(`Transition execution is not current for commit: ${input.operationId}.`);
+    }
+    assertAuthorizedTarget(authorization.targets, input);
+    return current;
+  });
+}
+
+export async function reserveTransitionExecutionCommitPoint(memory: ResolvedMemory, input: {
+  operationId: string;
+  authorizationId: string;
+  authorizationEpoch: number;
+  transition: string;
+  targetId: string;
+  manifestHash: string;
+  claimToken: string;
+  fencingToken: number;
+  now?: Date;
+}): Promise<TransitionExecution> {
+  const now = input.now ?? new Date();
+  const reserved = runExecutionAuthorizationTransaction(memory, (transaction) => {
+    const current = transaction.getExecution(input.operationId);
+    if (!current) throw new Error(`Transition execution not found: ${input.operationId}.`);
+    assertExecutionLineage(current, input);
+    if (current.commitPointReservedAt) return current;
+    const claimed = requireClaim(current, input.operationId, input.claimToken, input.fencingToken, now);
+    const authorization = requireAuthorizationEpochActive(transaction.getAuthorization(input.authorizationId), claimed, now);
+    if (claimed.status !== "executing") throw new Error(`Transition execution is not executing at commit point: ${input.operationId}.`);
+    assertAuthorizedTarget(authorization.targets, input);
+    assertBudgetAvailable(transaction.countCompletionReservations(authorization.id), authorization);
+    const next: TransitionExecution = { ...claimed, commitPointReservedAt: now.toISOString() };
+    transaction.putExecution(next);
+    return next;
+  });
+  await projectExecutionAuthorizationState(memory, null, reserved);
+  return reserved;
+}
+
+export async function reconcileCommittedTransitionExecution(memory: ResolvedMemory, input: {
+  operationId: string;
+  authorizationId: string;
+  authorizationEpoch: number;
+  transition: string;
+  targetId: string;
+  manifestHash: string;
+  claimToken?: string;
+  fencingToken?: number;
+  evidenceRefs: string[];
+  now?: Date;
+}): Promise<TransitionExecution> {
+  const now = input.now ?? new Date();
+  const result = runExecutionAuthorizationTransaction(memory, (transaction) => {
+    const authorization = transaction.getAuthorization(input.authorizationId);
+    const current = transaction.getExecution(input.operationId);
+    if (!authorization || !current
+      || authorization.epoch < input.authorizationEpoch
+      || current.authorizationId !== input.authorizationId
+      || current.authorizationEpoch !== input.authorizationEpoch
+      || current.transition !== input.transition
+      || current.targetId !== input.targetId
+      || current.manifestHash !== input.manifestHash
+      || (input.claimToken !== undefined && current.claimToken !== input.claimToken)
+      || (input.fencingToken !== undefined && current.fencingToken !== input.fencingToken)
+      || deterministicTransitionOperationId(input) !== input.operationId
+      || !authorization.targets.some((target) => target.transition === input.transition
+        && target.targetId === input.targetId && target.manifestHash === input.manifestHash)) {
+      throw new Error(`Committed transition recovery lineage is stale or forged: ${input.operationId}.`);
+    }
+    if (!current.commitPointReservedAt) {
+      throw new Error(`Committed transition has no durable commit-point reservation: ${input.operationId}.`);
+    }
+    if (current.status === "completed") {
+      const receipt = current.receipt;
+      if (receipt?.outcome !== "completed"
+        || input.evidenceRefs.some((ref) => !receipt.evidenceRefs.includes(ref))) {
+        throw new Error(`Committed transition receipt does not match recovery evidence: ${input.operationId}.`);
+      }
+      return current;
+    }
+    if (current.status === "terminal-failed") {
+      throw new Error(`Committed transition cannot replace a terminal failure: ${input.operationId}.`);
+    }
+    const receipt: TransitionExecutionReceipt = {
+      version: "1.0",
+      operationId: current.operationId,
+      outcome: "completed",
+      consumesAuthorization: true,
+      recordedAt: now.toISOString(),
+      evidenceRefs: input.evidenceRefs,
+      error: null,
+    };
+    const completed: TransitionExecution = { ...current, status: "completed", terminalAt: now.toISOString(), receipt };
+    transaction.putExecution(completed);
+    return completed;
+  });
+  await projectExecutionAuthorizationState(memory, null, result);
+  return result;
+}
+
 export function assertScopedAutoExecutionEnabled(): void {
   if (!SCOPED_AUTO_EXECUTION_ENABLED) throw new Error("Scoped automatic execution is feature-disabled.");
 }
@@ -260,6 +416,29 @@ function requireClaim(execution: TransitionExecution | null, operationId: string
   if (execution.fencingToken !== fencingToken) throw new Error(`Stale transition fencing token: ${operationId}.`);
   if (Date.parse(execution.claimExpiresAt) <= now.getTime()) throw new Error(`Transition claim is expired: ${operationId}.`);
   return execution;
+}
+
+function assertExecutionLineage(execution: TransitionExecution, input: {
+  operationId: string;
+  authorizationId: string;
+  authorizationEpoch: number;
+  transition: string;
+  targetId: string;
+  manifestHash: string;
+  claimToken: string;
+  fencingToken: number;
+}): void {
+  if (execution.operationId !== input.operationId
+    || execution.authorizationId !== input.authorizationId
+    || execution.authorizationEpoch !== input.authorizationEpoch
+    || execution.transition !== input.transition
+    || execution.targetId !== input.targetId
+    || execution.manifestHash !== input.manifestHash
+    || execution.claimToken !== input.claimToken
+    || execution.fencingToken !== input.fencingToken
+    || deterministicTransitionOperationId(input) !== input.operationId) {
+    throw new Error(`Transition execution commit-point lineage is stale or forged: ${input.operationId}.`);
+  }
 }
 
 function requireAuthorizationCurrent(
@@ -303,6 +482,7 @@ function assertBudgetAvailable(completed: number, authorization: LocalExecutionA
 }
 
 function canTakeOver(execution: TransitionExecution, now: Date): boolean {
+  if (execution.commitPointReservedAt) return false;
   if (execution.status === "retryable-failed") return true;
   if (execution.status === "completed" || execution.status === "terminal-failed") return false;
   return Date.parse(execution.claimExpiresAt) <= now.getTime();

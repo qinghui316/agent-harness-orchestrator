@@ -104,14 +104,12 @@ export async function buildConfirmationQueue(input: {
         const item = await prDraftQueueItem(project, input.memory, latestLanding, selectedChangeId);
         const selectedLanding = isSelectedLandingPackage(latestLanding, selectedChangeId);
         if (selectedLanding && isProviderUnavailablePrDraftItem(item)) {
-          if (!selectedTopicHasCloseGate(queue.current, selectedChangeId)) {
-            enqueueCurrentOrOther(landingLocalTerminalBlockerQueueItem(
-              project,
-              latestLanding,
-              selectedChangeId,
-              input.selectedTopic?.closeGate?.blockingIssues ?? [],
-            ));
-          }
+          enqueueCurrentOrOther(landingLocalTerminalBlockerQueueItem(
+            project,
+            latestLanding,
+            selectedChangeId,
+            input.selectedTopic?.closeGate?.blockingIssues ?? [],
+          ));
           enqueueCurrentOrOther({ ...item, primary: false });
         } else {
           enqueueCurrentOrOther(item);
@@ -140,7 +138,6 @@ export async function buildConfirmationQueue(input: {
   queue.current = dedupeConfirmationItems(queue.current.filter((item) => item.kind !== "maintenance").map(scopeConfirmationQueueItemActions));
   queue.current = promoteSelectedWorkflowNextActionGate(queue.current, input.workpad.nextAction);
   queue.current = promoteSelectedLandingReadinessGate(queue.current, selectedChangeId);
-  queue.current = promoteSelectedCloseGate(queue.current, selectedChangeId);
   queue.current = promoteSelectedWorkpadApprovalGate(queue.current, input.workpad.nextAction);
   queue.otherDemands = dedupeConfirmationItems(queue.otherDemands.map(scopeConfirmationQueueItemActions));
   queue.history = dedupeConfirmationItems(queue.history.map(scopeConfirmationQueueItemActions));
@@ -172,14 +169,6 @@ function isSelectedLandingPackage(pkg: { target: { changeIds: string[] } }, sele
 
 function isProviderUnavailablePrDraftItem(item: WorkbenchConfirmationQueue["current"][number]): boolean {
   return item.kind === "pr-draft" && item.id.startsWith("pr-draft:provider:");
-}
-
-function selectedTopicHasCloseGate(items: WorkbenchConfirmationQueue["current"], selectedChangeId: string | undefined): boolean {
-  if (!selectedChangeId) return false;
-  return items.some((item) =>
-    item.changeId === selectedChangeId
-    && item.actions.some((action) => action.action?.actionId === "change.close")
-  );
 }
 
 function isSelectedTopicItem(item: WorkbenchConfirmationQueue["current"][number], selectedChangeId: string | undefined): boolean {
@@ -255,19 +244,6 @@ function promoteSelectedLandingReadinessGate(items: WorkbenchConfirmationQueue["
   const next = items.map((item) => ({ ...item, primary: false }));
   const [landingGate] = next.splice(index, 1);
   if (landingGate) next.unshift({ ...landingGate, primary: true });
-  return next;
-}
-
-function promoteSelectedCloseGate(items: WorkbenchConfirmationQueue["current"], selectedChangeId: string | undefined): WorkbenchConfirmationQueue["current"] {
-  if (!selectedChangeId) return items;
-  const index = items.findIndex((item) =>
-    item.changeId === selectedChangeId
-    && item.actions.some((action) => action.action?.actionId === "change.close")
-  );
-  if (index < 0) return items;
-  const next = items.map((item) => ({ ...item, primary: false }));
-  const [closeGate] = next.splice(index, 1);
-  if (closeGate) next.unshift({ ...closeGate, primary: true });
   return next;
 }
 

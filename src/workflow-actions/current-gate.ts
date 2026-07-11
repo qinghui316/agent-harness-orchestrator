@@ -50,7 +50,6 @@ const TERMINAL_HUMAN_GATE_ACTION_TYPES = new Set<string>([
   "pr-review.reply-submit",
   "pr-review.thread-resolve",
   "remote-landing.merge",
-  "change.close",
   "result.apply",
 ]);
 

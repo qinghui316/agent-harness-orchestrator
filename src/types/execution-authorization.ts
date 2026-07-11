@@ -66,6 +66,7 @@ export interface TransitionExecution {
   claimedAt: string;
   claimExpiresAt: string;
   executionStartedAt: string | null;
+  commitPointReservedAt?: string | null;
   terminalAt: string | null;
   receipt: TransitionExecutionReceipt | null;
 }

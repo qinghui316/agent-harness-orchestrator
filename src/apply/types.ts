@@ -1,4 +1,5 @@
 import type { AuditResult, RunMetadata, ValidationResult, WorktreeStatus } from "../types/index.js";
+import type { ExecutionAuthorizationSnapshot } from "../types/index.js";
 
 export interface WorktreeGateState {
   ready: boolean;
@@ -8,6 +9,8 @@ export interface WorktreeGateState {
   worktree: WorktreeStatus;
   diffHash: string;
   diffStat: string;
+  changedPaths: string[];
+  expectedTree: string;
   validation: ValidationResult | null;
   audit: AuditResult | null;
   reviewAuditId: string | null;
@@ -35,6 +38,48 @@ export interface WorktreePreviewResult {
 export interface WorktreeApplyOptions {
   commit?: boolean;
   message?: string;
+  userConfirmed?: boolean;
+}
+
+export interface AuthorizedWorktreeApplyOptions extends WorktreeApplyOptions {
+  authorizationId: string;
+  authorizationEpoch: number;
+  authorizationSnapshot: ExecutionAuthorizationSnapshot;
+  userConfirmed: boolean;
+}
+
+export type ApplyTransactionStage = "prepared" | "patch-applied" | "commit-created" | "evidence-written" | "completed";
+
+export interface ApplyTransaction {
+  version: "1.0";
+  id: string;
+  changeId: string;
+  worktreeId: string;
+  runId: string;
+  diffHash: string;
+  manifestHash: string;
+  changedPaths: string[];
+  expectedTree: string;
+  sourceHeadBefore: string;
+  stage: ApplyTransactionStage;
+  commitRequested: boolean;
+  commitMessage: string;
+  commitHash: string | null;
+  validationId: string;
+  auditId: string;
+  reviewAuditId: string;
+  authorization: {
+    authorizationId: string;
+    authorizationEpoch: number;
+    snapshot: ExecutionAuthorizationSnapshot;
+    manifestHash: string;
+    operationId: string;
+    claimToken: string;
+    fencingToken: number;
+  } | null;
+  blockedReason: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface WorktreeApplyResult {

@@ -217,7 +217,7 @@ describe("workbench read-model projections", () => {
     expect(existsSync(join(getTempDir(), "harness", "changes", "active", conversation.conversationId))).toBe(false);
   });
 
-  it("builds a snapshot with selected topic, semantic thread, roles, gaps, and close approval", async () => {
+  it("builds a snapshot without synthesizing a close approval", async () => {
     await initHarness(project());
     await createChange(project(), { title: "Workbench Smoke" });
     await startLocalCommandRun(project(), [process.execPath, "-e", "console.log('hello')"]);
@@ -230,7 +230,7 @@ describe("workbench read-model projections", () => {
     expect(snapshot.center.workpad).toMatchObject({
       title: "Workbench Smoke",
       state: "active",
-      nextAction: expect.objectContaining({ kind: "approval", approvalId: "close:workbench-smoke" }),
+      nextAction: expect.objectContaining({ kind: "workflow-action", actionType: "intake.scan" }),
     });
     expect(snapshot.center.agentLoop.runs).toHaveLength(1);
     expect(snapshot.center.thread.items.some((item) => item.kind === "change-state")).toBe(true);
@@ -242,12 +242,7 @@ describe("workbench read-model projections", () => {
     for (const forbidden of ["AI 回复", "执行结果", "TaskRun", "WorkerLease", "DemandWorker", "TaskRepository", "blocked", "T-001", "AC-001"]) {
       expect(transcriptText).not.toContain(forbidden);
     }
-    expect(snapshot.right.approvals.some((item) => item.kind === "change-close")).toBe(true);
-    expect(snapshot.right.approvals.find((item) => item.kind === "change-close")?.action).toMatchObject({
-      actionId: "change.close",
-      mutates: true,
-      requiresConfirmation: true,
-    });
+    expect(JSON.stringify(snapshot.right)).not.toContain("change.close");
     expect(snapshot.roles.map((item) => item.id)).toEqual(expect.arrayContaining(["coder", "auditor", "validator"]));
     expect(snapshot.harnessGaps.map((item) => item.id)).toEqual(expect.arrayContaining(["roleCatalog", "sessionModel", "subagentSpec"]));
   });
@@ -768,31 +763,16 @@ describe("workbench read-model projections", () => {
     expect(roles.every((item) => item.sections.length > 0)).toBe(true);
   });
 
-  it("keeps accepted close decisions attached to the closed topic", async () => {
+  it("does not expose a human close action for a close-ready topic", async () => {
     await initHarness(project());
     await createChange(project(), { title: "Close Decision Topic" });
     await writeFile(join(getTempDir(), "harness", "changes", "active", "close-decision-topic", "reviews", "review.md"), "Status: approved\n", "utf8");
 
     const before = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "close-decision-topic" });
-    const closeAction = before.right.approvals.find((item) => item.kind === "change-close")?.action;
-    expect(closeAction).toBeTruthy();
-    if (!closeAction) throw new Error("Expected close action");
-
-    await executeWorkbenchAction({ project: project(), path: getTempDir() }, { action: closeAction, confirm: true });
-    const after = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "close-decision-topic" });
-
-    expect(after.right.approvals.some((item) => item.kind === "change-close")).toBe(false);
-    expect(after.right.decisions).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        kind: "change.close",
-        changeId: "close-decision-topic",
-        targetId: "close-decision-topic",
-        status: "accepted",
-      }),
-    ]));
+    expect(JSON.stringify(before.right)).not.toContain("change.close");
   });
 
-  it("aligns decision inspector primary with close gate when stale failures remain as evidence", async () => {
+  it("keeps stale failures primary without synthesizing a close gate", async () => {
     await initHarness(project());
     const memory = await resolveProjectMemory(project());
     const selectedTopic = {
@@ -833,22 +813,7 @@ describe("workbench read-model projections", () => {
     const inspector = buildDecisionInspector({
       selectedTopic,
       workpad,
-      approvals: [{
-        id: "close:close-projection-target",
-        kind: "change-close",
-        label: "Close",
-        changeId: "close-projection-target",
-        targetId: "close-projection-target",
-        severity: "info",
-        action: {
-          actionId: "change.close",
-          label: "Close",
-          command: "change",
-          args: ["close", "repo", "close-projection-target"],
-          mutates: true,
-          requiresConfirmation: true,
-        },
-      }],
+      approvals: [],
       decisions: [],
     } as Parameters<typeof buildDecisionInspector>[0]);
     const queue = await buildConfirmationQueue({
@@ -864,54 +829,24 @@ describe("workbench read-model projections", () => {
     expect(Object.prototype.hasOwnProperty.call(workpad, "mainAgentLoopProjection")).toBe(false);
     expect(JSON.stringify(queue)).not.toContain("mainAgentLoopProjection");
     expect(JSON.stringify(queue)).not.toContain("non-executing-main-agent-loop-projection");
-    expect(queue.primary?.actions).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        action: expect.objectContaining({
-          actionId: "change.close",
-          args: ["close", "repo", "close-projection-target"],
-        }),
-      }),
-    ]));
     expect(inspector.primary).toMatchObject({
-      kind: "close-gate",
+      kind: "validation-failed",
       changeId: "close-projection-target",
-      targetId: "close-projection-target",
+      targetId: "validation-old-failed",
     });
-    expect(inspector.primary?.actions).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        action: expect.objectContaining({
-          actionId: "change.close",
-          args: ["close", "repo", "close-projection-target"],
-        }),
-      }),
-    ]));
-    expect(inspector.related).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        kind: "validation-failed",
-        changeId: "close-projection-target",
-        targetId: "validation-old-failed",
-      }),
-    ]));
+    expect(JSON.stringify(queue)).not.toContain("change.close");
   });
 
-  it("closes only the scoped active demand when multiple demands are active", async () => {
+  it("does not expose close actions when multiple demands are active", async () => {
     await initHarness(project());
     await createConversationChangeFixture(project(), { title: "First Close Target", body: "First" });
     await createConversationChangeFixture(project(), { title: "Second Close Target", body: "Second" });
     await writeFile(join(getTempDir(), "harness", "changes", "active", "second-close-target", "reviews", "review.md"), "Status: approved\n", "utf8");
 
     const before = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "second-close-target" });
-    const closeAction = before.right.approvals.find((item) => item.kind === "change-close")?.action;
-    expect(closeAction).toMatchObject({ actionId: "change.close", args: ["close", "repo", "second-close-target"] });
-    if (!closeAction) throw new Error("Expected close action");
-
-    await executeWorkbenchAction({ project: project(), path: getTempDir() }, { action: closeAction, confirm: true });
-    const topics = await listWorkbenchTopics(project());
-
-    expect(topics.find((topic) => topic.boundChangeId === "first-close-target")).toMatchObject({ state: "active" });
-    expect(topics.find((topic) => topic.boundChangeId === "second-close-target")).toMatchObject({ state: "archive" });
+    expect(JSON.stringify(before.right)).not.toContain("change.close");
     expect(existsSync(join(getTempDir(), "harness", "changes", "active", "first-close-target"))).toBe(true);
-    expect(existsSync(join(getTempDir(), "harness", "changes", "active", "second-close-target"))).toBe(false);
+    expect(existsSync(join(getTempDir(), "harness", "changes", "active", "second-close-target"))).toBe(true);
   });
 
   it("abandons only the scoped active demand when multiple demands are active", async () => {
@@ -1118,7 +1053,7 @@ describe("workbench read-model projections", () => {
     expect(JSON.stringify(afterApply.right.decisionInspector.primary)).not.toContain("audit-approved");
   });
 
-  it("routes ready local landing to change.close instead of PR provider when close is ready", async () => {
+  it("does not route ready local landing to a human close action", async () => {
     await initHarness(project());
     await createChange(project(), { title: "Local Landing Close" });
     await writeFile(join(getTempDir(), "harness", "changes", "active", "local-landing-close", "reviews", "review.md"), "Status: approved\n", "utf8");
@@ -1127,16 +1062,7 @@ describe("workbench read-model projections", () => {
     const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "local-landing-close" });
     const currentJson = JSON.stringify(snapshot.right.confirmationQueue.current);
 
-    expect(snapshot.right.confirmationQueue.primary?.actions).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        action: expect.objectContaining({ actionId: "change.close" }),
-      }),
-    ]));
-    expect(snapshot.right.decisionInspector.primary?.actions).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        action: expect.objectContaining({ actionId: "change.close" }),
-      }),
-    ]));
+    expect(currentJson).not.toContain("change.close");
     expect(currentJson).not.toContain("pr-draft:provider:landing-local-close-ready");
   });
 

@@ -67,17 +67,6 @@ export async function buildApprovalInbox(project: ManagedProject, memory: Resolv
       }
     }
     const status = await getChangeStatusForChange(project, changeId).catch(() => null);
-    if (status?.closeGate.ready) {
-      approvals.push({
-        id: `close:${changeId}`,
-        kind: "change-close",
-        label: `Change ready to close: ${changeId}`,
-        changeId,
-        targetId: changeId,
-        severity: "info",
-        action: approvalAction("change.close", "Close change", "change", ["close", project.id, changeId], true),
-      });
-    }
     if (status?.latestValidation?.status === "failed") {
       approvals.push({
         id: `attention:validation:${changeId}:${status.latestValidation.id}`,

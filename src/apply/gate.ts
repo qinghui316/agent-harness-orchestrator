@@ -94,6 +94,8 @@ export async function evaluateApplyGate(project: ManagedProject, memory: Resolve
     worktree: diff.worktree,
     diffHash: diff.diffHash,
     diffStat: diff.diffStat,
+    changedPaths: diff.changedPaths,
+    expectedTree: diff.expectedTree,
     validation,
     audit,
     reviewAuditId,

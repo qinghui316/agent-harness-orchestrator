@@ -1,7 +1,7 @@
 import { join, relative } from "node:path";
 import type { ResolvedMemory } from "../types/index.js";
 
-export function buildApplyPaths(directory: string): Record<"run" | "context" | "events" | "stdout" | "stderr" | "diff" | "diffStat" | "apply", string> {
+export function buildApplyPaths(directory: string): Record<"run" | "context" | "events" | "stdout" | "stderr" | "diff" | "diffStat" | "apply" | "transaction", string> {
   return {
     run: join(directory, "run.json"),
     context: join(directory, "context.md"),
@@ -11,6 +11,7 @@ export function buildApplyPaths(directory: string): Record<"run" | "context" | "
     diff: join(directory, "diff.patch"),
     diffStat: join(directory, "diff-stat.txt"),
     apply: join(directory, "apply.json"),
+    transaction: join(directory, "apply-transaction.json"),
   };
 }
 

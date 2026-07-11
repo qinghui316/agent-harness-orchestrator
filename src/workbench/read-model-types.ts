@@ -51,7 +51,6 @@ export type WorkbenchApprovalKind =
   | "spec-test-proposal"
   | "audit-proposal"
   | "worktree-apply"
-  | "change-close"
   | "evolution"
   | "attention";
 export type HarnessGapStatus = "missing" | "partial" | "available";
@@ -235,7 +234,6 @@ export type WorkbenchDecisionContextKind =
   | "plan-proposal"
   | "audit-approved"
   | "apply-gate"
-  | "close-gate"
   | "workflow-gate"
   | "evolution-pending"
   | "history";

@@ -11,6 +11,8 @@ export interface ChangeCloseResult {
   archivePath: string;
   change: ChangeMetadata;
   index: ChangeIndex;
+  transactionId?: string;
+  receiptPath?: string;
 }
 
 export interface ChangeAbandonResult {

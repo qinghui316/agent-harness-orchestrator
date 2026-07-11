@@ -750,13 +750,9 @@ function buildWorkpadNextAction(
     };
   }
   const actionableApproval = approvals.find((approval) => approval.action);
-  const actionableCloseApproval = approvals.find((approval) => approval.kind === "change-close" && approval.action);
   const schedulerWaitingForIntegrationDecision = (schedulerIntegrationCheckHandoff?.currentIntegrationCheckStatus
     ?? schedulerIntegrationCheckHandoff?.integrationCheckStatus) === "passed"
     && !schedulerIntegrationOutcome;
-  if (schedulerRunCompletion && actionableCloseApproval) {
-    return approvalToNextAction(actionableCloseApproval);
-  }
   const autoReworkTask = taskGraph?.nodes.find((node) => node.autoRework?.available);
   if (!schedulerTransition && autoReworkTask?.autoRework) {
     return {

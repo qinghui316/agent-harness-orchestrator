@@ -1,5 +1,5 @@
 ﻿import { existsSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { detectCodexAppServerCapability, extractCodexAppServerCollabToolCall, runCodexAppServerTurn, type CodexAppServerCollabToolCall } from "../codex/app-server.js";
@@ -8,9 +8,15 @@ import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.j
 import { writeJsonFile } from "../fs/json.js";
 import { listRuns } from "../run/manager.js";
 import { getGitCommit, getGitStatusShort } from "../project/git.js";
+import { assertChangeFinalizationReady, closeChangeForFinalization } from "../change/manager.js";
 import { getTransientSystemSkillContext } from "../skill/catalog.js";
 import { runSchedulerReadySetInitialization } from "../workflow-runtime/scheduler.js";
-import { issueLocalExecutionAuthorization } from "../workflow-runtime/execution-authorization.js";
+import {
+  claimTransitionExecution,
+  issueLocalExecutionAuthorization,
+  markTransitionExecutionStarted,
+  readExecutionAuthorization,
+} from "../workflow-runtime/execution-authorization.js";
 import type { ManagedProject, ResolvedMemory, RunMetadata } from "../types/index.js";
 import { buildMainAgentExecutionContext } from "./codex-chat/context.js";
 import { runWorkbenchWorkflowActionService } from "./actions/service.js";
@@ -229,6 +235,7 @@ export function buildProjectScopedMainAgentPrompt(
     "If real provider-native child collaboration is unavailable, say that plainly. Do not fall back to Plan Mode, codex exec, or fabricated child output.",
     "If the user asks to execute after a plan, continue as the main Agent: read project guidance, enabled skills, and docs, then use available tools according to the project rules. Do not assume Workbench will create Harness records or execute the plan for you.",
     "When the accepted workflow reaches a real human confirmation gate, give the user a brief visible conclusion and then call aho_goal_yield exactly once. The tool pauses Goal continuity only; it never executes the gated action.",
+    "When terminal workflow, validation, audit, and local apply evidence prove the Change complete, call aho_finalize_current_change with no arguments. Do not complete the native Goal until AHO returns a durable close result; Change close is owned by AHO, not a separate user confirmation.",
     "You still own whether to continue, request a plan revision, or complete the Goal. Provider blocked is a valid bounded wait state, but do not use it as a substitute for aho_goal_yield when that tool is available.",
     "Do not expose internal product terms in the user-visible reply, including Harness, AGENTS.md, Change, active change, worktree, AC, tasks, TaskRun, WorkflowRun, queue, scheduler, bundle, close gate, validation, or audit.",
     "Use plain user-facing words instead, such as 项目记录, 项目说明, 当前任务, 工作副本, 验收点, 计划, 检查, 审查, or 完成前确认.",
@@ -321,6 +328,11 @@ async function runProjectScopedMainAgentTurn(
         description: "Accept the exact current user-confirmed planner-child proposal into Change artifacts and a WorkflowGraphPlan. This never starts execution.",
         inputSchema: { type: "object", properties: {}, additionalProperties: false },
       },
+      {
+        name: "aho_finalize_current_change",
+        description: "Declare the current authorized Change complete. AHO revalidates terminal evidence and closes it; this tool accepts no target or authority arguments.",
+        inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      },
     ],
     onDynamicToolCall: async (call) => {
       if (Object.keys(call.arguments).length > 0) {
@@ -343,6 +355,46 @@ async function runProjectScopedMainAgentTurn(
             type: "inputText",
             text: `Accepted planning package ${accepted.proposalId} for Change ${accepted.changeId}. Compiled WorkflowGraphPlan ${accepted.workflowGraphPlan.id}. No execution leaf was started.`,
           }],
+          success: true,
+        };
+      }
+      if (call.tool === "aho_finalize_current_change") {
+        if (!boundChangeId) {
+          return { contentItems: [{ type: "inputText", text: "No active Change is bound to this Main Agent conversation." }], success: false };
+        }
+        await assertChangeFinalizationReady(memory, boundChangeId);
+        const finalizeRequest = await createFinalizeRequest(memory, {
+          changeId: boundChangeId,
+          conversationId,
+          providerThreadId: call.threadId,
+          turnId: call.turnId,
+        });
+        const authorization = await readExecutionAuthorization(memory, finalizeRequest.authorizationId);
+        const claim = await claimTransitionExecution(memory, {
+          authorizationId: authorization.id,
+          authorizationEpoch: finalizeRequest.authorizationEpoch,
+          transition: "change.finalize",
+          targetId: finalizeRequest.changeId,
+          manifestHash: finalizeRequest.manifestHash,
+          snapshot: authorizationSnapshot(authorization),
+          claimedBy: "change-finalization",
+          claimTtlMs: 10 * 60_000,
+        });
+        await markTransitionExecutionStarted(memory, claim.operationId, claim.claimToken, claim.fencingToken);
+        const closed = await closeChangeForFinalization(project, {
+          changeId: finalizeRequest.changeId,
+          requestId: finalizeRequest.id,
+          authorizationId: finalizeRequest.authorizationId,
+          authorizationEpoch: finalizeRequest.authorizationEpoch,
+          conversationId: finalizeRequest.conversationId,
+          providerThreadId: finalizeRequest.providerThreadId,
+          goalIdentityHash: finalizeRequest.goalIdentityHash,
+          operationId: claim.operationId,
+          claimToken: claim.claimToken,
+          fencingToken: claim.fencingToken,
+        });
+        return {
+          contentItems: [{ type: "inputText", text: `Change closed durably. Close receipt: ${closed.receiptPath ?? closed.archivePath}. The native Goal may now be completed.` }],
           success: true,
         };
       }
@@ -679,6 +731,58 @@ export async function runWorkbenchWorkflowAction(project: ManagedProject, reques
   });
 }
 
+async function createFinalizeRequest(
+  memory: ResolvedMemory,
+  input: { changeId: string; conversationId: string; providerThreadId: string; turnId: string },
+) {
+  const intentPath = join(memory.changesRoot, "active", input.changeId, "planning", "execution-authorization-intent.json");
+  const intent = JSON.parse(await readFile(intentPath, "utf8")) as { status?: unknown; authorizationId?: unknown };
+  if (intent.status !== "issued" || typeof intent.authorizationId !== "string") {
+    throw new Error("Current Change has no issued local execution authorization.");
+  }
+  const authorization = await readExecutionAuthorization(memory, intent.authorizationId);
+  const finalizeTarget = authorization.targets.find((target) => target.transition === "change.finalize" && target.targetId === input.changeId);
+  if (authorization.status !== "active"
+    || authorization.changeId !== input.changeId
+    || authorization.conversationId !== input.conversationId
+    || authorization.providerThreadId !== input.providerThreadId
+    || !finalizeTarget) {
+    throw new Error("FinalizeRequest is outside the current execution authorization scope.");
+  }
+  const id = `finalize-${createHash("sha256").update(`${authorization.id}:${authorization.epoch}:${input.turnId}`).digest("hex")}`;
+  const artifact = join(memory.changesRoot, "active", input.changeId, "finalization", "requests", `${id}.json`);
+  const request = {
+    version: "1.0" as const,
+    id,
+    changeId: input.changeId,
+    conversationId: input.conversationId,
+    providerThreadId: input.providerThreadId,
+    turnId: input.turnId,
+    authorizationId: authorization.id,
+    authorizationEpoch: authorization.epoch,
+    manifestHash: finalizeTarget.manifestHash,
+    goalIdentityHash: authorization.goalIdentityHash,
+    status: "requested" as const,
+    createdAt: new Date().toISOString(),
+    artifact,
+  };
+  await writeJsonFile(artifact, request);
+  return request;
+}
+
+function authorizationSnapshot(authorization: Awaited<ReturnType<typeof readExecutionAuthorization>>) {
+  return {
+    acceptedPlanHash: authorization.acceptedPlanHash,
+    graphHash: authorization.graphHash,
+    artifactManifestHash: authorization.artifactManifestHash,
+    sourceHead: authorization.sourceHead,
+    sourceStateHash: authorization.sourceStateHash,
+    permissionProfileHash: authorization.permissionProfileHash,
+    providerScopeHash: authorization.providerScopeHash,
+    policyHash: authorization.policyHash,
+  };
+}
+
 async function issueAcceptedPlanningAuthorization(
   project: ManagedProject,
   memory: ResolvedMemory,
@@ -771,11 +875,11 @@ function hashJson(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
-async function resumeNativeGoalAfterAction(input: {
+export async function resumeNativeGoalAfterAction(input: {
   project: ManagedProject;
   changeId: string;
   actionRunId: string;
-  actionType: WorkbenchWorkflowActionRequest["actionType"];
+  actionType: WorkbenchWorkflowActionRequest["actionType"] | "result.apply";
   status: "completed" | "failed";
   result: unknown;
 }): Promise<void> {

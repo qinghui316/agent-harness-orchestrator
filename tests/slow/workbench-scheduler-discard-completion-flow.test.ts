@@ -211,12 +211,11 @@ describe("workbench scheduler discard completion slow flow", () => {
       id: typedCompletionPayload.completion?.id,
       status: "completed-discarded",
     });
-    expect(snapshot.center.workpad.nextAction).toMatchObject({
-      kind: "approval",
-      approvalId: `close:${prepared.topic.changeId}`,
-      enabled: true,
-      requiresConfirmation: true,
-    });
+    expect(snapshot.center.workpad.nextAction).toMatchObject({ enabled: false });
+    expect(snapshot.center.workpad.nextAction?.kind).not.toBe("approval");
+    expect(snapshot.right.confirmationQueue.current
+      .flatMap((item) => item.actions)
+      .filter((action) => action.actionType === "change.close")).toHaveLength(0);
     expect(await listWorkflowRuns(terminalMemory, prepared.topic.changeId)).toHaveLength(0);
     expect(await listTaskQueues(terminalMemory, prepared.topic.changeId)).toHaveLength(0);
     expect(await listAgentTasks(terminalMemory, prepared.topic.changeId)).toHaveLength(0);

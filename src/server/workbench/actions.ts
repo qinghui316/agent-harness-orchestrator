@@ -4,9 +4,8 @@ import { evaluateToolPolicy } from "../../agent-task/tool-policy.js";
 import { abandonChangeForChange } from "../../change/manager.js";
 import { resolveProjectMemory } from "../../memory/resolver.js";
 import type { ManagedProject } from "../../types/index.js";
-import { recordWorkbenchDecision, runWorkbenchWorkflowAction } from "../../workbench/chat.js";
+import { recordWorkbenchDecision, resumeNativeGoalAfterAction, runWorkbenchWorkflowAction } from "../../workbench/chat.js";
 import { getWorkbenchSnapshot, type WorkbenchProjectInput } from "../../workbench/manager.js";
-import { WorkbenchStore } from "../../workbench/store.js";
 import { workflowActionScopePayload, workflowActionTargetId } from "../../workflow-actions/registry.js";
 import { assertCurrentWorkflowAction } from "./action-revalidation.js";
 import {
@@ -18,7 +17,6 @@ import {
   runAllowlistedAction,
 } from "./approval-actions.js";
 import { resolveFeedbackRouteFromPrimary, resolveLegacyFeedbackRoute, type FeedbackRoute, type FeedbackSnapshotPrimary } from "./feedback-routing.js";
-import { isRecord } from "./http.js";
 import type { WorkbenchActionRequest } from "./types.js";
 
 export async function executeWorkbenchAction(input: WorkbenchProjectInput, body: WorkbenchActionRequest): Promise<{ result: unknown; snapshot: unknown }> {
@@ -384,9 +382,11 @@ async function executeApprovalOrFeedbackAction(input: WorkbenchProjectInput & { 
     throw error;
   }
   const result = await runAllowlistedAction(input.project, action, body.options);
+  const decisionId = `approval:${action.actionId}:${action.args.join(":")}`;
+  const changeId = inferChangeIdFromAction(action, result);
   await recordWorkbenchDecision(input.project, {
-    id: `approval:${action.actionId}:${action.args.join(":")}`,
-    changeId: inferChangeIdFromAction(action, result),
+    id: decisionId,
+    changeId,
     decisionType: action.actionId,
     status: "accepted",
     label: action.label,
@@ -399,27 +399,25 @@ async function executeApprovalOrFeedbackAction(input: WorkbenchProjectInput & { 
     payload: result,
     completedAt: new Date().toISOString(),
   });
-  if (action.actionId === "change.close" && isRecord(result) && isRecord(result.change) && typeof result.change.id === "string") {
-    const memory = await resolveProjectMemory(input.project);
-    if (memory.projectId) {
-      const store = await WorkbenchStore.open(memory);
-      try {
-        const conversation = store.readConversationByChangeId(memory.projectId, result.change.id);
-        if (conversation) store.setConversationState(memory.projectId, conversation.conversationId, "archive", new Date().toISOString());
-      } finally {
-        store.close();
-      }
-    }
-    const archiveRef = typeof result.archivePath === "string" ? result.archivePath : undefined;
-    await recordPostDecisionMaintenance(
-      input.project,
-      result.change.id,
-      "archive",
-      "Demand conversation was closed and archived.",
-      archiveRef ? [archiveRef] : [],
-    );
+  if (action.actionId === "result.apply" && changeId && isCommittedApplyResult(result)) {
+    await resumeNativeGoalAfterAction({
+      project: input.project,
+      changeId,
+      actionRunId: decisionId,
+      actionType: "result.apply",
+      status: "completed",
+      result,
+    });
   }
   return { result, snapshot: await getWorkbenchSnapshot(input) };
+}
+
+function isCommittedApplyResult(result: unknown): boolean {
+  return Boolean(result && typeof result === "object"
+    && "apply" in result
+    && result.apply && typeof result.apply === "object"
+    && "status" in result.apply && result.apply.status === "applied"
+    && "committed" in result.apply && result.apply.committed === true);
 }
 
 type FeedbackSnapshot = {

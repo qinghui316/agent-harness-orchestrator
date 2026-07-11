@@ -66,6 +66,7 @@ export const transitionExecutionSchema: z.ZodType<TransitionExecution> = z.objec
   claimedAt: z.string().datetime(),
   claimExpiresAt: z.string().datetime(),
   executionStartedAt: z.string().datetime().nullable(),
+  commitPointReservedAt: z.string().datetime().nullable().optional(),
   terminalAt: z.string().datetime().nullable(),
   receipt: receiptSchema.nullable(),
 }).strict().superRefine((value, context) => {
