@@ -5,7 +5,7 @@ import { hashText, listAgentRoles, syncAgentCatalog } from "../agent/catalog.js"
 import { resolveCodexHome } from "./home.js";
 import { writeJsonFile } from "../fs/json.js";
 import { resolveProjectMemory } from "../memory/resolver.js";
-import { copySkillToBridge, hashSkillDirectory, isNativeCodexSkill, listSkills } from "../skill/catalog.js";
+import { copySkillToBridge, hashSkillDirectory, isNativeCodexSkill, isRuntimeAssignedSkill, listSkills } from "../skill/catalog.js";
 import type { ManagedProject } from "../types/index.js";
 import { WorkbenchStore } from "../workbench/store.js";
 
@@ -138,7 +138,15 @@ export async function syncCodexBridge(project: ManagedProject): Promise<CodexBri
     await syncAgentCatalog(project);
     const skills = await listSkills(project);
     const enablements = store.listSkillEnablement(project.id);
-    const enabledIds = new Set(enablements.filter((item) => item.enabled).map((item) => item.skillId));
+    const enabledIds = new Set(enablements.filter((item) => item.enabled && !isRuntimeAssignedSkill(item.skillId)).map((item) => item.skillId));
+    const desiredManagedDirs = new Set(skills
+      .filter((item) => enabledIds.has(item.skillId) && !isNativeCodexSkill(item))
+      .map((item) => `${project.id}__${item.skillId}`));
+    for (const entry of await readdir(paths.skillsRoot, { withFileTypes: true })) {
+      if (entry.isDirectory() && entry.name.startsWith(`${project.id}__`) && !desiredManagedDirs.has(entry.name)) {
+        await rm(join(paths.skillsRoot, entry.name), { recursive: true, force: true });
+      }
+    }
     for (const skill of skills.filter((item) => enabledIds.has(item.skillId) && isNativeCodexSkill(item))) {
       await rm(join(paths.skillsRoot, `${project.id}__${skill.skillId}`), { recursive: true, force: true });
     }

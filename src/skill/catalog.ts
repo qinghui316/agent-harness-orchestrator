@@ -133,7 +133,7 @@ export async function listSkills(project: ManagedProject): Promise<SkillListItem
   const store = await WorkbenchStore.open(memory);
   try {
     await refreshSkillIndex(memory, project, store);
-    const skills = store.listSkills(project.id);
+    const skills = store.listSkills(project.id).filter((item) => !isRuntimeAssignedSkill(item.skillId));
     return await Promise.all(skills.map((item) => decorateSkill(memory, item, store)));
   } finally {
     store.close();
@@ -144,6 +144,7 @@ export async function setSkillEnabled(project: ManagedProject, skillIdInput: str
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "Skill enablement");
   const skillId = slugify(skillIdInput);
+  if (isRuntimeAssignedSkill(skillId)) throw new Error(`Skill ${skillId} is Runtime-assigned and cannot be enabled from project or conversation settings.`);
   const store = await WorkbenchStore.open(memory);
   try {
     await refreshSkillIndex(memory, project, store);
@@ -174,7 +175,8 @@ export async function getEnabledSkillContext(project: ManagedProject, changeId?:
     const projectEnabled = new Set(enablements.filter((item) => item.scope === "project" && item.enabled).map((item) => item.skillId));
     const topicEnabled = new Set(enablements.filter((item) => item.scope === "topic" && item.changeId === changeId && item.enabled).map((item) => item.skillId));
     const topicDisabled = new Set(enablements.filter((item) => item.scope === "topic" && item.changeId === changeId && !item.enabled).map((item) => item.skillId));
-    const enabledIds = [...new Set([...projectEnabled, ...topicEnabled])].filter((skillId) => !topicDisabled.has(skillId)).sort();
+    const enabledIds = [...new Set([...projectEnabled, ...topicEnabled])]
+      .filter((skillId) => !topicDisabled.has(skillId) && !isRuntimeAssignedSkill(skillId)).sort();
     const records: RunSkillRecord[] = [];
     const warnings: string[] = [];
     for (const skillId of enabledIds) {
@@ -219,6 +221,12 @@ export async function getEnabledSkillContext(project: ManagedProject, changeId?:
 }
 
 export async function getTransientSystemSkillContext(project: ManagedProject, skillIdsInput: string[]): Promise<EnabledSkillContext> {
+  const requestedIds = [...new Set(skillIdsInput.map((id) => slugify(id)).filter(Boolean))].sort();
+  if (requestedIds.some(isRuntimeAssignedSkill)) throw new Error("Runtime-assigned Harness Skills require a typed assignment entrypoint.");
+  return renderTransientSystemSkillContext(project, requestedIds);
+}
+
+async function renderTransientSystemSkillContext(project: ManagedProject, skillIdsInput: string[]): Promise<EnabledSkillContext> {
   const memory = await resolveProjectMemory(project);
   const requestedIds = [...new Set(skillIdsInput.map((id) => slugify(id)).filter(Boolean))].sort();
   if (requestedIds.length === 0) return { records: [], promptSection: "", warnings: [] };
@@ -269,6 +277,34 @@ export async function getTransientSystemSkillContext(project: ManagedProject, sk
   }
 }
 
+export async function getRuntimeAssignedHarnessSkillContext(
+  project: ManagedProject,
+  assignment: import("../agent-task/harness-engineering-contract.js").HarnessEngineeringAssignment,
+): Promise<EnabledSkillContext> {
+  const { parseHarnessEngineeringAssignment } = await import("../agent-task/harness-engineering-contract.js");
+  const parsed = parseHarnessEngineeringAssignment(assignment);
+  if (parsed.projectId !== project.id) throw new Error("Harness engineering assignment belongs to another project.");
+  const context = await getTransientSystemSkillContextInternal(project, ["aho-harness-engineering"]);
+  return {
+    ...context,
+    promptSection: [
+      "# Server-Bound Harness Engineering Assignment",
+      "",
+      "This normalized assignment is authoritative. Do not replace its mode, identity, evidence, targets, or verification scope.",
+      "",
+      "```json",
+      JSON.stringify(parsed, null, 2),
+      "```",
+      "",
+      context.promptSection,
+    ].join("\n"),
+  };
+}
+
+async function getTransientSystemSkillContextInternal(project: ManagedProject, skillIdsInput: string[]): Promise<EnabledSkillContext> {
+  return renderTransientSystemSkillContext(project, skillIdsInput);
+}
+
 export async function hashSkillDirectory(path: string): Promise<string> {
   const hash = createHash("sha256");
   const files = await listSkillPackageFiles(path);
@@ -280,6 +316,10 @@ export async function hashSkillDirectory(path: string): Promise<string> {
     hash.update("\0");
   }
   return hash.digest("hex");
+}
+
+export function isRuntimeAssignedSkill(skillId: string): boolean {
+  return skillId === "aho-harness-engineering";
 }
 
 async function renderTransientSystemSkillPrompt(skill: StoredSkillIndex): Promise<string> {

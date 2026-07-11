@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 import { runMetadataSchema } from "../../src/run/schemas.js";
 
 describe("run metadata schema", () => {
@@ -24,7 +24,7 @@ describe("run metadata schema", () => {
         stderr: "runs/run-system-skill/stderr.log",
       },
       enabledSkills: [{
-        id: "aho-harness-onboarding",
+        id: "aho-harness-engineering",
         runtimeTarget: "codex",
         sourceKind: "system-aho",
         sourceHash: "hash-system",

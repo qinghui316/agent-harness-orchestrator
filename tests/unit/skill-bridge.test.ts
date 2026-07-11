@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+﻿import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getCodexBridgeStatus, installCodexBridge, syncCodexBridge } from "../../src/codex/bridge.js";
 import { listAgentRoles, showAgentRole, syncAgentCatalog } from "../../src/agent/catalog.js";
 import { writeProjectMarker } from "../../src/project/marker.js";
-import { addSkillRoot, getEnabledSkillContext, getTransientSystemSkillContext, importSkill, listSkills, setSkillEnabled } from "../../src/skill/catalog.js";
+import { addSkillRoot, getEnabledSkillContext, getRuntimeAssignedHarnessSkillContext, importSkill, listSkills, setSkillEnabled } from "../../src/skill/catalog.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import type { ManagedProject } from "../../src/types/index.js";
 
@@ -160,42 +160,33 @@ describe("AHO skill source and Codex bridge", () => {
     await writeProjectMarker(repo, "external-local");
 
     const skills = await listSkills(repo);
-    const onboardingSkill = skills.find((item) => item.skillId === "aho-harness-onboarding");
-    expect(onboardingSkill).toMatchObject({
-      sourceKind: "system-aho",
-      runtimeTargets: [expect.objectContaining({ provider: "codex", status: "not-synced", materializationMode: "aho-managed" })],
-    });
+    expect(skills.find((item) => item.skillId === "aho-harness-engineering")).toBeUndefined();
     const authoringSkill = skills.find((item) => item.skillId === "aho-workflow-authoring");
     expect(authoringSkill).toMatchObject({
       sourceKind: "system-aho",
       runtimeTargets: [expect.objectContaining({ provider: "codex", status: "not-synced", materializationMode: "aho-managed" })],
     });
 
-    await setSkillEnabled(repo, "aho-harness-onboarding", { topic: "change-a", enabled: true });
+    await expect(setSkillEnabled(repo, "aho-harness-engineering", { topic: "change-a", enabled: true }))
+      .rejects.toThrow("Runtime-assigned");
     await setSkillEnabled(repo, "aho-workflow-authoring", { topic: "change-a", enabled: true });
     const beforeSync = await getEnabledSkillContext(repo, "change-a");
-    expect(beforeSync.records).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "aho-harness-onboarding", sourceKind: "system-aho", materializationMode: "aho-managed" }),
-      expect.objectContaining({ id: "aho-workflow-authoring", sourceKind: "system-aho", materializationMode: "aho-managed" }),
-    ]));
-    expect(beforeSync.warnings).toEqual([
-      "Skill aho-harness-onboarding is not synced to the Codex bridge.",
-      "Skill aho-workflow-authoring is not synced to the Codex bridge.",
-    ]);
+    expect(beforeSync.records).toEqual([expect.objectContaining({ id: "aho-workflow-authoring", sourceKind: "system-aho", materializationMode: "aho-managed" })]);
+    expect(beforeSync.warnings).toEqual(["Skill aho-workflow-authoring is not synced to the Codex bridge."]);
 
+    const legacy = join(process.env.CODEX_HOME ?? "", "plugins", "aho-managed", "skills", "demo__aho-harness-onboarding");
+    await mkdir(legacy, { recursive: true });
+    await writeFile(join(legacy, "SKILL.md"), "---\nname: demo__aho-harness-onboarding\n---\n", "utf8");
     const synced = await syncCodexBridge(repo);
-    const materialized = join(process.env.CODEX_HOME ?? "", "plugins", "aho-managed", "skills", "demo__aho-harness-onboarding", "SKILL.md");
     const materializedAuthoring = join(process.env.CODEX_HOME ?? "", "plugins", "aho-managed", "skills", "demo__aho-workflow-authoring");
-    expect(synced.synced.some((item) => item.skillId === "aho-harness-onboarding")).toBe(true);
     expect(synced.synced.some((item) => item.skillId === "aho-workflow-authoring")).toBe(true);
-    expect(existsSync(materialized)).toBe(true);
-    expect(await readFile(materialized, "utf8")).toContain("name: demo__aho-harness-onboarding");
-    expect(existsSync(join(process.env.CODEX_HOME ?? "", "plugins", "aho-managed", "skills", "demo__aho-harness-onboarding", "references", "first-demand-onboarding-flow.md"))).toBe(true);
+    expect(existsSync(legacy)).toBe(false);
+    expect(existsSync(join(process.env.CODEX_HOME ?? "", "plugins", "aho-managed", "skills", "demo__aho-harness-engineering"))).toBe(false);
     expect(await readFile(join(materializedAuthoring, "SKILL.md"), "utf8")).toContain("name: demo__aho-workflow-authoring");
     expect(existsSync(join(materializedAuthoring, "agents", "openai.yaml"))).toBe(true);
     expect(existsSync(join(materializedAuthoring, "references", "fixed-plan-format.md"))).toBe(true);
     expect(existsSync(join(materializedAuthoring, "references", "workflow-patterns.md"))).toBe(true);
-    expect(existsSync(join(process.env.CODEX_HOME ?? "", "skills", "aho-harness-onboarding"))).toBe(false);
+    expect(existsSync(join(process.env.CODEX_HOME ?? "", "skills", "aho-harness-engineering"))).toBe(false);
     expect(existsSync(join(process.env.CODEX_HOME ?? "", "skills", "aho-workflow-authoring"))).toBe(false);
   });
 
@@ -204,9 +195,21 @@ describe("AHO skill source and Codex bridge", () => {
     await mkdir(repo.path, { recursive: true });
     await writeProjectMarker(repo, "external-local");
 
-    const context = await getTransientSystemSkillContext(repo, ["aho-harness-onboarding"]);
+    const context = await getRuntimeAssignedHarnessSkillContext(repo, {
+      mode: "maintain-assigned-closeout",
+      projectId: repo.id,
+      assignmentId: "maintenance-1",
+      inputCheckpoint: "checkpoint-1",
+      policyVersion: "policy-1",
+      sourceWindowHash: "window-1",
+      evidenceRefs: ["change://terminal"],
+      currentDocumentRefs: [],
+      currentStableMemoryRefs: [],
+      allowedTargets: [],
+      requiredVerification: [],
+    });
     expect(context.records).toEqual([expect.objectContaining({
-      id: "aho-harness-onboarding",
+      id: "aho-harness-engineering",
       sourceKind: "system-aho",
       materializationMode: "aho-managed",
       bridge: "prompt:transient",
@@ -215,8 +218,13 @@ describe("AHO skill source and Codex bridge", () => {
     expect(context.promptSection).toContain("Transient AHO System Skill Context");
     expect(context.promptSection).toContain("references/aho-memory-layout.md");
     expect(context.promptSection).toContain("external-local");
-    expect(context.promptSection).toContain("STOP / CHECKPOINT");
-    expect(context.promptSection).toContain("Evidence budget");
+    expect(context.promptSection).toContain("Stop Conditions");
+    expect(context.promptSection).toContain("Evidence Selection");
+    expect(context.promptSection).toContain("Runtime assignment envelope");
+    expect(context.promptSection).toContain("Server-Bound Harness Engineering Assignment");
+    expect(context.promptSection).toContain('"mode": "maintain-assigned-closeout"');
+    expect(context.promptSection).toContain('"assignmentId": "maintenance-1"');
+    expect(context.promptSection).toContain('"change://terminal"');
     expect(context.promptSection).toContain("Failure Handling");
 
     const persistent = await getEnabledSkillContext(repo, "change-a");

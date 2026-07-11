@@ -26,7 +26,7 @@ Directly adapt:
 - context loading order;
 - documentation entropy rules;
 - baseline verification snapshot;
-- auto-evolve lifecycle and threshold semantics.
+- evidence-backed experience lifecycle classification and documentation entropy checks.
 
 Rewrite for AHO:
 
@@ -48,12 +48,12 @@ Do not copy:
 
 Each proposed doc change should state:
 
-- target file;
+- Runtime-provided target ID;
 - why it is needed;
 - evidence supporting it;
 - whether it is deterministic prep or project-specific content;
-- verification command or review check;
-- human gate required before writing.
+- Runtime-provided verification request ID;
+- evidence and expected semantic result. Runtime owns later review and canonical application.
 
 ## Document Quality Gates
 

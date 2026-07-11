@@ -27,7 +27,7 @@ describe("landing source diff attribution", () => {
 
     const source = await collectSourceDiff(getTempDir());
     await execFileAsync("git", ["add", "src/integration-note.ts"], { cwd: getTempDir() });
-    const expectedPatch = (await execFileAsync("git", ["diff", "--no-ext-diff", "--binary", "HEAD"], { cwd: getTempDir() })).stdout;
+    const expectedPatch = (await execFileAsync("git", ["diff", "--no-ext-diff", "--binary", "--full-index", "HEAD"], { cwd: getTempDir() })).stdout;
 
     expect(source.changedFiles).toEqual(["src/alpha.ts", "src/beta.ts", "src/integration-note.ts"]);
     expect(source.diffHash).toBe(diffContentHash(expectedPatch));

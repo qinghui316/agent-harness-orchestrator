@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+﻿import { existsSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
@@ -147,10 +147,10 @@ describe("workbench server", () => {
     const listed = await getJson<{ roots: Array<{ rootPath: string }>; skills: Array<{ skillId: string; sourceKind: string; runtimeTargets: Array<{ provider: string; status: string }> }> }>(`${handle!.url}/api/projects/repo/skills`);
     expect(listed.roots.some((root) => root.rootPath === skillRoot)).toBe(true);
     const pricing = listed.skills.find((skill) => skill.skillId === "pricing-helper");
-    const system = listed.skills.find((skill) => skill.skillId === "aho-harness-onboarding");
+    const system = listed.skills.find((skill) => skill.skillId === "aho-harness-engineering");
     expect(pricing).toMatchObject({ skillId: "pricing-helper", sourceKind: "custom" });
     expect(pricing?.runtimeTargets[0]).toMatchObject({ provider: "codex", status: "not-synced" });
-    expect(system).toMatchObject({ skillId: "aho-harness-onboarding", sourceKind: "system-aho" });
+    expect(system).toBeUndefined();
 
     const enabled = await fetch(`${handle!.url}/api/projects/repo/skills/pricing-helper/enable`, {
       method: "POST",

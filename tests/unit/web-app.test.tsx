@@ -3692,18 +3692,6 @@ describe("Workbench web app", () => {
           disabledTopics: [],
           runtimeTargets: [{ provider: "codex", status: "native", materializationMode: "native" }],
         },
-        {
-          skillId: "aho-harness-onboarding",
-          name: "aho-harness-onboarding",
-          description: "AHO onboarding helper.",
-          sourcePath: "E:/app/templates/system-skills/aho-harness-onboarding",
-          sourceKind: "system-aho",
-          sourceHash: "hash-system",
-          enabledProject: false,
-          enabledTopics: [],
-          disabledTopics: [],
-          runtimeTargets: [{ provider: "codex", status: "not-synced", materializationMode: "aho-managed" }],
-        },
       ],
       bridge: { state: "out-of-sync" },
     };
@@ -3737,10 +3725,10 @@ describe("Workbench web app", () => {
     expect(document.querySelector(".sidebar")).toBeNull();
     expect(screen.queryByTestId("decision-pane-shell")).toBeNull();
     expect(within(panel).getAllByRole("heading", { name: "技能" }).length).toBeGreaterThan(0);
-    await waitFor(() => expect(within(panel).getByText("3 个可用 Skill")).toBeTruthy());
+    await waitFor(() => expect(within(panel).getByText("2 个可用 Skill")).toBeTruthy());
     expect(within(panel).getAllByText("pricing-helper").length).toBeGreaterThan(0);
     expect(within(panel).getAllByText("native-helper").length).toBeGreaterThan(0);
-    expect(within(panel).getAllByText("aho-harness-onboarding").length).toBeGreaterThan(0);
+    expect(within(panel).queryByText("aho-harness-engineering")).toBeNull();
     expect(within(panel).getByText("自定义: E:/skills")).toBeTruthy();
     expect(within(panel).queryByText("Skill ID")).toBeNull();
     expect(within(panel).queryByText("Hash")).toBeNull();
@@ -3759,10 +3747,6 @@ describe("Workbench web app", () => {
     fireEvent.click(within(panel).getByRole("button", { name: /native-helper/ }));
     expect(within(panel).getAllByText("Codex 可用").length).toBeGreaterThan(0);
     expect(within(panel).queryByRole("button", { name: "同步到 Codex" })).toBeNull();
-    fireEvent.click(within(panel).getByRole("button", { name: /aho-harness-onboarding/ }));
-    expect(within(panel).getAllByText("AHO 内置").length).toBeGreaterThan(0);
-    expect(within(panel).getByRole("button", { name: "同步到 Codex" })).toBeTruthy();
-
     const calls = vi.mocked(fetch).mock.calls.map(([url, init]) => [String(url), init?.method ?? "GET"]);
     expect(calls).not.toContainEqual(["/api/projects/repo/skills/pricing-helper/enable", "POST"]);
     expect(calls).toContainEqual(["/api/projects/repo/skills/codex-bridge/sync", "POST"]);
