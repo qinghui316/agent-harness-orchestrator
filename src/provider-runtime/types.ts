@@ -1,7 +1,7 @@
 export type ProviderId = "codex";
 export type ProductMode = "harness" | "agent";
 export type RunnableProductMode = "harness";
-export type HarnessExecutionMode = "request-approval" | "full-access";
+export type HarnessExecutionMode = "stepwise" | "scoped-auto";
 
 export type ProviderCapabilityKey =
   | "streaming.text"

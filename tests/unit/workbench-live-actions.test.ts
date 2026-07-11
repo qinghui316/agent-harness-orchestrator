@@ -81,7 +81,7 @@ describe("Workbench live actions", () => {
       changeId: "change-1",
       planningBundleId: "planning-bundle-1",
       confirm: true,
-      postPlanAutomationMode: "full-access",
+      postPlanAutomationMode: "scoped-auto",
     }) as never, response as unknown as ServerResponse);
 
     expect(mocks.assertCurrentWorkflowAction).not.toHaveBeenCalled();

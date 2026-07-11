@@ -746,7 +746,7 @@ describe("workbench server", () => {
       expect(capabilities.runtimeSummaries[0]).toMatchObject({
         providerId: "codex",
         productMode: "harness",
-        harnessExecutionModes: ["request-approval", "full-access"],
+        harnessExecutionModes: ["stepwise", "scoped-auto"],
         snapshot: { providerId: "codex", productMode: "harness" },
       });
 

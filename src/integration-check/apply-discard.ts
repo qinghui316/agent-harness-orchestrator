@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { getGitCommit, git, isGitDirty } from "../project/git.js";
+import { withProjectWriteLease } from "../project/project-write-lease.js";
 import { buildRunId } from "../run/manager.js";
 import { markWorktreeApplied } from "../worktree/manager.js";
 import type { ManagedProject } from "../types/index.js";
@@ -21,6 +22,17 @@ const DISCARDABLE_INTEGRATION_CHECK_STATUSES = new Set<IntegrationCheckRecord["s
 ]);
 
 export async function applyIntegrationCheck(project: ManagedProject, applyCheckId: string, expectedArtifactHash?: string): Promise<IntegrationCheckResult> {
+  return withProjectWriteLease(project.path, {}, async (lease) =>
+    applyIntegrationCheckWithLease(project, applyCheckId, expectedArtifactHash, lease),
+  );
+}
+
+async function applyIntegrationCheckWithLease(
+  project: ManagedProject,
+  applyCheckId: string,
+  expectedArtifactHash: string | undefined,
+  lease: Parameters<Parameters<typeof withProjectWriteLease>[2]>[0],
+): Promise<IntegrationCheckResult> {
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "Integration check apply");
   const directory = join(integrationCheckRoot(memory), applyCheckId);
@@ -58,6 +70,7 @@ export async function applyIntegrationCheck(project: ManagedProject, applyCheckI
 
   const runId = buildRunId(check.resultTargets[0]?.changeId ?? "integration-check", ["integration-apply", applyCheckId]);
   await appendIntegrationEvent(directory, applyCheckId, "integration-check.apply.started", { runId });
+  await lease.heartbeat();
   await git(project.path, ["apply", "--binary", patchPath]);
   const after = await getGitCommit(project.path);
   for (const target of check.resultTargets) {
@@ -75,6 +88,7 @@ export async function applyIntegrationCheck(project: ManagedProject, applyCheckI
       ? "已将自动修复并通过检查的组合结果应用到项目。"
       : "已将通过兼容性检查的结果应用到项目。",
   };
+  await lease.assertCurrent();
   await writeCheckArtifacts(memory, directory, applied);
   await appendIntegrationEvent(directory, applyCheckId, "integration-check.apply.completed", { runId });
   return { check: applied, artifactDirectory: directory };

@@ -1,5 +1,6 @@
 import { rm } from "node:fs/promises";
 import { git } from "../project/git.js";
+import { withProjectWriteLease } from "../project/project-write-lease.js";
 import { getWorktreeMetadataPath } from "./paths.js";
 import { readWorktreeMetadata, writeWorktreeMetadata } from "./repository.js";
 import { getWorktreeStatus } from "./status.js";
@@ -8,6 +9,13 @@ import type { ResolvedMemory, WorktreeMetadata } from "../types/index.js";
 import type { WorktreeAppliedUpdate, WorktreeRemoveResult } from "./types.js";
 
 export async function removeWorktree(memory: ResolvedMemory, worktreeId: string, force = false): Promise<WorktreeRemoveResult> {
+  return withProjectWriteLease(memory.projectRoot, {}, async (lease) => {
+    await lease.assertCurrent();
+    return removeWorktreeWithLease(memory, worktreeId, force);
+  });
+}
+
+async function removeWorktreeWithLease(memory: ResolvedMemory, worktreeId: string, force: boolean): Promise<WorktreeRemoveResult> {
   const metadata = await readWorktreeMetadata(memory, worktreeId);
   const status = await getWorktreeStatus(memory, worktreeId);
   if (status.dirty && metadata.status !== "applied" && !force) {

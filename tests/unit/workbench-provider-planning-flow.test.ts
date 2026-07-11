@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -22,6 +22,7 @@ vi.mock("../../src/codex/app-server.js", async (importOriginal) => {
 
 import { initHarness } from "../../src/harness/init.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
+import { git } from "../../src/project/git.js";
 import type { ManagedProject } from "../../src/types/index.js";
 import { createWorkbenchConversation, listConversationMessages, postConversationMessage, runWorkbenchWorkflowAction } from "../../src/workbench/chat.js";
 import { getWorkbenchSnapshot } from "../../src/workbench/manager.js";
@@ -36,6 +37,12 @@ beforeEach(async () => {
   originalAhoHome = process.env.AHO_HOME;
   process.env.AHO_HOME = join(root, ".aho-home");
   appServerTurn.mockReset();
+  await git(root, ["init"]);
+  await git(root, ["config", "user.email", "aho-test@example.invalid"]);
+  await git(root, ["config", "user.name", "AHO Test"]);
+  await writeFile(join(root, "package.json"), "{\"name\":\"provider-planning-fixture\"}\n", "utf8");
+  await git(root, ["add", "package.json"]);
+  await git(root, ["commit", "-m", "fixture baseline"]);
   await initHarness(project());
 });
 
@@ -148,6 +155,26 @@ describe("Workbench provider planning flow", () => {
     expect(await readLatestWorkflowGraphPlan(memory, changePath)).toMatchObject({
       graphMode: "sequential-v1",
       nodes: [expect.objectContaining({ id: "health-endpoint" })],
+    });
+    const authorizationIntent = JSON.parse(await readFile(
+      join(memory.memoryRoot, changePath, "planning", "execution-authorization-intent.json"),
+      "utf8",
+    ));
+    expect(authorizationIntent).toMatchObject({
+      status: "issued",
+      changeId,
+      conversationId: conversation.conversationId,
+      graphId: expect.stringMatching(/^workflow-graph-/),
+      authorizationId: expect.stringMatching(/^auth-/),
+    });
+    expect(JSON.parse(await readFile(
+      join(memory.runsRoot, "execution-authorization", "authorizations", `${authorizationIntent.authorizationId}.json`),
+      "utf8",
+    ))).toMatchObject({
+      id: authorizationIntent.authorizationId,
+      providerThreadId: "thread-main",
+      mode: "stepwise",
+      status: "active",
     });
     const snapshot = await getWorkbenchSnapshot({ project: project(), path: root }, { topicId: conversation.conversationId });
     expect(snapshot.right.confirmationQueue.primary?.actions).toEqual(expect.arrayContaining([

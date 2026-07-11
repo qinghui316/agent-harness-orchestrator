@@ -10,6 +10,7 @@ import { createWorkbenchConversation } from "../../src/workbench/chat.js";
 import { acceptCurrentConversationPlanningPackage, parsePlannerChildOutput, writePlannerChildProposal } from "../../src/workbench/planning/planner-child-proposal.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import { startOrResumeTaskQueue } from "../../src/task-queue/manager.js";
+import { issueLocalExecutionAuthorization, readExecutionAuthorization } from "../../src/workflow-runtime/execution-authorization.js";
 
 let root: string;
 
@@ -59,6 +60,15 @@ describe("conversation planner-child package acceptance", () => {
     expect(await readFile(join(changePath, "tasks.md"), "utf8")).toContain("T-001");
     expect(accepted.workflowGraphPlan).toMatchObject({ graphMode: "sequential-v1", authoringContractVersion: "1.0" });
     expect(existsSync(join(changePath, "planning", "workflow-graph-plan.json"))).toBe(true);
+    expect(JSON.parse(await readFile(join(changePath, "planning", "execution-authorization-intent.json"), "utf8"))).toMatchObject({
+      status: "pending",
+      changeId: accepted.changeId,
+      conversationId: conversation.conversationId,
+      proposalId: proposal.id,
+      proposalHash: proposal.hash,
+      graphId: accepted.workflowGraphPlan.id,
+      authorizationId: null,
+    });
     expect(existsSync(join(memory.runsRoot, "task-runs", accepted.changeId))).toBe(false);
     expect(existsSync(memory.worktreeMetadataRoot)).toBe(false);
 
@@ -85,6 +95,48 @@ describe("conversation planner-child package acceptance", () => {
     expect(revised.changeId).toBe(accepted.changeId);
     expect(await readFile(join(memory.changesRoot, "active", accepted.changeId, "plan.md"), "utf8")).toContain("Return healthy.");
     await expect(acceptCurrentConversationPlanningPackage(project(), other.conversationId, second.artifact)).rejects.toThrow(/scope/);
+  });
+
+  it("revokes a superseded execution authorization before replacing accepted artifacts", async () => {
+    const conversation = await createWorkbenchConversation(project(), { title: "Revocable plan", body: "Plan it." }, undefined, { runMainAgent: false });
+    const memory = await resolveProjectMemory(project());
+    const first = await proposalFor(memory.workbenchRoot, conversation.conversationId, "Return ok.");
+    const accepted = await acceptCurrentConversationPlanningPackage(project(), conversation.conversationId, first.artifact);
+    const hash = "a".repeat(64);
+    const authorization = await issueLocalExecutionAuthorization(memory, {
+      projectId: project().id, changeId: accepted.changeId, conversationId: conversation.conversationId,
+      providerThreadId: "parent-1", goalIdentityHash: hash, mode: "stepwise",
+      acceptedPlanId: accepted.proposalId, acceptedPlanHash: accepted.proposalHash,
+      graphId: accepted.workflowGraphPlan.id, graphHash: hash, artifactManifestHash: hash,
+      sourceHead: "commit-1", sourceStateHash: hash, permissionProfileHash: hash,
+      providerScopeHash: hash, policyHash: hash,
+      targets: [{ transition: "workflow.node.execute", targetId: "health", manifestHash: hash }],
+      budget: { maxCompletedOperations: 8, maxReworks: 1, maxChangedFiles: 20, maxChangedBytes: 1_000_000 },
+      userDecision: { decisionId: "execute-first", actorId: "user", decidedAt: new Date().toISOString() },
+      issuedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    await writeFile(join(memory.changesRoot, "active", accepted.changeId, "planning", "execution-authorization-intent.json"), JSON.stringify({
+      version: "1.0", status: "issued", proposalHash: accepted.proposalHash, authorizationId: authorization.id,
+    }), "utf8");
+    const revised = await proposalFor(memory.workbenchRoot, conversation.conversationId, "Return healthy.", "run-2", "child-2");
+
+    await acceptCurrentConversationPlanningPackage(project(), conversation.conversationId, revised.artifact);
+
+    expect(await readExecutionAuthorization(memory, authorization.id)).toMatchObject({ status: "revoked", epoch: 1 });
+  });
+
+  it("rejects a bound Change id that escapes the active root", async () => {
+    const conversation = await createWorkbenchConversation(project(), { title: "Traversal", body: "Plan it." }, undefined, { runMainAgent: false });
+    const memory = await resolveProjectMemory(project());
+    const proposal = await proposalFor(memory.workbenchRoot, conversation.conversationId, "Return ok.");
+    const store = await WorkbenchStore.open(memory);
+    try {
+      store.acceptConversationChangeBinding(project().id, conversation.conversationId, "..\\escaped", new Date().toISOString(), "malicious-binding", proposal.hash);
+    } finally {
+      store.close();
+    }
+    await expect(acceptCurrentConversationPlanningPackage(project(), conversation.conversationId, proposal.artifact))
+      .rejects.toThrow(/escapes the active Change root/);
   });
 
   it("creates a new Change when revising after execution evidence exists", async () => {
@@ -114,6 +166,7 @@ describe("conversation planner-child package acceptance", () => {
 
     expect(second.changeId).toBe(first.changeId);
     expect(second.workflowGraphPlan.id).toBe(first.workflowGraphPlan.id);
+    expect(second.authorizationIntentArtifact).toBe(first.authorizationIntentArtifact);
   });
 
   it("rolls back an uncommitted filesystem swap before accepting the same proposal", async () => {

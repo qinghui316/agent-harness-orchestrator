@@ -6,6 +6,7 @@ import { getChangeStatusForChange } from "../change/manager.js";
 import { writeJsonFile } from "../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { getGitCommit, git } from "../project/git.js";
+import { withProjectWriteLease } from "../project/project-write-lease.js";
 import { appendRunEvent, buildRunId } from "../run/manager.js";
 import { getWorktreeStatus, markWorktreeApplied, removeWorktree } from "../worktree/manager.js";
 import type { ManagedProject, RunMetadata, RunStatus } from "../types/index.js";
@@ -32,6 +33,17 @@ export async function applyWorktree(project: ManagedProject, worktreeId: string,
   if (options.message && !options.commit) {
     throw new Error("Cannot use --message without --commit.");
   }
+  return withProjectWriteLease(project.path, {}, async (lease) =>
+    applyWorktreeWithLease(project, worktreeId, options, lease),
+  );
+}
+
+async function applyWorktreeWithLease(
+  project: ManagedProject,
+  worktreeId: string,
+  options: WorktreeApplyOptions,
+  lease: Parameters<Parameters<typeof withProjectWriteLease>[2]>[0],
+): Promise<WorktreeApplyResult> {
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "Worktree apply");
   const gate = await evaluateApplyGate(project, memory, worktreeId);
@@ -91,6 +103,7 @@ export async function applyWorktree(project: ManagedProject, worktreeId: string,
   try {
     run = { ...run, status: "running" };
     await writeJsonFile(paths.run, run);
+    await lease.heartbeat();
     await git(project.path, ["apply", "--binary", paths.diff]);
     if (options.commit) {
       await git(project.path, ["add", "-A"]);
@@ -125,6 +138,7 @@ export async function applyWorktree(project: ManagedProject, worktreeId: string,
     ...(commitHash ? { commitHash } : {}),
     status: applyStatus,
   };
+  await lease.assertCurrent();
   await writeJsonFile(paths.apply, apply);
   const status: RunStatus = applyStatus === "applied" ? "completed" : "failed";
   run = await finishRun(paths.run, run, status, status === "completed" ? 0 : 1);

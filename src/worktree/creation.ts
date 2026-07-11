@@ -3,6 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { slugify } from "../fs/path.js";
 import { getGitBranch, getGitCommit, git, hasGitCommits, isGitDirty } from "../project/git.js";
+import { withProjectWriteLease } from "../project/project-write-lease.js";
 import { buildWorktreeId } from "./ids.js";
 import { getGlobalWorktreeCheckoutRoot, getWorktreeMetadataPath } from "./paths.js";
 import { writeWorktreeIndex } from "./index.js";
@@ -16,6 +17,18 @@ export async function createWorktree(
   memory: ResolvedMemory,
   changeId: string,
   options: WorktreeCreateOptions = {},
+): Promise<WorktreeCreateResult> {
+  return withProjectWriteLease(project.path, {}, async (lease) => {
+    await lease.assertCurrent();
+    return createWorktreeWithLease(project, memory, changeId, options);
+  });
+}
+
+async function createWorktreeWithLease(
+  project: ManagedProject,
+  memory: ResolvedMemory,
+  changeId: string,
+  options: WorktreeCreateOptions,
 ): Promise<WorktreeCreateResult> {
   if (!memory.projectId) {
     throw new Error("Cannot create worktree without a resolved project id.");

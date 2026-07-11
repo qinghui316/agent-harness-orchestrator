@@ -49,3 +49,14 @@ export type {
   HarnessWorkflowRunEngineServices,
 } from "./default-code-change.js";
 export type { WorkflowRuntimeLiveSink } from "./kernel/live-events.js";
+export {
+  SCOPED_AUTO_EXECUTION_ENABLED,
+  assertScopedAutoExecutionEnabled,
+  claimTransitionExecution,
+  deterministicTransitionOperationId,
+  issueLocalExecutionAuthorization,
+  markTransitionExecutionStarted,
+  recordTransitionExecutionTerminal,
+  recoverTransitionExecution,
+  revokeLocalExecutionAuthorization,
+} from "./execution-authorization.js";

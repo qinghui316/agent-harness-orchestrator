@@ -5,9 +5,12 @@ import { join } from "node:path";
 import { detectCodexAppServerCapability, extractCodexAppServerCollabToolCall, runCodexAppServerTurn, type CodexAppServerCollabToolCall } from "../codex/app-server.js";
 import { resolveCodexEffectiveModel } from "../codex/model-settings.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
+import { writeJsonFile } from "../fs/json.js";
 import { listRuns } from "../run/manager.js";
+import { getGitCommit, getGitStatusShort } from "../project/git.js";
 import { getTransientSystemSkillContext } from "../skill/catalog.js";
 import { runSchedulerReadySetInitialization } from "../workflow-runtime/scheduler.js";
+import { issueLocalExecutionAuthorization } from "../workflow-runtime/execution-authorization.js";
 import type { ManagedProject, ResolvedMemory, RunMetadata } from "../types/index.js";
 import { buildMainAgentExecutionContext } from "./codex-chat/context.js";
 import { runWorkbenchWorkflowActionService } from "./actions/service.js";
@@ -283,6 +286,7 @@ async function runProjectScopedMainAgentTurn(
   let mainThreadId: string | null = null;
   let boundChangeId: string | null = null;
   let acceptedPlanMarker: TopicThreadEntry | null = null;
+  let acceptedPlanning: Awaited<ReturnType<typeof acceptCurrentConversationPlanningPackage>> | null = null;
   const sessionStore = await WorkbenchStore.open(memory);
   try {
     const conversation = sessionStore.readConversation(memory.projectId, conversationId);
@@ -324,6 +328,7 @@ async function runProjectScopedMainAgentTurn(
       }
       if (call.tool === "aho_accept_current_plan" && planHandoff?.kind === "execute-plan") {
         const accepted = await acceptCurrentConversationPlanningPackage(project, conversationId, planHandoff.sourceArtifact);
+        acceptedPlanning = accepted;
         boundChangeId = accepted.changeId;
         acceptedPlanMarker = {
           ...projectScopedPlanningMessage(conversationId, runId, `Accepted proposal ${accepted.proposalId}.`, PROJECT_PLANNING_AGENT_ROLE_ID),
@@ -387,6 +392,9 @@ async function runProjectScopedMainAgentTurn(
   }
   if ((plannerChildren.length > 0 || planHandoff?.kind === "execute-plan") && !result.goal) {
     throw new Error("Main Agent planning and execution handoff requires a native Goal on the provider thread.");
+  }
+  if (acceptedPlanning) {
+    await issueAcceptedPlanningAuthorization(project, memory, conversationId, result, acceptedPlanning, planHandoff);
   }
   parentDeltaFilter.flush();
   const rawParentText = capture.text.trim()
@@ -669,6 +677,98 @@ export async function runWorkbenchWorkflowAction(project: ManagedProject, reques
     recordDecision: recordWorkbenchDecision,
     resumeGoalAfterAction: resumeNativeGoalAfterAction,
   });
+}
+
+async function issueAcceptedPlanningAuthorization(
+  project: ManagedProject,
+  memory: ResolvedMemory,
+  conversationId: string,
+  result: Awaited<ReturnType<typeof runCodexAppServerTurn>>,
+  accepted: Awaited<ReturnType<typeof acceptCurrentConversationPlanningPackage>>,
+  handoff: ValidatedPlanHandoffIntent | null | undefined,
+): Promise<void> {
+  if (!result.threadId || !result.goal || handoff?.kind !== "execute-plan") {
+    throw new Error("Accepted planning authorization requires the current Main thread, native Goal, and execute intent.");
+  }
+  const sourceHead = await getGitCommit(project.path);
+  const intentPath = join(memory.memoryRoot, accepted.authorizationIntentArtifact);
+  if (!sourceHead) {
+    await writeJsonFile(intentPath, {
+      version: "1.0",
+      status: "blocked",
+      changeId: accepted.changeId,
+      conversationId,
+      proposalId: accepted.proposalId,
+      proposalHash: accepted.proposalHash,
+      graphId: accepted.workflowGraphPlan.id,
+      authorizationId: null,
+      reason: "Execution authorization requires a Git source commit.",
+      updatedAt: new Date().toISOString(),
+    });
+    return;
+  }
+  const sourceStatus = await getGitStatusShort(project.path);
+  const graphHash = hashJson(accepted.workflowGraphPlan);
+  const artifactManifestHash = hashJson(accepted.workflowGraphPlan.sourceArtifactHashes);
+  const targets = accepted.workflowGraphPlan.nodes.map((node) => ({
+    transition: "workflow.node.execute",
+    targetId: node.id,
+    manifestHash: hashJson({ graphHash, node }),
+  }));
+  targets.push({
+    transition: "change.finalize",
+    targetId: accepted.changeId,
+    manifestHash: hashJson({ graphHash, changeId: accepted.changeId, kind: "finalize" }),
+  });
+  const now = new Date();
+  const authorization = await issueLocalExecutionAuthorization(memory, {
+    projectId: memory.projectId,
+    changeId: accepted.changeId,
+    conversationId,
+    providerThreadId: result.threadId,
+    goalIdentityHash: hashJson({ objective: result.goal.objective, createdAt: result.goal.createdAt }),
+    mode: "stepwise",
+    acceptedPlanId: accepted.proposalId,
+    acceptedPlanHash: accepted.proposalHash,
+    graphId: accepted.workflowGraphPlan.id,
+    graphHash,
+    artifactManifestHash,
+    sourceHead,
+    sourceStateHash: hashJson(sourceStatus),
+    providerScopeHash: hashJson({ projectId: project.id, conversationId, threadId: result.threadId }),
+    permissionProfileHash: hashJson({ approvalPolicy: "never", sandbox: "runtime-owned-scoped-write", network: false }),
+    policyHash: hashJson("local-execution-authorization-policy-v1"),
+    targets,
+    budget: {
+      maxCompletedOperations: Math.max(16, accepted.workflowGraphPlan.nodes.length * 8 + 8),
+      maxReworks: 1,
+      maxChangedFiles: 100,
+      maxChangedBytes: 10 * 1024 * 1024,
+    },
+    userDecision: {
+      decisionId: `execute-plan:${handoff.sourceRunId}`,
+      actorId: "workbench-user",
+      decidedAt: now.toISOString(),
+    },
+    issuedAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+  });
+  await writeJsonFile(intentPath, {
+    version: "1.0",
+    status: "issued",
+    changeId: accepted.changeId,
+    conversationId,
+    proposalId: accepted.proposalId,
+    proposalHash: accepted.proposalHash,
+    graphId: accepted.workflowGraphPlan.id,
+    authorizationId: authorization.id,
+    reason: null,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+function hashJson(value: unknown): string {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
 async function resumeNativeGoalAfterAction(input: {

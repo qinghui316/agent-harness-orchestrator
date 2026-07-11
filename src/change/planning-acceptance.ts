@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, rename, rm } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { buildAcMap, parseAcceptanceCriteria, parseTasks } from "../ecl/anchors.js";
 import { writeChangeIndex } from "../ecl/index.js";
@@ -17,6 +17,11 @@ import { listValidationResults } from "../validation/artifacts.js";
 import { listWorkflowRuns } from "../workflow-run/manager.js";
 import { listWorktreesForChange } from "../worktree/manager.js";
 import { compileWorkflowGraphPlan, parseWorkflowAuthoringPlan, readLatestWorkflowGraphPlan, writeWorkflowGraphPlan } from "../workflow-artifacts/manager.js";
+import {
+  readExecutionAuthorization,
+  reactivateLocalExecutionAuthorizationAfterRollback,
+  revokeLocalExecutionAuthorization,
+} from "../workflow-runtime/execution-authorization.js";
 import { allocateChangeId } from "./creation.js";
 import { requiredChangeFiles } from "./schemas.js";
 import { renderTemplate } from "./templates.js";
@@ -24,6 +29,8 @@ import { renderTemplate } from "./templates.js";
 export interface AcceptedPlanningPackage {
   changeId: string;
   proposalId: string;
+  proposalHash: string;
+  authorizationIntentArtifact: string;
   workflowGraphPlan: WorkflowGraphPlan;
 }
 
@@ -90,6 +97,15 @@ interface PlanningAcceptanceTransaction {
   stagingPath: string;
   backupPath: string;
   replacing: boolean;
+  supersededAuthorization?: {
+    id: string;
+    epoch: number;
+    projectId: string | null;
+    changeId: string;
+    conversationId: string;
+    acceptedPlanHash: string;
+    graphId: string;
+  } | null;
 }
 
 export async function acceptPlanningPackage(
@@ -113,15 +129,17 @@ async function acceptPlanningPackageUnlocked(
   const { criteria, tasks, acMap, authored } = validatePlanningProposalArtifacts(proposal);
 
   await recoverPlanningAcceptanceTransactions(memory, commitPort);
-  const boundActive = boundChangeId && existsSync(join(memory.changesRoot, "active", boundChangeId))
+  const boundActivePath = boundChangeId ? resolveActiveChangePath(memory.changesRoot, boundChangeId) : null;
+  const boundActive = boundChangeId && boundActivePath && existsSync(boundActivePath)
     ? boundChangeId
     : null;
   const reusableChangeId = boundActive && !(await hasExecutionEvidence(memory, boundActive))
     ? boundActive
     : null;
   const changeId = reusableChangeId ?? allocateChangeId(memory.changesRoot, conversationTitle);
-  const activePath = join(memory.changesRoot, "active", changeId);
+  const activePath = resolveActiveChangePath(memory.changesRoot, changeId);
   const graphId = `workflow-graph-${proposal.hash.slice(0, 16)}`;
+  const authorizationIntentRelative = `${relative(memory.memoryRoot, activePath).replace(/\\/g, "/")}/planning/execution-authorization-intent.json`;
   if (existsSync(activePath)) {
     const activeChangePath = relative(memory.memoryRoot, activePath).replace(/\\/g, "/");
     const existingGraph = await readLatestWorkflowGraphPlan(memory, activeChangePath).catch(() => null);
@@ -134,7 +152,16 @@ async function acceptPlanningPackageUnlocked(
       if (specMd.trim() !== proposal.specMd.trim() || planMd.trim() !== proposal.planMd.trim() || tasksMd.trim() !== proposal.tasksMd.trim()) {
         throw new Error("Accepted artifacts drifted after this planner proposal; a fresh revision is required.");
       }
-      return { changeId, proposalId: proposal.id, workflowGraphPlan: existingGraph };
+      if (!existsSync(join(activePath, "planning", "execution-authorization-intent.json"))) {
+        await writeExecutionAuthorizationIntent(activePath, input, changeId, existingGraph.id);
+      }
+      return {
+        changeId,
+        proposalId: proposal.id,
+        proposalHash: proposal.hash,
+        authorizationIntentArtifact: authorizationIntentRelative,
+        workflowGraphPlan: existingGraph,
+      };
     }
   }
   const transactionRoot = join(memory.changesRoot, ".transactions");
@@ -165,6 +192,7 @@ async function acceptPlanningPackageUnlocked(
   await atomicWriteFile(join(stagingPath, "tasks.md"), trailingNewline(proposal.tasksMd));
   await writeJsonFile(join(stagingPath, "change.json"), metadata);
   await writeJsonFile(join(stagingPath, "ac-map.json"), scopedAcMap);
+  await writeExecutionAuthorizationIntent(stagingPath, input, changeId, graphId);
   if (!existsSync(join(stagingPath, "spec-tests.json"))) await createEmptySpecTests(stagingPath, changeId);
 
   const finalRelativeChangePath = relative(memory.memoryRoot, activePath).replace(/\\/g, "/");
@@ -198,11 +226,20 @@ async function acceptPlanningPackageUnlocked(
     stagingPath,
     backupPath,
     replacing: existsSync(activePath),
+    supersededAuthorization: await findSupersededExecutionAuthorization(memory, activePath, {
+      projectId: memory.projectId,
+      changeId,
+      conversationId,
+      nextProposalHash: proposal.hash,
+    }),
   };
   await writeJsonFile(markerPath, transaction);
   const replacing = await swapStagingChange(activePath, stagingPath, backupPath);
   await writeJsonFile(markerPath, { ...transaction, phase: "swapped", replacing });
   try {
+    if (transaction.supersededAuthorization) {
+      await revokeLocalExecutionAuthorization(memory, transaction.supersededAuthorization.id, supersessionReason(transaction.id));
+    }
     await writeChangeIndex(memory);
     commitPort.commit({
       projectId: memory.projectId,
@@ -214,6 +251,13 @@ async function acceptPlanningPackageUnlocked(
     });
   } catch (error) {
     await rollbackStagingSwap(activePath, backupPath, replacing);
+    if (transaction.supersededAuthorization) {
+      await reactivateLocalExecutionAuthorizationAfterRollback(
+        memory,
+        transaction.supersededAuthorization.id,
+        { epoch: transaction.supersededAuthorization.epoch + 1, reason: supersessionReason(transaction.id) },
+      );
+    }
     await writeChangeIndex(memory).catch(() => undefined);
     throw error;
   }
@@ -225,7 +269,86 @@ async function acceptPlanningPackageUnlocked(
   } catch {
     // The committed Change remains authoritative; stale projection commit markers are cleaned on recovery.
   }
-  return { changeId, proposalId: proposal.id, workflowGraphPlan: graph };
+  return {
+    changeId,
+    proposalId: proposal.id,
+    proposalHash: proposal.hash,
+    authorizationIntentArtifact: authorizationIntentRelative,
+    workflowGraphPlan: graph,
+  };
+}
+
+function resolveActiveChangePath(changesRoot: string, changeId: string): string {
+  if (!changeId.trim()) throw new Error("Change id must not be empty.");
+  const activeRoot = resolve(changesRoot, "active");
+  const candidate = resolve(activeRoot, changeId);
+  const scope = relative(activeRoot, candidate);
+  if (!scope || scope.startsWith("..") || isAbsolute(scope) || scope.includes("/") || scope.includes("\\")) {
+    throw new Error(`Change id escapes the active Change root: ${changeId}.`);
+  }
+  if (existsSync(candidate)) {
+    const realRoot = realpathSync(activeRoot);
+    const realCandidate = realpathSync(candidate);
+    const realScope = relative(realRoot, realCandidate);
+    if (!realScope || realScope.startsWith("..") || isAbsolute(realScope)) {
+      throw new Error(`Change path escapes the active Change root: ${changeId}.`);
+    }
+  }
+  return candidate;
+}
+
+async function findSupersededExecutionAuthorization(
+  memory: Awaited<ReturnType<typeof resolveProjectMemory>>,
+  activePath: string,
+  expected: { projectId: string; changeId: string; conversationId: string; nextProposalHash: string },
+): Promise<PlanningAcceptanceTransaction["supersededAuthorization"]> {
+  const intentPath = join(activePath, "planning", "execution-authorization-intent.json");
+  if (!existsSync(intentPath)) return null;
+  const intent = JSON.parse(await readFile(intentPath, "utf8")) as {
+    proposalHash?: unknown;
+    authorizationId?: unknown;
+  };
+  if (intent.proposalHash === expected.nextProposalHash || typeof intent.authorizationId !== "string" || !intent.authorizationId) return null;
+  const authorization = await readExecutionAuthorization(memory, intent.authorizationId);
+  if (authorization.projectId !== expected.projectId
+    || authorization.changeId !== expected.changeId
+    || authorization.conversationId !== expected.conversationId
+    || authorization.acceptedPlanHash !== intent.proposalHash) {
+    throw new Error("Execution authorization intent does not belong to the accepted Change lineage.");
+  }
+  return {
+    id: authorization.id,
+    epoch: authorization.epoch,
+    projectId: authorization.projectId,
+    changeId: authorization.changeId,
+    conversationId: authorization.conversationId,
+    acceptedPlanHash: authorization.acceptedPlanHash,
+    graphId: authorization.graphId,
+  };
+}
+
+function supersessionReason(transactionId: string): string {
+  return `Planning proposal superseded by transaction ${transactionId}.`;
+}
+
+async function writeExecutionAuthorizationIntent(
+  changePath: string,
+  input: ValidatedPlanningPackageInput,
+  changeId: string,
+  graphId: string,
+): Promise<void> {
+  await writeJsonFile(join(changePath, "planning", "execution-authorization-intent.json"), {
+    version: "1.0",
+    status: "pending",
+    changeId,
+    conversationId: input.conversationId,
+    proposalId: input.proposal.id,
+    proposalHash: input.proposal.hash,
+    graphId,
+    authorizationId: null,
+    reason: null,
+    updatedAt: new Date().toISOString(),
+  });
 }
 
 async function initializeStagingChange(memory: Awaited<ReturnType<typeof resolveProjectMemory>>, path: string, title: string): Promise<void> {
@@ -251,6 +374,12 @@ async function recoverPlanningAcceptanceTransactions(
     assertTransactionPath(transactionRoot, transaction.stagingPath);
     assertTransactionPath(transactionRoot, transaction.backupPath);
     const committed = transaction.phase === "committed" || commitPort.hasCommit(transaction.id);
+    if (transaction.supersededAuthorization) {
+      await assertTransactionAuthorizationScope(memory, transaction);
+      if (committed) {
+        await revokeLocalExecutionAuthorization(memory, transaction.supersededAuthorization.id, supersessionReason(transaction.id));
+      }
+    }
     if (committed) {
       await rm(transaction.stagingPath, { recursive: true, force: true });
       await rm(transaction.backupPath, { recursive: true, force: true });
@@ -265,11 +394,38 @@ async function recoverPlanningAcceptanceTransactions(
       await rollbackStagingSwap(transaction.activePath, transaction.backupPath, transaction.replacing);
       await rm(transaction.stagingPath, { recursive: true, force: true });
     }
+    if (!committed && transaction.supersededAuthorization) {
+      await reactivateLocalExecutionAuthorizationAfterRollback(
+        memory,
+        transaction.supersededAuthorization.id,
+        { epoch: transaction.supersededAuthorization.epoch + 1, reason: supersessionReason(transaction.id) },
+      );
+    }
     await rm(markerPath, { force: true });
     if (committed) commitPort.deleteCommit(transaction.id);
     recovered = true;
   }
   if (recovered) await writeChangeIndex(memory);
+}
+
+async function assertTransactionAuthorizationScope(
+  memory: Awaited<ReturnType<typeof resolveProjectMemory>>,
+  transaction: PlanningAcceptanceTransaction,
+): Promise<void> {
+  if (!transaction.supersededAuthorization) return;
+  const expected = transaction.supersededAuthorization;
+  const authorization = await readExecutionAuthorization(memory, expected.id);
+  const changeId = transaction.activePath.split(/[\\/]/).at(-1);
+  if (authorization.projectId !== expected.projectId
+    || authorization.changeId !== expected.changeId
+    || authorization.conversationId !== expected.conversationId
+    || authorization.acceptedPlanHash !== expected.acceptedPlanHash
+    || authorization.graphId !== expected.graphId
+    || authorization.epoch < expected.epoch
+    || expected.projectId !== memory.projectId
+    || expected.changeId !== changeId) {
+    throw new Error("Planning acceptance transaction authorization escaped its Change scope.");
+  }
 }
 
 function assertTransactionPath(root: string, candidate: string): void {

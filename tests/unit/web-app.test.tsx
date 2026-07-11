@@ -1632,7 +1632,7 @@ describe("Workbench web app", () => {
               title: "Codex runtime",
               summary: "Codex runtime 降级，继续使用默认模型。",
               refs: [{ kind: "provider", label: "provider: codex", id: "codex" }],
-              details: ["Provider: Codex", "Product Mode: Harness", "Harness Execution Mode: request-approval"],
+              details: ["Provider: Codex", "Product Mode: Harness", "Harness Execution Mode: stepwise"],
             },
             {
               id: "validation:run-1",

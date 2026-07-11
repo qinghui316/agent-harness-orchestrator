@@ -6,6 +6,7 @@ import { integrationCheckRoot } from "../../src/integration-check/paths.js";
 import { readIntegrationCheck, writeCheckArtifacts } from "../../src/integration-check/repository.js";
 import type { IntegrationCheckRecord } from "../../src/integration-check/types.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
+import { claimProjectWriteLease, releaseProjectWriteLease } from "../../src/project/index.js";
 import { execFileAsync, getTempDir, prepareSeededSchedulerIntegrationHandoff, project } from "./workbench/fixtures.js";
 
 describe("integration check apply/discard gates", () => {
@@ -66,5 +67,21 @@ describe("integration check apply/discard gates", () => {
     await expect(applyIntegrationCheck(project(), checkId, prepared.latestArtifactHash)).rejects.toThrow(/project changed after the check/i);
 
     expect(await readFile(join(getTempDir(), "src", "module-a.ts"), "utf8")).toBe("export const moduleA = 1;\n");
+  });
+
+  it("fails closed before integration revalidation when another apply holds the project lease", async () => {
+    const prepared = await prepareSeededSchedulerIntegrationHandoff("Integration Apply Lease Guard");
+    const checkId = prepared.handoff.handoff!.integrationCheckId;
+    const beforeModuleA = await readFile(join(getTempDir(), "src", "module-a.ts"), "utf8");
+    const held = await claimProjectWriteLease(getTempDir(), { holderId: "other-apply", ttlMs: 10_000 });
+    if (!held) throw new Error("Expected test lease claim to succeed.");
+
+    try {
+      await expect(applyIntegrationCheck(project(), checkId, prepared.latestArtifactHash)).rejects.toThrow(/already held/);
+    } finally {
+      await releaseProjectWriteLease(getTempDir(), held);
+    }
+
+    expect(await readFile(join(getTempDir(), "src", "module-a.ts"), "utf8")).toBe(beforeModuleA);
   });
 });

@@ -17,7 +17,7 @@ import type {
 } from "./types.js";
 
 export const PROVIDER_CAPABILITY_SNAPSHOT_VERSION = 2;
-export const HARNESS_EXECUTION_MODES: HarnessExecutionMode[] = ["request-approval", "full-access"];
+export const HARNESS_EXECUTION_MODES: HarnessExecutionMode[] = ["stepwise", "scoped-auto"];
 export const RUNNABLE_PRODUCT_MODES: RunnableProductMode[] = ["harness"];
 
 export function isRunnableProductMode(mode: ProductMode): mode is RunnableProductMode {

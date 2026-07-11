@@ -11,6 +11,7 @@ import { createCodeRunSession, finishRun } from "../code/run-session.js";
 import { writeJsonFile } from "../fs/json.js";
 import { resolveProjectMemory } from "../memory/resolver.js";
 import { git, gitText } from "../project/git.js";
+import { withProjectWriteLease } from "../project/project-write-lease.js";
 import { appendRunEvent } from "../run/manager.js";
 import { executeProcessStreaming } from "../run/process.js";
 import { getGlobalWorktreeCheckoutRoot } from "../worktree/manager.js";
@@ -97,9 +98,11 @@ export async function runIntegrationFixAttempt(
     await mkdir(directory, { recursive: true });
     await writeFile(join(directory, "integration-fix-stderr.log"), `${summary}\n`, { encoding: "utf8", flag: "a" });
   } finally {
-    await git(project.path, ["worktree", "remove", "--force", checkoutPath]).catch(() => "");
-    await rm(checkoutPath, { recursive: true, force: true }).catch(() => undefined);
-    await git(project.path, ["worktree", "prune"]).catch(() => "");
+    await withProjectWriteLease(project.path, {}, async () => {
+      await git(project.path, ["worktree", "remove", "--force", checkoutPath]).catch(() => "");
+      await rm(checkoutPath, { recursive: true, force: true }).catch(() => undefined);
+      await git(project.path, ["worktree", "prune"]).catch(() => "");
+    }).catch(() => undefined);
   }
 
   const attempt: IntegrationFixAttempt = {
