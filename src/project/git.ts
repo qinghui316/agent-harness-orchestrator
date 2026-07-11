@@ -65,7 +65,7 @@ export async function isGitDirty(path: string): Promise<boolean | null> {
 
 export async function isGitDirtyIgnoringAhoMemory(path: string): Promise<boolean | null> {
   try {
-    return (await getGitStatusShort(path)).some((line) => !isAhoOwnedMemoryStatusLine(line));
+    return (await getGitStatusShortIgnoringAhoMemory(path)).length > 0;
   } catch {
     return null;
   }
@@ -74,6 +74,10 @@ export async function isGitDirtyIgnoringAhoMemory(path: string): Promise<boolean
 export async function getGitStatusShort(path: string): Promise<string[]> {
   const output = (await gitText(path, ["status", "--short"])).trimEnd();
   return output ? output.split(/\r?\n/) : [];
+}
+
+export async function getGitStatusShortIgnoringAhoMemory(path: string): Promise<string[]> {
+  return (await getGitStatusShort(path)).filter((line) => !isAhoOwnedMemoryStatusLine(line));
 }
 
 function isAhoOwnedMemoryStatusLine(line: string): boolean {

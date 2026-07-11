@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
 import type { MaintenanceDiffFile, MaintenanceDiffManifest, MaintenanceWorkspace } from "../types/index.js";
-import { hashTree, readMarkdownTree, type MarkdownTreeEntry } from "./maintenance-workspace.js";
+import { hashTree, readMaintenanceTree, type MarkdownTreeEntry } from "./maintenance-workspace.js";
 
 export async function createMaintenanceDiffManifest(workspace: MaintenanceWorkspace): Promise<MaintenanceDiffManifest> {
   const [base, current] = await Promise.all([
-    readMarkdownTree(workspace.baseSnapshotRoot, workspace.namespaces, false),
-    readMarkdownTree(workspace.workspaceRoot, workspace.namespaces, true),
+    readMaintenanceTree(workspace, "base"),
+    readMaintenanceTree(workspace, "workspace"),
   ]);
   if (hashTree(base) !== workspace.baseTreeHash) throw new Error("Maintenance workspace base changed after assignment.");
   const baseByPath = new Map(base.map((file) => [file.path, file]));
@@ -16,7 +16,7 @@ export async function createMaintenanceDiffManifest(workspace: MaintenanceWorksp
   const renamed = [];
   for (const oldFile of deleted) {
     const candidate = added.find((file) => file.hash === oldFile.hash);
-    if (candidate) renamed.push({ from: oldFile.path, to: candidate.path, hash: candidate.hash });
+    if (candidate) renamed.push({ from: oldFile.path, to: candidate.path, hash: candidate.hash, ...(candidate.sourceKey ? { sourceKey: candidate.sourceKey } : {}) });
   }
   const renamedFrom = new Set(renamed.map((item) => item.from));
   const renamedTo = new Set(renamed.map((item) => item.to));
@@ -40,7 +40,8 @@ export async function createMaintenanceDiffManifest(workspace: MaintenanceWorksp
 export const generateMaintenanceDiffManifest = createMaintenanceDiffManifest;
 
 function files(entries: MarkdownTreeEntry[]): MaintenanceDiffFile[] {
-  return entries.map(({ path, hash }) => ({ path, hash })).sort((a, b) => a.path.localeCompare(b.path, "en"));
+  return entries.map(({ path, hash, sourceKey }) => ({ path, hash, ...(sourceKey ? { sourceKey } : {}) }))
+    .sort((a, b) => a.path.localeCompare(b.path, "en"));
 }
 
 function unified(before: MarkdownTreeEntry | null, after: MarkdownTreeEntry | null, oldPath: string, newPath: string): { key: string; text: string } {

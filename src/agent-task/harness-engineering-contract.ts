@@ -19,6 +19,11 @@ const workspaceSchema = z.object({
   baseSnapshotRoot: idSchema,
   workspaceRoot: idSchema,
   namespaces: z.array(idSchema).min(1),
+  additionalSources: z.array(z.object({
+    key: z.literal("project"),
+    root: idSchema,
+    namespaces: z.array(idSchema).min(1),
+  }).strict()).optional(),
   baseRef: idSchema,
   baseHash: hashSchema,
   baseTreeHash: hashSchema,

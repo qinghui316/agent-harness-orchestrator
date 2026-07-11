@@ -59,7 +59,8 @@ export async function recordDemandMemoryCloseout(memory: ResolvedMemory, input: 
     docsDriftCandidates: normalizeDocsDriftCandidates(input.changeId, input.docsDriftCandidates ?? [], input.evidenceRefs ?? []),
     memoryBoundaryNotes: input.memoryBoundaryNotes ?? [
       "Closeout, ledger, candidates, generated indexes, and generated caches may be written automatically.",
-      "Canonical docs, ECL rules, product roadmap, curated project/stable memory, and source root remain human-gated.",
+      "Approved project Markdown changes are reviewed by a background Reviewer Agent and applied automatically by Runtime.",
+      "AHO product source, Runtime, system Skills, scripts, CI, policies, permissions, and source-code roots are outside project memory maintenance.",
     ],
     createdAt: now,
   };

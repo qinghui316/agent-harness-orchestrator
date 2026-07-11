@@ -6,7 +6,14 @@ export interface MaintenanceWorkspaceRequest {
   memoryRoot: string;
   maintenanceRoot: string;
   namespaces: string[];
+  additionalSources?: MaintenanceWorkspaceSource[];
   baseRef?: string;
+}
+
+export interface MaintenanceWorkspaceSource {
+  key: "project";
+  root: string;
+  namespaces: string[];
 }
 
 export interface MaintenanceWorkspace {
@@ -19,6 +26,7 @@ export interface MaintenanceWorkspace {
   baseSnapshotRoot: string;
   workspaceRoot: string;
   namespaces: string[];
+  additionalSources?: MaintenanceWorkspaceSource[];
   baseRef: string;
   baseHash: string;
   baseTreeHash: string;
@@ -27,12 +35,14 @@ export interface MaintenanceWorkspace {
 export interface MaintenanceDiffFile {
   path: string;
   hash: string;
+  sourceKey?: "project";
 }
 
 export interface MaintenanceDiffRename {
   from: string;
   to: string;
   hash: string;
+  sourceKey?: "project";
 }
 
 export interface MaintenanceDiffManifest {

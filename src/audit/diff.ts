@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, rmdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { gitTextWithEnv, gitRawWithEnv } from "../project/git.js";
 import { getWorktreeStatus } from "../worktree/status.js";
@@ -22,10 +22,11 @@ export async function collectWorktreeDiff(memory: ResolvedMemory, worktreeId: st
   if (!worktree.exists) {
     throw new Error(`Worktree checkout does not exist: ${worktree.checkoutPath}.`);
   }
-  const indexPath = join(memory.runsRoot, ".git-indexes", `${randomUUID()}.index`);
+  const indexRoot = join(memory.runsRoot, ".git-indexes");
+  const indexPath = join(indexRoot, `${randomUUID()}.index`);
   const env = { GIT_INDEX_FILE: indexPath };
   try {
-    await mkdir(join(memory.runsRoot, ".git-indexes"), { recursive: true });
+    await mkdir(indexRoot, { recursive: true });
     await gitTextWithEnv(worktree.checkoutPath, ["read-tree", "HEAD"], env);
     await gitTextWithEnv(worktree.checkoutPath, ["add", "--all", "--", "."], env);
     const [diffBytes, diffStat, nameStatus, expectedTree] = await Promise.all([
@@ -44,6 +45,7 @@ export async function collectWorktreeDiff(memory: ResolvedMemory, worktreeId: st
     };
   } finally {
     await rm(indexPath, { force: true }).catch(() => undefined);
+    await rmdir(indexRoot).catch(() => undefined);
   }
 }
 

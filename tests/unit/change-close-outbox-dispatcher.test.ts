@@ -27,7 +27,7 @@ describe("Change close outbox dispatcher", () => {
       conversationId: "evolution:1-5", changeId: "evolution-window-1-5", kind: "background", createdBy: "maintenance-policy",
     });
     expect(first[4].evolutionTask?.inputArtifacts).toContain("close-window:1-5");
-    expect(first[4].evolutionTask?.summary).toContain("Canonical memory application is not authorized");
+    expect(first[4].evolutionTask?.summary).toContain("Runtime applies reviewed project Markdown automatically");
   });
 
   it("fills a missing evolution step without replacing the already-created closeout task", async () => {

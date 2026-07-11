@@ -77,7 +77,7 @@ async function startProjectBackgroundWorkers(
     const memory = await resolveProjectMemory(project);
     const worker = startBackgroundWorker(memory, project, {
       ...options.backgroundWorker,
-      enabled: options.backgroundWorker?.enabled ?? false,
+      enabled: options.backgroundWorker?.enabled ?? true,
       assignmentFactory: options.backgroundWorker?.assignmentFactory ?? ((task, targetProject) => createServerHarnessAssignment(memory, task, targetProject)),
       runAssignment: options.backgroundWorker?.runAssignment ?? (async ({ assignment, signal }) => runCodexMaintenanceAssignment(memory, project, assignment, signal)),
     });
@@ -94,6 +94,8 @@ async function createServerHarnessAssignment(
 ) {
   const mode = task.roleId.startsWith("memory-maintenance-agent:")
     ? "maintain-assigned-closeout"
+    : task.roleId === "documentation-agent"
+      ? "maintain-assigned-closeout"
     : task.roleId.startsWith("harness-evolution-agent:")
       ? "evolve-assigned-window"
       : null;
@@ -106,14 +108,17 @@ async function createServerHarnessAssignment(
     inputArtifacts: task.inputArtifacts,
   })).digest("hex");
   const namespaces = memory.mode === "repo-local"
-    ? ["AGENTS.md", "docs", "harness", "templates/system-skills"]
-    : ["docs", "harness", "templates/system-skills"];
+    ? ["AGENTS.md", "docs", "harness/evolution", "harness/templates/change"]
+    : ["docs", "harness/evolution", "harness/templates/change"];
   const workspace = await createMaintenanceWorkspace({
     assignmentId: task.id,
     memoryMode: memory.mode,
     memoryRoot: memory.memoryRoot,
     maintenanceRoot: join(memory.workbenchRoot, "maintenance"),
     namespaces,
+    ...(memory.mode === "external-local"
+      ? { additionalSources: [{ key: "project" as const, root: project.path, namespaces: ["AGENTS.md"] }] }
+      : {}),
   });
   return parseHarnessEngineeringAssignment({
     mode,

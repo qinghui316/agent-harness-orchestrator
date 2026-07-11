@@ -185,7 +185,7 @@ export async function mergeRemoteLanding(project: ManagedProject, landingPackage
         memoryBoundaryNotes: [
           "Remote merge success is the stable remote-code boundary.",
           "Closeout, ledger, candidates, generated indexes, and generated cache may be written automatically.",
-          "Canonical docs, ECL, curated project/stable memory, product roadmap, Harness templates, and local source sync remain human-gated or future work.",
+          "Approved project Markdown changes are reviewed by a background Reviewer Agent and applied automatically by Runtime; local source synchronization remains a separate operation.",
         ],
       });
     }

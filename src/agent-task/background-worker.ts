@@ -1,6 +1,7 @@
 import type { AgentTask, ManagedProject, ResolvedMemory } from "../types/index.js";
 import { parseHarnessEngineeringAssignment, type HarnessEngineeringAssignment } from "./harness-engineering-contract.js";
 import { MaintenanceReviewBlockedError } from "./maintenance-provider-runner.js";
+import { MaintenanceApplyBlockedError } from "./project-memory-apply.js";
 import {
   checkpointAgentTask,
   claimAgentTask,
@@ -149,7 +150,9 @@ async function executeTask(
 }
 
 function isRetryable(error: unknown): boolean {
-  return !(error instanceof NonRetryableBackgroundWorkerError || error instanceof MaintenanceReviewBlockedError);
+  return !(error instanceof NonRetryableBackgroundWorkerError
+    || error instanceof MaintenanceReviewBlockedError
+    || error instanceof MaintenanceApplyBlockedError);
 }
 
 export class NonRetryableBackgroundWorkerError extends Error {}

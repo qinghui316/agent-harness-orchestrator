@@ -301,7 +301,7 @@ function AgentRunNodeDetail({
         </div>
       ) : null}
       {node.lane === "maintenance" ? (
-        <p className="panel-note">后台维护节点只生成 closeout、候选、评分和审查证据，不会自动修改 canonical docs、ECL 或项目稳定记忆。</p>
+        <p className="panel-note">后台维护节点在隔离 workspace 中编辑项目 Markdown；Reviewer Agent 通过后由 Runtime 自动应用，节点本身不能直接写入 canonical memory。</p>
       ) : null}
       {runId ? (
         <button className="secondary-button" type="button" onClick={() => onSelectRun(runId)}>

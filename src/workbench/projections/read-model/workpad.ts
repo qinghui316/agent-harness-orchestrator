@@ -497,7 +497,7 @@ function buildPostArchiveEvolutionCandidate(topic: WorkbenchTopicDetail): Workbe
     changeId: topic.id,
     status: "candidate",
     sources: ["main-thread", "accepted-artifacts", "diff", "validation", "audit", "final-decision", "archive-summary"],
-    summary: "该归档需求可作为后续 Documentation / Architecture / Evolution agent 的候选输入；Phase 6A 不自动修改 canonical docs。",
+    summary: "该归档需求会作为后台维护 Agent 的输入；通过 Reviewer Agent 和边界校验后，允许的项目 Markdown 会自动更新。",
   };
 }
 
@@ -582,7 +582,7 @@ function buildWorkpadMemoryIsolation(memory: ResolvedMemory, selectedTopic: Work
     }));
   const warnings: string[] = [
     "进行中的需求草案、diff、原始输出、JSONL 和进程信息不会进入项目稳定记忆。",
-    "Memory consolidation candidates and conflict review are future human-gated workflows.",
+    "Memory consolidation candidates and conflict review run through background Agents and automatic Runtime validation; stale or unsafe work remains blocked.",
   ];
   if (!memory.supported || !existsSync(memory.memoryRoot)) warnings.unshift("Durable memory is unavailable; initialize, sync, or repair memory before relying on history.");
   return {
@@ -602,7 +602,7 @@ function buildWorkpadMemoryIsolation(memory: ResolvedMemory, selectedTopic: Work
       "coder-agent writes assigned worktree proposal and run artifacts only",
       "orchestrator writes selected demand thread / decision / summary projection",
       "validator and auditor write validation / audit artifacts",
-      "project/stable absorbs only human-gated stable facts",
+      "project/stable absorbs only evidence-backed facts approved by the background Reviewer Agent",
     ],
     warnings,
   };

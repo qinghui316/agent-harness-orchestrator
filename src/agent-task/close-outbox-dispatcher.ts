@@ -54,7 +54,7 @@ async function dispatchEvent(memory: ResolvedMemory, outboxPath: string, event: 
     conversationId: `maintenance:${event.changeId}`,
     changeId: event.changeId,
     roleId: `memory-maintenance-agent:${identityHash}`,
-    summary: `Background maintenance assignment for Change ${event.changeId} at close sequence ${event.closeSequence}. Canonical memory application is not authorized.`,
+    summary: `Background maintenance assignment for Change ${event.changeId} at close sequence ${event.closeSequence}. The Agent edits an isolated workspace; Runtime applies reviewed project Markdown automatically.`,
     inputArtifacts: [eventRef, event.archivePath, event.receiptPath, `close-identity-sha256:${identityHash}`],
     occurredAt: event.occurredAt,
   });
@@ -77,7 +77,7 @@ async function dispatchEvent(memory: ResolvedMemory, outboxPath: string, event: 
     conversationId: `evolution:${windowStart}-${event.closeSequence}`,
     changeId: `evolution-window-${windowStart}-${event.closeSequence}`,
     roleId: `harness-evolution-agent:${windowHash}`,
-    summary: `Harness evolution assignment for fixed close sequence window ${windowStart}-${event.closeSequence}. Canonical memory application is not authorized.`,
+    summary: `Harness evolution assignment for fixed close sequence window ${windowStart}-${event.closeSequence}. The Agent edits an isolated workspace; Runtime applies reviewed project Markdown automatically.`,
     inputArtifacts: [
       ...windowItems.flatMap((item) => [displayPath(memory, item.path), item.event.archivePath, item.event.receiptPath]),
       `close-window:${windowStart}-${event.closeSequence}`,

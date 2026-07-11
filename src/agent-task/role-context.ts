@@ -22,7 +22,7 @@ export function buildRoleScopedContextProjection(input: {
     includesMaintenanceWindow: maintenanceRole,
     includedSources: included,
     excludedSources: maintenanceRole
-      ? ["canonical docs mutation", "source root mutation"]
+      ? ["direct canonical memory mutation; Runtime applies reviewed project Markdown automatically", "source root mutation"]
       : ["hot/warm/cold maintenance window", "raw stdout/stderr/jsonl", "all archive history"],
     createdAt: new Date().toISOString(),
   };

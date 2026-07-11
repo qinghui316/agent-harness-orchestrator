@@ -124,7 +124,7 @@ export function userFacingText(value: string): string {
     .replace(/\bAC-([0-9]+) has no linked test evidence\./gi, "AC-$1 还没有关联测试证据。")
     .replace(/\bActive change has AHO-managed worktree:/gi, "当前需求有 AHO 管理的工作区：")
     .replace(/Running Workpad proposals, diffs, stdout\/stderr, JSONL, and process metadata are not project stable facts\./g, "进行中的需求草案、diff、原始输出、JSONL 和进程信息不会进入项目稳定记忆。")
-    .replace(/Memory consolidation candidates and conflict review are future human-gated workflows\./g, "记忆合并候选和冲突复核是后续人工确认流程。")
+    .replace(/Memory consolidation candidates and conflict review are future human-gated workflows\./g, "记忆合并候选和冲突复核由后台 Agent 与 Runtime 自动处理；过期或不安全的变更会保持阻塞。")
     .replace(/\bAudit blocked\.?/gi, "审查未通过，需要修改或补证据。")
     .replace(/\bAudit failed\.?/gi, "审查未通过。")
     .replace(/\bAudit approved-with-notes\b/gi, "审查带备注通过")

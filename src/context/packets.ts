@@ -243,7 +243,7 @@ function exclusionsForRole(roleId: string): string[] {
   if (/maintenance|documentation|evolution|architecture/i.test(roleId)) {
     return [
       "source root mutation",
-      "human-gated canonical docs mutation",
+      "direct canonical memory mutation; Runtime applies reviewed project Markdown automatically",
       "apply/merge/close/archive without explicit confirmation",
       "delegateTask manifest unless explicitly granted by a future AgentSpec",
     ];

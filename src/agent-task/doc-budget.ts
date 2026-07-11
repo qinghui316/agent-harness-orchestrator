@@ -38,9 +38,9 @@ export async function checkDocBudgets(memory: ResolvedMemory): Promise<DocBudget
     await createAgentTask(memory, {
       conversationId: "maintenance",
       changeId: `maintenance-${report.id}`,
-      roleId: "documentation-agent",
+      roleId: `memory-maintenance-agent:doc-budget-${report.id}`,
       kind: "background",
-      summary: `Prepare doc-refinement proposal for ${hardExceeded.map((doc) => doc.path).join(", ")}. Do not edit canonical docs.`,
+      summary: `Review and update the allowed project Markdown for ${hardExceeded.map((doc) => doc.path).join(", ")}; Runtime applies approved changes automatically.`,
       inputArtifacts: [displayMaintenancePath(memory, join(maintenanceRoot(memory), "doc-budgets", `${report.id}.json`))],
       createdBy: "maintenance-policy",
     });

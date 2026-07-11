@@ -170,11 +170,15 @@ function buildProducerPrompt(
   attempt: number,
   revisionFindings: string[],
 ): string {
+  const writableNamespaces = [
+    ...assignment.workspace.namespaces,
+    ...(assignment.workspace.additionalSources ?? []).flatMap((source) => source.namespaces),
+  ].filter((value, index, values) => values.indexOf(value) === index).join(", ");
   return [
     skillContext.promptSection,
     "",
     `Work directly in the assigned isolated maintenance workspace: ${assignment.workspace.workspaceRoot}`,
-    `You may create, edit, move, or delete Markdown only inside: ${assignment.workspace.namespaces.join(", ")}.`,
+    `You may create, edit, move, or delete Markdown only inside these workspace paths: ${writableNamespaces}.`,
     "Do not edit canonical memory, product source, scripts, policies, task state, or Git internals.",
     "Do not return a patch JSON envelope. Make the document changes in the workspace, then summarize the evidence and decisions in plain text.",
     attempt === 0

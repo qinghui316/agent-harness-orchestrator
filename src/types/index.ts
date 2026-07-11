@@ -12,3 +12,5 @@ export * from "./project-write-lease.js";
 export * from "./execution-authorization.js";
 
 export * from "./maintenance-workspace.js";
+
+export * from "./maintenance-memory-apply.js";

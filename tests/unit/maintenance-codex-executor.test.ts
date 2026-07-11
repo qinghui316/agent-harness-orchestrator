@@ -56,7 +56,14 @@ describe("Codex maintenance evidence recovery", () => {
       evidenceRefs: ["change:closed"], currentDocumentRefs: [], currentStableMemoryRefs: [],
       workspace, namespaceClasses: ["content"], requiredVerification: [],
     };
-    const memory = { memoryRoot, workbenchRoot } as ResolvedMemory;
+    const memory = {
+      mode: "external-local",
+      supported: true,
+      writable: true,
+      projectId: "project-1",
+      memoryRoot,
+      workbenchRoot,
+    } as ResolvedMemory;
     const project: ManagedProject = { id: "project-1", name: "Project", path: root, addedAt: "now", lastSeenAt: "now" };
     return { memory, assignment, project };
   }

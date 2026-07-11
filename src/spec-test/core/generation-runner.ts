@@ -8,7 +8,7 @@ import { readPromptInput } from "../../codex/prompt.js";
 import { resolveRunnableChangeTarget } from "../../change/target.js";
 import { writeJsonFile } from "../../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../../memory/resolver.js";
-import { getGitStatusShort } from "../../project/git.js";
+import { getGitStatusShortIgnoringAhoMemory } from "../../project/git.js";
 import { appendRunEvent, buildContextProjection, buildRunId } from "../../run/manager.js";
 import { executeProcessStreaming } from "../../run/process.js";
 import { getTemplateRoot } from "../../template-source/paths.js";
@@ -462,7 +462,7 @@ function extractModifiedFilesFromDiff(diff: string): string[] {
 }
 
 async function getSortedSourceStatus(projectPath: string): Promise<string[]> {
-  return (await getGitStatusShort(projectPath)).slice().sort();
+  return (await getGitStatusShortIgnoringAhoMemory(projectPath)).slice().sort();
 }
 
 function renderUnavailableMessage(errors: string[]): string {

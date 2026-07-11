@@ -3,7 +3,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { relative } from "node:path";
 import { extractFinalMessageFromCodexJsonl } from "../codex/jsonl.js";
 import type { CodexCompletionSnapshot } from "../codex/completion.js";
-import { getGitStatusShort } from "../project/git.js";
+import { getGitStatusShortIgnoringAhoMemory } from "../project/git.js";
 import type { ProcessExecutionResult } from "../run/process.js";
 import type { ResolvedMemory } from "../types/index.js";
 
@@ -13,7 +13,7 @@ export function displayArtifactPath(memory: ResolvedMemory, absolutePath: string
 }
 
 export async function getSortedSourceStatus(projectPath: string): Promise<string[]> {
-  return (await getGitStatusShort(projectPath)).slice().sort();
+  return (await getGitStatusShortIgnoringAhoMemory(projectPath)).slice().sort();
 }
 
 export async function writeEmptyCodeArtifacts(

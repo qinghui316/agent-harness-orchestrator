@@ -5,6 +5,7 @@ import { getActiveCodexAppServerTurn, runCodexAppServerTurn } from "../codex/app
 import type { ManagedProject, ResolvedMemory } from "../types/index.js";
 import type { HarnessEngineeringAssignment } from "./harness-engineering-contract.js";
 import { createMaintenanceDiffManifest } from "./maintenance-diff.js";
+import { applyReviewedMaintenanceAssignment, maintenanceApplyTransactionPath } from "./project-memory-apply.js";
 import {
   runMaintenanceProviderAssignment,
   type MaintenanceProviderExecutionRequest,
@@ -24,6 +25,8 @@ export async function runCodexMaintenanceAssignment(
 ): Promise<{ summary: string; artifactRefs: string[] }> {
   const root = join(memory.workbenchRoot, "maintenance", "provider-runs", assignment.assignmentId);
   const manifestPath = join(root, "manifest.json");
+  let evidence: import("./maintenance-provider-runner.js").MaintenanceProviderRunEvidence;
+  let evidencePath: string;
   try {
     const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as { version: string; assignmentId: string; manifestHash: string; evidencePath: string; summary: string };
     if (manifest.version !== "2.0" || manifest.assignmentId !== assignment.assignmentId
@@ -31,7 +34,7 @@ export async function runCodexMaintenanceAssignment(
       || manifest.evidencePath !== `${manifest.manifestHash}.json`) {
       throw new Error("Maintenance provider manifest does not match the current assignment.");
     }
-    const evidence = JSON.parse(await readFile(join(root, manifest.evidencePath), "utf8")) as import("./maintenance-provider-runner.js").MaintenanceProviderRunEvidence;
+    evidence = JSON.parse(await readFile(join(root, manifest.evidencePath), "utf8")) as import("./maintenance-provider-runner.js").MaintenanceProviderRunEvidence;
     const currentDiff = await createMaintenanceDiffManifest(assignment.workspace);
     const validReviews = evidence.reviews.length === evidence.quorum.required
       && evidence.reviews.every((review) => review.decision === "approve"
@@ -44,24 +47,30 @@ export async function runCodexMaintenanceAssignment(
       || evidence.quorum.approved !== evidence.quorum.required || !validReviews) {
       throw new Error("Maintenance provider cached evidence is stale or structurally invalid.");
     }
-    return { summary: manifest.summary, artifactRefs: [relative(memory.memoryRoot, join(root, manifest.evidencePath)).replace(/\\/g, "/")] };
+    evidencePath = join(root, manifest.evidencePath);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    evidence = await runMaintenanceProviderAssignment({
+      project,
+      assignment,
+      executor: createCodexMaintenanceProviderExecutor(memory),
+      signal,
+    });
+    await mkdir(root, { recursive: true });
+    const evidenceName = `${evidence.manifestHash}.json`;
+    evidencePath = join(root, evidenceName);
+    await writeExclusive(evidencePath, evidence);
+    await writeExclusive(manifestPath, { version: "2.0", assignmentId: assignment.assignmentId, manifestHash: evidence.manifestHash, evidencePath: evidenceName, summary: evidence.producer.summary });
   }
-  const evidence = await runMaintenanceProviderAssignment({
+  const applied = await applyReviewedMaintenanceAssignment({
     project,
+    memory,
     assignment,
-    executor: createCodexMaintenanceProviderExecutor(memory),
-    signal,
+    evidence,
   });
-  await mkdir(root, { recursive: true });
-  const evidenceName = `${evidence.manifestHash}.json`;
-  const evidencePath = join(root, evidenceName);
-  await writeExclusive(evidencePath, evidence);
-  await writeExclusive(manifestPath, { version: "2.0", assignmentId: assignment.assignmentId, manifestHash: evidence.manifestHash, evidencePath: evidenceName, summary: evidence.producer.summary });
   return {
     summary: evidence.producer.summary,
-    artifactRefs: [relative(memory.memoryRoot, evidencePath).replace(/\\/g, "/")],
+    artifactRefs: [relative(memory.memoryRoot, evidencePath).replace(/\\/g, "/"), applied.artifactPath, relative(memory.memoryRoot, maintenanceApplyTransactionPath(memory, assignment.assignmentId)).replace(/\\/g, "/")],
   };
 }
 
