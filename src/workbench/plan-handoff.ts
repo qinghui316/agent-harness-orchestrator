@@ -6,6 +6,7 @@ import type {
 } from "./types.js";
 
 const ELIGIBLE_PLAN_HANDOFF_ROLES = new Set<PlanHandoffAgentRoleId>(["planning-agent"]);
+const DEFAULT_EXECUTION_MODE = "scoped-auto" as const;
 
 export function validatePlanHandoffIntent(
   messages: TopicThreadEntry[],
@@ -17,6 +18,9 @@ export function validatePlanHandoffIntent(
   }
   if (intent.kind !== "execute-plan" && intent.kind !== "revise-plan") {
     throw badRequest("Plan handoff intent kind is invalid.");
+  }
+  if (intent.executionMode !== undefined && intent.executionMode !== "stepwise" && intent.executionMode !== "scoped-auto") {
+    throw badRequest("Plan handoff execution mode is invalid.");
   }
   const feedback = intent.feedback?.trim();
   if (intent.kind === "revise-plan" && !feedback) {
@@ -39,6 +43,7 @@ export function validatePlanHandoffIntent(
     ...intent,
     sourceRunId,
     sourceArtifact: source.artifact as string,
+    executionMode: intent.executionMode ?? DEFAULT_EXECUTION_MODE,
     feedback,
     planText,
   };
@@ -52,6 +57,7 @@ export function buildMainAgentPlanHandoffPromptContext(handoff: ValidatedPlanHan
     "Before deciding what to do, read project guidance in this order when present: AGENTS.md, docs/ECL.md, active change files under harness/changes/active, harness/evolution/pending.md only when no active change exists, docs/STATUS.md, then task-specific docs.",
     "If implementation is appropriate, continue as the main Agent through the project's normal Change/ECL and human-gated workflow. Do not assume Workbench created records, accepted artifacts, or executed anything for you.",
     `Requested plan handoff action: ${handoff.kind}.`,
+    ...(handoff.kind === "execute-plan" ? [`Requested local execution mode: ${handoff.executionMode ?? DEFAULT_EXECUTION_MODE}.`] : []),
     ...(handoff.kind === "execute-plan" ? [
       "After reviewing the exact current planner-child proposal, call the no-argument aho_accept_current_plan tool if it is ready. The tool accepts artifacts and compiles a graph but never starts code execution.",
       "If the proposal is not ready, do not call the tool; explain the issue or delegate a revision.",

@@ -17,7 +17,7 @@ import {
   markTransitionExecutionStarted,
   readExecutionAuthorization,
 } from "../workflow-runtime/execution-authorization.js";
-import type { ManagedProject, ResolvedMemory, RunMetadata } from "../types/index.js";
+import type { LocalExecutionAuthorization, ManagedProject, ResolvedMemory, RunMetadata } from "../types/index.js";
 import { buildMainAgentExecutionContext } from "./codex-chat/context.js";
 import { runWorkbenchWorkflowActionService } from "./actions/service.js";
 import { artifactForActionResult, extractRunId, labelForAction, summarizeActionResult, workflowFailureMessage } from "./actions/results.js";
@@ -274,6 +274,7 @@ async function runProjectScopedMainAgentTurn(
     deliveryKey: `plan-handoff:${createHash("sha256").update(JSON.stringify({
       conversationId,
       kind: planHandoff.kind,
+      executionMode: planHandoff.executionMode ?? "scoped-auto",
       sourceRunId: planHandoff.sourceRunId,
       sourceArtifact: planHandoff.sourceArtifact,
       feedback: planHandoff.feedback ?? null,
@@ -445,8 +446,9 @@ async function runProjectScopedMainAgentTurn(
   if ((plannerChildren.length > 0 || planHandoff?.kind === "execute-plan") && !result.goal) {
     throw new Error("Main Agent planning and execution handoff requires a native Goal on the provider thread.");
   }
+  let issuedAuthorization: LocalExecutionAuthorization | null = null;
   if (acceptedPlanning) {
-    await issueAcceptedPlanningAuthorization(project, memory, conversationId, result, acceptedPlanning, planHandoff);
+    issuedAuthorization = await issueAcceptedPlanningAuthorization(project, memory, conversationId, result, acceptedPlanning, planHandoff);
   }
   parentDeltaFilter.flush();
   const rawParentText = capture.text.trim()
@@ -522,6 +524,16 @@ async function runProjectScopedMainAgentTurn(
   }
   for (const planMessage of planMessages) live?.emit({ event: "assistant.message", data: planMessage });
   if (assistant) live?.emit({ event: "assistant.message", data: assistant });
+  const autoAcceptedPlanning = acceptedPlanning as Awaited<ReturnType<typeof acceptCurrentConversationPlanningPackage>> | null;
+  if (autoAcceptedPlanning
+    && issuedAuthorization?.mode === "scoped-auto"
+    && autoAcceptedPlanning.workflowGraphPlan.graphMode === "sequential-v1") {
+    await runWorkbenchWorkflowAction(project, {
+      actionType: "workflow.run.start",
+      changeId: autoAcceptedPlanning.changeId,
+      workflowGraphPlanId: autoAcceptedPlanning.workflowGraphPlan.id,
+    }, live);
+  }
   return assistant ?? planMessages.at(-1) ?? {
     id: `assistant:${conversationId}:${runId}:empty`,
     type: "assistant.message",
@@ -790,7 +802,7 @@ async function issueAcceptedPlanningAuthorization(
   result: Awaited<ReturnType<typeof runCodexAppServerTurn>>,
   accepted: Awaited<ReturnType<typeof acceptCurrentConversationPlanningPackage>>,
   handoff: ValidatedPlanHandoffIntent | null | undefined,
-): Promise<void> {
+): Promise<LocalExecutionAuthorization | null> {
   if (!result.threadId || !result.goal || handoff?.kind !== "execute-plan") {
     throw new Error("Accepted planning authorization requires the current Main thread, native Goal, and execute intent.");
   }
@@ -809,7 +821,7 @@ async function issueAcceptedPlanningAuthorization(
       reason: "Execution authorization requires a Git source commit.",
       updatedAt: new Date().toISOString(),
     });
-    return;
+    return null;
   }
   const sourceStatus = await getGitStatusShort(project.path);
   const graphHash = hashJson(accepted.workflowGraphPlan);
@@ -831,7 +843,7 @@ async function issueAcceptedPlanningAuthorization(
     conversationId,
     providerThreadId: result.threadId,
     goalIdentityHash: hashJson({ objective: result.goal.objective, createdAt: result.goal.createdAt }),
-    mode: "stepwise",
+    mode: handoff.executionMode ?? "scoped-auto",
     acceptedPlanId: accepted.proposalId,
     acceptedPlanHash: accepted.proposalHash,
     graphId: accepted.workflowGraphPlan.id,
@@ -869,6 +881,7 @@ async function issueAcceptedPlanningAuthorization(
     reason: null,
     updatedAt: new Date().toISOString(),
   });
+  return authorization;
 }
 
 function hashJson(value: unknown): string {

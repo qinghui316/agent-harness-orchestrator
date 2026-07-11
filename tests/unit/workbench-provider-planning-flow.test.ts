@@ -170,6 +170,7 @@ describe("Workbench provider planning flow", () => {
         kind: "execute-plan",
         sourceRunId: plan?.runId ?? "",
         sourceAgentRoleId: "planning-agent",
+        executionMode: "stepwise",
       },
     });
     expect((await listConversationMessages(project(), conversation.conversationId))

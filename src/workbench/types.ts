@@ -1,5 +1,5 @@
 import type { CodexReadableEvent } from "../codex/jsonl.js";
-import type { RunMetadata } from "../types/index.js";
+import type { HarnessExecutionMode, RunMetadata } from "../types/index.js";
 import type { WorkflowActionType } from "../workflow-actions/registry.js";
 
 export type TopicThreadEventType =
@@ -201,6 +201,7 @@ export interface PlanHandoffIntent {
   sourceAgentRoleId: PlanHandoffAgentRoleId;
   sourceArtifact?: string;
   kind: PlanHandoffIntentKind;
+  executionMode?: HarnessExecutionMode;
   feedback?: string;
 }
 

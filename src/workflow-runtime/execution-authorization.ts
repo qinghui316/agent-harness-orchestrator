@@ -16,7 +16,7 @@ import {
 export * from "./execution-authorization-schema.js";
 export * from "./execution-authorization-repository.js";
 
-export const SCOPED_AUTO_EXECUTION_ENABLED = false;
+export const SCOPED_AUTO_EXECUTION_ENABLED = true;
 export const DEFAULT_TRANSITION_CLAIM_TTL_MS = 60_000;
 
 type IssueAuthorizationInput = Omit<LocalExecutionAuthorization, "version" | "id" | "status" | "epoch" | "revokedAt" | "revocationReason">;
@@ -96,6 +96,48 @@ export async function appendLocalExecutionAuthorizationTargets(
     };
     transaction.putAuthorization(amended);
     return amended;
+  });
+  await projectExecutionAuthorizationState(memory, result);
+  return result;
+}
+
+export async function advanceLocalExecutionAuthorizationSource(
+  memory: ResolvedMemory,
+  input: {
+    authorizationId: string;
+    expectedEpoch: number;
+    snapshot: ExecutionAuthorizationSnapshot;
+    sourceHead: string;
+    sourceStateHash: string;
+    now?: Date;
+  },
+): Promise<LocalExecutionAuthorization> {
+  if (!input.sourceHead.trim() || !/^[a-f0-9]{40,64}$/i.test(input.sourceHead)) {
+    throw new Error("Authorized source advancement requires a valid Git commit.");
+  }
+  if (!/^[a-f0-9]{64}$/i.test(input.sourceStateHash)) {
+    throw new Error("Authorized source advancement requires a valid source state hash.");
+  }
+  const now = input.now ?? new Date();
+  const result = runExecutionAuthorizationTransaction(memory, (transaction) => {
+    const current = transaction.getAuthorization(input.authorizationId);
+    if (!current) throw new Error(`Execution authorization not found: ${input.authorizationId}.`);
+    if (current.sourceHead === input.sourceHead && current.sourceStateHash === input.sourceStateHash) return current;
+    const authorized = requireAuthorizationCurrent(
+      current,
+      input.authorizationId,
+      input.expectedEpoch,
+      input.snapshot,
+      now,
+    );
+    const advanced: LocalExecutionAuthorization = {
+      ...authorized,
+      epoch: authorized.epoch + 1,
+      sourceHead: input.sourceHead,
+      sourceStateHash: input.sourceStateHash,
+    };
+    transaction.putAuthorization(advanced);
+    return advanced;
   });
   await projectExecutionAuthorizationState(memory, result);
   return result;

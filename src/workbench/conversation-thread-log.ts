@@ -170,7 +170,8 @@ function isValidatedPlanHandoffIntent(value: unknown): value is import("./types.
     && value.sourceAgentRoleId === "planning-agent"
     && (value.kind === "execute-plan" || value.kind === "revise-plan")
     && typeof value.sourceRunId === "string"
-    && typeof value.planText === "string";
+    && typeof value.planText === "string"
+    && (value.executionMode === undefined || value.executionMode === "stepwise" || value.executionMode === "scoped-auto");
 }
 
 function isAssistantTurnActivity(value: unknown): value is AssistantTurnActivity {

@@ -1,4 +1,5 @@
 import type { ManagedProject } from "../types/index.js";
+import { applyResultToProject } from "../apply/manager.js";
 import { resolveProjectMemory } from "../memory/resolver.js";
 import {
   blockQueuedTaskItem,
@@ -14,7 +15,7 @@ import {
 } from "../task-queue/manager.js";
 import { startTaskRun } from "../task-run/manager.js";
 import type { CodeExecutionGateOptions } from "../code/manager.js";
-import type { ResolvedMemory, SequentialWorkflowGraphPlan, TaskQueueItem, TaskQueueRun, WorkflowGraphPlan, WorkflowRun, WorkflowRunEventType } from "../types/index.js";
+import type { HarnessExecutionMode, ResolvedMemory, SequentialWorkflowGraphPlan, TaskQueueItem, TaskQueueRun, WorkflowGraphPlan, WorkflowRun, WorkflowRunEventType } from "../types/index.js";
 import { appendWorkflowRunEvent, readWorkflowRun, syncWorkflowRunFromQueue } from "../workflow-run/manager.js";
 import { activeChangePath } from "../workflow-run/recovery-key.js";
 import { readWorkflowGraphPlan } from "../workflow-artifacts/manager.js";
@@ -36,6 +37,7 @@ export interface WorkflowGraphSequentialRuntimeInput {
   workflowGraphPlanId?: string;
   workflowRunId?: string;
   queueRunId?: string;
+  executionMode?: HarnessExecutionMode;
 }
 
 export interface WorkflowGraphSequentialRuntimeResult {
@@ -112,6 +114,7 @@ export async function runWorkflowGraphSequentialExecution(input: WorkflowGraphSe
         queue,
         workflow,
         item: nextItem,
+        executionMode: input.executionMode,
       });
       queue = result.queue;
       workflow = result.workflow;
@@ -181,6 +184,7 @@ async function runGraphQueueItem(input: {
   queue: TaskQueueRun;
   workflow: WorkflowRun | null;
   item: TaskQueueItem;
+  executionMode?: HarnessExecutionMode;
 }): Promise<{ queue: TaskQueueRun; workflow: WorkflowRun | null; terminal: boolean; taskRunId: string | null; finishedItemStatus: string }> {
   const executionGate = taskQueueExecutionGate(input.queue, input.workflow, input.item);
   const resume = await findTaskRunStageResumeCandidate(input.memory, input.changeId, input.item);
@@ -241,6 +245,17 @@ async function runGraphQueueItem(input: {
     });
   const taskRun = isRecord(result) && isRecord(result.taskRun) ? result.taskRun : null;
   if (!isTaskRunLike(taskRun)) throw new Error(`Task ${input.item.taskId} did not return a TaskRun result.`);
+  if (input.executionMode === "scoped-auto" && taskRun.status === "completed") {
+    if (!taskRun.worktreeId) throw new Error(`Scoped-auto task ${input.item.taskId} has no worktree apply target.`);
+    const applied = await applyResultToProject(input.project, taskRun.worktreeId, {
+      commit: true,
+      message: `Apply ${input.changeId} ${input.item.taskId}`,
+      userConfirmed: false,
+    });
+    if (applied.apply.status !== "applied" || !applied.apply.committed) {
+      throw new Error(`Scoped-auto task ${input.item.taskId} did not produce an applied commit.`);
+    }
+  }
   const finishedItem = await finishTaskQueueItem(input.memory, runningItem, taskRun);
   const queue = await updateTaskQueueAfterItem(input.memory, input.queue);
   if (finishedItem.status === "blocked" || finishedItem.status === "failed") {

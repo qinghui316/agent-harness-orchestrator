@@ -56,6 +56,7 @@ import { recordWorkbenchDecision } from "../../decisions.js";
 import { emitAssistantEvent } from "../../live-events.js";
 import { appendConversationThreadEntry } from "../../conversation-thread.js";
 import { resolveTopic } from "../../topic-resolver.js";
+import { readExecutionAuthorization } from "../../../workflow-runtime/execution-authorization.js";
 import type {
   WorkbenchLiveSink,
   WorkbenchWorkflowActionRequest,
@@ -1152,5 +1153,17 @@ export async function startAcceptedSequentialWorkflow(
     text: `WorkflowGraphPlan ${authoredGraph.id} confirmed for scoped sequential execution.`,
     artifact: authoredGraph.artifact,
   });
-  return runTaskQueueSequentialWorkflow({ project, changeId, live, workflowGraphPlanId: authoredGraph.id });
+  let executionMode: "stepwise" | "scoped-auto" | undefined;
+  try {
+    const intentPath = join(memory.changesRoot, "active", changeId, "planning", "execution-authorization-intent.json");
+    const intent = JSON.parse(await readFile(intentPath, "utf8")) as { status?: unknown; authorizationId?: unknown };
+    if (intent.status === "issued" && typeof intent.authorizationId === "string") {
+      executionMode = (await readExecutionAuthorization(memory, intent.authorizationId)).mode;
+    }
+  } catch {
+    executionMode = undefined;
+  }
+  return runTaskQueueSequentialWorkflow({ project, changeId, live, workflowGraphPlanId: authoredGraph.id, executionMode });
 }
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";

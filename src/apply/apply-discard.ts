@@ -11,6 +11,7 @@ import { commitTreeAndUpdateHead, getGitCommit, getGitStatusShort, git, gitRaw, 
 import { withProjectWriteLease } from "../project/project-write-lease.js";
 import {
   appendLocalExecutionAuthorizationTargets,
+  advanceLocalExecutionAuthorizationSource,
   assertTransitionExecutionCurrent,
   assertScopedAutoExecutionEnabled,
   claimTransitionExecution,
@@ -327,6 +328,7 @@ async function applyWorktreeWithLease(
     transaction = await advanceApplyTransaction(paths.transaction, transaction, "evidence-written");
     await reconcileApplyTransitionReceipt(memory, paths, transaction);
     transaction = await advanceApplyTransaction(paths.transaction, transaction, "completed");
+    await advanceAuthorizationSourceAfterApply(project, memory, transaction);
   }
   const status: RunStatus = applyStatus === "applied" ? "completed" : "failed";
   run = await finishRun(paths.run, run, status, status === "completed" ? 0 : 1);
@@ -356,6 +358,7 @@ async function recoverApplyTransaction(
   const paths = buildApplyPaths(dirname(found.path));
   if (transaction.stage === "completed") {
     await reconcileApplyTransitionReceipt(memory, paths, transaction);
+    await advanceAuthorizationSourceAfterApply(project, memory, transaction);
     return readCompletedApplyResult(paths);
   }
   await lease.assertCurrent();
@@ -417,11 +420,13 @@ async function recoverApplyTransaction(
     transaction = await advanceApplyTransaction(paths.transaction, transaction, "evidence-written");
     await reconcileApplyTransitionReceipt(memory, paths, transaction);
     transaction = await advanceApplyTransaction(paths.transaction, transaction, "completed");
+    await advanceAuthorizationSourceAfterApply(project, memory, transaction);
     return { run, apply };
   }
   if (transaction.stage === "evidence-written") {
     await reconcileApplyTransitionReceipt(memory, paths, transaction);
     transaction = await advanceApplyTransaction(paths.transaction, transaction, "completed");
+    await advanceAuthorizationSourceAfterApply(project, memory, transaction);
     return readCompletedApplyResult(paths);
   }
   throw new Error(`ApplyTransaction cannot recover from stage ${transaction.stage}.`);
@@ -549,6 +554,27 @@ async function reconcileApplyTransitionReceipt(
     claimToken: authorization.claimToken,
     fencingToken: authorization.fencingToken,
     evidenceRefs: [displayArtifactPath(memory, paths.apply)],
+  });
+}
+
+async function advanceAuthorizationSourceAfterApply(
+  project: ManagedProject,
+  memory: Awaited<ReturnType<typeof resolveProjectMemory>>,
+  transaction: ApplyTransaction,
+): Promise<void> {
+  const binding = transaction.authorization;
+  if (!binding || !transaction.commitRequested || !transaction.commitHash) return;
+  const sourceHead = await getGitCommit(project.path);
+  if (!sourceHead || sourceHead !== transaction.commitHash) {
+    throw new Error("Authorized apply completed without the expected source HEAD.");
+  }
+  const sourceStateHash = createHash("sha256").update(JSON.stringify(await getGitStatusShort(project.path))).digest("hex");
+  await advanceLocalExecutionAuthorizationSource(memory, {
+    authorizationId: binding.authorizationId,
+    expectedEpoch: binding.authorizationEpoch,
+    snapshot: binding.snapshot,
+    sourceHead,
+    sourceStateHash,
   });
 }
 

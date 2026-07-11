@@ -498,6 +498,7 @@ export type PlanHandoffIntent = {
   sourceAgentRoleId: PlanHandoffAgentRoleId;
   sourceArtifact?: string;
   kind: PlanHandoffIntentKind;
+  executionMode?: HarnessExecutionMode;
   feedback?: string;
 };
 export type PlanHandoffCandidate = {

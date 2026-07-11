@@ -6,6 +6,7 @@ import type { ExecutionAuthorizationSnapshot, ResolvedMemory } from "../../src/t
 import {
   SCOPED_AUTO_EXECUTION_ENABLED,
   appendLocalExecutionAuthorizationTargets,
+  advanceLocalExecutionAuthorizationSource,
   assertScopedAutoExecutionEnabled,
   assertTransitionExecutionCurrent,
   claimTransitionExecution,
@@ -137,14 +138,45 @@ async function startAndReserve(claim: Awaited<ReturnType<typeof claimTransitionE
 }
 
 describe("workflow runtime execution authorization", () => {
-  it("persists stepwise and scoped-auto modes while scoped-auto dispatch stays disabled", async () => {
+  it("persists stepwise and scoped-auto modes while scoped-auto activation is enabled", async () => {
     const stepwise = await issue();
     const scopedAuto = await issue({ mode: "scoped-auto" });
 
     expect(stepwise.mode).toBe("stepwise");
     expect(scopedAuto.mode).toBe("scoped-auto");
-    expect(SCOPED_AUTO_EXECUTION_ENABLED).toBe(false);
-    expect(() => assertScopedAutoExecutionEnabled()).toThrow("feature-disabled");
+    expect(SCOPED_AUTO_EXECUTION_ENABLED).toBe(true);
+    expect(() => assertScopedAutoExecutionEnabled()).not.toThrow();
+  });
+
+  it("advances the authorized source state once and rejects stale source writers", async () => {
+    const authorization = await issue({ mode: "scoped-auto" });
+    const nextHead = "c".repeat(40);
+    const advanced = await advanceLocalExecutionAuthorizationSource(memory, {
+      authorizationId: authorization.id,
+      expectedEpoch: authorization.epoch,
+      snapshot,
+      sourceHead: nextHead,
+      sourceStateHash: H2,
+      now: NOW,
+    });
+
+    expect(advanced).toMatchObject({ epoch: 1, sourceHead: nextHead, sourceStateHash: H2 });
+    await expect(advanceLocalExecutionAuthorizationSource(memory, {
+      authorizationId: authorization.id,
+      expectedEpoch: authorization.epoch,
+      snapshot,
+      sourceHead: "d".repeat(40),
+      sourceStateHash: "c".repeat(64),
+      now: NOW,
+    })).rejects.toThrow("Stale authorization epoch");
+    await expect(advanceLocalExecutionAuthorizationSource(memory, {
+      authorizationId: authorization.id,
+      expectedEpoch: authorization.epoch,
+      snapshot,
+      sourceHead: nextHead,
+      sourceStateHash: H2,
+      now: NOW,
+    })).resolves.toMatchObject({ epoch: 1 });
   });
 
   it("derives a deterministic operation id and gives one concurrent claimant ownership", async () => {

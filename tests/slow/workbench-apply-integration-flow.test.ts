@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
 import { collectWorktreeDiff } from "../../src/audit/diff.js";
-import { applyWorktree } from "../../src/apply/manager.js";
+import { applyResultToProject, applyWorktree } from "../../src/apply/manager.js";
 import { closeChangeForFinalization, recoverChangeCloseTransactions } from "../../src/change/manager.js";
 import { initHarness } from "../../src/harness/init.js";
 import { listIntegrationChecks, runIntegrationCheck } from "../../src/integration-check/manager.js";
@@ -32,6 +32,71 @@ import {
 const execFileAsync = promisify(execFile);
 
 describe("workbench apply and integration slow flows", () => {
+  it("consumes a scoped-auto authorization without a second apply confirmation and advances source lineage", async () => {
+    const oldAhoHome = process.env.AHO_HOME;
+    process.env.AHO_HOME = join(getTempDir(), ".aho-home");
+    try {
+      await initGitRepository(getTempDir());
+      await writeFile(join(getTempDir(), ".gitignore"), ".aho-home/\n.agent-harness/\nharness/\nAGENTS.md\ndocs/\nscripts/\n", "utf8");
+      await writeFile(join(getTempDir(), "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"process.exit(0)\\\"\"}}\n", "utf8");
+      await git(getTempDir(), ["add", "."]);
+      await git(getTempDir(), ["commit", "-m", "initial"]);
+      await initHarness(project());
+      const topic = await createConversationChangeFixture(project(), { title: "Scoped Auto Demand", body: "Apply the accepted local task automatically." });
+      await writeAcceptedSpecAndTasks(topic.changeId);
+      const memory = await resolveProjectMemory(project());
+      const worktree = await createWorktree(project(), memory, topic.changeId);
+      await writeFile(join(worktree.metadata.checkoutPath, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"console.log('scoped-auto')\\\"\"}}\n", "utf8");
+      const diff = await collectWorktreeDiff(memory, worktree.metadata.worktreeId, topic.changeId);
+      await writeValidationResultWithHash(topic.changeId, "run-validation-scoped-auto", worktree.metadata.worktreeId, diff.diffHash, "passed");
+      await writeAuditResultWithHash(topic.changeId, "run-audit-scoped-auto", worktree.metadata.worktreeId, diff.diffHash, "approved");
+      const sourceHead = await getGitCommit(getTempDir());
+      if (!sourceHead) throw new Error("Expected source commit.");
+      const sourceStateHash = createHash("sha256").update(JSON.stringify(await getGitStatusShort(getTempDir()))).digest("hex");
+      const hash = "b".repeat(64);
+      const authorization = await issueLocalExecutionAuthorization(memory, {
+        projectId: memory.projectId,
+        changeId: topic.changeId,
+        conversationId: topic.conversationId,
+        providerThreadId: "thread-scoped-auto",
+        goalIdentityHash: hash,
+        mode: "scoped-auto",
+        acceptedPlanId: "plan-scoped-auto",
+        acceptedPlanHash: hash,
+        graphId: "graph-scoped-auto",
+        graphHash: hash,
+        artifactManifestHash: hash,
+        sourceHead,
+        sourceStateHash,
+        permissionProfileHash: hash,
+        providerScopeHash: hash,
+        policyHash: hash,
+        targets: [{ transition: "change.finalize", targetId: topic.changeId, manifestHash: hash }],
+        budget: { maxCompletedOperations: 8, maxReworks: 1, maxChangedFiles: 20, maxChangedBytes: 1_000_000 },
+        userDecision: { decisionId: "execute-scoped-auto", actorId: "workbench-user", decidedAt: new Date().toISOString() },
+        issuedAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+      });
+      const intentPath = join(memory.changesRoot, "active", topic.changeId, "planning", "execution-authorization-intent.json");
+      await mkdir(join(memory.changesRoot, "active", topic.changeId, "planning"), { recursive: true });
+      await writeFile(intentPath, JSON.stringify({ version: "1.0", status: "issued", authorizationId: authorization.id }), "utf8");
+
+      const applied = await applyResultToProject(project(), worktree.metadata.worktreeId, { commit: true, message: "Scoped auto apply" });
+
+      expect(applied.apply).toMatchObject({ status: "applied", committed: true, commitHash: expect.any(String) });
+      expect(await getGitStatusShort(getTempDir())).toEqual([]);
+      expect(await readExecutionAuthorization(memory, authorization.id)).toMatchObject({
+        mode: "scoped-auto",
+        epoch: 2,
+        sourceHead: applied.apply.commitHash,
+        sourceStateHash: createHash("sha256").update(JSON.stringify([])).digest("hex"),
+      });
+    } finally {
+      if (oldAhoHome === undefined) delete process.env.AHO_HOME;
+      else process.env.AHO_HOME = oldAhoHome;
+    }
+  }, 120_000);
+
   it("projects result review and applies a reviewed worktree through one user decision", async () => {
     const oldAhoHome = process.env.AHO_HOME;
     process.env.AHO_HOME = join(getTempDir(), ".aho-home");
@@ -194,7 +259,7 @@ describe("workbench apply and integration slow flows", () => {
       expect(duplicateApply.apply.commitHash).toBe(firstApply.apply.commitHash);
       const amendedAuthorization = await readExecutionAuthorization(memory, authorization.id);
       expect(amendedAuthorization).toMatchObject({
-        epoch: 1,
+        epoch: 2,
         targets: expect.arrayContaining([expect.objectContaining({ transition: "source.apply", targetId: worktree.metadata.worktreeId })]),
       });
       expect(await gitStatus(getTempDir())).toBe("");

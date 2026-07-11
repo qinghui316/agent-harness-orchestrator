@@ -6,7 +6,7 @@ import { writeChangeIndex } from "../ecl/index.js";
 import { writeJsonFile } from "../fs/json.js";
 import { assertWritableMemory } from "../memory/resolver.js";
 import { getGitCommit } from "../project/git.js";
-import { withProjectWriteLease } from "../project/project-write-lease.js";
+import { withProjectWriteLease, type ProjectWriteLeaseScope } from "../project/project-write-lease.js";
 import { assertTransitionExecutionCurrent, readExecutionAuthorization, readTransitionExecution, reconcileCommittedTransitionExecution, reserveTransitionExecutionCommitPoint } from "../workflow-runtime/execution-authorization.js";
 import { getLatestAuditSummary } from "../audit/artifacts.js";
 import { getLatestValidationSummary } from "../validation/artifacts.js";
@@ -82,37 +82,37 @@ export interface AuthorizedChangeFinalization {
 export async function closeChange(project: ManagedProject | string): Promise<ChangeCloseResult> {
   const memory = await resolveChangeMemory(project);
   assertWritableMemory(memory, "Change close");
-  return withProjectWriteLease(memory.projectRoot, {}, async () => {
+  return withProjectWriteLease(memory.projectRoot, {}, async (lease) => {
     const status = await getChangeStatus(memory);
-    return closeChangeFromStatus(memory, status, "legacy", null);
+    return closeChangeFromStatus(memory, status, "legacy", null, lease);
   });
 }
 
 export async function closeChangeForChange(project: ManagedProject | string, changeId: string): Promise<ChangeCloseResult> {
   const memory = await resolveChangeMemory(project);
   assertWritableMemory(memory, "Change close");
-  return withProjectWriteLease(memory.projectRoot, {}, async () => {
+  return withProjectWriteLease(memory.projectRoot, {}, async (lease) => {
     const existing = await readCloseTransaction(memory, changeId);
-    if (existing) return recoverCloseTransaction(memory, existing);
+    if (existing) return recoverCloseTransaction(memory, existing, lease);
     const status = await getChangeStatusForChange(memory, changeId);
-    return closeChangeFromStatus(memory, status, "scoped", null);
+    return closeChangeFromStatus(memory, status, "scoped", null, lease);
   });
 }
 
 export async function closeChangeForFinalization(project: ManagedProject | string, input: AuthorizedChangeFinalization): Promise<ChangeCloseResult> {
   const memory = await resolveChangeMemory(project);
   assertWritableMemory(memory, "Authorized Change finalization");
-  return withProjectWriteLease(memory.projectRoot, {}, async () => {
+  return withProjectWriteLease(memory.projectRoot, {}, async (lease) => {
     const existing = await readCloseTransaction(memory, input.changeId);
     if (existing) {
       if (existing.finalization?.requestId !== input.requestId || existing.finalization.authorizationId !== input.authorizationId) {
         throw new Error("Existing close transaction belongs to another finalization request.");
       }
-      return recoverCloseTransaction(memory, existing);
+      return recoverCloseTransaction(memory, existing, lease);
     }
     const request = await assertFinalizationAuthority(memory, input);
     const status = await assertChangeFinalizationReady(memory, input.changeId);
-    return closeChangeFromStatus(memory, status, "scoped", { ...input, manifestHash: request.manifestHash });
+    return closeChangeFromStatus(memory, status, "scoped", { ...input, manifestHash: request.manifestHash }, lease);
   });
 }
 
@@ -195,11 +195,11 @@ export async function recoverChangeCloseTransactions(project: ManagedProject | s
   const memory = await resolveChangeMemory(project);
   const root = join(memory.changesRoot, ".close-transactions");
   if (!existsSync(root)) return [];
-  return withProjectWriteLease(memory.projectRoot, {}, async () => {
+  return withProjectWriteLease(memory.projectRoot, {}, async (lease) => {
     const results: ChangeCloseResult[] = [];
     for (const name of (await readdir(root)).filter((item) => item.endsWith(".json")).sort()) {
       const transaction = JSON.parse(await readFile(join(root, name), "utf8")) as ChangeCloseTransaction;
-      results.push(await recoverCloseTransaction(memory, transaction));
+      results.push(await recoverCloseTransaction(memory, transaction, lease));
     }
     return results;
   });
@@ -207,9 +207,9 @@ export async function recoverChangeCloseTransactions(project: ManagedProject | s
 
 type PersistedChangeFinalization = AuthorizedChangeFinalization & { manifestHash: string };
 
-async function closeChangeFromStatus(memory: ResolvedMemory, status: ChangeStatus, mode: "legacy" | "scoped", finalization: PersistedChangeFinalization | null): Promise<ChangeCloseResult> {
+async function closeChangeFromStatus(memory: ResolvedMemory, status: ChangeStatus, mode: "legacy" | "scoped", finalization: PersistedChangeFinalization | null, lease: ProjectWriteLeaseScope): Promise<ChangeCloseResult> {
   const existing = await readCloseTransaction(memory, status.change?.id ?? status.activeChanges[0]?.name ?? "");
-  if (existing) return recoverCloseTransaction(memory, existing);
+  if (existing) return recoverCloseTransaction(memory, existing, lease);
   if (!status.closeGate.ready) {
     throw new Error(`Cannot close change:\n${status.closeGate.blockingIssues.map((issue) => `- ${issue}`).join("\n")}`);
   }
@@ -219,19 +219,22 @@ async function closeChangeFromStatus(memory: ResolvedMemory, status: ChangeStatu
   const activePath = join(memory.memoryRoot, active.path);
   const archiveRelativePath = await getArchiveRelativePath(memory, change.id);
   const archivePath = join(memory.memoryRoot, archiveRelativePath);
-  const transaction = await buildCloseTransaction(memory, change.id, activePath, archivePath, archiveRelativePath, finalization, change.maintenanceSequenceEligible !== false);
+  const transaction = await buildCloseTransaction(memory, change.id, activePath, archivePath, archiveRelativePath, finalization, change.maintenanceSequenceEligible !== false, lease);
+  await lease.assertCurrent();
   await mkdir(dirname(closeTransactionPath(memory, change.id)), { recursive: true });
+  await lease.assertCurrent();
   await writeDurableCloseIntent(closeTransactionPath(memory, change.id), transaction);
-  return recoverCloseTransaction(memory, transaction);
+  return recoverCloseTransaction(memory, transaction, lease);
 }
 
-async function recoverCloseTransaction(memory: ResolvedMemory, initial: ChangeCloseTransaction): Promise<ChangeCloseResult> {
+async function recoverCloseTransaction(memory: ResolvedMemory, initial: ChangeCloseTransaction, lease: ProjectWriteLeaseScope): Promise<ChangeCloseResult> {
   let transaction = initial;
   const markerPath = closeTransactionPath(memory, transaction.changeId);
   try {
     if (!Number.isSafeInteger(transaction.closeSequence)
       || (transaction.advancesMaintenanceSequence !== false && transaction.closeSequence < 1)) {
-      transaction = { ...transaction, closeSequence: await nextCloseSequence(memory, transaction.id) };
+      transaction = { ...transaction, closeSequence: await nextCloseSequence(memory, transaction.id, lease) };
+      await lease.assertCurrent();
       await writeJsonFile(markerPath, transaction);
     }
     if (transaction.stage === "completed") {
@@ -242,32 +245,38 @@ async function recoverCloseTransaction(memory: ResolvedMemory, initial: ChangeCl
       }
     }
     if (transaction.stage === "prepared") {
-      if (transaction.finalization) await assertPersistedFinalizationCurrent(memory, transaction);
+      if (transaction.finalization) await assertPersistedFinalizationCurrent(memory, transaction, lease);
       const change = JSON.parse(await readFile(join(transaction.activePath, "change.json"), "utf8")) as ChangeMetadata;
+      await lease.assertCurrent();
       await writeJsonFile(join(transaction.activePath, "change.json"), archivedMetadata(change, transaction.archiveRelativePath, transaction.closeTimestamp));
-      transaction = await advanceCloseTransaction(markerPath, transaction, "metadata-written");
+      transaction = await advanceCloseTransaction(markerPath, transaction, "metadata-written", lease);
     }
     if (transaction.stage === "metadata-written") {
-      if (transaction.finalization) await assertPersistedFinalizationCurrent(memory, transaction);
+      if (transaction.finalization) await assertPersistedFinalizationCurrent(memory, transaction, lease);
       await mkdir(dirname(transaction.archivePath), { recursive: true });
       const activeExists = existsSync(transaction.activePath);
       const archiveExists = existsSync(transaction.archivePath);
       if (activeExists && archiveExists) throw new Error(`Close archive target already exists: ${transaction.archiveRelativePath}.`);
       if (!activeExists && !archiveExists) throw new Error("Close transaction lost both active and archive directories.");
-      if (activeExists) await rename(transaction.activePath, transaction.archivePath);
+      if (activeExists) {
+        await lease.assertCurrent();
+        await rename(transaction.activePath, transaction.archivePath);
+      }
       else if ((await readArchivedMetadata(transaction)).id !== transaction.changeId) {
         throw new Error("Existing close archive target belongs to another Change.");
       }
-      transaction = await advanceCloseTransaction(markerPath, transaction, "renamed");
+      transaction = await advanceCloseTransaction(markerPath, transaction, "renamed", lease);
     }
     if (transaction.stage === "renamed") {
       const archived = await readArchivedMetadata(transaction);
+      await lease.assertCurrent();
       await writeJsonFile(join(transaction.archivePath, "close-receipt.json"), {
         version: "1.0", transactionId: transaction.id, changeId: transaction.changeId,
         archivePath: transaction.archiveRelativePath, closedAt: transaction.closeTimestamp,
         closeSequence: transaction.closeSequence,
         finalization: transaction.finalization,
       });
+      await lease.assertCurrent();
       await writeJsonFile(transaction.outboxPath, {
         version: "1.0", id: `change-close:${transaction.id}`, type: "change.closed",
         projectId: transaction.projectId, changeId: transaction.changeId,
@@ -276,24 +285,25 @@ async function recoverCloseTransaction(memory: ResolvedMemory, initial: ChangeCl
         advancesMaintenanceSequence: transaction.advancesMaintenanceSequence,
       });
       if (archived.id !== transaction.changeId) throw new Error("Archived Change identity does not match close transaction.");
-      transaction = await advanceCloseTransaction(markerPath, transaction, "outbox-written");
+      transaction = await advanceCloseTransaction(markerPath, transaction, "outbox-written", lease);
     }
     let index;
     if (transaction.stage === "outbox-written") {
-      if (transaction.finalization) await ensureTransitionCompletionReceipt(memory, transaction);
-      transaction = await advanceCloseTransaction(markerPath, transaction, "transition-receipt-written");
+      if (transaction.finalization) await ensureTransitionCompletionReceipt(memory, transaction, lease);
+      transaction = await advanceCloseTransaction(markerPath, transaction, "transition-receipt-written", lease);
     }
     if (transaction.stage === "transition-receipt-written") {
+      await lease.assertCurrent();
       index = await writeChangeIndex(memory);
-      transaction = await advanceCloseTransaction(markerPath, transaction, "index-rebuilt");
+      transaction = await advanceCloseTransaction(markerPath, transaction, "index-rebuilt", lease);
     }
-    if (transaction.stage === "index-rebuilt") transaction = await advanceCloseTransaction(markerPath, transaction, "completed");
+    if (transaction.stage === "index-rebuilt") transaction = await advanceCloseTransaction(markerPath, transaction, "completed", lease);
     if (transaction.stage !== "completed") throw new Error(`Close transaction is not recoverable from stage ${transaction.stage}.`);
     const change = await readArchivedMetadata(transaction);
     index ??= await writeChangeIndex(memory);
     return { archivePath: transaction.archiveRelativePath, change, index, transactionId: transaction.id, receiptPath: transaction.receiptPath };
   } catch (error) {
-    await writeJsonFile(markerPath, { ...transaction, error: error instanceof Error ? error.message : String(error) });
+    await lease.assertCurrent().then(() => writeJsonFile(markerPath, { ...transaction, error: error instanceof Error ? error.message : String(error) })).catch(() => undefined);
     throw error;
   }
 }
@@ -305,7 +315,7 @@ async function hasMatchingTransitionCompletionReceipt(memory: ResolvedMemory, tr
   return execution.status === "completed" && Boolean(execution.receipt?.evidenceRefs.includes(transaction.receiptPath));
 }
 
-async function ensureTransitionCompletionReceipt(memory: ResolvedMemory, transaction: ChangeCloseTransaction): Promise<void> {
+async function ensureTransitionCompletionReceipt(memory: ResolvedMemory, transaction: ChangeCloseTransaction, lease: ProjectWriteLeaseScope): Promise<void> {
   const finalization = transaction.finalization;
   if (!finalization) return;
   const execution = await readTransitionExecution(memory, finalization.operationId);
@@ -315,6 +325,7 @@ async function ensureTransitionCompletionReceipt(memory: ResolvedMemory, transac
     }
     return;
   }
+  await lease.assertCurrent();
   await reconcileCommittedTransitionExecution(memory, {
     operationId: finalization.operationId,
     authorizationId: finalization.authorizationId,
@@ -328,9 +339,10 @@ async function ensureTransitionCompletionReceipt(memory: ResolvedMemory, transac
   });
 }
 
-async function assertPersistedFinalizationCurrent(memory: ResolvedMemory, transaction: ChangeCloseTransaction): Promise<void> {
+async function assertPersistedFinalizationCurrent(memory: ResolvedMemory, transaction: ChangeCloseTransaction, lease: ProjectWriteLeaseScope): Promise<void> {
   const finalization = transaction.finalization;
   if (!finalization) return;
+  await lease.assertCurrent();
   await reserveTransitionExecutionCommitPoint(memory, {
     operationId: finalization.operationId,
     authorizationId: finalization.authorizationId,
@@ -343,14 +355,14 @@ async function assertPersistedFinalizationCurrent(memory: ResolvedMemory, transa
   });
 }
 
-async function buildCloseTransaction(memory: ResolvedMemory, changeId: string, activePath: string, archivePath: string, archiveRelativePath: string, finalization: PersistedChangeFinalization | null, advancesMaintenanceSequence: boolean): Promise<ChangeCloseTransaction> {
+async function buildCloseTransaction(memory: ResolvedMemory, changeId: string, activePath: string, archivePath: string, archiveRelativePath: string, finalization: PersistedChangeFinalization | null, advancesMaintenanceSequence: boolean, lease: ProjectWriteLeaseScope): Promise<ChangeCloseTransaction> {
   const id = `close-${createHash("sha256").update(`${memory.projectId ?? "local"}:${changeId}:${archiveRelativePath}`).digest("hex")}`;
   const closeTimestamp = new Date().toISOString();
   const receiptPath = `${archiveRelativePath}/close-receipt.json`;
   return {
     version: "1.0", id, projectId: memory.projectId, changeId, activePath, archivePath, archiveRelativePath,
     outboxPath: join(memory.harnessRoot, "outbox", "change-close", `${id}.json`), receiptPath,
-    closeTimestamp, closeSequence: advancesMaintenanceSequence ? await nextCloseSequence(memory, id) : 0,
+    closeTimestamp, closeSequence: advancesMaintenanceSequence ? await nextCloseSequence(memory, id, lease) : 0,
     advancesMaintenanceSequence, stage: "prepared", error: null,
     finalization: finalization ? {
       requestId: finalization.requestId,
@@ -367,7 +379,7 @@ async function buildCloseTransaction(memory: ResolvedMemory, changeId: string, a
   };
 }
 
-async function nextCloseSequence(memory: ResolvedMemory, transactionId: string): Promise<number> {
+async function nextCloseSequence(memory: ResolvedMemory, transactionId: string, lease: ProjectWriteLeaseScope): Promise<number> {
   const root = join(memory.changesRoot, ".close-transactions");
   if (!existsSync(root)) return 1;
   const candidates: Array<{ path: string; transaction: Partial<ChangeCloseTransaction> }> = [];
@@ -384,6 +396,7 @@ async function nextCloseSequence(memory: ResolvedMemory, transactionId: string):
     .sort((left, right) => String(left.transaction.closeTimestamp).localeCompare(String(right.transaction.closeTimestamp))
       || String(left.transaction.id).localeCompare(String(right.transaction.id)))) {
     candidate.transaction.closeSequence = ++maximum;
+    await lease.assertCurrent();
     await writeJsonFile(candidate.path, candidate.transaction);
     if (candidate.transaction.id === transactionId) return maximum;
   }
@@ -400,8 +413,9 @@ async function readCloseTransaction(memory: ResolvedMemory, changeId: string): P
   return existsSync(path) ? JSON.parse(await readFile(path, "utf8")) as ChangeCloseTransaction : null;
 }
 
-async function advanceCloseTransaction(path: string, transaction: ChangeCloseTransaction, stage: ChangeCloseStage): Promise<ChangeCloseTransaction> {
+async function advanceCloseTransaction(path: string, transaction: ChangeCloseTransaction, stage: ChangeCloseStage, lease: ProjectWriteLeaseScope): Promise<ChangeCloseTransaction> {
   const next = { ...transaction, stage, error: null };
+  await lease.assertCurrent();
   await writeJsonFile(path, next);
   return next;
 }
