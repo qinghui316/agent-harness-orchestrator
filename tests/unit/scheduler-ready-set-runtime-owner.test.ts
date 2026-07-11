@@ -23,6 +23,7 @@ describe("Scheduler ready-set single-transition runtime owner", () => {
       unitId: "unit-a",
       stageRefId: "stage-a-coder",
       taskId: "T-001",
+      prompt: "Objective: implement node a.",
       reservationIntentId: "reservation-a",
       claimIntentId: "claim-a",
     });
@@ -208,6 +209,7 @@ function readyNode(
     unitId,
     taskIds: [taskId],
     title: `Node ${suffix}`,
+    prompt: `Objective: implement node ${suffix}.`,
     waveIndex: 0,
     stages: ["coder", "validation", "audit"],
     stageRefs: [{

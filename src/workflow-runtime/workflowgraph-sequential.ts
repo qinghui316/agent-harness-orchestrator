@@ -32,7 +32,6 @@ import {
 export interface WorkflowGraphSequentialRuntimeInput {
   project: ManagedProject;
   changeId: string;
-  prompt?: string;
   live?: WorkflowRuntimeLiveSink;
   workflowGraphPlanId?: string;
   workflowRunId?: string;
@@ -102,11 +101,13 @@ export async function runWorkflowGraphSequentialExecution(input: WorkflowGraphSe
     });
 
     try {
+      const graphNode = graph.nodes.find((node) => node.taskId.toUpperCase() === nextItem.taskId.toUpperCase());
+      if (!graphNode?.prompt) throw new Error(`WorkflowGraph node for ${nextItem.taskId} has no accepted coder objective.`);
       const result = await runGraphQueueItem({
         project: input.project,
         memory,
         changeId: input.changeId,
-        prompt: input.prompt,
+        prompt: graphNode.prompt,
         live: input.live,
         queue,
         workflow,

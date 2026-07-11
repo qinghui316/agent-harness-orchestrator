@@ -1,44 +1,36 @@
 # Workflow Patterns
 
-Design the dependency graph before writing node prompts. These patterns define
-proposal topology only; they do not start or authorize execution.
+Design the dependency graph from task facts before writing node prompts. These
+patterns are a palette, not a checklist or a template to transplant.
+
+| Task shape | Choose |
+| --- | --- |
+| One coherent result | One-node `sequential-v1` |
+| A later result consumes an earlier result | Multi-node `sequential-v1` |
+| Writable source scopes overlap | `sequential-v1` |
+| Multiple useful results are independently verifiable and scopes do not overlap | `ready-set-v1` |
+| Concurrency safety is uncertain | `sequential-v1` |
 
 ## Sequential V1
 
-Use `sequential-v1` for one-node work, overlapping source scopes, dependent
-changes, shared-state migrations, or any case where concurrency safety is not
-proved.
-
-- Give the first node `dependsOn: []`.
-- Make each later node depend on the preceding node when strict order is
-  required.
-- Prefer one coherent node over artificial fragmentation.
+Use sequential mode for one-node work, dependent changes, shared-state changes,
+or overlapping scopes. Root nodes use `dependsOn: []`; later nodes list their
+real prerequisites. Prefer one coherent node over artificial fragmentation.
 
 ## Ready-Set V1
 
-Use `ready-set-v1` only when the accepted work has multiple useful nodes and
-the graph can expose independent readiness safely.
+Use ready-set only when multiple useful business outcomes can be completed and
+verified independently. Root nodes use `dependsOn: []`; downstream nodes list
+all prerequisites. Writable independent nodes must have non-overlapping scopes.
 
-- Root nodes use `dependsOn: []`.
-- Downstream nodes list every prerequisite node id.
-- Independent writable nodes must have non-overlapping `sourceScopes`.
-- Shared integration or verification work depends on all nodes whose results it
-  consumes.
-- Readiness is graph structure, not permission and not whole-wave dispatch.
-  Runtime revalidation and current execution gates still select one concrete
-  action at a time.
+Ready-set exposes readiness. It does not authorize whole-wave dispatch: Runtime
+still revalidates and exposes one current concrete action at a time.
 
-## Node Design
+## Common Mistakes
 
-Each node should map a coherent task slice to its acceptance evidence:
-
-- `title`: short user-readable outcome.
-- `taskIds` and `acIds`: complete traceability, without invented ids.
-- `prompt`: objective, bounded context, constraints, expected return, and
-  verification. Exclude orchestration internals and gate decisions.
-- `sourceScopes`: the smallest credible ownership boundary. Split nodes only
-  when scopes and dependencies make the split real.
-
-Do not model pipelines, barriers, loops, nested workflows, worker pools, slot
-allocation, or automatic wave execution. If the demand requires those
-semantics, add a warning and keep the proposal within the two supported modes.
+- Splitting nodes because files differ while behavior remains coupled.
+- Creating separate business nodes for tests, validation, audit, or rework by default.
+- Adding dependencies only to force a preferred order.
+- Using broad scopes to make an unsupported parallel plan appear safe.
+- Copying the worked example's node count, names, or scopes into another domain.
+- Writing generic prompts that require the leaf to rediscover the accepted task.

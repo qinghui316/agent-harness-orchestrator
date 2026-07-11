@@ -79,7 +79,6 @@ export async function startPlanningSchedulerFirstWorker(
     schedulerClaimReservationId: request.schedulerClaimReservationId,
     reservationIntentId: request.reservationIntentId,
     claimIntentId: request.claimIntentId,
-    prompt: request.prompt,
   });
   await appendConversationThreadEntry(project, changeId, {
     type: "assistant.message",
@@ -142,7 +141,6 @@ export async function startPlanningSchedulerNextWorker(
     schedulerClaimReservationId: request.schedulerClaimReservationId,
     reservationIntentId: request.reservationIntentId,
     claimIntentId: request.claimIntentId,
-    prompt: request.prompt,
   });
   await appendConversationThreadEntry(project, changeId, {
     type: "assistant.message",
@@ -1154,5 +1152,5 @@ export async function startAcceptedSequentialWorkflow(
     text: `WorkflowGraphPlan ${authoredGraph.id} confirmed for scoped sequential execution.`,
     artifact: authoredGraph.artifact,
   });
-  return runTaskQueueSequentialWorkflow({ project, changeId, prompt: request.prompt, live, workflowGraphPlanId: authoredGraph.id });
+  return runTaskQueueSequentialWorkflow({ project, changeId, live, workflowGraphPlanId: authoredGraph.id });
 }

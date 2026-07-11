@@ -60,7 +60,7 @@ describe("workbench accepted-graph-to-execution runtime flow", () => {
               title: "Implement pricing rule",
               taskIds: ["T-001"],
               acIds: ["AC-001"],
-              prompt: "Implement the accepted pricing rule and its tests.",
+              prompt: "Objective: Implement the accepted pricing rule. Required behavior: Update the rule and its tests. Constraints: Stay within accepted source scopes. Expected evidence: Report changed files and passing tests.",
               dependsOn: [],
               sourceScopes: ["src/**", "tests/**"],
             }] }, null, 2),

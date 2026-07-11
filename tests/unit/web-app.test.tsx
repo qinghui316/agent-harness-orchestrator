@@ -11,6 +11,7 @@ import { WorkpadDiagnosticDetails } from "../../src/web/src/panels/workbench/wor
 import { CodexUserInputRequestCard } from "../../src/web/src/panels/workbench/workpad/TaskGraphCards.js";
 import { TopicComposer } from "../../src/web/src/shell/composer.js";
 import { parentTranscriptCellsFromLiveThreadItem } from "../../src/web/src/liveTranscript.js";
+import { derivePlanHandoffCandidate } from "../../src/web/src/panels/workbench/planHandoff.js";
 import type { Workpad, WorkpadMainAgentExecutionSummary } from "../../src/web/src/types.js";
 
 vi.mock("@xterm/xterm", () => ({
@@ -32,6 +33,54 @@ vi.mock("@xterm/addon-fit", () => ({
     fit(): void {}
   },
 }));
+
+it("identifies superseding planner proposals by artifact even when the parent run id is reused", () => {
+  const candidate = derivePlanHandoffCandidate({
+    selectedAgentId: "planning-agent",
+    agents: [{
+      id: "planning-agent",
+      roleId: "planning-agent",
+      label: "Plan Agent",
+      status: "completed",
+      summary: "Revised plan",
+      evidenceRefs: [],
+      actions: [],
+      transcript: {
+        title: "Plan Agent",
+        items: [],
+        cells: [
+          { id: "old", kind: "assistant-message", source: "codex-runtime", runId: "run-1", timestamp: "2026-07-11T00:00:00Z", text: "Old", evidenceRefs: [{ label: "Plan proposal", ref: "old.json", kind: "artifact" }] },
+          { id: "new", kind: "assistant-message", source: "codex-runtime", runId: "run-1", timestamp: "2026-07-11T00:00:01Z", text: "New", evidenceRefs: [{ label: "Plan proposal", ref: "new.json", kind: "artifact" }] },
+        ],
+      },
+    }],
+  });
+
+  expect(candidate).toMatchObject({ sourceRunId: "run-1", sourceArtifact: "new.json", proposalKey: "new.json", planText: "New" });
+});
+
+it("does not derive an action from planner output without a validated proposal artifact", () => {
+  expect(derivePlanHandoffCandidate({
+    selectedAgentId: "planning-agent",
+    agents: [{
+      id: "planning-agent",
+      roleId: "planning-agent",
+      label: "Plan Agent",
+      status: "failed",
+      summary: "Invalid proposal",
+      evidenceRefs: [],
+      actions: [],
+      transcript: {
+        title: "Plan Agent",
+        items: [],
+        cells: [
+          { id: "valid", kind: "assistant-message", source: "codex-runtime", runId: "run-valid", timestamp: "2026-07-11T00:00:00Z", text: "Valid plan", evidenceRefs: [{ label: "Plan proposal", ref: "valid.json", kind: "artifact" }] },
+          { id: "invalid", kind: "assistant-message", source: "codex-runtime", runId: "run-invalid", timestamp: "2026-07-11T00:00:01Z", status: "planner-proposal-invalid", text: "Invalid planner output" },
+        ],
+      },
+    }],
+  })).toBeNull();
+});
 
 const snapshot = {
   project: { id: "repo", name: "Repo", path: "E:/repo" },
@@ -1243,6 +1292,7 @@ describe("Workbench web app", () => {
                   text: "为 `message.txt` 增加指定文本的实施方案",
                   agentRoleId: "planning-agent",
                   runId: "run-planning-agent",
+                  evidenceRefs: [{ label: "Plan proposal", ref: "proposal-1.json", kind: "artifact" }],
                   timestamp: "2026-07-07T00:00:01.000Z",
                 },
               ],
@@ -1352,6 +1402,7 @@ describe("Workbench web app", () => {
                 text: "先调整状态文案，再运行测试。",
                 agentRoleId: "planning-agent",
                 runId: "run-planning-agent",
+                evidenceRefs: [{ label: "Plan proposal", ref: "proposal-1.json", kind: "artifact" }],
               }],
               items: [],
             },

@@ -1,4 +1,4 @@
 interface:
   display_name: "AHO Workflow Authoring"
-  short_description: "Draft fixed AHO workflow proposals for review."
-  default_prompt: "Use $aho-workflow-authoring to draft a fixed Spec, Plan, Tasks, and Workflow JSON proposal for this demand."
+  short_description: "Draft reviewable, compilable AHO workflow proposals."
+  default_prompt: "Use $aho-workflow-authoring to draft a user-readable Spec, Plan, and Tasks with a compilable Workflow JSON appendix for this demand."

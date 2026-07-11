@@ -218,12 +218,15 @@ export function buildProjectScopedMainAgentPrompt(
     "If you decide real planner-child work is needed, create or maintain the native Goal before planning so the accepted objective can resume across gates.",
     "After every resumed evidence cycle, autonomously decide whether to continue, request plan revision, wait for the user, or call native update_goal(complete) only when the objective is actually satisfied.",
     "When planning is needed, you MUST use the real spawn_agent collaboration tool to create a planner child. Never use parent-thread Plan Mode as the planner.",
+    "When spawning the planner child, omit model and reasoning overrides so Codex inherits the Main Agent's current effective model unless the user explicitly requests a different model.",
     "The bundled $aho-workflow-authoring contract is attached to this turn. Include that complete contract in the planner child prompt; do not ask the child to discover a global or project-installed Skill.",
     "Do not invoke the aho CLI from the shell. Use project files for read-only evidence and the provider tools exposed by this turn for AHO-owned transitions.",
     "Do not write child-Agent output, child-Agent logs, implementation plans, acceptance lists, task lists, or internal runtime details as parent prose.",
     "Only native runtime tool/Plan/question events count as child-Agent or planning-session work; never simulate that work in text.",
     "If real provider-native child collaboration is unavailable, say that plainly. Do not fall back to Plan Mode, codex exec, or fabricated child output.",
     "If the user asks to execute after a plan, continue as the main Agent: read project guidance, enabled skills, and docs, then use available tools according to the project rules. Do not assume Workbench will create Harness records or execute the plan for you.",
+    "When the accepted workflow reaches a real human confirmation gate, give the user a brief visible conclusion and then call aho_goal_yield exactly once. The tool pauses Goal continuity only; it never executes the gated action.",
+    "You still own whether to continue, request a plan revision, or complete the Goal. Provider blocked is a valid bounded wait state, but do not use it as a substitute for aho_goal_yield when that tool is available.",
     "Do not expose internal product terms in the user-visible reply, including Harness, AGENTS.md, Change, active change, worktree, AC, tasks, TaskRun, WorkflowRun, queue, scheduler, bundle, close gate, validation, or audit.",
     "Use plain user-facing words instead, such as 项目记录, 项目说明, 当前任务, 工作副本, 验收点, 计划, 检查, 审查, or 完成前确认.",
     "When you produce a visible parent reply, keep it to 2-4 sentences in the user's language.",
@@ -279,6 +282,7 @@ async function runProjectScopedMainAgentTurn(
   const effectiveModel = await resolveCodexEffectiveModel();
   let mainThreadId: string | null = null;
   let boundChangeId: string | null = null;
+  let acceptedPlanMarker: TopicThreadEntry | null = null;
   const sessionStore = await WorkbenchStore.open(memory);
   try {
     const conversation = sessionStore.readConversation(memory.projectId, conversationId);
@@ -321,6 +325,10 @@ async function runProjectScopedMainAgentTurn(
       if (call.tool === "aho_accept_current_plan" && planHandoff?.kind === "execute-plan") {
         const accepted = await acceptCurrentConversationPlanningPackage(project, conversationId, planHandoff.sourceArtifact);
         boundChangeId = accepted.changeId;
+        acceptedPlanMarker = {
+          ...projectScopedPlanningMessage(conversationId, runId, `Accepted proposal ${accepted.proposalId}.`, PROJECT_PLANNING_AGENT_ROLE_ID),
+          status: "accepted",
+        };
         if (accepted.workflowGraphPlan.graphMode === "ready-set-v1") {
           const acceptedTopic = await resolveTopic(project, accepted.changeId);
           await runSchedulerReadySetInitialization(acceptedTopic.memory, acceptedTopic.changePath, accepted.workflowGraphPlan);
@@ -447,6 +455,7 @@ async function runProjectScopedMainAgentTurn(
       planMessages.push(message);
       store.appendMessage(toConversationStoredMessage(memory.projectId, conversationId, message));
     }
+    if (acceptedPlanMarker) store.appendMessage(toConversationStoredMessage(memory.projectId, conversationId, acceptedPlanMarker));
     if (assistant) store.appendMessage(toConversationStoredMessage(memory.projectId, conversationId, assistant));
   } finally {
     store.close();
@@ -761,7 +770,18 @@ const workflowActionHandlers = buildWorkbenchActionHandlers({
   findRunningRunForChange,
   continueTopicGoal: async (project, changeId, prompt, live) => {
     const conversationId = await resolveConversationId(project, changeId);
-    return runProjectScopedMainAgentTurn(project, conversationId, prompt?.trim() || "Continue the current accepted objective from the latest project evidence.", live);
+    const continuation = prompt?.trim() || "Continue the current accepted objective from the latest project evidence.";
+    const actionRunId = [...await readWorkflowActionThreadEntries(project, changeId)]
+      .reverse()
+      .find((entry) => entry.type === "workflow.started" && entry.actionType === "conversation.continue" && entry.status === "running")
+      ?.actionRunId;
+    if (!actionRunId) throw new Error("Explicit Goal continuation requires the current Workbench action identity.");
+    return runProjectScopedMainAgentTurn(project, conversationId, continuation, live, undefined, {
+      goalResume: {
+        deliveryKey: `conversation-continue:${actionRunId}`,
+        contextText: `The user explicitly requested continuation of the current native Goal.\n\n${continuation}`,
+      },
+    });
   },
 });
 

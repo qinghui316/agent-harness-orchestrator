@@ -43,7 +43,7 @@ describe("authored ready-set Scheduler initialization", () => {
         title: "Implement accepted task",
         taskIds: ["T-001"],
         acIds: ["AC-001"],
-        prompt: "Implement T-001 and return verification evidence.",
+        prompt: "Objective: Implement T-001. Required behavior: Complete the accepted task. Constraints: Stay within the accepted scope. Expected evidence: Return verification results.",
         dependsOn: [],
         sourceScopes: ["src/feature.ts"],
       }],

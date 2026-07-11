@@ -23,7 +23,7 @@ vi.mock("../../src/codex/app-server.js", async (importOriginal) => {
 import { initHarness } from "../../src/harness/init.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import type { ManagedProject } from "../../src/types/index.js";
-import { createWorkbenchConversation, listConversationMessages, postConversationMessage } from "../../src/workbench/chat.js";
+import { createWorkbenchConversation, listConversationMessages, postConversationMessage, runWorkbenchWorkflowAction } from "../../src/workbench/chat.js";
 import { getWorkbenchSnapshot } from "../../src/workbench/manager.js";
 import { readLatestWorkflowGraphPlan } from "../../src/workflow-artifacts/manager.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
@@ -47,6 +47,7 @@ afterEach(async () => {
 
 describe("Workbench provider planning flow", () => {
   it("carries a real planner-child result through execute intent into an accepted graph and concrete gate", async () => {
+    let continueDeliveryKey = "";
     appServerTurn
       .mockImplementationOnce(async (options) => {
         options.onTextDelta?.("我已让计划子 Agent 根据当前项目准备方案。");
@@ -90,6 +91,22 @@ describe("Workbench provider planning flow", () => {
           goal: nativeGoal("paused"),
           childThreads: [],
         };
+      })
+      .mockImplementationOnce(async (options) => {
+        expect(options.prompt).toContain("Continue the accepted health endpoint Goal.");
+        expect(options.goalResume).toMatchObject({
+          deliveryKey: expect.stringMatching(/^conversation-continue:/),
+          contextText: expect.stringContaining("The user explicitly requested continuation"),
+        });
+        continueDeliveryKey = options.goalResume?.deliveryKey ?? "";
+        return {
+          status: "completed",
+          threadId: "thread-main",
+          turnId: "turn-continue",
+          lastMessage: "继续检查当前目标。",
+          goal: nativeGoal("blocked"),
+          childThreads: [],
+        };
       });
 
     const conversation = await createWorkbenchConversation(project(), {
@@ -109,6 +126,9 @@ describe("Workbench provider planning flow", () => {
         sourceAgentRoleId: "planning-agent",
       },
     });
+    expect((await listConversationMessages(project(), conversation.conversationId))
+      .filter((message) => message.agentRoleId === "planning-agent")
+      .at(-1)).toMatchObject({ status: "accepted", artifact: undefined });
 
     const memory = await resolveProjectMemory(project());
     const store = await WorkbenchStore.open(memory);
@@ -133,11 +153,19 @@ describe("Workbench provider planning flow", () => {
     expect(snapshot.right.confirmationQueue.primary?.actions).toEqual(expect.arrayContaining([
       expect.objectContaining({ actionType: "workflow.run.start", changeId }),
     ]));
-    expect(appServerTurn).toHaveBeenCalledTimes(2);
+    const continued = await runWorkbenchWorkflowAction(project(), {
+      actionType: "conversation.continue",
+      changeId,
+      prompt: "Continue the accepted health endpoint Goal.",
+    });
+    expect(continued.error).toBeUndefined();
+    expect(continued.status).toBe("completed");
+    expect(continueDeliveryKey).toBe(`conversation-continue:${continued.actionRunId}`);
+    expect(appServerTurn).toHaveBeenCalledTimes(3);
   });
 });
 
-function nativeGoal(status: "active" | "paused") {
+function nativeGoal(status: "active" | "paused" | "blocked") {
   return {
     threadId: "thread-main",
     objective: "Add a health endpoint with regression coverage",
@@ -164,7 +192,7 @@ function plannerProposal(): string {
           title: "Add health endpoint",
           taskIds: ["T-001"],
           acIds: ["AC-001"],
-          prompt: "Add GET /healthz and regression coverage while preserving GET /.",
+          prompt: "Objective: Add GET /healthz. Required behavior: Add regression coverage while preserving GET /. Constraints: Stay within src and test scopes. Expected evidence: Report changed files and test results.",
           dependsOn: [],
           sourceScopes: ["src/**", "test/**"],
         }],

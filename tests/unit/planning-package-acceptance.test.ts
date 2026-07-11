@@ -7,7 +7,7 @@ import { initHarness } from "../../src/harness/init.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import type { ManagedProject } from "../../src/types/index.js";
 import { createWorkbenchConversation } from "../../src/workbench/chat.js";
-import { acceptCurrentConversationPlanningPackage, writePlannerChildProposal } from "../../src/workbench/planning/planner-child-proposal.js";
+import { acceptCurrentConversationPlanningPackage, parsePlannerChildOutput, writePlannerChildProposal } from "../../src/workbench/planning/planner-child-proposal.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import { startOrResumeTaskQueue } from "../../src/task-queue/manager.js";
 
@@ -21,6 +21,31 @@ beforeEach(async () => {
 afterEach(async () => rm(root, { recursive: true, force: true }));
 
 describe("conversation planner-child package acceptance", () => {
+  it("writes same-child revisions as immutable hash-addressed artifacts", async () => {
+    const conversation = await createWorkbenchConversation(project(), { title: "Revise health", body: "Plan health." }, undefined, { runMainAgent: false });
+    const memory = await resolveProjectMemory(project());
+    const initial = await proposalFor(memory.workbenchRoot, conversation.conversationId, "Initial health behavior.", "run-1", "child-1");
+    const revised = await proposalFor(memory.workbenchRoot, conversation.conversationId, "Revised health behavior.", "run-2", "child-1");
+
+    expect(revised.artifact).not.toBe(initial.artifact);
+    expect(JSON.parse(await readFile(initial.artifact, "utf8"))).toMatchObject({ id: initial.id, hash: initial.hash });
+    expect(JSON.parse(await readFile(revised.artifact, "utf8"))).toMatchObject({ id: revised.id, hash: revised.hash });
+  });
+
+  it("rejects ambiguous bare AC syntax before proposal projection", () => {
+    expect(() => parsePlannerChildOutput(JSON.stringify({
+      status: "proposed",
+      specMd: "# Spec\n\n## Acceptance Criteria\n\nAC-001: Health endpoint responds.\n",
+      planMd: [
+        "# Plan", "", "## Workflow", "", "```json",
+        JSON.stringify({ version: "1.0", mode: "sequential-v1", nodes: [{ id: "health", title: "Expose health", taskIds: ["T-001"], acIds: ["AC-001"], prompt: structuredPrompt("Expose health."), dependsOn: [], sourceScopes: ["src/**"] }] }),
+        "```",
+      ].join("\n"),
+      tasksMd: "# Tasks\n\n- [ ] T-001: Expose health.\n  - Covers: AC-001\n",
+      openQuestions: [], assumptions: [], warnings: [],
+    }))).toThrow("'- AC-001: ...' form");
+  });
+
   it("atomically creates accepted Change artifacts and one canonical graph without execution records", async () => {
     const conversation = await createWorkbenchConversation(project(), { title: "Add a health endpoint", body: "Add GET /health and test it." }, undefined, { runMainAgent: false });
     const memory = await resolveProjectMemory(project());
@@ -167,7 +192,7 @@ async function proposalFor(workbenchRoot: string, conversationId: string, prompt
       specMd: "# Spec\n\n## Acceptance Criteria\n\n- AC-001: Health endpoint responds successfully.\n",
       planMd: [
         "# Plan", "", "## Approach", "Implement the endpoint.", "", "## Workflow", "", "```json",
-        JSON.stringify({ version: "1.0", mode: "sequential-v1", nodes: [{ id: "health", title: "Health endpoint", taskIds: ["T-001"], acIds: ["AC-001"], prompt, dependsOn: [], sourceScopes: ["src/**", "tests/**"] }] }, null, 2),
+        JSON.stringify({ version: "1.0", mode: "sequential-v1", nodes: [{ id: "health", title: "Health endpoint", taskIds: ["T-001"], acIds: ["AC-001"], prompt: structuredPrompt(prompt), dependsOn: [], sourceScopes: ["src/**", "tests/**"] }] }, null, 2),
         "```", "",
       ].join("\n"),
       tasksMd: "# Tasks\n\n- [ ] T-001: Implement and test the health endpoint.\n  - Covers: AC-001\n",
@@ -200,6 +225,10 @@ async function proposalFor(workbenchRoot: string, conversationId: string, prompt
     store.close();
   }
   return proposal;
+}
+
+function structuredPrompt(objective: string): string {
+  return `Objective: ${objective} Required behavior: Complete the accepted task. Constraints: Stay within accepted source scopes. Expected evidence: Report changed files and verification results.`;
 }
 
 function project(): ManagedProject {

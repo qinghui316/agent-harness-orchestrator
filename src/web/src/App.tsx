@@ -1199,6 +1199,7 @@ export function App(): ReactElement {
         planHandoffIntent: {
           sourceRunId: candidate.sourceRunId,
           sourceAgentRoleId: candidate.sourceAgentRoleId,
+          sourceArtifact: candidate.sourceArtifact,
           kind,
           feedback: trimmedFeedback || undefined,
         },
@@ -2227,7 +2228,7 @@ function isOrchestrationTabParam(value: string | null): boolean {
 }
 
 function planHandoffCandidateKey(topicId: string, candidate: PlanHandoffCandidate): string {
-  return `${topicId}:${candidate.sourceAgentRoleId}:${candidate.sourceRunId}`;
+  return `${topicId}:${candidate.sourceAgentRoleId}:${candidate.sourceRunId}:${candidate.proposalKey}`;
 }
 
 function isRequestScopedToTopic(request: CodexUserInputRequest, topicId: string): boolean {

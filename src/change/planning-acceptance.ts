@@ -43,6 +43,32 @@ export interface ValidatedPlanningPackageInput {
   proposal: ValidatedPlanningProposal;
 }
 
+export function validatePlanningProposalArtifacts(proposal: Pick<ValidatedPlanningProposal, "specMd" | "planMd" | "tasksMd">) {
+  const criteria = parseAcceptanceCriteria(proposal.specMd).criteria;
+  const tasks = parseTasks(proposal.tasksMd).tasks;
+  if (criteria.length === 0 || tasks.length === 0) {
+    throw new Error("Accepted planning requires at least one AC in '- AC-001: ...' form and one task in '- [ ] T-001: ...' form.");
+  }
+  const acMap = buildAcMap({
+    changeId: "pending",
+    specContent: proposal.specMd,
+    tasksContent: proposal.tasksMd,
+    placeholderFiles: [
+      { path: "spec.md", content: proposal.specMd },
+      { path: "plan.md", content: proposal.planMd },
+      { path: "tasks.md", content: proposal.tasksMd },
+    ],
+  });
+  if (acMap.blockingIssues.length > 0) {
+    throw new Error(`Planning package is not internally consistent:\n${acMap.blockingIssues.join("\n")}`);
+  }
+  const authored = parseWorkflowAuthoringPlan(proposal.planMd, {
+    taskIds: tasks.map((task) => task.id),
+    acIds: criteria.map((criterion) => criterion.id),
+  });
+  return { criteria, tasks, acMap, authored };
+}
+
 export interface PlanningAcceptanceCommitPort {
   hasCommit(transactionId: string): boolean;
   commit(input: {
@@ -84,24 +110,7 @@ async function acceptPlanningPackageUnlocked(
   assertWritableMemory(memory, "Conversation planning package accept");
   if (!memory.projectId) throw new Error("Project id is required to accept a conversation planning package.");
 
-  const criteria = parseAcceptanceCriteria(proposal.specMd).criteria;
-  const tasks = parseTasks(proposal.tasksMd).tasks;
-  if (criteria.length === 0 || tasks.length === 0) throw new Error("Accepted planning requires at least one AC and one task.");
-  const acMap = buildAcMap({
-    changeId: "pending",
-    specContent: proposal.specMd,
-    tasksContent: proposal.tasksMd,
-    placeholderFiles: [
-      { path: "spec.md", content: proposal.specMd },
-      { path: "plan.md", content: proposal.planMd },
-      { path: "tasks.md", content: proposal.tasksMd },
-    ],
-  });
-  if (acMap.blockingIssues.length > 0) throw new Error(`Planning package is not internally consistent:\n${acMap.blockingIssues.join("\n")}`);
-  const authored = parseWorkflowAuthoringPlan(proposal.planMd, {
-    taskIds: tasks.map((task) => task.id),
-    acIds: criteria.map((criterion) => criterion.id),
-  });
+  const { criteria, tasks, acMap, authored } = validatePlanningProposalArtifacts(proposal);
 
   await recoverPlanningAcceptanceTransactions(memory, commitPort);
   const boundActive = boundChangeId && existsSync(join(memory.changesRoot, "active", boundChangeId))

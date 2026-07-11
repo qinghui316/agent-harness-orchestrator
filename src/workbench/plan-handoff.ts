@@ -28,6 +28,7 @@ export function validatePlanHandoffIntent(
     message.type === "assistant.message"
     && message.agentRoleId === intent.sourceAgentRoleId
     && message.runId === sourceRunId
+    && (!intent.sourceArtifact || message.artifact === intent.sourceArtifact)
     && Boolean(extractPlanText(message))
     && Boolean(message.artifact)
   ));
@@ -37,9 +38,9 @@ export function validatePlanHandoffIntent(
   return {
     ...intent,
     sourceRunId,
+    sourceArtifact: source.artifact as string,
     feedback,
     planText,
-    sourceArtifact: source.artifact as string,
   };
 }
 

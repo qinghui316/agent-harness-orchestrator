@@ -199,6 +199,7 @@ export type PlanHandoffIntentKind = "execute-plan" | "revise-plan";
 export interface PlanHandoffIntent {
   sourceRunId: string;
   sourceAgentRoleId: PlanHandoffAgentRoleId;
+  sourceArtifact?: string;
   kind: PlanHandoffIntentKind;
   feedback?: string;
 }

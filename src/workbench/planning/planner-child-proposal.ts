@@ -7,6 +7,7 @@ import {
   type AcceptedPlanningPackage,
   type PlanningAcceptanceCommitPort,
   type ValidatedPlanningPackageInput,
+  validatePlanningProposalArtifacts,
 } from "../../change/manager.js";
 import { writeJsonFile } from "../../fs/json.js";
 import { readRequiredJsonFile } from "../../fs/json.js";
@@ -89,6 +90,7 @@ export function parsePlannerChildOutput(text: string): z.infer<typeof plannerChi
   if (parsed.status === "proposed" && (!parsed.specMd.trim() || !parsed.planMd.trim() || !parsed.tasksMd.trim())) {
     throw new Error("A proposed planner child result requires specMd, planMd, and tasksMd.");
   }
+  if (parsed.status === "proposed") validatePlanningProposalArtifacts(parsed);
   return parsed;
 }
 
@@ -103,7 +105,7 @@ export async function writePlannerChildProposal(input: {
 }): Promise<PlannerChildProposal> {
   const output = parsePlannerChildOutput(input.finalText);
   const hash = proposalHash({ ...input, output });
-  const artifact = join(input.directory, `planner-proposal-${input.childThreadId}.json`);
+  const artifact = join(input.directory, `planner-proposal-${hash.slice(0, 16)}.json`);
   const proposal: PlannerChildProposal = {
     version: "1.0",
     id: `planner-proposal-${hash.slice(0, 16)}`,
@@ -199,7 +201,7 @@ async function validateCurrentConversationPlanningPackage(
       throw new Error("Planner proposal does not belong to the current Main/child provider lineage.");
     }
     const latestProposalArtifact = store.listConversationMessages(memory.projectId, conversationId)
-      .filter((message) => storedAgentRoleId(message.rawJson) === "planning-agent" && Boolean(message.artifact))
+      .filter((message) => storedAgentRoleId(message.rawJson) === "planning-agent")
       .at(-1)?.artifact;
     if (latestProposalArtifact !== proposal.artifact) throw new Error("Planner proposal is stale or superseded.");
     return {

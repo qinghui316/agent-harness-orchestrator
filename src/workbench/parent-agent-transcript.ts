@@ -91,6 +91,7 @@ interface TranscriptThreadItemInput {
   source?: string;
   status?: string;
   runId?: string;
+  artifact?: string;
   agentRoleId?: string;
   agentTaskId?: string;
   activity?: AssistantTurnActivity[];
@@ -192,6 +193,9 @@ function transcriptCellsFromThreadItem(
         agentRoleId,
         agentTaskId: item.agentTaskId,
         runId: cell.runId ?? item.runId,
+        evidenceRefs: item.artifact
+          ? [{ label: "Plan proposal", ref: item.artifact, kind: "artifact" }, ...(cell.evidenceRefs ?? [])]
+          : cell.evidenceRefs,
       });
     }
   }
@@ -387,6 +391,7 @@ function consolidateTranscriptCells(cells: ParentAgentTranscriptCell[]): ParentA
       && prev.source === cell.source
       && prev.agentRoleId === cell.agentRoleId
       && prev.agentTaskId === cell.agentTaskId
+      && prev.runId === cell.runId
       && !prev.title
       && !cell.title
     ) {

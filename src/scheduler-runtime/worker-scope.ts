@@ -52,8 +52,9 @@ export function resolveSchedulerWorkerReservationIntent(
   return intent;
 }
 
-export function composeSchedulerWorkerCoderScopePrompt(context: SchedulerWorkerScopeContext): string {
+export function composeSchedulerWorkerCoderScopePrompt(context: SchedulerWorkerScopeContext, acceptedObjective?: string): string {
   return [
+    ...(acceptedObjective?.trim() ? [`Accepted workflow node objective:\n${acceptedObjective.trim()}`] : []),
     `Scheduler worker scope: implement only task ${context.taskId}.`,
     `Task text: ${context.taskText}`,
     `Current worker source scopes: ${formatScopes(context.currentSourceScopes)}.`,

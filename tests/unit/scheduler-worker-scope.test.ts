@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildSchedulerWorkerScopeContext,
+  composeSchedulerWorkerCoderScopePrompt,
   composeSchedulerWorkerAuditScopePrompt,
   composeSchedulerWorkerReworkScopePrompt,
   findSiblingSourceScopeWrites,
@@ -10,6 +11,16 @@ import type { ChangeStatus } from "../../src/types/index.js";
 import type { SchedulerRuntimeClaimReservation } from "../../src/scheduler-runtime/types.js";
 
 describe("scheduler worker task scope", () => {
+  it("places the accepted workflow objective before server-derived worker scope", () => {
+    const context = buildSchedulerWorkerScopeContext(changeStatus(), reservation(), reservation().reservationIntents[0], "T-001");
+
+    const prompt = composeSchedulerWorkerCoderScopePrompt(context, "Objective: expose alpha behavior. Required behavior: preserve beta.");
+
+    expect(prompt).toContain("Accepted workflow node objective:\nObjective: expose alpha behavior. Required behavior: preserve beta.");
+    expect(prompt).toContain("Current worker source scopes: src/alpha.ts.");
+    expect(prompt).toContain("Do not modify sibling scheduler source scopes: src/beta.ts.");
+  });
+
   it("tells worker audit to ignore unimplemented sibling task scopes", () => {
     const context = buildSchedulerWorkerScopeContext(changeStatus(), reservation(), reservation().reservationIntents[0], "T-001");
 

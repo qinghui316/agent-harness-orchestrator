@@ -1,4 +1,5 @@
 import { mkdir, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { readRequiredJsonFile, writeJsonFile } from "../fs/json.js";
 import type { ReadySetWorkflowGraphPlan, ResolvedMemory, SequentialWorkflowGraphPlan, WorkflowGraphPlan } from "../types/index.js";
@@ -65,6 +66,7 @@ function compileAuthoredWorkflowGraphPlan(plan: WorkflowAuthoringPlan, options: 
       { key: "nodeId", value: node.id },
       { key: "taskIds", value: node.taskIds },
       { key: "sourceScopes", value: node.sourceScopes },
+      { key: "nodePromptHash", value: sha256(node.prompt) },
     ];
     const stageRefs = stageOrder.map((stage) => ({
       id: `${node.id}:${stage}`,
@@ -121,6 +123,10 @@ function compileAuthoredWorkflowGraphPlan(plan: WorkflowAuthoringPlan, options: 
     maxPlannedWaveWidth: Math.max(...waves.map((wave) => wave.nodeIds.length)),
     recoveryKeyCoverage: "complete",
   };
+}
+
+function sha256(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
 }
 
 function compileReadySetWaveIndexes(plan: WorkflowAuthoringPlan): Map<string, number> {

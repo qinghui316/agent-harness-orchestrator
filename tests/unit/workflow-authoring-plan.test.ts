@@ -6,6 +6,7 @@ import {
   type AuthoredWorkflowGraphCompileOptions,
   type WorkflowAuthoringPlan,
 } from "../../src/workflow-artifacts/manager.js";
+import { validatePlanningProposalArtifacts } from "../../src/change/manager.js";
 
 const references = {
   taskIds: ["T-001"],
@@ -24,7 +25,24 @@ describe("fixed plan.md Workflow authoring contract", () => {
       .map((match) => match[1])
       .find((block) => block?.includes('"mode"'));
     expect(example).toBeTruthy();
-    expect(parseWorkflowAuthoringPlan(planMarkdown(JSON.parse(example!)), references).mode).toBe("sequential-v1");
+    expect(parseWorkflowAuthoringPlan(planMarkdown(JSON.parse(example!)), {
+      taskIds: ["T-001"],
+      acIds: ["AC-001", "AC-002"],
+    }).mode).toBe("sequential-v1");
+  });
+
+  it("validates the complete user-readable worked example with the production contract", async () => {
+    const reference = await readFile("templates/system-skills/aho-workflow-authoring/references/complete-example.md", "utf8");
+    const envelopeText = /````json\s*([\s\S]*?)````/i.exec(reference)?.[1];
+    expect(envelopeText).toBeTruthy();
+    const envelope = JSON.parse(envelopeText!) as { specMd: string; planMd: string; tasksMd: string };
+
+    const validated = validatePlanningProposalArtifacts(envelope);
+
+    expect(validated.authored.mode).toBe("sequential-v1");
+    expect(validated.criteria.map((item) => item.id)).toEqual(["AC-001", "AC-002", "AC-003"]);
+    expect(envelope.planMd).toContain("## Goal");
+    expect(envelope.planMd.indexOf("## Goal")).toBeLessThan(envelope.planMd.indexOf("## Workflow"));
   });
 
   it("parses exactly the fenced JSON under ## Workflow", () => {
@@ -140,6 +158,32 @@ describe("fixed plan.md Workflow authoring contract", () => {
       ],
     }), completeReferences)).toThrow("a -> c -> b -> a");
   });
+
+  it("rejects unsafe scopes, overlapping ready-set scopes, and unstructured prompts", () => {
+    expect(() => parseWorkflowAuthoringPlan(planMarkdown({
+      version: "1.0",
+      mode: "sequential-v1",
+      nodes: [{ ...node("unsafe"), sourceScopes: ["../src/**"] }],
+    }), references)).toThrow("unsafe source scope");
+
+    expect(() => parseWorkflowAuthoringPlan(planMarkdown({
+      version: "1.0",
+      mode: "ready-set-v1",
+      nodes: [node("one", ["T-001"], ["AC-001"], [], ["src/**"]), node("two", ["T-002"], ["AC-002"], [], ["src/api/**"])],
+    }), { taskIds: ["T-001", "T-002"], acIds: ["AC-001", "AC-002"] })).toThrow("overlapping source scopes");
+
+    expect(() => parseWorkflowAuthoringPlan(planMarkdown({
+      version: "1.0",
+      mode: "ready-set-v1",
+      nodes: [node("one", ["T-001"], ["AC-001"], [], ["**/*.ts"]), node("two", ["T-002"], ["AC-002"], [], ["src/server.ts"])],
+    }), { taskIds: ["T-001", "T-002"], acIds: ["AC-001", "AC-002"] })).toThrow("overlapping source scopes");
+
+    expect(() => parseWorkflowAuthoringPlan(planMarkdown({
+      version: "1.0",
+      mode: "sequential-v1",
+      nodes: [{ ...node("prompt"), prompt: "Implement it." }],
+    }), references)).toThrow("prompt must contain");
+  });
 });
 
 describe("authored WorkflowGraphPlan compiler", () => {
@@ -171,6 +215,9 @@ describe("authored WorkflowGraphPlan compiler", () => {
       expect.objectContaining({ index: 0, nodeIds: ["api", "ui"] }),
       expect.objectContaining({ index: 1, nodeIds: ["verify"] }),
     ]);
+    expect(first.graphMode === "ready-set-v1" && first.nodes[0]?.recoveryKeyInputs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "nodePromptHash", value: expect.stringMatching(/^[a-f0-9]{64}$/) }),
+    ]));
   });
 
   it("does not invent sequential business dependencies, prompts, nodes, or scopes", () => {
@@ -179,7 +226,7 @@ describe("authored WorkflowGraphPlan compiler", () => {
       mode: "sequential-v1",
       nodes: [
         node("first", ["T-001"], ["AC-001"], [], ["src/first.ts"]),
-        { ...node("second", ["T-002"], ["AC-002"], [], ["src/second.ts"]), prompt: "Use the exact authored prompt." },
+        { ...node("second", ["T-002"], ["AC-002"], [], ["src/second.ts"]), prompt: structuredPrompt("Use the exact authored prompt.") },
       ],
     };
 
@@ -208,10 +255,14 @@ function node(
     title: `Node ${id}`,
     taskIds,
     acIds,
-    prompt: `Implement ${id} and return verification evidence.`,
+    prompt: structuredPrompt(`Implement ${id} and return verification evidence.`),
     dependsOn,
     sourceScopes,
   };
+}
+
+function structuredPrompt(objective: string): string {
+  return `Objective: ${objective} Required behavior: Complete the accepted task. Constraints: Stay within the accepted source scopes. Expected evidence: Report changed files and verification results.`;
 }
 
 function planMarkdown(workflow: unknown): string {

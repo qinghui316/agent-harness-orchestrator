@@ -1,4 +1,5 @@
 import { resolveRunnableChangeTarget } from "../change/target.js";
+import { createHash } from "node:crypto";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import {
   compileSchedulerIntegrationCandidate,
@@ -263,6 +264,8 @@ export function resolveSchedulerReadySetWorkerStartTarget(input: {
   }
   const graphNode = graphNodeForIntent(input.view, selectedIntent, input.actionType);
   const coderStage = coderStageForNode(graphNode, input.actionType);
+  const acceptedPrompt = graphNode.prompt?.trim();
+  if (!acceptedPrompt) throw new Error(`${input.actionType} current ready-set graph node has no accepted coder objective.`);
   if (graphNode.taskIds.length !== 1) {
     throw new Error(`${input.actionType} currently requires a ready-set graph node with exactly one task id.`);
   }
@@ -273,6 +276,7 @@ export function resolveSchedulerReadySetWorkerStartTarget(input: {
     unitId: selectedIntent.unitId,
     stageRefId: coderStage.id,
     taskId: graphNode.taskIds[0],
+    prompt: acceptedPrompt,
     reservationIntentId: selectedIntent.reservationIntentId,
     claimIntentId: selectedIntent.claimIntentId,
     sourceLocks: graphNode.sourceLocks.map((lock) => ({
@@ -283,8 +287,18 @@ export function resolveSchedulerReadySetWorkerStartTarget(input: {
       claimIntentId: lock.claimIntentId,
       stageIds: [...lock.stageIds],
     })),
-    recoveryKeyInputs: [...graphNode.recoveryKeyInputs, ...coderStage.recoveryKeyInputs],
+    recoveryKeyInputs: uniqueRecoveryInputs([
+      ...graphNode.recoveryKeyInputs,
+      ...coderStage.recoveryKeyInputs,
+      { key: "nodePromptHash", value: createHash("sha256").update(acceptedPrompt).digest("hex") },
+    ]),
   };
+}
+
+function uniqueRecoveryInputs(inputs: { key: string; value: string | string[] }[]): { key: string; value: string | string[] }[] {
+  const byKey = new Map<string, { key: string; value: string | string[] }>();
+  for (const input of inputs) byKey.set(input.key, input);
+  return [...byKey.values()];
 }
 
 function graphNodeForIntent(

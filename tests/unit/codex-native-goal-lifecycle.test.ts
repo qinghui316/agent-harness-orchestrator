@@ -92,17 +92,89 @@ describe("Codex native Goal lifecycle", () => {
     expect(server.events.indexOf("turn-interrupted")).toBeLessThan(server.events.indexOf("goal-paused"));
   });
 
-  it("does not resume a complete Goal", async () => {
-    const server = new FakeGoalAppServer("complete");
+  it("resumes a blocked Goal through the same idempotent evidence path", async () => {
+    const server = new FakeGoalAppServer("blocked");
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+
+    const result = await runCodexAppServerTurn(await options({
+      goalResume: { deliveryKey: "action-blocked:evidence-blocked", contextText: "blocked canonical evidence" },
+      onDynamicToolCall: yieldToolResult,
+    }));
+
+    expect(result).toMatchObject({ status: "interrupted", goal: { status: "paused" } });
+    expect(server.methods).toEqual(expect.arrayContaining(["thread/read", "thread/inject_items", "thread/goal/set"]));
+    expect(server.methods).not.toContain("turn/start");
+    expect(server.injectedItems).toHaveLength(1);
+  });
+
+  it("returns without competing injection when action evidence observes an already active Goal", async () => {
+    const server = new FakeGoalAppServer("active");
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+
+    const result = await runCodexAppServerTurn(await options({
+      goalResume: { deliveryKey: "duplicate-active", contextText: "late duplicate evidence" },
+    }));
+
+    expect(result).toMatchObject({ status: "completed", goal: { status: "active" } });
+    expect(server.methods).toContain("thread/resume");
+    expect(server.methods).not.toEqual(expect.arrayContaining(["thread/inject_items", "thread/goal/set", "turn/start"]));
+  });
+
+  it("waits for the parent turn terminal before returning a blocked Goal and final message", async () => {
+    const server = new FakeGoalAppServer("active", [], "blocked");
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+
+    let settled = false;
+    const resultPromise = runCodexAppServerTurn(await options({})).finally(() => {
+      settled = true;
+    });
+    await waitForServerEvent(server, "goal-blocked");
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(settled).toBe(false);
+    server.completeBlockedTurn();
+    const result = await resultPromise;
+
+    expect(result).toMatchObject({ status: "completed", goal: { status: "blocked" } });
+    expect(result.lastMessage).toContain("Waiting for external confirmation.");
+    expect(server.events.indexOf("goal-blocked")).toBeLessThan(server.events.indexOf("turn-completed"));
+  });
+
+  it("fails immediately when an active session receives an unknown Goal status notification", async () => {
+    const server = new FakeGoalAppServer("active", [], "unknown");
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+
+    const result = await runCodexAppServerTurn(await options({ timeoutMs: 60_000 }));
+
+    expect(result).toMatchObject({
+      status: "failed",
+      error: "Unsupported Codex native Goal status: providerFutureStatus.",
+    });
+  });
+
+  it.each(["usageLimited", "budgetLimited", "complete"] as const)("does not resume a %s Goal", async (status) => {
+    const server = new FakeGoalAppServer(status);
     spawnMock.mockReturnValue(server as unknown as ChildProcess);
 
     const result = await runCodexAppServerTurn(await options({
       goalResume: { deliveryKey: "action-2:evidence-2", contextText: "late evidence" },
     }));
 
-    expect(result).toMatchObject({ status: "completed", goal: { status: "complete" } });
+    expect(result).toMatchObject({ status: "completed", goal: { status } });
     expect(server.methods).toEqual(["initialize", "thread/goal/get"]);
     expect(server.injectedItems).toHaveLength(0);
+  });
+
+  it("fails immediately when the provider reports an unknown Goal status", async () => {
+    const server = new FakeGoalAppServer("providerFutureStatus");
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+
+    const result = await runCodexAppServerTurn(await options({ timeoutMs: 60_000 }));
+
+    expect(result).toMatchObject({
+      status: "failed",
+      error: "Unsupported Codex native Goal status: providerFutureStatus.",
+    });
+    expect(server.methods).toEqual(["initialize", "thread/goal/get"]);
   });
 
   it("does not inject duplicate action evidence already present in thread history", async () => {
@@ -141,6 +213,18 @@ describe("Codex native Goal lifecycle", () => {
     expect(server.methods).not.toContain("thread/inject_items");
   });
 
+  it("delivers an ordinary user message without activating the blocked Goal", async () => {
+    const server = new FakeGoalAppServer("blocked");
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+
+    const result = await runCodexAppServerTurn(await options({ prompt: "Review the blocker without continuing the Goal." }));
+
+    expect(result).toMatchObject({ status: "completed", goal: { status: "blocked" } });
+    expect(server.methods).toContain("turn/start");
+    expect(server.methods).not.toContain("thread/goal/set");
+    expect(server.methods).not.toContain("thread/inject_items");
+  });
+
   it("confirms the native Goal paused when the user interrupts the active turn", async () => {
     const server = new FakeGoalAppServer("active");
     spawnMock.mockReturnValue(server as unknown as ChildProcess);
@@ -164,6 +248,15 @@ async function waitForActiveTurn(changeId: string) {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error("Codex app-server test turn did not become active.");
+}
+
+async function waitForServerEvent(server: FakeGoalAppServer, event: string): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  while (Date.now() < deadline) {
+    if (server.events.includes(event)) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`Fake app-server event did not occur: ${event}.`);
 }
 
 async function yieldToolResult() {
@@ -209,12 +302,16 @@ class FakeGoalAppServer extends EventEmitter {
   private goal: CodexAppServerThreadGoal;
   private readonly history: unknown[];
 
-  constructor(status: CodexAppServerThreadGoal["status"], history: unknown[] = []) {
+  constructor(
+    status: CodexAppServerThreadGoal["status"] | string,
+    history: unknown[] = [],
+    private readonly activeOutcome: "tool" | "blocked" | "unknown" = "tool",
+  ) {
     super();
     this.goal = {
       threadId: "thread-1",
       objective: "Finish the accepted Change",
-      status,
+      status: status as CodexAppServerThreadGoal["status"],
       tokenBudget: null,
       tokensUsed: 10,
       timeUsedSeconds: 1,
@@ -235,6 +332,11 @@ class FakeGoalAppServer extends EventEmitter {
     this.stdout.end();
     this.stderr.end();
     return true;
+  }
+
+  completeBlockedTurn(): void {
+    this.events.push("turn-completed");
+    this.notify("turn/completed", { threadId: "thread-1", turn: { id: "turn-1", status: "completed" } });
   }
 
   private drain(): void {
@@ -270,7 +372,17 @@ class FakeGoalAppServer extends EventEmitter {
         this.respond(id, { thread: { id: "thread-1" } });
         if (this.goal.status === "active") {
           this.notify("turn/started", { threadId: "thread-1", turn: { id: "turn-1", status: "inProgress" } });
-          this.requestTool();
+          if (this.activeOutcome === "blocked") {
+            this.goal = { ...this.goal, status: "blocked", updatedAt: this.goal.updatedAt + 1 };
+            this.events.push("goal-blocked");
+            this.notify("thread/goal/updated", { threadId: "thread-1", goal: this.goal });
+            this.notify("item/completed", { item: { type: "agentMessage", text: "Waiting for external confirmation." } });
+          } else if (this.activeOutcome === "unknown") {
+            const unknownGoal = { ...this.goal, status: "providerFutureStatus", updatedAt: this.goal.updatedAt + 1 };
+            this.notify("thread/goal/updated", { threadId: "thread-1", goal: unknownGoal });
+          } else {
+            this.requestTool();
+          }
         } else {
           this.notify("thread/goal/updated", { threadId: "thread-1", goal: this.goal });
         }

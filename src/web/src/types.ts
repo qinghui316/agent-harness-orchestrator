@@ -496,6 +496,7 @@ export type PlanHandoffIntentKind = "execute-plan" | "revise-plan";
 export type PlanHandoffIntent = {
   sourceRunId: string;
   sourceAgentRoleId: PlanHandoffAgentRoleId;
+  sourceArtifact?: string;
   kind: PlanHandoffIntentKind;
   feedback?: string;
 };
@@ -504,6 +505,8 @@ export type PlanHandoffCandidate = {
   sourceAgentRoleId: PlanHandoffAgentRoleId;
   title: string;
   planText: string;
+  sourceArtifact?: string;
+  proposalKey: string;
 };
 export type TopicDetail = Topic & {
   closeGate?: { ready: boolean; warnings: string[]; blockingIssues: string[] };

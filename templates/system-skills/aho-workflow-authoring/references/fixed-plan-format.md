@@ -1,6 +1,7 @@
 # Fixed Proposal Format
 
-Return a structured object with exactly these fields:
+Return exactly these six fields as a JSON object, without commentary or a
+Markdown fence:
 
 ```json
 {
@@ -13,16 +14,15 @@ Return a structured object with exactly these fields:
 }
 ```
 
-All six fields are required. Markdown fields are strings; the remaining fields
-are arrays of strings. Do not wrap the object in commentary or a markdown code
-fence.
+All fields are required. Markdown fields are strings; the other fields are
+arrays of strings.
 
-## `specMd`
+## Spec
 
 Use these headings in order:
 
 ```markdown
-# Spec: <change title>
+# Spec: <specific outcome>
 
 ## Purpose
 ## Users
@@ -32,25 +32,44 @@ Use these headings in order:
 ## Risks
 ```
 
-Number acceptance criteria as `AC-001`, `AC-002`, and so on. Make each criterion
-observable and testable.
+Every criterion must use this exact list syntax:
 
-## `planMd`
+```markdown
+- AC-001: <observable and testable result>
+- AC-002: <observable and testable result>
+```
+
+The `- ` list marker, `AC-` identifier, three or more digits, and colon are
+required. Bare lines such as `AC-001: ...` are invalid.
+
+## Plan
 
 Use these headings in order:
 
 ```markdown
-# Plan: <change title>
+# Plan: <specific outcome>
 
-## Approach
-## Steps
-## Decisions
+## Goal
+## Proposed Changes
+## Implementation
 ## Verification
+## Risks And Assumptions
 ## Workflow
 ```
 
-Under `## Workflow`, include exactly one fenced `json` block with this
-shape and no extra fields:
+- `Goal`: two to four sentences describing the result and current gap.
+- `Proposed Changes`: behavior or product-area changes, not a file inventory.
+- `Implementation`: ordered steps that state what changes, why, and how the
+  result will be verified.
+- `Verification`: observable outcomes, not only `run tests`.
+- `Risks And Assumptions`: only decisions material to user review; write `None`
+  when there are none.
+- `Workflow`: exactly one fenced `json` block and no prose after it.
+
+The user-readable sections must not depend on reservation ids, run ids, worker
+terminology, gates, or other internal orchestration vocabulary.
+
+## Workflow Block
 
 ```json
 {
@@ -58,44 +77,42 @@ shape and no extra fields:
   "mode": "sequential-v1",
   "nodes": [
     {
-      "id": "implement-change",
-      "title": "Implement change",
+      "id": "add-health-endpoint",
+      "title": "Expose application health through GET /healthz",
       "taskIds": ["T-001"],
-      "acIds": ["AC-001"],
-      "prompt": "Implement the accepted task within the listed source scopes and return changed files plus verification evidence.",
+      "acIds": ["AC-001", "AC-002"],
+      "prompt": "Objective: Add GET /healthz. Required behavior: Return HTTP 200 with {\"status\":\"ok\"} and preserve GET /. Constraints: Stay within the accepted source scopes. Expected evidence: Return changed files and regression-test results for both routes.",
       "dependsOn": [],
-      "sourceScopes": ["src/owned-boundary/**"]
+      "sourceScopes": ["src/**", "test/**"]
     }
   ]
 }
 ```
 
-Contract rules:
+Rules:
 
 - `version` is exactly `"1.0"`.
-- `mode` is exactly `"sequential-v1"` or `"ready-set-v1"`.
-- Node `id` values are unique stable kebab-case identifiers.
-- In v1, `taskIds` contains exactly one existing task identifier; split work
-  into multiple nodes when multiple tasks are needed. `acIds` may contain one
-  or more existing acceptance-criterion identifiers.
-- `prompt` states the bounded objective, constraints, expected result, and
-  verification evidence. It does not grant permissions.
-- `dependsOn` contains only node ids in the same block and forms an acyclic
-  graph.
+- `mode` is `"sequential-v1"` or `"ready-set-v1"`.
+- Node ids are unique stable kebab-case identifiers.
+- In v1, `taskIds` contains exactly one existing Task id.
+- `acIds` contains one or more existing AC ids.
+- `prompt` contains the concrete objective, required behavior, constraints, and
+  expected evidence. It does not grant permissions.
+- `dependsOn` references only nodes in the block and forms a DAG.
 - `sourceScopes` contains explicit repository-relative paths or globs. Use an
-  empty array only for a genuinely read-only or non-source task.
-- Every task and acceptance criterion is covered by at least one node.
+  empty array only for genuinely read-only work.
+- Every Task and AC is covered by at least one node.
 
-## `tasksMd`
+## Tasks
 
-Use this shape:
+Use this exact checkbox and nested list syntax:
 
 ```markdown
-# Tasks: <change title>
+# Tasks: <specific outcome>
 
-- [ ] T-001: <executable task>
-  - Covers: AC-001
+- [ ] T-001: <executable task with a concrete result and constraints>
+  - Covers: AC-001, AC-002
 ```
 
-Keep tasks independently verifiable and align each `Covers` entry with the
-node's `taskIds` and `acIds`.
+The `- [ ]`, Task id, colon, indentation, nested `- Covers:`, and referenced AC
+ids are required. Keep each Task independently verifiable.

@@ -131,7 +131,6 @@ export function buildWorkbenchActionHandlers(deps: WorkbenchActionHandlerDeps): 
   "task.queue.start": async (project, changeId, request, live) => runTaskQueueSequentialWorkflow({
     project,
     changeId,
-    prompt: request.prompt,
     live,
     workflowGraphPlanId: request.workflowGraphPlanId,
     workflowRunId: request.workflowRunId,

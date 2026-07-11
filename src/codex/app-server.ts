@@ -104,6 +104,8 @@ export interface CodexAppServerChildThreadResult {
   threadId: string;
   status?: string;
   prompt?: string;
+  model?: string;
+  reasoningEffort?: string;
   finalText: string;
   snapshot: Record<string, unknown>;
 }
@@ -132,13 +134,15 @@ export interface CodexAppServerDynamicToolResult {
 export interface CodexAppServerThreadGoal {
   threadId: string;
   objective: string;
-  status: "active" | "paused" | "budgetLimited" | "complete";
+  status: CodexAppServerThreadGoalStatus;
   tokenBudget: number | null;
   tokensUsed: number;
   timeUsedSeconds: number;
   createdAt: number;
   updatedAt: number;
 }
+
+export type CodexAppServerThreadGoalStatus = "active" | "paused" | "blocked" | "usageLimited" | "budgetLimited" | "complete";
 
 export type CodexAppServerUserInputRequestHandler = (request: CodexAppServerUserInputRequest) => void;
 
@@ -309,7 +313,7 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
   let pendingYieldCallId: string | null = null;
   let goalPauseRequested = false;
   let goalPausePromise: Promise<void> | null = null;
-  let pausedGoalAttachPending = false;
+  let waitingGoalAttachPending = false;
   let activeTurnRunning = false;
   const childThreads: CodexAppServerChildThreadResult[] = [];
   const childThreadPrompts = new Map<string, string>();
@@ -379,9 +383,10 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
     const goalBeforeSession = options.goalSession && threadId
       ? parseThreadGoalResponse(await sendRequest("thread/goal/get", { threadId }))
       : null;
-    pausedGoalAttachPending = goalBeforeSession?.status === "paused";
+    const activeGoalAlreadyRunning = Boolean(options.goalResume && goalBeforeSession?.status === "active");
+    waitingGoalAttachPending = goalBeforeSession ? isResumableGoalStatus(goalBeforeSession.status) : false;
     if (options.goalResume && !goalBeforeSession) throw new Error("Goal resume requires an existing native Goal.");
-    if (goalBeforeSession?.status === "complete" || goalBeforeSession?.status === "budgetLimited") {
+    if (goalBeforeSession && isFinalGoalStatus(goalBeforeSession.status)) {
       goal = goalBeforeSession;
       terminalStatus = "completed";
     }
@@ -397,6 +402,10 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
         });
     threadId = threadResponse ? extractThreadId(threadResponse) ?? threadId : threadId;
     if (!threadId) throw new Error("Codex app-server did not return a thread id.");
+    if (activeGoalAlreadyRunning && goalBeforeSession) {
+      goal = goalBeforeSession;
+      terminalStatus = "completed";
+    }
     await writeSession("started");
 
     const installActiveTurn = (): void => {
@@ -428,10 +437,10 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
       });
     };
 
-    const pausedGoalContinuation = goalBeforeSession?.status === "paused" ? options.goalResume ?? null : null;
-    if (pausedGoalContinuation && goalBeforeSession && !terminalStatus) {
+    const waitingGoalContinuation = goalBeforeSession && isResumableGoalStatus(goalBeforeSession.status) ? options.goalResume ?? null : null;
+    if (waitingGoalContinuation && goalBeforeSession && !terminalStatus) {
       const deliveryKey = createHash("sha256")
-        .update([threadId, goalBeforeSession.createdAt, goalBeforeSession.objective, pausedGoalContinuation.deliveryKey].join("\n"))
+        .update([threadId, goalBeforeSession.createdAt, goalBeforeSession.objective, waitingGoalContinuation.deliveryKey].join("\n"))
         .digest("hex");
       const threadSnapshot = await sendRequest("thread/read", { threadId, includeTurns: true });
       if (!JSON.stringify(threadSnapshot).includes(deliveryKey)) {
@@ -440,14 +449,14 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
           items: [{
             type: "message",
             role: "assistant",
-            content: [{ type: "output_text", text: `[AHO resume ${deliveryKey}]\n${pausedGoalContinuation.contextText}` }],
+            content: [{ type: "output_text", text: `[AHO resume ${deliveryKey}]\n${waitingGoalContinuation.contextText}` }],
           }],
         });
       }
       const activation = parseThreadGoalResponse(await sendRequest("thread/goal/set", { threadId, status: "active" }));
       if (activation) goal = activation;
-      pausedGoalAttachPending = false;
-    } else if ((!goalBeforeSession || goalBeforeSession.status === "paused") && !terminalStatus) {
+      waitingGoalAttachPending = false;
+    } else if ((!goalBeforeSession || isResumableGoalStatus(goalBeforeSession.status)) && !terminalStatus) {
       const turnModel = options.model?.trim() || null;
       const turnResponse = await sendRequest("turn/start", {
         threadId,
@@ -459,7 +468,7 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
       });
       turnId = extractTurnId(turnResponse);
       if (!turnId) throw new Error("Codex app-server did not return a turn id.");
-      pausedGoalAttachPending = false;
+      waitingGoalAttachPending = false;
       activeTurnRunning = true;
       installActiveTurn();
       await writeSession("running");
@@ -670,19 +679,26 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
       }
     }
     if (isParentNotification && method === "thread/goal/updated") {
-      const parsed = parseThreadGoal(isRecord(params.goal) ? params.goal : params);
+      let parsed: CodexAppServerThreadGoal | null = null;
+      try {
+        parsed = parseThreadGoal(isRecord(params.goal) ? params.goal : params);
+      } catch (error) {
+        terminalError = error instanceof Error ? error.message : String(error);
+        options.onError?.(error);
+      }
       if (parsed) {
         goal = parsed;
         options.onGoalUpdate?.(parsed);
-        if (parsed.status === "paused" && !pausedGoalAttachPending && (!goalPauseRequested || !activeTurnRunning)) terminalStatus = "interrupted";
-        if (parsed.status === "complete" || parsed.status === "budgetLimited") terminalStatus = "completed";
+        if (parsed.status === "paused" && !waitingGoalAttachPending && (!goalPauseRequested || !activeTurnRunning)) terminalStatus = "interrupted";
+        if (parsed.status === "blocked" && !waitingGoalAttachPending && !activeTurnRunning) terminalStatus = "completed";
+        if (isFinalGoalStatus(parsed.status)) terminalStatus = "completed";
       }
     }
     if (isParentNotification && method === "turn/completed") {
       activeTurnRunning = false;
       const interrupted = completionStatus(params) === "interrupted";
       const waitingForGoalPause = goalPauseRequested && goal?.status !== "paused";
-      if (!waitingForGoalPause && (!options.goalSession || interrupted || !goal || goal.status === "paused" || goal.status === "complete" || goal.status === "budgetLimited")) {
+      if (!waitingForGoalPause && (!options.goalSession || interrupted || !goal || isTurnTerminalGoalStatus(goal.status))) {
         terminalStatus = interrupted ? "interrupted" : "completed";
       }
     } else if (isParentNotification && method === "turn/failed") {
@@ -736,6 +752,8 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
         ...((call.prompt || extractCodexAppServerThreadInitialPrompt(snapshot))
           ? { prompt: call.prompt || extractCodexAppServerThreadInitialPrompt(snapshot) }
           : {}),
+        ...(call.model ? { model: call.model } : {}),
+        ...(call.reasoningEffort ? { reasoningEffort: call.reasoningEffort } : {}),
         finalText: extractCodexAppServerThreadFinalText(snapshot),
         snapshot,
       };
@@ -884,18 +902,40 @@ function parseThreadGoalResponse(response: Record<string, unknown>): CodexAppSer
 function parseThreadGoal(value: Record<string, unknown>): CodexAppServerThreadGoal | null {
   const threadId = stringValue(value.threadId ?? value.thread_id);
   const objective = stringValue(value.objective);
-  const status = stringValue(value.status) as CodexAppServerThreadGoal["status"];
-  if (!threadId || !objective || !["active", "paused", "budgetLimited", "complete"].includes(status)) return null;
+  const rawStatus = stringValue(value.status);
+  if (!threadId || !objective || !rawStatus) return null;
+  if (!isGoalStatus(rawStatus)) throw new Error(`Unsupported Codex native Goal status: ${rawStatus}.`);
   return {
     threadId,
     objective,
-    status,
+    status: rawStatus,
     tokenBudget: typeof value.tokenBudget === "number" ? value.tokenBudget : null,
     tokensUsed: numberValue(value.tokensUsed),
     timeUsedSeconds: numberValue(value.timeUsedSeconds),
     createdAt: numberValue(value.createdAt),
     updatedAt: numberValue(value.updatedAt),
   };
+}
+
+function isGoalStatus(status: string): status is CodexAppServerThreadGoalStatus {
+  return status === "active"
+    || status === "paused"
+    || status === "blocked"
+    || status === "usageLimited"
+    || status === "budgetLimited"
+    || status === "complete";
+}
+
+function isResumableGoalStatus(status: CodexAppServerThreadGoalStatus): boolean {
+  return status === "paused" || status === "blocked";
+}
+
+function isFinalGoalStatus(status: CodexAppServerThreadGoalStatus): boolean {
+  return status === "usageLimited" || status === "budgetLimited" || status === "complete";
+}
+
+function isTurnTerminalGoalStatus(status: CodexAppServerThreadGoalStatus): boolean {
+  return status === "paused" || status === "blocked" || isFinalGoalStatus(status);
 }
 
 function numberValue(value: unknown): number {

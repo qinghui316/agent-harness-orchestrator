@@ -122,6 +122,56 @@ describe("parent agent transcript paging", () => {
     ]);
   });
 
+  it("keeps revised planning proposals separated by run and artifact", () => {
+    const threadItems = [
+      {
+        id: "planning-initial",
+        kind: "assistant-turn",
+        label: "planning-agent",
+        runId: "run-initial",
+        artifact: "initial-proposal.json",
+        agentRoleId: "planning-agent",
+        agentTaskId: "planner-thread",
+        blocks: [{
+          id: "initial-plan",
+          sequence: 1,
+          kind: "prose" as const,
+          source: "codex" as const,
+          text: "# Plan: Initial proposal",
+        }],
+      },
+      {
+        id: "planning-revision",
+        kind: "assistant-turn",
+        label: "planning-agent",
+        runId: "run-revision",
+        artifact: "revised-proposal.json",
+        agentRoleId: "planning-agent",
+        agentTaskId: "planner-thread",
+        blocks: [{
+          id: "revised-plan",
+          sequence: 1,
+          kind: "prose" as const,
+          source: "codex" as const,
+          text: "# Plan: Revised proposal",
+        }],
+      },
+    ];
+
+    expect(buildAgentScopedTranscriptCells(threadItems, "planning-agent")).toEqual([
+      expect.objectContaining({
+        runId: "run-initial",
+        text: "# Plan: Initial proposal",
+        evidenceRefs: [expect.objectContaining({ ref: "initial-proposal.json" })],
+      }),
+      expect.objectContaining({
+        runId: "run-revision",
+        text: "# Plan: Revised proposal",
+        evidenceRefs: [expect.objectContaining({ ref: "revised-proposal.json" })],
+      }),
+    ]);
+  });
+
   it("strips accidental planning sections from main-agent visible prose", () => {
     const transcript = buildParentAgentTranscript({
       workpad: { conversationId: "conv", boundChangeId: "change", title: "Main plan leak" },

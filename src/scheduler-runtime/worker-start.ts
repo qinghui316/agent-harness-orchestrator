@@ -23,7 +23,6 @@ export interface SchedulerFirstWorkerStartInput {
   schedulerClaimReservationId: string;
   reservationIntentId: string;
   claimIntentId: string;
-  prompt?: string;
   live?: CodeRunLiveCallbacks;
 }
 
@@ -34,6 +33,7 @@ export interface SchedulerWorkerStartExactTarget {
   unitId: string;
   stageRefId: string;
   taskId: string;
+  prompt: string;
   reservationIntentId: string;
   claimIntentId: string;
   sourceLocks: ReadySetWorkflowGraphSourceLock[];
@@ -119,7 +119,7 @@ export async function startSchedulerCoderWorkerForReadySetTarget(
       taskIds: [taskId],
       taskRunId: started.taskRun.id,
       roleId: "coder-agent",
-      prompt: input.prompt ?? composeSchedulerWorkerCoderScopePrompt(scopeContext),
+      prompt: composeSchedulerWorkerCoderScopePrompt(scopeContext, exactTarget.prompt),
       live: input.live,
       executionGate: {
         mode: "scheduler-claim-reservation",

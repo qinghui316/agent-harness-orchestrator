@@ -174,6 +174,24 @@ describe("workbench workflow action service", () => {
     })]);
   });
 
+  it("keeps a completed workflow result when native Goal resume fails", async () => {
+    const emitted: unknown[] = [];
+    const deps = fakeDeps({
+      events: emitted,
+      async resume() {
+        throw new Error("unsupported provider Goal state");
+      },
+    });
+
+    const result = await runWorkbenchWorkflowActionService(fakeProject(), { actionType: "code.run" }, undefined, deps);
+
+    expect(result).toMatchObject({ status: "completed", result: { ok: true } });
+    expect(emitted).toContainEqual(expect.objectContaining({
+      event: "error",
+      data: expect.objectContaining({ message: expect.stringContaining("native Goal resume failed") }),
+    }));
+  });
+
   it("delivers failed action evidence but never resumes for interrupt controls", async () => {
     const resumes: Array<{ actionType: string; status: string; result: unknown }> = [];
     const failedDeps = fakeDeps({
@@ -212,13 +230,14 @@ function fakeDeps(overrides: {
   summarize?: WorkbenchActionServiceDeps["summarizeResult"];
   execute?: WorkbenchActionServiceDeps["execute"];
   resume?: NonNullable<WorkbenchActionServiceDeps["resumeGoalAfterAction"]>;
+  events?: unknown[];
 } = {}): WorkbenchActionServiceDeps {
   return {
     async resolveChangeId() {
       return "change-1";
     },
     createTranscriptCapture() {
-      return { sink: { emit() {} }, text: "", activity: [], blocks: [] };
+      return { sink: { emit(event) { overrides.events?.push(event); } }, text: "", activity: [], blocks: [] };
     },
     async readThreadEntries() {
       return overrides.threadEntries ?? [];
