@@ -761,7 +761,6 @@ function graphNodeKindLabel(kind: DemandAgentRunGraphNodeKind): string {
     "architecture-agent": "architecture-agent",
     "evolution-agent": "evolution-agent",
     "evolution-scorer": "evolution-scorer",
-    "evolution-reviewer": "evolution-reviewer",
   };
   return labels[kind];
 }

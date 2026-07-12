@@ -45,6 +45,23 @@ export interface AgentTaskWriterIdentity {
   fencingToken: number;
 }
 
+export async function claimNextMaintenanceAgentTask(
+  memory: ResolvedMemory,
+  input: AgentTaskLeaseInput = {},
+): Promise<AgentTask | null> {
+  const existing = (await listAgentTasks(memory))
+    .some((task) => task.kind === "background" && task.createdBy === "maintenance-policy"
+      && (task.status === "queued" || task.status === "claimed" || task.status === "running"));
+  if (!existing) return null;
+  return withTaskMutex(memory, "__maintenance-queue__", async () => {
+    const tasks = (await listAgentTasks(memory))
+      .filter((task) => task.kind === "background" && task.createdBy === "maintenance-policy");
+    if (tasks.some((task) => task.status === "running" || task.status === "claimed")) return null;
+    const next = tasks.find((task) => task.status === "queued");
+    return next ? await claimAgentTask(memory, next, input) : null;
+  });
+}
+
 export interface CompleteAgentTaskInput {
   status: AgentTaskStatus;
   summary: string;
@@ -225,7 +242,7 @@ export async function listAgentTasks(memory: ResolvedMemory, changeId?: string):
     if (task && result && !TERMINAL_STATUSES.has(task.status)) task = await convergeCommittedResult(memory, task, result);
     if (task && (!changeId || task.changeId === changeId)) tasks.push(task);
   }
-  return tasks.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  return tasks.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
 }
 
 export async function readAgentTaskResult(memory: ResolvedMemory, taskId: string): Promise<AgentTaskResult | null> {

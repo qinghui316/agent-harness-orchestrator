@@ -244,9 +244,9 @@ describe("workbench read-model projections", () => {
     }
     expect(JSON.stringify(snapshot.right)).not.toContain("change.close");
     expect(snapshot.roles.map((item) => item.id)).toEqual(expect.arrayContaining([
-      "coder-agent", "auditor-agent", "memory-maintenance-agent", "harness-evolution-agent", "evolution-scorer",
+      "coder-agent", "auditor-agent", "memory-maintenance-agent", "harness-evolution-agent",
     ]));
-    expect(snapshot.roles.map((item) => item.id)).not.toEqual(expect.arrayContaining(["coder", "auditor", "validator"]));
+    expect(snapshot.roles.map((item) => item.id)).not.toEqual(expect.arrayContaining(["coder", "auditor", "validator", "evolution-scorer"]));
     expect(snapshot.harnessGaps.map((item) => item.id)).toEqual(expect.arrayContaining(["roleCatalog", "sessionModel", "subagentSpec"]));
   });
 

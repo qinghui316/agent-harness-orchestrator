@@ -30,13 +30,17 @@ export type MaintenanceProviderExecutor = (
 ) => Promise<MaintenanceProviderExecutionResult>;
 
 export interface MaintenanceProviderRunEvidence {
-  version: "3.0";
-  assignmentId: string;
+  version: "4.0";
+  status: "completed" | "blocked";
+  taskId: string;
   mode: "maintain-assigned-closeout" | "evolve-assigned-window";
-  canonicalRoot: string;
-  producer: { role: "maintenance-agent" | "evolution-agent"; threadIds: string[]; summary: string };
+  roots: { project: string; memory: string };
+  producer: { role: "maintenance-agent" | "evolution-agent"; threadId: string; summary: string; changedFiles: string[] };
   scoring?: { role: "evolution-scorer"; threadId: string; parentThreadId: string; score: number; dimensions: Record<string, number>; hardIssues: string[]; summary: string };
-  application: "direct-canonical-edit";
+  proposal?: string;
+  scoringAttempts?: Array<{ role: "evolution-scorer"; threadId: string; parentThreadId: string; score: number; dimensions: Record<string, number>; hardIssues: string[]; summary: string }>;
+  verification?: Array<{ name: string; command: string[]; exitCode: number | null; passed: boolean; stdoutPath: string; stderrPath: string }>;
+  application: "agent-direct-edit" | "not-applied";
 }
 
 export interface RunMaintenanceProviderAssignmentInput {
@@ -71,30 +75,22 @@ export async function runMaintenanceProviderAssignment(
     throw new Error("Maintenance provider runner only accepts assigned closeout or evolution modes.");
   }
   const skillContext = await (input.getSkillContext ?? getRuntimeAssignedHarnessSkillContext)(input.project, assignment);
-  const canonicalRoot = assignment.canonicalTarget.baseRoot;
-  const targets = canonicalTargets(assignment);
+  const writableRoots = uniqueRoots(assignment.projectRoot, assignment.memoryRoot);
 
   if (assignment.mode === "maintain-assigned-closeout") {
-    const results = [];
-    for (const target of targets) {
-      const result = await input.executor({
-        project: input.project, role: "maintenance-agent",
-        prompt: buildMaintenancePrompt(assignment, target), skillContext,
-        parentThreadId: null, cwd: target.root, writable: true,
-        writableRoots: writableRoots(target), signal: input.signal,
-      });
-      assertThreadLineage(result, null, "Maintenance Agent");
-      assertChangedFilesInsideTarget(result.changedFiles, target);
-      results.push(result);
-    }
-    return {
-      version: "3.0",
-      assignmentId: assignment.assignmentId,
-      mode: assignment.mode,
-      canonicalRoot,
-      producer: { role: "maintenance-agent", threadIds: results.map((result) => result.threadId), summary: summarize(results, "Canonical Markdown maintenance completed.") },
-      application: "direct-canonical-edit",
-    };
+    const result = await input.executor({
+      project: input.project,
+      role: "maintenance-agent",
+      prompt: buildMaintenancePrompt(assignment),
+      skillContext,
+      parentThreadId: null,
+      cwd: assignment.memoryRoot,
+      writable: true,
+      writableRoots,
+      signal: input.signal,
+    });
+    assertThreadLineage(result, null, "Maintenance Agent");
+    return evidence(assignment, "maintenance-agent", result);
   }
 
   let proposal = await input.executor({
@@ -103,137 +99,197 @@ export async function runMaintenanceProviderAssignment(
     prompt: buildEvolutionProposalPrompt(assignment),
     skillContext,
     parentThreadId: null,
-    cwd: canonicalRoot,
+    cwd: assignment.memoryRoot,
     writable: false,
     signal: input.signal,
   });
-  assertThreadLineage(proposal, null, "Evolution proposal Agent");
+  assertThreadLineage(proposal, null, "Evolution Agent");
+
   let scoringResult: MaintenanceProviderExecutionResult | null = null;
   let score: z.infer<typeof scoreSchema> | null = null;
+  const scoringAttempts: NonNullable<MaintenanceProviderRunEvidence["scoringAttempts"]> = [];
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     scoringResult = await input.executor({
-      project: input.project, role: "evolution-scorer",
-      prompt: buildScoringPrompt(assignment, proposal.finalText), skillContext,
-      parentThreadId: proposal.threadId, existingThreadId: proposal.threadId,
-      cwd: canonicalRoot, writable: false, signal: input.signal,
+      project: input.project,
+      role: "evolution-scorer",
+      prompt: buildScoringPrompt(assignment, proposal.finalText),
+      skillContext,
+      parentThreadId: proposal.threadId,
+      existingThreadId: proposal.threadId,
+      cwd: assignment.memoryRoot,
+      writable: false,
+      signal: input.signal,
     });
     if (scoringResult.parentThreadId !== proposal.threadId || scoringResult.threadId === proposal.threadId) {
       throw new Error("Evolution scorer must be a native child of the proposal thread.");
     }
     score = scoreSchema.parse(parseJsonEnvelope(scoringResult.finalText, "Evolution scorer"));
+    scoringAttempts.push({
+      role: "evolution-scorer",
+      threadId: scoringResult.threadId,
+      parentThreadId: proposal.threadId,
+      ...score,
+    });
     if (score.score >= 80 && score.hardIssues.length === 0) break;
-    if (attempt === 2) throw new EvolutionScoreBlockedError(`Evolution proposal scored ${score.score} or retained hard issues after revision.`);
+    if (attempt === 2) {
+      throw new EvolutionScoreBlockedError(
+        `Evolution proposal scored ${score.score} or retained hard issues after one revision.`,
+        {
+          version: "4.0",
+          status: "blocked",
+          taskId: assignment.taskId,
+          mode: assignment.mode,
+          roots: { project: assignment.projectRoot, memory: assignment.memoryRoot },
+          producer: {
+            role: "evolution-agent",
+            threadId: proposal.threadId,
+            summary: proposal.finalText.trim() || "Evolution proposal remained below threshold.",
+            changedFiles: proposal.changedFiles,
+          },
+          proposal: proposal.finalText,
+          scoringAttempts,
+          application: "not-applied",
+        },
+      );
+    }
     const revised = await input.executor({
-      project: input.project, role: "evolution-agent",
-      prompt: buildEvolutionRevisionPrompt(proposal.finalText, score), skillContext,
-      parentThreadId: null, existingThreadId: proposal.threadId,
-      cwd: canonicalRoot, writable: false, signal: input.signal,
+      project: input.project,
+      role: "evolution-agent",
+      prompt: buildEvolutionRevisionPrompt(proposal.finalText, score),
+      skillContext,
+      parentThreadId: null,
+      existingThreadId: proposal.threadId,
+      cwd: assignment.memoryRoot,
+      writable: false,
+      signal: input.signal,
     });
     if (revised.threadId !== proposal.threadId) throw new Error("Evolution revision must continue the proposal thread.");
     proposal = revised;
   }
   if (!scoringResult || !score) throw new Error("Evolution scoring did not produce a result.");
 
-  const applied = [];
-  for (const target of targets) {
-    const result = await input.executor({
-      project: input.project, role: "evolution-agent",
-      prompt: buildEvolutionApplyPrompt(assignment, proposal.finalText, score, target), skillContext,
-      parentThreadId: null, existingThreadId: proposal.threadId,
-      cwd: target.root, writable: true, writableRoots: writableRoots(target), signal: input.signal,
-    });
-    if (result.threadId !== proposal.threadId) throw new Error("Evolution apply must continue the accepted proposal thread.");
-    assertChangedFilesInsideTarget(result.changedFiles, target);
-    applied.push(result);
-  }
+  const applied = await input.executor({
+    project: input.project,
+    role: "evolution-agent",
+    prompt: buildEvolutionApplyPrompt(assignment, proposal.finalText, score),
+    skillContext,
+    parentThreadId: null,
+    existingThreadId: proposal.threadId,
+    cwd: assignment.memoryRoot,
+    writable: true,
+    writableRoots,
+    signal: input.signal,
+  });
+  if (applied.threadId !== proposal.threadId) throw new Error("Evolution edit must continue the accepted proposal thread.");
   return {
-    version: "3.0",
-    assignmentId: assignment.assignmentId,
-    mode: assignment.mode,
-    canonicalRoot,
-    producer: { role: "evolution-agent", threadIds: [proposal.threadId, ...applied.map((result) => result.threadId)], summary: summarize(applied, "Canonical Harness evolution completed.") },
-    scoring: { role: "evolution-scorer", threadId: scoringResult.threadId, parentThreadId: proposal.threadId, ...score },
-    application: "direct-canonical-edit",
+    ...evidence(assignment, "evolution-agent", applied),
+    scoring: {
+      role: "evolution-scorer",
+      threadId: scoringResult.threadId,
+      parentThreadId: proposal.threadId,
+      ...score,
+    },
+    proposal: proposal.finalText,
+    scoringAttempts,
   };
 }
 
-interface CanonicalTarget { root: string; namespaces: string[] }
-
-function canonicalTargets(assignment: HarnessEngineeringAssignment): CanonicalTarget[] {
-  return [
-    { root: assignment.canonicalTarget.baseRoot, namespaces: assignment.canonicalTarget.namespaces },
-    ...(assignment.canonicalTarget.additionalSources ?? []).map((source) => ({ root: source.root, namespaces: source.namespaces })),
-  ];
+function evidence(
+  assignment: HarnessEngineeringAssignment,
+  role: "maintenance-agent" | "evolution-agent",
+  result: MaintenanceProviderExecutionResult,
+): MaintenanceProviderRunEvidence {
+  return {
+    version: "4.0",
+    status: "completed",
+    taskId: assignment.taskId,
+    mode: assignment.mode as "maintain-assigned-closeout" | "evolve-assigned-window",
+    roots: { project: assignment.projectRoot, memory: assignment.memoryRoot },
+    producer: {
+      role,
+      threadId: result.threadId,
+      summary: result.finalText.trim() || "Harness task completed.",
+      changedFiles: result.changedFiles,
+    },
+    application: "agent-direct-edit",
+  };
 }
 
-function buildMaintenancePrompt(assignment: HarnessEngineeringAssignment, target: CanonicalTarget): string {
-  return ["Use $aho-harness-engineering in maintain-assigned-closeout mode.",
-    `Task: ${assignment.assignmentId}`,
+function buildMaintenancePrompt(assignment: HarnessEngineeringAssignment): string {
+  return [
+    "Use $aho-harness-engineering in maintain-assigned-closeout mode.",
+    `Task: ${assignment.taskId}`,
+    `Project root: ${assignment.projectRoot}`,
+    `Memory root: ${assignment.memoryRoot}`,
     `Evidence: ${assignment.evidenceRefs.join(", ")}`,
-    `Edit canonical project Markdown directly under ${target.root}.`,
-    `This turn's writable Markdown namespaces: ${target.namespaces.join(", ")}.`,
-    "Use only the assigned close evidence. Do not create a proposal, reviewer, diff manifest, patch envelope, or apply transaction.",
-    "Do not edit product source, generated indexes, task state, or paths outside the assigned namespaces.",
-    "Re-read changed files and return a concise summary."].join("\n");
+    ...verificationPrompt(assignment),
+    "Inspect the actual Harness structure, decide the evidence-backed delta, edit the real files directly when needed, and run the project's applicable checks.",
+    "A no-op is correct when the current Harness already represents the durable facts. Return a concise result.",
+  ].join("\n");
 }
 
 function buildEvolutionProposalPrompt(assignment: HarnessEngineeringAssignment): string {
-  return ["Use $aho-harness-engineering in evolve-assigned-window mode.",
-    `Task: ${assignment.assignmentId}`,
-    `Fixed window: ${assignment.sourceWindowHash}`,
-    `Evidence: ${assignment.evidenceRefs.join(", ")}`,
-    "Analyze exactly the assigned five-close evolution window and write a concrete proposal in your final response.",
-    "This pass is read-only. Do not edit files. Include target Markdown paths, evidence, intended rule delta, and validation."].join("\n");
+  return [
+    "Use $aho-harness-engineering in evolve-assigned-window mode.",
+    `Task: ${assignment.taskId}`,
+    `Project root: ${assignment.projectRoot}`,
+    `Memory root: ${assignment.memoryRoot}`,
+    `Fixed window: ${assignment.sourceWindow!.hash}`,
+    `Evidence: ${assignment.sourceWindow!.evidenceRefs.join(", ")}`,
+    ...verificationPrompt(assignment),
+    "Analyze exactly the assigned window and the current Harness. Produce a concrete evidence-grounded evolution proposal in the final response.",
+    "Do not edit files before scoring. The proposal may conclude that no durable delta is warranted.",
+  ].join("\n");
 }
 
 function buildScoringPrompt(assignment: HarnessEngineeringAssignment, proposal: string): string {
-  return ["Independently score the bounded Harness evolution proposal against its assigned five-close window.",
-    "Check evidence support, target ownership, minimality, non-duplication, and mechanical verifiability.",
+  return [
+    "Independently score this Harness evolution proposal against the fixed evidence window.",
+    "Do not edit files, create tasks, apply the proposal, or change the assigned window.",
     "Score evidenceGrounding/30, projectRelevance/25, mechanicalEnforceability/15, regressionSafety/20, and contextCost/10.",
     "Return only JSON with score, dimensions, hardIssues, and summary.",
-    `Assignment id: ${assignment.assignmentId}`, "Proposal:", proposal].join("\n");
+    `Task: ${assignment.taskId}`,
+    `Window: ${assignment.sourceWindow!.hash}`,
+    `Window evidence: ${assignment.sourceWindow!.evidenceRefs.join(", ")}`,
+    "Proposal:",
+    proposal,
+  ].join("\n");
 }
 
 function buildEvolutionApplyPrompt(
   assignment: HarnessEngineeringAssignment,
   proposal: string,
   score: z.infer<typeof scoreSchema>,
-  target: CanonicalTarget,
 ): string {
-  return ["Continue using $aho-harness-engineering in evolve-assigned-window mode.",
-    `Task: ${assignment.assignmentId}`,
-    `The native scorer accepted this proposal with score ${score.score}: ${score.summary}`,
-    "Apply the accepted proposal directly to canonical target Markdown now.",
-    `Canonical root for this turn: ${target.root}.`,
-    `This turn's writable Markdown namespaces: ${target.namespaces.join(", ")}.`,
-    "Do not create a diff manifest, reviewer package, or apply transaction.", "Accepted proposal:", proposal].join("\n");
+  return [
+    "Continue using $aho-harness-engineering in evolve-assigned-window mode.",
+    `Task: ${assignment.taskId}`,
+    `The native scorer accepted the proposal with score ${score.score}: ${score.summary}`,
+    "Re-read the current Harness, then directly complete the accepted delta in the real project and memory roots.",
+    "Run the project's applicable mechanical checks and return a concise result.",
+    "Accepted proposal:",
+    proposal,
+  ].join("\n");
 }
 
 function buildEvolutionRevisionPrompt(proposal: string, score: z.infer<typeof scoreSchema>): string {
   return [
-    "Revise the evolution proposal once using the independent scorer evidence. Do not edit target files yet.",
+    "Revise the evolution proposal once using the independent score. Do not edit files yet.",
     `Score: ${score.score}. Hard issues: ${score.hardIssues.join("; ") || "none"}.`,
     `Scorer summary: ${score.summary}`,
-    "Previous proposal:", proposal,
+    "Previous proposal:",
+    proposal,
   ].join("\n");
 }
 
-function writableRoots(target: CanonicalTarget): string[] {
-  return target.namespaces.map((namespace) => `${target.root}/${namespace}`);
+function uniqueRoots(...roots: string[]): string[] {
+  return [...new Set(roots)];
 }
 
-function assertChangedFilesInsideTarget(changedFiles: string[], target: CanonicalTarget): void {
-  const normalizedNamespaces = target.namespaces.map((value) => value.replaceAll("\\", "/").replace(/^\.\//, "").replace(/\/$/, ""));
-  for (const changedFile of changedFiles) {
-    const relativePath = changedFile.replaceAll("\\", "/").replace(/^\.\//, "");
-    if (!normalizedNamespaces.some((namespace) => relativePath === namespace || relativePath.startsWith(`${namespace}/`))) {
-      throw new Error(`Maintenance Agent changed a file outside its assigned Markdown namespaces: ${changedFile}`);
-    }
-  }
-}
-
-function summarize(results: MaintenanceProviderExecutionResult[], fallback: string): string {
-  return results.map((result) => result.finalText.trim()).filter(Boolean).join("\n") || fallback;
+function verificationPrompt(assignment: HarnessEngineeringAssignment): string[] {
+  return assignment.requiredVerification.length > 0
+    ? [`Required mechanical verification: ${assignment.requiredVerification.map((item) => item.command.join(" ")).join("; ")}`]
+    : ["No Runtime verification command was resolved; report that limitation explicitly."];
 }
 
 function assertThreadLineage(result: MaintenanceProviderExecutionResult, expectedParent: string | null, label: string): void {
@@ -247,4 +303,10 @@ function parseJsonEnvelope(text: string, label: string): unknown {
   catch (error) { throw new Error(`${label} must return a JSON envelope: ${(error as Error).message}`); }
 }
 
-export class EvolutionScoreBlockedError extends Error {}
+export class EvolutionScoreBlockedError extends Error {
+  artifactRefs: string[] = [];
+
+  constructor(message: string, readonly evidence: MaintenanceProviderRunEvidence) {
+    super(message);
+  }
+}

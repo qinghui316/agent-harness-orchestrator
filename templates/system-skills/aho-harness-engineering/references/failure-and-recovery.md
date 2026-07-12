@@ -1,7 +1,12 @@
 # Failure And Recovery
 
-Stop before editing when assignment identity, checkpoint, policy version, fixed source window, evidence scope, canonical root, writable Markdown namespaces, or required verification is missing or inconsistent.
+On retry or interruption, read current files before deciding what remains. Do
+not assume the previous turn's planned or partial edits still describe reality.
 
-Do not resolve staleness by reading a wider window, escaping canonical namespaces, or broadening writable namespaces. Return `blocked`; Runtime decides retry or reassignment.
+Block when the assigned project, roots, or window are inconsistent, evidence is
+unavailable or irreconcilable, or the delta would weaken an established safety
+or ownership boundary.
 
-If an edit fails midway, inspect the canonical targets and either restore internal document consistency within the assignment or report the incomplete state precisely. Verification failure, retry limits, lease interruption, and dead-letter handling are Runtime responsibilities.
+Do not repair failures by widening an Evolution window, creating another task,
+changing Runtime state, or reverting unrelated edits. Leave already-written
+project content visible; the current task or a later Agent can reconcile drift.

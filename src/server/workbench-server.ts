@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { ProjectRegistryStore } from "../registry/store.js";
 import { recoverPendingApplyTransactions } from "../apply/manager.js";
 import { recoverChangeCloseTransactions } from "../change/manager.js";
@@ -10,10 +11,9 @@ import {
   runCodexMaintenanceAssignment,
   type BackgroundWorkerHandle,
 } from "../agent-task/manager.js";
-import { createCanonicalMaintenanceTarget } from "../agent-task/maintenance-target.js";
 import { parseHarnessEngineeringAssignment } from "../agent-task/harness-engineering-contract.js";
 import { resolveProjectMemory } from "../memory/resolver.js";
-import { withProjectDocumentLease } from "../project/project-write-lease.js";
+import { resolveValidationProfile } from "../validation/profiles.js";
 import type { WorkbenchProjectInput } from "../workbench/manager.js";
 import { TerminalRuntime } from "./terminal/terminal-runtime.js";
 import { handleApi } from "./workbench/api-router.js";
@@ -79,9 +79,8 @@ async function startProjectBackgroundWorkers(
       ...options.backgroundWorker,
       enabled: options.backgroundWorker?.enabled ?? true,
       assignmentFactory: options.backgroundWorker?.assignmentFactory ?? ((task, targetProject) => createServerHarnessAssignment(memory, task, targetProject)),
-      runAssignment: options.backgroundWorker?.runAssignment ?? (async ({ task, assignment, signal }) =>
-        withProjectDocumentLease(project.path, { holderId: `document:${task.id}` }, async (lease) =>
-          runCodexMaintenanceAssignment(memory, project, assignment, AbortSignal.any([signal, lease.signal])))),
+      runAssignment: options.backgroundWorker?.runAssignment ?? (async ({ assignment, signal }) =>
+        runCodexMaintenanceAssignment(memory, project, assignment, signal)),
     });
     workers.push(worker);
     await worker.poll();
@@ -102,39 +101,34 @@ async function createServerHarnessAssignment(
       ? "evolve-assigned-window"
       : null;
   if (!mode) throw new Error(`Unsupported maintenance-policy AgentTask role: ${task.roleId}.`);
-  const checkpoint = createHash("sha256").update(JSON.stringify({
-    taskId: task.id,
-    projectId: project.id,
-    changeId: task.changeId,
-    roleId: task.roleId,
-    inputArtifacts: task.inputArtifacts,
-  })).digest("hex");
-  const namespaces = memory.mode === "repo-local"
-    ? ["AGENTS.md", "docs", "harness/evolution", "harness/templates/change"]
-    : ["docs", "harness/evolution", "harness/templates/change"];
-  const canonicalTarget = await createCanonicalMaintenanceTarget({
-    assignmentId: task.id,
-    memoryMode: memory.mode,
-    memoryRoot: memory.memoryRoot,
-    namespaces,
-    ...(memory.mode === "external-local"
-      ? { additionalSources: [{ key: "project" as const, root: project.path, namespaces: ["AGENTS.md"] }] }
-      : {}),
-  });
+  const windowHash = task.inputArtifacts.find((ref) => ref.startsWith("window-sha256:"))?.slice("window-sha256:".length);
+  const requiredVerification = await resolveMaintenanceVerification(memory);
   return parseHarnessEngineeringAssignment({
     mode,
-    projectId: project.id,
-    assignmentId: task.id,
-    inputCheckpoint: checkpoint,
-    policyVersion: "durable-maintenance-v1",
-    sourceWindowHash: checkpoint,
+    taskId: task.id,
+    projectRoot: project.path,
+    memoryRoot: memory.memoryRoot,
     evidenceRefs: task.inputArtifacts.length > 0 ? task.inputArtifacts : [`agent-task:${task.id}`],
-    currentDocumentRefs: [],
-    currentStableMemoryRefs: [],
-    canonicalTarget,
-    namespaceClasses: ["content", "control-plane"],
-    requiredVerification: [],
+    ...(mode === "evolve-assigned-window"
+      ? { sourceWindow: { hash: windowHash ?? task.id, evidenceRefs: task.inputArtifacts } }
+      : {}),
+    requiredVerification,
   });
+}
+
+async function resolveMaintenanceVerification(memory: import("../types/index.js").ResolvedMemory) {
+  try {
+    const profile = await resolveValidationProfile(memory);
+    return profile.commands.map(({ name, command }) => ({ name, command }));
+  } catch {
+    return [
+      ["lint-ecl", join(memory.scriptsRoot, "lint-ecl.ps1")],
+      ["lint-encoding", join(memory.scriptsRoot, "lint-encoding.ps1")],
+    ].filter(([, path]) => existsSync(path)).map(([name, path]) => ({
+      name,
+      command: ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", path],
+    }));
+  }
 }
 
 export async function recoverWorkbenchProjects(store: ProjectRegistryStore, directInput: WorkbenchProjectInput | null): Promise<void> {

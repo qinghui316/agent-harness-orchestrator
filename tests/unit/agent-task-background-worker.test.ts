@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { startBackgroundWorker } from "../../src/agent-task/background-worker.js";
+import { EvolutionScoreBlockedError } from "../../src/agent-task/maintenance-provider-runner.js";
 import { createAgentTask, listAgentTasks, readAgentTaskResult } from "../../src/agent-task/repository.js";
 import * as agentTaskRepository from "../../src/agent-task/repository.js";
 import type { HarnessEngineeringAssignment } from "../../src/agent-task/harness-engineering-contract.js";
@@ -65,12 +66,85 @@ describe("background AgentTask worker", () => {
     await worker.drain();
   });
 
+  it("keeps blocked evolution evidence on the terminal AgentTask result", async () => {
+    const setup = await fixture();
+    const error = new EvolutionScoreBlockedError("score remained below 80", {
+      version: "4.0",
+      status: "blocked",
+      taskId: "task",
+      mode: "evolve-assigned-window",
+      roots: { project: setup.project.path, memory: setup.memory.memoryRoot },
+      producer: { role: "evolution-agent", threadId: "parent", summary: "proposal", changedFiles: [] },
+      proposal: "proposal",
+      scoringAttempts: [],
+      application: "not-applied",
+    });
+    error.artifactRefs = ["evidence/blocked-evolution.json"];
+    const worker = startBackgroundWorker(setup.memory, setup.project, {
+      enabled: true,
+      pollIntervalMs: 60_000,
+      assignmentFactory,
+      runAssignment: async () => { throw error; },
+    });
+
+    expect(await worker.poll()).toBe(1);
+    const [task] = await listAgentTasks(setup.memory);
+    expect(task.status).toBe("failed");
+    expect(await readAgentTaskResult(setup.memory, task.id)).toMatchObject({
+      status: "failed",
+      artifactRefs: ["evidence/blocked-evolution.json"],
+    });
+    await worker.drain();
+  });
+
   it("fails fast when execution is enabled without an injected runner", async () => {
     const setup = await fixture();
     expect(() => startBackgroundWorker(setup.memory, setup.project, {
       enabled: true,
       assignmentFactory,
     })).toThrow("runAssignment is not configured");
+  });
+
+  it("does not claim another project-memory task while one is already running", async () => {
+    const setup = await fixture(2);
+    const tasks = await listAgentTasks(setup.memory);
+    const claimed = await agentTaskRepository.claimAgentTask(setup.memory, tasks[0], { owner: "other-worker" });
+    await agentTaskRepository.startAgentTask(setup.memory, claimed, {
+      claimToken: claimed.lease!.claimToken,
+      fencingToken: claimed.lease!.fencingToken,
+    });
+    const runAssignment = vi.fn();
+    const worker = startBackgroundWorker(setup.memory, setup.project, {
+      enabled: true,
+      pollIntervalMs: 60_000,
+      assignmentFactory,
+      runAssignment,
+    });
+
+    expect(await worker.poll()).toBe(0);
+    expect(runAssignment).not.toHaveBeenCalled();
+    expect((await listAgentTasks(setup.memory)).filter((task) => task.status === "queued")).toHaveLength(1);
+    await worker.drain();
+  });
+
+  it("atomically claims only one queue head across concurrent workers", async () => {
+    const setup = await fixture(2);
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    const runAssignment = vi.fn(async () => blocked);
+    const first = startBackgroundWorker(setup.memory, setup.project, {
+      enabled: true, pollIntervalMs: 60_000, owner: "worker-a", assignmentFactory, runAssignment,
+    });
+    const second = startBackgroundWorker(setup.memory, setup.project, {
+      enabled: true, pollIntervalMs: 60_000, owner: "worker-b", assignmentFactory, runAssignment,
+    });
+
+    const polls = [first.poll(), second.poll()];
+    await vi.waitFor(() => expect(runAssignment).toHaveBeenCalledTimes(1));
+    expect((await listAgentTasks(setup.memory)).filter((task) => task.status === "running")).toHaveLength(1);
+    release();
+    expect((await Promise.all(polls)).sort()).toEqual([0, 1]);
+    await Promise.all([first.drain(), second.drain()]);
   });
 
   it("aborts and requeues an in-flight provider assignment during drain", async () => {
@@ -138,19 +212,10 @@ function project(path: string): ManagedProject {
 function assignmentFactory(task: { id: string; inputArtifacts: string[] }, managed: ManagedProject): HarnessEngineeringAssignment {
   return {
     mode: "maintain-assigned-closeout",
-    projectId: managed.id,
-    assignmentId: task.id,
-    inputCheckpoint: "checkpoint",
-    policyVersion: "policy-v1",
-    sourceWindowHash: "window",
+    taskId: task.id,
+    projectRoot: managed.path,
+    memoryRoot: "C:/memory",
     evidenceRefs: task.inputArtifacts,
-    currentDocumentRefs: [],
-    currentStableMemoryRefs: [],
-    canonicalTarget: {
-      version: "1.0", assignmentId: task.id, mode: "canonical-direct", memoryMode: "external-local",
-      baseRoot: "C:/memory", namespaces: ["docs"],
-    },
-    namespaceClasses: ["content"],
     requiredVerification: [],
   };
 }

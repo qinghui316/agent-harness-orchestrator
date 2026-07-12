@@ -283,7 +283,6 @@ export async function getRuntimeAssignedHarnessSkillContext(
 ): Promise<EnabledSkillContext> {
   const { parseHarnessEngineeringAssignment } = await import("../agent-task/harness-engineering-contract.js");
   const parsed = parseHarnessEngineeringAssignment(assignment);
-  if (parsed.projectId !== project.id) throw new Error("Harness engineering assignment belongs to another project.");
   const context = await getTransientSystemSkillContextInternal(project, ["aho-harness-engineering"]);
   return {
     ...context,
@@ -291,11 +290,14 @@ export async function getRuntimeAssignedHarnessSkillContext(
       "# Harness Engineering Task Packet",
       "",
       `Mode: ${parsed.mode}`,
-      `Task: ${parsed.assignmentId}`,
+      `Task: ${parsed.taskId}`,
       `Evidence: ${parsed.evidenceRefs.join(", ")}`,
-      `Canonical root: ${parsed.canonicalTarget.baseRoot}`,
-      `Writable Markdown namespaces: ${parsed.canonicalTarget.namespaces.join(", ")}`,
-      ...(parsed.sourceWindowHash ? [`Fixed window: ${parsed.sourceWindowHash}`] : []),
+      `Project root: ${parsed.projectRoot}`,
+      `Memory root: ${parsed.memoryRoot}`,
+      ...(parsed.sourceWindow ? [`Fixed window: ${parsed.sourceWindow.hash}`] : []),
+      ...(parsed.requiredVerification.length > 0
+        ? [`Required verification: ${parsed.requiredVerification.map((item) => item.command.join(" ")).join("; ")}`]
+        : []),
     ].join("\n"),
   };
 }

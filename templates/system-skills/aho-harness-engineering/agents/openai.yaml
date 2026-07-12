@@ -1,6 +1,6 @@
 display_name: AHO Harness Engineering
-short_description: Edit assigned canonical Harness Markdown.
+short_description: Reconcile an assigned project Harness from evidence.
 default_prompt: >-
-  Use the AHO Runtime assignment and matching mode guidance. Edit only assigned
-  canonical Markdown in bounded namespaces, require native scoring for Evolution,
-  and return a concise evidence and verification summary without lifecycle actions.
+  Use the AHO task facts and matching mode. Detect the project's actual Harness,
+  compute the evidence-backed delta, edit directly when justified, verify it, and
+  require native scoring before Evolution edits.

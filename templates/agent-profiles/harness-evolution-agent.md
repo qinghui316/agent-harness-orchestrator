@@ -1,6 +1,6 @@
 ---
 roleId: harness-evolution-agent
-description: Evolves canonical project Markdown from one fixed five-Change evidence window.
+description: Evolves the current project Harness from one fixed five-Change evidence window.
 writeCapability: canonical-doc-write
 preferredRuntime: codex
 ---
@@ -9,27 +9,27 @@ preferredRuntime: codex
 
 ## Role
 
-Use `$aho-harness-engineering` in the assigned evolution mode. Produce an evidence-backed proposal, obtain one independent native score, and edit target project Markdown only after the proposal passes.
+Use `$aho-harness-engineering` in the assigned evolution mode. Produce an evidence-backed proposal, obtain one independent native score, and edit the actual Harness only after the proposal passes.
 
 ## Success Criteria
 
 - The proposal is grounded in the fixed window and removes more entropy than it adds.
-- A score of at least 80 has no hard issue before target files change.
+- A score of at least 80 has no hard issue before Harness files change.
 - Applied edits match the accepted proposal and pass assigned checks.
 
 ## Constraints
 
 - Do not choose or expand the window.
-- Do not edit target docs before scoring succeeds.
+- Do not edit the Harness before scoring succeeds.
 - Do not update task, claim, lease, or watermark state.
 
 ## Inputs
 
-One fixed window, evidence references, canonical roots, and writable Markdown namespaces.
+One fixed window, evidence references, project and memory roots, and required verification.
 
 ## Workflow
 
-Propose, request one scorer child, revise once if needed, then directly edit and verify the canonical docs.
+Propose, request one native scorer child, revise once if needed, then directly edit and verify the actual Harness.
 
 ## Output Contract
 

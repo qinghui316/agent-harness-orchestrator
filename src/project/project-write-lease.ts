@@ -10,7 +10,7 @@ import type {
 
 const LEASE_VERSION = "1.0" as const;
 const DEFAULT_LEASE_TTL_MS = 5 * 60_000;
-type LeaseTable = "project_write_lease" | "project_document_lease";
+type LeaseTable = "project_write_lease";
 
 export interface ProjectWriteLeaseScope {
   lease: ProjectWriteLease;
@@ -41,10 +41,6 @@ export async function readProjectWriteLease(projectPath: string): Promise<Projec
   return readNamedLease(projectPath, "project_write_lease");
 }
 
-export async function readProjectDocumentLease(projectPath: string): Promise<ProjectWriteLease | null> {
-  return readNamedLease(projectPath, "project_document_lease");
-}
-
 async function readNamedLease(projectPath: string, table: LeaseTable): Promise<ProjectWriteLease | null> {
   return withDatabase(projectPath, (database) => leaseFromRow(readRow(database, table)));
 }
@@ -55,14 +51,6 @@ export async function withProjectWriteLease<T>(
   action: (scope: ProjectWriteLeaseScope) => Promise<T>,
 ): Promise<T> {
   return withNamedLease(projectPath, "project_write_lease", options, action);
-}
-
-export async function withProjectDocumentLease<T>(
-  projectPath: string,
-  options: ProjectWriteLeaseScopeOptions,
-  action: (scope: ProjectWriteLeaseScope) => Promise<T>,
-): Promise<T> {
-  return withNamedLease(projectPath, "project_document_lease", options, action);
 }
 
 async function withNamedLease<T>(
@@ -131,10 +119,6 @@ export async function claimProjectWriteLease(
   return claimNamedLease(projectPath, "project_write_lease", claim, now);
 }
 
-export async function claimProjectDocumentLease(projectPath: string, claim: ProjectWriteLeaseClaim, now = new Date()): Promise<ProjectWriteLease | null> {
-  return claimNamedLease(projectPath, "project_document_lease", claim, now);
-}
-
 async function claimNamedLease(projectPath: string, table: LeaseTable, claim: ProjectWriteLeaseClaim, now = new Date()): Promise<ProjectWriteLease | null> {
   assertClaim(claim);
   return withDatabase(projectPath, (database) => database.transaction(() => {
@@ -164,10 +148,6 @@ export async function heartbeatProjectWriteLease(
   return heartbeatNamedLease(projectPath, "project_write_lease", identity, ttlMs, now);
 }
 
-export async function heartbeatProjectDocumentLease(projectPath: string, identity: ProjectWriteLeaseIdentity, ttlMs: number, now = new Date()): Promise<ProjectWriteLease> {
-  return heartbeatNamedLease(projectPath, "project_document_lease", identity, ttlMs, now);
-}
-
 async function heartbeatNamedLease(projectPath: string, table: LeaseTable, identity: ProjectWriteLeaseIdentity, ttlMs: number, now = new Date()): Promise<ProjectWriteLease> {
   assertTtl(ttlMs);
   return withDatabase(projectPath, (database) => database.transaction(() => {
@@ -190,10 +170,6 @@ export async function assertProjectWriteLeaseCurrent(
   return assertNamedLeaseCurrent(projectPath, "project_write_lease", identity, now);
 }
 
-export async function assertProjectDocumentLeaseCurrent(projectPath: string, identity: ProjectWriteLeaseIdentity, now = new Date()): Promise<ProjectWriteLease> {
-  return assertNamedLeaseCurrent(projectPath, "project_document_lease", identity, now);
-}
-
 async function assertNamedLeaseCurrent(projectPath: string, table: LeaseTable, identity: ProjectWriteLeaseIdentity, now = new Date()): Promise<ProjectWriteLease> {
   return withDatabase(projectPath, (database) => requireCurrentLease(readRow(database, table), identity, now));
 }
@@ -204,10 +180,6 @@ export async function releaseProjectWriteLease(
   now = new Date(),
 ): Promise<void> {
   return releaseNamedLease(projectPath, "project_write_lease", identity, now);
-}
-
-export async function releaseProjectDocumentLease(projectPath: string, identity: ProjectWriteLeaseIdentity, now = new Date()): Promise<void> {
-  return releaseNamedLease(projectPath, "project_document_lease", identity, now);
 }
 
 async function releaseNamedLease(projectPath: string, table: LeaseTable, identity: ProjectWriteLeaseIdentity, now = new Date()): Promise<void> {
@@ -240,16 +212,7 @@ function withDatabase<T>(projectPath: string, action: (database: Database.Databa
         expires_at TEXT
       );
       INSERT OR IGNORE INTO project_write_lease (id, last_fencing_token) VALUES (1, 0);
-      CREATE TABLE IF NOT EXISTS project_document_lease (
-        id INTEGER PRIMARY KEY CHECK (id = 1),
-        last_fencing_token INTEGER NOT NULL,
-        holder_id TEXT,
-        fencing_token INTEGER,
-        acquired_at TEXT,
-        heartbeat_at TEXT,
-        expires_at TEXT
-      );
-      INSERT OR IGNORE INTO project_document_lease (id, last_fencing_token) VALUES (1, 0);
+      DROP TABLE IF EXISTS project_document_lease;
     `);
     return action(database);
   } finally {

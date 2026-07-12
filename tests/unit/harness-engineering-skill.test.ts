@@ -20,24 +20,22 @@ describe("AHO Harness engineering Skill", () => {
     const skill = await readFile(join(skillRoot, "SKILL.md"), "utf8");
     expect(skill).toContain("name: aho-harness-engineering");
     for (const mode of ["onboard", "audit", "maintain-assigned-closeout", "evolve-assigned-window"]) {
-      expect(skill).toContain(`\`${mode}\``);
+      expect(skill).toContain(mode);
     }
-    expect(skill).toContain("Never infer a mode");
-    expect(skill).toContain("Do not invoke AHO lifecycle commands");
+    expect(skill).toContain("Do not infer another mode");
+    expect(skill).toContain("Do not invent");
   });
 
-  it("teaches bounded direct canonical edits and scored Evolution", async () => {
+  it("teaches ECL delta analysis, direct edits, and scored Evolution", async () => {
     const content = await readSkillFiles();
-    for (const operation of ["create", "edit", "delete", "split", "merge", "rename"]) {
-      expect(content.toLowerCase()).toContain(operation);
+    for (const method of ["Create", "Update", "Already Good", "Promote", "Retain", "Merge", "Retire", "Archive-only"]) {
+      expect(content).toContain(method);
     }
-    expect(content).toContain("canonical project Markdown");
-    expect(content).toContain("native scorer");
+    expect(content).toContain("Directly complete justified edits");
+    expect(content).toContain("scorer child");
     expect(content).toContain("score of at least 80");
-    expect(content).toContain("There is no reviewer, diff-manifest, or project-memory apply stage");
-    expect(content).toContain("cannot trigger work");
-    expect(content).toContain("create or claim assignments");
-    expect(content).toContain("choose or count archive windows");
+    expect(content).toContain("create or claim");
+    expect(content).toContain("widen an assigned Evolution window");
     expect(content).toContain("close Changes");
   });
 
@@ -49,18 +47,18 @@ describe("AHO Harness engineering Skill", () => {
     expect(content).not.toMatch(/```json/);
   });
 
-  it("includes worked workspace examples for no-op and structural Markdown edits", async () => {
+  it("uses cross-layout examples instead of a global Harness file schema", async () => {
     const examples = await readFile(join(skillRoot, "references", "worked-examples.md"), "utf8");
     for (const heading of [
+      "External Memory, Project Entry",
+      "Existing Layout With Different Names",
       "Closeout No-op",
-      "Edit A Stale Handoff",
-      "Create And Rename On Onboarding",
-      "Split An Overloaded Guide",
-      "Merge Duplicate Guidance",
-      "Block An Out-of-Scope Request",
+      "Evolution Compression",
     ]) {
       expect(examples).toContain(`## ${heading}`);
     }
+    const content = await readSkillFiles();
+    expect(content).not.toMatch(/writable namespace|allowedTargets|path allowlist|path blacklist/i);
   });
 
   it("passes the Skill Creator validator", () => {

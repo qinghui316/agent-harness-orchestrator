@@ -2,11 +2,13 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { writeJsonFile } from "../fs/json.js";
+import { executeProcessStreaming } from "../run/process.js";
 import { getSystemSkillsRoot } from "../template-source/paths.js";
 import { getActiveCodexAppServerTurn, runCodexAppServerTurn } from "../codex/app-server.js";
 import type { ManagedProject, ResolvedMemory } from "../types/index.js";
 import type { HarnessEngineeringAssignment } from "./harness-engineering-contract.js";
 import {
+  EvolutionScoreBlockedError,
   runMaintenanceProviderAssignment,
   type MaintenanceProviderExecutionRequest,
   type MaintenanceProviderExecutionResult,
@@ -23,15 +25,71 @@ export async function runCodexMaintenanceAssignment(
   assignment: HarnessEngineeringAssignment,
   signal?: AbortSignal,
 ): Promise<{ summary: string; artifactRefs: string[] }> {
-  const evidence = await runMaintenanceProviderAssignment({
-    project,
-    assignment,
-    executor: createCodexMaintenanceProviderExecutor(memory),
-    signal,
-  });
-  const evidencePath = join(memory.workbenchRoot, "maintenance", "evidence", `${assignment.assignmentId}.json`);
+  const evidencePath = join(memory.workbenchRoot, "maintenance", "evidence", `${assignment.taskId}.json`);
+  let evidence;
+  try {
+    evidence = await runMaintenanceProviderAssignment({
+      project,
+      assignment,
+      executor: createCodexMaintenanceProviderExecutor(memory),
+      signal,
+    });
+  } catch (error) {
+    if (error instanceof EvolutionScoreBlockedError) {
+      await writeJsonFile(evidencePath, error.evidence);
+      error.artifactRefs = [evidencePath];
+    }
+    throw error;
+  }
+  evidence.verification = await runRequiredVerification(memory, assignment, signal);
   await writeJsonFile(evidencePath, evidence);
+  const failed = evidence.verification.find((item) => !item.passed);
+  if (failed) {
+    throw new MaintenanceVerificationError(
+      `Required maintenance verification failed: ${failed.name}.`,
+      [evidencePath, failed.stdoutPath, failed.stderrPath],
+    );
+  }
   return { summary: evidence.producer.summary, artifactRefs: [evidencePath] };
+}
+
+async function runRequiredVerification(
+  memory: ResolvedMemory,
+  assignment: HarnessEngineeringAssignment,
+  signal?: AbortSignal,
+) {
+  const directory = join(memory.workbenchRoot, "maintenance", "verification", assignment.taskId);
+  const results = [];
+  for (const [index, item] of assignment.requiredVerification.entries()) {
+    const safeName = item.name.replace(/[^a-zA-Z0-9._-]+/g, "-");
+    const stdoutPath = join(directory, `${String(index + 1).padStart(2, "0")}-${safeName}.stdout.log`);
+    const stderrPath = join(directory, `${String(index + 1).padStart(2, "0")}-${safeName}.stderr.log`);
+    const result = await executeProcessStreaming({
+      cwd: assignment.projectRoot,
+      command: item.command[0]!,
+      args: item.command.slice(1),
+      stdoutPath,
+      stderrPath,
+      timeoutMs: 10 * 60_000,
+      stopSignal: () => signal?.aborted ?? false,
+    });
+    results.push({
+      name: item.name,
+      command: item.command,
+      exitCode: result.exitCode,
+      passed: result.exitCode === 0 && !result.timedOut,
+      stdoutPath,
+      stderrPath,
+    });
+    if (result.exitCode !== 0 || result.timedOut) break;
+  }
+  return results;
+}
+
+export class MaintenanceVerificationError extends Error {
+  constructor(message: string, readonly artifactRefs: string[]) {
+    super(message);
+  }
 }
 
 async function executeCodexMaintenanceRequest(
@@ -59,8 +117,10 @@ async function executeCodexMaintenanceRequest(
       ? "memory-maintenance-agent"
       : request.role === "evolution-agent"
         ? "harness-evolution-agent"
-        : "evolution-scorer";
-    const developerInstructions = isScorer ? undefined : await readFile(join(getSystemSkillsRoot(), "..", "agent-profiles", `${profileId}.md`), "utf8");
+        : null;
+    const developerInstructions = profileId
+      ? await readFile(join(getSystemSkillsRoot(), "..", "agent-profiles", `${profileId}.md`), "utf8")
+      : undefined;
     result = await runCodexAppServerTurn({
       projectId: request.project.id, runtimeScopeId: runId, roleId: request.role, runId,
       cwd: request.cwd, prompt, sandboxPolicy: request.writable ? "workspace-write" : "read-only",

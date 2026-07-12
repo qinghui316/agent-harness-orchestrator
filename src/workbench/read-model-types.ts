@@ -827,8 +827,7 @@ export type DemandAgentRunGraphNodeKind =
   | "documentation-agent"
   | "architecture-agent"
   | "evolution-agent"
-  | "evolution-scorer"
-  | "evolution-reviewer";
+  | "evolution-scorer";
 export type DemandAgentRunGraphNodeStatus = "idle" | "queued" | "running" | "completed" | "needs-change" | "failed" | "waiting-user" | "skipped";
 export type DemandAgentRunGraphEdgeKind = "delegates" | "returns" | "requires-evidence" | "triggers-rework" | "continues-to" | "background-maintenance";
 export type DemandAgentRunGraphStage = "demand" | "planning" | "execution" | "validation" | "review" | "integration" | "landing" | "terminal" | "maintenance";

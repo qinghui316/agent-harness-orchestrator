@@ -200,19 +200,10 @@ describe("AHO skill source and Codex bridge", () => {
 
     const context = await getRuntimeAssignedHarnessSkillContext(repo, {
       mode: "maintain-assigned-closeout",
-      projectId: repo.id,
-      assignmentId: "maintenance-1",
-      inputCheckpoint: "checkpoint-1",
-      policyVersion: "policy-1",
-      sourceWindowHash: "window-1",
+      taskId: "maintenance-1",
+      projectRoot: repo.path,
+      memoryRoot: "C:/memory",
       evidenceRefs: ["change://terminal"],
-      currentDocumentRefs: [],
-      currentStableMemoryRefs: [],
-      canonicalTarget: {
-        version: "1.0", assignmentId: "maintenance-1", mode: "canonical-direct", memoryMode: "external-local",
-        baseRoot: "C:/memory", namespaces: ["docs"],
-      },
-      namespaceClasses: ["content"],
       requiredVerification: [],
     });
     expect(context.records).toEqual([expect.objectContaining({
@@ -223,15 +214,15 @@ describe("AHO skill source and Codex bridge", () => {
       materializedHash: null,
     })]);
     expect(context.promptSection).toContain("Harness Engineering Task Packet");
-    expect(context.promptSection).not.toContain("references/aho-memory-layout.md");
+    expect(context.promptSection).not.toContain("references/project-and-harness-detection.md");
     expect(context.promptSection).toContain("Harness Engineering Task Packet");
     expect(context.promptSection).toContain("Mode: maintain-assigned-closeout");
-    expect(context.promptSection).toContain("Canonical root: C:/memory");
+    expect(context.promptSection).toContain("Memory root: C:/memory");
     expect(context.promptSection).not.toContain("SKILL.md");
     expect(context.promptSection).not.toContain('"mode"');
     expect(context.promptSection).toContain("Task: maintenance-1");
     expect(context.promptSection).toContain("Evidence: change://terminal");
-    expect(context.promptSection).toContain("Fixed window: window-1");
+    expect(context.promptSection).not.toContain("Fixed window:");
 
     const persistent = await getEnabledSkillContext(repo, "change-a");
     expect(persistent.records).toHaveLength(0);

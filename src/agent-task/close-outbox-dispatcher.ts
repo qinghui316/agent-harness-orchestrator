@@ -22,7 +22,7 @@ interface ChangeClosedOutboxEvent {
 
 export interface CloseOutboxDispatchResult {
   closeSequence: number;
-  closeoutTask: AgentTask;
+  closeoutTask?: AgentTask;
   evolutionTask?: AgentTask;
 }
 
@@ -49,21 +49,30 @@ export async function dispatchChangeCloseOutbox(memory: ResolvedMemory): Promise
 async function dispatchEvent(memory: ResolvedMemory, outboxPath: string, event: ChangeClosedOutboxEvent, eligible: ReadonlyMap<number, { path: string; event: ChangeClosedOutboxEvent }>): Promise<CloseOutboxDispatchResult> {
   const eventRef = displayPath(memory, outboxPath);
   const identityHash = hashJson({ type: event.type, projectId: event.projectId, changeId: event.changeId, closeSequence: event.closeSequence });
+  if (event.closeSequence % WINDOW_SIZE === 0) {
+    return dispatchEvolutionEvent(memory, event, eligible);
+  }
   const closeoutTask = await ensureTask(memory, {
     id: `agtask-closeout-${identityHash}`,
     conversationId: `maintenance:${event.changeId}`,
     changeId: event.changeId,
     roleId: `memory-maintenance-agent:${identityHash}`,
-    summary: `Background maintenance assignment for Change ${event.changeId} at close sequence ${event.closeSequence}. The Maintenance Agent edits bounded canonical project Markdown directly.`,
+    summary: `Background maintenance assignment for Change ${event.changeId} at close sequence ${event.closeSequence}. The Maintenance Agent inspects and edits the current project Harness directly.`,
     inputArtifacts: [eventRef, event.archivePath, event.receiptPath, `close-identity-sha256:${identityHash}`],
     occurredAt: event.occurredAt,
   });
-  if (event.closeSequence % WINDOW_SIZE !== 0) return { closeSequence: event.closeSequence, closeoutTask };
+  return { closeSequence: event.closeSequence, closeoutTask };
+}
 
+async function dispatchEvolutionEvent(
+  memory: ResolvedMemory,
+  event: ChangeClosedOutboxEvent,
+  eligible: ReadonlyMap<number, { path: string; event: ChangeClosedOutboxEvent }>,
+): Promise<CloseOutboxDispatchResult> {
   const windowStart = event.closeSequence - WINDOW_SIZE + 1;
   const window = Array.from({ length: WINDOW_SIZE }, (_, index) => eligible.get(windowStart + index));
   const missing = window.map((item, index) => item ? null : windowStart + index).filter((sequence): sequence is number => sequence !== null);
-  if (missing.length > 0) return { closeSequence: event.closeSequence, closeoutTask };
+  if (missing.length > 0) return { closeSequence: event.closeSequence };
   const windowItems = window as Array<{ path: string; event: ChangeClosedOutboxEvent }>;
   const windowHash = hashJson(windowItems.map((item) => ({
     id: item.event.id,
@@ -77,7 +86,7 @@ async function dispatchEvent(memory: ResolvedMemory, outboxPath: string, event: 
     conversationId: `evolution:${windowStart}-${event.closeSequence}`,
     changeId: `evolution-window-${windowStart}-${event.closeSequence}`,
     roleId: `harness-evolution-agent:${windowHash}`,
-    summary: `Harness evolution assignment for fixed five-close sequence window ${windowStart}-${event.closeSequence}. Evolution proposes first, a native scorer must return at least 80, then the Agent edits bounded canonical target docs directly.`,
+    summary: `Harness evolution assignment for fixed five-close sequence window ${windowStart}-${event.closeSequence}. Evolution covers the fifth closeout, proposes first, and edits the current project Harness only after native scoring succeeds.`,
     inputArtifacts: [
       ...windowItems.flatMap((item) => [displayPath(memory, item.path), item.event.archivePath, item.event.receiptPath]),
       `close-window:${windowStart}-${event.closeSequence}`,
@@ -85,7 +94,7 @@ async function dispatchEvent(memory: ResolvedMemory, outboxPath: string, event: 
     ],
     occurredAt: event.occurredAt,
   });
-  return { closeSequence: event.closeSequence, closeoutTask, evolutionTask };
+  return { closeSequence: event.closeSequence, evolutionTask };
 }
 
 async function ensureTask(memory: ResolvedMemory, input: {

@@ -94,7 +94,6 @@ const defaultCatalog: AgentCatalog = {
     role("spec-test-generator", "Spec-Test Generator", "Generates passing test-only proposals in worktrees.", "worktree-write", ["missing-ac", "worktree"], ["test-diff", "implementation-notes"], ["validation", "audit", "human-apply"]),
     { ...role("memory-maintenance-agent", "Memory Maintenance Agent", "Directly maintains canonical project Markdown after one completed Change.", "canonical-doc-write", ["assigned-closeout", "project-docs"], ["canonical-markdown", "maintenance-summary"]), allowedSkills: ["aho-harness-engineering"] },
     { ...role("harness-evolution-agent", "Harness Evolution Agent", "Proposes and applies evidence-backed project-document evolution for one fixed five-Change window.", "canonical-doc-write", ["assigned-window", "project-docs"], ["evolution-proposal", "canonical-markdown"]), allowedSkills: ["aho-harness-engineering"] },
-    role("evolution-scorer", "Evolution Scorer", "Independently scores one bounded evolution proposal against ECL criteria.", "read-only", ["assigned-window", "evolution-proposal"], ["evolution-score"]),
   ],
 };
 
@@ -170,7 +169,7 @@ export async function resolveAgentRole(memory: ResolvedMemory, roleIdInput: stri
 export function validateRolePromptContract(roleId: string, markdown: string): void {
   const requiredRoles = new Set([
     "planning-agent", "coder-agent", "auditor-agent", "rework-coder",
-    "memory-maintenance-agent", "harness-evolution-agent", "evolution-scorer",
+    "memory-maintenance-agent", "harness-evolution-agent",
   ]);
   if (!requiredRoles.has(roleId)) return;
   const missingFrontmatter = ["roleId:", "description:", "writeCapability:", "preferredRuntime:"].filter((marker) => !markdown.includes(marker));
@@ -266,7 +265,7 @@ function validateUniqueRoles(catalog: AgentCatalog): void {
 function normalizeCatalog(parsed: z.infer<typeof catalogSchema>): AgentCatalog {
   // Old catalogs remain parseable, but retired model roles must not re-enter the
   // production catalog or Codex bridge during normalization.
-  const retiredProductionRoleIds = new Set(["coder", "auditor", "validator", "merge-reviewer-agent"]);
+  const retiredProductionRoleIds = new Set(["coder", "auditor", "validator", "merge-reviewer-agent", "evolution-scorer"]);
   const entries = parsed.agents.filter((entry) => !retiredProductionRoleIds.has(entry.roleId));
   for (const bundled of defaultCatalog.agents) {
     if (!entries.some((entry) => entry.roleId === bundled.roleId)) entries.push(bundled);

@@ -21,28 +21,26 @@ describe("Change close outbox dispatcher", () => {
     const second = await dispatchChangeCloseOutbox(memory);
 
     expect(first.map((result) => result.closeSequence)).toEqual([1, 2, 3, 4, 5]);
-    expect(first.map((result) => result.closeoutTask.id)).toEqual(second.map((result) => result.closeoutTask.id));
+    expect(first.slice(0, 4).map((result) => result.closeoutTask?.id)).toEqual(second.slice(0, 4).map((result) => result.closeoutTask?.id));
+    expect(first[4].closeoutTask).toBeUndefined();
     expect(first.filter((result) => result.evolutionTask)).toHaveLength(1);
     expect(first[4].evolutionTask).toMatchObject({
       conversationId: "evolution:1-5", changeId: "evolution-window-1-5", kind: "background", createdBy: "maintenance-policy",
     });
     expect(first[4].evolutionTask?.inputArtifacts).toContain("close-window:1-5");
-    expect(first[4].evolutionTask?.summary).toContain("native scorer must return at least 80");
+    expect(first[4].evolutionTask?.summary).toContain("covers the fifth closeout");
   });
 
-  it("fills a missing evolution step without replacing the already-created closeout task", async () => {
+  it("recreates a missing fifth-close evolution task without creating Maintenance", async () => {
     root = await mkdtemp(join(tmpdir(), "aho-close-retry-"));
     const memory = repoLocalMemory(root, "project-1");
     await Promise.all([1, 2, 3, 4, 5].map((sequence) => writeEvent(root!, sequence)));
     const first = (await dispatchChangeCloseOutbox(memory))[4];
-    const closeoutPath = join(memory.workbenchRoot, "agent-tasks", "tasks", first.closeoutTask.id, "task.json");
-    const before = await readFile(closeoutPath, "utf8");
     await rm(join(memory.workbenchRoot, "agent-tasks", "tasks", first.evolutionTask!.id), { recursive: true, force: true });
 
     const retried = (await dispatchChangeCloseOutbox(memory))[4];
 
-    expect(await readFile(closeoutPath, "utf8")).toBe(before);
-    expect(retried.closeoutTask.id).toBe(first.closeoutTask.id);
+    expect(retried.closeoutTask).toBeUndefined();
     expect(retried.evolutionTask?.id).toBe(first.evolutionTask?.id);
   });
 

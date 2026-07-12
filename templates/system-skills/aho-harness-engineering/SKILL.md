@@ -1,54 +1,49 @@
 ---
 name: aho-harness-engineering
-description: "Use only for AHO Runtime-assigned Harness engineering: onboard or audit bounded context, maintain canonical project Markdown from one closeout, or propose and apply a scored evolution from one five-close window."
+description: "Use for AHO Runtime-assigned project Harness work: detect or audit the current Harness, maintain it from one closed Change, or evolve it from one fixed evidence window."
 ---
 
 # AHO Harness Engineering
 
-Work only from the bounded task packet prepared by AHO Runtime. The packet selects exactly one mode:
+Use only the mode and task facts assigned by AHO Runtime:
 
-- `onboard`: create or reconcile initial project-specific Harness Markdown.
-- `audit`: inspect current Harness context and repair assigned Markdown drift when justified.
-- `maintain-assigned-closeout`: update durable memory from one assigned terminal Change.
-- `evolve-assigned-window`: improve Harness guidance from one fixed archive window.
+- onboard: detect the project and create or complete the Harness it actually needs.
+- audit: assess the current Harness and repair evidence-backed gaps.
+- maintain-assigned-closeout: reconcile one assigned terminal Change with current project memory.
+- evolve-assigned-window: propose, score, and complete a durable delta from one fixed Change window.
 
-Never infer a mode from user prose, repository state, `pending.md`, or archive counts. If the mode, assignment identity, evidence references, canonical root, writable Markdown namespaces, or required verification are missing or inconsistent, stop and report the blocker.
+Runtime decides when work runs, which project and roots it belongs to, the
+evidence/window, task recovery, and completion state. You decide what the
+evidence means, which current artifacts own that meaning, and whether to create,
+update, consolidate, retire, or leave content unchanged.
 
-## Workflow
+## Unified Method
 
-1. Validate the Runtime assignment, canonical root, writable Markdown namespaces, and fixed evidence window.
-2. Read only the supplied evidence and current Markdown needed for the selected mode.
-3. Classify candidate knowledge as `promote`, `retain`, `merge`, `retire`, or `archive-only`.
-4. For maintenance, directly create, edit, delete, split, merge, or rename canonical Markdown inside the writable namespaces.
-5. For evolution, first return a read-only proposal, then native-spawn one independent scorer child. Edit canonical target docs only after it returns a score of at least 80 with no hard issue.
-6. Re-read the resulting files, check links and document roles, and run only the verification assigned by Runtime.
-7. Return a concise summary of changed files, evidence used, verification, warnings, or why no change was needed.
+1. Read the task packet and identify the actual project and memory roots.
+2. Detect the project's current Harness shape and document responsibilities.
+3. Read only the current artifacts and assigned evidence needed for this mode.
+4. Compute the real delta as Create, Update, or Already Good.
+5. Classify durable experience as Promote, Retain, Merge, Retire, or Archive-only.
+6. Check documentation entropy before adding content.
+7. Directly complete justified edits, except that Evolution remains read-only until its proposal scores at least 80 with no hard issue.
+8. Run the project's applicable verification and re-read the resulting handoff.
+9. Return a short completed, noop, or blocked result grounded in evidence.
 
-The filesystem is the edit source. Do not create a patch envelope, diff manifest, reviewer package, or project-memory apply transaction.
+Do not infer another mode, widen an assigned Evolution window, create or claim
+tasks, update Runtime state, advance watermarks, or close Changes. Do not invent
+a generic Harness path layout. Discover the current project's owners from its
+entry guidance, current docs, Harness records, and verification surface.
 
-## Reference Routing
+## References
 
-- Always read `references/runtime-contract.md`, `references/evidence-selection.md`, and `references/output-contract.md`.
-- For `onboard` or `audit`, read `references/onboarding-context.md`; load project-state, memory-layout, or document-generation guidance only as needed.
-- For `maintain-assigned-closeout`, read `references/incremental-closeout.md` and `references/document-roles.md`.
-- For `evolve-assigned-window`, read `references/evolution-window.md`, `references/document-roles.md`, and `references/failure-and-recovery.md`.
-- Read `references/worked-examples.md` before a non-trivial edit or when deciding between no-op, merge, split, rename, and delete.
+Read only what the current mode needs:
 
-## Editing Rules
-
-- Prefer no change when bounded evidence does not justify durable current guidance.
-- Keep `AGENTS.md` and status documents compact; preserve detailed chronology in Change archives.
-- Preserve project-specific content unless evidence proves it stale, duplicated, or misplaced.
-- Use filesystem operations for structural changes. Do not encode edits in the final response.
-- Touch only Markdown in Runtime-provided canonical writable namespaces. Never follow symlinks or escape those namespaces.
-- Treat generated indexes, product source, executable scripts, CI, configuration, secrets, and runtime state as read-only or out of scope.
-
-## Authority Boundaries
-
-The Agent cannot trigger work, create or claim assignments, choose or count archive windows, schedule workflow workers, close Changes, advance watermarks, or mark maintenance/evolution complete. Do not invoke AHO lifecycle commands or start reviewer agents. The assigned Evolution Agent owns requesting its one native scorer child.
-
-Runtime owns namespace enforcement, task claim and fencing, heartbeat, retries, lease interruption, fixed windows, verification policy, ledger updates, watermarks, and close/finalization. Maintenance and accepted Evolution Agents own their bounded canonical Markdown edits; the Evolution Agent owns scorer delegation.
-
-## Stop Conditions
-
-Stop without editing when assignment lineage is inconsistent, required evidence is unavailable, a needed path is outside writable Markdown namespaces, Evolution has no score of at least 80, facts conflict without a safe resolution, or the requested result would weaken source safety, validation, ownership, or human gates.
+- Detection and onboarding: [project-and-harness-detection.md](references/project-and-harness-detection.md)
+- Shared delta method: [ecl-delta-analysis.md](references/ecl-delta-analysis.md)
+- One closeout: [incremental-closeout.md](references/incremental-closeout.md)
+- Five-Change evolution: [evolution-window.md](references/evolution-window.md)
+- Current-doc quality: [documentation-entropy.md](references/documentation-entropy.md)
+- Experience decisions: [experience-lifecycle.md](references/experience-lifecycle.md)
+- Checks and handoff: [verification-and-handoff.md](references/verification-and-handoff.md)
+- Interrupted or ambiguous work: [failure-and-recovery.md](references/failure-and-recovery.md)
+- Cross-layout examples: [worked-examples.md](references/worked-examples.md)

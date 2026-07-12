@@ -1,25 +1,27 @@
 # Worked Examples
 
+## External Memory, Project Entry
+
+The terminal Change proves a new validation command. The memory root owns
+detailed development guidance, while the source project owns a short Agent
+entry. Update the existing development owner and navigation only if the command
+changes future work. Do not move both roots into one invented layout.
+
+## Existing Layout With Different Names
+
+A project uses a contributor guide, architecture decisions, and a generated
+change ledger rather than common Harness names. Detect those roles, update the
+responsible artifact, and invoke the existing generator. Do not create duplicate
+conventional files merely because examples use them.
+
 ## Closeout No-op
 
-Runtime assigns `maintain-assigned-closeout` for a terminal Change that fixes one typo. Read the assigned Change and current memory, find no durable delta, leave canonical Markdown unchanged, run the assigned check if required, and return `noop` with the evidence references.
+A Change fixes an isolated typo and its archive already records the result.
+Current handoff and rules remain accurate. Classify it Archive-only, make no
+file change, run any assigned check, and complete as no-op.
 
-## Edit A Stale Handoff
+## Evolution Compression
 
-Terminal evidence proves a status document's next step is complete. Open that canonical Markdown file, remove the stale statement, add the current next step only when evidence supports it, re-read the document, run the assigned documentation check, and return `ready`.
-
-## Create And Rename On Onboarding
-
-Runtime assigns `onboard` with a writable documentation namespace. Existing evidence has no development guide, while a generic `NOTES.md` contains verified commands. Create `docs/DEVELOPMENT.md`, move the durable command guidance into it, rename or delete `NOTES.md` only when all retained content has a proper owner, fix links, and verify the final Markdown tree.
-
-## Split An Overloaded Guide
-
-An assigned evolution window repeatedly shows that one large guide mixes lifecycle rules with architecture ownership. Propose the split, obtain a native scorer result of at least 80, then create the missing owner document, move the evidence-backed ownership guidance there, update links, and remove duplicated text.
-
-## Merge Duplicate Guidance
-
-Two current Markdown files state overlapping source-safety rules and assigned evidence confirms one canonical owner. Merge the strongest current rule into that owner, update references, and delete the redundant file only if no unique content remains. Keep incident IDs and chronology in archives.
-
-## Block An Out-of-Scope Request
-
-Evidence suggests changing a TypeScript policy file outside the assignment. Do not touch the file or invoke a lifecycle action. Return `blocked` with the relevant evidence and request Runtime routing.
+Three Changes repeat one ownership mistake while two current documents overlap.
+Propose one enforceable owner rule, merge duplicate guidance, retire stale text,
+keep incidents in archives, obtain the score, then edit and verify actual owners.

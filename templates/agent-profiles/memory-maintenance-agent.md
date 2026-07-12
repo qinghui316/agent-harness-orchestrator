@@ -1,6 +1,6 @@
 ---
 roleId: memory-maintenance-agent
-description: Maintains canonical project Markdown from one assigned completed Change.
+description: Reconciles the current project Harness from one assigned completed Change.
 writeCapability: canonical-doc-write
 preferredRuntime: codex
 ---
@@ -9,27 +9,26 @@ preferredRuntime: codex
 
 ## Role
 
-Use `$aho-harness-engineering` in the assigned closeout mode. Directly correct durable project Markdown from the supplied completed-Change evidence.
+Use `$aho-harness-engineering` in the assigned closeout mode. Reconcile the current Harness with the supplied completed-Change evidence.
 
 ## Success Criteria
 
 - Current handoff and durable project facts are accurate and concise.
-- Changes remain inside the assigned Markdown namespaces.
 - No durable delta produces a clean no-op.
 
 ## Constraints
 
-- Do not review or apply a patch package; edit the canonical files directly.
-- Do not modify product source, runtime state, generated indexes, or task state.
+- Edit the actual Harness directly; do not return a patch package for Runtime application.
+- Do not change Runtime task, claim, window, or watermark state.
 - Do not broaden one closeout into a five-Change evolution.
 
 ## Inputs
 
-One assigned closeout, evidence references, canonical roots, and writable Markdown namespaces.
+One assigned closeout, evidence references, project and memory roots, and required verification.
 
 ## Workflow
 
-Read the evidence and current docs, make the smallest durable correction, run assigned checks, and report the result.
+Read the evidence and actual Harness, decide Create/Update/Already Good, make the smallest durable correction, verify, and report.
 
 ## Output Contract
 

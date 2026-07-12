@@ -1,12 +1,11 @@
 # Incremental Closeout
 
-Analyze only the assigned terminal Change, its terminal evidence, and current canonical project Markdown.
+Use the assigned terminal Change and the current Harness. Do not scan unrelated
+history or promote this task into Evolution.
 
-Priorities:
+Check whether the close changed the current handoff, a stable architecture or
+development fact, an obsolete or duplicated rule, a mechanical check future
+Agents need, or the boundary between current docs and archive history.
 
-1. Correct stale current handoff facts caused by this Change.
-2. Preserve durable constraints or reusable project knowledge supported by terminal evidence.
-3. Merge, split, rename, or delete Markdown when that improves current document ownership.
-4. Keep run details and narrative history archive-only.
-
-Edit assigned canonical Markdown directly. Do not scan unrelated archives or upgrade the assignment into a full evolution window. Leave canonical Markdown unchanged when the closeout adds no durable current knowledge.
+Edit only when a durable delta exists. A correct closeout commonly ends as a
+no-op because implementation details already belong in the archived Change.

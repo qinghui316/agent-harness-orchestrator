@@ -3,11 +3,10 @@ import { parseHarnessEngineeringAssignment, type HarnessEngineeringAssignment } 
 import { EvolutionScoreBlockedError } from "./maintenance-provider-runner.js";
 import {
   checkpointAgentTask,
-  claimAgentTask,
+  claimNextMaintenanceAgentTask,
   completeAgentTask,
   failAgentTask,
   heartbeatAgentTask,
-  listAgentTasks,
   startAgentTask,
   type AgentTaskWriterIdentity,
 } from "./repository.js";
@@ -88,20 +87,24 @@ async function runPoll(
   limit: number,
   signal: AbortSignal,
 ): Promise<number> {
-  const queued = (await listAgentTasks(memory))
-    .filter((task) => task.status === "queued" && task.kind === "background" && task.createdBy === "maintenance-policy")
-    .slice(0, limit);
-  for (const task of queued) {
+  let executed = 0;
+  for (let index = 0; index < limit; index += 1) {
     if (signal.aborted) break;
-    await executeTask(memory, project, task, options, signal);
+    const claimed = await claimNextMaintenanceAgentTask(memory, {
+      owner: options.owner ?? `background-worker-${process.pid}`,
+      leaseDurationMs: options.leaseDurationMs,
+    });
+    if (!claimed) break;
+    await executeTask(memory, project, claimed, options, signal);
+    executed += 1;
   }
-  return queued.length;
+  return executed;
 }
 
 async function executeTask(
   memory: ResolvedMemory,
   project: ManagedProject,
-  task: AgentTask,
+  claimed: AgentTask,
   options: BackgroundWorkerOptions,
   signal: AbortSignal,
 ): Promise<void> {
@@ -112,10 +115,6 @@ async function executeTask(
   let writer: AgentTaskWriterIdentity | undefined;
   let heartbeat: NodeJS.Timeout | null = null;
   try {
-    const claimed = await claimAgentTask(memory, task, {
-      owner: options.owner ?? `background-worker-${process.pid}`,
-      leaseDurationMs: options.leaseDurationMs,
-    });
     writer = { claimToken: claimed.lease!.claimToken, fencingToken: claimed.lease!.fencingToken };
     running = await startAgentTask(memory, claimed, writer);
     const heartbeatEveryMs = Math.max(100, Math.floor((options.leaseDurationMs ?? 30_000) / 3));
@@ -125,7 +124,7 @@ async function executeTask(
         running = updated;
       }).catch((error) => {
         options.onError?.(error);
-        void options.onLeaseInvalidated?.(running ?? task, error);
+        void options.onLeaseInvalidated?.(running ?? claimed, error);
         assignmentController.abort(error);
       });
     }, heartbeatEveryMs);
@@ -145,9 +144,16 @@ async function executeTask(
     });
   } catch (error) {
     if (!running || !writer) throw error;
+    if (hasArtifactRefs(error)) {
+      running = await checkpointAgentTask(memory, running, writer, {
+        summary: error instanceof Error ? error.message : String(error),
+        artifactRefs: error.artifactRefs,
+      });
+    }
     await failAgentTask(memory, running, {
       retryable: isRetryable(error),
       summary: error instanceof Error ? error.message : String(error),
+      artifactRefs: hasArtifactRefs(error) ? error.artifactRefs : undefined,
       failureClassification: isRetryable(error) ? "background-worker-retryable" : "background-worker-terminal",
       writer,
     });
@@ -155,6 +161,11 @@ async function executeTask(
     if (heartbeat) clearInterval(heartbeat);
     signal.removeEventListener("abort", abortFromWorker);
   }
+}
+
+function hasArtifactRefs(error: unknown): error is { artifactRefs: string[] } {
+  return typeof error === "object" && error !== null
+    && Array.isArray((error as { artifactRefs?: unknown }).artifactRefs);
 }
 
 function isRetryable(error: unknown): boolean {
