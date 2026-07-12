@@ -14,34 +14,11 @@ export interface AuditPromptInput {
 export async function composeAuditPrompt(input: AuditPromptInput): Promise<string> {
   const profile = input.auditorProfile ?? await readBundledAuditorProfile();
   return [
-    "# AHO Auditor Proposal Run",
-    "",
-    "You are running as a read-only Auditor for Agent Harness Orchestrator.",
+    "# Agent Profile",
     "",
     profile.trim(),
     "",
-    "## Output Contract",
-    "",
-    "You are a worker role, not the orchestrator. Do not call delegateTask, do not spawn subagents, and do not create additional role tasks.",
-    "",
-    "Your final answer must include exactly one status line:",
-    "",
-    "Status: approved | approved-with-notes | blocked",
-    "",
-    "Use Status: approved when the implementation satisfies the accepted demand and there are no non-blocking risks, caveats, or follow-up actions that need human awareness before apply.",
-    "Use Status: approved-with-notes only when there is at least one real non-blocking risk, caveat, limitation, or follow-up recommendation. Do not turn positive evidence or passing validation into note findings; put that evidence in the summary instead.",
-    "Use Status: blocked when required evidence is missing, validation failed, or a required change is needed before apply.",
-    "",
-    "For each finding, use this parseable shape:",
-    "",
-    "Finding: short title",
-    "- Severity: blocking | note",
-    "- Area: spec | implementation | validation | safety | maintainability",
-    "- Evidence: concrete artifact, file, diff, or validation reference",
-    "- Recommendation: specific next action",
-    "",
-    "If you cannot complete the audit from the provided evidence, use Status: blocked and explain what is missing.",
-    "Do not edit files. Do not run commands. Do not merge, apply, or close the change.",
+    "# Task Packet",
     "",
     "## Authoritative Audit Packet",
     "",
@@ -73,5 +50,5 @@ export async function composeAuditPrompt(input: AuditPromptInput): Promise<strin
 }
 
 async function readBundledAuditorProfile(): Promise<string> {
-  return await readFile(join(getTemplateRoot(), "..", "agent-profiles", "auditor.md"), "utf8");
+  return await readFile(join(getTemplateRoot(), "..", "agent-profiles", "auditor-agent.md"), "utf8");
 }

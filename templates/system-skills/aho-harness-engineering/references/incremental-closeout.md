@@ -1,6 +1,6 @@
 # Incremental Closeout
 
-Analyze only the assigned terminal Change, its terminal evidence, and current canonical memory materialized in the workspace.
+Analyze only the assigned terminal Change, its terminal evidence, and current canonical project Markdown.
 
 Priorities:
 
@@ -9,4 +9,4 @@ Priorities:
 3. Merge, split, rename, or delete Markdown when that improves current document ownership.
 4. Keep run details and narrative history archive-only.
 
-Edit the assigned Markdown directly. Do not scan unrelated archives or upgrade the assignment into a full evolution window. Leave the workspace unchanged when the closeout adds no durable current knowledge.
+Edit assigned canonical Markdown directly. Do not scan unrelated archives or upgrade the assignment into a full evolution window. Leave canonical Markdown unchanged when the closeout adds no durable current knowledge.

@@ -1,6 +1,6 @@
 display_name: AHO Harness Engineering
-short_description: Edit assigned Harness Markdown in an isolated workspace.
+short_description: Edit assigned canonical Harness Markdown.
 default_prompt: >-
   Use the AHO Runtime assignment and matching mode guidance. Edit only assigned
-  Markdown in the isolated workspace, let Runtime capture the diff, and return
-  a concise evidence and verification summary without taking lifecycle actions.
+  canonical Markdown in bounded namespaces, require native scoring for Evolution,
+  and return a concise evidence and verification summary without lifecycle actions.

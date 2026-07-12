@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { startBackgroundWorker } from "../../src/agent-task/background-worker.js";
 import { createAgentTask, listAgentTasks, readAgentTaskResult } from "../../src/agent-task/repository.js";
+import * as agentTaskRepository from "../../src/agent-task/repository.js";
 import type { HarnessEngineeringAssignment } from "../../src/agent-task/harness-engineering-contract.js";
 import { repoLocalMemory } from "../../src/memory/resolver.js";
 import type { ManagedProject } from "../../src/types/index.js";
@@ -88,6 +89,29 @@ describe("background AgentTask worker", () => {
     expect((await listAgentTasks(setup.memory))[0]).toMatchObject({ status: "queued", failureDisposition: "retryable" });
   });
 
+  it("interrupts the provider hook when heartbeat detects an invalid lease", async () => {
+    const setup = await fixture();
+    const leaseError = new Error("lease fencing token is stale");
+    const heartbeat = vi.spyOn(agentTaskRepository, "heartbeatAgentTask").mockRejectedValueOnce(leaseError);
+    const onLeaseInvalidated = vi.fn();
+    const worker = startBackgroundWorker(setup.memory, setup.project, {
+      enabled: true,
+      pollIntervalMs: 60_000,
+      leaseDurationMs: 300,
+      assignmentFactory,
+      onLeaseInvalidated,
+      runAssignment: async ({ signal }) => new Promise((_, reject) => {
+        signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+      }),
+    });
+
+    await worker.poll();
+    expect(onLeaseInvalidated).toHaveBeenCalledWith(expect.objectContaining({ status: "running" }), leaseError);
+    expect((await listAgentTasks(setup.memory))[0]).toMatchObject({ status: "queued", failureDisposition: "retryable" });
+    heartbeat.mockRestore();
+    await worker.drain();
+  });
+
   async function fixture(count = 1) {
     root = await mkdtemp(join(tmpdir(), "aho-background-worker-"));
     const memory = repoLocalMemory(root, "project-1");
@@ -122,11 +146,9 @@ function assignmentFactory(task: { id: string; inputArtifacts: string[] }, manag
     evidenceRefs: task.inputArtifacts,
     currentDocumentRefs: [],
     currentStableMemoryRefs: [],
-    workspace: {
-      version: "1.0", assignmentId: task.id, mode: "immutable-snapshot", memoryMode: "external-local",
-      maintenanceRoot: "C:/maintenance",
-      baseRoot: "C:/memory", baseSnapshotRoot: "C:/workspace.base", workspaceRoot: "C:/workspace",
-      namespaces: ["docs"], baseRef: "snapshot", baseHash: "base", baseTreeHash: "tree",
+    canonicalTarget: {
+      version: "1.0", assignmentId: task.id, mode: "canonical-direct", memoryMode: "external-local",
+      baseRoot: "C:/memory", namespaces: ["docs"],
     },
     namespaceClasses: ["content"],
     requiredVerification: [],

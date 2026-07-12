@@ -5,7 +5,7 @@ import { getProjectStatus } from "../../../project/status.js";
 import { resolveMemory } from "../../../memory/resolver.js";
 import { readScopedChangeMetadataAt } from "../../../change/metadata.js";
 import type { ChangeMetadata, ResolvedMemory } from "../../../types/index.js";
-import type { HarnessGap, WorkbenchProjectInput, WorkbenchRoleSummary, WorkbenchSnapshot, WorkbenchTopicState } from "../../read-model-types.js";
+import type { HarnessGap, WorkbenchProjectInput, WorkbenchSnapshot, WorkbenchTopicState } from "../../read-model-types.js";
 
 export function buildHarnessGaps(): HarnessGap[] {
   return [
@@ -87,20 +87,9 @@ export function buildRepoSummary(status: Awaited<ReturnType<typeof getProjectSta
   };
 }
 
-export function writeCapabilityForRole(id: string): WorkbenchRoleSummary["writeCapability"] {
-  if (id === "coder" || id === "spec-test-generator") return "worktree-write";
-  if (id === "validator") return "deterministic-writer";
-  return "read-only";
-}
-
-export function preferredRuntimeForRole(id: string): string {
-  if (id === "validator") return "local-command";
-  return "codex";
-}
-
 export function humanConfirmationForRole(id: string): string {
-  if (id === "validator") return "Validation is mechanical evidence; failed validation blocks close.";
-  if (id === "coder" || id === "spec-test-generator") return "Requires validation, audit, and explicit worktree apply.";
-  if (id === "auditor") return "Requires explicit audit accept before writing review.md.";
-  return "Requires explicit accept command before canonical state changes.";
+  if (id === "coder-agent" || id === "rework-coder" || id === "spec-test-generator") return "Validation and audit evidence govern source landing.";
+  if (id === "memory-maintenance-agent" || id === "harness-evolution-agent") return "Background project-document maintenance requires no user confirmation.";
+  if (id === "auditor-agent") return "Audit verdict is consumed by the Workflow Runtime.";
+  return "The owning Runtime validates any canonical state transition.";
 }

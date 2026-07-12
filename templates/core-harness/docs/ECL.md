@@ -26,7 +26,7 @@ Use generated Harness scripts or Agent Harness Orchestrator commands to move cha
 
 ## Evolution
 
-Pending evolution is a maintenance reminder, not an auto-apply instruction. Apply Harness improvements only with evidence, proposal, review, validation, and results logging.
+Pending evolution identifies one fixed evidence window; the background Evolution Agent proposes a bounded improvement, obtains an independent score, and edits project Markdown only after the score reaches the configured threshold and mechanical checks pass.
 
 ## Documentation Entropy
 

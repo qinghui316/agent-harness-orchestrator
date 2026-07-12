@@ -37,13 +37,13 @@ The resolved memory root contains:
   runtime evidence.
 
 For external-local projects, never create `docs/` or `harness/` paths in the
-source root. Edit only the Runtime-resolved workspace namespaces; migration to
+source root. Edit only the Runtime-resolved canonical namespaces; migration to
 repo-local/team-share mode requires a separate explicit decision.
 
 ## Existing AGENTS.md
 
 If external-local preparation finds a hand-written `AGENTS.md`, deterministic
-init may preserve it. Merge only when Runtime includes its workspace copy in a
+init may preserve it. Merge only when Runtime includes it in a canonical
 writable Markdown namespace and evidence identifies which content to retain;
 otherwise report the conflict without overwriting it.
 

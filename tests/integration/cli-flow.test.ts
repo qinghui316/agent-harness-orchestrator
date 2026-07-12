@@ -133,7 +133,11 @@ describe("CLI flow", () => {
     expect(stream.events.some((item) => item.type === "run.completed")).toBe(true);
     expect(approvals.every((item) => !item.action?.mutates || item.action.requiresConfirmation)).toBe(true);
     expect(snapshot.harnessGaps.map((item) => item.id)).toEqual(expect.arrayContaining(["workspaceIndex", "subagentSpec"]));
-    expect(snapshot.roles.map((item) => item.id)).toEqual(expect.arrayContaining(["planning-agent", "coder-agent", "validator", "auditor-agent"]));
+    expect(snapshot.roles.map((item) => item.id)).toEqual(expect.arrayContaining([
+      "planning-agent", "coder-agent", "auditor-agent", "memory-maintenance-agent",
+      "harness-evolution-agent", "evolution-scorer",
+    ]));
+    expect(snapshot.roles.map((item) => item.id)).not.toContain("validator");
   });
 
   it("imports project skills and syncs them through the Codex bridge", async () => {

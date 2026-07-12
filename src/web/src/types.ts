@@ -766,7 +766,8 @@ export type Workpad = {
     ledgerCount: number;
     closeoutCount?: number;
     latest?: { id: string; eventType: string; changeId?: string; summary: string; severity: string; createdAt: string };
-    status: "idle" | "collecting";
+    status: "idle" | "queued" | "running" | "blocked" | "completed";
+    activeTask?: { id: string; roleId: string; status: string; updatedAt: string };
     note: string;
   };
   runControlState?: { canStop: boolean; stopActionType?: ThreadStreamAction["actionType"]; pendingFeedbackCount: number; explanation: string };

@@ -497,7 +497,7 @@ function buildPostArchiveEvolutionCandidate(topic: WorkbenchTopicDetail): Workbe
     changeId: topic.id,
     status: "candidate",
     sources: ["main-thread", "accepted-artifacts", "diff", "validation", "audit", "final-decision", "archive-summary"],
-    summary: "该归档需求会作为后台维护 Agent 的输入；通过 Reviewer Agent 和边界校验后，允许的项目 Markdown 会自动更新。",
+    summary: "该归档需求会作为后台维护 Agent 的输入；Agent 会在文档边界内直接整理项目 Markdown。",
   };
 }
 
@@ -602,7 +602,7 @@ function buildWorkpadMemoryIsolation(memory: ResolvedMemory, selectedTopic: Work
       "coder-agent writes assigned worktree proposal and run artifacts only",
       "orchestrator writes selected demand thread / decision / summary projection",
       "validator and auditor write validation / audit artifacts",
-      "project/stable absorbs only evidence-backed facts approved by the background Reviewer Agent",
+      "project/stable absorbs only evidence-backed facts written by the assigned Maintenance Agent",
     ],
     warnings,
   };

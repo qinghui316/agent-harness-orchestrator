@@ -10,7 +10,7 @@ import type { ManagedProject, ResolvedMemory, RunAgentRecord } from "../types/in
 
 export const AGENT_CATALOG_VERSION = "1.0";
 
-export type AgentWriteCapability = "read-only" | "worktree-write" | "deterministic-writer";
+export type AgentWriteCapability = "read-only" | "proposal-write" | "worktree-write" | "canonical-doc-write" | "deterministic-writer";
 
 export interface AgentCatalogEntry {
   roleId: string;
@@ -61,7 +61,7 @@ export interface AgentSyncResult {
 }
 
 const roleIdSchema = z.string().regex(/^[a-z0-9][a-z0-9-]*$/);
-const writeCapabilitySchema = z.enum(["read-only", "worktree-write", "deterministic-writer"]);
+const writeCapabilitySchema = z.enum(["read-only", "proposal-write", "worktree-write", "canonical-doc-write", "deterministic-writer"]);
 
 const catalogEntrySchema = z.object({
   roleId: roleIdSchema,
@@ -86,16 +86,15 @@ const catalogSchema = z.object({
 const defaultCatalog: AgentCatalog = {
   version: "1.0",
   agents: [
-    role("planning-agent", "Planning Agent", "Runs as a real provider child and returns a fixed WorkflowPlan proposal for main-Agent review.", "read-only", ["goal-brief", "state-brief", "project-guidance", "aho-workflow-authoring"], ["spec-plan-tasks-workflow-proposal"], ["main-agent-handoff"]),
-    role("coder", "Coder", "Implements proposal diffs in AHO-owned worktrees.", "worktree-write", ["active-change", "tasks", "worktree"], ["diff", "implementation-notes"], ["validation", "audit", "human-apply"], false),
+    { ...role("planning-agent", "Planning Agent", "Authors one file-backed Workflow proposal for Main Agent and user review.", "proposal-write", ["goal-brief", "state-brief", "project-guidance"], ["spec-plan-tasks-workflow-proposal"], ["main-agent-handoff"]), allowedSkills: ["aho-workflow-authoring"] },
     role("coder-agent", "Coder Agent", "Implements one Coding Work Package in an AHO-owned worktree and performs internal self-tests.", "worktree-write", ["accepted-planning-artifacts", "task-context", "worktree"], ["diff", "implementation-notes", "self-test-summary"], ["validation", "audit", "human-apply"], false),
-    role("validator", "Validator", "Runs deterministic validation commands.", "deterministic-writer", ["validation-profile"], ["validation-result"], [], false, "local"),
-    role("auditor", "Auditor", "Reviews diff and evidence as a read-only semantic proposal.", "read-only", ["active-change", "diff", "validation"], ["audit-proposal"], ["audit-accept"]),
     role("auditor-agent", "Auditor Agent", "Reviews task implementation evidence against accepted planning artifacts.", "read-only", ["accepted-planning-artifacts", "diff", "validation"], ["audit-proposal"], ["audit-accept"]),
     role("rework-coder", "Rework Coder", "Repairs a failed implementation attempt from validation or audit evidence within the same bounded workflow.", "worktree-write", ["failed-validation", "audit-findings", "worktree"], ["repair-diff", "rework-notes", "self-test-summary"], ["validation", "audit", "human-apply"], false),
-    role("merge-reviewer-agent", "Merge Reviewer Agent", "Reviews local landing readiness packages before future commit or PR preparation.", "read-only", ["landing-package", "source-diff", "validation", "audit", "aggregate-evidence"], ["landing-readiness-review"], ["human-apply"], false, "local"),
     role("spec-test-proposer", "Spec-Test Proposer", "Finds existing source-root evidence candidates.", "read-only", ["ac-map", "spec-tests", "validation"], ["spec-test-proposal"], ["spec-test-proposal-accept"]),
     role("spec-test-generator", "Spec-Test Generator", "Generates passing test-only proposals in worktrees.", "worktree-write", ["missing-ac", "worktree"], ["test-diff", "implementation-notes"], ["validation", "audit", "human-apply"]),
+    { ...role("memory-maintenance-agent", "Memory Maintenance Agent", "Directly maintains canonical project Markdown after one completed Change.", "canonical-doc-write", ["assigned-closeout", "project-docs"], ["canonical-markdown", "maintenance-summary"]), allowedSkills: ["aho-harness-engineering"] },
+    { ...role("harness-evolution-agent", "Harness Evolution Agent", "Proposes and applies evidence-backed project-document evolution for one fixed five-Change window.", "canonical-doc-write", ["assigned-window", "project-docs"], ["evolution-proposal", "canonical-markdown"]), allowedSkills: ["aho-harness-engineering"] },
+    role("evolution-scorer", "Evolution Scorer", "Independently scores one bounded evolution proposal against ECL criteria.", "read-only", ["assigned-window", "evolution-proposal"], ["evolution-score"]),
   ],
 };
 
@@ -169,7 +168,10 @@ export async function resolveAgentRole(memory: ResolvedMemory, roleIdInput: stri
 }
 
 export function validateRolePromptContract(roleId: string, markdown: string): void {
-  const requiredRoles = new Set(["planning-agent", "coder-agent", "validator", "auditor-agent", "rework-coder"]);
+  const requiredRoles = new Set([
+    "planning-agent", "coder-agent", "auditor-agent", "rework-coder",
+    "memory-maintenance-agent", "harness-evolution-agent", "evolution-scorer",
+  ]);
   if (!requiredRoles.has(roleId)) return;
   const missingFrontmatter = ["roleId:", "description:", "writeCapability:", "preferredRuntime:"].filter((marker) => !markdown.includes(marker));
   const requiredSections = ["## Role", "## Success Criteria", "## Constraints", "## Inputs", "## Workflow", "## Output Contract", "## Escalate When", "## Avoid"];
@@ -262,7 +264,10 @@ function validateUniqueRoles(catalog: AgentCatalog): void {
 }
 
 function normalizeCatalog(parsed: z.infer<typeof catalogSchema>): AgentCatalog {
-  const entries = [...parsed.agents];
+  // Old catalogs remain parseable, but retired model roles must not re-enter the
+  // production catalog or Codex bridge during normalization.
+  const retiredProductionRoleIds = new Set(["coder", "auditor", "validator", "merge-reviewer-agent"]);
+  const entries = parsed.agents.filter((entry) => !retiredProductionRoleIds.has(entry.roleId));
   for (const bundled of defaultCatalog.agents) {
     if (!entries.some((entry) => entry.roleId === bundled.roleId)) entries.push(bundled);
   }

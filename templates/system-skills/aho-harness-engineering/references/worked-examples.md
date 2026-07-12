@@ -2,11 +2,11 @@
 
 ## Closeout No-op
 
-Runtime assigns `maintain-assigned-closeout` for a terminal Change that fixes one typo. Read the assigned Change and current memory, find no durable delta, leave the workspace unchanged, run the assigned check if required, and return `noop` with the evidence references.
+Runtime assigns `maintain-assigned-closeout` for a terminal Change that fixes one typo. Read the assigned Change and current memory, find no durable delta, leave canonical Markdown unchanged, run the assigned check if required, and return `noop` with the evidence references.
 
 ## Edit A Stale Handoff
 
-Terminal evidence proves a status document's next step is complete. Open that Markdown file in the workspace, remove the stale statement, add the current next step only when evidence supports it, re-read the document, run the assigned documentation check, and return `ready`. Runtime captures the edit.
+Terminal evidence proves a status document's next step is complete. Open that canonical Markdown file, remove the stale statement, add the current next step only when evidence supports it, re-read the document, run the assigned documentation check, and return `ready`.
 
 ## Create And Rename On Onboarding
 
@@ -14,7 +14,7 @@ Runtime assigns `onboard` with a writable documentation namespace. Existing evid
 
 ## Split An Overloaded Guide
 
-An assigned evolution window repeatedly shows that one large guide mixes lifecycle rules with architecture ownership. Create the missing owner document, move the evidence-backed ownership guidance there, keep lifecycle guidance in its original owner, update links, and remove duplicated text. Runtime captures the create/edit split as one workspace diff.
+An assigned evolution window repeatedly shows that one large guide mixes lifecycle rules with architecture ownership. Propose the split, obtain a native scorer result of at least 80, then create the missing owner document, move the evidence-backed ownership guidance there, update links, and remove duplicated text.
 
 ## Merge Duplicate Guidance
 
@@ -22,4 +22,4 @@ Two current Markdown files state overlapping source-safety rules and assigned ev
 
 ## Block An Out-of-Scope Request
 
-Evidence suggests changing a TypeScript policy file or applying the workspace to canonical memory. Do not touch the file or invoke a lifecycle action. Return `blocked` with the relevant evidence and request Runtime routing.
+Evidence suggests changing a TypeScript policy file outside the assignment. Do not touch the file or invoke a lifecycle action. Return `blocked` with the relevant evidence and request Runtime routing.

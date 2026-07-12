@@ -35,7 +35,6 @@ export type {
   RunMaintenanceProviderAssignmentInput,
 } from "./maintenance-provider-runner.js";
 export { createCodexMaintenanceProviderExecutor, runCodexMaintenanceAssignment } from "./maintenance-codex-executor.js";
-export { applyReviewedMaintenanceAssignment, maintenanceApplyTransactionPath, MaintenanceApplyBlockedError } from "./project-memory-apply.js";
 export { NonRetryableBackgroundWorkerError, startBackgroundWorker } from "./background-worker.js";
 export type {
   BackgroundAssignmentRunResult,

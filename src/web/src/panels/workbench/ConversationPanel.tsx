@@ -301,7 +301,7 @@ function AgentRunNodeDetail({
         </div>
       ) : null}
       {node.lane === "maintenance" ? (
-        <p className="panel-note">后台维护节点在隔离 workspace 中编辑项目 Markdown；Reviewer Agent 通过后由 Runtime 自动应用，节点本身不能直接写入 canonical memory。</p>
+        <p className="panel-note">后台维护 Agent 直接整理项目 Markdown；流程图只显示状态，点击节点可查看真实对话和证据。</p>
       ) : null}
       {runId ? (
         <button className="secondary-button" type="button" onClick={() => onSelectRun(runId)}>

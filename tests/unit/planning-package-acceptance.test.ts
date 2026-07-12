@@ -7,7 +7,7 @@ import { initHarness } from "../../src/harness/init.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import type { ManagedProject } from "../../src/types/index.js";
 import { createWorkbenchConversation } from "../../src/workbench/chat.js";
-import { acceptCurrentConversationPlanningPackage, parsePlannerChildOutput, writePlannerChildProposal } from "../../src/workbench/planning/planner-child-proposal.js";
+import { acceptCurrentConversationPlanningPackage, writePlannerChildProposal } from "../../src/workbench/planning/planner-child-proposal.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import { startOrResumeTaskQueue } from "../../src/task-queue/manager.js";
 import { issueLocalExecutionAuthorization, readExecutionAuthorization } from "../../src/workflow-runtime/execution-authorization.js";
@@ -33,18 +33,11 @@ describe("conversation planner-child package acceptance", () => {
     expect(JSON.parse(await readFile(revised.artifact, "utf8"))).toMatchObject({ id: revised.id, hash: revised.hash });
   });
 
-  it("rejects ambiguous bare AC syntax before proposal projection", () => {
-    expect(() => parsePlannerChildOutput(JSON.stringify({
-      status: "proposed",
-      specMd: "# Spec\n\n## Acceptance Criteria\n\nAC-001: Health endpoint responds.\n",
-      planMd: [
-        "# Plan", "", "## Workflow", "", "```json",
-        JSON.stringify({ version: "1.0", mode: "sequential-v1", nodes: [{ id: "health", title: "Expose health", taskIds: ["T-001"], acIds: ["AC-001"], prompt: structuredPrompt("Expose health."), dependsOn: [], sourceScopes: ["src/**"] }] }),
-        "```",
-      ].join("\n"),
-      tasksMd: "# Tasks\n\n- [ ] T-001: Expose health.\n  - Covers: AC-001\n",
-      openQuestions: [], assumptions: [], warnings: [],
-    }))).toThrow("'- AC-001: ...' form");
+  it("rejects ambiguous bare AC syntax from authored proposal files", async () => {
+    const conversation = await createWorkbenchConversation(project(), { title: "Invalid", body: "Plan it." }, undefined, { runMainAgent: false });
+    const memory = await resolveProjectMemory(project());
+    await expect(proposalFor(memory.workbenchRoot, conversation.conversationId, "Expose health.", "run-1", "child-1", "AC-001: Health endpoint responds.\n"))
+      .rejects.toThrow("'- AC-001: ...' form");
   });
 
   it("atomically creates accepted Change artifacts and one canonical graph without execution records", async () => {
@@ -231,8 +224,17 @@ describe("conversation planner-child package acceptance", () => {
   });
 });
 
-async function proposalFor(workbenchRoot: string, conversationId: string, prompt: string, runId = "run-1", childThreadId = "child-1") {
+async function proposalFor(workbenchRoot: string, conversationId: string, prompt: string, runId = "run-1", childThreadId = "child-1", acceptance = "- AC-001: Health endpoint responds successfully.\n") {
   const directory = join(workbenchRoot, "conversations", conversationId, "runs", runId);
+  const proposalDirectory = join(directory, "planner-proposal");
+  await mkdir(proposalDirectory, { recursive: true });
+  await writeFile(join(proposalDirectory, "spec.md"), `# Spec\n\n## Acceptance Criteria\n\n${acceptance}`, "utf8");
+  await writeFile(join(proposalDirectory, "plan.md"), [
+    "# Plan", "", "## Approach", "Implement the endpoint.", "", "## Workflow", "", "```json",
+    JSON.stringify({ version: "1.0", mode: "sequential-v1", nodes: [{ id: "health", title: "Health endpoint", taskIds: ["T-001"], acIds: ["AC-001"], prompt: structuredPrompt(prompt), dependsOn: [], sourceScopes: ["src/**", "tests/**"] }] }, null, 2),
+    "```", "",
+  ].join("\n"), "utf8");
+  await writeFile(join(proposalDirectory, "tasks.md"), "# Tasks\n\n- [ ] T-001: Implement and test the health endpoint.\n  - Covers: AC-001\n", "utf8");
   const proposal = await writePlannerChildProposal({
     directory,
     projectId: project().id,
@@ -240,17 +242,6 @@ async function proposalFor(workbenchRoot: string, conversationId: string, prompt
     runId,
     parentThreadId: "parent-1",
     childThreadId,
-    finalText: JSON.stringify({
-      status: "proposed",
-      specMd: "# Spec\n\n## Acceptance Criteria\n\n- AC-001: Health endpoint responds successfully.\n",
-      planMd: [
-        "# Plan", "", "## Approach", "Implement the endpoint.", "", "## Workflow", "", "```json",
-        JSON.stringify({ version: "1.0", mode: "sequential-v1", nodes: [{ id: "health", title: "Health endpoint", taskIds: ["T-001"], acIds: ["AC-001"], prompt: structuredPrompt(prompt), dependsOn: [], sourceScopes: ["src/**", "tests/**"] }] }, null, 2),
-        "```", "",
-      ].join("\n"),
-      tasksMd: "# Tasks\n\n- [ ] T-001: Implement and test the health endpoint.\n  - Covers: AC-001\n",
-      openQuestions: [], assumptions: [], warnings: [],
-    }),
   });
   const memory = await resolveProjectMemory(project());
   const store = await WorkbenchStore.open(memory);

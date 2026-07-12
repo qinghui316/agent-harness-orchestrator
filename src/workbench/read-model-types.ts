@@ -777,7 +777,13 @@ export interface WorkbenchMaintenanceSummary {
     severity: string;
     createdAt: string;
   };
-  status: "idle" | "collecting";
+  status: "idle" | "queued" | "running" | "blocked" | "completed";
+  activeTask?: {
+    id: string;
+    roleId: string;
+    status: string;
+    updatedAt: string;
+  };
   note: string;
 }
 
@@ -1004,7 +1010,7 @@ export interface WorkbenchRoleSummary {
   id: string;
   name: string;
   profilePath: string;
-  writeCapability: "read-only" | "worktree-write" | "deterministic-writer";
+  writeCapability: "read-only" | "proposal-write" | "worktree-write" | "canonical-doc-write" | "deterministic-writer";
   preferredRuntime: string;
   delegatable: boolean;
   humanConfirmation: string;

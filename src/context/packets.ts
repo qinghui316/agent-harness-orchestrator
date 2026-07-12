@@ -243,7 +243,7 @@ function exclusionsForRole(roleId: string): string[] {
   if (/maintenance|documentation|evolution|architecture/i.test(roleId)) {
     return [
       "source root mutation",
-      "direct canonical memory mutation; Runtime applies reviewed project Markdown automatically",
+      "direct canonical project Markdown maintenance by the assigned documentation Agent",
       "apply/merge/close/archive without explicit confirmation",
       "delegateTask manifest unless explicitly granted by a future AgentSpec",
     ];

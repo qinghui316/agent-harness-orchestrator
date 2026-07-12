@@ -1,4 +1,4 @@
-import { listDemandMemoryCloseouts, listMaintenanceLedgerEntries } from "../../../agent-task/manager.js";
+import { listAgentTasks, listDemandMemoryCloseouts, listMaintenanceLedgerEntries } from "../../../agent-task/manager.js";
 import type { DemandMemoryCloseout, MaintenanceLedgerEntry, ResolvedMemory } from "../../../types/index.js";
 import type { WorkbenchMaintenanceSummary } from "../../read-model-types.js";
 import { latestByCreatedAt } from "./projection-summary.js";
@@ -6,9 +6,27 @@ import { latestByCreatedAt } from "./projection-summary.js";
 export async function buildMaintenanceSummary(memory: ResolvedMemory): Promise<WorkbenchMaintenanceSummary> {
   const entries = await listMaintenanceLedgerEntries(memory).catch(() => []);
   const closeouts = await listDemandMemoryCloseouts(memory).catch(() => []);
+  const tasks = (await listAgentTasks(memory).catch(() => []))
+    .filter((task) => task.kind === "background" && (
+      task.roleId.startsWith("memory-maintenance-agent:")
+      || task.roleId.startsWith("harness-evolution-agent:")
+    ))
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  const activeTask = tasks.find((task) => task.status === "running" || task.status === "claimed" || task.status === "queued")
+    ?? tasks[0];
   const latest = latestMaintenanceEntry(entries);
   const latestCloseout = latestCloseoutEntry(closeouts);
-  const status = entries.length > 0 || closeouts.length > 0 ? "collecting" : "idle";
+  const status = activeTask
+    ? activeTask.status === "running" || activeTask.status === "claimed"
+      ? "running"
+      : activeTask.status === "queued"
+        ? "queued"
+        : activeTask.status === "failed" || activeTask.status === "needs-user-input"
+          ? "blocked"
+          : "completed"
+    : entries.length > 0 || closeouts.length > 0
+      ? "completed"
+      : "idle";
   return {
     ledgerCount: entries.length,
     closeoutCount: closeouts.length,
@@ -28,9 +46,16 @@ export async function buildMaintenanceSummary(memory: ResolvedMemory): Promise<W
       createdAt: latestCloseout.createdAt,
     } : undefined,
     status,
-    note: status === "collecting"
-      ? "后台维护保留需求 closeout、证据账本和 durable worker 输入。"
-      : "尚无后台维护证据。",
+    ...(activeTask ? { activeTask: { id: activeTask.id, roleId: activeTask.roleId, status: activeTask.status, updatedAt: activeTask.updatedAt } } : {}),
+    note: status === "running"
+      ? "项目记忆正在维护。你可以继续工作；涉及项目文档的任务建议等待维护完成。"
+      : status === "queued"
+        ? "项目记忆维护已排队，不影响继续处理其他任务。"
+        : status === "blocked"
+          ? "项目记忆维护需要由后台 Agent 继续处理；已完成的开发结果不受影响。"
+          : status === "completed"
+            ? "项目记忆维护已完成。"
+            : "尚无后台维护任务。",
   };
 }
 

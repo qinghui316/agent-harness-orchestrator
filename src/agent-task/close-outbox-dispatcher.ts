@@ -54,7 +54,7 @@ async function dispatchEvent(memory: ResolvedMemory, outboxPath: string, event: 
     conversationId: `maintenance:${event.changeId}`,
     changeId: event.changeId,
     roleId: `memory-maintenance-agent:${identityHash}`,
-    summary: `Background maintenance assignment for Change ${event.changeId} at close sequence ${event.closeSequence}. The Agent edits an isolated workspace; Runtime applies reviewed project Markdown automatically.`,
+    summary: `Background maintenance assignment for Change ${event.changeId} at close sequence ${event.closeSequence}. The Maintenance Agent edits bounded canonical project Markdown directly.`,
     inputArtifacts: [eventRef, event.archivePath, event.receiptPath, `close-identity-sha256:${identityHash}`],
     occurredAt: event.occurredAt,
   });
@@ -77,7 +77,7 @@ async function dispatchEvent(memory: ResolvedMemory, outboxPath: string, event: 
     conversationId: `evolution:${windowStart}-${event.closeSequence}`,
     changeId: `evolution-window-${windowStart}-${event.closeSequence}`,
     roleId: `harness-evolution-agent:${windowHash}`,
-    summary: `Harness evolution assignment for fixed close sequence window ${windowStart}-${event.closeSequence}. The Agent edits an isolated workspace; Runtime applies reviewed project Markdown automatically.`,
+    summary: `Harness evolution assignment for fixed five-close sequence window ${windowStart}-${event.closeSequence}. Evolution proposes first, a native scorer must return at least 80, then the Agent edits bounded canonical target docs directly.`,
     inputArtifacts: [
       ...windowItems.flatMap((item) => [displayPath(memory, item.path), item.event.archivePath, item.event.receiptPath]),
       `close-window:${windowStart}-${event.closeSequence}`,

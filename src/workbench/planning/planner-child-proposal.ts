@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { isAbsolute, relative, resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import {
   acceptPlanningPackage,
@@ -23,6 +25,7 @@ const plannerChildOutputSchema = z.object({
   openQuestions: z.array(z.string()).default([]),
   assumptions: z.array(z.string()).default([]),
   warnings: z.array(z.string()).default([]),
+  notesMd: z.string().default(""),
 }).strict();
 
 export interface PlannerChildProposal extends z.infer<typeof plannerChildOutputSchema> {
@@ -63,6 +66,7 @@ export async function readPlannerChildProposal(path: string): Promise<PlannerChi
     openQuestions: proposal.openQuestions,
     assumptions: proposal.assumptions,
     warnings: proposal.warnings,
+    notesMd: proposal.notesMd,
   });
   const expectedHash = proposalHash({
     projectId: proposal.projectId,
@@ -78,22 +82,6 @@ export async function readPlannerChildProposal(path: string): Promise<PlannerChi
   return proposal;
 }
 
-export function parsePlannerChildOutput(text: string): z.infer<typeof plannerChildOutputSchema> {
-  const candidate = unwrapJsonFence(text);
-  let value: unknown;
-  try {
-    value = JSON.parse(candidate);
-  } catch (error) {
-    throw new Error(`Planner child must return the fixed JSON proposal envelope: ${(error as Error).message}`);
-  }
-  const parsed = plannerChildOutputSchema.parse(value);
-  if (parsed.status === "proposed" && (!parsed.specMd.trim() || !parsed.planMd.trim() || !parsed.tasksMd.trim())) {
-    throw new Error("A proposed planner child result requires specMd, planMd, and tasksMd.");
-  }
-  if (parsed.status === "proposed") validatePlanningProposalArtifacts(parsed);
-  return parsed;
-}
-
 export async function writePlannerChildProposal(input: {
   directory: string;
   projectId: string;
@@ -101,11 +89,11 @@ export async function writePlannerChildProposal(input: {
   runId: string;
   parentThreadId: string;
   childThreadId: string;
-  finalText: string;
 }): Promise<PlannerChildProposal> {
-  const output = parsePlannerChildOutput(input.finalText);
+  const proposalDirectory = join(input.directory, "planner-proposal");
+  const output = await readPlannerProposalFiles(proposalDirectory);
   const hash = proposalHash({ ...input, output });
-  const artifact = join(input.directory, `planner-proposal-${hash.slice(0, 16)}.json`);
+  const artifact = join(proposalDirectory, `proposal-${hash.slice(0, 16)}.json`);
   const proposal: PlannerChildProposal = {
     version: "1.0",
     id: `planner-proposal-${hash.slice(0, 16)}`,
@@ -121,6 +109,29 @@ export async function writePlannerChildProposal(input: {
   };
   await writeJsonFile(artifact, proposal);
   return proposal;
+}
+
+async function readPlannerProposalFiles(directory: string): Promise<z.infer<typeof plannerChildOutputSchema>> {
+  const required = async (name: string): Promise<string> => {
+    const path = join(directory, name);
+    if (!existsSync(path)) throw new Error(`Planner child must write ${name} in the run-scoped proposal directory.`);
+    const value = await readFile(path, "utf8");
+    if (!value.trim()) throw new Error(`Planner child proposal file ${name} is empty.`);
+    return value;
+  };
+  const notesPath = join(directory, "notes.md");
+  const output = plannerChildOutputSchema.parse({
+    status: "proposed",
+    specMd: await required("spec.md"),
+    planMd: await required("plan.md"),
+    tasksMd: await required("tasks.md"),
+    notesMd: existsSync(notesPath) ? await readFile(notesPath, "utf8") : "",
+    openQuestions: [],
+    assumptions: [],
+    warnings: [],
+  });
+  validatePlanningProposalArtifacts(output);
+  return output;
 }
 
 export async function acceptCurrentConversationPlanningPackage(
@@ -183,6 +194,10 @@ async function validateCurrentConversationPlanningPackage(
     throw new Error("Planner proposal artifact is outside the selected conversation run scope.");
   }
   const proposal = await readPlannerChildProposal(proposalPath);
+  const expectedDirectory = resolve(proposalRoot, proposal.runId, "planner-proposal");
+  if (resolve(proposal.artifact) !== proposalPath || resolve(proposalPath, "..") !== expectedDirectory) {
+    throw new Error("Planner proposal artifact does not match its declared run and path.");
+  }
   if (proposal.projectId !== memory.projectId || proposal.conversationId !== conversationId) {
     throw new Error("Planner proposal is not scoped to the selected conversation.");
   }
@@ -238,12 +253,6 @@ function proposalHash(input: {
     childThreadId: input.childThreadId,
     output: input.output,
   })).digest("hex");
-}
-
-function unwrapJsonFence(value: string): string {
-  const trimmed = value.trim();
-  const match = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
-  return (match?.[1] ?? trimmed).trim();
 }
 
 function storedAgentRoleId(rawJson: string): string | undefined {

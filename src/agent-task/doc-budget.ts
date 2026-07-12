@@ -40,7 +40,7 @@ export async function checkDocBudgets(memory: ResolvedMemory): Promise<DocBudget
       changeId: `maintenance-${report.id}`,
       roleId: `memory-maintenance-agent:doc-budget-${report.id}`,
       kind: "background",
-      summary: `Review and update the allowed project Markdown for ${hardExceeded.map((doc) => doc.path).join(", ")}; Runtime applies approved changes automatically.`,
+      summary: `Review and directly update the allowed project Markdown for ${hardExceeded.map((doc) => doc.path).join(", ")}.`,
       inputArtifacts: [displayMaintenancePath(memory, join(maintenanceRoot(memory), "doc-budgets", `${report.id}.json`))],
       createdBy: "maintenance-policy",
     });

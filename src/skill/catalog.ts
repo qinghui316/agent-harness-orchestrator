@@ -288,15 +288,14 @@ export async function getRuntimeAssignedHarnessSkillContext(
   return {
     ...context,
     promptSection: [
-      "# Server-Bound Harness Engineering Assignment",
+      "# Harness Engineering Task Packet",
       "",
-      "This normalized assignment is authoritative. Do not replace its mode, identity, evidence, targets, or verification scope.",
-      "",
-      "```json",
-      JSON.stringify(parsed, null, 2),
-      "```",
-      "",
-      context.promptSection,
+      `Mode: ${parsed.mode}`,
+      `Task: ${parsed.assignmentId}`,
+      `Evidence: ${parsed.evidenceRefs.join(", ")}`,
+      `Canonical root: ${parsed.canonicalTarget.baseRoot}`,
+      `Writable Markdown namespaces: ${parsed.canonicalTarget.namespaces.join(", ")}`,
+      ...(parsed.sourceWindowHash ? [`Fixed window: ${parsed.sourceWindowHash}`] : []),
     ].join("\n"),
   };
 }

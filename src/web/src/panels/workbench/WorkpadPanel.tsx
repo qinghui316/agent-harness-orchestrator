@@ -87,7 +87,7 @@ export function WorkpadView(props: {
 
       {maintenanceNotice ? (
         <section className="parent-agent-section maintenance-nudge">
-          <h3>后台维护</h3>
+          <h3>{maintenanceNotice.status === "running" ? "项目记忆正在维护" : "项目记忆维护"}</h3>
           <p>{userFacingText(maintenanceNotice.note)}</p>
         </section>
       ) : null}

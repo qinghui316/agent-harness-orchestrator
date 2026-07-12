@@ -49,11 +49,11 @@ Do not copy:
 
 Each final summary should state:
 
-- changed Markdown path inside the assigned workspace;
+- changed Markdown path inside the assigned canonical namespace;
 - why it is needed;
 - evidence supporting it;
 - whether it is deterministic preparation or project-specific content;
-- assigned verification and its result. Runtime owns diff capture, later review, and canonical application.
+- assigned verification and its result. Runtime owns task fencing, lease interruption, fixed windows, and Evolution scoring.
 
 ## Document Quality Gates
 

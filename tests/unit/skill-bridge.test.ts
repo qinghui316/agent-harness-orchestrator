@@ -105,10 +105,11 @@ describe("AHO skill source and Codex bridge", () => {
     expect(before.state).toBe("missing");
 
     await installCodexBridge();
+    await writeFile(join(process.env.CODEX_HOME ?? "", "plugins", "aho-managed", "agents", "coder.md"), "retired\n", "utf8");
     const synced = await syncCodexBridge(repo);
     const status = await getCodexBridgeStatus(repo);
     const skillPath = join(process.env.CODEX_HOME ?? "", "plugins", "aho-managed", "skills", "demo__pricing-skill", "SKILL.md");
-    const agentPath = join(process.env.CODEX_HOME ?? "", "plugins", "aho-managed", "agents", "coder.md");
+    const agentPath = join(process.env.CODEX_HOME ?? "", "plugins", "aho-managed", "agents", "coder-agent.md");
     const manifest = JSON.parse(await readFile(join(process.env.CODEX_HOME ?? "", "plugins", "aho-managed", "plugin.json"), "utf8"));
 
     expect(synced.synced).toHaveLength(1);
@@ -117,9 +118,11 @@ describe("AHO skill source and Codex bridge", () => {
     expect(existsSync(skillPath)).toBe(true);
     expect(existsSync(join(process.env.CODEX_HOME ?? "", "plugins", "aho-managed", "skills", "demo__pricing-skill", "scripts", "run.ps1"))).toBe(true);
     expect(existsSync(agentPath)).toBe(true);
+    expect(existsSync(join(process.env.CODEX_HOME ?? "", "plugins", "aho-managed", "agents", "coder.md"))).toBe(false);
     expect(await readFile(skillPath, "utf8")).toContain("name: demo__pricing-skill");
     expect(manifest.skills[0].id).toBe("demo__pricing-skill");
-    expect(manifest.agents.some((item: { id: string }) => item.id === "coder")).toBe(true);
+    expect(manifest.agents.some((item: { id: string }) => item.id === "coder-agent")).toBe(true);
+    expect(manifest.agents.some((item: { id: string }) => ["coder", "auditor", "validator", "merge-reviewer-agent"].includes(item.id))).toBe(false);
   });
 
   it("discovers global Codex skills as native runtime skills and skips bridge materialization", async () => {
@@ -205,11 +208,9 @@ describe("AHO skill source and Codex bridge", () => {
       evidenceRefs: ["change://terminal"],
       currentDocumentRefs: [],
       currentStableMemoryRefs: [],
-      workspace: {
-        version: "1.0", assignmentId: "maintenance-1", mode: "immutable-snapshot", memoryMode: "external-local",
-        maintenanceRoot: "C:/maintenance",
-        baseRoot: "C:/memory", baseSnapshotRoot: "C:/workspace.base", workspaceRoot: "C:/workspace",
-        namespaces: ["docs"], baseRef: "snapshot", baseHash: "base", baseTreeHash: "tree",
+      canonicalTarget: {
+        version: "1.0", assignmentId: "maintenance-1", mode: "canonical-direct", memoryMode: "external-local",
+        baseRoot: "C:/memory", namespaces: ["docs"],
       },
       namespaceClasses: ["content"],
       requiredVerification: [],
@@ -221,17 +222,16 @@ describe("AHO skill source and Codex bridge", () => {
       bridge: "prompt:transient",
       materializedHash: null,
     })]);
-    expect(context.promptSection).toContain("Transient AHO System Skill Context");
-    expect(context.promptSection).toContain("references/aho-memory-layout.md");
-    expect(context.promptSection).toContain("external-local");
-    expect(context.promptSection).toContain("Stop Conditions");
-    expect(context.promptSection).toContain("Evidence Selection");
-    expect(context.promptSection).toContain("Runtime supplies a typed assignment");
-    expect(context.promptSection).toContain("Server-Bound Harness Engineering Assignment");
-    expect(context.promptSection).toContain('"mode": "maintain-assigned-closeout"');
-    expect(context.promptSection).toContain('"assignmentId": "maintenance-1"');
-    expect(context.promptSection).toContain('"change://terminal"');
-    expect(context.promptSection).toContain("Failure Handling");
+    expect(context.promptSection).toContain("Harness Engineering Task Packet");
+    expect(context.promptSection).not.toContain("references/aho-memory-layout.md");
+    expect(context.promptSection).toContain("Harness Engineering Task Packet");
+    expect(context.promptSection).toContain("Mode: maintain-assigned-closeout");
+    expect(context.promptSection).toContain("Canonical root: C:/memory");
+    expect(context.promptSection).not.toContain("SKILL.md");
+    expect(context.promptSection).not.toContain('"mode"');
+    expect(context.promptSection).toContain("Task: maintenance-1");
+    expect(context.promptSection).toContain("Evidence: change://terminal");
+    expect(context.promptSection).toContain("Fixed window: window-1");
 
     const persistent = await getEnabledSkillContext(repo, "change-a");
     expect(persistent.records).toHaveLength(0);
@@ -243,14 +243,15 @@ describe("AHO skill source and Codex bridge", () => {
     await writeProjectMarker(repo, "external-local");
 
     const before = await listAgentRoles(repo);
-    expect(before.some((role) => role.roleId === "coder" && role.source === "bundled")).toBe(true);
+    expect(before.some((role) => role.roleId === "coder-agent" && role.source === "bundled")).toBe(true);
+    expect(before.some((role) => ["coder", "auditor", "validator", "merge-reviewer-agent"].includes(role.roleId))).toBe(false);
 
     const synced = await syncAgentCatalog(repo);
-    const after = await showAgentRole(repo, "coder");
+    const after = await showAgentRole(repo, "coder-agent");
 
-    expect(synced.catalog.agents.some((role) => role.roleId === "coder")).toBe(true);
+    expect(synced.catalog.agents.some((role) => role.roleId === "coder-agent")).toBe(true);
     expect(after.source).toBe("memory");
-    expect(existsSync(join((await resolveProjectMemory(repo)).agentsRoot, "coder.md"))).toBe(true);
+    expect(existsSync(join((await resolveProjectMemory(repo)).agentsRoot, "coder-agent.md"))).toBe(true);
   });
 
 });

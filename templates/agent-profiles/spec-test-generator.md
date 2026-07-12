@@ -1,3 +1,10 @@
+---
+roleId: spec-test-generator
+description: Generates test-only evidence in an assigned worktree.
+writeCapability: worktree-write
+preferredRuntime: codex
+---
+
 # Spec-Test Generator Agent Profile
 
 ## Role

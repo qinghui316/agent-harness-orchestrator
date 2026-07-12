@@ -1,6 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createHash } from "node:crypto";
-import { join } from "node:path";
 import { ProjectRegistryStore } from "../registry/store.js";
 import { recoverPendingApplyTransactions } from "../apply/manager.js";
 import { recoverChangeCloseTransactions } from "../change/manager.js";
@@ -11,9 +10,10 @@ import {
   runCodexMaintenanceAssignment,
   type BackgroundWorkerHandle,
 } from "../agent-task/manager.js";
-import { createMaintenanceWorkspace } from "../agent-task/maintenance-workspace.js";
+import { createCanonicalMaintenanceTarget } from "../agent-task/maintenance-target.js";
 import { parseHarnessEngineeringAssignment } from "../agent-task/harness-engineering-contract.js";
 import { resolveProjectMemory } from "../memory/resolver.js";
+import { withProjectDocumentLease } from "../project/project-write-lease.js";
 import type { WorkbenchProjectInput } from "../workbench/manager.js";
 import { TerminalRuntime } from "./terminal/terminal-runtime.js";
 import { handleApi } from "./workbench/api-router.js";
@@ -79,7 +79,9 @@ async function startProjectBackgroundWorkers(
       ...options.backgroundWorker,
       enabled: options.backgroundWorker?.enabled ?? true,
       assignmentFactory: options.backgroundWorker?.assignmentFactory ?? ((task, targetProject) => createServerHarnessAssignment(memory, task, targetProject)),
-      runAssignment: options.backgroundWorker?.runAssignment ?? (async ({ assignment, signal }) => runCodexMaintenanceAssignment(memory, project, assignment, signal)),
+      runAssignment: options.backgroundWorker?.runAssignment ?? (async ({ task, assignment, signal }) =>
+        withProjectDocumentLease(project.path, { holderId: `document:${task.id}` }, async (lease) =>
+          runCodexMaintenanceAssignment(memory, project, assignment, AbortSignal.any([signal, lease.signal])))),
     });
     workers.push(worker);
     await worker.poll();
@@ -110,11 +112,10 @@ async function createServerHarnessAssignment(
   const namespaces = memory.mode === "repo-local"
     ? ["AGENTS.md", "docs", "harness/evolution", "harness/templates/change"]
     : ["docs", "harness/evolution", "harness/templates/change"];
-  const workspace = await createMaintenanceWorkspace({
+  const canonicalTarget = await createCanonicalMaintenanceTarget({
     assignmentId: task.id,
     memoryMode: memory.mode,
     memoryRoot: memory.memoryRoot,
-    maintenanceRoot: join(memory.workbenchRoot, "maintenance"),
     namespaces,
     ...(memory.mode === "external-local"
       ? { additionalSources: [{ key: "project" as const, root: project.path, namespaces: ["AGENTS.md"] }] }
@@ -130,7 +131,7 @@ async function createServerHarnessAssignment(
     evidenceRefs: task.inputArtifacts.length > 0 ? task.inputArtifacts : [`agent-task:${task.id}`],
     currentDocumentRefs: [],
     currentStableMemoryRefs: [],
-    workspace,
+    canonicalTarget,
     namespaceClasses: ["content", "control-plane"],
     requiredVerification: [],
   });

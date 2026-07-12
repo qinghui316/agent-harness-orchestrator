@@ -1,3 +1,10 @@
+---
+roleId: spec-test-proposer
+description: Proposes existing test evidence for accepted criteria.
+writeCapability: read-only
+preferredRuntime: codex
+---
+
 # Spec-Test Proposer Agent Profile
 
 ## Role

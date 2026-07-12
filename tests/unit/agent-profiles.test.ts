@@ -9,28 +9,12 @@ async function readProfile(name: string): Promise<string> {
 }
 
 describe("agent role profiles", () => {
-  it("bundles all profiles with ECL-derived required sections", async () => {
-    for (const name of ["validator", "auditor", "coder", "spec-test-proposer", "spec-test-generator"]) {
+  it("bundles model profiles with their required contracts", async () => {
+    for (const name of ["planning-agent", "coder-agent", "auditor-agent", "rework-coder"]) {
       const content = await readProfile(name);
-      for (const section of [
-        "## Role",
-        "## Source of Truth",
-        "## Success Criteria",
-        "## Evidence Discipline",
-        "## Constraints",
-        "## Workflow / Protocol",
-        "## State Transition Boundary",
-        "## Human Confirmation Boundary",
-        "## Allowed Inputs",
-        "## Allowed Outputs",
-        "## Output Contract",
-        "## Blocked Actions",
-        "## Failure Modes",
-      ]) {
+      for (const section of ["## Role", "## Success Criteria", "## Constraints", "## Inputs", "## Workflow", "## Output Contract", "## Escalate When", "## Avoid"]) {
         expect(content).toContain(section);
       }
-      expect(content).toContain("Resolved AHO durable memory");
-      expect(content).toContain("Do not treat chat history");
     }
   });
 
@@ -55,60 +39,34 @@ describe("agent role profiles", () => {
     expect(content).toContain("Worktree-only evidence may be reported for awareness");
   });
 
-  it("keeps auditor as an evidence-backed semantic proposal gate", async () => {
-    const content = await readProfile("auditor");
-
-    expect(content).toContain("Auditor is a read-only semantic review role");
-    expect(content).toContain("Findings must cite a concrete artifact");
-    expect(content).toContain("Passing validation is evidence, not semantic proof.");
+  it("keeps auditor-agent as the only semantic model profile", async () => {
+    const content = await readProfile("auditor-agent");
     expect(content).toContain("Status: approved | approved-with-notes | blocked");
-    expect(content).toContain("Your output is an audit proposal.");
+    expect(content).toContain("Do not run commands or hidden repair work.");
+    expect(content).toContain("Passing validation and other positive evidence belong in the");
   });
 
-  it("keeps coder bounded to worktree proposals traceable to tasks and ACs", async () => {
-    const content = await readProfile("coder");
+  it("keeps coder-agent as the only implementation model profile", async () => {
+    const content = await readProfile("coder-agent");
 
-    expect(content).toContain("Work only in the assigned worktree.");
-    expect(content).toContain("The diff maps back to the selected tasks and Acceptance Criteria.");
-    expect(content).toContain("User extra prompt as additional instruction only.");
-    expect(content).toContain("Do not update review status or accept spec-test evidence.");
-    expect(content).toContain("Do not apply, merge, close, archive");
-  });
-
-  it("keeps validator as mechanical evidence rather than semantic approval", async () => {
-    const content = await readProfile("validator");
-
-    expect(content).toContain("deterministic mechanical evidence role");
-    expect(content).toContain("Record command results as observed");
-    expect(content).toContain("Distinguish missing fallback scripts from explicit configured command failures.");
-    expect(content).toContain("Passing validation is not human approval.");
-    expect(content).toContain("Do not infer semantic correctness from passing commands.");
-  });
-
-  it("bundles Phase 6B role prompt contracts", async () => {
-    for (const name of ["planning-agent", "coder-agent", "validator", "auditor-agent", "rework-coder"]) {
-      const content = await readProfile(name);
-      for (const marker of ["roleId:", "description:", "writeCapability:", "preferredRuntime:"]) {
-        expect(content).toContain(marker);
-      }
-      for (const section of ["## Role", "## Success Criteria", "## Constraints", "## Inputs", "## Workflow", "## Output Contract", "## Escalate When", "## Avoid"]) {
-        expect(content).toContain(section);
-      }
-    }
+    expect(content).toContain("Do not delegate or spawn Agents.");
+    expect(content).toContain("Treat the source project root as read-only context.");
+    expect(content).toContain("Task / AC Coverage:");
   });
 
   it("keeps the real planning child routed through the single authoring Skill", async () => {
     const content = await readProfile("planning-agent");
 
     expect(content).toContain("$aho-workflow-authoring");
-    expect(content).toContain("Do not write project or Harness files.");
+    expect(content).toContain("Write only the assigned run-scoped proposal files");
+    expect(content).toContain("The proposal files are the result");
     expect(content).toContain("Do not recursively delegate to another Agent.");
     expect(content).toContain("Do not use parent-thread Plan Mode");
     expect(content).toContain("Do not invoke the `aho` CLI");
   });
 
   it("keeps Runtime-owned transitions out of Agent self-CLI control", async () => {
-    for (const name of ["planning-agent", "coder", "spec-test-proposer", "spec-test-generator"]) {
+    for (const name of ["planning-agent", "coder-agent", "spec-test-proposer", "spec-test-generator"]) {
       const content = await readProfile(name);
       expect(content).not.toMatch(/`aho\s+(validate|audit|code|spec-test|worktree|change|run)\b/);
     }

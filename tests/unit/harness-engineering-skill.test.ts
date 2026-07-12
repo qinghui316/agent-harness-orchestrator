@@ -26,18 +26,18 @@ describe("AHO Harness engineering Skill", () => {
     expect(skill).toContain("Do not invoke AHO lifecycle commands");
   });
 
-  it("teaches direct Markdown work in an isolated workspace and Runtime-captured diffs", async () => {
+  it("teaches bounded direct canonical edits and scored Evolution", async () => {
     const content = await readSkillFiles();
     for (const operation of ["create", "edit", "delete", "split", "merge", "rename"]) {
       expect(content.toLowerCase()).toContain(operation);
     }
-    expect(content).toContain("isolated workspace");
-    expect(content).toContain("Runtime captures the filesystem/Git diff");
-    expect(content).toContain("The final response is evidence and summary only");
+    expect(content).toContain("canonical project Markdown");
+    expect(content).toContain("native scorer");
+    expect(content).toContain("score of at least 80");
+    expect(content).toContain("There is no reviewer, diff-manifest, or project-memory apply stage");
     expect(content).toContain("cannot trigger work");
     expect(content).toContain("create or claim assignments");
     expect(content).toContain("choose or count archive windows");
-    expect(content).toContain("apply workspace changes to canonical memory");
     expect(content).toContain("close Changes");
   });
 

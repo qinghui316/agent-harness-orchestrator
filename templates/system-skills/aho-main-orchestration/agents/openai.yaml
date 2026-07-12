@@ -1,0 +1,4 @@
+interface:
+  display_name: "AHO Main Orchestration"
+  short_description: "Delegate bounded AHO work through native Agents and existing gates."
+  default_prompt: "Use $aho-main-orchestration to inspect current evidence and choose the next legal delegated action or human gate."

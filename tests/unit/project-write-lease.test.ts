@@ -4,10 +4,14 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { applyWorktree } from "../../src/apply/apply-discard.js";
 import {
+  claimProjectDocumentLease,
   claimProjectWriteLease,
   heartbeatProjectWriteLease,
+  readProjectDocumentLease,
   readProjectWriteLease,
+  releaseProjectDocumentLease,
   releaseProjectWriteLease,
+  withProjectDocumentLease,
   withProjectWriteLease,
 } from "../../src/project/index.js";
 import type { ManagedProject } from "../../src/types/index.js";
@@ -42,6 +46,21 @@ describe("project write lease", () => {
       new Date(start.getTime() + 600),
     );
     await expect(readProjectWriteLease(projectPath)).resolves.toBeNull();
+  });
+
+  it("serializes canonical document writers without consuming the source-write slot", async () => {
+    const document = await claimProjectDocumentLease(projectPath, { holderId: "docs-1", ttlMs: 1_000 });
+    expect(document).toMatchObject({ holderId: "docs-1", fencingToken: 1 });
+    await expect(claimProjectDocumentLease(projectPath, { holderId: "docs-2", ttlMs: 1_000 })).resolves.toBeNull();
+    await expect(claimProjectWriteLease(projectPath, { holderId: "source-1", ttlMs: 1_000 })).resolves.not.toBeNull();
+    await releaseProjectDocumentLease(projectPath, document!);
+    await expect(readProjectDocumentLease(projectPath)).resolves.toBeNull();
+  });
+
+  it("keeps the document lease scoped helper independent", async () => {
+    await withProjectDocumentLease(projectPath, { holderId: "docs" }, async () => {
+      await expect(readProjectDocumentLease(projectPath)).resolves.toMatchObject({ holderId: "docs" });
+    });
   });
 
   it("uses monotonic fencing and rejects an old token after expiry", async () => {
@@ -133,6 +152,15 @@ describe("project write lease", () => {
       await releaseProjectWriteLease(projectPath, scope.lease);
       expect(await claimProjectWriteLease(projectPath, { holderId: "takeover", ttlMs: 10_000 })).not.toBeNull();
     })).rejects.toThrow(/not owned|expired/);
+  });
+
+  it("aborts the scoped signal as soon as lease ownership is lost", async () => {
+    await expect(withProjectDocumentLease(projectPath, { holderId: "first", ttlMs: 10_000 }, async (scope) => {
+      await releaseProjectDocumentLease(projectPath, scope.lease);
+      expect(await claimProjectDocumentLease(projectPath, { holderId: "second", ttlMs: 10_000 })).not.toBeNull();
+      await expect(scope.heartbeat()).rejects.toThrow(/not owned/);
+      expect(scope.signal.aborted).toBe(true);
+    })).rejects.toThrow(/not owned/);
   });
 
   it("guards the production worktree apply entrypoint before revalidation", async () => {

@@ -107,6 +107,7 @@ export interface CodexAppServerChildThreadResult {
   model?: string;
   reasoningEffort?: string;
   finalText: string;
+  changedFiles: string[];
   snapshot: Record<string, unknown>;
 }
 
@@ -172,6 +173,10 @@ export interface CodexAppServerTurnOptions {
   onError?: (error: unknown) => void;
   model?: string | null;
   imageInputs?: Array<{ path: string; mediaType?: string; fileName?: string }>;
+  skillInputs?: Array<{ name: string; path: string }>;
+  writableRoots?: string[];
+  developerInstructions?: string;
+  outputSchema?: Record<string, unknown>;
 }
 
 export interface CodexAppServerTurnResult {
@@ -182,6 +187,7 @@ export interface CodexAppServerTurnResult {
   planText?: string;
   goal?: CodexAppServerThreadGoal | null;
   childThreads: CodexAppServerChildThreadResult[];
+  changedFiles: string[];
   error?: string;
 }
 
@@ -316,6 +322,7 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
   let waitingGoalAttachPending = false;
   let activeTurnRunning = false;
   const childThreads: CodexAppServerChildThreadResult[] = [];
+  const changedFiles = new Set<string>();
   const childThreadPrompts = new Map<string, string>();
   const subAgentThreadItems = new Map<string, string>();
   const pendingChildReads = new Set<Promise<void>>();
@@ -398,6 +405,7 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
           cwd: options.cwd,
           sandbox: options.sandboxPolicy,
           approvalPolicy: "never",
+          ...(options.developerInstructions?.trim() ? { developerInstructions: options.developerInstructions.trim() } : {}),
           ...(options.dynamicTools?.length ? { dynamicTools: options.dynamicTools } : {}),
         });
     threadId = threadResponse ? extractThreadId(threadResponse) ?? threadId : threadId;
@@ -460,11 +468,12 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
       const turnModel = options.model?.trim() || null;
       const turnResponse = await sendRequest("turn/start", {
         threadId,
-        input: [userTextInput(options.prompt), ...imageInputs(options.imageInputs)],
+        input: [userTextInput(options.prompt), ...skillInputs(options.skillInputs), ...imageInputs(options.imageInputs)],
         cwd: options.cwd,
-        sandboxPolicy: sandboxPolicyFor(options.sandboxPolicy, options.cwd),
+        sandboxPolicy: sandboxPolicyFor(options.sandboxPolicy, options.cwd, options.writableRoots),
         approvalPolicy: "never",
         ...(turnModel ? { model: turnModel } : {}),
+        ...(options.outputSchema ? { outputSchema: options.outputSchema } : {}),
       });
       turnId = extractTurnId(turnResponse);
       if (!turnId) throw new Error("Codex app-server did not return a turn id.");
@@ -482,14 +491,14 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
     await writeFile(options.paths.lastMessage, lastMessage, "utf8");
     const finalStatus = terminalStatus ?? "failed";
     await writeSession(finalStatus);
-    return { status: finalStatus, threadId, turnId, lastMessage, planText, goal, childThreads };
+    return { status: finalStatus, threadId, turnId, lastMessage, planText, goal, childThreads, changedFiles: [...changedFiles] };
   } catch (error) {
     terminalStatus = "failed";
     terminalError = error instanceof Error ? error.message : String(error);
     options.onError?.(error);
     await writeFile(options.paths.lastMessage, lastMessage || terminalError, "utf8");
     await writeSession("failed", terminalError).catch(() => undefined);
-    return { status: "failed", threadId, turnId, lastMessage, planText, goal, childThreads, error: terminalError };
+    return { status: "failed", threadId, turnId, lastMessage, planText, goal, childThreads, changedFiles: [...changedFiles], error: terminalError };
   } finally {
     activeTurns.delete(activeScopeId);
     activeSessionScopes.delete(activeSessionKey);
@@ -615,6 +624,7 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
     const notification = { method, params, raw };
     const notificationThreadId = stringValue(params.threadId ?? params.thread_id);
     const isParentNotification = !notificationThreadId || !threadId || notificationThreadId === threadId;
+    if (isParentNotification) for (const path of extractFileChangePaths(params)) changedFiles.add(path);
     if (isParentNotification) options.onNotification?.(notification);
     const collab = extractCodexAppServerCollabToolCall(method, params);
     if (collab?.tool === "spawn_agent") {
@@ -755,6 +765,7 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
         ...(call.model ? { model: call.model } : {}),
         ...(call.reasoningEffort ? { reasoningEffort: call.reasoningEffort } : {}),
         finalText: extractCodexAppServerThreadFinalText(snapshot),
+        changedFiles: extractFileChangePaths(snapshot),
         snapshot,
       };
       childThreads.push(result);
@@ -807,6 +818,22 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
     if (!child?.stdin?.writable) throw new Error("Codex app-server stdin is not writable.");
     child.stdin.write(`${JSON.stringify({ id, result })}\n`);
   }
+}
+
+function extractFileChangePaths(value: unknown): string[] {
+  const paths = new Set<string>();
+  const visit = (item: unknown): void => {
+    if (Array.isArray(item)) { for (const child of item) visit(child); return; }
+    if (!isRecord(item)) return;
+    if (item.type === "file_change" && Array.isArray(item.changes)) {
+      for (const change of item.changes) {
+        if (isRecord(change) && typeof change.path === "string" && change.path.trim()) paths.add(change.path.trim());
+      }
+    }
+    for (const child of Object.values(item)) visit(child);
+  };
+  visit(value);
+  return [...paths];
 }
 
 export function extractCodexAppServerThreadFinalText(snapshot: Record<string, unknown>): string {
@@ -956,11 +983,19 @@ function imageInputs(images: CodexAppServerTurnOptions["imageInputs"]): Record<s
       : { type: "localImage", path });
 }
 
-function sandboxPolicyFor(policy: "read-only" | "workspace-write", cwd: string): Record<string, unknown> {
+function skillInputs(skills: CodexAppServerTurnOptions["skillInputs"]): Record<string, unknown>[] {
+  if (!skills?.length) return [];
+  return skills
+    .map((skill) => ({ name: skill.name.trim(), path: skill.path.trim() }))
+    .filter((skill) => skill.name && skill.path)
+    .map((skill) => ({ type: "skill", ...skill }));
+}
+
+function sandboxPolicyFor(policy: "read-only" | "workspace-write", cwd: string, writableRoots?: string[]): Record<string, unknown> {
   if (policy === "workspace-write") {
     return {
       type: "workspaceWrite",
-      writableRoots: [cwd],
+      writableRoots: writableRoots?.length ? writableRoots : [cwd],
       networkAccess: false,
       excludeTmpdirEnvVar: false,
       excludeSlashTmp: false,

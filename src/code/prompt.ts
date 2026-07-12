@@ -24,20 +24,11 @@ export async function composeCoderPrompt(input: CoderPromptInput): Promise<strin
     : "Whole active change.";
 
   return [
-    "# AHO Coder Worktree Run",
-    "",
-    "You are running as the Coder Agent for Agent Harness Orchestrator.",
+    "# Agent Profile",
     "",
     profile.trim(),
     "",
-    "## Command Boundary",
-    "",
-    "- You are a worker role, not the orchestrator.",
-    "- Do not call delegateTask, do not spawn subagents, and do not create additional role tasks.",
-    "- Modify files only inside the assigned worktree checkout.",
-    "- Treat the source project path as read-only context.",
-    "- Do not apply, merge, close, archive, or evolve Harness rules.",
-    "- Your output is a proposal; AHO Validator, Auditor, and the human user decide acceptance.",
+    "# Task Packet",
     "",
     "## Assigned Worktree",
     "",
@@ -63,32 +54,9 @@ export async function composeCoderPrompt(input: CoderPromptInput): Promise<strin
     input.extraPrompt?.trim() ? "## Additional Human Prompt" : "",
     input.extraPrompt?.trim() ?? "",
     "",
-    "## Final Output Contract",
-    "",
-    "Your final answer should use this shape:",
-    "",
-    "Status: completed | blocked | failed",
-    "",
-    "Modified Files:",
-    "- path",
-    "",
-    "Task / AC Coverage:",
-    "- T-001 -> AC-001: note",
-    "",
-    "Implementation Notes:",
-    "- note",
-    "",
-    "Verification Attempted:",
-    "- command: result",
-    "- or none",
-    "",
-    "Blockers / Follow-up:",
-    "- item",
-    "- or none",
-    "",
   ].join("\n");
 }
 
 async function readBundledCoderProfile(): Promise<string> {
-  return await readFile(join(getTemplateRoot(), "..", "agent-profiles", "coder.md"), "utf8");
+  return await readFile(join(getTemplateRoot(), "..", "agent-profiles", "coder-agent.md"), "utf8");
 }

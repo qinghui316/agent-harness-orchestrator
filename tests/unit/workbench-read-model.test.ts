@@ -243,7 +243,10 @@ describe("workbench read-model projections", () => {
       expect(transcriptText).not.toContain(forbidden);
     }
     expect(JSON.stringify(snapshot.right)).not.toContain("change.close");
-    expect(snapshot.roles.map((item) => item.id)).toEqual(expect.arrayContaining(["coder", "auditor", "validator"]));
+    expect(snapshot.roles.map((item) => item.id)).toEqual(expect.arrayContaining([
+      "coder-agent", "auditor-agent", "memory-maintenance-agent", "harness-evolution-agent", "evolution-scorer",
+    ]));
+    expect(snapshot.roles.map((item) => item.id)).not.toEqual(expect.arrayContaining(["coder", "auditor", "validator"]));
     expect(snapshot.harnessGaps.map((item) => item.id)).toEqual(expect.arrayContaining(["roleCatalog", "sessionModel", "subagentSpec"]));
   });
 
@@ -755,11 +758,12 @@ describe("workbench read-model projections", () => {
 
   it("summarizes bundled role profiles without enabling scheduling", async () => {
     const roles = await listWorkbenchRoles();
-    const coder = roles.find((item) => item.id === "coder");
-    const validator = roles.find((item) => item.id === "validator");
+    const coder = roles.find((item) => item.id === "coder-agent");
+    const maintenance = roles.find((item) => item.id === "memory-maintenance-agent");
 
     expect(coder).toMatchObject({ writeCapability: "worktree-write", preferredRuntime: "codex" });
-    expect(validator).toMatchObject({ writeCapability: "deterministic-writer", preferredRuntime: "local-command" });
+    expect(maintenance).toMatchObject({ writeCapability: "canonical-doc-write", preferredRuntime: "codex" });
+    expect(roles.find((item) => item.id === "validator")).toBeUndefined();
     expect(roles.every((item) => item.sections.length > 0)).toBe(true);
   });
 

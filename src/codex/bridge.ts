@@ -191,6 +191,9 @@ export async function syncCodexBridge(project: ManagedProject): Promise<CodexBri
         path: target,
       });
     }
+    for (const retiredRoleId of ["coder", "auditor", "validator", "merge-reviewer-agent"]) {
+      await rm(join(paths.agentsRoot, `${retiredRoleId}.md`), { force: true });
+    }
     await writeJsonFile(paths.pluginJson, buildManifest(await listSkillDirs(paths.skillsRoot), await listAgentFiles(paths.agentsRoot)));
   } finally {
     store.close();

@@ -1,7 +1,6 @@
 import type { AgentTask, ManagedProject, ResolvedMemory } from "../types/index.js";
 import { parseHarnessEngineeringAssignment, type HarnessEngineeringAssignment } from "./harness-engineering-contract.js";
-import { MaintenanceReviewBlockedError } from "./maintenance-provider-runner.js";
-import { MaintenanceApplyBlockedError } from "./project-memory-apply.js";
+import { EvolutionScoreBlockedError } from "./maintenance-provider-runner.js";
 import {
   checkpointAgentTask,
   claimAgentTask,
@@ -27,6 +26,7 @@ export interface BackgroundWorkerOptions {
   leaseDurationMs?: number;
   owner?: string;
   onError?: (error: unknown) => void;
+  onLeaseInvalidated?: (task: AgentTask, error: unknown) => void | Promise<void>;
   assignmentFactory: (task: AgentTask, project: ManagedProject) => HarnessEngineeringAssignment | Promise<HarnessEngineeringAssignment>;
   runAssignment?: (input: {
     project: ManagedProject;
@@ -105,6 +105,9 @@ async function executeTask(
   options: BackgroundWorkerOptions,
   signal: AbortSignal,
 ): Promise<void> {
+  const assignmentController = new AbortController();
+  const abortFromWorker = (): void => assignmentController.abort(signal.reason);
+  signal.addEventListener("abort", abortFromWorker, { once: true });
   let running: AgentTask | null = null;
   let writer: AgentTaskWriterIdentity | undefined;
   let heartbeat: NodeJS.Timeout | null = null;
@@ -120,10 +123,14 @@ async function executeTask(
       if (!running || !writer) return;
       void heartbeatAgentTask(memory, running, writer, options.leaseDurationMs).then((updated) => {
         running = updated;
-      }).catch((error) => options.onError?.(error));
+      }).catch((error) => {
+        options.onError?.(error);
+        void options.onLeaseInvalidated?.(running ?? task, error);
+        assignmentController.abort(error);
+      });
     }, heartbeatEveryMs);
     const assignment = parseHarnessEngineeringAssignment(await options.assignmentFactory(running, project));
-    const result = await options.runAssignment!({ project, task: running, assignment, signal });
+    const result = await options.runAssignment!({ project, task: running, assignment, signal: assignmentController.signal });
     running = await checkpointAgentTask(memory, running, writer, {
       summary: result.summary,
       artifactRefs: result.artifactRefs ?? [],
@@ -146,13 +153,13 @@ async function executeTask(
     });
   } finally {
     if (heartbeat) clearInterval(heartbeat);
+    signal.removeEventListener("abort", abortFromWorker);
   }
 }
 
 function isRetryable(error: unknown): boolean {
   return !(error instanceof NonRetryableBackgroundWorkerError
-    || error instanceof MaintenanceReviewBlockedError
-    || error instanceof MaintenanceApplyBlockedError);
+    || error instanceof EvolutionScoreBlockedError);
 }
 
 export class NonRetryableBackgroundWorkerError extends Error {}

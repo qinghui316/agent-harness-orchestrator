@@ -93,6 +93,12 @@ describe("Workbench provider planning flow", () => {
     let continueDeliveryKey = "";
     appServerTurn
       .mockImplementationOnce(async (options) => {
+        expect(options.skillInputs).toEqual([
+          expect.objectContaining({ name: "aho-main-orchestration", path: expect.stringContaining("aho-main-orchestration") }),
+          expect.objectContaining({ name: "aho-workflow-authoring", path: expect.stringContaining("aho-workflow-authoring") }),
+        ]);
+        expect(options.writableRoots).toEqual([expect.stringContaining("planner-proposal")]);
+        await writePlannerFiles(options.writableRoots[0]);
         expect(options.dynamicTools).toEqual(expect.arrayContaining([
           expect.objectContaining({ name: "aho_finalize_current_change", inputSchema: expect.objectContaining({ additionalProperties: false }) }),
         ]));
@@ -110,6 +116,11 @@ describe("Workbench provider planning flow", () => {
             threadId: "thread-planner",
             status: "completed",
             finalText: plannerProposal(),
+            changedFiles: [
+              `${options.writableRoots[0]}/spec.md`,
+              `${options.writableRoots[0]}/plan.md`,
+              `${options.writableRoots[0]}/tasks.md`,
+            ],
             snapshot: {},
           }],
         };
@@ -162,6 +173,8 @@ describe("Workbench provider planning flow", () => {
     const messages = await listConversationMessages(project(), conversation.conversationId);
     const plan = messages.find((message) => message.agentRoleId === "planning-agent" && message.artifact);
     expect(plan).toMatchObject({ runId: expect.any(String), agentRoleId: "planning-agent" });
+    expect(plan?.text).toMatch(/Proposal hash: [a-f0-9]{64}/);
+    expect(plan?.text).toContain("Lineage: thread-main -> thread-planner");
 
     await postConversationMessage(project(), conversation.conversationId, {
       mode: "chat",
@@ -271,6 +284,13 @@ function plannerProposal(): string {
     assumptions: [],
     warnings: [],
   });
+}
+
+async function writePlannerFiles(directory: string): Promise<void> {
+  const proposal = JSON.parse(plannerProposal()) as { specMd: string; planMd: string; tasksMd: string };
+  await writeFile(join(directory, "spec.md"), proposal.specMd, "utf8");
+  await writeFile(join(directory, "plan.md"), proposal.planMd, "utf8");
+  await writeFile(join(directory, "tasks.md"), proposal.tasksMd, "utf8");
 }
 
 function project(): ManagedProject {

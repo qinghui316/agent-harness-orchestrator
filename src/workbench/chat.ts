@@ -9,7 +9,7 @@ import { writeJsonFile } from "../fs/json.js";
 import { listRuns } from "../run/manager.js";
 import { getGitCommit, getGitStatusShort } from "../project/git.js";
 import { assertChangeFinalizationReady, closeChangeForFinalization } from "../change/manager.js";
-import { getTransientSystemSkillContext } from "../skill/catalog.js";
+import { getSystemSkillsRoot } from "../template-source/paths.js";
 import { runSchedulerReadySetInitialization } from "../workflow-runtime/scheduler.js";
 import {
   claimTransitionExecution,
@@ -220,26 +220,9 @@ export function buildProjectScopedMainAgentPrompt(
 ): string {
   return [
     "You are the main Agent for this project.",
-    "Run as a short read-only parent conversation turn. Do not edit files, create working copies, apply changes, close work, or claim approval.",
-    "Use the project root and project records as the source of truth. Read the project guidance and docs yourself when needed.",
-    "Workbench conversation history is only interaction context; it is not workflow truth.",
-    "You own the current native Goal. Decide whether this demand warrants a durable multi-turn Goal; do not create one for every ordinary conversation.",
-    "If you decide real planner-child work is needed, create or maintain the native Goal before planning so the accepted objective can resume across gates.",
-    "After every resumed evidence cycle, autonomously decide whether to continue, request plan revision, wait for the user, or call native update_goal(complete) only when the objective is actually satisfied.",
-    "When planning is needed, you MUST use the real spawn_agent collaboration tool to create a planner child. Never use parent-thread Plan Mode as the planner.",
-    "When spawning the planner child, omit model and reasoning overrides so Codex inherits the Main Agent's current effective model unless the user explicitly requests a different model.",
-    "The bundled $aho-workflow-authoring contract is attached to this turn. Include that complete contract in the planner child prompt; do not ask the child to discover a global or project-installed Skill.",
-    "Do not invoke the aho CLI from the shell. Use project files for read-only evidence and the provider tools exposed by this turn for AHO-owned transitions.",
-    "Do not write child-Agent output, child-Agent logs, implementation plans, acceptance lists, task lists, or internal runtime details as parent prose.",
-    "Only native runtime tool/Plan/question events count as child-Agent or planning-session work; never simulate that work in text.",
-    "If real provider-native child collaboration is unavailable, say that plainly. Do not fall back to Plan Mode, codex exec, or fabricated child output.",
-    "If the user asks to execute after a plan, continue as the main Agent: read project guidance, enabled skills, and docs, then use available tools according to the project rules. Do not assume Workbench will create Harness records or execute the plan for you.",
-    "When the accepted workflow reaches a real human confirmation gate, give the user a brief visible conclusion and then call aho_goal_yield exactly once. The tool pauses Goal continuity only; it never executes the gated action.",
-    "When terminal workflow, validation, audit, and local apply evidence prove the Change complete, call aho_finalize_current_change with no arguments. Do not complete the native Goal until AHO returns a durable close result; Change close is owned by AHO, not a separate user confirmation.",
-    "You still own whether to continue, request a plan revision, or complete the Goal. Provider blocked is a valid bounded wait state, but do not use it as a substitute for aho_goal_yield when that tool is available.",
-    "Do not expose internal product terms in the user-visible reply, including Harness, AGENTS.md, Change, active change, worktree, AC, tasks, TaskRun, WorkflowRun, queue, scheduler, bundle, close gate, validation, or audit.",
-    "Use plain user-facing words instead, such as 项目记录, 项目说明, 当前任务, 工作副本, 验收点, 计划, 检查, 审查, or 完成前确认.",
-    "When you produce a visible parent reply, keep it to 2-4 sentences in the user's language.",
+    "Load and follow $aho-main-orchestration. It is the only Main-Agent scheduling guide for this turn.",
+    "Use project records as truth and conversation history only as interaction context.",
+    "Keep visible replies concise and in the user's language; explain internal terms only when the user asks about the mechanism.",
     ...buildMainAgentPlanHandoffPromptContext(planHandoff),
     ...(workflowAuthoringContext ? ["", workflowAuthoringContext] : []),
     "",
@@ -265,11 +248,17 @@ async function runProjectScopedMainAgentTurn(
   const capture = createAssistantTranscriptCapture(live);
   capture.sink.emit({ event: "run.started", data: { runId, conversationId, runtime: "codex-readonly", actionType: "chat.ask" } });
   capture.sink.emit({ event: "run.status", data: { runId, status: "connecting", label: "正在连接 Codex" } });
-  const authoringSkill = await getTransientSystemSkillContext(project, ["aho-workflow-authoring"]);
-  if (!authoringSkill.promptSection) {
-    throw new Error(`Workflow authoring Skill is unavailable: ${authoringSkill.warnings.join("; ") || "bundled Skill was not found"}.`);
-  }
-  const prompt = buildProjectScopedMainAgentPrompt(userMessage, planHandoff, authoringSkill.promptSection);
+  const proposalDirectory = join(directory, "planner-proposal");
+  await mkdir(proposalDirectory, { recursive: true });
+  const workflowAuthoringSkillPath = join(getSystemSkillsRoot(), "aho-workflow-authoring", "SKILL.md");
+  const mainOrchestrationSkillPath = join(getSystemSkillsRoot(), "aho-main-orchestration", "SKILL.md");
+  if (!existsSync(workflowAuthoringSkillPath) || !existsSync(mainOrchestrationSkillPath)) throw new Error("Required Main/Workflow system Skill is unavailable.");
+  const planningTransport = [
+    "$aho-workflow-authoring is attached as a native Codex Skill input for this turn; load it on demand and do not paste its body into Main or child prompts.",
+    `When planning is requested, create exactly one real planning child and instruct it to write spec.md, plan.md, tasks.md, and optional notes.md directly under: ${proposalDirectory}`,
+    "Treat those files as an immutable proposal. Do not repair or rewrite them after the child completes; AHO will parse and validate the files as written.",
+  ].join("\n");
+  const prompt = buildProjectScopedMainAgentPrompt(userMessage, planHandoff, planningTransport);
   const planHandoffResume = planHandoff ? {
     deliveryKey: `plan-handoff:${createHash("sha256").update(JSON.stringify({
       conversationId,
@@ -314,7 +303,12 @@ async function runProjectScopedMainAgentTurn(
     runId,
     cwd: project.path,
     prompt,
-    sandboxPolicy: "read-only",
+    sandboxPolicy: "workspace-write",
+    writableRoots: [proposalDirectory],
+    skillInputs: [
+      { name: "aho-main-orchestration", path: mainOrchestrationSkillPath },
+      { name: "aho-workflow-authoring", path: workflowAuthoringSkillPath },
+    ],
     existingThreadId: mainThreadId,
     goalSession: true,
     goalResume: options.goalResume ?? planHandoffResume,
@@ -434,7 +428,7 @@ async function runProjectScopedMainAgentTurn(
     onError: (error) => capture.sink.emit({ event: "error", data: { runId, message: error instanceof Error ? error.message : String(error) } }),
     model: effectiveModel.model,
   });
-  const explicitlyIdentifiedPlannerChildren = result.childThreads.filter((child) => child.prompt?.includes("aho-workflow-authoring"));
+  const explicitlyIdentifiedPlannerChildren = result.childThreads.filter((child) => child.prompt?.includes("planner-proposal") || child.prompt?.includes("spec.md"));
   const plannerChildren = explicitlyIdentifiedPlannerChildren.length > 0
     ? explicitlyIdentifiedPlannerChildren
     : result.childThreads.length === 1
@@ -497,6 +491,12 @@ async function runProjectScopedMainAgentTurn(
       if (!isPlannerChild) continue;
       let message: TopicThreadEntry;
       try {
+        const proposalChanges = new Set(child.changedFiles.map((path) => path.replaceAll("\\", "/")));
+        for (const required of ["spec.md", "plan.md", "tasks.md"]) {
+          if (![...proposalChanges].some((path) => path.endsWith(`/planner-proposal/${required}`) || path === required)) {
+            throw new Error(`Planner child did not author ${required} in its native file-change evidence.`);
+          }
+        }
         const proposal = await writePlannerChildProposal({
           directory,
           projectId: memory.projectId,
@@ -504,9 +504,15 @@ async function runProjectScopedMainAgentTurn(
           runId,
           parentThreadId: child.parentThreadId,
           childThreadId: child.threadId,
-          finalText: child.finalText,
         });
-        message = projectScopedPlanningMessage(conversationId, runId, proposal.planMd, PROJECT_PLANNING_AGENT_ROLE_ID, proposal.artifact, child.threadId);
+        message = projectScopedPlanningMessage(
+          conversationId,
+          runId,
+          `${proposal.planMd.trim()}\n\nProposal hash: ${proposal.hash}\nLineage: ${proposal.parentThreadId} -> ${proposal.childThreadId}`,
+          PROJECT_PLANNING_AGENT_ROLE_ID,
+          proposal.artifact,
+          child.threadId,
+        );
       } catch (cause) {
         message = {
           ...projectScopedPlanningMessage(conversationId, runId, child.finalText || "Plan child did not return a valid proposal.", PROJECT_PLANNING_AGENT_ROLE_ID, undefined, child.threadId),

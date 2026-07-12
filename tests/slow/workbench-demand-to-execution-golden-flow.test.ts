@@ -1,7 +1,7 @@
 ﻿import { delimiter, join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { initHarness } from "../../src/harness/init.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
@@ -43,34 +43,31 @@ describe("workbench accepted-graph-to-execution runtime flow", () => {
       const runId = "planner-run-pricing";
       const parentThreadId = "parent-pricing";
       const childThreadId = "child-pricing";
+      const directory = join(memory.workbenchRoot, "conversations", conversation.conversationId, "runs", runId);
+      const proposalDirectory = join(directory, "planner-proposal");
+      await mkdir(proposalDirectory, { recursive: true });
+      await writeFile(join(proposalDirectory, "spec.md"), "# Spec\n\n## Acceptance Criteria\n\n- AC-001: Member orders of at least 100 receive a ten percent discount; non-members do not.\n", "utf8");
+      await writeFile(join(proposalDirectory, "plan.md"), [
+        "# Plan", "", "Implement and test the pricing rule.", "", "## Workflow", "", "```json",
+        JSON.stringify({ version: "1.0", mode: "sequential-v1", nodes: [{
+          id: "pricing-rule",
+          title: "Implement pricing rule",
+          taskIds: ["T-001"],
+          acIds: ["AC-001"],
+          prompt: "Objective: Implement the accepted pricing rule. Required behavior: Update the rule and its tests. Constraints: Stay within accepted source scopes. Expected evidence: Report changed files and passing tests.",
+          dependsOn: [],
+          sourceScopes: ["src/**", "tests/**"],
+        }] }, null, 2),
+        "```", "",
+      ].join("\n"), "utf8");
+      await writeFile(join(proposalDirectory, "tasks.md"), "# Tasks\n\n- [ ] T-001: Implement and test the pricing rule.\n  - Covers: AC-001\n", "utf8");
       const proposal = await writePlannerChildProposal({
-        directory: join(memory.workbenchRoot, "conversations", conversation.conversationId, "runs", runId),
+        directory,
         projectId: project().id,
         conversationId: conversation.conversationId,
         runId,
         parentThreadId,
         childThreadId,
-        finalText: JSON.stringify({
-          status: "proposed",
-          specMd: "# Spec\n\n## Acceptance Criteria\n\n- AC-001: Member orders of at least 100 receive a ten percent discount; non-members do not.\n",
-          planMd: [
-            "# Plan", "", "Implement and test the pricing rule.", "", "## Workflow", "", "```json",
-            JSON.stringify({ version: "1.0", mode: "sequential-v1", nodes: [{
-              id: "pricing-rule",
-              title: "Implement pricing rule",
-              taskIds: ["T-001"],
-              acIds: ["AC-001"],
-              prompt: "Objective: Implement the accepted pricing rule. Required behavior: Update the rule and its tests. Constraints: Stay within accepted source scopes. Expected evidence: Report changed files and passing tests.",
-              dependsOn: [],
-              sourceScopes: ["src/**", "tests/**"],
-            }] }, null, 2),
-            "```", "",
-          ].join("\n"),
-          tasksMd: "# Tasks\n\n- [ ] T-001: Implement and test the pricing rule.\n  - Covers: AC-001\n",
-          openQuestions: [],
-          assumptions: [],
-          warnings: [],
-        }),
       });
       const store = await WorkbenchStore.open(memory);
       try {
