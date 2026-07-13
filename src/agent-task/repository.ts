@@ -17,7 +17,7 @@ import { resultSchema, taskSchema } from "./schemas.js";
 import { taskPath, taskResultPath, tasksRoot } from "./paths.js";
 
 const DEFAULT_LEASE_MS = 30_000;
-const TERMINAL_STATUSES = new Set<AgentTaskStatus>(["completed", "failed", "needs-user-input", "cancelled"]);
+const TERMINAL_STATUSES = new Set<AgentTaskStatus>(["completed", "blocked", "failed", "needs-user-input", "cancelled"]);
 
 export interface CreateAgentTaskInput {
   taskId?: string;

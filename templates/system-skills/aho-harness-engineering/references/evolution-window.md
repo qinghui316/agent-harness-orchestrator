@@ -5,9 +5,12 @@ The fifth Change's ordinary handoff maintenance is part of this pass.
 
 Before editing, write a proposal with accepted and rejected lessons, evidence,
 project relevance, intended delta, lifecycle decisions, verification, and risk.
+When the Runtime task explicitly asks for the proposal only, stop after the
+proposal. Do not spawn a scorer or pre-empt the separate scoring continuation.
 
-Spawn one independent read-only scorer child with the complete fixed window,
-proposal, hard-issue criteria, and weights:
+When Runtime continues the proposal thread with the scoring request, spawn one
+independent read-only scorer child with the complete fixed window, proposal,
+hard-issue criteria, and weights:
 
 - Evidence grounding: 30
 - Project relevance: 25

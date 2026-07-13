@@ -220,73 +220,31 @@ export async function getEnabledSkillContext(project: ManagedProject, changeId?:
   }
 }
 
-export async function getTransientSystemSkillContext(project: ManagedProject, skillIdsInput: string[]): Promise<EnabledSkillContext> {
-  const requestedIds = [...new Set(skillIdsInput.map((id) => slugify(id)).filter(Boolean))].sort();
-  if (requestedIds.some(isRuntimeAssignedSkill)) throw new Error("Runtime-assigned Harness Skills require a typed assignment entrypoint.");
-  return renderTransientSystemSkillContext(project, requestedIds);
-}
-
-async function renderTransientSystemSkillContext(project: ManagedProject, skillIdsInput: string[]): Promise<EnabledSkillContext> {
-  const memory = await resolveProjectMemory(project);
-  const requestedIds = [...new Set(skillIdsInput.map((id) => slugify(id)).filter(Boolean))].sort();
-  if (requestedIds.length === 0) return { records: [], promptSection: "", warnings: [] };
-  const store = await WorkbenchStore.open(memory);
-  try {
-    await refreshSkillIndex(memory, project, store);
-    const skills = store.listSkills(project.id);
-    const records: RunSkillRecord[] = [];
-    const warnings: string[] = [];
-    const sections: string[] = [];
-    for (const skillId of requestedIds) {
-      const skill = skills.find((item) => item.skillId === skillId);
-      if (!skill) {
-        warnings.push(`Transient system skill ${skillId} is missing from skill sources.`);
-        continue;
-      }
-      const sourceKind = normalizeSourceKind(skill.sourceKind);
-      if (sourceKind !== "system-aho") {
-        warnings.push(`Transient skill ${skillId} is not an AHO system skill.`);
-        continue;
-      }
-      records.push({
-        id: skill.skillId,
-        runtimeTarget: "codex",
-        sourceKind,
-        sourceHash: skill.sourceHash,
-        materializationMode: "aho-managed",
-        materializedHash: null,
-        bridge: "prompt:transient",
-      });
-      sections.push(await renderTransientSystemSkillPrompt(skill));
-    }
-    return {
-      records,
-      warnings,
-      promptSection: sections.length > 0
-        ? [
-          "# Transient AHO System Skill Context",
-          "",
-          "The following bundled AHO system Skill is provided for this turn only. It is context and proposal guidance, not workflow truth or action authority. Do not persist it as project/topic enablement unless the user explicitly selects it.",
-          "",
-          ...sections,
-        ].join("\n")
-        : "",
-    };
-  } finally {
-    store.close();
-  }
-}
-
 export async function getRuntimeAssignedHarnessSkillContext(
   project: ManagedProject,
   assignment: import("../agent-task/harness-engineering-contract.js").HarnessEngineeringAssignment,
 ): Promise<EnabledSkillContext> {
   const { parseHarnessEngineeringAssignment } = await import("../agent-task/harness-engineering-contract.js");
   const parsed = parseHarnessEngineeringAssignment(assignment);
-  const context = await getTransientSystemSkillContextInternal(project, ["aho-harness-engineering"]);
-  return {
-    ...context,
-    promptSection: [
+  const memory = await resolveProjectMemory(project);
+  const store = await WorkbenchStore.open(memory);
+  try {
+    await refreshSkillIndex(memory, project, store);
+    const skill = store.listSkills(project.id).find((item) => item.skillId === "aho-harness-engineering");
+    const sourceKind = skill ? normalizeSourceKind(skill.sourceKind) : null;
+    const valid = skill && sourceKind === "system-aho";
+    return {
+      records: valid ? [{
+        id: skill.skillId,
+        runtimeTarget: "codex",
+        sourceKind,
+        sourceHash: skill.sourceHash,
+        materializationMode: "native",
+        materializedHash: null,
+        bridge: "app-server:skill-input",
+      }] : [],
+      warnings: valid ? [] : ["Runtime-assigned Harness Skill is missing from bundled AHO system Skills."],
+      promptSection: [
       "# Harness Engineering Task Packet",
       "",
       `Mode: ${parsed.mode}`,
@@ -298,12 +256,11 @@ export async function getRuntimeAssignedHarnessSkillContext(
       ...(parsed.requiredVerification.length > 0
         ? [`Required verification: ${parsed.requiredVerification.map((item) => item.command.join(" ")).join("; ")}`]
         : []),
-    ].join("\n"),
-  };
-}
-
-async function getTransientSystemSkillContextInternal(project: ManagedProject, skillIdsInput: string[]): Promise<EnabledSkillContext> {
-  return renderTransientSystemSkillContext(project, skillIdsInput);
+      ].join("\n"),
+    };
+  } finally {
+    store.close();
+  }
 }
 
 export async function hashSkillDirectory(path: string): Promise<string> {
@@ -321,25 +278,6 @@ export async function hashSkillDirectory(path: string): Promise<string> {
 
 export function isRuntimeAssignedSkill(skillId: string): boolean {
   return skillId === "aho-harness-engineering";
-}
-
-async function renderTransientSystemSkillPrompt(skill: StoredSkillIndex): Promise<string> {
-  const files = await listSkillPackageFiles(skill.sourcePath);
-  const relevantFiles = files
-    .map((file) => ({ file, rel: relative(skill.sourcePath, file).replace(/\\/g, "/") }))
-    .filter((item) => item.rel === "SKILL.md" || item.rel.startsWith("references/"))
-    .sort((a, b) => a.rel.localeCompare(b.rel));
-  const blocks: string[] = [];
-  for (const item of relevantFiles) {
-    blocks.push([
-      `## ${skill.skillId}: ${item.rel}`,
-      "",
-      "````markdown",
-      await readFile(item.file, "utf8"),
-      "````",
-    ].join("\n"));
-  }
-  return blocks.join("\n\n");
 }
 
 export async function copySkillToBridge(sourcePath: string, targetPath: string, materializedName: string): Promise<void> {

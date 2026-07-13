@@ -40,6 +40,7 @@ export interface MaintenanceProviderRunEvidence {
   proposal?: string;
   scoringAttempts?: Array<{ role: "evolution-scorer"; threadId: string; parentThreadId: string; score: number; dimensions: Record<string, number>; hardIssues: string[]; summary: string }>;
   verification?: Array<{ name: string; command: string[]; exitCode: number | null; passed: boolean; stdoutPath: string; stderrPath: string }>;
+  verificationAttempts?: Array<Array<{ name: string; command: string[]; exitCode: number | null; passed: boolean; stdoutPath: string; stderrPath: string }>>;
   application: "agent-direct-edit" | "not-applied";
 }
 
@@ -51,14 +52,23 @@ export interface RunMaintenanceProviderAssignmentInput {
   signal?: AbortSignal;
 }
 
+const scoreDimensionSchema = z.union([
+  z.number().int(),
+  z.object({
+    score: z.number().int(),
+    max: z.number().int().optional(),
+    reason: z.string().optional(),
+  }).strict().transform((value) => value.score),
+]);
+
 const scoreSchema = z.object({
   score: z.number().int().min(0).max(100),
   dimensions: z.object({
-    evidenceGrounding: z.number().int().min(0).max(30),
-    projectRelevance: z.number().int().min(0).max(25),
-    mechanicalEnforceability: z.number().int().min(0).max(15),
-    regressionSafety: z.number().int().min(0).max(20),
-    contextCost: z.number().int().min(0).max(10),
+    evidenceGrounding: scoreDimensionSchema.pipe(z.number().min(0).max(30)),
+    projectRelevance: scoreDimensionSchema.pipe(z.number().min(0).max(25)),
+    mechanicalEnforceability: scoreDimensionSchema.pipe(z.number().min(0).max(15)),
+    regressionSafety: scoreDimensionSchema.pipe(z.number().min(0).max(20)),
+    contextCost: scoreDimensionSchema.pipe(z.number().min(0).max(10)),
   }).strict(),
   hardIssues: z.array(z.string()),
   summary: z.string().trim().min(1),
@@ -217,7 +227,7 @@ function evidence(
 
 function buildMaintenancePrompt(assignment: HarnessEngineeringAssignment): string {
   return [
-    "Use $aho-harness-engineering in maintain-assigned-closeout mode.",
+    "Follow the attached AHO Harness Engineering Skill in maintain-assigned-closeout mode.",
     `Task: ${assignment.taskId}`,
     `Project root: ${assignment.projectRoot}`,
     `Memory root: ${assignment.memoryRoot}`,
@@ -230,7 +240,7 @@ function buildMaintenancePrompt(assignment: HarnessEngineeringAssignment): strin
 
 function buildEvolutionProposalPrompt(assignment: HarnessEngineeringAssignment): string {
   return [
-    "Use $aho-harness-engineering in evolve-assigned-window mode.",
+    "Follow the attached AHO Harness Engineering Skill in evolve-assigned-window mode.",
     `Task: ${assignment.taskId}`,
     `Project root: ${assignment.projectRoot}`,
     `Memory root: ${assignment.memoryRoot}`,
@@ -247,7 +257,8 @@ function buildScoringPrompt(assignment: HarnessEngineeringAssignment, proposal: 
     "Independently score this Harness evolution proposal against the fixed evidence window.",
     "Do not edit files, create tasks, apply the proposal, or change the assigned window.",
     "Score evidenceGrounding/30, projectRelevance/25, mechanicalEnforceability/15, regressionSafety/20, and contextCost/10.",
-    "Return only JSON with score, dimensions, hardIssues, and summary.",
+    "Return only JSON in this exact shape, with numeric dimension values:",
+    '{"score":0,"dimensions":{"evidenceGrounding":0,"projectRelevance":0,"mechanicalEnforceability":0,"regressionSafety":0,"contextCost":0},"hardIssues":[],"summary":"..."}',
     `Task: ${assignment.taskId}`,
     `Window: ${assignment.sourceWindow!.hash}`,
     `Window evidence: ${assignment.sourceWindow!.evidenceRefs.join(", ")}`,
@@ -262,7 +273,7 @@ function buildEvolutionApplyPrompt(
   score: z.infer<typeof scoreSchema>,
 ): string {
   return [
-    "Continue using $aho-harness-engineering in evolve-assigned-window mode.",
+    "Continue following the attached AHO Harness Engineering Skill in evolve-assigned-window mode.",
     `Task: ${assignment.taskId}`,
     `The native scorer accepted the proposal with score ${score.score}: ${score.summary}`,
     "Re-read the current Harness, then directly complete the accepted delta in the real project and memory roots.",

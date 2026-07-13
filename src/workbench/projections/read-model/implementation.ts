@@ -71,7 +71,6 @@ export type {
   WorkbenchFailureClassification,
   WorkbenchMaintenanceSummary,
   WorkbenchPendingFeedback,
-  WorkbenchPostArchiveEvolutionCandidate,
   WorkbenchProjectInput,
   WorkbenchResultReview,
   WorkbenchResultReviewStatus,

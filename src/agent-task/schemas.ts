@@ -1,7 +1,7 @@
 import { z } from "zod";
-import type { DemandMemoryCloseout, DocBudgetReport } from "../types/index.js";
+import type { DemandMemoryCloseout } from "../types/index.js";
 
-export const taskStatusSchema = z.enum(["queued", "claimed", "running", "completed", "failed", "needs-user-input", "cancelled"]);
+export const taskStatusSchema = z.enum(["queued", "claimed", "running", "completed", "blocked", "failed", "needs-user-input", "cancelled"]);
 const failureDispositionSchema = z.enum(["retryable", "terminal"]);
 const leaseSchema = z.object({
   owner: z.string().min(1),
@@ -77,20 +77,6 @@ export const ledgerSchema = z.object({
   createdAt: z.string(),
 });
 
-export const candidateSchema = z.object({
-  version: z.literal("1.0"),
-  id: z.string(),
-  sourceLedgerEntryIds: z.array(z.string()),
-  subtype: z.enum(["stable-memory", "docs-drift", "harness-evolution", "reusable-lesson", "doc-budget", "reference-drift"]).optional(),
-  fingerprint: z.string().optional(),
-  supersededBy: z.string().optional(),
-  title: z.string(),
-  summary: z.string(),
-  artifactRefs: z.array(z.string()),
-  status: z.literal("candidate"),
-  createdAt: z.string(),
-});
-
 export const lessonCandidateSchema = z.object({
   id: z.string(),
   fingerprint: z.string(),
@@ -125,18 +111,5 @@ export const closeoutSchema: z.ZodType<DemandMemoryCloseout> = z.object({
   reusableLessonCandidates: z.array(lessonCandidateSchema),
   docsDriftCandidates: z.array(docsDriftCandidateSchema),
   memoryBoundaryNotes: z.array(z.string()),
-  createdAt: z.string(),
-});
-
-export const docBudgetReportSchema: z.ZodType<DocBudgetReport> = z.object({
-  version: z.literal("1.0"),
-  id: z.string(),
-  documents: z.array(z.object({
-    path: z.string(),
-    wordCount: z.number(),
-    softLimit: z.number(),
-    hardLimit: z.number(),
-    status: z.enum(["ok", "soft-exceeded", "hard-exceeded"]),
-  })),
   createdAt: z.string(),
 });

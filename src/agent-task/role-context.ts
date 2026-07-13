@@ -22,7 +22,7 @@ export function buildRoleScopedContextProjection(input: {
     includesMaintenanceWindow: maintenanceRole,
     includedSources: included,
     excludedSources: maintenanceRole
-      ? ["product source mutation", "Markdown outside assignment-scoped canonical namespaces"]
+      ? ["unassigned project history", "Runtime state not supplied as task evidence"]
       : ["hot/warm/cold maintenance window", "raw stdout/stderr/jsonl", "all archive history"],
     createdAt: new Date().toISOString(),
   };

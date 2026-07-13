@@ -21,7 +21,7 @@ export async function buildMaintenanceSummary(memory: ResolvedMemory): Promise<W
       ? "running"
       : activeTask.status === "queued"
         ? "queued"
-        : activeTask.status === "failed" || activeTask.status === "needs-user-input"
+        : activeTask.status === "blocked" || activeTask.status === "failed" || activeTask.status === "needs-user-input"
           ? "blocked"
           : "completed"
     : entries.length > 0 || closeouts.length > 0

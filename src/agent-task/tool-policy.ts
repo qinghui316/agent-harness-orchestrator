@@ -118,11 +118,11 @@ export function workerPermissionProfileForRole(roleId: string): WorkerPermission
     return {
       version: "1.0",
       roleId,
-      allowedReadRoots: ["archive", "maintenance-ledger", "generated-index", "docs"],
-      allowedWriteRoots: ["maintenance-ledger", "candidates", "generated-cache", "proposals"],
-      deniedPaths: [...SECURE_DENIED_PATHS, "AGENTS.md", "docs/**/*.md", "harness/templates/**"],
+      allowedReadRoots: ["assigned-project", "assigned-memory", "assigned-evidence"],
+      allowedWriteRoots: ["assigned-project-harness"],
+      deniedPaths: SECURE_DENIED_PATHS,
       allowedCommands: ["git status", "git diff"],
-      sandboxPolicy: "read-only",
+      sandboxPolicy: "workspace-write",
       mayDelegate: false,
     };
   }

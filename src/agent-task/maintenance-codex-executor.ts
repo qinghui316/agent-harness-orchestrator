@@ -5,6 +5,7 @@ import { writeJsonFile } from "../fs/json.js";
 import { executeProcessStreaming } from "../run/process.js";
 import { getSystemSkillsRoot } from "../template-source/paths.js";
 import { getActiveCodexAppServerTurn, runCodexAppServerTurn } from "../codex/app-server.js";
+import { getRuntimeAssignedHarnessSkillContext } from "../skill/catalog.js";
 import type { ManagedProject, ResolvedMemory } from "../types/index.js";
 import type { HarnessEngineeringAssignment } from "./harness-engineering-contract.js";
 import {
@@ -41,24 +42,77 @@ export async function runCodexMaintenanceAssignment(
     }
     throw error;
   }
-  evidence.verification = await runRequiredVerification(memory, assignment, signal);
-  await writeJsonFile(evidencePath, evidence);
-  const failed = evidence.verification.find((item) => !item.passed);
-  if (failed) {
+  for (let verificationAttempt = 1; verificationAttempt <= 2; verificationAttempt += 1) {
+    evidence.verification = await runRequiredVerification(memory, assignment, verificationAttempt, signal);
+    evidence.verificationAttempts = [...(evidence.verificationAttempts ?? []), evidence.verification];
+    await writeJsonFile(evidencePath, evidence);
+    const failed = evidence.verification.find((item) => !item.passed);
+    if (!failed) {
+      return { summary: evidence.producer.summary, artifactRefs: [evidencePath] };
+    }
+    if (verificationAttempt === 1) {
+      const repair = await continueAfterVerificationFailure(memory, project, assignment, evidence, signal);
+      evidence.producer = {
+        ...evidence.producer,
+        summary: repair.finalText.trim() || evidence.producer.summary,
+        changedFiles: [...new Set([...evidence.producer.changedFiles, ...repair.changedFiles])],
+      };
+      continue;
+    }
     throw new MaintenanceVerificationError(
-      `Required maintenance verification failed: ${failed.name}.`,
-      [evidencePath, failed.stdoutPath, failed.stderrPath],
+      `Required maintenance verification failed after one repair continuation: ${failed.name}.`,
+      [
+        evidencePath,
+        ...(evidence.verificationAttempts ?? []).flatMap((attempt) =>
+          attempt.flatMap((item) => [item.stdoutPath, item.stderrPath])),
+      ],
     );
   }
-  return { summary: evidence.producer.summary, artifactRefs: [evidencePath] };
+  throw new Error("Maintenance verification loop exited unexpectedly.");
+}
+
+async function continueAfterVerificationFailure(
+  memory: ResolvedMemory,
+  project: ManagedProject,
+  assignment: HarnessEngineeringAssignment,
+  evidence: Awaited<ReturnType<typeof runMaintenanceProviderAssignment>>,
+  signal?: AbortSignal,
+): Promise<MaintenanceProviderExecutionResult> {
+  const failures = (evidence.verification ?? []).filter((item) => !item.passed);
+  const prompt = [
+    `Continue following the attached AHO Harness Engineering Skill in ${assignment.mode} mode.`,
+    "Runtime mechanical verification failed after your direct edits.",
+    "Read the current files and the verification logs below, repair the evidence-backed problem, and return a concise result.",
+    "Do not widen the assigned Change or Evolution window.",
+    ...failures.flatMap((item) => [
+      `Verification: ${item.name}`,
+      `Command: ${item.command.join(" ")}`,
+      `Exit code: ${item.exitCode ?? "none"}`,
+      `Stdout: ${item.stdoutPath}`,
+      `Stderr: ${item.stderrPath}`,
+    ]),
+  ].join("\n");
+  return executeCodexMaintenanceRequest(memory, {
+    project,
+    role: assignment.mode === "evolve-assigned-window" ? "evolution-agent" : "maintenance-agent",
+    prompt,
+    skillContext: await getRuntimeAssignedHarnessSkillContext(project, assignment),
+    parentThreadId: null,
+    cwd: assignment.memoryRoot,
+    writable: true,
+    writableRoots: [...new Set([assignment.projectRoot, assignment.memoryRoot])],
+    existingThreadId: evidence.producer.threadId,
+    signal,
+  });
 }
 
 async function runRequiredVerification(
   memory: ResolvedMemory,
   assignment: HarnessEngineeringAssignment,
+  attempt: number,
   signal?: AbortSignal,
 ) {
-  const directory = join(memory.workbenchRoot, "maintenance", "verification", assignment.taskId);
+  const directory = join(memory.workbenchRoot, "maintenance", "verification", assignment.taskId, `attempt-${attempt}`);
   const results = [];
   for (const [index, item] of assignment.requiredVerification.entries()) {
     const safeName = item.name.replace(/[^a-zA-Z0-9._-]+/g, "-");

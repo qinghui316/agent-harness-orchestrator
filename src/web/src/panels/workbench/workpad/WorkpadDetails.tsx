@@ -96,7 +96,7 @@ export function WorkpadDiagnosticDetails({
           />
       </section>
 
-      {(workpad.pendingFeedback?.length || workpad.coderSelfTestSummary || workpad.postArchiveEvolutionCandidate) ? (
+      {(workpad.pendingFeedback?.length || workpad.coderSelfTestSummary) ? (
         <section className="workpad-section compact-section" data-testid="conversation-lifecycle">
           <div className="workpad-section-header">
             <h3>对话状态</h3>
@@ -113,9 +113,6 @@ export function WorkpadDiagnosticDetails({
             </div>
           ) : null}
           {workpad.coderSelfTestSummary ? <p>{workpad.coderSelfTestSummary}</p> : null}
-          {workpad.postArchiveEvolutionCandidate ? (
-            <p>{workpad.postArchiveEvolutionCandidate.summary}</p>
-          ) : null}
         </section>
       ) : null}
 

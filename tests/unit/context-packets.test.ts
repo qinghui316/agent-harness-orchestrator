@@ -58,7 +58,8 @@ describe("role context packets", () => {
       createdAt: "2026-05-31T00:00:00.000Z",
     });
 
-    expect(packet.permissionProfile.allowedReadRoots).toContain("maintenance-ledger");
+    expect(packet.permissionProfile.allowedReadRoots).toContain("assigned-memory");
+    expect(packet.permissionProfile.allowedWriteRoots).toContain("assigned-project-harness");
     expect(packet.permissionProfile.allowedWriteRoots).not.toContain("aho-owned-worktree");
     expect(packet.excludedSources).toContain("source root mutation");
   });

@@ -723,7 +723,6 @@ export type Workpad = {
   failureClassification?: string;
   requiresUserInputReason?: string;
   scopedFeedbackTarget?: Record<string, unknown>;
-  postArchiveEvolutionCandidate?: { changeId: string; status: "candidate"; sources: string[]; summary: string };
   workflowGraphPlan?: WorkflowGraphPlanSummary;
   schedulerContract?: SchedulerContractSummary;
   schedulerDispatchDryRun?: SchedulerDispatchDryRunSummary;

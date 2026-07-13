@@ -48,13 +48,22 @@ describe("background AgentTask worker", () => {
     await worker.drain();
   });
 
-  it("returns retryable execution failures to the durable queue", async () => {
+  it("returns retryable failures to the queue and includes checkpoint evidence in the next assignment", async () => {
     const setup = await fixture();
+    const failure = Object.assign(new Error("provider temporarily unavailable"), {
+      artifactRefs: ["evidence/verification-failure.json"],
+    });
+    const assignments: HarnessEngineeringAssignment[] = [];
+    let attempt = 0;
     const worker = startBackgroundWorker(setup.memory, setup.project, {
       enabled: true,
       pollIntervalMs: 60_000,
       assignmentFactory,
-      runAssignment: async () => { throw new Error("provider temporarily unavailable"); },
+      runAssignment: async ({ assignment }) => {
+        assignments.push(assignment);
+        if (attempt++ === 0) throw failure;
+        return { summary: "recovered", artifactRefs: ["evidence/recovered.json"] };
+      },
     });
 
     expect(await worker.poll()).toBe(1);
@@ -63,6 +72,13 @@ describe("background AgentTask worker", () => {
       attempt: 1,
       failureDisposition: "retryable",
     });
+    expect(await worker.poll()).toBe(1);
+    expect(assignments[0].evidenceRefs).toEqual(["archive:change-0"]);
+    expect(assignments[1].evidenceRefs).toEqual([
+      "archive:change-0",
+      "evidence/verification-failure.json",
+    ]);
+    expect((await listAgentTasks(setup.memory))[0].status).toBe("completed");
     await worker.drain();
   });
 
@@ -89,10 +105,11 @@ describe("background AgentTask worker", () => {
 
     expect(await worker.poll()).toBe(1);
     const [task] = await listAgentTasks(setup.memory);
-    expect(task.status).toBe("failed");
+    expect(task.status).toBe("blocked");
     expect(await readAgentTaskResult(setup.memory, task.id)).toMatchObject({
-      status: "failed",
+      status: "blocked",
       artifactRefs: ["evidence/blocked-evolution.json"],
+      failureClassification: "evolution-quality-blocked",
     });
     await worker.drain();
   });
@@ -158,7 +175,10 @@ describe("background AgentTask worker", () => {
       }),
     });
     const poll = worker.poll();
-    await vi.waitFor(async () => expect((await listAgentTasks(setup.memory))[0].status).toBe("running"));
+    await vi.waitFor(
+      async () => expect((await listAgentTasks(setup.memory))[0].status).toBe("running"),
+      { timeout: 5_000, interval: 20 },
+    );
     await Promise.all([poll, worker.drain()]);
     expect((await listAgentTasks(setup.memory))[0]).toMatchObject({ status: "queued", failureDisposition: "retryable" });
   });

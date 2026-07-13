@@ -116,7 +116,7 @@ export async function validateDelegateTaskPolicy(memory: ResolvedMemory, request
     return reject(request, `Artifact is not scoped to the current demand: ${invalidArtifact}.`, "这个证据不属于当前需求，不能作为委派输入。");
   }
   const existing = await listAgentTasks(memory, request.changeId);
-  const active = existing.find((task) => task.kind === "foreground" && task.status !== "completed" && task.status !== "failed" && task.status !== "needs-user-input" && task.status !== "cancelled");
+  const active = existing.find((task) => task.kind === "foreground" && task.status !== "completed" && task.status !== "blocked" && task.status !== "failed" && task.status !== "needs-user-input" && task.status !== "cancelled");
   if (active) {
     return reject(request, `Foreground role task already active: ${active.id}.`, "当前需求已有角色任务在处理，主 agent 需要等它返回后再委派下一步。");
   }

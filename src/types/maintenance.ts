@@ -102,28 +102,6 @@ export interface MaintenanceLedgerEntry {
   createdAt: string;
 }
 
-export interface EvolutionCandidate {
-  version: "1.0";
-  id: string;
-  sourceLedgerEntryIds: string[];
-  subtype?: MaintenanceCandidateSubtype;
-  fingerprint?: string;
-  supersededBy?: string;
-  title: string;
-  summary: string;
-  artifactRefs: string[];
-  status: "candidate";
-  createdAt: string;
-}
-
-export type MaintenanceCandidateSubtype =
-  | "stable-memory"
-  | "docs-drift"
-  | "harness-evolution"
-  | "reusable-lesson"
-  | "doc-budget"
-  | "reference-drift";
-
 export interface DemandMemoryCloseout {
   version: "1.0";
   id: string;
@@ -159,19 +137,6 @@ export interface DocsDriftCandidate {
   evidenceRefs: string[];
   status: "candidate" | "superseded";
   supersededBy?: string;
-}
-
-export interface DocBudgetReport {
-  version: "1.0";
-  id: string;
-  documents: Array<{
-    path: string;
-    wordCount: number;
-    softLimit: number;
-    hardLimit: number;
-    status: "ok" | "soft-exceeded" | "hard-exceeded";
-  }>;
-  createdAt: string;
 }
 
 export interface RoleScopedContextProjection {

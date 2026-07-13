@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { initHarness } from "../../src/harness/init.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import type { ManagedProject } from "../../src/types/index.js";
-import { completeAgentTask, createAgentTask, createEvolutionCandidate, listDemandMemoryCloseouts, listEvolutionCandidates, listMaintenanceLedgerEntries, recordDemandMemoryCloseout, recordMaintenanceLedgerEntry, readAgentTaskResult, startAgentTask } from "../../src/agent-task/manager.js";
+import { completeAgentTask, createAgentTask, listDemandMemoryCloseouts, listMaintenanceLedgerEntries, recordDemandMemoryCloseout, readAgentTaskResult, startAgentTask } from "../../src/agent-task/manager.js";
 
 describe("agent task durable boundaries", () => {
   let tempDir: string | undefined;
@@ -28,13 +28,6 @@ describe("agent task durable boundaries", () => {
     expect(result).not.toHaveProperty("review");
     await expect(listDemandMemoryCloseouts(memory)).resolves.toHaveLength(1);
     await expect(listMaintenanceLedgerEntries(memory)).resolves.toHaveLength(1);
-  });
-
-  it("keeps candidates as durable evidence without scorer or reviewer production", async () => {
-    const memory = await setup();
-    const entry = await recordMaintenanceLedgerEntry(memory, { eventType: "doc-drift", summary: "Documentation needs follow-up.", artifactRefs: ["docs/current.md"] });
-    await expect(createEvolutionCandidate(memory, [entry])).resolves.toMatchObject({ subtype: "docs-drift", status: "candidate" });
-    await expect(listEvolutionCandidates(memory)).resolves.toHaveLength(1);
   });
 
   async function setup() {

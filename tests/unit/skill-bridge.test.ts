@@ -193,7 +193,7 @@ describe("AHO skill source and Codex bridge", () => {
     expect(existsSync(join(process.env.CODEX_HOME ?? "", "skills", "aho-workflow-authoring"))).toBe(false);
   });
 
-  it("renders transient AHO system skill context without project or topic enablement", async () => {
+  it("records native runtime-assigned Skill input without injecting its body", async () => {
     const repo = project();
     await mkdir(repo.path, { recursive: true });
     await writeProjectMarker(repo, "external-local");
@@ -209,8 +209,8 @@ describe("AHO skill source and Codex bridge", () => {
     expect(context.records).toEqual([expect.objectContaining({
       id: "aho-harness-engineering",
       sourceKind: "system-aho",
-      materializationMode: "aho-managed",
-      bridge: "prompt:transient",
+      materializationMode: "native",
+      bridge: "app-server:skill-input",
       materializedHash: null,
     })]);
     expect(context.promptSection).toContain("Harness Engineering Task Packet");

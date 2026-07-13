@@ -64,7 +64,7 @@ describe("maintenance provider runner", () => {
 
   it("allows only one proposal revision and never grants write access below 80", async () => {
     const executor = vi.fn<MaintenanceProviderExecutor>(async (request) => request.role === "evolution-scorer"
-      ? { threadId: `scorer-${executor.mock.calls.length}`, parentThreadId: "proposal", finalText: JSON.stringify(score(79, "insufficient evidence")), changedFiles: [] }
+      ? { threadId: `scorer-${executor.mock.calls.length}`, parentThreadId: "proposal", finalText: JSON.stringify(nestedScore(79, "insufficient evidence")), changedFiles: [] }
       : { threadId: "proposal", parentThreadId: null, finalText: request.existingThreadId ? "Revised proposal." : "Weak proposal.", changedFiles: [] });
 
     const error = await runMaintenanceProviderAssignment({
@@ -123,4 +123,15 @@ function score(total: 79 | 86 | 90, summary: string) {
       ? { evidenceGrounding: 26, projectRelevance: 22, mechanicalEnforceability: 13, regressionSafety: 17, contextCost: 8 }
       : { evidenceGrounding: 27, projectRelevance: 23, mechanicalEnforceability: 14, regressionSafety: 18, contextCost: 8 };
   return { score: total, dimensions, hardIssues: [], summary };
+}
+
+function nestedScore(total: 79, summary: string) {
+  const flat = score(total, summary);
+  return {
+    ...flat,
+    dimensions: Object.fromEntries(Object.entries(flat.dimensions).map(([name, value]) => [name, {
+      score: value,
+      reason: `${name} evidence`,
+    }])),
+  };
 }

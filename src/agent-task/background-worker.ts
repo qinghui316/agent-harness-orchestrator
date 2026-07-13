@@ -128,7 +128,10 @@ async function executeTask(
         assignmentController.abort(error);
       });
     }, heartbeatEveryMs);
-    const assignment = parseHarnessEngineeringAssignment(await options.assignmentFactory(running, project));
+    const assignment = withCheckpointEvidence(
+      parseHarnessEngineeringAssignment(await options.assignmentFactory(running, project)),
+      running.checkpoint?.artifactRefs ?? [],
+    );
     const result = await options.runAssignment!({ project, task: running, assignment, signal: assignmentController.signal });
     running = await checkpointAgentTask(memory, running, writer, {
       summary: result.summary,
@@ -150,6 +153,17 @@ async function executeTask(
         artifactRefs: error.artifactRefs,
       });
     }
+    if (error instanceof EvolutionScoreBlockedError) {
+      await completeAgentTask(memory, running, {
+        status: "blocked",
+        summary: error.message,
+        artifactRefs: error.artifactRefs,
+        failureClassification: "evolution-quality-blocked",
+        failureDisposition: "terminal",
+        writer,
+      });
+      return;
+    }
     await failAgentTask(memory, running, {
       retryable: isRetryable(error),
       summary: error instanceof Error ? error.message : String(error),
@@ -161,6 +175,17 @@ async function executeTask(
     if (heartbeat) clearInterval(heartbeat);
     signal.removeEventListener("abort", abortFromWorker);
   }
+}
+
+function withCheckpointEvidence(
+  assignment: HarnessEngineeringAssignment,
+  checkpointRefs: string[],
+): HarnessEngineeringAssignment {
+  if (checkpointRefs.length === 0) return assignment;
+  return parseHarnessEngineeringAssignment({
+    ...assignment,
+    evidenceRefs: [...new Set([...assignment.evidenceRefs, ...checkpointRefs])],
+  });
 }
 
 function hasArtifactRefs(error: unknown): error is { artifactRefs: string[] } {

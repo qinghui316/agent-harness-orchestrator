@@ -23,7 +23,6 @@ export {
   listDemandMemoryCloseouts,
   recordDemandMemoryCloseout,
 } from "./closeouts.js";
-export { checkDocBudgets } from "./doc-budget.js";
 export { dispatchChangeCloseOutbox } from "./close-outbox-dispatcher.js";
 export type { CloseOutboxDispatchResult } from "./close-outbox-dispatcher.js";
 export { runMaintenanceProviderAssignment } from "./maintenance-provider-runner.js";
@@ -41,8 +40,4 @@ export type {
   BackgroundWorkerHandle,
   BackgroundWorkerOptions,
 } from "./background-worker.js";
-export {
-  createEvolutionCandidate,
-  listEvolutionCandidates,
-} from "./candidates.js";
 export { buildRoleScopedContextProjection } from "./role-context.js";

@@ -92,7 +92,6 @@ import type {
   WorkbenchConversationLifecycle,
   WorkbenchDecisionItem,
   WorkbenchPendingFeedback,
-  WorkbenchPostArchiveEvolutionCandidate,
   WorkbenchResultReview,
   WorkbenchRolePipelineSummary,
   WorkbenchRoleRunSummary,
@@ -356,7 +355,6 @@ export async function buildWorkbenchWorkpad(input: {
     failureClassification: classifySelectedTopicFailure(selectedTopic, latestValidation, latestAudit, taskGraph),
     requiresUserInputReason: requiresUserInputReason(selectedTopic, latestValidation, latestAudit, taskGraph),
     scopedFeedbackTarget: buildScopedFeedbackTarget(workflowTopic, taskGraph),
-    postArchiveEvolutionCandidate: selectedTopic.state === "archive" ? buildPostArchiveEvolutionCandidate(workflowTopic) : undefined,
     workflowGraphPlan: workflowGraphPlan ?? undefined,
     schedulerContract: schedulerContract ?? undefined,
     schedulerDispatchDryRun: scopedSchedulerDispatchDryRun ?? undefined,
@@ -489,15 +487,6 @@ function buildScopedFeedbackTarget(topic: WorkbenchTopicDetail, taskGraph: Workb
     runId: blocked?.taskRun?.runId ?? latestRun?.id,
     roleId: blocked?.taskRun?.roleId ?? "coder",
     evidenceRef: blocked?.latestEvidence[0]?.artifact,
-  };
-}
-
-function buildPostArchiveEvolutionCandidate(topic: WorkbenchTopicDetail): WorkbenchPostArchiveEvolutionCandidate {
-  return {
-    changeId: topic.id,
-    status: "candidate",
-    sources: ["main-thread", "accepted-artifacts", "diff", "validation", "audit", "final-decision", "archive-summary"],
-    summary: "该归档需求会作为后台维护 Agent 的输入；Agent 会在文档边界内直接整理项目 Markdown。",
   };
 }
 

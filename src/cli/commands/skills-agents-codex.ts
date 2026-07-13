@@ -1,6 +1,5 @@
 ﻿import type { Command } from "commander";
 import { listAgentRoles, showAgentRole, syncAgentCatalog } from "../../agent/catalog.js";
-import { startAgentRun } from "../../agent/runtime.js";
 import { getCodexBridgeStatus, installCodexBridge, syncCodexBridge } from "../../codex/bridge.js";
 import { importSkill, listSkills, setSkillEnabled } from "../../skill/catalog.js";
 import { printJson, printTable } from "../output.js";
@@ -10,7 +9,7 @@ export function installSkillAgentCodexCommands(program: Command, context: CliCon
   const { store } = context;
   const skill = program.command("skill").description("Manage AHO project skills");
 
-  const agent = program.command("agent").description("Inspect and run AHO agent roles");
+  const agent = program.command("agent").description("Inspect AHO agent roles");
 
   agent
     .command("list")
@@ -63,33 +62,6 @@ export function installSkillAgentCodexCommands(program: Command, context: CliCon
         console.log(`Synced agent catalog at ${result.catalogPath}`);
         console.log(`Written: ${result.written.length}`);
       }
-    });
-
-  agent
-    .command("run")
-    .argument("<project>", "registered project id/name/path")
-    .argument("<role-id>", "agent role id")
-    .requiredOption("--prompt <text>", "task prompt for the agent")
-    .option("--worktree <worktree-id>", "required for worktree-write roles")
-    .option("--model <model>", "Codex model to pass through")
-    .option("--profile <profile>", "Codex config profile to pass through")
-    .option("--json", "print JSON")
-    .action(async (query: string, roleId: string, options: { prompt: string; worktree?: string; model?: string; profile?: string; json?: boolean }) => {
-      const project = await resolveManagedProject(store, query);
-      const result = await startAgentRun(project, roleId, {
-        prompt: options.prompt,
-        worktreeId: options.worktree,
-        model: options.model,
-        profile: options.profile,
-      });
-      if (options.json) printJson(result);
-      else {
-        console.log(`Agent run ${result.run.id}: ${result.run.status}`);
-        console.log(`Role: ${result.run.agent?.roleId ?? roleId}`);
-        console.log(`Artifacts: ${result.run.artifacts.directory}`);
-        for (const warning of result.warnings) console.log(`WARNING: ${warning}`);
-      }
-      if (result.run.status === "failed") process.exitCode = result.run.exitCode ?? 1;
     });
 
   skill

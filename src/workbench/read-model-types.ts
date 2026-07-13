@@ -696,7 +696,6 @@ export interface WorkbenchWorkpad {
   failureClassification?: WorkbenchFailureClassification;
   requiresUserInputReason?: string;
   scopedFeedbackTarget?: WorkbenchScopedFeedbackTarget;
-  postArchiveEvolutionCandidate?: WorkbenchPostArchiveEvolutionCandidate;
   workflowGraphPlan?: WorkbenchWorkflowGraphPlanSummary;
   schedulerContract?: WorkbenchSchedulerContractSummary;
   schedulerDispatchDryRun?: WorkbenchSchedulerDispatchDryRunSummary;
@@ -978,13 +977,6 @@ export interface WorkbenchScopedFeedbackTarget {
   runId?: string;
   roleId?: string;
   evidenceRef?: string;
-}
-
-export interface WorkbenchPostArchiveEvolutionCandidate {
-  changeId: string;
-  status: "candidate";
-  sources: string[];
-  summary: string;
 }
 
 export interface WorkbenchApprovalAction {
