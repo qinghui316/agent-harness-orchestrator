@@ -156,6 +156,90 @@ describe("workbench workflow action service", () => {
     expect(terminal?.resultSummary).not.toContain("stack:");
   });
 
+  it("marks an unterminated child turn failed when the owning workflow throws", async () => {
+    const appended: TopicThreadEntry[] = [];
+    const deps = fakeDeps({
+      append(entry) {
+        appended.push(entry);
+      },
+      async execute() {
+        throw new Error("provider interrupted");
+      },
+      capture: {
+        sink: { emit() {} },
+        text: "",
+        activity: [],
+        blocks: [],
+        childCaptures: new Map([["thread-coder:turn-running", {
+          runId: "run-coder",
+          threadId: "thread-coder",
+          parentThreadId: "thread-main",
+          turnId: "turn-running",
+          roleId: "coder-agent",
+          activity: [{ kind: "status", label: "thinking", timestamp: "2026-06-20T00:00:01.000Z" }],
+          blocks: [],
+        }]]),
+      },
+    });
+
+    await runWorkbenchWorkflowActionService(fakeProject(), { actionType: "code.run" }, undefined, deps);
+
+    expect(appended.find((entry) => entry.type === "assistant.message")).toMatchObject({
+      threadId: "thread-coder",
+      turnId: "turn-running",
+      status: "failed",
+    });
+  });
+
+  it("persists each real child turn before the workflow result so refresh keeps the Agent timeline", async () => {
+    const appended: TopicThreadEntry[] = [];
+    const deps = fakeDeps({
+      append(entry) {
+        appended.push(entry);
+      },
+      capture: {
+        sink: { emit() {} },
+        text: "",
+        activity: [],
+        blocks: [],
+        childCaptures: new Map([
+          ["thread-coder:turn-1", {
+            runId: "run-coder",
+            threadId: "thread-coder",
+            parentThreadId: "thread-main",
+            turnId: "turn-1",
+            roleId: "coder-agent",
+            activity: [{ kind: "status", label: "completed", timestamp: "2026-06-20T00:00:02.000Z" }],
+            blocks: [{
+              id: "assistant:run-coder:thread-coder:item-1:reasoning",
+              runId: "run-coder",
+              threadId: "thread-coder",
+              turnId: "turn-1",
+              sequence: 1,
+              kind: "reasoning-summary",
+              timestamp: "2026-06-20T00:00:01.000Z",
+              source: "codex",
+              text: "正在检查实现边界",
+            }],
+          }],
+        ]),
+      },
+    });
+
+    await runWorkbenchWorkflowActionService(fakeProject(), { actionType: "code.run" }, undefined, deps);
+
+    const child = appended.find((entry) => entry.type === "assistant.message");
+    expect(child).toMatchObject({
+      runId: "run-coder",
+      threadId: "thread-coder",
+      parentThreadId: "thread-main",
+      turnId: "turn-1",
+      agentRoleId: "coder-agent",
+    });
+    expect(child?.blocks).toHaveLength(1);
+    expect(appended.findIndex((entry) => entry === child)).toBeLessThan(appended.findIndex((entry) => entry.type === "workflow.completed"));
+  });
+
   it("resumes a paused native Goal once after a concrete action completes", async () => {
     const resumes: Array<{ actionRunId: string; actionType: string; status: string; result: unknown }> = [];
     const deps = fakeDeps({
@@ -231,13 +315,14 @@ function fakeDeps(overrides: {
   execute?: WorkbenchActionServiceDeps["execute"];
   resume?: NonNullable<WorkbenchActionServiceDeps["resumeGoalAfterAction"]>;
   events?: unknown[];
+  capture?: ReturnType<WorkbenchActionServiceDeps["createTranscriptCapture"]>;
 } = {}): WorkbenchActionServiceDeps {
   return {
     async resolveChangeId() {
       return "change-1";
     },
     createTranscriptCapture() {
-      return { sink: { emit(event) { overrides.events?.push(event); } }, text: "", activity: [], blocks: [] };
+      return overrides.capture ?? { sink: { emit(event) { overrides.events?.push(event); } }, text: "", activity: [], blocks: [], childCaptures: new Map() };
     },
     async readThreadEntries() {
       return overrides.threadEntries ?? [];

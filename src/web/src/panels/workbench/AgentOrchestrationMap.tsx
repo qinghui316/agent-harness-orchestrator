@@ -1,12 +1,10 @@
 import { Maximize2, Minus, Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
-import { agentRunStatusLabel } from "../../formatters.js";
 import type { DemandAgentRunGraph } from "../../types.js";
 import {
   ORCHESTRATION_NODE_HEIGHT,
   ORCHESTRATION_NODE_WIDTH,
   layoutAgentOrchestrationGraph,
-  type AgentOrchestrationLayout,
   type AgentOrchestrationLayoutNode,
 } from "./agentOrchestrationLayout.js";
 
@@ -19,7 +17,8 @@ export function AgentOrchestrationMap({
   selectedNodeId: string | null;
   onSelectNode: (nodeId: string) => void;
 }): ReactElement {
-  const layout = useMemo(() => layoutAgentOrchestrationGraph(graph), [graph]);
+  const agentGraph = useMemo(() => actualAgentGraph(graph), [graph]);
+  const layout = useMemo(() => layoutAgentOrchestrationGraph(agentGraph), [agentGraph]);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -41,6 +40,14 @@ export function AgentOrchestrationMap({
 
   useEffect(() => {
     fitToView();
+  }, [fitToView, layout.topologyKey]);
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => fitToView());
+    observer.observe(viewport);
+    return () => observer.disconnect();
   }, [fitToView]);
 
   const handleMouseDown = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
@@ -66,17 +73,6 @@ export function AgentOrchestrationMap({
   const adjustZoom = useCallback((delta: number) => {
     setZoom((current) => Math.min(1.8, Math.max(0.35, Number((current + delta).toFixed(2)))));
   }, []);
-
-  if (layout.nodes.length === 0) {
-    return (
-      <div className="agent-graph-canvas agent-orchestration-canvas empty" data-testid="agent-run-graph">
-        <div className="agent-orchestration-empty">
-          <strong>还没有 agent 编排证据</strong>
-          <p>当当前需求进入计划、执行、验证、审查或本地收尾后，这里会显示只读编排图。</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div
@@ -162,39 +158,28 @@ function AgentOrchestrationCard({
       data-agent-orchestration-card
       data-testid={`agent-run-node-${node.kind}`}
     >
-      <span className={`agent-orchestration-avatar ${node.visualKind}`} aria-hidden="true">
-        {avatarInitial(node)}
-      </span>
-      <span className={`agent-orchestration-status ${node.status}`} aria-label={agentRunStatusLabel(node.status)} />
+      <span className={`agent-orchestration-status ${node.status}`} aria-label={node.status} />
       <span className="agent-orchestration-card-main">
         <strong>{node.label}</strong>
-        <span>{agentRunStatusLabel(node.status)} · {stageLabel(node.stage)}</span>
-        <p>{node.summary}</p>
+        {node.status === "waiting-user" ? <span>需要你回答</span> : null}
       </span>
     </button>
   );
 }
-
-function avatarInitial(node: AgentOrchestrationLayoutNode): string {
-  if (node.visualKind === "worker") return "W";
-  if (node.visualKind === "gate") return "G";
-  if (node.visualKind === "terminal") return "T";
-  if (node.kind === "main-agent") return "A";
-  if (node.kind === "planning-agent") return "P";
-  if (node.kind === "validator") return "V";
-  if (node.kind === "auditor-agent") return "R";
-  if (node.kind === "integration-check") return "I";
-  return node.label.trim().slice(0, 1).toUpperCase() || "A";
-}
-
-function stageLabel(stage: AgentOrchestrationLayout["nodes"][number]["stage"]): string {
-  if (stage === "demand") return "需求";
-  if (stage === "planning") return "计划";
-  if (stage === "execution") return "执行";
-  if (stage === "validation") return "验证";
-  if (stage === "review") return "审查";
-  if (stage === "integration") return "组合";
-  if (stage === "landing") return "本地收尾";
-  if (stage === "terminal") return "完成";
-  return "维护";
+function actualAgentGraph(graph: DemandAgentRunGraph): DemandAgentRunGraph {
+  const modelRoles = new Set([
+    "main-agent", "planning-agent", "coder-agent", "rework-coder", "auditor-agent",
+    "spec-test-proposer", "spec-test-generator", "memory-maintenance-agent",
+    "harness-evolution-agent", "evolution-scorer", "child-agent",
+  ]);
+  const nodes = graph.nodes.filter((node) => node.kind !== "validator" && (
+    modelRoles.has(node.roleId ?? "")
+    || node.kind === "main-agent"
+  ));
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  return {
+    ...graph,
+    nodes,
+    edges: graph.edges.filter((edge) => nodeIds.has(edge.from) && nodeIds.has(edge.to)),
+  };
 }

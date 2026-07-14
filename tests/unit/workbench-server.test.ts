@@ -13,7 +13,7 @@ import { startLocalCommandRun } from "../../src/run/manager.js";
 import { TerminalRuntime } from "../../src/server/terminal/terminal-runtime.js";
 import { buildNativeFolderDialogCommand, executeWorkbenchAction, recoverWorkbenchProjects, startWorkbenchServer, type WorkbenchServerHandle } from "../../src/server/workbench-server.js";
 import type { ManagedProject } from "../../src/types/index.js";
-import { appendConversationThreadEntry, buildInitialMainAgentPrompt, buildProjectScopedMainAgentPrompt } from "../../src/workbench/chat.js";
+import { appendConversationThreadEntry, buildProjectScopedMainAgentPrompt } from "../../src/workbench/chat.js";
 import { validatePlanHandoffIntent } from "../../src/workbench/plan-handoff.js";
 import type { WorkbenchLiveSink } from "../../src/workbench/types.js";
 import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
@@ -245,39 +245,17 @@ describe("workbench server", () => {
     expect(runStatusIndex).toBeGreaterThan(userMessageIndex);
   });
 
-  it("keeps the initial main-agent prompt user-facing", () => {
-    const prompt = buildInitialMainAgentPrompt("请更新 message.txt，让测试通过");
+  it("passes the Main Agent only the user's natural-language turn", () => {
+    const prompt = buildProjectScopedMainAgentPrompt("请让计划子 Agent 生成计划");
 
-    expect(prompt).toContain("请更新 message.txt，让测试通过");
-    expect(prompt).toContain("正常开发助理");
-    expect(prompt).not.toContain("Harness gate");
-    expect(prompt).not.toContain("canonical artifacts");
-    expect(prompt).not.toContain("AC-001");
-    expect(prompt).not.toContain("TBD");
-    expect(prompt).not.toContain("Change id");
-    expect(prompt).not.toContain("TaskRun");
-    expect(prompt).not.toContain("WorkflowRun");
-    expect(prompt).not.toContain("planning-agent");
-  });
-
-  it("requires project-scoped parent turns to use a real workflow-authoring child", () => {
-    const prompt = buildProjectScopedMainAgentPrompt(
-      "请让计划子 Agent 生成计划",
-      undefined,
-      "$aho-workflow-authoring is attached as a native Skill input.",
-    );
-
-    expect(prompt).toContain("$aho-main-orchestration");
-    expect(prompt).toContain("$aho-workflow-authoring");
-    expect(prompt).not.toContain("Include that complete contract in the planner child prompt");
-    expect(prompt).not.toContain("## aho-workflow-authoring: SKILL.md");
-    expect(prompt).not.toContain("At a real confirmation wait");
-    expect(prompt).not.toContain("wait for the user or an explicit workflow action");
-    expect(prompt).toContain("请让计划子 Agent 生成计划");
+    expect(prompt).toBe("请让计划子 Agent 生成计划");
+    expect(prompt).not.toContain("$aho-main-orchestration");
+    expect(prompt).not.toContain("$aho-workflow-authoring");
+    expect(prompt).not.toContain("planner-proposal");
   });
 
   it("adds project-rule routing context for validated plan handoff turns", () => {
-    const handoff = validatePlanHandoffIntent([{
+    validatePlanHandoffIntent([{
       id: "assistant:conv:run-plan:planning-agent",
       type: "assistant.message",
       timestamp: "2026-07-07T00:00:00.000Z",
@@ -292,15 +270,7 @@ describe("workbench server", () => {
       sourceAgentRoleId: "planning-agent",
       kind: "execute-plan",
     });
-    const prompt = buildProjectScopedMainAgentPrompt("请主 Agent 基于当前计划继续判断执行路径。", handoff);
-
-    expect(prompt).toContain("visible Plan handoff card");
-    expect(prompt).toContain("AGENTS.md, docs/ECL.md");
-    expect(prompt).toContain("harness/changes/active");
-    expect(prompt).toContain("docs/STATUS.md");
-    expect(prompt).toContain("not as execution authorization");
-    expect(prompt).toContain("execute-plan");
-    expect(prompt).toContain("1. 修改 UI");
+    expect(buildProjectScopedMainAgentPrompt("请主 Agent 基于当前计划继续判断执行路径。")).toBe("请主 Agent 基于当前计划继续判断执行路径。");
   });
 
   it("rejects forged or unsupported plan handoff sources", () => {
@@ -832,7 +802,7 @@ describe("workbench server", () => {
       expect(projects.projects).toHaveLength(1);
       expect(projects.projects[0]).toMatchObject({
         project: { id: "external-repo", name: basename(sourceRoot) },
-        memory: { registered: false, memoryMode: "external-local", memoryAvailable: true, harnessReady: true },
+        memory: { registered: false, memoryMode: "external-local", memoryAvailable: true, harnessReady: false },
       });
       expect(await store.listProjects()).toHaveLength(0);
 

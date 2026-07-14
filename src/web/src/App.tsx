@@ -38,7 +38,6 @@ import {
   proseBlock,
   threadItemFromTopicEntry,
   upsertBlock,
-  usageBlock,
 } from "./shell/WorkbenchShellParts.js";
 import {
   ProjectHomeView,
@@ -49,12 +48,16 @@ import { SettingsSurface, type SettingsSection } from "./panels/SettingsSurface.
 import { workflowActionPayloadFromScope } from "./workflow-actions.js";
 import {
   emptyParentAgentTranscript,
+  findCompatibleLiveTurn,
   isParentAgentTranscriptPayload,
   mergeLiveItemsIntoTranscript,
   mergeTranscriptPage,
-  normalizeParentAgentTranscript
+  normalizeParentAgentTranscript,
+  transcriptContainsLiveItem,
+  transcriptContainsMainTurn
 } from "./liveTranscript.js";
 import { derivePlanHandoffCandidate } from "./panels/workbench/planHandoff.js";
+import { baseAgentDisplayLabel, composeAgentDisplayLabel } from "../../agent-display-label.js";
 
 import {
   projectDisplayName,
@@ -78,6 +81,7 @@ import type {
   StreamPacket,
   SkillListItem,
   WorkbenchLiveEvent,
+  WorkbenchLiveIdentity,
   AssistantTurnBlock,
   LiveTurnEvent,
   LiveAssistantTurn,
@@ -87,6 +91,8 @@ import type {
   RuntimeDiagnosticsSnapshot,
   CodexUserInputRequest,
   AgentWorkspaceAgent,
+  AgentWorkspace,
+  TopicMessageEntry,
   PlanHandoffCandidate,
   PlanHandoffIntentKind,
 } from "./types.js";
@@ -216,10 +222,14 @@ export function App(): ReactElement {
   const [liveItems, setLiveItems] = useState<ThreadStreamItem[]>([]);
   const [liveTurns, setLiveTurns] = useState<LiveAssistantTurn[]>([]);
   const [agentLiveTurns, setAgentLiveTurns] = useState<LiveAssistantTurn[]>([]);
+  const [openAgentSurfaceIds, setOpenAgentSurfaceIds] = useState<string[]>([]);
   const [codexUserInputRequests, setCodexUserInputRequests] = useState<CodexUserInputRequest[]>([]);
   const [loadedTranscript, setLoadedTranscript] = useState<ParentAgentTranscript | null>(null);
   const [loadingEarlierTranscript, setLoadingEarlierTranscript] = useState(false);
   const [loadedRunGraph, setLoadedRunGraph] = useState<DemandAgentRunGraph | null>(null);
+  const [runGraphLoadState, setRunGraphLoadState] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [runGraphLoadError, setRunGraphLoadError] = useState<string | null>(null);
+  const [runGraphReloadVersion, setRunGraphReloadVersion] = useState(0);
   const [pendingDemandConversation, setPendingDemandConversation] = useState<PendingDemandConversation | null>(null);
   const [codexDiagnostics, setCodexDiagnostics] = useState<CodexDiagnostics | null>(null);
   const [codexModelSettings, setCodexModelSettings] = useState<CodexModelSettingsSnapshot | null>(null);
@@ -528,6 +538,7 @@ export function App(): ReactElement {
     persistSelectedProjectId(projectId);
     setExpandedProjects((current) => new Set([...current, projectId]));
     setSelectedTopic(null);
+    syncWorkbenchLocation(projectId, null);
     clearTopicScopedLiveState();
     setDraftSkillOverrides({});
     setComposerAttachments([]);
@@ -564,6 +575,7 @@ export function App(): ReactElement {
     setSelectedProjectId(projectId);
     persistSelectedProjectId(projectId);
     setSelectedTopic(null);
+    syncWorkbenchLocation(projectId, null);
     clearTopicScopedLiveState();
     setDraftSkillOverrides({});
     setOrchestrationOpen(false);
@@ -611,6 +623,7 @@ export function App(): ReactElement {
     setSelectedProjectId(projectId);
     persistSelectedProjectId(projectId);
     setSelectedTopic(conversationId);
+    syncWorkbenchLocation(projectId, conversationId);
     clearTopicScopedLiveState();
     setDraftSkillOverrides({});
     setComposerAttachments([]);
@@ -632,6 +645,7 @@ export function App(): ReactElement {
       clearPersistedSelectedProjectId();
       setSelectedProjectId(null);
       setSelectedTopic(null);
+      syncWorkbenchLocation(null, null);
       setSnapshot(emptySnapshot);
       setProjectSnapshots((current) => {
         const next = { ...current };
@@ -647,12 +661,13 @@ export function App(): ReactElement {
     const topicToRefresh = selectedProjectId === projectId && selectedTopic !== conversationId ? selectedTopic : null;
     if (selectedProjectId === projectId && selectedTopic === conversationId) {
       setSelectedTopic(null);
+      syncWorkbenchLocation(projectId, null);
       setLoadedTranscript(null);
     }
     await refresh(projectId, topicToRefresh);
   }
 
-  async function ensureProjectReadyForDemand(projectId: string): Promise<string | null> {
+  async function ensureProjectRegisteredForDemand(projectId: string): Promise<string | null> {
     let status = projects.find((item) => item.project?.id === projectId) ?? null;
     if (!status?.project) {
       setError("请先选择一个项目。");
@@ -677,13 +692,6 @@ export function App(): ReactElement {
       return null;
     }
 
-    const memoryReady = status.memory?.harnessReady ?? status.harness.readiness === "ready";
-    if (!memoryReady) {
-      await postJson(`/api/projects/${encodeURIComponent(effectiveProjectId)}/harness/init`, {
-        memoryMode: "external-local",
-        confirm: true,
-      });
-    }
     return effectiveProjectId;
   }
 
@@ -944,7 +952,7 @@ export function App(): ReactElement {
       const demandBody = resolved.text || defaultAttachmentPrompt(attachmentIds.length + attachmentFiles.length);
       if (!demandBody && attachmentIds.length === 0 && attachmentFiles.length === 0) return;
       const title = demandBody.split(/\r?\n/)[0].slice(0, 60);
-      const effectiveProjectId = await ensureProjectReadyForDemand(selectedProjectId);
+      const effectiveProjectId = await ensureProjectRegisteredForDemand(selectedProjectId);
       if (!effectiveProjectId) return;
       const showPendingBeforeCreate = attachmentFiles.length === 0;
       const pendingConversation: PendingDemandConversation = {
@@ -955,6 +963,7 @@ export function App(): ReactElement {
         startedAt: new Date().toISOString(),
       };
       if (showPendingBeforeCreate) {
+        setOrchestrationOpen(false);
         setSelectedProjectId(effectiveProjectId);
         persistSelectedProjectId(effectiveProjectId);
         setSelectedTopic(pendingConversation.id);
@@ -982,6 +991,7 @@ export function App(): ReactElement {
           setSelectedProjectId(effectiveProjectId);
           persistSelectedProjectId(effectiveProjectId);
           setSelectedTopic(createdId);
+          syncWorkbenchLocation(effectiveProjectId, createdId);
           setPendingDemandConversation((current) => current && current.projectId === effectiveProjectId
             ? { ...current, id: createdId, title: event.data.topic.title }
             : {
@@ -1003,12 +1013,16 @@ export function App(): ReactElement {
       setSelectedProjectId(effectiveProjectId);
       persistSelectedProjectId(effectiveProjectId);
       setSelectedTopic(createdTopicId);
+      syncWorkbenchLocation(effectiveProjectId, createdTopicId);
       setPendingDemandConversation(null);
       await loadSkillSummary(effectiveProjectId, createdTopicId);
       await refresh(effectiveProjectId, createdTopicId);
     } catch (cause) {
       setPendingDemandConversation(null);
-      if (!createdTopicId) setSelectedTopic(previousSelectedTopic);
+      if (!createdTopicId) {
+        setSelectedTopic(previousSelectedTopic);
+        syncWorkbenchLocation(selectedProjectId, previousSelectedTopic);
+      }
       setError(cause instanceof Error ? cause.message : String(cause));
       throw cause;
     } finally {
@@ -1208,6 +1222,7 @@ export function App(): ReactElement {
       const topicId = event.data.topic.conversationId ?? event.data.topic.id ?? event.data.topic.changeId;
       if (!topicId) return;
       setSelectedTopic(topicId);
+      syncWorkbenchLocation(selectedProjectId, topicId);
       setPendingDemandConversation((current) => current
         ? { ...current, id: topicId, title: event.data.topic.title }
         : current);
@@ -1215,9 +1230,10 @@ export function App(): ReactElement {
     }
     if (event.event === "snapshot") {
       setSnapshot(event.data);
-      setLiveItems([]);
-      setLiveTurns([]);
-      setAgentLiveTurns([]);
+      const snapshotCells = event.data.center.parentAgentTranscript.cells ?? [];
+      setLiveItems((current) => current.filter((item) => !transcriptContainsLiveItem(snapshotCells, item)));
+      setLiveTurns((current) => current.filter((turn) => !snapshotContainsTurn(event.data, turn)));
+      setAgentLiveTurns((current) => current.filter((turn) => !snapshotContainsAgentTurn(event.data, turn)));
       setCodexUserInputRequests([]);
       setPendingDemandConversation(null);
       invalidateProjectionCache();
@@ -1225,7 +1241,19 @@ export function App(): ReactElement {
     }
     if (event.event === "error") {
       if (event.data.runId) {
-        appendLiveTurnEvent(event.data.runId, { kind: "error", message: event.data.message }, "failed");
+        if (isTransientReconnectMessage(event.data.message)) {
+          if (isChildLiveIdentity(event.data)) {
+            appendAgentLiveTurnEvent(event.data.runId, { kind: "status", label: "connecting", detail: "正在重新连接" }, event.data, "connecting");
+          } else {
+            appendLiveTurnEvent(event.data.runId, { kind: "status", label: "connecting", detail: "正在重新连接" }, "connecting", undefined, event.data);
+          }
+          return;
+        }
+        if (isChildLiveIdentity(event.data)) {
+          appendAgentLiveTurnEvent(event.data.runId, { kind: "error", message: event.data.message }, event.data, "failed");
+        } else {
+          appendLiveTurnEvent(event.data.runId, { kind: "error", message: event.data.message }, "failed", undefined, event.data);
+        }
         return;
       }
       setError(event.data.message);
@@ -1233,16 +1261,14 @@ export function App(): ReactElement {
     }
     if (event.event === "assistant.delta") {
       const runId = event.data.runId ?? event.data.agentTaskId ?? "assistant";
-      if (event.data.agentRoleId) {
-        openChildAgentWorkspace(event.data.agentRoleId);
-        appendAgentLiveTurnText(runId, event.data.delta, event.data.agentRoleId, event.data.agentTaskId);
+      if (isChildLiveIdentity(event.data)) {
+        appendAgentLiveTurnText(runId, event.data.delta, event.data);
       } else {
-        appendLiveTurnText(runId, event.data.delta);
+        appendLiveTurnText(runId, event.data.delta, event.data);
       }
       return;
     }
     if (event.event === "codex.userInput.requested") {
-      if (event.data.agentRoleId) openChildAgentWorkspace(event.data.agentRoleId);
       setCodexUserInputRequests((current) => [
         ...current.filter((item) => item.requestId !== event.data.requestId),
         event.data,
@@ -1254,45 +1280,34 @@ export function App(): ReactElement {
       return;
     }
     if (event.event === "assistant.message") {
-      if (event.data.agentRoleId) {
-        openChildAgentWorkspace(event.data.agentRoleId);
+      if (event.data.agentRoleId && event.data.agentRoleId !== "main-agent") {
         const runId = event.data.runId ?? event.data.agentTaskId ?? `agent-message:${event.data.id}`;
-        upsertAgentLiveTurn(runId, event.data.agentRoleId, event.data.agentTaskId, {
-          status: "completed",
-          text: event.data.text ?? "",
-          blocks: event.data.blocks ?? [],
-        });
-        completeAgentLiveTurn(runId, event.data.text);
+        mergeAgentDurableMessage(runId, event.data.agentRoleId, event.data.agentTaskId, event.data);
         return;
       }
-      if (event.data.runId) completeLiveTurn(event.data.runId, event.data.text);
+      if (event.data.runId) completeLiveTurn(event.data.runId, event.data.text, event.data);
       else appendLiveItem(threadItemFromTopicEntry(event.data));
       return;
     }
     if (event.event === "assistant.event") {
-      if (event.data.agentRoleId) {
-        openChildAgentWorkspace(event.data.agentRoleId);
-        appendAgentLiveTurnEvent(event.data.runId, { kind: "assistant-event", event: event.data }, event.data.agentRoleId, event.data.agentTaskId, event.data.isError ? "failed" : event.data.phase, blockFromAssistantEvent(event.data));
+      if (isChildLiveIdentity(event.data)) {
+        appendAgentLiveTurnEvent(event.data.runId, { kind: "assistant-event", event: event.data }, event.data, event.data.isError ? "failed" : event.data.phase, blockFromAssistantEvent(event.data));
       } else {
-        appendLiveTurnEvent(event.data.runId, { kind: "assistant-event", event: event.data }, event.data.isError ? "failed" : event.data.phase, blockFromAssistantEvent(event.data));
+        appendLiveTurnEvent(event.data.runId, { kind: "assistant-event", event: event.data }, event.data.isError ? "failed" : event.data.phase, blockFromAssistantEvent(event.data), event.data);
       }
       return;
     }
     if (event.event === "tool.event") {
-      if (event.data.agentRoleId) {
-        openChildAgentWorkspace(event.data.agentRoleId);
-        appendAgentLiveTurnEvent(event.data.runId, { kind: "tool", tool: event.data }, event.data.agentRoleId, event.data.agentTaskId, event.data.isError ? "failed" : undefined, blockFromToolEvent(event.data));
+      if (isChildLiveIdentity(event.data)) {
+        appendAgentLiveTurnEvent(event.data.runId, { kind: "tool", tool: event.data }, event.data, event.data.isError ? "failed" : undefined, blockFromToolEvent(event.data));
       } else {
-        appendLiveTurnEvent(event.data.runId, { kind: "tool", tool: event.data }, event.data.isError ? "failed" : undefined, blockFromToolEvent(event.data));
+        appendLiveTurnEvent(event.data.runId, { kind: "tool", tool: event.data }, event.data.isError ? "failed" : undefined, blockFromToolEvent(event.data), event.data);
       }
       return;
     }
     if (event.event === "usage") {
-      const runId = event.data.runId ?? (event.data.agentRoleId ? latestAgentLiveRunId() : latestLiveRunId());
-      if (runId && event.data.usage) {
-        if (event.data.agentRoleId) appendAgentLiveTurnEvent(runId, { kind: "usage", usage: event.data.usage }, event.data.agentRoleId, event.data.agentTaskId, undefined, usageBlock(runId, event.data.usage));
-        else appendLiveTurnEvent(runId, { kind: "usage", usage: event.data.usage }, undefined, usageBlock(runId, event.data.usage));
-      }
+      // Usage can describe the previous provider turn during reconnect. It is
+      // diagnostic-only in the conversation UI and must not establish turn identity.
       return;
     }
     if (event.event === "topic.message") {
@@ -1306,22 +1321,20 @@ export function App(): ReactElement {
         status: "running",
         events: [{ kind: "status", label: "running", detail: runtimeLabel(event.data.runtime ?? event.data.actionType ?? "Run") }],
       } satisfies Partial<Omit<LiveAssistantTurn, "id" | "runId" | "startedAt">> & { events?: LiveTurnEvent[] };
-      if (event.data.agentRoleId) {
-        openChildAgentWorkspace(event.data.agentRoleId);
-        upsertAgentLiveTurn(event.data.runId, event.data.agentRoleId, event.data.agentTaskId, patch);
+      if (isChildLiveIdentity(event.data)) {
+        upsertAgentLiveTurn(event.data.runId, event.data.agentRoleId ?? "child-agent", event.data.agentTaskId, { ...patch, ...liveTurnIdentity(event.data) });
       } else {
-        upsertLiveTurn(event.data.runId, patch);
+        upsertLiveTurn(event.data.runId, { ...patch, ...liveTurnIdentity(event.data) });
       }
       return;
     }
     if (event.event === "run.status") {
       const runId = event.data.runId ?? event.data.actionRunId ?? (event.data.agentRoleId ? latestAgentLiveRunId() : latestLiveRunId());
       if (runId) {
-        if (event.data.agentRoleId) {
-          openChildAgentWorkspace(event.data.agentRoleId);
-          appendAgentLiveTurnEvent(runId, { kind: "status", label: event.data.status, detail: event.data.label }, event.data.agentRoleId, event.data.agentTaskId, event.data.status);
+        if (isChildLiveIdentity(event.data)) {
+          appendAgentLiveTurnEvent(runId, { kind: "status", label: event.data.status, detail: event.data.label }, event.data, event.data.status);
         } else {
-          appendLiveTurnEvent(runId, { kind: "status", label: event.data.status, detail: event.data.label }, event.data.status);
+          appendLiveTurnEvent(runId, { kind: "status", label: event.data.status, detail: event.data.label }, event.data.status, undefined, event.data);
         }
       }
     }
@@ -1335,11 +1348,21 @@ export function App(): ReactElement {
     return agentLiveTurns[agentLiveTurns.length - 1]?.runId;
   }
 
-  function openChildAgentWorkspace(agentRoleId: string): void {
-    if (!agentRoleId || agentRoleId === "main-agent") return;
-    setSelectedAgentWorkspaceAgentId(agentRoleId);
+  function openChildAgentWorkspace(agentSurfaceId: string): void {
+    if (!agentSurfaceId || agentSurfaceId === "main-agent") return;
+    setOpenAgentSurfaceIds((current) => current.includes(agentSurfaceId) ? current : [...current, agentSurfaceId]);
+    setSelectedAgentWorkspaceAgentId(agentSurfaceId);
     setRightToolView("agent");
     setDecisionPaneCollapsed(false);
+  }
+
+  function closeChildAgentWorkspace(agentSurfaceId: string): void {
+    setOpenAgentSurfaceIds((current) => {
+      const index = current.indexOf(agentSurfaceId);
+      const next = current.filter((id) => id !== agentSurfaceId);
+      setSelectedAgentWorkspaceAgentId((selected) => selected === agentSurfaceId ? next[Math.min(index, next.length - 1)] ?? null : selected);
+      return next;
+    });
   }
 
   function upsertLiveTurn(runId: string, patch: Partial<Omit<LiveAssistantTurn, "id" | "runId" | "startedAt">> & { events?: LiveTurnEvent[] }): void {
@@ -1355,17 +1378,64 @@ export function App(): ReactElement {
     upsertLiveTurnIn(setAgentLiveTurns, runId, { ...patch, agentRoleId, agentTaskId });
   }
 
+  function mergeAgentDurableMessage(
+    runId: string,
+    agentRoleId: string,
+    agentTaskId: string | undefined,
+    message: TopicMessageEntry,
+  ): void {
+    setAgentLiveTurns((current) => {
+      const identity = { ...liveTurnIdentity(message), agentRoleId, agentTaskId };
+      const existing = findCompatibleLiveTurn(current, runId, identity);
+      if (!existing) {
+        return [...current, {
+          id: `live-turn:${liveTurnIdentityKey(runId, identity)}`,
+          runId,
+          ...identity,
+          status: "completed",
+          text: message.text ?? "",
+          events: [],
+          blocks: message.blocks ?? [],
+          startedAt: message.timestamp ?? new Date().toISOString(),
+          endedAt: message.timestamp ?? new Date().toISOString(),
+        }];
+      }
+      const mergedBlocks = (message.blocks ?? []).reduce((items, block) => upsertBlock(items, block), existing.blocks);
+      const messageText = message.text?.trim();
+      const text = messageText && !existing.text.includes(messageText)
+        ? [existing.text.trim(), messageText].filter(Boolean).join("\n\n")
+        : existing.text;
+      return current.map((turn) => turn === existing ? {
+        ...turn,
+        ...identity,
+        status: "completed",
+        text,
+        blocks: mergedBlocks,
+        endedAt: message.timestamp ?? turn.endedAt ?? new Date().toISOString(),
+      } : turn);
+    });
+  }
+
   function upsertLiveTurnIn(
     setter: LiveTurnSetter,
     runId: string,
     patch: Partial<Omit<LiveAssistantTurn, "id" | "runId" | "startedAt">> & { events?: LiveTurnEvent[] },
   ): void {
     setter((current) => {
-      const existing = current.find((turn) => turn.runId === runId);
+      const identityKey = liveTurnIdentityKey(runId, patch);
+      const existing = findCompatibleLiveTurn(current, runId, patch);
       if (!existing) {
         return [...current, {
-          id: `live-turn:${runId}`,
+          id: `live-turn:${identityKey}`,
           runId,
+          projectId: patch.projectId,
+          conversationId: patch.conversationId,
+          changeId: patch.changeId,
+          threadId: patch.threadId,
+          parentThreadId: patch.parentThreadId,
+          turnId: patch.turnId,
+          agentSurfaceId: patch.agentSurfaceId,
+          agentDisplayName: patch.agentDisplayName,
           agentRoleId: patch.agentRoleId,
           agentTaskId: patch.agentTaskId,
           runtime: patch.runtime,
@@ -1378,65 +1448,64 @@ export function App(): ReactElement {
           endedAt: patch.endedAt,
         }];
       }
-      return current.map((turn) => turn.runId === runId ? { ...turn, ...patch, events: patch.events ?? turn.events, blocks: patch.blocks ?? turn.blocks } : turn);
+      return current.map((turn) => turn === existing ? { ...turn, ...patch, events: patch.events ?? turn.events, blocks: patch.blocks ?? turn.blocks } : turn);
     });
   }
 
-  function appendLiveTurnText(runId: string, delta: string): void {
-    appendLiveTurnTextIn(setLiveTurns, runId, delta);
+  function appendLiveTurnText(runId: string, delta: string, identity?: WorkbenchLiveIdentity): void {
+    appendLiveTurnTextIn(setLiveTurns, runId, delta, identity);
   }
 
-  function appendAgentLiveTurnText(runId: string, delta: string, agentRoleId: string, agentTaskId?: string): void {
-    appendLiveTurnTextIn(setAgentLiveTurns, runId, delta, agentRoleId, agentTaskId);
+  function appendAgentLiveTurnText(runId: string, delta: string, identity: WorkbenchLiveIdentity): void {
+    appendLiveTurnTextIn(setAgentLiveTurns, runId, delta, identity);
   }
 
-  function appendLiveTurnTextIn(setter: LiveTurnSetter, runId: string, delta: string, agentRoleId?: string, agentTaskId?: string): void {
+  function appendLiveTurnTextIn(setter: LiveTurnSetter, runId: string, delta: string, identity: WorkbenchLiveIdentity = {}): void {
     setter((current) => {
-      const existing = current.find((turn) => turn.runId === runId);
+      const identityKey = liveTurnIdentityKey(runId, identity);
+      const existing = findCompatibleLiveTurn(current, runId, identity);
       if (!existing) {
         return [...current, {
-          id: `live-turn:${runId}`,
+          id: `live-turn:${identityKey}`,
           runId,
-          agentRoleId,
-          agentTaskId,
-          status: "streaming",
+          ...liveTurnIdentity(identity),
+          status: "replying",
           text: delta,
-          events: [{ kind: "status", label: "streaming" }],
-          blocks: [proseBlock(runId, delta, 1)],
+          events: [{ kind: "status", label: "replying" }],
+          blocks: [proseBlock(runId, delta, 1, identity)],
           startedAt: new Date().toISOString(),
         }];
       }
       return current.map((turn) => {
-        if (turn.runId !== runId) return turn;
-        return { ...turn, status: "streaming", text: `${turn.text}${delta}`, blocks: appendProseBlock(turn.blocks, runId, delta) };
+        if (turn !== existing) return turn;
+        return { ...turn, ...liveTurnIdentity(identity), status: "replying", text: `${turn.text}${delta}`, blocks: appendProseBlock(turn.blocks, runId, delta, identity) };
       });
     });
   }
 
-  function appendLiveTurnEvent(runId: string, event: LiveTurnEvent, status?: string, block?: AssistantTurnBlock | null): void {
-    appendLiveTurnEventIn(setLiveTurns, runId, event, status, block);
+  function appendLiveTurnEvent(runId: string, event: LiveTurnEvent, status?: string, block?: AssistantTurnBlock | null, identity?: WorkbenchLiveIdentity): void {
+    appendLiveTurnEventIn(setLiveTurns, runId, event, status, block, identity);
   }
 
   function appendAgentLiveTurnEvent(
     runId: string,
     event: LiveTurnEvent,
-    agentRoleId: string,
-    agentTaskId?: string,
+    identity: WorkbenchLiveIdentity,
     status?: string,
     block?: AssistantTurnBlock | null,
   ): void {
-    appendLiveTurnEventIn(setAgentLiveTurns, runId, event, status, block, agentRoleId, agentTaskId);
+    appendLiveTurnEventIn(setAgentLiveTurns, runId, event, status, block, identity);
   }
 
-  function appendLiveTurnEventIn(setter: LiveTurnSetter, runId: string, event: LiveTurnEvent, status?: string, block?: AssistantTurnBlock | null, agentRoleId?: string, agentTaskId?: string): void {
+  function appendLiveTurnEventIn(setter: LiveTurnSetter, runId: string, event: LiveTurnEvent, status?: string, block?: AssistantTurnBlock | null, identity: WorkbenchLiveIdentity = {}): void {
     setter((current) => {
-      const existing = current.find((turn) => turn.runId === runId);
+      const identityKey = liveTurnIdentityKey(runId, identity);
+      const existing = findCompatibleLiveTurn(current, runId, identity);
       if (!existing) {
         return [...current, {
-          id: `live-turn:${runId}`,
+          id: `live-turn:${identityKey}`,
           runId,
-          agentRoleId,
-          agentTaskId,
+          ...liveTurnIdentity(identity),
           status: status ?? "running",
           text: "",
           events: [event],
@@ -1445,55 +1514,47 @@ export function App(): ReactElement {
         }];
       }
       return current.map((turn) => {
-        if (turn.runId !== runId) return turn;
+        if (turn !== existing) return turn;
         const key = liveTurnEventKey(event);
         const nextEvents = key && turn.events.some((existingEvent) => liveTurnEventKey(existingEvent) === key)
           ? turn.events.map((existingEvent) => liveTurnEventKey(existingEvent) === key ? event : existingEvent)
           : [...turn.events, event];
-        return { ...turn, status: status ?? turn.status, events: nextEvents, blocks: block ? upsertBlock(turn.blocks, block) : turn.blocks };
+        return { ...turn, ...liveTurnIdentity(identity), status: status ?? turn.status, events: nextEvents, blocks: block ? upsertBlock(turn.blocks, block) : turn.blocks };
       });
     });
   }
 
-  function completeLiveTurn(runId: string, text?: string): void {
-    completeLiveTurnIn(setLiveTurns, runId, text);
+  function completeLiveTurn(runId: string, text?: string, identity?: WorkbenchLiveIdentity): void {
+    completeLiveTurnIn(setLiveTurns, runId, text, identity);
   }
 
-  function completeAgentLiveTurn(runId: string, text?: string): void {
-    completeLiveTurnIn(setAgentLiveTurns, runId, text);
-  }
-
-  function completeLiveTurnIn(setter: LiveTurnSetter, runId: string, text?: string): void {
-    setter((current) => current.map((turn) => turn.runId === runId ? {
-      ...turn,
-      status: "completed",
-      text: text || turn.text || "",
-      blocks: text ? [proseBlock(runId, text, 1), ...turn.blocks.filter((block) => block.kind !== "prose")] : turn.blocks,
-      endedAt: new Date().toISOString(),
-    } : turn));
+  function completeLiveTurnIn(setter: LiveTurnSetter, runId: string, text?: string, identity: WorkbenchLiveIdentity = {}): void {
+    setter((current) => {
+      const existing = findCompatibleLiveTurn(current, runId, identity);
+      if (!existing) return current;
+      return current.map((turn) => turn === existing ? {
+        ...turn,
+        ...liveTurnIdentity(identity),
+        status: "completed",
+        text: text || turn.text || "",
+        blocks: text && !turn.blocks.some((block) => block.kind === "prose")
+          ? [proseBlock(runId, text, 1, identity), ...turn.blocks]
+          : turn.blocks,
+        endedAt: new Date().toISOString(),
+      } : turn);
+    });
   }
 
   function liveTurnEventKey(event: LiveTurnEvent): string | null {
     if (event.kind === "assistant-event") {
       const item = event.event;
-      return `assistant:${item.runId}:${item.itemId ?? item.title ?? item.summary ?? ""}:${item.kind}:${item.phase ?? ""}`;
+      return `assistant:${item.runId}:${item.threadId ?? "main"}:${item.itemId ?? item.title ?? item.summary ?? ""}:${item.kind}`;
     }
     if (event.kind === "tool") {
-      return `tool:${event.tool.runId}:${event.tool.command ?? event.tool.name ?? ""}:${event.tool.phase}:${event.tool.exitCode ?? ""}:${event.tool.status ?? ""}`;
+      return `tool:${event.tool.runId}:${event.tool.threadId ?? "main"}:${event.tool.itemId ?? event.tool.command ?? event.tool.name ?? ""}`;
     }
     if (event.kind === "usage") return `usage:${JSON.stringify(event.usage)}`;
     if (event.kind === "error") return `error:${event.message}`;
-    return null;
-  }
-
-  function agentWorkspaceIdFromNodeKind(kind: string | undefined): string | null {
-    if (!kind) return null;
-    if (kind.includes("planning")) return "planning-agent";
-    if (kind.includes("coder") || kind.includes("code")) return "coder-agent";
-    if (kind.includes("validation") || kind.includes("validator")) return "validator";
-    if (kind.includes("audit") || kind.includes("auditor")) return "auditor-agent";
-    if (kind.includes("rework")) return "rework-coder";
-    if (kind.includes("main")) return null;
     return null;
   }
 
@@ -1519,6 +1580,7 @@ export function App(): ReactElement {
     setActionRunning(null);
     setLatestHidden(false);
     setSelectedAgentWorkspaceAgentId(null);
+    setOpenAgentSurfaceIds([]);
   }
 
   const activePendingConversation = pendingDemandConversation
@@ -1543,7 +1605,6 @@ export function App(): ReactElement {
   const activeRun = useMemo(() => snapshot.center.agentLoop.runs.find((run) => run.id === selectedRun) ?? snapshot.center.agentLoop.runs[0], [snapshot, selectedRun]);
   const selectedProjectStatus = useMemo(() => projects.find((item) => item.project?.id === selectedProjectId) ?? null, [projects, selectedProjectId]);
   const selectedProjectHistoryUnavailable = Boolean(selectedProjectStatus?.managed && selectedProjectStatus.memory?.memoryAvailable === false);
-  const selectedProjectIsTemporary = Boolean(selectedProjectStatus?.project && selectedProjectStatus.memory?.registered === false);
   const runIds = useMemo(() => snapshot.center.agentLoop.runs.map((run) => run.id).join("|"), [snapshot.center.agentLoop.runs]);
   const pendingHasLiveUserMessage = Boolean(activePendingConversation && liveItems.some((item) => item.kind === "user-message" && (item.body ?? item.label) === activePendingConversation.body));
   const snapshotTranscript = useMemo(() => {
@@ -1566,7 +1627,23 @@ export function App(): ReactElement {
     };
   }, [selectedDecisionContextId, snapshot.right.decisionInspector]);
   const activeConfirmationQueue = snapshot.right.confirmationQueue ?? { primary: null, current: [], otherDemands: [], maintenance: [], history: [] };
-  const activeAgentWorkspace = snapshot.right.agentWorkspace ?? { selectedAgentId: "planning-agent", agents: [] };
+  const activeAgentWorkspace = useMemo(() => mergeLiveAgentWorkspace(
+    snapshot.right.agentWorkspace ?? { selectedAgentId: "planning-agent", agents: [] },
+    agentLiveTurns,
+  ), [snapshot.right.agentWorkspace, agentLiveTurns]);
+
+  useEffect(() => {
+    if (!selectedProjectId || !selectedProjectStatus?.managed || typeof EventSource === "undefined") return;
+    const source = new EventSource(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/events/live`);
+    source.onmessage = (message) => {
+      try {
+        handleLiveEvent(JSON.parse(message.data) as WorkbenchLiveEvent);
+      } catch {
+        // The request-level snapshot remains authoritative after malformed diagnostic frames.
+      }
+    };
+    return () => source.close();
+  }, [selectedProjectId, selectedProjectStatus?.managed, selectedTopic]);
   const [dismissedPlanHandoffKeys, setDismissedPlanHandoffKeys] = useState<Set<string>>(new Set());
   const rawPlanHandoffCandidate = useMemo(() => derivePlanHandoffCandidate(activeAgentWorkspace), [activeAgentWorkspace]);
   const planHandoffCandidate = activeTopic?.id && rawPlanHandoffCandidate && !dismissedPlanHandoffKeys.has(planHandoffCandidateKey(activeTopic.id, rawPlanHandoffCandidate))
@@ -1580,21 +1657,30 @@ export function App(): ReactElement {
   const pendingConfirmationCount = (activeConfirmationQueue.primary ? 1 : 0)
     + activeConfirmationQueue.otherDemands.length
     + activeConfirmationQueue.maintenance.length;
-  const rawActiveRunGraph = loadedRunGraph ?? snapshot.center.agentRunGraph;
-  const activeRunGraph = isDemandAgentRunGraph(rawActiveRunGraph) ? rawActiveRunGraph : emptyAgentRunGraph();
-  const selectedRunGraphNode = useMemo(() => {
-    return activeRunGraph.nodes.find((node) => node.id === selectedRunGraphNodeId) ?? activeRunGraph.nodes[0] ?? null;
-  }, [activeRunGraph.nodes, selectedRunGraphNodeId]);
+  const rawActiveRunGraph = isPendingTopic
+    ? pendingMainAgentRunGraph(selectedProjectId, activeTopic?.id)
+    : loadedRunGraph ?? snapshot.center.agentRunGraph;
+  const mainConversationRequestRunning = Boolean(activePendingConversation)
+    || actionRunning === "topic.create"
+    || actionRunning === "chat.ask";
+  const activeRunGraph = mergeLiveAgentGraph(
+    isDemandAgentRunGraph(rawActiveRunGraph) ? rawActiveRunGraph : emptyAgentRunGraph(),
+    [...liveTurns, ...agentLiveTurns].filter((turn) => liveTurnBelongsToTopic(turn, activeTopic?.id, activeTopic?.boundChangeId)),
+    mainConversationRequestRunning,
+  );
+  const selectedRunGraphNode = useMemo(() => (
+    activeRunGraph.nodes.find((node) => node.id === selectedRunGraphNodeId) ?? activeRunGraph.nodes[0] ?? null
+  ), [activeRunGraph.nodes, selectedRunGraphNodeId]);
   function selectRunGraphNode(nodeId: string): void {
-    setSelectedRunGraphNodeId(nodeId);
     const node = activeRunGraph.nodes.find((item) => item.id === nodeId);
-    const rawAgentId = node?.roleId ?? node?.target.roleId ?? agentWorkspaceIdFromNodeKind(node?.kind);
-    const agentId = rawAgentId === "main-agent" ? null : rawAgentId;
-    if (agentId) {
-      setSelectedAgentWorkspaceAgentId(agentId);
-      setRightToolView("agent");
-      setDecisionPaneCollapsed(false);
+    if (!node) return;
+    setSelectedRunGraphNodeId(nodeId);
+    if (node.kind === "main-agent") {
+      closeOrchestrationOverlay();
+      return;
     }
+    const agentId = node.target.agentSurfaceId ?? node.id;
+    openChildAgentWorkspace(agentId);
   }
   const codexModelLabel = codexModelSettings?.effectiveModel?.trim()
     || codexDiagnostics?.effectiveModel?.trim()
@@ -1619,6 +1705,12 @@ export function App(): ReactElement {
 
   function openRightToolPanel(tab: RightToolRailTab): void {
     setRightToolView(tab);
+    if (tab === "agent") {
+      const agentId = selectedAgentWorkspaceAgentId
+        ?? activeAgentWorkspace.agents.find((agent) => agent.status === "running")?.id
+        ?? activeAgentWorkspace.agents[0]?.id;
+      if (agentId) openChildAgentWorkspace(agentId);
+    }
     if (tab === "diagnostics") {
       void loadRuntimeDiagnostics();
       void loadRuntimeActivityLog();
@@ -1627,26 +1719,32 @@ export function App(): ReactElement {
 
   function closeOrchestrationOverlay(): void {
     setOrchestrationOpen(false);
-    window.setTimeout(() => {
-      document.querySelector<HTMLElement>("[data-testid='orchestration-overlay-toggle']")?.focus();
-    }, 0);
+    syncWorkbenchOrchestrationTab(false);
   }
 
   function toggleOrchestrationOverlay(): void {
-    if (!activeTopic?.id || isPendingTopic) return;
+    if (!activeTopic?.id) return;
     if (orchestrationOpen) closeOrchestrationOverlay();
-    else setOrchestrationOpen(true);
+    else {
+      setRunGraphLoadState("loading");
+      setOrchestrationOpen(true);
+      syncWorkbenchOrchestrationTab(true);
+    }
   }
 
   useEffect(() => {
     const restore = readWorkbenchRestoreParams();
-    setOrchestrationOpen(Boolean(restore.topicId && restore.topicId === activeTopic?.id && restore.orchestrationOpen));
+    setOrchestrationOpen((current) => current || Boolean(
+      restore.topicId && restore.topicId === activeTopic?.id && restore.orchestrationOpen,
+    ));
     setSelectedRunGraphNodeId(null);
     setLoadedTranscript(null);
     setLoadedRunGraph(null);
+    setRunGraphLoadState("idle");
+    setRunGraphLoadError(null);
     setComposerAttachments([]);
     setRuntimeActivityLog(null);
-  }, [activeTopic?.id]);
+  }, [activeTopic?.id, isPendingTopic]);
 
   async function loadEarlierTranscriptPage(): Promise<void> {
     if (!selectedProjectId || !activeTopic?.id || isPendingTopic || loadingEarlierTranscript) return;
@@ -1676,7 +1774,12 @@ export function App(): ReactElement {
     let cancelled = false;
     fetchJson<ParentAgentTranscript>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/projections/transcript/${encodeURIComponent(activeTopic.id)}?limit=100`)
       .then((projection) => {
-        if (!cancelled && isParentAgentTranscriptPayload(projection)) setLoadedTranscript(normalizeParentAgentTranscript(projection));
+        if (!cancelled && isParentAgentTranscriptPayload(projection)) {
+          const normalized = normalizeParentAgentTranscript(projection);
+          setLoadedTranscript(normalized);
+          setLiveItems((current) => current.filter((item) => !transcriptContainsLiveItem(normalized.cells ?? [], item)));
+          setLiveTurns((current) => current.filter((turn) => !transcriptContainsMainTurn(normalized.cells ?? [], turn)));
+        }
       })
       .catch((cause: unknown) => {
         if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
@@ -1685,29 +1788,29 @@ export function App(): ReactElement {
   }, [selectedProjectId, activeTopic?.id, isPendingTopic, projectionVersion]);
 
   useEffect(() => {
-    if (!selectedProjectId || !activeTopic?.id || isPendingTopic || !orchestrationOpen) return;
+    if (!selectedProjectId || !activeTopic?.id || !orchestrationOpen || isPendingTopic) return;
     let cancelled = false;
+    setRunGraphLoadState("loading");
+    setRunGraphLoadError(null);
     fetchJson<DemandAgentRunGraph>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/projections/run-graph/${encodeURIComponent(activeTopic.id)}`)
       .then((projection) => {
-        if (!cancelled && isDemandAgentRunGraph(projection)) setLoadedRunGraph(projection);
+        if (cancelled) return;
+        if (!isDemandAgentRunGraph(projection) || projection.nodes.length === 0) {
+          setRunGraphLoadState("error");
+          setRunGraphLoadError("无法加载 Agent 关系，请重试。");
+          return;
+        }
+        setLoadedRunGraph(projection);
+        setRunGraphLoadState("ready");
       })
-      .catch((cause: unknown) => {
-        if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
+      .catch(() => {
+        if (!cancelled) {
+          setRunGraphLoadState("error");
+          setRunGraphLoadError("暂时无法读取 Agent 关系，请重试。");
+        }
       });
     return () => { cancelled = true; };
-  }, [selectedProjectId, activeTopic?.id, isPendingTopic, orchestrationOpen, projectionVersion]);
-
-  useEffect(() => {
-    if (!orchestrationOpen) return;
-    const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") closeOrchestrationOverlay();
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    window.setTimeout(() => {
-      document.querySelector<HTMLElement>("[data-testid='orchestration-overlay-close']")?.focus();
-    }, 0);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [orchestrationOpen]);
+  }, [selectedProjectId, activeTopic?.id, orchestrationOpen, isPendingTopic, projectionVersion, runGraphReloadVersion]);
 
   useEffect(() => {
     const node = threadScrollRef.current;
@@ -1811,15 +1914,11 @@ export function App(): ReactElement {
             onOpenProject={openProject}
             onRefresh={loadApp}
           />
-        ) : !activeTopic && (selectedProjectIsTemporary || selectedProjectHistoryUnavailable) ? (
-          <UnmanagedProjectView project={selectedProjectStatus} onDone={async () => {
-            await loadApp();
-            if (selectedProjectId) await refresh(selectedProjectId, null);
-          }} />
+        ) : !activeTopic && selectedProjectHistoryUnavailable ? (
+          <UnmanagedProjectView project={selectedProjectStatus} />
         ) : !activeTopic ? (
           <ProjectReadinessHome
             project={selectedProjectStatus}
-            snapshot={snapshot}
             modelLabel={codexModelLabel}
             onOpenModelSettings={() => void openCodexModelPicker()}
             projects={projects}
@@ -1847,7 +1946,29 @@ export function App(): ReactElement {
               </div>
             </header>
 
-            <section className="center-grid">
+            <section className={`center-grid${orchestrationOpen ? " agent-graph-center-grid" : ""}`}>
+              {orchestrationOpen ? (
+                <div className="agent-graph-center-view" data-testid="agent-graph-center-view">
+                  {(runGraphLoadState === "idle" || runGraphLoadState === "loading") && activeRunGraph.nodes.length === 0 ? (
+                    <div className="agent-graph-view-state" role="status">正在加载 Agent 关系...</div>
+                  ) : runGraphLoadState === "error" ? (
+                    <div className="agent-graph-view-state error" role="alert">
+                      <strong>Agent 关系加载失败</strong>
+                      <span>{runGraphLoadError ?? "请稍后重试。"}</span>
+                      <button type="button" className="outline-button" onClick={() => setRunGraphReloadVersion((value) => value + 1)}>重试</button>
+                    </div>
+                  ) : (
+                    <AgentRunGraphPanel
+                      graph={activeRunGraph}
+                      selectedNode={selectedRunGraphNode}
+                      activeRun={activeRun}
+                      stream={stream}
+                      onSelectNode={selectRunGraphNode}
+                      onSelectRun={(runId) => void chooseRun(runId)}
+                    />
+                  )}
+                </div>
+              ) : (
               <div className="timeline-panel">
                 <div
                   className="thread-scroll"
@@ -1870,6 +1991,7 @@ export function App(): ReactElement {
                     onConfirmApproval={confirmWorkpadApproval}
                     onAnswerClarification={answerClarification}
                     onSelectDecisionContext={setSelectedDecisionContextId}
+                    onOpenAgent={openChildAgentWorkspace}
                   />
                 </div>
                 {latestHidden ? <button className="latest-button" onClick={() => { const node = threadScrollRef.current; if (node) node.scrollTop = node.scrollHeight; setLatestHidden(false); }}>最新</button> : null}
@@ -1911,13 +2033,15 @@ export function App(): ReactElement {
                   />
                 )}
               </div>
+              )}
             </section>
           </>
         )}
         </div>
         {!settingsOpen ? <WorkspaceDockToggleBar
           orchestrationActive={orchestrationOpen}
-          orchestrationDisabled={!activeTopic?.id || isPendingTopic}
+          orchestrationNeedsAttention={activeRunGraph.nodes.some((node) => node.status === "waiting-user")}
+          orchestrationDisabled={!activeTopic?.id}
           onToggleOrchestration={toggleOrchestrationOverlay}
           terminalActive={bottomDockKind === "terminal"}
           terminalDisabled={!selectedProjectId}
@@ -1954,10 +2078,13 @@ export function App(): ReactElement {
           <AgentWorkspacePanel
             workspace={activeAgentWorkspace}
             selectedAgentId={selectedAgentWorkspaceAgentId}
+            openAgentIds={openAgentSurfaceIds}
             liveItems={liveItems}
             liveTurns={agentLiveTurns}
             busy={actionRunning !== null}
             onSelectAgent={setSelectedAgentWorkspaceAgentId}
+            onCloseAgent={closeChildAgentWorkspace}
+            onBack={() => setRightToolView("launcher")}
             onAnswerClarification={answerClarification}
             onSendAgentMessage={sendAgentWorkspaceMessage}
             modelLabel={codexModelLabel}
@@ -2008,49 +2135,6 @@ export function App(): ReactElement {
         onResizeStart={(event) => beginShellColumnResize(event, "right")}
       /> : null}
 
-      {orchestrationOpen && activeTopic && !settingsOpen ? (
-        <div
-          className="agent-graph-overlay-backdrop"
-          data-testid="agent-graph-overlay-backdrop"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) closeOrchestrationOverlay();
-          }}
-        >
-          <section
-            className="agent-graph-overlay"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Agent 编排图"
-            data-testid="agent-graph-overlay"
-          >
-            <header className="agent-graph-overlay-header">
-              <div>
-                <p className="eyebrow">只读投影</p>
-                <h2>Agent 编排图</h2>
-              </div>
-              <button
-                type="button"
-                className="top-tool-button"
-                data-testid="orchestration-overlay-close"
-                aria-label="关闭 Agent 编排图"
-                title="关闭 Agent 编排图"
-                onClick={closeOrchestrationOverlay}
-              >
-                ×
-              </button>
-            </header>
-            <AgentRunGraphPanel
-              graph={activeRunGraph}
-              selectedNode={selectedRunGraphNode}
-              activeRun={activeRun}
-              stream={stream}
-              onSelectNode={selectRunGraphNode}
-              onSelectRun={(runId) => void chooseRun(runId)}
-            />
-          </section>
-        </div>
-      ) : null}
-
       <CodexModelPicker
         open={codexModelPickerOpen}
         snapshot={codexModelSettings}
@@ -2099,13 +2183,11 @@ function defaultAttachmentPrompt(count: number): string {
 
 function emptyAgentRunGraph(): DemandAgentRunGraph {
   return {
-    title: "暂无运行图",
-    summary: "选择需求对话后，AHO 会把主 agent 调用角色 agent、工具和后台维护的过程投影到这里。",
+    title: "Agent 关系",
+    summary: "真实子 Agent 开始工作后，会在这里显示父子关系。",
     lanes: [
-      { id: "main", label: "主 agent", description: "用户交流和调度入口" },
-      { id: "roles", label: "角色执行", description: "方案、实现、验证和审查" },
-      { id: "integration", label: "集成与远端", description: "应用、PR、评审、合并和同步" },
-      { id: "maintenance", label: "后台维护", description: "记忆、文档漂移和演进候选" },
+      { id: "main", label: "主 Agent", description: "当前需求对话" },
+      { id: "roles", label: "子 Agent", description: "真实创建的 Agent" },
     ],
     nodes: [],
     edges: [],
@@ -2218,6 +2300,233 @@ function planHandoffCandidateKey(topicId: string, candidate: PlanHandoffCandidat
   return `${topicId}:${candidate.sourceAgentRoleId}:${candidate.sourceRunId}:${candidate.proposalKey}`;
 }
 
+function pendingMainAgentRunGraph(projectId: string | null, conversationId?: string): DemandAgentRunGraph {
+  return {
+    ...emptyAgentRunGraph(),
+    conversationId,
+    summary: "主 Agent 正在处理当前需求。",
+    nodes: [{
+      id: "main-agent",
+      kind: "main-agent",
+      lane: "main",
+      label: "主 Agent",
+      roleId: "main-agent",
+      status: "running",
+      summary: "",
+      reason: "",
+      target: { projectId, conversationId, roleId: "main-agent", agentSurfaceId: "main-agent" },
+      visualKind: "agent",
+      evidenceRefs: [],
+      attempts: [],
+    }],
+  };
+}
+
+function syncWorkbenchLocation(projectId: string | null, topicId: string | null): void {
+  try {
+    const url = new URL(window.location.href);
+    if (projectId) url.searchParams.set("project", projectId);
+    else url.searchParams.delete("project");
+    if (projectId && topicId && !topicId.startsWith("pending:")) url.searchParams.set("topic", topicId);
+    else url.searchParams.delete("topic");
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  } catch {
+    // Navigation state remains usable when the host does not expose History APIs.
+  }
+}
+
+function syncWorkbenchOrchestrationTab(open: boolean): void {
+  try {
+    const url = new URL(window.location.href);
+    if (open) url.searchParams.set("tab", "orchestration");
+    else if (isOrchestrationTabParam(url.searchParams.get("tab"))) url.searchParams.delete("tab");
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  } catch {
+    // The center view remains usable when the host does not expose History APIs.
+  }
+}
+
+function isChildLiveIdentity(identity: WorkbenchLiveIdentity): boolean {
+  return Boolean(identity.parentThreadId || (identity.agentRoleId && identity.agentRoleId !== "main-agent"));
+}
+
+function isTransientReconnectMessage(message: string): boolean {
+  return /^reconnecting(?:\.\.\.)?\s*\d+\/\d+/i.test(message.trim());
+}
+
+function liveTurnIdentity(identity: WorkbenchLiveIdentity): Partial<LiveAssistantTurn> {
+  const result: Partial<LiveAssistantTurn> = {};
+  if (identity.projectId !== undefined) result.projectId = identity.projectId;
+  if (identity.conversationId !== undefined) result.conversationId = identity.conversationId;
+  if (identity.changeId !== undefined) result.changeId = identity.changeId;
+  if (identity.threadId !== undefined) result.threadId = identity.threadId;
+  if (identity.parentThreadId !== undefined) result.parentThreadId = identity.parentThreadId;
+  if (identity.turnId !== undefined) result.turnId = identity.turnId;
+  if (identity.agentRoleId !== undefined) result.agentRoleId = identity.agentRoleId;
+  if (identity.agentTaskId !== undefined) result.agentTaskId = identity.agentTaskId;
+  const agentSurfaceId = identity.agentSurfaceId ?? (identity.threadId ? `thread:${identity.threadId}` : undefined);
+  if (agentSurfaceId !== undefined) result.agentSurfaceId = agentSurfaceId;
+  if (identity.agentDisplayName !== undefined) result.agentDisplayName = identity.agentDisplayName;
+  return result;
+}
+
+function liveTurnIdentityKey(runId: string, identity: Pick<LiveAssistantTurn, "threadId" | "turnId"> | WorkbenchLiveIdentity): string {
+  return `${runId}:${identity.threadId ?? "main"}:${identity.turnId ?? "turn"}`;
+}
+
+function snapshotContainsTurn(snapshot: Snapshot, turn: LiveAssistantTurn): boolean {
+  return transcriptContainsMainTurn(snapshot.center.parentAgentTranscript.cells ?? [], turn);
+}
+
+function snapshotContainsAgentTurn(snapshot: Snapshot, turn: LiveAssistantTurn): boolean {
+  return snapshot.right.agentWorkspace.agents.some((agent) => (
+    agent.id === turn.agentSurfaceId
+    || (turn.threadId && agent.providerThreadId === turn.threadId)
+    || (turn.runId && agent.runId === turn.runId)
+  ) && transcriptContainsMainTurn(agent.transcript.cells ?? [], turn));
+}
+
+function mergeLiveAgentWorkspace(workspace: AgentWorkspace, liveTurns: LiveAssistantTurn[]): AgentWorkspace {
+  const agents = new Map(workspace.agents.map((agent) => [agent.id, agent]));
+  for (const turn of liveTurns) {
+    const id = turn.agentSurfaceId ?? (turn.threadId ? `thread:${turn.threadId}` : `run:${turn.runId}`);
+    const existing = agents.get(id);
+    agents.set(id, existing ? {
+      ...existing,
+      providerThreadId: existing.providerThreadId ?? turn.threadId,
+      parentThreadId: existing.parentThreadId ?? turn.parentThreadId,
+      runId: existing.runId ?? turn.runId,
+      label: turn.agentDisplayName ? composeAgentDisplayLabel(turn.agentRoleId ?? existing.roleId, turn.agentDisplayName) : existing.label,
+      status: turn.status,
+    } : {
+      id,
+      roleId: turn.agentRoleId ?? "child-agent",
+      providerThreadId: turn.threadId,
+      parentThreadId: turn.parentThreadId,
+      runId: turn.runId,
+      label: composeAgentDisplayLabel(turn.agentRoleId, turn.agentDisplayName),
+      status: turn.status,
+      summary: "真实 Agent 对话。",
+      transcript: { title: composeAgentDisplayLabel(turn.agentRoleId, turn.agentDisplayName), cells: [], items: [], emptyMessage: "Agent 正在处理。" },
+      evidenceRefs: [],
+      actions: [],
+    });
+  }
+  const numbered = numberDuplicateAgentLabels([...agents.values()]);
+  return { ...workspace, agents: numbered };
+}
+
+function liveTurnBelongsToTopic(turn: LiveAssistantTurn, topicId?: string, changeId?: string | null): boolean {
+  if (!topicId) return false;
+  return turn.conversationId === topicId || turn.changeId === (changeId ?? topicId);
+}
+
+function mergeLiveAgentGraph(graph: DemandAgentRunGraph, turns: LiveAssistantTurn[], mainRequestRunning = false): DemandAgentRunGraph {
+  const nodes = [...graph.nodes];
+  if (turns.length === 0) return { ...graph, nodes: withRunningMainNode(nodes, mainRequestRunning) };
+  let edges = [...graph.edges];
+  for (const turn of turns) {
+    if (turn.agentRoleId === "main-agent") {
+      const mainIndex = nodes.findIndex((node) => node.kind === "main-agent");
+      if (mainIndex >= 0) nodes[mainIndex] = { ...nodes[mainIndex], status: graphNodeStatus(turn.status) };
+      continue;
+    }
+    const id = turn.agentSurfaceId ?? (turn.threadId ? `thread:${turn.threadId}` : `run:${turn.runId}`);
+    const existingIndex = nodes.findIndex((node) => node.id === id);
+    const nextNode: DemandAgentRunGraph["nodes"][number] = {
+      ...(existingIndex >= 0 ? nodes[existingIndex] : {}),
+      id,
+      kind: agentGraphKind(turn.agentRoleId),
+      lane: "roles",
+      label: composeAgentDisplayLabel(turn.agentRoleId, turn.agentDisplayName),
+      roleId: turn.agentRoleId,
+      status: graphNodeStatus(turn.status),
+      summary: "",
+      reason: "",
+      target: {
+        projectId: turn.projectId ?? null,
+        conversationId: turn.conversationId,
+        changeId: turn.changeId,
+        roleId: turn.agentRoleId,
+        agentSurfaceId: id,
+        providerThreadId: turn.threadId,
+        parentThreadId: turn.parentThreadId,
+        runId: turn.runId,
+      },
+      visualKind: "agent",
+      evidenceRefs: [],
+      attempts: [],
+    };
+    if (existingIndex >= 0) nodes[existingIndex] = nextNode;
+    else nodes.push(nextNode);
+  }
+  const ids = new Set(nodes.map((node) => node.id));
+  for (const turn of turns) {
+    if (turn.agentRoleId === "main-agent") continue;
+    const id = turn.agentSurfaceId ?? (turn.threadId ? `thread:${turn.threadId}` : `run:${turn.runId}`);
+    const parentId = turn.parentThreadId && ids.has(`thread:${turn.parentThreadId}`) ? `thread:${turn.parentThreadId}` : "main-agent";
+    edges = edges.filter((edge) => edge.to !== id);
+    edges.push({ id: `agent-edge:${parentId}:${id}`, from: parentId, to: id, kind: "delegates", label: "" });
+  }
+  return { ...graph, nodes: numberGraphNodeLabels(withRunningMainNode(nodes, mainRequestRunning)), edges, summary: `${nodes.length} 个真实 Agent` };
+}
+
+function withRunningMainNode(nodes: DemandAgentRunGraph["nodes"], running: boolean): DemandAgentRunGraph["nodes"] {
+  if (!running) return nodes;
+  return nodes.map((node) => node.kind === "main-agent" ? { ...node, status: "running" } : node);
+}
+
+function numberGraphNodeLabels(nodes: DemandAgentRunGraph["nodes"]): DemandAgentRunGraph["nodes"] {
+  return numberDuplicateDisplayLabels(nodes, (node) => node.kind !== "main-agent");
+}
+
+function agentGraphKind(roleId?: string): DemandAgentRunGraph["nodes"][number]["kind"] {
+  if (roleId === "planning-agent") return "planning-agent";
+  if (roleId === "coder-agent") return "coder-agent";
+  if (roleId === "rework-coder") return "rework-coder";
+  if (roleId === "auditor-agent") return "auditor-agent";
+  if (roleId === "memory-maintenance-agent") return "documentation-agent";
+  if (roleId === "harness-evolution-agent") return "evolution-agent";
+  if (roleId === "evolution-scorer") return "evolution-scorer";
+  return "delegate-task";
+}
+
+function graphNodeStatus(status: string): DemandAgentRunGraph["nodes"][number]["status"] {
+  if (status === "running" || status === "thinking" || status === "replying" || status === "claimed") return "running";
+  if (status === "queued") return "queued";
+  if (status === "completed") return "completed";
+  if (status === "waiting-user") return "waiting-user";
+  if (status === "blocked") return "needs-change";
+  if (status === "failed") return "failed";
+  return "idle";
+}
+
+function numberDuplicateAgentLabels(agents: AgentWorkspaceAgent[]): AgentWorkspaceAgent[] {
+  return numberDuplicateDisplayLabels(agents, () => true);
+}
+
+function numberDuplicateDisplayLabels<T extends { id: string; label: string; roleId?: string }>(items: T[], include: (item: T) => boolean): T[] {
+  const bases = new Map(items.map((item) => [item.id, baseAgentDisplayLabel(item.label, item.roleId)]));
+  const totals = new Map<string, number>();
+  for (const item of items) if (include(item)) {
+    const base = bases.get(item.id)!;
+    totals.set(base, (totals.get(base) ?? 0) + 1);
+  }
+  const indexes = new Map<string, number>();
+  const nextByBase = new Map<string, number>();
+  for (const item of [...items].filter(include).sort((left, right) => left.id.localeCompare(right.id))) {
+    const base = bases.get(item.id)!;
+    const next = (nextByBase.get(base) ?? 0) + 1;
+    nextByBase.set(base, next);
+    indexes.set(item.id, next);
+  }
+  return items.map((item) => {
+    if (!include(item)) return item;
+    const base = bases.get(item.id)!;
+    return { ...item, label: (totals.get(base) ?? 0) > 1 ? `${base} ${indexes.get(item.id) ?? 1}` : base };
+  });
+}
+
 function isRequestScopedToTopic(request: CodexUserInputRequest, topicId: string): boolean {
   return request.status === "pending"
     && (request.conversationId === topicId || request.changeId === topicId || (!request.conversationId && !request.changeId));
@@ -2234,7 +2543,7 @@ function snapshotForProject(project: ProjectStatus | null | undefined): Snapshot
       artifactBase: project.memory?.artifactBase,
     },
     center: { ...emptySnapshot.center, workpad: emptyWorkpad(projectDisplayName(project.project)) },
-    warnings: project.managed ? [] : ["项目需要准备后才能开始需求对话。"],
+    warnings: project.managed ? [] : ["首次需求会根据项目情况建立必要工作说明。"],
   };
 }
 

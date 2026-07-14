@@ -7,6 +7,7 @@ import type {
   WorkbenchWorkflowActionRequest,
   WorkbenchWorkflowActionResult,
 } from "../types.js";
+import type { ChildTranscriptCapture } from "../live-transcript.js";
 import { isMainAgentExecutionStopAction } from "../../workflow-actions/main-agent-execution.js";
 
 interface AssistantTranscriptCapture {
@@ -14,6 +15,7 @@ interface AssistantTranscriptCapture {
   text: string;
   activity: AssistantTurnActivity[];
   blocks: AssistantTurnBlock[];
+  childCaptures: Map<string, ChildTranscriptCapture>;
 }
 
 export interface WorkbenchActionDecisionInput {
@@ -62,6 +64,7 @@ export async function runWorkbenchWorkflowActionService(
   deps: WorkbenchActionServiceDeps,
 ): Promise<WorkbenchWorkflowActionResult> {
   const actionRunId = `action-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+  const persistedChildTurns = new Set<string>();
   const changeId = await deps.resolveChangeId(project, request);
   if (!isConcurrentControlAction(request.actionType)) {
     const active = findActiveWorkflowAction(await deps.readThreadEntries(project, changeId));
@@ -86,6 +89,7 @@ export async function runWorkbenchWorkflowActionService(
     const finalStatus = failureMessage ? "failed" : "completed";
     const resultSummary = failureMessage ?? deps.summarizeResult(request.actionType, result);
     capture.sink.emit({ event: "run.status", data: { runId, actionRunId, status: finalStatus, label: deps.labelForAction(request.actionType) } });
+    await persistChildTranscriptCaptures(project, changeId, actionRunId, runId, finalStatus, capture, deps, live, persistedChildTurns);
     const completed = await deps.appendThreadEntry(project, changeId, {
       type: failureMessage ? "workflow.failed" : "workflow.completed",
       actionRunId,
@@ -127,6 +131,7 @@ export async function runWorkbenchWorkflowActionService(
     const message = error instanceof Error ? error.message : String(error);
     const resultSummary = `${deps.labelForAction(request.actionType)}执行失败。请查看错误和证据后再决定是否重试或调整。`;
     capture.sink.emit({ event: "run.status", data: { actionRunId, status: "failed", label: deps.labelForAction(request.actionType) } });
+    await persistChildTranscriptCaptures(project, changeId, actionRunId, undefined, "failed", capture, deps, live, persistedChildTurns);
     const failed = await deps.appendThreadEntry(project, changeId, {
       type: "workflow.failed",
       actionRunId,
@@ -150,6 +155,52 @@ export async function runWorkbenchWorkflowActionService(
     });
     return { actionRunId, actionType: request.actionType, status: "failed", error: message };
   }
+}
+
+async function persistChildTranscriptCaptures(
+  project: ManagedProject,
+  changeId: string,
+  actionRunId: string,
+  fallbackRunId: string | undefined,
+  fallbackStatus: "completed" | "failed",
+  capture: AssistantTranscriptCapture,
+  deps: WorkbenchActionServiceDeps,
+  live: WorkbenchLiveSink | undefined,
+  persistedChildTurns: Set<string>,
+): Promise<void> {
+  const childCaptures = [...capture.childCaptures.values()]
+    .filter((child) => child.blocks.length > 0 || child.activity.length > 0)
+    .sort((left, right) => childCaptureTimestamp(left).localeCompare(childCaptureTimestamp(right)));
+  for (const child of childCaptures) {
+    const identity = `${child.threadId}:${child.turnId ?? "turn"}`;
+    if (persistedChildTurns.has(identity)) continue;
+    const entry = await deps.appendThreadEntry(project, changeId, {
+      type: "assistant.message",
+      actionRunId,
+      status: childCaptureStatus(child, fallbackStatus),
+      runId: child.runId ?? fallbackRunId ?? actionRunId,
+      threadId: child.threadId,
+      parentThreadId: child.parentThreadId,
+      turnId: child.turnId,
+      agentRoleId: child.roleId,
+      activity: child.activity,
+      blocks: child.blocks,
+    });
+    persistedChildTurns.add(identity);
+    live?.emit({ event: "assistant.message", data: entry });
+  }
+}
+
+function childCaptureTimestamp(capture: ChildTranscriptCapture): string {
+  return capture.blocks[0]?.timestamp ?? capture.activity[0]?.timestamp ?? "";
+}
+
+function childCaptureStatus(capture: ChildTranscriptCapture, fallbackStatus: "completed" | "failed"): string {
+  const terminal = [...capture.activity].reverse().find((activity) => activity.kind === "status");
+  if (terminal?.kind !== "status") return fallbackStatus;
+  if (terminal.label === "completed") return "completed";
+  if (terminal.label === "failed" || terminal.label === "blocked") return "failed";
+  return fallbackStatus;
 }
 
 async function resumeGoalAfterAction(

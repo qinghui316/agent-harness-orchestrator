@@ -18,9 +18,15 @@ import { handleCodexUserInputAnswer } from "./codex-user-input.js";
 import { sendWorkbenchActionLive } from "./live-actions.js";
 import { readCreateTopicBody, readTopicMessageBody, sendConversationMessageLive, sendCreateTopicLive, sendTopicMessageReplay } from "./topic-messages.js";
 import { executeWorkbenchAction } from "./actions.js";
+import { sendProjectLiveEvents } from "./project-live-events.js";
 import type { ClarificationAnswerRequest, CodexUserInputAnswerRequest, IntakeRequest, WorkbenchActionRequest, WorkbenchServerContext } from "./types.js";
 
 export async function handleProjectWorkbenchApi(context: WorkbenchServerContext, input: WorkbenchProjectInput, request: IncomingMessage, response: ServerResponse, rest: string, url: URL): Promise<void> {
+  if (request.method === "GET" && rest === "events/live") {
+    assertRegisteredProject(input);
+    await sendProjectLiveEvents(input, request, response);
+    return;
+  }
   if (request.method === "GET" && rest === "snapshot") {
     sendJson(response, 200, await getWorkbenchSnapshot(input, { topicId: url.searchParams.get("topic") ?? undefined }));
     return;

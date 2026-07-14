@@ -35,7 +35,8 @@ arbitrary loops, nested workflows, pipelines, or whole-wave dispatch.
 5. Write concrete node titles and prompts, then map every Task and AC.
 6. Put the user-readable plan before the Workflow JSON appendix.
 7. Validate syntax, references, dependencies, scopes, and coverage before
-   returning exactly one proposal envelope.
+   returning a concise natural-language summary. The proposal files are the
+   result; the Runtime reads and validates them as written.
 
 Read `references/fixed-plan-format.md` for every proposal. Read
 `references/workflow-patterns.md` before choosing topology. Read
@@ -70,19 +71,14 @@ domain objective; do not write `implement the accepted task` as a substitute.
 - Node prompts cannot grant permissions or override source scope, ToolPolicy,
   worktree, apply, merge, close, or other human gates.
 
-## Return Contract
+## Result
 
-Return exactly one JSON object with:
-
-- `specMd`
-- `planMd`
-- `tasksMd`
-- `openQuestions`
-- `assumptions`
-- `warnings`
-
-Do not wrap it in commentary or a Markdown fence. If a blocking unknown prevents
-a safe plan, return it in `openQuestions` instead of inventing repository facts.
+Write `spec.md`, `plan.md`, `tasks.md`, and optional `notes.md` directly in the
+Runtime-provided proposal workspace. After writing, report briefly what was
+written and list any open question or assumption in natural language. Do not
+return a patch JSON object and do not ask Runtime to reconstruct files from the
+summary. If a blocking unknown prevents a safe plan, leave the files absent or
+incomplete and explain the open question instead of inventing repository facts.
 
 ## Final Check
 

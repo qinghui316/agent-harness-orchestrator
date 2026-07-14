@@ -160,6 +160,9 @@ export interface ThreadStreamEvidence {
   artifact?: string;
   status?: string;
   runId?: string;
+  threadId?: string;
+  parentThreadId?: string;
+  turnId?: string;
   agentRoleId?: string;
   agentTaskId?: string;
   actionRunId?: string;
@@ -176,6 +179,9 @@ export interface ThreadStreamItem {
   artifact?: string;
   status?: string;
   runId?: string;
+  threadId?: string;
+  parentThreadId?: string;
+  turnId?: string;
   agentRoleId?: string;
   agentTaskId?: string;
   actionRunId?: string;
@@ -332,6 +338,10 @@ export interface WorkbenchDecisionInspector {
 export interface WorkbenchAgentWorkspaceAgent {
   id: string;
   roleId: string;
+  providerThreadId?: string;
+  providerDisplayName?: string;
+  parentThreadId?: string;
+  runId?: string;
   label: string;
   status: string;
   summary: string;
@@ -750,6 +760,7 @@ export interface WorkbenchRoleRunSummary {
 
 export interface WorkbenchAgentTaskSummary {
   id: string;
+  conversationId: string;
   roleId: string;
   kind: "foreground" | "background";
   status: string;
@@ -862,6 +873,9 @@ export interface DemandAgentRunGraphNode {
     conversationId?: string;
     changeId?: string;
     roleId?: string;
+    agentSurfaceId?: string;
+    providerThreadId?: string;
+    parentThreadId?: string;
     agentTaskId?: string;
     runId?: string;
     worktreeId?: string;

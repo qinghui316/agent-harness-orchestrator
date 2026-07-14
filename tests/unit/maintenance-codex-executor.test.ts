@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { repoLocalMemory } from "../../src/memory/resolver.js";
 import type { ManagedProject } from "../../src/types/index.js";
 import type { HarnessEngineeringAssignment } from "../../src/agent-task/harness-engineering-contract.js";
+import { WorkbenchStore } from "../../src/workbench/store.js";
 
 const appServerTurn = vi.hoisted(() => vi.fn());
 
@@ -46,6 +47,9 @@ describe("Codex maintenance verification repair", () => {
       setup.memory,
       setup.project,
       assignment(setup),
+      undefined,
+      undefined,
+      { taskId: "task-1", conversationId: "maintenance:change-1", changeId: "change-1" },
     );
 
     expect(result.summary).toBe("repaired");
@@ -53,7 +57,22 @@ describe("Codex maintenance verification repair", () => {
     expect(appServerTurn.mock.calls[1][0]).toMatchObject({
       existingThreadId: "maintenance-thread",
       sandboxPolicy: "workspace-write",
+      conversationId: "maintenance:change-1",
+      changeId: "change-1",
+      agentTaskId: "task-1",
     });
+    const store = await WorkbenchStore.open(setup.memory);
+    try {
+      expect(store.listProviderThreads(setup.project.id, "maintenance:change-1")).toEqual([
+        expect.objectContaining({
+          providerThreadId: "maintenance-thread",
+          roleId: "memory-maintenance-agent",
+          runId: expect.stringMatching(/^maintenance-/),
+        }),
+      ]);
+    } finally {
+      store.close();
+    }
   });
 
   it("returns all verification evidence after the bounded repair still fails", async () => {

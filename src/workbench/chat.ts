@@ -2,9 +2,11 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { detectCodexAppServerCapability, extractCodexAppServerCollabToolCall, runCodexAppServerTurn, type CodexAppServerCollabToolCall } from "../codex/app-server.js";
+import { auditHarness } from "../harness/audit.js";
+import { detectCodexAppServerCapability, runCodexAppServerTurn } from "../codex/app-server.js";
 import { resolveCodexEffectiveModel } from "../codex/model-settings.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
+import { ensureProjectRuntime } from "../harness/init.js";
 import { writeJsonFile } from "../fs/json.js";
 import { listRuns } from "../run/manager.js";
 import { getGitCommit, getGitStatusShort } from "../project/git.js";
@@ -25,16 +27,16 @@ import { assertWorkflowActionScope, auditHighImpactWorkflowAction, workflowActio
 import { dispatchWorkbenchWorkflowAction } from "./actions/dispatcher.js";
 import { buildWorkbenchActionHandlers } from "./actions/handlers/index.js";
 import { recordWorkbenchDecision } from "./decisions.js";
-import { stripProjectScopedChildAgentLeakFromMainAgentText } from "./main-agent-visible-text.js";
-import { buildMainAgentPlanHandoffPromptContext, validatePlanHandoffIntent } from "./plan-handoff.js";
+import { validatePlanHandoffIntent } from "./plan-handoff.js";
 import { resolveTopicAttachments } from "./attachments.js";
 import { resolveTopicFileReferences } from "./file-references.js";
-import { createAssistantTranscriptCapture } from "./live-transcript.js";
+import { childTranscriptCapturesForThread, createAssistantTranscriptCapture, type ChildTranscriptCapture } from "./live-transcript.js";
+import { forwardCodexRealtimeEvent } from "./codex-live-events.js";
 import { getSingleActiveChangeId, resolveTopic } from "./topic-resolver.js";
 import { appendConversationThreadEntry } from "./conversation-thread.js";
 import { collectAllConversationThreadEntries, fromStoredThreadMessage, readConversationThread as readThreadLog } from "./conversation-thread-log.js";
 import { WorkbenchStore, type StoredTopicMessage } from "./store.js";
-import { acceptCurrentConversationPlanningPackage, writePlannerChildProposal } from "./planning/planner-child-proposal.js";
+import { acceptCurrentConversationPlanningPackage, readPlannerChildProposal, writePlannerChildProposal } from "./planning/planner-child-proposal.js";
 import type {
   AssistantTurnBlock,
   TopicAttachment,
@@ -81,7 +83,7 @@ export async function createWorkbenchConversation(
   live?: WorkbenchLiveSink,
   options: { runMainAgent?: boolean } = {},
 ): Promise<{ conversationId: string; title: string; state: "active" }> {
-  const memory = await resolveProjectMemory(project);
+  const memory = await ensureProjectRuntime(project);
   assertWritableMemory(memory, "Workbench conversation");
   if (!memory.projectId) throw new Error("Project id is required to create a conversation.");
   const resolved = await resolveTopicFileReferences(project, input.body ?? input.title, input.contextRefs);
@@ -139,7 +141,7 @@ export async function createWorkbenchConversation(
 
 export async function postConversationMessage(project: ManagedProject, conversationId: string, input: string | TopicMessageInput, live?: WorkbenchLiveSink): Promise<TopicMessageResult> {
   const parsed = await normalizeTopicMessageInput(project, input);
-  const memory = await resolveProjectMemory(project);
+  const memory = await ensureProjectRuntime(project);
   assertWritableMemory(memory, "Workbench conversation");
   if (!memory.projectId) throw new Error("Project id is required to post a conversation message.");
   conversationId = await resolveConversationId(project, conversationId);
@@ -198,37 +200,8 @@ export async function resolveConversationId(project: ManagedProject, targetId: s
   }
 }
 
-export function buildInitialMainAgentPrompt(userMessage: string): string {
-  return [
-    "这是 AHO 需求对话的第一轮主 Agent 回复。",
-    "你在主对话中直接回复用户，语气像一个正常开发助理。",
-    "用 2-4 句话说明：你理解的用户目标；当前不会修改文件或启动实现；下一步是先确认真实需求和验收方式，或等待用户确认后再进入规划。",
-    "不要使用项目内部对象名、英文阶段名、技术状态码或实现细节术语。",
-    "不要说已经启动任何子 Agent、规划角色、编码角色、验证角色或审查角色。",
-    "不要生成完整计划、任务清单或验收标准；不要执行代码；不要声称已经获得确认。",
-    "如果用户明确要求你解释内部机制，才可以使用内部术语。",
-    "",
-    "用户原始需求：",
-    userMessage,
-  ].join("\n");
-}
-
-export function buildProjectScopedMainAgentPrompt(
-  userMessage: string,
-  planHandoff?: ValidatedPlanHandoffIntent,
-  workflowAuthoringContext = "",
-): string {
-  return [
-    "You are the main Agent for this project.",
-    "Load and follow $aho-main-orchestration. It is the only Main-Agent scheduling guide for this turn.",
-    "Use project records as truth and conversation history only as interaction context.",
-    "Keep visible replies concise and in the user's language; explain internal terms only when the user asks about the mechanism.",
-    ...buildMainAgentPlanHandoffPromptContext(planHandoff),
-    ...(workflowAuthoringContext ? ["", workflowAuthoringContext] : []),
-    "",
-    "User message:",
-    userMessage,
-  ].join("\n");
+export function buildProjectScopedMainAgentPrompt(userMessage: string): string {
+  return userMessage;
 }
 
 async function runProjectScopedMainAgentTurn(
@@ -239,7 +212,7 @@ async function runProjectScopedMainAgentTurn(
   planHandoff?: ValidatedPlanHandoffIntent,
   options: { goalResume?: { deliveryKey: string; contextText: string } } = {},
 ): Promise<TopicThreadEntry> {
-  const memory = await resolveProjectMemory(project);
+  const memory = await ensureProjectRuntime(project);
   assertWritableMemory(memory, "Project-scoped chat");
   if (!memory.projectId) throw new Error("Project id is required to run project-scoped chat.");
   const runId = buildProjectConversationRunId(conversationId);
@@ -250,15 +223,42 @@ async function runProjectScopedMainAgentTurn(
   capture.sink.emit({ event: "run.status", data: { runId, status: "connecting", label: "正在连接 Codex" } });
   const proposalDirectory = join(directory, "planner-proposal");
   await mkdir(proposalDirectory, { recursive: true });
-  const workflowAuthoringSkillPath = join(getSystemSkillsRoot(), "aho-workflow-authoring", "SKILL.md");
   const mainOrchestrationSkillPath = join(getSystemSkillsRoot(), "aho-main-orchestration", "SKILL.md");
-  if (!existsSync(workflowAuthoringSkillPath) || !existsSync(mainOrchestrationSkillPath)) throw new Error("Required Main/Workflow system Skill is unavailable.");
-  const planningTransport = [
-    "$aho-workflow-authoring is attached as a native Codex Skill input for this turn; load it on demand and do not paste its body into Main or child prompts.",
-    `When planning is requested, create exactly one real planning child and instruct it to write spec.md, plan.md, tasks.md, and optional notes.md directly under: ${proposalDirectory}`,
-    "Treat those files as an immutable proposal. Do not repair or rewrite them after the child completes; AHO will parse and validate the files as written.",
-  ].join("\n");
-  const prompt = buildProjectScopedMainAgentPrompt(userMessage, planHandoff, planningTransport);
+  const harnessEngineeringSkillPath = join(getSystemSkillsRoot(), "aho-harness-engineering", "SKILL.md");
+  if (!existsSync(mainOrchestrationSkillPath)) throw new Error("Codex 原生 Main Skill 不可用：未找到 aho-main-orchestration。");
+  const harnessAudit = await auditHarness(project.path);
+  const onboarding = harnessAudit.readiness !== "ready";
+  if (onboarding && !existsSync(harnessEngineeringSkillPath)) throw new Error("Codex 原生 Harness Skill 不可用：未找到 aho-harness-engineering。");
+  const prompt = buildProjectScopedMainAgentPrompt(userMessage);
+  const additionalContext: NonNullable<Parameters<typeof runCodexAppServerTurn>[0]["additionalContext"]> = {
+    "aho.project": {
+      kind: "application",
+      value: JSON.stringify({ projectRoot: project.path, memoryRoot: memory.memoryRoot, memoryMode: memory.mode }),
+    },
+    "aho.proposal-workspace": {
+      kind: "application",
+      value: JSON.stringify({ path: proposalDirectory, files: ["spec.md", "plan.md", "tasks.md", "notes.md"] }),
+    },
+    ...(onboarding ? {
+      "aho.harness-onboarding": {
+        kind: "application" as const,
+        value: JSON.stringify({ mode: "onboard", harnessReadiness: harnessAudit.readiness }),
+      },
+    } : {}),
+    ...(planHandoff ? {
+      "aho.plan-handoff": {
+        kind: "application" as const,
+        value: JSON.stringify({
+          kind: planHandoff.kind,
+          executionMode: planHandoff.executionMode,
+          sourceRunId: planHandoff.sourceRunId,
+          sourceArtifact: planHandoff.sourceArtifact,
+          feedback: planHandoff.feedback ?? null,
+          planText: planHandoff.planText,
+        }),
+      },
+    } : {}),
+  };
   const planHandoffResume = planHandoff ? {
     deliveryKey: `plan-handoff:${createHash("sha256").update(JSON.stringify({
       conversationId,
@@ -295,19 +295,23 @@ async function runProjectScopedMainAgentTurn(
   } finally {
     sessionStore.close();
   }
-  const parentDeltaFilter = createProjectScopedParentDeltaFilter((delta) => capture.sink.emit({ event: "assistant.delta", data: { delta, runId } }));
   const result = await runCodexAppServerTurn({
     projectId: project.id,
+    conversationId,
     runtimeScopeId: conversationId,
     roleId: "main-agent",
     runId,
     cwd: project.path,
     prompt,
     sandboxPolicy: "workspace-write",
-    writableRoots: [proposalDirectory],
+    writableRoots: onboarding ? [project.path, memory.memoryRoot, proposalDirectory] : [proposalDirectory],
+    runtimeWorkspaceRoots: [project.path, memory.memoryRoot, proposalDirectory],
+    additionalContext,
+    nativeSkillRoots: [getSystemSkillsRoot()],
+    requiredNativeSkills: ["aho-main-orchestration", ...(onboarding ? ["aho-harness-engineering"] : [])],
     skillInputs: [
       { name: "aho-main-orchestration", path: mainOrchestrationSkillPath },
-      { name: "aho-workflow-authoring", path: workflowAuthoringSkillPath },
+      ...(onboarding ? [{ name: "aho-harness-engineering", path: harnessEngineeringSkillPath }] : []),
     ],
     existingThreadId: mainThreadId,
     goalSession: true,
@@ -334,11 +338,12 @@ async function runProjectScopedMainAgentTurn(
         return { contentItems: [{ type: "inputText", text: "AHO conversation tools do not accept caller-selected targets." }], success: false };
       }
       if (call.tool === "aho_accept_current_plan" && planHandoff?.kind === "execute-plan") {
+        const acceptedProposal = await readPlannerChildProposal(planHandoff.sourceArtifact);
         const accepted = await acceptCurrentConversationPlanningPackage(project, conversationId, planHandoff.sourceArtifact);
         acceptedPlanning = accepted;
         boundChangeId = accepted.changeId;
         acceptedPlanMarker = {
-          ...projectScopedPlanningMessage(conversationId, runId, `Accepted proposal ${accepted.proposalId}.`, PROJECT_PLANNING_AGENT_ROLE_ID),
+          ...projectScopedPlanningMessage(conversationId, runId, `Accepted proposal ${accepted.proposalId}.`, PROJECT_PLANNING_AGENT_ROLE_ID, undefined, acceptedProposal.childThreadId),
           status: "accepted",
         };
         if (accepted.workflowGraphPlan.graphMode === "ready-set-v1") {
@@ -407,8 +412,7 @@ async function runProjectScopedMainAgentTurn(
       lastMessage: join(directory, "last-message.md"),
       session: join(directory, "agent-session.json"),
     },
-    onTextDelta: (delta) => parentDeltaFilter.push(delta),
-    onNotification: (notification) => forwardProjectAppServerNotification(runId, notification, capture.sink),
+    onRealtimeEvent: (event) => forwardCodexRealtimeEvent(event, capture.sink),
     onUserInputRequest: (request) => {
       capture.sink.emit({
         event: "codex.userInput.requested",
@@ -428,29 +432,37 @@ async function runProjectScopedMainAgentTurn(
     onError: (error) => capture.sink.emit({ event: "error", data: { runId, message: error instanceof Error ? error.message : String(error) } }),
     model: effectiveModel.model,
   });
-  const explicitlyIdentifiedPlannerChildren = result.childThreads.filter((child) => child.prompt?.includes("planner-proposal") || child.prompt?.includes("spec.md"));
-  const plannerChildren = explicitlyIdentifiedPlannerChildren.length > 0
-    ? explicitlyIdentifiedPlannerChildren
+  const proposalFileEvidence = (child: typeof result.childThreads[number]): boolean => child.changedFiles.some((path) => {
+    const normalized = path.replaceAll("\\", "/");
+    return normalized.endsWith("/planner-proposal/spec.md")
+      || normalized.endsWith("/planner-proposal/plan.md")
+      || normalized.endsWith("/planner-proposal/tasks.md");
+  });
+  const childrenWithProposalEvidence = result.childThreads.filter(proposalFileEvidence);
+  const plannerChildren = childrenWithProposalEvidence.length > 0
+    ? childrenWithProposalEvidence
     : result.childThreads.length === 1
       ? result.childThreads
       : [];
-  if (result.childThreads.length > 0 && plannerChildren.length !== 1) {
-    throw new Error("Main Agent planning requires exactly one identifiable real planner child.");
-  }
-  if ((plannerChildren.length > 0 || planHandoff?.kind === "execute-plan") && !result.goal) {
-    throw new Error("Main Agent planning and execution handoff requires a native Goal on the provider thread.");
+  const postRunInvariantError = result.childThreads.length > 0 && plannerChildren.length !== 1
+    ? new Error("Main Agent planning requires exactly one identifiable real planner child.")
+    : (plannerChildren.length > 0 || planHandoff?.kind === "execute-plan") && !result.goal
+      ? new Error("Main Agent planning and execution handoff requires a native Goal on the provider thread.")
+      : null;
+  if (postRunInvariantError) {
+    capture.sink.emit({ event: "error", data: { runId, message: postRunInvariantError.message } });
   }
   let issuedAuthorization: LocalExecutionAuthorization | null = null;
-  if (acceptedPlanning) {
+  if (acceptedPlanning && !postRunInvariantError) {
     issuedAuthorization = await issueAcceptedPlanningAuthorization(project, memory, conversationId, result, acceptedPlanning, planHandoff);
   }
-  parentDeltaFilter.flush();
   const rawParentText = capture.text.trim()
     || stripProjectScopedPromptEcho(result.lastMessage, userMessage).trim()
     || result.error
     || "";
-  const assistantText = cleanUserVisibleAgentText(stripProjectScopedChildAgentLeakFromMainAgentText(rawParentText)).trim();
+  const assistantText = rawParentText.trim();
   await writeFile(join(directory, "last-message.md"), assistantText, "utf8");
+  const assistantLineageBlock = [...capture.blocks].reverse().find((block) => block.kind !== "usage" && (block.threadId || block.turnId));
   const assistant: TopicThreadEntry | null = assistantText ? {
     id: `assistant:${conversationId}:${Date.now().toString(36)}`,
     type: "assistant.message",
@@ -459,6 +471,8 @@ async function runProjectScopedMainAgentTurn(
     changeId: "",
     text: assistantText,
     runId,
+    threadId: result.threadId ?? assistantLineageBlock?.threadId,
+    turnId: assistantLineageBlock?.turnId,
     artifact: `workbench/conversations/${conversationId}/runs/${runId}/last-message.md`,
     activity: capture.activity,
     blocks: capture.blocks.length > 0 ? capture.blocks : initialMainAgentBlocks([], runId, assistantText),
@@ -478,25 +492,35 @@ async function runProjectScopedMainAgentTurn(
     });
     for (const child of result.childThreads) {
       const isPlannerChild = plannerChildren.some((planner) => planner.threadId === child.threadId);
+      const childRoleId = isPlannerChild ? PROJECT_PLANNING_AGENT_ROLE_ID : "child-agent";
       store.writeProviderThread({
         projectId: memory.projectId,
         conversationId,
         providerThreadId: child.threadId,
-        roleId: isPlannerChild ? PROJECT_PLANNING_AGENT_ROLE_ID : "child-agent",
+        roleId: childRoleId,
         parentThreadId: child.parentThreadId,
         changeId: boundChangeId,
         capabilityProfile: isPlannerChild ? "planner-child-v1" : "provider-child-v1",
+        displayName: child.displayName,
         updatedAt: new Date().toISOString(),
       });
+      for (const childCapture of childTranscriptCapturesForThread(capture.childCaptures, child.threadId)) {
+        const childProcessMessage = projectScopedChildProcessMessage(
+          conversationId,
+          runId,
+          childRoleId,
+          child.threadId,
+          child.parentThreadId,
+          childCapture,
+        );
+        if (childProcessMessage) {
+          planMessages.push(childProcessMessage);
+          store.appendMessage(toConversationStoredMessage(memory.projectId, conversationId, childProcessMessage));
+        }
+      }
       if (!isPlannerChild) continue;
       let message: TopicThreadEntry;
       try {
-        const proposalChanges = new Set(child.changedFiles.map((path) => path.replaceAll("\\", "/")));
-        for (const required of ["spec.md", "plan.md", "tasks.md"]) {
-          if (![...proposalChanges].some((path) => path.endsWith(`/planner-proposal/${required}`) || path === required)) {
-            throw new Error(`Planner child did not author ${required} in its native file-change evidence.`);
-          }
-        }
         const proposal = await writePlannerChildProposal({
           directory,
           projectId: memory.projectId,
@@ -530,6 +554,7 @@ async function runProjectScopedMainAgentTurn(
   }
   for (const planMessage of planMessages) live?.emit({ event: "assistant.message", data: planMessage });
   if (assistant) live?.emit({ event: "assistant.message", data: assistant });
+  if (postRunInvariantError) throw postRunInvariantError;
   const autoAcceptedPlanning = acceptedPlanning as Awaited<ReturnType<typeof acceptCurrentConversationPlanningPackage>> | null;
   if (autoAcceptedPlanning
     && issuedAuthorization?.mode === "scoped-auto"
@@ -552,40 +577,6 @@ async function runProjectScopedMainAgentTurn(
   };
 }
 
-function createProjectScopedParentDeltaFilter(emit: (delta: string) => void): { push(delta: string): void; flush(): void } {
-  let pending = "";
-  function drain(completedOnly: boolean): void {
-    for (;;) {
-      const match = pending.match(/[。！？\n]/);
-      if (!match) break;
-      const end = (match.index ?? 0) + match[0].length;
-      const segment = pending.slice(0, end);
-      pending = pending.slice(end);
-      if (segmentSurvivesProjectScopedLeakFilter(segment)) emit(segment);
-    }
-    if (!completedOnly && pending.trim()) {
-      if (segmentSurvivesProjectScopedLeakFilter(pending)) emit(pending);
-      pending = "";
-    }
-  }
-  return {
-    push(delta: string): void {
-      if (!delta) return;
-      pending += delta;
-      drain(true);
-    },
-    flush(): void {
-      drain(false);
-    },
-  };
-}
-
-function segmentSurvivesProjectScopedLeakFilter(segment: string): boolean {
-  const trimmed = segment.trim();
-  if (!trimmed) return false;
-  return stripProjectScopedChildAgentLeakFromMainAgentText(trimmed) === trimmed;
-}
-
 function projectScopedPlanningMessage(conversationId: string, runId: string, planText: string, roleId = PROJECT_PLANNING_AGENT_ROLE_ID, artifact?: string, childThreadId = "child"): TopicThreadEntry {
   const timestamp = new Date().toISOString();
   const block: AssistantTurnBlock = {
@@ -605,30 +596,11 @@ function projectScopedPlanningMessage(conversationId: string, runId: string, pla
     changeId: "",
     text: planText.trim(),
     runId,
+    threadId: childThreadId,
     agentRoleId: roleId,
     artifact,
     blocks: [block],
   };
-}
-
-function cleanUserVisibleAgentText(message: string): string {
-  return message
-    .replace(/\bAGENTS\.md\b/gi, "项目说明")
-    .replace(/\bHarness\b/gi, "项目记录")
-    .replace(/\bactive\s+change\b/gi, "当前任务")
-    .replace(/\bChange\b/g, "任务")
-    .replace(/\bworktree\b/gi, "工作副本")
-    .replace(/\bTaskRun\b/g, "任务运行")
-    .replace(/\bWorkflowRun\b/g, "流程运行")
-    .replace(/\bclose\s+gate\b/gi, "完成前确认")
-    .replace(/\bvalidation\b/gi, "检查")
-    .replace(/\baudit\b/gi, "审查")
-    .replace(/\bbundle\b/gi, "计划记录")
-    .replace(/\bqueue\b/gi, "队列")
-    .replace(/\bscheduler\b/gi, "调度流程")
-    .replace(/\bAC-\d+\b/g, "验收点")
-    .replace(/\bT-\d+\b/g, "任务项")
-    .replace(/\bTBD\b/g, "待确认");
 }
 
 function stripProjectScopedPromptEcho(message: string, userMessage: string): string {
@@ -646,46 +618,6 @@ function stripProjectScopedPromptEcho(message: string, userMessage: string): str
 
 function buildProjectConversationRunId(conversationId: string): string {
   return `chat-${conversationId}-${Date.now().toString(36)}`;
-}
-
-function forwardProjectAppServerNotification(runId: string, notification: unknown, live: WorkbenchLiveSink | undefined): void {
-  if (!isRecord(notification)) return;
-  const method = typeof notification.method === "string" ? notification.method : "";
-  const params = isRecord(notification.params) ? notification.params : {};
-  const collabToolCall = extractCodexAppServerCollabToolCall(method, params);
-  if (collabToolCall) {
-    forwardProjectCollabToolCall(runId, collabToolCall, live);
-    return;
-  }
-  if (method === "turn/completed") {
-    live?.emit({ event: "run.status", data: { runId, status: "completed" } });
-    return;
-  }
-  if (method === "turn/failed") {
-    const message = typeof params.error === "string" ? params.error : "Codex app-server turn failed.";
-    live?.emit({ event: "error", data: { runId, message } });
-  }
-}
-
-function forwardProjectCollabToolCall(runId: string, call: CodexAppServerCollabToolCall, live: WorkbenchLiveSink | undefined): void {
-  const status = call.status ?? "running";
-  const promptPreview = call.prompt ? boundedPreview(call.prompt) : undefined;
-  live?.emit({
-    event: "tool.event",
-    data: {
-      runId,
-      itemId: call.itemId,
-      phase: status === "completed" || status === "succeeded" ? "completed" : "started",
-      name: call.tool,
-      outputTail: promptPreview,
-      status,
-    },
-  });
-}
-
-function boundedPreview(value: string): string {
-  const normalized = value.replace(/\s+/g, " ").trim();
-  return normalized.length > 500 ? `${normalized.slice(0, 497)}...` : normalized;
 }
 
 function initialMainAgentBlocks(blocks: AssistantTurnBlock[], runId: string, assistantText: string): AssistantTurnBlock[] {
@@ -747,6 +679,32 @@ export async function runWorkbenchWorkflowAction(project: ManagedProject, reques
     recordDecision: recordWorkbenchDecision,
     resumeGoalAfterAction: resumeNativeGoalAfterAction,
   });
+}
+
+function projectScopedChildProcessMessage(
+  conversationId: string,
+  runId: string,
+  roleId: string,
+  childThreadId: string,
+  parentThreadId: string,
+  capture: ChildTranscriptCapture | undefined,
+): TopicThreadEntry | null {
+  if (!capture || (capture.blocks.length === 0 && capture.activity.length === 0)) return null;
+  const timestamp = capture.blocks[0]?.timestamp ?? capture.activity[0]?.timestamp ?? new Date().toISOString();
+  return {
+    id: `assistant:${conversationId}:${runId}:${roleId}:${childThreadId}:${capture.turnId ?? "turn"}:process`,
+    type: "assistant.message",
+    timestamp,
+    conversationId,
+    changeId: "",
+    runId,
+    threadId: childThreadId,
+    parentThreadId,
+    turnId: capture.turnId,
+    agentRoleId: roleId,
+    activity: capture.activity,
+    blocks: capture.blocks,
+  };
 }
 
 async function createFinalizeRequest(
@@ -1025,10 +983,6 @@ function toConversationStoredMessage(projectId: string, conversationId: string, 
     error: entry.error ?? null,
     rawJson: JSON.stringify(entry),
   };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 async function normalizeTopicMessageInput(project: ManagedProject, input: string | TopicMessageInput): Promise<Required<Pick<TopicMessageInput, "mode" | "message">> & { contextRefs?: TopicMessageInput["contextRefs"]; attachments?: TopicAttachment[]; planHandoffIntent?: TopicMessageInput["planHandoffIntent"] }> {

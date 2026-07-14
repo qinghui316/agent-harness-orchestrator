@@ -8,6 +8,7 @@ const PREVIEW_LINE_LIMIT = 48;
 const DEFAULT_TEXT_WIDTH = 760;
 const PROSE_FONT = "15.5px system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 const PROSE_LINE_HEIGHT = 26;
+const PROCESS_DETAIL_VIEWPORT_HEIGHT = 320;
 
 export function isLongTranscriptCell(cell: ParentAgentTranscriptCell): boolean {
   if (cell.kind !== "assistant-message" && cell.kind !== "user-message") return false;
@@ -36,7 +37,8 @@ export function estimateTranscriptCellHeight(cell: ParentAgentTranscriptCell, op
     if (!options.expanded) return Math.max(42, 30 + Math.min(summaryLines, 2) * 14);
     const detailLines = cell.detailText ? estimatePlainLineCount(cell.detailText, 92) : 0;
     const evidenceAllowance = cell.evidenceRefs?.length ? 30 : 0;
-    return Math.max(82, 54 + Math.min(summaryLines, 3) * 14 + detailLines * 18 + evidenceAllowance);
+    const detailAllowance = Math.min(PROCESS_DETAIL_VIEWPORT_HEIGHT, detailLines * 18 + evidenceAllowance);
+    return Math.max(82, 54 + Math.min(summaryLines, 3) * 14 + detailAllowance);
   }
   const text = transcriptCellDisplayText(cell, options.expanded);
   const titleAllowance = cell.title ? 28 : 0;

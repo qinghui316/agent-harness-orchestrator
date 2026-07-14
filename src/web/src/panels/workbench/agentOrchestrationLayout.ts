@@ -6,10 +6,10 @@ import type {
   DemandAgentRunGraphVisualKind,
 } from "../../types.js";
 
-export const ORCHESTRATION_NODE_WIDTH = 220;
-export const ORCHESTRATION_NODE_HEIGHT = 108;
+export const ORCHESTRATION_NODE_WIDTH = 200;
+export const ORCHESTRATION_NODE_HEIGHT = 56;
 export const ORCHESTRATION_GAP_X = 54;
-export const ORCHESTRATION_GAP_Y = 94;
+export const ORCHESTRATION_GAP_Y = 72;
 export const ORCHESTRATION_PADDING = 72;
 
 export type AgentOrchestrationLayoutNode = DemandAgentRunGraphNode & {
@@ -30,63 +30,65 @@ export type AgentOrchestrationLayoutEdge = DemandAgentRunGraphEdge & {
 export interface AgentOrchestrationLayout {
   width: number;
   height: number;
+  topologyKey: string;
   nodes: AgentOrchestrationLayoutNode[];
   edges: AgentOrchestrationLayoutEdge[];
 }
 
-const stageOrder: DemandAgentRunGraphStage[] = [
-  "demand",
-  "planning",
-  "execution",
-  "validation",
-  "review",
-  "integration",
-  "landing",
-  "terminal",
-  "maintenance",
-];
-
-const stageRank = new Map(stageOrder.map((stage, index) => [stage, index] as const));
-
 export function layoutAgentOrchestrationGraph(graph: DemandAgentRunGraph): AgentOrchestrationLayout {
+  const topologyKey = graphTopologyKey(graph);
   if (graph.nodes.length === 0) {
-    return { width: 760, height: 460, nodes: [], edges: [] };
+    return { width: 760, height: 460, topologyKey, nodes: [], edges: [] };
   }
 
-  const order = graphNodeOrder(graph);
-  const nodesByStage = new Map<DemandAgentRunGraphStage, AgentOrchestrationLayoutNode[]>();
-  for (const node of graph.nodes) {
-    const stage = node.stage ?? stageForNode(node);
-    const visualKind = node.visualKind ?? visualKindForNode(node);
-    const bucket = nodesByStage.get(stage) ?? [];
-    bucket.push({ ...node, stage, visualKind, x: 0, y: 0 });
-    nodesByStage.set(stage, bucket);
+  const sortedNodes = [...graph.nodes].sort(compareNodes);
+  const nodeIds = new Set(sortedNodes.map((node) => node.id));
+  const root = sortedNodes.find((node) => node.kind === "main-agent") ?? sortedNodes[0];
+  const parentByChild = new Map<string, string>();
+  for (const edge of [...graph.edges].sort((a, b) => a.id.localeCompare(b.id))) {
+    if (!nodeIds.has(edge.from) || !nodeIds.has(edge.to) || edge.from === edge.to || parentByChild.has(edge.to)) continue;
+    parentByChild.set(edge.to, edge.from);
   }
 
-  const activeStages = stageOrder.filter((stage) => (nodesByStage.get(stage)?.length ?? 0) > 0);
-  let maxRowWidth = ORCHESTRATION_NODE_WIDTH;
-  const layoutNodes: AgentOrchestrationLayoutNode[] = [];
+  const depths = new Map<string, number>([[root.id, 0]]);
+  propagateDepths(sortedNodes, parentByChild, depths);
+  for (const node of sortedNodes) {
+    if (depths.has(node.id)) continue;
+    depths.set(node.id, 1);
+    propagateDepths(sortedNodes, parentByChild, depths);
+  }
 
-  activeStages.forEach((stage, rowIndex) => {
-    const row = [...(nodesByStage.get(stage) ?? [])].sort((a, b) => {
-      const orderA = order.get(a.id) ?? Number.MAX_SAFE_INTEGER;
-      const orderB = order.get(b.id) ?? Number.MAX_SAFE_INTEGER;
-      if (orderA !== orderB) return orderA - orderB;
-      return a.id.localeCompare(b.id);
+  const rows = new Map<number, AgentOrchestrationLayoutNode[]>();
+  for (const node of sortedNodes) {
+    const depth = depths.get(node.id) ?? 1;
+    const row = rows.get(depth) ?? [];
+    row.push({
+      ...node,
+      stage: node.stage ?? stageForNode(node),
+      visualKind: node.visualKind ?? visualKindForNode(node),
+      x: 0,
+      y: 0,
     });
+    rows.set(depth, row);
+  }
+
+  const orderedRows = [...rows.entries()].sort(([a], [b]) => a - b);
+  const maxRowWidth = Math.max(...orderedRows.map(([, row]) => row.length * ORCHESTRATION_NODE_WIDTH + Math.max(0, row.length - 1) * ORCHESTRATION_GAP_X));
+  const layoutNodes: AgentOrchestrationLayoutNode[] = [];
+  for (const [depth, row] of orderedRows) {
+    row.sort(compareNodes);
     const rowWidth = row.length * ORCHESTRATION_NODE_WIDTH + Math.max(0, row.length - 1) * ORCHESTRATION_GAP_X;
-    maxRowWidth = Math.max(maxRowWidth, rowWidth);
     const startX = ORCHESTRATION_PADDING + (maxRowWidth - rowWidth) / 2;
-    const y = ORCHESTRATION_PADDING + rowIndex * (ORCHESTRATION_NODE_HEIGHT + ORCHESTRATION_GAP_Y);
     row.forEach((node, index) => {
       node.x = startX + index * (ORCHESTRATION_NODE_WIDTH + ORCHESTRATION_GAP_X);
-      node.y = y;
+      node.y = ORCHESTRATION_PADDING + depth * (ORCHESTRATION_NODE_HEIGHT + ORCHESTRATION_GAP_Y);
       layoutNodes.push(node);
     });
-  });
+  }
 
   const width = Math.ceil(maxRowWidth + ORCHESTRATION_PADDING * 2);
-  const height = Math.ceil(activeStages.length * ORCHESTRATION_NODE_HEIGHT + Math.max(0, activeStages.length - 1) * ORCHESTRATION_GAP_Y + ORCHESTRATION_PADDING * 2);
+  const maxDepth = Math.max(...depths.values());
+  const height = Math.ceil((maxDepth + 1) * ORCHESTRATION_NODE_HEIGHT + maxDepth * ORCHESTRATION_GAP_Y + ORCHESTRATION_PADDING * 2);
   const nodeById = new Map(layoutNodes.map((node) => [node.id, node] as const));
   const layoutEdges = graph.edges.flatMap((edge): AgentOrchestrationLayoutEdge[] => {
     const from = nodeById.get(edge.from);
@@ -99,42 +101,45 @@ export function layoutAgentOrchestrationGraph(graph: DemandAgentRunGraph): Agent
     return [{ ...edge, fromX, fromY, toX, toY, path: edgePath(from, to, edge) }];
   });
 
-  return { width, height, nodes: layoutNodes, edges: layoutEdges };
+  return { width, height, topologyKey, nodes: layoutNodes, edges: layoutEdges };
 }
 
 export function stageForNode(node: Pick<DemandAgentRunGraphNode, "kind" | "lane">): DemandAgentRunGraphStage {
   if (node.lane === "maintenance") return "maintenance";
   if (node.kind === "main-agent") return "demand";
   if (node.kind === "planning-agent") return "planning";
-  if (["coder-agent", "rework-coder", "delegate-task", "tool-policy-gate", "scheduler-worker"].includes(node.kind)) return "execution";
-  if (node.kind === "validator" || node.kind === "boundary-audit") return "validation";
-  if (node.kind === "auditor-agent" || node.kind === "result-review") return "review";
-  if (["integration-check", "integration-fix-agent", "scheduler-integration-candidate", "scheduler-completion"].includes(node.kind)) return "integration";
-  if (["merge-reviewer-agent", "pr-draft-adapter", "pr-feedback-sweep", "pr-review-handoff", "remote-landing", "post-merge-sync", "remote-branch-cleanup"].includes(node.kind)) return "landing";
-  if (node.kind === "terminal-gate" || node.kind === "memory-closeout") return "terminal";
+  if (node.kind === "auditor-agent") return "review";
   return "execution";
 }
 
 export function visualKindForNode(node: Pick<DemandAgentRunGraphNode, "kind">): DemandAgentRunGraphVisualKind {
-  if (["main-agent", "planning-agent", "coder-agent", "rework-coder", "auditor-agent"].includes(node.kind)) return "agent";
-  if (node.kind === "scheduler-worker") return "worker";
-  if (["validator", "tool-policy-gate", "boundary-audit"].includes(node.kind)) return "tool";
-  if (["result-review", "integration-check", "integration-fix-agent", "scheduler-integration-candidate", "scheduler-completion", "merge-reviewer-agent"].includes(node.kind)) return "review";
-  if (node.kind === "terminal-gate" || node.kind === "memory-closeout") return "terminal";
-  if (node.kind.includes("pr") || node.kind.includes("remote") || node.kind.includes("merge")) return "gate";
+  if (["main-agent", "planning-agent", "coder-agent", "rework-coder", "auditor-agent", "delegate-task", "documentation-agent", "evolution-agent", "evolution-scorer"].includes(node.kind)) return "agent";
   return "default";
 }
 
-function graphNodeOrder(graph: DemandAgentRunGraph): Map<string, number> {
-  const rank = new Map(graph.nodes.map((node, index) => [node.id, index] as const));
-  for (const edge of graph.edges) {
-    const fromRank = rank.get(edge.from);
-    const toRank = rank.get(edge.to);
-    if (fromRank === undefined || toRank === undefined) continue;
-    if (fromRank + 0.1 < toRank) continue;
-    rank.set(edge.to, fromRank + 0.1);
+function propagateDepths(nodes: DemandAgentRunGraphNode[], parentByChild: Map<string, string>, depths: Map<string, number>): void {
+  for (let pass = 0; pass < nodes.length; pass += 1) {
+    let changed = false;
+    for (const node of nodes) {
+      if (depths.has(node.id)) continue;
+      const parent = parentByChild.get(node.id);
+      const parentDepth = parent ? depths.get(parent) : undefined;
+      if (parentDepth === undefined) continue;
+      depths.set(node.id, parentDepth + 1);
+      changed = true;
+    }
+    if (!changed) break;
   }
-  return rank;
+}
+
+function compareNodes(a: DemandAgentRunGraphNode, b: DemandAgentRunGraphNode): number {
+  if (a.kind === "main-agent" && b.kind !== "main-agent") return -1;
+  if (b.kind === "main-agent" && a.kind !== "main-agent") return 1;
+  return a.id.localeCompare(b.id);
+}
+
+function graphTopologyKey(graph: DemandAgentRunGraph): string {
+  return `${graph.nodes.map((node) => node.id).sort().join("|")}::${graph.edges.map((edge) => `${edge.from}>${edge.to}`).sort().join("|")}`;
 }
 
 function edgePath(from: AgentOrchestrationLayoutNode, to: AgentOrchestrationLayoutNode, edge: DemandAgentRunGraphEdge): string {
@@ -142,8 +147,7 @@ function edgePath(from: AgentOrchestrationLayoutNode, to: AgentOrchestrationLayo
   const fromY = from.y + ORCHESTRATION_NODE_HEIGHT;
   const toX = to.x + ORCHESTRATION_NODE_WIDTH / 2;
   const toY = to.y;
-  const isBackEdge = (stageRank.get(to.stage) ?? 0) <= (stageRank.get(from.stage) ?? 0);
-  if (edge.edgeStyle === "loop" || edge.edgeRole === "rework" || isBackEdge) {
+  if (edge.edgeStyle === "loop" || edge.edgeRole === "rework" || toY <= fromY) {
     const side = Math.max(from.x, to.x) + ORCHESTRATION_NODE_WIDTH + 34;
     return `M ${fromX} ${fromY} C ${side} ${fromY + 22}, ${side} ${toY - 22}, ${toX} ${toY}`;
   }

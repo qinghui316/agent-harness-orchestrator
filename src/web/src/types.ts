@@ -402,6 +402,9 @@ export type DemandAgentRunGraphNode = {
     conversationId?: string;
     changeId?: string;
     roleId?: string;
+    agentSurfaceId?: string;
+    providerThreadId?: string;
+    parentThreadId?: string;
     agentTaskId?: string;
     runId?: string;
     worktreeId?: string;
@@ -458,14 +461,21 @@ export type ParentAgentTranscriptCell = {
   agentRoleId?: string;
   agentTaskId?: string;
   runId?: string;
+  threadId?: string;
+  turnId?: string;
+  agentSurfaceId?: string;
+  agentDisplayName?: string;
+  targetAgentSurfaceId?: string;
+  targetAgentDisplayName?: string;
   timestamp?: string;
   title?: string;
   text: string;
   status?: string;
   evidenceRefs?: ParentAgentTranscriptBlock["evidenceRefs"];
   isError?: boolean;
-  realtime?: boolean;
-  detailText?: string;
+    realtime?: boolean;
+    activityKind?: "turn" | "reasoning" | "command" | "file" | "search" | "tool" | "agent" | "status";
+    detailText?: string;
   contextRefs?: TopicFileReference[];
   attachments?: TopicAttachment[];
 };
@@ -1447,6 +1457,9 @@ export type ThreadStreamItem = {
   artifact?: string;
   status?: string;
   runId?: string;
+  threadId?: string;
+  parentThreadId?: string;
+  turnId?: string;
   agentRoleId?: string;
   agentTaskId?: string;
   actionType?: string;
@@ -1570,6 +1583,10 @@ export type DecisionInspector = {
 export type AgentWorkspaceAgent = {
   id: string;
   roleId: string;
+  providerThreadId?: string;
+  providerDisplayName?: string;
+  parentThreadId?: string;
+  runId?: string;
   label: string;
   status: string;
   summary: string;
@@ -1672,24 +1689,34 @@ export type CodexUserInputRequest = {
 export type WorkbenchLiveEvent =
   | { event: "topic.created"; data: { topic: { id?: string; conversationId?: string; changeId?: string; title: string; state: "active" } } }
   | { event: "topic.message"; data: TopicMessageEntry }
-  | { event: "run.started"; data: { runId: string; changeId?: string; conversationId?: string; actionType?: string; runtime?: string; taskIds?: string[]; agentRoleId?: string; agentTaskId?: string } }
-  | { event: "run.status"; data: { runId?: string; actionRunId?: string; status: string; label?: string; agentRoleId?: string; agentTaskId?: string } }
-  | { event: "assistant.delta"; data: { delta: string; runId?: string; agentRoleId?: string; agentTaskId?: string } }
+  | { event: "run.started"; data: WorkbenchLiveIdentity & { runId: string; actionType?: string; runtime?: string; taskIds?: string[] } }
+  | { event: "run.status"; data: WorkbenchLiveIdentity & { actionRunId?: string; status: string; label?: string } }
+  | { event: "assistant.delta"; data: WorkbenchLiveIdentity & { delta: string } }
   | { event: "assistant.message"; data: TopicMessageEntry }
   | { event: "assistant.event"; data: AssistantReadableEvent }
   | { event: "tool.event"; data: WorkbenchLiveToolEvent }
   | { event: "codex.userInput.requested"; data: CodexUserInputRequest }
-  | { event: "codex.userInput.submitted"; data: { requestId: string; runId?: string; agentRoleId?: string; agentTaskId?: string } }
-  | { event: "usage"; data: { runId?: string; usage?: Record<string, unknown>; agentRoleId?: string; agentTaskId?: string } }
+  | { event: "codex.userInput.submitted"; data: WorkbenchLiveIdentity & { requestId: string } }
+  | { event: "usage"; data: WorkbenchLiveIdentity & { usage?: Record<string, unknown> } }
   | { event: "snapshot"; data: Snapshot }
-  | { event: "error"; data: { message: string; runId?: string; actionRunId?: string } }
+  | { event: "error"; data: WorkbenchLiveIdentity & { message: string; runId?: string; actionRunId?: string } }
   | { event: "done"; data: { status: "completed" | "failed" } };
 export type WorkbenchLiveToolEvent = {
   runId: string;
+  projectId?: string;
+  conversationId?: string;
+  changeId?: string;
+  threadId?: string;
+  parentThreadId?: string;
+  turnId?: string;
   itemId?: string;
   agentRoleId?: string;
   agentTaskId?: string;
-  phase: "started" | "completed" | "stderr" | "status";
+  agentSurfaceId?: string;
+  agentDisplayName?: string;
+  targetAgentSurfaceId?: string;
+  targetAgentDisplayName?: string;
+  phase: "started" | "updated" | "completed" | "stderr" | "status";
   name?: string;
   command?: string;
   outputTail?: string;
@@ -1699,11 +1726,22 @@ export type WorkbenchLiveToolEvent = {
 };
 export type AssistantReadableEvent = {
   runId: string;
+  projectId?: string;
+  conversationId?: string;
+  changeId?: string;
+  threadId?: string;
+  parentThreadId?: string;
+  turnId?: string;
   itemId?: string;
   agentRoleId?: string;
   agentTaskId?: string;
+  agentSurfaceId?: string;
+  agentDisplayName?: string;
+  targetAgentSurfaceId?: string;
+  targetAgentDisplayName?: string;
   kind: "status" | "reasoning-summary" | "command" | "file-change" | "mcp-tool" | "web-search" | "plan-update" | "tool-result" | "usage" | "error";
   phase?: string;
+  status?: "processing" | "completed" | "failed";
   title?: string;
   summary?: string;
   preview?: string;
@@ -1718,6 +1756,8 @@ export type AssistantReadableEvent = {
 export type AssistantTurnBlock = {
   id: string;
   runId?: string;
+  threadId?: string;
+  turnId?: string;
   sequence: number;
   kind: "prose" | "status" | "command-group" | "command" | "tool-result" | "file-change" | "reasoning-summary" | "workflow-evidence" | "usage" | "error";
   timestamp: string;
@@ -1733,6 +1773,8 @@ export type AssistantTurnBlock = {
   isError?: boolean;
   truncated?: boolean;
   itemId?: string;
+  targetAgentSurfaceId?: string;
+  targetAgentDisplayName?: string;
   children?: AssistantTurnBlock[];
 };
 export type LiveTurnEvent =
@@ -1744,6 +1786,16 @@ export type LiveTurnEvent =
 export type LiveAssistantTurn = {
   id: string;
   runId: string;
+  projectId?: string;
+  conversationId?: string;
+  changeId?: string;
+  threadId?: string;
+  parentThreadId?: string;
+  turnId?: string;
+  agentSurfaceId?: string;
+  agentDisplayName?: string;
+  targetAgentSurfaceId?: string;
+  targetAgentDisplayName?: string;
   agentRoleId?: string;
   agentTaskId?: string;
   runtime?: string;
@@ -1755,6 +1807,23 @@ export type LiveAssistantTurn = {
   startedAt: string;
   endedAt?: string;
 };
+
+export type WorkbenchLiveIdentity = {
+  projectId?: string;
+  conversationId?: string;
+  changeId?: string;
+  runId?: string;
+  threadId?: string;
+  parentThreadId?: string;
+  turnId?: string;
+  itemId?: string;
+  agentRoleId?: string;
+  agentTaskId?: string;
+  agentSurfaceId?: string;
+  agentDisplayName?: string;
+  targetAgentSurfaceId?: string;
+  targetAgentDisplayName?: string;
+};
 export type TopicMessageEntry = {
   id: string;
   type: "user.message" | "assistant.message" | "orchestrator.plan" | "workflow.started" | "workflow.completed" | "workflow.failed" | "intake.scan" | "intake.iteration" | "clarification.request" | "clarification.answer" | "clarification.skip";
@@ -1765,6 +1834,9 @@ export type TopicMessageEntry = {
   actionType?: string;
   status?: string;
   runId?: string;
+  threadId?: string;
+  parentThreadId?: string;
+  turnId?: string;
   agentRoleId?: string;
   agentTaskId?: string;
   artifact?: string;

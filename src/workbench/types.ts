@@ -30,6 +30,9 @@ export interface TopicThreadEntry {
   actionType?: string;
   status?: string;
   runId?: string;
+  threadId?: string;
+  parentThreadId?: string;
+  turnId?: string;
   agentRoleId?: string;
   agentTaskId?: string;
   artifact?: string;
@@ -85,6 +88,8 @@ export type AssistantTurnBlockKind =
 export interface AssistantTurnBlock {
   id: string;
   runId?: string;
+  threadId?: string;
+  turnId?: string;
   sequence: number;
   kind: AssistantTurnBlockKind;
   timestamp: string;
@@ -100,6 +105,8 @@ export interface AssistantTurnBlock {
   isError?: boolean;
   truncated?: boolean;
   itemId?: string;
+  targetAgentSurfaceId?: string;
+  targetAgentDisplayName?: string;
   children?: AssistantTurnBlock[];
 }
 
@@ -142,20 +149,37 @@ export interface TopicMessageResult {
   assistantMessage?: string;
 }
 
+export interface WorkbenchLiveIdentity {
+  projectId?: string;
+  conversationId?: string;
+  changeId?: string;
+  runId?: string;
+  threadId?: string;
+  parentThreadId?: string;
+  turnId?: string;
+  itemId?: string;
+  agentRoleId?: string;
+  agentTaskId?: string;
+  agentSurfaceId?: string;
+  agentDisplayName?: string;
+  targetAgentSurfaceId?: string;
+  targetAgentDisplayName?: string;
+}
+
 export type WorkbenchLiveEvent =
   | { event: "topic.created"; data: { topic: { id?: string; conversationId?: string; changeId?: string; title: string; state: "active" } } }
   | { event: "topic.message"; data: TopicThreadEntry }
-  | { event: "run.started"; data: { runId: string; changeId?: string; conversationId?: string; actionType?: string; runtime?: string; taskIds?: string[]; agentRoleId?: string; agentTaskId?: string } }
-  | { event: "run.status"; data: { runId?: string; actionRunId?: string; status: string; label?: string; agentRoleId?: string; agentTaskId?: string } }
-  | { event: "assistant.delta"; data: { delta: string; runId?: string; agentRoleId?: string; agentTaskId?: string } }
+  | { event: "run.started"; data: WorkbenchLiveIdentity & { runId: string; actionType?: string; runtime?: string; taskIds?: string[] } }
+  | { event: "run.status"; data: WorkbenchLiveIdentity & { actionRunId?: string; status: string; label?: string } }
+  | { event: "assistant.delta"; data: WorkbenchLiveIdentity & { delta: string } }
   | { event: "assistant.message"; data: TopicThreadEntry }
   | { event: "assistant.event"; data: WorkbenchAssistantEvent }
   | { event: "tool.event"; data: WorkbenchLiveToolEvent }
   | { event: "codex.userInput.requested"; data: WorkbenchCodexUserInputRequest }
-  | { event: "codex.userInput.submitted"; data: { requestId: string; runId?: string; agentRoleId?: string; agentTaskId?: string } }
-  | { event: "usage"; data: { runId?: string; usage?: Record<string, unknown>; agentRoleId?: string; agentTaskId?: string } }
+  | { event: "codex.userInput.submitted"; data: WorkbenchLiveIdentity & { requestId: string } }
+  | { event: "usage"; data: WorkbenchLiveIdentity & { usage?: Record<string, unknown> } }
   | { event: "snapshot"; data: unknown }
-  | { event: "error"; data: { message: string; runId?: string; actionRunId?: string } }
+  | { event: "error"; data: WorkbenchLiveIdentity & { message: string; runId?: string; actionRunId?: string } }
   | { event: "done"; data: { status: "completed" | "failed" } };
 
 export interface WorkbenchLiveSink {
@@ -165,10 +189,20 @@ export interface WorkbenchLiveSink {
 
 export interface WorkbenchLiveToolEvent {
   runId: string;
+  projectId?: string;
+  conversationId?: string;
+  changeId?: string;
+  threadId?: string;
+  parentThreadId?: string;
+  turnId?: string;
   itemId?: string;
   agentRoleId?: string;
   agentTaskId?: string;
-  phase: "started" | "completed" | "stderr" | "status";
+  agentSurfaceId?: string;
+  agentDisplayName?: string;
+  targetAgentSurfaceId?: string;
+  targetAgentDisplayName?: string;
+  phase: "started" | "updated" | "completed" | "stderr" | "status";
   name?: string;
   command?: string;
   outputTail?: string;
@@ -179,9 +213,19 @@ export interface WorkbenchLiveToolEvent {
 
 export interface WorkbenchAssistantEvent extends CodexReadableEvent {
   runId: string;
+  projectId?: string;
+  conversationId?: string;
+  changeId?: string;
+  threadId?: string;
+  parentThreadId?: string;
+  turnId?: string;
   timestamp?: string;
   agentRoleId?: string;
   agentTaskId?: string;
+  agentSurfaceId?: string;
+  agentDisplayName?: string;
+  targetAgentSurfaceId?: string;
+  targetAgentDisplayName?: string;
 }
 
 export interface TopicMessageInput {

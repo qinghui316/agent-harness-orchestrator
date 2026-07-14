@@ -66,4 +66,19 @@ describe("transcript virtual list pressure guards", () => {
     expect(collapsedHeight).toBeLessThan(64);
     expect(expandedHeight).toBeGreaterThan(collapsedHeight);
   });
+
+  it("caps virtual height for very long expanded tool details", () => {
+    const cell: ParentAgentTranscriptCell = {
+      id: "cell:process:long-tool",
+      kind: "process-row",
+      source: "codex-runtime",
+      title: "已运行命令",
+      text: "已运行 1 条命令",
+      detailText: Array.from({ length: 4_000 }, (_, index) => `line ${index}`).join("\n"),
+    };
+
+    const expandedHeight = estimateTranscriptCellHeight(cell, { expanded: true, width: 720 });
+    expect(expandedHeight).toBeGreaterThan(320);
+    expect(expandedHeight).toBeLessThanOrEqual(430);
+  });
 });

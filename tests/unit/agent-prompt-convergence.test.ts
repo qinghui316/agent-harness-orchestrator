@@ -38,9 +38,14 @@ describe("native Agent prompt convergence", () => {
   it("keeps Main orchestration guidance concise and excludes retired model dispatch", async () => {
     const skill = await readFile(join(process.cwd(), "templates", "system-skills", "aho-main-orchestration", "SKILL.md"), "utf8");
 
-    expect(skill).toContain("implementation to `coder-agent`");
-    expect(skill).toContain("semantic review to `auditor-agent`");
-    expect(skill).toContain("deterministic validation as a\n   runtime operation, not an Agent role");
+    expect(skill).toContain("Delegate implementation to the accepted Workflow node");
+    expect(skill).toContain("semantic review\n   to the existing Auditor Agent");
+    expect(skill).toContain("deterministic validation as a Runtime\n   operation, not an Agent role");
+    expect(skill).toContain("complete the AHO core readiness contract first");
+    expect(skill).toContain("complete a simple request directly");
+    expect(skill).toContain("use a real Planning child for complex work");
+    expect(skill).toContain("ensure this provider thread has a native Goal");
+    expect(skill).toContain("Never update, yield, or complete a Goal that has not");
     expect(skill).toContain("Never dispatch\n  `coder`, `auditor`, `validator`, or `merge-reviewer-agent` as model roles.");
   });
 });

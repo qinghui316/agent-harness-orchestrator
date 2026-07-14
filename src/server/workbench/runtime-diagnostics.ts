@@ -63,7 +63,7 @@ export async function getRuntimeDiagnostics(context: WorkbenchServerContext, pro
           id: "project:ready",
           title: "项目工作区",
           status: "ok",
-          summary: status.memory?.harnessReady ? "项目已准备好。" : "项目可打开，首次需求会先准备项目。",
+          summary: status.memory?.harnessReady ? "项目已准备好。" : "项目可打开，首次需求会根据项目情况建立必要工作说明。",
         });
       }
     } catch (cause) {

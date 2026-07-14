@@ -88,35 +88,23 @@ export async function runCodexAppServerCode(input: {
       lastMessage: input.paths.appServerLastMessage,
       session: input.paths.agentSession,
     },
-    onTextDelta: (delta) => {
+    onRealtimeEvent: (realtime) => {
+      const event = realtime.streamEvent;
       recordContinuity(appendAgentEventEnvelope(input.paths, continuity.session, continuity.eventSource, {
-        eventType: "text_delta",
-        summary: delta.slice(0, 160),
-        raw: { source: "codex-app-server", delta },
-      }));
-      try {
-        input.live?.onCodexEvent?.({ type: "text_delta", delta, runId: run.id, raw: { source: "app-server" } });
-      } catch (error) {
-        emitCodeLiveCallbackError(input.live, run.id, error);
-      }
-    },
-    onNotification: (notification) => {
-      recordContinuity(appendAgentEventEnvelope(input.paths, continuity.session, continuity.eventSource, {
-        eventType: notification.method,
-        summary: notification.method,
-        raw: notification.raw,
+        eventType: event.type,
+        summary: event.type === "text_delta" ? event.delta.slice(0, 160) : realtime.method,
+        raw: { source: "codex-app-server", method: realtime.method, threadId: realtime.threadId },
       }));
       try {
         input.live?.onCodexEvent?.({
-          type: "readable_event",
-          event: {
-            kind: notification.method.includes("commandExecution") ? "command" : "status",
-            phase: notification.method,
-            title: notification.method.includes("commandExecution") ? "Command event" : "Codex app-server activity",
-            summary: notification.method,
-          },
+          ...event,
           runId: run.id,
-          raw: notification.raw,
+          threadId: realtime.threadId,
+          parentThreadId: realtime.parentThreadId,
+          turnId: realtime.turnId,
+          agentRoleId: realtime.roleId,
+          agentSurfaceId: `thread:${realtime.threadId}`,
+          agentDisplayName: realtime.displayName,
         });
       } catch (error) {
         emitCodeLiveCallbackError(input.live, run.id, error);

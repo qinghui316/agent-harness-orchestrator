@@ -5,6 +5,7 @@ import { getProjectStatus } from "../../../project/status.js";
 import { readRun } from "../../../run/manager.js";
 import { buildParentAgentTranscript, type ParentAgentTranscript } from "../../parent-agent-transcript.js";
 import { deleteConversation, hideConversation } from "../../conversation-thread.js";
+import { WorkbenchStore, type StoredProviderThreadLink } from "../../store.js";
 import { readConversationThreadPage, type ConversationThreadPageOptions } from "../../conversation-thread-log.js";
 import { summarizeRunArtifacts } from "../artifact-preview.js";
 import { buildThreadStreamFromMessages, readRunEvents } from "./thread-stream.js";
@@ -199,6 +200,12 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
     warnings,
     gaps,
   });
+  const providerThreads = selectedTopic
+    ? await readProviderThreads(memory, [
+        selectedTopic.id,
+        ...(workpad.mainAgentExecution?.agentTasks.map((task) => task.conversationId) ?? []),
+      ])
+    : [];
   const decisionInspector = buildDecisionInspector({
     selectedTopic: executionScopedTopic(selectedTopic),
     workpad,
@@ -247,7 +254,7 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
       decisions,
       decisionInspector: alignedDecisionInspector,
       confirmationQueue,
-      agentWorkspace: buildAgentWorkspace({ selectedTopic, workpad }),
+      agentWorkspace: buildAgentWorkspace({ selectedTopic, workpad, providerThreads }),
     },
     roles,
     harnessGaps: gaps,
@@ -326,7 +333,23 @@ export async function getWorkbenchRunGraphProjection(input: WorkbenchProjectInpu
     decisionInspector,
     includeProjectWideActions: false,
   });
-  return buildDemandAgentRunGraph({ project: input.project, selectedTopic, workpad, confirmationQueue });
+  const providerThreads = await readProviderThreads(memory, [
+    selectedTopic.id ?? changeId,
+    ...(workpad.mainAgentExecution?.agentTasks.map((task) => task.conversationId) ?? []),
+  ]);
+  const agentWorkspace = buildAgentWorkspace({ selectedTopic, workpad, providerThreads });
+  return buildDemandAgentRunGraph({ project: input.project, selectedTopic, workpad, confirmationQueue, agents: agentWorkspace.agents });
+}
+
+async function readProviderThreads(memory: ResolvedMemory, conversationIds: string | string[]): Promise<StoredProviderThreadLink[]> {
+  if (!memory.projectId) return [];
+  const store = await WorkbenchStore.open(memory);
+  try {
+    const ids = [...new Set(Array.isArray(conversationIds) ? conversationIds : [conversationIds])];
+    return ids.flatMap((conversationId) => store.listProviderThreads(memory.projectId!, conversationId));
+  } finally {
+    store.close();
+  }
 }
 
 export async function getWorkbenchWorkpadProjection(input: WorkbenchProjectInput, changeId: string): Promise<WorkbenchWorkpad> {

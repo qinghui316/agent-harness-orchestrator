@@ -2,74 +2,85 @@ import { describe, expect, it } from "vitest";
 import { layoutAgentOrchestrationGraph, stageForNode, visualKindForNode } from "../../src/web/src/panels/workbench/agentOrchestrationLayout.js";
 import type { DemandAgentRunGraph } from "../../src/web/src/types.js";
 
-const baseGraph: DemandAgentRunGraph = {
-  conversationId: "change-1",
-  changeId: "change-1",
-  title: "Graph",
-  summary: "Synthetic graph",
-  lanes: [],
-  nodes: [
-    node("main-agent", "main-agent", "需求"),
-    node("worker:a", "scheduler-worker", "worker A", "execution", "worker"),
-    node("worker:b", "scheduler-worker", "worker B", "execution", "worker"),
-    node("candidate", "scheduler-integration-candidate", "组合候选", "integration", "review"),
-    node("terminal", "terminal-gate", "完成", "terminal", "terminal"),
-  ],
-  edges: [
-    { id: "main->a", from: "main-agent", to: "worker:a", kind: "continues-to", label: "worker A", edgeRole: "worker-branch" },
-    { id: "main->b", from: "main-agent", to: "worker:b", kind: "continues-to", label: "worker B", edgeRole: "worker-branch" },
-    { id: "a->candidate", from: "worker:a", to: "candidate", kind: "requires-evidence", label: "join", edgeRole: "worker-join" },
-    { id: "b->candidate", from: "worker:b", to: "candidate", kind: "requires-evidence", label: "join", edgeRole: "worker-join" },
-    { id: "candidate->terminal", from: "candidate", to: "terminal", kind: "continues-to", label: "done", edgeRole: "terminal" },
-  ],
-};
-
 describe("agent orchestration layout", () => {
-  it("places worker branches on the same stage before integration join", () => {
-    const layout = layoutAgentOrchestrationGraph(baseGraph);
-    const workerA = layout.nodes.find((item) => item.id === "worker:a");
-    const workerB = layout.nodes.find((item) => item.id === "worker:b");
-    const candidate = layout.nodes.find((item) => item.id === "candidate");
+  it("lays out real parent-child depth instead of workflow stages", () => {
+    const graph = graphOf([
+      node("main-agent", "main-agent", "主 Agent"),
+      node("thread:plan", "planning-agent", "Plan Agent"),
+      node("thread:coder-a", "coder-agent", "Coder Agent 1"),
+      node("thread:coder-b", "coder-agent", "Coder Agent 2"),
+      node("thread:evolution", "evolution-agent", "Evolution Agent"),
+      node("thread:scorer", "evolution-scorer", "Scorer Agent"),
+    ], [
+      edge("main-agent", "thread:plan"),
+      edge("main-agent", "thread:coder-a"),
+      edge("main-agent", "thread:coder-b"),
+      edge("main-agent", "thread:evolution"),
+      edge("thread:evolution", "thread:scorer"),
+    ]);
 
-    expect(workerA?.stage).toBe("execution");
-    expect(workerB?.stage).toBe("execution");
-    expect(workerA?.y).toBe(workerB?.y);
-    expect(candidate?.stage).toBe("integration");
-    expect(candidate!.y).toBeGreaterThan(workerA!.y);
-    expect(layout.edges.filter((edge) => edge.edgeRole === "worker-join")).toHaveLength(2);
-  });
-
-  it("keeps loop/rework edges as curved non-primary paths", () => {
-    const graph = {
-      ...baseGraph,
-      edges: [
-        ...baseGraph.edges,
-        { id: "worker-loop", from: "worker:a", to: "worker:a", kind: "triggers-rework", label: "rework", edgeStyle: "loop", edgeRole: "rework" },
-      ],
-    } satisfies DemandAgentRunGraph;
     const layout = layoutAgentOrchestrationGraph(graph);
-
-    expect(layout.edges.some((edge) => edge.edgeRole === "rework" && edge.path.includes("C"))).toBe(true);
+    const byId = new Map(layout.nodes.map((item) => [item.id, item]));
+    expect(byId.get("thread:plan")?.y).toBe(byId.get("thread:coder-a")?.y);
+    expect(byId.get("thread:coder-a")?.y).toBe(byId.get("thread:evolution")?.y);
+    expect(byId.get("thread:scorer")!.y).toBeGreaterThan(byId.get("thread:evolution")!.y);
+    expect(byId.get("thread:scorer")!.y).toBeGreaterThan(byId.get("main-agent")!.y);
   });
 
-  it("falls back for unknown node kinds without crashing", () => {
+  it("falls back deterministically for missing parents and cycles", () => {
+    const graph = graphOf([
+      node("main-agent", "main-agent", "主 Agent"),
+      node("thread:a", "coder-agent", "A"),
+      node("thread:b", "coder-agent", "B"),
+      node("thread:orphan-child", "evolution-scorer", "Orphan child"),
+    ], [
+      edge("thread:a", "thread:b"),
+      edge("thread:b", "thread:a"),
+      edge("thread:missing", "thread:orphan-child"),
+    ]);
+
+    const first = layoutAgentOrchestrationGraph(graph);
+    const second = layoutAgentOrchestrationGraph(graph);
+    expect(first.nodes.map(({ id, x, y }) => ({ id, x, y }))).toEqual(second.nodes.map(({ id, x, y }) => ({ id, x, y })));
+    expect(first.nodes.every((item) => Number.isFinite(item.x) && Number.isFinite(item.y))).toBe(true);
+    expect(first.edges).toHaveLength(2);
+  });
+
+  it("keeps topology identity independent from status-only updates", () => {
+    const graph = graphOf([node("main-agent", "main-agent", "主 Agent"), node("thread:plan", "planning-agent", "Plan Agent")], [edge("main-agent", "thread:plan")]);
+    const first = layoutAgentOrchestrationGraph(graph);
+    const second = layoutAgentOrchestrationGraph({ ...graph, nodes: graph.nodes.map((item) => ({ ...item, status: "running" })) });
+    expect(first.topologyKey).toBe(second.topologyKey);
+    expect(first.nodes.map(({ id, x, y }) => ({ id, x, y }))).toEqual(second.nodes.map(({ id, x, y }) => ({ id, x, y })));
+  });
+
+  it("keeps compatibility helpers bounded to Agent presentation", () => {
+    expect(stageForNode({ kind: "main-agent", lane: "main" })).toBe("demand");
     expect(stageForNode({ kind: "new-agent-kind", lane: "roles" })).toBe("execution");
+    expect(visualKindForNode({ kind: "evolution-scorer" })).toBe("agent");
     expect(visualKindForNode({ kind: "new-agent-kind" })).toBe("default");
   });
 });
 
-function node(id: string, kind: string, label: string, stage?: DemandAgentRunGraph["nodes"][number]["stage"], visualKind?: DemandAgentRunGraph["nodes"][number]["visualKind"]): DemandAgentRunGraph["nodes"][number] {
+function graphOf(nodes: DemandAgentRunGraph["nodes"], edges: DemandAgentRunGraph["edges"]): DemandAgentRunGraph {
+  return { conversationId: "conversation-1", title: "Agent 关系", summary: "", lanes: [], nodes, edges };
+}
+
+function edge(from: string, to: string): DemandAgentRunGraph["edges"][number] {
+  return { id: `${from}->${to}`, from, to, kind: "delegates", label: "" };
+}
+
+function node(id: string, kind: DemandAgentRunGraph["nodes"][number]["kind"], label: string): DemandAgentRunGraph["nodes"][number] {
   return {
     id,
     kind,
     lane: kind === "main-agent" ? "main" : "roles",
     label,
     status: "completed",
-    summary: `${label} summary`,
-    reason: `${label} reason`,
+    summary: "",
+    reason: "",
     target: {},
-    stage,
-    visualKind,
+    visualKind: "agent",
     evidenceRefs: [],
     attempts: [],
   };

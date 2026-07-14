@@ -189,13 +189,18 @@ function DecisionContextCard({
         <strong>说明</strong>
         <p>{userFacingText(context.explanation ?? "内部运行状态只作为证据和恢复信息，不是用户主决策语言。")}</p>
       </div>
-      <dl className="approval-fields">
-        <div><dt>变更</dt><dd>{context.changeId ?? "-"}</dd></div>
-        {context.taskId ? <div><dt>任务</dt><dd>{context.taskId}</dd></div> : null}
-        {context.queueRunId ? <div><dt>队列</dt><dd>{context.queueRunId}</dd></div> : null}
-        {context.taskRunId ? <div><dt>执行尝试</dt><dd>{context.taskRunId}</dd></div> : null}
-        {context.runId ? <div><dt>运行证据</dt><dd>{context.runId}</dd></div> : null}
-      </dl>
+      {(context.changeId || context.taskId || context.queueRunId || context.taskRunId || context.runId) ? (
+        <details className="decision-details">
+          <summary>查看运行详情</summary>
+          <dl className="approval-fields">
+            {context.changeId ? <div><dt>当前需求</dt><dd>{context.changeId}</dd></div> : null}
+            {context.taskId ? <div><dt>任务项</dt><dd>{context.taskId}</dd></div> : null}
+            {context.queueRunId ? <div><dt>处理记录</dt><dd>{context.queueRunId}</dd></div> : null}
+            {context.taskRunId ? <div><dt>本次尝试</dt><dd>{context.taskRunId}</dd></div> : null}
+            {context.runId ? <div><dt>运行记录</dt><dd>{context.runId}</dd></div> : null}
+          </dl>
+        </details>
+      ) : null}
       {context.evidenceRefs?.length ? (
         <div className="workpad-links" aria-label="Decision evidence refs">
           {context.evidenceRefs.slice(0, 4).map((artifact) => (

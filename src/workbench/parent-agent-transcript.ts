@@ -1,5 +1,5 @@
 import type { AssistantTurnActivity, AssistantTurnBlock, TopicAttachment, TopicFileReference } from "./types.js";
-import { sanitizeMainAgentVisibleText } from "./main-agent-visible-text.js";
+import { commandDetailText, commandGroupDetailText, commandGroupSummary, commandRowTitle, groupConsecutiveCommandBlocks } from "../command-transcript.js";
 
 export type ParentAgentTranscriptActor = "user" | "parent-agent";
 export type ParentAgentTranscriptBlockKind = "prose" | "process" | "tool-result" | "evidence";
@@ -38,6 +38,12 @@ export interface ParentAgentTranscriptCell {
   agentRoleId?: string;
   agentTaskId?: string;
   runId?: string;
+  threadId?: string;
+  parentThreadId?: string;
+  turnId?: string;
+  agentSurfaceId?: string;
+  targetAgentSurfaceId?: string;
+  targetAgentDisplayName?: string;
   timestamp?: string;
   title?: string;
   text: string;
@@ -45,6 +51,7 @@ export interface ParentAgentTranscriptCell {
   evidenceRefs?: ParentAgentEvidenceRef[];
   isError?: boolean;
   realtime?: boolean;
+  activityKind?: "turn" | "reasoning" | "command" | "file" | "search" | "tool" | "agent" | "status";
   detailText?: string;
   contextRefs?: TopicFileReference[];
   attachments?: TopicAttachment[];
@@ -91,6 +98,9 @@ interface TranscriptThreadItemInput {
   source?: string;
   status?: string;
   runId?: string;
+  threadId?: string;
+  parentThreadId?: string;
+  turnId?: string;
   artifact?: string;
   agentRoleId?: string;
   agentTaskId?: string;
@@ -117,10 +127,15 @@ export function buildParentAgentTranscript(input: {
   };
 }
 
-export function buildAgentScopedTranscriptCells(threadItems: TranscriptThreadItemInput[], agentRoleId: string): ParentAgentTranscriptCell[] {
+export function buildAgentScopedTranscriptCells(
+  threadItems: TranscriptThreadItemInput[],
+  scope: { agentRoleId: string; threadId?: string; runId?: string },
+): ParentAgentTranscriptCell[] {
   return dedupeTranscriptCellEvidenceRefs(consolidateTranscriptCells(threadItems
-    .filter((item) => item.agentRoleId === agentRoleId)
-    .flatMap((item) => transcriptCellsFromThreadItem(item, { forceAgentRoleId: agentRoleId }))));
+    .filter((item) => item.agentRoleId === scope.agentRoleId
+      && (!scope.threadId || item.threadId === scope.threadId)
+      && (!scope.runId || item.runId === scope.runId))
+    .flatMap((item) => transcriptCellsFromThreadItem(item, { forceAgentRoleId: scope.agentRoleId }))));
 }
 
 export function pageParentAgentTranscript(
@@ -176,6 +191,8 @@ function transcriptCellsFromThreadItem(
           agentRoleId,
           agentTaskId: item.agentTaskId,
           runId: item.runId,
+          threadId: item.threadId,
+          parentThreadId: item.parentThreadId,
           text,
           contextRefs: item.contextRefs?.length ? item.contextRefs : undefined,
           attachments: item.attachments?.length ? item.attachments : undefined,
@@ -184,66 +201,68 @@ function transcriptCellsFromThreadItem(
   }
 
   const cells: ParentAgentTranscriptCell[] = [];
-  cells.push(...activityCellsFromThreadItem(item, agentRoleId));
-  for (const block of item.blocks ?? []) {
-    const cell = transcriptCellFromAssistantBlock(block, item, agentRoleId, Boolean(options.parentVisible));
+  for (const block of groupConsecutiveCommandBlocks(item.blocks ?? [])) {
+    const cell = transcriptCellFromAssistantBlock(block, item);
     if (cell) {
       cells.push({
         ...cell,
         agentRoleId,
         agentTaskId: item.agentTaskId,
         runId: cell.runId ?? item.runId,
+        threadId: cell.threadId ?? block.threadId ?? item.threadId,
+        parentThreadId: cell.parentThreadId ?? item.parentThreadId,
+        turnId: cell.turnId ?? block.turnId,
+        targetAgentSurfaceId: block.targetAgentSurfaceId,
+        targetAgentDisplayName: block.targetAgentDisplayName,
         evidenceRefs: item.artifact
           ? [{ label: "Plan proposal", ref: item.artifact, kind: "artifact" }, ...(cell.evidenceRefs ?? [])]
           : cell.evidenceRefs,
       });
     }
   }
-  return cells.filter((cell) => Boolean(cell.text.trim()));
+  cells.push(...activityCellsFromThreadItem(item, agentRoleId));
+  return cells.filter((cell) => Boolean(cell.text.trim() || cell.detailText?.trim()));
 }
 
 function activityCellsFromThreadItem(item: TranscriptThreadItemInput, agentRoleId?: string): ParentAgentTranscriptCell[] {
   if (item.source === "workflow") return [];
   const activities = item.activity ?? [];
   if (activities.length === 0) return [];
-  const toolCount = activities.filter((activity) => activity.kind === "tool").length;
-  const errorCount = activities.filter((activity) => activity.kind === "error").length;
-  if (toolCount === 0 && errorCount === 0) return [];
-  const parts = [
-    toolCount > 0 ? `已运行 ${toolCount} 条命令` : undefined,
-    errorCount > 0 ? `${errorCount} 个步骤需要关注。` : undefined,
-  ].filter(Boolean);
-  if (parts.length === 0) return [];
+  const startedAt = activities.find((activity) => activity.kind === "status" && ["started", "connecting", "thinking", "running"].includes(activity.label))?.timestamp;
+  const terminal = [...activities].reverse().find((activity): activity is Extract<AssistantTurnActivity, { kind: "status" }> =>
+    activity.kind === "status" && ["completed", "failed", "blocked", "cancelled"].includes(activity.label));
+  if (!startedAt || !terminal) return [];
+  const elapsedSeconds = Math.max(1, Math.round((Date.parse(terminal.timestamp) - Date.parse(startedAt)) / 1000));
+  const failed = terminal.label !== "completed";
+  const title = failed ? `本轮需要处理 · ${elapsedSeconds} 秒` : `已完成 · ${elapsedSeconds} 秒`;
   return [{
-    id: `cell:activity:${item.id}`,
+    id: `cell:turn:${item.runId ?? item.id}:${item.threadId ?? "main"}:${item.turnId ?? "turn"}`,
     kind: "process-row",
     source: "codex-runtime",
     timestamp: item.timestamp,
     agentRoleId,
     agentTaskId: item.agentTaskId,
     runId: item.runId,
-    title: errorCount > 0 ? "过程需要关注" : toolCount > 0 ? "已运行命令" : undefined,
-    text: parts.join("\n"),
-    status: item.status,
-    isError: errorCount > 0,
+    threadId: item.threadId,
+    parentThreadId: item.parentThreadId,
+    turnId: item.turnId,
+    title,
+    text: title,
+    status: terminal.label,
+    isError: failed,
+    activityKind: "turn",
   }];
 }
 
 function transcriptCellFromAssistantBlock(
   block: AssistantTurnBlock,
   item: TranscriptThreadItemInput,
-  agentRoleId: string | undefined,
-  parentVisible: boolean,
 ): ParentAgentTranscriptCell | null {
   if (block.kind === "usage") return null;
   const source: ParentAgentTranscriptBlockSource =
     block.source === "codex" ? "codex-runtime" : block.source === "workflow" ? "workflow-evidence" : "aho-orchestration";
   const rawText = block.text ?? block.preview ?? "";
-  const text = isGeneratedRunContext(rawText)
-    ? ""
-    : cleanPrimaryText(parentVisible && (!agentRoleId || agentRoleId === "main-agent")
-      ? sanitizeMainAgentVisibleText(rawText)
-      : rawText);
+  const text = isGeneratedRunContext(rawText) ? "" : cleanPrimaryText(rawText);
   const itemId = item.id;
   const timestamp = item.timestamp;
 
@@ -261,11 +280,26 @@ function transcriptCellFromAssistantBlock(
       isError: block.isError,
     };
   }
-  if (block.kind === "prose" || block.kind === "reasoning-summary") {
+  if (block.kind === "reasoning-summary") {
+    if (source !== "codex-runtime" || !text) return null;
+    return {
+      id: transcriptCellIdForBlock(block, "reasoning"),
+      kind: "process-row",
+      source,
+      timestamp,
+      title: `思考摘要 · ${reasoningHeadline(text)}`,
+      text: "",
+      detailText: text,
+      status: block.status,
+      isError: block.isError,
+      activityKind: "reasoning",
+    };
+  }
+  if (block.kind === "prose") {
     if (source !== "codex-runtime") return null;
     if (!text) return null;
     return {
-      id: `cell:assistant:${block.id ?? itemId}`,
+      id: transcriptCellIdForBlock(block, "assistant"),
       kind: "assistant-message",
       source,
       timestamp,
@@ -273,6 +307,7 @@ function transcriptCellFromAssistantBlock(
       text,
       status: block.status,
       isError: block.isError,
+      activityKind: "status",
     };
   }
 
@@ -281,7 +316,7 @@ function transcriptCellFromAssistantBlock(
     if (!statusText) return null;
     if (source !== "codex-runtime" && !block.isError && !isAgentLifecycleStatus(statusText.toLowerCase())) return null;
     return {
-      id: `cell:status:${block.id}`,
+      id: transcriptCellIdForBlock(block, "status"),
       kind: block.isError || source !== "codex-runtime" ? "process-row" : "detail-only",
       source,
       timestamp,
@@ -295,33 +330,35 @@ function transcriptCellFromAssistantBlock(
   if (source !== "codex-runtime" && block.kind !== "error") return null;
 
   if (block.kind === "command-group") {
-    const commandCount = block.children?.filter((child) => child.kind === "command").length ?? 0;
     const failedCount = block.children?.filter((child) => child.kind === "command" && child.isError).length ?? 0;
-    const commandText = summarizeCommandCount(commandCount, failedCount, block.status, block.isError);
+    const commandText = commandGroupSummary(block);
     const detailText = commandGroupDetailText(block.children ?? []);
     return {
-      id: `cell:command-group:${block.id}`,
+      id: transcriptCellIdForBlock(block, "command"),
       kind: "process-row",
       source,
       timestamp,
-      title: failedCount > 0 || block.isError ? "命令需要关注" : "已运行命令",
+      title: commandText,
       text: commandText,
       status: block.status,
       isError: block.isError || failedCount > 0,
+      activityKind: "command",
       detailText,
     };
   }
 
   if (block.kind === "command") {
+    const title = commandRowTitle(block);
     return {
-      id: `cell:command:${block.id}`,
+      id: transcriptCellIdForBlock(block, "command"),
       kind: "process-row",
       source,
       timestamp,
-      title: block.isError ? "命令需要关注" : "已运行命令",
-      text: summarizeCommandCount(1, block.isError ? 1 : 0, block.status, block.isError),
+      title,
+      text: title,
       status: block.status,
       isError: block.isError,
+      activityKind: "command",
       detailText: commandDetailText(block),
     };
   }
@@ -337,7 +374,7 @@ function transcriptCellFromAssistantBlock(
           : "工具调用已完成";
     const detailText = cleanPrimaryText([block.text, block.preview].filter(Boolean).join("\n\n"));
     return {
-      id: `cell:${block.kind}:${block.id}`,
+      id: transcriptCellIdForBlock(block, block.kind),
       kind: "process-row",
       source,
       timestamp,
@@ -345,6 +382,7 @@ function transcriptCellFromAssistantBlock(
       text: summary,
       status: block.status,
       isError: block.isError,
+      activityKind: block.targetAgentSurfaceId ? "agent" : block.kind === "file-change" ? "file" : /search/i.test(block.title ?? "") ? "search" : "tool",
       detailText: detailText || undefined,
       evidenceRefs: block.artifactRef ? [{ label: title || "详情", ref: block.artifactRef, kind: "artifact" }] : undefined,
     };
@@ -354,7 +392,7 @@ function transcriptCellFromAssistantBlock(
     const errorText = text || cleanPrimaryText(block.preview ?? "运行出错");
     if (!errorText) return null;
     return {
-      id: `cell:error:${block.id}`,
+      id: transcriptCellIdForBlock(block, "error"),
       kind: "process-row",
       source: "aho-orchestration",
       timestamp,
@@ -362,6 +400,7 @@ function transcriptCellFromAssistantBlock(
       text: errorText,
       status: block.status,
       isError: true,
+      activityKind: "status",
     };
   }
 
@@ -379,10 +418,22 @@ function transcriptCellFromAssistantBlock(
   };
 }
 
+function transcriptCellIdForBlock(block: AssistantTurnBlock, kind: string): string {
+  const identity = block.itemId
+    ? `${block.runId ?? "run"}:${block.threadId ?? "main"}:${block.itemId}`
+    : block.id;
+  return `cell:${kind}:${identity}`;
+}
+
+function reasoningHeadline(text: string): string {
+  const normalized = cleanPrimaryText(text).replace(/\s+/g, " ");
+  return normalized.length > 72 ? `${normalized.slice(0, 72)}...` : normalized;
+}
+
 function consolidateTranscriptCells(cells: ParentAgentTranscriptCell[]): ParentAgentTranscriptCell[] {
   const result: ParentAgentTranscriptCell[] = [];
   for (const cell of cells) {
-    if (!cell.text.trim()) continue;
+    if (!cell.text.trim() && !cell.detailText?.trim()) continue;
     const prev = result.at(-1);
     if (
       prev
@@ -432,31 +483,6 @@ function isAgentLifecycleStatus(value: string): boolean {
     || /(planning-agent|coder-agent|validator|auditor|rework|scheduler worker).{0,24}(委派|创建|运行中|返回结果|失败)/i.test(value);
 }
 
-function summarizeCommandCount(commandCount: number, failedCount: number, status?: string, isError?: boolean): string {
-  if (status === "running" || status === "started") return "正在运行命令";
-  const count = commandCount > 0 ? commandCount : 1;
-  if (isError || failedCount > 0) return failedCount > 0 ? `已运行 ${count} 条命令，${failedCount} 条需要关注` : `已运行 ${count} 条命令，需要关注`;
-  return `已运行 ${count} 条命令`;
-}
-
-function commandGroupDetailText(children: AssistantTurnBlock[]): string | undefined {
-  const details = children
-    .filter((child) => child.kind === "command")
-    .map(commandDetailText)
-    .filter((item): item is string => Boolean(item));
-  return details.length ? details.join("\n\n---\n\n") : undefined;
-}
-
-function commandDetailText(block: AssistantTurnBlock): string | undefined {
-  const sections: string[] = [];
-  if (block.command) sections.push(`$ ${block.command}`);
-  if (block.cwd) sections.push(`cwd: ${block.cwd}`);
-  if (typeof block.exitCode === "number") sections.push(`exit: ${block.exitCode}`);
-  const output = cleanPrimaryText([block.text, block.preview].filter(Boolean).join("\n\n"));
-  if (output) sections.push(output);
-  return sections.length ? sections.join("\n") : undefined;
-}
-
 function transcriptItemsFromCells(cells: ParentAgentTranscriptCell[]): ParentAgentTranscriptItem[] {
   return cells
     .filter((cell) => cell.kind !== "detail-only")
@@ -490,9 +516,9 @@ function isGeneratedRunContext(value: string | undefined): boolean {
 function cleanToolTitle(value: string | undefined): string | undefined {
   const text = cleanPrimaryText(value ?? "");
   if (!text || text === "AI" || text === "AI 回复" || text === "执行结果") return undefined;
-  if (text === "Command completed") return "已运行命令";
-  if (text === "Command started") return "命令执行中";
-  if (text === "Command failed") return "命令需要关注";
+  if (text === "Command completed") return "命令已完成";
+  if (text === "Command started") return "正在运行命令";
+  if (text === "Command failed") return "命令执行失败";
   if (text === "Planning draft generated") return "计划已生成";
   if (text === "Planning draft revised") return "计划已修改";
   if (text === "Planning confirmed") return "计划已确认";

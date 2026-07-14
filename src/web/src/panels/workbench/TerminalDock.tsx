@@ -12,6 +12,7 @@ export interface TerminalTab {
 
 export function WorkspaceDockToggleBar({
   orchestrationActive,
+  orchestrationNeedsAttention,
   orchestrationDisabled,
   onToggleOrchestration,
   terminalActive,
@@ -19,6 +20,7 @@ export function WorkspaceDockToggleBar({
   onToggleTerminal,
 }: {
   orchestrationActive: boolean;
+  orchestrationNeedsAttention?: boolean;
   orchestrationDisabled: boolean;
   onToggleOrchestration: () => void;
   terminalActive: boolean;
@@ -29,12 +31,12 @@ export function WorkspaceDockToggleBar({
     <div className="workspace-dock-toggle-bar" aria-label="工作区工具">
       <button
         type="button"
-        className={`top-tool-button workspace-orchestration-toggle${orchestrationActive ? " active" : ""}`}
+        className={`top-tool-button workspace-orchestration-toggle${orchestrationActive ? " active" : ""}${orchestrationNeedsAttention ? " attention" : ""}`}
         data-testid="orchestration-overlay-toggle"
         disabled={orchestrationDisabled}
         aria-pressed={orchestrationActive}
-        aria-label={orchestrationActive ? "关闭 Agent 编排图" : "打开 Agent 编排图"}
-        title={orchestrationActive ? "关闭 Agent 编排图" : "打开 Agent 编排图"}
+        aria-label={orchestrationNeedsAttention ? "Agent 编排图，需要你回答" : orchestrationActive ? "关闭 Agent 编排图" : "打开 Agent 编排图"}
+        title={orchestrationNeedsAttention ? "Agent 需要你回答" : orchestrationActive ? "关闭 Agent 编排图" : "打开 Agent 编排图"}
         onClick={onToggleOrchestration}
       >
         <GitBranch size={16} aria-hidden="true" />

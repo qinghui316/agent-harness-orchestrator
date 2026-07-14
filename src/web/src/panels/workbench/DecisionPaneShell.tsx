@@ -79,7 +79,7 @@ export function RightToolRailShell({
     );
 
   return (
-    <aside className="approval-pane approval-pane-expanded" data-testid="decision-pane-shell" aria-label="右侧工具面板">
+    <aside className={`approval-pane approval-pane-expanded${activeView === "agent" ? " agent-view" : ""}`} data-testid="decision-pane-shell" aria-label="右侧工具面板">
       <div
         className="shell-resize-grip right-rail-resizer"
         role="separator"
@@ -87,7 +87,7 @@ export function RightToolRailShell({
         aria-label="调整右侧工具栏宽度"
         onPointerDown={onResizeStart}
       />
-      <div className="decision-pane-toolbar">
+      {activeView !== "agent" ? <div className="decision-pane-toolbar">
         <div className="decision-pane-toolbar-left">
           {activeView !== "launcher" ? (
             <button
@@ -112,7 +112,7 @@ export function RightToolRailShell({
         >
           <PanelRightClose size={18} aria-hidden="true" />
         </button>
-      </div>
+      </div> : null}
       <div className={`decision-pane-content${activeView === "agent" ? " agent-content" : ""}`}>{panelContent}</div>
     </aside>
   );

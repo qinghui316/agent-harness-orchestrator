@@ -1,11 +1,13 @@
 ﻿import { execFile } from "node:child_process";
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createProgram } from "../../src/cli/program.js";
+import { writeChangeIndex } from "../../src/ecl/index.js";
+import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { getSpecTestStatus } from "../../src/spec-test/manager.js";
 import { getSpecTestDriftReport } from "../../src/spec-test/drift.js";
 import { getWorkbenchSnapshot, getWorkbenchStream, listWorkbenchApprovals } from "../../src/workbench/manager.js";
@@ -35,6 +37,17 @@ function managedProject(): ManagedProject {
     addedAt: new Date().toISOString(),
     lastSeenAt: new Date().toISOString(),
   };
+}
+
+async function seedExternalHarnessAfterAgentOnboarding(): Promise<void> {
+  await runCli(["harness", "init", "repo", "--memory", "external-local"]);
+  const templateRoot = join(process.cwd(), "templates", "core-harness");
+  const memoryRoot = join(homeDir, "projects", "repo");
+  await cp(join(templateRoot, "AGENTS.md"), join(repoDir, "AGENTS.md"));
+  for (const name of ["docs", "harness", "scripts"]) {
+    await cp(join(templateRoot, name), join(memoryRoot, name), { recursive: true });
+  }
+  await writeChangeIndex(await resolveProjectMemory(managedProject()));
 }
 
 beforeEach(async () => {
@@ -111,7 +124,7 @@ describe("CLI flow", () => {
 
   it("builds workbench read models for external-local projects", async () => {
     await runCli(["project", "add", repoDir, "--name", "Repo"]);
-    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
+    await seedExternalHarnessAfterAgentOnboarding();
     await runCli(["change", "new", "repo", "--title", "Workbench Read Model", "--body", "Raw request"]);
     await runCli(["run", "start", "repo", "--", process.execPath, "-e", "console.log('workbench stream')"]);
     await runCli(["workbench", "snapshot", "repo", "--json"]);
@@ -143,7 +156,7 @@ describe("CLI flow", () => {
 
   it("imports project skills and syncs them through the Codex bridge", async () => {
     await runCli(["project", "add", repoDir, "--name", "Repo"]);
-    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
+    await seedExternalHarnessAfterAgentOnboarding();
     const skillDir = join(tempDir, "skill");
     await mkdir(join(skillDir, "references"), { recursive: true });
     await mkdir(join(skillDir, "scripts"), { recursive: true });
@@ -241,7 +254,7 @@ describe("CLI flow", () => {
       },
     }), "utf8");
     await runCli(["project", "add", repoDir, "--name", "Repo"]);
-    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
+    await seedExternalHarnessAfterAgentOnboarding();
     await runCli(["change", "new", "repo", "--title", "Command Evidence"]);
 
     await runCli(["spec-test", "link", "repo", "--ac", "AC-001", "--command", "build", "--json"]);
@@ -264,7 +277,7 @@ describe("CLI flow", () => {
     await execFileAsync("git", ["-C", repoDir, "add", "README.md", "package.json"]);
     await execFileAsync("git", ["-C", repoDir, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "init"]);
     await runCli(["project", "add", repoDir, "--name", "Repo"]);
-    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
+    await seedExternalHarnessAfterAgentOnboarding();
     await runCli(["change", "new", "repo", "--title", "Worktree Spec Evidence"]);
     await runCli(["worktree", "create", "repo", "--json"]);
 
@@ -301,7 +314,7 @@ describe("CLI flow", () => {
     await writeFile(join(repoDir, "test", "pricing.test.js"), "test('normal customers pay subtotal', () => {});\n", "utf8");
 
     await runCli(["project", "add", repoDir, "--name", "Repo"]);
-    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
+    await seedExternalHarnessAfterAgentOnboarding();
     await runCli(["change", "new", "repo", "--title", "Existing Evidence"]);
     await runCli(["validate", "run", "repo", "--json"]);
     await runCli(["spec-test", "propose", "repo", "--json"]);
@@ -346,7 +359,7 @@ describe("CLI flow", () => {
     await execFileAsync("git", ["-C", repoDir, "commit", "-m", "init"]);
 
     await runCli(["project", "add", repoDir, "--name", "Repo"]);
-    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
+    await seedExternalHarnessAfterAgentOnboarding();
     await execFileAsync("git", ["-C", repoDir, "add", "AGENTS.md", ".agent-harness"]);
     await execFileAsync("git", ["-C", repoDir, "commit", "-m", "init aho marker"]);
     await runCli(["change", "new", "repo", "--title", "Generated Spec Test"]);
@@ -399,7 +412,7 @@ describe("CLI flow", () => {
     await execFileAsync("git", ["-C", repoDir, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "init"]);
 
     await runCli(["project", "add", repoDir, "--name", "Repo"]);
-    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
+    await seedExternalHarnessAfterAgentOnboarding();
     await runCli(["change", "new", "repo", "--title", "Bad Generated Test"]);
     await runCli(["spec-test", "generate", "repo", "--missing", "--json"]);
 
@@ -424,7 +437,7 @@ describe("CLI flow", () => {
     await writeFile(join(repoDir, "test", "pricing.test.js"), "test\n", "utf8");
 
     await runCli(["project", "add", repoDir, "--name", "Repo"]);
-    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
+    await seedExternalHarnessAfterAgentOnboarding();
     await runCli(["change", "new", "repo", "--title", "No Missing Evidence"]);
     await runCli(["spec-test", "link", "repo", "--ac", "AC-001", "--file", "test/pricing.test.js", "--json"]);
     await runCli(["spec-test", "generate", "repo", "--missing", "--json"]);
@@ -489,45 +502,20 @@ describe("CLI flow", () => {
     await runCli(["run", "show", "repo", runIds[0], "--json"]);
   });
 
-  it("supports external-local memory for change and run artifacts", async () => {
-    await installFakeCodex("root");
+  it("keeps external-local initialization runtime-only until Agent onboarding", async () => {
     await runCli(["project", "add", repoDir, "--name", "Repo"]);
     await runCli(["harness", "init", "repo", "--memory", "external-local"]);
 
     const marker = JSON.parse(await readFile(join(repoDir, ".agent-harness", "project.json"), "utf8"));
     const memoryRoot = join(homeDir, "projects", "repo");
     expect(marker).toMatchObject({ id: "repo", memoryMode: "external-local" });
-    expect(existsSync(join(repoDir, "AGENTS.md"))).toBe(true);
+    expect(existsSync(join(repoDir, "AGENTS.md"))).toBe(false);
     expect(existsSync(join(repoDir, ".agent-harness", ".gitignore"))).toBe(true);
     expect(existsSync(join(repoDir, "harness"))).toBe(false);
     expect(existsSync(join(repoDir, "docs"))).toBe(false);
-    expect(existsSync(join(memoryRoot, "docs", "ECL.md"))).toBe(true);
-    expect(existsSync(join(memoryRoot, "harness", "changes", "INDEX.json"))).toBe(true);
-    expect(existsSync(join(memoryRoot, "scripts", "harness-change.ps1"))).toBe(true);
-
-    await runCli(["memory", "status", "repo", "--json"]);
-    await runCli(["harness", "audit", "repo", "--json"]);
-    await runCli(["change", "new", "repo", "--title", "External Memory Change", "--body", "Raw request"]);
-
-    const changeDir = join(memoryRoot, "harness", "changes", "active", "external-memory-change");
-    expect(existsSync(join(changeDir, "change.json"))).toBe(true);
-    await runCli(["change", "status", "repo", "--json"]);
-
-    await runCli(["run", "start", "repo", "--", process.execPath, "-e", "console.log(process.cwd())"]);
-    await runCli(["run", "codex", "repo", "--prompt", "Propose a plan"]);
-
-    const runIds = await readdir(join(memoryRoot, "runs"));
-    expect(runIds).toHaveLength(2);
-    const firstRun = JSON.parse(await readFile(join(memoryRoot, "runs", runIds[0], "run.json"), "utf8"));
-    expect(firstRun.artifacts.base).toBe("memory-root");
-    expect(firstRun.artifacts.directory).toMatch(/^runs\//);
-    expect(existsSync(join(repoDir, ".agent-harness", "runs"))).toBe(false);
-
-    await writeFile(join(changeDir, "reviews", "review.md"), "Status: approved\n", "utf8");
-    await runCli(["change", "close", "repo"]);
-    const index = JSON.parse(await readFile(join(memoryRoot, "harness", "changes", "INDEX.json"), "utf8"));
-    expect(index.active).toHaveLength(0);
-    expect(index.archive[0].name).toMatch(/^\d{8}-external-memory-change/);
+    expect(existsSync(join(memoryRoot, "docs"))).toBe(false);
+    expect(existsSync(join(memoryRoot, "harness"))).toBe(false);
+    expect(existsSync(join(memoryRoot, "scripts"))).toBe(false);
   });
 
   it("falls back to JSONL final message when output-last-message is unsupported", async () => {
@@ -571,7 +559,7 @@ describe("CLI flow", () => {
     await execFileAsync("git", ["-C", repoDir, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "init"]);
 
     await runCli(["project", "add", repoDir, "--name", "Repo"]);
-    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
+    await seedExternalHarnessAfterAgentOnboarding();
     await runCli(["change", "new", "repo", "--title", "Worktree Smoke", "--body", "Raw request"]);
 
     const memoryRoot = join(homeDir, "projects", "repo");
@@ -617,7 +605,7 @@ describe("CLI flow", () => {
     await execFileAsync("git", ["-C", repoDir, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "init"]);
 
     await runCli(["project", "add", repoDir, "--name", "Repo"]);
-    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
+    await seedExternalHarnessAfterAgentOnboarding();
     await runCli(["change", "new", "repo", "--title", "Validate Worktree", "--body", "Raw request"]);
     await runCli(["validate", "run", "repo", "--worktree", "--json"]);
 
@@ -649,7 +637,7 @@ describe("CLI flow", () => {
     await execFileAsync("git", ["-C", repoDir, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "init"]);
 
     await runCli(["project", "add", repoDir, "--name", "Repo"]);
-    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
+    await seedExternalHarnessAfterAgentOnboarding();
     await runCli(["change", "new", "repo", "--title", "Validate Package Fallback"]);
     await runCli(["validate", "run", "repo", "--worktree", "--json"]);
 
@@ -700,7 +688,7 @@ describe("CLI flow", () => {
     await execFileAsync("git", ["-C", repoDir, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "init"]);
 
     await runCli(["project", "add", repoDir, "--name", "Repo"]);
-    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
+    await seedExternalHarnessAfterAgentOnboarding();
     await runCli(["change", "new", "repo", "--title", "Audit Worktree"]);
     await runCli(["worktree", "create", "repo"]);
 
@@ -737,7 +725,7 @@ describe("CLI flow", () => {
 
   it("rejects CLI code runs without an explicit Workflow Runtime execution gate", async () => {
     await runCli(["project", "add", repoDir, "--name", "Repo"]);
-    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
+    await seedExternalHarnessAfterAgentOnboarding();
     await runCli(["change", "new", "repo", "--title", "Ungated Code"]);
 
     await expect(runCli(["code", "run", "repo", "--json"])).rejects.toThrow("explicit Workflow Runtime execution gate");
@@ -749,7 +737,7 @@ describe("CLI flow", () => {
     await execFileAsync("git", ["-C", repoDir, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "init"]);
 
     await runCli(["project", "add", repoDir, "--name", "Repo"]);
-    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
+    await seedExternalHarnessAfterAgentOnboarding();
     await runCli(["change", "new", "repo", "--title", "Discard Worktree"]);
     await runCli(["worktree", "create", "repo", "--json"]);
 
@@ -799,7 +787,7 @@ describe("CLI flow", () => {
 
   it("blocks worktree creation for repositories without commits", async () => {
     await runCli(["project", "add", repoDir, "--name", "Repo"]);
-    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
+    await seedExternalHarnessAfterAgentOnboarding();
     await runCli(["change", "new", "repo", "--title", "No Commit Worktree"]);
 
     await expect(runCli(["worktree", "create", "repo"])).rejects.toThrow("has no commits");
@@ -812,7 +800,7 @@ describe("CLI flow", () => {
     await execFileAsync("git", ["-C", repoDir, "checkout", "--detach", "HEAD"]);
 
     await runCli(["project", "add", repoDir, "--name", "Repo"]);
-    await runCli(["harness", "init", "repo", "--memory", "external-local"]);
+    await seedExternalHarnessAfterAgentOnboarding();
     await runCli(["change", "new", "repo", "--title", "Detached Worktree"]);
 
     await expect(runCli(["worktree", "create", "repo"])).rejects.toThrow("detached HEAD");

@@ -11,12 +11,10 @@ import {
   Trash2,
 } from "lucide-react";
 import {
-  ProjectPrepareButton,
   ProjectAddForm,
   ProjectCreateForm,
 } from "../panels/ProjectPanels.js";
 import { projectDisplayName, userFacingText, workpadStatusLabel } from "../formatters.js";
-import { postJson } from "../api.js";
 import type {
   ProjectStatus,
   Snapshot,
@@ -182,7 +180,7 @@ export function ProjectConversationSidebar({
                 {expanded ? (
                   <div className="conversation-list">
                     {memoryReady && !projectSnapshot ? <div className="conversation-placeholder">正在加载对话。</div> : null}
-                    {!memoryReady && !hasConversationSnapshot ? <div className="conversation-placeholder">项目需要准备后才能开始新对话。</div> : null}
+                    {!memoryReady && !hasConversationSnapshot ? <div className="conversation-placeholder">首次需求时会根据项目情况建立必要工作说明。</div> : null}
                     {filteredConversations.map((conversation) => {
                       const menuId = `${projectId}:${conversation.id}`;
                       return (
@@ -237,25 +235,15 @@ export function currentWorkpadSummary(snapshot: Snapshot, topic: TopicDetail | n
   return snapshot.left.workpads?.find((item) => item.id === topic.id);
 }
 
-export function UnmanagedProjectView({ project, onDone }: { project: ProjectStatus | null; onDone: () => Promise<void> }): ReactElement {
+export function UnmanagedProjectView({ project }: { project: ProjectStatus | null }): ReactElement {
   if (!project?.project) return <EmptyWorkbench title="项目不可用" description="请选择左侧项目或重新刷新项目列表。" />;
   const issue = memoryStatusIssue(project);
-  const temporaryDirect = !project.memory?.registered;
   return (
     <section className="empty-workbench">
-      <p className="eyebrow">{temporaryDirect ? "临时打开" : "项目已添加"}</p>
+      <p className="eyebrow">项目已添加</p>
       <h1>{projectDisplayName(project.project)}</h1>
       <p>{project.path}</p>
-      {temporaryDirect ? (
-        <button
-          className="outline-button"
-          onClick={() => void postJson("/api/projects", { path: project.path, confirm: true }).then(() => onDone())}
-        >
-          保存到项目列表
-        </button>
-      ) : null}
-      <p>{issue?.detail ?? "这个项目需要准备后才能开始需求对话。"}</p>
-      {issue?.kind === "missing-external-memory" ? null : <ProjectPrepareButton projectId={project.project.id} onDone={onDone} />}
+      <p>{issue?.detail ?? "项目历史不可用，请在项目设置的高级诊断中确认应用数据目录。"}</p>
     </section>
   );
 }
@@ -323,8 +311,8 @@ function memoryStatusIssue(project: ProjectStatus, snapshot?: Snapshot): { kind:
   }
   return {
     kind: "uninitialized",
-    short: "需要准备",
-    detail: "项目需要准备。",
+    short: "首次对话建立说明",
+    detail: "首次需求时会根据项目情况建立必要工作说明。",
   };
 }
 

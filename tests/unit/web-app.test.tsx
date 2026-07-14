@@ -1114,7 +1114,10 @@ describe("Workbench web app", () => {
     expect(screen.getByText("项目数据：已准备")).toBeTruthy();
     expect(screen.getByText("当前需求：会员折扣计价")).toBeTruthy();
     fireEvent.click(screen.getByTestId("orchestration-overlay-toggle"));
-    expect(await screen.findByTestId("agent-graph-overlay", undefined, { timeout: 5000 })).toBeTruthy();
+    expect(await screen.findByTestId("agent-graph-center-view", undefined, { timeout: 5000 })).toBeTruthy();
+    expect(new URL(window.location.href).searchParams.get("tab")).toBe("orchestration");
+    expect(screen.queryByRole("dialog", { name: "Agent 编排图" })).toBeNull();
+    expect(screen.queryByTestId("agent-graph-overlay-backdrop")).toBeNull();
     expect(await screen.findByTestId("agent-run-graph", undefined, { timeout: 5000 })).toBeTruthy();
     expect(fetchCallUrls()).toContain("/api/projects/repo/workbench/projections/run-graph/member-discount");
     expect(screen.getByTestId("agent-orchestration-map")).toBeTruthy();
@@ -1124,17 +1127,23 @@ describe("Workbench web app", () => {
     expect(screen.getAllByTestId("agent-orchestration-edge").length).toBeGreaterThan(0);
     expect(screen.getByTestId("agent-run-node-main-agent")).toBeTruthy();
     expect(screen.getByTestId("agent-run-node-coder-agent")).toBeTruthy();
-    expect(document.querySelector(".agent-orchestration-card .agent-orchestration-avatar")).toBeTruthy();
+    expect(document.querySelector(".agent-orchestration-card .agent-orchestration-avatar")).toBeNull();
     const graphText = screen.getByTestId("agent-run-graph").textContent ?? "";
     for (const forbidden of ["full-auto", "parallel executor", "merge queue", "automatic remote", "TaskRun", "WorkerLease"]) {
       expect(graphText).not.toContain(forbidden);
     }
     expect(screen.queryByTestId("agent-run-node-memory-closeout")).toBeNull();
+    expect(screen.queryByTestId("agent-run-node-validator")).toBeNull();
+    expect(screen.queryByTestId("agent-run-node-integration-check")).toBeNull();
+    fireEvent.click(screen.getByTestId("agent-run-node-main-agent"));
+    await waitFor(() => expect(screen.queryByTestId("agent-graph-center-view")).toBeNull());
+    expect(new URL(window.location.href).searchParams.get("tab")).toBeNull();
+    fireEvent.click(screen.getByTestId("orchestration-overlay-toggle"));
+    expect(await screen.findByTestId("agent-orchestration-map")).toBeTruthy();
     fireEvent.click(screen.getByTestId("agent-run-node-coder-agent"));
-    expect(screen.getByTestId("agent-run-node-detail")).toBeTruthy();
-    expect(screen.getByText("打开原始日志")).toBeTruthy();
-    fireEvent.click(screen.getByText("打开原始日志"));
-    await waitFor(() => expect(screen.getByText("模型事件转录")).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId("agent-graph-center-view")).toBeTruthy());
+    expect(new URL(window.location.href).searchParams.get("tab")).toBe("orchestration");
+    expect(screen.getByTestId("agent-workspace-panel")).toBeTruthy();
 
     await openDecisionPane();
     fireEvent.click(screen.getAllByText("应用到项目")[0] as HTMLElement);
@@ -1871,14 +1880,41 @@ describe("Workbench web app", () => {
     expect(screen.queryByTestId("decision-inspector-primary")).toBeNull();
     fireEvent.click(screen.getByTestId("orchestration-overlay-toggle"));
 
-    expect(await screen.findByTestId("agent-graph-overlay", undefined, { timeout: 5000 })).toBeTruthy();
+    expect(await screen.findByTestId("agent-graph-center-view", undefined, { timeout: 5000 })).toBeTruthy();
     expect(await screen.findByTestId("agent-run-graph", undefined, { timeout: 5000 })).toBeTruthy();
     expect(screen.getByTestId("agent-orchestration-map")).toBeTruthy();
     expect(screen.getByTestId("agent-orchestration-zoom-in")).toBeTruthy();
     expect(screen.getByTestId("agent-orchestration-fit")).toBeTruthy();
     expect(screen.getAllByTestId("agent-orchestration-edge").length).toBeGreaterThan(0);
-    expect(document.querySelector(".agent-orchestration-card .agent-orchestration-avatar")).toBeTruthy();
+    expect(document.querySelector(".agent-orchestration-card .agent-orchestration-avatar")).toBeNull();
     expect(screen.queryByTestId("decision-inspector-primary")).toBeNull();
+  });
+
+  it("shows a bounded graph projection error and retries without inventing nodes", async () => {
+    window.history.replaceState({}, "", "/?project=repo&topic=member-discount");
+    let graphAttempts = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(snapshot.center.parentAgentTranscript);
+      if (url.includes("/workbench/projections/run-graph/")) {
+        graphAttempts += 1;
+        if (graphAttempts === 1) return new Response("projection unavailable", { status: 503 });
+        return jsonResponse(snapshot.center.agentRunGraph);
+      }
+      return jsonResponse(url.includes("/stream/") ? stream : snapshot);
+    }));
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByTestId("main-conversation-view")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("orchestration-overlay-toggle"));
+
+    expect((await screen.findByRole("alert")).textContent).toContain("Agent 关系加载失败");
+    expect(screen.queryByTestId("agent-run-node-planning-agent")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "重试" }));
+    expect(await screen.findByTestId("agent-run-node-main-agent")).toBeTruthy();
+    expect(graphAttempts).toBe(2);
   });
 
   it("renders a usable manual-gated flow with one concrete apply confirmation", async () => {
@@ -3193,7 +3229,7 @@ describe("Workbench web app", () => {
 
     await waitFor(() => expect(screen.getAllByText("工具面板验收").length).toBeGreaterThan(0));
     expect(screen.getByRole("button", { name: "Tools" })).toBeTruthy();
-    expect(await screen.findByTestId("agent-graph-overlay")).toBeTruthy();
+    expect(await screen.findByTestId("agent-graph-center-view")).toBeTruthy();
     expect(fetchCallUrls()).toContain("/api/projects/tools/workbench/snapshot?topic=tools-topic");
     expect(fetchCallUrls()).not.toContain("/api/projects/repo/workbench/snapshot");
   });
@@ -3329,7 +3365,7 @@ describe("Workbench web app", () => {
     await waitFor(() => expect(screen.getByText("实时 AI 输出")).toBeTruthy());
     expect(screen.queryByText("正在处理")).toBeNull();
     expect(screen.queryByText("AI 只读回复")).toBeNull();
-    expect(screen.getByText("Reasoning summary")).toBeTruthy();
+    expect(screen.getByText(/思考摘要 · Checked existing constraints\./)).toBeTruthy();
     const commandCell = Array.from(document.querySelectorAll(".parent-agent-tool-result"))
       .find((node) => node.textContent?.includes("已运行 1 条命令")) as HTMLElement | undefined;
     expect(commandCell).toBeTruthy();
@@ -3525,7 +3561,100 @@ describe("Workbench web app", () => {
     expect(screen.getByTestId("decision-pane-toggle")).toBeTruthy();
     const sidebar = document.querySelector(".codex-sidebar") as HTMLElement;
     expect(sidebar.textContent).not.toMatch(/Harness|memory|AHO_HOME|external-local|TaskGraph|SchedulerRun/);
-    await waitFor(() => expect(screen.getByText("需要准备")).toBeTruthy());
+  });
+
+  it("keeps one in-place Main activity row when usage initially carries the previous provider turn", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") {
+        return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      }
+      if (url.includes("/messages/live")) {
+        return sseResponse([
+          ["run.started", { runId: "run-stable", changeId: "member-discount", runtime: "codex-app-server", actionType: "chat.ask" }],
+          ["run.status", { runId: "run-stable", status: "connecting", label: "正在连接" }],
+          ["usage", { runId: "run-stable", threadId: "thread-main", turnId: "turn-previous", agentRoleId: "main-agent", usage: { input_tokens: 10 } }],
+          ["run.status", { runId: "run-stable", threadId: "thread-main", turnId: "turn-current", agentRoleId: "main-agent", status: "thinking", label: "正在思考" }],
+          ["done", { status: "completed" }],
+        ]);
+      }
+      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(snapshot.center.parentAgentTranscript);
+      return jsonResponse(url.includes("/stream/") ? stream : snapshot);
+    }));
+
+    render(<App />);
+    await waitFor(() => expect(screen.getAllByText("会员折扣计价").length).toBeGreaterThan(0));
+    fireEvent.change(screen.getByPlaceholderText("输入问题或下一步需求"), { target: { value: "检查实时状态" } });
+    fireEvent.click(screen.getByTitle("发送"));
+
+    await waitFor(() => {
+      expect(document.querySelectorAll('[data-realtime="true"]')).toHaveLength(1);
+      expect(document.querySelector('[data-realtime="true"]')?.getAttribute("data-cell-id")).toBe("cell:turn:run-stable:thread-main:turn-current");
+    });
+    const activity = document.querySelector('[data-realtime="true"]') as HTMLElement;
+    expect({ cellId: activity.dataset.cellId, threadId: activity.dataset.threadId, turnId: activity.dataset.turnId }).toEqual({
+      cellId: "cell:turn:run-stable:thread-main:turn-current",
+      threadId: "thread-main",
+      turnId: "turn-current",
+    });
+    expect(document.querySelectorAll('[data-run-id="run-stable"][data-cell-id="cell:turn:run-stable:thread-main:turn-current"]')).toHaveLength(1);
+  });
+
+  it("keeps child Agent output out of the main transcript until the user opens that Agent", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") {
+        return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      }
+      if (url.includes("/messages/live")) {
+        return sseResponse([
+          ["run.started", {
+            projectId: "repo",
+            conversationId: "member-discount",
+            runId: "run-child-live",
+            threadId: "thread-plan-live",
+            parentThreadId: "thread-main",
+            agentRoleId: "planning-agent",
+            agentSurfaceId: "thread:thread-plan-live",
+            agentDisplayName: "Sagan",
+            status: "running",
+          }],
+          ["assistant.delta", {
+            projectId: "repo",
+            conversationId: "member-discount",
+            runId: "run-child-live",
+            threadId: "thread-plan-live",
+            parentThreadId: "thread-main",
+            agentRoleId: "planning-agent",
+            agentSurfaceId: "thread:thread-plan-live",
+            agentDisplayName: "Sagan",
+            delta: "只属于 Plan Agent 的实时内容",
+          }],
+          ["done", { status: "completed" }],
+        ]);
+      }
+      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(snapshot.center.agentRunGraph);
+      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(snapshot.center.parentAgentTranscript);
+      return jsonResponse(url.includes("/stream/") ? stream : snapshot);
+    }));
+
+    render(<App />);
+    await waitFor(() => expect(screen.getAllByText("会员折扣计价").length).toBeGreaterThan(0));
+    fireEvent.change(screen.getByPlaceholderText("输入问题或下一步需求"), { target: { value: "请规划这项需求" } });
+    fireEvent.click(screen.getByTitle("发送"));
+
+    await waitFor(() => expect(screen.queryByTestId("agent-workspace-panel")).toBeNull());
+    expect(screen.queryByText("只属于 Plan Agent 的实时内容")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("orchestration-overlay-toggle"));
+    const planNodes = await screen.findAllByTestId("agent-run-node-planning-agent");
+    expect(planNodes.at(-1)?.textContent).toContain("Plan Agent · Sagan");
+    fireEvent.click(planNodes.at(-1) as HTMLElement);
+    expect(await screen.findByTestId("agent-workspace-panel")).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "打开 Plan Agent · Sagan" })).toBeTruthy();
+    expect(screen.getByText("只属于 Plan Agent 的实时内容")).toBeTruthy();
   });
 
   it("renders the project home without triggering project mutations", async () => {
@@ -3744,6 +3873,7 @@ describe("Workbench web app", () => {
       if (url === "/api/projects/repo/workbench/topics/live" && init?.method === "POST") return topicCreateLiveResponse("new-demand", selectedSnapshot, "实现设置入口");
       if (url === "/api/projects/repo/workbench/snapshot?topic=new-demand") return jsonResponse(selectedSnapshot);
       if (url === "/api/projects/repo/workbench/projections/transcript/new-demand?limit=100") return jsonResponse(selectedSnapshot.center.parentAgentTranscript);
+      if (url === "/api/projects/repo/workbench/projections/run-graph/new-demand") return jsonResponse(selectedSnapshot.center.agentRunGraph);
       return jsonResponse(noTopicSnapshot);
     }));
 
@@ -3811,10 +3941,11 @@ describe("Workbench web app", () => {
           ["topic.created", { topic: { changeId: "new-demand", title: "实现设置入口", state: "active" } }],
           ["snapshot", selectedSnapshot],
           ["done", { status: "completed" }],
-        ], () => { delayedEventsStarted = true; });
+        ], () => { delayedEventsStarted = true; }, 3_000);
       }
       if (url === "/api/projects/repo/workbench/snapshot?topic=new-demand") return jsonResponse(selectedSnapshot);
       if (url === "/api/projects/repo/workbench/projections/transcript/new-demand?limit=100") return jsonResponse(selectedSnapshot.center.parentAgentTranscript);
+      if (url === "/api/projects/repo/workbench/projections/run-graph/new-demand") return jsonResponse(selectedSnapshot.center.agentRunGraph);
       return jsonResponse(noTopicSnapshot);
     }));
 
@@ -3830,8 +3961,16 @@ describe("Workbench web app", () => {
     expect(screen.queryByText("等待回复")).toBeNull();
     expect(delayedEventsStarted).toBe(false);
     expect(fetchCallUrls().some((url) => url.includes("/workbench/projections/transcript/pending%3A"))).toBe(false);
-    await waitFor(() => expect(delayedEventsStarted).toBe(true));
+    expect((screen.getByTestId("orchestration-overlay-toggle") as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByTestId("orchestration-overlay-toggle"));
+    expect((await screen.findByTestId("agent-run-node-main-agent")).classList.contains("running")).toBe(true);
+    expect(fetchCallUrls().some((url) => url.includes("/workbench/projections/run-graph/pending%3A"))).toBe(false);
+    await waitFor(() => expect(delayedEventsStarted).toBe(true), { timeout: 4_000 });
+    expect(screen.getByTestId("agent-graph-center-view")).toBeTruthy();
+    expect(screen.getByTestId("agent-run-node-main-agent")).toBeTruthy();
     await waitFor(() => expect(screen.queryByText("等待回复")).toBeNull());
+    expect(window.location.search).toContain("project=repo");
+    expect(window.location.search).toContain("topic=new-demand");
   });
 
   it("recognizes dollar Skill mentions in an existing topic without leaving the token in the sent message", async () => {
@@ -4084,7 +4223,7 @@ describe("Workbench web app", () => {
     expect(screen.getAllByText("aho-self").length).toBeGreaterThan(0);
   });
 
-  it("does not persist marker-derived names when saving a temporary direct project from first demand", async () => {
+  it("registers a temporary direct project when its first demand is sent", async () => {
     const legacyProject = { id: "aho-self", name: "aho-self", path: "E:/work/agent-harness-orchestrator" };
     const noTopicSnapshot = {
       ...snapshot,
@@ -4140,8 +4279,10 @@ describe("Workbench web app", () => {
 
     render(<App />);
 
-    await screen.findByRole("heading", { name: "agent-harness-orchestrator" });
-    fireEvent.click(screen.getByRole("button", { name: "保存到项目列表" }));
+    await screen.findByRole("heading", { name: "创造任何东西" });
+    expect(screen.queryByRole("button", { name: "保存到项目列表" })).toBeNull();
+    fireEvent.change(screen.getByLabelText("新建需求输入框"), { target: { value: "保存后创建需求" } });
+    fireEvent.click(screen.getByTitle("创建需求对话"));
 
     await waitFor(() => {
       expect(vi.mocked(fetch).mock.calls.some(([url, init]) => String(url) === "/api/projects" && init?.method === "POST")).toBe(true);
@@ -4242,7 +4383,7 @@ describe("Workbench web app", () => {
     });
   });
 
-  it("prepares a registered project only when the first demand is sent", async () => {
+  it("sends the first demand without a Harness preparation request", async () => {
     const noTopicSnapshot = {
       ...snapshot,
       memory: { memoryMode: "external-local", harnessReady: false },
@@ -4286,13 +4427,10 @@ describe("Workbench web app", () => {
 
     await waitFor(() => expect(screen.getByText("准备后创建需求")).toBeTruthy());
     const postUrls = vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST").map(([url]) => String(url));
-    expect(postUrls).toEqual([
-      "/api/projects/repo/harness/init",
-      "/api/projects/repo/workbench/topics/live",
-    ]);
+    expect(postUrls).toEqual(["/api/projects/repo/workbench/topics/live"]);
   });
 
-  it("stages home attachments until first demand prepares the project", async () => {
+  it("stages home attachments without a Harness preparation request", async () => {
     const noTopicSnapshot = {
       ...snapshot,
       memory: { memoryMode: "external-local", harnessReady: false },
@@ -4345,14 +4483,12 @@ describe("Workbench web app", () => {
     await waitFor(() => {
       const urls = vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST").map(([url]) => String(url));
       expect(urls).toEqual([
-        "/api/projects/repo/harness/init",
         "/api/projects/repo/attachments",
         "/api/projects/repo/workbench/topics/live",
       ]);
     });
     const postUrls = vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "POST").map(([url]) => String(url));
     expect(postUrls).toEqual([
-      "/api/projects/repo/harness/init",
       "/api/projects/repo/attachments",
       "/api/projects/repo/workbench/topics/live",
     ]);
@@ -4480,7 +4616,7 @@ describe("Workbench web app", () => {
     expect(screen.queryByText("这个项目需要准备后才能开始需求对话。")).toBeNull();
     const graphButton = screen.getByTestId("orchestration-overlay-toggle");
     fireEvent.click(graphButton);
-    expect(await screen.findByTestId("agent-graph-overlay")).toBeTruthy();
+    expect(await screen.findByTestId("agent-graph-center-view")).toBeTruthy();
   });
 
   it("adds an existing project from the native folder picker", async () => {
@@ -4607,6 +4743,7 @@ function delayedSseResponse(
   immediateEvents: Array<[string, unknown]>,
   delayedEvents: Array<[string, unknown]>,
   beforeDelayedEvents: () => void,
+  delayMs = 250,
 ): Response {
   const encoder = new TextEncoder();
   const streamBody = new ReadableStream<Uint8Array>({
@@ -4620,7 +4757,7 @@ function delayedSseResponse(
           controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
         }
         controller.close();
-      }, 250);
+      }, delayMs);
     },
   });
   return new Response(streamBody, {

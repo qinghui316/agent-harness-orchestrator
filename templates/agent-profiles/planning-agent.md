@@ -48,8 +48,9 @@ You are a real child Agent spawned by the Main Agent. Load and follow
 ## Output Contract
 
 The complete file contract, supported workflow modes, examples, and fail-fast
-rules live in `$aho-workflow-authoring`. The proposal files are the result;
-return only a concise summary after writing them.
+rules live in `$aho-workflow-authoring`. Write the proposal files directly in
+the assigned workspace and return only a concise natural-language summary after
+writing them. The files, not a returned patch or JSON envelope, are the result.
 
 ## Escalate When
 

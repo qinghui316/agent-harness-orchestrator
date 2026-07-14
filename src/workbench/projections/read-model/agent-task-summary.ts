@@ -11,11 +11,12 @@ export async function agentTaskToSummary(memory: ResolvedMemory, task: AgentTask
   const result = await readAgentTaskResult(memory, task.id).catch(() => null);
   return {
     id: task.id,
+    conversationId: task.conversationId,
     roleId: task.roleId,
     kind: task.kind,
     status: task.status,
     changeId: task.changeId,
-    runId: result?.artifactRefs.find((ref) => ref.includes("/runs/") || ref.startsWith("runs/")),
+    runId: result?.artifactRefs.map(runIdFromArtifactRef).find((runId) => runId !== undefined),
     summary: task.summary,
     resultSummary: result?.summary,
     evidenceRefs: result?.artifactRefs ?? task.outputArtifacts ?? task.inputArtifacts,
@@ -25,4 +26,10 @@ export async function agentTaskToSummary(memory: ResolvedMemory, task: AgentTask
     createdAt: task.createdAt,
     completedAt: task.finishedAt ?? undefined,
   };
+}
+
+function runIdFromArtifactRef(ref: string): string | undefined {
+  const normalized = ref.replace(/\\/g, "/");
+  const match = normalized.match(/(?:^|\/)runs\/([^/]+)(?:\/|$)/);
+  return match?.[1];
 }

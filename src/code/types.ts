@@ -58,7 +58,15 @@ export interface CodeRunResult {
 export interface CodeRunLiveCallbacks {
   onRunStarted?: (run: RunMetadata) => void;
   onStatus?: (event: { runId: string; status: string; label?: string }) => void;
-  onCodexEvent?: (event: CodexJsonlStreamEvent & { runId: string }) => void;
+  onCodexEvent?: (event: CodexJsonlStreamEvent & {
+    runId: string;
+    threadId?: string;
+    parentThreadId?: string;
+    turnId?: string;
+    agentRoleId?: string;
+    agentSurfaceId?: string;
+    agentDisplayName?: string;
+  }) => void;
   onStderrChunk?: (event: { runId: string; chunk: string }) => void;
   onCallbackError?: (event: { runId: string; error: unknown }) => void;
 }

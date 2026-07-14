@@ -2,6 +2,44 @@ import { describe, expect, it } from "vitest";
 import { buildAgentScopedTranscriptCells, buildParentAgentTranscript, pageParentAgentTranscript } from "../../src/workbench/parent-agent-transcript.js";
 
 describe("parent agent transcript paging", () => {
+  it("persists one completed turn boundary and a collapsed provider-visible reasoning summary", () => {
+    const transcript = buildParentAgentTranscript({
+      workpad: { conversationId: "conv", boundChangeId: "change", title: "Realtime history" },
+      threadItems: [{
+        id: "assistant-1",
+        kind: "assistant-turn",
+        label: "AI",
+        source: "chat",
+        timestamp: "2026-07-14T00:00:24.000Z",
+        runId: "run-1",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        activity: [
+          { kind: "status", label: "started", timestamp: "2026-07-14T00:00:00.000Z" },
+          { kind: "status", label: "connecting", timestamp: "2026-07-14T00:00:01.000Z" },
+          { kind: "status", label: "thinking", timestamp: "2026-07-14T00:00:03.000Z" },
+          { kind: "status", label: "completed", timestamp: "2026-07-14T00:00:24.000Z" },
+        ],
+        blocks: [{
+          id: "reasoning-1",
+          runId: "run-1",
+          sequence: 1,
+          kind: "reasoning-summary",
+          timestamp: "2026-07-14T00:00:03.000Z",
+          source: "codex",
+          text: "Checked the implementation boundary.",
+        }],
+      }],
+    });
+
+    expect(transcript.cells).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "cell:turn:run-1:thread-1:turn-1", kind: "process-row", title: "已完成 · 24 秒", status: "completed" }),
+      expect.objectContaining({ kind: "process-row", title: "思考摘要 · Checked the implementation boundary.", text: "", detailText: "Checked the implementation boundary." }),
+    ]));
+    expect(transcript.cells[0]?.id).toBe("cell:reasoning:reasoning-1");
+    expect(transcript.cells.at(-1)?.id).toBe("cell:turn:run-1:thread-1:turn-1");
+  });
+
   it("keeps the full transcript compatible and returns the latest page by default", () => {
     const transcript = buildParentAgentTranscript({
       workpad: { conversationId: "conv", boundChangeId: "change", title: "Long demand" },
@@ -98,6 +136,7 @@ describe("parent agent transcript paging", () => {
         label: "planning-agent",
         body: "Planning-agent draft body stays in the Agent workspace.",
         runId: "run-planning",
+        threadId: "thread-planning",
         agentRoleId: "planning-agent",
         agentTaskId: "task-planning",
         blocks: [childBlock],
@@ -108,7 +147,7 @@ describe("parent agent transcript paging", () => {
       workpad: { conversationId: "conv", boundChangeId: "change", title: "Agent split" },
       threadItems,
     });
-    const childCells = buildAgentScopedTranscriptCells(threadItems, "planning-agent");
+    const childCells = buildAgentScopedTranscriptCells(threadItems, { agentRoleId: "planning-agent", threadId: "thread-planning" });
 
     expect(parent.cells.map((cell) => cell.text).join("\n")).toContain("Main agent response.");
     expect(parent.cells.map((cell) => cell.text).join("\n")).not.toContain("Planning-agent draft body");
@@ -117,6 +156,7 @@ describe("parent agent transcript paging", () => {
         agentRoleId: "planning-agent",
         agentTaskId: "task-planning",
         runId: "run-planning",
+        threadId: "thread-planning",
         text: "Planning-agent draft body stays in the Agent workspace.",
       }),
     ]);
@@ -158,7 +198,7 @@ describe("parent agent transcript paging", () => {
       },
     ];
 
-    expect(buildAgentScopedTranscriptCells(threadItems, "planning-agent")).toEqual([
+    expect(buildAgentScopedTranscriptCells(threadItems, { agentRoleId: "planning-agent" })).toEqual([
       expect.objectContaining({
         runId: "run-initial",
         text: "# Plan: Initial proposal",
@@ -172,7 +212,30 @@ describe("parent agent transcript paging", () => {
     ]);
   });
 
-  it("strips accidental planning sections from main-agent visible prose", () => {
+  it("keeps same-role Agent transcripts separated by provider thread", () => {
+    const threadItems = ["thread-coder-1", "thread-coder-2"].map((threadId, index) => ({
+      id: `coder-${index + 1}`,
+      kind: "assistant-turn",
+      label: "coder-agent",
+      runId: `run-coder-${index + 1}`,
+      threadId,
+      agentRoleId: "coder-agent",
+      blocks: [{
+        id: `coder-prose-${index + 1}`,
+        sequence: 1,
+        kind: "prose" as const,
+        source: "codex" as const,
+        text: `Coder ${index + 1} result`,
+      }],
+    }));
+
+    expect(buildAgentScopedTranscriptCells(threadItems, { agentRoleId: "coder-agent", threadId: "thread-coder-1" })
+      .map((cell) => cell.text)).toEqual(["Coder 1 result"]);
+    expect(buildAgentScopedTranscriptCells(threadItems, { agentRoleId: "coder-agent", threadId: "thread-coder-2" })
+      .map((cell) => cell.text)).toEqual(["Coder 2 result"]);
+  });
+
+  it("preserves provider-visible planning sections in main-agent prose", () => {
     const transcript = buildParentAgentTranscript({
       workpad: { conversationId: "conv", boundChangeId: "change", title: "Main plan leak" },
       threadItems: [{
@@ -189,10 +252,10 @@ describe("parent agent transcript paging", () => {
       }],
     });
 
-    expect(transcript.cells.map((cell) => cell.text)).toEqual(["我先确认需求，不会修改文件。"]);
+    expect(transcript.cells.map((cell) => cell.text)).toEqual(["我先确认需求，不会修改文件。\n\n## 目标\n做事\n\n## 验收标准\n- 通过"]);
   });
 
-  it("strips persisted project-scoped child-agent leaks when lazy transcript pages are rebuilt", () => {
+  it("preserves persisted provider-visible text when lazy transcript pages are rebuilt", () => {
     const transcript = buildParentAgentTranscript({
       workpad: { conversationId: "conv", boundChangeId: "change", title: "Lazy transcript leak" },
       threadItems: [{
@@ -222,13 +285,20 @@ describe("parent agent transcript paging", () => {
     const page = pageParentAgentTranscript(transcript, { limit: 100 });
     const visibleText = page.cells.map((cell) => cell.text).join("\n");
 
-    expect(visibleText).toBe("我会先确认当前约束，不修改文件。");
-    expect(visibleText).not.toContain("计划代理");
-    expect(visibleText).not.toContain("实施计划");
-    expect(visibleText).not.toContain("验证方式");
+    expect(visibleText).toBe([
+      "我会先确认当前约束，不修改文件。",
+      "",
+      "计划代理已经启动，我现在只等待它返回计划。",
+      "",
+      "实施计划：",
+      "1. 读取项目说明。",
+      "",
+      "验证方式：",
+      "打开页面检查。",
+    ].join("\n"));
   });
 
-  it("strips assistant promises to delegate planning-agent from the parent transcript", () => {
+  it("preserves assistant delegation explanations in the parent transcript", () => {
     const transcript = buildParentAgentTranscript({
       workpad: { conversationId: "conv", boundChangeId: "change", title: "Planning delegation leak" },
       threadItems: [{
@@ -245,7 +315,7 @@ describe("parent agent transcript paging", () => {
       }],
     });
 
-    expect(transcript.cells.map((cell) => cell.text)).toEqual(["我理解这次目标是完成验收，并保持当前回合只读。"]);
+    expect(transcript.cells.map((cell) => cell.text)).toEqual(["我理解这次目标是完成验收，并保持当前回合只读。\n这条回复之后，我会把只读规划交给 planning-agent；当前不会修改文件。"]);
   });
 });
 

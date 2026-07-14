@@ -276,8 +276,8 @@ describe("workbench read-model projections", () => {
       }),
       expect.objectContaining({
         kind: "process-row",
-        title: "已运行命令",
-        text: "已运行 1 条命令",
+        title: "命令已完成 · npm test",
+        text: "命令已完成 · npm test",
         detailText: expect.stringContaining("npm test"),
       }),
     ]));
@@ -386,22 +386,15 @@ describe("workbench read-model projections", () => {
 
     const detail = await getWorkbenchTopic({ project: project(), path: getTempDir() }, topic.changeId);
 
-    expect(detail.threadItems.filter((item) => item.kind === "workflow-summary" && item.actionRunId === "action-code")).toHaveLength(0);
-    expect(detail.threadItems.filter((item) => item.kind === "assistant-turn" && item.runId === run.run.id)).toHaveLength(1);
+    expect(detail.threadItems.filter((item) => item.kind === "workflow-summary" && item.actionRunId === "action-code")).toHaveLength(1);
+    expect(detail.threadItems.filter((item) => item.kind === "assistant-turn" && item.runId === run.run.id)).toHaveLength(0);
     expect(detail.threadItems).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        kind: "assistant-turn",
+        kind: "workflow-summary",
         body: "I updated the pricing rule and kept validation evidence attached.",
         activity: expect.arrayContaining([
           expect.objectContaining({ kind: "assistant-event" }),
           expect.objectContaining({ kind: "tool" }),
-        ]),
-        blocks: expect.arrayContaining([
-          expect.objectContaining({ kind: "prose", text: "I updated the pricing rule and kept validation evidence attached." }),
-          expect.objectContaining({ kind: "command", command: "npm test" }),
-          expect.objectContaining({ kind: "workflow-evidence", source: "workflow", status: "completed" }),
-          expect.objectContaining({ kind: "workflow-evidence", source: "validation", status: "passed" }),
-          expect.objectContaining({ kind: "workflow-evidence", source: "audit", status: "approved-with-notes" }),
         ]),
         evidence: expect.arrayContaining([
           expect.objectContaining({ source: "workflow", status: "completed" }),
@@ -560,7 +553,7 @@ describe("workbench read-model projections", () => {
 
     const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
     const parentText = JSON.stringify(snapshot.center.parentAgentTranscript);
-    const planningAgent = snapshot.right.agentWorkspace.agents.find((agent) => agent.id === "planning-agent");
+    const planningAgent = snapshot.right.agentWorkspace.agents.find((agent) => agent.roleId === "planning-agent");
 
     expect(parentText).not.toContain("CHILD PLANNING DRAFT BODY");
     expect(JSON.stringify(planningAgent?.transcript.cells)).toContain("CHILD PLANNING DRAFT BODY");

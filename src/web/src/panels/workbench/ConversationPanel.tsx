@@ -5,12 +5,8 @@ import {
   useState,
   type ReactElement,
   type RefObject } from "react";
-import { RunReplay, artifactName } from "./RunReplayPanel.js";
 import { AgentOrchestrationMap } from "./AgentOrchestrationMap.js";
 import { calculateTranscriptVirtualRange } from "./TranscriptVirtualList.js";
-import {
-  agentRunStatusLabel,
-} from "../../formatters.js";
 import { ClarificationCard } from "./workpad/TaskGraphCards.js";
 import { ParentAgentTranscriptCellView } from "./TranscriptReadingSurface.js";
 import {
@@ -41,6 +37,7 @@ export function MainConversationView({
   onConfirmApproval,
   onAnswerClarification,
   onSelectDecisionContext,
+  onOpenAgent,
 }: {
   workpad: Workpad;
   transcript: ParentAgentTranscript;
@@ -54,6 +51,7 @@ export function MainConversationView({
   onConfirmApproval: (approvalId: string) => void;
   onAnswerClarification: (clarificationId: string, answer: string) => Promise<void>;
   onSelectDecisionContext: (contextId: string) => void;
+  onOpenAgent: (agentSurfaceId: string) => void;
 }): ReactElement {
   return (
     <div className="main-conversation-view" data-testid="main-conversation-view">
@@ -70,6 +68,7 @@ export function MainConversationView({
         onConfirmApproval={onConfirmApproval}
         onAnswerClarification={onAnswerClarification}
         onSelectDecisionContext={onSelectDecisionContext}
+        onOpenAgent={onOpenAgent}
       />
     </div>
   );
@@ -88,6 +87,7 @@ function ParentAgentTranscriptView({
   onConfirmApproval,
   onAnswerClarification,
   onSelectDecisionContext,
+  onOpenAgent,
 }: {
   workpad: Workpad;
   transcript: ParentAgentTranscript;
@@ -101,6 +101,7 @@ function ParentAgentTranscriptView({
   onConfirmApproval: (approvalId: string) => void;
   onAnswerClarification: (clarificationId: string, answer: string) => Promise<void>;
   onSelectDecisionContext: (contextId: string) => void;
+  onOpenAgent: (agentSurfaceId: string) => void;
 }): ReactElement {
   void liveTurns;
   void busy;
@@ -201,6 +202,7 @@ function ParentAgentTranscriptView({
                 return next;
               });
             }}
+            onOpenAgent={onOpenAgent}
           />
         ))}
         {virtualRange.bottomSpacer > 0 ? <div className="transcript-virtual-spacer" style={{ height: virtualRange.bottomSpacer }} /> : null}
@@ -212,10 +214,7 @@ function ParentAgentTranscriptView({
 export function AgentRunGraphPanel({
   graph,
   selectedNode,
-  activeRun,
-  stream,
   onSelectNode,
-  onSelectRun,
 }: {
   graph: DemandAgentRunGraph;
   selectedNode: DemandAgentRunGraphNode | null;
@@ -224,99 +223,16 @@ export function AgentRunGraphPanel({
   onSelectNode: (nodeId: string) => void;
   onSelectRun: (runId: string) => void;
 }): ReactElement {
+  void selectedNode;
   return (
     <div className="agent-graph-panel" data-testid="agent-run-graph-panel">
       <header className="agent-graph-header">
-        <div>
-          <p className="eyebrow">Agent 编排图</p>
-          <h2>{graph.title}</h2>
-          <p>{graph.summary}</p>
-        </div>
+        <h2>Agent 编排图</h2>
       </header>
       <div className="agent-graph-body">
         <AgentOrchestrationMap graph={graph} selectedNodeId={selectedNode?.id ?? null} onSelectNode={onSelectNode} />
-        <AgentRunNodeDetail node={selectedNode} activeRun={activeRun} stream={stream} onSelectRun={onSelectRun} />
       </div>
     </div>
-  );
-}
-
-function AgentRunNodeDetail({
-  node,
-  activeRun,
-  stream,
-  onSelectRun,
-}: {
-  node: DemandAgentRunGraphNode | null;
-  activeRun?: RunSummary;
-  stream: StreamPacket | null;
-  onSelectRun: (runId: string) => void;
-}): ReactElement {
-  if (!node) {
-    return (
-      <aside className="agent-node-detail">
-        <h3>选择一个节点</h3>
-        <p>点击运行图里的主 agent、角色 agent、工具或后台维护节点查看详情。</p>
-      </aside>
-    );
-  }
-  const runId = node.target.runId;
-  const showRunReplay = runId && activeRun?.id === runId;
-  return (
-    <aside className="agent-node-detail" data-testid="agent-run-node-detail">
-      <div className="node-detail-heading">
-        <span className={`node-kind ${node.status}`}>{agentRunStatusLabel(node.status)}</span>
-        <h3>{node.label}</h3>
-        <p>{node.reason}</p>
-      </div>
-      <div className="node-detail-section">
-        <strong>输入摘要</strong>
-        <p>{node.inputSummary ?? "输入来自当前需求对话和已确认的执行证据。"}</p>
-      </div>
-      <div className="node-detail-section">
-        <strong>输出摘要</strong>
-        <p>{node.outputSummary ?? node.summary}</p>
-      </div>
-      {node.attempts.length > 0 ? (
-        <div className="node-detail-section">
-          <strong>尝试历史</strong>
-          <div className="node-attempt-list">
-            {node.attempts.map((attempt) => (
-              <div className="node-attempt" key={attempt.id}>
-                <span>{agentRunStatusLabel(attempt.status)}</span>
-                <p>{attempt.summary}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : null}
-      {node.evidenceRefs.length > 0 ? (
-        <div className="node-detail-section">
-          <strong>证据</strong>
-          <div className="node-evidence-list">
-            {node.evidenceRefs.map((ref) => (
-              <span key={`${ref.kind}:${ref.ref}`}>{ref.label}: {artifactName(ref.ref)}</span>
-            ))}
-          </div>
-        </div>
-      ) : null}
-      {node.lane === "maintenance" ? (
-        <p className="panel-note">后台维护 Agent 直接整理项目 Markdown；流程图只显示状态，点击节点可查看真实对话和证据。</p>
-      ) : null}
-      {runId ? (
-        <button className="secondary-button" type="button" onClick={() => onSelectRun(runId)}>
-          打开原始日志
-        </button>
-      ) : null}
-      {showRunReplay ? (
-        <div className="node-run-replay">
-          <RunReplay stream={stream} run={activeRun} />
-        </div>
-      ) : null}
-      {node.status === "needs-change" || node.status === "failed" ? (
-        <p className="panel-note">如果当前结果有真实修改路径，可以在右侧确认队列或主对话中补充反馈；这里不伪装成独立子 agent 对话。</p>
-      ) : null}
-    </aside>
   );
 }
 
@@ -326,11 +242,11 @@ export function BottomStatusBar({ snapshot, project, topic }: { snapshot: Snapsh
   const isConversation = topic?.kind === "conversation";
   return (
     <footer className="bottom-status">
-      <span>项目数据：{(snapshot.memory.harnessReady ?? project?.memory?.harnessReady) ? "已准备" : project?.project ? "需要准备" : "未选择"}</span>
+      <span>项目数据：{(snapshot.memory.harnessReady ?? project?.memory?.harnessReady) ? "已准备" : project?.project ? "首次对话建立说明" : "未选择"}</span>
       <span>根目录：{repoPath}</span>
       <span><i className={snapshot.memory.harnessReady ? "status-dot ready-dot" : "status-dot muted-dot"} />状态：{snapshot.memory.harnessReady ? "就绪" : "未就绪"}</span>
       <span>{isConversation ? "当前对话" : "当前需求"}：{topic?.title ?? "无"}</span>
-      <span><i className={snapshot.memory.harnessReady ? "status-dot ready-dot" : "status-dot muted-dot"} />工作区{snapshot.memory.harnessReady ? "已准备" : "需要准备"}</span>
+      <span><i className={snapshot.memory.harnessReady ? "status-dot ready-dot" : "status-dot muted-dot"} />工作区{snapshot.memory.harnessReady ? "已准备" : "首次对话建立说明"}</span>
       <span>{issueCount} 个问题</span>
     </footer>
   );

@@ -14,7 +14,7 @@ import { FileMentionPicker } from "../shell/FileMentionPicker.js";
 import { SkillMentionPicker } from "../shell/SkillMentionPicker.js";
 import { WorkspacePicker } from "./WorkspacePicker.js";
 import { InfoRow } from "./ProjectPanels.js";
-import type { CodexDiagnostics, CodexModelCandidate, CodexModelSettingsSnapshot, ProjectStatus, SkillListItem, Snapshot, TopicFileReference } from "../types.js";
+import type { CodexDiagnostics, CodexModelCandidate, CodexModelSettingsSnapshot, ProjectStatus, SkillListItem, TopicFileReference } from "../types.js";
 
 export function ProjectHomeView({
   projects,
@@ -45,7 +45,6 @@ export function ProjectHomeView({
 
 export function ProjectReadinessHome({
   project,
-  snapshot,
   modelLabel,
   onOpenModelSettings,
   projects,
@@ -60,7 +59,6 @@ export function ProjectReadinessHome({
   resetToken,
 }: {
   project: ProjectStatus;
-  snapshot: Snapshot;
   modelLabel: string;
   onOpenModelSettings?: () => void;
   projects: ProjectStatus[];
@@ -83,7 +81,6 @@ export function ProjectReadinessHome({
   const [submitting, setSubmitting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const lastResetToken = useRef(resetToken);
-  const memoryReady = snapshot.memory.harnessReady ?? project.memory?.harnessReady ?? project.harness.readiness === "ready";
   const historyUnavailable = project.managed && project.memory?.memoryAvailable === false;
   const canStartDemand = project.pathExists && !historyUnavailable;
   const canAttach = canStartDemand;
@@ -214,7 +211,7 @@ export function ProjectReadinessHome({
               }
             }}
             disabled={!canStartDemand || submitting}
-            placeholder={memoryReady ? "描述你的需求；Enter 发送，Shift+Enter 换行" : "描述你的需求；发送时会先准备项目工作区"}
+            placeholder="描述你的需求；Enter 发送，Shift+Enter 换行"
             aria-label="新建需求输入框"
           />
           <div className="home-demand-composer-footer">

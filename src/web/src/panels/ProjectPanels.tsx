@@ -12,12 +12,11 @@ export function ProjectDetailsPanel({ project, snapshot, selected, onOpen, onRef
   return (
     <div className="project-details-panel">
       <InfoRow label="仓库" value={snapshot?.left.repo?.branch ?? (project.isGitRepo ? "已准备" : "未检测到 Git")} />
-      <InfoRow label="项目状态" value={memoryIssue ?? (memoryReady ? "已准备" : "需要准备")} />
+      <InfoRow label="项目状态" value={memoryIssue ?? (memoryReady ? "已准备" : "首次需求时自动建立说明")} />
       <InfoRow label="运行环境" value={project.codexTrust?.trusted ? "Codex 已可用" : "需要确认 Codex"} />
       <InfoRow label="Codex" value={project.codexTrust?.trusted ? "项目已信任" : "需要确认信任"} />
       {!project.codexTrust?.trusted ? <CodexTrustButton project={project} onDone={onRefresh} /> : null}
-      {project.project && !memoryReady && !memoryIssue ? <ProjectPrepareButton projectId={project.project.id} onDone={async () => onRefresh()} /> : null}
-      {!selected && memoryReady ? <button className="project-detail-action" onClick={onOpen}>打开项目</button> : null}
+      {!selected ? <button className="project-detail-action" onClick={onOpen}>打开项目</button> : null}
       <button className="project-detail-action" onClick={onRefresh}>刷新项目</button>
     </div>
   );
@@ -132,28 +131,6 @@ export function ProjectCreateForm({ onDone }: { onDone: (projectId?: string) => 
     </form>
   );
 }
-
-export function ProjectPrepareButton({ projectId, onDone }: { projectId: string; onDone: () => Promise<void> }): ReactElement {
-  const [message, setMessage] = useState<string | null>(null);
-  async function init(): Promise<void> {
-    const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/harness/init`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ memoryMode: "external-local", confirm: true }),
-    });
-    if (!response.ok) throw new Error(await response.text());
-    setMessage("项目已准备。");
-    await onDone();
-  }
-  return (
-    <>
-      <button className="secondary-button" onClick={() => void init().catch((cause: unknown) => setMessage(cause instanceof Error ? cause.message : String(cause)))}>准备项目</button>
-      {message ? <small>{message}</small> : null}
-    </>
-  );
-}
-
-export const HarnessInitButton = ProjectPrepareButton;
 
 export function CodexTrustButton({ project, onDone }: { project: ProjectStatus; onDone: () => void }): ReactElement | null {
   const [message, setMessage] = useState<string | null>(project.codexTrust?.reason ?? null);

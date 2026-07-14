@@ -40,6 +40,8 @@ export interface StoredProviderThreadLink {
   parentThreadId: string | null;
   changeId: string | null;
   capabilityProfile: string | null;
+  displayName?: string | null;
+  runId?: string | null;
   updatedAt: string;
 }
 
@@ -368,7 +370,7 @@ export class WorkbenchStore {
       SELECT project_id AS projectId, conversation_id AS conversationId,
         provider_thread_id AS providerThreadId, role_id AS roleId,
         parent_thread_id AS parentThreadId, change_id AS changeId,
-        capability_profile AS capabilityProfile, updated_at AS updatedAt
+        capability_profile AS capabilityProfile, display_name AS displayName, run_id AS runId, updated_at AS updatedAt
       FROM provider_thread_links
       WHERE project_id = ? AND conversation_id = ? AND role_id = ?
       ORDER BY updated_at DESC LIMIT 1
@@ -389,7 +391,7 @@ export class WorkbenchStore {
       SELECT project_id AS projectId, conversation_id AS conversationId,
         provider_thread_id AS providerThreadId, role_id AS roleId,
         parent_thread_id AS parentThreadId, change_id AS changeId,
-        capability_profile AS capabilityProfile, updated_at AS updatedAt
+        capability_profile AS capabilityProfile, display_name AS displayName, run_id AS runId, updated_at AS updatedAt
       FROM provider_thread_links
       WHERE project_id = ? AND conversation_id = ?
       ORDER BY updated_at ASC
@@ -400,14 +402,16 @@ export class WorkbenchStore {
     this.db.prepare(`
       INSERT INTO provider_thread_links (
         project_id, conversation_id, provider_thread_id, role_id,
-        parent_thread_id, change_id, capability_profile, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        parent_thread_id, change_id, capability_profile, display_name, run_id, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(project_id, provider_thread_id) DO UPDATE SET
         conversation_id = excluded.conversation_id,
         role_id = excluded.role_id,
         parent_thread_id = excluded.parent_thread_id,
         change_id = excluded.change_id,
         capability_profile = excluded.capability_profile,
+        display_name = excluded.display_name,
+        run_id = excluded.run_id,
         updated_at = excluded.updated_at
     `).run(
       link.projectId,
@@ -417,6 +421,8 @@ export class WorkbenchStore {
       link.parentThreadId,
       link.changeId,
       link.capabilityProfile,
+      link.displayName ?? null,
+      link.runId ?? null,
       link.updatedAt,
     );
   }
@@ -714,6 +720,8 @@ function migrate(db: Database.Database): void {
       parent_thread_id TEXT,
       change_id TEXT,
       capability_profile TEXT,
+      display_name TEXT,
+      run_id TEXT,
       updated_at TEXT NOT NULL,
       PRIMARY KEY(project_id, provider_thread_id)
     );
@@ -809,6 +817,9 @@ function migrate(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_decision_records_topic ON decision_records(project_id, change_id, updated_at);
   `);
+  const providerThreadColumns = new Set((db.prepare("PRAGMA table_info(provider_thread_links)").all() as Array<{ name: string }>).map((column) => column.name));
+  if (!providerThreadColumns.has("display_name")) db.exec("ALTER TABLE provider_thread_links ADD COLUMN display_name TEXT;");
+  if (!providerThreadColumns.has("run_id")) db.exec("ALTER TABLE provider_thread_links ADD COLUMN run_id TEXT;");
   db.exec("CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(project_id, conversation_id, position);");
 }
 
@@ -854,6 +865,8 @@ function mapProviderThreadRow(row: SqliteRow): StoredProviderThreadLink {
     parentThreadId: nullableString(row.parentThreadId),
     changeId: nullableString(row.changeId),
     capabilityProfile: nullableString(row.capabilityProfile),
+    displayName: nullableString(row.displayName),
+    runId: nullableString(row.runId),
     updatedAt: String(row.updatedAt),
   };
 }

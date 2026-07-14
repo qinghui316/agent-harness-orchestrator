@@ -59,7 +59,7 @@ describe("agent role profiles", () => {
 
     expect(content).toContain("$aho-workflow-authoring");
     expect(content).toContain("Write only the assigned run-scoped proposal files");
-    expect(content).toContain("The proposal files are the result");
+    expect(content).toContain("The files, not a returned patch or JSON envelope, are the result");
     expect(content).toContain("Do not recursively delegate to another Agent.");
     expect(content).toContain("Do not use parent-thread Plan Mode");
     expect(content).toContain("Do not invoke the `aho` CLI");

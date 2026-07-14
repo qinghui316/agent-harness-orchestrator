@@ -65,32 +65,20 @@ describe("workbench AgentTask domain", () => {
         kind: "coder-agent",
         roleId: "coder-agent",
         status: "completed",
-        outputSummary: "Coder returned a worktree proposal.",
-        evidenceRefs: expect.arrayContaining([
-          expect.objectContaining({ ref: "runs/run-agent-task/implementation.md", kind: "artifact" }),
-        ]),
+        id: "run:run-agent-task",
+        evidenceRefs: [],
+        attempts: [],
       }),
     ]));
     const coderNode = graph.nodes.find((node) => node.kind === "coder-agent");
-    expect(coderNode?.attempts).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        id: task.id,
-        status: "completed",
-        summary: "Coder returned a worktree proposal.",
-      }),
-    ]));
     expect(graph.edges).toEqual(expect.arrayContaining([
       expect.objectContaining({
         from: "main-agent",
         to: coderNode?.id,
         kind: "delegates",
       }),
-      expect.objectContaining({
-        from: coderNode?.id,
-        to: "main-agent",
-        kind: "returns",
-      }),
     ]));
+    expect(graph.edges.some((edge) => edge.kind === "returns")).toBe(false);
   });
 
   it("validates delegateTask policy and records queued to running AgentTask lifecycle", async () => {

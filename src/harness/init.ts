@@ -1,6 +1,6 @@
-import { mkdir, readdir, readFile, writeFile, copyFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { basename, dirname, join, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
 import type { ArtifactBase, ManagedProject, MemoryMode, ResolvedMemory } from "../types/index.js";
 import { getActiveChanges, writeChangeIndex } from "../ecl/index.js";
 import { assertWritableMemory, resolveMemory } from "../memory/resolver.js";
@@ -11,7 +11,7 @@ import { auditHarness } from "./audit.js";
 export interface HarnessInitResult {
   created: HarnessInitPath[];
   skipped: HarnessInitPath[];
-  indexPath: string;
+  indexPath: null | string;
 }
 
 export interface HarnessInitPath {
@@ -21,6 +21,18 @@ export interface HarnessInitPath {
 
 export interface HarnessInitOptions {
   memoryMode?: Exclude<MemoryMode, "remote">;
+}
+export async function ensureProjectRuntime(project: ManagedProject): Promise<ResolvedMemory> {
+  const marker = await readProjectMarker(project.path);
+  if (!marker) {
+    await initHarness(project, { memoryMode: "external-local" });
+  } else if (marker.memoryMode === "external-local") {
+    const memory = resolveMemory({ ...project, marker });
+    if (!existsSync(memory.memoryRoot)) {
+      throw new Error(`项目历史不可用：外部记忆目录已丢失（${memory.memoryRoot}）。请在高级诊断中恢复原目录后重试。`);
+    }
+  }
+  return resolveMemory({ ...project, marker: await readProjectMarker(project.path) });
 }
 
 async function copyTemplateTree(
@@ -68,26 +80,28 @@ export async function initHarness(project: ManagedProject, options: HarnessInitO
   const memory = resolveMemory({ ...project, marker: existingMarker });
   const resolvedMemory = existingMarker ? memory : resolveMemory({ ...project, marker: { version: "1.0", id: project.id, name: project.name, managedBy: "agent-harness-orchestrator", memoryMode: requestedMode, createdAt: new Date().toISOString() } });
   assertWritableMemory(resolvedMemory, "Harness init");
-  if (requestedMode === "external-local") {
-    await assertNoRepoLocalActiveChanges(project);
-    await validateExternalMemoryRoot(resolvedMemory);
-  }
-  const activeChanges = await getActiveChanges(resolvedMemory);
-  if (activeChanges.length > 0) {
-    throw new Error(`Target project has an active change (${activeChanges[0]?.name}); close or park it before harness init.`);
-  }
-
   const created: HarnessInitPath[] = [];
   const skipped: HarnessInitPath[] = [];
-  if (requestedMode === "external-local") {
-    await writeExternalAgentGuide(project, resolvedMemory, created, skipped);
-  }
   const markerAlreadyExists = existsSync(resolvedMemory.markerPath);
+  if (requestedMode === "external-local" && markerAlreadyExists && !existsSync(resolvedMemory.memoryRoot)) {
+    throw new Error(`项目历史不可用：外部记忆目录已丢失（${resolvedMemory.memoryRoot}）。请在高级诊断中恢复原目录后重试。`);
+  }
   if (!markerAlreadyExists) {
     await writeProjectMarker(project, requestedMode);
   }
   (markerAlreadyExists ? skipped : created).push({ base: "project-root", path: ".agent-harness/project.json" });
   await ensureAgentHarnessIgnore(project.path, created, skipped);
+
+  if (requestedMode === "external-local") {
+    await prepareExternalRuntimeDirectories(resolvedMemory, created, skipped);
+    return { created, skipped, indexPath: null };
+  }
+
+  const activeChanges = await getActiveChanges(resolvedMemory);
+  if (activeChanges.length > 0) {
+    throw new Error(`Target project has an active change (${activeChanges[0]?.name}); close or park it before harness init.`);
+  }
+
   const templateRoot = getTemplateRoot();
   const replacements = {
     PROJECT_NAME: project.name,
@@ -104,8 +118,29 @@ export async function initHarness(project: ManagedProject, options: HarnessInitO
   return {
     created,
     skipped,
-    indexPath: requestedMode === "external-local" ? "harness/changes/INDEX.json" : "harness/changes/INDEX.json",
+    indexPath: "harness/changes/INDEX.json",
   };
+}
+
+async function prepareExternalRuntimeDirectories(
+  memory: ResolvedMemory,
+  created: HarnessInitPath[],
+  skipped: HarnessInitPath[],
+): Promise<void> {
+  const roots = [
+    { path: memory.memoryRoot, label: "." },
+    { path: memory.runsRoot, label: "runs" },
+    { path: memory.workbenchRoot, label: "workbench" },
+    { path: memory.agentsRoot, label: "agents" },
+    { path: memory.commandsRoot, label: "commands" },
+    { path: memory.skillsRoot, label: "skills" },
+    { path: memory.worktreeMetadataRoot, label: "worktrees/metadata" },
+  ];
+  for (const root of roots) {
+    const existed = existsSync(root.path);
+    await mkdir(root.path, { recursive: true });
+    (existed ? skipped : created).push({ base: "memory-root", path: root.label });
+  }
 }
 
 async function ensureAgentHarnessIgnore(projectPath: string, created: HarnessInitPath[], skipped: HarnessInitPath[]): Promise<void> {
@@ -148,129 +183,4 @@ async function copyDurableTemplateTree(
     await mkdir(root.path, { recursive: true });
     (exists ? skipped : created).push({ base: "memory-root", path: root.label });
   }
-}
-
-async function assertNoRepoLocalActiveChanges(project: ManagedProject): Promise<void> {
-  const repoLocal = resolveMemory({ ...project, marker: { version: "1.0", id: project.id, name: project.name, managedBy: "agent-harness-orchestrator", memoryMode: "repo-local", createdAt: new Date().toISOString() } });
-  const active = await getActiveChanges(repoLocal);
-  if (active.length > 0) {
-    throw new Error(`Cannot initialize external-local memory while repo-local active changes exist: ${active.map((change) => change.name).join(", ")}.`);
-  }
-}
-
-async function validateExternalMemoryRoot(memory: ResolvedMemory): Promise<void> {
-  if (!existsSync(memory.memoryRoot)) return;
-  const entries = await readdir(memory.memoryRoot, { withFileTypes: true });
-  const unexpected = entries
-    .filter((entry) => !["docs", "harness", "scripts", "runs", "indexes", "workbench", "agents", "commands", "skills", "agent-catalog.json"].includes(entry.name))
-    .map((entry) => entry.name);
-  if (unexpected.length > 0) {
-    throw new Error(`External memory root has unexpected content: ${unexpected.join(", ")}. Move it or choose a different project id before init.`);
-  }
-  const active = await getActiveChanges(memory);
-  if (active.length > 0) {
-    throw new Error(`External memory root already has an active change: ${active.map((change) => change.name).join(", ")}.`);
-  }
-}
-
-async function writeExternalAgentGuide(
-  project: ManagedProject,
-  memory: ResolvedMemory,
-  created: HarnessInitPath[],
-  skipped: HarnessInitPath[],
-): Promise<void> {
-  const content = externalAgentGuide(project);
-  if (existsSync(memory.agentGuidePath)) {
-    const existing = await readFile(memory.agentGuidePath, "utf8");
-    if (existing === content) {
-      skipped.push({ base: "project-root", path: "AGENTS.md" });
-      return;
-    }
-    if (!isGeneratedExternalAgentGuide(existing)) {
-      skipped.push({ base: "project-root", path: "AGENTS.md" });
-      return;
-    }
-    const backup = nextAgentBackupPath(memory.agentGuidePath);
-    await copyFile(memory.agentGuidePath, backup);
-    created.push({ base: "project-root", path: basename(backup) });
-  }
-  await writeFile(memory.agentGuidePath, content, "utf8");
-  created.push({ base: "project-root", path: "AGENTS.md" });
-}
-
-function isGeneratedExternalAgentGuide(content: string): boolean {
-  return content.includes("This project uses Agent Harness Orchestrator external-local memory.")
-    && content.includes("## Memory Resolution")
-    && content.includes("Durable Harness memory is outside this repository and must be resolved by AHO.");
-}
-
-function nextAgentBackupPath(agentGuidePath: string): string {
-  const stamp = localTimestamp();
-  let candidate = `${agentGuidePath}.bak-${stamp}`;
-  let counter = 1;
-  while (existsSync(candidate)) {
-    candidate = `${agentGuidePath}.bak-${stamp}-${counter}`;
-    counter += 1;
-  }
-  return candidate;
-}
-
-function externalAgentGuide(project: ManagedProject): string {
-  return [
-    `# ${project.name} Agent Memory Map`,
-    "",
-    "This project uses Agent Harness Orchestrator external-local memory.",
-    "",
-    "## Project Identity",
-    "",
-    `- Project ID: ${project.id}`,
-    `- Project Name: ${project.name}`,
-    "- Memory Mode: external-local",
-    "- Marker: `.agent-harness/project.json`",
-    "",
-    "## Memory Resolution",
-    "",
-    "Durable Harness memory is outside this repository and must be resolved by AHO.",
-    "",
-    "Run first:",
-    "",
-    "```powershell",
-    `aho memory status ${project.id}`,
-    "```",
-    "",
-    "## Loading Order",
-    "",
-    "1. Read this `AGENTS.md`.",
-    "2. Read `.agent-harness/project.json`.",
-    "3. Use AHO to resolve durable memory.",
-    "4. Read resolved `docs/ECL.md`.",
-    "5. Read resolved active change files if present.",
-    "6. If no active change exists, read resolved `harness/evolution/pending.md` if present.",
-    "7. Read resolved `docs/STATUS.md`.",
-    "8. Read task-specific resolved docs only when needed.",
-    "",
-    "## Archive Loading",
-    "",
-    "Read resolved `harness/changes/INDEX.json` first. Start with archived `summary.md`; load detailed archived files only when needed.",
-    "",
-    "## Memory Unavailable",
-    "",
-    "If AHO is unavailable or durable memory cannot be resolved, do not infer active changes, archived decisions, or project history. Ask the user to attach, sync, initialize, or repair memory.",
-    "",
-  ].join("\n");
-}
-
-function localTimestamp(date = new Date()): string {
-  return [
-    date.getFullYear(),
-    pad(date.getMonth() + 1),
-    pad(date.getDate()),
-    pad(date.getHours()),
-    pad(date.getMinutes()),
-    pad(date.getSeconds()),
-  ].join("");
-}
-
-function pad(value: number): string {
-  return value.toString().padStart(2, "0");
 }

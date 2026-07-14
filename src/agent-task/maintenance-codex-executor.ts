@@ -5,8 +5,10 @@ import { writeJsonFile } from "../fs/json.js";
 import { executeProcessStreaming } from "../run/process.js";
 import { getSystemSkillsRoot } from "../template-source/paths.js";
 import { getActiveCodexAppServerTurn, runCodexAppServerTurn } from "../codex/app-server.js";
+import type { CodexAppServerRealtimeEvent } from "../codex/app-server-realtime.js";
 import { getRuntimeAssignedHarnessSkillContext } from "../skill/catalog.js";
 import type { ManagedProject, ResolvedMemory } from "../types/index.js";
+import { WorkbenchStore } from "../workbench/store.js";
 import type { HarnessEngineeringAssignment } from "./harness-engineering-contract.js";
 import {
   EvolutionScoreBlockedError,
@@ -14,6 +16,7 @@ import {
   type MaintenanceProviderExecutionRequest,
   type MaintenanceProviderExecutionResult,
   type MaintenanceProviderExecutor,
+  type MaintenanceTaskLineage,
 } from "./maintenance-provider-runner.js";
 
 export function createCodexMaintenanceProviderExecutor(memory: ResolvedMemory): MaintenanceProviderExecutor {
@@ -25,6 +28,8 @@ export async function runCodexMaintenanceAssignment(
   project: ManagedProject,
   assignment: HarnessEngineeringAssignment,
   signal?: AbortSignal,
+  onRealtimeEvent?: (event: CodexAppServerRealtimeEvent) => void,
+  taskLineage?: MaintenanceTaskLineage,
 ): Promise<{ summary: string; artifactRefs: string[] }> {
   const evidencePath = join(memory.workbenchRoot, "maintenance", "evidence", `${assignment.taskId}.json`);
   let evidence;
@@ -34,6 +39,8 @@ export async function runCodexMaintenanceAssignment(
       assignment,
       executor: createCodexMaintenanceProviderExecutor(memory),
       signal,
+      onRealtimeEvent,
+      taskLineage,
     });
   } catch (error) {
     if (error instanceof EvolutionScoreBlockedError) {
@@ -51,7 +58,7 @@ export async function runCodexMaintenanceAssignment(
       return { summary: evidence.producer.summary, artifactRefs: [evidencePath] };
     }
     if (verificationAttempt === 1) {
-      const repair = await continueAfterVerificationFailure(memory, project, assignment, evidence, signal);
+      const repair = await continueAfterVerificationFailure(memory, project, assignment, evidence, signal, onRealtimeEvent, taskLineage);
       evidence.producer = {
         ...evidence.producer,
         summary: repair.finalText.trim() || evidence.producer.summary,
@@ -77,10 +84,11 @@ async function continueAfterVerificationFailure(
   assignment: HarnessEngineeringAssignment,
   evidence: Awaited<ReturnType<typeof runMaintenanceProviderAssignment>>,
   signal?: AbortSignal,
+  onRealtimeEvent?: (event: CodexAppServerRealtimeEvent) => void,
+  taskLineage?: MaintenanceTaskLineage,
 ): Promise<MaintenanceProviderExecutionResult> {
   const failures = (evidence.verification ?? []).filter((item) => !item.passed);
   const prompt = [
-    `Continue following the attached AHO Harness Engineering Skill in ${assignment.mode} mode.`,
     "Runtime mechanical verification failed after your direct edits.",
     "Read the current files and the verification logs below, repair the evidence-backed problem, and return a concise result.",
     "Do not widen the assigned Change or Evolution window.",
@@ -99,10 +107,13 @@ async function continueAfterVerificationFailure(
     skillContext: await getRuntimeAssignedHarnessSkillContext(project, assignment),
     parentThreadId: null,
     cwd: assignment.memoryRoot,
+    runtimeWorkspaceRoots: [assignment.projectRoot, assignment.memoryRoot],
     writable: true,
     writableRoots: [...new Set([assignment.projectRoot, assignment.memoryRoot])],
     existingThreadId: evidence.producer.threadId,
     signal,
+    onRealtimeEvent,
+    taskLineage,
   });
 }
 
@@ -153,10 +164,6 @@ async function executeCodexMaintenanceRequest(
   const runId = `maintenance-${randomUUID()}`;
   const directory = join(memory.workbenchRoot, "maintenance", "provider-runs", runId);
   const isScorer = request.role === "evolution-scorer";
-  const prompt = isScorer
-    ? ["Use the native spawn_agent collaboration tool exactly once.",
-      "Give the child only the scoring request below, wait for it, and return briefly.", "", request.prompt].join("\n")
-    : request.prompt;
   let abortPoll: NodeJS.Timeout | null = null;
   const interrupt = (): void => {
     const active = getActiveCodexAppServerTurn(runId);
@@ -166,33 +173,80 @@ async function executeCodexMaintenanceRequest(
   request.signal?.addEventListener("abort", onAbort, { once: true });
   if (request.signal?.aborted) onAbort();
   let result: Awaited<ReturnType<typeof runCodexAppServerTurn>>;
+  const profileId = request.role === "maintenance-agent"
+    ? "memory-maintenance-agent"
+    : request.role === "evolution-agent"
+      ? "harness-evolution-agent"
+      : null;
   try {
-    const profileId = request.role === "maintenance-agent"
-      ? "memory-maintenance-agent"
-      : request.role === "evolution-agent"
-        ? "harness-evolution-agent"
-        : null;
     const developerInstructions = profileId
       ? await readFile(join(getSystemSkillsRoot(), "..", "agent-profiles", `${profileId}.md`), "utf8")
       : undefined;
     result = await runCodexAppServerTurn({
-      projectId: request.project.id, runtimeScopeId: runId, roleId: request.role, runId,
-      cwd: request.cwd, prompt, sandboxPolicy: request.writable ? "workspace-write" : "read-only",
+      projectId: request.project.id,
+      conversationId: request.taskLineage?.conversationId,
+      changeId: request.taskLineage?.changeId,
+      agentTaskId: request.taskLineage?.taskId,
+      runtimeScopeId: runId, roleId: profileId ?? request.role, runId,
+      cwd: request.cwd, prompt: request.prompt, sandboxPolicy: request.writable ? "workspace-write" : "read-only",
       existingThreadId: request.existingThreadId ?? (isScorer ? request.parentThreadId : null),
       writableRoots: request.writableRoots,
+      runtimeWorkspaceRoots: request.runtimeWorkspaceRoots,
+      nativeSkillRoots: [getSystemSkillsRoot()],
+      requiredNativeSkills: isScorer ? [] : ["aho-harness-engineering"],
       skillInputs: isScorer ? undefined : [{ name: "aho-harness-engineering", path: join(getSystemSkillsRoot(), "aho-harness-engineering", "SKILL.md") }],
+      additionalContext: {
+        "aho.background-task": {
+          kind: "application",
+          value: JSON.stringify({ role: request.role, cwd: request.cwd, runtimeWorkspaceRoots: request.runtimeWorkspaceRoots ?? [] }),
+        },
+      },
       developerInstructions,
       paths: { events: join(directory, "events.jsonl"), stderr: join(directory, "stderr.log"), lastMessage: join(directory, "last-message.md"), session: join(directory, "session.json") },
+      onRealtimeEvent: request.onRealtimeEvent,
     });
   } finally {
     request.signal?.removeEventListener("abort", onAbort);
     if (abortPoll) clearInterval(abortPoll);
   }
   if (result.status !== "completed" || !result.threadId) throw new Error(result.error ?? `Codex maintenance ${request.role} did not complete.`);
-  if (!isScorer) return { threadId: result.threadId, parentThreadId: null, finalText: result.lastMessage, changedFiles: result.changedFiles };
+  if (!isScorer) {
+    await persistMaintenanceThread(memory, request, runId, result.threadId, null, profileId ?? request.role);
+    return { threadId: result.threadId, parentThreadId: null, finalText: result.lastMessage, changedFiles: result.changedFiles };
+  }
   const children = result.childThreads.filter((child) => child.parentThreadId === result.threadId);
   if (children.length !== 1 || !children[0]?.threadId || !children[0].finalText) {
     throw new Error("Codex evolution scoring must produce exactly one completed native child thread.");
   }
+  await persistMaintenanceThread(memory, request, runId, children[0].threadId, children[0].parentThreadId, "evolution-scorer", children[0].displayName);
   return { threadId: children[0].threadId, parentThreadId: children[0].parentThreadId, finalText: children[0].finalText, changedFiles: children[0].changedFiles };
+}
+
+async function persistMaintenanceThread(
+  memory: ResolvedMemory,
+  request: MaintenanceProviderExecutionRequest,
+  runId: string,
+  providerThreadId: string,
+  parentThreadId: string | null,
+  roleId: string,
+  displayName?: string,
+): Promise<void> {
+  if (!request.taskLineage || !memory.projectId) return;
+  const store = await WorkbenchStore.open(memory);
+  try {
+    store.writeProviderThread({
+      projectId: memory.projectId,
+      conversationId: request.taskLineage.conversationId,
+      providerThreadId,
+      roleId,
+      parentThreadId,
+      changeId: request.taskLineage.changeId,
+      capabilityProfile: "background-agent-v1",
+      displayName,
+      runId,
+      updatedAt: new Date().toISOString(),
+    });
+  } finally {
+    store.close();
+  }
 }

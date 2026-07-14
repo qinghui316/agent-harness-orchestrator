@@ -22,8 +22,12 @@ describe("AHO Harness engineering Skill", () => {
     for (const mode of ["onboard", "audit", "maintain-assigned-closeout", "evolve-assigned-window"]) {
       expect(skill).toContain(mode);
     }
+    expect(skill).toContain("Unified ECL Method");
+    expect(skill).toMatch(/ready core\s+Harness/);
+    expect(skill).toContain("auditHarness");
+    expect(skill).toContain("Do not stop after creating only an entry guide");
     expect(skill).toContain("Do not infer another mode");
-    expect(skill).toContain("Do not invent");
+    expect(skill).toMatch(/Do not\s+invent/);
   });
 
   it("teaches ECL delta analysis, direct edits, and scored Evolution", async () => {
@@ -31,12 +35,16 @@ describe("AHO Harness engineering Skill", () => {
     for (const method of ["Create", "Update", "Already Good", "Promote", "Retain", "Merge", "Retire", "Archive-only"]) {
       expect(content).toContain(method);
     }
-    expect(content).toContain("Directly complete justified edits");
+    expect(content).toContain("directly edit the responsible project/memory files");
     expect(content).toContain("scorer child");
     expect(content).toContain("score of at least 80");
     expect(content).toContain("create or claim");
     expect(content).toContain("widen an assigned Evolution window");
     expect(content).toContain("close Changes");
+    expect(content).toContain("Core readiness");
+    expect(content).toContain("Project guidance");
+    expect(content).toContain("Optional capability");
+    expect(content).toContain("Verification and handoff");
   });
 
   it("removes the legacy Agent-authored patch teaching", async () => {

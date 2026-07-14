@@ -32,22 +32,38 @@ export function emitDelegatedRoleReturn(live: WorkflowRuntimeLiveSink | undefine
   });
 }
 
-export function forwardCodexStreamEvent(runId: string, event: CodexJsonlStreamEvent, live: WorkflowRuntimeLiveSink | undefined): void {
+export function forwardCodexStreamEvent(runId: string, event: CodexJsonlStreamEvent & {
+  threadId?: string;
+  parentThreadId?: string;
+  turnId?: string;
+  agentRoleId?: string;
+  agentSurfaceId?: string;
+  agentDisplayName?: string;
+}, live: WorkflowRuntimeLiveSink | undefined): void {
   if (!live) return;
+  const identity = {
+    runId,
+    threadId: event.threadId,
+    parentThreadId: event.parentThreadId,
+    turnId: event.turnId,
+    agentRoleId: event.agentRoleId,
+    agentSurfaceId: event.agentSurfaceId,
+    agentDisplayName: event.agentDisplayName,
+  };
   if (event.type === "readable_event") {
-    emitAssistantEvent(live, { ...event.event, runId });
+    emitAssistantEvent(live, { ...event.event, ...identity });
     return;
   }
   if (event.type === "text_delta") {
-    live.emit({ event: "assistant.delta", data: { delta: event.delta, runId } });
+    live.emit({ event: "assistant.delta", data: { delta: event.delta, ...identity } });
     return;
   }
   if (event.type === "status") {
-    live.emit({ event: "run.status", data: { runId, status: event.label } });
+    live.emit({ event: "run.status", data: { ...identity, status: event.label } });
     return;
   }
   if (event.type === "usage") {
-    live.emit({ event: "usage", data: { runId, usage: event.usage } });
+    live.emit({ event: "usage", data: { ...identity, usage: event.usage } });
     emitAssistantEvent(live, {
       runId,
       kind: "usage",
@@ -57,9 +73,13 @@ export function forwardCodexStreamEvent(runId: string, event: CodexJsonlStreamEv
     });
     return;
   }
+  if (event.type === "turn_completed") {
+    live.emit({ event: "run.status", data: { ...identity, status: "completed" } });
+    return;
+  }
   if (event.type === "error") {
-    live.emit({ event: "error", data: { runId, message: event.message } });
-    emitAssistantEvent(live, { runId, kind: "error", phase: "failed", title: "Codex error", summary: event.message, isError: true });
+    live.emit({ event: "error", data: { ...identity, runId, message: event.message } });
+    emitAssistantEvent(live, { ...identity, kind: "error", phase: "failed", title: "Codex error", summary: event.message, isError: true });
     return;
   }
   if (event.type === "tool_event") {
@@ -67,7 +87,7 @@ export function forwardCodexStreamEvent(runId: string, event: CodexJsonlStreamEv
     live.emit({
       event: "tool.event",
       data: {
-        runId,
+        ...identity,
         itemId: event.id,
         phase: event.phase,
         name: event.name,

@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import { join, resolve } from "node:path";
 import { trustCodexProject } from "../../codex/trust.js";
 import { resolveExistingDirectory } from "../../fs/path.js";
-import { initHarness } from "../../harness/init.js";
+import { ensureProjectRuntime, initHarness } from "../../harness/init.js";
 import { getProjectStatus } from "../../project/status.js";
 import type { ProjectRegistryStore } from "../../registry/store.js";
 import type { CodexProjectTrustStatus } from "../../types/index.js";
@@ -27,6 +27,7 @@ export async function addExistingProject(store: ProjectRegistryStore, body: AddE
   }
   const path = await resolveExistingDirectory(body.path);
   const project = await store.addProject(path, body.name);
+  await ensureProjectRuntime(project);
   return { project, status: await getProjectStatus(project, project.path) };
 }
 
@@ -57,6 +58,7 @@ export async function createNewProject(store: ProjectRegistryStore, body: Create
     await runGit(projectPath, ["-c", "user.name=AHO", "-c", "user.email=aho@example.local", "commit", "-m", "Initial commit"]);
   }
   const project = await store.addProject(projectPath, name);
+  await ensureProjectRuntime(project);
   return { project, createdPath: projectPath, status: await getProjectStatus(project, project.path) };
 }
 

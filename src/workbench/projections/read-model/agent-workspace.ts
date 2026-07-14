@@ -1,95 +1,171 @@
-import type { WorkbenchAgentTaskSummary, WorkbenchAgentWorkspace, WorkbenchAgentWorkspaceAgent, WorkbenchRoleRunSummary, WorkbenchTopicDetail, WorkbenchWorkpad } from "../../read-model-types.js";
+import type { StoredProviderThreadLink } from "../../store.js";
+import type { WorkbenchAgentWorkspace, WorkbenchAgentWorkspaceAgent, WorkbenchRoleRunSummary, WorkbenchTopicDetail, WorkbenchWorkpad } from "../../read-model-types.js";
 import { buildAgentScopedTranscriptCells, type ParentAgentTranscript, type ParentAgentTranscriptCell } from "../../parent-agent-transcript.js";
+import { agentRoleDisplayName, baseAgentDisplayLabel, composeAgentDisplayLabel } from "../../../agent-display-label.js";
 
-const KNOWN_ROLE_ORDER = ["planning-agent", "coder-agent", "validator", "auditor-agent", "rework-coder"];
+const MODEL_ROLES = new Set([
+  "planning-agent",
+  "coder-agent",
+  "rework-coder",
+  "auditor-agent",
+  "spec-test-proposer",
+  "spec-test-generator",
+  "memory-maintenance-agent",
+  "harness-evolution-agent",
+  "evolution-scorer",
+  "child-agent",
+]);
 
 export function emptyAgentWorkspace(): WorkbenchAgentWorkspace {
-  return {
-    selectedAgentId: "planning-agent",
-    agents: [],
-  };
+  return { selectedAgentId: "", agents: [] };
 }
 
 export function buildAgentWorkspace(input: {
   selectedTopic: WorkbenchTopicDetail | null;
   workpad: WorkbenchWorkpad;
+  providerThreads?: StoredProviderThreadLink[];
 }): WorkbenchAgentWorkspace {
   const agents = new Map<string, WorkbenchAgentWorkspaceAgent>();
-  const hasPlanningAgent = hasRealPlanningAgentEvidence(input.selectedTopic);
-  const planningAgent = hasPlanningAgent ? planningAgentWorkspace(input.selectedTopic) : null;
-  if (planningAgent) agents.set("planning-agent", planningAgent);
+  const providerAgentIds = new Map<string, string>();
+  for (const link of input.providerThreads ?? []) {
+    if (link.roleId === "main-agent" || !MODEL_ROLES.has(link.roleId)) continue;
+    const id = `thread:${link.providerThreadId}`;
+    const cells = input.selectedTopic ? buildAgentScopedTranscriptCells(input.selectedTopic.threadItems, {
+      agentRoleId: link.roleId,
+      threadId: link.providerThreadId,
+    }) : [];
+    agents.set(id, agentSurface({
+      id,
+      roleId: link.roleId,
+      providerThreadId: link.providerThreadId,
+      providerDisplayName: link.displayName ?? undefined,
+      parentThreadId: link.parentThreadId ?? undefined,
+      runId: link.runId ?? undefined,
+      status: cells.some((cell) => cell.status === "running") ? "running" : "completed",
+      cells,
+      summary: cells.at(-1)?.text ?? "真实 Agent 对话。",
+      label: composeAgentDisplayLabel(link.roleId, link.displayName ?? undefined),
+    }));
+    providerAgentIds.set(providerTaskKey(link.conversationId, link.roleId), id);
+  }
+
+  for (const item of input.selectedTopic?.threadItems ?? []) {
+    const roleId = item.agentRoleId;
+    if (!roleId || roleId === "main-agent" || !MODEL_ROLES.has(roleId)) continue;
+    const id = item.threadId ? `thread:${item.threadId}` : item.runId ? `run:${item.runId}` : null;
+    if (!id || agents.has(id)) continue;
+    const cells = buildAgentScopedTranscriptCells(input.selectedTopic!.threadItems, {
+      agentRoleId: roleId,
+      ...(item.threadId ? { threadId: item.threadId } : { runId: item.runId }),
+    });
+    agents.set(id, agentSurface({
+      id,
+      roleId,
+      providerThreadId: item.threadId,
+      parentThreadId: item.parentThreadId,
+      runId: item.runId,
+      status: cells.some((cell) => cell.status === "running") ? "running" : "completed",
+      cells,
+      summary: cells.at(-1)?.text ?? "真实 Agent 对话。",
+    }));
+  }
 
   const execution = input.workpad.mainAgentExecution;
   if (execution) {
-    for (const roleId of rolesFromExecution(execution.runs, execution.agentTasks)) {
-      if (roleId === "planning-agent" || roleId === "main-agent") continue;
-      agents.set(roleId, roleWorkspace(roleId, execution.runs, execution.agentTasks));
+    for (const run of execution.runs) {
+      if (!MODEL_ROLES.has(run.roleId) || run.roleId === "planning-agent") continue;
+      const id = run.runId ? `run:${run.runId}` : `run:${run.roleId}:${stablePart(run.artifact ?? run.summary)}`;
+      agents.set(id, runSurface(id, run));
+    }
+    for (const task of execution.agentTasks) {
+      const taskRoleId = normalizedRoleId(task.roleId);
+      if (!MODEL_ROLES.has(taskRoleId) || taskRoleId === "planning-agent") continue;
+      const providerAgentId = providerAgentIds.get(providerTaskKey(task.conversationId, taskRoleId));
+      const providerAgent = providerAgentId
+        ? agents.get(providerAgentId)
+        : task.runId
+          ? [...agents.values()].find((agent) => agent.runId === task.runId)
+          : undefined;
+      const id = providerAgent?.id ?? (task.runId ? `run:${task.runId}` : `task:${task.id}`);
+      const existing = agents.get(id);
+      const cell = processCell(`task:${task.id}`, roleLabel(taskRoleId), task.resultSummary ?? task.summary, task.status, taskRoleId, task.runId, task.evidenceRefs[0]);
+      agents.set(id, existing ? {
+        ...existing,
+        status: task.status,
+        summary: task.resultSummary ?? task.summary,
+        transcript: transcript(task.roleId, [...(existing.transcript.cells ?? []), cell]),
+      } : agentSurface({
+        id,
+        roleId: taskRoleId,
+        runId: task.runId,
+        status: task.status,
+        cells: [cell],
+        summary: task.resultSummary ?? task.summary,
+      }));
     }
   }
 
-  const orderedAgents = [
-    ...KNOWN_ROLE_ORDER.map((roleId) => agents.get(roleId)).filter((agent): agent is WorkbenchAgentWorkspaceAgent => Boolean(agent)),
-    ...[...agents.values()].filter((agent) => !KNOWN_ROLE_ORDER.includes(agent.id)),
-  ];
-  const selectedAgentId = orderedAgents.find((agent) => agent.status === "running")?.id ?? orderedAgents[0]?.id ?? "planning-agent";
-  return { selectedAgentId, agents: orderedAgents };
+  const ordered = numberDuplicateLabels([...agents.values()]);
+  return { selectedAgentId: "", agents: ordered };
 }
 
-function planningAgentWorkspace(topic: WorkbenchTopicDetail | null): WorkbenchAgentWorkspaceAgent | null {
-  const persistedCells = topic ? buildAgentScopedTranscriptCells(topic.threadItems, "planning-agent") : [];
-  const cells: ParentAgentTranscriptCell[] = [...persistedCells];
-  if (cells.length === 0) return null;
+function runSurface(id: string, run: WorkbenchRoleRunSummary): WorkbenchAgentWorkspaceAgent {
+  return agentSurface({
+    id,
+    roleId: run.roleId,
+    runId: run.runId,
+    status: run.status,
+    summary: run.summary,
+    cells: [processCell(`run:${id}`, roleLabel(run.roleId), run.summary, run.status, run.roleId, run.runId, run.artifact)],
+  });
+}
 
+function agentSurface(input: {
+  id: string;
+  roleId: string;
+  providerThreadId?: string;
+  providerDisplayName?: string;
+  parentThreadId?: string;
+  runId?: string;
+  status: string;
+  summary: string;
+  cells: ParentAgentTranscriptCell[];
+  label?: string;
+}): WorkbenchAgentWorkspaceAgent {
   return {
-    id: "planning-agent",
-    roleId: "planning-agent",
-    label: "Plan Agent",
-    status: cells.some((cell) => cell.status === "running") ? "running" : "completed",
-    summary: "真实计划子 Agent 对话。",
-    inputSummary: topic?.title,
-    transcript: transcript("planning-agent", cells),
+    id: input.id,
+    roleId: input.roleId,
+    providerThreadId: input.providerThreadId,
+    providerDisplayName: input.providerDisplayName,
+    parentThreadId: input.parentThreadId,
+    runId: input.runId,
+    label: input.label ?? roleLabel(input.roleId),
+    status: input.status,
+    summary: input.summary,
+    transcript: transcript(input.roleId, input.cells),
     evidenceRefs: [],
     actions: [],
   };
 }
 
-function hasRealPlanningAgentEvidence(topic: WorkbenchTopicDetail | null): boolean {
-  const persistedCells = topic ? buildAgentScopedTranscriptCells(topic.threadItems, "planning-agent") : [];
-  return persistedCells.length > 0;
-}
-
-function roleWorkspace(roleId: string, runs: WorkbenchRoleRunSummary[], tasks: WorkbenchAgentTaskSummary[]): WorkbenchAgentWorkspaceAgent {
-  const roleRuns = runs.filter((run) => run.roleId === roleId);
-  const roleTasks = tasks.filter((task) => task.roleId === roleId);
-  const cells: ParentAgentTranscriptCell[] = [];
-  for (const run of roleRuns) {
-    cells.push(processCell(`role:${roleId}:run:${run.runId ?? run.artifact ?? run.summary}`, roleLabel(roleId), run.summary, run.status, roleId, run.runId, run.artifact));
+function numberDuplicateLabels(agents: WorkbenchAgentWorkspaceAgent[]): WorkbenchAgentWorkspaceAgent[] {
+  const bases = new Map(agents.map((agent) => [agent.id, baseAgentDisplayLabel(agent.label, agent.roleId)]));
+  const totals = new Map<string, number>();
+  for (const base of bases.values()) totals.set(base, (totals.get(base) ?? 0) + 1);
+  const sorted = [...agents].sort((left, right) => left.id.localeCompare(right.id));
+  const nextByBase = new Map<string, number>();
+  const indexById = new Map<string, number>();
+  for (const agent of sorted) {
+    const base = bases.get(agent.id)!;
+    const next = (nextByBase.get(base) ?? 0) + 1;
+    nextByBase.set(base, next);
+    indexById.set(agent.id, next);
   }
-  for (const task of roleTasks) {
-    cells.push(processCell(`role:${roleId}:task:${task.id}`, roleLabel(roleId), task.resultSummary ?? task.summary, task.status, roleId, task.runId, task.evidenceRefs[0]));
-  }
-  if (cells.length === 0) cells.push(processCell(`role:${roleId}:empty`, roleLabel(roleId), "暂无该 Agent 的运行记录。", "idle", roleId));
-  const latestTask = roleTasks.at(-1);
-  const latestRun = roleRuns.at(-1);
-  return {
-    id: roleId,
-    roleId,
-    label: roleLabel(roleId),
-    status: latestTask?.status ?? latestRun?.status ?? "idle",
-    summary: latestTask?.resultSummary ?? latestTask?.summary ?? latestRun?.summary ?? "暂无运行记录。",
-    inputSummary: latestTask?.summary,
-    outputSummary: latestTask?.resultSummary ?? latestRun?.summary,
-    transcript: transcript(roleId, cells),
-    evidenceRefs: [
-      ...roleRuns.flatMap((run) => run.artifact ? [{ label: roleLabel(roleId), ref: run.artifact, kind: "artifact" as const }] : []),
-      ...roleTasks.flatMap((task) => task.evidenceRefs.map((ref) => ({ label: roleLabel(roleId), ref, kind: "artifact" as const }))),
-    ],
-    actions: [],
-  };
-}
-
-function rolesFromExecution(runs: WorkbenchRoleRunSummary[], tasks: WorkbenchAgentTaskSummary[]): string[] {
-  return [...new Set([...runs.map((run) => run.roleId), ...tasks.map((task) => task.roleId)])];
+  return agents.map((agent) => {
+    const base = bases.get(agent.id)!;
+    if ((totals.get(base) ?? 0) < 2) return { ...agent, label: base };
+    return { ...agent, label: `${base} ${indexById.get(agent.id) ?? 1}` };
+  });
 }
 
 function transcript(roleId: string, cells: ParentAgentTranscriptCell[]): ParentAgentTranscript {
@@ -117,38 +193,33 @@ function transcript(roleId: string, cells: ParentAgentTranscriptCell[]): ParentA
 }
 
 function processCell(id: string, title: string, text: string, status: string, roleId: string, runId?: string, artifactRef?: string): ParentAgentTranscriptCell {
-  const visibleTitle = normalizeAgentWorkspacePlanningText(title);
-  const visibleText = normalizeAgentWorkspacePlanningText(text);
   return {
     id,
     kind: "process-row",
     source: "aho-orchestration",
     agentRoleId: roleId,
     runId,
-    title: visibleTitle,
-    text: visibleText,
+    title,
+    text,
     status,
-    evidenceRefs: artifactRef ? [{ label: visibleTitle, ref: artifactRef, kind: "artifact" }] : undefined,
+    evidenceRefs: artifactRef ? [{ label: title, ref: artifactRef, kind: "artifact" }] : undefined,
   };
 }
 
-function normalizeAgentWorkspacePlanningText(value: string): string {
-  return value
-    .replace(/\bPlanning draft generated for user review\./g, "计划已生成，等待审阅。")
-    .replace(/\bPlanning draft revised for user review\./g, "计划已按反馈更新。")
-    .replace(/\bPlanning draft generated\b/g, "计划已生成")
-    .replace(/\bPlanning draft revised\b/g, "计划已修改")
-    .replace(/\bPlanning confirmed\b/g, "计划已确认")
-    .replace(/\bplanning-agent returned reviewable plan text\./g, "planning-agent 已返回可审阅计划。")
-    .replace(/\bPlanning records were saved after user confirmation\./g, "方案已保存；当前不会直接修改文件。");
+function roleLabel(roleId: string): string {
+  return agentRoleDisplayName(roleId);
 }
 
-function roleLabel(roleId: string): string {
-  if (roleId === "main-agent") return "主 Agent";
-  if (roleId === "planning-agent") return "Plan Agent";
-  if (roleId === "coder-agent" || roleId === "coder") return "coder-agent";
-  if (roleId === "validator") return "validator";
-  if (roleId === "auditor-agent" || roleId === "auditor") return "auditor-agent";
-  if (roleId === "rework-coder") return "rework-coder";
+function normalizedRoleId(roleId: string): string {
+  if (roleId.startsWith("memory-maintenance-agent:")) return "memory-maintenance-agent";
+  if (roleId.startsWith("harness-evolution-agent:")) return "harness-evolution-agent";
   return roleId;
+}
+
+function providerTaskKey(conversationId: string, roleId: string): string {
+  return `${conversationId}:${normalizedRoleId(roleId)}`;
+}
+
+function stablePart(value: string): string {
+  return value.replace(/[^a-zA-Z0-9]+/g, "-").slice(0, 48) || "agent";
 }

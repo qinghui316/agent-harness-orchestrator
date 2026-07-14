@@ -1,4 +1,5 @@
-import { useState, type ReactElement, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
+import { Bot, Brain, CheckCircle2, FilePenLine, LoaderCircle, Search, Terminal, Wrench } from "lucide-react";
 import { artifactName } from "./RunReplayPanel.js";
 import { formatTime, humanStatus } from "../../formatters.js";
 import { cleanTranscriptText, cleanTranscriptTitle } from "../../liveTranscript.js";
@@ -37,10 +38,11 @@ export function AgentTranscriptPane({ cells, emptyMessage = "暂无 Agent 消息
   );
 }
 
-export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded }: {
+export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded, onOpenAgent }: {
   cell: ParentAgentTranscriptCell;
   expanded: boolean;
   onToggleExpanded: () => void;
+  onOpenAgent?: (agentSurfaceId: string) => void;
 }): ReactElement {
   const isUser = cell.kind === "user-message";
   const rowKind = isUser ? "user" : "parent";
@@ -48,6 +50,11 @@ export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded
     <div
       className={`parent-agent-message-row transcript-cell-row ${rowKind} ${cell.kind}`}
       data-testid={isUser ? "parent-message-user" : "parent-message-parent-agent"}
+      data-cell-id={cell.id}
+      data-run-id={cell.runId}
+      data-thread-id={cell.threadId}
+      data-turn-id={cell.turnId}
+      data-realtime={cell.realtime ? "true" : undefined}
     >
       <div className={`parent-agent-bubble transcript-cell-surface ${rowKind} ${cell.kind}`}>
         {cell.kind === "user-message" ? (
@@ -55,10 +62,10 @@ export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded
         ) : cell.kind === "assistant-message" ? (
           <TranscriptAssistantMessage cell={cell} expanded={expanded} onToggleExpanded={onToggleExpanded} />
         ) : (
-          <TranscriptActivityRow cell={cell} expanded={expanded} onToggleExpanded={onToggleExpanded} />
+          <TranscriptActivityRow cell={cell} expanded={expanded} onToggleExpanded={onToggleExpanded} onOpenAgent={onOpenAgent} />
         )}
       </div>
-      {cell.timestamp ? <time>{formatTime(cell.timestamp)}</time> : null}
+      {cell.timestamp && (cell.kind === "user-message" || cell.kind === "assistant-message") ? <time>{formatTime(cell.timestamp)}</time> : null}
     </div>
   );
 }
@@ -121,11 +128,15 @@ function TranscriptMessageProse({ cell, expanded, onToggleExpanded, className }:
   );
 }
 
-export function TranscriptActivityRow({ cell, expanded, onToggleExpanded }: {
+export function TranscriptActivityRow({ cell, expanded, onToggleExpanded, onOpenAgent }: {
   cell: ParentAgentTranscriptCell;
   expanded: boolean;
   onToggleExpanded: () => void;
+  onOpenAgent?: (agentSurfaceId: string) => void;
 }): ReactElement {
+  const elapsed = useElapsedSeconds(cell.realtime ? cell.timestamp : undefined);
+  const detailsRef = useRef<HTMLDivElement | null>(null);
+  const detailsPinnedRef = useRef(true);
   const evidenceRefs = dedupeParentCellEvidenceRefs(cell.evidenceRefs ?? []);
   const hasDetails = Boolean(cell.detailText?.trim()) || evidenceRefs.length > 0;
   const rawTitle = cleanTranscriptTitle(cell.title) || (cell.kind === "process-row" ? "运行" : "材料");
@@ -137,25 +148,37 @@ export function TranscriptActivityRow({ cell, expanded, onToggleExpanded }: {
   const status = cell.status && shouldShowTranscriptStatus(cell) ? humanStatus(cell.status) : null;
   const detailsId = `${cell.id}:details`;
   const tone = transcriptActivityTone(cell);
+  useEffect(() => {
+    const node = detailsRef.current;
+    if (expanded && node && detailsPinnedRef.current) node.scrollTop = node.scrollHeight;
+  }, [detailText, expanded]);
   return (
-    <div className={`parent-agent-tool-result transcript-activity-row compact ${cell.kind} tone-${tone} ${expanded ? "expanded" : ""} ${hasDetails ? "has-details" : ""} ${cell.isError ? "danger" : ""}`}>
+    <div className={`parent-agent-tool-result transcript-activity-row compact ${cell.kind} tone-${tone} ${cell.realtime ? "realtime" : ""} ${expanded ? "expanded" : ""} ${hasDetails ? "has-details" : ""} ${cell.isError ? "danger" : ""}`}>
       <button
         type="button"
         className="transcript-activity-summary"
-        onClick={hasDetails ? onToggleExpanded : undefined}
+        onClick={cell.targetAgentSurfaceId && onOpenAgent ? () => onOpenAgent(cell.targetAgentSurfaceId!) : hasDetails ? onToggleExpanded : undefined}
         aria-expanded={hasDetails ? expanded : undefined}
         aria-controls={hasDetails ? detailsId : undefined}
       >
-        <span className="transcript-activity-dot" aria-hidden="true" />
+        <ActivityGlyph cell={cell} />
         <span className="tool-result-heading transcript-activity-heading">
-          <strong>{title}</strong>
+          <strong>{title}{cell.realtime && elapsed !== null ? ` · ${elapsed} 秒` : ""}</strong>
           {status ? <span>{status}</span> : null}
         </span>
-        {hasDetails ? <span className="transcript-activity-disclosure" aria-hidden="true">{expanded ? "收起" : "详情"}</span> : null}
+        {cell.targetAgentSurfaceId ? <span className="transcript-activity-disclosure" aria-hidden="true">打开</span> : hasDetails ? <span className="transcript-activity-disclosure" aria-hidden="true">{expanded ? "收起" : "详情"}</span> : null}
       </button>
       {text ? <TranscriptMarkdownLite text={text} idPrefix={`${cell.id}:summary`} compact /> : null}
       {hasDetails && expanded ? (
-        <div className="tool-result-details transcript-activity-details" id={detailsId}>
+        <div
+          ref={detailsRef}
+          className="tool-result-details transcript-activity-details"
+          id={detailsId}
+          onScroll={(event) => {
+            const node = event.currentTarget;
+            detailsPinnedRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 32;
+          }}
+        >
           {detailText ? <pre>{detailText}</pre> : null}
           {evidenceRefs.length ? (
             <div className="tool-result-evidence">
@@ -166,6 +189,41 @@ export function TranscriptActivityRow({ cell, expanded, onToggleExpanded }: {
       ) : null}
     </div>
   );
+}
+
+function ActivityGlyph({ cell }: { cell: ParentAgentTranscriptCell }): ReactElement {
+  const size = 14;
+  const icon = cell.activityKind === "command"
+    ? <Terminal size={size} />
+    : cell.activityKind === "file"
+      ? <FilePenLine size={size} />
+      : cell.activityKind === "search"
+        ? <Search size={size} />
+        : cell.activityKind === "agent"
+          ? <Bot size={size} />
+          : cell.activityKind === "reasoning"
+            ? <Brain size={size} />
+            : cell.activityKind === "turn"
+              ? cell.realtime ? <LoaderCircle className="transcript-activity-spinner" size={size} /> : <CheckCircle2 size={size} />
+              : <Wrench size={size} />;
+  return <span className="transcript-activity-icon" aria-hidden="true">{icon}</span>;
+}
+
+function useElapsedSeconds(startedAt?: string): number | null {
+  const [elapsed, setElapsed] = useState<number | null>(() => elapsedSeconds(startedAt));
+  useEffect(() => {
+    setElapsed(elapsedSeconds(startedAt));
+    if (!startedAt) return;
+    const timer = window.setInterval(() => setElapsed(elapsedSeconds(startedAt)), 1000);
+    return () => window.clearInterval(timer);
+  }, [startedAt]);
+  return elapsed;
+}
+
+function elapsedSeconds(startedAt?: string): number | null {
+  if (!startedAt) return null;
+  const time = Date.parse(startedAt);
+  return Number.isFinite(time) ? Math.max(0, Math.floor((Date.now() - time) / 1000)) : null;
 }
 
 function dedupeParentCellEvidenceRefs(refs: NonNullable<ParentAgentTranscriptCell["evidenceRefs"]>): NonNullable<ParentAgentTranscriptCell["evidenceRefs"]> {
@@ -180,6 +238,7 @@ function dedupeParentCellEvidenceRefs(refs: NonNullable<ParentAgentTranscriptCel
 
 function shouldShowTranscriptStatus(cell: ParentAgentTranscriptCell): boolean {
   if (!cell.status) return false;
+  if (cell.activityKind === "command") return false;
   if (cell.isError) return true;
   return ["running", "queued", "waiting-user", "needs-user-input", "failed"].includes(cell.status);
 }

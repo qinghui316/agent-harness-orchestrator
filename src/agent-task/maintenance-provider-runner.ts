@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { getRuntimeAssignedHarnessSkillContext, type EnabledSkillContext } from "../skill/catalog.js";
 import type { ManagedProject } from "../types/index.js";
+import type { CodexAppServerRealtimeEvent } from "../codex/app-server-realtime.js";
 import { parseHarnessEngineeringAssignment, type HarnessEngineeringAssignment } from "./harness-engineering-contract.js";
 
 export type MaintenanceProviderRole = "maintenance-agent" | "evolution-agent" | "evolution-scorer";
@@ -12,10 +13,19 @@ export interface MaintenanceProviderExecutionRequest {
   skillContext: EnabledSkillContext;
   parentThreadId: string | null;
   cwd: string;
+  runtimeWorkspaceRoots?: string[];
   writable: boolean;
   writableRoots?: string[];
   existingThreadId?: string | null;
   signal?: AbortSignal;
+  onRealtimeEvent?: (event: CodexAppServerRealtimeEvent) => void;
+  taskLineage?: MaintenanceTaskLineage;
+}
+
+export interface MaintenanceTaskLineage {
+  taskId: string;
+  conversationId: string;
+  changeId: string;
 }
 
 export interface MaintenanceProviderExecutionResult {
@@ -50,6 +60,8 @@ export interface RunMaintenanceProviderAssignmentInput {
   executor: MaintenanceProviderExecutor;
   getSkillContext?: typeof getRuntimeAssignedHarnessSkillContext;
   signal?: AbortSignal;
+  onRealtimeEvent?: (event: CodexAppServerRealtimeEvent) => void;
+  taskLineage?: MaintenanceTaskLineage;
 }
 
 const scoreDimensionSchema = z.union([
@@ -95,9 +107,12 @@ export async function runMaintenanceProviderAssignment(
       skillContext,
       parentThreadId: null,
       cwd: assignment.memoryRoot,
+      runtimeWorkspaceRoots: [assignment.projectRoot, assignment.memoryRoot],
       writable: true,
       writableRoots,
       signal: input.signal,
+      onRealtimeEvent: input.onRealtimeEvent,
+      taskLineage: input.taskLineage,
     });
     assertThreadLineage(result, null, "Maintenance Agent");
     return evidence(assignment, "maintenance-agent", result);
@@ -110,8 +125,11 @@ export async function runMaintenanceProviderAssignment(
     skillContext,
     parentThreadId: null,
     cwd: assignment.memoryRoot,
+    runtimeWorkspaceRoots: [assignment.projectRoot, assignment.memoryRoot],
     writable: false,
     signal: input.signal,
+    onRealtimeEvent: input.onRealtimeEvent,
+    taskLineage: input.taskLineage,
   });
   assertThreadLineage(proposal, null, "Evolution Agent");
 
@@ -127,8 +145,11 @@ export async function runMaintenanceProviderAssignment(
       parentThreadId: proposal.threadId,
       existingThreadId: proposal.threadId,
       cwd: assignment.memoryRoot,
+      runtimeWorkspaceRoots: [assignment.projectRoot, assignment.memoryRoot],
       writable: false,
       signal: input.signal,
+      onRealtimeEvent: input.onRealtimeEvent,
+      taskLineage: input.taskLineage,
     });
     if (scoringResult.parentThreadId !== proposal.threadId || scoringResult.threadId === proposal.threadId) {
       throw new Error("Evolution scorer must be a native child of the proposal thread.");
@@ -170,8 +191,11 @@ export async function runMaintenanceProviderAssignment(
       parentThreadId: null,
       existingThreadId: proposal.threadId,
       cwd: assignment.memoryRoot,
+      runtimeWorkspaceRoots: [assignment.projectRoot, assignment.memoryRoot],
       writable: false,
       signal: input.signal,
+      onRealtimeEvent: input.onRealtimeEvent,
+      taskLineage: input.taskLineage,
     });
     if (revised.threadId !== proposal.threadId) throw new Error("Evolution revision must continue the proposal thread.");
     proposal = revised;
@@ -186,9 +210,12 @@ export async function runMaintenanceProviderAssignment(
     parentThreadId: null,
     existingThreadId: proposal.threadId,
     cwd: assignment.memoryRoot,
+    runtimeWorkspaceRoots: [assignment.projectRoot, assignment.memoryRoot],
     writable: true,
     writableRoots,
     signal: input.signal,
+    onRealtimeEvent: input.onRealtimeEvent,
+    taskLineage: input.taskLineage,
   });
   if (applied.threadId !== proposal.threadId) throw new Error("Evolution edit must continue the accepted proposal thread.");
   return {
@@ -227,7 +254,6 @@ function evidence(
 
 function buildMaintenancePrompt(assignment: HarnessEngineeringAssignment): string {
   return [
-    "Follow the attached AHO Harness Engineering Skill in maintain-assigned-closeout mode.",
     `Task: ${assignment.taskId}`,
     `Project root: ${assignment.projectRoot}`,
     `Memory root: ${assignment.memoryRoot}`,
@@ -240,7 +266,6 @@ function buildMaintenancePrompt(assignment: HarnessEngineeringAssignment): strin
 
 function buildEvolutionProposalPrompt(assignment: HarnessEngineeringAssignment): string {
   return [
-    "Follow the attached AHO Harness Engineering Skill in evolve-assigned-window mode.",
     `Task: ${assignment.taskId}`,
     `Project root: ${assignment.projectRoot}`,
     `Memory root: ${assignment.memoryRoot}`,
@@ -273,7 +298,6 @@ function buildEvolutionApplyPrompt(
   score: z.infer<typeof scoreSchema>,
 ): string {
   return [
-    "Continue following the attached AHO Harness Engineering Skill in evolve-assigned-window mode.",
     `Task: ${assignment.taskId}`,
     `The native scorer accepted the proposal with score ${score.score}: ${score.summary}`,
     "Re-read the current Harness, then directly complete the accepted delta in the real project and memory roots.",

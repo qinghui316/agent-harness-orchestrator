@@ -11,7 +11,9 @@ import { codexRuntimeConfigArgs } from "./capabilities.js";
 import { resolveCodexExecutable } from "./executable.js";
 import { executeProcessStreaming } from "../run/process.js";
 import type { MemoryMode } from "../types/index.js";
+import { normalizeCodexAppServerNotification, type CodexAppServerRealtimeEvent } from "./app-server-realtime.js";
 import { readCodexNativeCollabConfigStatus, type CodexNativeCollabConfigStatus } from "./trust.js";
+import { agentRoleDisplayName, composeAgentDisplayLabel } from "../agent-display-label.js";
 
 export interface CodexAppServerCapabilities {
   available: boolean;
@@ -106,6 +108,7 @@ export interface CodexAppServerChildThreadResult {
   prompt?: string;
   model?: string;
   reasoningEffort?: string;
+  displayName?: string;
   finalText: string;
   changedFiles: string[];
   snapshot: Record<string, unknown>;
@@ -149,9 +152,11 @@ export type CodexAppServerUserInputRequestHandler = (request: CodexAppServerUser
 
 export interface CodexAppServerTurnOptions {
   projectId: string;
+  conversationId?: string;
   changeId?: string;
   runtimeScopeId?: string;
   roleId: string;
+  agentTaskId?: string;
   runId: string;
   cwd: string;
   prompt: string;
@@ -160,6 +165,7 @@ export interface CodexAppServerTurnOptions {
   existingThreadId?: string | null;
   timeoutMs?: number;
   onNotification?: CodexAppServerNotificationHandler;
+  onRealtimeEvent?: (event: CodexAppServerRealtimeEvent) => void;
   onChildThreadResult?: (result: CodexAppServerChildThreadResult) => void;
   onUserInputRequest?: CodexAppServerUserInputRequestHandler;
   dynamicTools?: CodexAppServerDynamicToolSpec[];
@@ -174,6 +180,10 @@ export interface CodexAppServerTurnOptions {
   model?: string | null;
   imageInputs?: Array<{ path: string; mediaType?: string; fileName?: string }>;
   skillInputs?: Array<{ name: string; path: string }>;
+  nativeSkillRoots?: string[];
+  requiredNativeSkills?: string[];
+  runtimeWorkspaceRoots?: string[];
+  additionalContext?: Record<string, { kind: "untrusted" | "application"; value: string }>;
   writableRoots?: string[];
   developerInstructions?: string;
   outputSchema?: Record<string, unknown>;
@@ -322,8 +332,11 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
   let waitingGoalAttachPending = false;
   let activeTurnRunning = false;
   const childThreads: CodexAppServerChildThreadResult[] = [];
+  const childThreadDisplayNames = new Map<string, string>();
   const changedFiles = new Set<string>();
   const childThreadPrompts = new Map<string, string>();
+  const childThreadParents = new Map<string, string>();
+  const childThreadRoles = new Map<string, string>();
   const subAgentThreadItems = new Map<string, string>();
   const pendingChildReads = new Set<Promise<void>>();
   const readChildThreadIds = new Set<string>();
@@ -386,6 +399,7 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
       clientInfo: { name: "agent-harness-orchestrator", title: "Agent Harness Orchestrator", version: "0.1.0" },
     });
     sendNotification("initialized", {});
+    if (options.nativeSkillRoots?.length) await configureNativeSkills();
     if (options.goalResume && !threadId) throw new Error("Goal resume requires an existing provider thread id.");
     const goalBeforeSession = options.goalSession && threadId
       ? parseThreadGoalResponse(await sendRequest("thread/goal/get", { threadId }))
@@ -400,11 +414,18 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
     const threadResponse = terminalStatus
       ? null
       : threadId
-        ? await sendRequest("thread/resume", { threadId, cwd: options.cwd, sandbox: options.sandboxPolicy, approvalPolicy: "never" })
+        ? await sendRequest("thread/resume", {
+          threadId,
+          cwd: options.cwd,
+          sandbox: options.sandboxPolicy,
+          approvalPolicy: "never",
+          ...(options.runtimeWorkspaceRoots?.length ? { runtimeWorkspaceRoots: options.runtimeWorkspaceRoots } : {}),
+        })
         : await sendRequest("thread/start", {
           cwd: options.cwd,
           sandbox: options.sandboxPolicy,
           approvalPolicy: "never",
+          ...(options.runtimeWorkspaceRoots?.length ? { runtimeWorkspaceRoots: options.runtimeWorkspaceRoots } : {}),
           ...(options.developerInstructions?.trim() ? { developerInstructions: options.developerInstructions.trim() } : {}),
           ...(options.dynamicTools?.length ? { dynamicTools: options.dynamicTools } : {}),
         });
@@ -472,6 +493,8 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
         cwd: options.cwd,
         sandboxPolicy: sandboxPolicyFor(options.sandboxPolicy, options.cwd, options.writableRoots),
         approvalPolicy: "never",
+        ...(options.runtimeWorkspaceRoots?.length ? { runtimeWorkspaceRoots: options.runtimeWorkspaceRoots } : {}),
+        ...(options.additionalContext ? { additionalContext: options.additionalContext } : {}),
         ...(turnModel ? { model: turnModel } : {}),
         ...(options.outputSchema ? { outputSchema: options.outputSchema } : {}),
       });
@@ -571,6 +594,7 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
   function handleServerRequest(id: number, method: string, params: Record<string, unknown>, raw: Record<string, unknown>): boolean {
     if (method === "item/tool/call") {
       options.onNotification?.({ method, params, raw });
+      emitRealtime(method, params);
       const requestId = String(id);
       const call = parseDynamicToolCall(requestId, params, threadId, turnId);
       if (!call || !options.onDynamicToolCall) {
@@ -596,6 +620,7 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
       return true;
     }
     options.onNotification?.({ method, params, raw });
+    emitRealtime(method, params);
     if (params.completed === true) return true;
     const requestId = String(id);
     pendingServerRequests.set(requestId, { id, method });
@@ -630,11 +655,19 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
     if (collab?.tool === "spawn_agent") {
       for (const childThreadId of collab.receiverThreadIds) {
         if (collab.prompt) childThreadPrompts.set(childThreadId, collab.prompt);
+        childThreadParents.set(childThreadId, collab.senderThreadId ?? notificationThreadId ?? threadId ?? "");
+        childThreadRoles.set(childThreadId, roleIdFromChildPrompt(collab.prompt));
         if (isTerminalCollabStatus(collab.status)) queueChildThreadRead(collab, childThreadId);
       }
     }
+    emitRealtime(method, params);
     const subAgent = extractSubAgentActivity(method, params);
-    if (subAgent) subAgentThreadItems.set(subAgent.threadId, subAgent.itemId);
+    if (subAgent) {
+      subAgentThreadItems.set(subAgent.threadId, subAgent.itemId);
+      childThreadParents.set(subAgent.threadId, notificationThreadId ?? threadId ?? "");
+      const subAgentRole = roleIdFromChildPrompt(subAgent.agentPath);
+      childThreadRoles.set(subAgent.threadId, subAgentRole);
+    }
     if (method === "turn/completed" && notificationThreadId && subAgentThreadItems.has(notificationThreadId)) {
       queueChildThreadRead({
         itemId: subAgentThreadItems.get(notificationThreadId),
@@ -748,6 +781,71 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
     pending.clear();
   }
 
+  function emitRealtime(method: string, params: Record<string, unknown>): void {
+    if (!options.onRealtimeEvent) return;
+    const eventThreadId = stringValue(params.threadId ?? params.thread_id) ?? threadId ?? `run:${options.runId}`;
+    const eventTurnId = stringValue(params.turnId ?? params.turn_id)
+      ?? stringValue((isRecord(params.turn) ? params.turn.id : undefined))
+      ?? (eventThreadId === threadId ? turnId ?? undefined : undefined);
+    const eventItem = isRecord(params.item) ? params.item : params;
+    const eventItemId = stringValue(eventItem.id ?? params.itemId ?? params.item_id);
+    const isMainThread = !threadId || eventThreadId === threadId;
+    const roleId = isMainThread ? options.roleId : childThreadRoles.get(eventThreadId) ?? "child-agent";
+    const providerDisplayName = stringValue(params.agentNickname ?? params.agent_nickname ?? params.agentDisplayName ?? params.agent_display_name)
+      ?? stringValue((isRecord(params.thread)
+        ? params.thread.agentNickname ?? params.thread.agent_nickname ?? params.thread.displayName ?? params.thread.display_name
+        : undefined));
+    if (!isMainThread && providerDisplayName) childThreadDisplayNames.set(eventThreadId, providerDisplayName);
+    const parentThreadId = isMainThread
+      ? undefined
+      : stringValue(params.parentThreadId ?? params.parent_thread_id) ?? childThreadParents.get(eventThreadId) ?? threadId ?? undefined;
+    const receiverThreadId = firstString(eventItem.receiverThreadIds ?? eventItem.receiver_thread_ids ?? eventItem.agentThreadId ?? eventItem.agent_thread_id);
+    const targetRoleId = receiverThreadId ? childThreadRoles.get(receiverThreadId) : undefined;
+    for (const realtimeEvent of normalizeCodexAppServerNotification(method, params, {
+      projectId: options.projectId,
+      ...(options.conversationId ? { conversationId: options.conversationId } : {}),
+      ...(options.changeId ? { changeId: options.changeId } : {}),
+      runId: options.runId,
+      threadId: eventThreadId,
+      ...(parentThreadId ? { parentThreadId } : {}),
+      ...(eventTurnId ? { turnId: eventTurnId } : {}),
+      ...(eventItemId ? { itemId: eventItemId } : {}),
+      roleId,
+      ...(options.agentTaskId ? { agentTaskId: options.agentTaskId } : {}),
+      displayName: providerDisplayName ?? childThreadDisplayNames.get(eventThreadId) ?? agentRoleDisplayName(roleId),
+      ...(receiverThreadId ? {
+        targetAgentSurfaceId: `thread:${receiverThreadId}`,
+        targetAgentDisplayName: composeAgentDisplayLabel(targetRoleId ?? "child-agent", childThreadDisplayNames.get(receiverThreadId)),
+      } : {}),
+    })) options.onRealtimeEvent(realtimeEvent);
+  }
+
+  async function configureNativeSkills(): Promise<void> {
+    const roots = [...new Set((options.nativeSkillRoots ?? []).map((root) => root.trim()).filter(Boolean))];
+    if (roots.length === 0) return;
+    const required = [...new Set([
+      ...(options.requiredNativeSkills ?? []),
+      ...(options.skillInputs ?? []).map((skill) => skill.name),
+    ].map((name) => name.trim()).filter(Boolean))];
+    try {
+      await sendRequest("skills/extraRoots/set", { extraRoots: roots });
+      const listed = await sendRequest("skills/list", { cwds: [options.cwd], forceReload: true });
+      const discovered = new Set<string>();
+      const entries = Array.isArray(listed.data) ? listed.data : [];
+      for (const entry of entries) {
+        if (!isRecord(entry) || !Array.isArray(entry.skills)) continue;
+        for (const skill of entry.skills) {
+          if (isRecord(skill) && typeof skill.name === "string" && skill.name.trim()) discovered.add(skill.name.trim());
+        }
+      }
+      const missing = required.filter((name) => !discovered.has(name));
+      if (missing.length > 0) throw new Error(`未发现需要的 Skill：${missing.join("、")}`);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`Codex 原生 Skill 不可用：${detail}`);
+    }
+  }
+
   function queueChildThreadRead(call: CodexAppServerCollabToolCall, childThreadId: string): void {
     if (!threadId || readChildThreadIds.has(childThreadId)) return;
     readChildThreadIds.add(childThreadId);
@@ -764,6 +862,9 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
           : {}),
         ...(call.model ? { model: call.model } : {}),
         ...(call.reasoningEffort ? { reasoningEffort: call.reasoningEffort } : {}),
+        displayName: extractCodexAppServerThreadDisplayName(snapshot)
+          ?? childThreadDisplayNames.get(childThreadId)
+          ?? agentRoleDisplayName(childThreadRoles.get(childThreadId) ?? "child-agent"),
         finalText: extractCodexAppServerThreadFinalText(snapshot),
         changedFiles: extractFileChangePaths(snapshot),
         snapshot,
@@ -779,6 +880,12 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
     if (goalPausePromise) return goalPausePromise;
     goalPauseRequested = true;
     goalPausePromise = (async () => {
+      const beforeInterrupt = parseThreadGoalResponse(await sendRequest("thread/goal/get", { threadId: activeThreadId }));
+      if (!beforeInterrupt) {
+        goalPauseRequested = false;
+        throw new Error("Codex native Goal yield requires an existing Goal on the provider thread.");
+      }
+      goal = beforeInterrupt;
       try {
         await sendRequest("turn/interrupt", { threadId: activeThreadId, turnId: activeTurnId });
       } catch {
@@ -878,14 +985,20 @@ export function extractCodexAppServerThreadInitialPrompt(snapshot: Record<string
   return "";
 }
 
-function extractSubAgentActivity(method: string, params: Record<string, unknown>): { itemId: string; threadId: string } | null {
+export function extractCodexAppServerThreadDisplayName(snapshot: Record<string, unknown>): string | undefined {
+  const thread = isRecord(snapshot.thread) ? snapshot.thread : snapshot;
+  return stringValue(thread.agentNickname ?? thread.agent_nickname ?? thread.displayName ?? thread.display_name);
+}
+
+function extractSubAgentActivity(method: string, params: Record<string, unknown>): { itemId: string; threadId: string; agentPath?: string } | null {
   if (method !== "item/started" && method !== "item/completed") return null;
   const item = isRecord(params.item) ? params.item : params;
   if (stringValue(item.type ?? item.kind) !== "subAgentActivity") return null;
   if (stringValue(item.kind) !== "started") return null;
   const itemId = stringValue(item.id);
   const threadId = stringValue(item.agentThreadId ?? item.agent_thread_id);
-  return itemId && threadId ? { itemId, threadId } : null;
+  const agentPath = stringValue(item.agentPath ?? item.agent_path);
+  return itemId && threadId ? { itemId, threadId, ...(agentPath ? { agentPath } : {}) } : null;
 }
 
 function textFromThreadItem(value: Record<string, unknown>): string {
@@ -1210,10 +1323,26 @@ function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
+function firstString(value: unknown): string | undefined {
+  if (typeof value === "string") return stringValue(value);
+  if (!Array.isArray(value)) return undefined;
+  return value.find((item): item is string => typeof item === "string" && Boolean(item.trim()));
+}
+
 function stringList(value: unknown): string[] {
   if (Array.isArray(value)) return value.map(stringValue).filter((item): item is string => Boolean(item));
   const single = stringValue(value);
   return single ? [single] : [];
+}
+
+function roleIdFromChildPrompt(prompt?: string): string {
+  const normalized = (prompt ?? "").toLowerCase();
+  if (normalized.includes("aho-workflow-authoring") || normalized.includes("planning agent") || /(^|[\\/_-])plan(?:[\\/_-]|$)/.test(normalized)) return "planning-agent";
+  if (normalized.includes("evolution") && normalized.includes("scor")) return "evolution-scorer";
+  if (normalized.includes("audit")) return "auditor-agent";
+  if (normalized.includes("rework")) return "rework-coder";
+  if (normalized.includes("spec-test")) return normalized.includes("propos") ? "spec-test-proposer" : "spec-test-generator";
+  return "child-agent";
 }
 
 export async function readAgentSession(path: string): Promise<CodexAppServerSessionRecord | null> {

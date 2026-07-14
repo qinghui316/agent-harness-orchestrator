@@ -1,7 +1,6 @@
-import { Bot, Send } from "lucide-react";
+import { Bot, ChevronLeft, Send, X } from "lucide-react";
 import { useMemo, useState, type ReactElement } from "react";
-import { humanStatus } from "../../formatters.js";
-import { parentTranscriptCellsFromLiveThreadItem, parentTranscriptCellsFromLiveTurn } from "../../liveTranscript.js";
+import { coalesceMainLiveTurns, parentTranscriptCellsFromLiveThreadItem, parentTranscriptCellsFromLiveTurn, reconcileTimelineCells } from "../../liveTranscript.js";
 import { AgentTranscriptPane } from "./TranscriptReadingSurface.js";
 import { ClarificationCard } from "./workpad/TaskGraphCards.js";
 import type { AgentWorkspace, AgentWorkspaceAgent, LiveAssistantTurn, ParentAgentTranscriptCell, ThreadStreamItem } from "../../types.js";
@@ -9,10 +8,13 @@ import type { AgentWorkspace, AgentWorkspaceAgent, LiveAssistantTurn, ParentAgen
 export function AgentWorkspacePanel({
   workspace,
   selectedAgentId,
+  openAgentIds,
   liveItems,
   liveTurns,
   busy,
   onSelectAgent,
+  onCloseAgent,
+  onBack,
   onAnswerClarification,
   onSendAgentMessage,
   modelLabel,
@@ -20,34 +22,35 @@ export function AgentWorkspacePanel({
 }: {
   workspace: AgentWorkspace;
   selectedAgentId: string | null;
+  openAgentIds: string[];
   liveItems: ThreadStreamItem[];
   liveTurns: LiveAssistantTurn[];
   busy: boolean;
   onSelectAgent: (agentId: string) => void;
+  onCloseAgent: (agentId: string) => void;
+  onBack: () => void;
   onAnswerClarification: (clarificationId: string, answer: string) => Promise<void>;
   onSendAgentMessage: (agent: AgentWorkspaceAgent, message: string) => Promise<void>;
   modelLabel: string;
   onOpenModelSettings?: () => void;
 }): ReactElement {
-  const childAgents = workspace.agents.filter((agent) => agent.id !== "main-agent" && agent.roleId !== "main-agent");
-  const selected = childAgents.find((agent) => agent.id === selectedAgentId)
-    ?? childAgents.find((agent) => agent.id === workspace.selectedAgentId)
-    ?? childAgents[0]
-    ?? emptyAgent();
+  const childAgents = workspace.agents.filter((agent) => openAgentIds.includes(agent.id) && agent.id !== "main-agent" && agent.roleId !== "main-agent");
+  const selected = childAgents.find((agent) => agent.id === selectedAgentId) ?? childAgents[0] ?? null;
   const [optimisticUserCells, setOptimisticUserCells] = useState<ParentAgentTranscriptCell[]>([]);
   const liveUserCells = useMemo(() => liveItems
-    .filter((item) => item.kind === "user-message" && isScopedToAgent(item.agentRoleId, selected))
-    .flatMap(parentTranscriptCellsFromLiveThreadItem), [liveItems, selected.id, selected.roleId]);
-  const liveCells = useMemo(() => liveTurns
-    .filter((turn) => turn.agentRoleId === selected.roleId || turn.agentRoleId === selected.id)
-    .flatMap(parentTranscriptCellsFromLiveTurn), [liveTurns, selected.id, selected.roleId]);
-  const persistedCells = (selected.transcript.cells ?? []).filter((cell) => cell.kind !== "detail-only");
-  const authoritativeCells = [...persistedCells, ...liveUserCells, ...liveCells];
+    .filter((item) => selected && item.kind === "user-message" && isScopedToAgent(item.agentRoleId, selected))
+    .flatMap(parentTranscriptCellsFromLiveThreadItem), [liveItems, selected]);
+  const liveCells = useMemo(() => coalesceMainLiveTurns(liveTurns
+    .filter((turn) => selected && (turn.agentSurfaceId === selected.id || turn.threadId === selected.providerThreadId || (!turn.agentSurfaceId && turn.runId === selected.runId))))
+    .flatMap(parentTranscriptCellsFromLiveTurn), [liveTurns, selected]);
+  const persistedCells = (selected?.transcript.cells ?? []).filter((cell) => cell.kind !== "detail-only");
+  const persistedAndLiveUserCells = reconcileTimelineCells(persistedCells, liveUserCells);
+  const authoritativeCells = reconcileTimelineCells(persistedAndLiveUserCells, liveCells);
   const visibleOptimisticUserCells = optimisticUserCells.filter((cell) => (
-    isScopedToAgent(cell.agentRoleId, selected)
+    selected && isScopedToAgent(cell.agentRoleId, selected)
     && !authoritativeCells.some((existing) => sameUserMessageCell(existing, cell))
   ));
-  const cells = [...persistedCells, ...liveUserCells, ...visibleOptimisticUserCells, ...liveCells];
+  const cells = reconcileTimelineCells([...persistedAndLiveUserCells, ...visibleOptimisticUserCells], liveCells);
   function appendOptimisticUserMessage(agent: AgentWorkspaceAgent, message: string): void {
     const timestamp = new Date().toISOString();
     setOptimisticUserCells((current) => [
@@ -64,27 +67,25 @@ export function AgentWorkspacePanel({
   }
   return (
     <div className="agent-workspace-panel" data-testid="agent-workspace-panel">
-      <div className="agent-workspace-agent-list" aria-label="Agent 列表">
-        {childAgents.map((agent) => (
-          <button
-            type="button"
-            key={agent.id}
-            className={`agent-workspace-agent-chip${agent.id === selected.id ? " selected" : ""}`}
-            onClick={() => onSelectAgent(agent.id)}
-          >
-            <Bot size={15} aria-hidden="true" />
-            <span>{agent.label}</span>
-            <small>{humanStatus(agent.status)}</small>
-          </button>
-        ))}
+      <div className="agent-workspace-tabbar">
+        <button type="button" className="agent-workspace-back" data-testid="right-tool-back" aria-label="返回工具列表" onClick={onBack}>
+          <ChevronLeft size={16} aria-hidden="true" />
+        </button>
+        <div className="agent-workspace-tabs" role="tablist" aria-label="已打开的 Agent">
+          {childAgents.map((agent) => (
+            <div key={agent.id} className={`agent-workspace-tab${agent.id === selected?.id ? " selected" : ""}`} role="presentation">
+              <button type="button" role="tab" aria-label={`打开 ${agent.label}`} aria-selected={agent.id === selected?.id} onClick={() => onSelectAgent(agent.id)}>
+                <span className={`agent-tab-status ${agent.status}`} aria-hidden="true" />
+                <span>{agent.label}</span>
+              </button>
+              <button type="button" className="agent-workspace-tab-close" title={`关闭 ${agent.label}`} aria-label={`关闭 ${agent.label}`} onClick={() => onCloseAgent(agent.id)}>
+                <X size={13} />
+              </button>
+            </div>
+          ))}
+        </div>
       </div>
-      <section className="agent-workspace-card">
-        <header className="agent-workspace-header">
-          <div>
-            <h3>{selected.label}</h3>
-          </div>
-          <span className={`agent-workspace-status ${selected.status}`}>{humanStatus(selected.status)}</span>
-        </header>
+      {selected ? <section className="agent-workspace-surface">
         <div className="agent-workspace-transcript-region">
           <AgentTranscriptPane cells={cells} emptyMessage={selected.transcript.emptyMessage} testId="agent-workspace-transcript" />
           <AgentClarifications agent={selected} busy={busy} onAnswer={onAnswerClarification} />
@@ -96,11 +97,10 @@ export function AgentWorkspacePanel({
           onOptimisticUserMessage={appendOptimisticUserMessage}
         onSendAgentMessage={onSendAgentMessage}
       />
-      </section>
+      </section> : <div className="agent-workspace-empty"><Bot size={20} /><span>从对话或 Agent 图中打开一个 Agent。</span></div>}
     </div>
   );
 }
-
 function AgentWorkspaceRuntimeStrip({
   modelLabel,
   onOpenModelSettings,
@@ -171,7 +171,7 @@ function AgentWorkspaceComposer({
   const [pending, setPending] = useState<string | null>(null);
   const actionBusy = pending !== null;
   const text = value.trim();
-  const canInteract = agent.id === "planning-agent";
+  const canInteract = agent.roleId === "planning-agent";
   const submitDisabled = actionBusy || !canInteract || !text;
   async function submit(): Promise<void> {
     if (submitDisabled) return;
@@ -228,17 +228,4 @@ function sameUserMessageCell(left: ParentAgentTranscriptCell, right: ParentAgent
     && right.kind === "user-message"
     && left.agentRoleId === right.agentRoleId
     && left.text.trim() === right.text.trim();
-}
-
-function emptyAgent(): AgentWorkspaceAgent {
-  return {
-    id: "empty-agent-workspace",
-    roleId: "empty-agent-workspace",
-    label: "暂无会话",
-    status: "idle",
-    summary: "暂无可显示的 Agent 对话。",
-    transcript: { title: "暂无会话", cells: [], items: [], emptyMessage: "暂无会话内容。" },
-    evidenceRefs: [],
-    actions: [],
-  };
 }

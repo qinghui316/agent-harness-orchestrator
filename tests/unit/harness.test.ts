@@ -1,10 +1,10 @@
 import { existsSync } from "node:fs";
-import { mkdtemp, mkdir, rm, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { auditHarness } from "../../src/harness/audit.js";
-import { initHarness } from "../../src/harness/init.js";
+import { ensureProjectRuntime, initHarness } from "../../src/harness/init.js";
 import { writeChangeIndex } from "../../src/ecl/index.js";
 import type { ManagedProject } from "../../src/types/index.js";
 
@@ -79,26 +79,35 @@ describe("harness", () => {
     await expect(initHarness(project(tempDir))).rejects.toThrow("active change");
   });
 
-  it("initializes external-local memory without overwriting an existing AGENTS.md", async () => {
+  it("initializes external-local runtime state without creating project Harness documents", async () => {
     await writeFile(join(tempDir, "AGENTS.md"), "existing guide\n", "utf8");
 
     const result = await initHarness(project(tempDir), { memoryMode: "external-local" });
-    const backups = (await readdir(tempDir)).filter((name) => name.startsWith("AGENTS.md.bak-"));
     const memoryRoot = join(process.env.AHO_HOME ?? "", "projects", "repo");
     const audit = await auditHarness(tempDir);
 
-    expect(backups).toHaveLength(0);
     expect(await readFile(join(tempDir, "AGENTS.md"), "utf8")).toBe("existing guide\n");
-    expect(result.skipped).toContainEqual({ base: "project-root", path: "AGENTS.md" });
+    expect(result.indexPath).toBeNull();
     expect(result.created).toEqual(expect.arrayContaining([
-      { base: "memory-root", path: "docs/ECL.md" },
+      { base: "memory-root", path: "." },
+      { base: "memory-root", path: "runs" },
+      { base: "memory-root", path: "workbench" },
+      { base: "memory-root", path: "agents" },
+      { base: "memory-root", path: "commands" },
+      { base: "memory-root", path: "skills" },
+      { base: "memory-root", path: "worktrees/metadata" },
     ]));
-    expect(existsSync(join(memoryRoot, "harness", "changes", "INDEX.json"))).toBe(true);
-    expect(audit.readiness).toBe("ready");
-    expect(audit.components.some((component) => component.location === "memory" && component.exists)).toBe(true);
+    expect(existsSync(join(tempDir, "AGENTS.md"))).toBe(true);
+    expect(existsSync(join(tempDir, "docs"))).toBe(false);
+    expect(existsSync(join(tempDir, "harness"))).toBe(false);
+    expect(existsSync(join(tempDir, "scripts"))).toBe(false);
+    expect(existsSync(join(memoryRoot, "docs", "ECL.md"))).toBe(false);
+    expect(existsSync(join(memoryRoot, "harness", "changes", "INDEX.json"))).toBe(false);
+    expect(audit.readiness).toBe("partial");
+    expect(audit.components.some((component) => component.location === "memory" && component.exists)).toBe(false);
   });
 
-  it("does not rewrite an existing matching project marker during external-local init", async () => {
+  it("fails closed when an existing external memory root is missing", async () => {
     const markerPath = join(tempDir, ".agent-harness", "project.json");
     await mkdir(join(tempDir, ".agent-harness"), { recursive: true });
     const marker = {
@@ -111,9 +120,10 @@ describe("harness", () => {
     };
     await writeFile(markerPath, JSON.stringify(marker, null, 2), "utf8");
 
-    const result = await initHarness(project(tempDir), { memoryMode: "external-local" });
-
-    expect(result.skipped).toContainEqual({ base: "project-root", path: ".agent-harness/project.json" });
+    await expect(initHarness(project(tempDir), { memoryMode: "external-local" }))
+      .rejects.toThrow("项目历史不可用：外部记忆目录已丢失");
+    await expect(ensureProjectRuntime(project(tempDir)))
+      .rejects.toThrow("项目历史不可用：外部记忆目录已丢失");
     expect(JSON.parse(await readFile(markerPath, "utf8"))).toMatchObject(marker);
   });
 

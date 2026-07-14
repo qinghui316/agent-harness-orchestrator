@@ -17,7 +17,7 @@ export type CodexJsonlStreamEvent =
   | { type: "status"; label: string; raw?: unknown }
   | { type: "turn_completed"; usage?: Record<string, unknown>; raw?: unknown }
   | { type: "text_delta"; delta: string; raw?: unknown }
-  | { type: "tool_event"; phase: "started" | "completed"; id?: string; name?: string; command?: string; output?: string; isError?: boolean; raw?: unknown }
+  | { type: "tool_event"; phase: "started" | "updated" | "completed"; status: "processing" | "completed" | "failed"; id?: string; name?: string; command?: string; output?: string; exitCode?: number; isError?: boolean; raw?: unknown }
   | { type: "readable_event"; event: CodexReadableEvent; raw?: unknown }
   | { type: "usage"; usage: Record<string, unknown>; raw?: unknown }
   | { type: "error"; message: string; raw?: unknown }
@@ -39,6 +39,7 @@ export interface CodexReadableEvent {
   itemId?: string;
   kind: CodexReadableEventKind;
   phase?: string;
+  status?: "processing" | "completed" | "failed";
   title?: string;
   summary?: string;
   preview?: string;
@@ -123,6 +124,12 @@ export function createCodexJsonlStreamParser(onEvent: (event: CodexJsonlStreamEv
       if (parsed) onEvent({ type: "readable_event", event: parsed, raw: event });
       if (normalizeItemType(item.type) === "commandexecution") {
         const id = typeof item.id === "string" ? item.id : undefined;
+        const exitCode = numberField(item, "exit_code", "exitCode");
+        const commandStatus = event.type === "item.started"
+          ? "processing"
+          : exitCode !== undefined
+            ? exitCode === 0 ? "completed" : "failed"
+            : item.status === "failed" ? "failed" : "completed";
         if (event.type === "item.started" && id && toolIds.has(id)) return;
         if (id) toolIds.add(id);
         previousAgentMessage = false;
@@ -130,11 +137,13 @@ export function createCodexJsonlStreamParser(onEvent: (event: CodexJsonlStreamEv
         onEvent({
           type: "tool_event",
           phase: event.type === "item.started" ? "started" : "completed",
+          status: commandStatus,
           id,
           name: "Bash",
           command: typeof item.command === "string" ? item.command : undefined,
           output: stringField(item, "aggregated_output", "aggregatedOutput", "output"),
-          isError: numberField(item, "exit_code", "exitCode") !== undefined ? numberField(item, "exit_code", "exitCode") !== 0 : item.status === "failed",
+          exitCode,
+          isError: exitCode !== undefined ? exitCode !== 0 : item.status === "failed",
           raw: event,
         });
         return;
@@ -178,18 +187,24 @@ export function truncateReadablePreview(text: string | undefined): { preview?: s
   return { preview: next, truncated };
 }
 
-function readableEventFromItem(eventType: unknown, item: Record<string, unknown>): CodexReadableEvent | null {
+export function readableEventFromItem(eventType: unknown, item: Record<string, unknown>): CodexReadableEvent | null {
   const itemType = normalizeItemType(item.type);
   const itemId = typeof item.id === "string" ? item.id : undefined;
   const phase = eventType === "item.started" ? "started" : "completed";
   if (itemType === "commandexecution") {
     const output = stringField(item, "aggregated_output", "aggregatedOutput", "output");
     const exitCode = numberField(item, "exit_code", "exitCode");
+    const status = phase === "started"
+      ? "processing"
+      : exitCode !== undefined
+        ? exitCode === 0 ? "completed" : "failed"
+        : item.status === "failed" ? "failed" : "completed";
     const preview = truncateReadablePreview(output);
     return {
       itemId,
       kind: "command",
       phase,
+      status,
       title: phase === "started" ? "Command started" : exitCode === undefined || exitCode === 0 ? "Command completed" : "Command failed",
       summary: stringField(item, "command") ?? "Command execution",
       preview: preview.preview,
