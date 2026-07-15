@@ -134,6 +134,7 @@ export function fromStoredThreadMessage(row: StoredTopicMessage): TopicThreadEnt
     type: row.type as TopicThreadEventType,
     timestamp: row.timestamp,
     conversationId: row.conversationId,
+    graphScopeId: typeof raw.graphScopeId === "string" ? raw.graphScopeId : undefined,
     changeId: row.changeId,
     text: row.text ?? undefined,
     actionRunId: row.actionRunId ?? undefined,
@@ -152,6 +153,7 @@ export function fromStoredThreadMessage(row: StoredTopicMessage): TopicThreadEnt
     blocks: Array.isArray(raw.blocks) ? raw.blocks.filter(isAssistantTurnBlock) : undefined,
     intake: raw.intake,
     clarification: raw.clarification,
+    codexUserInput: isWorkbenchCodexUserInputRequest(raw.codexUserInput) ? raw.codexUserInput : undefined,
     contextRefs: Array.isArray(raw.contextRefs) ? raw.contextRefs.filter(isTopicFileReference) : undefined,
     attachments: Array.isArray(raw.attachments) ? raw.attachments.filter(isTopicAttachment) : undefined,
     planHandoff: isValidatedPlanHandoffIntent(raw.planHandoff) ? raw.planHandoff : undefined,
@@ -171,7 +173,7 @@ function parseStoredRawJson(rawJson: string): Record<string, unknown> {
 function isValidatedPlanHandoffIntent(value: unknown): value is import("./types.js").ValidatedPlanHandoffIntent {
   return isRecord(value)
     && value.sourceAgentRoleId === "planning-agent"
-    && (value.kind === "execute-plan" || value.kind === "revise-plan")
+    && (value.kind === "execute-plan" || value.kind === "revise-plan" || value.kind === "cancel-plan")
     && typeof value.sourceRunId === "string"
     && typeof value.planText === "string"
     && (value.executionMode === undefined || value.executionMode === "stepwise" || value.executionMode === "scoped-auto");
@@ -233,6 +235,16 @@ function isTopicAttachment(value: unknown): value is TopicAttachment {
 
 function isWorkbenchAssistantEvent(value: unknown): value is WorkbenchAssistantEvent {
   return isRecord(value) && typeof value.runId === "string" && typeof value.kind === "string";
+}
+
+function isWorkbenchCodexUserInputRequest(value: unknown): value is import("./types.js").WorkbenchCodexUserInputRequest {
+  return isRecord(value)
+    && typeof value.requestKey === "string"
+    && typeof value.requestId === "string"
+    && typeof value.runId === "string"
+    && typeof value.runtimeScopeId === "string"
+    && Array.isArray(value.questions)
+    && (value.status === "pending" || value.status === "submitting" || value.status === "submitted");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

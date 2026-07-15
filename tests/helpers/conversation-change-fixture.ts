@@ -14,6 +14,7 @@ export async function createConversationChangeFixture(
   if (!memory.projectId) throw new Error("Conversation fixture requires a registered project id.");
   const now = new Date().toISOString();
   const conversationId = `conv-${result.change.id}`;
+  const graphScopeId = `graph:${conversationId}`;
   const store = await WorkbenchStore.open(memory);
   try {
     store.createConversation({
@@ -22,11 +23,19 @@ export async function createConversationChangeFixture(
       title: input.title,
       state: "active",
       boundChangeId: result.change.id,
+      currentGraphScopeId: graphScopeId,
       createdAt: now,
       updatedAt: now,
       deletedAt: null,
     });
-    store.linkConversationChange(memory.projectId, conversationId, result.change.id, now);
+    store.acceptConversationChangeBinding(
+      memory.projectId,
+      conversationId,
+      result.change.id,
+      now,
+      `fixture-acceptance:${result.change.id}`,
+      `fixture-proposal:${result.change.id}`,
+    );
   } finally {
     store.close();
   }

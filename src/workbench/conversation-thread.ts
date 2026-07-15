@@ -18,6 +18,7 @@ export async function appendConversationThreadEntry(project: ManagedProject, cha
     timestamp: new Date().toISOString(),
     conversationId: conversation.conversationId,
     changeId,
+    graphScopeId: store.findGraphScopeForChange(project.id, changeId) ?? undefined,
     ...input,
   };
   try {

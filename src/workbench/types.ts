@@ -23,6 +23,7 @@ export interface TopicThreadEntry {
   type: TopicThreadEventType;
   timestamp: string;
   conversationId?: string;
+  graphScopeId?: string;
   changeId: string;
   position?: number;
   text?: string;
@@ -42,6 +43,7 @@ export interface TopicThreadEntry {
   blocks?: AssistantTurnBlock[];
   intake?: unknown;
   clarification?: unknown;
+  codexUserInput?: WorkbenchCodexUserInputRequest;
   contextRefs?: TopicFileReference[];
   attachments?: TopicAttachment[];
   planHandoff?: ValidatedPlanHandoffIntent;
@@ -127,17 +129,22 @@ export interface WorkbenchCodexUserInputQuestion {
 }
 
 export interface WorkbenchCodexUserInputRequest {
+  requestKey: string;
   requestId: string;
   threadId?: string;
   turnId?: string;
   itemId?: string;
   runId: string;
+  runtimeScopeId: string;
   changeId?: string;
   conversationId?: string;
+  graphScopeId?: string;
   agentRoleId?: string;
   agentTaskId?: string;
   questions: WorkbenchCodexUserInputQuestion[];
-  status: "pending" | "submitted";
+  status: "pending" | "submitting" | "submitted";
+  answers?: Record<string, string | string[]>;
+  submittedAt?: string;
 }
 
 export interface TopicMessageResult {
@@ -152,6 +159,7 @@ export interface TopicMessageResult {
 export interface WorkbenchLiveIdentity {
   projectId?: string;
   conversationId?: string;
+  graphScopeId?: string;
   changeId?: string;
   runId?: string;
   threadId?: string;
@@ -176,7 +184,7 @@ export type WorkbenchLiveEvent =
   | { event: "assistant.event"; data: WorkbenchAssistantEvent }
   | { event: "tool.event"; data: WorkbenchLiveToolEvent }
   | { event: "codex.userInput.requested"; data: WorkbenchCodexUserInputRequest }
-  | { event: "codex.userInput.submitted"; data: WorkbenchLiveIdentity & { requestId: string } }
+  | { event: "codex.userInput.submitted"; data: WorkbenchLiveIdentity & { requestKey: string; requestId: string } }
   | { event: "usage"; data: WorkbenchLiveIdentity & { usage?: Record<string, unknown> } }
   | { event: "snapshot"; data: unknown }
   | { event: "error"; data: WorkbenchLiveIdentity & { message: string; runId?: string; actionRunId?: string } }
@@ -238,7 +246,7 @@ export interface TopicMessageInput {
 }
 
 export type PlanHandoffAgentRoleId = "planning-agent";
-export type PlanHandoffIntentKind = "execute-plan" | "revise-plan";
+export type PlanHandoffIntentKind = "execute-plan" | "revise-plan" | "cancel-plan";
 
 export interface PlanHandoffIntent {
   sourceRunId: string;

@@ -12,7 +12,6 @@ import { consumeWorkbenchLiveStream,
   fetchJson,
   postJson } from "./api.js";
 import { MainConversationView,
-  ConversationPendingActionStack,
   AgentRunGraphPanel,
   RightToolRailShell,
   DecisionInspectorPane,
@@ -223,7 +222,6 @@ export function App(): ReactElement {
   const [liveTurns, setLiveTurns] = useState<LiveAssistantTurn[]>([]);
   const [agentLiveTurns, setAgentLiveTurns] = useState<LiveAssistantTurn[]>([]);
   const [openAgentSurfaceIds, setOpenAgentSurfaceIds] = useState<string[]>([]);
-  const [codexUserInputRequests, setCodexUserInputRequests] = useState<CodexUserInputRequest[]>([]);
   const [loadedTranscript, setLoadedTranscript] = useState<ParentAgentTranscript | null>(null);
   const [loadingEarlierTranscript, setLoadingEarlierTranscript] = useState(false);
   const [loadedRunGraph, setLoadedRunGraph] = useState<DemandAgentRunGraph | null>(null);
@@ -258,6 +256,7 @@ export function App(): ReactElement {
   const [projectionVersion, setProjectionVersion] = useState(0);
   const [latestHidden, setLatestHidden] = useState(false);
   const threadScrollRef = useRef<HTMLDivElement | null>(null);
+  const graphScopeRef = useRef<string | null>(null);
   const selectedComposerSkillIds = useMemo(
     () => activeComposerSkillIds(skillItems, selectedTopic, draftSkillOverrides),
     [draftSkillOverrides, selectedTopic, skillItems],
@@ -970,7 +969,6 @@ export function App(): ReactElement {
         setPendingDemandConversation(pendingConversation);
         setLiveItems([]);
         setLiveTurns([]);
-        setCodexUserInputRequests([]);
         setLoadedTranscript(null);
         setLoadedRunGraph(null);
       }
@@ -1155,13 +1153,32 @@ export function App(): ReactElement {
     if (!selectedProjectId || !activeTopic) return;
     setActionRunning("codex.userInput.answer");
     setError(null);
+    setLiveItems((current) => current.map((item) => item.codexUserInput?.requestKey === request.requestKey ? {
+      ...item,
+      status: "submitting",
+      codexUserInput: { ...item.codexUserInput!, status: "submitting", answers },
+    } : item));
     try {
-      await postJson<{ result: unknown; snapshot: Snapshot }>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/codex/user-input/${encodeURIComponent(request.requestId)}/answer`, {
+      const result = await postJson<{ result: unknown; snapshot: Snapshot }>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/codex/user-input/${encodeURIComponent(request.requestId)}/answer`, {
         changeId: request.changeId,
         conversationId: request.conversationId ?? (!request.changeId ? activeTopic.id : undefined),
+        requestKey: request.requestKey,
         answers,
       });
-      setCodexUserInputRequests((current) => current.filter((item) => item.requestId !== request.requestId));
+      setSnapshot(result.snapshot);
+      const submittedAt = new Date().toISOString();
+      setLiveItems((current) => current.map((item) => item.codexUserInput?.requestKey === request.requestKey ? {
+        ...item,
+        status: "submitted",
+        codexUserInput: { ...item.codexUserInput!, status: "submitted", answers, submittedAt },
+      } : item));
+    } catch (cause) {
+      setLiveItems((current) => current.map((item) => item.codexUserInput?.requestKey === request.requestKey ? {
+        ...item,
+        status: "pending",
+        codexUserInput: { ...item.codexUserInput!, status: "pending" },
+      } : item));
+      throw cause;
     } finally {
       setActionRunning(null);
     }
@@ -1190,7 +1207,9 @@ export function App(): ReactElement {
     setActionRunning("plan.handoff");
     setError(null);
     const trimmedFeedback = feedback?.trim();
-    const message = kind === "revise-plan"
+    const message = kind === "cancel-plan"
+      ? "取消当前计划，不进入执行。"
+      : kind === "revise-plan"
       ? `请主 Agent 先审查下面的计划修改意见，再决定是否让 Plan Agent 修改计划：\n\n${trimmedFeedback ?? ""}`
       : "请主 Agent 基于当前计划继续判断执行路径。";
     try {
@@ -1205,16 +1224,13 @@ export function App(): ReactElement {
           feedback: trimmedFeedback || undefined,
         },
       }, handleLiveEvent);
-      setDismissedPlanHandoffKeys((current) => new Set([...current, planHandoffCandidateKey(activeTopic.id, candidate)]));
     } finally {
       setActionRunning(null);
     }
   }
 
   async function cancelPlanHandoff(candidate: PlanHandoffCandidate): Promise<void> {
-    if (!activeTopic) return;
-    setDismissedPlanHandoffKeys((current) => new Set([...current, planHandoffCandidateKey(activeTopic.id, candidate)]));
-    await runWorkflowAction("conversation.interrupt", { prompt: "用户取消本次计划交接并要求停止当前对话/任务。" });
+    await sendPlanHandoff(candidate, "cancel-plan");
   }
 
   function handleLiveEvent(event: WorkbenchLiveEvent): void {
@@ -1234,7 +1250,6 @@ export function App(): ReactElement {
       setLiveItems((current) => current.filter((item) => !transcriptContainsLiveItem(snapshotCells, item)));
       setLiveTurns((current) => current.filter((turn) => !snapshotContainsTurn(event.data, turn)));
       setAgentLiveTurns((current) => current.filter((turn) => !snapshotContainsAgentTurn(event.data, turn)));
-      setCodexUserInputRequests([]);
       setPendingDemandConversation(null);
       invalidateProjectionCache();
       return;
@@ -1269,14 +1284,29 @@ export function App(): ReactElement {
       return;
     }
     if (event.event === "codex.userInput.requested") {
-      setCodexUserInputRequests((current) => [
-        ...current.filter((item) => item.requestId !== event.data.requestId),
-        event.data,
-      ]);
+      appendLiveItem({
+        id: `codex-user-input:${event.data.requestKey}`,
+        kind: "assistant-turn",
+        label: "需要你回答",
+        timestamp: new Date().toISOString(),
+        source: "chat",
+        status: event.data.status,
+        graphScopeId: event.data.graphScopeId,
+        runId: event.data.runId,
+        threadId: event.data.threadId,
+        turnId: event.data.turnId,
+        agentRoleId: event.data.agentRoleId,
+        agentTaskId: event.data.agentTaskId,
+        codexUserInput: event.data,
+      });
       return;
     }
     if (event.event === "codex.userInput.submitted") {
-      setCodexUserInputRequests((current) => current.filter((item) => item.requestId !== event.data.requestId));
+      setLiveItems((current) => current.map((item) => item.codexUserInput?.requestKey === event.data.requestKey ? {
+        ...item,
+        status: "submitted",
+        codexUserInput: { ...item.codexUserInput!, status: "submitted" },
+      } : item));
       return;
     }
     if (event.event === "assistant.message") {
@@ -1576,7 +1606,6 @@ export function App(): ReactElement {
     setLiveItems([]);
     setLiveTurns([]);
     setAgentLiveTurns([]);
-    setCodexUserInputRequests([]);
     setActionRunning(null);
     setLatestHidden(false);
     setSelectedAgentWorkspaceAgentId(null);
@@ -1612,7 +1641,11 @@ export function App(): ReactElement {
     return normalizeParentAgentTranscript(loadedTranscript ?? snapshot.center.parentAgentTranscript);
   }, [activePendingConversation, loadedTranscript, pendingHasLiveUserMessage, snapshot.center.parentAgentTranscript]);
   const activeTranscript = useMemo(() => {
-    return mergeLiveItemsIntoTranscript(snapshotTranscript, liveItems, liveTurns);
+    return mergeLiveItemsIntoTranscript(
+      snapshotTranscript,
+      liveItems.filter((item) => !item.agentRoleId || item.agentRoleId === "main-agent"),
+      liveTurns,
+    );
   }, [snapshotTranscript, liveItems, liveTurns]);
   const activeDecisionInspector = useMemo(() => {
     const inspector = snapshot.right.decisionInspector ?? { primary: null, related: [], history: [] };
@@ -1644,16 +1677,8 @@ export function App(): ReactElement {
     };
     return () => source.close();
   }, [selectedProjectId, selectedProjectStatus?.managed, selectedTopic]);
-  const [dismissedPlanHandoffKeys, setDismissedPlanHandoffKeys] = useState<Set<string>>(new Set());
   const rawPlanHandoffCandidate = useMemo(() => derivePlanHandoffCandidate(activeAgentWorkspace), [activeAgentWorkspace]);
-  const planHandoffCandidate = activeTopic?.id && rawPlanHandoffCandidate && !dismissedPlanHandoffKeys.has(planHandoffCandidateKey(activeTopic.id, rawPlanHandoffCandidate))
-    ? rawPlanHandoffCandidate
-    : null;
-  const activeCodexUserInputRequests = activeTopic?.id
-    ? codexUserInputRequests.filter((request) => isRequestScopedToTopic(request, activeTopic.id))
-    : [];
-  const hasConversationPendingAction = Boolean(planHandoffCandidate)
-    || activeCodexUserInputRequests.some((request) => request.status === "pending");
+  const planHandoffCandidate = activeTopic?.id ? rawPlanHandoffCandidate : null;
   const pendingConfirmationCount = (activeConfirmationQueue.primary ? 1 : 0)
     + activeConfirmationQueue.otherDemands.length
     + activeConfirmationQueue.maintenance.length;
@@ -1668,6 +1693,16 @@ export function App(): ReactElement {
     [...liveTurns, ...agentLiveTurns].filter((turn) => liveTurnBelongsToTopic(turn, activeTopic?.id, activeTopic?.boundChangeId)),
     mainConversationRequestRunning,
   );
+  useEffect(() => {
+    const graphScopeId = activeRunGraph.graphScopeId;
+    if (!graphScopeId) return;
+    const previous = graphScopeRef.current;
+    graphScopeRef.current = graphScopeId;
+    if (!previous || previous === graphScopeId) return;
+    setSelectedRunGraphNodeId(null);
+    setSelectedAgentWorkspaceAgentId(null);
+    setOpenAgentSurfaceIds([]);
+  }, [activeRunGraph.graphScopeId]);
   const selectedRunGraphNode = useMemo(() => (
     activeRunGraph.nodes.find((node) => node.id === selectedRunGraphNodeId) ?? activeRunGraph.nodes[0] ?? null
   ), [activeRunGraph.nodes, selectedRunGraphNodeId]);
@@ -1990,22 +2025,16 @@ export function App(): ReactElement {
                     onAction={runWorkflowAction}
                     onConfirmApproval={confirmWorkpadApproval}
                     onAnswerClarification={answerClarification}
+                    onAnswerCodexUserInput={answerCodexUserInput}
                     onSelectDecisionContext={setSelectedDecisionContextId}
                     onOpenAgent={openChildAgentWorkspace}
-                  />
-                </div>
-                {latestHidden ? <button className="latest-button" onClick={() => { const node = threadScrollRef.current; if (node) node.scrollTop = node.scrollHeight; setLatestHidden(false); }}>最新</button> : null}
-                {hasConversationPendingAction ? (
-                  <ConversationPendingActionStack
-                    codexUserInputRequests={activeCodexUserInputRequests}
                     planHandoffCandidate={planHandoffCandidate}
-                    busy={actionRunning !== null}
-                    onAnswerCodexUserInput={answerCodexUserInput}
                     onPlanHandoff={sendPlanHandoff}
                     onCancelPlanHandoff={cancelPlanHandoff}
                   />
-                ) : (
-                  <TopicComposer
+                </div>
+                {latestHidden ? <button className="latest-button" onClick={() => { const node = threadScrollRef.current; if (node) node.scrollTop = node.scrollHeight; setLatestHidden(false); }}>最新</button> : null}
+                <TopicComposer
                     value={composerText}
                     onChange={setComposerText}
                     modelLabel={codexModelLabel}
@@ -2030,8 +2059,7 @@ export function App(): ReactElement {
                     onNewWorkpad={createTopicFromComposer}
                     actionRunning={actionRunning}
                     currentWorkpadStatus={activeWorkpad.conversationLifecycle === "running" || activeWorkpad.runControlState?.canStop ? "running" : currentWorkpadSummary(snapshot, activeTopic)?.runtimeStatus}
-                  />
-                )}
+                />
               </div>
               )}
             </section>
@@ -2086,6 +2114,7 @@ export function App(): ReactElement {
             onCloseAgent={closeChildAgentWorkspace}
             onBack={() => setRightToolView("launcher")}
             onAnswerClarification={answerClarification}
+            onAnswerCodexUserInput={answerCodexUserInput}
             onSendAgentMessage={sendAgentWorkspaceMessage}
             modelLabel={codexModelLabel}
             onOpenModelSettings={() => void openCodexModelPicker()}
@@ -2296,10 +2325,6 @@ function isOrchestrationTabParam(value: string | null): boolean {
   return normalized === "orchestration" || normalized === "agentgraph" || normalized === "agent-graph";
 }
 
-function planHandoffCandidateKey(topicId: string, candidate: PlanHandoffCandidate): string {
-  return `${topicId}:${candidate.sourceAgentRoleId}:${candidate.sourceRunId}:${candidate.proposalKey}`;
-}
-
 function pendingMainAgentRunGraph(projectId: string | null, conversationId?: string): DemandAgentRunGraph {
   return {
     ...emptyAgentRunGraph(),
@@ -2358,6 +2383,7 @@ function liveTurnIdentity(identity: WorkbenchLiveIdentity): Partial<LiveAssistan
   const result: Partial<LiveAssistantTurn> = {};
   if (identity.projectId !== undefined) result.projectId = identity.projectId;
   if (identity.conversationId !== undefined) result.conversationId = identity.conversationId;
+  if (identity.graphScopeId !== undefined) result.graphScopeId = identity.graphScopeId;
   if (identity.changeId !== undefined) result.changeId = identity.changeId;
   if (identity.threadId !== undefined) result.threadId = identity.threadId;
   if (identity.parentThreadId !== undefined) result.parentThreadId = identity.parentThreadId;
@@ -2422,10 +2448,14 @@ function liveTurnBelongsToTopic(turn: LiveAssistantTurn, topicId?: string, chang
 }
 
 function mergeLiveAgentGraph(graph: DemandAgentRunGraph, turns: LiveAssistantTurn[], mainRequestRunning = false): DemandAgentRunGraph {
-  const nodes = [...graph.nodes];
-  if (turns.length === 0) return { ...graph, nodes: withRunningMainNode(nodes, mainRequestRunning) };
-  let edges = [...graph.edges];
-  for (const turn of turns) {
+  const liveGraphScopeId = [...turns].reverse().find((turn) => turn.graphScopeId)?.graphScopeId;
+  const scopeChanged = Boolean(liveGraphScopeId && liveGraphScopeId !== graph.graphScopeId);
+  const scopedTurns = liveGraphScopeId ? turns.filter((turn) => turn.graphScopeId === liveGraphScopeId) : turns;
+  const baseGraph = scopeChanged ? { ...graph, graphScopeId: liveGraphScopeId, edges: [] } : graph;
+  const nodes = scopeChanged ? graph.nodes.filter((node) => node.kind === "main-agent") : [...graph.nodes];
+  if (scopedTurns.length === 0) return { ...baseGraph, nodes: withRunningMainNode(nodes, mainRequestRunning) };
+  let edges = [...baseGraph.edges];
+  for (const turn of scopedTurns) {
     if (turn.agentRoleId === "main-agent") {
       const mainIndex = nodes.findIndex((node) => node.kind === "main-agent");
       if (mainIndex >= 0) nodes[mainIndex] = { ...nodes[mainIndex], status: graphNodeStatus(turn.status) };
@@ -2461,14 +2491,14 @@ function mergeLiveAgentGraph(graph: DemandAgentRunGraph, turns: LiveAssistantTur
     else nodes.push(nextNode);
   }
   const ids = new Set(nodes.map((node) => node.id));
-  for (const turn of turns) {
+  for (const turn of scopedTurns) {
     if (turn.agentRoleId === "main-agent") continue;
     const id = turn.agentSurfaceId ?? (turn.threadId ? `thread:${turn.threadId}` : `run:${turn.runId}`);
     const parentId = turn.parentThreadId && ids.has(`thread:${turn.parentThreadId}`) ? `thread:${turn.parentThreadId}` : "main-agent";
     edges = edges.filter((edge) => edge.to !== id);
     edges.push({ id: `agent-edge:${parentId}:${id}`, from: parentId, to: id, kind: "delegates", label: "" });
   }
-  return { ...graph, nodes: numberGraphNodeLabels(withRunningMainNode(nodes, mainRequestRunning)), edges, summary: `${nodes.length} 个真实 Agent` };
+  return { ...baseGraph, nodes: numberGraphNodeLabels(withRunningMainNode(nodes, mainRequestRunning)), edges, summary: `${nodes.length} 个真实 Agent` };
 }
 
 function withRunningMainNode(nodes: DemandAgentRunGraph["nodes"], running: boolean): DemandAgentRunGraph["nodes"] {
@@ -2525,11 +2555,6 @@ function numberDuplicateDisplayLabels<T extends { id: string; label: string; rol
     const base = bases.get(item.id)!;
     return { ...item, label: (totals.get(base) ?? 0) > 1 ? `${base} ${indexes.get(item.id) ?? 1}` : base };
   });
-}
-
-function isRequestScopedToTopic(request: CodexUserInputRequest, topicId: string): boolean {
-  return request.status === "pending"
-    && (request.conversationId === topicId || request.changeId === topicId || (!request.conversationId && !request.changeId));
 }
 
 function snapshotForProject(project: ProjectStatus | null | undefined): Snapshot {

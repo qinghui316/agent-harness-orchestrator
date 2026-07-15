@@ -22,6 +22,37 @@ beforeEach(async () => {
 afterEach(async () => rm(root, { recursive: true, force: true }));
 
 describe("conversation planner-child package acceptance", () => {
+  it("rolls back a superseding graph scope when the acceptance commit fails", async () => {
+    const conversation = await createWorkbenchConversation(project(), { title: "Atomic graph acceptance", body: "Plan it." }, undefined, { runMainAgent: false });
+    const memory = await resolveProjectMemory(project());
+    const store = await WorkbenchStore.open(memory);
+    try {
+      const oldScope = store.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? "";
+      store.acceptConversationChangeBinding(project().id, conversation.conversationId, "old-change", new Date().toISOString(), "duplicate-commit", "hash-old");
+      store.writeProviderThread({ projectId: project().id, conversationId: conversation.conversationId, providerThreadId: "parent-atomic", roleId: "main-agent", parentThreadId: null, changeId: "old-change", graphScopeId: oldScope, capabilityProfile: "main-agent-goal-v1", updatedAt: new Date().toISOString() });
+      store.writeProviderThread({ projectId: project().id, conversationId: conversation.conversationId, providerThreadId: "child-atomic", roleId: "planning-agent", parentThreadId: "parent-atomic", changeId: "old-change", graphScopeId: oldScope, capabilityProfile: "planner-child-v1", runId: "run-atomic", updatedAt: new Date().toISOString() });
+
+      expect(() => store.acceptConversationChangeBinding(
+        project().id,
+        conversation.conversationId,
+        "new-change",
+        new Date().toISOString(),
+        "duplicate-commit",
+        "hash-new",
+        { graphScopeId: "graph:new-atomic", runId: "run-atomic", plannerThreadId: "child-atomic" },
+      )).toThrow();
+
+      expect(store.readConversation(project().id, conversation.conversationId)).toMatchObject({
+        boundChangeId: "old-change",
+        currentGraphScopeId: oldScope,
+      });
+      expect(store.findChangeForGraphScope(project().id, oldScope)).toBe("old-change");
+      expect(store.findChangeForGraphScope(project().id, "graph:new-atomic")).toBeNull();
+    } finally {
+      store.close();
+    }
+  });
+
   it("writes same-child revisions as immutable hash-addressed artifacts", async () => {
     const conversation = await createWorkbenchConversation(project(), { title: "Revise health", body: "Plan health." }, undefined, { runMainAgent: false });
     const memory = await resolveProjectMemory(project());
@@ -44,6 +75,19 @@ describe("conversation planner-child package acceptance", () => {
     const conversation = await createWorkbenchConversation(project(), { title: "Add a health endpoint", body: "Add GET /health and test it." }, undefined, { runMainAgent: false });
     const memory = await resolveProjectMemory(project());
     const proposal = await proposalFor(memory.workbenchRoot, conversation.conversationId, "Return ok.");
+    const beforeAcceptance = await WorkbenchStore.open(memory);
+    beforeAcceptance.writeProviderThread({
+      projectId: project().id,
+      conversationId: conversation.conversationId,
+      providerThreadId: "old-scope-child",
+      roleId: "planning-agent",
+      parentThreadId: "parent-old",
+      changeId: null,
+      graphScopeId: "graph-old",
+      capabilityProfile: "planner-child-v1",
+      updatedAt: new Date().toISOString(),
+    });
+    beforeAcceptance.close();
 
     const accepted = await acceptCurrentConversationPlanningPackage(project(), conversation.conversationId, proposal.artifact);
     const changePath = join(memory.changesRoot, "active", accepted.changeId);
@@ -71,6 +115,12 @@ describe("conversation planner-child package acceptance", () => {
     const store = await WorkbenchStore.open(memory);
     try {
       expect(store.listConversationChangeIds(project().id, conversation.conversationId)).toEqual([accepted.changeId]);
+      const acceptedScope = store.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? null;
+      expect(store.findGraphScopeForChange(project().id, accepted.changeId)).toBe(acceptedScope);
+      expect(acceptedScope && store.findChangeForGraphScope(project().id, acceptedScope)).toBe(accepted.changeId);
+      const links = new Map(store.listProviderThreads(project().id, conversation.conversationId).map((link) => [link.providerThreadId, link]));
+      expect(links.get("child-1")?.changeId).toBe(accepted.changeId);
+      expect(links.get("old-scope-child")?.changeId).toBeNull();
     } finally {
       store.close();
     }
@@ -137,6 +187,9 @@ describe("conversation planner-child package acceptance", () => {
     const memory = await resolveProjectMemory(project());
     const first = await proposalFor(memory.workbenchRoot, conversation.conversationId, "Return ok.");
     const accepted = await acceptCurrentConversationPlanningPackage(project(), conversation.conversationId, first.artifact);
+    const firstStore = await WorkbenchStore.open(memory);
+    const firstScope = firstStore.findGraphScopeForChange(project().id, accepted.changeId);
+    firstStore.close();
     await startOrResumeTaskQueue(project(), { changeId: accepted.changeId, workflowGraphPlanId: accepted.workflowGraphPlan.id });
     const second = await proposalFor(memory.workbenchRoot, conversation.conversationId, "Return healthy.", "run-2", "child-2");
 
@@ -145,6 +198,16 @@ describe("conversation planner-child package acceptance", () => {
     expect(revised.changeId).not.toBe(accepted.changeId);
     expect(existsSync(join(memory.changesRoot, "active", accepted.changeId))).toBe(true);
     expect(await readFile(join(memory.changesRoot, "active", revised.changeId, "plan.md"), "utf8")).toContain("Return healthy.");
+    const revisedStore = await WorkbenchStore.open(memory);
+    try {
+      const revisedScope = revisedStore.findGraphScopeForChange(project().id, revised.changeId);
+      expect(revisedScope).toBeTruthy();
+      expect(revisedScope).not.toBe(firstScope);
+      expect(revisedStore.findChangeForGraphScope(project().id, firstScope!)).toBe(accepted.changeId);
+      expect(revisedStore.findChangeForGraphScope(project().id, revisedScope!)).toBe(revised.changeId);
+    } finally {
+      revisedStore.close();
+    }
   });
 
   it("serializes duplicate concurrent acceptance and returns one Change", async () => {
@@ -247,8 +310,9 @@ async function proposalFor(workbenchRoot: string, conversationId: string, prompt
   const store = await WorkbenchStore.open(memory);
   const now = new Date().toISOString();
   try {
-    store.writeProviderThread({ projectId: project().id, conversationId, providerThreadId: "parent-1", roleId: "main-agent", parentThreadId: null, changeId: null, capabilityProfile: "main-agent-goal-v1", updatedAt: now });
-    store.writeProviderThread({ projectId: project().id, conversationId, providerThreadId: childThreadId, roleId: "planning-agent", parentThreadId: "parent-1", changeId: null, capabilityProfile: "planner-child-v1", updatedAt: now });
+    const graphScopeId = store.readConversation(project().id, conversationId)?.currentGraphScopeId ?? null;
+    store.writeProviderThread({ projectId: project().id, conversationId, providerThreadId: "parent-1", roleId: "main-agent", parentThreadId: null, changeId: null, graphScopeId, capabilityProfile: "main-agent-goal-v1", updatedAt: now });
+    store.writeProviderThread({ projectId: project().id, conversationId, providerThreadId: childThreadId, roleId: "planning-agent", parentThreadId: "parent-1", changeId: null, graphScopeId, capabilityProfile: "planner-child-v1", updatedAt: now });
     store.appendMessage({
       id: `assistant:${conversationId}:${runId}:${childThreadId}`,
       projectId: project().id,
@@ -263,7 +327,7 @@ async function proposalFor(workbenchRoot: string, conversationId: string, prompt
       runId,
       artifact: proposal.artifact,
       error: null,
-      rawJson: JSON.stringify({ agentRoleId: "planning-agent", artifact: proposal.artifact }),
+      rawJson: JSON.stringify({ agentRoleId: "planning-agent", artifact: proposal.artifact, graphScopeId }),
     });
   } finally {
     store.close();

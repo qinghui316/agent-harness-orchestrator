@@ -2,6 +2,47 @@ import { describe, expect, it } from "vitest";
 import { buildAgentScopedTranscriptCells, buildParentAgentTranscript, pageParentAgentTranscript } from "../../src/workbench/parent-agent-transcript.js";
 
 describe("parent agent transcript paging", () => {
+  it("projects only the artifact-backed AHO plan-ready item into the Main timeline", () => {
+    const transcript = buildParentAgentTranscript({
+      workpad: { conversationId: "conv", boundChangeId: null, title: "Plan handoff" },
+      threadItems: [{
+        id: "assistant-plan-ready",
+        kind: "assistant-turn",
+        label: "AI",
+        blocks: [
+          {
+            id: "internal-status",
+            sequence: 1,
+            kind: "tool-result" as const,
+            source: "aho" as const,
+            title: "内部状态",
+            text: "This must remain diagnostic-only.",
+          },
+          {
+            id: "plan-ready",
+            runId: "run-plan",
+            sequence: 2,
+            kind: "tool-result" as const,
+            source: "aho" as const,
+            title: "计划已准备",
+            text: "Plan Agent 已完成可确认的实现计划。",
+            artifactRef: "proposal.json",
+            targetAgentSurfaceId: "thread:plan",
+          },
+        ],
+      }],
+    });
+
+    expect(transcript.cells).toEqual([
+      expect.objectContaining({
+        id: "cell:tool-result:plan-ready",
+        source: "aho-orchestration",
+        title: "计划已准备",
+        evidenceRefs: [expect.objectContaining({ ref: "proposal.json", kind: "artifact" })],
+      }),
+    ]);
+  });
+
   it("persists one completed turn boundary and a collapsed provider-visible reasoning summary", () => {
     const transcript = buildParentAgentTranscript({
       workpad: { conversationId: "conv", boundChangeId: "change", title: "Realtime history" },
@@ -316,6 +357,66 @@ describe("parent agent transcript paging", () => {
     });
 
     expect(transcript.cells.map((cell) => cell.text)).toEqual(["我理解这次目标是完成验收，并保持当前回合只读。\n这条回复之后，我会把只读规划交给 planning-agent；当前不会修改文件。"]);
+  });
+
+  it("keeps a native Agent question as one durable timeline item after submission", () => {
+    const request = {
+      requestKey: "run-1:main:turn:item:request-1",
+      requestId: "request-1",
+      runId: "run-1",
+      conversationId: "conv",
+      questions: [{ id: "q1", question: "是否保留旧文件？" }],
+      status: "submitted" as const,
+      answers: { q1: "不保留" },
+      submittedAt: "2026-07-15T00:00:05.000Z",
+    };
+    const transcript = buildParentAgentTranscript({
+      workpad: { conversationId: "conv", title: "Question history" },
+      threadItems: [{
+        id: "codex-user-input:run-1:main:turn:item:request-1",
+        kind: "assistant-turn",
+        label: "需要你回答",
+        source: "chat",
+        timestamp: "2026-07-15T00:00:00.000Z",
+        codexUserInput: request,
+      }],
+    });
+
+    expect(transcript.cells).toEqual([expect.objectContaining({
+      id: "cell:codex-user-input:run-1:main:turn:item:request-1",
+      kind: "user-input",
+      status: "submitted",
+      codexUserInput: request,
+    })]);
+  });
+
+  it("keeps repeated provider request ids distinct across durable turns", () => {
+    const requests = ["turn-a", "turn-b"].map((turnId) => ({
+      requestKey: `run-${turnId}:main:${turnId}:item:1`,
+      requestId: "1",
+      runId: `run-${turnId}`,
+      threadId: "main",
+      turnId,
+      conversationId: "conv",
+      questions: [{ id: "q1", question: `Question ${turnId}` }],
+      status: "pending" as const,
+    }));
+    const transcript = buildParentAgentTranscript({
+      workpad: { conversationId: "conv", title: "Repeated request ids" },
+      threadItems: requests.map((request) => ({
+        id: `codex-user-input:${request.requestKey}`,
+        kind: "assistant-turn" as const,
+        label: "需要你回答",
+        source: "chat" as const,
+        timestamp: "2026-07-15T00:00:00.000Z",
+        codexUserInput: request,
+      })),
+    });
+
+    expect(transcript.cells.map((cell) => cell.id)).toEqual([
+      `cell:codex-user-input:${requests[0].requestKey}`,
+      `cell:codex-user-input:${requests[1].requestKey}`,
+    ]);
   });
 });
 

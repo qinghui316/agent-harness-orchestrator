@@ -37,6 +37,7 @@ import { appendConversationThreadEntry } from "./conversation-thread.js";
 import { collectAllConversationThreadEntries, fromStoredThreadMessage, readConversationThread as readThreadLog } from "./conversation-thread-log.js";
 import { WorkbenchStore, type StoredTopicMessage } from "./store.js";
 import { acceptCurrentConversationPlanningPackage, readPlannerChildProposal, writePlannerChildProposal } from "./planning/planner-child-proposal.js";
+import { hasPlanningExecutionEvidence } from "../change/manager.js";
 import type {
   AssistantTurnBlock,
   TopicAttachment,
@@ -91,6 +92,7 @@ export async function createWorkbenchConversation(
   const body = resolved.text || defaultAttachmentMessage(attachments);
   const now = new Date().toISOString();
   const conversationId = `conv-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
+  const graphScopeId = createGraphScopeId(conversationId);
   const store = await WorkbenchStore.open(memory);
   try {
     store.createConversation({
@@ -99,6 +101,7 @@ export async function createWorkbenchConversation(
       title: input.title,
       state: "active",
       boundChangeId: null,
+      currentGraphScopeId: graphScopeId,
       createdAt: now,
       updatedAt: now,
       deletedAt: null,
@@ -108,6 +111,7 @@ export async function createWorkbenchConversation(
       type: "user.message",
       timestamp: now,
       conversationId,
+      graphScopeId,
       changeId: "",
       text: body,
       contextRefs: resolved.contextRefs.length > 0 ? resolved.contextRefs : undefined,
@@ -127,6 +131,7 @@ export async function createWorkbenchConversation(
       type: "user.message",
       timestamp: now,
       conversationId,
+      graphScopeId,
       changeId: "",
       text: body,
       contextRefs: resolved.contextRefs.length > 0 ? resolved.contextRefs : undefined,
@@ -134,7 +139,7 @@ export async function createWorkbenchConversation(
     },
   });
   if (options.runMainAgent !== false) {
-    await runProjectScopedMainAgentTurn(project, conversationId, body, live);
+    await runProjectScopedMainAgentTurn(project, conversationId, body, live, undefined, { graphScopeId });
   }
   return { conversationId, title: input.title, state: "active" };
 }
@@ -146,7 +151,7 @@ export async function postConversationMessage(project: ManagedProject, conversat
   if (!memory.projectId) throw new Error("Project id is required to post a conversation message.");
   conversationId = await resolveConversationId(project, conversationId);
   const now = new Date().toISOString();
-  const user: TopicThreadEntry = {
+  let user: TopicThreadEntry = {
     id: `user:${conversationId}:${Date.now().toString(36)}`,
     type: "user.message",
     timestamp: now,
@@ -160,16 +165,49 @@ export async function postConversationMessage(project: ManagedProject, conversat
   let storedUser: TopicThreadEntry = user;
   const store = await WorkbenchStore.open(memory);
   try {
-    if (!store.readConversation(memory.projectId, conversationId)) throw new Error(`Conversation not found: ${conversationId}.`);
+    const conversation = store.readConversation(memory.projectId, conversationId);
+    if (!conversation) throw new Error(`Conversation not found: ${conversationId}.`);
     const existingMessages = store.listConversationMessages(memory.projectId, conversationId).map(fromStoredThreadMessage);
     planHandoff = validatePlanHandoffIntent(existingMessages, parsed.planHandoffIntent);
+    const supersedingExecutedChange = Boolean(
+      planHandoff?.kind === "revise-plan"
+      && conversation.boundChangeId
+      && await hasPlanningExecutionEvidence(memory, conversation.boundChangeId),
+    );
+    const completedBoundChange = Boolean(
+      !planHandoff
+      && conversation.boundChangeId
+      && !existsSync(join(memory.changesRoot, "active", conversation.boundChangeId)),
+    );
+    const terminalGraphScope = Boolean(
+      conversation.currentGraphScopeId
+      && store.isConversationGraphScopeTerminal(memory.projectId, conversation.currentGraphScopeId),
+    );
+    const graphScopeId = !completedBoundChange && !supersedingExecutedChange && !terminalGraphScope && conversation.currentGraphScopeId
+      ? conversation.currentGraphScopeId
+      : createGraphScopeId(conversationId);
+    if (graphScopeId !== conversation.currentGraphScopeId) {
+      store.startConversationGraphScope(memory.projectId, conversationId, graphScopeId, now);
+    }
+    user = { ...user, graphScopeId };
     storedUser = { ...user, planHandoff };
     store.appendMessage(toConversationStoredMessage(memory.projectId, conversationId, storedUser));
+    if (planHandoff) {
+      const proposalStatus = planHandoff.kind === "revise-plan"
+          ? "revision-requested"
+          : planHandoff.kind === "cancel-plan"
+            ? "cancelled"
+            : null;
+      if (proposalStatus) store.updatePlanningMessageStatus(memory.projectId, conversationId, planHandoff.sourceArtifact, proposalStatus);
+      if (planHandoff.kind === "cancel-plan") {
+        store.markConversationGraphScopeTerminal(memory.projectId, conversationId, graphScopeId, now);
+      }
+    }
   } finally {
     store.close();
   }
   live?.emit({ event: "topic.message", data: storedUser });
-  const assistant = await runProjectScopedMainAgentTurn(project, conversationId, parsed.message, live, planHandoff);
+  const assistant = await runProjectScopedMainAgentTurn(project, conversationId, parsed.message, live, planHandoff, { graphScopeId: storedUser.graphScopeId });
   return { user: storedUser, assistant, run: null, codexSessionId: null, mode: "chat", assistantMessage: assistant.text ?? "" };
 }
 
@@ -210,17 +248,18 @@ async function runProjectScopedMainAgentTurn(
   userMessage: string,
   live?: WorkbenchLiveSink,
   planHandoff?: ValidatedPlanHandoffIntent,
-  options: { goalResume?: { deliveryKey: string; contextText: string } } = {},
+  options: { goalResume?: { deliveryKey: string; contextText: string }; graphScopeId?: string } = {},
 ): Promise<TopicThreadEntry> {
   const memory = await ensureProjectRuntime(project);
   assertWritableMemory(memory, "Project-scoped chat");
   if (!memory.projectId) throw new Error("Project id is required to run project-scoped chat.");
+  const graphScopeId = options.graphScopeId ?? await currentConversationGraphScope(memory, conversationId);
   const runId = buildProjectConversationRunId(conversationId);
   const directory = join(memory.workbenchRoot, "conversations", conversationId, "runs", runId);
   await mkdir(directory, { recursive: true });
   const capture = createAssistantTranscriptCapture(live);
-  capture.sink.emit({ event: "run.started", data: { runId, conversationId, runtime: "codex-readonly", actionType: "chat.ask" } });
-  capture.sink.emit({ event: "run.status", data: { runId, status: "connecting", label: "正在连接 Codex" } });
+  capture.sink.emit({ event: "run.started", data: { runId, conversationId, graphScopeId, runtime: "codex-readonly", actionType: "chat.ask" } });
+  capture.sink.emit({ event: "run.status", data: { runId, conversationId, graphScopeId, status: "connecting", label: "正在连接 Codex" } });
   const proposalDirectory = join(directory, "planner-proposal");
   await mkdir(proposalDirectory, { recursive: true });
   const mainOrchestrationSkillPath = join(getSystemSkillsRoot(), "aho-main-orchestration", "SKILL.md");
@@ -342,8 +381,14 @@ async function runProjectScopedMainAgentTurn(
         const accepted = await acceptCurrentConversationPlanningPackage(project, conversationId, planHandoff.sourceArtifact);
         acceptedPlanning = accepted;
         boundChangeId = accepted.changeId;
+        const acceptedStore = await WorkbenchStore.open(memory);
+        try {
+          acceptedStore.updatePlanningMessageStatus(memory.projectId!, conversationId, planHandoff.sourceArtifact, "accepted");
+        } finally {
+          acceptedStore.close();
+        }
         acceptedPlanMarker = {
-          ...projectScopedPlanningMessage(conversationId, runId, `Accepted proposal ${accepted.proposalId}.`, PROJECT_PLANNING_AGENT_ROLE_ID, undefined, acceptedProposal.childThreadId),
+          ...projectScopedPlanningMessage(conversationId, graphScopeId, runId, `Accepted proposal ${accepted.proposalId}.`, PROJECT_PLANNING_AGENT_ROLE_ID, undefined, acceptedProposal.childThreadId),
           status: "accepted",
         };
         if (accepted.workflowGraphPlan.graphMode === "ready-set-v1") {
@@ -412,22 +457,29 @@ async function runProjectScopedMainAgentTurn(
       lastMessage: join(directory, "last-message.md"),
       session: join(directory, "agent-session.json"),
     },
-    onRealtimeEvent: (event) => forwardCodexRealtimeEvent(event, capture.sink),
+    onRealtimeEvent: (event) => forwardCodexRealtimeEvent(event, capture.sink, { graphScopeId }),
     onUserInputRequest: (request) => {
-      capture.sink.emit({
-        event: "codex.userInput.requested",
-        data: {
-          requestId: request.requestId,
-          threadId: request.threadId,
-          turnId: request.turnId,
-          itemId: request.itemId,
-          runId,
-          conversationId,
-          agentRoleId: request.roleId !== "main-agent" ? request.roleId : undefined,
-          questions: request.questions,
-          status: "pending",
-        },
-      });
+      const requestKey = codexUserInputRequestKey(runId, request);
+      const record = {
+        requestKey,
+        requestId: request.requestId,
+        threadId: request.threadId,
+        turnId: request.turnId,
+        itemId: request.itemId,
+        runId,
+        runtimeScopeId: conversationId,
+        conversationId,
+        graphScopeId,
+        changeId: boundChangeId ?? undefined,
+        agentRoleId: request.roleId !== "main-agent" ? request.roleId : undefined,
+        questions: request.questions,
+        status: "pending" as const,
+      };
+      void persistCodexUserInputRequest(memory, record)
+        .then(() => capture.sink.emit({ event: "codex.userInput.requested", data: record }))
+        .catch((cause) => {
+          capture.sink.emit({ event: "error", data: { runId, graphScopeId, message: cause instanceof Error ? cause.message : String(cause) } });
+        });
     },
     onError: (error) => capture.sink.emit({ event: "error", data: { runId, message: error instanceof Error ? error.message : String(error) } }),
     model: effectiveModel.model,
@@ -468,6 +520,7 @@ async function runProjectScopedMainAgentTurn(
     type: "assistant.message",
     timestamp: new Date().toISOString(),
     conversationId,
+    graphScopeId,
     changeId: "",
     text: assistantText,
     runId,
@@ -478,6 +531,7 @@ async function runProjectScopedMainAgentTurn(
     blocks: capture.blocks.length > 0 ? capture.blocks : initialMainAgentBlocks([], runId, assistantText),
   } : null;
   const planMessages: TopicThreadEntry[] = [];
+  let planReadyMarker: TopicThreadEntry | null = null;
   const store = await WorkbenchStore.open(memory);
   try {
     if (result.threadId) store.writeProviderThread({
@@ -487,6 +541,7 @@ async function runProjectScopedMainAgentTurn(
       roleId: "main-agent",
       parentThreadId: null,
       changeId: boundChangeId,
+      graphScopeId,
       capabilityProfile: "main-agent-goal-v1",
       updatedAt: new Date().toISOString(),
     });
@@ -500,6 +555,7 @@ async function runProjectScopedMainAgentTurn(
         roleId: childRoleId,
         parentThreadId: child.parentThreadId,
         changeId: boundChangeId,
+        graphScopeId,
         capabilityProfile: isPlannerChild ? "planner-child-v1" : "provider-child-v1",
         displayName: child.displayName,
         updatedAt: new Date().toISOString(),
@@ -507,6 +563,7 @@ async function runProjectScopedMainAgentTurn(
       for (const childCapture of childTranscriptCapturesForThread(capture.childCaptures, child.threadId)) {
         const childProcessMessage = projectScopedChildProcessMessage(
           conversationId,
+          graphScopeId,
           runId,
           childRoleId,
           child.threadId,
@@ -531,15 +588,48 @@ async function runProjectScopedMainAgentTurn(
         });
         message = projectScopedPlanningMessage(
           conversationId,
+          graphScopeId,
           runId,
           `${proposal.planMd.trim()}\n\nProposal hash: ${proposal.hash}\nLineage: ${proposal.parentThreadId} -> ${proposal.childThreadId}`,
           PROJECT_PLANNING_AGENT_ROLE_ID,
           proposal.artifact,
           child.threadId,
         );
+        const planReadyBlock: AssistantTurnBlock = {
+          id: `plan-ready:${proposal.id}`,
+          runId,
+          threadId: result.threadId ?? undefined,
+          turnId: assistant?.turnId ?? result.turnId ?? undefined,
+          sequence: (assistant?.blocks?.at(-1)?.sequence ?? 0) + 1,
+          kind: "tool-result",
+          timestamp: new Date().toISOString(),
+          source: "aho",
+          status: "completed",
+          title: "计划已准备",
+          text: "Plan Agent 已完成可确认的实现计划。",
+          artifactRef: proposal.artifact,
+          targetAgentSurfaceId: `thread:${child.threadId}`,
+        };
+        if (assistant) {
+          assistant.blocks = [...(assistant.blocks ?? []), planReadyBlock];
+        } else {
+          planReadyMarker = {
+            id: `assistant:${conversationId}:${runId}:plan-ready:${proposal.id}`,
+            type: "assistant.message",
+            timestamp: planReadyBlock.timestamp,
+            conversationId,
+            graphScopeId,
+            changeId: "",
+            text: "Plan Agent 已完成可确认的实现计划。",
+            runId,
+            threadId: result.threadId ?? undefined,
+            turnId: result.turnId ?? undefined,
+            blocks: [planReadyBlock],
+          };
+        }
       } catch (cause) {
         message = {
-          ...projectScopedPlanningMessage(conversationId, runId, child.finalText || "Plan child did not return a valid proposal.", PROJECT_PLANNING_AGENT_ROLE_ID, undefined, child.threadId),
+          ...projectScopedPlanningMessage(conversationId, graphScopeId, runId, child.finalText || "Plan child did not return a valid proposal.", PROJECT_PLANNING_AGENT_ROLE_ID, undefined, child.threadId),
           status: "planner-proposal-invalid",
         };
         capture.sink.emit({ event: "error", data: { runId, message: cause instanceof Error ? cause.message : String(cause) } });
@@ -548,11 +638,13 @@ async function runProjectScopedMainAgentTurn(
       store.appendMessage(toConversationStoredMessage(memory.projectId, conversationId, message));
     }
     if (acceptedPlanMarker) store.appendMessage(toConversationStoredMessage(memory.projectId, conversationId, acceptedPlanMarker));
+    if (planReadyMarker) store.appendMessage(toConversationStoredMessage(memory.projectId, conversationId, planReadyMarker));
     if (assistant) store.appendMessage(toConversationStoredMessage(memory.projectId, conversationId, assistant));
   } finally {
     store.close();
   }
   for (const planMessage of planMessages) live?.emit({ event: "assistant.message", data: planMessage });
+  if (planReadyMarker) live?.emit({ event: "assistant.message", data: planReadyMarker });
   if (assistant) live?.emit({ event: "assistant.message", data: assistant });
   if (postRunInvariantError) throw postRunInvariantError;
   const autoAcceptedPlanning = acceptedPlanning as Awaited<ReturnType<typeof acceptCurrentConversationPlanningPackage>> | null;
@@ -565,11 +657,20 @@ async function runProjectScopedMainAgentTurn(
       workflowGraphPlanId: autoAcceptedPlanning.workflowGraphPlan.id,
     }, live);
   }
-  return assistant ?? planMessages.at(-1) ?? {
+  if (result.goal?.status === "complete") {
+    const terminalStore = await WorkbenchStore.open(memory);
+    try {
+      terminalStore.markConversationGraphScopeTerminal(memory.projectId, conversationId, graphScopeId, new Date().toISOString());
+    } finally {
+      terminalStore.close();
+    }
+  }
+  return assistant ?? planReadyMarker ?? planMessages.at(-1) ?? {
     id: `assistant:${conversationId}:${runId}:empty`,
     type: "assistant.message",
     timestamp: new Date().toISOString(),
     conversationId,
+    graphScopeId,
     changeId: "",
     text: "",
     runId,
@@ -577,7 +678,7 @@ async function runProjectScopedMainAgentTurn(
   };
 }
 
-function projectScopedPlanningMessage(conversationId: string, runId: string, planText: string, roleId = PROJECT_PLANNING_AGENT_ROLE_ID, artifact?: string, childThreadId = "child"): TopicThreadEntry {
+function projectScopedPlanningMessage(conversationId: string, graphScopeId: string, runId: string, planText: string, roleId = PROJECT_PLANNING_AGENT_ROLE_ID, artifact?: string, childThreadId = "child"): TopicThreadEntry {
   const timestamp = new Date().toISOString();
   const block: AssistantTurnBlock = {
     id: `native-plan:${runId}`,
@@ -618,6 +719,22 @@ function stripProjectScopedPromptEcho(message: string, userMessage: string): str
 
 function buildProjectConversationRunId(conversationId: string): string {
   return `chat-${conversationId}-${Date.now().toString(36)}`;
+}
+
+function createGraphScopeId(conversationId: string): string {
+  return `graph:${conversationId}:${Date.now().toString(36)}:${randomUUID().slice(0, 8)}`;
+}
+
+async function currentConversationGraphScope(memory: ResolvedMemory, conversationId: string): Promise<string> {
+  if (!memory.projectId) throw new Error("Project id is required to resolve graph scope.");
+  const store = await WorkbenchStore.open(memory);
+  try {
+    const graphScopeId = store.readConversation(memory.projectId, conversationId)?.currentGraphScopeId;
+    if (!graphScopeId) throw new Error("The current conversation has no Agent graph scope.");
+    return graphScopeId;
+  } finally {
+    store.close();
+  }
 }
 
 function initialMainAgentBlocks(blocks: AssistantTurnBlock[], runId: string, assistantText: string): AssistantTurnBlock[] {
@@ -683,6 +800,7 @@ export async function runWorkbenchWorkflowAction(project: ManagedProject, reques
 
 function projectScopedChildProcessMessage(
   conversationId: string,
+  graphScopeId: string,
   runId: string,
   roleId: string,
   childThreadId: string,
@@ -696,6 +814,7 @@ function projectScopedChildProcessMessage(
     type: "assistant.message",
     timestamp,
     conversationId,
+    graphScopeId,
     changeId: "",
     runId,
     threadId: childThreadId,
@@ -1010,4 +1129,40 @@ function defaultAttachmentMessage(attachments: TopicAttachment[]): string {
   if (imageCount > 0 && textCount === 0) return "Please inspect the attached image first, describe what you see, and ask a clarifying question if the requested outcome is unclear.";
   if (textCount > 0 && imageCount === 0) return "Please use the attached file content as message-scoped context for this request.";
   return "Please use the attached images and files as message-scoped context for this request.";
+}
+
+async function persistCodexUserInputRequest(
+  memory: ResolvedMemory,
+  request: import("./types.js").WorkbenchCodexUserInputRequest,
+): Promise<void> {
+  if (!memory.projectId || !request.conversationId) return;
+  const entry: TopicThreadEntry = {
+    id: `codex-user-input:${request.requestKey}`,
+    type: "assistant.message",
+    timestamp: new Date().toISOString(),
+    conversationId: request.conversationId,
+    graphScopeId: request.graphScopeId,
+    changeId: request.changeId ?? "",
+    runId: request.runId,
+    threadId: request.threadId,
+    turnId: request.turnId,
+    agentRoleId: request.agentRoleId,
+    status: request.status,
+    codexUserInput: request,
+  };
+  const store = await WorkbenchStore.open(memory);
+  try {
+    store.appendMessage(toConversationStoredMessage(memory.projectId, request.conversationId, entry));
+  } finally {
+    store.close();
+  }
+}
+
+function codexUserInputRequestKey(
+  runId: string,
+  request: Pick<import("../codex/app-server.js").CodexAppServerUserInputRequest, "requestId" | "threadId" | "turnId" | "itemId">,
+): string {
+  return [runId, request.threadId ?? "main", request.turnId ?? "turn", request.itemId ?? "item", request.requestId]
+    .map((part) => encodeURIComponent(part))
+    .join(":");
 }

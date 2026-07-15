@@ -41,6 +41,8 @@ export interface ValidatedPlanningProposal {
   specMd: string;
   planMd: string;
   tasksMd: string;
+  runId?: string;
+  childThreadId?: string;
 }
 
 export interface ValidatedPlanningPackageInput {
@@ -85,6 +87,9 @@ export interface PlanningAcceptanceCommitPort {
     acceptedAt: string;
     transactionId: string;
     proposalHash: string;
+    newGraphScopeRequired: boolean;
+    proposalRunId?: string;
+    plannerThreadId?: string;
   }): void;
   deleteCommit(transactionId: string): void;
 }
@@ -133,10 +138,11 @@ async function acceptPlanningPackageUnlocked(
   const boundActive = boundChangeId && boundActivePath && existsSync(boundActivePath)
     ? boundChangeId
     : null;
-  const reusableChangeId = boundActive && !(await hasExecutionEvidence(memory, boundActive))
+  const reusableChangeId = boundActive && !(await hasPlanningExecutionEvidence(memory, boundActive))
     ? boundActive
     : null;
   const changeId = reusableChangeId ?? allocateChangeId(memory.changesRoot, conversationTitle);
+  const newGraphScopeRequired = Boolean(boundActive && !reusableChangeId);
   const activePath = resolveActiveChangePath(memory.changesRoot, changeId);
   const graphId = `workflow-graph-${proposal.hash.slice(0, 16)}`;
   const authorizationIntentRelative = `${relative(memory.memoryRoot, activePath).replace(/\\/g, "/")}/planning/execution-authorization-intent.json`;
@@ -248,6 +254,9 @@ async function acceptPlanningPackageUnlocked(
       acceptedAt: now,
       transactionId,
       proposalHash: proposal.hash,
+      newGraphScopeRequired,
+      proposalRunId: proposal.runId,
+      plannerThreadId: proposal.childThreadId,
     });
   } catch (error) {
     await rollbackStagingSwap(activePath, backupPath, replacing);
@@ -461,7 +470,7 @@ async function existingCreatedAt(activePath: string, fallback: string): Promise<
   }
 }
 
-async function hasExecutionEvidence(
+export async function hasPlanningExecutionEvidence(
   memory: Awaited<ReturnType<typeof resolveProjectMemory>>,
   changeId: string,
 ): Promise<boolean> {

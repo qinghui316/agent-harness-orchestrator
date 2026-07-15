@@ -1,6 +1,7 @@
 ﻿// @vitest-environment jsdom
 
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../src/web/src/App.js";
 import { DecisionInspectorPane } from "../../src/web/src/panels/workbench/DecisionPanels.js";
@@ -1230,26 +1231,32 @@ describe("Workbench web app", () => {
   it("renders plan handoff as execute, feedback submit, and cancel actions", async () => {
     const onPlanHandoff = vi.fn(async () => undefined);
     const onCancelPlanHandoff = vi.fn(async () => undefined);
-    render(
-      <ConversationPendingActionStack
-        codexUserInputRequests={[]}
+    function ControlledPlanHandoff(): JSX.Element {
+      const [expanded, setExpanded] = useState(false);
+      return <ConversationPendingActionStack
         planHandoffCandidate={{
           sourceRunId: "run-planning-agent",
           sourceAgentRoleId: "planning-agent",
           title: "Plan Agent",
           planText: "Plan text",
+          sourceArtifact: "proposal-1.json",
+          proposalKey: "proposal-1.json",
         }}
         busy={false}
-        onAnswerCodexUserInput={vi.fn(async () => undefined)}
         onPlanHandoff={onPlanHandoff}
         onCancelPlanHandoff={onCancelPlanHandoff}
-      />,
-    );
+        expanded={expanded}
+        onExpandedChange={setExpanded}
+      />;
+    }
+    render(<ControlledPlanHandoff />);
     const handoffCard = screen.getByTestId("plan-handoff-pending-card");
     expect(within(handoffCard).getAllByRole("button")).toHaveLength(3);
     expect(within(handoffCard).getByRole("button", { name: "执行" })).toBeTruthy();
-    expect((within(handoffCard).getByRole("button", { name: "提交修改意见" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(within(handoffCard).queryByRole("button", { name: "提交修改意见" })).toBeNull();
     expect(within(handoffCard).getByRole("button", { name: "取消" })).toBeTruthy();
+    fireEvent.click(within(handoffCard).getByRole("button", { name: "修改" }));
+    expect((within(handoffCard).getByRole("button", { name: "提交修改意见" }) as HTMLButtonElement).disabled).toBe(true);
     const feedbackInput = within(handoffCard).getByPlaceholderText("输入你希望 Plan Agent 修改的地方");
     fireEvent.change(feedbackInput, { target: { value: "先补充 npm test 验收。" } });
     expect((within(handoffCard).getByRole("button", { name: "提交修改意见" }) as HTMLButtonElement).disabled).toBe(false);
@@ -1271,6 +1278,17 @@ describe("Workbench web app", () => {
       center: {
         ...snapshot.center,
         selectedTopic: { id: "conv-plan", title: "Plan conversation", state: "active", kind: "conversation", boundChangeId: null },
+        parentAgentTranscript: {
+          ...snapshot.center.parentAgentTranscript,
+          cells: [{
+            id: "main-plan-ready",
+            kind: "process-row",
+            source: "aho-orchestration",
+            text: "Plan Agent 已完成可确认的实现计划。",
+            runId: "run-planning-agent",
+            evidenceRefs: [{ label: "Plan proposal", ref: "proposal-1.json", kind: "artifact" }],
+          }],
+        },
       },
       right: {
         ...snapshot.right,
@@ -1334,12 +1352,15 @@ describe("Workbench web app", () => {
     const handoffCard = within(pendingStack).getByTestId("plan-handoff-pending-card");
     expect(handoffCard.textContent).toContain("计划已准备");
     expect(handoffCard.textContent).toContain("执行");
-    expect(handoffCard.textContent).toContain("提出意见再修改计划");
-    expect(handoffCard.textContent).toContain("提交修改意见");
+    expect(handoffCard.textContent).toContain("修改");
     expect(handoffCard.textContent).toContain("取消");
     expect(within(handoffCard).getAllByRole("button")).toHaveLength(3);
     expect(screen.queryByPlaceholderText("请先处理上方待处理操作。")).toBeNull();
-    expect(screen.queryByTestId("topic-composer")).toBeNull();
+    expect(document.querySelector(".topic-composer textarea")).toBeTruthy();
+    fireEvent.click(within(handoffCard).getByRole("button", { name: "修改" }));
+    expect(within(handoffCard).getByPlaceholderText("输入你希望 Plan Agent 修改的地方")).toBeTruthy();
+    fireEvent.click(within(handoffCard).getByRole("button", { name: "修改" }));
+    expect(within(handoffCard).queryByPlaceholderText("输入你希望 Plan Agent 修改的地方")).toBeNull();
     fireEvent.click(within(handoffCard).getByRole("button", { name: "执行" }));
     await waitFor(() => expect(calls.some((call) => {
       if (!call.url.endsWith("/workbench/topics/conv-plan/messages/live")) return false;
@@ -1390,6 +1411,17 @@ describe("Workbench web app", () => {
       center: {
         ...snapshot.center,
         selectedTopic: { id: "conv-plan", title: "Plan conversation", state: "active", kind: "conversation", boundChangeId: null },
+        parentAgentTranscript: {
+          ...snapshot.center.parentAgentTranscript,
+          cells: [{
+            id: "main-plan-ready",
+            kind: "process-row",
+            source: "aho-orchestration",
+            text: "Plan Agent 已完成可确认的实现计划。",
+            runId: "run-planning-agent",
+            evidenceRefs: [{ label: "Plan proposal", ref: "proposal-1.json", kind: "artifact" }],
+          }],
+        },
       },
       right: {
         ...snapshot.right,
@@ -4682,6 +4714,7 @@ describe("Codex native requestUserInput cards", () => {
     render(
       <CodexUserInputRequestCard
         request={{
+          requestKey: "run-1:main:turn:item:request-1",
           requestId: "request-1",
           runId: "run-1",
           agentRoleId: "planning-agent",
@@ -4693,7 +4726,7 @@ describe("Codex native requestUserInput cards", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "提交给 Codex" }));
+    fireEvent.click(screen.getByRole("button", { name: "提交回答" }));
 
     await waitFor(() => expect(onAnswer).toHaveBeenCalledWith(expect.objectContaining({ requestId: "request-1" }), {}));
   });

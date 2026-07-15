@@ -241,6 +241,7 @@ async function persistMaintenanceThread(
       roleId,
       parentThreadId,
       changeId: request.taskLineage.changeId,
+      graphScopeId: null,
       capabilityProfile: "background-agent-v1",
       displayName,
       runId,

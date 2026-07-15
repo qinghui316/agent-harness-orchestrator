@@ -24,10 +24,13 @@ export function buildAgentWorkspace(input: {
   selectedTopic: WorkbenchTopicDetail | null;
   workpad: WorkbenchWorkpad;
   providerThreads?: StoredProviderThreadLink[];
+  graphScopeId?: string;
+  includeExecution?: boolean;
 }): WorkbenchAgentWorkspace {
   const agents = new Map<string, WorkbenchAgentWorkspaceAgent>();
   const providerAgentIds = new Map<string, string>();
   for (const link of input.providerThreads ?? []) {
+    if (!input.graphScopeId || link.graphScopeId !== input.graphScopeId) continue;
     if (link.roleId === "main-agent" || !MODEL_ROLES.has(link.roleId)) continue;
     const id = `thread:${link.providerThreadId}`;
     const cells = input.selectedTopic ? buildAgentScopedTranscriptCells(input.selectedTopic.threadItems, {
@@ -50,6 +53,7 @@ export function buildAgentWorkspace(input: {
   }
 
   for (const item of input.selectedTopic?.threadItems ?? []) {
+    if (!input.graphScopeId || item.graphScopeId !== input.graphScopeId) continue;
     const roleId = item.agentRoleId;
     if (!roleId || roleId === "main-agent" || !MODEL_ROLES.has(roleId)) continue;
     const id = item.threadId ? `thread:${item.threadId}` : item.runId ? `run:${item.runId}` : null;
@@ -70,7 +74,7 @@ export function buildAgentWorkspace(input: {
     }));
   }
 
-  const execution = input.workpad.mainAgentExecution;
+  const execution = input.includeExecution ? input.workpad.mainAgentExecution : undefined;
   if (execution) {
     for (const run of execution.runs) {
       if (!MODEL_ROLES.has(run.roleId) || run.roleId === "planning-agent") continue;

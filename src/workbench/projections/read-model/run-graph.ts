@@ -41,13 +41,15 @@ export function buildDemandAgentRunGraph(input: {
   workpad: WorkbenchWorkpad;
   confirmationQueue: WorkbenchConfirmationQueue;
   agents?: WorkbenchAgentWorkspaceAgent[];
+  graphScopeId?: string;
+  scopeChangeId?: string;
 }): DemandAgentRunGraph {
   const { project, selectedTopic } = input;
   if (!selectedTopic) return emptyAgentRunGraph();
   const targetBase = {
     projectId: project?.id ?? null,
     conversationId: selectedTopic.kind === "conversation" ? selectedTopic.id : undefined,
-    changeId: selectedTopic.boundChangeId ?? (selectedTopic.kind === "change" ? selectedTopic.id : undefined),
+    changeId: input.scopeChangeId,
   };
   const main: DemandAgentRunGraphNode = {
     id: "main-agent",
@@ -100,6 +102,7 @@ export function buildDemandAgentRunGraph(input: {
     };
   });
   return {
+    graphScopeId: input.graphScopeId,
     conversationId: targetBase.conversationId ?? selectedTopic.id,
     changeId: targetBase.changeId,
     title: "Agent 关系",

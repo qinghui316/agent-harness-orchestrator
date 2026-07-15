@@ -211,7 +211,11 @@ export interface ActiveCodexAppServerTurn {
   startedAt: string;
   steer(input: string): Promise<void>;
   interrupt(reason?: string): Promise<void>;
-  respondToUserInput(requestId: string, response: CodexAppServerUserInputResponse): Promise<void>;
+  respondToUserInput(
+    requestId: string,
+    response: CodexAppServerUserInputResponse,
+    expected?: { runId: string; threadId?: string; turnId?: string },
+  ): Promise<void>;
 }
 
 const activeTurns = new Map<string, ActiveCodexAppServerTurn>();
@@ -291,10 +295,18 @@ export function getActiveCodexAppServerTurn(scopeId: string): ActiveCodexAppServ
   return activeTurns.get(scopeId) ?? null;
 }
 
-export async function respondToCodexAppServerUserInput(scopeId: string, requestId: string, response: CodexAppServerUserInputResponse): Promise<void> {
+export async function respondToCodexAppServerUserInput(
+  scopeId: string,
+  requestId: string,
+  response: CodexAppServerUserInputResponse,
+  expected?: { runId: string; threadId?: string; turnId?: string },
+): Promise<void> {
   const turn = getActiveCodexAppServerTurn(scopeId);
   if (!turn) throw new Error("No active Codex app-server turn is waiting for user input.");
-  await turn.respondToUserInput(requestId, response);
+  if (expected && turn.runId !== expected.runId) {
+    throw new Error("The active Codex app-server turn does not match the persisted user input request.");
+  }
+  await turn.respondToUserInput(requestId, response, expected);
 }
 
 export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions): Promise<CodexAppServerTurnResult> {
@@ -334,7 +346,6 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
   const childThreads: CodexAppServerChildThreadResult[] = [];
   const childThreadDisplayNames = new Map<string, string>();
   const changedFiles = new Set<string>();
-  const childThreadPrompts = new Map<string, string>();
   const childThreadParents = new Map<string, string>();
   const childThreadRoles = new Map<string, string>();
   const subAgentThreadItems = new Map<string, string>();
@@ -343,7 +354,13 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
   let terminalStatus: CodexAppServerTurnResult["status"] | null = null;
   let terminalError: string | undefined;
   const pending = new Map<number, { resolve: (value: Record<string, unknown>) => void; reject: (error: Error) => void }>();
-  const pendingServerRequests = new Map<string, { id: number; method: string }>();
+  const pendingServerRequests = new Map<string, {
+    id: number;
+    method: string;
+    runId: string;
+    threadId?: string;
+    turnId?: string;
+  }>();
 
   const writeSession = async (status: CodexAppServerSessionRecord["status"], error?: string): Promise<void> => {
     if (!threadId) return;
@@ -460,8 +477,8 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
             await sendRequest("turn/interrupt", { threadId: activeThreadId, turnId: activeTurnId });
           }
         },
-        respondToUserInput: async (requestId: string, response: CodexAppServerUserInputResponse) => {
-          sendServerRequestResult(requestId, normalizeUserInputResponse(response));
+        respondToUserInput: async (requestId: string, response: CodexAppServerUserInputResponse, expected) => {
+          await sendServerRequestResult(requestId, normalizeUserInputResponse(response), expected);
         },
       });
     };
@@ -552,12 +569,29 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
     child.stdin.write(`${JSON.stringify({ method, params })}\n`);
   }
 
-  function sendServerRequestResult(requestId: string, result: Record<string, unknown>): void {
+  async function sendServerRequestResult(
+    requestId: string,
+    result: Record<string, unknown>,
+    expected?: { runId: string; threadId?: string; turnId?: string },
+  ): Promise<void> {
     const request = pendingServerRequests.get(requestId);
     if (!request) throw new Error("Codex app-server user input request is no longer pending.");
+    if (expected && (
+      request.runId !== expected.runId
+      || (expected.threadId && request.threadId !== expected.threadId)
+      || (expected.turnId && request.turnId !== expected.turnId)
+    )) {
+      throw new Error("The pending Codex app-server user input request does not match the persisted request identity.");
+    }
+    const stdin = child?.stdin;
+    if (!stdin?.writable) throw new Error("Codex app-server stdin is not writable.");
+    await new Promise<void>((resolve, reject) => {
+      stdin.write(`${JSON.stringify({ id: request.id, result })}\n`, (error) => {
+        if (error) reject(error);
+        else resolve();
+      });
+    });
     pendingServerRequests.delete(requestId);
-    if (!child?.stdin?.writable) throw new Error("Codex app-server stdin is not writable.");
-    child.stdin.write(`${JSON.stringify({ id: request.id, result })}\n`);
   }
 
   function drainLines(): void {
@@ -623,17 +657,17 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
     emitRealtime(method, params);
     if (params.completed === true) return true;
     const requestId = String(id);
-    pendingServerRequests.set(requestId, { id, method });
-    const questions = parseUserInputQuestions(params.questions);
     const requestThreadId = typeof params.threadId === "string" ? params.threadId : typeof params.thread_id === "string" ? params.thread_id : threadId ?? undefined;
-    const childPrompt = requestThreadId ? childThreadPrompts.get(requestThreadId) : undefined;
+    const requestTurnId = typeof params.turnId === "string" ? params.turnId : typeof params.turn_id === "string" ? params.turn_id : turnId ?? undefined;
+    pendingServerRequests.set(requestId, { id, method, runId: options.runId, threadId: requestThreadId, turnId: requestTurnId });
+    const questions = parseUserInputQuestions(params.questions);
     const requestRoleId = requestThreadId && requestThreadId !== threadId
-      ? childPrompt?.includes("aho-workflow-authoring") ? "planning-agent" : "child-agent"
+      ? childThreadRoles.get(requestThreadId) ?? "child-agent"
       : options.roleId;
     const request: CodexAppServerUserInputRequest = {
       requestId,
       threadId: requestThreadId,
-      turnId: typeof params.turnId === "string" ? params.turnId : typeof params.turn_id === "string" ? params.turn_id : turnId ?? undefined,
+      turnId: requestTurnId,
       itemId: typeof params.itemId === "string" ? params.itemId : typeof params.item_id === "string" ? params.item_id : undefined,
       runId: options.runId,
       ...(options.changeId ? { changeId: options.changeId } : {}),
@@ -654,9 +688,8 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
     const collab = extractCodexAppServerCollabToolCall(method, params);
     if (collab?.tool === "spawn_agent") {
       for (const childThreadId of collab.receiverThreadIds) {
-        if (collab.prompt) childThreadPrompts.set(childThreadId, collab.prompt);
         childThreadParents.set(childThreadId, collab.senderThreadId ?? notificationThreadId ?? threadId ?? "");
-        childThreadRoles.set(childThreadId, roleIdFromChildPrompt(collab.prompt));
+        childThreadRoles.set(childThreadId, "child-agent");
         if (isTerminalCollabStatus(collab.status)) queueChildThreadRead(collab, childThreadId);
       }
     }
@@ -665,8 +698,7 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
     if (subAgent) {
       subAgentThreadItems.set(subAgent.threadId, subAgent.itemId);
       childThreadParents.set(subAgent.threadId, notificationThreadId ?? threadId ?? "");
-      const subAgentRole = roleIdFromChildPrompt(subAgent.agentPath);
-      childThreadRoles.set(subAgent.threadId, subAgentRole);
+      childThreadRoles.set(subAgent.threadId, "child-agent");
     }
     if (method === "turn/completed" && notificationThreadId && subAgentThreadItems.has(notificationThreadId)) {
       queueChildThreadRead({
@@ -713,7 +745,7 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
               await sendRequest("turn/interrupt", { threadId, turnId });
             }
           },
-          respondToUserInput: async (requestId: string, response: CodexAppServerUserInputResponse) => sendServerRequestResult(requestId, normalizeUserInputResponse(response)),
+          respondToUserInput: async (requestId: string, response: CodexAppServerUserInputResponse, expected) => sendServerRequestResult(requestId, normalizeUserInputResponse(response), expected),
         });
         void writeSession("running");
         if (goalPauseRequested && threadId) {
@@ -1333,16 +1365,6 @@ function stringList(value: unknown): string[] {
   if (Array.isArray(value)) return value.map(stringValue).filter((item): item is string => Boolean(item));
   const single = stringValue(value);
   return single ? [single] : [];
-}
-
-function roleIdFromChildPrompt(prompt?: string): string {
-  const normalized = (prompt ?? "").toLowerCase();
-  if (normalized.includes("aho-workflow-authoring") || normalized.includes("planning agent") || /(^|[\\/_-])plan(?:[\\/_-]|$)/.test(normalized)) return "planning-agent";
-  if (normalized.includes("evolution") && normalized.includes("scor")) return "evolution-scorer";
-  if (normalized.includes("audit")) return "auditor-agent";
-  if (normalized.includes("rework")) return "rework-coder";
-  if (normalized.includes("spec-test")) return normalized.includes("propos") ? "spec-test-proposer" : "spec-test-generator";
-  return "child-agent";
 }
 
 export async function readAgentSession(path: string): Promise<CodexAppServerSessionRecord | null> {

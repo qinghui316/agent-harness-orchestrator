@@ -1,10 +1,10 @@
-import type { AssistantTurnActivity, AssistantTurnBlock, TopicAttachment, TopicFileReference } from "./types.js";
+import type { AssistantTurnActivity, AssistantTurnBlock, TopicAttachment, TopicFileReference, WorkbenchCodexUserInputRequest } from "./types.js";
 import { commandDetailText, commandGroupDetailText, commandGroupSummary, commandRowTitle, groupConsecutiveCommandBlocks } from "../command-transcript.js";
 
 export type ParentAgentTranscriptActor = "user" | "parent-agent";
 export type ParentAgentTranscriptBlockKind = "prose" | "process" | "tool-result" | "evidence";
 export type ParentAgentTranscriptBlockSource = "user" | "codex-runtime" | "aho-orchestration" | "workflow-evidence" | "maintenance";
-export type ParentAgentTranscriptCellKind = "user-message" | "assistant-message" | "process-row" | "evidence-row" | "detail-only";
+export type ParentAgentTranscriptCellKind = "user-message" | "assistant-message" | "process-row" | "evidence-row" | "user-input" | "detail-only";
 
 export interface ParentAgentEvidenceRef {
   label: string;
@@ -55,6 +55,7 @@ export interface ParentAgentTranscriptCell {
   detailText?: string;
   contextRefs?: TopicFileReference[];
   attachments?: TopicAttachment[];
+  codexUserInput?: WorkbenchCodexUserInputRequest;
 }
 
 export interface ParentAgentTranscript {
@@ -108,6 +109,7 @@ interface TranscriptThreadItemInput {
   blocks?: AssistantTurnBlock[];
   contextRefs?: TopicFileReference[];
   attachments?: TopicAttachment[];
+  codexUserInput?: WorkbenchCodexUserInputRequest;
 }
 
 export function buildParentAgentTranscript(input: {
@@ -132,8 +134,7 @@ export function buildAgentScopedTranscriptCells(
   scope: { agentRoleId: string; threadId?: string; runId?: string },
 ): ParentAgentTranscriptCell[] {
   return dedupeTranscriptCellEvidenceRefs(consolidateTranscriptCells(threadItems
-    .filter((item) => item.agentRoleId === scope.agentRoleId
-      && (!scope.threadId || item.threadId === scope.threadId)
+    .filter((item) => (scope.threadId ? item.threadId === scope.threadId : item.agentRoleId === scope.agentRoleId)
       && (!scope.runId || item.runId === scope.runId))
     .flatMap((item) => transcriptCellsFromThreadItem(item, { forceAgentRoleId: scope.agentRoleId }))));
 }
@@ -200,6 +201,25 @@ function transcriptCellsFromThreadItem(
       : [];
   }
 
+  if (item.codexUserInput) {
+    const request = item.codexUserInput;
+    const questionText = request.questions.map((question) => question.question).filter(Boolean).join("\n");
+    return [{
+      id: `cell:codex-user-input:${request.requestKey}`,
+      kind: "user-input",
+      source: "codex-runtime",
+      timestamp: item.timestamp,
+      agentRoleId,
+      runId: request.runId,
+      threadId: request.threadId,
+      turnId: request.turnId,
+      title: request.status === "submitted" ? "已回答" : "需要你回答",
+      text: questionText || "Agent 需要你的回答。",
+      status: request.status,
+      codexUserInput: request,
+    }];
+  }
+
   const cells: ParentAgentTranscriptCell[] = [];
   for (const block of groupConsecutiveCommandBlocks(item.blocks ?? [])) {
     const cell = transcriptCellFromAssistantBlock(block, item);
@@ -209,6 +229,7 @@ function transcriptCellsFromThreadItem(
         agentRoleId,
         agentTaskId: item.agentTaskId,
         runId: cell.runId ?? item.runId,
+        status: cell.status ?? item.status,
         threadId: cell.threadId ?? block.threadId ?? item.threadId,
         parentThreadId: cell.parentThreadId ?? item.parentThreadId,
         turnId: cell.turnId ?? block.turnId,
@@ -327,7 +348,11 @@ function transcriptCellFromAssistantBlock(
     };
   }
 
-  if (source !== "codex-runtime" && block.kind !== "error") return null;
+  const isPlanReadyArtifact = source === "aho-orchestration"
+    && block.kind === "tool-result"
+    && Boolean(block.artifactRef)
+    && cleanToolTitle(block.title) === "计划已准备";
+  if (source !== "codex-runtime" && block.kind !== "error" && !isPlanReadyArtifact) return null;
 
   if (block.kind === "command-group") {
     const failedCount = block.children?.filter((child) => child.kind === "command" && child.isError).length ?? 0;

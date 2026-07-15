@@ -4,16 +4,19 @@ import { artifactName } from "./RunReplayPanel.js";
 import { formatTime, humanStatus } from "../../formatters.js";
 import { cleanTranscriptText, cleanTranscriptTitle } from "../../liveTranscript.js";
 import { SentMessageContextSummary, type ComposerContextAttachment } from "../../shell/ComposerContextSources.js";
+import { CodexUserInputRequestCard } from "./workpad/TaskGraphCards.js";
 import {
   isLongTranscriptCell,
   transcriptCellDisplayText,
 } from "./transcriptMeasurement.js";
-import type { ParentAgentTranscriptCell } from "../../types.js";
+import type { CodexUserInputRequest, ParentAgentTranscriptCell } from "../../types.js";
 
-export function AgentTranscriptPane({ cells, emptyMessage = "暂无 Agent 消息。", testId = "agent-transcript-pane" }: {
+export function AgentTranscriptPane({ cells, emptyMessage = "暂无 Agent 消息。", testId = "agent-transcript-pane", busy = false, onAnswerCodexUserInput }: {
   cells: ParentAgentTranscriptCell[];
   emptyMessage?: string;
   testId?: string;
+  busy?: boolean;
+  onAnswerCodexUserInput?: (request: CodexUserInputRequest, answers: Record<string, string | string[]>) => Promise<void>;
 }): ReactElement {
   const [expandedCells, setExpandedCells] = useState<Set<string>>(new Set());
   return (
@@ -32,17 +35,21 @@ export function AgentTranscriptPane({ cells, emptyMessage = "暂无 Agent 消息
               return next;
             });
           }}
+          busy={busy}
+          onAnswerCodexUserInput={onAnswerCodexUserInput}
         />
       ))}
     </div>
   );
 }
 
-export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded, onOpenAgent }: {
+export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded, onOpenAgent, busy = false, onAnswerCodexUserInput }: {
   cell: ParentAgentTranscriptCell;
   expanded: boolean;
   onToggleExpanded: () => void;
   onOpenAgent?: (agentSurfaceId: string) => void;
+  busy?: boolean;
+  onAnswerCodexUserInput?: (request: CodexUserInputRequest, answers: Record<string, string | string[]>) => Promise<void>;
 }): ReactElement {
   const isUser = cell.kind === "user-message";
   const rowKind = isUser ? "user" : "parent";
@@ -61,6 +68,12 @@ export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded
           <TranscriptUserMessage cell={cell} expanded={expanded} onToggleExpanded={onToggleExpanded} />
         ) : cell.kind === "assistant-message" ? (
           <TranscriptAssistantMessage cell={cell} expanded={expanded} onToggleExpanded={onToggleExpanded} />
+        ) : cell.kind === "user-input" && cell.codexUserInput ? (
+          <CodexUserInputRequestCard
+            request={cell.codexUserInput}
+            busy={busy}
+            onAnswer={onAnswerCodexUserInput ?? (async () => undefined)}
+          />
         ) : (
           <TranscriptActivityRow cell={cell} expanded={expanded} onToggleExpanded={onToggleExpanded} onOpenAgent={onOpenAgent} />
         )}

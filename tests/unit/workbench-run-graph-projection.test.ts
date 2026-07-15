@@ -51,11 +51,12 @@ describe("Workbench Agent relationship graph", () => {
       roleId: "coder-agent",
       parentThreadId: null,
       changeId: null,
+      graphScopeId: "graph-1",
       capabilityProfile: null,
       updatedAt: "2026-07-14T00:00:00.000Z",
     }));
-    const first = buildAgentWorkspace({ selectedTopic: null, workpad: {} as WorkbenchWorkpad, providerThreads: links.slice(0, 1) });
-    const workspace = buildAgentWorkspace({ selectedTopic: null, workpad: {} as WorkbenchWorkpad, providerThreads: links });
+    const first = buildAgentWorkspace({ selectedTopic: null, workpad: {} as WorkbenchWorkpad, providerThreads: links.slice(0, 1), graphScopeId: "graph-1" });
+    const workspace = buildAgentWorkspace({ selectedTopic: null, workpad: {} as WorkbenchWorkpad, providerThreads: links, graphScopeId: "graph-1" });
     const labels = new Map(workspace.agents.map((item) => [item.id, item.label]));
 
     expect(first.agents[0]?.label).toBe("Coder Agent");
@@ -74,13 +75,41 @@ describe("Workbench Agent relationship graph", () => {
         roleId: "planning-agent",
         parentThreadId: "main-thread",
         changeId: null,
+        graphScopeId: "graph-1",
         capabilityProfile: null,
         displayName: "Newton",
         updatedAt: "2026-07-14T00:00:00.000Z",
       }],
+      graphScopeId: "graph-1",
     });
 
     expect(workspace.agents[0]).toMatchObject({ id: "thread:planner-newton", label: "Plan Agent · Newton" });
+  });
+
+  it("projects only provider threads assigned to the selected graph scope", () => {
+    const providerThreads = [
+      { providerThreadId: "old-plan", graphScopeId: "graph-old" },
+      { providerThreadId: "current-plan", graphScopeId: "graph-current" },
+    ].map((item) => ({
+      projectId: "repo",
+      conversationId: "conversation-1",
+      providerThreadId: item.providerThreadId,
+      roleId: "planning-agent",
+      parentThreadId: "main-thread",
+      changeId: null,
+      graphScopeId: item.graphScopeId,
+      capabilityProfile: null,
+      updatedAt: "2026-07-15T00:00:00.000Z",
+    }));
+
+    const workspace = buildAgentWorkspace({
+      selectedTopic: null,
+      workpad: {} as WorkbenchWorkpad,
+      providerThreads,
+      graphScopeId: "graph-current",
+    });
+
+    expect(workspace.agents.map((agent) => agent.id)).toEqual(["thread:current-plan"]);
   });
 
   it("keeps role-first labels and numbers only duplicate native names", () => {
@@ -91,11 +120,12 @@ describe("Workbench Agent relationship graph", () => {
       roleId: "planning-agent",
       parentThreadId: "main-thread",
       changeId: null,
+      graphScopeId: "graph-1",
       capabilityProfile: null,
       displayName: "Sagan",
       updatedAt: "2026-07-14T00:00:00.000Z",
     }));
-    const workspace = buildAgentWorkspace({ selectedTopic: null, workpad: {} as WorkbenchWorkpad, providerThreads });
+    const workspace = buildAgentWorkspace({ selectedTopic: null, workpad: {} as WorkbenchWorkpad, providerThreads, graphScopeId: "graph-1" });
     const labels = new Map(workspace.agents.map((item) => [item.id, item.label]));
 
     expect(labels.get("thread:planner-a")).toBe("Plan Agent · Sagan 1");
@@ -126,11 +156,14 @@ describe("Workbench Agent relationship graph", () => {
         roleId: "memory-maintenance-agent",
         parentThreadId: null,
         changeId: "change-1",
+        graphScopeId: "graph-1",
         capabilityProfile: "background-agent-v1",
         displayName: "Maintenance Agent",
         runId: "maintenance-run-1",
         updatedAt: "2026-07-14T00:00:00.000Z",
       }],
+      graphScopeId: "graph-1",
+      includeExecution: true,
     });
 
     expect(workspace.agents).toHaveLength(1);

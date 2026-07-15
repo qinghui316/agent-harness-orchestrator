@@ -9,6 +9,7 @@ import { AgentOrchestrationMap } from "./AgentOrchestrationMap.js";
 import { calculateTranscriptVirtualRange } from "./TranscriptVirtualList.js";
 import { ClarificationCard } from "./workpad/TaskGraphCards.js";
 import { ParentAgentTranscriptCellView } from "./TranscriptReadingSurface.js";
+import { ConversationPendingActionStack } from "./ConversationPendingActionStack.js";
 import {
   estimateTranscriptCellHeight,
 } from "./transcriptMeasurement.js";
@@ -17,6 +18,9 @@ import type {
   DemandAgentRunGraphNode,
   LiveAssistantTurn,
   ParentAgentTranscript,
+  ParentAgentTranscriptCell,
+  PlanHandoffCandidate,
+  PlanHandoffIntentKind,
   ProjectStatus,
   RunSummary,
   Snapshot,
@@ -24,6 +28,8 @@ import type {
   TopicDetail,
   Workpad,
 } from "../../types.js";
+
+const TRANSCRIPT_VIRTUALIZATION_THRESHOLD = 80;
 export function MainConversationView({
   workpad,
   transcript,
@@ -36,8 +42,12 @@ export function MainConversationView({
   onAction,
   onConfirmApproval,
   onAnswerClarification,
+  onAnswerCodexUserInput,
   onSelectDecisionContext,
   onOpenAgent,
+  planHandoffCandidate,
+  onPlanHandoff,
+  onCancelPlanHandoff,
 }: {
   workpad: Workpad;
   transcript: ParentAgentTranscript;
@@ -50,8 +60,12 @@ export function MainConversationView({
   onAction: (actionType: string, options?: Record<string, unknown>) => Promise<void>;
   onConfirmApproval: (approvalId: string) => void;
   onAnswerClarification: (clarificationId: string, answer: string) => Promise<void>;
+  onAnswerCodexUserInput: (request: import("../../types.js").CodexUserInputRequest, answers: Record<string, string | string[]>) => Promise<void>;
   onSelectDecisionContext: (contextId: string) => void;
   onOpenAgent: (agentSurfaceId: string) => void;
+  planHandoffCandidate: PlanHandoffCandidate | null;
+  onPlanHandoff: (candidate: PlanHandoffCandidate, kind: PlanHandoffIntentKind, feedback?: string) => Promise<void>;
+  onCancelPlanHandoff: (candidate: PlanHandoffCandidate) => Promise<void>;
 }): ReactElement {
   return (
     <div className="main-conversation-view" data-testid="main-conversation-view">
@@ -67,8 +81,12 @@ export function MainConversationView({
         onAction={onAction}
         onConfirmApproval={onConfirmApproval}
         onAnswerClarification={onAnswerClarification}
+        onAnswerCodexUserInput={onAnswerCodexUserInput}
         onSelectDecisionContext={onSelectDecisionContext}
         onOpenAgent={onOpenAgent}
+        planHandoffCandidate={planHandoffCandidate}
+        onPlanHandoff={onPlanHandoff}
+        onCancelPlanHandoff={onCancelPlanHandoff}
       />
     </div>
   );
@@ -86,8 +104,12 @@ function ParentAgentTranscriptView({
   onAction,
   onConfirmApproval,
   onAnswerClarification,
+  onAnswerCodexUserInput,
   onSelectDecisionContext,
   onOpenAgent,
+  planHandoffCandidate,
+  onPlanHandoff,
+  onCancelPlanHandoff,
 }: {
   workpad: Workpad;
   transcript: ParentAgentTranscript;
@@ -100,8 +122,12 @@ function ParentAgentTranscriptView({
   onAction: (actionType: string, options?: Record<string, unknown>) => Promise<void>;
   onConfirmApproval: (approvalId: string) => void;
   onAnswerClarification: (clarificationId: string, answer: string) => Promise<void>;
+  onAnswerCodexUserInput: (request: import("../../types.js").CodexUserInputRequest, answers: Record<string, string | string[]>) => Promise<void>;
   onSelectDecisionContext: (contextId: string) => void;
   onOpenAgent: (agentSurfaceId: string) => void;
+  planHandoffCandidate: PlanHandoffCandidate | null;
+  onPlanHandoff: (candidate: PlanHandoffCandidate, kind: PlanHandoffIntentKind, feedback?: string) => Promise<void>;
+  onCancelPlanHandoff: (candidate: PlanHandoffCandidate) => Promise<void>;
 }): ReactElement {
   void liveTurns;
   void busy;
@@ -111,19 +137,53 @@ function ParentAgentTranscriptView({
   void onSelectDecisionContext;
   const cells = transcript.cells?.length ? transcript.cells.filter((cell) => cell.kind !== "detail-only") : [];
   const [expandedCells, setExpandedCells] = useState<Set<string>>(new Set());
+  const [expandedPlanArtifact, setExpandedPlanArtifact] = useState<string | null>(null);
+  const [measuredCellHeights, setMeasuredCellHeights] = useState<Record<string, number>>({});
   const [scrollMetrics, setScrollMetrics] = useState({ scrollTop: 0, viewportHeight: 720, listWidth: 760 });
   const loadingEarlierRef = useRef(false);
-  const heights = useMemo(() => cells.map((cell) => estimateTranscriptCellHeight(cell, {
+  const heights = useMemo(() => cells.map((cell, index) => (measuredCellHeights[cell.id] ?? (estimateTranscriptCellHeight(cell, {
     expanded: expandedCells.has(cell.id),
     width: scrollMetrics.listWidth,
-  })), [cells, expandedCells, scrollMetrics.listWidth]);
-  const virtualRange = useMemo(() => calculateTranscriptVirtualRange({
-    heights,
-    scrollTop: scrollMetrics.scrollTop,
-    viewportHeight: scrollMetrics.viewportHeight,
-    overscan: 10,
-  }), [heights, scrollMetrics.scrollTop, scrollMetrics.viewportHeight]);
+  }) + (cellHasPlanCandidate(cell, planHandoffCandidate) ? 180 + (expandedPlanArtifact === planHandoffCandidate?.sourceArtifact ? 170 : 0) : 0)))
+    + (index === 0 ? 0 : sameProviderTurn(cells[index - 1], cell) ? 8 : 20)), [cells, expandedCells, expandedPlanArtifact, measuredCellHeights, planHandoffCandidate, scrollMetrics.listWidth]);
+  const virtualRange = useMemo(() => cells.length <= TRANSCRIPT_VIRTUALIZATION_THRESHOLD
+    ? {
+        start: 0,
+        end: cells.length,
+        topSpacer: 0,
+        bottomSpacer: 0,
+        totalHeight: heights.reduce((total, height) => total + height, 0),
+      }
+    : calculateTranscriptVirtualRange({
+        heights,
+        scrollTop: scrollMetrics.scrollTop,
+        viewportHeight: scrollMetrics.viewportHeight,
+        overscan: 10,
+      }), [cells.length, heights, scrollMetrics.scrollTop, scrollMetrics.viewportHeight]);
   const visibleCells = cells.slice(virtualRange.start, virtualRange.end);
+  const visibleCellIds = visibleCells.map((cell) => cell.id).join("|");
+
+  useEffect(() => {
+    const root = scrollContainerRef.current;
+    if (!root || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => {
+      setMeasuredCellHeights((current) => {
+        let changed = false;
+        const next = { ...current };
+        for (const entry of entries) {
+          const id = (entry.target as HTMLElement).dataset.transcriptCellId;
+          const height = Math.ceil(entry.contentRect.height);
+          if (id && height > 0 && next[id] !== height) {
+            next[id] = height;
+            changed = true;
+          }
+        }
+        return changed ? next : current;
+      });
+    });
+    root.querySelectorAll<HTMLElement>("[data-transcript-cell-id]").forEach((node) => observer.observe(node));
+    return () => observer.disconnect();
+  }, [expandedPlanArtifact, scrollContainerRef, visibleCellIds]);
 
   useEffect(() => {
     const node = scrollContainerRef.current;
@@ -189,22 +249,53 @@ function ParentAgentTranscriptView({
         ) : null}
         {cells.length === 0 ? <div className="empty-state">{transcript.emptyMessage ?? "暂无对话内容。"}</div> : null}
         {virtualRange.topSpacer > 0 ? <div className="transcript-virtual-spacer" style={{ height: virtualRange.topSpacer }} /> : null}
-        {visibleCells.map((cell) => (
-          <ParentAgentTranscriptCellView
-            key={cell.id}
-            cell={cell}
-            expanded={expandedCells.has(cell.id)}
-            onToggleExpanded={() => {
-              setExpandedCells((current) => {
-                const next = new Set(current);
-                if (next.has(cell.id)) next.delete(cell.id);
-                else next.add(cell.id);
-                return next;
-              });
-            }}
-            onOpenAgent={onOpenAgent}
-          />
-        ))}
+        {visibleCells.map((cell, visibleIndex) => {
+          const cellIndex = virtualRange.start + visibleIndex;
+          const previous = cellIndex > 0 ? cells[cellIndex - 1] : undefined;
+          return (
+            <div key={cell.id} data-transcript-cell-id={cell.id} className={sameProviderTurn(previous, cell) ? "transcript-same-turn" : "transcript-turn-boundary"}>
+              <ParentAgentTranscriptCellView
+                cell={cell}
+                expanded={expandedCells.has(cell.id)}
+                onToggleExpanded={() => {
+                  setMeasuredCellHeights((current) => {
+                    if (!(cell.id in current)) return current;
+                    const next = { ...current };
+                    delete next[cell.id];
+                    return next;
+                  });
+                  setExpandedCells((current) => {
+                    const next = new Set(current);
+                    if (next.has(cell.id)) next.delete(cell.id);
+                    else next.add(cell.id);
+                    return next;
+                  });
+                }}
+                onOpenAgent={onOpenAgent}
+                busy={busy}
+                onAnswerCodexUserInput={onAnswerCodexUserInput}
+              />
+              {cellHasPlanCandidate(cell, planHandoffCandidate) ? (
+                <ConversationPendingActionStack
+                  planHandoffCandidate={planHandoffCandidate}
+                  busy={busy}
+                  onPlanHandoff={onPlanHandoff}
+                  onCancelPlanHandoff={onCancelPlanHandoff}
+                  expanded={expandedPlanArtifact === planHandoffCandidate?.sourceArtifact}
+                  onExpandedChange={(expanded) => {
+                    setMeasuredCellHeights((current) => {
+                      if (!(cell.id in current)) return current;
+                      const next = { ...current };
+                      delete next[cell.id];
+                      return next;
+                    });
+                    setExpandedPlanArtifact(expanded ? planHandoffCandidate?.sourceArtifact ?? null : null);
+                  }}
+                />
+              ) : null}
+            </div>
+          );
+        })}
         {virtualRange.bottomSpacer > 0 ? <div className="transcript-virtual-spacer" style={{ height: virtualRange.bottomSpacer }} /> : null}
       </div>
     </div>
@@ -234,6 +325,16 @@ export function AgentRunGraphPanel({
       </div>
     </div>
   );
+}
+
+function cellHasPlanCandidate(cell: ParentAgentTranscriptCell, candidate: PlanHandoffCandidate | null): boolean {
+  return Boolean(candidate && cell.evidenceRefs?.some((ref) => ref.ref === candidate.sourceArtifact));
+}
+
+function sameProviderTurn(previous: ParentAgentTranscriptCell | undefined, current: ParentAgentTranscriptCell): boolean {
+  return Boolean(previous?.threadId && previous.turnId && current.threadId && current.turnId
+    && previous.threadId === current.threadId
+    && previous.turnId === current.turnId);
 }
 
 export function BottomStatusBar({ snapshot, project, topic }: { snapshot: Snapshot; project: ProjectStatus | null; topic: TopicDetail | null }): ReactElement {

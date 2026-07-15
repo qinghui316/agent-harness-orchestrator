@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { isAbsolute, relative, resolve } from "node:path";
 import { existsSync } from "node:fs";
@@ -166,14 +166,24 @@ async function acceptCurrentConversationPlanningPackageUnlocked(
   try {
     const commitPort: PlanningAcceptanceCommitPort = {
       hasCommit: (transactionId) => store.hasPlanningAcceptanceCommit(transactionId),
-      commit: (commit) => store.acceptConversationChangeBinding(
-        commit.projectId,
-        commit.conversationId,
-        commit.changeId,
-        commit.acceptedAt,
-        commit.transactionId,
-        commit.proposalHash,
-      ),
+      commit: (commit) => {
+        const scopeTransition = commit.newGraphScopeRequired
+          ? {
+              graphScopeId: `graph:${conversationId}:${Date.now().toString(36)}:${randomUUID().slice(0, 8)}`,
+              runId: commit.proposalRunId,
+              plannerThreadId: commit.plannerThreadId,
+            }
+          : undefined;
+        store.acceptConversationChangeBinding(
+          commit.projectId,
+          commit.conversationId,
+          commit.changeId,
+          commit.acceptedAt,
+          commit.transactionId,
+          commit.proposalHash,
+          scopeTransition,
+        );
+      },
       deleteCommit: (transactionId) => store.deletePlanningAcceptanceCommit(transactionId),
     };
     return await acceptPlanningPackage(project, input, commitPort);
@@ -230,6 +240,8 @@ async function validateCurrentConversationPlanningPackage(
         specMd: proposal.specMd,
         planMd: proposal.planMd,
         tasksMd: proposal.tasksMd,
+        runId: proposal.runId,
+        childThreadId: proposal.childThreadId,
       },
     };
   } finally {

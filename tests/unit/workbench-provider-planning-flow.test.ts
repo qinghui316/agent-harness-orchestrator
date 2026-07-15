@@ -1,10 +1,11 @@
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const appServerTurn = vi.hoisted(() => vi.fn());
+const appServerAnswer = vi.hoisted(() => vi.fn());
 vi.mock("../../src/codex/app-server.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/codex/app-server.js")>();
   return {
@@ -18,6 +19,7 @@ vi.mock("../../src/codex/app-server.js", async (importOriginal) => {
       errors: [],
     })),
     runCodexAppServerTurn: appServerTurn,
+    respondToCodexAppServerUserInput: appServerAnswer,
   };
 });
 
@@ -26,10 +28,12 @@ import { normalizeCodexAppServerNotification } from "../../src/codex/app-server-
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { git } from "../../src/project/git.js";
 import type { ManagedProject } from "../../src/types/index.js";
-import { createWorkbenchConversation, listConversationMessages, postConversationMessage, resumeNativeGoalAfterAction, runWorkbenchWorkflowAction } from "../../src/workbench/chat.js";
+import { appendConversationThreadEntry, createWorkbenchConversation, listConversationMessages, postConversationMessage, resumeNativeGoalAfterAction, runWorkbenchWorkflowAction } from "../../src/workbench/chat.js";
 import { getWorkbenchSnapshot } from "../../src/workbench/manager.js";
+import { getWorkbenchTranscriptProjection } from "../../src/workbench/projections/read-model/implementation.js";
 import { readLatestWorkflowGraphPlan } from "../../src/workflow-artifacts/manager.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
+import { handleCodexUserInputAnswer } from "../../src/server/workbench/codex-user-input.js";
 import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
 
 let root: string;
@@ -40,6 +44,7 @@ beforeEach(async () => {
   originalAhoHome = process.env.AHO_HOME;
   process.env.AHO_HOME = join(root, ".aho-home");
   appServerTurn.mockReset();
+  appServerAnswer.mockReset();
   await git(root, ["init"]);
   await git(root, ["config", "user.email", "aho-test@example.invalid"]);
   await git(root, ["config", "user.name", "AHO Test"]);
@@ -56,6 +61,391 @@ afterEach(async () => {
 });
 
 describe("Workbench provider planning flow", () => {
+  it("serializes concurrent user-input answers and reconciles an orphaned submitting state", async () => {
+    const conversation = await createWorkbenchConversation(project(), {
+      title: "Provider question",
+      body: "Wait for an answer.",
+    }, undefined, { runMainAgent: false });
+    const memory = await resolveProjectMemory(project());
+    const store = await WorkbenchStore.open(memory);
+    const graphScopeId = store.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? undefined;
+    store.appendMessage({
+      projectId: project().id,
+      conversationId: conversation.conversationId,
+      id: "codex-input-message",
+      changeId: "",
+      type: "assistant.message",
+      timestamp: "2026-07-15T00:00:00.000Z",
+      text: "请选择。",
+      status: "pending",
+      rawJson: JSON.stringify({
+        id: "codex-input-message",
+        type: "assistant.message",
+        timestamp: "2026-07-15T00:00:00.000Z",
+        conversationId: conversation.conversationId,
+        graphScopeId,
+        changeId: "",
+        text: "请选择。",
+        codexUserInput: {
+          requestKey: "run-1:thread-main:turn-1:item-1:request-1",
+          requestId: "request-1",
+          runId: "run-1",
+          runtimeScopeId: conversation.conversationId,
+          threadId: "thread-child",
+          turnId: "turn-child",
+          conversationId: conversation.conversationId,
+          graphScopeId,
+          questions: [{ id: "q1", question: "继续吗？" }],
+          status: "pending",
+        },
+      }),
+    });
+    store.close();
+
+    let acceptProviderAnswer!: () => void;
+    appServerAnswer.mockImplementationOnce(() => new Promise<void>((resolve) => { acceptProviderAnswer = resolve; }));
+    const body = {
+      conversationId: conversation.conversationId,
+      requestKey: "run-1:thread-main:turn-1:item-1:request-1",
+      answers: { q1: "继续" },
+    };
+    const first = handleCodexUserInputAnswer({ project: project(), path: root }, "request-1", body);
+    const concurrentAttempt = handleCodexUserInputAnswer({ project: project(), path: root }, "request-1", body);
+    await vi.waitFor(() => expect(appServerAnswer).toHaveBeenCalledTimes(1));
+    acceptProviderAnswer();
+    const concurrentResults = await Promise.all([first, concurrentAttempt]);
+    expect(concurrentResults.map((result) => (result.result as { status: string }).status).sort()).toEqual(["submitted", "submitting"]);
+    expect(appServerAnswer).toHaveBeenCalledTimes(1);
+
+    const recoveryStore = await WorkbenchStore.open(memory);
+    recoveryStore.transitionCodexUserInputRequest(
+      project().id,
+      conversation.conversationId,
+      body.requestKey,
+      "submitted",
+      "submitting",
+      body.answers,
+      "2026-07-15T00:01:00.000Z",
+    );
+    recoveryStore.close();
+    let acceptRecoveredAnswer!: () => void;
+    appServerAnswer.mockImplementationOnce(() => new Promise<void>((resolve) => { acceptRecoveredAnswer = resolve; }));
+    const recovery = handleCodexUserInputAnswer({ project: project(), path: root }, "request-1", body);
+    await vi.waitFor(() => expect(appServerAnswer).toHaveBeenCalledTimes(2));
+    const concurrentRecovery = await handleCodexUserInputAnswer({ project: project(), path: root }, "request-1", body);
+    expect(concurrentRecovery.result).toMatchObject({ status: "submitting" });
+    acceptRecoveredAnswer();
+    await expect(recovery).resolves.toMatchObject({ result: { status: "submitted" } });
+    expect(appServerAnswer).toHaveBeenCalledTimes(2);
+    expect(appServerAnswer).toHaveBeenLastCalledWith(
+      conversation.conversationId,
+      "request-1",
+      { answers: body.answers },
+      expect.objectContaining({ runId: "run-1", threadId: "thread-child", turnId: "turn-child" }),
+    );
+  });
+
+  it("fails closed when an orphaned answer submission cannot be proven at the provider", async () => {
+    const conversation = await createWorkbenchConversation(project(), {
+      title: "Interrupted provider question",
+      body: "Wait for an answer.",
+    }, undefined, { runMainAgent: false });
+    const memory = await resolveProjectMemory(project());
+    const store = await WorkbenchStore.open(memory);
+    store.appendMessage({
+      projectId: project().id,
+      conversationId: conversation.conversationId,
+      id: "orphaned-codex-input-message",
+      changeId: "",
+      type: "assistant.message",
+      timestamp: "2026-07-15T00:00:00.000Z",
+      text: "请选择。",
+      status: "submitting",
+      rawJson: JSON.stringify({
+        id: "orphaned-codex-input-message",
+        type: "assistant.message",
+        timestamp: "2026-07-15T00:00:00.000Z",
+        conversationId: conversation.conversationId,
+        changeId: "",
+        text: "请选择。",
+        codexUserInput: {
+          requestKey: "run-orphan:thread-main:turn-1:item-1:request-1",
+          requestId: "request-orphan",
+          runId: "run-orphan",
+          runtimeScopeId: conversation.conversationId,
+          conversationId: conversation.conversationId,
+          questions: [{ id: "q1", question: "继续吗？" }],
+          status: "submitting",
+          answers: { q1: "继续" },
+        },
+      }),
+    });
+    store.close();
+    await expect(handleCodexUserInputAnswer({ project: project(), path: root }, "wrong-request-id", {
+      conversationId: conversation.conversationId,
+      requestKey: "run-orphan:thread-main:turn-1:item-1:request-1",
+      answers: { q1: "继续" },
+    })).rejects.toThrow("does not match the persisted request key");
+    appServerAnswer.mockRejectedValueOnce(new Error("No active Codex app-server turn is waiting for user input."));
+
+    await expect(handleCodexUserInputAnswer({ project: project(), path: root }, "request-orphan", {
+      conversationId: conversation.conversationId,
+      requestKey: "run-orphan:thread-main:turn-1:item-1:request-1",
+      answers: { q1: "继续" },
+    })).rejects.toThrow("提交状态无法确认");
+    appServerAnswer.mockRejectedValueOnce(new Error("Codex app-server user input request is no longer pending."));
+    await expect(handleCodexUserInputAnswer({ project: project(), path: root }, "request-orphan", {
+      conversationId: conversation.conversationId,
+      requestKey: "run-orphan:thread-main:turn-1:item-1:request-1",
+      answers: { q1: "继续" },
+    })).rejects.toThrow("提交状态无法确认");
+
+    const finalStore = await WorkbenchStore.open(memory);
+    expect(finalStore.readCodexUserInputRequest(
+      project().id,
+      conversation.conversationId,
+      "run-orphan:thread-main:turn-1:item-1:request-1",
+    )?.status).toBe("submitting");
+    finalStore.close();
+  });
+
+  it("keeps supplemental turns in the same unbound demand scope", async () => {
+    const conversation = await createWorkbenchConversation(project(), {
+      title: "Unbound multi-turn demand",
+      body: "Start a simple demand.",
+    }, undefined, { runMainAgent: false });
+    const memory = await resolveProjectMemory(project());
+    const initialStore = await WorkbenchStore.open(memory);
+    const initialScope = initialStore.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId;
+    initialStore.close();
+    appServerTurn.mockResolvedValue({
+      status: "completed",
+      threadId: "thread-main",
+      turnId: "turn-supplement",
+      lastMessage: "已处理补充要求。",
+      childThreads: [],
+    });
+
+    await postConversationMessage(project(), conversation.conversationId, "补充第一个细节。");
+    await postConversationMessage(project(), conversation.conversationId, "再补充第二个细节。");
+
+    const finalStore = await WorkbenchStore.open(memory);
+    try {
+      expect(finalStore.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId).toBe(initialScope);
+      expect(finalStore.listConversationMessages(project().id, conversation.conversationId)
+        .map((message) => JSON.parse(message.rawJson).graphScopeId)
+        .filter(Boolean)).toEqual(expect.arrayContaining([initialScope, initialScope]));
+    } finally {
+      finalStore.close();
+    }
+  });
+
+  it("starts a clean graph after a simple native Goal reaches complete", async () => {
+    const conversation = await createWorkbenchConversation(project(), {
+      title: "Simple completed demand",
+      body: "Create a simple page.",
+    }, undefined, { runMainAgent: false });
+    const memory = await resolveProjectMemory(project());
+    const initialStore = await WorkbenchStore.open(memory);
+    const initialScope = initialStore.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId;
+    initialStore.close();
+    appServerTurn
+      .mockResolvedValueOnce({
+        status: "completed",
+        threadId: "thread-main",
+        turnId: "turn-simple-complete",
+        lastMessage: "简单需求已经完成。",
+        goal: nativeGoal("complete"),
+        childThreads: [],
+      })
+      .mockResolvedValueOnce({
+        status: "completed",
+        threadId: "thread-main",
+        turnId: "turn-next-demand",
+        lastMessage: "开始新的需求。",
+        goal: nativeGoal("active"),
+        childThreads: [],
+      });
+
+    await postConversationMessage(project(), conversation.conversationId, "完成这个简单需求。");
+    await postConversationMessage(project(), conversation.conversationId, "这是一个新的顶层需求。");
+
+    const finalStore = await WorkbenchStore.open(memory);
+    try {
+      expect(finalStore.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId).not.toBe(initialScope);
+    } finally {
+      finalStore.close();
+    }
+  });
+
+  it("does not mark a proposal accepted when Main declines the acceptance tool", async () => {
+    const topic = await createConversationChangeFixture(project(), { title: "Declined plan", body: "Plan this work." });
+    await appendConversationThreadEntry(project(), topic.changeId, {
+      type: "assistant.message",
+      status: "planning-agent-generated",
+      text: "A proposal that Main still needs to inspect.",
+      runId: "run-declined-plan",
+      agentRoleId: "planning-agent",
+      artifact: "workbench/proposals/declined-plan.json",
+    });
+    appServerTurn.mockResolvedValueOnce({
+      status: "completed",
+      threadId: "thread-main",
+      turnId: "turn-declined-plan",
+      lastMessage: "当前计划还需要补充，不接受。",
+      goal: nativeGoal("paused"),
+      childThreads: [],
+    });
+
+    await postConversationMessage(project(), topic.conversationId, {
+      mode: "chat",
+      message: "执行当前计划",
+      planHandoffIntent: {
+        kind: "execute-plan",
+        sourceRunId: "run-declined-plan",
+        sourceAgentRoleId: "planning-agent",
+        sourceArtifact: "workbench/proposals/declined-plan.json",
+      },
+    });
+
+    const source = (await listConversationMessages(project(), topic.conversationId))
+      .find((message) => message.artifact === "workbench/proposals/declined-plan.json");
+    expect(source?.status).toBe("planning-agent-generated");
+  });
+
+  it("ends the current graph when plan cancellation is durable even if Main fails afterward", async () => {
+    const conversation = await createWorkbenchConversation(project(), { title: "Cancelled plan", body: "Plan this." }, undefined, { runMainAgent: false });
+    const memory = await resolveProjectMemory(project());
+    const beforeStore = await WorkbenchStore.open(memory);
+    const initialScope = beforeStore.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId;
+    const planEntry = {
+      id: "assistant:cancel-plan",
+      type: "assistant.message" as const,
+      timestamp: new Date().toISOString(),
+      conversationId: conversation.conversationId,
+      graphScopeId: initialScope,
+      changeId: "",
+      status: "planning-agent-generated",
+      text: "Plan candidate",
+      runId: "run-cancel-plan",
+      agentRoleId: "planning-agent",
+      artifact: "workbench/proposals/cancel-plan.json",
+    };
+    beforeStore.appendMessage({
+      id: planEntry.id,
+      projectId: project().id,
+      conversationId: conversation.conversationId,
+      changeId: "",
+      type: planEntry.type,
+      timestamp: planEntry.timestamp,
+      text: planEntry.text,
+      actionRunId: null,
+      actionType: null,
+      status: planEntry.status,
+      runId: planEntry.runId,
+      artifact: planEntry.artifact,
+      error: null,
+      rawJson: JSON.stringify(planEntry),
+    });
+    beforeStore.close();
+    appServerTurn
+      .mockRejectedValueOnce(new Error("provider unavailable after cancellation"))
+      .mockResolvedValueOnce({ status: "completed", threadId: "thread-main", turnId: "turn-after-cancel", lastMessage: "新需求。", goal: nativeGoal("active"), childThreads: [] });
+
+    await expect(postConversationMessage(project(), conversation.conversationId, {
+      mode: "chat",
+      message: "取消这个计划",
+      planHandoffIntent: {
+        kind: "cancel-plan",
+        sourceRunId: "run-cancel-plan",
+        sourceAgentRoleId: "planning-agent",
+        sourceArtifact: "workbench/proposals/cancel-plan.json",
+      },
+    })).rejects.toThrow("provider unavailable");
+    await postConversationMessage(project(), conversation.conversationId, "开始一个新的需求。");
+
+    const afterStore = await WorkbenchStore.open(memory);
+    try {
+      expect(afterStore.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId).not.toBe(initialScope);
+    } finally {
+      afterStore.close();
+    }
+  });
+
+  it("keeps one graph scope inside an active Change and starts clean after that Change ends", async () => {
+    const conversation = await createWorkbenchConversation(project(), {
+      title: "Scoped graph lifecycle",
+      body: "Create the initial demand scope.",
+    }, undefined, { runMainAgent: false });
+    const memory = await resolveProjectMemory(project());
+    const changeId = "scope-lifecycle-change";
+    await mkdir(join(memory.changesRoot, "active", changeId), { recursive: true });
+
+    const store = await WorkbenchStore.open(memory);
+    let initialScope: string;
+    try {
+      initialScope = store.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? "";
+      expect(initialScope).not.toBe("");
+      store.linkConversationChange(project().id, conversation.conversationId, changeId, new Date().toISOString());
+      store.writeProviderThread({
+        projectId: project().id,
+        conversationId: conversation.conversationId,
+        providerThreadId: "thread-old-child",
+        roleId: "planning-agent",
+        parentThreadId: "thread-main",
+        changeId,
+        graphScopeId: initialScope,
+        capabilityProfile: "planner-child-v1",
+        updatedAt: new Date().toISOString(),
+      });
+    } finally {
+      store.close();
+    }
+
+    appServerTurn
+      .mockResolvedValueOnce({
+        status: "completed",
+        threadId: "thread-main",
+        turnId: "turn-same-change",
+        lastMessage: "继续处理当前 Change。",
+        childThreads: [],
+      })
+      .mockResolvedValueOnce({
+        status: "completed",
+        threadId: "thread-main",
+        turnId: "turn-next-demand",
+        lastMessage: "开始处理新的顶层需求。",
+        childThreads: [],
+      });
+
+    await postConversationMessage(project(), conversation.conversationId, "继续当前 Change 的同一项工作。");
+    const sameChangeStore = await WorkbenchStore.open(memory);
+    try {
+      expect(sameChangeStore.readConversation(project().id, conversation.conversationId)).toMatchObject({
+        boundChangeId: changeId,
+        currentGraphScopeId: initialScope,
+      });
+    } finally {
+      sameChangeStore.close();
+    }
+
+    await rm(join(memory.changesRoot, "active", changeId), { recursive: true, force: true });
+    await postConversationMessage(project(), conversation.conversationId, "这是下一个独立的顶层需求。");
+    const nextDemandStore = await WorkbenchStore.open(memory);
+    try {
+      const next = nextDemandStore.readConversation(project().id, conversation.conversationId);
+      expect(next?.boundChangeId).toBeNull();
+      expect(next?.currentGraphScopeId).not.toBe(initialScope);
+      expect(nextDemandStore.listProviderThreads(project().id, conversation.conversationId))
+        .toEqual(expect.arrayContaining([
+          expect.objectContaining({ providerThreadId: "thread-old-child", graphScopeId: initialScope }),
+          expect.objectContaining({ providerThreadId: "thread-main", graphScopeId: next?.currentGraphScopeId }),
+        ]));
+    } finally {
+      nextDemandStore.close();
+    }
+  });
+
   it("lets the first external-local Main turn onboard through native Harness Skill facts", async () => {
     await Promise.all([
       rm(join(root, "AGENTS.md"), { force: true }),
@@ -133,6 +523,7 @@ describe("Workbench provider planning flow", () => {
     const memory = await resolveProjectMemory(project());
     const store = await WorkbenchStore.open(memory);
     const changeId = conversation.changeId;
+    const graphScopeId = store.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? null;
     store.writeProviderThread({
       projectId: project().id,
       conversationId: conversation.conversationId,
@@ -140,6 +531,7 @@ describe("Workbench provider planning flow", () => {
       roleId: "main-agent",
       parentThreadId: null,
       changeId,
+      graphScopeId,
       capabilityProfile: "main-agent-goal-v1",
       updatedAt: new Date().toISOString(),
     });
@@ -216,6 +608,59 @@ describe("Workbench provider planning flow", () => {
         type: "assistant.message",
         text: "规划子 Agent 已返回完整方案。\n当前还缺少可继续执行的目标状态。",
       }),
+    ]));
+  });
+
+  it("persists a Main plan-ready marker when the provider returns no parent prose", async () => {
+    appServerTurn.mockImplementationOnce(async (options) => {
+      await writePlannerFiles(options.writableRoots?.[0] ?? "");
+      return {
+        status: "completed",
+        threadId: "thread-main-empty-prose",
+        turnId: "turn-main-empty-prose",
+        lastMessage: "",
+        goal: nativeGoal("active"),
+        childThreads: [{
+          itemId: "item-spawn-empty-prose-planner",
+          tool: "spawn_agent",
+          parentThreadId: "thread-main-empty-prose",
+          threadId: "thread-planner-empty-prose",
+          status: "completed",
+          displayName: "Sagan",
+          finalText: plannerProposal(),
+          changedFiles: [
+            join(options.writableRoots?.[0] ?? "", "spec.md"),
+            join(options.writableRoots?.[0] ?? "", "plan.md"),
+            join(options.writableRoots?.[0] ?? "", "tasks.md"),
+          ],
+          snapshot: {},
+        }],
+      };
+    });
+
+    const conversation = await createWorkbenchConversation(project(), {
+      title: "Planner without Main prose",
+      body: "Plan a small but structured change.",
+    });
+    const messages = await listConversationMessages(project(), conversation.conversationId);
+    const marker = messages.find((message) => message.blocks?.some((block) => block.id.startsWith("plan-ready:")));
+    expect(marker).toMatchObject({
+      type: "assistant.message",
+      text: "Plan Agent 已完成可确认的实现计划。",
+      threadId: "thread-main-empty-prose",
+      turnId: "turn-main-empty-prose",
+    });
+    expect(marker?.blocks).toEqual([
+      expect.objectContaining({
+        kind: "tool-result",
+        title: "计划已准备",
+        targetAgentSurfaceId: "thread:thread-planner-empty-prose",
+        artifactRef: expect.stringContaining("planner-proposal"),
+      }),
+    ]);
+    const transcript = await getWorkbenchTranscriptProjection({ project: project(), path: root }, conversation.conversationId);
+    expect(transcript.cells).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "process-row", title: "计划已准备" }),
     ]));
   });
 
@@ -424,7 +869,7 @@ describe("Workbench provider planning flow", () => {
   });
 });
 
-function nativeGoal(status: "active" | "paused" | "blocked") {
+function nativeGoal(status: "active" | "paused" | "blocked" | "complete") {
   return {
     threadId: "thread-main",
     objective: "Add a health endpoint with regression coverage",

@@ -52,7 +52,7 @@ describe("Codex native Goal lifecycle", () => {
     expect(parentLifecycle).toEqual(["thread-parent"]);
     expect(server.methods).toContain("thread/read");
     expect(realtimeEvents).toEqual(expect.arrayContaining([
-      expect.objectContaining({ threadId: "thread-planner", roleId: "planning-agent", displayName: "Plan Agent" }),
+      expect.objectContaining({ threadId: "thread-planner", roleId: "child-agent", displayName: "Child Agent" }),
     ]));
     expect(server.threadStartParams.dynamicTools).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "aho_goal_yield" }),

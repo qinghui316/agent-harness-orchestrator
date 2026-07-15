@@ -3,7 +3,7 @@ import { useMemo, useState, type ReactElement } from "react";
 import { coalesceMainLiveTurns, parentTranscriptCellsFromLiveThreadItem, parentTranscriptCellsFromLiveTurn, reconcileTimelineCells } from "../../liveTranscript.js";
 import { AgentTranscriptPane } from "./TranscriptReadingSurface.js";
 import { ClarificationCard } from "./workpad/TaskGraphCards.js";
-import type { AgentWorkspace, AgentWorkspaceAgent, LiveAssistantTurn, ParentAgentTranscriptCell, ThreadStreamItem } from "../../types.js";
+import type { AgentWorkspace, AgentWorkspaceAgent, CodexUserInputRequest, LiveAssistantTurn, ParentAgentTranscriptCell, ThreadStreamItem } from "../../types.js";
 
 export function AgentWorkspacePanel({
   workspace,
@@ -16,6 +16,7 @@ export function AgentWorkspacePanel({
   onCloseAgent,
   onBack,
   onAnswerClarification,
+  onAnswerCodexUserInput,
   onSendAgentMessage,
   modelLabel,
   onOpenModelSettings,
@@ -30,6 +31,7 @@ export function AgentWorkspacePanel({
   onCloseAgent: (agentId: string) => void;
   onBack: () => void;
   onAnswerClarification: (clarificationId: string, answer: string) => Promise<void>;
+  onAnswerCodexUserInput: (request: CodexUserInputRequest, answers: Record<string, string | string[]>) => Promise<void>;
   onSendAgentMessage: (agent: AgentWorkspaceAgent, message: string) => Promise<void>;
   modelLabel: string;
   onOpenModelSettings?: () => void;
@@ -38,7 +40,7 @@ export function AgentWorkspacePanel({
   const selected = childAgents.find((agent) => agent.id === selectedAgentId) ?? childAgents[0] ?? null;
   const [optimisticUserCells, setOptimisticUserCells] = useState<ParentAgentTranscriptCell[]>([]);
   const liveUserCells = useMemo(() => liveItems
-    .filter((item) => selected && item.kind === "user-message" && isScopedToAgent(item.agentRoleId, selected))
+    .filter((item) => selected && (item.kind === "user-message" || Boolean(item.codexUserInput)) && isScopedToAgent(item.agentRoleId, selected))
     .flatMap(parentTranscriptCellsFromLiveThreadItem), [liveItems, selected]);
   const liveCells = useMemo(() => coalesceMainLiveTurns(liveTurns
     .filter((turn) => selected && (turn.agentSurfaceId === selected.id || turn.threadId === selected.providerThreadId || (!turn.agentSurfaceId && turn.runId === selected.runId))))
@@ -87,7 +89,13 @@ export function AgentWorkspacePanel({
       </div>
       {selected ? <section className="agent-workspace-surface">
         <div className="agent-workspace-transcript-region">
-          <AgentTranscriptPane cells={cells} emptyMessage={selected.transcript.emptyMessage} testId="agent-workspace-transcript" />
+          <AgentTranscriptPane
+            cells={cells}
+            emptyMessage={selected.transcript.emptyMessage}
+            testId="agent-workspace-transcript"
+            busy={busy}
+            onAnswerCodexUserInput={onAnswerCodexUserInput}
+          />
           <AgentClarifications agent={selected} busy={busy} onAnswer={onAnswerClarification} />
         </div>
         <AgentWorkspaceComposer
@@ -203,7 +211,6 @@ function AgentWorkspaceComposer({
         disabled={actionBusy || !canInteract}
       />
       <div className="composer-toolbar">
-        {pending ? <span className="composer-pill subtle">正在发送</span> : null}
         <span className="composer-spacer" />
         <button
           type="button"

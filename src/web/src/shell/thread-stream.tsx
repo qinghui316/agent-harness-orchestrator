@@ -5,21 +5,21 @@ import type {
 
 export function threadItemFromTopicEntry(entry: TopicMessageEntry): ThreadStreamItem | null {
   if (entry.type === "user.message") {
-    return { id: entry.id, kind: "user-message", label: "User", timestamp: entry.timestamp, body: entry.text, source: "chat", contextRefs: entry.contextRefs, attachments: entry.attachments };
+    return { id: entry.id, kind: "user-message", label: "User", timestamp: entry.timestamp, body: entry.text, source: "chat", graphScopeId: entry.graphScopeId, contextRefs: entry.contextRefs, attachments: entry.attachments };
   }
   if (entry.type === "assistant.message") {
     return {
       id: entry.id, kind: "assistant-turn", label: "AI", timestamp: entry.timestamp,
-      body: entry.text, source: "chat", artifact: entry.artifact, runId: entry.runId,
+      body: entry.text, source: "chat", artifact: entry.artifact, status: entry.status, graphScopeId: entry.graphScopeId, runId: entry.runId,
       threadId: entry.threadId, parentThreadId: entry.parentThreadId, turnId: entry.turnId,
       agentRoleId: entry.agentRoleId, agentTaskId: entry.agentTaskId,
-      activity: entry.activity, blocks: entry.blocks,
+      activity: entry.activity, blocks: entry.blocks, codexUserInput: entry.codexUserInput,
     };
   }
   if (entry.type === "orchestrator.plan") {
     return {
       id: entry.id, kind: "assistant-turn", label: "AI", timestamp: entry.timestamp,
-      body: entry.text, source: "chat", artifact: entry.artifact, runId: entry.runId,
+      body: entry.text, source: "chat", artifact: entry.artifact, status: entry.status, graphScopeId: entry.graphScopeId, runId: entry.runId,
       threadId: entry.threadId, parentThreadId: entry.parentThreadId, turnId: entry.turnId,
       agentRoleId: entry.agentRoleId, agentTaskId: entry.agentTaskId,
       activity: entry.activity, blocks: entry.blocks,

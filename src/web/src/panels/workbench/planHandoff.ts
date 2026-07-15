@@ -18,7 +18,7 @@ export function derivePlanHandoffCandidate(workspace: AgentWorkspace): PlanHando
         status: cell.status,
       })));
   const latest = attempts.sort((left, right) => right.timestamp.localeCompare(left.timestamp))[0];
-  if (!latest?.sourceArtifact || !latest.proposalKey || latest.status === "planner-proposal-invalid" || latest.status === "accepted") return null;
+  if (!latest?.sourceArtifact || !latest.proposalKey || ["planner-proposal-invalid", "accepted", "revision-requested", "cancelled"].includes(latest.status ?? "")) return null;
   return {
     sourceRunId: latest.sourceRunId,
     sourceAgentRoleId: latest.sourceAgentRoleId,

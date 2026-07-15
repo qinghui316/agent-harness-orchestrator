@@ -118,6 +118,7 @@ export interface ClarificationAnswerRequest {
 export interface CodexUserInputAnswerRequest {
   changeId?: string;
   conversationId?: string;
+  requestKey: string;
   answers?: Record<string, string | string[]>;
   answer?: string;
 }

@@ -127,6 +127,24 @@ export function parentTranscriptCellsFromLiveTurn(turn: LiveAssistantTurn): Pare
 
 export function parentTranscriptCellsFromLiveThreadItem(item: ThreadStreamItem): ParentAgentTranscriptCell[] {
   if (item.kind === "change-state") return [];
+  if (item.codexUserInput) {
+    const request = item.codexUserInput;
+    return [{
+      id: `cell:codex-user-input:${request.requestKey}`,
+      kind: "user-input",
+      source: "codex-runtime",
+      timestamp: item.timestamp,
+      agentRoleId: item.agentRoleId,
+      agentTaskId: item.agentTaskId,
+      runId: request.runId,
+      threadId: request.threadId,
+      turnId: request.turnId,
+      title: request.status === "submitted" ? "已回答" : "需要你回答",
+      text: request.questions.map((question) => question.question).join("\n") || "Agent 需要你的回答。",
+      status: request.status,
+      codexUserInput: request,
+    }];
+  }
   if (item.kind === "user-message") {
     const text = cleanTranscriptText(item.body ?? item.label);
     return text ? [{

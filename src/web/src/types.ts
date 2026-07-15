@@ -434,6 +434,7 @@ export type DemandAgentRunGraphNode = {
 export type DemandAgentRunGraphEdge = { id: string; from: string; to: string; kind: string; label: string; edgeStyle?: DemandAgentRunGraphEdgeStyle; edgeRole?: DemandAgentRunGraphEdgeRole };
 export type DemandAgentRunGraphLane = { id: DemandAgentRunGraphLaneId; label: string; description: string };
 export type DemandAgentRunGraph = {
+  graphScopeId?: string;
   conversationId?: string;
   changeId?: string;
   title: string;
@@ -456,7 +457,7 @@ export type ParentAgentTranscriptBlock = {
 };
 export type ParentAgentTranscriptCell = {
   id: string;
-  kind: "user-message" | "assistant-message" | "process-row" | "evidence-row" | "detail-only";
+  kind: "user-message" | "assistant-message" | "process-row" | "evidence-row" | "user-input" | "detail-only";
   source: "user" | "codex-runtime" | "aho-orchestration" | "workflow-evidence" | "maintenance";
   agentRoleId?: string;
   agentTaskId?: string;
@@ -478,6 +479,7 @@ export type ParentAgentTranscriptCell = {
     detailText?: string;
   contextRefs?: TopicFileReference[];
   attachments?: TopicAttachment[];
+  codexUserInput?: CodexUserInputRequest;
 };
 export type ParentAgentTranscriptItem = {
   id: string;
@@ -502,7 +504,7 @@ export type ParentAgentTranscript = {
 };
 
 export type PlanHandoffAgentRoleId = "planning-agent";
-export type PlanHandoffIntentKind = "execute-plan" | "revise-plan";
+export type PlanHandoffIntentKind = "execute-plan" | "revise-plan" | "cancel-plan";
 export type PlanHandoffIntent = {
   sourceRunId: string;
   sourceAgentRoleId: PlanHandoffAgentRoleId;
@@ -1456,6 +1458,7 @@ export type ThreadStreamItem = {
   source: string;
   artifact?: string;
   status?: string;
+  graphScopeId?: string;
   runId?: string;
   threadId?: string;
   parentThreadId?: string;
@@ -1474,6 +1477,7 @@ export type ThreadStreamItem = {
     iteration?: { currentUnderstanding: string; confirmedConstraints: string[]; openQuestions: string[]; assumptions: string[] };
   };
   clarification?: ClarificationRequest;
+  codexUserInput?: CodexUserInputRequest;
   contextRefs?: TopicFileReference[];
   attachments?: TopicAttachment[];
 };
@@ -1674,17 +1678,22 @@ export type CodexUserInputQuestion = {
   options?: Array<{ label: string; description?: string }>;
 };
 export type CodexUserInputRequest = {
+  requestKey: string;
   requestId: string;
   threadId?: string;
   turnId?: string;
   itemId?: string;
   runId: string;
+  runtimeScopeId: string;
   changeId?: string;
   conversationId?: string;
+  graphScopeId?: string;
   agentRoleId?: string;
   agentTaskId?: string;
   questions: CodexUserInputQuestion[];
-  status: "pending" | "submitted";
+  status: "pending" | "submitting" | "submitted";
+  answers?: Record<string, string | string[]>;
+  submittedAt?: string;
 };
 export type WorkbenchLiveEvent =
   | { event: "topic.created"; data: { topic: { id?: string; conversationId?: string; changeId?: string; title: string; state: "active" } } }
@@ -1696,7 +1705,7 @@ export type WorkbenchLiveEvent =
   | { event: "assistant.event"; data: AssistantReadableEvent }
   | { event: "tool.event"; data: WorkbenchLiveToolEvent }
   | { event: "codex.userInput.requested"; data: CodexUserInputRequest }
-  | { event: "codex.userInput.submitted"; data: WorkbenchLiveIdentity & { requestId: string } }
+  | { event: "codex.userInput.submitted"; data: WorkbenchLiveIdentity & { requestKey: string; requestId: string } }
   | { event: "usage"; data: WorkbenchLiveIdentity & { usage?: Record<string, unknown> } }
   | { event: "snapshot"; data: Snapshot }
   | { event: "error"; data: WorkbenchLiveIdentity & { message: string; runId?: string; actionRunId?: string } }
@@ -1788,6 +1797,7 @@ export type LiveAssistantTurn = {
   runId: string;
   projectId?: string;
   conversationId?: string;
+  graphScopeId?: string;
   changeId?: string;
   threadId?: string;
   parentThreadId?: string;
@@ -1811,6 +1821,7 @@ export type LiveAssistantTurn = {
 export type WorkbenchLiveIdentity = {
   projectId?: string;
   conversationId?: string;
+  graphScopeId?: string;
   changeId?: string;
   runId?: string;
   threadId?: string;
@@ -1828,6 +1839,7 @@ export type TopicMessageEntry = {
   id: string;
   type: "user.message" | "assistant.message" | "orchestrator.plan" | "workflow.started" | "workflow.completed" | "workflow.failed" | "intake.scan" | "intake.iteration" | "clarification.request" | "clarification.answer" | "clarification.skip";
   timestamp?: string;
+  graphScopeId?: string;
   changeId: string;
   text?: string;
   actionRunId?: string;
@@ -1846,6 +1858,7 @@ export type TopicMessageEntry = {
   blocks?: AssistantTurnBlock[];
   intake?: ThreadStreamItem["intake"];
   clarification?: ClarificationRequest;
+  codexUserInput?: CodexUserInputRequest;
   contextRefs?: TopicFileReference[];
   attachments?: TopicAttachment[];
 };

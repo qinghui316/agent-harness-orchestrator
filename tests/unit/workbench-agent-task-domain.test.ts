@@ -17,7 +17,7 @@ import { runStartedTaskRunStage } from "../../src/workflow-runtime/code-workflow
 import { project, writeAcceptedSpecAndTasks } from "./workbench/fixtures.js";
 
 describe("workbench AgentTask domain", () => {
-  it("persists AgentTaskRepository results and projects them into the role pipeline", async () => {
+  it("persists AgentTaskRepository results without leaking an unscoped task into the current Agent graph", async () => {
     await initHarness(project());
     await createChange(project(), { title: "Agent Task Demand" });
     const memory = await resolveProjectMemory(project());
@@ -55,30 +55,14 @@ describe("workbench AgentTask domain", () => {
     expect(snapshot.center.parentAgentTranscript.cells).toHaveLength(0);
     expect(snapshot.center.agentRunGraph.nodes).toEqual([]);
     const graph = await getWorkbenchRunGraphProjection({ project: project(), path: project().path }, "agent-task-demand");
-    expect(graph.nodes).toEqual(expect.arrayContaining([
+    expect(graph.nodes).toEqual([
       expect.objectContaining({
         id: "main-agent",
         kind: "main-agent",
         status: "idle",
       }),
-      expect.objectContaining({
-        kind: "coder-agent",
-        roleId: "coder-agent",
-        status: "completed",
-        id: "run:run-agent-task",
-        evidenceRefs: [],
-        attempts: [],
-      }),
-    ]));
-    const coderNode = graph.nodes.find((node) => node.kind === "coder-agent");
-    expect(graph.edges).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        from: "main-agent",
-        to: coderNode?.id,
-        kind: "delegates",
-      }),
-    ]));
-    expect(graph.edges.some((edge) => edge.kind === "returns")).toBe(false);
+    ]);
+    expect(graph.edges).toEqual([]);
   });
 
   it("validates delegateTask policy and records queued to running AgentTask lifecycle", async () => {

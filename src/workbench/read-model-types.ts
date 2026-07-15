@@ -159,6 +159,7 @@ export interface ThreadStreamEvidence {
   body?: string;
   artifact?: string;
   status?: string;
+  graphScopeId?: string;
   runId?: string;
   threadId?: string;
   parentThreadId?: string;
@@ -178,6 +179,7 @@ export interface ThreadStreamItem {
   source: "change" | "chat" | "workflow" | "validation" | "audit" | "decision" | "intake";
   artifact?: string;
   status?: string;
+  graphScopeId?: string;
   runId?: string;
   threadId?: string;
   parentThreadId?: string;
@@ -196,6 +198,7 @@ export interface ThreadStreamItem {
     iteration?: WorkbenchIntakeIteration;
   };
   clarification?: ClarificationRequest;
+  codexUserInput?: import("./types.js").WorkbenchCodexUserInputRequest;
   contextRefs?: TopicFileReference[];
   attachments?: TopicAttachment[];
 }
@@ -921,6 +924,7 @@ export interface DemandAgentRunGraphLane {
 }
 
 export interface DemandAgentRunGraph {
+  graphScopeId?: string;
   conversationId?: string;
   changeId?: string;
   title: string;

@@ -2,6 +2,7 @@
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { ResolvedMemory } from "../types/index.js";
+import type { WorkbenchCodexUserInputRequest } from "./types.js";
 
 export interface StoredTopicMessage {
   id: string;
@@ -27,6 +28,7 @@ export interface StoredConversation {
   title: string;
   state: "active" | "archive";
   boundChangeId: string | null;
+  currentGraphScopeId: string | null;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -39,6 +41,7 @@ export interface StoredProviderThreadLink {
   roleId: string;
   parentThreadId: string | null;
   changeId: string | null;
+  graphScopeId: string | null;
   capabilityProfile: string | null;
   displayName?: string | null;
   runId?: string | null;
@@ -160,6 +163,108 @@ export class WorkbenchStore {
     return { ...message, position };
   }
 
+  updateMessage(message: Omit<StoredTopicMessage, "position">): void {
+    const result = this.db.prepare(`
+      UPDATE messages SET change_id = ?, type = ?, timestamp = ?, text = ?, action_run_id = ?,
+        action_type = ?, status = ?, run_id = ?, artifact = ?, error = ?, raw_json = ?
+      WHERE id = ? AND project_id = ? AND conversation_id = ?
+    `).run(
+      message.changeId,
+      message.type,
+      message.timestamp,
+      message.text,
+      message.actionRunId,
+      message.actionType,
+      message.status,
+      message.runId,
+      message.artifact,
+      message.error,
+      message.rawJson,
+      message.id,
+      message.projectId,
+      message.conversationId,
+    );
+    if (result.changes !== 1) throw new Error(`Conversation message not found: ${message.id}.`);
+  }
+
+  transitionCodexUserInputRequest(
+    projectId: string,
+    conversationId: string,
+    requestKey: string,
+    expectedStatus: WorkbenchCodexUserInputRequest["status"],
+    nextStatus: WorkbenchCodexUserInputRequest["status"],
+    answers: Record<string, string | string[]> | undefined,
+    updatedAt: string,
+  ): WorkbenchCodexUserInputRequest {
+    return this.db.transaction(() => {
+      const row = this.listConversationMessages(projectId, conversationId)
+        .reverse()
+        .find((message) => {
+          try {
+            const raw = JSON.parse(message.rawJson) as { codexUserInput?: WorkbenchCodexUserInputRequest };
+            return raw.codexUserInput?.requestKey === requestKey;
+          } catch {
+            return false;
+          }
+        });
+      if (!row) throw new Error(`Codex user input request was not persisted: ${requestKey}.`);
+      const raw = JSON.parse(row.rawJson) as Record<string, unknown> & { codexUserInput: WorkbenchCodexUserInputRequest };
+      if (raw.codexUserInput.status !== expectedStatus) {
+        throw new Error(`Codex user input request ${requestKey} is ${raw.codexUserInput.status}, not ${expectedStatus}.`);
+      }
+      const nextRequest: WorkbenchCodexUserInputRequest = {
+        ...raw.codexUserInput,
+        status: nextStatus,
+        ...(answers ? { answers } : {}),
+        ...(nextStatus === "submitted" ? { submittedAt: updatedAt } : {}),
+      };
+      this.updateMessage({
+        ...row,
+        timestamp: updatedAt,
+        status: nextStatus,
+        rawJson: JSON.stringify({ ...raw, timestamp: updatedAt, status: nextStatus, codexUserInput: nextRequest }),
+      });
+      return nextRequest;
+    })();
+  }
+
+  readCodexUserInputRequest(
+    projectId: string,
+    conversationId: string,
+    requestKey: string,
+  ): WorkbenchCodexUserInputRequest | null {
+    const row = this.listConversationMessages(projectId, conversationId)
+      .reverse()
+      .find((message) => {
+        try {
+          const raw = JSON.parse(message.rawJson) as { codexUserInput?: WorkbenchCodexUserInputRequest };
+          return raw.codexUserInput?.requestKey === requestKey;
+        } catch {
+          return false;
+        }
+      });
+    if (!row) return null;
+    const raw = JSON.parse(row.rawJson) as { codexUserInput?: WorkbenchCodexUserInputRequest };
+    return raw.codexUserInput ?? null;
+  }
+
+  updatePlanningMessageStatus(projectId: string, conversationId: string, artifact: string, status: string): void {
+    const row = this.listConversationMessages(projectId, conversationId)
+      .find((message) => message.artifact === artifact && message.type === "assistant.message");
+    if (!row) throw new Error(`Planning proposal message not found: ${artifact}.`);
+    let raw: Record<string, unknown> = {};
+    try {
+      raw = JSON.parse(row.rawJson) as Record<string, unknown>;
+    } catch {
+      // Keep the durable row usable even if an old diagnostic payload was malformed.
+    }
+    this.updateMessage({
+      ...row,
+      status,
+      rawJson: JSON.stringify({ ...raw, status }),
+    });
+  }
+
   listMessages(projectId: string, changeId: string): StoredTopicMessage[] {
     return (this.db.prepare(`
       SELECT id, project_id AS projectId, conversation_id AS conversationId, change_id AS changeId, position, type, timestamp,
@@ -269,8 +374,8 @@ export class WorkbenchStore {
   createConversation(conversation: StoredConversation): void {
     this.db.prepare(`
       INSERT INTO conversations (
-        project_id, conversation_id, title, state, bound_change_id, created_at, updated_at, deleted_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        project_id, conversation_id, title, state, bound_change_id, current_graph_scope_id, created_at, updated_at, deleted_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(project_id, conversation_id) DO UPDATE SET
         title = excluded.title,
         state = excluded.state,
@@ -283,6 +388,7 @@ export class WorkbenchStore {
       conversation.title,
       conversation.state,
       conversation.boundChangeId,
+      conversation.currentGraphScopeId,
       conversation.createdAt,
       conversation.updatedAt,
       conversation.deletedAt,
@@ -293,7 +399,7 @@ export class WorkbenchStore {
     const rows = options.includeDeleted
       ? this.db.prepare(`
         SELECT project_id AS projectId, conversation_id AS conversationId, title, state,
-          bound_change_id AS boundChangeId, created_at AS createdAt, updated_at AS updatedAt,
+          bound_change_id AS boundChangeId, current_graph_scope_id AS currentGraphScopeId, created_at AS createdAt, updated_at AS updatedAt,
           deleted_at AS deletedAt
         FROM conversations
         WHERE project_id = ?
@@ -301,7 +407,7 @@ export class WorkbenchStore {
       `).all(projectId) as SqliteRow[]
       : this.db.prepare(`
         SELECT project_id AS projectId, conversation_id AS conversationId, title, state,
-          bound_change_id AS boundChangeId, created_at AS createdAt, updated_at AS updatedAt,
+          bound_change_id AS boundChangeId, current_graph_scope_id AS currentGraphScopeId, created_at AS createdAt, updated_at AS updatedAt,
           deleted_at AS deletedAt
         FROM conversations
         WHERE project_id = ? AND deleted_at IS NULL
@@ -313,7 +419,7 @@ export class WorkbenchStore {
   readConversation(projectId: string, conversationId: string, options: { includeDeleted?: boolean } = {}): StoredConversation | null {
     const row = this.db.prepare(`
       SELECT project_id AS projectId, conversation_id AS conversationId, title, state,
-        bound_change_id AS boundChangeId, created_at AS createdAt, updated_at AS updatedAt,
+        bound_change_id AS boundChangeId, current_graph_scope_id AS currentGraphScopeId, created_at AS createdAt, updated_at AS updatedAt,
         deleted_at AS deletedAt
       FROM conversations
       WHERE project_id = ? AND conversation_id = ? ${options.includeDeleted ? "" : "AND deleted_at IS NULL"}
@@ -324,7 +430,8 @@ export class WorkbenchStore {
   readConversationByChangeId(projectId: string, changeId: string): StoredConversation | null {
     const row = this.db.prepare(`
       SELECT c.project_id AS projectId, c.conversation_id AS conversationId, c.title, c.state,
-        c.bound_change_id AS boundChangeId, c.created_at AS createdAt, c.updated_at AS updatedAt,
+        c.bound_change_id AS boundChangeId, c.current_graph_scope_id AS currentGraphScopeId,
+        c.created_at AS createdAt, c.updated_at AS updatedAt,
         c.deleted_at AS deletedAt
       FROM conversations c
       LEFT JOIN conversation_change_links l
@@ -369,7 +476,7 @@ export class WorkbenchStore {
     const row = this.db.prepare(`
       SELECT project_id AS projectId, conversation_id AS conversationId,
         provider_thread_id AS providerThreadId, role_id AS roleId,
-        parent_thread_id AS parentThreadId, change_id AS changeId,
+        parent_thread_id AS parentThreadId, change_id AS changeId, graph_scope_id AS graphScopeId,
         capability_profile AS capabilityProfile, display_name AS displayName, run_id AS runId, updated_at AS updatedAt
       FROM provider_thread_links
       WHERE project_id = ? AND conversation_id = ? AND role_id = ?
@@ -390,7 +497,7 @@ export class WorkbenchStore {
     return (this.db.prepare(`
       SELECT project_id AS projectId, conversation_id AS conversationId,
         provider_thread_id AS providerThreadId, role_id AS roleId,
-        parent_thread_id AS parentThreadId, change_id AS changeId,
+        parent_thread_id AS parentThreadId, change_id AS changeId, graph_scope_id AS graphScopeId,
         capability_profile AS capabilityProfile, display_name AS displayName, run_id AS runId, updated_at AS updatedAt
       FROM provider_thread_links
       WHERE project_id = ? AND conversation_id = ?
@@ -402,13 +509,14 @@ export class WorkbenchStore {
     this.db.prepare(`
       INSERT INTO provider_thread_links (
         project_id, conversation_id, provider_thread_id, role_id,
-        parent_thread_id, change_id, capability_profile, display_name, run_id, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        parent_thread_id, change_id, graph_scope_id, capability_profile, display_name, run_id, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(project_id, provider_thread_id) DO UPDATE SET
         conversation_id = excluded.conversation_id,
         role_id = excluded.role_id,
         parent_thread_id = excluded.parent_thread_id,
         change_id = excluded.change_id,
+        graph_scope_id = excluded.graph_scope_id,
         capability_profile = excluded.capability_profile,
         display_name = excluded.display_name,
         run_id = excluded.run_id,
@@ -420,6 +528,7 @@ export class WorkbenchStore {
       link.roleId,
       link.parentThreadId,
       link.changeId,
+      link.graphScopeId,
       link.capabilityProfile,
       link.displayName ?? null,
       link.runId ?? null,
@@ -428,11 +537,15 @@ export class WorkbenchStore {
   }
 
   linkConversationChange(projectId: string, conversationId: string, changeId: string, linkedAt: string): void {
+    const graphScopeId = this.readConversation(projectId, conversationId)?.currentGraphScopeId;
+    if (!graphScopeId) throw new Error("Conversation Change binding requires the current graph scope.");
     this.db.prepare(`
-      INSERT INTO conversation_change_links (project_id, conversation_id, change_id, linked_at)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(project_id, conversation_id, change_id) DO NOTHING
-    `).run(projectId, conversationId, changeId, linkedAt);
+      INSERT INTO conversation_change_links (project_id, conversation_id, change_id, graph_scope_id, linked_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(project_id, conversation_id, change_id) DO UPDATE SET
+        graph_scope_id = excluded.graph_scope_id,
+        linked_at = excluded.linked_at
+    `).run(projectId, conversationId, changeId, graphScopeId, linkedAt);
     this.db.prepare(`
       UPDATE conversations SET bound_change_id = ?, updated_at = ?
       WHERE project_id = ? AND conversation_id = ? AND deleted_at IS NULL
@@ -446,21 +559,118 @@ export class WorkbenchStore {
     linkedAt: string,
     acceptanceId?: string,
     proposalHash?: string,
+    scopeTransition?: { graphScopeId: string; runId?: string; plannerThreadId?: string },
   ): void {
     this.db.transaction(() => {
+      if (scopeTransition) {
+        if (!scopeTransition.runId || !scopeTransition.plannerThreadId) {
+          throw new Error("A superseding planning acceptance requires durable provider lineage.");
+        }
+        this.moveConversationRunToGraphScope(
+          projectId,
+          conversationId,
+          scopeTransition.runId,
+          scopeTransition.plannerThreadId,
+          scopeTransition.graphScopeId,
+          linkedAt,
+        );
+      }
+      const graphScopeId = this.readConversation(projectId, conversationId)?.currentGraphScopeId;
+      if (!graphScopeId) throw new Error("Planning acceptance requires the current graph scope.");
       this.linkConversationChange(projectId, conversationId, changeId, linkedAt);
       this.db.prepare(`
         UPDATE provider_thread_links SET change_id = ?, updated_at = ?
-        WHERE project_id = ? AND conversation_id = ?
-      `).run(changeId, linkedAt, projectId, conversationId);
+        WHERE project_id = ? AND conversation_id = ? AND graph_scope_id = ?
+      `).run(changeId, linkedAt, projectId, conversationId, graphScopeId);
       if (acceptanceId && proposalHash) {
         this.db.prepare(`
           INSERT INTO planning_acceptance_commits (
-            id, project_id, conversation_id, change_id, proposal_hash, committed_at
-          ) VALUES (?, ?, ?, ?, ?, ?)
-        `).run(acceptanceId, projectId, conversationId, changeId, proposalHash, linkedAt);
+            id, project_id, conversation_id, change_id, graph_scope_id, proposal_hash, committed_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(acceptanceId, projectId, conversationId, changeId, graphScopeId, proposalHash, linkedAt);
       }
     })();
+  }
+
+  startConversationGraphScope(projectId: string, conversationId: string, graphScopeId: string, updatedAt: string): void {
+    this.db.transaction(() => {
+      this.db.prepare(`
+        UPDATE conversations SET current_graph_scope_id = ?, bound_change_id = NULL, updated_at = ?
+        WHERE project_id = ? AND conversation_id = ? AND deleted_at IS NULL
+      `).run(graphScopeId, updatedAt, projectId, conversationId);
+      this.db.prepare(`
+        INSERT INTO conversation_graph_scopes (project_id, conversation_id, graph_scope_id, status, updated_at)
+        VALUES (?, ?, ?, 'active', ?)
+        ON CONFLICT(project_id, graph_scope_id) DO UPDATE SET
+          conversation_id = excluded.conversation_id,
+          status = 'active',
+          updated_at = excluded.updated_at
+      `).run(projectId, conversationId, graphScopeId, updatedAt);
+    })();
+  }
+
+  markConversationGraphScopeTerminal(projectId: string, conversationId: string, graphScopeId: string, updatedAt: string): void {
+    this.db.prepare(`
+      INSERT INTO conversation_graph_scopes (project_id, conversation_id, graph_scope_id, status, updated_at)
+      VALUES (?, ?, ?, 'terminal', ?)
+      ON CONFLICT(project_id, graph_scope_id) DO UPDATE SET
+        status = 'terminal',
+        updated_at = excluded.updated_at
+    `).run(projectId, conversationId, graphScopeId, updatedAt);
+  }
+
+  isConversationGraphScopeTerminal(projectId: string, graphScopeId: string): boolean {
+    const row = this.db.prepare(`
+      SELECT status FROM conversation_graph_scopes
+      WHERE project_id = ? AND graph_scope_id = ?
+    `).get(projectId, graphScopeId) as SqliteRow | undefined;
+    return row?.status === "terminal";
+  }
+
+  moveConversationRunToGraphScope(
+    projectId: string,
+    conversationId: string,
+    runId: string,
+    plannerThreadId: string,
+    graphScopeId: string,
+    updatedAt: string,
+  ): void {
+    this.db.transaction(() => {
+      this.startConversationGraphScope(projectId, conversationId, graphScopeId, updatedAt);
+      this.db.prepare(`
+        UPDATE provider_thread_links SET graph_scope_id = ?, updated_at = ?
+        WHERE project_id = ? AND conversation_id = ?
+          AND (role_id = 'main-agent' OR provider_thread_id = ?)
+      `).run(graphScopeId, updatedAt, projectId, conversationId, plannerThreadId);
+      const rows = this.db.prepare(`
+        SELECT id, raw_json AS rawJson FROM messages
+        WHERE project_id = ? AND conversation_id = ? AND run_id = ?
+      `).all(projectId, conversationId, runId) as SqliteRow[];
+      const update = this.db.prepare("UPDATE messages SET raw_json = ? WHERE id = ? AND project_id = ?");
+      for (const row of rows) {
+        let raw: Record<string, unknown> = {};
+        try { raw = JSON.parse(String(row.rawJson)) as Record<string, unknown>; } catch { /* keep the row readable */ }
+        update.run(JSON.stringify({ ...raw, graphScopeId }), String(row.id), projectId);
+      }
+    })();
+  }
+
+  findGraphScopeForChange(projectId: string, changeId: string): string | null {
+    const row = this.db.prepare(`
+      SELECT graph_scope_id AS graphScopeId FROM conversation_change_links
+      WHERE project_id = ? AND change_id = ? AND graph_scope_id IS NOT NULL
+      ORDER BY linked_at DESC LIMIT 1
+    `).get(projectId, changeId) as SqliteRow | undefined;
+    return nullableString(row?.graphScopeId);
+  }
+
+  findChangeForGraphScope(projectId: string, graphScopeId: string): string | null {
+    const row = this.db.prepare(`
+      SELECT change_id AS changeId FROM conversation_change_links
+      WHERE project_id = ? AND graph_scope_id = ?
+      ORDER BY linked_at DESC LIMIT 1
+    `).get(projectId, graphScopeId) as SqliteRow | undefined;
+    return nullableString(row?.changeId);
   }
 
   hasPlanningAcceptanceCommit(acceptanceId: string): boolean {
@@ -483,7 +693,8 @@ export class WorkbenchStore {
   findConversationForChange(projectId: string, changeId: string): StoredConversation | null {
     const row = this.db.prepare(`
       SELECT c.project_id AS projectId, c.conversation_id AS conversationId, c.title, c.state,
-        c.bound_change_id AS boundChangeId, c.created_at AS createdAt, c.updated_at AS updatedAt,
+        c.bound_change_id AS boundChangeId, c.current_graph_scope_id AS currentGraphScopeId,
+        c.created_at AS createdAt, c.updated_at AS updatedAt,
         c.deleted_at AS deletedAt
       FROM conversation_change_links l
       JOIN conversations c
@@ -692,6 +903,7 @@ function migrate(db: Database.Database): void {
       title TEXT NOT NULL,
       state TEXT NOT NULL DEFAULT 'active',
       bound_change_id TEXT,
+      current_graph_scope_id TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       deleted_at TEXT,
@@ -719,6 +931,7 @@ function migrate(db: Database.Database): void {
       role_id TEXT NOT NULL,
       parent_thread_id TEXT,
       change_id TEXT,
+      graph_scope_id TEXT,
       capability_profile TEXT,
       display_name TEXT,
       run_id TEXT,
@@ -732,8 +945,18 @@ function migrate(db: Database.Database): void {
       project_id TEXT NOT NULL,
       conversation_id TEXT NOT NULL,
       change_id TEXT NOT NULL,
+      graph_scope_id TEXT,
       linked_at TEXT NOT NULL,
       PRIMARY KEY(project_id, conversation_id, change_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS conversation_graph_scopes (
+      project_id TEXT NOT NULL,
+      conversation_id TEXT NOT NULL,
+      graph_scope_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, graph_scope_id)
     );
 
     CREATE TABLE IF NOT EXISTS planning_acceptance_commits (
@@ -741,6 +964,7 @@ function migrate(db: Database.Database): void {
       project_id TEXT NOT NULL,
       conversation_id TEXT NOT NULL,
       change_id TEXT NOT NULL,
+      graph_scope_id TEXT,
       proposal_hash TEXT NOT NULL,
       committed_at TEXT NOT NULL
     );
@@ -820,6 +1044,35 @@ function migrate(db: Database.Database): void {
   const providerThreadColumns = new Set((db.prepare("PRAGMA table_info(provider_thread_links)").all() as Array<{ name: string }>).map((column) => column.name));
   if (!providerThreadColumns.has("display_name")) db.exec("ALTER TABLE provider_thread_links ADD COLUMN display_name TEXT;");
   if (!providerThreadColumns.has("run_id")) db.exec("ALTER TABLE provider_thread_links ADD COLUMN run_id TEXT;");
+  if (!providerThreadColumns.has("graph_scope_id")) {
+    db.exec("ALTER TABLE provider_thread_links ADD COLUMN graph_scope_id TEXT;");
+    db.exec("DELETE FROM provider_thread_links WHERE role_id <> 'main-agent';");
+    db.exec("UPDATE provider_thread_links SET change_id = NULL, graph_scope_id = NULL WHERE role_id = 'main-agent';");
+  }
+  const conversationColumns = new Set((db.prepare("PRAGMA table_info(conversations)").all() as Array<{ name: string }>).map((column) => column.name));
+  if (!conversationColumns.has("current_graph_scope_id")) db.exec("ALTER TABLE conversations ADD COLUMN current_graph_scope_id TEXT;");
+  const conversationChangeColumns = new Set((db.prepare("PRAGMA table_info(conversation_change_links)").all() as Array<{ name: string }>).map((column) => column.name));
+  if (!conversationChangeColumns.has("graph_scope_id")) db.exec("ALTER TABLE conversation_change_links ADD COLUMN graph_scope_id TEXT;");
+  db.exec(`
+    DELETE FROM conversation_change_links
+    WHERE graph_scope_id IS NOT NULL AND rowid NOT IN (
+      SELECT MAX(rowid) FROM conversation_change_links
+      WHERE graph_scope_id IS NOT NULL
+      GROUP BY project_id, graph_scope_id
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_conversation_change_graph_scope
+      ON conversation_change_links(project_id, graph_scope_id)
+      WHERE graph_scope_id IS NOT NULL;
+    DELETE FROM conversation_change_links
+    WHERE rowid NOT IN (
+      SELECT MAX(rowid) FROM conversation_change_links
+      GROUP BY project_id, change_id
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_conversation_change_change_id
+      ON conversation_change_links(project_id, change_id);
+  `);
+  const acceptanceColumns = new Set((db.prepare("PRAGMA table_info(planning_acceptance_commits)").all() as Array<{ name: string }>).map((column) => column.name));
+  if (!acceptanceColumns.has("graph_scope_id")) db.exec("ALTER TABLE planning_acceptance_commits ADD COLUMN graph_scope_id TEXT;");
   db.exec("CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(project_id, conversation_id, position);");
 }
 
@@ -850,6 +1103,7 @@ function mapConversationRow(row: SqliteRow): StoredConversation {
     title: String(row.title),
     state: row.state === "archive" ? "archive" : "active",
     boundChangeId: nullableString(row.boundChangeId),
+    currentGraphScopeId: nullableString(row.currentGraphScopeId),
     createdAt: String(row.createdAt),
     updatedAt: String(row.updatedAt),
     deletedAt: nullableString(row.deletedAt),
@@ -864,6 +1118,7 @@ function mapProviderThreadRow(row: SqliteRow): StoredProviderThreadLink {
     roleId: String(row.roleId),
     parentThreadId: nullableString(row.parentThreadId),
     changeId: nullableString(row.changeId),
+    graphScopeId: nullableString(row.graphScopeId),
     capabilityProfile: nullableString(row.capabilityProfile),
     displayName: nullableString(row.displayName),
     runId: nullableString(row.runId),

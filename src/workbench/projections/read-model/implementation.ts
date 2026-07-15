@@ -200,6 +200,7 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
     warnings,
     gaps,
   });
+  const graphContext = selectedTopic ? await resolveAgentGraphContext(memory, selectedTopic, options.topicId) : null;
   const providerThreads = selectedTopic
     ? await readProviderThreads(memory, [
         selectedTopic.id,
@@ -254,7 +255,13 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
       decisions,
       decisionInspector: alignedDecisionInspector,
       confirmationQueue,
-      agentWorkspace: buildAgentWorkspace({ selectedTopic, workpad, providerThreads }),
+      agentWorkspace: buildAgentWorkspace({
+        selectedTopic,
+        workpad,
+        providerThreads,
+        graphScopeId: graphContext?.graphScopeId,
+        includeExecution: Boolean(graphContext?.changeId),
+      }),
     },
     roles,
     harnessGaps: gaps,
@@ -333,12 +340,53 @@ export async function getWorkbenchRunGraphProjection(input: WorkbenchProjectInpu
     decisionInspector,
     includeProjectWideActions: false,
   });
+  const graphContext = await resolveAgentGraphContext(memory, selectedTopic, changeId);
   const providerThreads = await readProviderThreads(memory, [
     selectedTopic.id ?? changeId,
     ...(workpad.mainAgentExecution?.agentTasks.map((task) => task.conversationId) ?? []),
   ]);
-  const agentWorkspace = buildAgentWorkspace({ selectedTopic, workpad, providerThreads });
-  return buildDemandAgentRunGraph({ project: input.project, selectedTopic, workpad, confirmationQueue, agents: agentWorkspace.agents });
+  const agentWorkspace = buildAgentWorkspace({
+    selectedTopic,
+    workpad,
+    providerThreads,
+    graphScopeId: graphContext?.graphScopeId,
+    includeExecution: Boolean(graphContext?.changeId),
+  });
+  return buildDemandAgentRunGraph({
+    project: input.project,
+    selectedTopic,
+    workpad,
+    confirmationQueue,
+    agents: agentWorkspace.agents,
+    graphScopeId: graphContext?.graphScopeId,
+    scopeChangeId: graphContext?.changeId,
+  });
+}
+
+async function resolveAgentGraphContext(
+  memory: ResolvedMemory,
+  selectedTopic: WorkbenchTopicDetail,
+  requestedId?: string,
+): Promise<{ graphScopeId: string; changeId?: string } | null> {
+  if (!memory.projectId) return null;
+  const store = await WorkbenchStore.open(memory);
+  try {
+    const conversation = store.readConversation(memory.projectId, selectedTopic.id)
+      ?? store.findConversationForChange(memory.projectId, requestedId ?? selectedTopic.id);
+    if (!conversation) return null;
+    const requestedChangeId = requestedId && requestedId !== conversation.conversationId
+      ? requestedId
+      : undefined;
+    const graphScopeId = requestedChangeId
+      ? store.findGraphScopeForChange(memory.projectId, requestedChangeId)
+      : conversation.currentGraphScopeId;
+    if (!graphScopeId) return null;
+    const changeId = requestedChangeId
+      ?? (conversation.currentGraphScopeId === graphScopeId ? conversation.boundChangeId ?? undefined : undefined);
+    return { graphScopeId, changeId };
+  } finally {
+    store.close();
+  }
 }
 
 async function readProviderThreads(memory: ResolvedMemory, conversationIds: string | string[]): Promise<StoredProviderThreadLink[]> {

@@ -1,9 +1,13 @@
 import type { CodexAppServerRealtimeEvent } from "../codex/app-server-realtime.js";
 import type { WorkbenchAssistantEvent, WorkbenchLiveIdentity, WorkbenchLiveSink, WorkbenchLiveToolEvent } from "./types.js";
 
-export function forwardCodexRealtimeEvent(realtime: CodexAppServerRealtimeEvent, sink: WorkbenchLiveSink | undefined): void {
+export function forwardCodexRealtimeEvent(
+  realtime: CodexAppServerRealtimeEvent,
+  sink: WorkbenchLiveSink | undefined,
+  context: Partial<WorkbenchLiveIdentity> = {},
+): void {
   if (!sink) return;
-  const identity = workbenchIdentity(realtime);
+  const identity = { ...workbenchIdentity(realtime), ...context };
   const stream = realtime.streamEvent;
   if (stream.type === "status") {
     sink.emit({ event: "run.status", data: { ...identity, status: stream.label, label: statusLabel(stream.label) } });

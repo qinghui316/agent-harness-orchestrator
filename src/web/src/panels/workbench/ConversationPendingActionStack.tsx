@@ -1,25 +1,23 @@
 import { Check, Clipboard, Send, SquarePen, X } from "lucide-react";
 import { useState, type KeyboardEvent, type ReactElement } from "react";
-import { CodexUserInputRequestCard } from "./workpad/TaskGraphCards.js";
-import type { CodexUserInputRequest, PlanHandoffCandidate, PlanHandoffIntentKind } from "../../types.js";
+import type { PlanHandoffCandidate, PlanHandoffIntentKind } from "../../types.js";
 
 export function ConversationPendingActionStack({
-  codexUserInputRequests,
   planHandoffCandidate,
   busy,
-  onAnswerCodexUserInput,
   onPlanHandoff,
   onCancelPlanHandoff,
+  expanded,
+  onExpandedChange,
 }: {
-  codexUserInputRequests: CodexUserInputRequest[];
   planHandoffCandidate: PlanHandoffCandidate | null;
   busy: boolean;
-  onAnswerCodexUserInput: (request: CodexUserInputRequest, answers: Record<string, string | string[]>) => Promise<void>;
   onPlanHandoff: (candidate: PlanHandoffCandidate, kind: PlanHandoffIntentKind, feedback?: string) => Promise<void>;
   onCancelPlanHandoff: (candidate: PlanHandoffCandidate) => Promise<void>;
+  expanded: boolean;
+  onExpandedChange?: (expanded: boolean) => void;
 }): ReactElement | null {
-  const pendingCodexUserInputRequests = codexUserInputRequests.filter((request) => request.status === "pending");
-  if (!planHandoffCandidate && pendingCodexUserInputRequests.length === 0) return null;
+  if (!planHandoffCandidate) return null;
   return (
     <section className="conversation-pending-action-stack" data-testid="conversation-pending-action-stack" aria-label="待处理操作">
       {planHandoffCandidate ? (
@@ -28,25 +26,9 @@ export function ConversationPendingActionStack({
           busy={busy}
           onPlanHandoff={onPlanHandoff}
           onCancelPlanHandoff={onCancelPlanHandoff}
+          expanded={expanded}
+          onExpandedChange={onExpandedChange}
         />
-      ) : null}
-      {pendingCodexUserInputRequests.length ? (
-        <div className="conversation-pending-card" data-testid="conversation-pending-codex-user-input">
-          <div className="conversation-pending-header">
-            <span>Codex 需要确认</span>
-            <strong>{pendingCodexUserInputRequests.length}</strong>
-          </div>
-          <div className="conversation-pending-list">
-            {pendingCodexUserInputRequests.map((request) => (
-              <CodexUserInputRequestCard
-                key={request.requestId}
-                request={request}
-                busy={busy}
-                onAnswer={onAnswerCodexUserInput}
-              />
-            ))}
-          </div>
-        </div>
       ) : null}
     </section>
   );
@@ -57,11 +39,15 @@ function PlanHandoffPendingAction({
   busy,
   onPlanHandoff,
   onCancelPlanHandoff,
+  expanded,
+  onExpandedChange,
 }: {
   candidate: PlanHandoffCandidate;
   busy: boolean;
   onPlanHandoff: (candidate: PlanHandoffCandidate, kind: PlanHandoffIntentKind, feedback?: string) => Promise<void>;
   onCancelPlanHandoff: (candidate: PlanHandoffCandidate) => Promise<void>;
+  expanded: boolean;
+  onExpandedChange?: (expanded: boolean) => void;
 }): ReactElement {
   const [feedback, setFeedback] = useState("");
   const [pending, setPending] = useState<PlanHandoffIntentKind | "cancel" | null>(null);
@@ -114,13 +100,23 @@ function PlanHandoffPendingAction({
           type="button"
           className="conversation-pending-button conversation-pending-secondary"
           disabled={busy || pending !== null}
+          aria-expanded={expanded}
+          onClick={() => onExpandedChange?.(!expanded)}
+        >
+          <SquarePen size={15} aria-hidden="true" />
+          <span>修改</span>
+        </button>
+        <button
+          type="button"
+          className="conversation-pending-button conversation-pending-secondary"
+          disabled={busy || pending !== null}
           onClick={() => void cancel()}
         >
           <X size={15} aria-hidden="true" />
           <span>{pending === "cancel" ? "正在取消" : "取消"}</span>
         </button>
       </div>
-      <div className="conversation-pending-feedback">
+      {expanded ? <div className="conversation-pending-feedback">
         <label htmlFor="plan-handoff-feedback">
           <SquarePen size={15} aria-hidden="true" />
           <span>提出意见再修改计划</span>
@@ -144,7 +140,7 @@ function PlanHandoffPendingAction({
             <span>{pending === "revise-plan" ? "正在提交" : "提交修改意见"}</span>
           </button>
         </div>
-      </div>
+      </div> : null}
     </div>
   );
 }

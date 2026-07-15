@@ -319,7 +319,10 @@ async function withTaskMutex<T>(memory: ResolvedMemory, taskId: string, action: 
   for (let attempt = 0; ; attempt += 1) {
     try { handle = await open(lockPath, "wx"); break; }
     catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST" || attempt >= 100) throw error;
+      const code = (error as NodeJS.ErrnoException).code;
+      const transientLockContention = code === "EEXIST"
+        || (process.platform === "win32" && (code === "EPERM" || code === "EACCES"));
+      if (!transientLockContention || attempt >= 100) throw error;
       const ageMs = Date.now() - await stat(lockPath).then((value) => value.mtimeMs).catch(() => Date.now());
       if (ageMs > 5_000) await unlink(lockPath).catch(ignoreMissing);
       await new Promise((resolve) => setTimeout(resolve, 5));

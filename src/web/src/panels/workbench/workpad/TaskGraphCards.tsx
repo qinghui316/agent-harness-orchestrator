@@ -194,7 +194,7 @@ export function CodexUserInputRequestCard({
       <div className="clarification-questions">
         {request.questions.map((question) => (
           <div key={question.id}>
-            <strong>{question.header ?? "Codex 需要确认"}</strong>
+            <strong>{question.header ?? "Agent 需要确认"}</strong>
             <p>{question.question}</p>
             {question.options && question.options.length > 0 ? (
               <div className="clarification-options">
@@ -214,7 +214,7 @@ export function CodexUserInputRequestCard({
                 ))}
               </div>
             ) : null}
-            <label>
+            {pending ? <label>
               <span>回答</span>
               <textarea
                 value={answers[question.id] ?? ""}
@@ -223,15 +223,21 @@ export function CodexUserInputRequestCard({
                 rows={3}
                 disabled={!pending || busy}
               />
-            </label>
+            </label> : request.answers?.[question.id] ? (
+              <p className="clarification-answer">你的回答：{formatCodexAnswer(request.answers[question.id])}</p>
+            ) : null}
           </div>
         ))}
       </div>
       <button className="primary-button" type="button" disabled={!canSubmit} onClick={() => void submit()}>
-        {request.status === "submitted" ? "已提交" : "提交给 Codex"}
+        {request.status === "submitted" ? "已提交" : request.status === "submitting" ? "正在提交" : "提交回答"}
       </button>
     </article>
   );
+}
+
+function formatCodexAnswer(answer: string | string[]): string {
+  return Array.isArray(answer) ? answer.join("、") : answer;
 }
 
 export function WorkpadMetric({ label, value }: { label: string; value: string }): ReactElement {
