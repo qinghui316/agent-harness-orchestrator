@@ -1,4 +1,4 @@
-﻿import { getActiveCodexAppServerTurn } from "../../../codex/app-server.js";
+﻿import { defaultProviderRegistry } from "../../../provider-runtime/index.js";
 import { requestRunStop } from "../../../run/control.js";
 import type { ManagedProject, RunMetadata } from "../../../types/index.js";
 import { emitAssistantEvent } from "../../live-events.js";
@@ -42,7 +42,7 @@ export async function stopRunningPipeline(
     kind: "status",
     phase: "stopping",
     title: "Stop requested",
-    summary: "AHO requested local runner termination; this is not Codex app-server resume.",
+    summary: "AHO requested local runner termination; the current evidence remains available for reconciliation.",
   });
   return { status: "stop-requested", runId: runningRun.id };
 }
@@ -56,7 +56,7 @@ export async function steerConversation(
 ): Promise<unknown> {
   const message = prompt?.trim();
   if (!message) throw new Error("conversation.steer requires prompt.");
-  const activeTurn = getActiveCodexAppServerTurn(changeId);
+  const activeTurn = defaultProviderRegistry.findActiveTurn(changeId);
   if (!activeTurn) {
     const runningRun = await deps.findRunningRunForChange(project, changeId);
     const user = await appendConversationThreadEntry(project, changeId, { type: "user.message", text: message, status: "pending-feedback", runId: runningRun?.id });
@@ -85,7 +85,7 @@ export async function steerConversation(
     kind: "status",
     phase: "steered",
     title: "已发送给当前执行",
-    summary: "这条输入已通过 Codex app-server 发送给当前运行中的 turn。",
+    summary: "这条输入已发送给当前运行中的 Agent。",
   });
   return { status: "steered", realtime: true, runId: activeTurn.runId, roleId: activeTurn.roleId };
 }
@@ -97,7 +97,7 @@ export async function interruptConversation(
   live: WorkbenchLiveSink | undefined,
   deps: ConversationControlDeps,
 ): Promise<unknown> {
-  const activeTurn = getActiveCodexAppServerTurn(changeId);
+  const activeTurn = defaultProviderRegistry.findActiveTurn(changeId);
   if (!activeTurn) {
     return stopRunningPipeline(project, changeId, prompt, live, deps);
   }
@@ -119,7 +119,7 @@ export async function interruptConversation(
     kind: "status",
     phase: "interrupt-requested",
     title: "已请求停止当前执行",
-    summary: "AHO sent turn/interrupt to the active Codex app-server turn.",
+    summary: "AHO sent an interrupt request to the active provider turn.",
     isError: true,
   });
   return { status: "interrupt-requested", realtime: true, runId: activeTurn.runId, roleId: activeTurn.roleId };

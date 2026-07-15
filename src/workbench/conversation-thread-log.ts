@@ -141,9 +141,10 @@ export function fromStoredThreadMessage(row: StoredTopicMessage): TopicThreadEnt
     actionType: row.actionType ?? undefined,
     status: row.status ?? undefined,
     runId: row.runId ?? undefined,
-    threadId: typeof raw.threadId === "string" ? raw.threadId : undefined,
+    threadId: row.threadId ?? (typeof raw.threadId === "string" ? raw.threadId : undefined),
     parentThreadId: typeof raw.parentThreadId === "string" ? raw.parentThreadId : undefined,
-    turnId: typeof raw.turnId === "string" ? raw.turnId : undefined,
+    turnId: row.turnId ?? (typeof raw.turnId === "string" ? raw.turnId : undefined),
+    itemId: row.itemId ?? (typeof raw.itemId === "string" ? raw.itemId : undefined),
     agentRoleId: typeof raw.agentRoleId === "string" ? raw.agentRoleId : undefined,
     agentTaskId: typeof raw.agentTaskId === "string" ? raw.agentTaskId : undefined,
     artifact: row.artifact ?? undefined,
@@ -153,11 +154,15 @@ export function fromStoredThreadMessage(row: StoredTopicMessage): TopicThreadEnt
     blocks: Array.isArray(raw.blocks) ? raw.blocks.filter(isAssistantTurnBlock) : undefined,
     intake: raw.intake,
     clarification: raw.clarification,
-    codexUserInput: isWorkbenchCodexUserInputRequest(raw.codexUserInput) ? raw.codexUserInput : undefined,
+    providerId: row.providerId ?? (typeof raw.providerId === "string" ? raw.providerId : undefined),
+    sessionId: typeof raw.sessionId === "string" ? raw.sessionId : undefined,
+    attemptId: typeof raw.attemptId === "string" ? raw.attemptId : undefined,
+    providerUserInput: isWorkbenchProviderUserInputRequest(raw.providerUserInput) ? raw.providerUserInput : undefined,
     contextRefs: Array.isArray(raw.contextRefs) ? raw.contextRefs.filter(isTopicFileReference) : undefined,
     attachments: Array.isArray(raw.attachments) ? raw.attachments.filter(isTopicAttachment) : undefined,
     planHandoff: isValidatedPlanHandoffIntent(raw.planHandoff) ? raw.planHandoff : undefined,
     position: row.position,
+    completedTurnSequence: typeof raw.completedTurnSequence === "number" ? raw.completedTurnSequence : undefined,
   };
 }
 
@@ -230,15 +235,17 @@ function isTopicAttachment(value: unknown): value is TopicAttachment {
     && value.source === "composer"
     && typeof value.createdAt === "string"
     && typeof value.storagePath === "string"
-    && (value.runtimeMode === "codex-image-input" || value.runtimeMode === "bounded-text-preview" || value.runtimeMode === "metadata-only");
+    && (value.runtimeMode === "provider-image-input" || value.runtimeMode === "bounded-text-preview" || value.runtimeMode === "metadata-only");
 }
 
 function isWorkbenchAssistantEvent(value: unknown): value is WorkbenchAssistantEvent {
   return isRecord(value) && typeof value.runId === "string" && typeof value.kind === "string";
 }
 
-function isWorkbenchCodexUserInputRequest(value: unknown): value is import("./types.js").WorkbenchCodexUserInputRequest {
+function isWorkbenchProviderUserInputRequest(value: unknown): value is import("./types.js").WorkbenchProviderUserInputRequest {
   return isRecord(value)
+    && typeof value.providerId === "string"
+    && typeof value.attemptId === "string"
     && typeof value.requestKey === "string"
     && typeof value.requestId === "string"
     && typeof value.runId === "string"

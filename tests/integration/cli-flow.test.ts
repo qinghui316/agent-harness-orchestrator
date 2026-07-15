@@ -22,6 +22,7 @@ let originalPath: string | undefined;
 let originalPathKey: string;
 let originalExitCode: string | number | undefined;
 let originalCodexHome: string | undefined;
+let originalCodexBin: string | undefined;
 
 async function runCli(args: string[]): Promise<void> {
   const program = createProgram();
@@ -58,6 +59,7 @@ beforeEach(async () => {
   originalPath = process.env[originalPathKey];
   originalExitCode = process.exitCode;
   originalCodexHome = process.env.CODEX_HOME;
+  originalCodexBin = process.env.AHO_CODEX_BIN;
   process.exitCode = undefined;
   process.env.AHO_HOME = homeDir;
   process.env.CODEX_HOME = join(tempDir, "codex-home");
@@ -67,6 +69,8 @@ beforeEach(async () => {
 afterEach(async () => {
   delete process.env.AHO_HOME;
   process.env.CODEX_HOME = originalCodexHome;
+  if (originalCodexBin === undefined) delete process.env.AHO_CODEX_BIN;
+  else process.env.AHO_CODEX_BIN = originalCodexBin;
   delete process.env.AHO_FAKE_CODEX_POLLUTE_PATH;
   delete process.env.AHO_FAKE_CODEX_ARGS_PATH;
   process.env[originalPathKey] = originalPath;
@@ -154,7 +158,7 @@ describe("CLI flow", () => {
     expect(snapshot.roles.map((item) => item.id)).not.toContain("validator");
   });
 
-  it("imports project skills and syncs them through the Codex bridge", async () => {
+  it("imports project skills and syncs them through the provider binding", async () => {
     await runCli(["project", "add", repoDir, "--name", "Repo"]);
     await seedExternalHarnessAfterAgentOnboarding();
     const skillDir = join(tempDir, "skill");
@@ -166,9 +170,9 @@ describe("CLI flow", () => {
 
     await runCli(["skill", "import", "repo", "--path", skillDir]);
     await runCli(["skill", "enable", "repo", "pricing-helper"]);
-    await runCli(["codex", "bridge", "install"]);
-    await runCli(["codex", "bridge", "sync", "repo"]);
-    await runCli(["codex", "bridge", "status", "repo", "--json"]);
+    await runCli(["provider", "bridge", "install", "codex"]);
+    await runCli(["provider", "bridge", "sync", "codex", "repo"]);
+    await runCli(["provider", "bridge", "status", "codex", "repo", "--json"]);
     await runCli(["skill", "list", "repo", "--json"]);
 
     const memorySkillRoot = join(homeDir, "projects", "repo", "skills", "pricing-helper");
@@ -372,7 +376,7 @@ describe("CLI flow", () => {
     const generatorRun = JSON.parse(await readFile(join(generatorRunDir, "run.json"), "utf8"));
 
     expect(generatorRun).toMatchObject({ runtime: "spec-test-generator", executionMode: "worktree", proposalOnly: true, status: "completed" });
-    expect(generatorRun.command).toContain("workspace-write");
+    expect(generatorRun.command).toEqual(["provider", "turn.start"]);
     expect(await readFile(join(generatorRunDir, "prompt.md"), "utf8")).toContain("Spec-Test Generator Agent Profile");
     expect(await readFile(join(generatorRunDir, "prompt.md"), "utf8")).toContain("Do not modify production code");
     expect(await readFile(join(generatorRunDir, "diff.patch"), "utf8")).toContain("test/generated.test.js");
@@ -476,32 +480,6 @@ describe("CLI flow", () => {
     expect(process.exitCode).toBe(2);
   });
 
-  it("records codex readonly runs with root-level approval support", async () => {
-    await installFakeCodex("root");
-    await runCli(["project", "add", repoDir, "--name", "Repo"]);
-    await runCli(["harness", "init", "repo"]);
-    await runCli(["change", "new", "repo", "--title", "Codex Proposal"]);
-
-    await runCli(["run", "codex", "repo", "--prompt", "Propose a plan", "--model", "fake-model", "--profile", "default"]);
-
-    const runsDir = join(repoDir, ".agent-harness", "runs");
-    const runIds = await readdir(runsDir);
-    expect(runIds).toHaveLength(1);
-    const runDir = join(runsDir, runIds[0]);
-    const run = JSON.parse(await readFile(join(runDir, "run.json"), "utf8"));
-
-    expect(run).toMatchObject({ runtime: "codex-readonly", executionMode: "direct", proposalOnly: true, status: "completed", exitCode: 0 });
-    expect(run.command.slice(0, 6)).toEqual(["codex", "-c", "service_tier=\"fast\"", "--ask-for-approval", "never", "exec"]);
-    expect(run.command).not.toContain("--full-auto");
-    expect(run.command).not.toContain("--dangerously-bypass-approvals-and-sandbox");
-    expect(await readFile(join(runDir, "prompt.md"), "utf8")).toContain("Do not edit files.");
-    expect(await readFile(join(runDir, "codex-events.jsonl"), "utf8")).toContain("fake codex proposal");
-    expect(await readFile(join(runDir, "last-message.md"), "utf8")).toContain("fake codex proposal");
-
-    await runCli(["run", "list", "repo", "--json"]);
-    await runCli(["run", "show", "repo", runIds[0], "--json"]);
-  });
-
   it("keeps external-local initialization runtime-only until Agent onboarding", async () => {
     await runCli(["project", "add", repoDir, "--name", "Repo"]);
     await runCli(["harness", "init", "repo", "--memory", "external-local"]);
@@ -516,41 +494,6 @@ describe("CLI flow", () => {
     expect(existsSync(join(memoryRoot, "docs"))).toBe(false);
     expect(existsSync(join(memoryRoot, "harness"))).toBe(false);
     expect(existsSync(join(memoryRoot, "scripts"))).toBe(false);
-  });
-
-  it("falls back to JSONL final message when output-last-message is unsupported", async () => {
-    await installFakeCodex("exec-no-output");
-    await runCli(["project", "add", repoDir, "--name", "Repo"]);
-    await runCli(["harness", "init", "repo"]);
-    await runCli(["change", "new", "repo", "--title", "Codex Jsonl Fallback"]);
-
-    await runCli(["run", "codex", "repo", "--prompt", "Propose a plan"]);
-
-    const runIds = await readdir(join(repoDir, ".agent-harness", "runs"));
-    const runDir = join(repoDir, ".agent-harness", "runs", runIds[0]);
-    const run = JSON.parse(await readFile(join(runDir, "run.json"), "utf8"));
-
-    expect(run.command.slice(0, 6)).toEqual(["codex", "-c", "service_tier=\"fast\"", "exec", "--ask-for-approval", "never"]);
-    expect(run.command).not.toContain("--output-last-message");
-    expect(await readFile(join(runDir, "last-message.md"), "utf8")).toContain("fake codex proposal");
-  });
-
-  it("records failed codex runs when safe capabilities are unsupported", async () => {
-    await installFakeCodex("unsupported");
-    await runCli(["project", "add", repoDir, "--name", "Repo"]);
-    await runCli(["harness", "init", "repo"]);
-    await runCli(["change", "new", "repo", "--title", "Codex Unsupported"]);
-
-    await runCli(["run", "codex", "repo", "--prompt", "Propose a plan"]);
-
-    const runIds = await readdir(join(repoDir, ".agent-harness", "runs"));
-    const runDir = join(repoDir, ".agent-harness", "runs", runIds[0]);
-    const run = JSON.parse(await readFile(join(runDir, "run.json"), "utf8"));
-
-    expect(run).toMatchObject({ runtime: "codex-readonly", status: "failed", exitCode: 1 });
-    expect(await readFile(join(runDir, "stderr.log"), "utf8")).toContain("--sandbox");
-    expect(await readFile(join(runDir, "last-message.md"), "utf8")).toContain("could not safely start Codex");
-    expect(process.exitCode).toBe(1);
   });
 
   it("creates AHO-owned worktrees and runs local commands inside them", async () => {
@@ -706,7 +649,7 @@ describe("CLI flow", () => {
     const audit = JSON.parse(await readFile(join(runDir, "audit.json"), "utf8"));
 
     expect(run).toMatchObject({ runtime: "auditor", proposalOnly: true, status: "completed" });
-    expect(run.command).toEqual(expect.arrayContaining(["--add-dir", memoryRoot]));
+    expect(run.command).toEqual(["provider", "turn.start"]);
     expect(audit).toMatchObject({ status: "approved", changeId: "audit-worktree", worktreeId });
     expect(await readFile(join(runDir, "diff.patch"), "utf8")).toContain("audit change");
     expect(await readFile(join(runDir, "prompt.md"), "utf8")).toContain("Focus on AC coverage");
@@ -842,6 +785,7 @@ async function installFakeCodex(mode: FakeCodexMode): Promise<void> {
   }
 
   process.env[originalPathKey] = `${binDir}${delimiter}${originalPath ?? ""}`;
+  process.env.AHO_CODEX_BIN = binPath;
 }
 
 async function findRunWithArtifact(runsRoot: string, artifactName: string): Promise<string> {
@@ -855,6 +799,7 @@ function buildFakeCodexScript(mode: FakeCodexMode): string {
   return `
 const fs = require("node:fs");
 const args = process.argv.slice(2);
+const appServerIndex = args.indexOf("app-server");
 const mode = ${JSON.stringify(mode)};
 if (args.includes("--version")) {
   console.log("codex-cli fake");
@@ -873,6 +818,10 @@ if (args[0] === "exec" && args.includes("--help")) {
     } else {
     console.log("Usage: codex exec [OPTIONS]\\n--json\\n--color <COLOR>\\n--sandbox <SANDBOX_MODE>\\n--cd <DIR>" + addDir + output + approval);
   }
+  process.exit(0);
+}
+if (appServerIndex >= 0 && args.includes("--help")) {
+  console.log("Codex app server\\n--listen <stdio://>");
   process.exit(0);
 }
 function finalMessage() {
@@ -975,6 +924,55 @@ function cwdFromArgs() {
   const index = args.indexOf("--cd");
   return index >= 0 ? args[index + 1] : process.cwd();
 }
+function applyModeEffects(cwd) {
+  const path = require("node:path");
+  if (mode === "spec-test-generate") {
+    const testDir = path.join(cwd, "test");
+    fs.mkdirSync(testDir, { recursive: true });
+    fs.writeFileSync(path.join(testDir, "generated.test.js"), "const test = require('node:test');\\nconst assert = require('node:assert/strict');\\n\\ntest('generated AC evidence', () => {\\n  assert.equal(1, 1);\\n});\\n", "utf8");
+  }
+  if (mode === "spec-test-generate-production") {
+    const srcDir = path.join(cwd, "src");
+    fs.mkdirSync(srcDir, { recursive: true });
+    fs.writeFileSync(path.join(srcDir, "pricing.js"), "export const changed = true;\\n", "utf8");
+  }
+}
+if (appServerIndex >= 0) {
+  const readline = require("node:readline");
+  const rl = readline.createInterface({ input: process.stdin });
+  let appCwd = process.cwd();
+  const threadId = "thread-fake-1";
+  const turnId = "turn-fake-1";
+  const reply = (id, result) => console.log(JSON.stringify({ id, result }));
+  rl.on("line", (line) => {
+    const message = JSON.parse(line);
+    if (message.method === "initialize") {
+      reply(message.id, {});
+    } else if (message.method === "skills/extraRoots/set") {
+      reply(message.id, {});
+    } else if (message.method === "skills/list") {
+      reply(message.id, { data: [{ skills: [
+        { name: "aho-main-orchestration" },
+        { name: "aho-workflow-authoring" },
+        { name: "aho-harness-engineering" }
+      ] }] });
+    } else if (message.method === "model/list") {
+      reply(message.id, { data: [{ id: "fake-model", model: "fake-model", displayName: "Fake Model" }] });
+    } else if (message.method === "thread/start" || message.method === "thread/resume") {
+      appCwd = message.params.cwd || appCwd;
+      reply(message.id, { thread: { id: threadId } });
+    } else if (message.method === "turn/start") {
+      appCwd = message.params.cwd || appCwd;
+      applyModeEffects(appCwd);
+      reply(message.id, { turn: { id: turnId } });
+      setImmediate(() => {
+        console.log(JSON.stringify({ method: "turn/started", params: { threadId, turn: { id: turnId, status: "inProgress" } } }));
+        console.log(JSON.stringify({ method: "item/completed", params: { threadId, turnId, item: { id: "message-fake-1", type: "agentMessage", text: finalMessage() } } }));
+        console.log(JSON.stringify({ method: "turn/completed", params: { threadId, turn: { id: turnId, status: "completed" } } }));
+      });
+    }
+  });
+} else {
 const outputIndex = args.indexOf("--output-last-message");
 if (outputIndex >= 0) {
   fs.writeFileSync(args[outputIndex + 1], finalMessage(), "utf8");
@@ -1013,5 +1011,6 @@ process.stdin.on("end", () => {
   console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: mode === "audit-unparseable" ? finalMessage() : "fake codex proposal from jsonl" } }));
   process.exit(0);
 });
+}
 `;
 }

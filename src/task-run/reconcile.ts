@@ -18,7 +18,9 @@ export async function reconcileTaskRuns(project: ManagedProject, options: TaskRu
   const reconciled: TaskRun[] = [];
   for (const taskRun of existing) {
     if (options.taskRunId && taskRun.id !== options.taskRunId) continue;
-    const coderRun = runs.find((run) => run.taskRunId === taskRun.id && run.changeId === options.changeId);
+    const coderRun = runs
+      .filter((run) => run.taskRunId === taskRun.id && run.changeId === options.changeId)
+      .sort((left, right) => right.startedAt.localeCompare(left.startedAt))[0];
     if (!coderRun) {
       reconciled.push(taskRun);
       continue;
@@ -73,6 +75,17 @@ function reconcileTaskRunFromCoderRun(taskRun: TaskRun, run: RunMetadata): TaskR
       startedAt: taskRun.startedAt ?? run.startedAt,
       finishedAt: run.finishedAt ?? new Date().toISOString(),
       failureReason: "Coder run failed before validation.",
+    };
+  }
+  if (run.status === "interrupted") {
+    return {
+      ...taskRun,
+      status: "interrupted",
+      runId: run.id,
+      worktreeId: run.worktree?.worktreeId,
+      startedAt: taskRun.startedAt ?? run.startedAt,
+      finishedAt: run.finishedAt ?? new Date().toISOString(),
+      failureReason: undefined,
     };
   }
   return {

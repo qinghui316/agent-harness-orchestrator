@@ -9,7 +9,7 @@ import { createCodexJsonlStreamParser, extractFinalMessageFromCodexJsonl, trunca
 import { candidatesFromModelListResponse, getCodexModelSettingsSnapshot, resolveCodexEffectiveModel, setSelectedCodexModel } from "../../src/codex/model-settings.js";
 import { composeCodexPrompt, readPromptInput } from "../../src/codex/prompt.js";
 import { readCodexConfigModelStatus, readCodexNativeCollabConfigStatus } from "../../src/codex/trust.js";
-import { codexProviderRunMetadata, isRunnableProductMode, RUNNABLE_PRODUCT_MODES, stableCapabilitySnapshotHash } from "../../src/provider-runtime/index.js";
+import { isRunnableProductMode, RUNNABLE_PRODUCT_MODES, stableCapabilitySnapshotHash } from "../../src/provider-runtime/index.js";
 import { renderTopicFileReferencesForPrompt } from "../../src/workbench/file-references.js";
 
 const rootHelp = "Usage: codex [OPTIONS]\n  -a, --ask-for-approval <APPROVAL_POLICY>\n";
@@ -412,27 +412,6 @@ describe("codex prompt and JSONL parsing", () => {
     expect(preview.preview).toContain("[truncated; see raw log]");
     expect(Buffer.byteLength(preview.preview ?? "", "utf8")).toBeLessThanOrEqual(2300);
     expect((preview.preview ?? "").split(/\r?\n/).length).toBeLessThanOrEqual(81);
-  });
-
-  it("records provider capability metadata for Codex run events", () => {
-    const capabilities = evaluateCodexCapabilities("codex-cli 1.0", rootHelp, execHelp);
-
-    const metadata = codexProviderRunMetadata({
-      model: "gpt-5.5",
-      modelSource: "selected",
-      capabilities,
-    });
-
-    expect(metadata).toMatchObject({
-      providerId: "codex",
-      productMode: "harness",
-      adapter: "codex-exec",
-      model: "gpt-5.5",
-      modelSource: "selected",
-      capabilitySnapshotVersion: 2,
-    });
-    expect(typeof metadata.capabilitySnapshotHash).toBe("string");
-    expect(String(metadata.capabilitySnapshotHash)).toHaveLength(16);
   });
 
   it("keeps provider capability snapshot identity stable across checkedAt refreshes", () => {

@@ -15,7 +15,7 @@ import { appendConversationThreadEntry } from "./chat.js";
 import { readConversationThread } from "./conversation-thread-log.js";
 import type { TopicThreadEntry } from "./types.js";
 
-export type ClarificationSource = "aho" | "codex";
+export type ClarificationSource = "aho" | "provider";
 export type ClarificationStatus = "pending" | "answered" | "skipped" | "expired";
 
 export interface ClarificationQuestion {

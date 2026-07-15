@@ -1,4 +1,4 @@
-import { truncateReadablePreview, type CodexJsonlStreamEvent } from "../../codex/jsonl.js";
+import type { ProviderStreamEvent } from "../../provider-runtime/index.js";
 
 export interface WorkflowRuntimeAssistantEvent {
   runId: string;
@@ -32,7 +32,7 @@ export function emitDelegatedRoleReturn(live: WorkflowRuntimeLiveSink | undefine
   });
 }
 
-export function forwardCodexStreamEvent(runId: string, event: CodexJsonlStreamEvent & {
+export function forwardProviderStreamEvent(runId: string, event: ProviderStreamEvent & {
   threadId?: string;
   parentThreadId?: string;
   turnId?: string;
@@ -79,7 +79,7 @@ export function forwardCodexStreamEvent(runId: string, event: CodexJsonlStreamEv
   }
   if (event.type === "error") {
     live.emit({ event: "error", data: { ...identity, runId, message: event.message } });
-    emitAssistantEvent(live, { ...identity, kind: "error", phase: "failed", title: "Codex error", summary: event.message, isError: true });
+    emitAssistantEvent(live, { ...identity, kind: "error", phase: "failed", title: "Provider error", summary: event.message, isError: true });
     return;
   }
   if (event.type === "tool_event") {
@@ -97,6 +97,11 @@ export function forwardCodexStreamEvent(runId: string, event: CodexJsonlStreamEv
       },
     });
   }
+}
+
+function truncateReadablePreview(value: string | undefined, max = 4_000): { preview: string; truncated: boolean } {
+  const text = value ?? "";
+  return text.length <= max ? { preview: text, truncated: false } : { preview: `${text.slice(0, max)}\n[truncated]`, truncated: true };
 }
 
 export function emitValidationAssistantEvents(live: WorkflowRuntimeLiveSink | undefined, runId: string, result: unknown): void {

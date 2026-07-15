@@ -193,18 +193,18 @@ function fallbackSkill(skillId: string): SkillListItem {
     description: "",
     sourcePath: "",
     sourceKind: "custom",
-    sourceHash: "",
+    contentHash: "",
+    compatibility: { requiredCapabilities: [] },
     enabledProject: false,
     enabledTopics: [],
     disabledTopics: [],
-    runtimeTargets: [],
+    providerBindings: [],
   };
 }
 
 function sourceKindLabel(kind: SkillListItem["sourceKind"]): string {
-  if (kind === "global-codex") return "Codex 原生可用";
   if (kind === "system-aho") return "AHO 内置";
-  if (kind === "project-codex") return "项目 Skill";
+  if (kind === "provider-native") return "Provider 原生 Skill";
   return "自定义 Skill";
 }
 

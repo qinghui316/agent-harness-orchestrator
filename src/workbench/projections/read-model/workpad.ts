@@ -467,7 +467,7 @@ function buildPendingFeedback(topic: WorkbenchTopicDetail): WorkbenchPendingFeed
 
 function summarizeCoderSelfTest(topic: WorkbenchTopicDetail): string | undefined {
   const latestCoder = latestByTimestamp(
-    topic.runs.filter((run) => run.runtime === "coder-codex"),
+    topic.runs.filter((run) => run.runtime === "provider-code"),
     (run) => run.finishedAt ?? run.startedAt,
   );
   if (!latestCoder) return undefined;
@@ -494,7 +494,7 @@ function buildRolePipelineSummary(
   topic: WorkbenchTopicDetail,
   agentTasks: WorkbenchAgentTaskSummary[],
 ): WorkbenchRolePipelineSummary | undefined {
-  const coderRuns = topic.runs.filter((run) => run.runtime === "coder-codex");
+  const coderRuns = topic.runs.filter((run) => run.runtime === "provider-code");
   const validationRuns = topic.validations as ValidationSummary[];
   const auditRuns = topic.audits as AuditSummary[];
   if (coderRuns.length === 0 && validationRuns.length === 0 && auditRuns.length === 0 && agentTasks.length === 0) return undefined;
@@ -548,7 +548,7 @@ function buildWorkpadBackground(workpads: WorkbenchWorkpadSummary[], selectedId:
 function diagnosticMemoryIsolation(warnings: string[]): WorkpadMemoryIsolationSummary {
   return {
     projectStableNamespace: "project/stable",
-    agentSessionNamespace: "agent/{roleId}/session/{sessionId}",
+    providerSessionNamespace: "agent/{roleId}/session/{sessionId}",
     runNamespaces: [],
     relatedWorkpads: [],
     stableFactSources: [],
@@ -578,7 +578,7 @@ function buildWorkpadMemoryIsolation(memory: ResolvedMemory, selectedTopic: Work
     projectStableNamespace: "project/stable",
     currentChangeNamespace: selectedChangeId ? `change/${selectedChangeId}` : undefined,
     runNamespaces: selectedTopic ? selectedTopic.runs.slice(0, 5).map((run) => `run/${run.id}`) : [],
-    agentSessionNamespace: "agent/{roleId}/session/{sessionId}",
+    providerSessionNamespace: "agent/{roleId}/session/{sessionId}",
     relatedWorkpads,
     stableFactSources: [
       "applied source changes",
@@ -1032,4 +1032,3 @@ function stateLabelForWorkpad(state: WorkbenchTopicState): string {
   if (state === "active") return "进行中";
   return "已归档";
 }
-

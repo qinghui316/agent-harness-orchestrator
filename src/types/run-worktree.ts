@@ -1,8 +1,8 @@
-import type { ArtifactBase } from "./project-memory.js";
+﻿import type { ArtifactBase } from "./project-memory.js";
 
-export type RunStatus = "created" | "running" | "completed" | "failed";
+export type RunStatus = "created" | "running" | "interrupted" | "completed" | "failed";
 
-export type RunRuntime = "local-command" | "codex-readonly" | "validator" | "auditor" | "coder-codex" | "worktree-apply" | "worktree-discard" | "spec-test-proposer" | "spec-test-generator" | "spec-agent" | "planner" | "orchestrator" | "agent-codex" | "intake-scan";
+export type RunRuntime = "local-command" | "provider-readonly" | "validator" | "auditor" | "provider-code" | "worktree-apply" | "worktree-discard" | "spec-test-proposer" | "spec-test-generator" | "spec-agent" | "planner" | "orchestrator" | "provider-agent" | "intake-scan";
 
 export type RunExecutionMode = "direct" | "worktree";
 
@@ -53,11 +53,10 @@ export interface RunArtifactPaths {
   stdout: string;
   stderr: string;
   prompt?: string;
-  codexEvents?: string;
-  appServerEvents?: string;
-  appServerStderr?: string;
-  appServerLastMessage?: string;
-  agentSession?: string;
+  providerEvents?: string;
+  providerStderr?: string;
+  providerLastMessage?: string;
+  providerSession?: string;
   lastMessage?: string;
   implementation?: string;
   worktree?: string;
@@ -195,6 +194,7 @@ export interface RunMetadata {
   worktree?: RunWorktreeInfo;
   taskIds?: string[];
   taskRunId?: string;
+  worktreeDiffHash?: string;
   promptStack?: string[];
   enabledSkills?: RunSkillRecord[];
   mainAgentStrategy?: {
@@ -233,8 +233,8 @@ export interface RunMetadata {
 
 export interface RunSkillRecord {
   id: string;
-  runtimeTarget?: "codex";
-  sourceKind?: "managed" | "project-codex" | "global-codex" | "custom" | "system-aho";
+  providerId?: string;
+  sourceKind?: "managed" | "custom" | "system-aho" | "provider-native";
   sourceHash: string;
   materializationMode?: "native" | "aho-managed";
   materializedHash?: string | null;
@@ -260,15 +260,8 @@ export interface RunEvent {
     | "context.prepared"
     | "process.started"
     | "process.exited"
-    | "codex.capabilities.detected"
-    | "codex.capabilities.failed"
-    | "codex.started"
-    | "codex.exited"
-    | "app-server.capabilities.detected"
-    | "app-server.started"
-    | "app-server.exited"
-    | "app-server.skipped"
-    | "app-server.unavailable"
+    | "provider.started"
+    | "provider.exited"
     | "runtime_continuity.append_failed"
     | "validation.started"
     | "validation.command.started"
@@ -313,6 +306,7 @@ export interface RunEvent {
     | "intake.scan.completed"
     | "diff.collected"
     | "source.checked"
+    | "run.interrupted"
     | "run.completed"
     | "run.failed";
   runId: string;

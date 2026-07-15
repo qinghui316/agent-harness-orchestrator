@@ -1,4 +1,4 @@
-﻿import { existsSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
@@ -61,7 +61,7 @@ async function fakeInitialMainAgentTurn(
       sequence: 1,
       kind: "prose",
       timestamp: "2026-05-15T00:00:00.000Z",
-      source: "codex",
+      source: "provider",
       text: `主 Agent 已读取需求，下一步会先判断规划边界：${userMessage}`,
     }],
   });
@@ -95,9 +95,10 @@ describe("workbench server", () => {
     else process.env.CODEX_HOME = originalCodexHome;
     if (originalAhoHome === undefined) delete process.env.AHO_HOME;
     else process.env.AHO_HOME = originalAhoHome;
-    await rm(tempDir, { recursive: true, force: true });
-    await rm(staticRoot, { recursive: true, force: true });
-    await rm(registryRoot, { recursive: true, force: true });
+    const cleanupOptions = { recursive: true, force: true, maxRetries: 5, retryDelay: 100 } as const;
+    await rm(tempDir, cleanupOptions);
+    await rm(staticRoot, cleanupOptions);
+    await rm(registryRoot, cleanupOptions);
   });
 
   it("serves workbench JSON routes and static index", async () => {
@@ -131,7 +132,7 @@ describe("workbench server", () => {
     expect(await replay.text()).toContain(`"conversationId":"${conversationId}"`);
   });
 
-  it("serves project Skill catalog and Codex bridge routes", async () => {
+  it("serves project Skill catalog and provider binding routes", async () => {
     const skillRoot = join(tempDir, "custom-skills");
     const skillDir = join(skillRoot, "pricing-helper");
     await mkdir(join(skillDir, "scripts"), { recursive: true });
@@ -144,12 +145,13 @@ describe("workbench server", () => {
       body: JSON.stringify({ rootPath: skillRoot }),
     });
     expect(addedRoot.ok).toBe(true);
-    const listed = await getJson<{ roots: Array<{ rootPath: string }>; skills: Array<{ skillId: string; sourceKind: string; runtimeTargets: Array<{ provider: string; status: string }> }> }>(`${handle!.url}/api/projects/repo/skills`);
+    const listed = await getJson<{ roots: Array<{ rootPath: string }>; skills: Array<{ skillId: string; sourceKind: string; contentHash: string; providerBindings: Array<{ providerId: string; status: string }> }> }>(`${handle!.url}/api/projects/repo/skills`);
     expect(listed.roots.some((root) => root.rootPath === skillRoot)).toBe(true);
     const pricing = listed.skills.find((skill) => skill.skillId === "pricing-helper");
     const system = listed.skills.find((skill) => skill.skillId === "aho-harness-engineering");
     expect(pricing).toMatchObject({ skillId: "pricing-helper", sourceKind: "custom" });
-    expect(pricing?.runtimeTargets[0]).toMatchObject({ provider: "codex", status: "not-synced" });
+    expect(pricing).toMatchObject({ contentHash: expect.any(String) });
+    expect(pricing?.providerBindings[0]).toMatchObject({ providerId: "codex", status: "unavailable" });
     expect(system).toBeUndefined();
 
     const enabled = await fetch(`${handle!.url}/api/projects/repo/skills/pricing-helper/enable`, {
@@ -159,7 +161,7 @@ describe("workbench server", () => {
     });
     expect(enabled.ok).toBe(true);
 
-    const synced = await fetch(`${handle!.url}/api/projects/repo/skills/codex-bridge/sync`, {
+    const synced = await fetch(`${handle!.url}/api/projects/repo/skills/provider-binding/sync`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),
@@ -233,12 +235,12 @@ describe("workbench server", () => {
     expect(live.headers.get("content-type")).toContain("text/event-stream");
     const body = await live.text();
     expect(body).toContain("event: topic.created");
-    expect(body).toContain("event: topic.message");
+    expect(body).toContain("event: timeline.patch");
     expect(body).toContain("event: run.status");
     expect(body).toContain("event: snapshot");
     expect(body).toContain("event: done");
     const createdIndex = body.indexOf("event: topic.created");
-    const userMessageIndex = body.indexOf("\"type\":\"user.message\"");
+    const userMessageIndex = body.indexOf("event: timeline.patch");
     const runStatusIndex = body.indexOf("event: run.status");
     expect(createdIndex).toBeGreaterThanOrEqual(0);
     expect(userMessageIndex).toBeGreaterThan(createdIndex);
@@ -596,8 +598,8 @@ describe("workbench server", () => {
   });
 
   it("serves lazy Workbench projections separately from the snapshot shell", async () => {
-    const snapshot = await getJson<SnapshotResponse & { center: { agentRunGraph: { nodes: unknown[] }; agentLoop: { runs: Array<{ id: string }> } } }>(`${handle!.url}/api/workbench/snapshot?topic=${serverConversationId}`);
-    expect(snapshot.center.agentRunGraph.nodes).toEqual([]);
+    const snapshot = await getJson<SnapshotResponse & { center: { agentRelationGraph: { nodes: unknown[] }; agentLoop: { runs: Array<{ id: string }> } } }>(`${handle!.url}/api/workbench/snapshot?topic=${serverConversationId}`);
+    expect(snapshot.center.agentRelationGraph.nodes).toEqual([]);
 
     const transcript = await getJson<{ cells: unknown[] }>(`${handle!.url}/api/workbench/projections/transcript/${serverConversationId}`);
     expect(Array.isArray(transcript.cells)).toBe(true);
@@ -607,7 +609,7 @@ describe("workbench server", () => {
     expect(pagedTranscript.paging?.limit).toBe(2);
     expect(typeof pagedTranscript.paging?.totalCount).toBe("number");
 
-    const graph = await getJson<{ nodes: Array<{ id: string }> }>(`${handle!.url}/api/workbench/projections/run-graph/${serverConversationId}`);
+    const graph = await getJson<{ nodes: Array<{ id: string }> }>(`${handle!.url}/api/workbench/projections/agent-graph/${serverConversationId}`);
     expect(graph.nodes.some((node) => node.id === "main-agent")).toBe(true);
   });
 
@@ -674,23 +676,34 @@ describe("workbench server", () => {
       });
       expect(directTopic.status).toBe(404);
 
-      const projects = await getJson<{ projects: Array<{ codexTrust: { trusted: boolean; projectKey: string } }> }>(`${appHandle.url}/api/projects`);
+      const projects = await getJson<{ projects: Array<{ project: { id: string }; path: string }> }>(`${appHandle.url}/api/projects`);
       expect(projects.projects).toHaveLength(1);
-      expect(projects.projects[0].codexTrust.trusted).toBe(false);
-      expect(projects.projects[0].codexTrust.projectKey).toContain("aho-server-");
+      expect(projects.projects[0].project.id).toBe(addedBody.project.id);
+      expect(projects.projects[0].path).toContain("aho-server-");
 
-      const diagnostics = await getJson<{ provider: string; configPath: string; projectTrust: { trusted: boolean }; errors: string[] }>(`${appHandle.url}/api/projects/${addedBody.project.id}/codex/diagnostics`);
-      expect(diagnostics.provider).toBe("codex");
-      expect(diagnostics.configPath).toContain("codex-home");
-      expect(diagnostics.projectTrust.trusted).toBe(false);
-      expect(Array.isArray(diagnostics.errors)).toBe(true);
-      expect(existsSync(diagnostics.configPath)).toBe(false);
+      const diagnostics = await getJson<{ providerId: string; installation: { path?: string }; details: { projectTrust?: { trusted: boolean } }; projectActions: Array<{ id: string; status: string }>; rawEvidenceRefs: string[] }>(`${appHandle.url}/api/projects/${addedBody.project.id}/providers/codex/diagnostics`);
+      expect(diagnostics.providerId).toBe("codex");
+      expect(diagnostics.installation.path).toContain("codex-home");
+      expect(diagnostics.details.projectTrust?.trusted).toBe(false);
+      expect(Array.isArray(diagnostics.rawEvidenceRefs)).toBe(true);
+      expect(diagnostics.projectActions).toContainEqual(expect.objectContaining({ id: "project.trust", status: "available" }));
+      expect(existsSync(diagnostics.installation.path ?? "")).toBe(false);
 
-      const modelSettings = await getJson<{ effectiveModel: string | null; effectiveModelSource: string; configPath: string; candidates: unknown[]; modelList: { candidates: unknown[] } }>(`${appHandle.url}/api/projects/${addedBody.project.id}/codex/models`);
-      expect(modelSettings.effectiveModelSource).toBe("codex-default");
-      expect(modelSettings.configPath).toContain("codex-home");
+      const trustResponse = await fetch(`${appHandle.url}/api/projects/${addedBody.project.id}/providers/codex/actions/project.trust`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: true }),
+      });
+      expect(trustResponse.ok).toBe(true);
+      const trusted = await trustResponse.json() as { details: { projectTrust?: { trusted: boolean } }; projectActions: Array<{ id: string; status: string }> };
+      expect(trusted.details.projectTrust?.trusted).toBe(true);
+      expect(trusted.projectActions).toContainEqual(expect.objectContaining({ id: "project.trust", status: "completed" }));
+
+      const modelSettings = await getJson<{ providerId: string; effectiveModel: { modelId: string } | null; effectiveModelSource: string; candidates: unknown[]; available: boolean }>(`${appHandle.url}/api/projects/${addedBody.project.id}/providers/codex/models`);
+      expect(modelSettings.providerId).toBe("codex");
+      expect(modelSettings.effectiveModelSource).toBe("provider-default");
+      expect(modelSettings.available).toBe(true);
       expect(Array.isArray(modelSettings.candidates)).toBe(true);
-      expect(Array.isArray(modelSettings.modelList.candidates)).toBe(true);
 
       const capabilities = await getJson<{
         providers: Array<{ providerId: string; productMode: string; runnable: boolean; snapshotHash: string; snapshotVersion: number; capabilities: Array<{ key: string; spec: string; runtime: string }> }>;
@@ -704,7 +717,7 @@ describe("workbench server", () => {
       expect(capabilities.providers[0].snapshotHash).toBeTruthy();
       expect(capabilities.providers[0].snapshotVersion).toBe(2);
       expect(capabilities.providers[0].capabilities).toContainEqual(expect.objectContaining({ key: "model.list", spec: "supported" }));
-      expect(capabilities.providers[0].capabilities.some((item) => item.key === "skills")).toBe(true);
+      expect(capabilities.providers[0].capabilities.some((item) => item.key === "skill.native-load")).toBe(true);
       expect(capabilities.runtimeSummaries).toHaveLength(1);
       expect(capabilities.runtimeSummaries[0]).toMatchObject({
         providerId: "codex",
@@ -733,24 +746,6 @@ describe("workbench server", () => {
       expect(defaultRuntimeActivityText).not.toContain(".agent-harness");
       expect(runtimeActivity.items.some((item) => item.type === "action-error" && item.summary.includes("路径已折叠"))).toBe(true);
 
-      const unconfirmedTrust = await fetch(`${appHandle.url}/api/projects/${addedBody.project.id}/codex/trust`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      expect(unconfirmedTrust.status).toBe(409);
-
-      const trusted = await fetch(`${appHandle.url}/api/projects/${addedBody.project.id}/codex/trust`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ confirm: true }),
-      });
-      expect(trusted.ok).toBe(true);
-      const trustedBody = await trusted.json() as { codexTrust: { trusted: boolean; projectKey: string } };
-      expect(trustedBody.codexTrust.trusted).toBe(true);
-      const config = await readFile(join(tempDir, "codex-home", "config.toml"), "utf8");
-      expect(config).toContain(`[projects.'${trustedBody.codexTrust.projectKey}']`);
-      expect(config).toContain('trust_level = "trusted"');
 
       const init = await fetch(`${appHandle.url}/api/projects/${addedBody.project.id}/harness/init`, {
         method: "POST",

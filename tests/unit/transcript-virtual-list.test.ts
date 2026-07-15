@@ -31,7 +31,7 @@ describe("transcript virtual list pressure guards", () => {
     const cell: ParentAgentTranscriptCell = {
       id: "cell:assistant:long",
       kind: "assistant-message",
-      source: "codex-runtime",
+      source: "provider-runtime",
       text: `Visible preview\n${"long output line\n".repeat(160)}${hiddenSentinel}`,
     };
 
@@ -52,7 +52,7 @@ describe("transcript virtual list pressure guards", () => {
     const cell: ParentAgentTranscriptCell = {
       id: "cell:process:activity",
       kind: "process-row",
-      source: "codex-runtime",
+      source: "provider-runtime",
       title: "Planning draft generated",
       text: "Planning draft generated 已完成",
       status: "completed",
@@ -71,7 +71,7 @@ describe("transcript virtual list pressure guards", () => {
     const cell: ParentAgentTranscriptCell = {
       id: "cell:process:long-tool",
       kind: "process-row",
-      source: "codex-runtime",
+      source: "provider-runtime",
       title: "已运行命令",
       text: "已运行 1 条命令",
       detailText: Array.from({ length: 4_000 }, (_, index) => `line ${index}`).join("\n"),

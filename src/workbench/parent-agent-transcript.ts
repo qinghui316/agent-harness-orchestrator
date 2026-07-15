@@ -1,9 +1,9 @@
-import type { AssistantTurnActivity, AssistantTurnBlock, TopicAttachment, TopicFileReference, WorkbenchCodexUserInputRequest } from "./types.js";
+import type { AssistantTurnActivity, AssistantTurnBlock, TopicAttachment, TopicFileReference, WorkbenchProviderUserInputRequest } from "./types.js";
 import { commandDetailText, commandGroupDetailText, commandGroupSummary, commandRowTitle, groupConsecutiveCommandBlocks } from "../command-transcript.js";
 
 export type ParentAgentTranscriptActor = "user" | "parent-agent";
 export type ParentAgentTranscriptBlockKind = "prose" | "process" | "tool-result" | "evidence";
-export type ParentAgentTranscriptBlockSource = "user" | "codex-runtime" | "aho-orchestration" | "workflow-evidence" | "maintenance";
+export type ParentAgentTranscriptBlockSource = "user" | "provider-runtime" | "aho-orchestration" | "workflow-evidence" | "maintenance";
 export type ParentAgentTranscriptCellKind = "user-message" | "assistant-message" | "process-row" | "evidence-row" | "user-input" | "detail-only";
 
 export interface ParentAgentEvidenceRef {
@@ -55,7 +55,7 @@ export interface ParentAgentTranscriptCell {
   detailText?: string;
   contextRefs?: TopicFileReference[];
   attachments?: TopicAttachment[];
-  codexUserInput?: WorkbenchCodexUserInputRequest;
+  providerUserInput?: WorkbenchProviderUserInputRequest;
 }
 
 export interface ParentAgentTranscript {
@@ -98,6 +98,8 @@ interface TranscriptThreadItemInput {
   timestamp?: string;
   source?: string;
   status?: string;
+  providerId?: string;
+  attemptId?: string;
   runId?: string;
   threadId?: string;
   parentThreadId?: string;
@@ -109,7 +111,7 @@ interface TranscriptThreadItemInput {
   blocks?: AssistantTurnBlock[];
   contextRefs?: TopicFileReference[];
   attachments?: TopicAttachment[];
-  codexUserInput?: WorkbenchCodexUserInputRequest;
+  providerUserInput?: WorkbenchProviderUserInputRequest;
 }
 
 export function buildParentAgentTranscript(input: {
@@ -118,7 +120,7 @@ export function buildParentAgentTranscript(input: {
 }): ParentAgentTranscript {
   const cells = dedupeTranscriptCellEvidenceRefs(consolidateTranscriptCells(input.threadItems
     .filter(shouldShowInParentTranscript)
-    .flatMap((item) => transcriptCellsFromThreadItem(item, { parentVisible: true }))));
+    .flatMap((item) => canonicalTranscriptCellsFromThreadItem(item, { parentVisible: true }))));
   return {
     conversationId: input.workpad.conversationId,
     changeId: input.workpad.boundChangeId,
@@ -136,7 +138,7 @@ export function buildAgentScopedTranscriptCells(
   return dedupeTranscriptCellEvidenceRefs(consolidateTranscriptCells(threadItems
     .filter((item) => (scope.threadId ? item.threadId === scope.threadId : item.agentRoleId === scope.agentRoleId)
       && (!scope.runId || item.runId === scope.runId))
-    .flatMap((item) => transcriptCellsFromThreadItem(item, { forceAgentRoleId: scope.agentRoleId }))));
+    .flatMap((item) => canonicalTranscriptCellsFromThreadItem(item, { forceAgentRoleId: scope.agentRoleId }))));
 }
 
 export function pageParentAgentTranscript(
@@ -176,7 +178,7 @@ function shouldShowInParentTranscript(item: TranscriptThreadItemInput): boolean 
   return true;
 }
 
-function transcriptCellsFromThreadItem(
+export function canonicalTranscriptCellsFromThreadItem(
   item: TranscriptThreadItemInput,
   options: { forceAgentRoleId?: string; parentVisible?: boolean } = {},
 ): ParentAgentTranscriptCell[] {
@@ -201,13 +203,13 @@ function transcriptCellsFromThreadItem(
       : [];
   }
 
-  if (item.codexUserInput) {
-    const request = item.codexUserInput;
+  if (item.providerUserInput) {
+    const request = item.providerUserInput;
     const questionText = request.questions.map((question) => question.question).filter(Boolean).join("\n");
     return [{
-      id: `cell:codex-user-input:${request.requestKey}`,
+      id: `cell:provider-user-input:${request.requestKey}`,
       kind: "user-input",
-      source: "codex-runtime",
+      source: "provider-runtime",
       timestamp: item.timestamp,
       agentRoleId,
       runId: request.runId,
@@ -216,7 +218,7 @@ function transcriptCellsFromThreadItem(
       title: request.status === "submitted" ? "已回答" : "需要你回答",
       text: questionText || "Agent 需要你的回答。",
       status: request.status,
-      codexUserInput: request,
+      providerUserInput: request,
     }];
   }
 
@@ -252,14 +254,43 @@ function activityCellsFromThreadItem(item: TranscriptThreadItemInput, agentRoleI
   const startedAt = activities.find((activity) => activity.kind === "status" && ["started", "connecting", "thinking", "running"].includes(activity.label))?.timestamp;
   const terminal = [...activities].reverse().find((activity): activity is Extract<AssistantTurnActivity, { kind: "status" }> =>
     activity.kind === "status" && ["completed", "failed", "blocked", "cancelled"].includes(activity.label));
-  if (!startedAt || !terminal) return [];
+  if (!startedAt) return [];
+  if (!terminal) {
+    const latest = [...activities].reverse().find((activity): activity is Extract<AssistantTurnActivity, { kind: "status" }> => activity.kind === "status");
+    const title = liveActivityTitle(latest?.label);
+    return [{
+      id: item.attemptId && item.turnId
+        ? `cell:turn:${item.providerId ?? "provider"}:${item.attemptId}:${item.threadId ?? "main"}:${item.turnId}`
+        : item.attemptId
+        ? `cell:turn:${item.providerId ?? "provider"}:${item.attemptId}:provisional`
+        : `cell:turn:${item.providerId ?? "provider"}:${item.runId ?? item.id}:${item.threadId ?? "main"}:${item.turnId ?? "turn"}`,
+      kind: "process-row",
+      source: "provider-runtime",
+      timestamp: item.timestamp,
+      agentRoleId,
+      agentTaskId: item.agentTaskId,
+      runId: item.runId,
+      threadId: item.threadId,
+      parentThreadId: item.parentThreadId,
+      turnId: item.turnId,
+      title,
+      text: "",
+      status: latest?.label ?? "running",
+      realtime: true,
+      activityKind: "turn",
+    }];
+  }
   const elapsedSeconds = Math.max(1, Math.round((Date.parse(terminal.timestamp) - Date.parse(startedAt)) / 1000));
   const failed = terminal.label !== "completed";
   const title = failed ? `本轮需要处理 · ${elapsedSeconds} 秒` : `已完成 · ${elapsedSeconds} 秒`;
   return [{
-    id: `cell:turn:${item.runId ?? item.id}:${item.threadId ?? "main"}:${item.turnId ?? "turn"}`,
+    id: item.attemptId && item.turnId
+      ? `cell:turn:${item.providerId ?? "provider"}:${item.attemptId}:${item.threadId ?? "main"}:${item.turnId}`
+      : item.attemptId
+      ? `cell:turn:${item.providerId ?? "provider"}:${item.attemptId}:provisional`
+      : `cell:turn:${item.providerId ?? "provider"}:${item.runId ?? item.id}:${item.threadId ?? "main"}:${item.turnId ?? "turn"}`,
     kind: "process-row",
-    source: "codex-runtime",
+    source: "provider-runtime",
     timestamp: item.timestamp,
     agentRoleId,
     agentTaskId: item.agentTaskId,
@@ -275,13 +306,21 @@ function activityCellsFromThreadItem(item: TranscriptThreadItemInput, agentRoleI
   }];
 }
 
+function liveActivityTitle(status: string | undefined): string {
+  if (status === "connecting") return "正在连接";
+  if (status === "replying" || status === "streaming") return "正在回复";
+  if (status === "waiting-user") return "等待你回答";
+  if (status === "tool" || status === "tool-running") return "正在调用工具";
+  return "正在思考";
+}
+
 function transcriptCellFromAssistantBlock(
   block: AssistantTurnBlock,
   item: TranscriptThreadItemInput,
 ): ParentAgentTranscriptCell | null {
   if (block.kind === "usage") return null;
   const source: ParentAgentTranscriptBlockSource =
-    block.source === "codex" ? "codex-runtime" : block.source === "workflow" ? "workflow-evidence" : "aho-orchestration";
+    block.source === "provider" ? "provider-runtime" : block.source === "workflow" ? "workflow-evidence" : "aho-orchestration";
   const rawText = block.text ?? block.preview ?? "";
   const text = isGeneratedRunContext(rawText) ? "" : cleanPrimaryText(rawText);
   const itemId = item.id;
@@ -302,7 +341,7 @@ function transcriptCellFromAssistantBlock(
     };
   }
   if (block.kind === "reasoning-summary") {
-    if (source !== "codex-runtime" || !text) return null;
+    if (source !== "provider-runtime" || !text) return null;
     return {
       id: transcriptCellIdForBlock(block, "reasoning"),
       kind: "process-row",
@@ -317,7 +356,7 @@ function transcriptCellFromAssistantBlock(
     };
   }
   if (block.kind === "prose") {
-    if (source !== "codex-runtime") return null;
+    if (source !== "provider-runtime") return null;
     if (!text) return null;
     return {
       id: transcriptCellIdForBlock(block, "assistant"),
@@ -335,10 +374,10 @@ function transcriptCellFromAssistantBlock(
   if (block.kind === "status") {
     const statusText = cleanPrimaryText([block.title, block.text ?? block.preview].filter(Boolean).join("\n"));
     if (!statusText) return null;
-    if (source !== "codex-runtime" && !block.isError && !isAgentLifecycleStatus(statusText.toLowerCase())) return null;
+    if (source !== "provider-runtime" && !block.isError && !isAgentLifecycleStatus(statusText.toLowerCase())) return null;
     return {
       id: transcriptCellIdForBlock(block, "status"),
-      kind: block.isError || source !== "codex-runtime" ? "process-row" : "detail-only",
+      kind: block.isError || source !== "provider-runtime" ? "process-row" : "detail-only",
       source,
       timestamp,
       title: block.isError ? "过程需要关注" : cleanToolTitle(block.title),
@@ -352,7 +391,7 @@ function transcriptCellFromAssistantBlock(
     && block.kind === "tool-result"
     && Boolean(block.artifactRef)
     && cleanToolTitle(block.title) === "计划已准备";
-  if (source !== "codex-runtime" && block.kind !== "error" && !isPlanReadyArtifact) return null;
+  if (source !== "provider-runtime" && block.kind !== "error" && !isPlanReadyArtifact) return null;
 
   if (block.kind === "command-group") {
     const failedCount = block.children?.filter((child) => child.kind === "command" && child.isError).length ?? 0;
@@ -429,23 +468,16 @@ function transcriptCellFromAssistantBlock(
     };
   }
 
-  if (!text) return null;
-  return {
-    id: `cell:fallback:${block.id ?? itemId}`,
-    kind: "assistant-message",
-    source,
-    timestamp,
-    title: cleanToolTitle(block.title),
-    text,
-    status: block.status,
-    isError: block.isError,
-    evidenceRefs: block.artifactRef ? [{ label: cleanToolTitle(block.title) || "详情", ref: block.artifactRef, kind: "artifact" }] : undefined,
-  };
+  return assertNever(block.kind);
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unsupported assistant turn block kind: ${String(value)}`);
 }
 
 function transcriptCellIdForBlock(block: AssistantTurnBlock, kind: string): string {
   const identity = block.itemId
-    ? `${block.runId ?? "run"}:${block.threadId ?? "main"}:${block.itemId}`
+    ? `${block.providerId ?? "provider"}:${block.attemptId ?? "attempt"}:${block.runId ?? "run"}:${block.threadId ?? "main"}:${block.turnId ?? "turn"}:${block.itemId}`
     : block.id;
   return `cell:${kind}:${identity}`;
 }
@@ -515,7 +547,7 @@ function transcriptItemsFromCells(cells: ParentAgentTranscriptCell[]): ParentAge
       id: `item:${cell.id}`,
       actor: cell.kind === "user-message" ? "user" : "parent-agent",
       timestamp: cell.timestamp,
-      derived: cell.source !== "user" && cell.source !== "codex-runtime",
+      derived: cell.source !== "user" && cell.source !== "provider-runtime",
       blocks: [{
         id: `block:${cell.id}`,
         kind: cell.kind === "assistant-message" || cell.kind === "user-message" ? "prose" : cell.kind === "process-row" ? "process" : "evidence",

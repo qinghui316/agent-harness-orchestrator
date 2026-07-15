@@ -4,11 +4,14 @@ import type {
   AssistantTurnBlock,
   WorkbenchLiveToolEvent,
   LiveTurnEvent,
+  WorkbenchLiveIdentity,
 } from "../types.js";
 
-export function proseBlock(runId: string, text: string, sequence: number, identity: { threadId?: string; turnId?: string; itemId?: string } = {}): AssistantTurnBlock {
+export function proseBlock(runId: string, text: string, sequence: number, identity: WorkbenchLiveIdentity = {}): AssistantTurnBlock {
   return {
-    id: `prose:${runId}:${identity.threadId ?? "main"}:${identity.itemId ?? sequence}`,
+    id: `prose:${identity.providerId ?? "provider"}:${identity.attemptId ?? "attempt"}:${runId}:${identity.threadId ?? "main"}:${identity.itemId ?? sequence}`,
+    providerId: identity.providerId,
+    attemptId: identity.attemptId,
     runId,
     threadId: identity.threadId,
     turnId: identity.turnId,
@@ -16,15 +19,15 @@ export function proseBlock(runId: string, text: string, sequence: number, identi
     sequence,
     kind: "prose",
     timestamp: new Date().toISOString(),
-    source: "codex",
+    source: "provider",
     text,
   };
 }
 
-export function appendProseBlock(blocks: AssistantTurnBlock[], runId: string, delta: string, identity: { threadId?: string; turnId?: string; itemId?: string } = {}): AssistantTurnBlock[] {
+export function appendProseBlock(blocks: AssistantTurnBlock[], runId: string, delta: string, identity: WorkbenchLiveIdentity = {}): AssistantTurnBlock[] {
   const next = [...blocks];
   const last = next.at(-1);
-  if (last?.kind === "prose" && last.source === "codex" && (!identity.itemId || !last.itemId || last.itemId === identity.itemId)) {
+  if (last?.kind === "prose" && last.source === "provider" && (!identity.itemId || !last.itemId || last.itemId === identity.itemId)) {
     next[next.length - 1] = { ...last, text: `${last.text ?? ""}${delta}` };
     return next;
   }
@@ -67,16 +70,18 @@ export function mergeAssistantBlocks(existing: AssistantTurnBlock, incoming: Ass
 }
 
 export function blockFromAssistantEvent(event: AssistantReadableEvent): AssistantTurnBlock | null {
-  if (!mainThreadAssistantEvent(event)) return null;
+  if (isProviderInternalMetadata(event)) return null;
   return {
-    id: `assistant:${event.runId}:${event.threadId ?? "main"}:${event.itemId ?? event.kind}:${event.kind}`,
+    id: `assistant:${event.providerId ?? "provider"}:${event.attemptId ?? "attempt"}:${event.runId}:${event.threadId ?? "main"}:${event.itemId ?? event.kind}:${event.kind}`,
+    providerId: event.providerId,
+    attemptId: event.attemptId,
     runId: event.runId,
     threadId: event.threadId,
     turnId: event.turnId,
     sequence: 0,
     kind: assistantEventBlockKind(event.kind),
     timestamp: event.timestamp ?? new Date().toISOString(),
-    source: "codex",
+    source: "provider",
     status: event.status ?? event.phase,
     title: event.title ?? readableEventTitle(event),
     text: event.summary,
@@ -97,14 +102,16 @@ export function blockFromToolEvent(event: WorkbenchLiveToolEvent): AssistantTurn
   if (event.phase === "stderr") return null;
   if (!event.command && event.phase === "status" && !event.isError) return null;
   return {
-    id: `tool:${event.runId}:${event.threadId ?? "main"}:${event.itemId ?? normalizeCommandKey(event.command ?? event.name)}`,
+    id: `tool:${event.providerId ?? "provider"}:${event.attemptId ?? "attempt"}:${event.runId}:${event.threadId ?? "main"}:${event.itemId ?? normalizeCommandKey(event.command ?? event.name)}`,
+    providerId: event.providerId,
+    attemptId: event.attemptId,
     runId: event.runId,
     threadId: event.threadId,
     turnId: event.turnId,
     sequence: 0,
     kind: event.command ? "command" : "status",
     timestamp: new Date().toISOString(),
-    source: "codex",
+    source: "provider",
     status: event.status ?? event.phase,
     title: event.command ? commandResultTitle(event.status ?? event.phase) : event.name ?? "运行状态",
     text: event.name,
@@ -117,13 +124,11 @@ export function blockFromToolEvent(event: WorkbenchLiveToolEvent): AssistantTurn
 }
 
 export function usageBlock(runId: string, usage: Record<string, unknown>): AssistantTurnBlock {
-  return { id: `live-usage:${runId}`, runId, sequence: 0, kind: "usage", timestamp: new Date().toISOString(), source: "codex", title: "用量", text: formatUsage(usage) };
+  return { id: `live-usage:${runId}`, runId, sequence: 0, kind: "usage", timestamp: new Date().toISOString(), source: "provider", title: "用量", text: formatUsage(usage) };
 }
 
 export function normalizeTurnBlocks(blocks: AssistantTurnBlock[]): AssistantTurnBlock[] {
   const ordered = dedupeBlocks(blocks)
-    .filter((block) => isMainThreadBlock(block))
-    .map((block) => hasInternalRunMetadata(block.preview) ? { ...block, preview: undefined, truncated: false } : block)
     .sort((a, b) => a.sequence - b.sequence || a.id.localeCompare(b.id));
   const result: AssistantTurnBlock[] = [];
   let group: AssistantTurnBlock[] = [];
@@ -135,11 +140,13 @@ export function normalizeTurnBlocks(blocks: AssistantTurnBlock[]): AssistantTurn
       const processing = group.some((block) => block.status === "processing" || block.status === "started" || block.status === "running");
       result.push({
         id: `command-group:${group[0].id}:${group.length}`,
+        providerId: group[0].providerId,
+        attemptId: group[0].attemptId,
         runId: group[0].runId,
         sequence: group[0].sequence,
         kind: "command-group",
         timestamp: group[0].timestamp,
-        source: "codex",
+        source: "provider",
         status: failedCount > 0 ? "failed" : processing ? "processing" : "completed",
         title: "运行命令",
         isError: failedCount > 0,
@@ -176,30 +183,6 @@ export function filterLegacyToolEvents(events: Array<Extract<LiveTurnEvent, { ki
   return events.filter((event) => !event.tool.command || !commandKeys.has(`${event.tool.command}:${event.tool.phase ?? ""}:${event.tool.exitCode ?? ""}`));
 }
 
-export function mainThreadAssistantEvent(event: AssistantReadableEvent): AssistantReadableEvent | null {
-  if (!isMainThreadAssistantEvent(event)) return null;
-  if (hasInternalRunMetadata(event.preview)) {
-    return {
-      ...event,
-      title: event.kind === "command" ? readableEventTitle(event) : event.title,
-      summary: event.summary ?? "内部执行详情已记录到 Agent Loop，可在原始日志中查看。",
-      preview: undefined,
-      truncated: false,
-    };
-  }
-  return event;
-}
-
-export function hasInternalRunMetadata(text: string | undefined): boolean {
-  if (!text) return false;
-  const normalized = text.toLowerCase();
-  const artifactSignals = ["codex-events.jsonl", "events.jsonl", "stdout.log", "stderr.log", "last-message.md"];
-  const hasArtifactSignal = artifactSignals.some((signal) => normalized.includes(signal));
-  const hasRunMetadataShape = normalized.includes('"runtime"') && normalized.includes('"artifacts"') && normalized.includes('"promptstack"');
-  const hasCodexInvocation = normalized.includes('"command"') && normalized.includes('"codex"') && normalized.includes("--output-last-message");
-  return hasRunMetadataShape || hasCodexInvocation || (hasArtifactSignal && normalized.includes('"artifacts"'));
-}
-
 export function readableEventTitle(event: AssistantReadableEvent): string {
   if (event.kind === "reasoning-summary") return "推理摘要";
   if (event.kind === "command") return event.isError ? "命令失败" : event.phase === "started" ? "正在运行命令" : "命令完成";
@@ -229,16 +212,25 @@ function nextBlockSequence(blocks: AssistantTurnBlock[]): number {
 }
 
 function blockKey(block: AssistantTurnBlock): string {
+  const providerId = block.providerId ?? "provider";
+  const attemptId = block.attemptId ?? "attempt";
   const runId = block.runId ?? "";
   const threadId = block.threadId ?? "main";
-  if (block.kind === "usage") return `usage:${runId}`;
-  if (block.kind === "error") return `error:${runId}:${normalizeBlockText(block.text ?? block.preview ?? block.title)}`;
-  if (block.kind === "workflow-evidence") return `workflow-evidence:${runId}:${block.artifactRef ?? block.title ?? block.status ?? block.id}`;
+  if (block.kind === "usage") return `usage:${providerId}:${attemptId}:${runId}`;
+  if (block.kind === "error") return `error:${providerId}:${attemptId}:${runId}:${normalizeBlockText(block.text ?? block.preview ?? block.title)}`;
+  if (block.kind === "workflow-evidence") return `workflow-evidence:${providerId}:${attemptId}:${runId}:${block.artifactRef ?? block.title ?? block.status ?? block.id}`;
   if (block.kind === "command") {
-    if (block.itemId) return `command:${runId}:${threadId}:item:${block.itemId}`;
-    return `command:${runId}:${threadId}:command:${normalizeCommandKey(block.command)}`;
+    if (block.itemId) return `command:${providerId}:${attemptId}:${runId}:${threadId}:item:${block.itemId}`;
+    return `command:${providerId}:${attemptId}:${runId}:${threadId}:command:${normalizeCommandKey(block.command)}`;
   }
-  return block.itemId ? `${block.kind}:${runId}:${threadId}:item:${block.itemId}` : `${block.id}:${block.kind}`;
+  return block.itemId ? `${block.kind}:${providerId}:${attemptId}:${runId}:${threadId}:item:${block.itemId}` : `${block.id}:${block.kind}`;
+}
+
+function isProviderInternalMetadata(event: AssistantReadableEvent): boolean {
+  if (event.kind !== "status") return false;
+  const value = `${event.title ?? ""} ${event.summary ?? ""} ${event.phase ?? ""}`.trim().toLowerCase();
+  return /(?:^|\s)(?:thread|turn|item|run)\/(?:started|completed|delta|updated)(?:\s|$)/.test(value)
+    || /(?:app-server|provider (?:thread|turn)|run\.(?:started|status|completed))/.test(value);
 }
 
 function commandResultTitle(status: string | undefined): string {
@@ -255,42 +247,6 @@ function dedupeBlocks(blocks: AssistantTurnBlock[]): AssistantTurnBlock[] {
     byKey.set(key, existing ? mergeAssistantBlocks(existing, block) : block);
   }
   return [...byKey.values()];
-}
-
-function isMainThreadBlock(block: AssistantTurnBlock): boolean {
-  if (block.kind !== "status") return true;
-  const normalized = `${block.title ?? ""} ${block.text ?? ""} ${block.status ?? ""}`.toLowerCase();
-  if (isAgentLifecycleStatus(normalized)) return true;
-  if (normalized.includes("codex thread started")) return false;
-  if (normalized.includes("codex initialized the thread")) return false;
-  if (normalized.includes("codex turn running")) return false;
-  if (normalized.includes("codex started processing the turn")) return false;
-  if (normalized.includes("codex turn completed")) return false;
-  return Boolean(block.isError) || normalized.includes("validation") || normalized.includes("audit") || normalized.includes("failed") || normalized.includes("blocked");
-}
-
-function isMainThreadAssistantEvent(event: AssistantReadableEvent): boolean {
-  if (event.kind !== "status") return true;
-  const normalized = `${event.title ?? ""} ${event.summary ?? ""} ${event.phase ?? ""}`.toLowerCase();
-  if (isAgentLifecycleStatus(normalized)) return true;
-  if (normalized.includes("codex thread started")) return false;
-  if (normalized.includes("codex initialized the thread")) return false;
-  if (normalized.includes("codex turn running")) return false;
-  if (normalized.includes("codex started processing the turn")) return false;
-  if (normalized.includes("codex turn completed")) return false;
-  if (normalized.includes("codex completed the turn")) return false;
-  return event.isError === true || normalized.includes("validation") || normalized.includes("audit") || normalized.includes("failed") || normalized.includes("blocked");
-}
-
-function isAgentLifecycleStatus(normalized: string): boolean {
-  return normalized.includes("agent-task-created")
-    || normalized.includes("agent-running")
-    || normalized.includes("agent-completed")
-    || normalized.includes("planning-agent")
-    || normalized.includes("coder")
-    || normalized.includes("validator")
-    || normalized.includes("auditor")
-    || normalized.includes("rework");
 }
 
 function normalizeCommandKey(command: string | undefined): string {

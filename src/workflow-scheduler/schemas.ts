@@ -118,10 +118,10 @@ export const schedulerWorkerSessionPlanSchema: z.ZodType<SchedulerWorkerSessionP
       sourceScopes: z.array(z.string()),
       requiresFreshWorktree: z.boolean(),
     }),
-    adapterFamily: z.enum(["codex-code", "validation-command", "audit-codex-readonly"]),
+    adapterFamily: z.enum(["provider-code", "validation-command", "provider-readonly"]),
     permissionProfile: workerPermissionProfileSchema,
     eventSourceExpectation: z.object({
-      adapterFamily: z.enum(["codex-code", "validation-command", "audit-codex-readonly"]),
+      adapterFamily: z.enum(["provider-code", "validation-command", "provider-readonly"]),
       expectedEventTypes: z.array(z.string()),
     }),
     recoveryKeyInputs: z.array(z.object({

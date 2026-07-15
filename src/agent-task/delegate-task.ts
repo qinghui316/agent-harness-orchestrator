@@ -95,7 +95,7 @@ export function detectDelegateTaskMcpCapability(): DelegateTaskCapability {
   return {
     toolName: "delegateTask",
     available: false,
-    reason: "The local delegateTask contract is implemented, but this Codex runtime is not configured to dynamically load AHO MCP tools.",
+    reason: "The local delegateTask contract is implemented, but the selected Agent provider cannot dynamically load AHO MCP tools.",
   };
 }
 

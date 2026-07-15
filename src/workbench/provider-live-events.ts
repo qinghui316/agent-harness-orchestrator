@@ -1,8 +1,9 @@
-import type { CodexAppServerRealtimeEvent } from "../codex/app-server-realtime.js";
+import type { ProviderRealtimeEvent } from "../provider-runtime/index.js";
+import { agentThreadSurfaceId } from "../provider-runtime/agent-surface-id.js";
 import type { WorkbenchAssistantEvent, WorkbenchLiveIdentity, WorkbenchLiveSink, WorkbenchLiveToolEvent } from "./types.js";
 
-export function forwardCodexRealtimeEvent(
-  realtime: CodexAppServerRealtimeEvent,
+export function forwardProviderRealtimeEvent(
+  realtime: ProviderRealtimeEvent,
   sink: WorkbenchLiveSink | undefined,
   context: Partial<WorkbenchLiveIdentity> = {},
 ): void {
@@ -59,19 +60,22 @@ export function forwardCodexRealtimeEvent(
   }
 }
 
-function workbenchIdentity(event: CodexAppServerRealtimeEvent): WorkbenchLiveIdentity & { runId: string } {
+function workbenchIdentity(event: ProviderRealtimeEvent): WorkbenchLiveIdentity & { runId: string } {
   return {
     projectId: event.projectId,
     conversationId: event.conversationId,
     changeId: event.changeId,
     runId: event.runId,
+    providerId: event.providerId,
+    attemptId: event.attemptId,
+    sessionId: event.sessionId,
     threadId: event.threadId,
     parentThreadId: event.parentThreadId,
     turnId: event.turnId,
     itemId: event.itemId,
     agentRoleId: event.roleId,
     agentTaskId: event.agentTaskId,
-    agentSurfaceId: `thread:${event.threadId}`,
+    agentSurfaceId: agentThreadSurfaceId(event.providerId, event.threadId),
     agentDisplayName: event.displayName,
     targetAgentSurfaceId: event.targetAgentSurfaceId,
     targetAgentDisplayName: event.targetAgentDisplayName,

@@ -12,6 +12,7 @@ export function itemStatusFromTaskRun(status: TaskRun["status"]): TaskQueueItemS
   if (status === "completed" || status === "evidence-ready") return "completed";
   if (status === "blocked") return "blocked";
   if (status === "failed") return "failed";
+  if (status === "interrupted") return "queued";
   return "running";
 }
 

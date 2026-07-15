@@ -12,7 +12,7 @@ export interface CodexAppServerRealtimeIdentity {
   roleId: string;
   agentTaskId?: string;
   displayName?: string;
-  targetAgentSurfaceId?: string;
+  targetThreadId?: string;
   targetAgentDisplayName?: string;
 }
 
@@ -33,7 +33,7 @@ export function normalizeCodexAppServerNotification(
     ...identity,
     ...(itemId ? { itemId } : {}),
     ...(receiverThreadId ? {
-      targetAgentSurfaceId: identity.targetAgentSurfaceId ?? `thread:${receiverThreadId}`,
+      targetThreadId: identity.targetThreadId ?? receiverThreadId,
       targetAgentDisplayName: identity.targetAgentDisplayName ?? "子 Agent",
     } : {}),
   };

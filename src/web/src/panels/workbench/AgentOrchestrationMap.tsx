@@ -1,6 +1,6 @@
 import { Maximize2, Minus, Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
-import type { DemandAgentRunGraph } from "../../types.js";
+import type { AgentRelationGraph } from "../../types.js";
 import {
   ORCHESTRATION_NODE_HEIGHT,
   ORCHESTRATION_NODE_WIDTH,
@@ -13,12 +13,11 @@ export function AgentOrchestrationMap({
   selectedNodeId,
   onSelectNode,
 }: {
-  graph: DemandAgentRunGraph;
+  graph: AgentRelationGraph;
   selectedNodeId: string | null;
   onSelectNode: (nodeId: string) => void;
 }): ReactElement {
-  const agentGraph = useMemo(() => actualAgentGraph(graph), [graph]);
-  const layout = useMemo(() => layoutAgentOrchestrationGraph(agentGraph), [agentGraph]);
+  const layout = useMemo(() => layoutAgentOrchestrationGraph(graph), [graph]);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -77,7 +76,7 @@ export function AgentOrchestrationMap({
   return (
     <div
       className={`agent-graph-canvas agent-orchestration-canvas ${dragging ? "dragging" : ""}`}
-      data-testid="agent-run-graph"
+      data-testid="agent-relation-graph"
       ref={viewportRef}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
@@ -114,7 +113,7 @@ export function AgentOrchestrationMap({
             <path
               key={edge.id}
               d={edge.path}
-              className={`agent-orchestration-edge ${edge.edgeStyle ?? "solid"} ${edge.edgeRole ?? "primary"}`}
+              className="agent-orchestration-edge solid primary"
               markerEnd="url(#agent-edge-arrow)"
               data-testid="agent-orchestration-edge"
             />
@@ -147,7 +146,7 @@ function AgentOrchestrationCard({
   return (
     <button
       type="button"
-      className={`agent-orchestration-card ${node.status} ${node.visualKind} ${selected ? "selected" : ""}`}
+      className={`agent-orchestration-card ${node.status} agent ${selected ? "selected" : ""}`}
       style={{
         left: node.x,
         top: node.y,
@@ -156,7 +155,7 @@ function AgentOrchestrationCard({
       }}
       onClick={() => onSelectNode(node.id)}
       data-agent-orchestration-card
-      data-testid={`agent-run-node-${node.kind}`}
+      data-testid={node.kind === "main-agent" ? "agent-relation-node-main-agent" : `agent-relation-node-${node.roleId}`}
     >
       <span className={`agent-orchestration-status ${node.status}`} aria-label={node.status} />
       <span className="agent-orchestration-card-main">
@@ -165,21 +164,4 @@ function AgentOrchestrationCard({
       </span>
     </button>
   );
-}
-function actualAgentGraph(graph: DemandAgentRunGraph): DemandAgentRunGraph {
-  const modelRoles = new Set([
-    "main-agent", "planning-agent", "coder-agent", "rework-coder", "auditor-agent",
-    "spec-test-proposer", "spec-test-generator", "memory-maintenance-agent",
-    "harness-evolution-agent", "evolution-scorer", "child-agent",
-  ]);
-  const nodes = graph.nodes.filter((node) => node.kind !== "validator" && (
-    modelRoles.has(node.roleId ?? "")
-    || node.kind === "main-agent"
-  ));
-  const nodeIds = new Set(nodes.map((node) => node.id));
-  return {
-    ...graph,
-    nodes,
-    edges: graph.edges.filter((edge) => nodeIds.has(edge.from) && nodeIds.has(edge.to)),
-  };
 }

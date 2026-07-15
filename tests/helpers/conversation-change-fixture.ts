@@ -24,6 +24,8 @@ export async function createConversationChangeFixture(
       state: "active",
       boundChangeId: result.change.id,
       currentGraphScopeId: graphScopeId,
+      selectedProviderId: "codex",
+      completedTurnSequence: 0,
       createdAt: now,
       updatedAt: now,
       deletedAt: null,

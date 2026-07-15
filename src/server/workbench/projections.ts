@@ -2,7 +2,7 @@ import {
   getWorkbenchEvidenceProjection,
   getWorkbenchLandingQueueProjection,
   getWorkbenchMaintenanceProjection,
-  getWorkbenchRunGraphProjection,
+  getWorkbenchAgentRelationGraphProjection,
   getWorkbenchTranscriptPageProjection,
   getWorkbenchTranscriptProjection,
   getWorkbenchWorkflowGraphPlanProjection,
@@ -44,9 +44,9 @@ export async function getWorkbenchProjection(input: WorkbenchProjectInput, rest:
       ? getWorkbenchTranscriptPageProjection(input, changeId, paging)
       : getWorkbenchTranscriptProjection(input, changeId);
   }
-  if (kind === "run-graph") {
-    if (!changeId) throw badRequest("run-graph projection requires changeId.");
-    return getWorkbenchRunGraphProjection(input, changeId);
+  if (kind === "agent-graph") {
+    if (!changeId) throw badRequest("agent-graph projection requires changeId.");
+    return getWorkbenchAgentRelationGraphProjection(input, changeId);
   }
   if (kind === "workpad") {
     if (!changeId) throw badRequest("workpad projection requires changeId.");

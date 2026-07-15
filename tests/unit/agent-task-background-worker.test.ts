@@ -157,7 +157,7 @@ describe("background AgentTask worker", () => {
     });
 
     const polls = [first.poll(), second.poll()];
-    await vi.waitFor(() => expect(runAssignment).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(runAssignment).toHaveBeenCalledTimes(1), { timeout: 5_000, interval: 20 });
     expect((await listAgentTasks(setup.memory)).filter((task) => task.status === "running")).toHaveLength(1);
     release();
     expect((await Promise.all(polls)).sort()).toEqual([0, 1]);
@@ -191,7 +191,7 @@ describe("background AgentTask worker", () => {
     const worker = startBackgroundWorker(setup.memory, setup.project, {
       enabled: true,
       pollIntervalMs: 60_000,
-      leaseDurationMs: 300,
+      leaseDurationMs: 3_000,
       assignmentFactory,
       onLeaseInvalidated,
       runAssignment: async ({ signal }) => new Promise((_, reject) => {

@@ -8,7 +8,7 @@ import {
 import { workflowActionPayloadFromTaskAction } from "../../../workflow-actions.js";
 import type {
   ClarificationRequest,
-  CodexUserInputRequest,
+  ProviderUserInputRequest,
   WorkbenchCodingPackage,
   WorkbenchTaskNode,
 } from "../../../types.js";
@@ -172,14 +172,14 @@ export function ClarificationCard({
   );
 }
 
-export function CodexUserInputRequestCard({
+export function ProviderUserInputRequestCard({
   request,
   busy,
   onAnswer,
 }: {
-  request: CodexUserInputRequest;
+  request: ProviderUserInputRequest;
   busy: boolean;
-  onAnswer: (request: CodexUserInputRequest, answers: Record<string, string | string[]>) => Promise<void>;
+  onAnswer: (request: ProviderUserInputRequest, answers: Record<string, string | string[]>) => Promise<void>;
 }): ReactElement {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const pending = request.status === "pending";
@@ -190,7 +190,7 @@ export function CodexUserInputRequestCard({
     setAnswers({});
   }
   return (
-    <article className="clarification-card codex-user-input-card" data-testid="codex-user-input-card">
+    <article className="clarification-card provider-user-input-card" data-testid="provider-user-input-card">
       <div className="clarification-questions">
         {request.questions.map((question) => (
           <div key={question.id}>
@@ -224,7 +224,7 @@ export function CodexUserInputRequestCard({
                 disabled={!pending || busy}
               />
             </label> : request.answers?.[question.id] ? (
-              <p className="clarification-answer">你的回答：{formatCodexAnswer(request.answers[question.id])}</p>
+              <p className="clarification-answer">你的回答：{formatProviderAnswer(request.answers[question.id])}</p>
             ) : null}
           </div>
         ))}
@@ -236,7 +236,7 @@ export function CodexUserInputRequestCard({
   );
 }
 
-function formatCodexAnswer(answer: string | string[]): string {
+function formatProviderAnswer(answer: string | string[]): string {
   return Array.isArray(answer) ? answer.join("、") : answer;
 }
 

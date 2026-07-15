@@ -93,10 +93,11 @@ export interface RuntimeTaskRunStageOptions {
   orchestrationState?: WorkflowRuntimeExecutionState;
   initialDecision?: DelegateDecision<"coder-agent" | "rework-coder">;
   onRetryTaskRunStarted?: (started: RuntimeStartedTaskRun) => Promise<void>;
+  existingWorktreeId?: string;
 }
 
 export type RuntimeTaskRunWorkflowResult = RuntimeTaskRunAttemptWorkflowResult & {
-  status?: "failed" | "needs-user-input";
+  status?: "failed" | "interrupted" | "needs-user-input";
   error?: string;
   orchestration: WorkflowRuntimeExecutionState;
   loopRunId?: string;
@@ -216,11 +217,22 @@ export async function assertTaskRunResumeEvidenceScope(memory: ResolvedMemory, c
     }
   }
   const validations = await listValidationResults(memory, changeId);
-  if (verdict.validationId && !validations.some((validation) => validation.id === verdict.validationId)) {
+  const validation = verdict.validationId
+    ? validations.find((candidate) => candidate.id === verdict.validationId)
+    : null;
+  if (verdict.validationId && (!validation
+    || validation.worktreeId !== coderRun?.worktree?.worktreeId
+    || !coderRun?.worktreeDiffHash
+    || validation.worktreeDiffHash !== coderRun.worktreeDiffHash)) {
     throw new Error("TaskQueue resume validation evidence is stale or missing.");
   }
   const audits = await listAuditResults(memory, changeId);
-  if (verdict.auditId && !audits.some((audit) => audit.id === verdict.auditId)) {
+  const audit = verdict.auditId ? audits.find((candidate) => candidate.id === verdict.auditId) : null;
+  if (verdict.auditId && (!audit
+    || audit.worktreeId !== coderRun?.worktree?.worktreeId
+    || !coderRun?.worktreeDiffHash
+    || audit.worktreeDiffHash !== coderRun.worktreeDiffHash
+    || audit.validationId !== validation?.id)) {
     throw new Error("TaskQueue resume audit evidence is stale or missing.");
   }
 }
@@ -231,6 +243,7 @@ async function runOneStartedTaskRunAttempt(input: RuntimeTaskRunStageOptions & {
   initialRole: "coder-agent" | "rework-coder";
   orchestrationState: WorkflowRuntimeExecutionState;
   initialDecision: DelegateDecision<"coder-agent" | "rework-coder">;
+  existingWorktreeId?: string;
 }): Promise<RuntimeTaskRunStageResult> {
   const memory = await resolveProjectMemory(input.project);
   const { run: loopRun, created } = await ensureWorkflowRuntimeEvidenceRun(memory, {
@@ -274,6 +287,7 @@ async function runOneStartedTaskRunAttempt(input: RuntimeTaskRunStageOptions & {
     initialRole: input.initialRole,
     orchestration: input.orchestrationState,
     initialDecision: input.initialDecision,
+    existingWorktreeId: input.existingWorktreeId,
   });
   const taskRun = await finishTaskRunFromWorkflowResult(memory, input.started.taskRun.id, workflow, {
     changeId: input.started.taskRun.changeId,
@@ -295,10 +309,21 @@ async function runTaskRunAttempt(input: {
   initialRole: "coder-agent" | "rework-coder";
   orchestration: WorkflowRuntimeExecutionState;
   initialDecision: DelegateDecision<"coder-agent" | "rework-coder">;
+  existingWorktreeId?: string;
 }): Promise<RuntimeTaskRunWorkflowResult> {
   let orchestration = input.orchestration;
   const codeResult = await runCodeLeaf(input, input.initialRole, input.initialDecision, orchestration, 0);
   orchestration = codeResult.orchestration;
+  if (codeResult.status === "interrupted" && codeResult.code) {
+    return {
+      code: codeResult.code,
+      boundaryAudit: codeResult.boundaryAudit,
+      status: "interrupted",
+      stoppedAt: "code",
+      orchestration,
+      loopRunId: input.loopRun.id,
+    };
+  }
   if (codeResult.status === "failed" || !codeResult.code) {
     return {
       code: codeResult.code,
@@ -370,6 +395,7 @@ async function runCodeLeaf(
       orchestration,
       decision,
       executionGate: input.executionGate,
+      existingWorktreeId: input.existingWorktreeId,
     })
     : await runCoderLeafStage({
       project: input.project,
@@ -383,8 +409,9 @@ async function runCodeLeaf(
       orchestration,
       decision,
       executionGate: input.executionGate,
+      existingWorktreeId: input.existingWorktreeId,
     });
-  await appendLeafCompleted(input.memory, input.loopRun, stepIndex, roleId, result.status, result.stoppedAt, compactArtifactRefs(result.code?.run.artifacts.directory, result.code?.run.artifacts.implementation));
+  await appendLeafCompleted(input.memory, input.loopRun, stepIndex, roleId, result.status === "interrupted" ? "failed" : result.status, result.stoppedAt, compactArtifactRefs(result.code?.run.artifacts.directory, result.code?.run.artifacts.implementation));
   return result;
 }
 

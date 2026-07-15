@@ -1,11 +1,11 @@
 ﻿import type { Command } from "commander";
 import { listAgentRoles, showAgentRole, syncAgentCatalog } from "../../agent/catalog.js";
-import { getCodexBridgeStatus, installCodexBridge, syncCodexBridge } from "../../codex/bridge.js";
+import { defaultProviderRegistry } from "../../provider-runtime/index.js";
 import { importSkill, listSkills, setSkillEnabled } from "../../skill/catalog.js";
 import { printJson, printTable } from "../output.js";
 import { resolveManagedProject, type CliContext } from "../context.js";
 
-export function installSkillAgentCodexCommands(program: Command, context: CliContext): void {
+export function installSkillAgentProviderCommands(program: Command, context: CliContext): void {
   const { store } = context;
   const skill = program.command("skill").description("Manage AHO project skills");
 
@@ -23,7 +23,7 @@ export function installSkillAgentCodexCommands(program: Command, context: CliCon
         id: role.roleId,
         source: role.source,
         capability: role.writeCapability,
-        runtime: role.runtime,
+        compatibility: role.compatibility.requiredCapabilities.join(", "),
         delegatable: role.delegatable,
         gates: role.requiredGates.join(", "),
       })));
@@ -43,9 +43,9 @@ export function installSkillAgentCodexCommands(program: Command, context: CliCon
           id: role.roleId,
           source: role.source,
           profile: role.sourcePath,
-          hash: role.sourceHash.slice(0, 12),
+          hash: role.contentHash.slice(0, 12),
           capability: role.writeCapability,
-          runtime: role.runtime,
+          compatibility: role.compatibility.requiredCapabilities.join(", "),
         }]);
       }
     });
@@ -78,7 +78,8 @@ export function installSkillAgentCodexCommands(program: Command, context: CliCon
         projectEnabled: item.enabledProject,
         topicEnabled: item.enabledTopics.join(", "),
         topicDisabled: item.disabledTopics.join(", "),
-        synced: item.bridge ? !item.bridge.outOfSync : false,
+        compatibility: item.compatibility.requiredCapabilities.join(", "),
+        bindings: item.providerBindings.map((binding) => `${binding.providerId}:${binding.status}`).join(", "),
       })));
     });
 
@@ -123,16 +124,17 @@ export function installSkillAgentCodexCommands(program: Command, context: CliCon
       else console.log(`Disabled skill ${skillId}${options.topic ? ` for Topic ${options.topic}` : " for project"}.`);
     });
 
-  const codex = program.command("codex").description("Manage Codex runtime bridge");
-  const codexBridge = codex.command("bridge").description("Install and sync the AHO Codex bridge");
+  const providerCommand = program.command("provider").description("Manage Agent provider adapters");
+  const providerBridge = providerCommand.command("bridge").description("Install and sync a provider Skill/role binding");
 
-  codexBridge
+  providerBridge
     .command("status")
+    .argument("<provider-id>", "registered provider id")
     .argument("[project]", "optional registered project id/name/path")
     .option("--json", "print JSON")
-    .action(async (query: string | undefined, options: { json?: boolean }) => {
+    .action(async (providerId: string, query: string | undefined, options: { json?: boolean }) => {
       const project = query ? await resolveManagedProject(store, query) : undefined;
-      const status = await getCodexBridgeStatus(project);
+      const status = await defaultProviderRegistry.get(providerId).skillRoleBinding.status(project);
       if (options.json) printJson(status);
       else {
         printTable([{
@@ -142,34 +144,36 @@ export function installSkillAgentCodexCommands(program: Command, context: CliCon
           manifestValid: status.manifestValid,
           path: status.paths.root,
           project: status.project?.id ?? "",
-          outOfSync: status.project?.outOfSync.join(", ") ?? "",
+          outOfSync: status.project?.outOfSync?.join(", ") ?? "",
         }]);
         for (const diagnostic of status.diagnostics) console.log(`DIAGNOSTIC: ${diagnostic}`);
       }
     });
 
-  codexBridge
+  providerBridge
     .command("install")
+    .argument("<provider-id>", "registered provider id")
     .option("--json", "print JSON")
-    .action(async (options: { json?: boolean }) => {
-      const result = await installCodexBridge();
+    .action(async (providerId: string, options: { json?: boolean }) => {
+      const result = await defaultProviderRegistry.get(providerId).skillRoleBinding.install();
       if (options.json) printJson(result);
       else {
-        console.log(`Installed AHO Codex bridge at ${result.paths.root}`);
+        console.log(`Installed ${providerId} Skill/role binding at ${result.paths.root}`);
         console.log(`Manifest: ${result.manifest}`);
       }
     });
 
-  codexBridge
+  providerBridge
     .command("sync")
+    .argument("<provider-id>", "registered provider id")
     .argument("<project>", "registered project id/name/path")
     .option("--json", "print JSON")
-    .action(async (query: string, options: { json?: boolean }) => {
+    .action(async (providerId: string, query: string, options: { json?: boolean }) => {
       const project = await resolveManagedProject(store, query);
-      const result = await syncCodexBridge(project);
+      const result = await defaultProviderRegistry.get(providerId).skillRoleBinding.sync(project);
       if (options.json) printJson(result);
       else {
-        console.log(`Synced ${result.synced.length} enabled skill(s) and ${result.syncedAgents.length} agent role(s) to ${result.status.paths.root}`);
+        console.log(`Synced ${result.synced.length} enabled skill(s) and ${result.syncedAgents.length} agent role(s) through ${providerId}.`);
         for (const item of result.synced) console.log(`- ${item.skillId} -> ${item.materializedSkillId}`);
         for (const item of result.syncedAgents) console.log(`- agent ${item.roleId}`);
         for (const diagnostic of result.status.diagnostics) console.log(`DIAGNOSTIC: ${diagnostic}`);

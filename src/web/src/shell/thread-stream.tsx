@@ -5,21 +5,23 @@ import type {
 
 export function threadItemFromTopicEntry(entry: TopicMessageEntry): ThreadStreamItem | null {
   if (entry.type === "user.message") {
-    return { id: entry.id, kind: "user-message", label: "User", timestamp: entry.timestamp, body: entry.text, source: "chat", graphScopeId: entry.graphScopeId, contextRefs: entry.contextRefs, attachments: entry.attachments };
+    return { id: entry.id, kind: "user-message", label: "User", timestamp: entry.timestamp, body: entry.text, source: "chat", graphScopeId: entry.graphScopeId, providerId: entry.providerId, attemptId: entry.attemptId, threadId: entry.threadId, turnId: entry.turnId, itemId: entry.itemId, contextRefs: entry.contextRefs, attachments: entry.attachments };
   }
   if (entry.type === "assistant.message") {
     return {
       id: entry.id, kind: "assistant-turn", label: "AI", timestamp: entry.timestamp,
       body: entry.text, source: "chat", artifact: entry.artifact, status: entry.status, graphScopeId: entry.graphScopeId, runId: entry.runId,
+      providerId: entry.providerId, attemptId: entry.attemptId, itemId: entry.itemId,
       threadId: entry.threadId, parentThreadId: entry.parentThreadId, turnId: entry.turnId,
       agentRoleId: entry.agentRoleId, agentTaskId: entry.agentTaskId,
-      activity: entry.activity, blocks: entry.blocks, codexUserInput: entry.codexUserInput,
+      activity: entry.activity, blocks: entry.blocks, providerUserInput: entry.providerUserInput,
     };
   }
   if (entry.type === "orchestrator.plan") {
     return {
       id: entry.id, kind: "assistant-turn", label: "AI", timestamp: entry.timestamp,
       body: entry.text, source: "chat", artifact: entry.artifact, status: entry.status, graphScopeId: entry.graphScopeId, runId: entry.runId,
+      providerId: entry.providerId, attemptId: entry.attemptId, itemId: entry.itemId,
       threadId: entry.threadId, parentThreadId: entry.parentThreadId, turnId: entry.turnId,
       agentRoleId: entry.agentRoleId, agentTaskId: entry.agentTaskId,
       activity: entry.activity, blocks: entry.blocks,

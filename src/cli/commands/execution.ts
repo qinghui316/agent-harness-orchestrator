@@ -1,9 +1,7 @@
 ﻿import type { Command } from "commander";
 import { acceptAudit, getAuditStatus, listAuditSummaries, showAudit, startAuditRun } from "../../audit/manager.js";
 import { getCodeStatus, listCodeRuns, showCodeRun, startCodeRun } from "../../code/manager.js";
-import { readPromptInput } from "../../codex/prompt.js";
 import { listRuns, readRun, startLocalCommandRun } from "../../run/manager.js";
-import { startCodexReadonlyRun } from "../../run/codex.js";
 import { getSpecTestDriftReport } from "../../spec-test/drift.js";
 import { startSpecTestGenerationRun } from "../../spec-test/generate.js";
 import { checkSpecTests, getSpecTestStatus, linkSpecTest, unlinkSpecTest } from "../../spec-test/manager.js";
@@ -31,7 +29,7 @@ export function installExecutionCommands(program: Command, context: CliContext):
 
   const audit = program.command("audit").description("Run semantic audits and manage audit proposals");
 
-  const code = program.command("code").description("Run Codex coder agents in AHO-owned worktrees");
+  const code = program.command("code").description("Run provider-backed coder agents in AHO-owned worktrees");
 
   const specTest = program.command("spec-test").description("Manage Acceptance Criteria to test evidence mappings");
 
@@ -241,17 +239,15 @@ export function installExecutionCommands(program: Command, context: CliContext):
     .option("--task <task-id>", "task id to focus on; can be repeated", collectOption, [])
     .option("--prompt <text>", "additional instruction for the coder")
     .option("--prompt-file <path>", "file containing additional instruction, resolved from the current AHO cwd")
-    .option("--model <model>", "Codex model to pass through")
-    .option("--profile <profile>", "Codex config profile to pass through")
+    .option("--model <model>", "provider model to pass through")
     .option("--json", "print JSON")
-    .action(async (query: string, options: { task: string[]; prompt?: string; promptFile?: string; model?: string; profile?: string; json?: boolean }) => {
+    .action(async (query: string, options: { task: string[]; prompt?: string; promptFile?: string; model?: string; json?: boolean }) => {
       const project = await resolveManagedProject(store, query);
       const result = await startCodeRun(project, {
         taskIds: options.task,
         prompt: options.prompt,
         promptFile: options.promptFile,
         model: options.model,
-        profile: options.profile,
       });
       if (options.json) printJson(result);
       else {
@@ -521,30 +517,6 @@ export function installExecutionCommands(program: Command, context: CliContext):
         console.log(`Exit code: ${result.run.exitCode ?? ""}`);
         console.log(`Artifacts: ${result.run.artifacts.directory}`);
         if (result.run.worktree) console.log(`Worktree: ${result.run.worktree.checkoutPath}`);
-      }
-      if (result.run.status === "failed") {
-        process.exitCode = result.run.exitCode ?? 1;
-      }
-    });
-
-  run
-    .command("codex")
-    .argument("<project>", "registered project id/name/path")
-    .option("--prompt <text>", "prompt to send to Codex")
-    .option("--prompt-file <path>", "file containing the prompt to send to Codex, resolved from the current AHO cwd")
-    .option("--model <model>", "Codex model to pass through")
-    .option("--profile <profile>", "Codex config profile to pass through")
-    .option("--json", "print JSON")
-    .action(async (query: string, options: { prompt?: string; promptFile?: string; model?: string; profile?: string; json?: boolean }) => {
-      const project = await resolveManagedProject(store, query);
-      const prompt = await readPromptInput({ prompt: options.prompt, promptFile: options.promptFile });
-      const result = await startCodexReadonlyRun(project, { prompt, model: options.model, profile: options.profile });
-      if (options.json) printJson(result);
-      else {
-        console.log(`Run ${result.run.id}: ${result.run.status}`);
-        console.log(`Exit code: ${result.run.exitCode ?? ""}`);
-        console.log(`Artifacts: ${result.run.artifacts.directory}`);
-        console.log("Codex output is a proposal only; it has not been accepted or applied.");
       }
       if (result.run.status === "failed") {
         process.exitCode = result.run.exitCode ?? 1;

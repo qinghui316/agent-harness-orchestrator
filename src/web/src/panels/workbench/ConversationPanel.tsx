@@ -14,9 +14,8 @@ import {
   estimateTranscriptCellHeight,
 } from "./transcriptMeasurement.js";
 import type {
-  DemandAgentRunGraph,
-  DemandAgentRunGraphNode,
-  LiveAssistantTurn,
+  AgentRelationGraph,
+  AgentRelationGraphNode,
   ParentAgentTranscript,
   ParentAgentTranscriptCell,
   PlanHandoffCandidate,
@@ -33,7 +32,6 @@ const TRANSCRIPT_VIRTUALIZATION_THRESHOLD = 80;
 export function MainConversationView({
   workpad,
   transcript,
-  liveTurns,
   scrollContainerRef,
   onLoadEarlierTranscript,
   loadingEarlierTranscript,
@@ -42,7 +40,7 @@ export function MainConversationView({
   onAction,
   onConfirmApproval,
   onAnswerClarification,
-  onAnswerCodexUserInput,
+  onAnswerProviderUserInput,
   onSelectDecisionContext,
   onOpenAgent,
   planHandoffCandidate,
@@ -51,7 +49,6 @@ export function MainConversationView({
 }: {
   workpad: Workpad;
   transcript: ParentAgentTranscript;
-  liveTurns: LiveAssistantTurn[];
   scrollContainerRef: RefObject<HTMLDivElement | null>;
   onLoadEarlierTranscript: () => Promise<void>;
   loadingEarlierTranscript: boolean;
@@ -60,7 +57,7 @@ export function MainConversationView({
   onAction: (actionType: string, options?: Record<string, unknown>) => Promise<void>;
   onConfirmApproval: (approvalId: string) => void;
   onAnswerClarification: (clarificationId: string, answer: string) => Promise<void>;
-  onAnswerCodexUserInput: (request: import("../../types.js").CodexUserInputRequest, answers: Record<string, string | string[]>) => Promise<void>;
+  onAnswerProviderUserInput: (request: import("../../types.js").ProviderUserInputRequest, answers: Record<string, string | string[]>) => Promise<void>;
   onSelectDecisionContext: (contextId: string) => void;
   onOpenAgent: (agentSurfaceId: string) => void;
   planHandoffCandidate: PlanHandoffCandidate | null;
@@ -72,7 +69,6 @@ export function MainConversationView({
       <ParentAgentTranscriptView
         workpad={workpad}
         transcript={transcript}
-        liveTurns={liveTurns}
         scrollContainerRef={scrollContainerRef}
         onLoadEarlierTranscript={onLoadEarlierTranscript}
         loadingEarlierTranscript={loadingEarlierTranscript}
@@ -81,7 +77,7 @@ export function MainConversationView({
         onAction={onAction}
         onConfirmApproval={onConfirmApproval}
         onAnswerClarification={onAnswerClarification}
-        onAnswerCodexUserInput={onAnswerCodexUserInput}
+        onAnswerProviderUserInput={onAnswerProviderUserInput}
         onSelectDecisionContext={onSelectDecisionContext}
         onOpenAgent={onOpenAgent}
         planHandoffCandidate={planHandoffCandidate}
@@ -95,7 +91,6 @@ export function MainConversationView({
 function ParentAgentTranscriptView({
   workpad,
   transcript,
-  liveTurns,
   scrollContainerRef,
   onLoadEarlierTranscript,
   loadingEarlierTranscript,
@@ -104,7 +99,7 @@ function ParentAgentTranscriptView({
   onAction,
   onConfirmApproval,
   onAnswerClarification,
-  onAnswerCodexUserInput,
+  onAnswerProviderUserInput,
   onSelectDecisionContext,
   onOpenAgent,
   planHandoffCandidate,
@@ -113,7 +108,6 @@ function ParentAgentTranscriptView({
 }: {
   workpad: Workpad;
   transcript: ParentAgentTranscript;
-  liveTurns: LiveAssistantTurn[];
   scrollContainerRef: RefObject<HTMLDivElement | null>;
   onLoadEarlierTranscript: () => Promise<void>;
   loadingEarlierTranscript: boolean;
@@ -122,14 +116,13 @@ function ParentAgentTranscriptView({
   onAction: (actionType: string, options?: Record<string, unknown>) => Promise<void>;
   onConfirmApproval: (approvalId: string) => void;
   onAnswerClarification: (clarificationId: string, answer: string) => Promise<void>;
-  onAnswerCodexUserInput: (request: import("../../types.js").CodexUserInputRequest, answers: Record<string, string | string[]>) => Promise<void>;
+  onAnswerProviderUserInput: (request: import("../../types.js").ProviderUserInputRequest, answers: Record<string, string | string[]>) => Promise<void>;
   onSelectDecisionContext: (contextId: string) => void;
   onOpenAgent: (agentSurfaceId: string) => void;
   planHandoffCandidate: PlanHandoffCandidate | null;
   onPlanHandoff: (candidate: PlanHandoffCandidate, kind: PlanHandoffIntentKind, feedback?: string) => Promise<void>;
   onCancelPlanHandoff: (candidate: PlanHandoffCandidate) => Promise<void>;
 }): ReactElement {
-  void liveTurns;
   void busy;
   void approvals;
   void onAction;
@@ -162,6 +155,19 @@ function ParentAgentTranscriptView({
       }), [cells.length, heights, scrollMetrics.scrollTop, scrollMetrics.viewportHeight]);
   const visibleCells = cells.slice(virtualRange.start, virtualRange.end);
   const visibleCellIds = visibleCells.map((cell) => cell.id).join("|");
+
+  useEffect(() => {
+    const currentIds = new Set(cells.map((cell) => cell.id));
+    setMeasuredCellHeights((current) => {
+      const entries = Object.entries(current).filter(([id]) => currentIds.has(id));
+      if (entries.length === Object.keys(current).length) return current;
+      return Object.fromEntries(entries);
+    });
+    setExpandedCells((current) => {
+      const next = new Set([...current].filter((id) => currentIds.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [cells]);
 
   useEffect(() => {
     const root = scrollContainerRef.current;
@@ -241,7 +247,7 @@ function ParentAgentTranscriptView({
           </div>
         </section>
       ) : null}
-      <div className="parent-agent-message-list" data-testid="transcript-virtual-list" style={{ minHeight: virtualRange.totalHeight || undefined }}>
+      <div className="parent-agent-message-list" data-testid="transcript-virtual-list">
         {transcript.paging?.hasMoreBefore ? (
           <div className="transcript-load-earlier" data-testid="transcript-load-earlier">
             {loadingEarlierTranscript ? "正在加载更早消息..." : "向上滚动加载更早消息"}
@@ -273,7 +279,7 @@ function ParentAgentTranscriptView({
                 }}
                 onOpenAgent={onOpenAgent}
                 busy={busy}
-                onAnswerCodexUserInput={onAnswerCodexUserInput}
+                onAnswerProviderUserInput={onAnswerProviderUserInput}
               />
               {cellHasPlanCandidate(cell, planHandoffCandidate) ? (
                 <ConversationPendingActionStack
@@ -302,13 +308,13 @@ function ParentAgentTranscriptView({
   );
 }
 
-export function AgentRunGraphPanel({
+export function AgentRelationGraphPanel({
   graph,
   selectedNode,
   onSelectNode,
 }: {
-  graph: DemandAgentRunGraph;
-  selectedNode: DemandAgentRunGraphNode | null;
+  graph: AgentRelationGraph;
+  selectedNode: AgentRelationGraphNode | null;
   activeRun?: RunSummary;
   stream: StreamPacket | null;
   onSelectNode: (nodeId: string) => void;
@@ -316,7 +322,7 @@ export function AgentRunGraphPanel({
 }): ReactElement {
   void selectedNode;
   return (
-    <div className="agent-graph-panel" data-testid="agent-run-graph-panel">
+    <div className="agent-graph-panel" data-testid="agent-relation-graph-panel">
       <header className="agent-graph-header">
         <h2>Agent 编排图</h2>
       </header>

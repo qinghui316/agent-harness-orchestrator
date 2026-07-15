@@ -4,15 +4,13 @@ import {
   useRef,
   useState,
   type CSSProperties,
-  type Dispatch,
   type ReactElement,
-  type PointerEvent as ReactPointerEvent,
-  type SetStateAction } from "react";
+  type PointerEvent as ReactPointerEvent } from "react";
 import { consumeWorkbenchLiveStream,
   fetchJson,
   postJson } from "./api.js";
 import { MainConversationView,
-  AgentRunGraphPanel,
+  AgentRelationGraphPanel,
   RightToolRailShell,
   DecisionInspectorPane,
   BottomStatusBar,
@@ -30,68 +28,49 @@ import {
   ProjectConversationSidebar,
   TopicComposer,
   UnmanagedProjectView,
-  appendProseBlock,
-  blockFromAssistantEvent,
-  blockFromToolEvent,
   currentWorkpadSummary,
-  proseBlock,
-  threadItemFromTopicEntry,
-  upsertBlock,
 } from "./shell/WorkbenchShellParts.js";
 import {
   ProjectHomeView,
   ProjectReadinessHome,
-  CodexModelPicker,
+  ProviderModelPicker,
 } from "./panels/ProjectHome.js";
 import { SettingsSurface, type SettingsSection } from "./panels/SettingsSurface.js";
 import { workflowActionPayloadFromScope } from "./workflow-actions.js";
 import {
   emptyParentAgentTranscript,
-  findCompatibleLiveTurn,
   isParentAgentTranscriptPayload,
-  mergeLiveItemsIntoTranscript,
   mergeTranscriptPage,
   normalizeParentAgentTranscript,
-  transcriptContainsLiveItem,
-  transcriptContainsMainTurn
+  replaceCanonicalMessageCells,
 } from "./liveTranscript.js";
 import { derivePlanHandoffCandidate } from "./panels/workbench/planHandoff.js";
-import { baseAgentDisplayLabel, composeAgentDisplayLabel } from "../../agent-display-label.js";
 
 import {
   projectDisplayName,
   stateLabel,
-  runtimeLabel,
 } from "./formatters.js";
 import type {
   AppStatus,
-  CodexDiagnostics,
-  CodexModelSettingsSnapshot,
+  ProviderDiagnostics,
+  ProviderModelSettingsSnapshot,
   ProviderCapabilitySnapshot,
   ProjectStatus,
   Snapshot,
-  DemandAgentRunGraph,
+  AgentRelationGraph,
   ParentAgentTranscript,
-  ParentAgentTranscriptCell,
   Workpad,
-  ThreadStreamItem,
   DecisionAction,
   DecisionContext,
   StreamPacket,
   SkillListItem,
   WorkbenchLiveEvent,
-  WorkbenchLiveIdentity,
-  AssistantTurnBlock,
-  LiveTurnEvent,
-  LiveAssistantTurn,
   TopicAttachment,
   TopicFileReference,
   RuntimeActivityLogSnapshot,
   RuntimeDiagnosticsSnapshot,
-  CodexUserInputRequest,
+  ProviderUserInputRequest,
   AgentWorkspaceAgent,
-  AgentWorkspace,
-  TopicMessageEntry,
   PlanHandoffCandidate,
   PlanHandoffIntentKind,
 } from "./types.js";
@@ -109,7 +88,7 @@ const emptySnapshot: Snapshot = {
     thread: { items: [] },
     parentAgentTranscript: emptyParentAgentTranscript(),
     activeTab: "conversation",
-    agentRunGraph: emptyAgentRunGraph(),
+    agentRelationGraph: emptyAgentRelationGraph(),
   },
   right: {
     approvals: [],
@@ -130,13 +109,13 @@ const RIGHT_RAIL_DEFAULT_WIDTH = 320;
 const RIGHT_RAIL_MIN_WIDTH = 280;
 const RIGHT_RAIL_MAX_WIDTH = 560;
 type BottomDockKind = "terminal" | null;
-type LiveTurnSetter = Dispatch<SetStateAction<LiveAssistantTurn[]>>;
 type PendingDemandConversation = {
   id: string;
   projectId: string;
   title: string;
   body: string;
   startedAt: string;
+  selectedProviderId?: string;
 };
 
 function isSkillActiveForComposer(skill: SkillListItem, topicId: string | null, draftOverrides: Record<string, boolean>): boolean {
@@ -164,34 +143,11 @@ function pointerClientX(event: { clientX?: number; pageX?: number; screenX?: num
   return 0;
 }
 
-function pendingDemandTranscript(pending: PendingDemandConversation, includeUserMessage: boolean): ParentAgentTranscript {
-  const cells: ParentAgentTranscriptCell[] = [];
-  if (includeUserMessage) {
-    cells.push({
-      id: `pending:user:${pending.id}`,
-      kind: "user-message",
-      source: "user",
-      timestamp: pending.startedAt,
-      text: pending.body,
-    });
-  }
+function pendingDemandTranscript(pending: PendingDemandConversation): ParentAgentTranscript {
   return normalizeParentAgentTranscript({
     title: pending.title,
-    cells,
-    items: cells.map((cell) => ({
-      id: `pending:item:${cell.id}`,
-      actor: cell.kind === "user-message" ? "user" : "parent-agent",
-      timestamp: cell.timestamp,
-      derived: cell.kind !== "user-message",
-      blocks: [{
-        id: `pending:block:${cell.id}`,
-        kind: cell.kind === "user-message" ? "prose" : "process",
-        source: cell.source,
-        title: cell.title,
-        text: cell.text,
-        status: cell.status,
-      }],
-    })),
+    cells: [],
+    items: [],
     emptyMessage: "正在等待主 Agent 回复。",
   });
 }
@@ -204,7 +160,7 @@ export function App(): ReactElement {
   const [selectedRun, setSelectedRun] = useState<string | null>(null);
   const [stream, setStream] = useState<StreamPacket | null>(null);
   const [orchestrationOpen, setOrchestrationOpen] = useState(false);
-  const [selectedRunGraphNodeId, setSelectedRunGraphNodeId] = useState<string | null>(null);
+  const [selectedAgentGraphNodeId, setSelectedAgentGraphNodeId] = useState<string | null>(null);
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
   const [projectSnapshots, setProjectSnapshots] = useState<Record<string, Snapshot>>({});
   const [sidebarSearch, setSidebarSearch] = useState("");
@@ -218,23 +174,21 @@ export function App(): ReactElement {
   const [error, setError] = useState<string | null>(null);
   const [composerText, setComposerText] = useState("");
   const [actionRunning, setActionRunning] = useState<string | null>(null);
-  const [liveItems, setLiveItems] = useState<ThreadStreamItem[]>([]);
-  const [liveTurns, setLiveTurns] = useState<LiveAssistantTurn[]>([]);
-  const [agentLiveTurns, setAgentLiveTurns] = useState<LiveAssistantTurn[]>([]);
   const [openAgentSurfaceIds, setOpenAgentSurfaceIds] = useState<string[]>([]);
   const [loadedTranscript, setLoadedTranscript] = useState<ParentAgentTranscript | null>(null);
   const [loadingEarlierTranscript, setLoadingEarlierTranscript] = useState(false);
-  const [loadedRunGraph, setLoadedRunGraph] = useState<DemandAgentRunGraph | null>(null);
-  const [runGraphLoadState, setRunGraphLoadState] = useState<"idle" | "loading" | "ready" | "error">("idle");
-  const [runGraphLoadError, setRunGraphLoadError] = useState<string | null>(null);
-  const [runGraphReloadVersion, setRunGraphReloadVersion] = useState(0);
+  const [loadedAgentRelationGraph, setLoadedAgentRelationGraph] = useState<AgentRelationGraph | null>(null);
+  const [agentGraphLoadState, setAgentGraphLoadState] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [agentGraphLoadError, setAgentGraphLoadError] = useState<string | null>(null);
+  const [agentGraphReloadVersion, setAgentGraphReloadVersion] = useState(0);
   const [pendingDemandConversation, setPendingDemandConversation] = useState<PendingDemandConversation | null>(null);
-  const [codexDiagnostics, setCodexDiagnostics] = useState<CodexDiagnostics | null>(null);
-  const [codexModelSettings, setCodexModelSettings] = useState<CodexModelSettingsSnapshot | null>(null);
+  const [providerDiagnostics, setProviderDiagnostics] = useState<ProviderDiagnostics | null>(null);
+  const [providerModelSettings, setProviderModelSettings] = useState<ProviderModelSettingsSnapshot | null>(null);
   const [providerCapabilities, setProviderCapabilities] = useState<ProviderCapabilitySnapshot[]>([]);
-  const [codexModelPickerOpen, setCodexModelPickerOpen] = useState(false);
-  const [codexModelSettingsBusy, setCodexModelSettingsBusy] = useState(false);
-  const [codexModelSettingsMessage, setCodexModelSettingsMessage] = useState<string | null>(null);
+  const [composerProviderId, setComposerProviderId] = useState<string | null>(null);
+  const [providerModelPickerOpen, setProviderModelPickerOpen] = useState(false);
+  const [providerModelSettingsBusy, setProviderModelSettingsBusy] = useState(false);
+  const [providerModelSettingsMessage, setProviderModelSettingsMessage] = useState<string | null>(null);
   const [skillItems, setSkillItems] = useState<SkillListItem[]>([]);
   const [draftSkillOverrides, setDraftSkillOverrides] = useState<Record<string, boolean>>({});
   const [composerFileRefs, setComposerFileRefs] = useState<TopicFileReference[]>([]);
@@ -256,6 +210,11 @@ export function App(): ReactElement {
   const [projectionVersion, setProjectionVersion] = useState(0);
   const [latestHidden, setLatestHidden] = useState(false);
   const threadScrollRef = useRef<HTMLDivElement | null>(null);
+  const threadPinnedToBottomRef = useRef(true);
+  const transcriptVisualExtentRef = useRef(0);
+  const mainMessageCellOwnersRef = useRef(new Map<string, string[]>());
+  const agentMessageCellOwnersRef = useRef(new Map<string, string[]>());
+  const agentProjectionRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const graphScopeRef = useRef<string | null>(null);
   const selectedComposerSkillIds = useMemo(
     () => activeComposerSkillIds(skillItems, selectedTopic, draftSkillOverrides),
@@ -437,20 +396,22 @@ export function App(): ReactElement {
     }
   }
 
-  async function loadCodexDiagnostics(projectId = selectedProjectId): Promise<void> {
+  async function loadProviderDiagnostics(projectId = selectedProjectId, requestedProviderId?: string): Promise<void> {
+    const providerId = requestedProviderId ?? providerDiagnostics?.providerId ?? await resolveDefaultProviderId();
     const path = projectId
-      ? `/api/projects/${encodeURIComponent(projectId)}/codex/diagnostics`
-      : "/api/codex/diagnostics";
+      ? `/api/projects/${encodeURIComponent(projectId)}/providers/${encodeURIComponent(providerId)}/diagnostics`
+      : `/api/providers/${encodeURIComponent(providerId)}/diagnostics`;
     const diagnostics = await fetchJson<unknown>(path);
-    setCodexDiagnostics(isCodexDiagnostics(diagnostics) ? diagnostics : null);
+    setProviderDiagnostics(isProviderDiagnostics(diagnostics) ? diagnostics : null);
   }
 
-  async function loadCodexModelSettings(projectId = selectedProjectId): Promise<void> {
+  async function loadProviderModelSettings(projectId = selectedProjectId, requestedProviderId?: string): Promise<void> {
+    const providerId = requestedProviderId ?? providerDiagnostics?.providerId ?? providerModelSettings?.providerId ?? await resolveDefaultProviderId();
     const path = projectId
-      ? `/api/projects/${encodeURIComponent(projectId)}/codex/models`
-      : "/api/codex/models";
+      ? `/api/projects/${encodeURIComponent(projectId)}/providers/${encodeURIComponent(providerId)}/models`
+      : `/api/providers/${encodeURIComponent(providerId)}/models`;
     const payload = await fetchJson<unknown>(path);
-    setCodexModelSettings(isCodexModelSettingsSnapshot(payload) ? payload : null);
+    setProviderModelSettings(isProviderModelSettingsSnapshot(payload) ? payload : null);
   }
 
   async function loadProviderCapabilities(projectId = selectedProjectId): Promise<void> {
@@ -458,7 +419,18 @@ export function App(): ReactElement {
       ? `/api/projects/${encodeURIComponent(projectId)}/providers/capabilities`
       : "/api/providers/capabilities";
     const payload = await fetchJson<{ providers?: unknown[] }>(path);
-    setProviderCapabilities(Array.isArray(payload.providers) ? payload.providers.filter(isProviderCapabilitySnapshot) : []);
+    const providers = Array.isArray(payload.providers) ? payload.providers.filter(isProviderCapabilitySnapshot) : [];
+    setProviderCapabilities(providers);
+    setComposerProviderId((current) => current ?? (providers.length === 1 ? providers[0]!.providerId : null));
+  }
+
+  async function selectComposerProvider(providerId: string): Promise<void> {
+    if (providerId === composerProviderId) return;
+    setComposerProviderId(providerId);
+    await Promise.all([
+      loadProviderDiagnostics(selectedProjectId, providerId),
+      loadProviderModelSettings(selectedProjectId, providerId),
+    ]);
   }
 
   async function loadSkillSummary(projectId = selectedProjectId, topicId = selectedTopic): Promise<void> {
@@ -508,25 +480,31 @@ export function App(): ReactElement {
   useEffect(() => {
     let cancelled = false;
     const projectId = selectedProjectId;
-    const path = projectId
-      ? `/api/projects/${encodeURIComponent(projectId)}/codex/diagnostics`
-      : "/api/codex/diagnostics";
-    Promise.all([
-      fetchJson<unknown>(path),
-      fetchJson<unknown>(projectId ? `/api/projects/${encodeURIComponent(projectId)}/codex/models` : "/api/codex/models"),
-      fetchJson<{ providers?: unknown[] }>(projectId ? `/api/projects/${encodeURIComponent(projectId)}/providers/capabilities` : "/api/providers/capabilities"),
-    ])
-      .then(([diagnostics, models, providers]) => {
+    const projectDefaultProviderId = projects.find((item) => item.project?.id === projectId)?.project?.defaultProviderId;
+    fetchJson<{ providers?: unknown[] }>(projectId ? `/api/projects/${encodeURIComponent(projectId)}/providers/capabilities` : "/api/providers/capabilities")
+      .then(async (payload) => {
+        const providers = Array.isArray(payload.providers) ? payload.providers.filter(isProviderCapabilitySnapshot) : [];
+        const providerId = projectDefaultProviderId && providers.some((provider) => provider.providerId === projectDefaultProviderId)
+          ? projectDefaultProviderId
+          : providers.length === 1 ? providers[0]!.providerId : null;
+        if (!providerId) return { providers, diagnostics: null, models: null };
+        const [diagnostics, models] = await Promise.all([
+          fetchJson<unknown>(projectId ? `/api/projects/${encodeURIComponent(projectId)}/providers/${encodeURIComponent(providerId)}/diagnostics` : `/api/providers/${encodeURIComponent(providerId)}/diagnostics`),
+          fetchJson<unknown>(projectId ? `/api/projects/${encodeURIComponent(projectId)}/providers/${encodeURIComponent(providerId)}/models` : `/api/providers/${encodeURIComponent(providerId)}/models`),
+        ]);
+        return { providers, diagnostics, models };
+      })
+      .then(({ diagnostics, models, providers }) => {
         if (cancelled) return;
-        setCodexDiagnostics(isCodexDiagnostics(diagnostics) ? diagnostics : null);
-        setCodexModelSettings(isCodexModelSettingsSnapshot(models) ? models : null);
-        setProviderCapabilities(Array.isArray(providers.providers) ? providers.providers.filter(isProviderCapabilitySnapshot) : []);
+        setProviderDiagnostics(isProviderDiagnostics(diagnostics) ? diagnostics : null);
+        setProviderModelSettings(isProviderModelSettingsSnapshot(models) ? models : null);
+        setProviderCapabilities(providers);
       })
       .catch((cause: unknown) => {
         if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
       });
     return () => { cancelled = true; };
-  }, [selectedProjectId]);
+  }, [selectedProjectId, projects]);
 
   useEffect(() => {
     loadSkillSummary().catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)));
@@ -588,7 +566,7 @@ export function App(): ReactElement {
         parentAgentTranscript: emptyParentAgentTranscript(),
         activeTab: "conversation" as const,
         agentLoop: { runs: [] },
-        agentRunGraph: emptyAgentRunGraph(),
+        agentRelationGraph: emptyAgentRelationGraph(),
       },
       right: {
         ...baseSnapshot.right,
@@ -768,31 +746,32 @@ export function App(): ReactElement {
     }
   }
 
-  async function openCodexModelPicker(): Promise<void> {
-    setCodexModelPickerOpen(true);
-    setCodexModelSettingsMessage(null);
+  async function openProviderModelPicker(): Promise<void> {
+    setProviderModelPickerOpen(true);
+    setProviderModelSettingsMessage(null);
     try {
-      await loadCodexModelSettings();
+      await loadProviderModelSettings();
     } catch (cause) {
-      setCodexModelSettingsMessage(cause instanceof Error ? cause.message : String(cause));
+      setProviderModelSettingsMessage(cause instanceof Error ? cause.message : String(cause));
     }
   }
 
-  async function updateCodexModelSettings(body: unknown): Promise<void> {
-    setCodexModelSettingsBusy(true);
-    setCodexModelSettingsMessage(null);
+  async function updateProviderModelSettings(body: unknown): Promise<void> {
+    setProviderModelSettingsBusy(true);
+    setProviderModelSettingsMessage(null);
     try {
+      const providerId = providerDiagnostics?.providerId ?? providerModelSettings?.providerId ?? await resolveDefaultProviderId();
       const path = selectedProjectId
-        ? `/api/projects/${encodeURIComponent(selectedProjectId)}/codex/models`
-        : "/api/codex/models";
+        ? `/api/projects/${encodeURIComponent(selectedProjectId)}/providers/${encodeURIComponent(providerId)}/models`
+        : `/api/providers/${encodeURIComponent(providerId)}/models`;
       const payload = await postJson<unknown>(path, body);
-      setCodexModelSettings(isCodexModelSettingsSnapshot(payload) ? payload : null);
-      await loadCodexDiagnostics();
+      setProviderModelSettings(isProviderModelSettingsSnapshot(payload) ? payload : null);
+      await loadProviderDiagnostics();
       await loadProviderCapabilities();
     } catch (cause) {
-      setCodexModelSettingsMessage(cause instanceof Error ? cause.message : String(cause));
+      setProviderModelSettingsMessage(cause instanceof Error ? cause.message : String(cause));
     } finally {
-      setCodexModelSettingsBusy(false);
+      setProviderModelSettingsBusy(false);
     }
   }
 
@@ -950,6 +929,10 @@ export function App(): ReactElement {
       const resolved = resolveComposerTextWithContext(body, fileRefs);
       const demandBody = resolved.text || defaultAttachmentPrompt(attachmentIds.length + attachmentFiles.length);
       if (!demandBody && attachmentIds.length === 0 && attachmentFiles.length === 0) return;
+      if (providerCapabilities.length > 1 && !composerProviderId) {
+        setError("请先选择本次对话使用的 Agent。");
+        return;
+      }
       const title = demandBody.split(/\r?\n/)[0].slice(0, 60);
       const effectiveProjectId = await ensureProjectRegisteredForDemand(selectedProjectId);
       if (!effectiveProjectId) return;
@@ -960,6 +943,7 @@ export function App(): ReactElement {
         title,
         body: demandBody,
         startedAt: new Date().toISOString(),
+        selectedProviderId: composerProviderId ?? undefined,
       };
       if (showPendingBeforeCreate) {
         setOrchestrationOpen(false);
@@ -967,10 +951,10 @@ export function App(): ReactElement {
         persistSelectedProjectId(effectiveProjectId);
         setSelectedTopic(pendingConversation.id);
         setPendingDemandConversation(pendingConversation);
-        setLiveItems([]);
-        setLiveTurns([]);
+        mainMessageCellOwnersRef.current.clear();
+        agentMessageCellOwnersRef.current.clear();
         setLoadedTranscript(null);
-        setLoadedRunGraph(null);
+        setLoadedAgentRelationGraph(null);
       }
       draftUploadProjectId = effectiveProjectId;
       uploadedDraft = await uploadFilesForProject(effectiveProjectId, attachmentFiles);
@@ -981,6 +965,7 @@ export function App(): ReactElement {
         contextRefs: resolved.contextRefs,
         attachmentIds: finalAttachmentIds,
         confirm: true,
+        providerId: composerProviderId ?? undefined,
       }, (event) => {
         if (event.event === "topic.created") {
           const createdId = event.data.topic.conversationId ?? event.data.topic.id ?? event.data.topic.changeId;
@@ -991,12 +976,13 @@ export function App(): ReactElement {
           setSelectedTopic(createdId);
           syncWorkbenchLocation(effectiveProjectId, createdId);
           setPendingDemandConversation((current) => current && current.projectId === effectiveProjectId
-            ? { ...current, id: createdId, title: event.data.topic.title }
+            ? { ...current, id: createdId, title: event.data.topic.title, selectedProviderId: event.data.topic.selectedProviderId ?? current.selectedProviderId }
             : {
               ...pendingConversation,
               id: createdId,
               title: event.data.topic.title,
               startedAt: new Date().toISOString(),
+              selectedProviderId: event.data.topic.selectedProviderId,
             });
         }
         handleLiveEvent(event);
@@ -1070,6 +1056,8 @@ export function App(): ReactElement {
         message: outboundMessage,
         contextRefs: resolved.contextRefs,
         attachmentIds,
+        providerId: composerProviderId ?? activeTopic.selectedProviderId,
+        providerSwitchIntent: composerProviderId && composerProviderId !== activeTopic.selectedProviderId ? "resume-workflow" : undefined,
       }, handleLiveEvent);
       setComposerFileRefs([]);
       setComposerAttachments([]);
@@ -1149,17 +1137,13 @@ export function App(): ReactElement {
     }
   }
 
-  async function answerCodexUserInput(request: CodexUserInputRequest, answers: Record<string, string | string[]>): Promise<void> {
+  async function answerProviderUserInput(request: ProviderUserInputRequest, answers: Record<string, string | string[]>): Promise<void> {
     if (!selectedProjectId || !activeTopic) return;
-    setActionRunning("codex.userInput.answer");
+    setActionRunning("provider.userInput.answer");
     setError(null);
-    setLiveItems((current) => current.map((item) => item.codexUserInput?.requestKey === request.requestKey ? {
-      ...item,
-      status: "submitting",
-      codexUserInput: { ...item.codexUserInput!, status: "submitting", answers },
-    } : item));
+    updateCanonicalProviderUserInput(request.requestKey, "submitting", answers);
     try {
-      const result = await postJson<{ result: unknown; snapshot: Snapshot }>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/codex/user-input/${encodeURIComponent(request.requestId)}/answer`, {
+      const result = await postJson<{ result: unknown; snapshot: Snapshot }>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/providers/user-input/${encodeURIComponent(request.requestId)}/answer`, {
         changeId: request.changeId,
         conversationId: request.conversationId ?? (!request.changeId ? activeTopic.id : undefined),
         requestKey: request.requestKey,
@@ -1167,17 +1151,9 @@ export function App(): ReactElement {
       });
       setSnapshot(result.snapshot);
       const submittedAt = new Date().toISOString();
-      setLiveItems((current) => current.map((item) => item.codexUserInput?.requestKey === request.requestKey ? {
-        ...item,
-        status: "submitted",
-        codexUserInput: { ...item.codexUserInput!, status: "submitted", answers, submittedAt },
-      } : item));
+      updateCanonicalProviderUserInput(request.requestKey, "submitted", answers, submittedAt);
     } catch (cause) {
-      setLiveItems((current) => current.map((item) => item.codexUserInput?.requestKey === request.requestKey ? {
-        ...item,
-        status: "pending",
-        codexUserInput: { ...item.codexUserInput!, status: "pending" },
-      } : item));
+      updateCanonicalProviderUserInput(request.requestKey, "pending");
       throw cause;
     } finally {
       setActionRunning(null);
@@ -1246,136 +1222,103 @@ export function App(): ReactElement {
     }
     if (event.event === "snapshot") {
       setSnapshot(event.data);
-      const snapshotCells = event.data.center.parentAgentTranscript.cells ?? [];
-      setLiveItems((current) => current.filter((item) => !transcriptContainsLiveItem(snapshotCells, item)));
-      setLiveTurns((current) => current.filter((turn) => !snapshotContainsTurn(event.data, turn)));
-      setAgentLiveTurns((current) => current.filter((turn) => !snapshotContainsAgentTurn(event.data, turn)));
+      setLoadedTranscript(normalizeParentAgentTranscript(event.data.center.parentAgentTranscript));
+      mainMessageCellOwnersRef.current.clear();
+      agentMessageCellOwnersRef.current.clear();
       setPendingDemandConversation(null);
       invalidateProjectionCache();
       return;
     }
-    if (event.event === "error") {
-      if (event.data.runId) {
-        if (isTransientReconnectMessage(event.data.message)) {
-          if (isChildLiveIdentity(event.data)) {
-            appendAgentLiveTurnEvent(event.data.runId, { kind: "status", label: "connecting", detail: "正在重新连接" }, event.data, "connecting");
-          } else {
-            appendLiveTurnEvent(event.data.runId, { kind: "status", label: "connecting", detail: "正在重新连接" }, "connecting", undefined, event.data);
-          }
-          return;
-        }
-        if (isChildLiveIdentity(event.data)) {
-          appendAgentLiveTurnEvent(event.data.runId, { kind: "error", message: event.data.message }, event.data, "failed");
-        } else {
-          appendLiveTurnEvent(event.data.runId, { kind: "error", message: event.data.message }, "failed", undefined, event.data);
-        }
-        return;
+    if (event.event === "timeline.patch") {
+      if (activeTopic?.id && event.data.conversationId !== activeTopic.id) return;
+      if (event.data.agentSurfaceId === "main-agent") {
+        const previous = mainMessageCellOwnersRef.current.get(event.data.messageId) ?? [];
+        setLoadedTranscript((current) => replaceCanonicalMessageCells(
+          normalizeParentAgentTranscript(current ?? snapshot.center.parentAgentTranscript ?? emptyParentAgentTranscript()),
+          previous,
+          event.data.cells,
+        ));
+        mainMessageCellOwnersRef.current.set(event.data.messageId, event.data.cells.map((cell) => cell.id));
+      } else {
+        const ownerKey = `${event.data.agentSurfaceId}:${event.data.messageId}`;
+        const previous = agentMessageCellOwnersRef.current.get(ownerKey) ?? [];
+        setSnapshot((current) => {
+          const workspace = current.right.agentWorkspace ?? { selectedAgentId: "planning-agent", agents: [] };
+          return {
+            ...current,
+            right: {
+              ...current.right,
+              agentWorkspace: {
+                ...workspace,
+                agents: workspace.agents.map((agent) => agent.id === event.data.agentSurfaceId ? {
+                  ...agent,
+                  transcript: replaceCanonicalMessageCells(agent.transcript, previous, event.data.cells),
+                } : agent),
+              },
+            },
+          };
+        });
+        agentMessageCellOwnersRef.current.set(ownerKey, event.data.cells.map((cell) => cell.id));
+        scheduleAgentProjectionRefresh();
       }
+      return;
+    }
+    if (event.event === "error") {
+      if (isTransientReconnectMessage(event.data.message)) return;
       setError(event.data.message);
       return;
     }
-    if (event.event === "assistant.delta") {
-      const runId = event.data.runId ?? event.data.agentTaskId ?? "assistant";
-      if (isChildLiveIdentity(event.data)) {
-        appendAgentLiveTurnText(runId, event.data.delta, event.data);
-      } else {
-        appendLiveTurnText(runId, event.data.delta, event.data);
-      }
-      return;
-    }
-    if (event.event === "codex.userInput.requested") {
-      appendLiveItem({
-        id: `codex-user-input:${event.data.requestKey}`,
-        kind: "assistant-turn",
-        label: "需要你回答",
-        timestamp: new Date().toISOString(),
-        source: "chat",
-        status: event.data.status,
-        graphScopeId: event.data.graphScopeId,
-        runId: event.data.runId,
-        threadId: event.data.threadId,
-        turnId: event.data.turnId,
-        agentRoleId: event.data.agentRoleId,
-        agentTaskId: event.data.agentTaskId,
-        codexUserInput: event.data,
-      });
-      return;
-    }
-    if (event.event === "codex.userInput.submitted") {
-      setLiveItems((current) => current.map((item) => item.codexUserInput?.requestKey === event.data.requestKey ? {
-        ...item,
-        status: "submitted",
-        codexUserInput: { ...item.codexUserInput!, status: "submitted" },
-      } : item));
-      return;
-    }
-    if (event.event === "assistant.message") {
-      if (event.data.agentRoleId && event.data.agentRoleId !== "main-agent") {
-        const runId = event.data.runId ?? event.data.agentTaskId ?? `agent-message:${event.data.id}`;
-        mergeAgentDurableMessage(runId, event.data.agentRoleId, event.data.agentTaskId, event.data);
-        return;
-      }
-      if (event.data.runId) completeLiveTurn(event.data.runId, event.data.text, event.data);
-      else appendLiveItem(threadItemFromTopicEntry(event.data));
-      return;
-    }
-    if (event.event === "assistant.event") {
-      if (isChildLiveIdentity(event.data)) {
-        appendAgentLiveTurnEvent(event.data.runId, { kind: "assistant-event", event: event.data }, event.data, event.data.isError ? "failed" : event.data.phase, blockFromAssistantEvent(event.data));
-      } else {
-        appendLiveTurnEvent(event.data.runId, { kind: "assistant-event", event: event.data }, event.data.isError ? "failed" : event.data.phase, blockFromAssistantEvent(event.data), event.data);
-      }
-      return;
-    }
-    if (event.event === "tool.event") {
-      if (isChildLiveIdentity(event.data)) {
-        appendAgentLiveTurnEvent(event.data.runId, { kind: "tool", tool: event.data }, event.data, event.data.isError ? "failed" : undefined, blockFromToolEvent(event.data));
-      } else {
-        appendLiveTurnEvent(event.data.runId, { kind: "tool", tool: event.data }, event.data.isError ? "failed" : undefined, blockFromToolEvent(event.data), event.data);
-      }
-      return;
-    }
-    if (event.event === "usage") {
-      // Usage can describe the previous provider turn during reconnect. It is
-      // diagnostic-only in the conversation UI and must not establish turn identity.
-      return;
-    }
-    if (event.event === "topic.message") {
-      appendLiveItem(threadItemFromTopicEntry(event.data));
-      return;
-    }
-    if (event.event === "run.started") {
-      const patch = {
-        runtime: event.data.runtime,
-        actionType: event.data.actionType,
-        status: "running",
-        events: [{ kind: "status", label: "running", detail: runtimeLabel(event.data.runtime ?? event.data.actionType ?? "Run") }],
-      } satisfies Partial<Omit<LiveAssistantTurn, "id" | "runId" | "startedAt">> & { events?: LiveTurnEvent[] };
-      if (isChildLiveIdentity(event.data)) {
-        upsertAgentLiveTurn(event.data.runId, event.data.agentRoleId ?? "child-agent", event.data.agentTaskId, { ...patch, ...liveTurnIdentity(event.data) });
-      } else {
-        upsertLiveTurn(event.data.runId, { ...patch, ...liveTurnIdentity(event.data) });
-      }
-      return;
-    }
-    if (event.event === "run.status") {
-      const runId = event.data.runId ?? event.data.actionRunId ?? (event.data.agentRoleId ? latestAgentLiveRunId() : latestLiveRunId());
-      if (runId) {
-        if (isChildLiveIdentity(event.data)) {
-          appendAgentLiveTurnEvent(runId, { kind: "status", label: event.data.status, detail: event.data.label }, event.data, event.data.status);
-        } else {
-          appendLiveTurnEvent(runId, { kind: "status", label: event.data.status, detail: event.data.label }, event.data.status, undefined, event.data);
-        }
-      }
-    }
+    // Raw provider lifecycle events are diagnostic transport only. Conversation,
+    // Agent workspace, and graph surfaces consume canonical server projections.
   }
 
-  function latestLiveRunId(): string | undefined {
-    return liveTurns[liveTurns.length - 1]?.runId;
+  function updateCanonicalProviderUserInput(
+    requestKey: string,
+    status: ProviderUserInputRequest["status"],
+    answers?: Record<string, string | string[]>,
+    submittedAt?: string,
+  ): void {
+    setLoadedTranscript((current) => current ? mapProviderUserInputTranscript(current, requestKey, status, answers, submittedAt) : current);
+    setSnapshot((current) => {
+      const workspace = current.right.agentWorkspace ?? { selectedAgentId: "planning-agent", agents: [] };
+      return {
+        ...current,
+        right: {
+          ...current.right,
+          agentWorkspace: {
+            ...workspace,
+            agents: workspace.agents.map((agent) => ({
+              ...agent,
+              transcript: mapProviderUserInputTranscript(agent.transcript, requestKey, status, answers, submittedAt),
+            })),
+          },
+        },
+      };
+    });
   }
 
-  function latestAgentLiveRunId(): string | undefined {
-    return agentLiveTurns[agentLiveTurns.length - 1]?.runId;
+  function scheduleAgentProjectionRefresh(): void {
+    if (!selectedProjectId || !activeTopic?.id || agentProjectionRefreshTimerRef.current) return;
+    agentProjectionRefreshTimerRef.current = setTimeout(() => {
+      agentProjectionRefreshTimerRef.current = null;
+      const projectId = selectedProjectId;
+      const topicId = activeTopic.id;
+      void Promise.all([
+        fetchJson<Snapshot>(`/api/projects/${encodeURIComponent(projectId)}/workbench/snapshot?topic=${encodeURIComponent(topicId)}`),
+        fetchJson<AgentRelationGraph>(`/api/projects/${encodeURIComponent(projectId)}/workbench/projections/agent-graph/${encodeURIComponent(topicId)}`),
+      ])
+        .then(([next, graph]) => {
+          setSnapshot((current) => ({
+            ...current,
+            center: { ...current.center, agentRelationGraph: graph },
+            right: { ...current.right, agentWorkspace: next.right.agentWorkspace },
+          }));
+          setLoadedAgentRelationGraph(graph);
+        })
+        .catch(() => {
+          // The next canonical patch or final snapshot retries projection refresh.
+        });
+    }, 180);
   }
 
   function openChildAgentWorkspace(agentSurfaceId: string): void {
@@ -1384,6 +1327,7 @@ export function App(): ReactElement {
     setSelectedAgentWorkspaceAgentId(agentSurfaceId);
     setRightToolView("agent");
     setDecisionPaneCollapsed(false);
+    scheduleAgentProjectionRefresh();
   }
 
   function closeChildAgentWorkspace(agentSurfaceId: string): void {
@@ -1395,217 +1339,17 @@ export function App(): ReactElement {
     });
   }
 
-  function upsertLiveTurn(runId: string, patch: Partial<Omit<LiveAssistantTurn, "id" | "runId" | "startedAt">> & { events?: LiveTurnEvent[] }): void {
-    upsertLiveTurnIn(setLiveTurns, runId, patch);
-  }
-
-  function upsertAgentLiveTurn(
-    runId: string,
-    agentRoleId: string,
-    agentTaskId: string | undefined,
-    patch: Partial<Omit<LiveAssistantTurn, "id" | "runId" | "startedAt">> & { events?: LiveTurnEvent[] },
-  ): void {
-    upsertLiveTurnIn(setAgentLiveTurns, runId, { ...patch, agentRoleId, agentTaskId });
-  }
-
-  function mergeAgentDurableMessage(
-    runId: string,
-    agentRoleId: string,
-    agentTaskId: string | undefined,
-    message: TopicMessageEntry,
-  ): void {
-    setAgentLiveTurns((current) => {
-      const identity = { ...liveTurnIdentity(message), agentRoleId, agentTaskId };
-      const existing = findCompatibleLiveTurn(current, runId, identity);
-      if (!existing) {
-        return [...current, {
-          id: `live-turn:${liveTurnIdentityKey(runId, identity)}`,
-          runId,
-          ...identity,
-          status: "completed",
-          text: message.text ?? "",
-          events: [],
-          blocks: message.blocks ?? [],
-          startedAt: message.timestamp ?? new Date().toISOString(),
-          endedAt: message.timestamp ?? new Date().toISOString(),
-        }];
-      }
-      const mergedBlocks = (message.blocks ?? []).reduce((items, block) => upsertBlock(items, block), existing.blocks);
-      const messageText = message.text?.trim();
-      const text = messageText && !existing.text.includes(messageText)
-        ? [existing.text.trim(), messageText].filter(Boolean).join("\n\n")
-        : existing.text;
-      return current.map((turn) => turn === existing ? {
-        ...turn,
-        ...identity,
-        status: "completed",
-        text,
-        blocks: mergedBlocks,
-        endedAt: message.timestamp ?? turn.endedAt ?? new Date().toISOString(),
-      } : turn);
-    });
-  }
-
-  function upsertLiveTurnIn(
-    setter: LiveTurnSetter,
-    runId: string,
-    patch: Partial<Omit<LiveAssistantTurn, "id" | "runId" | "startedAt">> & { events?: LiveTurnEvent[] },
-  ): void {
-    setter((current) => {
-      const identityKey = liveTurnIdentityKey(runId, patch);
-      const existing = findCompatibleLiveTurn(current, runId, patch);
-      if (!existing) {
-        return [...current, {
-          id: `live-turn:${identityKey}`,
-          runId,
-          projectId: patch.projectId,
-          conversationId: patch.conversationId,
-          changeId: patch.changeId,
-          threadId: patch.threadId,
-          parentThreadId: patch.parentThreadId,
-          turnId: patch.turnId,
-          agentSurfaceId: patch.agentSurfaceId,
-          agentDisplayName: patch.agentDisplayName,
-          agentRoleId: patch.agentRoleId,
-          agentTaskId: patch.agentTaskId,
-          runtime: patch.runtime,
-          actionType: patch.actionType,
-          status: patch.status ?? "running",
-          text: patch.text ?? "",
-          events: patch.events ?? [],
-          blocks: patch.blocks ?? [],
-          startedAt: new Date().toISOString(),
-          endedAt: patch.endedAt,
-        }];
-      }
-      return current.map((turn) => turn === existing ? { ...turn, ...patch, events: patch.events ?? turn.events, blocks: patch.blocks ?? turn.blocks } : turn);
-    });
-  }
-
-  function appendLiveTurnText(runId: string, delta: string, identity?: WorkbenchLiveIdentity): void {
-    appendLiveTurnTextIn(setLiveTurns, runId, delta, identity);
-  }
-
-  function appendAgentLiveTurnText(runId: string, delta: string, identity: WorkbenchLiveIdentity): void {
-    appendLiveTurnTextIn(setAgentLiveTurns, runId, delta, identity);
-  }
-
-  function appendLiveTurnTextIn(setter: LiveTurnSetter, runId: string, delta: string, identity: WorkbenchLiveIdentity = {}): void {
-    setter((current) => {
-      const identityKey = liveTurnIdentityKey(runId, identity);
-      const existing = findCompatibleLiveTurn(current, runId, identity);
-      if (!existing) {
-        return [...current, {
-          id: `live-turn:${identityKey}`,
-          runId,
-          ...liveTurnIdentity(identity),
-          status: "replying",
-          text: delta,
-          events: [{ kind: "status", label: "replying" }],
-          blocks: [proseBlock(runId, delta, 1, identity)],
-          startedAt: new Date().toISOString(),
-        }];
-      }
-      return current.map((turn) => {
-        if (turn !== existing) return turn;
-        return { ...turn, ...liveTurnIdentity(identity), status: "replying", text: `${turn.text}${delta}`, blocks: appendProseBlock(turn.blocks, runId, delta, identity) };
-      });
-    });
-  }
-
-  function appendLiveTurnEvent(runId: string, event: LiveTurnEvent, status?: string, block?: AssistantTurnBlock | null, identity?: WorkbenchLiveIdentity): void {
-    appendLiveTurnEventIn(setLiveTurns, runId, event, status, block, identity);
-  }
-
-  function appendAgentLiveTurnEvent(
-    runId: string,
-    event: LiveTurnEvent,
-    identity: WorkbenchLiveIdentity,
-    status?: string,
-    block?: AssistantTurnBlock | null,
-  ): void {
-    appendLiveTurnEventIn(setAgentLiveTurns, runId, event, status, block, identity);
-  }
-
-  function appendLiveTurnEventIn(setter: LiveTurnSetter, runId: string, event: LiveTurnEvent, status?: string, block?: AssistantTurnBlock | null, identity: WorkbenchLiveIdentity = {}): void {
-    setter((current) => {
-      const identityKey = liveTurnIdentityKey(runId, identity);
-      const existing = findCompatibleLiveTurn(current, runId, identity);
-      if (!existing) {
-        return [...current, {
-          id: `live-turn:${identityKey}`,
-          runId,
-          ...liveTurnIdentity(identity),
-          status: status ?? "running",
-          text: "",
-          events: [event],
-          blocks: block ? [block] : [],
-          startedAt: new Date().toISOString(),
-        }];
-      }
-      return current.map((turn) => {
-        if (turn !== existing) return turn;
-        const key = liveTurnEventKey(event);
-        const nextEvents = key && turn.events.some((existingEvent) => liveTurnEventKey(existingEvent) === key)
-          ? turn.events.map((existingEvent) => liveTurnEventKey(existingEvent) === key ? event : existingEvent)
-          : [...turn.events, event];
-        return { ...turn, ...liveTurnIdentity(identity), status: status ?? turn.status, events: nextEvents, blocks: block ? upsertBlock(turn.blocks, block) : turn.blocks };
-      });
-    });
-  }
-
-  function completeLiveTurn(runId: string, text?: string, identity?: WorkbenchLiveIdentity): void {
-    completeLiveTurnIn(setLiveTurns, runId, text, identity);
-  }
-
-  function completeLiveTurnIn(setter: LiveTurnSetter, runId: string, text?: string, identity: WorkbenchLiveIdentity = {}): void {
-    setter((current) => {
-      const existing = findCompatibleLiveTurn(current, runId, identity);
-      if (!existing) return current;
-      return current.map((turn) => turn === existing ? {
-        ...turn,
-        ...liveTurnIdentity(identity),
-        status: "completed",
-        text: text || turn.text || "",
-        blocks: text && !turn.blocks.some((block) => block.kind === "prose")
-          ? [proseBlock(runId, text, 1, identity), ...turn.blocks]
-          : turn.blocks,
-        endedAt: new Date().toISOString(),
-      } : turn);
-    });
-  }
-
-  function liveTurnEventKey(event: LiveTurnEvent): string | null {
-    if (event.kind === "assistant-event") {
-      const item = event.event;
-      return `assistant:${item.runId}:${item.threadId ?? "main"}:${item.itemId ?? item.title ?? item.summary ?? ""}:${item.kind}`;
-    }
-    if (event.kind === "tool") {
-      return `tool:${event.tool.runId}:${event.tool.threadId ?? "main"}:${event.tool.itemId ?? event.tool.command ?? event.tool.name ?? ""}`;
-    }
-    if (event.kind === "usage") return `usage:${JSON.stringify(event.usage)}`;
-    if (event.kind === "error") return `error:${event.message}`;
-    return null;
-  }
-
-  function appendLiveItem(item: ThreadStreamItem | null): void {
-    if (!item) return;
-    setLiveItems((current) => {
-      const withoutDuplicate = current.filter((existing) => existing.id !== item.id);
-      return [...withoutDuplicate, item];
-    });
-  }
-
   function invalidateProjectionCache(): void {
     setLoadedTranscript(null);
-    setLoadedRunGraph(null);
+    setLoadedAgentRelationGraph(null);
     setProjectionVersion((value) => value + 1);
   }
 
   function clearTopicScopedLiveState(): void {
-    setLiveItems([]);
-    setLiveTurns([]);
-    setAgentLiveTurns([]);
+    if (agentProjectionRefreshTimerRef.current) clearTimeout(agentProjectionRefreshTimerRef.current);
+    agentProjectionRefreshTimerRef.current = null;
+    mainMessageCellOwnersRef.current.clear();
+    agentMessageCellOwnersRef.current.clear();
     setActionRunning(null);
     setLatestHidden(false);
     setSelectedAgentWorkspaceAgentId(null);
@@ -1626,27 +1370,37 @@ export function App(): ReactElement {
       taskCount: 0,
       kind: "conversation" as const,
       boundChangeId: null,
+      selectedProviderId: activePendingConversation.selectedProviderId,
     }
     : snapshot.center.selectedTopic;
   const activeTopicIsConversation = activeTopic?.kind === "conversation";
+  const composerProviderOptions = providerCapabilities.map((provider) => ({ id: provider.providerId, label: provider.displayName }));
+  const selectedProjectDefaultProviderId = projects.find((item) => item.project?.id === selectedProjectId)?.project?.defaultProviderId ?? null;
+
+  useEffect(() => {
+    const selected = activeTopic?.selectedProviderId
+      ?? (selectedProjectDefaultProviderId && providerCapabilities.some((provider) => provider.providerId === selectedProjectDefaultProviderId)
+        ? selectedProjectDefaultProviderId
+        : providerCapabilities.length === 1 ? providerCapabilities[0]!.providerId : null);
+    setComposerProviderId(selected);
+  }, [activeTopic?.id, activeTopic?.selectedProviderId, providerCapabilities, selectedProjectDefaultProviderId, selectedProjectId]);
   const isPendingTopic = Boolean(activePendingConversation && activeTopic?.id === activePendingConversation.id);
   const activeWorkpad = activePendingConversation ? emptyWorkpad(activePendingConversation.title) : snapshot.center.workpad ?? emptyWorkpad(activeTopic?.title ?? projectDisplayName(snapshot.project));
   const activeRun = useMemo(() => snapshot.center.agentLoop.runs.find((run) => run.id === selectedRun) ?? snapshot.center.agentLoop.runs[0], [snapshot, selectedRun]);
   const selectedProjectStatus = useMemo(() => projects.find((item) => item.project?.id === selectedProjectId) ?? null, [projects, selectedProjectId]);
   const selectedProjectHistoryUnavailable = Boolean(selectedProjectStatus?.managed && selectedProjectStatus.memory?.memoryAvailable === false);
   const runIds = useMemo(() => snapshot.center.agentLoop.runs.map((run) => run.id).join("|"), [snapshot.center.agentLoop.runs]);
-  const pendingHasLiveUserMessage = Boolean(activePendingConversation && liveItems.some((item) => item.kind === "user-message" && (item.body ?? item.label) === activePendingConversation.body));
   const snapshotTranscript = useMemo(() => {
-    if (activePendingConversation) return pendingDemandTranscript(activePendingConversation, !pendingHasLiveUserMessage);
+    if (activePendingConversation && !loadedTranscript) return pendingDemandTranscript(activePendingConversation);
     return normalizeParentAgentTranscript(loadedTranscript ?? snapshot.center.parentAgentTranscript);
-  }, [activePendingConversation, loadedTranscript, pendingHasLiveUserMessage, snapshot.center.parentAgentTranscript]);
-  const activeTranscript = useMemo(() => {
-    return mergeLiveItemsIntoTranscript(
-      snapshotTranscript,
-      liveItems.filter((item) => !item.agentRoleId || item.agentRoleId === "main-agent"),
-      liveTurns,
-    );
-  }, [snapshotTranscript, liveItems, liveTurns]);
+  }, [activePendingConversation, loadedTranscript, snapshot.center.parentAgentTranscript]);
+  const activeTranscript = snapshotTranscript;
+  const activeTranscriptVisualExtent = useMemo(() => (activeTranscript.cells ?? []).reduce(
+    (total, cell) => total
+      + (cell.kind === "assistant-message" || cell.kind === "user-message" ? cell.text.length : 0)
+      + (cell.detailText?.length ?? 0),
+    0,
+  ), [activeTranscript.cells]);
   const activeDecisionInspector = useMemo(() => {
     const inspector = snapshot.right.decisionInspector ?? { primary: null, related: [], history: [] };
     if (!selectedDecisionContextId) return inspector;
@@ -1660,10 +1414,7 @@ export function App(): ReactElement {
     };
   }, [selectedDecisionContextId, snapshot.right.decisionInspector]);
   const activeConfirmationQueue = snapshot.right.confirmationQueue ?? { primary: null, current: [], otherDemands: [], maintenance: [], history: [] };
-  const activeAgentWorkspace = useMemo(() => mergeLiveAgentWorkspace(
-    snapshot.right.agentWorkspace ?? { selectedAgentId: "planning-agent", agents: [] },
-    agentLiveTurns,
-  ), [snapshot.right.agentWorkspace, agentLiveTurns]);
+  const activeAgentWorkspace = snapshot.right.agentWorkspace ?? { selectedAgentId: "planning-agent", agents: [] };
 
   useEffect(() => {
     if (!selectedProjectId || !selectedProjectStatus?.managed || typeof EventSource === "undefined") return;
@@ -1682,34 +1433,36 @@ export function App(): ReactElement {
   const pendingConfirmationCount = (activeConfirmationQueue.primary ? 1 : 0)
     + activeConfirmationQueue.otherDemands.length
     + activeConfirmationQueue.maintenance.length;
-  const rawActiveRunGraph = isPendingTopic
-    ? pendingMainAgentRunGraph(selectedProjectId, activeTopic?.id)
-    : loadedRunGraph ?? snapshot.center.agentRunGraph;
+  const rawActiveAgentGraph = isPendingTopic
+    ? emptyAgentRelationGraph()
+    : loadedAgentRelationGraph ?? snapshot.center.agentRelationGraph;
   const mainConversationRequestRunning = Boolean(activePendingConversation)
     || actionRunning === "topic.create"
     || actionRunning === "chat.ask";
-  const activeRunGraph = mergeLiveAgentGraph(
-    isDemandAgentRunGraph(rawActiveRunGraph) ? rawActiveRunGraph : emptyAgentRunGraph(),
-    [...liveTurns, ...agentLiveTurns].filter((turn) => liveTurnBelongsToTopic(turn, activeTopic?.id, activeTopic?.boundChangeId)),
-    mainConversationRequestRunning,
-  );
+  const activeAgentGraph = {
+    ...(isAgentRelationGraph(rawActiveAgentGraph) ? rawActiveAgentGraph : emptyAgentRelationGraph()),
+    nodes: withRunningMainNode(
+      (isAgentRelationGraph(rawActiveAgentGraph) ? rawActiveAgentGraph : emptyAgentRelationGraph()).nodes,
+      mainConversationRequestRunning,
+    ),
+  };
   useEffect(() => {
-    const graphScopeId = activeRunGraph.graphScopeId;
+    const graphScopeId = activeAgentGraph.graphScopeId;
     if (!graphScopeId) return;
     const previous = graphScopeRef.current;
     graphScopeRef.current = graphScopeId;
     if (!previous || previous === graphScopeId) return;
-    setSelectedRunGraphNodeId(null);
+    setSelectedAgentGraphNodeId(null);
     setSelectedAgentWorkspaceAgentId(null);
     setOpenAgentSurfaceIds([]);
-  }, [activeRunGraph.graphScopeId]);
-  const selectedRunGraphNode = useMemo(() => (
-    activeRunGraph.nodes.find((node) => node.id === selectedRunGraphNodeId) ?? activeRunGraph.nodes[0] ?? null
-  ), [activeRunGraph.nodes, selectedRunGraphNodeId]);
-  function selectRunGraphNode(nodeId: string): void {
-    const node = activeRunGraph.nodes.find((item) => item.id === nodeId);
+  }, [activeAgentGraph.graphScopeId]);
+  const selectedAgentGraphNode = useMemo(() => (
+    activeAgentGraph.nodes.find((node) => node.id === selectedAgentGraphNodeId) ?? activeAgentGraph.nodes[0] ?? null
+  ), [activeAgentGraph.nodes, selectedAgentGraphNodeId]);
+  function selectAgentGraphNode(nodeId: string): void {
+    const node = activeAgentGraph.nodes.find((item) => item.id === nodeId);
     if (!node) return;
-    setSelectedRunGraphNodeId(nodeId);
+    setSelectedAgentGraphNodeId(nodeId);
     if (node.kind === "main-agent") {
       closeOrchestrationOverlay();
       return;
@@ -1717,10 +1470,12 @@ export function App(): ReactElement {
     const agentId = node.target.agentSurfaceId ?? node.id;
     openChildAgentWorkspace(agentId);
   }
-  const codexModelLabel = codexModelSettings?.effectiveModel?.trim()
-    || codexDiagnostics?.effectiveModel?.trim()
-    || codexDiagnostics?.currentModel?.trim()
+  const providerModelLabel = providerModelSettings?.effectiveModel?.modelId
+    || providerDiagnostics?.models.effectiveModel?.modelId
     || "默认模型";
+  const providerDisplayName = providerDiagnostics?.displayName
+    ?? composerProviderOptions.find((provider) => provider.id === composerProviderId)?.label
+    ?? (composerProviderOptions.length === 1 ? composerProviderOptions[0]!.label : "正在加载");
 
   function appendComposerFileRefs(refs: TopicFileReference[]): void {
     const next = [...composerFileRefs];
@@ -1761,7 +1516,7 @@ export function App(): ReactElement {
     if (!activeTopic?.id) return;
     if (orchestrationOpen) closeOrchestrationOverlay();
     else {
-      setRunGraphLoadState("loading");
+      setAgentGraphLoadState("loading");
       setOrchestrationOpen(true);
       syncWorkbenchOrchestrationTab(true);
     }
@@ -1772,11 +1527,11 @@ export function App(): ReactElement {
     setOrchestrationOpen((current) => current || Boolean(
       restore.topicId && restore.topicId === activeTopic?.id && restore.orchestrationOpen,
     ));
-    setSelectedRunGraphNodeId(null);
+    setSelectedAgentGraphNodeId(null);
     setLoadedTranscript(null);
-    setLoadedRunGraph(null);
-    setRunGraphLoadState("idle");
-    setRunGraphLoadError(null);
+    setLoadedAgentRelationGraph(null);
+    setAgentGraphLoadState("idle");
+    setAgentGraphLoadError(null);
     setComposerAttachments([]);
     setRuntimeActivityLog(null);
   }, [activeTopic?.id, isPendingTopic]);
@@ -1812,8 +1567,7 @@ export function App(): ReactElement {
         if (!cancelled && isParentAgentTranscriptPayload(projection)) {
           const normalized = normalizeParentAgentTranscript(projection);
           setLoadedTranscript(normalized);
-          setLiveItems((current) => current.filter((item) => !transcriptContainsLiveItem(normalized.cells ?? [], item)));
-          setLiveTurns((current) => current.filter((turn) => !transcriptContainsMainTurn(normalized.cells ?? [], turn)));
+          mainMessageCellOwnersRef.current.clear();
         }
       })
       .catch((cause: unknown) => {
@@ -1825,39 +1579,46 @@ export function App(): ReactElement {
   useEffect(() => {
     if (!selectedProjectId || !activeTopic?.id || !orchestrationOpen || isPendingTopic) return;
     let cancelled = false;
-    setRunGraphLoadState("loading");
-    setRunGraphLoadError(null);
-    fetchJson<DemandAgentRunGraph>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/projections/run-graph/${encodeURIComponent(activeTopic.id)}`)
+    setAgentGraphLoadState("loading");
+    setAgentGraphLoadError(null);
+    fetchJson<AgentRelationGraph>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/projections/agent-graph/${encodeURIComponent(activeTopic.id)}`)
       .then((projection) => {
         if (cancelled) return;
-        if (!isDemandAgentRunGraph(projection) || projection.nodes.length === 0) {
-          setRunGraphLoadState("error");
-          setRunGraphLoadError("无法加载 Agent 关系，请重试。");
+        if (!isAgentRelationGraph(projection) || projection.nodes.length === 0) {
+          setAgentGraphLoadState("error");
+          setAgentGraphLoadError("无法加载 Agent 关系，请重试。");
           return;
         }
-        setLoadedRunGraph(projection);
-        setRunGraphLoadState("ready");
+        setLoadedAgentRelationGraph(projection);
+        setAgentGraphLoadState("ready");
       })
       .catch(() => {
         if (!cancelled) {
-          setRunGraphLoadState("error");
-          setRunGraphLoadError("暂时无法读取 Agent 关系，请重试。");
+          setAgentGraphLoadState("error");
+          setAgentGraphLoadError("暂时无法读取 Agent 关系，请重试。");
         }
       });
     return () => { cancelled = true; };
-  }, [selectedProjectId, activeTopic?.id, orchestrationOpen, isPendingTopic, projectionVersion, runGraphReloadVersion]);
+  }, [selectedProjectId, activeTopic?.id, orchestrationOpen, isPendingTopic, projectionVersion, agentGraphReloadVersion]);
 
   useEffect(() => {
     const node = threadScrollRef.current;
-    if (!node) return;
-    const distance = node.scrollHeight - node.scrollTop - node.clientHeight;
-    if (distance < 140) {
-      node.scrollTop = node.scrollHeight;
+    const previousExtent = transcriptVisualExtentRef.current;
+    transcriptVisualExtentRef.current = activeTranscriptVisualExtent;
+    if (!node || activeTranscriptVisualExtent <= previousExtent || !threadPinnedToBottomRef.current) return;
+    requestAnimationFrame(() => {
+      const current = threadScrollRef.current;
+      if (!current || !threadPinnedToBottomRef.current) return;
+      current.scrollTop = current.scrollHeight;
       setLatestHidden(false);
-    } else {
-      setLatestHidden(true);
-    }
-  }, [activeTranscript.items.length, liveTurns.length]);
+    });
+  }, [activeTranscriptVisualExtent]);
+
+  useEffect(() => {
+    threadPinnedToBottomRef.current = true;
+    transcriptVisualExtentRef.current = 0;
+    setLatestHidden(false);
+  }, [activeTopic?.id]);
 
   useEffect(() => {
     if (!selectedProjectId) return;
@@ -1928,14 +1689,14 @@ export function App(): ReactElement {
             section={settingsSection}
             onSectionChange={changeSettingsSection}
             project={selectedProjectStatus}
-            diagnostics={codexDiagnostics}
-            modelSettings={codexModelSettings}
+            diagnostics={providerDiagnostics}
+            modelSettings={providerModelSettings}
             providerCapabilities={providerCapabilities}
-            modelSettingsBusy={codexModelSettingsBusy}
-            modelSettingsMessage={codexModelSettingsMessage}
-            onOpenModelSettings={() => void openCodexModelPicker()}
+            modelSettingsBusy={providerModelSettingsBusy}
+            modelSettingsMessage={providerModelSettingsMessage}
+            onOpenModelSettings={() => void openProviderModelPicker()}
             onClose={closeSettings}
-            onRefresh={() => loadApp().then(() => loadCodexDiagnostics()).then(() => loadCodexModelSettings()).then(() => loadProviderCapabilities()).then(() => loadSkillSummary())}
+            onRefresh={() => loadApp().then(() => loadProviderDiagnostics()).then(() => loadProviderModelSettings()).then(() => loadProviderCapabilities()).then(() => loadSkillSummary())}
           />
         ) : !selectedProjectId ? (
           <ProjectHomeView
@@ -1954,11 +1715,15 @@ export function App(): ReactElement {
         ) : !activeTopic ? (
           <ProjectReadinessHome
             project={selectedProjectStatus}
-            modelLabel={codexModelLabel}
-            onOpenModelSettings={() => void openCodexModelPicker()}
+            providerDisplayName={providerDisplayName}
+            modelLabel={providerModelLabel}
+            onOpenModelSettings={() => void openProviderModelPicker()}
             projects={projects}
             selectedProjectId={selectedProjectId}
             onCreateDemand={createTopicFromText}
+            providerOptions={composerProviderOptions}
+            selectedProviderId={composerProviderId ?? undefined}
+            onSelectProvider={(providerId) => { void selectComposerProvider(providerId); }}
             enabledSkillCount={enabledSkillCount}
             skills={skillItems}
             activeSkillIds={selectedComposerSkillIds}
@@ -1984,21 +1749,21 @@ export function App(): ReactElement {
             <section className={`center-grid${orchestrationOpen ? " agent-graph-center-grid" : ""}`}>
               {orchestrationOpen ? (
                 <div className="agent-graph-center-view" data-testid="agent-graph-center-view">
-                  {(runGraphLoadState === "idle" || runGraphLoadState === "loading") && activeRunGraph.nodes.length === 0 ? (
+                  {(agentGraphLoadState === "idle" || agentGraphLoadState === "loading") && activeAgentGraph.nodes.length === 0 ? (
                     <div className="agent-graph-view-state" role="status">正在加载 Agent 关系...</div>
-                  ) : runGraphLoadState === "error" ? (
+                  ) : agentGraphLoadState === "error" ? (
                     <div className="agent-graph-view-state error" role="alert">
                       <strong>Agent 关系加载失败</strong>
-                      <span>{runGraphLoadError ?? "请稍后重试。"}</span>
-                      <button type="button" className="outline-button" onClick={() => setRunGraphReloadVersion((value) => value + 1)}>重试</button>
+                      <span>{agentGraphLoadError ?? "请稍后重试。"}</span>
+                      <button type="button" className="outline-button" onClick={() => setAgentGraphReloadVersion((value) => value + 1)}>重试</button>
                     </div>
                   ) : (
-                    <AgentRunGraphPanel
-                      graph={activeRunGraph}
-                      selectedNode={selectedRunGraphNode}
+                    <AgentRelationGraphPanel
+                      graph={activeAgentGraph}
+                      selectedNode={selectedAgentGraphNode}
                       activeRun={activeRun}
                       stream={stream}
-                      onSelectNode={selectRunGraphNode}
+                      onSelectNode={selectAgentGraphNode}
                       onSelectRun={(runId) => void chooseRun(runId)}
                     />
                   )}
@@ -2010,22 +1775,24 @@ export function App(): ReactElement {
                   ref={threadScrollRef}
                   onScroll={(event) => {
                     const node = event.currentTarget;
-                    setLatestHidden(node.scrollHeight - node.scrollTop - node.clientHeight > 180);
+                    const pinned = node.scrollHeight - node.scrollTop - node.clientHeight <= 140;
+                    threadPinnedToBottomRef.current = pinned;
+                    setLatestHidden(!pinned);
                   }}
                 >
                   <MainConversationView
+                    key={activeTopic.id}
                     workpad={activeWorkpad}
                     transcript={activeTranscript}
                     scrollContainerRef={threadScrollRef}
                     onLoadEarlierTranscript={loadEarlierTranscriptPage}
                     loadingEarlierTranscript={loadingEarlierTranscript}
-                    liveTurns={liveTurns}
                     busy={actionRunning !== null}
                     approvals={snapshot.right.approvals}
                     onAction={runWorkflowAction}
                     onConfirmApproval={confirmWorkpadApproval}
                     onAnswerClarification={answerClarification}
-                    onAnswerCodexUserInput={answerCodexUserInput}
+                    onAnswerProviderUserInput={answerProviderUserInput}
                     onSelectDecisionContext={setSelectedDecisionContextId}
                     onOpenAgent={openChildAgentWorkspace}
                     planHandoffCandidate={planHandoffCandidate}
@@ -2033,12 +1800,18 @@ export function App(): ReactElement {
                     onCancelPlanHandoff={cancelPlanHandoff}
                   />
                 </div>
-                {latestHidden ? <button className="latest-button" onClick={() => { const node = threadScrollRef.current; if (node) node.scrollTop = node.scrollHeight; setLatestHidden(false); }}>最新</button> : null}
+                {latestHidden ? <button className="latest-button" onClick={() => {
+                  threadPinnedToBottomRef.current = true;
+                  const node = threadScrollRef.current;
+                  if (node) node.scrollTop = node.scrollHeight;
+                  setLatestHidden(false);
+                }}>最新</button> : null}
                 <TopicComposer
                     value={composerText}
                     onChange={setComposerText}
-                    modelLabel={codexModelLabel}
-                    onOpenModelSettings={() => void openCodexModelPicker()}
+                    providerDisplayName={providerDisplayName}
+                    modelLabel={providerModelLabel}
+                    onOpenModelSettings={() => void openProviderModelPicker()}
                     enabledSkillCount={enabledSkillCount}
                     projectId={selectedProjectId}
                     skills={skillItems}
@@ -2059,6 +1832,9 @@ export function App(): ReactElement {
                     onNewWorkpad={createTopicFromComposer}
                     actionRunning={actionRunning}
                     currentWorkpadStatus={activeWorkpad.conversationLifecycle === "running" || activeWorkpad.runControlState?.canStop ? "running" : currentWorkpadSummary(snapshot, activeTopic)?.runtimeStatus}
+                    providerOptions={composerProviderOptions}
+                    selectedProviderId={composerProviderId ?? activeTopic.selectedProviderId}
+                    onSelectProvider={(providerId) => { void selectComposerProvider(providerId); }}
                 />
               </div>
               )}
@@ -2068,7 +1844,7 @@ export function App(): ReactElement {
         </div>
         {!settingsOpen ? <WorkspaceDockToggleBar
           orchestrationActive={orchestrationOpen}
-          orchestrationNeedsAttention={activeRunGraph.nodes.some((node) => node.status === "waiting-user")}
+          orchestrationNeedsAttention={activeAgentGraph.nodes.some((node) => node.status === "waiting-user")}
           orchestrationDisabled={!activeTopic?.id}
           onToggleOrchestration={toggleOrchestrationOverlay}
           terminalActive={bottomDockKind === "terminal"}
@@ -2107,17 +1883,16 @@ export function App(): ReactElement {
             workspace={activeAgentWorkspace}
             selectedAgentId={selectedAgentWorkspaceAgentId}
             openAgentIds={openAgentSurfaceIds}
-            liveItems={liveItems}
-            liveTurns={agentLiveTurns}
             busy={actionRunning !== null}
             onSelectAgent={setSelectedAgentWorkspaceAgentId}
             onCloseAgent={closeChildAgentWorkspace}
             onBack={() => setRightToolView("launcher")}
             onAnswerClarification={answerClarification}
-            onAnswerCodexUserInput={answerCodexUserInput}
+            onAnswerProviderUserInput={answerProviderUserInput}
             onSendAgentMessage={sendAgentWorkspaceMessage}
-            modelLabel={codexModelLabel}
-            onOpenModelSettings={() => void openCodexModelPicker()}
+            providerDisplayName={providerDisplayName}
+            modelLabel={providerModelLabel}
+            onOpenModelSettings={() => void openProviderModelPicker()}
           />
         }
         confirmPanel={
@@ -2164,14 +1939,14 @@ export function App(): ReactElement {
         onResizeStart={(event) => beginShellColumnResize(event, "right")}
       /> : null}
 
-      <CodexModelPicker
-        open={codexModelPickerOpen}
-        snapshot={codexModelSettings}
-        busy={codexModelSettingsBusy}
-        message={codexModelSettingsMessage}
-        onClose={() => setCodexModelPickerOpen(false)}
-        onRefresh={() => loadCodexModelSettings()}
-        onSelect={(selectedModel) => updateCodexModelSettings({ selectedModel })}
+      <ProviderModelPicker
+        open={providerModelPickerOpen}
+        snapshot={providerModelSettings}
+        busy={providerModelSettingsBusy}
+        message={providerModelSettingsMessage}
+        onClose={() => setProviderModelPickerOpen(false)}
+        onRefresh={() => loadProviderModelSettings()}
+        onSelect={(selectedModel) => updateProviderModelSettings({ selectedModel })}
       />
       {activeTopic && !settingsOpen ? <BottomStatusBar snapshot={snapshot} project={selectedProjectStatus} topic={activeTopic} /> : null}
     </div>
@@ -2210,14 +1985,10 @@ function defaultAttachmentPrompt(count: number): string {
     : "请先查看我附上的文件，然后根据这些附件内容继续。";
 }
 
-function emptyAgentRunGraph(): DemandAgentRunGraph {
+function emptyAgentRelationGraph(): AgentRelationGraph {
   return {
     title: "Agent 关系",
     summary: "真实子 Agent 开始工作后，会在这里显示父子关系。",
-    lanes: [
-      { id: "main", label: "主 Agent", description: "当前需求对话" },
-      { id: "roles", label: "子 Agent", description: "真实创建的 Agent" },
-    ],
     nodes: [],
     edges: [],
   };
@@ -2231,7 +2002,7 @@ function preserveSelectedWorkbenchTopic(next: Snapshot, previous: Snapshot): Sna
       selectedTopic: previous.center.selectedTopic,
       workpad: previous.center.workpad,
       parentAgentTranscript: previous.center.parentAgentTranscript,
-      agentRunGraph: previous.center.agentRunGraph,
+      agentRelationGraph: previous.center.agentRelationGraph,
       agentLoop: previous.center.agentLoop,
     },
     right: {
@@ -2241,32 +2012,31 @@ function preserveSelectedWorkbenchTopic(next: Snapshot, previous: Snapshot): Sna
   };
 }
 
-function isCodexDiagnostics(value: unknown): value is CodexDiagnostics {
+function isProviderDiagnostics(value: unknown): value is ProviderDiagnostics {
   if (!value || typeof value !== "object") return false;
-  const diagnostics = value as Partial<CodexDiagnostics>;
-  return diagnostics.provider === "codex"
-    && typeof diagnostics.available === "boolean"
-    && typeof diagnostics.configPath === "string"
-    && Array.isArray(diagnostics.errors)
-    && typeof diagnostics.capabilities === "object"
-    && diagnostics.capabilities !== null;
+  const diagnostics = value as Partial<ProviderDiagnostics>;
+  return typeof diagnostics.providerId === "string"
+    && typeof diagnostics.displayName === "string"
+    && typeof diagnostics.installation === "object"
+    && diagnostics.installation !== null
+    && typeof diagnostics.models === "object"
+    && diagnostics.models !== null;
 }
 
-function isCodexModelSettingsSnapshot(value: unknown): value is CodexModelSettingsSnapshot {
+function isProviderModelSettingsSnapshot(value: unknown): value is ProviderModelSettingsSnapshot {
   if (!value || typeof value !== "object") return false;
-  const snapshot = value as Partial<CodexModelSettingsSnapshot>;
-  return (snapshot.effectiveModel === null || typeof snapshot.effectiveModel === "string" || snapshot.effectiveModel === undefined)
-    && (snapshot.effectiveModelSource === "selected" || snapshot.effectiveModelSource === "config" || snapshot.effectiveModelSource === "codex-default")
+  const snapshot = value as Partial<ProviderModelSettingsSnapshot>;
+  return typeof snapshot.providerId === "string"
+    && (snapshot.effectiveModel === null || typeof snapshot.effectiveModel === "object")
+    && (snapshot.effectiveModelSource === "selected" || snapshot.effectiveModelSource === "config" || snapshot.effectiveModelSource === "provider-default")
     && Array.isArray(snapshot.candidates)
-    && typeof snapshot.modelList === "object"
-    && snapshot.modelList !== null
-    && Array.isArray(snapshot.modelList.candidates);
+    && typeof snapshot.available === "boolean";
 }
 
 function isProviderCapabilitySnapshot(value: unknown): value is ProviderCapabilitySnapshot {
   if (!value || typeof value !== "object") return false;
   const snapshot = value as Partial<ProviderCapabilitySnapshot>;
-  return snapshot.providerId === "codex"
+  return typeof snapshot.providerId === "string"
     && snapshot.productMode === "harness"
     && (snapshot.status === "ready" || snapshot.status === "degraded" || snapshot.status === "unavailable")
     && typeof snapshot.runnable === "boolean"
@@ -2325,26 +2095,12 @@ function isOrchestrationTabParam(value: string | null): boolean {
   return normalized === "orchestration" || normalized === "agentgraph" || normalized === "agent-graph";
 }
 
-function pendingMainAgentRunGraph(projectId: string | null, conversationId?: string): DemandAgentRunGraph {
-  return {
-    ...emptyAgentRunGraph(),
-    conversationId,
-    summary: "主 Agent 正在处理当前需求。",
-    nodes: [{
-      id: "main-agent",
-      kind: "main-agent",
-      lane: "main",
-      label: "主 Agent",
-      roleId: "main-agent",
-      status: "running",
-      summary: "",
-      reason: "",
-      target: { projectId, conversationId, roleId: "main-agent", agentSurfaceId: "main-agent" },
-      visualKind: "agent",
-      evidenceRefs: [],
-      attempts: [],
-    }],
-  };
+async function resolveDefaultProviderId(): Promise<string> {
+  const payload = await fetchJson<{ providers?: Array<{ providerId?: string }> }>("/api/providers");
+  const providers = (payload.providers ?? []).filter((provider): provider is { providerId: string } => typeof provider.providerId === "string");
+  if (providers.length === 0) throw new Error("没有可用的 Agent provider。");
+  if (providers.length > 1) throw new Error("当前存在多个 Agent provider，请先选择当前 provider。");
+  return providers[0]!.providerId;
 }
 
 function syncWorkbenchLocation(projectId: string | null, topicId: string | null): void {
@@ -2371,190 +2127,31 @@ function syncWorkbenchOrchestrationTab(open: boolean): void {
   }
 }
 
-function isChildLiveIdentity(identity: WorkbenchLiveIdentity): boolean {
-  return Boolean(identity.parentThreadId || (identity.agentRoleId && identity.agentRoleId !== "main-agent"));
-}
-
 function isTransientReconnectMessage(message: string): boolean {
   return /^reconnecting(?:\.\.\.)?\s*\d+\/\d+/i.test(message.trim());
 }
 
-function liveTurnIdentity(identity: WorkbenchLiveIdentity): Partial<LiveAssistantTurn> {
-  const result: Partial<LiveAssistantTurn> = {};
-  if (identity.projectId !== undefined) result.projectId = identity.projectId;
-  if (identity.conversationId !== undefined) result.conversationId = identity.conversationId;
-  if (identity.graphScopeId !== undefined) result.graphScopeId = identity.graphScopeId;
-  if (identity.changeId !== undefined) result.changeId = identity.changeId;
-  if (identity.threadId !== undefined) result.threadId = identity.threadId;
-  if (identity.parentThreadId !== undefined) result.parentThreadId = identity.parentThreadId;
-  if (identity.turnId !== undefined) result.turnId = identity.turnId;
-  if (identity.agentRoleId !== undefined) result.agentRoleId = identity.agentRoleId;
-  if (identity.agentTaskId !== undefined) result.agentTaskId = identity.agentTaskId;
-  const agentSurfaceId = identity.agentSurfaceId ?? (identity.threadId ? `thread:${identity.threadId}` : undefined);
-  if (agentSurfaceId !== undefined) result.agentSurfaceId = agentSurfaceId;
-  if (identity.agentDisplayName !== undefined) result.agentDisplayName = identity.agentDisplayName;
-  return result;
+function mapProviderUserInputTranscript(
+  transcript: ParentAgentTranscript,
+  requestKey: string,
+  status: ProviderUserInputRequest["status"],
+  answers?: Record<string, string | string[]>,
+  submittedAt?: string,
+): ParentAgentTranscript {
+  return normalizeParentAgentTranscript({
+    ...transcript,
+    cells: (transcript.cells ?? []).map((cell) => cell.providerUserInput?.requestKey === requestKey ? {
+      ...cell,
+      status,
+      title: status === "submitted" ? "已回答" : "需要你回答",
+      providerUserInput: { ...cell.providerUserInput, status, answers, submittedAt },
+    } : cell),
+  });
 }
 
-function liveTurnIdentityKey(runId: string, identity: Pick<LiveAssistantTurn, "threadId" | "turnId"> | WorkbenchLiveIdentity): string {
-  return `${runId}:${identity.threadId ?? "main"}:${identity.turnId ?? "turn"}`;
-}
-
-function snapshotContainsTurn(snapshot: Snapshot, turn: LiveAssistantTurn): boolean {
-  return transcriptContainsMainTurn(snapshot.center.parentAgentTranscript.cells ?? [], turn);
-}
-
-function snapshotContainsAgentTurn(snapshot: Snapshot, turn: LiveAssistantTurn): boolean {
-  return snapshot.right.agentWorkspace.agents.some((agent) => (
-    agent.id === turn.agentSurfaceId
-    || (turn.threadId && agent.providerThreadId === turn.threadId)
-    || (turn.runId && agent.runId === turn.runId)
-  ) && transcriptContainsMainTurn(agent.transcript.cells ?? [], turn));
-}
-
-function mergeLiveAgentWorkspace(workspace: AgentWorkspace, liveTurns: LiveAssistantTurn[]): AgentWorkspace {
-  const agents = new Map(workspace.agents.map((agent) => [agent.id, agent]));
-  for (const turn of liveTurns) {
-    const id = turn.agentSurfaceId ?? (turn.threadId ? `thread:${turn.threadId}` : `run:${turn.runId}`);
-    const existing = agents.get(id);
-    agents.set(id, existing ? {
-      ...existing,
-      providerThreadId: existing.providerThreadId ?? turn.threadId,
-      parentThreadId: existing.parentThreadId ?? turn.parentThreadId,
-      runId: existing.runId ?? turn.runId,
-      label: turn.agentDisplayName ? composeAgentDisplayLabel(turn.agentRoleId ?? existing.roleId, turn.agentDisplayName) : existing.label,
-      status: turn.status,
-    } : {
-      id,
-      roleId: turn.agentRoleId ?? "child-agent",
-      providerThreadId: turn.threadId,
-      parentThreadId: turn.parentThreadId,
-      runId: turn.runId,
-      label: composeAgentDisplayLabel(turn.agentRoleId, turn.agentDisplayName),
-      status: turn.status,
-      summary: "真实 Agent 对话。",
-      transcript: { title: composeAgentDisplayLabel(turn.agentRoleId, turn.agentDisplayName), cells: [], items: [], emptyMessage: "Agent 正在处理。" },
-      evidenceRefs: [],
-      actions: [],
-    });
-  }
-  const numbered = numberDuplicateAgentLabels([...agents.values()]);
-  return { ...workspace, agents: numbered };
-}
-
-function liveTurnBelongsToTopic(turn: LiveAssistantTurn, topicId?: string, changeId?: string | null): boolean {
-  if (!topicId) return false;
-  return turn.conversationId === topicId || turn.changeId === (changeId ?? topicId);
-}
-
-function mergeLiveAgentGraph(graph: DemandAgentRunGraph, turns: LiveAssistantTurn[], mainRequestRunning = false): DemandAgentRunGraph {
-  const liveGraphScopeId = [...turns].reverse().find((turn) => turn.graphScopeId)?.graphScopeId;
-  const scopeChanged = Boolean(liveGraphScopeId && liveGraphScopeId !== graph.graphScopeId);
-  const scopedTurns = liveGraphScopeId ? turns.filter((turn) => turn.graphScopeId === liveGraphScopeId) : turns;
-  const baseGraph = scopeChanged ? { ...graph, graphScopeId: liveGraphScopeId, edges: [] } : graph;
-  const nodes = scopeChanged ? graph.nodes.filter((node) => node.kind === "main-agent") : [...graph.nodes];
-  if (scopedTurns.length === 0) return { ...baseGraph, nodes: withRunningMainNode(nodes, mainRequestRunning) };
-  let edges = [...baseGraph.edges];
-  for (const turn of scopedTurns) {
-    if (turn.agentRoleId === "main-agent") {
-      const mainIndex = nodes.findIndex((node) => node.kind === "main-agent");
-      if (mainIndex >= 0) nodes[mainIndex] = { ...nodes[mainIndex], status: graphNodeStatus(turn.status) };
-      continue;
-    }
-    const id = turn.agentSurfaceId ?? (turn.threadId ? `thread:${turn.threadId}` : `run:${turn.runId}`);
-    const existingIndex = nodes.findIndex((node) => node.id === id);
-    const nextNode: DemandAgentRunGraph["nodes"][number] = {
-      ...(existingIndex >= 0 ? nodes[existingIndex] : {}),
-      id,
-      kind: agentGraphKind(turn.agentRoleId),
-      lane: "roles",
-      label: composeAgentDisplayLabel(turn.agentRoleId, turn.agentDisplayName),
-      roleId: turn.agentRoleId,
-      status: graphNodeStatus(turn.status),
-      summary: "",
-      reason: "",
-      target: {
-        projectId: turn.projectId ?? null,
-        conversationId: turn.conversationId,
-        changeId: turn.changeId,
-        roleId: turn.agentRoleId,
-        agentSurfaceId: id,
-        providerThreadId: turn.threadId,
-        parentThreadId: turn.parentThreadId,
-        runId: turn.runId,
-      },
-      visualKind: "agent",
-      evidenceRefs: [],
-      attempts: [],
-    };
-    if (existingIndex >= 0) nodes[existingIndex] = nextNode;
-    else nodes.push(nextNode);
-  }
-  const ids = new Set(nodes.map((node) => node.id));
-  for (const turn of scopedTurns) {
-    if (turn.agentRoleId === "main-agent") continue;
-    const id = turn.agentSurfaceId ?? (turn.threadId ? `thread:${turn.threadId}` : `run:${turn.runId}`);
-    const parentId = turn.parentThreadId && ids.has(`thread:${turn.parentThreadId}`) ? `thread:${turn.parentThreadId}` : "main-agent";
-    edges = edges.filter((edge) => edge.to !== id);
-    edges.push({ id: `agent-edge:${parentId}:${id}`, from: parentId, to: id, kind: "delegates", label: "" });
-  }
-  return { ...baseGraph, nodes: numberGraphNodeLabels(withRunningMainNode(nodes, mainRequestRunning)), edges, summary: `${nodes.length} 个真实 Agent` };
-}
-
-function withRunningMainNode(nodes: DemandAgentRunGraph["nodes"], running: boolean): DemandAgentRunGraph["nodes"] {
+function withRunningMainNode(nodes: AgentRelationGraph["nodes"], running: boolean): AgentRelationGraph["nodes"] {
   if (!running) return nodes;
   return nodes.map((node) => node.kind === "main-agent" ? { ...node, status: "running" } : node);
-}
-
-function numberGraphNodeLabels(nodes: DemandAgentRunGraph["nodes"]): DemandAgentRunGraph["nodes"] {
-  return numberDuplicateDisplayLabels(nodes, (node) => node.kind !== "main-agent");
-}
-
-function agentGraphKind(roleId?: string): DemandAgentRunGraph["nodes"][number]["kind"] {
-  if (roleId === "planning-agent") return "planning-agent";
-  if (roleId === "coder-agent") return "coder-agent";
-  if (roleId === "rework-coder") return "rework-coder";
-  if (roleId === "auditor-agent") return "auditor-agent";
-  if (roleId === "memory-maintenance-agent") return "documentation-agent";
-  if (roleId === "harness-evolution-agent") return "evolution-agent";
-  if (roleId === "evolution-scorer") return "evolution-scorer";
-  return "delegate-task";
-}
-
-function graphNodeStatus(status: string): DemandAgentRunGraph["nodes"][number]["status"] {
-  if (status === "running" || status === "thinking" || status === "replying" || status === "claimed") return "running";
-  if (status === "queued") return "queued";
-  if (status === "completed") return "completed";
-  if (status === "waiting-user") return "waiting-user";
-  if (status === "blocked") return "needs-change";
-  if (status === "failed") return "failed";
-  return "idle";
-}
-
-function numberDuplicateAgentLabels(agents: AgentWorkspaceAgent[]): AgentWorkspaceAgent[] {
-  return numberDuplicateDisplayLabels(agents, () => true);
-}
-
-function numberDuplicateDisplayLabels<T extends { id: string; label: string; roleId?: string }>(items: T[], include: (item: T) => boolean): T[] {
-  const bases = new Map(items.map((item) => [item.id, baseAgentDisplayLabel(item.label, item.roleId)]));
-  const totals = new Map<string, number>();
-  for (const item of items) if (include(item)) {
-    const base = bases.get(item.id)!;
-    totals.set(base, (totals.get(base) ?? 0) + 1);
-  }
-  const indexes = new Map<string, number>();
-  const nextByBase = new Map<string, number>();
-  for (const item of [...items].filter(include).sort((left, right) => left.id.localeCompare(right.id))) {
-    const base = bases.get(item.id)!;
-    const next = (nextByBase.get(base) ?? 0) + 1;
-    nextByBase.set(base, next);
-    indexes.set(item.id, next);
-  }
-  return items.map((item) => {
-    if (!include(item)) return item;
-    const base = bases.get(item.id)!;
-    return { ...item, label: (totals.get(base) ?? 0) > 1 ? `${base} ${indexes.get(item.id) ?? 1}` : base };
-  });
 }
 
 function snapshotForProject(project: ProjectStatus | null | undefined): Snapshot {
@@ -2572,12 +2169,11 @@ function snapshotForProject(project: ProjectStatus | null | undefined): Snapshot
   };
 }
 
-function isDemandAgentRunGraph(value: unknown): value is DemandAgentRunGraph {
+function isAgentRelationGraph(value: unknown): value is AgentRelationGraph {
   if (!value || typeof value !== "object") return false;
-  const graph = value as Partial<DemandAgentRunGraph>;
+  const graph = value as Partial<AgentRelationGraph>;
   return typeof graph.title === "string"
     && typeof graph.summary === "string"
-    && Array.isArray(graph.lanes)
     && Array.isArray(graph.nodes)
     && Array.isArray(graph.edges);
 }
@@ -2627,4 +2223,3 @@ function emptyWorkpad(projectName = "未选择项目"): Workpad {
     },
   };
 }
-

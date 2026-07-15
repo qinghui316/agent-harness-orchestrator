@@ -115,7 +115,7 @@ export interface ClarificationAnswerRequest {
   answer?: string;
 }
 
-export interface CodexUserInputAnswerRequest {
+export interface ProviderUserInputAnswerRequest {
   changeId?: string;
   conversationId?: string;
   requestKey: string;
@@ -143,10 +143,6 @@ export interface InitProjectHarnessRequest {
   confirm?: boolean;
 }
 
-export interface TrustCodexProjectRequest {
-  confirm?: boolean;
-}
-
 export interface RemoveProjectRequest {
   confirm?: boolean;
 }
@@ -157,6 +153,7 @@ export interface CreateTopicRequest {
   confirm?: boolean;
   contextRefs?: TopicMessageInput["contextRefs"];
   attachmentIds?: string[];
+  providerId?: TopicMessageInput["providerId"];
 }
 
 export interface TopicMessageRequest {
@@ -166,6 +163,8 @@ export interface TopicMessageRequest {
   contextRefs?: TopicMessageInput["contextRefs"];
   attachmentIds?: string[];
   planHandoffIntent?: TopicMessageInput["planHandoffIntent"];
+  providerId?: TopicMessageInput["providerId"];
+  providerSwitchIntent?: TopicMessageInput["providerSwitchIntent"];
 }
 
 export interface FolderDialogResult {

@@ -1,4 +1,4 @@
-import type { CodexJsonlStreamEvent } from "../codex/jsonl.js";
+import type { ProviderStreamEvent } from "../provider-runtime/index.js";
 import type { RunMetadata } from "../types/index.js";
 
 export interface CodeRunOptions {
@@ -58,7 +58,7 @@ export interface CodeRunResult {
 export interface CodeRunLiveCallbacks {
   onRunStarted?: (run: RunMetadata) => void;
   onStatus?: (event: { runId: string; status: string; label?: string }) => void;
-  onCodexEvent?: (event: CodexJsonlStreamEvent & {
+  onProviderEvent?: (event: ProviderStreamEvent & {
     runId: string;
     threadId?: string;
     parentThreadId?: string;

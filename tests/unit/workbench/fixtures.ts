@@ -275,15 +275,16 @@ export async function createFakeCodex(options: { mutateOnExec?: boolean; message
 const fs = require("fs");
 const path = require("path");
 const args = process.argv.slice(2);
+const appServerIndex = args.indexOf("app-server");
 const mutateOnExec = ${JSON.stringify(mutateOnExec)};
 const message = ${JSON.stringify(message)};
 if (args[0] === "--version") {
   console.log("codex-cli fake");
   process.exit(0);
 }
-if (args[0] === "app-server" && args[1] === "--help") {
-  console.error("app-server unavailable in fake");
-  process.exit(1);
+if (appServerIndex >= 0 && args.includes("--help")) {
+  console.log("Codex app server\\n--listen <stdio://>");
+  process.exit(0);
 }
 if (args[0] === "--help") {
   console.log("Usage: codex [OPTIONS]\\n--ask-for-approval <APPROVAL_POLICY>");
@@ -297,7 +298,41 @@ if (args[0] === "exec" && args[1] === "resume" && args[2] === "--help") {
   console.log("Usage: codex exec resume [OPTIONS]\\n--sandbox <SANDBOX_MODE>\\n--cd <DIR>");
   process.exit(0);
 }
-if (args[0] === "exec" || args.includes("exec")) {
+if (appServerIndex >= 0) {
+  const readline = require("readline");
+  const rl = readline.createInterface({ input: process.stdin });
+  let appCwd = process.cwd();
+  const threadId = "thread-scheduler-fake";
+  const turnId = "turn-scheduler-fake";
+  const reply = (id, result) => console.log(JSON.stringify({ id, result }));
+  rl.on("line", (line) => {
+    const request = JSON.parse(line);
+    if (request.method === "initialize" || request.method === "skills/extraRoots/set") {
+      reply(request.id, {});
+    } else if (request.method === "skills/list") {
+      reply(request.id, { data: [{ skills: [] }] });
+    } else if (request.method === "model/list") {
+      reply(request.id, { data: [{ id: "fake-model", model: "fake-model", displayName: "Fake Model" }] });
+    } else if (request.method === "thread/start" || request.method === "thread/resume") {
+      appCwd = request.params.cwd || appCwd;
+      reply(request.id, { thread: { id: threadId } });
+    } else if (request.method === "turn/start") {
+      appCwd = request.params.cwd || appCwd;
+      const requestText = JSON.stringify(request.params);
+      const isAudit = requestText.includes("Auditor Agent Profile") || requestText.includes("Authoritative Audit Packet");
+      const responseText = isAudit
+        ? "Status: approved\\n\\nFinding: Scheduler worker audit passed."
+        : message;
+      if (mutateOnExec && !isAudit) fs.appendFileSync(path.join(appCwd, "README.md"), "\\nScheduler worker fake coder\\n", "utf8");
+      reply(request.id, { turn: { id: turnId } });
+      setImmediate(() => {
+        console.log(JSON.stringify({ method: "turn/started", params: { threadId, turn: { id: turnId, status: "inProgress" } } }));
+        console.log(JSON.stringify({ method: "item/completed", params: { threadId, turnId, item: { id: "message-scheduler-fake", type: "agentMessage", text: responseText } } }));
+        console.log(JSON.stringify({ method: "turn/completed", params: { threadId, turn: { id: turnId, status: "completed" } } }));
+      });
+    }
+  });
+} else if (args[0] === "exec" || args.includes("exec")) {
   const prompt = fs.readFileSync(0, "utf8");
   const lastMessageIndex = args.indexOf("--output-last-message");
   const lastMessagePath = lastMessageIndex >= 0 ? args[lastMessageIndex + 1] : null;
@@ -313,9 +348,10 @@ if (args[0] === "exec" || args.includes("exec")) {
   if (lastMessagePath) fs.writeFileSync(lastMessagePath, message, "utf8");
   console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: message } }));
   process.exit(0);
+} else {
+  console.error("Unsupported fake codex command: " + args.join(" "));
+  process.exit(1);
 }
-console.error("Unsupported fake codex command: " + args.join(" "));
-process.exit(1);
 `, "utf8");
   await chmod(script, 0o755).catch(() => undefined);
   const commandShim = process.platform === "win32" ? join(binDir, "codex.cmd") : join(binDir, "codex");
@@ -791,7 +827,7 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
       sourceScopes: node.sourceScopes,
       requiresFreshWorktree: true,
     },
-    adapterFamily: "codex-code" as const,
+    adapterFamily: "provider-code" as const,
     permissionProfile: {
       version: "1.0" as const,
       roleId: "coder",
@@ -803,7 +839,7 @@ export async function prepareSeededSchedulerIntegrationHandoff(title: string): P
       mayDelegate: false,
     },
     eventSourceExpectation: {
-      adapterFamily: "codex-code" as const,
+      adapterFamily: "provider-code" as const,
       expectedEventTypes: ["coder.completed"],
     },
     recoveryKeyInputs: [{ key: "changeId", value: topic.changeId }],
@@ -1674,7 +1710,7 @@ export async function writeCoderRun(changeId: string, runId: string, taskIds: st
     id: runId,
     changeId,
     projectPath: tempDir,
-    runtime: "coder-codex",
+    runtime: "provider-code",
     executionMode: "worktree",
     proposalOnly: true,
     command: ["codex"],
@@ -1701,6 +1737,7 @@ export async function writeCoderRun(changeId: string, runId: string, taskIds: st
     },
     ...(taskIds.length > 0 ? { taskIds } : {}),
     ...(taskRunId ? { taskRunId } : {}),
+    worktreeDiffHash: `fixture-diff:${worktreeId}`,
   };
   await writeFile(join(runDir, "run.json"), JSON.stringify(run, null, 2), "utf8");
   await writeFile(join(runDir, "events.jsonl"), `${JSON.stringify({ timestamp: now, type: "run.completed", runId })}\n`, "utf8");
@@ -1808,6 +1845,7 @@ export async function writeValidationResult(changeId: string, validationId: stri
     status,
     executionMode: "worktree",
     worktreeId,
+    worktreeDiffHash: `fixture-diff:${worktreeId}`,
     startedAt: now,
     finishedAt: now,
     commands: [],
@@ -1826,6 +1864,8 @@ export async function writeAuditResult(changeId: string, auditId: string, worktr
     changeId,
     status,
     worktreeId,
+    validationId: auditId.replace(/audit/i, "validation"),
+    worktreeDiffHash: `fixture-diff:${worktreeId}`,
     startedAt: now,
     finishedAt: now,
     findings: [],

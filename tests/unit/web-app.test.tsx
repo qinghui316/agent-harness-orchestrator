@@ -1,4 +1,4 @@
-﻿// @vitest-environment jsdom
+// @vitest-environment jsdom
 
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
@@ -9,9 +9,11 @@ import { ConversationPendingActionStack } from "../../src/web/src/panels/workben
 import { WorkpadView } from "../../src/web/src/panels/workbench/WorkpadPanel.js";
 import { mainAgentExecutionForWorkpad } from "../../src/web/src/panels/workbench/workpad/main-agent-execution.js";
 import { WorkpadDiagnosticDetails } from "../../src/web/src/panels/workbench/workpad/WorkpadDetails.js";
-import { CodexUserInputRequestCard } from "../../src/web/src/panels/workbench/workpad/TaskGraphCards.js";
+import { ProviderUserInputRequestCard } from "../../src/web/src/panels/workbench/workpad/TaskGraphCards.js";
+import { RunReplay } from "../../src/web/src/panels/workbench/RunReplayPanel.js";
 import { TopicComposer } from "../../src/web/src/shell/composer.js";
-import { parentTranscriptCellsFromLiveThreadItem } from "../../src/web/src/liveTranscript.js";
+import { ComposerControls } from "../../src/web/src/shell/ComposerControls.js";
+import { canonicalTranscriptCellsFromThreadItem } from "../../src/workbench/parent-agent-transcript.js";
 import { derivePlanHandoffCandidate } from "../../src/web/src/panels/workbench/planHandoff.js";
 import type { Workpad, WorkpadMainAgentExecutionSummary } from "../../src/web/src/types.js";
 
@@ -35,6 +37,46 @@ vi.mock("@xterm/addon-fit", () => ({
   },
 }));
 
+it("renders the provider descriptor name in composer controls without a built-in provider label", () => {
+  render(<ComposerControls providerDisplayName="Claude Code" modelLabel="claude-sonnet" />);
+
+  expect(screen.getByText("Claude Code")).toBeTruthy();
+  expect(screen.getByLabelText("当前模型：claude-sonnet")).toBeTruthy();
+  expect(screen.queryByText("Codex")).toBeNull();
+});
+
+it("shows an explicit provider placeholder instead of visually selecting an unsent provider", () => {
+  render(<ComposerControls
+    modelLabel="默认模型"
+    providerOptions={[{ id: "alpha", label: "Alpha" }, { id: "beta", label: "Beta" }]}
+  />);
+
+  const select = screen.getByLabelText("选择 Agent provider") as HTMLSelectElement;
+  expect(select.value).toBe("");
+  expect(screen.getByRole("option", { name: "选择 Agent" })).toBeTruthy();
+});
+
+it("does not reconstruct conversation events by parsing provider raw JSONL in the UI", () => {
+  const replayStream = {
+    run: { id: "run-raw", runtime: "provider-runtime", status: "completed", startedAt: "2026-07-15T00:00:00.000Z", finishedAt: "2026-07-15T00:00:01.000Z" },
+    live: false,
+    events: [],
+    artifacts: [{
+      key: "providerEvents",
+      path: "runs/run-raw/provider-events.jsonl",
+      kind: "jsonl",
+      exists: true,
+      preview: JSON.stringify({ type: "item.completed", item: { type: "command_execution", command: "npm test", exit_code: 0 } }),
+    }],
+    diagnostics: [],
+  };
+
+  render(<RunReplay stream={replayStream} run={replayStream.run} />);
+
+  expect(screen.getByText("暂无可读转录")).toBeTruthy();
+  expect(screen.queryByText("Command completed")).toBeNull();
+});
+
 it("identifies superseding planner proposals by artifact even when the parent run id is reused", () => {
   const candidate = derivePlanHandoffCandidate({
     selectedAgentId: "planning-agent",
@@ -50,8 +92,8 @@ it("identifies superseding planner proposals by artifact even when the parent ru
         title: "Plan Agent",
         items: [],
         cells: [
-          { id: "old", kind: "assistant-message", source: "codex-runtime", runId: "run-1", timestamp: "2026-07-11T00:00:00Z", text: "Old", evidenceRefs: [{ label: "Plan proposal", ref: "old.json", kind: "artifact" }] },
-          { id: "new", kind: "assistant-message", source: "codex-runtime", runId: "run-1", timestamp: "2026-07-11T00:00:01Z", text: "New", evidenceRefs: [{ label: "Plan proposal", ref: "new.json", kind: "artifact" }] },
+          { id: "old", kind: "assistant-message", source: "provider-runtime", runId: "run-1", timestamp: "2026-07-11T00:00:00Z", text: "Old", evidenceRefs: [{ label: "Plan proposal", ref: "old.json", kind: "artifact" }] },
+          { id: "new", kind: "assistant-message", source: "provider-runtime", runId: "run-1", timestamp: "2026-07-11T00:00:01Z", text: "New", evidenceRefs: [{ label: "Plan proposal", ref: "new.json", kind: "artifact" }] },
         ],
       },
     }],
@@ -75,8 +117,8 @@ it("does not derive an action from planner output without a validated proposal a
         title: "Plan Agent",
         items: [],
         cells: [
-          { id: "valid", kind: "assistant-message", source: "codex-runtime", runId: "run-valid", timestamp: "2026-07-11T00:00:00Z", text: "Valid plan", evidenceRefs: [{ label: "Plan proposal", ref: "valid.json", kind: "artifact" }] },
-          { id: "invalid", kind: "assistant-message", source: "codex-runtime", runId: "run-invalid", timestamp: "2026-07-11T00:00:01Z", status: "planner-proposal-invalid", text: "Invalid planner output" },
+          { id: "valid", kind: "assistant-message", source: "provider-runtime", runId: "run-valid", timestamp: "2026-07-11T00:00:00Z", text: "Valid plan", evidenceRefs: [{ label: "Plan proposal", ref: "valid.json", kind: "artifact" }] },
+          { id: "invalid", kind: "assistant-message", source: "provider-runtime", runId: "run-invalid", timestamp: "2026-07-11T00:00:01Z", status: "planner-proposal-invalid", text: "Invalid planner output" },
         ],
       },
     }],
@@ -234,10 +276,10 @@ const snapshot = {
         timestamp: "2026-05-15T12:01:00.000Z",
         runId: "run-1",
         blocks: [
-          { id: "b1", runId: "run-1", sequence: 1, kind: "prose", timestamp: "2026-05-15T12:01:00.000Z", source: "codex", text: "Codex final summary 完整显示。" },
-          { id: "b2", runId: "run-1", sequence: 2, kind: "command", timestamp: "2026-05-15T12:01:05.000Z", source: "codex", title: "Command completed", command: "npm test", preview: "测试通过", exitCode: 0 },
-          { id: "b3", runId: "run-1", sequence: 3, kind: "prose", timestamp: "2026-05-15T12:01:10.000Z", source: "codex", text: "下一步可以查看验证和审查证据。" },
-          { id: "b4", runId: "run-1", sequence: 4, kind: "usage", timestamp: "2026-05-15T12:01:11.000Z", source: "codex", title: "用量", text: "用量：10 input tokens · 5 output tokens" },
+          { id: "b1", runId: "run-1", sequence: 1, kind: "prose", timestamp: "2026-05-15T12:01:00.000Z", source: "provider", text: "Codex final summary 完整显示。" },
+          { id: "b2", runId: "run-1", sequence: 2, kind: "command", timestamp: "2026-05-15T12:01:05.000Z", source: "provider", title: "Command completed", command: "npm test", preview: "测试通过", exitCode: 0 },
+          { id: "b3", runId: "run-1", sequence: 3, kind: "prose", timestamp: "2026-05-15T12:01:10.000Z", source: "provider", text: "下一步可以查看验证和审查证据。" },
+          { id: "b4", runId: "run-1", sequence: 4, kind: "usage", timestamp: "2026-05-15T12:01:11.000Z", source: "provider", title: "用量", text: "用量：10 input tokens · 5 output tokens" },
           { id: "b5", runId: "run-1", sequence: 5, kind: "workflow-evidence", timestamp: "2026-05-15T12:01:12.000Z", source: "validation", title: "验证：已通过", text: "commands=test", status: "passed" },
           { id: "b6", runId: "run-1", sequence: 6, kind: "workflow-evidence", timestamp: "2026-05-15T12:01:13.000Z", source: "audit", title: "审查：带备注批准", text: "0 findings", status: "approved-with-notes" },
         ],
@@ -261,14 +303,14 @@ const snapshot = {
         {
           id: "cell:assistant:e3",
           kind: "assistant-message",
-          source: "codex-runtime",
+          source: "provider-runtime",
           timestamp: "2026-05-15T12:01:00.000Z",
           text: "Codex final summary 完整显示。\n\n下一步可以查看验证和审查证据。",
         },
         {
           id: "cell:command:b2",
           kind: "process-row",
-          source: "codex-runtime",
+          source: "provider-runtime",
           timestamp: "2026-05-15T12:01:05.000Z",
           title: "已运行命令",
           text: "已运行 1 条命令",
@@ -279,8 +321,8 @@ const snapshot = {
       items: [],
       emptyMessage: "暂无对话内容。输入需求后，主 agent 会在这里持续回复。",
     },
-    agentLoop: { runs: [{ id: "run-1", runtime: "coder-codex", status: "completed" }] },
-    agentRunGraph: {
+    agentLoop: { runs: [{ id: "run-1", runtime: "provider-code", status: "completed" }] },
+    agentRelationGraph: {
       conversationId: "member-discount",
       changeId: "member-discount",
       title: "会员折扣计价",
@@ -395,7 +437,7 @@ const snapshot = {
 };
 
 const stream = {
-  run: { id: "run-1", runtime: "coder-codex", status: "completed" },
+  run: { id: "run-1", runtime: "provider-code", status: "completed" },
   live: false,
   events: [{ id: "r1", type: "run.completed", label: "run.completed", timestamp: "2026-05-15T12:00:00.000Z" }],
   artifacts: [
@@ -409,7 +451,27 @@ const stream = {
 };
 
 const codexDiagnostics = {
-  provider: "codex",
+  providerId: "codex",
+  displayName: "Codex",
+  installation: { available: true, version: "codex-cli 1.2.3", path: "C:/Users/test/.codex/config.toml" },
+  adapter: { id: "codex-app-server", version: "1" },
+  capabilities: { providerId: "codex", productMode: "harness", status: "degraded", runnable: true, snapshotHash: "capability-1234", snapshotVersion: 2, capabilities: [] },
+  models: {
+    providerId: "codex",
+    selectedModel: null,
+    effectiveModel: { providerId: "codex", modelId: "gpt-5.3-codex" },
+    effectiveModelSource: "config",
+    candidates: [],
+    available: true,
+  },
+  sessionHealth: "ready",
+  lastError: null,
+  rawEvidenceRefs: [],
+  projectActions: [{ id: "project.trust", label: "信任 Codex 项目", status: "available", requiresConfirmation: true, reason: "Project trust is not configured." }],
+  details: {
+    configPath: "C:/Users/test/.codex/config.toml",
+    projectTrust: { trusted: false, projectKey: "E:/repo", configExists: true, reason: "Project trust is not configured." },
+  },
   available: true,
   version: "codex-cli 1.2.3",
   configPath: "C:/Users/test/.codex/config.toml",
@@ -419,7 +481,7 @@ const codexDiagnostics = {
   effectiveModel: "gpt-5.3-codex",
   effectiveModelSource: "config",
   approvalFlagPlacement: "after-exec",
-  capabilities: {
+  runtimeCapabilities: {
     supportsJson: true,
     supportsSandbox: true,
     supportsCd: true,
@@ -438,23 +500,14 @@ const codexDiagnostics = {
 } as const;
 
 const codexModelSettings = {
+  providerId: "codex",
   selectedModel: null,
-  customModels: [],
-  configModel: "gpt-5.3-codex",
-  configPath: "C:/Users/test/.codex/config.toml",
-  configExists: true,
-  effectiveModel: "gpt-5.3-codex",
+  effectiveModel: { providerId: "codex", modelId: "gpt-5.3-codex" },
   effectiveModelSource: "config",
-  modelList: {
-    available: true,
-    candidates: [
-      { id: "gpt-5.3-codex", label: "GPT 5.3 Codex", source: "runtime", isDefault: true },
-      { id: "gpt-5.5", label: "GPT 5.5", source: "runtime" },
-    ],
-  },
+  available: true,
   candidates: [
-    { id: "gpt-5.3-codex", label: "GPT 5.3 Codex", source: "runtime", isDefault: true },
-    { id: "gpt-5.5", label: "GPT 5.5", source: "runtime" },
+    { providerId: "codex", modelId: "gpt-5.3-codex", label: "GPT 5.3 Codex", source: "runtime", isDefault: true },
+    { providerId: "codex", modelId: "gpt-5.5", label: "GPT 5.5", source: "runtime" },
   ],
 } as const;
 
@@ -612,10 +665,10 @@ describe("Workbench web app", () => {
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (url === "/api/codex/diagnostics" || url.endsWith("/codex/diagnostics")) {
+      if (url === "/api/providers/codex/diagnostics" || url.endsWith("/providers/codex/diagnostics")) {
         return jsonResponse(codexDiagnostics);
       }
-      if (url === "/api/codex/models" || url.endsWith("/codex/models")) {
+      if (url === "/api/providers/codex/models" || url.endsWith("/providers/codex/models")) {
         return jsonResponse(codexModelSettings);
       }
       if (url === "/api/providers/capabilities" || url.endsWith("/providers/capabilities")) {
@@ -627,11 +680,11 @@ describe("Workbench web app", () => {
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (url.includes("/workbench/projections/run-graph/")) {
+      if (url.includes("/workbench/projections/agent-graph/")) {
         return new Response(JSON.stringify({
-          ...snapshot.center.agentRunGraph,
-          nodes: snapshot.center.agentRunGraph.nodes.filter((node) => node.lane !== "maintenance"),
-          edges: snapshot.center.agentRunGraph.edges.filter((edge) => edge.kind !== "background-maintenance"),
+          ...snapshot.center.agentRelationGraph,
+          nodes: snapshot.center.agentRelationGraph.nodes.filter((node) => node.lane !== "maintenance"),
+          edges: snapshot.center.agentRelationGraph.edges.filter((edge) => edge.kind !== "background-maintenance"),
         }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
@@ -739,7 +792,7 @@ describe("Workbench web app", () => {
           source: "composer",
           createdAt: "2026-06-28T12:00:00.000Z",
           storagePath: "attachments/att-20260628120000-abcdef123456/content.png",
-          runtimeMode: "codex-image-input",
+          runtimeMode: "provider-image-input",
           previewUrl: "data:image/png;base64,AAAA",
         }]}
         onAttachFiles={() => undefined}
@@ -777,11 +830,12 @@ describe("Workbench web app", () => {
           description: "Pricing context helper.",
           sourcePath: "E:/skills/pricing-helper",
           sourceKind: "custom",
-          sourceHash: "hash",
+          contentHash: "hash",
+          compatibility: { requiredCapabilities: [] },
           enabledProject: false,
           enabledTopics: ["member-discount"],
           disabledTopics: [],
-          runtimeTargets: [{ provider: "codex", status: "synced", materializationMode: "aho-managed" }],
+          providerBindings: [{ providerId: "codex", bindingKind: "materialized", status: "ready", contentHash: "hash" }],
         }]}
         activeSkillIds={["pricing-helper"]}
         selectedFileRefs={[{ relativePath: "src/pricing.ts", name: "pricing.ts", kind: "file", source: "composer" }]}
@@ -795,7 +849,7 @@ describe("Workbench web app", () => {
           source: "composer",
           createdAt: "2026-06-28T12:00:00.000Z",
           storagePath: "attachments/att-20260628120000-abcdef123456/content.png",
-          runtimeMode: "codex-image-input",
+          runtimeMode: "provider-image-input",
         }]}
         onAttachFiles={() => undefined}
         onRemoveAttachment={onRemoveAttachment}
@@ -850,7 +904,7 @@ describe("Workbench web app", () => {
       cells: Array.from({ length: 1000 }, (_, index) => ({
         id: `cell:assistant:${index}`,
         kind: "assistant-message",
-        source: "codex-runtime",
+        source: "provider-runtime",
         text: `message ${index}`,
       })),
       items: [],
@@ -861,7 +915,7 @@ describe("Workbench web app", () => {
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
       if (url.includes("/workbench/projections/transcript/")) return jsonResponse(largeTranscript);
-      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(snapshot.center.agentRunGraph);
+      if (url.includes("/workbench/projections/agent-graph/")) return jsonResponse(snapshot.center.agentRelationGraph);
       return jsonResponse(url.includes("/stream/") ? stream : snapshot);
     });
 
@@ -880,7 +934,7 @@ describe("Workbench web app", () => {
       cells: [{
         id: "cell:assistant:long",
         kind: "assistant-message",
-        source: "codex-runtime",
+        source: "provider-runtime",
         text: longText,
       }],
       items: [],
@@ -891,7 +945,7 @@ describe("Workbench web app", () => {
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
       if (url.includes("/workbench/projections/transcript/")) return jsonResponse(transcript);
-      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(snapshot.center.agentRunGraph);
+      if (url.includes("/workbench/projections/agent-graph/")) return jsonResponse(snapshot.center.agentRelationGraph);
       return jsonResponse(url.includes("/stream/") ? stream : snapshot);
     });
 
@@ -914,12 +968,12 @@ describe("Workbench web app", () => {
       }, {
         id: "cell:assistant:reading",
         kind: "assistant-message",
-        source: "codex-runtime",
+        source: "provider-runtime",
         text: "# 实现计划\n\n1. 读取现有实现\n2. 修改显示层\n\n> 保持 Harness 边界\n\n```ts\nconst ok = true;\n```",
       }, {
         id: "cell:process:reading",
         kind: "process-row",
-        source: "codex-runtime",
+        source: "provider-runtime",
         title: "已运行命令",
         text: "已运行 1 条命令",
         detailText: "npm test\nPASS transcript surface",
@@ -927,7 +981,7 @@ describe("Workbench web app", () => {
       }, {
         id: "cell:process:duplicate-summary",
         kind: "process-row",
-        source: "codex-runtime",
+        source: "provider-runtime",
         title: "Planning draft generated",
         text: "Planning draft generated 已完成",
         status: "completed",
@@ -940,7 +994,7 @@ describe("Workbench web app", () => {
       }, {
         id: "cell:process:failed",
         kind: "process-row",
-        source: "codex-runtime",
+        source: "provider-runtime",
         title: "验证失败",
         text: "验证失败",
         status: "failed",
@@ -954,7 +1008,7 @@ describe("Workbench web app", () => {
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
       if (url.includes("/workbench/projections/transcript/")) return jsonResponse(transcript);
-      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(snapshot.center.agentRunGraph);
+      if (url.includes("/workbench/projections/agent-graph/")) return jsonResponse(snapshot.center.agentRelationGraph);
       return jsonResponse(url.includes("/stream/") ? stream : snapshot);
     });
 
@@ -1072,7 +1126,7 @@ describe("Workbench web app", () => {
     expect(screen.queryByRole("tab", { name: "Agent 编排图" })).toBeNull();
     expect(screen.getByTestId("orchestration-overlay-toggle")).toBeTruthy();
     expect(screen.getByTestId("parent-agent-transcript")).toBeTruthy();
-    expect(screen.queryByTestId("open-agent-run-graph")).toBeNull();
+    expect(screen.queryByTestId("open-agent-relation-graph")).toBeNull();
     expect(screen.queryByText("目标与当前理解")).toBeNull();
     expect(screen.queryByText("推荐角色：coder-agent")).toBeNull();
     expect(screen.queryByText("执行范围")).toBeNull();
@@ -1119,29 +1173,29 @@ describe("Workbench web app", () => {
     expect(new URL(window.location.href).searchParams.get("tab")).toBe("orchestration");
     expect(screen.queryByRole("dialog", { name: "Agent 编排图" })).toBeNull();
     expect(screen.queryByTestId("agent-graph-overlay-backdrop")).toBeNull();
-    expect(await screen.findByTestId("agent-run-graph", undefined, { timeout: 5000 })).toBeTruthy();
-    expect(fetchCallUrls()).toContain("/api/projects/repo/workbench/projections/run-graph/member-discount");
+    expect(await screen.findByTestId("agent-relation-graph", undefined, { timeout: 5000 })).toBeTruthy();
+    expect(fetchCallUrls()).toContain("/api/projects/repo/workbench/projections/agent-graph/member-discount");
     expect(screen.getByTestId("agent-orchestration-map")).toBeTruthy();
     expect(screen.getByTestId("agent-orchestration-zoom-in")).toBeTruthy();
     expect(screen.getByTestId("agent-orchestration-zoom-out")).toBeTruthy();
     expect(screen.getByTestId("agent-orchestration-fit")).toBeTruthy();
     expect(screen.getAllByTestId("agent-orchestration-edge").length).toBeGreaterThan(0);
-    expect(screen.getByTestId("agent-run-node-main-agent")).toBeTruthy();
-    expect(screen.getByTestId("agent-run-node-coder-agent")).toBeTruthy();
+    expect(screen.getByTestId("agent-relation-node-main-agent")).toBeTruthy();
+    expect(screen.getByTestId("agent-relation-node-coder-agent")).toBeTruthy();
     expect(document.querySelector(".agent-orchestration-card .agent-orchestration-avatar")).toBeNull();
-    const graphText = screen.getByTestId("agent-run-graph").textContent ?? "";
+    const graphText = screen.getByTestId("agent-relation-graph").textContent ?? "";
     for (const forbidden of ["full-auto", "parallel executor", "merge queue", "automatic remote", "TaskRun", "WorkerLease"]) {
       expect(graphText).not.toContain(forbidden);
     }
-    expect(screen.queryByTestId("agent-run-node-memory-closeout")).toBeNull();
-    expect(screen.queryByTestId("agent-run-node-validator")).toBeNull();
-    expect(screen.queryByTestId("agent-run-node-integration-check")).toBeNull();
-    fireEvent.click(screen.getByTestId("agent-run-node-main-agent"));
+    expect(screen.queryByTestId("agent-relation-node-memory-closeout")).toBeNull();
+    expect(screen.getByTestId("agent-relation-node-validator")).toBeTruthy();
+    expect(screen.queryByTestId("agent-relation-node-integration-check")).toBeNull();
+    fireEvent.click(screen.getByTestId("agent-relation-node-main-agent"));
     await waitFor(() => expect(screen.queryByTestId("agent-graph-center-view")).toBeNull());
     expect(new URL(window.location.href).searchParams.get("tab")).toBeNull();
     fireEvent.click(screen.getByTestId("orchestration-overlay-toggle"));
     expect(await screen.findByTestId("agent-orchestration-map")).toBeTruthy();
-    fireEvent.click(screen.getByTestId("agent-run-node-coder-agent"));
+    fireEvent.click(screen.getByTestId("agent-relation-node-coder-agent"));
     await waitFor(() => expect(screen.getByTestId("agent-graph-center-view")).toBeTruthy());
     expect(new URL(window.location.href).searchParams.get("tab")).toBe("orchestration");
     expect(screen.getByTestId("agent-workspace-panel")).toBeTruthy();
@@ -1161,7 +1215,7 @@ describe("Workbench web app", () => {
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
       if (url.includes("/workbench/projections/transcript/")) return jsonResponse(snapshot.center.parentAgentTranscript);
-      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(snapshot.center.agentRunGraph);
+      if (url.includes("/workbench/projections/agent-graph/")) return jsonResponse(snapshot.center.agentRelationGraph);
       return jsonResponse(url.includes("/stream/") ? stream : snapshot);
     }));
 
@@ -1196,7 +1250,7 @@ describe("Workbench web app", () => {
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
       if (url.includes("/workbench/projections/transcript/")) return jsonResponse(snapshot.center.parentAgentTranscript);
-      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(snapshot.center.agentRunGraph);
+      if (url.includes("/workbench/projections/agent-graph/")) return jsonResponse(snapshot.center.agentRelationGraph);
       return jsonResponse(url.includes("/stream/") ? stream : snapshot);
     }));
 
@@ -1315,7 +1369,7 @@ describe("Workbench web app", () => {
                 {
                   id: "planning-agent-plan",
                   kind: "assistant-message",
-                  source: "codex-runtime",
+                  source: "provider-runtime",
                   text: "为 `message.txt` 增加指定文本的实施方案",
                   agentRoleId: "planning-agent",
                   runId: "run-planning-agent",
@@ -1341,7 +1395,7 @@ describe("Workbench web app", () => {
         return sseResponse([["snapshot", planningAgentSnapshot], ["done", { status: "completed" }]]);
       }
       if (url.includes("/workbench/projections/transcript/")) return jsonResponse(planningAgentSnapshot.center.parentAgentTranscript);
-      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(planningAgentSnapshot.center.agentRunGraph);
+      if (url.includes("/workbench/projections/agent-graph/")) return jsonResponse(planningAgentSnapshot.center.agentRelationGraph);
       return jsonResponse(url.includes("/stream/") ? stream : planningAgentSnapshot);
     }));
 
@@ -1381,7 +1435,7 @@ describe("Workbench web app", () => {
     expect(panel.textContent).toContain("为 message.txt 增加指定文本的实施方案");
     expect(within(panel).queryByTestId("agent-plan-handoff-card")).toBeNull();
     expect(within(panel).queryByTestId("plan-handoff-pending-card")).toBeNull();
-    expect(within(panel).queryByTestId("agent-workspace-codex-user-input")).toBeNull();
+    expect(within(panel).queryByTestId("agent-workspace-provider-user-input")).toBeNull();
     expect(within(panel).queryByRole("button", { name: "实施此计划" })).toBeNull();
 
     const composer = within(panel).getByTestId("agent-workspace-composer");
@@ -1439,7 +1493,7 @@ describe("Workbench web app", () => {
               cells: [{
                 id: "planning-agent-plan",
                 kind: "assistant-message",
-                source: "codex-runtime",
+                source: "provider-runtime",
                 text: "先调整状态文案，再运行测试。",
                 agentRoleId: "planning-agent",
                 runId: "run-planning-agent",
@@ -1471,9 +1525,9 @@ describe("Workbench web app", () => {
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
       if (url.includes("/workbench/snapshot?topic=conv-empty")) return jsonResponse(cleanConversationSnapshot);
       if (url.includes("/workbench/projections/transcript/conv-empty")) return jsonResponse(cleanConversationSnapshot.center.parentAgentTranscript);
-      if (url.includes("/workbench/projections/run-graph/conv-empty")) return jsonResponse(cleanConversationSnapshot.center.agentRunGraph);
+      if (url.includes("/workbench/projections/agent-graph/conv-empty")) return jsonResponse(cleanConversationSnapshot.center.agentRelationGraph);
       if (url.includes("/workbench/projections/transcript/")) return jsonResponse(planningAgentSnapshot.center.parentAgentTranscript);
-      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(planningAgentSnapshot.center.agentRunGraph);
+      if (url.includes("/workbench/projections/agent-graph/")) return jsonResponse(planningAgentSnapshot.center.agentRelationGraph);
       return jsonResponse(url.includes("/stream/") ? stream : planningAgentSnapshot);
     }));
 
@@ -1510,7 +1564,7 @@ describe("Workbench web app", () => {
               cells: [{
                 id: "planning-agent-plan",
                 kind: "assistant-message",
-                source: "codex-runtime",
+                source: "provider-runtime",
                 text: "先整理目标，再确认执行方式。",
                 agentRoleId: "planning-agent",
               }],
@@ -1532,7 +1586,7 @@ describe("Workbench web app", () => {
         return sseResponse([["snapshot", planningAgentSnapshot], ["done", { status: "completed" }]]);
       }
       if (url.includes("/workbench/projections/transcript/")) return jsonResponse(planningAgentSnapshot.center.parentAgentTranscript);
-      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(planningAgentSnapshot.center.agentRunGraph);
+      if (url.includes("/workbench/projections/agent-graph/")) return jsonResponse(planningAgentSnapshot.center.agentRelationGraph);
       return jsonResponse(url.includes("/stream/") ? stream : planningAgentSnapshot);
     }));
 
@@ -1689,7 +1743,7 @@ describe("Workbench web app", () => {
         });
       }
       if (url.includes("/workbench/projections/transcript/")) return jsonResponse(snapshot.center.parentAgentTranscript);
-      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(snapshot.center.agentRunGraph);
+      if (url.includes("/workbench/projections/agent-graph/")) return jsonResponse(snapshot.center.agentRelationGraph);
       return jsonResponse(url.includes("/stream/") ? stream : snapshot);
     }));
 
@@ -1825,7 +1879,7 @@ describe("Workbench web app", () => {
       if (url === "/api/projects/repo/terminal/sessions") return new Promise<Response>(() => undefined);
       if (url.includes("/api/projects/repo/terminal/sessions/") && url.endsWith("/resize")) return jsonResponse({ ok: true });
       if (url.includes("/workbench/projections/transcript/")) return jsonResponse(snapshot.center.parentAgentTranscript);
-      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(snapshot.center.agentRunGraph);
+      if (url.includes("/workbench/projections/agent-graph/")) return jsonResponse(snapshot.center.agentRelationGraph);
       return jsonResponse(url.includes("/stream/") ? stream : snapshot);
     }));
 
@@ -1901,7 +1955,7 @@ describe("Workbench web app", () => {
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
       if (url.includes("/workbench/projections/transcript/")) return jsonResponse(snapshot.center.parentAgentTranscript);
-      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(snapshot.center.agentRunGraph);
+      if (url.includes("/workbench/projections/agent-graph/")) return jsonResponse(snapshot.center.agentRelationGraph);
       return jsonResponse(url.includes("/stream/") ? stream : snapshot);
     }));
 
@@ -1913,7 +1967,7 @@ describe("Workbench web app", () => {
     fireEvent.click(screen.getByTestId("orchestration-overlay-toggle"));
 
     expect(await screen.findByTestId("agent-graph-center-view", undefined, { timeout: 5000 })).toBeTruthy();
-    expect(await screen.findByTestId("agent-run-graph", undefined, { timeout: 5000 })).toBeTruthy();
+    expect(await screen.findByTestId("agent-relation-graph", undefined, { timeout: 5000 })).toBeTruthy();
     expect(screen.getByTestId("agent-orchestration-map")).toBeTruthy();
     expect(screen.getByTestId("agent-orchestration-zoom-in")).toBeTruthy();
     expect(screen.getByTestId("agent-orchestration-fit")).toBeTruthy();
@@ -1928,12 +1982,13 @@ describe("Workbench web app", () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/providers") return jsonResponse({ providers: [{ providerId: "codex", displayName: "Codex" }] });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
       if (url.includes("/workbench/projections/transcript/")) return jsonResponse(snapshot.center.parentAgentTranscript);
-      if (url.includes("/workbench/projections/run-graph/")) {
+      if (url.includes("/workbench/projections/agent-graph/")) {
         graphAttempts += 1;
         if (graphAttempts === 1) return new Response("projection unavailable", { status: 503 });
-        return jsonResponse(snapshot.center.agentRunGraph);
+        return jsonResponse(snapshot.center.agentRelationGraph);
       }
       return jsonResponse(url.includes("/stream/") ? stream : snapshot);
     }));
@@ -1943,9 +1998,9 @@ describe("Workbench web app", () => {
     fireEvent.click(screen.getByTestId("orchestration-overlay-toggle"));
 
     expect((await screen.findByRole("alert")).textContent).toContain("Agent 关系加载失败");
-    expect(screen.queryByTestId("agent-run-node-planning-agent")).toBeNull();
+    expect(screen.queryByTestId("agent-relation-node-planning-agent")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
-    expect(await screen.findByTestId("agent-run-node-main-agent")).toBeTruthy();
+    expect(await screen.findByTestId("agent-relation-node-main-agent")).toBeTruthy();
     expect(graphAttempts).toBe(2);
   });
 
@@ -2002,7 +2057,7 @@ describe("Workbench web app", () => {
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
       if (url.includes("/workbench/projections/transcript/")) return jsonResponse(uiSnapshot.center.parentAgentTranscript);
-      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(uiSnapshot.center.agentRunGraph);
+      if (url.includes("/workbench/projections/agent-graph/")) return jsonResponse(uiSnapshot.center.agentRelationGraph);
       return jsonResponse(url.includes("/stream/") ? stream : uiSnapshot);
     }));
 
@@ -2089,7 +2144,7 @@ describe("Workbench web app", () => {
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
       if (url.includes("/workbench/projections/transcript/")) return jsonResponse(uiSnapshot.center.parentAgentTranscript);
-      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(snapshot.center.agentRunGraph);
+      if (url.includes("/workbench/projections/agent-graph/")) return jsonResponse(snapshot.center.agentRelationGraph);
       return jsonResponse(url.includes("/stream/") ? stream : uiSnapshot);
     }));
 
@@ -2202,13 +2257,13 @@ describe("Workbench web app", () => {
             timestamp: "2026-05-15T12:00:00.000Z",
             runId: "run-dedupe",
             blocks: [
-              { id: "p1", runId: "run-dedupe", sequence: 1, kind: "prose", timestamp: "2026-05-15T12:00:00.000Z", source: "codex", text: "我会检查现有实现。" },
-              { id: "err1", runId: "run-dedupe", sequence: 2, kind: "error", timestamp: "2026-05-15T12:00:00.500Z", source: "codex", title: "Error", text: "Reconnecting..." },
-              { id: "err2", runId: "run-dedupe", sequence: 3, kind: "error", timestamp: "2026-05-15T12:00:00.600Z", source: "codex", title: "Codex error", text: "Reconnecting..." },
-              { id: "c-start", runId: "run-dedupe", itemId: "cmd-1", sequence: 4, kind: "command", timestamp: "2026-05-15T12:00:01.000Z", source: "codex", status: "started", title: "Command started", command: "npm test" },
-              { id: "c-done", runId: "run-dedupe", itemId: "cmd-1", sequence: 5, kind: "command", timestamp: "2026-05-15T12:00:02.000Z", source: "codex", status: "completed", title: "Command completed", command: "npm test", preview: "ok", exitCode: 0 },
-              { id: "u1", runId: "run-dedupe", sequence: 6, kind: "usage", timestamp: "2026-05-15T12:00:03.000Z", source: "codex", text: "用量：1 input tokens · 2 output tokens" },
-              { id: "u2", runId: "run-dedupe", sequence: 7, kind: "usage", timestamp: "2026-05-15T12:00:04.000Z", source: "codex", text: "用量：1 input tokens · 2 output tokens" },
+              { id: "p1", runId: "run-dedupe", sequence: 1, kind: "prose", timestamp: "2026-05-15T12:00:00.000Z", source: "provider", text: "我会检查现有实现。" },
+              { id: "err1", runId: "run-dedupe", sequence: 2, kind: "error", timestamp: "2026-05-15T12:00:00.500Z", source: "provider", title: "Error", text: "Reconnecting..." },
+              { id: "err2", runId: "run-dedupe", sequence: 3, kind: "error", timestamp: "2026-05-15T12:00:00.600Z", source: "provider", title: "Codex error", text: "Reconnecting..." },
+              { id: "c-start", runId: "run-dedupe", itemId: "cmd-1", sequence: 4, kind: "command", timestamp: "2026-05-15T12:00:01.000Z", source: "provider", status: "started", title: "Command started", command: "npm test" },
+              { id: "c-done", runId: "run-dedupe", itemId: "cmd-1", sequence: 5, kind: "command", timestamp: "2026-05-15T12:00:02.000Z", source: "provider", status: "completed", title: "Command completed", command: "npm test", preview: "ok", exitCode: 0 },
+              { id: "u1", runId: "run-dedupe", sequence: 6, kind: "usage", timestamp: "2026-05-15T12:00:03.000Z", source: "provider", text: "用量：1 input tokens · 2 output tokens" },
+              { id: "u2", runId: "run-dedupe", sequence: 7, kind: "usage", timestamp: "2026-05-15T12:00:04.000Z", source: "provider", text: "用量：1 input tokens · 2 output tokens" },
             ],
           }],
         },
@@ -2218,13 +2273,13 @@ describe("Workbench web app", () => {
             {
               id: "cell:assistant:p1",
               kind: "assistant-message",
-              source: "codex-runtime",
+              source: "provider-runtime",
               text: "我会检查现有实现。",
             },
             {
               id: "cell:error:err1",
               kind: "process-row",
-              source: "codex-runtime",
+              source: "provider-runtime",
               title: "Error",
               text: "Reconnecting...",
               isError: true,
@@ -2232,7 +2287,7 @@ describe("Workbench web app", () => {
             {
               id: "cell:command:c-done",
               kind: "process-row",
-              source: "codex-runtime",
+              source: "provider-runtime",
               title: "已运行命令",
               text: "已运行 1 条命令",
               status: "completed",
@@ -2242,14 +2297,14 @@ describe("Workbench web app", () => {
           items: [],
           emptyMessage: "暂无对话内容。输入需求后，主 agent 会在这里持续回复。",
         },
-        agentLoop: { runs: [{ id: "run-dedupe", runtime: "codex-readonly", status: "completed" }] },
+        agentLoop: { runs: [{ id: "run-dedupe", runtime: "provider-readonly", status: "completed" }] },
       },
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
-      return jsonResponse(url.includes("/stream/") ? { ...stream, run: { id: "run-dedupe", runtime: "codex-readonly", status: "completed" } } : dedupeSnapshot);
+      return jsonResponse(url.includes("/stream/") ? { ...stream, run: { id: "run-dedupe", runtime: "provider-readonly", status: "completed" } } : dedupeSnapshot);
     }));
 
     render(<App />);
@@ -2995,7 +3050,7 @@ describe("Workbench web app", () => {
                 { kind: "status", label: "running", detail: "Codex" },
                 { kind: "assistant-event", event: { runId: "run-live", kind: "status", phase: "running", title: "Codex turn running", summary: "Codex started processing the turn." } },
                 { kind: "assistant-event", event: { runId: "run-live", kind: "command", phase: "completed", title: "Command completed", command: "npm test", preview: "测试通过", exitCode: 0 } },
-                { kind: "assistant-event", event: { runId: "run-live", kind: "command", phase: "completed", title: "Command completed", command: "Get-Content run.json", preview: "{\"runtime\":\"codex-readonly\",\"artifacts\":{\"codexEvents\":\"runs/run-live/codex-events.jsonl\"},\"promptStack\":[\"user-message\"],\"command\":[\"codex\",\"--output-last-message\",\"x\"]}", exitCode: 0 } },
+                { kind: "assistant-event", event: { runId: "run-live", kind: "command", phase: "completed", title: "Command completed", command: "Get-Content run.json", preview: "{\"runtime\":\"provider-readonly\",\"artifacts\":{\"providerEvents\":\"runs/run-live/provider-events.jsonl\"},\"promptStack\":[\"user-message\"]}", exitCode: 0 } },
                 { kind: "assistant-event", event: { runId: "run-live", kind: "usage", phase: "completed", title: "Usage recorded", summary: "10 input tokens · 5 output tokens" } },
                 { kind: "tool", tool: { runId: "run-live", phase: "started", name: "Bash", command: "npm test" } },
                 { kind: "tool", tool: { runId: "run-live", phase: "completed", name: "Bash", command: "npm test", isError: false, exitCode: 0 } },
@@ -3017,13 +3072,13 @@ describe("Workbench web app", () => {
             {
               id: "cell:assistant:live-ai-final",
               kind: "assistant-message",
-              source: "codex-runtime",
+              source: "provider-runtime",
               text: "完整 AI 输出已经落盘。",
             },
             {
               id: "cell:command:live-cmd-1",
               kind: "process-row",
-              source: "codex-runtime",
+              source: "provider-runtime",
               title: "已运行命令",
               text: "已运行 1 条命令",
               status: "completed",
@@ -3044,7 +3099,7 @@ describe("Workbench web app", () => {
       if (url.includes("/messages/live")) {
         return sseResponse([
           ["topic.message", { id: "live-user", type: "user.message", changeId: "member-discount", text: "继续说明边界" }],
-          ["run.started", { runId: "run-live", changeId: "member-discount", runtime: "codex-readonly", actionType: "chat.ask" }],
+          ["run.started", { runId: "run-live", changeId: "member-discount", runtime: "provider-readonly", actionType: "chat.ask" }],
           ["run.status", { runId: "run-live", status: "running", label: "Codex" }],
           ["tool.event", { runId: "run-live", itemId: "cmd-1", phase: "started", name: "Bash", command: "npm test" }],
           ["tool.event", { runId: "run-live", itemId: "cmd-1", phase: "completed", name: "Bash", command: "npm test", isError: false, exitCode: 0 }],
@@ -3155,33 +3210,47 @@ describe("Workbench web app", () => {
     expect(screen.getByTitle("发送")).toBeTruthy();
   });
 
-  it("opens a real Codex model picker from the composer and saves the selected model", async () => {
+  it("opens the selected provider model picker from the composer and saves the selected model", async () => {
     const postBodies: unknown[] = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/providers") return jsonResponse({ providers: [{ providerId: "codex", displayName: "Codex" }] });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
-      if (url === "/api/projects/repo/codex/diagnostics") return jsonResponse(codexDiagnostics);
-      if (url === "/api/codex/models" || url === "/api/projects/repo/codex/models") {
+      if (url === "/api/projects/repo/providers/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      if (url === "/api/projects/repo/providers/capabilities") return jsonResponse({ providers: [{
+        ...codexDiagnostics.capabilities,
+        displayName: "Codex",
+        checkedAt: "2026-07-15T00:00:00.000Z",
+        effectiveModel: "gpt-5.3-codex",
+        effectiveModelSource: "config",
+        degradedReasons: [],
+      }] });
+      if (url === "/api/providers/codex/models" || url === "/api/projects/repo/providers/codex/models") {
         if (init?.method === "POST") {
           postBodies.push(JSON.parse(String(init.body)));
-          return jsonResponse({ ...codexModelSettings, selectedModel: "gpt-5.5", effectiveModel: "gpt-5.5", effectiveModelSource: "selected" });
+          return jsonResponse({
+            ...codexModelSettings,
+            selectedModel: { providerId: "codex", modelId: "gpt-5.5" },
+            effectiveModel: { providerId: "codex", modelId: "gpt-5.5" },
+            effectiveModelSource: "selected",
+          });
         }
         return jsonResponse(codexModelSettings);
       }
       if (url.includes("/workbench/projections/transcript/")) return jsonResponse(snapshot.center.parentAgentTranscript);
-      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(snapshot.center.agentRunGraph);
+      if (url.includes("/workbench/projections/agent-graph/")) return jsonResponse(snapshot.center.agentRelationGraph);
       return jsonResponse(url.includes("/stream/") ? stream : snapshot);
     }));
 
     render(<App />);
 
     await waitFor(() => expect(screen.getAllByText("会员折扣计价").length).toBeGreaterThan(0));
-    fireEvent.click(screen.getByRole("button", { name: /选择模型，当前模型：gpt-5\.3-codex/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /选择模型，当前模型：gpt-5\.3-codex/ }));
 
-    const picker = await screen.findByRole("dialog", { name: "选择 Codex 模型" });
+    const picker = await screen.findByRole("dialog", { name: "选择 Agent 模型" });
     expect(within(picker).getByText("GPT 5.3 Codex")).toBeTruthy();
-    expect(within(picker).queryByLabelText("自定义 Codex 模型 id")).toBeNull();
+    expect(within(picker).queryByLabelText("自定义 Agent 模型 id")).toBeNull();
     expect(within(picker).queryByText("添加")).toBeNull();
     expect(within(picker).queryByText("Claude Code")).toBeNull();
     fireEvent.click(within(picker).getAllByRole("button", { name: "选择" }).at(-1) as HTMLElement);
@@ -3204,8 +3273,8 @@ describe("Workbench web app", () => {
       const url = String(input);
       if (url === "/api/app/status") return jsonResponse({ mode: "app", directProjectId: null });
       if (url === "/api/projects") return jsonResponse({ projects: [repoProject, toolsProject] });
-      if (url === "/api/projects/tools/codex/diagnostics") return jsonResponse(codexDiagnostics);
-      if (url === "/api/projects/tools/codex/models") return jsonResponse(codexModelSettings);
+      if (url === "/api/projects/tools/providers/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      if (url === "/api/projects/tools/providers/codex/models") return jsonResponse(codexModelSettings);
       if (url === "/api/projects/tools/skills") return jsonResponse({ roots: [], skills: [] });
       if (url === "/api/projects/tools/workbench/snapshot") return jsonResponse(toolsSnapshot);
       return jsonResponse(snapshot);
@@ -3239,7 +3308,7 @@ describe("Workbench web app", () => {
       center: {
         ...snapshot.center,
         selectedTopic: { id: "tools-topic", title: "工具面板验收", state: "active", acCount: 1, taskCount: 1 },
-        agentRunGraph: { ...snapshot.center.agentRunGraph, title: "工具面板验收" },
+        agentRelationGraph: { ...snapshot.center.agentRelationGraph, title: "工具面板验收" },
       },
     };
     const repoProject = { project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" }, codexTrust: { trusted: true } };
@@ -3248,11 +3317,11 @@ describe("Workbench web app", () => {
       const url = String(input);
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [repoProject, toolsProject] });
-      if (url === "/api/projects/tools/codex/diagnostics") return jsonResponse(codexDiagnostics);
-      if (url === "/api/projects/tools/codex/models") return jsonResponse(codexModelSettings);
+      if (url === "/api/projects/tools/providers/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      if (url === "/api/projects/tools/providers/codex/models") return jsonResponse(codexModelSettings);
       if (url === "/api/projects/tools/skills") return jsonResponse({ roots: [], skills: [] });
       if (url === "/api/projects/tools/workbench/snapshot?topic=tools-topic") return jsonResponse(toolsSnapshot);
-      if (url === "/api/projects/tools/workbench/projections/run-graph/tools-topic") return jsonResponse(toolsSnapshot.center.agentRunGraph);
+      if (url === "/api/projects/tools/workbench/projections/agent-graph/tools-topic") return jsonResponse(toolsSnapshot.center.agentRelationGraph);
       if (url === "/api/projects/tools/workbench/projections/transcript/tools-topic?limit=100") return jsonResponse(toolsSnapshot.center.parentAgentTranscript);
       return jsonResponse(url.includes("/stream/") ? stream : snapshot);
     }));
@@ -3286,8 +3355,8 @@ describe("Workbench web app", () => {
       const url = String(input);
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "tools" });
       if (url === "/api/projects") return jsonResponse({ projects: [toolsProject] });
-      if (url === "/api/projects/tools/codex/diagnostics") return jsonResponse(codexDiagnostics);
-      if (url === "/api/projects/tools/codex/models") return jsonResponse(codexModelSettings);
+      if (url === "/api/projects/tools/providers/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      if (url === "/api/projects/tools/providers/codex/models") return jsonResponse(codexModelSettings);
       if (url === "/api/projects/tools/skills") return jsonResponse({ roots: [], skills: [] });
       if (url === "/api/projects/tools/workbench/snapshot?topic=tools-topic") return jsonResponse(toolsSnapshot);
       if (url === "/api/projects/tools/workbench/projections/transcript/tools-topic?limit=100") return jsonResponse(toolsSnapshot.center.parentAgentTranscript);
@@ -3324,8 +3393,8 @@ describe("Workbench web app", () => {
       const url = String(input);
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "tools" });
       if (url === "/api/projects") return jsonResponse({ projects: [toolsProject] });
-      if (url === "/api/projects/tools/codex/diagnostics") return jsonResponse(codexDiagnostics);
-      if (url === "/api/projects/tools/codex/models") return jsonResponse(codexModelSettings);
+      if (url === "/api/projects/tools/providers/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      if (url === "/api/projects/tools/providers/codex/models") return jsonResponse(codexModelSettings);
       if (url === "/api/projects/tools/providers/capabilities") return jsonResponse(providerCapabilityPayload);
       if (url === "/api/projects/tools/skills") return jsonResponse({ roots: [], skills: [] });
       if (url === "/api/projects/tools/workbench/snapshot?topic=tools-topic") return jsonResponse(toolsSnapshot);
@@ -3373,15 +3442,17 @@ describe("Workbench web app", () => {
       }
       if (url.includes("/messages/live")) {
         return sseResponse([
-          ["topic.message", { id: "live-user", type: "user.message", changeId: "member-discount", text: "继续说明边界" }],
-          ["run.started", { runId: "run-live", changeId: "member-discount", runtime: "codex-readonly", actionType: "chat.ask" }],
-          ["run.status", { runId: "run-live", status: "running", label: "Codex" }],
-          ["tool.event", { runId: "run-live", itemId: "cmd-1", phase: "started", name: "Bash", command: "npm test" }],
-          ["tool.event", { runId: "run-live", itemId: "cmd-1", phase: "completed", name: "Bash", command: "npm test", isError: false, exitCode: 0 }],
-          ["assistant.event", { runId: "run-live", itemId: "cmd-1", kind: "command", phase: "completed", title: "Command completed", command: "npm test", preview: "测试通过", exitCode: 0 }],
-          ["assistant.event", { runId: "run-live", kind: "reasoning-summary", phase: "completed", title: "Reasoning summary", preview: "Checked existing constraints." }],
-          ["assistant.delta", { runId: "run-live", delta: "实时 AI 输出" }],
-          ["usage", { runId: "run-live", usage: { input_tokens: 10, output_tokens: 5 } }],
+          ["timeline.patch", {
+            conversationId: "member-discount",
+            messageId: "assistant-live",
+            agentSurfaceId: "main-agent",
+            cells: [
+              { id: "cell:reasoning:live", kind: "process-row", source: "provider-runtime", title: "思考摘要 · Checked existing constraints.", text: "", detailText: "Checked existing constraints.", activityKind: "reasoning" },
+              { id: "cell:command:live", kind: "process-row", source: "provider-runtime", title: "命令已完成 · npm test", text: "命令已完成 · npm test", detailText: "$ npm test\n测试通过", status: "completed", activityKind: "command" },
+              { id: "cell:prose:live", kind: "assistant-message", source: "provider-runtime", text: "实时 AI 输出" },
+              { id: "cell:turn:live", kind: "process-row", source: "provider-runtime", title: "已完成 · 2 秒", text: "已完成 · 2 秒", status: "completed", activityKind: "turn" },
+            ],
+          }],
           ["done", { status: "completed" }],
         ]);
       }
@@ -3399,9 +3470,9 @@ describe("Workbench web app", () => {
     expect(screen.queryByText("AI 只读回复")).toBeNull();
     expect(screen.getByText(/思考摘要 · Checked existing constraints\./)).toBeTruthy();
     const commandCell = Array.from(document.querySelectorAll(".parent-agent-tool-result"))
-      .find((node) => node.textContent?.includes("已运行 1 条命令")) as HTMLElement | undefined;
+      .find((node) => node.textContent?.includes("命令已完成 · npm test")) as HTMLElement | undefined;
     expect(commandCell).toBeTruthy();
-    fireEvent.click(within(commandCell as HTMLElement).getByRole("button", { name: "已运行 1 条命令" }));
+    fireEvent.click(within(commandCell as HTMLElement).getByRole("button", { name: "命令已完成 · npm test" }));
     expect(commandCell?.textContent).toMatch(/npm test/);
     expect(screen.queryByText("exit 0")).toBeNull();
     expect(screen.queryByText(/5 output tokens/)).toBeNull();
@@ -3563,7 +3634,7 @@ describe("Workbench web app", () => {
       if (url === "/api/app/status") {
         return new Response(JSON.stringify({ mode: "app", directProjectId: null }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
-      if (url === "/api/codex/diagnostics" || url.endsWith("/codex/diagnostics")) {
+      if (url === "/api/providers/codex/diagnostics" || url.endsWith("/providers/codex/diagnostics")) {
         return jsonResponse(codexDiagnostics);
       }
       return new Response(JSON.stringify({ projects: [{
@@ -3591,7 +3662,7 @@ describe("Workbench web app", () => {
     expect(screen.queryByText("新建空项目")).toBeNull();
     expect(screen.queryByText("远程项目")).toBeNull();
     expect(screen.getByTestId("decision-pane-toggle")).toBeTruthy();
-    const sidebar = document.querySelector(".codex-sidebar") as HTMLElement;
+    const sidebar = document.querySelector(".project-conversation-sidebar") as HTMLElement;
     expect(sidebar.textContent).not.toMatch(/Harness|memory|AHO_HOME|external-local|TaskGraph|SchedulerRun/);
   });
 
@@ -3604,10 +3675,24 @@ describe("Workbench web app", () => {
       }
       if (url.includes("/messages/live")) {
         return sseResponse([
-          ["run.started", { runId: "run-stable", changeId: "member-discount", runtime: "codex-app-server", actionType: "chat.ask" }],
-          ["run.status", { runId: "run-stable", status: "connecting", label: "正在连接" }],
-          ["usage", { runId: "run-stable", threadId: "thread-main", turnId: "turn-previous", agentRoleId: "main-agent", usage: { input_tokens: 10 } }],
-          ["run.status", { runId: "run-stable", threadId: "thread-main", turnId: "turn-current", agentRoleId: "main-agent", status: "thinking", label: "正在思考" }],
+          ["timeline.patch", {
+            conversationId: "member-discount",
+            messageId: "assistant-stable",
+            agentSurfaceId: "main-agent",
+            cells: [{
+              id: "cell:turn:codex:attempt-stable:thread-main:turn-current",
+              kind: "process-row",
+              source: "provider-runtime",
+              runId: "run-stable",
+              threadId: "thread-main",
+              turnId: "turn-current",
+              title: "正在思考",
+              text: "",
+              status: "thinking",
+              realtime: true,
+              activityKind: "turn",
+            }],
+          }],
           ["done", { status: "completed" }],
         ]);
       }
@@ -3622,18 +3707,56 @@ describe("Workbench web app", () => {
 
     await waitFor(() => {
       expect(document.querySelectorAll('[data-realtime="true"]')).toHaveLength(1);
-      expect(document.querySelector('[data-realtime="true"]')?.getAttribute("data-cell-id")).toBe("cell:turn:run-stable:thread-main:turn-current");
+      expect(document.querySelector('[data-realtime="true"]')?.getAttribute("data-cell-id")).toBe("cell:turn:codex:attempt-stable:thread-main:turn-current");
+      expect((document.querySelector('[data-realtime="true"]') as HTMLElement | null)?.dataset.turnId).toBe("turn-current");
     });
     const activity = document.querySelector('[data-realtime="true"]') as HTMLElement;
     expect({ cellId: activity.dataset.cellId, threadId: activity.dataset.threadId, turnId: activity.dataset.turnId }).toEqual({
-      cellId: "cell:turn:run-stable:thread-main:turn-current",
+      cellId: "cell:turn:codex:attempt-stable:thread-main:turn-current",
       threadId: "thread-main",
       turnId: "turn-current",
     });
-    expect(document.querySelectorAll('[data-run-id="run-stable"][data-cell-id="cell:turn:run-stable:thread-main:turn-current"]')).toHaveLength(1);
+    expect(document.querySelectorAll('[data-run-id="run-stable"][data-cell-id="cell:turn:codex:attempt-stable:thread-main:turn-current"]')).toHaveLength(1);
   });
 
   it("keeps child Agent output out of the main transcript until the user opens that Agent", async () => {
+    const childAgentId = "agent:codex:thread:thread-plan-live";
+    const childCells = [{ id: "cell:child-plan-live", kind: "assistant-message" as const, source: "provider-runtime" as const, text: "只属于 Plan Agent 的实时内容", agentRoleId: "planning-agent", threadId: "thread-plan-live" }];
+    const childProjectionSnapshot = {
+      ...snapshot,
+      center: {
+        ...snapshot.center,
+        agentRelationGraph: {
+          ...snapshot.center.agentRelationGraph,
+          nodes: [
+            { id: "main-agent", kind: "main-agent", label: "主 Agent", status: "running", target: { projectId: "repo", conversationId: "member-discount", agentSurfaceId: "main-agent" } },
+            { id: childAgentId, kind: "agent", roleId: "planning-agent", label: "Plan Agent · Sagan", status: "running", providerId: "codex", providerThreadId: "thread-plan-live", parentAgentId: "main-agent", target: { projectId: "repo", conversationId: "member-discount", agentSurfaceId: childAgentId } },
+          ],
+          edges: [{ id: `agent-edge:main-agent:${childAgentId}`, from: "main-agent", to: childAgentId, kind: "parent-child" }],
+        },
+      },
+      right: {
+        ...snapshot.right,
+        agentWorkspace: {
+          selectedAgentId: childAgentId,
+          agents: [{
+            id: childAgentId,
+            roleId: "planning-agent",
+            providerId: "codex",
+            providerThreadId: "thread-plan-live",
+            parentThreadId: "thread-main",
+            parentAgentId: "main-agent",
+            label: "Plan Agent · Sagan",
+            status: "running",
+            summary: "真实 Agent 对话。",
+            transcript: { title: "Plan Agent · Sagan", cells: childCells, items: [] },
+            evidenceRefs: [],
+            actions: [],
+          }],
+        },
+      },
+    };
+    let childProjectionReady = false;
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
@@ -3641,35 +3764,33 @@ describe("Workbench web app", () => {
         return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
       }
       if (url.includes("/messages/live")) {
+        childProjectionReady = true;
         return sseResponse([
-          ["run.started", {
-            projectId: "repo",
+          ["timeline.patch", {
             conversationId: "member-discount",
-            runId: "run-child-live",
+            graphScopeId: "graph-member-discount",
+            messageId: "assistant-child-live",
+            agentSurfaceId: childAgentId,
+            providerId: "codex",
+            roleId: "planning-agent",
             threadId: "thread-plan-live",
             parentThreadId: "thread-main",
-            agentRoleId: "planning-agent",
-            agentSurfaceId: "thread:thread-plan-live",
-            agentDisplayName: "Sagan",
             status: "running",
-          }],
-          ["assistant.delta", {
-            projectId: "repo",
-            conversationId: "member-discount",
-            runId: "run-child-live",
-            threadId: "thread-plan-live",
-            parentThreadId: "thread-main",
-            agentRoleId: "planning-agent",
-            agentSurfaceId: "thread:thread-plan-live",
-            agentDisplayName: "Sagan",
-            delta: "只属于 Plan Agent 的实时内容",
+            cells: childCells,
           }],
           ["done", { status: "completed" }],
         ]);
       }
-      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(snapshot.center.agentRunGraph);
+      if (url.includes("/workbench/projections/agent-graph/")) return jsonResponse(childProjectionSnapshot.center.agentRelationGraph);
       if (url.includes("/workbench/projections/transcript/")) return jsonResponse(snapshot.center.parentAgentTranscript);
-      return jsonResponse(url.includes("/stream/") ? stream : snapshot);
+      if (url.includes("/workbench/snapshot?topic=")) return jsonResponse({
+        ...childProjectionSnapshot,
+        center: {
+          ...childProjectionSnapshot.center,
+          agentRelationGraph: { ...childProjectionSnapshot.center.agentRelationGraph, nodes: [], edges: [] },
+        },
+      });
+      return jsonResponse(url.includes("/stream/") ? stream : childProjectionReady ? childProjectionSnapshot : snapshot);
     }));
 
     render(<App />);
@@ -3681,19 +3802,24 @@ describe("Workbench web app", () => {
     expect(screen.queryByText("只属于 Plan Agent 的实时内容")).toBeNull();
 
     fireEvent.click(screen.getByTestId("orchestration-overlay-toggle"));
-    const planNodes = await screen.findAllByTestId("agent-run-node-planning-agent");
-    expect(planNodes.at(-1)?.textContent).toContain("Plan Agent · Sagan");
-    fireEvent.click(planNodes.at(-1) as HTMLElement);
+    let livePlanNode: HTMLElement | undefined;
+    await waitFor(() => {
+      livePlanNode = screen
+        .getAllByTestId("agent-relation-node-planning-agent")
+        .find((node) => node.textContent?.includes("Plan Agent · Sagan"));
+      expect(livePlanNode).toBeTruthy();
+    });
+    fireEvent.click(livePlanNode as HTMLElement);
     expect(await screen.findByTestId("agent-workspace-panel")).toBeTruthy();
-    expect(screen.getByRole("tab", { name: "打开 Plan Agent · Sagan" })).toBeTruthy();
-    expect(screen.getByText("只属于 Plan Agent 的实时内容")).toBeTruthy();
+    expect(await screen.findByRole("tab", { name: "打开 Plan Agent · Sagan" })).toBeTruthy();
+    expect(await screen.findByText("只属于 Plan Agent 的实时内容")).toBeTruthy();
   });
 
   it("renders the project home without triggering project mutations", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/app/status") return jsonResponse({ mode: "app", directProjectId: null });
-      if (url === "/api/codex/diagnostics" || url.endsWith("/codex/diagnostics")) return jsonResponse(codexDiagnostics);
+      if (url === "/api/providers/codex/diagnostics" || url.endsWith("/providers/codex/diagnostics")) return jsonResponse(codexDiagnostics);
       return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
     }));
 
@@ -3718,10 +3844,11 @@ describe("Workbench web app", () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/providers") return jsonResponse({ providers: [{ providerId: "codex", displayName: "Codex" }] });
       if (url === "/api/projects") {
         return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, memory: { memoryMode: "external-local", memoryAvailable: true, harnessReady: true, artifactBase: "memory-root", roots: { memoryRoot: "E:/aho-home/projects/repo" } }, harness: { readiness: "ready" }, codexTrust: { trusted: false, configPath: codexDiagnostics.configPath, projectKey: "E:/repo", configExists: true, reason: "Project trust is not configured." } }] });
       }
-      if (url === "/api/projects/repo/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      if (url === "/api/projects/repo/providers/codex/diagnostics") return jsonResponse(codexDiagnostics);
       if (url === "/api/projects/repo/providers/capabilities") return jsonResponse(providerCapabilityPayload);
       return jsonResponse(noTopicSnapshot);
     }));
@@ -3754,6 +3881,7 @@ describe("Workbench web app", () => {
     expect(screen.getByRole("button", { name: "高级诊断" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "高级诊断" }));
     expect(screen.getByText("codex-cli 1.2.3")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "信任 Codex 项目" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "返回工作区" }));
     await waitFor(() => expect(screen.queryByRole("region", { name: "设置" })).toBeNull());
     expect(document.querySelector(".sidebar")).toBeTruthy();
@@ -3777,23 +3905,25 @@ describe("Workbench web app", () => {
           description: "Pricing helper.",
           sourcePath: "E:/skills/pricing-helper",
           sourceKind: "custom",
-          sourceHash: "hash-a",
+          contentHash: "hash-a",
+          compatibility: { requiredCapabilities: [] },
           enabledProject: true,
           enabledTopics: [],
           disabledTopics: [],
-          runtimeTargets: [{ provider: "codex", status: "not-synced", materializationMode: "aho-managed" }],
+          providerBindings: [{ providerId: "codex", bindingKind: "materialized", status: "unavailable", contentHash: "hash-a" }],
         },
         {
           skillId: "native-helper",
           name: "native-helper",
-          description: "Native Codex helper.",
+          description: "Provider-native helper.",
           sourcePath: "C:/Users/qinghui/.codex/skills/native-helper",
-          sourceKind: "global-codex",
-          sourceHash: "hash-native",
+          sourceKind: "provider-native",
+          contentHash: "hash-native",
+          compatibility: { requiredCapabilities: ["skill.native-load"] },
           enabledProject: false,
           enabledTopics: [],
           disabledTopics: [],
-          runtimeTargets: [{ provider: "codex", status: "native", materializationMode: "native" }],
+          providerBindings: [{ providerId: "codex", bindingKind: "native", status: "ready", contentHash: "hash-native" }],
         },
       ],
       bridge: { state: "out-of-sync" },
@@ -3804,11 +3934,11 @@ describe("Workbench web app", () => {
       if (url === "/api/projects") {
         return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, memory: { memoryMode: "external-local", memoryAvailable: true, harnessReady: true, artifactBase: "memory-root", roots: { memoryRoot: "E:/aho-home/projects/repo" } }, harness: { readiness: "ready" }, codexTrust: { trusted: true } }] });
       }
-      if (url === "/api/projects/repo/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      if (url === "/api/projects/repo/providers/codex/diagnostics") return jsonResponse(codexDiagnostics);
       if (url === "/api/projects/repo/skills") return jsonResponse(skillPayload);
       if (url === "/api/projects/repo/skill-roots" && init?.method === "POST") return jsonResponse(skillPayload);
       if (url === "/api/projects/repo/skills/pricing-helper/enable" && init?.method === "POST") return jsonResponse(skillPayload);
-      if (url === "/api/projects/repo/skills/codex-bridge/sync" && init?.method === "POST") return jsonResponse({ synced: [], syncedAgents: [], status: { state: "installed" } });
+      if (url === "/api/projects/repo/skills/provider-binding/sync" && init?.method === "POST") return jsonResponse({ synced: [], syncedAgents: [], status: { state: "installed" } });
       return jsonResponse(noTopicSnapshot);
     }));
 
@@ -3840,19 +3970,19 @@ describe("Workbench web app", () => {
     fireEvent.click(within(panel).getByRole("button", { name: "添加" }));
     await waitFor(() => expect(fetchCallUrls()).toContain("/api/projects/repo/skill-roots"));
 
-    fireEvent.click(within(panel).getByRole("button", { name: "同步到 Codex" }));
+    fireEvent.click(within(panel).getByRole("button", { name: "同步到 Agent Provider" }));
     await waitFor(() => {
       const calls = vi.mocked(fetch).mock.calls.map(([url, init]) => [String(url), init?.method ?? "GET"]);
-      expect(calls).toContainEqual(["/api/projects/repo/skills/codex-bridge/sync", "POST"]);
+      expect(calls).toContainEqual(["/api/projects/repo/skills/provider-binding/sync", "POST"]);
     });
     expect(within(panel).queryByRole("button", { name: "禁用" })).toBeNull();
     expect(within(panel).queryByRole("button", { name: "启用" })).toBeNull();
     fireEvent.click(within(panel).getByRole("button", { name: /native-helper/ }));
-    expect(within(panel).getAllByText("Codex 可用").length).toBeGreaterThan(0);
-    expect(within(panel).queryByRole("button", { name: "同步到 Codex" })).toBeNull();
+    expect(within(panel).getAllByText("Provider 原生可用").length).toBeGreaterThan(0);
+    expect(within(panel).queryByRole("button", { name: "同步到 Agent Provider" })).toBeNull();
     const calls = vi.mocked(fetch).mock.calls.map(([url, init]) => [String(url), init?.method ?? "GET"]);
     expect(calls).not.toContainEqual(["/api/projects/repo/skills/pricing-helper/enable", "POST"]);
-    expect(calls).toContainEqual(["/api/projects/repo/skills/codex-bridge/sync", "POST"]);
+    expect(calls).toContainEqual(["/api/projects/repo/skills/provider-binding/sync", "POST"]);
     expect(panel.textContent).not.toContain("marketplace");
     expect(panel.textContent).not.toContain("$skill");
     fireEvent.click(within(panel).getByRole("button", { name: "返回工作区" }));
@@ -3886,11 +4016,12 @@ describe("Workbench web app", () => {
         description: "Pricing helper.",
         sourcePath: "E:/skills/pricing-helper",
         sourceKind: "custom",
-        sourceHash: "hash-a",
+        contentHash: "hash-a",
+        compatibility: { requiredCapabilities: [] },
         enabledProject: false,
         enabledTopics: [],
         disabledTopics: [],
-        runtimeTargets: [{ provider: "codex", status: "not-synced" }],
+        providerBindings: [{ providerId: "codex", bindingKind: "materialized", status: "unavailable", contentHash: "hash-a" }],
       }],
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -3899,13 +4030,13 @@ describe("Workbench web app", () => {
       if (url === "/api/projects") {
         return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, memory: { memoryMode: "external-local", memoryAvailable: true, harnessReady: true, artifactBase: "memory-root" }, harness: { readiness: "ready" }, codexTrust: { trusted: true } }] });
       }
-      if (url === "/api/projects/repo/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      if (url === "/api/projects/repo/providers/codex/diagnostics") return jsonResponse(codexDiagnostics);
       if (url === "/api/projects/repo/skills") return jsonResponse(skillPayload);
       if (url === "/api/projects/repo/skills/pricing-helper/enable" && init?.method === "POST") return jsonResponse(skillPayload);
       if (url === "/api/projects/repo/workbench/topics/live" && init?.method === "POST") return topicCreateLiveResponse("new-demand", selectedSnapshot, "实现设置入口");
       if (url === "/api/projects/repo/workbench/snapshot?topic=new-demand") return jsonResponse(selectedSnapshot);
       if (url === "/api/projects/repo/workbench/projections/transcript/new-demand?limit=100") return jsonResponse(selectedSnapshot.center.parentAgentTranscript);
-      if (url === "/api/projects/repo/workbench/projections/run-graph/new-demand") return jsonResponse(selectedSnapshot.center.agentRunGraph);
+      if (url === "/api/projects/repo/workbench/projections/agent-graph/new-demand") return jsonResponse(selectedSnapshot.center.agentRelationGraph);
       return jsonResponse(noTopicSnapshot);
     }));
 
@@ -3966,7 +4097,7 @@ describe("Workbench web app", () => {
       if (url === "/api/projects") {
         return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, memory: { memoryMode: "external-local", memoryAvailable: true, harnessReady: true, artifactBase: "memory-root" }, harness: { readiness: "ready" }, codexTrust: { trusted: true } }] });
       }
-      if (url === "/api/projects/repo/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      if (url === "/api/projects/repo/providers/codex/diagnostics") return jsonResponse(codexDiagnostics);
       if (url === "/api/projects/repo/skills") return jsonResponse({ roots: [], skills: [] });
       if (url === "/api/projects/repo/workbench/topics/live" && init?.method === "POST") {
         return delayedSseResponse([], [
@@ -3977,7 +4108,7 @@ describe("Workbench web app", () => {
       }
       if (url === "/api/projects/repo/workbench/snapshot?topic=new-demand") return jsonResponse(selectedSnapshot);
       if (url === "/api/projects/repo/workbench/projections/transcript/new-demand?limit=100") return jsonResponse(selectedSnapshot.center.parentAgentTranscript);
-      if (url === "/api/projects/repo/workbench/projections/run-graph/new-demand") return jsonResponse(selectedSnapshot.center.agentRunGraph);
+      if (url === "/api/projects/repo/workbench/projections/agent-graph/new-demand") return jsonResponse(selectedSnapshot.center.agentRelationGraph);
       return jsonResponse(noTopicSnapshot);
     }));
 
@@ -3995,11 +4126,12 @@ describe("Workbench web app", () => {
     expect(fetchCallUrls().some((url) => url.includes("/workbench/projections/transcript/pending%3A"))).toBe(false);
     expect((screen.getByTestId("orchestration-overlay-toggle") as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(screen.getByTestId("orchestration-overlay-toggle"));
-    expect((await screen.findByTestId("agent-run-node-main-agent")).classList.contains("running")).toBe(true);
-    expect(fetchCallUrls().some((url) => url.includes("/workbench/projections/run-graph/pending%3A"))).toBe(false);
+    expect(screen.getByText("正在加载 Agent 关系...")).toBeTruthy();
+    expect(screen.queryByTestId("agent-relation-node-main-agent")).toBeNull();
+    expect(fetchCallUrls().some((url) => url.includes("/workbench/projections/agent-graph/pending%3A"))).toBe(false);
     await waitFor(() => expect(delayedEventsStarted).toBe(true), { timeout: 4_000 });
     expect(screen.getByTestId("agent-graph-center-view")).toBeTruthy();
-    expect(screen.getByTestId("agent-run-node-main-agent")).toBeTruthy();
+    expect(screen.getByTestId("agent-relation-node-main-agent")).toBeTruthy();
     await waitFor(() => expect(screen.queryByText("等待回复")).toBeNull());
     expect(window.location.search).toContain("project=repo");
     expect(window.location.search).toContain("topic=new-demand");
@@ -4014,11 +4146,12 @@ describe("Workbench web app", () => {
         description: "Pricing helper.",
         sourcePath: "E:/skills/pricing-helper",
         sourceKind: "custom",
-        sourceHash: "hash-a",
+        contentHash: "hash-a",
+        compatibility: { requiredCapabilities: [] },
         enabledProject: false,
         enabledTopics: [],
         disabledTopics: [],
-        runtimeTargets: [{ provider: "codex", status: "synced" }],
+        providerBindings: [{ providerId: "codex", bindingKind: "materialized", status: "ready", contentHash: "hash-a" }],
       }],
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -4027,7 +4160,7 @@ describe("Workbench web app", () => {
       if (url === "/api/projects") {
         return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
       }
-      if (url === "/api/projects/repo/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      if (url === "/api/projects/repo/providers/codex/diagnostics") return jsonResponse(codexDiagnostics);
       if (url === "/api/projects/repo/skills") return jsonResponse(skillPayload);
       if (url === "/api/projects/repo/skills/pricing-helper/enable" && init?.method === "POST") return jsonResponse(skillPayload);
       if (url.includes("/messages/live")) {
@@ -4036,7 +4169,7 @@ describe("Workbench web app", () => {
         ]);
       }
       if (url.includes("/workbench/projections/transcript/")) return jsonResponse(snapshot.center.parentAgentTranscript);
-      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(snapshot.center.agentRunGraph);
+      if (url.includes("/workbench/projections/agent-graph/")) return jsonResponse(snapshot.center.agentRelationGraph);
       return jsonResponse(url.includes("/stream/") ? stream : snapshot);
     }));
 
@@ -4084,7 +4217,7 @@ describe("Workbench web app", () => {
       if (url === "/api/projects") {
         return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, memory: { memoryMode: "external-local", memoryAvailable: true, harnessReady: true, artifactBase: "memory-root" }, harness: { readiness: "ready" }, codexTrust: { trusted: true } }] });
       }
-      if (url === "/api/projects/repo/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      if (url === "/api/projects/repo/providers/codex/diagnostics") return jsonResponse(codexDiagnostics);
       if (url === "/api/projects/repo/skills") return jsonResponse({ roots: [], skills: [] });
       if (url.startsWith("/api/projects/repo/files/search")) return jsonResponse({ files: [fileRef] });
       if (url === "/api/projects/repo/workbench/topics/live" && init?.method === "POST") return topicCreateLiveResponse("new-demand", selectedSnapshot, "请改");
@@ -4121,7 +4254,7 @@ describe("Workbench web app", () => {
       if (url === "/api/projects") {
         return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
       }
-      if (url === "/api/projects/repo/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      if (url === "/api/projects/repo/providers/codex/diagnostics") return jsonResponse(codexDiagnostics);
       if (url === "/api/projects/repo/skills") return jsonResponse({ roots: [], skills: [] });
       if (url.startsWith("/api/projects/repo/files/search")) return jsonResponse({ files: [fileRef] });
       if (url.includes("/messages/live")) {
@@ -4130,7 +4263,7 @@ describe("Workbench web app", () => {
         ]);
       }
       if (url.includes("/workbench/projections/transcript/")) return jsonResponse(snapshot.center.parentAgentTranscript);
-      if (url.includes("/workbench/projections/run-graph/")) return jsonResponse(snapshot.center.agentRunGraph);
+      if (url.includes("/workbench/projections/agent-graph/")) return jsonResponse(snapshot.center.agentRelationGraph);
       return jsonResponse(url.includes("/stream/") ? stream : snapshot);
     }));
 
@@ -4189,7 +4322,7 @@ describe("Workbench web app", () => {
       const url = String(input);
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [repoProject, toolsProject] });
-      if (url === "/api/projects/repo/codex/diagnostics" || url === "/api/projects/tools/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      if (url === "/api/projects/repo/providers/codex/diagnostics" || url === "/api/projects/tools/providers/codex/diagnostics") return jsonResponse(codexDiagnostics);
       if (url === "/api/projects/tools/workbench/snapshot") return jsonResponse(toolsSnapshot);
       return jsonResponse(repoSnapshot);
     }));
@@ -4238,7 +4371,7 @@ describe("Workbench web app", () => {
           codexTrust: { trusted: true },
         }] });
       }
-      if (url === "/api/projects/aho-self/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      if (url === "/api/projects/aho-self/providers/codex/diagnostics") return jsonResponse(codexDiagnostics);
       if (url === "/api/projects/aho-self/providers/capabilities") return jsonResponse(providerCapabilityPayload);
       return jsonResponse(legacySnapshot);
     }));
@@ -4302,7 +4435,7 @@ describe("Workbench web app", () => {
           codexTrust: { trusted: true },
         } });
       }
-      if (url === "/api/projects/aho-self/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      if (url === "/api/projects/aho-self/providers/codex/diagnostics") return jsonResponse(codexDiagnostics);
       if (url === "/api/projects/aho-self/workbench/topics/live" && init?.method === "POST") return topicCreateLiveResponse("saved-demand", selectedSnapshot, "保存后的需求");
       if (url === "/api/projects/aho-self/workbench/snapshot?topic=saved-demand") return jsonResponse(selectedSnapshot);
       if (url === "/api/projects/aho-self/workbench/projections/transcript/saved-demand?limit=100") return jsonResponse(selectedSnapshot.center.parentAgentTranscript);
@@ -4347,7 +4480,7 @@ describe("Workbench web app", () => {
           codexTrust: { trusted: true },
         }] });
       }
-      if (url === "/api/projects/repo/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      if (url === "/api/projects/repo/providers/codex/diagnostics") return jsonResponse(codexDiagnostics);
       return jsonResponse(noTopicSnapshot);
     }));
 
@@ -4390,7 +4523,7 @@ describe("Workbench web app", () => {
       if (url === "/api/projects") {
         return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, memory: { memoryMode: "external-local", memoryAvailable: true, harnessReady: true, artifactBase: "memory-root" }, harness: { readiness: "ready" }, codexTrust: { trusted: true } }] });
       }
-      if (url === "/api/projects/repo/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      if (url === "/api/projects/repo/providers/codex/diagnostics") return jsonResponse(codexDiagnostics);
       if (url === "/api/projects/repo/workbench/topics/live" && init?.method === "POST") {
         return topicCreateLiveResponse("new-demand", selectedSnapshot, "实现设置入口");
       }
@@ -4440,7 +4573,7 @@ describe("Workbench web app", () => {
       if (url === "/api/projects") {
         return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: false, memory: { registered: true, memoryMode: "external-local", memoryAvailable: false, harnessReady: false, artifactBase: "memory-root" }, harness: { readiness: "missing" }, codexTrust: { trusted: true } }] });
       }
-      if (url === "/api/projects/repo/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      if (url === "/api/projects/repo/providers/codex/diagnostics") return jsonResponse(codexDiagnostics);
       if (url === "/api/projects/repo/harness/init" && init?.method === "POST") return jsonResponse({ result: { ok: true }, status: { project: snapshot.project } });
       if (url === "/api/projects/repo/workbench/topics/live" && init?.method === "POST") return topicCreateLiveResponse("prepared-demand", selectedSnapshot, "准备后创建需求");
       if (url === "/api/projects/repo/workbench/snapshot?topic=prepared-demand") return jsonResponse(selectedSnapshot);
@@ -4487,7 +4620,7 @@ describe("Workbench web app", () => {
       if (url === "/api/projects") {
         return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: false, memory: { registered: true, memoryMode: "external-local", memoryAvailable: false, harnessReady: false, artifactBase: "memory-root" }, harness: { readiness: "missing" }, codexTrust: { trusted: true } }] });
       }
-      if (url === "/api/projects/repo/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      if (url === "/api/projects/repo/providers/codex/diagnostics") return jsonResponse(codexDiagnostics);
       if (url === "/api/projects/repo/harness/init" && init?.method === "POST") return jsonResponse({ result: { ok: true }, status: { project: snapshot.project } });
       if (url === "/api/projects/repo/attachments" && init?.method === "POST") {
         return jsonResponse({ attachment: { id: "att-20260628120000-abcdef123456", fileName: "context.md", mediaType: "text/markdown", kind: "text", size: 12, hash: "abcdef1234567890", source: "composer", createdAt: "2026-06-28T12:00:00.000Z", storagePath: "attachments/att-20260628120000-abcdef123456/content.md", runtimeMode: "bounded-text-preview" } });
@@ -4545,7 +4678,7 @@ describe("Workbench web app", () => {
       if (url === "/api/projects") {
         return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: false, memory: { registered: true, memoryMode: "external-local", memoryAvailable: false, harnessReady: false, artifactBase: "memory-root" }, harness: { readiness: "missing" }, codexTrust: { trusted: true } }] });
       }
-      if (url === "/api/projects/repo/codex/diagnostics") return jsonResponse(codexDiagnostics);
+      if (url === "/api/projects/repo/providers/codex/diagnostics") return jsonResponse(codexDiagnostics);
       if (url === "/api/projects/repo/harness/init" && init?.method === "POST") return jsonResponse({ result: { ok: true }, status: { project: snapshot.project } });
       if (url === "/api/projects/repo/attachments" && init?.method === "POST") {
         return jsonResponse({ attachment: { id: "att-20260628120000-abcdef123456", fileName: "context.md", mediaType: "text/markdown", kind: "text", size: 12, hash: "abcdef1234567890", source: "composer", createdAt: "2026-06-28T12:00:00.000Z", storagePath: "attachments/att-20260628120000-abcdef123456/content.md", runtimeMode: "bounded-text-preview" } });
@@ -4682,8 +4815,8 @@ describe("Workbench web app", () => {
     });
   });
 
-  it("renders agent lifecycle status blocks as compact process rows", () => {
-    const cells = parentTranscriptCellsFromLiveThreadItem({
+  it("keeps internal agent lifecycle status blocks out of the ordinary timeline", () => {
+    const cells = canonicalTranscriptCellsFromThreadItem({
       id: "item-planning-agent-created",
       kind: "assistant-turn",
       label: "planning-agent",
@@ -4692,7 +4825,7 @@ describe("Workbench web app", () => {
       blocks: [{
         id: "planning-agent-created",
         kind: "status",
-        source: "codex",
+        source: "provider",
         title: "创建 planning-agent",
         text: "主 Agent 已创建 planning-agent，用于整理可审阅计划。",
         status: "agent-task-created",
@@ -4700,23 +4833,25 @@ describe("Workbench web app", () => {
     });
 
     expect(cells).toEqual([expect.objectContaining({
-      kind: "process-row",
+      kind: "detail-only",
       title: "创建 planning-agent",
-      text: "创建 planning-agent",
       status: "agent-task-created",
     })]);
   });
 });
 
-describe("Codex native requestUserInput cards", () => {
-  it("allows submitting an empty-answer request when Codex sends no questions", async () => {
+describe("provider user-input cards", () => {
+  it("allows submitting an empty-answer request when the provider sends no questions", async () => {
     const onAnswer = vi.fn().mockResolvedValue(undefined);
     render(
-      <CodexUserInputRequestCard
+      <ProviderUserInputRequestCard
         request={{
+          providerId: "codex",
           requestKey: "run-1:main:turn:item:request-1",
           requestId: "request-1",
           runId: "run-1",
+          runtimeScopeId: "conv-1",
+          attemptId: "run-1",
           agentRoleId: "planning-agent",
           questions: [],
           status: "pending",

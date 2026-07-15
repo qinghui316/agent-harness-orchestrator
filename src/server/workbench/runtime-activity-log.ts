@@ -2,7 +2,8 @@
 import { readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { listAuditResults, summarizeAudit } from "../../audit/repository.js";
-import { getCodexProviderRuntimeSummary } from "../../provider-runtime/index.js";
+import { defaultProviderRegistry } from "../../provider-runtime/index.js";
+import type { ProviderDescriptor } from "../../provider-runtime/contracts.js";
 import { listRuns } from "../../run/repository.js";
 import { listValidationResults, summarizeValidation } from "../../validation/repository.js";
 import { collectAllConversationThreadEntries } from "../../workbench/conversation-thread-log.js";
@@ -95,31 +96,47 @@ export async function getRuntimeActivityLog(
 }
 
 async function appendProviderItems(items: RuntimeActivityItem[], project: ManagedProject, projectPath: string): Promise<void> {
-  const summary = await getCodexProviderRuntimeSummary(project, projectPath);
-  const degraded = summary.snapshot.degradedReasons.slice(0, 4);
-  items.push({
-    id: `provider:${summary.providerId}:${summary.snapshot.snapshotHash}`,
-    timestamp: summary.snapshot.checkedAt,
-    type: "provider",
-    severity: summary.snapshot.status === "ready" ? "ok" : summary.snapshot.status === "unavailable" ? "error" : "warning",
-    status: summary.snapshot.status,
-    title: "Codex runtime",
-    summary: summary.snapshot.status === "ready"
-      ? `Codex 在 Harness 模式可用，模型 ${summary.snapshot.effectiveModel ?? "默认模型"}。`
-      : `Codex runtime ${providerStatusLabel(summary.snapshot.status)}，将按可用能力降级。`,
-    refs: [
-      { kind: "provider", label: "provider: codex", id: summary.providerId },
-      { kind: "provider", label: "product mode: harness", id: summary.productMode },
-      { kind: "provider", label: `capability snapshot ${summary.snapshot.snapshotHash}`, id: summary.snapshot.snapshotHash },
-    ],
-    details: [
-      `Provider: Codex`,
-      `Product Mode: Harness`,
-      `Harness Execution Mode: 逐步确认 / 自动推进`,
-      `Model: ${summary.snapshot.effectiveModel ?? "Codex 默认模型"} (${summary.snapshot.effectiveModelSource})`,
-      ...degraded.map((reason) => `降级原因: ${reason}`),
-    ],
-  });
+  await Promise.all(defaultProviderRegistry.list().map(async (descriptor) => {
+    try {
+      const summary = await descriptor.runtimeSummary(project, projectPath);
+      const degraded = summary.snapshot.degradedReasons.slice(0, 4);
+      items.push({
+        id: `provider:${summary.providerId}:${summary.snapshot.snapshotHash}`,
+        timestamp: summary.snapshot.checkedAt,
+        type: "provider",
+        severity: summary.snapshot.status === "ready" ? "ok" : summary.snapshot.status === "unavailable" ? "error" : "warning",
+        status: summary.snapshot.status,
+        title: `${descriptor.displayName} runtime`,
+        summary: summary.snapshot.status === "ready"
+          ? `${descriptor.displayName} 在 Harness 模式可用，模型 ${summary.snapshot.effectiveModel ?? "默认模型"}。`
+          : `${descriptor.displayName} runtime ${providerStatusLabel(summary.snapshot.status)}。`,
+        refs: [
+          { kind: "provider", label: `provider: ${summary.providerId}`, id: summary.providerId },
+          { kind: "provider", label: `product mode: ${summary.productMode}`, id: summary.productMode },
+          { kind: "provider", label: `capability snapshot ${summary.snapshot.snapshotHash}`, id: summary.snapshot.snapshotHash },
+        ],
+        details: [
+          `Provider: ${descriptor.displayName}`,
+          `Product Mode: ${summary.productMode}`,
+          `Harness Execution Mode: 逐步确认 / 自动推进`,
+          `Model: ${summary.snapshot.effectiveModel ?? "默认模型"} (${summary.snapshot.effectiveModelSource})`,
+          ...degraded.map((reason) => `降级原因: ${reason}`),
+        ],
+      });
+    } catch (error) {
+      items.push({
+        id: `provider:${descriptor.id}:diagnostics-failed`,
+        timestamp: new Date().toISOString(),
+        type: "provider",
+        severity: "error",
+        status: "failed",
+        title: `${descriptor.displayName} runtime`,
+        summary: `${descriptor.displayName} 运行诊断失败。`,
+        refs: [{ kind: "provider", label: `provider: ${descriptor.id}`, id: descriptor.id }],
+        details: [sanitizeDetail(error instanceof Error ? error.message : String(error))],
+      });
+    }
+  }));
 }
 
 async function appendDiagnosticsItems(items: RuntimeActivityItem[], context: WorkbenchServerContext, projectId: string): Promise<void> {
@@ -276,7 +293,7 @@ function artifactPath(memory: ResolvedMemory, relativePath: string | undefined, 
 }
 
 function artifactRefs(run: RunMetadata): RuntimeActivityRef[] {
-  const hidden = new Set(["stdout", "stderr", "prompt", "lastMessage", "codexEvents"]);
+  const hidden = new Set(["stdout", "stderr", "prompt", "lastMessage", "providerEvents"]);
   return Object.entries(run.artifacts)
     .filter(([key, value]) => key !== "base" && !hidden.has(key) && typeof value === "string" && value.length > 0)
     .slice(0, 8)
@@ -284,14 +301,34 @@ function artifactRefs(run: RunMetadata): RuntimeActivityRef[] {
 }
 
 function runDetails(run: RunMetadata): string[] {
+  const provider = providerForRun(run);
   const details = [
     `Runtime: ${run.runtime}`,
-    `Provider: codex`,
+    provider ? `Provider: ${provider.displayName}` : "",
     `Product Mode: harness`,
     run.enabledSkills?.length ? `Skills: ${run.enabledSkills.map((skill) => `${skill.id} (${skill.materializationMode ?? "unknown"})`).join(", ")}` : "",
     run.executionGate ? `Harness Execution Mode: ${run.executionGate.mode}` : "",
   ].filter(Boolean);
   return details;
+}
+
+function providerForRun(run: RunMetadata): ProviderDescriptor | undefined {
+  const providerId = run.command[0];
+  if (!providerId) return undefined;
+  try {
+    return defaultProviderRegistry.get(providerId);
+  } catch {
+    return undefined;
+  }
+}
+
+function providerDisplayName(providerId: unknown): string {
+  if (typeof providerId !== "string" || !providerId) return "Agent Provider";
+  try {
+    return defaultProviderRegistry.get(providerId).displayName;
+  } catch {
+    return "Agent Provider";
+  }
 }
 
 function runSummary(run: RunMetadata): string {
@@ -305,15 +342,15 @@ function runSummary(run: RunMetadata): string {
 function runtimeTitle(run: RunMetadata): string {
   if (run.runtime === "validator") return "验证运行";
   if (run.runtime === "auditor") return "审查运行";
-  if (run.runtime.includes("codex") || run.runtime === "planner" || run.runtime === "orchestrator") return "Codex 运行";
+  if (run.runtime.includes("provider") || run.runtime === "planner" || run.runtime === "orchestrator") return "Agent 运行";
   return "运行记录";
 }
 
 function runtimeLabel(runtime: string): string {
   const labels: Record<string, string> = {
-    "codex-readonly": "Codex 只读运行",
-    "coder-codex": "Codex 代码运行",
-    "agent-codex": "Agent Codex 运行",
+    "provider-readonly": "Agent 只读运行",
+    "provider-code": "Agent 代码运行",
+    "provider-agent": "Agent 运行",
     planner: "计划生成",
     orchestrator: "编排运行",
     validator: "验证",
@@ -327,8 +364,8 @@ function runtimeLabel(runtime: string): string {
 
 function shouldSurfaceRunEvent(type: string): boolean {
   return [
-    "codex.started",
-    "codex.exited",
+    "provider.started",
+    "provider.exited",
     "run.completed",
     "run.failed",
     "validation.completed",
@@ -339,24 +376,24 @@ function shouldSurfaceRunEvent(type: string): boolean {
 }
 
 function eventTitle(type: string): string {
-  if (type === "codex.started") return "Codex 启动";
-  if (type === "codex.exited") return "Codex 退出";
+  if (type === "provider.started") return "Agent Provider 启动";
+  if (type === "provider.exited") return "Agent Provider 结束";
   if (type.includes("validation")) return "验证事件";
   if (type.includes("audit")) return "审查事件";
   return "运行事件";
 }
 
 function eventSummary(type: string, data: Record<string, unknown>): string {
-  if (type === "codex.started") return `adapter ${String(data.adapter ?? "codex")} · model ${String(data.model ?? "默认模型")}`;
-  if (type === "codex.exited") return `exitCode ${String(data.exitCode ?? "unknown")}`;
+  if (type === "provider.started") return `${providerDisplayName(data.providerId)} · model ${String(data.model ?? "默认模型")}`;
+  if (type === "provider.exited") return `status ${String(data.status ?? "unknown")}`;
   if (typeof data.summary === "string") return sanitizeSummary(data.summary);
   return type;
 }
 
 function eventSeverity(type: string, data: Record<string, unknown>): RuntimeActivitySeverity {
   if (type.includes("failed")) return "error";
-  if (type === "codex.exited" && data.exitCode !== undefined && data.exitCode !== 0) return "error";
-  if (type === "codex.started") return "info";
+  if (type === "provider.exited" && data.status === "failed") return "error";
+  if (type === "provider.started") return "info";
   return "ok";
 }
 

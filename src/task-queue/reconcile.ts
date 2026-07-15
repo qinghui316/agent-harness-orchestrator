@@ -6,7 +6,7 @@ import { listValidationResults } from "../validation/artifacts.js";
 import { readWorkflowRun, syncWorkflowRunFromQueue } from "../workflow-run/manager.js";
 import type { ManagedProject, TaskQueueItem, TaskQueueRun } from "../types/index.js";
 import type { TaskQueueReconcileOptions } from "./types.js";
-import { finishTaskQueueItem, pauseTaskQueue, updateTaskQueueAfterItem } from "./item-transitions.js";
+import { finishTaskQueueItem, pauseTaskQueue, requeueTaskQueueItemAfterInterruption, updateTaskQueueAfterItem } from "./item-transitions.js";
 import { listTaskQueueItems, listTaskQueues, readTaskQueueRun } from "./repository.js";
 
 export async function reconcileTaskQueues(project: ManagedProject, options: TaskQueueReconcileOptions): Promise<{ queues: TaskQueueRun[]; items: TaskQueueItem[] }> {
@@ -27,7 +27,9 @@ export async function reconcileTaskQueues(project: ManagedProject, options: Task
     for (const item of items) {
       const taskRun = item.taskRunId ? taskRuns.find((run) => run.id === item.taskRunId) : undefined;
       if (taskRun && item.status === "running" && !isActiveTaskRunStatus(taskRun.status)) {
-        nextItems.push(await finishTaskQueueItem(memory, item, taskRun));
+        nextItems.push(taskRun.status === "interrupted"
+          ? await requeueTaskQueueItemAfterInterruption(memory, item, taskRun, "模型执行已中断，当前 worktree 已保留，可继续。")
+          : await finishTaskQueueItem(memory, item, taskRun));
       } else {
         nextItems.push(item);
       }

@@ -7,7 +7,7 @@ function command(id: string, status: string = "completed"): AssistantTurnBlock {
   return {
     id,
     kind: "command",
-    source: "codex",
+    source: "provider",
     status,
     command: `echo ${id}`,
   };
@@ -29,7 +29,7 @@ describe("shared command transcript projection", () => {
   });
 
   it("ends a command group at prose and reports failed results deterministically", () => {
-    const prose: AssistantTurnBlock = { id: "p", kind: "prose", source: "codex", text: "next" };
+    const prose: AssistantTurnBlock = { id: "p", kind: "prose", source: "provider", text: "next" };
     const grouped = groupConsecutiveCommandBlocks([command("a"), command("b", "failed"), prose, command("c")]);
 
     expect(grouped.map((block) => block.kind)).toEqual(["command-group", "prose", "command"]);

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const taskRunStatusSchema = z.enum(["queued", "claimed", "running", "evidence-ready", "blocked", "failed", "completed"]);
+export const taskRunStatusSchema = z.enum(["queued", "claimed", "running", "interrupted", "evidence-ready", "blocked", "failed", "completed"]);
 export const workerLeaseStatusSchema = z.enum(["claimed", "released", "expired", "lost"]);
 
 export const taskRunSchema = z.object({

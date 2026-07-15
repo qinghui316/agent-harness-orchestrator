@@ -31,7 +31,7 @@ export async function buildWorkflowGraphRecoveryKey(memory: ResolvedMemory, proj
     workflowGraphPlanHash: await hashFile(resolveArtifactRef(memory, graph.artifact)),
     sourceHash: await sourceHash(project.path),
     policyHash: hashText("tool-policy-gate@workflow-graph"),
-    capabilityHash: hashText(`local-runtime:${graph.graphMode}:codex-worktree`),
+    capabilityHash: hashText(`local-runtime:${graph.graphMode}:provider-worktree`),
     createdAt: new Date().toISOString(),
   };
 }

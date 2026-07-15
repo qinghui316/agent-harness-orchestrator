@@ -1,12 +1,13 @@
 import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createChange } from "../../src/change/manager.js";
 import { initHarness } from "../../src/harness/init.js";
 import { getSpecTestContextForChange, getSpecTestStatus, linkSpecTest, linkSpecTestRefs, unlinkSpecTest } from "../../src/spec-test/manager.js";
-import { parseSpecTestProposalMessage } from "../../src/spec-test/proposal.js";
-import { classifySpecTestDiff, composeSpecTestGeneratorPrompt, selectAcsForGeneration } from "../../src/spec-test/generate.js";
+import { parseSpecTestProposalMessage, startSpecTestProposalRun } from "../../src/spec-test/proposal.js";
+import { classifySpecTestDiff, composeSpecTestGeneratorPrompt, selectAcsForGeneration, startSpecTestGenerationRun } from "../../src/spec-test/generate.js";
+import { resolveSpecTestProvider } from "../../src/spec-test/core/provider.js";
 import { getSpecTestDriftReport } from "../../src/spec-test/drift.js";
 import { writeJsonFile } from "../../src/fs/json.js";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
@@ -17,10 +18,25 @@ import { git } from "../../src/project/git.js";
 import type { ChangeStatus, ManagedProject, RunWorktreeInfo, SpecTestAcStatus, ValidationResult } from "../../src/types/index.js";
 import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
 
+const providerRequire = vi.hoisted(() => vi.fn());
+const providerList = vi.hoisted(() => vi.fn());
+
+vi.mock("../../src/provider-runtime/index.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../../src/provider-runtime/index.js")>(),
+  defaultProviderRegistry: {
+    list: providerList,
+    require: providerRequire,
+  },
+}));
+
 let tempDir: string;
 
 beforeEach(async () => {
   tempDir = await mkdtemp(join(tmpdir(), "aho-spec-test-"));
+  providerRequire.mockReset();
+  providerList.mockReset();
+  providerList.mockReturnValue([{ id: "test-provider" }]);
+  providerRequire.mockRejectedValue(new Error("Provider capability unavailable."));
 });
 
 afterEach(async () => {
@@ -296,6 +312,113 @@ describe("spec-test proposal parser", () => {
   });
 });
 
+describe("spec-test provider execution", () => {
+  it("uses the Registry's unique provider when the Change has no bound Conversation", async () => {
+    const item = await setupChange();
+    const memory = await resolveProjectMemory(item);
+    const descriptor = providerDescriptor(vi.fn());
+    providerRequire.mockResolvedValue(descriptor);
+
+    const resolved = await resolveSpecTestProvider(memory, item, "spec-test-mapping", "auditor", tempDir);
+
+    expect(resolved).toBe(descriptor);
+    expect(providerRequire).toHaveBeenCalledWith("test-provider", "auditor", item, tempDir);
+  });
+
+  it("prefers the provider selected by the Change-bound Conversation", async () => {
+    const item = project(tempDir);
+    await initHarness(item);
+    const conversation = await createConversationChangeFixture(item, { title: "Bound Provider" });
+    const memory = await resolveProjectMemory(item);
+    const descriptor = providerDescriptor(vi.fn());
+    providerRequire.mockResolvedValue(descriptor);
+
+    await resolveSpecTestProvider(memory, item, conversation.changeId, "auditor", tempDir);
+
+    expect(providerRequire).toHaveBeenCalledWith("codex", "auditor", item, tempDir);
+  });
+
+  it("runs the proposer through read-only structured provider execution", async () => {
+    const runTurn = vi.fn(async () => ({
+      providerId: "test-provider",
+      status: "completed" as const,
+      session: { providerId: "test-provider", sessionId: "proposal-session" },
+      turnId: "proposal-turn",
+      lastMessage: JSON.stringify({
+        status: "proposed",
+        evidence: [{
+          refId: "ev-001",
+          acId: "AC-001",
+          source: "suggested",
+          kind: "suggestedNewTests",
+          refs: [],
+          rationale: "Add a focused test.",
+        }],
+        warnings: [],
+      }),
+      childThreads: [],
+      changedFiles: [],
+    }));
+    providerRequire.mockResolvedValue(providerDescriptor(runTurn));
+    const item = await setupChange();
+
+    const result = await startSpecTestProposalRun(item);
+
+    expect(providerRequire).toHaveBeenCalledWith("test-provider", "auditor", item, tempDir);
+    expect(runTurn).toHaveBeenCalledWith(expect.objectContaining({
+      providerId: "test-provider",
+      operationProfile: "auditor",
+      roleId: "spec-test-proposer",
+      sandboxPolicy: "read-only",
+      writableRoots: [],
+      outputSchema: expect.objectContaining({ type: "object" }),
+    }));
+    expect(result.run).toMatchObject({ status: "completed", command: ["provider", "turn.start"] });
+    expect(result.proposal).toMatchObject({ status: "proposed", evidence: [expect.objectContaining({ refId: "ev-001" })] });
+    expect(result.run.artifacts.providerEvents).toContain("provider-events.jsonl");
+    expect(result.run.artifacts.providerSession).toContain("provider-session.json");
+  });
+
+  it("runs the generator through workspace-write provider execution in its worktree", async () => {
+    const item = project(tempDir);
+    await initGitRepository(tempDir);
+    await initHarness(item);
+    await createChange(item, { title: "Provider Generator" });
+    await mkdir(join(tempDir, "tests"), { recursive: true });
+    await writeFile(join(tempDir, "tests", "provider.test.js"), "// initial\n", "utf8");
+    await git(tempDir, ["add", "."]);
+    await git(tempDir, ["commit", "-m", "initial"]);
+    const runTurn = vi.fn(async (request: { cwd: string }) => {
+      await writeFile(join(request.cwd, "tests", "provider.test.js"), "test('provider generation', () => {});\n", "utf8");
+      return {
+        providerId: "test-provider",
+        status: "completed" as const,
+        session: { providerId: "test-provider", sessionId: "generator-session" },
+        turnId: "generator-turn",
+        lastMessage: "Generated the selected spec test.",
+        childThreads: [],
+        changedFiles: ["tests/provider.test.js"],
+      };
+    });
+    providerRequire.mockResolvedValue(providerDescriptor(runTurn));
+
+    const result = await startSpecTestGenerationRun(item, { missing: true });
+
+    expect(providerRequire).toHaveBeenCalledWith("test-provider", "coder", item, expect.stringContaining("worktrees"));
+    expect(runTurn).toHaveBeenCalledWith(expect.objectContaining({
+      providerId: "test-provider",
+      operationProfile: "coder",
+      roleId: "spec-test-generator",
+      sandboxPolicy: "workspace-write",
+      writableRoots: [expect.stringContaining("worktrees")],
+    }));
+    expect(result.run).toMatchObject({ status: "completed", command: ["provider", "turn.start"] });
+    expect(result.warnings).not.toEqual(expect.arrayContaining([expect.stringContaining("non-test changes")]));
+    expect(result.run?.artifacts.providerEvents).toContain("provider-events.jsonl");
+    expect(result.run?.artifacts.providerSession).toContain("provider-session.json");
+  }, 60000);
+});
+
 describe("spec-test generator helpers", () => {
   const acStatuses: SpecTestAcStatus[] = [
     acStatus("AC-001", false, "none"),
@@ -422,4 +545,26 @@ async function initGitRepository(cwd: string): Promise<void> {
   await git(cwd, ["init"]);
   await git(cwd, ["config", "user.email", "test@example.com"]);
   await git(cwd, ["config", "user.name", "Test User"]);
+}
+
+function providerDescriptor(runTurn: ReturnType<typeof vi.fn>) {
+  return {
+    id: "test-provider",
+    displayName: "Test Provider",
+    capabilitySnapshot: vi.fn(async () => ({
+      providerId: "test-provider",
+      displayName: "Test Provider",
+      productMode: "harness" as const,
+      status: "ready" as const,
+      runnable: true,
+      checkedAt: "2026-07-15T00:00:00.000Z",
+      snapshotHash: "snapshot",
+      snapshotVersion: 1,
+      effectiveModel: "test-model",
+      effectiveModelSource: "provider-default" as const,
+      degradedReasons: [],
+      capabilities: [],
+    })),
+    leafExecution: { runTurn },
+  };
 }

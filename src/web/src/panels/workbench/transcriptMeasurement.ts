@@ -33,8 +33,8 @@ export function estimateTranscriptCellHeight(cell: ParentAgentTranscriptCell, op
   width?: number;
 }): number {
   if (cell.kind === "user-input") {
-    if (cell.codexUserInput?.status === "submitted") return 132;
-    const questionCount = Math.max(1, cell.codexUserInput?.questions.length ?? 1);
+    if (cell.providerUserInput?.status === "submitted") return 132;
+    const questionCount = Math.max(1, cell.providerUserInput?.questions.length ?? 1);
     return Math.min(420, 116 + questionCount * 128);
   }
   if (cell.kind === "process-row" || cell.kind === "evidence-row") {

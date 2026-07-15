@@ -1,12 +1,12 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { hashText, listAgentRoles, syncAgentCatalog } from "../agent/catalog.js";
 import { resolveCodexHome } from "./home.js";
 import { writeJsonFile } from "../fs/json.js";
 import { resolveProjectMemory } from "../memory/resolver.js";
-import { copySkillToBridge, hashSkillDirectory, isNativeCodexSkill, isRuntimeAssignedSkill, listSkills } from "../skill/catalog.js";
-import type { ManagedProject } from "../types/index.js";
+import { copySkillToBridge, hashSkillDirectory, isRuntimeAssignedSkill, listSkills, type EnabledSkillRecord, type SkillListItem } from "../skill/catalog.js";
+import type { ManagedProject, RunSkillRecord } from "../types/index.js";
 import { WorkbenchStore } from "../workbench/store.js";
 
 export const AHO_BRIDGE_VERSION = "1.0";
@@ -44,16 +44,23 @@ export interface CodexBridgeSyncResult {
   synced: Array<{
     skillId: string;
     materializedSkillId: string;
-    sourceHash: string;
+    contentHash: string;
     materializedHash: string;
     path: string;
   }>;
   syncedAgents: Array<{
     roleId: string;
-    sourceHash: string;
+    contentHash: string;
     materializedHash: string;
     path: string;
   }>;
+}
+
+export interface CodexNativeSkillBinding {
+  skillId: string;
+  sourcePath: string;
+  contentHash: string;
+  scope: "project" | "global";
 }
 
 export function getCodexBridgePaths(): CodexBridgePaths {
@@ -89,23 +96,14 @@ export async function getCodexBridgeStatus(project?: ManagedProject): Promise<Co
 
   let projectStatus: CodexBridgeStatus["project"];
   if (project) {
-    const memory = await resolveProjectMemory(project);
-    const store = await WorkbenchStore.open(memory);
-    try {
-      const skills = await listSkills(project);
-      const enabled = skills.filter((item) => item.enabledProject || item.enabledTopics.length > 0);
-      const outOfSync: string[] = [];
-      for (const skill of enabled) {
-        if (isNativeCodexSkill(skill)) continue;
-        const sync = store.readBridgeSync(project.id, skill.skillId);
-        const materializedExists = sync ? existsSync(sync.materializedPath) : false;
-        if (!sync || !materializedExists || sync.sourceHash !== skill.sourceHash) outOfSync.push(skill.skillId);
-      }
-      projectStatus = { id: project.id, enabledSkills: enabled.length, outOfSync };
-      if (outOfSync.length > 0) diagnostics.push(`Project has ${outOfSync.length} enabled skill(s) out of sync.`);
-    } finally {
-      store.close();
+    const skills = await bindCodexSkillCatalog(project);
+    const enabled = skills.filter((item) => item.enabledProject || item.enabledTopics.length > 0);
+    const outOfSync: string[] = [];
+    for (const skill of enabled) {
+      if (skill.providerBindings[0]?.status !== "ready") outOfSync.push(skill.skillId);
     }
+    projectStatus = { id: project.id, enabledSkills: enabled.length, outOfSync };
+    if (outOfSync.length > 0) diagnostics.push(`Project has ${outOfSync.length} enabled skill(s) out of sync.`);
   }
 
   const state: CodexBridgeStatus["state"] =
@@ -114,6 +112,100 @@ export async function getCodexBridgeStatus(project?: ManagedProject): Promise<Co
         projectStatus && projectStatus.outOfSync.length > 0 ? "out-of-sync" :
           "installed";
   return { paths, installed, discoverable, manifestValid, state, diagnostics, project: projectStatus };
+}
+
+export async function bindCodexSkillCatalog(project: ManagedProject, skillsInput?: SkillListItem[]): Promise<SkillListItem[]> {
+  const skills = skillsInput ?? await listSkills(project);
+  const nativeSkills = await listNativeCodexSkills(project);
+  const memory = await resolveProjectMemory(project);
+  const store = await WorkbenchStore.open(memory);
+  try {
+    const bound = skills.map((skill) => {
+      const sync = store.readBridgeSync(project.id, skill.skillId);
+      const ready = Boolean(sync && existsSync(sync.materializedPath) && sync.sourceHash === skill.contentHash);
+      return {
+        ...skill,
+        providerBindings: [{
+          providerId: "codex",
+          bindingKind: "materialized" as const,
+          status: ready ? "ready" as const : sync ? "stale" as const : "unavailable" as const,
+          contentHash: skill.contentHash,
+        }],
+      };
+    });
+    const known = new Set(bound.map((skill) => skill.skillId));
+    return [
+      ...bound,
+      ...nativeSkills.filter((skill) => !known.has(skill.skillId)).map((skill): SkillListItem => ({
+        skillId: skill.skillId,
+        name: skill.skillId,
+        description: "Provider-native Skill.",
+        sourcePath: skill.sourcePath,
+        sourceKind: "provider-native",
+        contentHash: skill.contentHash,
+        compatibility: { requiredCapabilities: ["skill.native-load"] },
+        providerBindings: [{ providerId: "codex", bindingKind: "native", status: "ready", contentHash: skill.contentHash }],
+        enabledProject: false,
+        enabledTopics: [],
+        disabledTopics: [],
+      })),
+    ];
+  } finally {
+    store.close();
+  }
+}
+
+export async function bindCodexEnabledSkills(
+  project: ManagedProject,
+  records: EnabledSkillRecord[],
+): Promise<{ records: RunSkillRecord[]; warnings: string[] }> {
+  const memory = await resolveProjectMemory(project);
+  const store = await WorkbenchStore.open(memory);
+  try {
+    const warnings: string[] = [];
+    const bound = records.map((record): RunSkillRecord => {
+      const sync = store.readBridgeSync(project.id, record.id);
+      if (!sync || !existsSync(sync.materializedPath) || sync.sourceHash !== record.contentHash) {
+        warnings.push(`Skill ${record.id} is not synced to the Codex bridge.`);
+      }
+      return {
+        id: record.id,
+        providerId: "codex",
+        sourceKind: record.sourceKind,
+        sourceHash: record.contentHash,
+        materializationMode: "aho-managed",
+        materializedHash: sync?.materializedHash ?? null,
+        bridge: sync ? "codex:aho-managed" : undefined,
+        version: sync?.bridgeVersion,
+      };
+    });
+    return { records: bound, warnings };
+  } finally {
+    store.close();
+  }
+}
+
+export async function listNativeCodexSkills(project?: ManagedProject): Promise<CodexNativeSkillBinding[]> {
+  const roots: Array<{ path: string; scope: CodexNativeSkillBinding["scope"] }> = [
+    { path: join(resolveCodexHome(), "skills"), scope: "global" },
+  ];
+  if (project) roots.unshift({ path: join(project.path, ".codex", "skills"), scope: "project" });
+  const bindings: CodexNativeSkillBinding[] = [];
+  for (const root of roots) {
+    if (!existsSync(root.path)) continue;
+    for (const entry of await readdir(root.path, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const sourcePath = join(root.path, entry.name);
+      if (!existsSync(join(sourcePath, "SKILL.md"))) continue;
+      bindings.push({
+        skillId: basename(sourcePath),
+        sourcePath,
+        contentHash: await hashSkillDirectory(sourcePath),
+        scope: root.scope,
+      });
+    }
+  }
+  return bindings.sort((a, b) => a.skillId.localeCompare(b.skillId) || a.scope.localeCompare(b.scope));
 }
 
 export async function installCodexBridge(): Promise<CodexBridgeInstallResult> {
@@ -140,17 +232,14 @@ export async function syncCodexBridge(project: ManagedProject): Promise<CodexBri
     const enablements = store.listSkillEnablement(project.id);
     const enabledIds = new Set(enablements.filter((item) => item.enabled && !isRuntimeAssignedSkill(item.skillId)).map((item) => item.skillId));
     const desiredManagedDirs = new Set(skills
-      .filter((item) => enabledIds.has(item.skillId) && !isNativeCodexSkill(item))
+      .filter((item) => enabledIds.has(item.skillId))
       .map((item) => `${project.id}__${item.skillId}`));
     for (const entry of await readdir(paths.skillsRoot, { withFileTypes: true })) {
       if (entry.isDirectory() && entry.name.startsWith(`${project.id}__`) && !desiredManagedDirs.has(entry.name)) {
         await rm(join(paths.skillsRoot, entry.name), { recursive: true, force: true });
       }
     }
-    for (const skill of skills.filter((item) => enabledIds.has(item.skillId) && isNativeCodexSkill(item))) {
-      await rm(join(paths.skillsRoot, `${project.id}__${skill.skillId}`), { recursive: true, force: true });
-    }
-    for (const skill of skills.filter((item) => enabledIds.has(item.skillId) && !isNativeCodexSkill(item))) {
+    for (const skill of skills.filter((item) => enabledIds.has(item.skillId))) {
       const materializedSkillId = `${project.id}__${skill.skillId}`;
       const target = join(paths.skillsRoot, materializedSkillId);
       await copySkillToBridge(skill.sourcePath, target, materializedSkillId);
@@ -158,7 +247,7 @@ export async function syncCodexBridge(project: ManagedProject): Promise<CodexBri
       store.upsertBridgeSync({
         projectId: project.id,
         skillId: skill.skillId,
-        sourceHash: skill.sourceHash,
+        sourceHash: skill.contentHash,
         materializedPath: target,
         materializedHash,
         bridgeVersion: AHO_BRIDGE_VERSION,
@@ -167,7 +256,7 @@ export async function syncCodexBridge(project: ManagedProject): Promise<CodexBri
       synced.push({
         skillId: skill.skillId,
         materializedSkillId,
-        sourceHash: skill.sourceHash,
+        contentHash: skill.contentHash,
         materializedHash,
         path: target,
       });
@@ -186,7 +275,7 @@ export async function syncCodexBridge(project: ManagedProject): Promise<CodexBri
       const materializedHash = hashText(content);
       syncedAgents.push({
         roleId: agent.roleId,
-        sourceHash: agent.sourceHash,
+        contentHash: agent.contentHash,
         materializedHash,
         path: target,
       });

@@ -9,11 +9,12 @@ import {
   markTaskQueueItemRunning,
   markTaskQueueRunning,
   pauseTaskQueue,
+  requeueTaskQueueItemAfterInterruption,
   reconcileTaskQueues,
   startOrResumeTaskQueue,
   updateTaskQueueAfterItem,
 } from "../task-queue/manager.js";
-import { startTaskRun } from "../task-run/manager.js";
+import { resumeInterruptedTaskRun, startTaskRun } from "../task-run/manager.js";
 import type { CodeExecutionGateOptions } from "../code/manager.js";
 import type { HarnessExecutionMode, ResolvedMemory, SequentialWorkflowGraphPlan, TaskQueueItem, TaskQueueRun, WorkflowGraphPlan, WorkflowRun, WorkflowRunEventType } from "../types/index.js";
 import { appendWorkflowRunEvent, readWorkflowRun, syncWorkflowRunFromQueue } from "../workflow-run/manager.js";
@@ -118,18 +119,20 @@ export async function runWorkflowGraphSequentialExecution(input: WorkflowGraphSe
       });
       queue = result.queue;
       workflow = result.workflow;
-      await appendWorkflowEvent(memory, workflow, nodeEventTypeFromStatus(result.finishedItemStatus), {
-        queueRunId: queue.id,
-        taskId: nextItem.taskId,
-        taskRunId: result.taskRunId ?? undefined,
-        status: result.finishedItemStatus,
-        data: {
-          taskQueueItemId: nextItem.id,
-          workflowGraphPlanId: graph.id,
-          workflowGraphNodeId: graphNodeIdForItem(graph, nextItem),
-          stepIndex,
-        },
-      });
+      if (result.finishedItemStatus !== "queued") {
+        await appendWorkflowEvent(memory, workflow, nodeEventTypeFromStatus(result.finishedItemStatus), {
+          queueRunId: queue.id,
+          taskId: nextItem.taskId,
+          taskRunId: result.taskRunId ?? undefined,
+          status: result.finishedItemStatus,
+          data: {
+            taskQueueItemId: nextItem.id,
+            workflowGraphPlanId: graph.id,
+            workflowGraphNodeId: graphNodeIdForItem(graph, nextItem),
+            stepIndex,
+          },
+        });
+      }
       if (result.terminal) return finishQueue(memory, input.project, input.changeId, queue, workflow);
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
@@ -204,7 +207,10 @@ async function runGraphQueueItem(input: {
     return { queue, workflow, terminal: true, taskRunId: blockedItem.taskRunId ?? resume.taskRun.id, finishedItemStatus: blockedItem.status };
   }
 
-  const started = resume
+  const continuingCoder = resume?.verdict.kind === "continue-coder";
+  const started = continuingCoder
+    ? await resumeInterruptedTaskRun(input.project, { changeId: input.changeId, taskRunId: resume.taskRun.id })
+    : resume
     ? { taskRun: resume.taskRun, lease: null }
     : await startTaskRun(input.project, { changeId: input.changeId, taskId: input.item.taskId });
   let runningItem = await markTaskQueueItemRunning(input.memory, input.item, started.taskRun);
@@ -223,7 +229,18 @@ async function runGraphQueueItem(input: {
     });
   }
 
-  const result = resume
+  const result = continuingCoder
+    ? await runStartedTaskRunStage({
+      project: input.project,
+      started,
+      prompt: input.prompt,
+      live: input.live,
+      executionGate,
+      existingWorktreeId: resume.verdict.worktreeId,
+      ownsLoopFinalization: true,
+      onRetryTaskRunStarted: bindRetryTaskRunToItem,
+    })
+    : resume
     ? await runResumedTaskRunStage({
       project: input.project,
       memory: input.memory,
@@ -245,6 +262,13 @@ async function runGraphQueueItem(input: {
     });
   const taskRun = isRecord(result) && isRecord(result.taskRun) ? result.taskRun : null;
   if (!isTaskRunLike(taskRun)) throw new Error(`Task ${input.item.taskId} did not return a TaskRun result.`);
+  if (taskRun.status === "interrupted") {
+    const reason = "模型执行已中断，当前 worktree 已保留，可切换 provider 后继续。";
+    const queuedItem = await requeueTaskQueueItemAfterInterruption(input.memory, runningItem, taskRun, reason);
+    const queue = await pauseTaskQueue(input.memory, input.queue, reason);
+    const workflow = await syncQueue(input.memory, input.project, input.changeId, queue, input.workflow, "workflow.paused", reason);
+    return { queue, workflow, terminal: true, taskRunId: taskRun.id, finishedItemStatus: queuedItem.status };
+  }
   if (input.executionMode === "scoped-auto" && taskRun.status === "completed") {
     if (!taskRun.worktreeId) throw new Error(`Scoped-auto task ${input.item.taskId} has no worktree apply target.`);
     const applied = await applyResultToProject(input.project, taskRun.worktreeId, {
@@ -273,6 +297,10 @@ async function runGraphQueueItem(input: {
 }
 
 async function finishQueue(memory: ResolvedMemory, project: ManagedProject, changeId: string, queue: TaskQueueRun, workflow: WorkflowRun | null): Promise<WorkflowGraphSequentialRuntimeResult> {
+  if (queue.status === "paused") {
+    const reconciled = await reconcileTaskQueues(project, { changeId, queueRunId: queue.id });
+    return { queue, workflowRun: workflow, items: reconciled.items, status: "stopped", summary: queue.pausedReason ?? "WorkflowGraph sequential runtime paused." };
+  }
   queue = await updateTaskQueueAfterItem(memory, queue);
   const eventType = queue.status === "completed" ? "workflow.completed" : queue.status === "blocked" ? "workflow.blocked" : queue.status === "failed" ? "workflow.failed" : "workflow.reconciled";
   const workflowRun = await syncQueue(memory, project, changeId, queue, workflow, eventType, queue.blockedReason ?? queue.failureReason);

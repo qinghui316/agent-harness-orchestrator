@@ -9,7 +9,7 @@ import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { execFileAsync, getTempDir, git, initGitRepository, project } from "./workbench/fixtures.js";
 
 describe("integration fix attempts", () => {
-  it("records a Codex-backed repair attempt without mutating the source root", async () => {
+  it("records a provider-backed repair attempt without mutating the source root", async () => {
     const oldAhoHome = process.env.AHO_HOME;
     process.env.AHO_HOME = join(getTempDir(), ".aho-home");
     try {
@@ -19,7 +19,7 @@ describe("integration fix attempts", () => {
       await git(getTempDir(), ["commit", "-m", "initial"]);
       await initHarness(project());
       const memory = await resolveProjectMemory(project());
-      const directory = join(integrationCheckRoot(memory), "check-codex-repair");
+      const directory = join(integrationCheckRoot(memory), "check-provider-repair");
       await mkdir(directory, { recursive: true });
       const inputPatchPath = join(directory, "combined.patch");
       await writeFile(inputPatchPath, [
@@ -36,15 +36,15 @@ describe("integration fix attempts", () => {
       const repairRunner: IntegrationFixRepairRunner = async ({ checkoutPath }) => {
         await writeFile(join(checkoutPath, "integration.txt"), "fixed\n", "utf8");
         return {
-          repairMode: "codex",
+          repairMode: "provider",
           runId: "fix-run-1",
-          runArtifactRefs: ["runs/fix-run-1/run.json", "runs/fix-run-1/codex-events.jsonl", "runs/fix-run-1/diff.patch"],
-          summary: "Fake Codex runner repaired integration.txt.",
+          runArtifactRefs: ["runs/fix-run-1/run.json", "runs/fix-run-1/provider-events.jsonl", "runs/fix-run-1/diff.patch"],
+          summary: "Fake provider runner repaired integration.txt.",
         };
       };
 
       const beforeStatus = await execFileAsync("git", ["status", "--short"], { cwd: getTempDir() });
-      const result = await runIntegrationFixAttempt(project(), directory, "check-codex-repair", inputPatchPath, "aggregate validation failed", {
+      const result = await runIntegrationFixAttempt(project(), directory, "check-provider-repair", inputPatchPath, "aggregate validation failed", {
         changeId: "change-a",
         repairRunner,
       });
@@ -52,9 +52,9 @@ describe("integration fix attempts", () => {
 
       expect(result.attempt).toMatchObject({
         status: "completed",
-        repairMode: "codex",
+        repairMode: "provider",
         runId: "fix-run-1",
-        runArtifactRefs: expect.arrayContaining(["runs/fix-run-1/run.json", "runs/fix-run-1/codex-events.jsonl", "runs/fix-run-1/diff.patch"]),
+        runArtifactRefs: expect.arrayContaining(["runs/fix-run-1/run.json", "runs/fix-run-1/provider-events.jsonl", "runs/fix-run-1/diff.patch"]),
         outputArtifactRef: expect.stringContaining("repaired.patch"),
       });
       expect(result.artifact).toMatchObject({ kind: "repaired", source: "integration-fix-agent" });
@@ -92,7 +92,7 @@ describe("integration fix attempts", () => {
       const result = await runIntegrationFixAttempt(project(), directory, "check-empty-repair", inputPatchPath, "aggregate audit failed", {
         changeId: "change-a",
         repairRunner: async () => {
-          throw new Error("Codex unavailable in test.");
+          throw new Error("Provider unavailable in test.");
         },
       });
 
@@ -100,7 +100,7 @@ describe("integration fix attempts", () => {
       expect(result.attempt).toMatchObject({
         status: "failed",
       });
-      expect(result.attempt.summary).toContain("Codex unavailable in test.");
+      expect(result.attempt.summary).toContain("Provider unavailable in test.");
     } finally {
       if (oldAhoHome === undefined) delete process.env.AHO_HOME;
       else process.env.AHO_HOME = oldAhoHome;

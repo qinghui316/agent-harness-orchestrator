@@ -4,19 +4,19 @@ import { artifactName } from "./RunReplayPanel.js";
 import { formatTime, humanStatus } from "../../formatters.js";
 import { cleanTranscriptText, cleanTranscriptTitle } from "../../liveTranscript.js";
 import { SentMessageContextSummary, type ComposerContextAttachment } from "../../shell/ComposerContextSources.js";
-import { CodexUserInputRequestCard } from "./workpad/TaskGraphCards.js";
+import { ProviderUserInputRequestCard } from "./workpad/TaskGraphCards.js";
 import {
   isLongTranscriptCell,
   transcriptCellDisplayText,
 } from "./transcriptMeasurement.js";
-import type { CodexUserInputRequest, ParentAgentTranscriptCell } from "../../types.js";
+import type { ProviderUserInputRequest, ParentAgentTranscriptCell } from "../../types.js";
 
-export function AgentTranscriptPane({ cells, emptyMessage = "暂无 Agent 消息。", testId = "agent-transcript-pane", busy = false, onAnswerCodexUserInput }: {
+export function AgentTranscriptPane({ cells, emptyMessage = "暂无 Agent 消息。", testId = "agent-transcript-pane", busy = false, onAnswerProviderUserInput }: {
   cells: ParentAgentTranscriptCell[];
   emptyMessage?: string;
   testId?: string;
   busy?: boolean;
-  onAnswerCodexUserInput?: (request: CodexUserInputRequest, answers: Record<string, string | string[]>) => Promise<void>;
+  onAnswerProviderUserInput?: (request: ProviderUserInputRequest, answers: Record<string, string | string[]>) => Promise<void>;
 }): ReactElement {
   const [expandedCells, setExpandedCells] = useState<Set<string>>(new Set());
   return (
@@ -36,20 +36,20 @@ export function AgentTranscriptPane({ cells, emptyMessage = "暂无 Agent 消息
             });
           }}
           busy={busy}
-          onAnswerCodexUserInput={onAnswerCodexUserInput}
+          onAnswerProviderUserInput={onAnswerProviderUserInput}
         />
       ))}
     </div>
   );
 }
 
-export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded, onOpenAgent, busy = false, onAnswerCodexUserInput }: {
+export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded, onOpenAgent, busy = false, onAnswerProviderUserInput }: {
   cell: ParentAgentTranscriptCell;
   expanded: boolean;
   onToggleExpanded: () => void;
   onOpenAgent?: (agentSurfaceId: string) => void;
   busy?: boolean;
-  onAnswerCodexUserInput?: (request: CodexUserInputRequest, answers: Record<string, string | string[]>) => Promise<void>;
+  onAnswerProviderUserInput?: (request: ProviderUserInputRequest, answers: Record<string, string | string[]>) => Promise<void>;
 }): ReactElement {
   const isUser = cell.kind === "user-message";
   const rowKind = isUser ? "user" : "parent";
@@ -68,11 +68,11 @@ export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded
           <TranscriptUserMessage cell={cell} expanded={expanded} onToggleExpanded={onToggleExpanded} />
         ) : cell.kind === "assistant-message" ? (
           <TranscriptAssistantMessage cell={cell} expanded={expanded} onToggleExpanded={onToggleExpanded} />
-        ) : cell.kind === "user-input" && cell.codexUserInput ? (
-          <CodexUserInputRequestCard
-            request={cell.codexUserInput}
+        ) : cell.kind === "user-input" && cell.providerUserInput ? (
+          <ProviderUserInputRequestCard
+            request={cell.providerUserInput}
             busy={busy}
-            onAnswer={onAnswerCodexUserInput ?? (async () => undefined)}
+            onAnswer={onAnswerProviderUserInput ?? (async () => undefined)}
           />
         ) : (
           <TranscriptActivityRow cell={cell} expanded={expanded} onToggleExpanded={onToggleExpanded} onOpenAgent={onOpenAgent} />
@@ -121,7 +121,7 @@ function TranscriptMessageProse({ cell, expanded, onToggleExpanded, className }:
 }): ReactElement {
   const title = cleanTranscriptTitle(cell.title);
   const folded = isLongTranscriptCell(cell) && !expanded;
-  const text = normalizeCodexTranscriptText(cleanTranscriptText(transcriptCellDisplayText(cell, expanded)));
+  const text = normalizeProviderTranscriptText(cleanTranscriptText(transcriptCellDisplayText(cell, expanded)));
   return (
     <div className={`parent-agent-prose transcript-message-prose ${className} ${cell.isError ? "danger" : ""}`}>
       {title ? <strong className="transcript-message-title">{title}</strong> : null}
@@ -153,11 +153,11 @@ export function TranscriptActivityRow({ cell, expanded, onToggleExpanded, onOpen
   const evidenceRefs = dedupeParentCellEvidenceRefs(cell.evidenceRefs ?? []);
   const hasDetails = Boolean(cell.detailText?.trim()) || evidenceRefs.length > 0;
   const rawTitle = cleanTranscriptTitle(cell.title) || (cell.kind === "process-row" ? "运行" : "材料");
-  const rawText = normalizeCodexTranscriptText(cleanTranscriptText(cell.text));
+  const rawText = normalizeProviderTranscriptText(cleanTranscriptText(cell.text));
   const title = rawTitle === "已运行命令" && /^已运行\s+\d+\s+条命令/.test(rawText) ? rawText : rawTitle;
   const statusLabel = cell.status ? humanStatus(cell.status) : "";
   const text = isDuplicativeActivitySummary(rawText, title, statusLabel) ? "" : rawText;
-  const detailText = normalizeCodexTranscriptText(cleanTranscriptText(cell.detailText));
+  const detailText = normalizeProviderTranscriptText(cleanTranscriptText(cell.detailText));
   const status = cell.status && shouldShowTranscriptStatus(cell) ? humanStatus(cell.status) : null;
   const detailsId = `${cell.id}:details`;
   const tone = transcriptActivityTone(cell);
@@ -281,7 +281,7 @@ function normalizeActivityCopy(value: string): string {
   return value.replace(/[·:：.。]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
 }
 
-function normalizeCodexTranscriptText(value: string): string {
+function normalizeProviderTranscriptText(value: string): string {
   return value.trim();
 }
 

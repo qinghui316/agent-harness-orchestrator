@@ -1,61 +1,35 @@
-﻿import type { WorkbenchThreadActionType } from "./workflow-actions.js";
+import type { WorkbenchThreadActionType } from "./workflow-actions.js";
 
 export type AppStatus = { mode: "app" | "project"; directProjectId: string | null };
-export type CodexDiagnostics = {
-  provider: "codex";
-  available: boolean;
-  version: string | null;
-  configPath: string;
-  currentModel: string | null;
-  configModel?: string | null;
-  selectedModel?: string | null;
-  effectiveModel?: string | null;
-  effectiveModelSource?: CodexEffectiveModelSource;
-  modelSettings?: CodexModelSettingsSnapshot;
-  approvalFlagPlacement: string;
-  capabilities: {
-    supportsJson: boolean;
-    supportsSandbox: boolean;
-    supportsCd: boolean;
-    supportsAddDir: boolean;
-    supportsColor: boolean;
-    supportsOutputLastMessage: boolean;
-    supportsSafeResume: boolean;
-  };
-  errors: string[];
-  projectTrust?: {
-    trusted: boolean;
-    projectKey: string;
-    configExists: boolean;
-    reason?: string;
-  };
+export type ProviderDiagnostics = {
+  providerId: string;
+  displayName: string;
+  installation: { available: boolean; version: string | null; path?: string };
+  adapter: { id: string; version: string };
+  capabilities: ProviderCapabilitySnapshot;
+  models: ProviderModelSettingsSnapshot;
+  sessionHealth: "ready" | "degraded" | "unavailable";
+  lastError: string | null;
+  rawEvidenceRefs: string[];
+  projectActions: Array<{ id: string; label: string; status: "available" | "completed" | "blocked"; requiresConfirmation: boolean; reason?: string }>;
+  details?: Record<string, unknown>;
 };
-export type CodexModelCandidateSource = "runtime" | "config";
-export type CodexEffectiveModelSource = "selected" | "config" | "codex-default";
-export type CodexModelCandidate = {
-  id: string;
-  model?: string;
-  label?: string;
-  source: CodexModelCandidateSource;
+export type ProviderEffectiveModelSource = "selected" | "config" | "provider-default";
+export type ProviderModelCandidate = {
+  providerId: string;
+  modelId: string;
+  label: string;
+  source: string;
   isDefault?: boolean;
-  selected?: boolean;
 };
-export type CodexModelListStatus = {
+export type ProviderModelSettingsSnapshot = {
+  providerId: string;
+  selectedModel: { providerId: string; modelId: string } | null;
+  effectiveModel: { providerId: string; modelId: string } | null;
+  effectiveModelSource: ProviderEffectiveModelSource;
+  candidates: ProviderModelCandidate[];
   available: boolean;
   degradedReason?: string;
-  candidates: CodexModelCandidate[];
-};
-export type CodexModelSettingsSnapshot = {
-  selectedModel: string | null;
-  customModels: CodexModelCandidate[];
-  configModel: string | null;
-  configPath: string;
-  configExists: boolean;
-  configReason?: string;
-  effectiveModel: string | null;
-  effectiveModelSource: CodexEffectiveModelSource;
-  modelList: CodexModelListStatus;
-  candidates: CodexModelCandidate[];
 };
 export type ProviderCapabilityKey =
   | "streaming.text"
@@ -77,7 +51,7 @@ export type ProviderCapabilityItem = {
   summary: string;
   reason?: string;
 };
-export type ProviderId = "codex";
+export type ProviderId = string;
 export type ProductMode = "harness" | "agent";
 export type RunnableProductMode = "harness";
 export type HarnessExecutionMode = "stepwise" | "scoped-auto";
@@ -91,7 +65,7 @@ export type ProviderCapabilitySnapshot = {
   snapshotHash: string;
   snapshotVersion: number;
   effectiveModel: string | null;
-  effectiveModelSource: CodexEffectiveModelSource;
+  effectiveModelSource: ProviderEffectiveModelSource;
   degradedReasons: string[];
   capabilities: ProviderCapabilityItem[];
 };
@@ -102,7 +76,7 @@ export type ProviderRuntimeSummary = {
   snapshot: ProviderCapabilitySnapshot;
 };
 export type ProjectStatus = {
-  project: { id: string; name: string; path: string } | null;
+  project: { id: string; name: string; path: string; defaultProviderId?: string } | null;
   path: string;
   pathExists: boolean;
   isGitRepo: boolean;
@@ -119,18 +93,14 @@ export type ProjectStatus = {
     unsupportedReason?: string;
   };
   harness: { readiness: string };
-  codexTrust?: { trusted: boolean; configPath: string; projectKey: string; configExists: boolean; reason?: string };
 };
 
-export type SkillSourceKind = "managed" | "project-codex" | "global-codex" | "custom" | "system-aho";
-export type SkillRuntimeTarget = {
-  provider: "codex";
-  status: "native" | "synced" | "out-of-sync" | "not-synced";
-  materializationMode: "native" | "aho-managed";
-  materializedPath?: string;
-  materializedHash?: string;
-  bridgeVersion?: string;
-  syncedAt?: string;
+export type SkillSourceKind = "managed" | "custom" | "system-aho" | "provider-native";
+export type SkillProviderBinding = {
+  providerId: string;
+  bindingKind: "native" | "materialized";
+  status: "ready" | "stale" | "unavailable";
+  contentHash: string;
 };
 export type SkillListItem = {
   skillId: string;
@@ -138,11 +108,12 @@ export type SkillListItem = {
   description: string;
   sourcePath: string;
   sourceKind: SkillSourceKind;
-  sourceHash: string;
+  contentHash: string;
+  compatibility: { requiredCapabilities: string[] };
+  providerBindings: SkillProviderBinding[];
   enabledProject: boolean;
   enabledTopics: string[];
   disabledTopics: string[];
-  runtimeTargets: SkillRuntimeTarget[];
 };
 export type SkillRootListItem = {
   rootPath: string;
@@ -168,7 +139,7 @@ export type TopicAttachment = {
   source: "composer";
   createdAt: string;
   storagePath: string;
-  runtimeMode: "codex-image-input" | "bounded-text-preview" | "metadata-only";
+  runtimeMode: "provider-image-input" | "bounded-text-preview" | "metadata-only";
   message?: string;
   previewUrl?: string;
 };
@@ -352,14 +323,14 @@ export type Snapshot = {
     thread: { items: ThreadStreamItem[] };
     parentAgentTranscript: ParentAgentTranscript;
     activeTab?: CenterTab;
-    agentRunGraph: DemandAgentRunGraph;
+    agentRelationGraph: AgentRelationGraph;
   };
   right: { approvals: Approval[]; decisions: Decision[]; decisionInspector: DecisionInspector; confirmationQueue: ConfirmationQueue; agentWorkspace: AgentWorkspace };
   harnessGaps: Array<{ id: string; status: string; summary: string }>;
   warnings: string[];
 };
 
-export type Topic = { id: string; title: string; state: string; updatedAt?: string; kind?: "conversation" | "change"; boundChangeId?: string | null };
+export type Topic = { id: string; title: string; state: string; updatedAt?: string; kind?: "conversation" | "change"; boundChangeId?: string | null; selectedProviderId?: string };
 export type WorkpadRuntimeStatus = "active" | "running" | "queued" | "blocked" | "waiting-decision" | "archived" | "readonly";
 export type WorkpadUserStatus = "processing" | "waiting-confirmation" | "needs-rework" | "later" | "completed" | "abandoned";
 export type ConversationLifecycle = "active" | "running" | "waiting-user" | "archived-readonly" | "abandoned";
@@ -380,75 +351,41 @@ export type WorkpadSummary = {
   blocker?: string;
   updatedAt?: string;
 };
-export type DemandAgentRunGraphLaneId = "main" | "roles" | "integration" | "maintenance";
-export type DemandAgentRunGraphNodeStatus = "idle" | "queued" | "running" | "completed" | "needs-change" | "failed" | "waiting-user" | "skipped";
-export type DemandAgentRunGraphStage = "demand" | "planning" | "execution" | "validation" | "review" | "integration" | "landing" | "terminal" | "maintenance";
-export type DemandAgentRunGraphVisualKind = "agent" | "gate" | "worker" | "tool" | "review" | "terminal" | "default";
-export type DemandAgentRunGraphEdgeStyle = "solid" | "dashed" | "loop" | "blocked";
-export type DemandAgentRunGraphEdgeRole = "primary" | "return" | "rework" | "worker-branch" | "worker-join" | "terminal" | "background";
-export type DemandAgentRunGraphEvidenceRef = { label: string; ref: string; kind: "artifact" | "run" | "task" | "decision" | "remote" | "maintenance" };
-export type DemandAgentRunGraphAttempt = { id: string; status: DemandAgentRunGraphNodeStatus; summary: string; timestamp?: string; evidenceRefs: DemandAgentRunGraphEvidenceRef[] };
-export type DemandAgentRunGraphNode = {
+export type AgentRelationGraphNodeStatus = "idle" | "queued" | "running" | "completed" | "needs-change" | "failed" | "waiting-user" | "skipped";
+export type AgentEvidenceRef = { label: string; ref: string; kind: "artifact" | "run" | "task" | "decision" | "remote" | "maintenance" };
+export type AgentRelationGraphNode = {
   id: string;
-  kind: string;
-  lane: DemandAgentRunGraphLaneId;
+  kind: "main-agent" | "agent";
   label: string;
-  roleId?: string;
-  status: DemandAgentRunGraphNodeStatus;
+  roleId: string;
+  providerId?: string;
+  providerThreadId?: string;
+  parentAgentId?: string;
+  status: AgentRelationGraphNodeStatus;
   summary: string;
-  reason: string;
   target: {
     projectId?: string | null;
     conversationId?: string;
     changeId?: string;
-    roleId?: string;
-    agentSurfaceId?: string;
-    providerThreadId?: string;
-    parentThreadId?: string;
-    agentTaskId?: string;
-    runId?: string;
-    worktreeId?: string;
-    resultId?: string;
-    applyCheckId?: string;
-    landingPackageId?: string;
-    prDraftPackageId?: string;
-    prUrl?: string;
-    remoteLandingResultId?: string;
-    maintenanceRunId?: string;
-    candidateId?: string;
-    schedulerRunId?: string;
-    schedulerWorkerStartId?: string;
-    schedulerIntegrationCandidateId?: string;
-    schedulerIntegrationCheckHandoffId?: string;
-    schedulerIntegrationOutcomeId?: string;
-    schedulerRunCompletionId?: string;
-    schedulerRunBlockedCloseoutId?: string;
+    agentSurfaceId: string;
   };
-  stage?: DemandAgentRunGraphStage;
-  visualKind?: DemandAgentRunGraphVisualKind;
-  inputSummary?: string;
-  outputSummary?: string;
-  evidenceRefs: DemandAgentRunGraphEvidenceRef[];
-  attempts: DemandAgentRunGraphAttempt[];
 };
-export type DemandAgentRunGraphEdge = { id: string; from: string; to: string; kind: string; label: string; edgeStyle?: DemandAgentRunGraphEdgeStyle; edgeRole?: DemandAgentRunGraphEdgeRole };
-export type DemandAgentRunGraphLane = { id: DemandAgentRunGraphLaneId; label: string; description: string };
-export type DemandAgentRunGraph = {
+export type AgentRelationGraphEdge = { id: string; from: string; to: string; kind: "parent-child" };
+export type AgentRelationGraph = {
   graphScopeId?: string;
   conversationId?: string;
   changeId?: string;
   title: string;
   summary: string;
-  lanes: DemandAgentRunGraphLane[];
-  nodes: DemandAgentRunGraphNode[];
-  edges: DemandAgentRunGraphEdge[];
+  nodes: AgentRelationGraphNode[];
+  edges: AgentRelationGraphEdge[];
   updatedAt?: string;
 };
 export type CenterTab = "conversation" | "workpad" | "agentGraph";
 export type ParentAgentTranscriptBlock = {
   id: string;
   kind: "prose" | "process" | "tool-result" | "evidence";
-  source: "user" | "codex-runtime" | "aho-orchestration" | "workflow-evidence" | "maintenance";
+  source: "user" | "provider-runtime" | "aho-orchestration" | "workflow-evidence" | "maintenance";
   title?: string;
   text: string;
   status?: string;
@@ -458,7 +395,7 @@ export type ParentAgentTranscriptBlock = {
 export type ParentAgentTranscriptCell = {
   id: string;
   kind: "user-message" | "assistant-message" | "process-row" | "evidence-row" | "user-input" | "detail-only";
-  source: "user" | "codex-runtime" | "aho-orchestration" | "workflow-evidence" | "maintenance";
+  source: "user" | "provider-runtime" | "aho-orchestration" | "workflow-evidence" | "maintenance";
   agentRoleId?: string;
   agentTaskId?: string;
   runId?: string;
@@ -479,7 +416,7 @@ export type ParentAgentTranscriptCell = {
     detailText?: string;
   contextRefs?: TopicFileReference[];
   attachments?: TopicAttachment[];
-  codexUserInput?: CodexUserInputRequest;
+  providerUserInput?: ProviderUserInputRequest;
 };
 export type ParentAgentTranscriptItem = {
   id: string;
@@ -825,7 +762,7 @@ export type Workpad = {
     projectStableNamespace: "project/stable";
     currentChangeNamespace?: string;
     runNamespaces: string[];
-    agentSessionNamespace: "agent/{roleId}/session/{sessionId}";
+    providerSessionNamespace: "agent/{roleId}/session/{sessionId}";
     relatedWorkpads: Array<{ changeId: string; title: string; status: WorkpadRuntimeStatus; factBoundary: "summary-only" | "local-evidence-only" }>;
     stableFactSources: string[];
     writeBoundaries: string[];
@@ -1458,11 +1395,14 @@ export type ThreadStreamItem = {
   source: string;
   artifact?: string;
   status?: string;
-  graphScopeId?: string;
-  runId?: string;
+    graphScopeId?: string;
+    providerId?: ProviderId;
+    attemptId?: string;
+    runId?: string;
   threadId?: string;
   parentThreadId?: string;
-  turnId?: string;
+    turnId?: string;
+    itemId?: string;
   agentRoleId?: string;
   agentTaskId?: string;
   actionType?: string;
@@ -1477,14 +1417,14 @@ export type ThreadStreamItem = {
     iteration?: { currentUnderstanding: string; confirmedConstraints: string[]; openQuestions: string[]; assumptions: string[] };
   };
   clarification?: ClarificationRequest;
-  codexUserInput?: CodexUserInputRequest;
+  providerUserInput?: ProviderUserInputRequest;
   contextRefs?: TopicFileReference[];
   attachments?: TopicAttachment[];
 };
 export type ClarificationRequest = {
   id: string;
   status: "pending" | "answered" | "skipped" | "expired";
-  source: "aho" | "codex";
+  source: "aho" | "provider";
   stage: "intake" | "spec" | "plan" | "run";
   questions: Array<{ id: string; header?: string; question: string; options?: Array<{ label: string; description?: string }>; allowFreeform: boolean }>;
   answers?: Array<{ questionId: string; answer: string }>;
@@ -1587,9 +1527,11 @@ export type DecisionInspector = {
 export type AgentWorkspaceAgent = {
   id: string;
   roleId: string;
+  providerId: string;
   providerThreadId?: string;
   providerDisplayName?: string;
   parentThreadId?: string;
+  parentAgentId: string;
   runId?: string;
   label: string;
   status: string;
@@ -1597,7 +1539,7 @@ export type AgentWorkspaceAgent = {
   inputSummary?: string;
   outputSummary?: string;
   transcript: ParentAgentTranscript;
-  evidenceRefs: DemandAgentRunGraphEvidenceRef[];
+  evidenceRefs: AgentEvidenceRef[];
   actions: DecisionAction[];
   clarifications?: ClarificationRequest[];
 };
@@ -1669,7 +1611,7 @@ export type StreamPacket = {
   diagnostics: string[];
 };
 export type FolderDialogResult = { path: string | null; canceled: boolean; supported: boolean; error?: string };
-export type CodexUserInputQuestion = {
+export type ProviderUserInputQuestion = {
   id: string;
   header?: string;
   question: string;
@@ -1677,7 +1619,9 @@ export type CodexUserInputQuestion = {
   isSecret?: boolean;
   options?: Array<{ label: string; description?: string }>;
 };
-export type CodexUserInputRequest = {
+export type ProviderUserInputRequest = {
+  providerId: ProviderId;
+  attemptId: string;
   requestKey: string;
   requestId: string;
   threadId?: string;
@@ -1690,28 +1634,32 @@ export type CodexUserInputRequest = {
   graphScopeId?: string;
   agentRoleId?: string;
   agentTaskId?: string;
-  questions: CodexUserInputQuestion[];
+  questions: ProviderUserInputQuestion[];
   status: "pending" | "submitting" | "submitted";
   answers?: Record<string, string | string[]>;
   submittedAt?: string;
 };
 export type WorkbenchLiveEvent =
-  | { event: "topic.created"; data: { topic: { id?: string; conversationId?: string; changeId?: string; title: string; state: "active" } } }
+  | { event: "topic.created"; data: { topic: { id?: string; conversationId?: string; changeId?: string; title: string; state: "active"; selectedProviderId?: string } } }
   | { event: "topic.message"; data: TopicMessageEntry }
+  | { event: "timeline.patch"; data: { conversationId: string; graphScopeId?: string; messageId: string; agentSurfaceId: string; providerId?: ProviderId; roleId?: string; threadId?: string; parentThreadId?: string; status?: string; cells: ParentAgentTranscriptCell[] } }
   | { event: "run.started"; data: WorkbenchLiveIdentity & { runId: string; actionType?: string; runtime?: string; taskIds?: string[] } }
   | { event: "run.status"; data: WorkbenchLiveIdentity & { actionRunId?: string; status: string; label?: string } }
   | { event: "assistant.delta"; data: WorkbenchLiveIdentity & { delta: string } }
   | { event: "assistant.message"; data: TopicMessageEntry }
   | { event: "assistant.event"; data: AssistantReadableEvent }
   | { event: "tool.event"; data: WorkbenchLiveToolEvent }
-  | { event: "codex.userInput.requested"; data: CodexUserInputRequest }
-  | { event: "codex.userInput.submitted"; data: WorkbenchLiveIdentity & { requestKey: string; requestId: string } }
+  | { event: "provider.userInput.requested"; data: ProviderUserInputRequest }
+  | { event: "provider.userInput.submitted"; data: WorkbenchLiveIdentity & { requestKey: string; requestId: string } }
   | { event: "usage"; data: WorkbenchLiveIdentity & { usage?: Record<string, unknown> } }
   | { event: "snapshot"; data: Snapshot }
   | { event: "error"; data: WorkbenchLiveIdentity & { message: string; runId?: string; actionRunId?: string } }
   | { event: "done"; data: { status: "completed" | "failed" } };
 export type WorkbenchLiveToolEvent = {
   runId: string;
+  providerId?: ProviderId;
+  attemptId?: string;
+  sessionId?: string;
   projectId?: string;
   conversationId?: string;
   changeId?: string;
@@ -1735,6 +1683,9 @@ export type WorkbenchLiveToolEvent = {
 };
 export type AssistantReadableEvent = {
   runId: string;
+  providerId?: ProviderId;
+  attemptId?: string;
+  sessionId?: string;
   projectId?: string;
   conversationId?: string;
   changeId?: string;
@@ -1764,13 +1715,15 @@ export type AssistantReadableEvent = {
 };
 export type AssistantTurnBlock = {
   id: string;
+  providerId?: ProviderId;
+  attemptId?: string;
   runId?: string;
   threadId?: string;
   turnId?: string;
   sequence: number;
   kind: "prose" | "status" | "command-group" | "command" | "tool-result" | "file-change" | "reasoning-summary" | "workflow-evidence" | "usage" | "error";
   timestamp: string;
-  source: "codex" | "aho" | "workflow" | "validation" | "audit" | "decision";
+  source: "provider" | "aho" | "workflow" | "validation" | "audit" | "decision";
   status?: string;
   title?: string;
   text?: string;
@@ -1795,6 +1748,9 @@ export type LiveTurnEvent =
 export type LiveAssistantTurn = {
   id: string;
   runId: string;
+  providerId?: ProviderId;
+  attemptId?: string;
+  sessionId?: string;
   projectId?: string;
   conversationId?: string;
   graphScopeId?: string;
@@ -1824,6 +1780,9 @@ export type WorkbenchLiveIdentity = {
   graphScopeId?: string;
   changeId?: string;
   runId?: string;
+  providerId?: ProviderId;
+  attemptId?: string;
+  sessionId?: string;
   threadId?: string;
   parentThreadId?: string;
   turnId?: string;
@@ -1846,9 +1805,13 @@ export type TopicMessageEntry = {
   actionType?: string;
   status?: string;
   runId?: string;
+  providerId?: ProviderId;
+  attemptId?: string;
+  sessionId?: string;
   threadId?: string;
   parentThreadId?: string;
   turnId?: string;
+  itemId?: string;
   agentRoleId?: string;
   agentTaskId?: string;
   artifact?: string;
@@ -1858,7 +1821,7 @@ export type TopicMessageEntry = {
   blocks?: AssistantTurnBlock[];
   intake?: ThreadStreamItem["intake"];
   clarification?: ClarificationRequest;
-  codexUserInput?: CodexUserInputRequest;
+  providerUserInput?: ProviderUserInputRequest;
   contextRefs?: TopicFileReference[];
   attachments?: TopicAttachment[];
 };

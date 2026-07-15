@@ -216,7 +216,7 @@ function readyNode(
       id: `stage-${suffix}-coder`,
       stage: "coder",
       roleId: "coder",
-      adapterFamily: "codex-code",
+      adapterFamily: "provider-code",
       status: "planned",
       sourceScopes: [scope],
       recoveryKeyInputs: [{ key: "scope", value: scope }],

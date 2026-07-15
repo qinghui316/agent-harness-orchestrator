@@ -47,8 +47,8 @@ export function SkillMentionPicker({
       {trigger && suggestions.length > 0 ? (
         <div className="skill-mention-menu" role="listbox" aria-label="选择技能" data-testid="skill-mention-menu">
           {suggestions.map((skill) => {
-            const target = skill.runtimeTargets.find((item) => item.provider === "codex");
-            const syncState = target?.status ?? "not-synced";
+            const target = skill.providerBindings[0];
+            const syncState = target?.status ?? "unavailable";
             const active = activeSkillIds.includes(skill.skillId);
             return (
               <button
@@ -66,7 +66,7 @@ export function SkillMentionPicker({
                   <strong>{skill.name}</strong>
                   <small>{skill.description || "无描述"}</small>
                 </span>
-                <span className={`skill-sync-state ${syncState}`}>{runtimeStatusLabel(syncState)}</span>
+                <span className={`skill-sync-state ${syncState}`}>{runtimeStatusLabel(syncState, target?.bindingKind)}</span>
               </button>
             );
           })}
@@ -76,9 +76,9 @@ export function SkillMentionPicker({
   );
 }
 
-function runtimeStatusLabel(status: string): string {
-  if (status === "native") return "Codex 可用";
-  if (status === "synced") return "已同步";
-  if (status === "out-of-sync") return "需要重新同步";
+function runtimeStatusLabel(status: string, bindingKind?: string): string {
+  if (status === "ready" && bindingKind === "native") return "Provider 原生可用";
+  if (status === "ready") return "已同步";
+  if (status === "stale") return "需要重新同步";
   return "需要同步";
 }

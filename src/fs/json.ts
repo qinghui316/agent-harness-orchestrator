@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { z } from "zod";
 
@@ -54,7 +54,27 @@ export async function atomicWriteFile(path: string, content: string): Promise<vo
   await mkdir(dirname(path), { recursive: true });
   const temp = `${path}.${process.pid}.${randomUUID()}.tmp`;
   await writeFile(temp, content, "utf8");
-  await rename(temp, path);
+  try {
+    await renameWithTransientWindowsRetry(temp, path);
+  } catch (error) {
+    await unlink(temp).catch(() => undefined);
+    throw error;
+  }
+}
+
+async function renameWithTransientWindowsRetry(source: string, target: string): Promise<void> {
+  const delays = process.platform === "win32" ? [10, 25, 50, 100, 200, 400] : [];
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await rename(source, target);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      const delay = delays[attempt];
+      if (delay === undefined || (code !== "EPERM" && code !== "EBUSY" && code !== "EACCES")) throw error;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
 }
 
 function stripUtf8Bom(text: string): string {

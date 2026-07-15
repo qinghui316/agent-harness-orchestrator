@@ -27,7 +27,7 @@ describe("parent agent transcript paging", () => {
             title: "计划已准备",
             text: "Plan Agent 已完成可确认的实现计划。",
             artifactRef: "proposal.json",
-            targetAgentSurfaceId: "thread:plan",
+            targetAgentSurfaceId: "agent:codex:thread:plan",
           },
         ],
       }],
@@ -52,6 +52,8 @@ describe("parent agent transcript paging", () => {
         label: "AI",
         source: "chat",
         timestamp: "2026-07-14T00:00:24.000Z",
+        providerId: "codex",
+        attemptId: "attempt-turn-1",
         runId: "run-1",
         threadId: "thread-1",
         turnId: "turn-1",
@@ -67,18 +69,18 @@ describe("parent agent transcript paging", () => {
           sequence: 1,
           kind: "reasoning-summary",
           timestamp: "2026-07-14T00:00:03.000Z",
-          source: "codex",
+          source: "provider",
           text: "Checked the implementation boundary.",
         }],
       }],
     });
 
     expect(transcript.cells).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "cell:turn:run-1:thread-1:turn-1", kind: "process-row", title: "已完成 · 24 秒", status: "completed" }),
+      expect.objectContaining({ id: "cell:turn:codex:attempt-turn-1:thread-1:turn-1", kind: "process-row", title: "已完成 · 24 秒", status: "completed" }),
       expect.objectContaining({ kind: "process-row", title: "思考摘要 · Checked the implementation boundary.", text: "", detailText: "Checked the implementation boundary." }),
     ]));
     expect(transcript.cells[0]?.id).toBe("cell:reasoning:reasoning-1");
-    expect(transcript.cells.at(-1)?.id).toBe("cell:turn:run-1:thread-1:turn-1");
+    expect(transcript.cells.at(-1)?.id).toBe("cell:turn:codex:attempt-turn-1:thread-1:turn-1");
   });
 
   it("keeps the full transcript compatible and returns the latest page by default", () => {
@@ -153,7 +155,7 @@ describe("parent agent transcript paging", () => {
       sequence: 1,
       kind: "prose" as const,
       timestamp: "2026-07-02T10:00:00.000Z",
-      source: "codex" as const,
+      source: "provider" as const,
       text: "Planning-agent draft body stays in the Agent workspace.",
     };
     const threadItems = [
@@ -167,7 +169,7 @@ describe("parent agent transcript paging", () => {
           sequence: 1,
           kind: "prose" as const,
           timestamp: "2026-07-02T10:00:00.000Z",
-          source: "codex" as const,
+          source: "provider" as const,
           text: "Main agent response.",
         }],
       },
@@ -217,7 +219,7 @@ describe("parent agent transcript paging", () => {
           id: "initial-plan",
           sequence: 1,
           kind: "prose" as const,
-          source: "codex" as const,
+          source: "provider" as const,
           text: "# Plan: Initial proposal",
         }],
       },
@@ -233,7 +235,7 @@ describe("parent agent transcript paging", () => {
           id: "revised-plan",
           sequence: 1,
           kind: "prose" as const,
-          source: "codex" as const,
+          source: "provider" as const,
           text: "# Plan: Revised proposal",
         }],
       },
@@ -265,7 +267,7 @@ describe("parent agent transcript paging", () => {
         id: `coder-prose-${index + 1}`,
         sequence: 1,
         kind: "prose" as const,
-        source: "codex" as const,
+        source: "provider" as const,
         text: `Coder ${index + 1} result`,
       }],
     }));
@@ -287,7 +289,7 @@ describe("parent agent transcript paging", () => {
           id: "main-leak-block",
           sequence: 1,
           kind: "prose" as const,
-          source: "codex" as const,
+          source: "provider" as const,
           text: "我先确认需求，不会修改文件。\n\n## 目标\n做事\n\n## 验收标准\n- 通过",
         }],
       }],
@@ -307,7 +309,7 @@ describe("parent agent transcript paging", () => {
           id: "persisted-main-leak-block",
           sequence: 1,
           kind: "prose" as const,
-          source: "codex" as const,
+          source: "provider" as const,
           text: [
             "我会先确认当前约束，不修改文件。",
             "",
@@ -350,7 +352,7 @@ describe("parent agent transcript paging", () => {
           id: "main-delegation-leak-block",
           sequence: 1,
           kind: "prose" as const,
-          source: "codex" as const,
+          source: "provider" as const,
           text: "我理解这次目标是完成验收，并保持当前回合只读。\n这条回复之后，我会把只读规划交给 planning-agent；当前不会修改文件。",
         }],
       }],
@@ -361,9 +363,12 @@ describe("parent agent transcript paging", () => {
 
   it("keeps a native Agent question as one durable timeline item after submission", () => {
     const request = {
+      providerId: "codex" as const,
       requestKey: "run-1:main:turn:item:request-1",
       requestId: "request-1",
       runId: "run-1",
+      runtimeScopeId: "conv",
+      attemptId: "run-1",
       conversationId: "conv",
       questions: [{ id: "q1", question: "是否保留旧文件？" }],
       status: "submitted" as const,
@@ -373,28 +378,31 @@ describe("parent agent transcript paging", () => {
     const transcript = buildParentAgentTranscript({
       workpad: { conversationId: "conv", title: "Question history" },
       threadItems: [{
-        id: "codex-user-input:run-1:main:turn:item:request-1",
+        id: "provider-user-input:run-1:main:turn:item:request-1",
         kind: "assistant-turn",
         label: "需要你回答",
         source: "chat",
         timestamp: "2026-07-15T00:00:00.000Z",
-        codexUserInput: request,
+        providerUserInput: request,
       }],
     });
 
     expect(transcript.cells).toEqual([expect.objectContaining({
-      id: "cell:codex-user-input:run-1:main:turn:item:request-1",
+      id: "cell:provider-user-input:run-1:main:turn:item:request-1",
       kind: "user-input",
       status: "submitted",
-      codexUserInput: request,
+      providerUserInput: request,
     })]);
   });
 
   it("keeps repeated provider request ids distinct across durable turns", () => {
     const requests = ["turn-a", "turn-b"].map((turnId) => ({
+      providerId: "codex" as const,
       requestKey: `run-${turnId}:main:${turnId}:item:1`,
       requestId: "1",
       runId: `run-${turnId}`,
+      runtimeScopeId: "conv",
+      attemptId: `run-${turnId}`,
       threadId: "main",
       turnId,
       conversationId: "conv",
@@ -404,18 +412,18 @@ describe("parent agent transcript paging", () => {
     const transcript = buildParentAgentTranscript({
       workpad: { conversationId: "conv", title: "Repeated request ids" },
       threadItems: requests.map((request) => ({
-        id: `codex-user-input:${request.requestKey}`,
+        id: `provider-user-input:${request.requestKey}`,
         kind: "assistant-turn" as const,
         label: "需要你回答",
         source: "chat" as const,
         timestamp: "2026-07-15T00:00:00.000Z",
-        codexUserInput: request,
+        providerUserInput: request,
       })),
     });
 
     expect(transcript.cells.map((cell) => cell.id)).toEqual([
-      `cell:codex-user-input:${requests[0].requestKey}`,
-      `cell:codex-user-input:${requests[1].requestKey}`,
+      `cell:provider-user-input:${requests[0].requestKey}`,
+      `cell:provider-user-input:${requests[1].requestKey}`,
     ]);
   });
 });
@@ -442,7 +450,7 @@ function syntheticThreadItems(count: number) {
         sequence: index,
         kind: "prose" as const,
         timestamp,
-        source: "codex" as const,
+        source: "provider" as const,
         title: `Codex response ${index}`,
         text: `Synthetic assistant transcript body ${index}. ${"detail ".repeat(index % 8)}`,
       }],

@@ -17,7 +17,6 @@ export interface AgentCatalogEntry {
   displayName: string;
   description: string;
   profilePath: string;
-  runtime: "codex" | "local";
   writeCapability: AgentWriteCapability;
   allowedInputs: string[];
   allowedOutputs: string[];
@@ -38,11 +37,12 @@ export interface AgentRole {
   description: string;
   source: "bundled" | "memory";
   sourcePath: string;
-  sourceHash: string;
+  contentHash: string;
   catalogVersion: string;
   catalogHash: string;
+  compatibility: AgentRoleCompatibility;
+  providerBindings: AgentRoleProviderBinding[];
   writeCapability: AgentWriteCapability;
-  runtime: "codex" | "local";
   allowedInputs: string[];
   allowedOutputs: string[];
   allowedSkills: string[];
@@ -50,6 +50,17 @@ export interface AgentRole {
   requiredGates: string[];
   delegatable: boolean;
   markdown: string;
+}
+
+export interface AgentRoleCompatibility {
+  requiredCapabilities: string[];
+}
+
+export interface AgentRoleProviderBinding {
+  providerId: string;
+  bindingKind: "native" | "materialized";
+  status: "ready" | "stale" | "unavailable";
+  contentHash: string;
 }
 
 export interface AgentSyncResult {
@@ -68,7 +79,6 @@ const catalogEntrySchema = z.object({
   displayName: z.string().min(1),
   description: z.string().default(""),
   profilePath: z.string().min(1),
-  runtime: z.enum(["codex", "local"]).default("codex"),
   writeCapability: writeCapabilitySchema,
   allowedInputs: z.array(z.string()).default([]),
   allowedOutputs: z.array(z.string()).default([]),
@@ -154,14 +164,16 @@ export async function resolveAgentRole(memory: ResolvedMemory, roleIdInput: stri
   if (!existsSync(sourcePath)) throw new Error(`Agent role ${roleId} profile is missing: ${sourcePath}`);
   const markdown = await readFile(sourcePath, "utf8");
   validateRolePromptContract(entry.roleId, markdown);
-  const sourceHash = hashText(markdown);
+  const contentHash = hashText(markdown);
   return {
     ...entry,
     source: isInsideMemoryAgents(memory, sourcePath) ? "memory" : "bundled",
     sourcePath,
-    sourceHash,
+    contentHash,
     catalogVersion: catalog.version,
     catalogHash: hashText(JSON.stringify(catalog)),
+    compatibility: roleCompatibility(entry),
+    providerBindings: [],
     markdown,
   };
 }
@@ -172,7 +184,7 @@ export function validateRolePromptContract(roleId: string, markdown: string): vo
     "memory-maintenance-agent", "harness-evolution-agent",
   ]);
   if (!requiredRoles.has(roleId)) return;
-  const missingFrontmatter = ["roleId:", "description:", "writeCapability:", "preferredRuntime:"].filter((marker) => !markdown.includes(marker));
+  const missingFrontmatter = ["roleId:", "description:", "writeCapability:"].filter((marker) => !markdown.includes(marker));
   const requiredSections = ["## Role", "## Success Criteria", "## Constraints", "## Inputs", "## Workflow", "## Output Contract", "## Escalate When", "## Avoid"];
   const missingSections = requiredSections.filter((section) => !markdown.includes(section));
   if (missingFrontmatter.length > 0 || missingSections.length > 0) {
@@ -185,7 +197,7 @@ export function buildRunAgentRecord(role: AgentRole, materialized?: { hash?: str
     roleId: role.roleId,
     source: role.source,
     sourcePath: role.sourcePath,
-    sourceHash: role.sourceHash,
+    sourceHash: role.contentHash,
     catalogVersion: role.catalogVersion,
     catalogHash: role.catalogHash,
     bridge: materialized ? "aho-managed" : undefined,
@@ -214,14 +226,12 @@ function role(
   allowedOutputs: string[],
   requiredGates: string[] = [],
   delegatable = false,
-  runtime: "codex" | "local" = "codex",
 ): AgentCatalogEntry {
   return {
     roleId,
     displayName,
     description,
     profilePath: `agents/${roleId}.md`,
-    runtime,
     writeCapability,
     allowedInputs,
     allowedOutputs,
@@ -263,8 +273,7 @@ function validateUniqueRoles(catalog: AgentCatalog): void {
 }
 
 function normalizeCatalog(parsed: z.infer<typeof catalogSchema>): AgentCatalog {
-  // Old catalogs remain parseable, but retired model roles must not re-enter the
-  // production catalog or Codex bridge during normalization.
+  // Retired model roles must not re-enter the production catalog during normalization.
   const retiredProductionRoleIds = new Set(["coder", "auditor", "validator", "merge-reviewer-agent", "evolution-scorer"]);
   const entries = parsed.agents.filter((entry) => !retiredProductionRoleIds.has(entry.roleId));
   for (const bundled of defaultCatalog.agents) {
@@ -277,7 +286,6 @@ function normalizeCatalog(parsed: z.infer<typeof catalogSchema>): AgentCatalog {
       displayName: entry.displayName,
       description: entry.description ?? "",
       profilePath: entry.profilePath,
-      runtime: entry.runtime ?? "codex",
       writeCapability: entry.writeCapability,
       allowedInputs: entry.allowedInputs ?? [],
       allowedOutputs: entry.allowedOutputs ?? [],
@@ -287,6 +295,13 @@ function normalizeCatalog(parsed: z.infer<typeof catalogSchema>): AgentCatalog {
       delegatable: entry.delegatable ?? false,
     })),
   };
+}
+
+function roleCompatibility(entry: AgentCatalogEntry): AgentRoleCompatibility {
+  const requiredCapabilities = new Set<string>(["workspace.read"]);
+  if (entry.writeCapability !== "read-only") requiredCapabilities.add("workspace.write");
+  if (entry.allowedSkills.length > 0) requiredCapabilities.add("skill.native-load");
+  return { requiredCapabilities: [...requiredCapabilities].sort() };
 }
 
 function isInsideMemoryAgents(memory: ResolvedMemory, sourcePath: string): boolean {

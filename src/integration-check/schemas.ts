@@ -51,7 +51,7 @@ export const integrationCheckSchema = z.object({
     id: z.string(),
     roleId: z.literal("integration-fix-agent"),
     status: z.enum(["completed", "failed"]),
-    repairMode: z.enum(["codex", "deterministic-marker-test"]).optional(),
+    repairMode: z.enum(["provider", "deterministic-marker-test"]).optional(),
     reason: z.string(),
     inputArtifactRef: z.string(),
     runId: z.string().optional(),

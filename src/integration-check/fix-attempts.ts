@@ -1,19 +1,15 @@
-import { createHash } from "node:crypto";
+﻿import { createHash } from "node:crypto";
 import { Buffer } from "node:buffer";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { buildCodexWorkspaceWriteArgv, detectCodexCapabilities } from "../codex/capabilities.js";
-import { CodexCompletionTracker, codexLifecycleTiming } from "../codex/completion.js";
-import { createCodexJsonlStreamParser } from "../codex/jsonl.js";
-import { resolveCodexEffectiveModel } from "../codex/model-settings.js";
-import { ensureLastMessage, getSortedSourceStatus, processDiagnosticsData, renderImplementationSummary, writeEmptyCodeArtifacts } from "../code/artifacts.js";
+import { getSortedSourceStatus, renderImplementationSummary, writeEmptyCodeArtifacts } from "../code/artifacts.js";
 import { createCodeRunSession, finishRun } from "../code/run-session.js";
 import { writeJsonFile } from "../fs/json.js";
 import { resolveProjectMemory } from "../memory/resolver.js";
 import { git, gitText } from "../project/git.js";
 import { withProjectWriteLease } from "../project/project-write-lease.js";
+import { defaultProviderRegistry } from "../provider-runtime/index.js";
 import { appendRunEvent } from "../run/manager.js";
-import { executeProcessStreaming } from "../run/process.js";
 import { getGlobalWorktreeCheckoutRoot } from "../worktree/manager.js";
 import { prepareWorktreeDependencyBridge } from "../worktree/dependencies.js";
 import type { ManagedProject, ResolvedMemory, RunMetadata } from "../types/index.js";
@@ -21,6 +17,8 @@ import { integrationArtifact } from "./artifacts.js";
 import { appendIntegrationEvent } from "./repository.js";
 import { collectCheckoutPatch, prepareIntegrationFixCheckout } from "./patch-workspace.js";
 import type { IntegrationArtifact, IntegrationFixAttempt, IntegrationFixAttemptStatus } from "./types.js";
+import { WorkbenchStore } from "../workbench/store.js";
+import { finishProviderAttempt, startProviderAttempt } from "../workbench/provider-attempts.js";
 
 export interface IntegrationFixRepairRunnerInput {
   project: ManagedProject;
@@ -69,8 +67,8 @@ export async function runIntegrationFixAttempt(
 
   try {
     await prepareIntegrationFixCheckout(project, checkoutPath, inputPatchPath);
-    repairMode = options.repairRunner ? undefined : "codex";
-    const repair = await (options.repairRunner ?? runCodexBackedIntegrationRepair)({
+    repairMode = options.repairRunner ? undefined : "provider";
+    const repair = await (options.repairRunner ?? runProviderIntegrationRepair)({
       project,
       memory,
       directory,
@@ -81,7 +79,7 @@ export async function runIntegrationFixAttempt(
       inputPatchPath,
       reason,
     });
-    repairMode = repair?.repairMode ?? repairMode ?? "codex";
+    repairMode = repair?.repairMode ?? repairMode ?? "provider";
     runId = repair?.runId;
     runArtifactRefs = repair?.runArtifactRefs;
     const repairedPatch = await collectCheckoutPatch(checkoutPath);
@@ -124,8 +122,8 @@ export async function runIntegrationFixAttempt(
   return { attempt, artifact };
 }
 
-async function runCodexBackedIntegrationRepair(input: IntegrationFixRepairRunnerInput): Promise<IntegrationFixRepairRunnerResult> {
-  const runId = `${input.attemptId}-codex`;
+async function runProviderIntegrationRepair(input: IntegrationFixRepairRunnerInput): Promise<IntegrationFixRepairRunnerResult> {
+  const runId = `${input.attemptId}-provider`;
   const session = await createCodeRunSession(input.memory, runId);
   const sourceBefore = await getSortedSourceStatus(input.project.path);
   const prompt = await buildIntegrationFixPrompt(input);
@@ -135,22 +133,22 @@ async function runCodexBackedIntegrationRepair(input: IntegrationFixRepairRunner
     id: runId,
     changeId: input.changeId,
     projectPath: input.project.path,
-    runtime: "coder-codex",
+    runtime: "provider-code",
     executionMode: "worktree",
     proposalOnly: true,
-    command: ["codex"],
+    command: ["provider", "turn.start"],
     status: "created",
     exitCode: null,
     signal: null,
     startedAt: now,
     finishedAt: null,
     artifacts: session.artifacts,
-    promptStack: ["integration-check", "integration-fix", "codex-repair"],
+    promptStack: ["integration-check", "integration-fix", "provider-repair"],
   };
   await writeJsonFile(session.paths.run, run);
   await writeFile(session.paths.context, buildIntegrationFixContext(input), "utf8");
   await writeFile(session.paths.prompt, prompt, "utf8");
-  await appendRunEvent(session.paths.events, { timestamp: now, type: "run.created", runId, data: { checkId: input.checkId, attemptId: input.attemptId, runtime: "coder-codex", executionMode: "worktree" } });
+  await appendRunEvent(session.paths.events, { timestamp: now, type: "run.created", runId, data: { checkId: input.checkId, attemptId: input.attemptId, runtime: "provider-code", executionMode: "worktree" } });
   await appendRunEvent(session.paths.events, { timestamp: now, type: "context.prepared", runId, data: { path: session.artifacts.context } });
 
   try {
@@ -182,58 +180,50 @@ async function runCodexBackedIntegrationRepair(input: IntegrationFixRepairRunner
     throw new Error(message);
   }
 
-  const capabilities = await detectCodexCapabilities();
-  if (capabilities.errors.length > 0) {
-    await appendRunEvent(session.paths.events, { timestamp: new Date().toISOString(), type: "codex.capabilities.failed", runId, data: { capabilities } });
-    const message = [
-      "# IntegrationFix Unavailable",
-      "",
-      "AHO could not safely start Codex in workspace-write non-interactive mode.",
-      "",
-      ...capabilities.errors.map((error) => `- ${error}`),
-      "",
-    ].join("\n");
-    await writeEmptyCodeArtifacts(session.paths, message);
-    await finishRun(session.paths.run, run, "failed", 1, null);
-    throw new Error(capabilities.errors.join("\n"));
-  }
-  await appendRunEvent(session.paths.events, { timestamp: new Date().toISOString(), type: "codex.capabilities.detected", runId, data: { capabilities } });
-
-  const effectiveModel = await resolveCodexEffectiveModel();
-  const argv = buildCodexWorkspaceWriteArgv(capabilities, {
-    projectPath: input.checkoutPath,
-    lastMessagePath: session.paths.lastMessage,
-    model: effectiveModel.model ?? undefined,
-    additionalReadDirs: input.memory.mode === "external-local" ? [input.memory.memoryRoot] : [],
-  });
-  let running: RunMetadata = { ...run, command: [argv.command, ...argv.args], status: "running" };
+  const providerId = await selectedProviderForIntegrationFix(input.memory, input.project, input.changeId);
+  const provider = await defaultProviderRegistry.require(providerId, "coder", input.project, input.checkoutPath);
+  const capabilities = await provider.capabilitySnapshot(input.project, input.checkoutPath);
+  let running: RunMetadata = { ...run, command: ["provider", "turn.start"], status: "running" };
   await writeJsonFile(session.paths.run, running);
   await appendRunEvent(session.paths.events, { timestamp: new Date().toISOString(), type: "coder.started", runId, data: { cwd: input.checkoutPath, command: running.command } });
-  await appendRunEvent(session.paths.events, { timestamp: new Date().toISOString(), type: "codex.started", runId, data: { cwd: input.checkoutPath, command: running.command, model: effectiveModel.model, modelSource: effectiveModel.source } });
-
-  const completion = new CodexCompletionTracker({ lastMessagePath: session.paths.lastMessage });
-  const lifecycleTiming = codexLifecycleTiming(15 * 60 * 1000);
-  const parser = createCodexJsonlStreamParser((event) => completion.handleEvent(event));
-  const processResult = await executeProcessStreaming({
-    cwd: input.checkoutPath,
-    command: argv.command,
-    args: argv.args,
-    stdin: prompt,
-    stdoutPath: session.paths.stdout,
-    stderrPath: session.paths.stderr,
-    mirrorStdoutPath: session.paths.codexEvents,
-    onStdoutChunk: (text) => parser.feed(text),
-    completionSignal: () => completion.isComplete(),
-    completionGraceMs: lifecycleTiming.completionGraceMs,
-    killGraceMs: lifecycleTiming.killGraceMs,
-    timeoutMs: lifecycleTiming.timeoutMs,
+  await appendRunEvent(session.paths.events, { timestamp: new Date().toISOString(), type: "provider.started", runId, data: { cwd: input.checkoutPath, providerId, capabilities } });
+  await startProviderAttempt(input.memory, {
+    attemptId: runId,
+    providerId,
+    capabilitySnapshot: capabilities,
+    operationProfile: "coder",
+    roleId: "integration-fix-agent",
+    handoffHash: createHash("sha256").update(prompt).digest("hex"),
+    changeId: input.changeId,
+    model: capabilities.effectiveModel ? { providerId, modelId: capabilities.effectiveModel } : null,
   });
-  parser.flush();
-  const diagnostics = processDiagnosticsData(processResult, completion.snapshot());
-  await appendRunEvent(session.paths.events, { timestamp: new Date().toISOString(), type: "codex.exited", runId, data: { exitCode: processResult.exitCode, signal: processResult.signal, ...diagnostics } });
-  await appendRunEvent(session.paths.events, { timestamp: new Date().toISOString(), type: "coder.exited", runId, data: { exitCode: processResult.exitCode, signal: processResult.signal, ...diagnostics } });
-
-  const lastMessage = await ensureLastMessage(session.paths.lastMessage, processResult.stdoutSample, processResult.stderrSample);
+  let result;
+  try {
+    result = await provider.leafExecution.runTurn({
+    providerId,
+    operationProfile: "coder",
+    projectId: input.project.id,
+    changeId: input.changeId,
+    runtimeScopeId: runId,
+    roleId: "integration-fix-agent",
+    runId,
+    attemptId: runId,
+    cwd: input.checkoutPath,
+    prompt,
+    sandboxPolicy: "workspace-write",
+    paths: { events: session.paths.providerEvents, stderr: session.paths.stderr, lastMessage: session.paths.lastMessage, session: session.paths.providerSession },
+    runtimeWorkspaceRoots: [input.checkoutPath, input.memory.memoryRoot],
+    writableRoots: [input.checkoutPath],
+    model: capabilities.effectiveModel ? { providerId, modelId: capabilities.effectiveModel } : null,
+    });
+  } catch (error) {
+    await finishProviderAttempt(input.memory, runId, "failed", null);
+    throw error;
+  }
+  await finishProviderAttempt(input.memory, runId, result.status === "completed" ? "completed" : result.status === "interrupted" ? "interrupted" : "failed", result.session?.sessionId ?? null);
+  await appendRunEvent(session.paths.events, { timestamp: new Date().toISOString(), type: "provider.exited", runId, data: { providerId, status: result.status, sessionId: result.session?.sessionId, turnId: result.turnId, error: result.error } });
+  const lastMessage = result.lastMessage || result.error || "Provider did not return a final message.";
+  await writeFile(session.paths.lastMessage, lastMessage, "utf8");
   const repairedPatch = await collectCheckoutPatch(input.checkoutPath);
   const diffStat = await gitText(input.checkoutPath, ["diff", "--stat", "HEAD"]);
   await writeFile(session.paths.diff, repairedPatch, "utf8");
@@ -244,11 +234,11 @@ async function runCodexBackedIntegrationRepair(input: IntegrationFixRepairRunner
   const sourceChanged = JSON.stringify(sourceBefore) !== JSON.stringify(sourceAfter);
   await appendRunEvent(session.paths.events, { timestamp: new Date().toISOString(), type: "source.checked", runId, data: { before: sourceBefore, after: sourceAfter, changed: sourceChanged } });
 
-  const processSucceeded = processResult.exitCode === 0 || (processResult.terminationReason === "completion-grace-expired" && completion.isComplete());
+  const processSucceeded = result.status === "completed";
   const warnings = [
-    ...(repairedPatch.trim() ? [] : ["IntegrationFix Codex run completed without producing a repaired diff."]),
-    ...(sourceChanged ? ["Source project git status changed during IntegrationFix; Codex may have modified outside the integration checkout."] : []),
-    ...(processSucceeded ? [] : [`Codex IntegrationFix process failed: ${processResult.terminationReason ?? processResult.stderrSample ?? processResult.exitCode}`]),
+    ...(repairedPatch.trim() ? [] : ["IntegrationFix provider run completed without producing a repaired diff."]),
+    ...(sourceChanged ? ["Source project git status changed during IntegrationFix; the provider may have modified outside the integration checkout."] : []),
+    ...(processSucceeded ? [] : [`Provider IntegrationFix failed: ${result.error ?? result.status}`]),
   ];
   await writeFile(session.paths.implementation, renderImplementationSummary({
     lastMessage,
@@ -260,25 +250,37 @@ async function runCodexBackedIntegrationRepair(input: IntegrationFixRepairRunner
   }), "utf8");
 
   const completed = processSucceeded && !sourceChanged && repairedPatch.trim().length > 0;
-  running = await finishRun(session.paths.run, running, completed ? "completed" : "failed", completed ? 0 : 1, processResult.signal);
+  running = await finishRun(session.paths.run, running, completed ? "completed" : "failed", completed ? 0 : 1, null);
   await appendRunEvent(session.paths.events, { timestamp: running.finishedAt ?? new Date().toISOString(), type: completed ? "run.completed" : "run.failed", runId, data: { warnings } });
   if (!completed) {
-    throw new Error(warnings[0] ?? "IntegrationFix Codex repair failed.");
+    throw new Error(warnings[0] ?? "IntegrationFix provider repair failed.");
   }
 
   return {
-    repairMode: "codex",
+    repairMode: "provider",
     runId,
     runArtifactRefs: [
       `${session.relativeDir}/run.json`,
-      session.artifacts.codexEvents,
+      session.artifacts.providerEvents,
       session.artifacts.lastMessage,
       session.artifacts.diff,
       session.artifacts.diffStat,
       session.artifacts.implementation,
     ].filter((ref): ref is string => Boolean(ref)),
-    summary: "Codex 在 integration fix checkout 中生成了修复后的组合补丁。",
+    summary: `${provider.displayName} 在 integration fix checkout 中生成了修复后的组合补丁。`,
   };
+}
+
+async function selectedProviderForIntegrationFix(memory: ResolvedMemory, project: ManagedProject, changeId: string): Promise<string> {
+  if (!memory.projectId) throw new Error("Project id is required to resolve the integration-fix provider.");
+  const store = await WorkbenchStore.open(memory);
+  try {
+    return store.findConversationForChange(memory.projectId, changeId)?.selectedProviderId
+      ?? (project.defaultProviderId ? defaultProviderRegistry.get(project.defaultProviderId).id : undefined)
+      ?? defaultProviderRegistry.requireOnly().id;
+  } finally {
+    store.close();
+  }
 }
 
 async function buildIntegrationFixPrompt(input: IntegrationFixRepairRunnerInput): Promise<string> {

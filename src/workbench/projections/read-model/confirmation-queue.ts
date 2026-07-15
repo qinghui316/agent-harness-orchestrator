@@ -182,7 +182,7 @@ function hasActiveWorkflowAction(topic: WorkbenchTopicDetail, ignoredActionTypes
 function hasActiveExecutionRun(topic: WorkbenchTopicDetail): boolean {
   return topic.runs.some((run) =>
     (run.status === "created" || run.status === "running")
-    && run.runtime !== "codex-readonly"
+    && run.runtime !== "provider-readonly"
     && run.runtime !== "orchestrator"
     && run.runtime !== "intake-scan"
   );

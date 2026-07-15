@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createChange } from "../../src/change/manager.js";
 import { initHarness } from "../../src/harness/init.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
-import { getWorkbenchRunGraphProjection, getWorkbenchSnapshot } from "../../src/workbench/manager.js";
+import { getWorkbenchAgentRelationGraphProjection, getWorkbenchSnapshot } from "../../src/workbench/manager.js";
 import {
   completeAgentTask,
   createAgentTask,
@@ -53,8 +53,8 @@ describe("workbench AgentTask domain", () => {
       }),
     ]));
     expect(snapshot.center.parentAgentTranscript.cells).toHaveLength(0);
-    expect(snapshot.center.agentRunGraph.nodes).toEqual([]);
-    const graph = await getWorkbenchRunGraphProjection({ project: project(), path: project().path }, "agent-task-demand");
+    expect(snapshot.center.agentRelationGraph.nodes).toEqual([]);
+    const graph = await getWorkbenchAgentRelationGraphProjection({ project: project(), path: project().path }, "agent-task-demand");
     expect(graph.nodes).toEqual([
       expect.objectContaining({
         id: "main-agent",

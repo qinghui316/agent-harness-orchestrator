@@ -1,6 +1,6 @@
 import type { WorkerPermissionProfile } from "../types/index.js";
 
-export type RuntimeContinuityAdapter = "codex-app-server" | "codex-exec" | "validation-command" | "audit-codex-readonly";
+export type RuntimeContinuityAdapter = "provider-turn" | "provider-code" | "provider-readonly" | "validation-command";
 export type WorkerSessionStatus = "initialized" | "running" | "completed" | "interrupted" | "failed";
 export type RuntimeWorkspaceKind = "local-worktree" | "source-root";
 export type EventSourceStatus = "initialized" | "running" | "completed" | "interrupted" | "failed";

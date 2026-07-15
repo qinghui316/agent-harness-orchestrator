@@ -144,7 +144,7 @@ export function buildTaskGraph(
 ): WorkbenchTaskGraph {
   if (!topic.acMap || topic.acMap.tasks.length === 0) return emptyTaskGraph();
 
-  const coderRuns = topic.runs.filter((run) => run.runtime === "coder-codex");
+  const coderRuns = topic.runs.filter((run) => run.runtime === "provider-code");
   const taskScopedCoderRuns = coderRuns.filter((run) => (run.taskIds?.length ?? 0) > 0);
   const taskRuns = topic.taskRuns ?? [];
   const workerLeases = topic.workerLeases ?? [];

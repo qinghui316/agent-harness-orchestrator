@@ -8,22 +8,24 @@ const skills: SkillListItem[] = [{
   description: "Pricing helper.",
   sourcePath: "E:/skills/pricing-helper",
   sourceKind: "custom",
-  sourceHash: "hash-a",
+  contentHash: "hash-a",
+  compatibility: { requiredCapabilities: [] },
   enabledProject: false,
   enabledTopics: [],
   disabledTopics: [],
-  runtimeTargets: [{ provider: "codex", status: "synced" }],
+  providerBindings: [{ providerId: "codex", bindingKind: "materialized", status: "ready", contentHash: "hash-a" }],
 }, {
   skillId: "review-code",
   name: "review-code",
   description: "Review code.",
   sourcePath: "E:/skills/review-code",
   sourceKind: "custom",
-  sourceHash: "hash-b",
+  contentHash: "hash-b",
+  compatibility: { requiredCapabilities: [] },
   enabledProject: false,
   enabledTopics: [],
   disabledTopics: [],
-  runtimeTargets: [{ provider: "codex", status: "synced" }],
+  providerBindings: [{ providerId: "codex", bindingKind: "materialized", status: "ready", contentHash: "hash-b" }],
 }];
 
 describe("composer Skill mentions", () => {

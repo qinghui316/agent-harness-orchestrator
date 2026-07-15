@@ -14,7 +14,7 @@ import { FileMentionPicker } from "../shell/FileMentionPicker.js";
 import { SkillMentionPicker } from "../shell/SkillMentionPicker.js";
 import { WorkspacePicker } from "./WorkspacePicker.js";
 import { InfoRow } from "./ProjectPanels.js";
-import type { CodexDiagnostics, CodexModelCandidate, CodexModelSettingsSnapshot, ProjectStatus, SkillListItem, TopicFileReference } from "../types.js";
+import type { ProviderDiagnostics, ProviderModelCandidate, ProviderModelSettingsSnapshot, ProjectStatus, SkillListItem, TopicFileReference } from "../types.js";
 
 export function ProjectHomeView({
   projects,
@@ -28,7 +28,7 @@ export function ProjectHomeView({
   return (
     <section className="home-chat-surface" aria-label="项目首页">
       <div className="home-chat-center">
-        <div className="home-chat-mark" aria-label="Codex">
+        <div className="home-chat-mark" aria-label="Agent">
           <Bot size={50} />
         </div>
         <h1>创造任何东西</h1>
@@ -45,6 +45,7 @@ export function ProjectHomeView({
 
 export function ProjectReadinessHome({
   project,
+  providerDisplayName,
   modelLabel,
   onOpenModelSettings,
   projects,
@@ -57,8 +58,12 @@ export function ProjectReadinessHome({
   onOpenProject,
   onRefresh,
   resetToken,
+  providerOptions,
+  selectedProviderId,
+  onSelectProvider,
 }: {
   project: ProjectStatus;
+  providerDisplayName?: string;
   modelLabel: string;
   onOpenModelSettings?: () => void;
   projects: ProjectStatus[];
@@ -72,6 +77,9 @@ export function ProjectReadinessHome({
   onOpenProject: (projectId: string) => Promise<void>;
   onRefresh: () => Promise<void>;
   resetToken?: number;
+  providerOptions?: Array<{ id: string; label: string }>;
+  selectedProviderId?: string;
+  onSelectProvider?: (providerId: string) => void;
 }): ReactElement {
   const [draft, setDraft] = useState("");
   const [draftFileRefs, setDraftFileRefs] = useState<TopicFileReference[]>([]);
@@ -130,7 +138,7 @@ export function ProjectReadinessHome({
   return (
     <section className="home-chat-surface" aria-label="项目对话首页">
       <div className="home-chat-center">
-        <div className="home-chat-mark" aria-label="Codex">
+        <div className="home-chat-mark" aria-label="Agent">
           <Bot size={50} />
         </div>
         <h1>创造任何东西</h1>
@@ -160,12 +168,16 @@ export function ProjectReadinessHome({
           }}
         >
           <ComposerControls
+            providerDisplayName={providerDisplayName}
             modelLabel={modelLabel}
             onOpenModelSettings={onOpenModelSettings}
             enabledSkillCount={enabledSkillCount}
             contextSummary={contextSummary}
             openContextKind={openContextKind}
             onToggleContextKind={(kind) => setOpenContextKind((current) => current === kind ? null : kind)}
+            providerOptions={providerOptions}
+            selectedProviderId={selectedProviderId}
+            onSelectProvider={onSelectProvider}
           />
           <ComposerContextSourcesPopover
             kind={openContextKind}
@@ -272,44 +284,44 @@ function readFileAsDataUrl(file: File): Promise<string> {
   });
 }
 
-export function CodexDiagnosticsCard({ diagnostics, project }: { diagnostics: CodexDiagnostics | null; project?: ProjectStatus | null }): ReactElement {
+export function ProviderDiagnosticsCard({ diagnostics, onAction }: { diagnostics: ProviderDiagnostics | null; project?: ProjectStatus | null; onAction?: (actionId: string) => void | Promise<void> }): ReactElement {
   if (!diagnostics) {
     return (
-      <section className="project-status-panel codex-diagnostics-card">
-        <h2>Codex 诊断</h2>
-        <p className="muted-copy">正在读取 Codex 状态。</p>
+      <section className="project-status-panel provider-diagnostics-card">
+        <h2>Agent Provider 诊断</h2>
+        <p className="muted-copy">正在读取 Provider 状态。</p>
       </section>
     );
   }
-  const ok = diagnostics.available && diagnostics.errors.length === 0;
-  const trust = diagnostics.projectTrust ?? project?.codexTrust;
+  const ok = diagnostics.installation.available && diagnostics.sessionHealth === "ready";
   return (
-    <section className={`project-status-panel codex-diagnostics-card ${ok ? "is-ready" : "has-warning"}`}>
+    <section className={`project-status-panel provider-diagnostics-card ${ok ? "is-ready" : "has-warning"}`}>
       <div className="panel-title-row">
-        <h2>Codex 诊断</h2>
+        <h2>{diagnostics.displayName} 诊断</h2>
         {ok ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
       </div>
-      <InfoRow label="CLI" value={diagnostics.available ? "可用" : "不可用"} />
-      <InfoRow label="版本" value={diagnostics.version ?? "未知"} />
-      <InfoRow label="模型" value={diagnostics.effectiveModel ?? diagnostics.currentModel ?? "默认模型"} />
-      <InfoRow label="config.toml" value={diagnostics.configPath} />
-      <InfoRow label="项目信任" value={trust?.trusted ? "已信任" : trust?.reason ?? "未检测"} />
-      <div className="capability-row" aria-label="Codex 能力">
-        <CapabilityPill ok={diagnostics.capabilities.supportsJson} label="json" />
-        <CapabilityPill ok={diagnostics.capabilities.supportsSandbox} label="sandbox" />
-        <CapabilityPill ok={diagnostics.capabilities.supportsCd} label="cwd" />
-        <CapabilityPill ok={diagnostics.capabilities.supportsSafeResume} label="resume" />
-      </div>
-      {diagnostics.errors.length > 0 ? (
-        <ul className="diagnostic-errors">
-          {diagnostics.errors.map((error) => <li key={error}>{error}</li>)}
-        </ul>
-      ) : <p className="muted-copy">Codex 已满足当前专业开发模式的本地执行要求。</p>}
+      <InfoRow label="安装" value={diagnostics.installation.available ? "可用" : "不可用"} />
+      <InfoRow label="版本" value={diagnostics.installation.version ?? "未知"} />
+      <InfoRow label="模型" value={diagnostics.models.effectiveModel?.modelId ?? "默认模型"} />
+      <InfoRow label="Adapter" value={diagnostics.adapter.id} />
+      {(diagnostics.projectActions ?? []).map((action) => (
+        <div className="project-trust-action" key={action.id}>
+          <button
+            className="project-detail-action"
+            disabled={action.status !== "available" || !onAction}
+            onClick={() => void onAction?.(action.id)}
+          >
+            {action.label}
+          </button>
+          {action.reason ? <small>{action.reason}</small> : null}
+        </div>
+      ))}
+      {diagnostics.lastError ? <p className="diagnostic-errors">{diagnostics.lastError}</p> : <p className="muted-copy">当前 {diagnostics.displayName} 已满足本地执行要求。</p>}
     </section>
   );
 }
 
-export function CodexModelPicker({
+export function ProviderModelPicker({
   open,
   snapshot,
   busy,
@@ -319,7 +331,7 @@ export function CodexModelPicker({
   onSelect,
 }: {
   open: boolean;
-  snapshot: CodexModelSettingsSnapshot | null;
+  snapshot: ProviderModelSettingsSnapshot | null;
   busy?: boolean;
   message?: string | null;
   onClose: () => void;
@@ -328,38 +340,38 @@ export function CodexModelPicker({
 }): ReactElement | null {
   if (!open) return null;
   const candidates = snapshot?.candidates ?? [];
-  const selectedModel = snapshot?.selectedModel ?? null;
-  const effectiveModel = snapshot?.effectiveModel ?? null;
+  const selectedModel = snapshot?.selectedModel?.modelId ?? null;
+  const effectiveModel = snapshot?.effectiveModel?.modelId ?? null;
   return (
-    <div className="settings-overlay model-picker-overlay" role="dialog" aria-label="选择 Codex 模型">
+    <div className="settings-overlay model-picker-overlay" role="dialog" aria-label="选择 Agent 模型">
       <section className="model-picker-panel">
         <header className="settings-panel-header">
           <div>
-            <p className="eyebrow">Codex</p>
+            <p className="eyebrow">Agent Provider</p>
             <h2>选择模型</h2>
           </div>
           <button className="icon-button" aria-label="关闭模型选择" onClick={onClose}><X size={16} /></button>
         </header>
-        <p className="muted-copy">这里设置 AHO 调用 Codex 时使用的模型；不会修改 Codex config.toml。</p>
+        <p className="muted-copy">这里设置当前 Provider 使用的模型。</p>
         <div className="model-picker-summary">
-          <InfoRow label="当前模型" value={effectiveModel ?? "Codex 默认模型"} />
+          <InfoRow label="当前模型" value={effectiveModel ?? "Provider 默认模型"} />
           <InfoRow label="来源" value={modelSourceLabel(snapshot?.effectiveModelSource)} />
-          {snapshot?.modelList.degradedReason ? <p className="muted-copy">{snapshot.modelList.degradedReason}</p> : null}
+          {snapshot?.degradedReason ? <p className="muted-copy">{snapshot.degradedReason}</p> : null}
         </div>
         <div className="model-picker-actions">
           <button className="outline-button" disabled={busy} onClick={() => void onRefresh()}><RefreshCw size={14} />刷新</button>
-          <button className="outline-button" disabled={busy || !selectedModel} onClick={() => void onSelect(null)}>使用 Codex 配置</button>
+          <button className="outline-button" disabled={busy || !selectedModel} onClick={() => void onSelect(null)}>使用 Provider 配置</button>
         </div>
-        <div className="model-candidate-list" aria-label="Codex 模型候选">
-          {candidates.length === 0 ? <p className="muted-copy">没有读取到模型列表。将继续使用 Codex 配置或默认模型。</p> : candidates.map((candidate) => (
-            <div className="model-candidate-row" key={`${candidate.source}:${candidate.id}`}>
+        <div className="model-candidate-list" aria-label="Provider 模型候选">
+          {candidates.length === 0 ? <p className="muted-copy">没有读取到模型列表。将继续使用 Provider 配置或默认模型。</p> : candidates.map((candidate) => (
+            <div className="model-candidate-row" key={`${candidate.source}:${candidate.modelId}`}>
               <div>
-                <strong>{candidate.label ?? candidate.id}</strong>
-                <small>{candidate.id} · {modelCandidateSourceLabel(candidate)}</small>
+                <strong>{candidate.label}</strong>
+                <small>{candidate.modelId} · {modelCandidateSourceLabel(candidate)}</small>
               </div>
               <div className="model-candidate-actions">
-                {(candidate.model ?? candidate.id) === effectiveModel ? <span className="composer-pill subtle">当前</span> : null}
-                <button className="primary-button" disabled={busy || (candidate.model ?? candidate.id) === selectedModel} onClick={() => void onSelect(candidate.id)}>选择</button>
+                {candidate.modelId === effectiveModel ? <span className="composer-pill subtle">当前</span> : null}
+                <button className="primary-button" disabled={busy || candidate.modelId === selectedModel} onClick={() => void onSelect(candidate.modelId)}>选择</button>
               </div>
             </div>
           ))}
@@ -370,19 +382,15 @@ export function CodexModelPicker({
   );
 }
 
-function CapabilityPill({ ok, label }: { ok: boolean; label: string }): ReactElement {
-  return <span className={`capability-pill ${ok ? "ok" : "missing"}`}>{label}</span>;
-}
-
-function modelSourceLabel(source: CodexModelSettingsSnapshot["effectiveModelSource"] | undefined): string {
+function modelSourceLabel(source: ProviderModelSettingsSnapshot["effectiveModelSource"] | undefined): string {
   if (source === "selected") return "用户选择";
-  if (source === "config") return "Codex 配置";
-  if (source === "codex-default") return "Codex 默认";
+  if (source === "config") return "Provider 配置";
+  if (source === "provider-default") return "Provider 默认";
   return "未知";
 }
 
-function modelCandidateSourceLabel(candidate: CodexModelCandidate): string {
+function modelCandidateSourceLabel(candidate: ProviderModelCandidate): string {
   if (candidate.source === "runtime") return candidate.isDefault ? "runtime 默认" : "runtime";
-  if (candidate.source === "config") return "Codex 配置";
+  if (candidate.source === "config") return "Provider 配置";
   return candidate.source;
 }

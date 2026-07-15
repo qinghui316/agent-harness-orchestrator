@@ -1,10 +1,7 @@
-import { existsSync } from "node:fs";
-import { readFile, writeFile } from "node:fs/promises";
+﻿
+import { writeFile } from "node:fs/promises";
 import { relative } from "node:path";
-import { extractFinalMessageFromCodexJsonl } from "../codex/jsonl.js";
-import type { CodexCompletionSnapshot } from "../codex/completion.js";
 import { getGitStatusShortIgnoringAhoMemory } from "../project/git.js";
-import type { ProcessExecutionResult } from "../run/process.js";
 import type { ResolvedMemory } from "../types/index.js";
 
 export function displayArtifactPath(memory: ResolvedMemory, absolutePath: string): string {
@@ -17,38 +14,16 @@ export async function getSortedSourceStatus(projectPath: string): Promise<string
 }
 
 export async function writeEmptyCodeArtifacts(
-  paths: { stdout: string; stderr: string; codexEvents: string; lastMessage: string; diff: string; diffStat: string; implementation: string },
+  paths: { stdout: string; stderr: string; providerEvents: string; lastMessage: string; diff: string; diffStat: string; implementation: string },
   message: string,
 ): Promise<void> {
   await writeFile(paths.stdout, "", "utf8");
   await writeFile(paths.stderr, message, "utf8");
-  await writeFile(paths.codexEvents, "", "utf8");
+  await writeFile(paths.providerEvents, "", "utf8");
   await writeFile(paths.lastMessage, message, "utf8");
   await writeFile(paths.diff, "", "utf8");
   await writeFile(paths.diffStat, "", "utf8");
   await writeFile(paths.implementation, message, "utf8");
-}
-
-export async function ensureLastMessage(path: string, stdout: string, stderr: string): Promise<string> {
-  if (existsSync(path)) {
-    const existing = await readFile(path, "utf8");
-    if (existing.trim()) return existing;
-  }
-  const parsed = extractFinalMessageFromCodexJsonl(stdout);
-  if (parsed) {
-    await writeFile(path, parsed, "utf8");
-    return parsed;
-  }
-  const fallback = [
-    "Status: failed",
-    "",
-    "Blockers / Follow-up:",
-    "- AHO did not find a final Codex message in output-last-message or JSONL stdout.",
-    stderr.trim() ? `- stderr sample: ${stderr.trim()}` : "- stderr sample: none",
-    "",
-  ].join("\n");
-  await writeFile(path, fallback, "utf8");
-  return fallback;
 }
 
 export function renderImplementationSummary(input: { lastMessage: string; diffStat: string; diff: string; warnings: string[]; sourceBefore: string[]; sourceAfter: string[] }): string {
@@ -87,13 +62,4 @@ export function extractModifiedFilesFromDiff(diff: string): string[] {
     if (match) files.add(match[2]);
   }
   return Array.from(files).sort();
-}
-
-export function processDiagnosticsData(processResult: ProcessExecutionResult, completion: CodexCompletionSnapshot): Record<string, unknown> {
-  return {
-    timedOut: processResult.timedOut,
-    terminated: processResult.terminated,
-    terminationReason: processResult.terminationReason,
-    codexCompletion: completion,
-  };
 }

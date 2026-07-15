@@ -1,10 +1,11 @@
 ﻿import { spawn } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { resolveExistingDirectory } from "../fs/path.js";
 import { ProjectRegistryStore } from "../registry/store.js";
 import { auditHarness } from "../harness/audit.js";
 import { assertWritableMemory, resolveMemory } from "../memory/resolver.js";
 import { readProjectMarker } from "../project/marker.js";
-import { readPromptInput } from "../codex/prompt.js";
 import { getSpecTestStatus } from "../spec-test/manager.js";
 import { printTable } from "./output.js";
 import type { ManagedProject, MemoryMode, ResolvedMemory, SpecTestDriftReport } from "../types/index.js";
@@ -74,7 +75,8 @@ export function collectOption(value: string, previous: string[]): string[] {
 
 export async function readOptionalPromptInput(options: { prompt?: string; promptFile?: string }): Promise<string | undefined> {
   if (!options.prompt && !options.promptFile) return undefined;
-  return await readPromptInput(options);
+  if (options.prompt && options.promptFile) throw new Error("Use either --prompt or --prompt-file, not both.");
+  return options.promptFile ? readFile(resolve(options.promptFile), "utf8") : options.prompt;
 }
 
 export function printSpecTestStatus(status: Awaited<ReturnType<typeof getSpecTestStatus>>): void {

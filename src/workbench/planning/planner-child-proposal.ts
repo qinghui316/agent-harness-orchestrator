@@ -197,6 +197,8 @@ async function validateCurrentConversationPlanningPackage(
   conversationId: string,
   proposalArtifact: string,
 ): Promise<ValidatedPlanningPackageInput> {
+  if (!memory.projectId) throw new Error("Project id is required to validate a conversation planning package.");
+  const projectId = memory.projectId;
   const proposalRoot = resolve(memory.workbenchRoot, "conversations", conversationId, "runs");
   const proposalPath = resolve(proposalArtifact);
   const proposalScope = relative(proposalRoot, proposalPath);
@@ -217,15 +219,23 @@ async function validateCurrentConversationPlanningPackage(
 
   const store = await WorkbenchStore.open(memory);
   try {
-    const conversation = store.readConversation(memory.projectId, conversationId);
+    const conversation = store.readConversation(projectId, conversationId);
     if (!conversation) throw new Error(`Conversation not found: ${conversationId}.`);
-    const mainThread = store.readProviderThread(memory.projectId, conversationId, "main-agent");
-    const childThread = store.listProviderThreads(memory.projectId, conversationId)
-      .find((link) => link.providerThreadId === proposal.childThreadId && link.roleId === "planning-agent");
-    if (!mainThread || !childThread || childThread.parentThreadId !== proposal.parentThreadId || proposal.parentThreadId !== mainThread.providerThreadId) {
+    const lineage = store.listProviderThreads(projectId, conversationId)
+      .filter((link) => link.providerThreadId === proposal.childThreadId && link.roleId === "planning-agent")
+      .flatMap((childThread) => {
+        const providerId = childThread.providerId;
+        return providerId
+          ? [{ childThread, mainThread: store.readProviderThread(projectId, conversationId, providerId, "main-agent") }]
+          : [];
+      })
+      .filter(({ childThread, mainThread }) => mainThread
+        && childThread.parentThreadId === proposal.parentThreadId
+        && proposal.parentThreadId === mainThread.providerThreadId);
+    if (lineage.length !== 1) {
       throw new Error("Planner proposal does not belong to the current Main/child provider lineage.");
     }
-    const latestProposalArtifact = store.listConversationMessages(memory.projectId, conversationId)
+    const latestProposalArtifact = store.listConversationMessages(projectId, conversationId)
       .filter((message) => storedAgentRoleId(message.rawJson) === "planning-agent")
       .at(-1)?.artifact;
     if (latestProposalArtifact !== proposal.artifact) throw new Error("Planner proposal is stale or superseded.");

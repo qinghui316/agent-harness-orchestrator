@@ -1,4 +1,4 @@
-﻿import { existsSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { latestLandingQueueSnapshot } from "../../../landing-queue/manager.js";
 import { getMemoryStatus } from "../../../memory/status.js";
 import { getProjectStatus } from "../../../project/status.js";
@@ -15,15 +15,14 @@ import { listWorkbenchDecisions } from "./decision-store.js";
 import { alignDecisionInspectorWithConfirmationPrimary, buildDecisionInspector, emptyDecisionInspector } from "./decision-inspector.js";
 import { buildApprovalInbox } from "./approval-inbox.js";
 import { buildMaintenanceSummary } from "./maintenance-summary.js";
-import { buildDemandAgentRunGraph, emptyAgentRunGraph, emptyParentAgentTranscript, shellWorkbenchWorkpad } from "./run-graph.js";
+import { buildAgentRelationGraph, emptyAgentRelationGraph, emptyParentAgentTranscript, shellWorkbenchWorkpad } from "./agent-relation-graph.js";
 import { listWorkbenchRoles } from "./roles.js";
 import { buildHarnessGaps, buildRepoSummary, resolveWorkbenchMemory } from "./support.js";
 import { listWorkbenchTopicsFromMemory, selectTopicDetail } from "./topics.js";
 import { buildDiagnosticWorkpad, buildMultiWorkpadSummaries, buildWorkbenchWorkpad } from "./workpad.js";
 import type { LandingQueueSnapshot, ResolvedMemory } from "../../../types/index.js";
 import type {
-  DemandAgentRunEvidenceRef,
-  DemandAgentRunGraph,
+  AgentRelationGraph,
   WorkbenchApprovalItem,
   WorkbenchMaintenanceSummary,
   WorkbenchProjectInput,
@@ -36,16 +35,12 @@ import type {
 } from "../../read-model-types.js";
 
 export type {
-  DemandAgentRunAttemptSummary,
-  DemandAgentRunEvidenceRef,
-  DemandAgentRunGraph,
-  DemandAgentRunGraphEdge,
-  DemandAgentRunGraphEdgeKind,
-  DemandAgentRunGraphLane,
-  DemandAgentRunGraphLaneId,
-  DemandAgentRunGraphNode,
-  DemandAgentRunGraphNodeKind,
-  DemandAgentRunGraphNodeStatus,
+  AgentRelationGraph,
+  AgentRelationGraphEdge,
+  AgentRelationGraphEdgeKind,
+  AgentRelationGraphNode,
+  AgentRelationGraphNodeKind,
+  AgentRelationGraphNodeStatus,
   HarnessGap,
   HarnessGapSeverity,
   HarnessGapStatus,
@@ -171,7 +166,7 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
         parentAgentTranscript: buildParentAgentTranscript({ workpad: diagnosticWorkpad, threadItems: [] }),
         activeTab: "conversation",
         agentLoop: { runs: [] },
-        agentRunGraph: emptyAgentRunGraph(),
+        agentRelationGraph: emptyAgentRelationGraph(),
       },
       right: { approvals: [], decisions: [], decisionInspector: emptyDecisionInspector(), confirmationQueue: emptyConfirmationQueue(), agentWorkspace: emptyAgentWorkspace() },
       roles,
@@ -248,7 +243,7 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
       parentAgentTranscript,
       activeTab: "conversation",
       agentLoop: { runs: selectedTopic?.runs ?? [] },
-      agentRunGraph: emptyAgentRunGraph(),
+      agentRelationGraph: emptyAgentRelationGraph(),
     },
     right: {
       approvals,
@@ -310,12 +305,12 @@ export async function getWorkbenchTranscriptPageProjection(
   };
 }
 
-export async function getWorkbenchRunGraphProjection(input: WorkbenchProjectInput, changeId: string): Promise<DemandAgentRunGraph> {
+export async function getWorkbenchAgentRelationGraphProjection(input: WorkbenchProjectInput, changeId: string): Promise<AgentRelationGraph> {
   const memory = await resolveWorkbenchMemory(input);
-  if (!memory.supported) return emptyAgentRunGraph();
+  if (!memory.supported) return emptyAgentRelationGraph();
   const topics = await listWorkbenchTopicsFromMemory(memory, { includeDeleted: true });
   const selectedTopic = await selectTopicDetail(input.project, memory, topics, changeId);
-  if (!selectedTopic) return emptyAgentRunGraph();
+  if (!selectedTopic) return emptyAgentRelationGraph();
   const workflowTopics = workflowScopedTopics(topics);
   const approvals = input.project ? await buildApprovalInbox(input.project, memory, workflowTopics) : [];
   const decisions = input.project ? await listWorkbenchDecisions(memory, executionChangeId(selectedTopic)) : [];
@@ -352,7 +347,7 @@ export async function getWorkbenchRunGraphProjection(input: WorkbenchProjectInpu
     graphScopeId: graphContext?.graphScopeId,
     includeExecution: Boolean(graphContext?.changeId),
   });
-  return buildDemandAgentRunGraph({
+  return buildAgentRelationGraph({
     project: input.project,
     selectedTopic,
     workpad,
@@ -411,14 +406,11 @@ export async function getWorkbenchWorkpadProjection(input: WorkbenchProjectInput
 export async function getWorkbenchEvidenceProjection(input: WorkbenchProjectInput, changeId: string): Promise<{
   changeId: string;
   evidence: WorkpadEvidenceSummary[];
-  graphEvidenceRefs: DemandAgentRunEvidenceRef[];
 }> {
   const workpad = await getWorkbenchWorkpadProjection(input, changeId);
-  const graph = await getWorkbenchRunGraphProjection(input, changeId);
   return {
     changeId,
     evidence: workpad.evidence,
-    graphEvidenceRefs: graph.nodes.flatMap((node) => node.evidenceRefs),
   };
 }
 

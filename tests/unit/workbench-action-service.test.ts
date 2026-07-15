@@ -1,5 +1,6 @@
 ﻿import { describe, expect, it } from "vitest";
 import { runWorkbenchWorkflowActionService, type WorkbenchActionDecisionInput, type WorkbenchActionServiceDeps } from "../../src/workbench/actions/service.js";
+import { createAssistantTranscriptCapture } from "../../src/workbench/live-transcript.js";
 import type { ManagedProject } from "../../src/types/index.js";
 import type { TopicThreadEntry, WorkbenchWorkflowActionRequest } from "../../src/workbench/types.js";
 
@@ -82,7 +83,7 @@ describe("workbench workflow action service", () => {
     await runWorkbenchWorkflowActionService(fakeProject(), { actionType: "conversation.interrupt" }, undefined, deps);
     await runWorkbenchWorkflowActionService(fakeProject(), { actionType: "conversation.steer", prompt: "add detail" }, undefined, deps);
 
-    expect(appended.filter((entry) => entry.type === "workflow.started").map((entry) => entry.actionType)).toEqual([
+    expect([...new Map(appended.filter((entry) => entry.type === "workflow.started").map((entry) => [entry.actionRunId, entry.actionType])).values()]).toEqual([
       "main-agent.execution.stop",
       "role.pipeline.stop",
       "conversation.interrupt",
@@ -131,7 +132,7 @@ describe("workbench workflow action service", () => {
 
     await runWorkbenchWorkflowActionService(fakeProject(), { actionType: "code.run" }, undefined, deps);
 
-    const terminal = appended.find((entry) => entry.type === "workflow.completed");
+    const terminal = appended.findLast((entry) => entry.type === "workflow.completed");
     expect(summarizeCalls).toBe(1);
     expect(terminal?.resultSummary).toBe("当前受控步骤已完成。下一步判断和当前步骤检查已经刷新；需要再次确认后才能继续。");
     expect(decisions[0]?.summary).toBe(terminal?.resultSummary);
@@ -150,7 +151,7 @@ describe("workbench workflow action service", () => {
 
     await runWorkbenchWorkflowActionService(fakeProject(), { actionType: "code.run" }, undefined, deps);
 
-    const terminal = appended.find((entry) => entry.type === "workflow.failed");
+    const terminal = appended.findLast((entry) => entry.type === "workflow.failed");
     expect(terminal?.resultSummary).toBe("按当前建议继续一个受控步骤执行失败。请查看错误和证据后再决定是否重试或调整。");
     expect(terminal?.resultSummary).not.toContain("E:\\");
     expect(terminal?.resultSummary).not.toContain("stack:");
@@ -184,7 +185,7 @@ describe("workbench workflow action service", () => {
 
     await runWorkbenchWorkflowActionService(fakeProject(), { actionType: "code.run" }, undefined, deps);
 
-    expect(appended.find((entry) => entry.type === "assistant.message")).toMatchObject({
+    expect(appended.findLast((entry) => entry.type === "assistant.message")).toMatchObject({
       threadId: "thread-coder",
       turnId: "turn-running",
       status: "failed",
@@ -218,7 +219,7 @@ describe("workbench workflow action service", () => {
               sequence: 1,
               kind: "reasoning-summary",
               timestamp: "2026-06-20T00:00:01.000Z",
-              source: "codex",
+              source: "provider",
               text: "正在检查实现边界",
             }],
           }],
@@ -237,7 +238,33 @@ describe("workbench workflow action service", () => {
       agentRoleId: "coder-agent",
     });
     expect(child?.blocks).toHaveLength(1);
-    expect(appended.findIndex((entry) => entry === child)).toBeLessThan(appended.findIndex((entry) => entry.type === "workflow.completed"));
+    expect(appended.findIndex((entry) => entry === child)).toBeLessThan(appended.findLastIndex((entry) => entry.type === "workflow.completed"));
+  });
+
+  it("persists canonical provider activity before emitting the matching live event", async () => {
+    const order: string[] = [];
+    const deps = fakeDeps({
+      createCapture: createAssistantTranscriptCapture,
+      append(entry) {
+        if (entry.blocks?.some((block) => block.kind === "prose" && block.text === "正在实现")) order.push("persist");
+      },
+      async execute(_project, _changeId, _request, live) {
+        live?.emit({
+          event: "assistant.delta",
+          data: { runId: "run-1", threadId: "thread-main", turnId: "turn-1", itemId: "item-1", delta: "正在实现" },
+        });
+        return { ok: true };
+      },
+    });
+
+    await runWorkbenchWorkflowActionService(fakeProject(), { actionType: "code.run" }, {
+      emit(event) {
+        if (event.event === "assistant.delta") order.push("emit");
+      },
+    }, deps);
+
+    expect(order.indexOf("persist")).toBeGreaterThanOrEqual(0);
+    expect(order.indexOf("persist")).toBeLessThan(order.indexOf("emit"));
   });
 
   it("resumes a paused native Goal once after a concrete action completes", async () => {
@@ -316,26 +343,29 @@ function fakeDeps(overrides: {
   resume?: NonNullable<WorkbenchActionServiceDeps["resumeGoalAfterAction"]>;
   events?: unknown[];
   capture?: ReturnType<WorkbenchActionServiceDeps["createTranscriptCapture"]>;
+  createCapture?: WorkbenchActionServiceDeps["createTranscriptCapture"];
 } = {}): WorkbenchActionServiceDeps {
   return {
     async resolveChangeId() {
       return "change-1";
     },
-    createTranscriptCapture() {
-      return overrides.capture ?? { sink: { emit(event) { overrides.events?.push(event); } }, text: "", activity: [], blocks: [], childCaptures: new Map() };
+    createTranscriptCapture(_live, persistBeforeEmit) {
+      if (overrides.createCapture) return overrides.createCapture(_live, persistBeforeEmit);
+      if (overrides.capture) return overrides.capture;
+      const capture = { sink: { emit(event: unknown) { overrides.events?.push(event); persistBeforeEmit?.(capture); } }, text: "", activity: [], blocks: [], childCaptures: new Map() } as ReturnType<WorkbenchActionServiceDeps["createTranscriptCapture"]>;
+      return capture;
+    },
+    async openTimelineWriter() {
+      return {
+        upsert(entry: TopicThreadEntry) {
+          overrides.append?.(entry);
+          return entry;
+        },
+        close() {},
+      };
     },
     async readThreadEntries() {
       return overrides.threadEntries ?? [];
-    },
-    async appendThreadEntry(_project, changeId, input) {
-      const entry: TopicThreadEntry = {
-        id: `msg-${input.type}`,
-        timestamp: "2026-06-20T00:00:00.000Z",
-        changeId,
-        ...input,
-      };
-      overrides.append?.(entry);
-      return entry;
     },
     execute: overrides.execute ?? (async () => ({ ok: true })),
     labelForAction() {

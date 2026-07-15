@@ -315,7 +315,7 @@ function assertLeaseMatchesWorkerValidation(lease: WorkerLease, validation: Sche
 }
 
 function assertCodeRunMatchesWorkerValidation(codeRun: RunMetadata, validation: SchedulerRuntimeWorkerValidation): void {
-  if (codeRun.changeId !== validation.changeId || codeRun.id !== validation.codeRunId || codeRun.taskRunId !== validation.taskRunId || codeRun.runtime !== "coder-codex") {
+  if (codeRun.changeId !== validation.changeId || codeRun.id !== validation.codeRunId || codeRun.taskRunId !== validation.taskRunId || codeRun.runtime !== "provider-code") {
     throw new Error("planning.scheduler.worker.rework-plan.compile code run scope mismatch.");
   }
   if (!codeRun.taskIds?.some((taskId) => taskId.toUpperCase() === validation.taskId.toUpperCase())) {

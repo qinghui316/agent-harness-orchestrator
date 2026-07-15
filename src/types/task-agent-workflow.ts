@@ -1,4 +1,4 @@
-export type TaskRunStatus = "queued" | "claimed" | "running" | "evidence-ready" | "blocked" | "failed" | "completed";
+export type TaskRunStatus = "queued" | "claimed" | "running" | "interrupted" | "evidence-ready" | "blocked" | "failed" | "completed";
 
 export type AgentTaskKind = "foreground" | "background";
 export type AgentTaskStatus = "queued" | "claimed" | "running" | "completed" | "blocked" | "failed" | "needs-user-input" | "cancelled";
@@ -280,6 +280,7 @@ export type WorkflowRunEventType =
   | "node.blocked"
   | "node.failed"
   | "task.started"
+  | "task.paused"
   | "task.completed"
   | "task.blocked"
   | "task.failed"
@@ -378,7 +379,7 @@ export interface WorkflowRunSummary {
   updatedAt: string;
 }
 
-export type StageResumeVerdictKind = "start-coder" | "continue-validation" | "continue-audit" | "continue-rework" | "completed" | "blocked";
+export type StageResumeVerdictKind = "start-coder" | "continue-coder" | "continue-validation" | "continue-audit" | "continue-rework" | "completed" | "blocked";
 
 export interface StageResumeVerdict {
   kind: StageResumeVerdictKind;

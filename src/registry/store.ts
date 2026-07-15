@@ -11,6 +11,7 @@ const ManagedProjectSchema = z.object({
   path: z.string(),
   addedAt: z.string(),
   lastSeenAt: z.string(),
+  defaultProviderId: z.string().optional(),
 });
 
 const RegistrySchema = z.object({
@@ -72,6 +73,17 @@ export class ProjectRegistryStore {
 
   async listProjects(): Promise<ManagedProject[]> {
     return (await this.load()).projects;
+  }
+
+  async setDefaultProvider(projectId: string, providerId: string | null): Promise<ManagedProject> {
+    const registry = await this.load();
+    const project = registry.projects.find((item) => item.id === projectId);
+    if (!project) throw new Error(`Project not found: ${projectId}`);
+    if (providerId) project.defaultProviderId = providerId;
+    else delete project.defaultProviderId;
+    project.lastSeenAt = new Date().toISOString();
+    await this.save(registry);
+    return project;
   }
 
   async removeProject(query: string): Promise<ManagedProject | null> {

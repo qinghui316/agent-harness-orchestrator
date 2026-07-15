@@ -3,14 +3,24 @@ import { existsSync, readFileSync } from "node:fs";
 import { copyFile, lstat, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
-import { resolveCodexHome } from "../codex/home.js";
 import { resolveExistingDirectory, slugify } from "../fs/path.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { getSystemSkillsRoot } from "../template-source/paths.js";
-import type { ManagedProject, ResolvedMemory, RunSkillRecord } from "../types/index.js";
+import type { ManagedProject, ResolvedMemory } from "../types/index.js";
 import { WorkbenchStore, type StoredSkillIndex, type StoredSkillRoot } from "../workbench/store.js";
 
-export type SkillSourceKind = "managed" | "project-codex" | "global-codex" | "custom" | "system-aho";
+export type SkillSourceKind = "managed" | "custom" | "system-aho" | "provider-native";
+
+export interface SkillCompatibility {
+  requiredCapabilities: string[];
+}
+
+export interface SkillProviderBinding {
+  providerId: string;
+  bindingKind: "native" | "materialized";
+  status: "ready" | "stale" | "unavailable";
+  contentHash: string;
+}
 
 export interface SkillListItem {
   skillId: string;
@@ -18,26 +28,20 @@ export interface SkillListItem {
   description: string;
   sourcePath: string;
   sourceKind: SkillSourceKind;
-  sourceHash: string;
+  contentHash: string;
+  compatibility: SkillCompatibility;
+  providerBindings: SkillProviderBinding[];
   enabledProject: boolean;
   enabledTopics: string[];
   disabledTopics: string[];
-  runtimeTargets: Array<{
-    provider: "codex";
-    status: "native" | "synced" | "out-of-sync" | "not-synced";
-    materializationMode: "native" | "aho-managed";
-    materializedPath?: string;
-    materializedHash?: string;
-    bridgeVersion?: string;
-    syncedAt?: string;
-  }>;
-  bridge?: {
-    materializedPath: string;
-    materializedHash: string;
-    bridgeVersion: string;
-    syncedAt: string;
-    outOfSync: boolean;
-  };
+}
+
+export interface EnabledSkillRecord {
+  id: string;
+  sourceKind: SkillSourceKind;
+  contentHash: string;
+  compatibility: SkillCompatibility;
+  providerBindings: SkillProviderBinding[];
 }
 
 export interface ImportedSkill {
@@ -57,7 +61,7 @@ export interface SkillRefreshResult {
 }
 
 export interface EnabledSkillContext {
-  records: RunSkillRecord[];
+  records: EnabledSkillRecord[];
   promptSection: string;
   warnings: string[];
 }
@@ -71,10 +75,6 @@ interface SkillMetadata {
 const excludedPackageDirs = new Set([".git", "node_modules", ".cache", ".turbo", ".vite", "dist", "build", "coverage"]);
 const maxSkillPackageFiles = 500;
 const maxSkillPackageFileBytes = 1024 * 1024;
-
-export function isNativeCodexSkill(skill: Pick<SkillListItem, "sourceKind"> | Pick<StoredSkillIndex, "sourceKind">): boolean {
-  return normalizeSourceKind(skill.sourceKind) === "global-codex";
-}
 
 export async function importSkill(project: ManagedProject, sourceDirInput: string): Promise<ImportedSkill> {
   const memory = await resolveProjectMemory(project);
@@ -177,7 +177,7 @@ export async function getEnabledSkillContext(project: ManagedProject, changeId?:
     const topicDisabled = new Set(enablements.filter((item) => item.scope === "topic" && item.changeId === changeId && !item.enabled).map((item) => item.skillId));
     const enabledIds = [...new Set([...projectEnabled, ...topicEnabled])]
       .filter((skillId) => !topicDisabled.has(skillId) && !isRuntimeAssignedSkill(skillId)).sort();
-    const records: RunSkillRecord[] = [];
+    const records: EnabledSkillRecord[] = [];
     const warnings: string[] = [];
     for (const skillId of enabledIds) {
       const skill = skills.find((item) => item.skillId === skillId);
@@ -186,21 +186,13 @@ export async function getEnabledSkillContext(project: ManagedProject, changeId?:
         continue;
       }
       const sourceKind = normalizeSourceKind(skill.sourceKind);
-      const materializationMode = sourceKind === "global-codex" ? "native" : "aho-managed";
-      const sync = materializationMode === "native" ? null : store.readBridgeSync(project.id, skillId);
       records.push({
         id: skill.skillId,
-        runtimeTarget: "codex",
         sourceKind,
-        sourceHash: skill.sourceHash,
-        materializationMode,
-        materializedHash: materializationMode === "native" ? null : sync?.materializedHash ?? null,
-        bridge: materializationMode === "native" ? "codex:native" : sync ? "codex:aho-managed" : undefined,
-        version: sync?.bridgeVersion,
+        contentHash: skill.sourceHash,
+        compatibility: skillCompatibility(),
+        providerBindings: [],
       });
-      if (materializationMode !== "native" && (!sync || sync.sourceHash !== skill.sourceHash)) {
-        warnings.push(`Skill ${skill.skillId} is not synced to the Codex bridge.`);
-      }
     }
     return {
       records,
@@ -209,9 +201,9 @@ export async function getEnabledSkillContext(project: ManagedProject, changeId?:
         ? [
           "# AHO Skill Availability",
           "",
-          "Enabled skills are Codex runtime capabilities. Native Codex skills are discovered from Codex directly; other skills use the AHO-managed bridge when synced. Skills are not Harness workflow truth and do not authorize workflow actions.",
+          "Enabled skills are provider-neutral capability inputs. The selected provider must satisfy each Skill's compatibility requirements and bind its content before execution. Skills are not Harness workflow truth and do not authorize workflow actions.",
           "",
-          ...records.map((record) => `- $${record.id}: sourceKind=${record.sourceKind ?? "managed"}; materialization=${record.materializationMode ?? "aho-managed"}; sourceHash=${record.sourceHash}${record.bridge ? `; bridge=${record.bridge}` : ""}${record.materializedHash ? `; materializedHash=${record.materializedHash}` : ""}`),
+          ...records.map((record) => `- $${record.id}: sourceKind=${record.sourceKind}; contentHash=${record.contentHash}; requiredCapabilities=${record.compatibility.requiredCapabilities.join(",") || "none"}`),
         ].join("\n")
         : "",
     };
@@ -236,12 +228,10 @@ export async function getRuntimeAssignedHarnessSkillContext(
     return {
       records: valid ? [{
         id: skill.skillId,
-        runtimeTarget: "codex",
         sourceKind,
-        sourceHash: skill.sourceHash,
-        materializationMode: "native",
-        materializedHash: null,
-        bridge: "app-server:skill-input",
+        contentHash: skill.sourceHash,
+        compatibility: skillCompatibility(),
+        providerBindings: [],
       }] : [],
       warnings: valid ? [] : ["Runtime-assigned Harness Skill is missing from bundled AHO system Skills."],
       promptSection: [
@@ -352,34 +342,18 @@ async function decorateSkill(memory: ResolvedMemory, skill: StoredSkillIndex, pr
   try {
     const enablements = store.listSkillEnablement(skill.projectId).filter((item) => item.skillId === skill.skillId);
     const sourceKind = normalizeSourceKind(skill.sourceKind);
-    const native = sourceKind === "global-codex";
-    const sync = native ? null : store.readBridgeSync(skill.projectId, skill.skillId);
     return {
       skillId: skill.skillId,
       name: skill.name,
       description: skill.description,
       sourcePath: skill.sourcePath,
       sourceKind,
-      sourceHash: skill.sourceHash,
+      contentHash: skill.sourceHash,
+      compatibility: skillCompatibility(),
+      providerBindings: [],
       enabledProject: enablements.some((item) => item.scope === "project" && item.enabled),
       enabledTopics: enablements.filter((item) => item.scope === "topic" && item.enabled && item.changeId).map((item) => item.changeId as string),
       disabledTopics: enablements.filter((item) => item.scope === "topic" && !item.enabled && item.changeId).map((item) => item.changeId as string),
-      runtimeTargets: [{
-        provider: "codex",
-        status: native ? "native" : sync ? (sync.sourceHash === skill.sourceHash ? "synced" : "out-of-sync") : "not-synced",
-        materializationMode: native ? "native" : "aho-managed",
-        materializedPath: sync?.materializedPath,
-        materializedHash: sync?.materializedHash,
-        bridgeVersion: sync?.bridgeVersion,
-        syncedAt: sync?.syncedAt,
-      }],
-      bridge: sync ? {
-        materializedPath: sync.materializedPath,
-        materializedHash: sync.materializedHash,
-        bridgeVersion: sync.bridgeVersion,
-        syncedAt: sync.syncedAt,
-        outOfSync: sync.sourceHash !== skill.sourceHash,
-      } : undefined,
     };
   } finally {
     if (closeStore) store.close();
@@ -431,10 +405,6 @@ async function discoverSkillSources(memory: ResolvedMemory, project: ManagedProj
   const systemSkillsRoot = getSystemSkillsRoot();
   if (existsSync(systemSkillsRoot)) candidates.push(...await discoverSkillsInRoot(systemSkillsRoot, "system-aho"));
   if (existsSync(memory.skillsRoot)) candidates.push(...await discoverSkillsInRoot(memory.skillsRoot, "managed"));
-  const projectCodexRoot = join(project.path, ".codex", "skills");
-  if (existsSync(projectCodexRoot)) candidates.push(...await discoverSkillsInRoot(projectCodexRoot, "project-codex"));
-  const globalCodexRoot = join(resolveCodexHome(), "skills");
-  if (existsSync(globalCodexRoot)) candidates.push(...await discoverSkillsInRoot(globalCodexRoot, "global-codex"));
   for (const root of store.listSkillRoots(project.id)) {
     if (existsSync(root.rootPath)) candidates.push(...await discoverSkillsInRoot(root.rootPath, normalizeSourceKind(root.sourceKind)));
   }
@@ -524,8 +494,12 @@ function mapSkillRoot(root: StoredSkillRoot): SkillRootListItem {
 }
 
 function normalizeSourceKind(value: string): SkillSourceKind {
-  if (value === "project-codex" || value === "global-codex" || value === "custom" || value === "system-aho") return value;
+  if (value === "custom" || value === "system-aho") return value;
   return "managed";
+}
+
+function skillCompatibility(): SkillCompatibility {
+  return { requiredCapabilities: ["skill.native-load"] };
 }
 
 function hashText(text: string): string {

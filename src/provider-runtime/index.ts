@@ -5,11 +5,18 @@ export type {
   ProviderCapabilityKey,
   ProviderCapabilitySnapshot,
   ProviderId,
+  ProviderModelRef,
+  ProviderModelCandidate,
+  ProviderModelSettingsSnapshot,
+  ProviderDiagnosticsSnapshot,
+  ProviderOperationProfile,
   ProviderRuntimeReadiness,
   ProviderRuntimeSummary,
   RunnableProductMode,
   ProviderSnapshotStatus,
   ProviderSpecCapabilityState,
 } from "./types.js";
-export { getCodexProviderCapabilitySnapshot, getCodexProviderRuntimeSummary, HARNESS_EXECUTION_MODES, isRunnableProductMode, PROVIDER_CAPABILITY_SNAPSHOT_VERSION, RUNNABLE_PRODUCT_MODES, stableCapabilitySnapshotHash } from "./codex.js";
-export { codexProviderRunMetadata } from "./run-metadata.js";
+export type * from "./contracts.js";
+export { HARNESS_EXECUTION_MODES, isRunnableProductMode, PROVIDER_CAPABILITY_SNAPSHOT_VERSION, RUNNABLE_PRODUCT_MODES, stableCapabilitySnapshotHash } from "./capabilities.js";
+export { ProviderRegistry } from "./registry.js";
+export { createDefaultProviderRegistry, defaultProviderRegistry } from "./default-registry.js";

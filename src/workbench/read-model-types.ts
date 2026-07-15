@@ -1,4 +1,4 @@
-﻿import type { AssistantTurnActivity, AssistantTurnBlock } from "./types.js";
+import type { AssistantTurnActivity, AssistantTurnBlock } from "./types.js";
 import type { ClarificationRequest, WorkbenchIntakeIteration, WorkbenchIntakeScan } from "./intake.js";
 import type { TopicAttachment, TopicFileReference } from "./types.js";
 import type { ParentAgentTranscript } from "./parent-agent-transcript.js";
@@ -69,6 +69,7 @@ export interface WorkbenchTopicSummary {
   state: WorkbenchTopicState;
   path: string;
   boundChangeId?: string | null;
+  selectedProviderId?: string;
   createdAt?: string;
   updatedAt?: string;
   closedAt?: string | null;
@@ -198,7 +199,7 @@ export interface ThreadStreamItem {
     iteration?: WorkbenchIntakeIteration;
   };
   clarification?: ClarificationRequest;
-  codexUserInput?: import("./types.js").WorkbenchCodexUserInputRequest;
+  providerUserInput?: import("./types.js").WorkbenchProviderUserInputRequest;
   contextRefs?: TopicFileReference[];
   attachments?: TopicAttachment[];
 }
@@ -341,9 +342,11 @@ export interface WorkbenchDecisionInspector {
 export interface WorkbenchAgentWorkspaceAgent {
   id: string;
   roleId: string;
+  providerId: string;
   providerThreadId?: string;
   providerDisplayName?: string;
   parentThreadId?: string;
+  parentAgentId: string;
   runId?: string;
   label: string;
   status: string;
@@ -351,7 +354,7 @@ export interface WorkbenchAgentWorkspaceAgent {
   inputSummary?: string;
   outputSummary?: string;
   transcript: ParentAgentTranscript;
-  evidenceRefs: DemandAgentRunEvidenceRef[];
+  evidenceRefs: AgentEvidenceRef[];
   actions: WorkbenchDecisionAction[];
   clarifications?: ClarificationRequest[];
 }
@@ -537,7 +540,7 @@ export interface WorkpadMemoryIsolationSummary {
   projectStableNamespace: "project/stable";
   currentChangeNamespace?: string;
   runNamespaces: string[];
-  agentSessionNamespace: "agent/{roleId}/session/{sessionId}";
+  providerSessionNamespace: "agent/{roleId}/session/{sessionId}";
   relatedWorkpads: WorkpadRelatedMemorySummary[];
   stableFactSources: string[];
   writeBoundaries: string[];
@@ -811,127 +814,50 @@ export interface WorkbenchRolePipelineSummary {
 
 export type WorkbenchMainAgentExecutionSummary = WorkbenchRolePipelineSummary;
 
-export type DemandAgentRunGraphLaneId = "main" | "roles" | "integration" | "maintenance";
-export type DemandAgentRunGraphNodeKind =
-  | "main-agent"
-  | "delegate-task"
-  | "tool-policy-gate"
-  | "boundary-audit"
-  | "planning-agent"
-  | "coder-agent"
-  | "rework-coder"
-  | "validator"
-  | "auditor-agent"
-  | "result-review"
-  | "scheduler-worker"
-  | "scheduler-integration-candidate"
-  | "scheduler-completion"
-  | "terminal-gate"
-  | "integration-check"
-  | "integration-fix-agent"
-  | "merge-reviewer-agent"
-  | "pr-draft-adapter"
-  | "pr-feedback-sweep"
-  | "pr-review-handoff"
-  | "remote-landing"
-  | "post-merge-sync"
-  | "remote-branch-cleanup"
-  | "memory-closeout"
-  | "documentation-agent"
-  | "architecture-agent"
-  | "evolution-agent"
-  | "evolution-scorer";
-export type DemandAgentRunGraphNodeStatus = "idle" | "queued" | "running" | "completed" | "needs-change" | "failed" | "waiting-user" | "skipped";
-export type DemandAgentRunGraphEdgeKind = "delegates" | "returns" | "requires-evidence" | "triggers-rework" | "continues-to" | "background-maintenance";
-export type DemandAgentRunGraphStage = "demand" | "planning" | "execution" | "validation" | "review" | "integration" | "landing" | "terminal" | "maintenance";
-export type DemandAgentRunGraphVisualKind = "agent" | "gate" | "worker" | "tool" | "review" | "terminal" | "default";
-export type DemandAgentRunGraphEdgeStyle = "solid" | "dashed" | "loop" | "blocked";
-export type DemandAgentRunGraphEdgeRole = "primary" | "return" | "rework" | "worker-branch" | "worker-join" | "terminal" | "background";
+export type AgentRelationGraphNodeKind = "main-agent" | "agent";
+export type AgentRelationGraphNodeStatus = "idle" | "queued" | "running" | "completed" | "needs-change" | "failed" | "waiting-user" | "skipped";
 
-export interface DemandAgentRunEvidenceRef {
+export interface AgentEvidenceRef {
   label: string;
   ref: string;
   kind: "artifact" | "run" | "task" | "decision" | "remote" | "maintenance";
 }
 
-export interface DemandAgentRunAttemptSummary {
+export interface AgentRelationGraphNode {
   id: string;
-  status: DemandAgentRunGraphNodeStatus;
-  summary: string;
-  timestamp?: string;
-  evidenceRefs: DemandAgentRunEvidenceRef[];
-}
-
-export interface DemandAgentRunGraphNode {
-  id: string;
-  kind: DemandAgentRunGraphNodeKind;
-  lane: DemandAgentRunGraphLaneId;
+  kind: AgentRelationGraphNodeKind;
   label: string;
-  roleId?: string;
-  status: DemandAgentRunGraphNodeStatus;
+  roleId: string;
+  providerId?: string;
+  providerThreadId?: string;
+  parentAgentId?: string;
+  status: AgentRelationGraphNodeStatus;
   summary: string;
-  reason: string;
   target: {
     projectId?: string | null;
     conversationId?: string;
     changeId?: string;
-    roleId?: string;
-    agentSurfaceId?: string;
-    providerThreadId?: string;
-    parentThreadId?: string;
-    agentTaskId?: string;
-    runId?: string;
-    worktreeId?: string;
-    resultId?: string;
-    applyCheckId?: string;
-    landingPackageId?: string;
-    prDraftPackageId?: string;
-    prUrl?: string;
-    remoteLandingResultId?: string;
-    maintenanceRunId?: string;
-    candidateId?: string;
-    schedulerRunId?: string;
-    schedulerWorkerStartId?: string;
-    schedulerIntegrationCandidateId?: string;
-    schedulerIntegrationCheckHandoffId?: string;
-    schedulerIntegrationOutcomeId?: string;
-    schedulerRunCompletionId?: string;
-    schedulerRunBlockedCloseoutId?: string;
+    agentSurfaceId: string;
   };
-  stage?: DemandAgentRunGraphStage;
-  visualKind?: DemandAgentRunGraphVisualKind;
-  inputSummary?: string;
-  outputSummary?: string;
-  evidenceRefs: DemandAgentRunEvidenceRef[];
-  attempts: DemandAgentRunAttemptSummary[];
-  feedbackAction?: WorkbenchDecisionAction;
 }
 
-export interface DemandAgentRunGraphEdge {
+export interface AgentRelationGraphEdge {
   id: string;
   from: string;
   to: string;
-  kind: DemandAgentRunGraphEdgeKind;
-  label: string;
-  edgeStyle?: DemandAgentRunGraphEdgeStyle;
-  edgeRole?: DemandAgentRunGraphEdgeRole;
+  kind: "parent-child";
 }
 
-export interface DemandAgentRunGraphLane {
-  id: DemandAgentRunGraphLaneId;
-  label: string;
-  description: string;
-}
+export type AgentRelationGraphEdgeKind = AgentRelationGraphEdge["kind"];
 
-export interface DemandAgentRunGraph {
+export interface AgentRelationGraph {
   graphScopeId?: string;
   conversationId?: string;
   changeId?: string;
   title: string;
   summary: string;
-  lanes: DemandAgentRunGraphLane[];
-  nodes: DemandAgentRunGraphNode[];
-  edges: DemandAgentRunGraphEdge[];
+  nodes: AgentRelationGraphNode[];
+  edges: AgentRelationGraphEdge[];
   updatedAt?: string;
 }
 
@@ -1085,7 +1011,7 @@ export interface WorkbenchSnapshot {
     agentLoop: {
       runs: RunMetadata[];
     };
-    agentRunGraph: DemandAgentRunGraph;
+    agentRelationGraph: AgentRelationGraph;
   };
   right: {
     approvals: WorkbenchApprovalItem[];

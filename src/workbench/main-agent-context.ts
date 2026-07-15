@@ -1,12 +1,12 @@
-﻿import { getChangeStatusForChange } from "../../change/manager.js";
-import { buildContextProjection } from "../../run/manager.js";
-import type { ManagedProject, ResolvedMemory } from "../../types/index.js";
-import { renderTopicAttachmentsForPrompt } from "../attachments.js";
-import { renderTopicFileReferencesForPrompt } from "../file-references.js";
-import { getWorkbenchSnapshot } from "../manager.js";
-import type { TopicAttachment, TopicFileReference } from "../types.js";
-import { resolveTopic } from "../topic-resolver.js";
-import { readConversationThread as readThreadLog } from "../conversation-thread-log.js";
+﻿import { getChangeStatusForChange } from "../change/manager.js";
+import { buildContextProjection } from "../run/manager.js";
+import type { ManagedProject, ResolvedMemory } from "../types/index.js";
+import { renderTopicAttachmentsForPrompt } from "./attachments.js";
+import { renderTopicFileReferencesForPrompt } from "./file-references.js";
+import { getWorkbenchSnapshot } from "./manager.js";
+import type { TopicAttachment, TopicFileReference } from "./types.js";
+import { resolveTopic } from "./topic-resolver.js";
+import { readConversationThread as readThreadLog } from "./conversation-thread-log.js";
 
 export interface MainAgentContextResult {
   context: string;
@@ -64,7 +64,7 @@ async function buildContext(
   const attachmentContext = await renderTopicAttachmentsForPrompt(project, attachments);
   return {
     context: [
-      "# AHO Topic Chat",
+      "# AHO Conversation Context",
       "",
       "You are answering inside the AHO Workbench conversation.",
       "Use accepted Harness artifacts and current evidence as source of truth. Provider thread memory is runtime continuity, not project memory or execution authority.",
@@ -115,3 +115,4 @@ function topicAttachmentsFromRecentMessages(messages: Awaited<ReturnType<typeof 
   }
   return attachments;
 }
+

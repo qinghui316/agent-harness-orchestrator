@@ -33,7 +33,7 @@ export function groupConsecutiveCommandBlocks(blocks: AssistantTurnBlock[]): Ass
         sequence: commands[0].sequence,
         kind: "command-group",
         timestamp: commands[0].timestamp,
-        source: "codex",
+        source: "provider",
         status: failedCount > 0 ? "failed" : processing ? "processing" : "completed",
         isError: failedCount > 0,
         children: commands,

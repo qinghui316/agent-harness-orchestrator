@@ -10,6 +10,7 @@ import { SkillMentionPicker } from "./SkillMentionPicker.js";
 export function TopicComposer({
   value,
   onChange,
+  providerDisplayName,
   modelLabel,
   onOpenModelSettings,
   enabledSkillCount,
@@ -29,9 +30,13 @@ export function TopicComposer({
   onNewWorkpad: _onNewWorkpad,
   actionRunning,
   currentWorkpadStatus,
+  providerOptions,
+  selectedProviderId,
+  onSelectProvider,
 }: {
   value: string;
   onChange: (value: string) => void;
+  providerDisplayName?: string;
   modelLabel: string;
   onOpenModelSettings?: () => void;
   enabledSkillCount?: number;
@@ -52,6 +57,9 @@ export function TopicComposer({
   onNewWorkpad?: () => Promise<void>;
   actionRunning: string | null;
   currentWorkpadStatus?: WorkpadRuntimeStatus;
+  providerOptions?: Array<{ id: string; label: string }>;
+  selectedProviderId?: string;
+  onSelectProvider?: (providerId: string) => void;
 }): ReactElement {
   const [dragOver, setDragOver] = useState(false);
   const [openContextKind, setOpenContextKind] = useState<ComposerContextKind | null>(null);
@@ -92,12 +100,16 @@ export function TopicComposer({
       }}
     >
       <ComposerControls
+        providerDisplayName={providerDisplayName}
         modelLabel={modelLabel}
         onOpenModelSettings={onOpenModelSettings}
         enabledSkillCount={enabledSkillCount}
         contextSummary={contextSummary}
         openContextKind={openContextKind}
         onToggleContextKind={(kind) => setOpenContextKind((current) => current === kind ? null : kind)}
+        providerOptions={providerOptions}
+        selectedProviderId={selectedProviderId}
+        onSelectProvider={onSelectProvider}
       />
       <ComposerContextSourcesPopover
         kind={openContextKind}

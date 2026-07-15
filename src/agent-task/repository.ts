@@ -15,6 +15,7 @@ import type {
 } from "../types/index.js";
 import { resultSchema, taskSchema } from "./schemas.js";
 import { taskPath, taskResultPath, tasksRoot } from "./paths.js";
+import { acquireWorkbenchRuntimeMutationLock } from "../workbench/schema-rebuild-gate.js";
 
 const DEFAULT_LEASE_MS = 30_000;
 const TERMINAL_STATUSES = new Set<AgentTaskStatus>(["completed", "blocked", "failed", "needs-user-input", "cancelled"]);
@@ -120,7 +121,9 @@ async function createAgentTaskUnlocked(memory: ResolvedMemory, input: CreateAgen
 }
 
 export async function claimAgentTask(memory: ResolvedMemory, task: AgentTask, input: AgentTaskLeaseInput = {}): Promise<AgentTask> {
-  return withTaskMutex(memory, task.id, async () => {
+  const runtimeLock = await acquireWorkbenchRuntimeMutationLock(memory, "领取 Agent 任务");
+  try {
+    return await withTaskMutex(memory, task.id, async () => {
     let current = await readCurrentTask(memory, task.id);
     const committedResult = await readAgentTaskResult(memory, task.id);
     if (committedResult) {
@@ -151,7 +154,10 @@ export async function claimAgentTask(memory: ResolvedMemory, task: AgentTask, in
     const claimed: AgentTask = { ...current, status: "claimed", attempt: attempt + 1, maxAttempts, lease, updatedAt: now, finishedAt: null };
     await writeTask(memory, claimed);
     return claimed;
-  });
+    });
+  } finally {
+    await runtimeLock.release();
+  }
 }
 
 export async function startAgentTask(memory: ResolvedMemory, task: AgentTask, writer?: AgentTaskWriterIdentity): Promise<AgentTask> {

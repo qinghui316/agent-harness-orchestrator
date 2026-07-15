@@ -33,7 +33,7 @@ export type {
   MaintenanceProviderRunEvidence,
   RunMaintenanceProviderAssignmentInput,
 } from "./maintenance-provider-runner.js";
-export { createCodexMaintenanceProviderExecutor, runCodexMaintenanceAssignment } from "./maintenance-codex-executor.js";
+export { createMaintenanceProviderExecutor, runMaintenanceAssignment } from "./maintenance-provider-executor.js";
 export { NonRetryableBackgroundWorkerError, startBackgroundWorker } from "./background-worker.js";
 export type {
   BackgroundAssignmentRunResult,

@@ -72,8 +72,8 @@ describe("workbench accepted-graph-to-execution runtime flow", () => {
       const store = await WorkbenchStore.open(memory);
       try {
         const now = new Date().toISOString();
-        store.writeProviderThread({ projectId: project().id, conversationId: conversation.conversationId, providerThreadId: parentThreadId, roleId: "main-agent", parentThreadId: null, changeId: null, capabilityProfile: "main-agent-goal-v1", updatedAt: now });
-        store.writeProviderThread({ projectId: project().id, conversationId: conversation.conversationId, providerThreadId: childThreadId, roleId: "planning-agent", parentThreadId, changeId: null, capabilityProfile: "planner-child-v1", updatedAt: now });
+        store.writeProviderThread({ projectId: project().id, conversationId: conversation.conversationId, providerId: "codex", providerThreadId: parentThreadId, roleId: "main-agent", parentThreadId: null, changeId: null, capabilityProfile: "main-agent-goal-v1", updatedAt: now });
+        store.writeProviderThread({ projectId: project().id, conversationId: conversation.conversationId, providerId: "codex", providerThreadId: childThreadId, roleId: "planning-agent", parentThreadId, changeId: null, capabilityProfile: "planner-child-v1", updatedAt: now });
         store.appendMessage({
           id: `assistant:${conversation.conversationId}:${runId}:${childThreadId}`,
           projectId: project().id,
@@ -114,7 +114,8 @@ describe("workbench accepted-graph-to-execution runtime flow", () => {
         ...runCode,
         confirm: true,
       });
-      expect(unwrapWorkflowActionResult(codeResult.result)).toMatchObject({ status: "completed" });
+      const workflowResult = unwrapWorkflowActionResult(codeResult.result);
+      expect(workflowResult, JSON.stringify(workflowResult)).toMatchObject({ status: "completed" });
       expect(await gitStatus(getTempDir())).toBe("");
 
       snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: conversation.conversationId });

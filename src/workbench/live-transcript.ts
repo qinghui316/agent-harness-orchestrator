@@ -1,11 +1,17 @@
 import type { AssistantTurnActivity, AssistantTurnBlock, AssistantTurnBlockKind, WorkbenchAssistantEvent, WorkbenchLiveEvent, WorkbenchLiveIdentity, WorkbenchLiveSink, WorkbenchLiveToolEvent } from "./types.js";
 import { composeAgentDisplayLabel } from "../agent-display-label.js";
+import { agentThreadSurfaceId } from "../provider-runtime/agent-surface-id.js";
 
-export function createAssistantTranscriptCapture(live: WorkbenchLiveSink | undefined): AssistantTranscriptCapture {
+export function createAssistantTranscriptCapture(
+  live: WorkbenchLiveSink | undefined,
+  persistBeforeEmit?: (capture: AssistantTranscriptCapture) => boolean,
+): AssistantTranscriptCapture {
   const activity: AssistantTurnActivity[] = [];
   const blocks: AssistantTurnBlock[] = [];
+  const mainCaptures = new Map<string, MainTranscriptCapture>();
   const childCaptures = new Map<string, ChildTranscriptCapture>();
   let sequence = 0;
+  let mainTurnSequence = 0;
 
   function nextSequence(): number {
     sequence += 1;
@@ -15,7 +21,7 @@ export function createAssistantTranscriptCapture(live: WorkbenchLiveSink | undef
   function appendProseTo(target: AssistantTurnBlock[], delta: string, identity: { runId?: string; threadId?: string; turnId?: string; itemId?: string } = {}): void {
     if (!delta) return;
     const last = target.at(-1);
-    if (last?.kind === "prose" && last.source === "codex" && (!identity.itemId || !last.itemId || last.itemId === identity.itemId)) {
+    if (last?.kind === "prose" && last.source === "provider" && (!identity.itemId || !last.itemId || last.itemId === identity.itemId)) {
       last.text = `${last.text ?? ""}${delta}`;
       return;
     }
@@ -29,7 +35,7 @@ export function createAssistantTranscriptCapture(live: WorkbenchLiveSink | undef
       sequence: currentSequence,
       kind: "prose",
       timestamp: new Date().toISOString(),
-      source: "codex",
+      source: "provider",
       text: delta,
     });
   }
@@ -38,10 +44,56 @@ export function createAssistantTranscriptCapture(live: WorkbenchLiveSink | undef
     appendProseTo(blocks, delta, identity);
   }
 
+  function mainCaptureFor(identity: WorkbenchLiveIdentity): MainTranscriptCapture {
+    const exactKey = mainCaptureIdentity(identity.threadId, identity.turnId);
+    let existing = mainCaptures.get(exactKey);
+    if (!existing && identity.turnId) {
+      const provisionalKey = mainCaptureIdentity(identity.threadId);
+      const directProvisional = mainCaptures.get(provisionalKey);
+      const provisionalCandidates = directProvisional
+        ? [directProvisional]
+        : [...mainCaptures.values()].filter((candidate) => !candidate.turnId
+          && !mainCaptureIsTerminal(candidate)
+          && (!candidate.threadId || !identity.threadId || candidate.threadId === identity.threadId));
+      const provisional = provisionalCandidates.length === 1 ? provisionalCandidates[0] : undefined;
+      if (provisional) {
+        for (const [key, candidate] of mainCaptures) {
+          if (candidate === provisional) mainCaptures.delete(key);
+        }
+        provisional.threadId = identity.threadId ?? provisional.threadId;
+        provisional.turnId = identity.turnId;
+        mainCaptures.set(exactKey, provisional);
+        existing = provisional;
+      }
+    }
+    if (!existing && !identity.turnId) {
+      const active = [...mainCaptures.values()].filter((candidate) => !mainCaptureIsTerminal(candidate));
+      if (active.length === 1) existing = active[0];
+    }
+    if (existing) {
+      existing.runId = identity.runId ?? existing.runId;
+      existing.threadId = identity.threadId ?? existing.threadId;
+      existing.turnId = identity.turnId ?? existing.turnId;
+      return existing;
+    }
+    mainTurnSequence += 1;
+    const created: MainTranscriptCapture = {
+      canonicalId: `main:${identity.runId ?? "assistant"}:turn:${mainTurnSequence}`,
+      runId: identity.runId,
+      threadId: identity.threadId,
+      turnId: identity.turnId,
+      text: "",
+      activity: [],
+      blocks: [],
+    };
+    mainCaptures.set(exactKey, created);
+    return created;
+  }
+
   function childCaptureFor(identity: WorkbenchLiveIdentity): ChildTranscriptCapture | null {
     if (!identity.threadId || !identity.agentRoleId || identity.agentRoleId === "main-agent") return null;
-    if (identity.agentDisplayName) {
-      const targetSurfaceId = `thread:${identity.threadId}`;
+    if (identity.agentDisplayName && identity.providerId) {
+      const targetSurfaceId = agentThreadSurfaceId(identity.providerId, identity.threadId);
       const targetDisplayName = composeAgentDisplayLabel(identity.agentRoleId, identity.agentDisplayName);
       for (const block of blocks) {
         if (block.targetAgentSurfaceId === targetSurfaceId) block.targetAgentDisplayName = targetDisplayName;
@@ -72,6 +124,7 @@ export function createAssistantTranscriptCapture(live: WorkbenchLiveSink | undef
       return existing;
     }
     const created: ChildTranscriptCapture = {
+      canonicalId: `child:${identity.runId ?? "assistant"}:${identity.threadId}:${identity.turnId ?? "turn"}`,
       runId: identity.runId,
       threadId: identity.threadId,
       parentThreadId: identity.parentThreadId,
@@ -99,31 +152,39 @@ export function createAssistantTranscriptCapture(live: WorkbenchLiveSink | undef
     text: "",
     activity,
     blocks,
+    mainCaptures,
     childCaptures,
     sink: {
       emit(event: WorkbenchLiveEvent): void {
         const timestamp = new Date().toISOString();
         if (event.event === "run.started") {
-          const target = childCaptureFor(event.data)?.activity ?? activity;
+          const child = childCaptureFor(event.data);
+          const target = child?.activity ?? mainCaptureFor(event.data).activity;
           target.push({
             kind: "status",
             label: "started",
             detail: event.data.runtime ?? event.data.actionType,
             timestamp,
           });
+          if (!child) activity.push(target.at(-1)!);
         } else if (event.event === "run.status") {
-          const target = childCaptureFor(event.data)?.activity ?? activity;
+          const child = childCaptureFor(event.data);
+          const target = child?.activity ?? mainCaptureFor(event.data).activity;
           target.push({
             kind: "status",
             label: event.data.status,
             detail: event.data.label,
             timestamp,
           });
+          if (!child) activity.push(target.at(-1)!);
         } else if (event.event === "assistant.delta") {
           const child = childCaptureFor(event.data);
           if (child) {
             appendProseTo(child.blocks, event.data.delta, event.data);
           } else {
+            const main = mainCaptureFor(event.data);
+            main.text += event.data.delta;
+            appendProseTo(main.blocks, event.data.delta, event.data);
             capture.text += event.data.delta;
             appendProse(event.data.delta, event.data);
           }
@@ -134,6 +195,14 @@ export function createAssistantTranscriptCapture(live: WorkbenchLiveSink | undef
             const block = assistantEventToBlock({ ...event.data, timestamp: event.data.timestamp ?? timestamp }, timestamp, nextSequence());
             if (block) upsertTranscriptBlock(child.blocks, block);
           } else {
+            const main = mainCaptureFor(event.data);
+            main.activity.push({
+              kind: "assistant-event",
+              event: { ...event.data, timestamp: event.data.timestamp ?? timestamp },
+              timestamp,
+            });
+            const mainBlock = assistantEventToBlock({ ...event.data, timestamp: event.data.timestamp ?? timestamp }, timestamp, nextSequence());
+            if (mainBlock) upsertTranscriptBlock(main.blocks, mainBlock);
             activity.push({
               kind: "assistant-event",
               event: { ...event.data, timestamp: event.data.timestamp ?? timestamp },
@@ -148,6 +217,10 @@ export function createAssistantTranscriptCapture(live: WorkbenchLiveSink | undef
             const block = toolEventToBlock(event.data, timestamp, nextSequence());
             if (block) upsertTranscriptBlock(child.blocks, block);
           } else {
+            const main = mainCaptureFor(event.data);
+            main.activity.push({ kind: "tool", tool: event.data, timestamp });
+            const mainBlock = toolEventToBlock(event.data, timestamp, nextSequence());
+            if (mainBlock) upsertTranscriptBlock(main.blocks, mainBlock);
             activity.push({ kind: "tool", tool: event.data, timestamp });
             appendToolEventBlock(event.data, timestamp);
           }
@@ -155,6 +228,10 @@ export function createAssistantTranscriptCapture(live: WorkbenchLiveSink | undef
           const child = childCaptureFor(event.data);
           const targetActivity = child?.activity ?? activity;
           const targetBlocks = child?.blocks ?? blocks;
+          if (!child) {
+            const main = mainCaptureFor(event.data);
+            main.activity.push({ kind: "usage", usage: event.data.usage, timestamp });
+          }
           targetActivity.push({ kind: "usage", usage: event.data.usage, timestamp });
           const currentSequence = nextSequence();
           upsertTranscriptBlock(targetBlocks, {
@@ -163,7 +240,7 @@ export function createAssistantTranscriptCapture(live: WorkbenchLiveSink | undef
             sequence: currentSequence,
             kind: "usage",
             timestamp,
-            source: "codex",
+            source: "provider",
             title: "Usage recorded",
             text: formatUsageSummary(event.data.usage),
           });
@@ -176,6 +253,8 @@ export function createAssistantTranscriptCapture(live: WorkbenchLiveSink | undef
           const child = childCaptureFor(event.data);
           const targetActivity = child?.activity ?? activity;
           const targetBlocks = child?.blocks ?? blocks;
+          const main = child ? null : mainCaptureFor(event.data);
+          if (main) main.activity.push({ kind: "error", message: event.data.message, timestamp });
           targetActivity.push({ kind: "error", message: event.data.message, timestamp });
           const currentSequence = nextSequence();
           targetBlocks.push({
@@ -184,12 +263,14 @@ export function createAssistantTranscriptCapture(live: WorkbenchLiveSink | undef
             sequence: currentSequence,
             kind: "error",
             timestamp,
-            source: "codex",
+            source: "provider",
             title: isConnectionFailureMessage(event.data.message) ? "连接失败" : "运行出错",
             text: event.data.message,
             isError: true,
           });
+          if (main) upsertTranscriptBlock(main.blocks, targetBlocks.at(-1)!);
         }
+        if (persistBeforeEmit && !persistBeforeEmit(capture)) return;
         emitLive(live, event);
       },
     },
@@ -197,15 +278,27 @@ export function createAssistantTranscriptCapture(live: WorkbenchLiveSink | undef
   return capture;
 }
 
-interface AssistantTranscriptCapture {
+export interface AssistantTranscriptCapture {
   sink: WorkbenchLiveSink;
   text: string;
   activity: AssistantTurnActivity[];
   blocks: AssistantTurnBlock[];
+  mainCaptures: Map<string, MainTranscriptCapture>;
   childCaptures: Map<string, ChildTranscriptCapture>;
 }
 
+export interface MainTranscriptCapture {
+  canonicalId: string;
+  runId?: string;
+  threadId?: string;
+  turnId?: string;
+  text: string;
+  activity: AssistantTurnActivity[];
+  blocks: AssistantTurnBlock[];
+}
+
 export interface ChildTranscriptCapture {
+  canonicalId?: string;
   runId?: string;
   threadId: string;
   parentThreadId?: string;
@@ -238,19 +331,30 @@ function childCaptureIsTerminal(capture: ChildTranscriptCapture): boolean {
     && (activity.label === "completed" || activity.label === "failed" || activity.label === "blocked"));
 }
 
+function mainCaptureIdentity(threadId?: string, turnId?: string): string {
+  return `${threadId ?? "main"}:${turnId ?? "pending"}`;
+}
+
+function mainCaptureIsTerminal(capture: MainTranscriptCapture): boolean {
+  return capture.activity.some((item) => item.kind === "status"
+    && (item.label === "completed" || item.label === "failed" || item.label === "blocked" || item.label === "cancelled"));
+}
+
 function assistantEventToBlock(event: WorkbenchAssistantEvent, timestamp: string, sequence: number): AssistantTurnBlock | null {
   if (!isMainThreadAssistantStatus(event)) return null;
   const kind = assistantEventBlockKind(event.kind);
   const text = event.summary ?? (kind === "usage" ? undefined : event.preview);
   return {
-    id: `assistant:${event.runId}:${event.threadId ?? "main"}:${event.itemId ?? event.kind}:${event.kind}`,
+    id: `assistant:${event.providerId ?? "provider"}:${event.runId}:${event.threadId ?? "main"}:${event.itemId ?? event.kind}:${event.kind}`,
+    providerId: event.providerId,
+    attemptId: event.attemptId,
     runId: event.runId,
     threadId: event.threadId,
     turnId: event.turnId,
     sequence,
     kind,
     timestamp: event.timestamp ?? timestamp,
-    source: "codex",
+    source: "provider",
     status: event.status ?? event.phase,
     title: event.title ?? assistantEventTitle(event.kind),
     text,
@@ -271,14 +375,16 @@ function toolEventToBlock(event: WorkbenchLiveToolEvent, timestamp: string, sequ
   if (event.phase === "stderr") return null;
   if (!event.command && event.phase === "status" && !event.isError) return null;
   return {
-    id: `tool:${event.runId}:${event.threadId ?? "main"}:${event.itemId ?? normalizeCommandKey(event.command ?? event.name)}`,
+    id: `tool:${event.providerId ?? "provider"}:${event.runId}:${event.threadId ?? "main"}:${event.itemId ?? normalizeCommandKey(event.command ?? event.name)}`,
+    providerId: event.providerId,
+    attemptId: event.attemptId,
     runId: event.runId,
     threadId: event.threadId,
     turnId: event.turnId,
     sequence,
     kind: event.command ? "command" : "status",
     timestamp,
-    source: "codex",
+    source: "provider",
     status: event.status ?? event.phase,
     title: event.command
       ? commandResultTitle(event.status ?? event.phase)
@@ -327,16 +433,19 @@ function mergeAssistantBlocks(existing: AssistantTurnBlock, incoming: AssistantT
 }
 
 function assistantBlockSemanticKey(block: AssistantTurnBlock): string {
+  const providerId = block.providerId ?? "provider";
+  const attemptId = block.attemptId ?? "attempt";
   const runId = block.runId ?? "";
   const threadId = block.threadId ?? "main";
-  if (block.kind === "usage") return `usage:${runId}`;
-  if (block.kind === "error") return `error:${runId}:${normalizeBlockText(block.text ?? block.preview ?? block.title)}`;
-  if (block.kind === "workflow-evidence") return `workflow-evidence:${runId}:${block.artifactRef ?? block.title ?? block.status ?? block.id}`;
+  const turnId = block.turnId ?? "turn";
+  if (block.kind === "usage") return `usage:${providerId}:${attemptId}:${runId}`;
+  if (block.kind === "error") return `error:${providerId}:${attemptId}:${runId}:${normalizeBlockText(block.text ?? block.preview ?? block.title)}`;
+  if (block.kind === "workflow-evidence") return `workflow-evidence:${providerId}:${attemptId}:${runId}:${block.artifactRef ?? block.title ?? block.status ?? block.id}`;
   if (block.kind === "command") {
-    if (block.itemId) return `command:${runId}:${threadId}:item:${block.itemId}`;
-    return `command:${runId}:${threadId}:command:${normalizeCommandKey(block.command)}`;
+    if (block.itemId) return `command:${providerId}:${attemptId}:${runId}:${threadId}:${turnId}:item:${block.itemId}`;
+    return `command:${providerId}:${attemptId}:${runId}:${threadId}:${turnId}:command:${normalizeCommandKey(block.command)}`;
   }
-  return block.itemId ? `${block.kind}:${runId}:${threadId}:item:${block.itemId}` : `${block.id}:${block.kind}`;
+  return block.itemId ? `${block.kind}:${providerId}:${attemptId}:${runId}:${threadId}:${turnId}:item:${block.itemId}` : `${block.id}:${block.kind}`;
 }
 
 function commandResultTitle(status: string | undefined): string {
@@ -381,11 +490,6 @@ function isMainThreadAssistantStatus(event: WorkbenchAssistantEvent): boolean {
   if (event.kind !== "status") return true;
   const normalized = `${event.title ?? ""} ${event.summary ?? ""} ${event.phase ?? ""}`.toLowerCase();
   if (isAgentLifecycleStatus(normalized)) return true;
-  if (normalized.includes("codex thread started")) return false;
-  if (normalized.includes("codex initialized the thread")) return false;
-  if (normalized.includes("codex turn running")) return false;
-  if (normalized.includes("codex started processing the turn")) return false;
-  if (normalized.includes("codex turn completed")) return false;
   return Boolean(event.isError) || normalized.includes("validation") || normalized.includes("audit") || normalized.includes("failed") || normalized.includes("blocked");
 }
 

@@ -1,4 +1,4 @@
-import type { ReactElement } from "react";
+﻿import type { ReactElement } from "react";
 import { FileText } from "lucide-react";
 import { eventLabel, formatTime, humanStatus, runtimeLabel } from "../../formatters.js";
 import type { AssistantReadableEvent, RunSummary, StreamPacket } from "../../types.js";
@@ -6,7 +6,7 @@ import type { AssistantReadableEvent, RunSummary, StreamPacket } from "../../typ
 export function RunReplay({ stream, run }: { stream: StreamPacket | null; run?: RunSummary }): ReactElement {
   if (!run) return <div className="dark-panel empty-dark">选择一个 Run 查看回放。</div>;
   const finalOutput = artifactPreview(stream, "lastMessage") ?? artifactPreview(stream, "implementation") ?? "暂无 AI 最终输出";
-  const rawPreview = artifactPreview(stream, "codexEvents") ?? artifactPreview(stream, "events") ?? artifactPreview(stream, "stdout") ?? "暂无原始日志";
+  const rawPreview = artifactPreview(stream, "providerEvents") ?? artifactPreview(stream, "events") ?? artifactPreview(stream, "stdout") ?? "暂无原始日志";
   const visibleEvents = (stream?.events ?? []).slice(0, 8);
   const readableEvents = readableEventsFromStream(stream, run.id);
   return (
@@ -46,7 +46,7 @@ export function RunReplay({ stream, run }: { stream: StreamPacket | null; run?: 
         <pre className="code-preview">{rawPreview}</pre>
       </details>
       <div className="artifact-grid">
-        {(stream?.artifacts ?? []).filter((item) => ["events", "stdout", "stderr", "codexEvents", "lastMessage", "appServerEvents", "appServerStderr", "appServerLastMessage", "agentSession", "diff", "implementation", "validation", "audit"].includes(item.key)).map((artifact) => (
+        {(stream?.artifacts ?? []).filter((item) => ["events", "stdout", "stderr", "providerEvents", "lastMessage", "providerEvents", "providerStderr", "providerLastMessage", "providerSession", "diff", "implementation", "validation", "audit"].includes(item.key)).map((artifact) => (
           <div className="artifact-chip" key={artifact.key}>
             <FileText size={15} />
             <span>{artifact.path.split("/").at(-1)}</span>
@@ -58,7 +58,7 @@ export function RunReplay({ stream, run }: { stream: StreamPacket | null; run?: 
 }
 
 export function AssistantReadableEventCards({ events, defaultOpenProcess = false }: { events: AssistantReadableEvent[]; defaultOpenProcess?: boolean }): ReactElement {
-  const displayEvents = dedupeAssistantEvents(events.map(mainThreadAssistantEvent).filter((event): event is AssistantReadableEvent => Boolean(event)));
+  const displayEvents = dedupeAssistantEvents(events);
   if (displayEvents.length === 0) return <></>;
   const processEvents = displayEvents.filter(isFoldableProcessEvent);
   const primaryEvents = displayEvents.filter((event) => !isFoldableProcessEvent(event));
@@ -80,42 +80,6 @@ export function AssistantReadableEventCards({ events, defaultOpenProcess = false
 function isFoldableProcessEvent(event: AssistantReadableEvent): boolean {
   if (event.isError) return false;
   return event.kind === "command" || event.kind === "mcp-tool" || event.kind === "web-search" || event.kind === "tool-result" || event.kind === "plan-update";
-}
-
-function mainThreadAssistantEvent(event: AssistantReadableEvent): AssistantReadableEvent | null {
-  if (!isMainThreadAssistantEvent(event)) return null;
-  if (hasInternalRunMetadata(event.preview)) {
-    return {
-      ...event,
-      title: event.kind === "command" ? readableEventTitle(event) : event.title,
-      summary: event.summary ?? "内部执行详情已记录到 Agent Loop，可在原始日志中查看。",
-      preview: undefined,
-      truncated: false,
-    };
-  }
-  return event;
-}
-
-function isMainThreadAssistantEvent(event: AssistantReadableEvent): boolean {
-  if (event.kind !== "status") return true;
-  const normalized = `${event.title ?? ""} ${event.summary ?? ""} ${event.phase ?? ""}`.toLowerCase();
-  if (normalized.includes("codex thread started")) return false;
-  if (normalized.includes("codex initialized the thread")) return false;
-  if (normalized.includes("codex turn running")) return false;
-  if (normalized.includes("codex started processing the turn")) return false;
-  if (normalized.includes("codex turn completed")) return false;
-  if (normalized.includes("codex completed the turn")) return false;
-  return event.isError === true || normalized.includes("validation") || normalized.includes("audit") || normalized.includes("failed") || normalized.includes("blocked");
-}
-
-function hasInternalRunMetadata(text: string | undefined): boolean {
-  if (!text) return false;
-  const normalized = text.toLowerCase();
-  const artifactSignals = ["codex-events.jsonl", "events.jsonl", "stdout.log", "stderr.log", "last-message.md"];
-  const hasArtifactSignal = artifactSignals.some((signal) => normalized.includes(signal));
-  const hasRunMetadataShape = normalized.includes('"runtime"') && normalized.includes('"artifacts"') && normalized.includes('"promptstack"');
-  const hasCodexInvocation = normalized.includes('"command"') && normalized.includes('"codex"') && normalized.includes("--output-last-message");
-  return hasRunMetadataShape || hasCodexInvocation || (hasArtifactSignal && normalized.includes('"artifacts"'));
 }
 
 function AssistantReadableEventCard({ event }: { event: AssistantReadableEvent }): ReactElement {
@@ -165,15 +129,6 @@ function artifactPreview(stream: StreamPacket | null, key: string): string | nul
 
 function readableEventsFromStream(stream: StreamPacket | null, runId: string): AssistantReadableEvent[] {
   const events: AssistantReadableEvent[] = [];
-  const codexPreview = artifactPreview(stream, "codexEvents");
-  if (codexPreview) {
-    for (const line of codexPreview.split(/\r?\n/)) {
-      const parsed = parseJsonLine(line);
-      if (!parsed) continue;
-      const event = readableEventFromCodexArtifact(parsed, runId);
-      if (event) events.push(event);
-    }
-  }
   for (const event of stream?.events ?? []) {
     if (event.type.startsWith("validation.")) {
       events.push({
@@ -201,99 +156,6 @@ function readableEventsFromStream(stream: StreamPacket | null, runId: string): A
   return dedupeAssistantEvents(events).slice(-12);
 }
 
-function readableEventFromCodexArtifact(raw: Record<string, unknown>, runId: string): AssistantReadableEvent | null {
-  if ((raw.type === "item.started" || raw.type === "item.completed") && isRecord(raw.item)) {
-    const item = raw.item;
-    const itemType = normalizeCodexItemType(item.type);
-    const phase = raw.type === "item.started" ? "started" : "completed";
-    const itemId = typeof item.id === "string" ? item.id : undefined;
-    if (itemType === "commandexecution") {
-      const output = stringField(item, "aggregated_output", "aggregatedOutput", "output");
-      return {
-        runId,
-        itemId,
-        kind: "command",
-        phase,
-        title: phase === "started" ? "Command started" : "Command completed",
-        summary: stringField(item, "command") ?? "Command execution",
-        command: stringField(item, "command"),
-        cwd: stringField(item, "cwd"),
-        exitCode: numberField(item, "exit_code", "exitCode"),
-        preview: output ? truncatePreview(output, 900) : undefined,
-        truncated: output ? output.length > 900 : undefined,
-        isError: numberField(item, "exit_code", "exitCode") !== undefined ? numberField(item, "exit_code", "exitCode") !== 0 : item.status === "failed",
-      };
-    }
-    if (itemType === "reasoning") {
-      const summary = stringField(item, "summary_text", "summaryText", "thinking_summary", "thinkingSummary");
-      if (!summary) return null;
-      return { runId, itemId, kind: "reasoning-summary", phase, title: "Reasoning summary", preview: truncatePreview(summary, 900) };
-    }
-    if (itemType === "filechange") {
-      return { runId, itemId, kind: "file-change", phase, title: "File change", summary: stringField(item, "path", "file_path", "filePath") ?? "File changes recorded." };
-    }
-    if (itemType === "mcptoolcall" || itemType === "dynamictoolcall" || itemType === "collabtoolcall") {
-      return { runId, itemId, kind: "mcp-tool", phase, title: stringField(item, "tool", "name") ?? "Tool call", summary: stringField(item, "server") };
-    }
-    if (itemType === "websearch") {
-      return { runId, itemId, kind: "web-search", phase, title: "Web search", summary: stringField(item, "query") };
-    }
-  }
-  if (raw.type === "turn.completed" && isRecord(raw.usage)) {
-    return { runId, kind: "usage", phase: "completed", title: "Usage recorded", summary: formatUsage(raw.usage) };
-  }
-  if (raw.type === "error") {
-    return { runId, kind: "error", phase: "failed", title: "Codex error", summary: stringField(raw, "message", "error"), isError: true };
-  }
-  return null;
-}
-
-function parseJsonLine(line: string): Record<string, unknown> | null {
-  if (!line.trim()) return null;
-  try {
-    const parsed = JSON.parse(line) as unknown;
-    return isRecord(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-function normalizeCodexItemType(value: unknown): string {
-  return typeof value === "string" ? value.replace(/[_\-/]/g, "").toLowerCase() : "";
-}
-
-function stringField(object: Record<string, unknown>, ...keys: string[]): string | undefined {
-  for (const key of keys) {
-    const value = object[key];
-    if (typeof value === "string" && value) return value;
-  }
-  return undefined;
-}
-
-function numberField(object: Record<string, unknown>, ...keys: string[]): number | undefined {
-  for (const key of keys) {
-    const value = object[key];
-    if (typeof value === "number") return value;
-  }
-  return undefined;
-}
-
-function truncatePreview(text: string, maxLength: number): string {
-  if (text.length <= maxLength) return text;
-  return `${text.slice(0, maxLength).replace(/\s+$/u, "")}\n[truncated; see raw log]`;
-}
-
-function formatUsage(usage: Record<string, unknown>): string {
-  const input = typeof usage.input_tokens === "number" ? usage.input_tokens : typeof usage.inputTokens === "number" ? usage.inputTokens : undefined;
-  const output = typeof usage.output_tokens === "number" ? usage.output_tokens : typeof usage.outputTokens === "number" ? usage.outputTokens : undefined;
-  if (input === undefined && output === undefined) return "Usage recorded";
-  return `Tokens in ${input ?? "-"} / out ${output ?? "-"}`;
-}
-
 export function artifactName(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
 }

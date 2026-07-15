@@ -1,17 +1,17 @@
 import { useState, type ReactElement } from "react";
 import { ArrowLeft, Bot, Folder, Settings, Shield, Sparkles, Wrench } from "lucide-react";
-import { CodexTrustButton, InfoRow } from "./ProjectPanels.js";
-import { CodexDiagnosticsCard } from "./ProjectHome.js";
+import { InfoRow } from "./ProjectPanels.js";
+import { ProviderDiagnosticsCard } from "./ProjectHome.js";
 import { SkillsSettingsView } from "./SkillsSettingsView.js";
 import { projectDisplayName } from "../formatters.js";
-import type { CodexDiagnostics, CodexModelSettingsSnapshot, ProjectStatus, ProviderCapabilityItem, ProviderCapabilitySnapshot } from "../types.js";
+import type { ProviderDiagnostics, ProviderModelSettingsSnapshot, ProjectStatus, ProviderCapabilityItem, ProviderCapabilitySnapshot } from "../types.js";
 
-export type SettingsSection = "basic" | "project" | "codex" | "skills" | "advanced";
+export type SettingsSection = "basic" | "project" | "provider" | "skills" | "advanced";
 
 const sections: Array<{ id: SettingsSection; label: string; icon: typeof Settings }> = [
   { id: "basic", label: "基础", icon: Settings },
   { id: "project", label: "项目", icon: Folder },
-  { id: "codex", label: "Codex", icon: Bot },
+  { id: "provider", label: "Agent Provider", icon: Bot },
   { id: "skills", label: "技能", icon: Sparkles },
   { id: "advanced", label: "高级诊断", icon: Wrench },
 ];
@@ -32,8 +32,8 @@ export function SettingsSurface({
   section: SettingsSection;
   onSectionChange: (section: SettingsSection) => void;
   project: ProjectStatus | null;
-  diagnostics: CodexDiagnostics | null;
-  modelSettings: CodexModelSettingsSnapshot | null;
+  diagnostics: ProviderDiagnostics | null;
+  modelSettings: ProviderModelSettingsSnapshot | null;
   providerCapabilities?: ProviderCapabilitySnapshot[];
   modelSettingsBusy?: boolean;
   modelSettingsMessage?: string | null;
@@ -43,6 +43,23 @@ export function SettingsSurface({
 }): ReactElement {
   const [message, setMessage] = useState<string | null>(null);
   const selectedProjectId = project?.project?.id ?? null;
+  const providerLabel = diagnostics?.displayName ?? "Agent Provider";
+
+  async function executeProviderAction(actionId: string): Promise<void> {
+    if (!selectedProjectId || !diagnostics) return;
+    setMessage(null);
+    try {
+      const response = await fetch(`/api/projects/${encodeURIComponent(selectedProjectId)}/providers/${encodeURIComponent(diagnostics.providerId)}/actions/${encodeURIComponent(actionId)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: true }),
+      });
+      if (!response.ok) throw new Error(await response.text());
+      await onRefresh();
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
 
   async function refresh(): Promise<void> {
     setMessage(null);
@@ -70,7 +87,7 @@ export function SettingsSurface({
                 className={section === item.id ? "selected" : ""}
                 onClick={() => onSectionChange(item.id)}
               >
-                <Icon size={16} />{item.label}
+                <Icon size={16} />{item.id === "provider" ? providerLabel : item.label}
               </button>
             );
           })}
@@ -80,7 +97,7 @@ export function SettingsSurface({
       <div className="settings-surface-content">
         <header className="settings-surface-header">
           <div>
-            <h1>{sections.find((item) => item.id === section)?.label ?? "设置"}</h1>
+            <h1>{section === "provider" ? providerLabel : sections.find((item) => item.id === section)?.label ?? "设置"}</h1>
             <p>{settingsDescription(section)}</p>
           </div>
           <button className="outline-button settings-back-button" aria-label="返回工作区" onClick={onClose}><ArrowLeft size={16} />返回工作区</button>
@@ -92,7 +109,7 @@ export function SettingsSurface({
             <p className="muted-copy">当前只显示已实现的专业开发模式入口能力。普通 Agent 模式、浏览器、终端、附件和 marketplace 还没有放到 UI。</p>
             <div className="settings-info-grid">
               <Info label="当前模式" value="专业开发模式" />
-              <Info label="执行引擎" value="Codex" />
+              <Info label="执行引擎" value={providerLabel} />
               <Info label="右侧工具" value="确认 / 文件 / Git / 诊断" />
             </div>
           </section>
@@ -109,28 +126,25 @@ export function SettingsSurface({
                   <Info label="项目状态" value={project.memory?.memoryAvailable === false ? "项目历史不可用" : project.harness.readiness === "ready" ? "已准备" : "首次需求时自动建立说明"} />
                   <Info label="Git" value={project.isGitRepo ? "Git 仓库" : "非 Git 仓库"} />
                 </div>
-                <div className="settings-inline-actions">
-                  {project.managed && project.codexTrust && !project.codexTrust.trusted ? <CodexTrustButton project={project} onDone={refresh} /> : null}
-                </div>
               </>
             ) : <p className="muted-copy">还没有选择项目。</p>}
           </section>
         ) : null}
 
-        {section === "codex" ? (
+        {section === "provider" ? (
           <section className="settings-content-card">
-            <h3>Codex</h3>
+            <h3>{providerLabel}</h3>
             <div className="settings-info-grid">
-              <Info label="当前模型" value={modelSettings?.effectiveModel ?? diagnostics?.effectiveModel ?? diagnostics?.currentModel ?? "Codex 默认模型"} />
-              <Info label="来源" value={modelSourceLabel(modelSettings?.effectiveModelSource ?? diagnostics?.effectiveModelSource)} />
-              <Info label="CLI" value={diagnostics?.available ? "可用" : "未确认"} />
+              <Info label="当前模型" value={modelSettings?.effectiveModel?.modelId ?? diagnostics?.models.effectiveModel?.modelId ?? `${providerLabel} 默认模型`} />
+              <Info label="来源" value={modelSourceLabel(modelSettings?.effectiveModelSource ?? diagnostics?.models.effectiveModelSource)} />
+              <Info label="运行状态" value={diagnostics?.installation.available ? "可用" : "未确认"} />
             </div>
             <div className="settings-inline-actions">
               <button className="outline-button" onClick={onOpenModelSettings} disabled={!onOpenModelSettings || modelSettingsBusy}>选择模型</button>
               <button className="outline-button" onClick={() => void refresh()}>刷新状态</button>
             </div>
             {modelSettingsMessage ? <p className="diagnostic-errors">{modelSettingsMessage}</p> : null}
-            <ProviderCapabilityMatrix snapshot={providerCapabilities?.find((item) => item.providerId === "codex") ?? null} />
+            <ProviderCapabilityMatrix snapshot={providerCapabilities?.find((item) => item.providerId === diagnostics?.providerId) ?? null} />
           </section>
         ) : null}
 
@@ -152,10 +166,10 @@ export function SettingsSurface({
                 <Info label="Memory mode" value={project.memory?.memoryMode ?? "未知"} />
                 <Info label="Memory root" value={project.memory?.roots?.memoryRoot ?? "未记录"} />
                 <Info label="Artifact base" value={project.memory?.artifactBase ?? "未记录"} />
-                <Info label="Codex config" value={diagnostics?.configPath ?? project.codexTrust?.configPath ?? "未读取"} />
+                <Info label="Provider adapter" value={diagnostics?.adapter.id ?? "未读取"} />
               </div>
             ) : null}
-            <CodexDiagnosticsCard diagnostics={diagnostics} project={project} />
+            <ProviderDiagnosticsCard diagnostics={diagnostics} project={project} onAction={executeProviderAction} />
           </section>
         ) : null}
 
@@ -172,26 +186,26 @@ function Info({ label, value }: { label: string; value: string }): ReactElement 
 function settingsDescription(section: SettingsSection): string {
   if (section === "basic") return "只保留当前可用的产品选项。";
   if (section === "project") return "查看当前项目状态和必要的显式操作。";
-  if (section === "codex") return "查看 Codex 状态和真实模型选择。";
-  if (section === "skills") return "管理 Codex runtime 可用的 Skills。";
+  if (section === "provider") return "查看 Agent Provider 状态和真实模型选择。";
+  if (section === "skills") return "管理当前 Agent Provider 可用的 Skills。";
   return "调试信息只放在这里，不进入普通工作流。";
 }
 
-function modelSourceLabel(source: CodexModelSettingsSnapshot["effectiveModelSource"] | CodexDiagnostics["effectiveModelSource"] | undefined): string {
+function modelSourceLabel(source: ProviderModelSettingsSnapshot["effectiveModelSource"] | undefined): string {
   if (source === "selected") return "用户选择";
-  if (source === "config") return "Codex 配置";
-  if (source === "codex-default") return "Codex 默认";
+  if (source === "config") return "Provider 配置";
+  if (source === "provider-default") return "Provider 默认";
   return "未知";
 }
 
 function ProviderCapabilityMatrix({ snapshot }: { snapshot: ProviderCapabilitySnapshot | null }): ReactElement {
   if (!snapshot) {
     return (
-      <section className="provider-capability-matrix" aria-label="Codex 能力矩阵">
+      <section className="provider-capability-matrix" aria-label="Provider 能力矩阵">
         <div className="settings-section-header">
           <div>
             <h3>能力矩阵</h3>
-            <p>正在读取 Codex runtime 能力。</p>
+            <p>正在读取 Provider 运行能力。</p>
           </div>
         </div>
       </section>
@@ -200,7 +214,7 @@ function ProviderCapabilityMatrix({ snapshot }: { snapshot: ProviderCapabilitySn
   const capabilities = Array.isArray(snapshot.capabilities) ? snapshot.capabilities : [];
   const degradedReasons = Array.isArray(snapshot.degradedReasons) ? snapshot.degradedReasons : [];
   return (
-    <section className="provider-capability-matrix" aria-label="Codex 能力矩阵">
+    <section className="provider-capability-matrix" aria-label="Provider 能力矩阵">
       <div className="settings-section-header">
         <div>
           <h3>能力矩阵</h3>
@@ -209,9 +223,9 @@ function ProviderCapabilityMatrix({ snapshot }: { snapshot: ProviderCapabilitySn
         <span className={`provider-status-pill ${snapshot.status}`}>{providerStatusLabel(snapshot.status)}</span>
       </div>
       <div className="settings-info-grid">
-        <Info label="Provider" value={snapshot.displayName ?? "Codex"} />
+        <Info label="Provider" value={snapshot.displayName} />
         <Info label="Product mode" value="Harness" />
-        <Info label="模型" value={snapshot.effectiveModel ?? "Codex 默认模型"} />
+        <Info label="模型" value={snapshot.effectiveModel ?? "Provider 默认模型"} />
         <Info label="Snapshot" value={snapshot.snapshotHash} />
       </div>
       <div className="provider-capability-list">
@@ -246,9 +260,9 @@ function ProviderCapabilityRow({ item }: { item: ProviderCapabilityItem }): Reac
 }
 
 function providerStatusText(snapshot: ProviderCapabilitySnapshot): string {
-  if (snapshot.status === "ready") return "Codex 已满足当前 Harness 模式需要的运行能力。";
-  if (snapshot.status === "degraded") return "Codex 可用，但部分能力正在降级或使用 fallback。";
-  return "Codex 当前不可运行，请查看诊断。";
+  if (snapshot.status === "ready") return `${snapshot.displayName} 已满足当前 Harness 模式需要的运行能力。`;
+  if (snapshot.status === "degraded") return `${snapshot.displayName} 可用，但部分能力正在降级。`;
+  return `${snapshot.displayName} 当前不可运行，请查看诊断。`;
 }
 
 function providerStatusLabel(status: ProviderCapabilitySnapshot["status"]): string {

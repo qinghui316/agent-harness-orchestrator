@@ -1,10 +1,9 @@
-import { createHash } from "node:crypto";
 import { detectCodexCapabilities } from "../codex/capabilities.js";
+import { detectCodexAppServerCapability } from "../codex/app-server.js";
 import { getCodexModelSettingsSnapshot } from "../codex/model-settings.js";
 import { listSkills } from "../skill/catalog.js";
 import type { ManagedProject } from "../types/index.js";
 import type {
-  HarnessExecutionMode,
   ProviderCapabilityItem,
   ProviderCapabilityKey,
   ProviderCapabilitySnapshot,
@@ -12,17 +11,8 @@ import type {
   ProviderRuntimeSummary,
   ProviderSnapshotStatus,
   ProviderSpecCapabilityState,
-  ProductMode,
-  RunnableProductMode,
 } from "./types.js";
-
-export const PROVIDER_CAPABILITY_SNAPSHOT_VERSION = 2;
-export const HARNESS_EXECUTION_MODES: HarnessExecutionMode[] = ["stepwise", "scoped-auto"];
-export const RUNNABLE_PRODUCT_MODES: RunnableProductMode[] = ["harness"];
-
-export function isRunnableProductMode(mode: ProductMode): mode is RunnableProductMode {
-  return mode === "harness";
-}
+import { HARNESS_EXECUTION_MODES, PROVIDER_CAPABILITY_SNAPSHOT_VERSION, stableCapabilitySnapshotHash } from "./capabilities.js";
 
 type CapabilityInput = {
   key: ProviderCapabilityKey;
@@ -44,13 +34,15 @@ export async function getCodexProviderRuntimeSummary(project: ManagedProject | n
 }
 
 export async function getCodexProviderCapabilitySnapshot(project: ManagedProject | null, projectPath?: string): Promise<ProviderCapabilitySnapshot> {
-  const [cli, models, skills] = await Promise.all([
+  const [cli, appServer, models, skills] = await Promise.all([
     detectCodexCapabilities(),
+    detectCodexAppServerCapability(),
     getCodexModelSettingsSnapshot(projectPath),
     project ? listSkills(project).catch((error: unknown) => ({ error })) : Promise.resolve(null),
   ]);
 
   const cliReady = cli.available && cli.errors.length === 0;
+  const appServerReady = appServer.supportsStdio && appServer.errors.length === 0;
   const safeExecReady = cliReady && cli.supportsJson && cli.supportsSandbox && cli.supportsCd;
   const modelListReady = models.modelList.available && !models.modelList.degraded;
   const skillCount = Array.isArray(skills) ? skills.length : 0;
@@ -58,7 +50,7 @@ export async function getCodexProviderCapabilitySnapshot(project: ManagedProject
 
   const items: CapabilityInput[] = [
     {
-      key: "streaming.text",
+      key: "stream.text",
       label: "文本输出",
       spec: "supported",
       runtime: safeExecReady ? "ready" : cli.available ? "degraded" : "unavailable",
@@ -66,7 +58,7 @@ export async function getCodexProviderCapabilitySnapshot(project: ManagedProject
       reason: firstReason(cli.errors),
     },
     {
-      key: "streaming.reasoning",
+      key: "stream.reasoning-summary",
       label: "推理输出",
       spec: "supported",
       runtime: safeExecReady ? "ready" : cli.available ? "degraded" : "unavailable",
@@ -74,7 +66,7 @@ export async function getCodexProviderCapabilitySnapshot(project: ManagedProject
       reason: safeExecReady ? undefined : firstReason(cli.errors),
     },
     {
-      key: "streaming.tool-output",
+      key: "stream.tool-output",
       label: "工具输出",
       spec: "supported",
       runtime: safeExecReady ? "ready" : cli.available ? "degraded" : "unavailable",
@@ -82,7 +74,7 @@ export async function getCodexProviderCapabilitySnapshot(project: ManagedProject
       reason: cli.supportsJson ? undefined : "Codex exec does not expose required JSON output.",
     },
     {
-      key: "tool.use",
+      key: "workspace.write",
       label: "工具调用",
       spec: "supported",
       runtime: safeExecReady ? "ready" : cli.available ? "degraded" : "unavailable",
@@ -106,7 +98,7 @@ export async function getCodexProviderCapabilitySnapshot(project: ManagedProject
       reason: "Reasoning effort is not exposed as an AHO Workbench control yet.",
     },
     {
-      key: "collaboration.mode",
+      key: "tool.dynamic",
       label: "执行策略",
       spec: "compat-input",
       runtime: "ready",
@@ -116,9 +108,9 @@ export async function getCodexProviderCapabilitySnapshot(project: ManagedProject
       key: "session.continuation",
       label: "会话续接",
       spec: "supported",
-      runtime: cli.supportsSafeResume ? "ready" : cli.available ? "degraded" : "unavailable",
-      summary: cli.supportsSafeResume ? "Codex resume 满足只读续接约束。" : "Codex resume 缺少等价只读约束时会 fail closed。",
-      reason: cli.supportsSafeResume ? undefined : "Safe resume requires sandbox, cwd, and external read-dir support when needed.",
+      runtime: appServerReady ? "ready" : appServer.supportsStdio ? "degraded" : "unavailable",
+      summary: appServerReady ? "Codex app-server 可续接原生会话。" : "Codex app-server 会话续接能力需要检查。",
+      reason: appServerReady ? undefined : firstReason(appServer.errors),
     },
     {
       key: "image.input",
@@ -137,7 +129,7 @@ export async function getCodexProviderCapabilitySnapshot(project: ManagedProject
       reason: models.modelList.degradedReason,
     },
     {
-      key: "skills",
+      key: "skill.native-load",
       label: "Skills",
       spec: "supported",
       runtime: skillError ? "degraded" : project ? "ready" : "degraded",
@@ -145,13 +137,28 @@ export async function getCodexProviderCapabilitySnapshot(project: ManagedProject
       reason: skillError ?? (project ? undefined : "No selected project for project-scoped Skill status."),
     },
   ];
+  items.push(
+    { key: "turn.start", label: "启动回合", spec: "supported", runtime: appServerReady ? "ready" : "unavailable", summary: "Codex app-server 可启动原生回合。" },
+    { key: "turn.resume", label: "续接回合", spec: "supported", runtime: appServerReady ? "ready" : "degraded", summary: "Codex app-server 可续接原生会话。" },
+    { key: "turn.interrupt", label: "中断回合", spec: "supported", runtime: appServerReady ? "ready" : "unavailable", summary: "Codex app-server 支持中断当前回合。" },
+    { key: "turn.user-input", label: "用户问答", spec: "supported", runtime: appServerReady ? "ready" : "unavailable", summary: "Codex app-server 可路由用户回答。" },
+    { key: "child.spawn", label: "子 Agent", spec: "supported", runtime: appServerReady ? "ready" : "unavailable", summary: "Codex native collaboration 可创建子 Agent。" },
+    { key: "child.result", label: "子 Agent 结果", spec: "supported", runtime: appServerReady ? "ready" : "unavailable", summary: "Codex 可返回子 Agent 结果。" },
+    { key: "structured-output", label: "结构化输出", spec: "supported", runtime: appServerReady ? "ready" : "unavailable", summary: "Codex app-server 支持 output schema。" },
+    { key: "workspace.read", label: "工作区读取", spec: "supported", runtime: safeExecReady ? "ready" : "unavailable", summary: "Codex 可读取分配工作区。" },
+    { key: "workspace.multiroot", label: "多根工作区", spec: "supported", runtime: safeExecReady ? "ready" : "unavailable", summary: "Codex 可接收项目和外部记忆根。" },
+    { key: "tool.web", label: "网络工具", spec: "supported", runtime: cliReady ? "ready" : "unavailable", summary: "网络工具由Codex运行能力和AHO策略共同约束。" },
+  );
 
   const capabilities = items.map(toCapabilityItem);
   const status = snapshotStatus(capabilities, cli.available);
   const degradedReasons = capabilities
     .filter((item) => item.runtime !== "ready")
     .map((item) => item.reason ?? item.summary);
-  const base = {
+  const effectiveModelSource: ProviderCapabilitySnapshot["effectiveModelSource"] = models.effectiveModelSource === "codex-default"
+    ? "provider-default"
+    : models.effectiveModelSource;
+  const base: Omit<ProviderCapabilitySnapshot, "snapshotHash"> = {
     providerId: "codex" as const,
     displayName: "Codex",
     productMode: "harness" as const,
@@ -160,7 +167,7 @@ export async function getCodexProviderCapabilitySnapshot(project: ManagedProject
     checkedAt: new Date().toISOString(),
     snapshotVersion: PROVIDER_CAPABILITY_SNAPSHOT_VERSION,
     effectiveModel: models.effectiveModel,
-    effectiveModelSource: models.effectiveModelSource,
+    effectiveModelSource,
     degradedReasons,
     capabilities,
   };
@@ -185,25 +192,6 @@ function snapshotStatus(capabilities: ProviderCapabilityItem[], cliAvailable: bo
   if (!cliAvailable) return "unavailable";
   if (capabilities.some((item) => item.runtime === "unavailable" || item.runtime === "degraded")) return "degraded";
   return "ready";
-}
-
-export function stableCapabilitySnapshotHash(input: Omit<ProviderCapabilitySnapshot, "snapshotHash">): string {
-  const stable = {
-    providerId: input.providerId,
-    productMode: input.productMode,
-    snapshotVersion: input.snapshotVersion,
-    status: input.status,
-    runnable: input.runnable,
-    effectiveModel: input.effectiveModel,
-    effectiveModelSource: input.effectiveModelSource,
-    capabilities: input.capabilities.map((item) => ({
-      key: item.key,
-      spec: item.spec,
-      runtime: item.runtime,
-      reason: item.reason ?? null,
-    })),
-  };
-  return createHash("sha256").update(JSON.stringify(stable)).digest("hex").slice(0, 16);
 }
 
 function firstReason(errors: string[]): string | undefined {

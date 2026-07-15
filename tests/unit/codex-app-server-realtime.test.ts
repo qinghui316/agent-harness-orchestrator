@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { normalizeCodexAppServerNotification } from "../../src/codex/app-server-realtime.js";
-import { forwardCodexRealtimeEvent } from "../../src/workbench/codex-live-events.js";
+import { forwardProviderRealtimeEvent } from "../../src/workbench/provider-live-events.js";
 import { createAssistantTranscriptCapture } from "../../src/workbench/live-transcript.js";
 import type { WorkbenchLiveEvent } from "../../src/workbench/types.js";
 
@@ -56,7 +56,10 @@ describe("Codex app-server realtime normalization", () => {
       roleId: "planning-agent",
       displayName: "Plan Agent",
     });
-    forwardCodexRealtimeEvent(realtime!, { emit: (event) => events.push(event) });
+    forwardProviderRealtimeEvent(
+      { ...realtime!, providerId: "codex", attemptId: "run-1", sessionId: realtime!.threadId },
+      { emit: (event) => events.push(event) },
+    );
     expect(events).toEqual([{
       event: "assistant.delta",
       data: expect.objectContaining({
@@ -64,7 +67,7 @@ describe("Codex app-server realtime normalization", () => {
         threadId: "thread-child",
         parentThreadId: "thread-main",
         agentRoleId: "planning-agent",
-        agentSurfaceId: "thread:thread-child",
+        agentSurfaceId: "agent:codex:thread:thread-child",
       }),
     }]);
   });
@@ -114,6 +117,60 @@ describe("Codex app-server realtime normalization", () => {
     }))).toEqual([
       { threadId: "thread-child", turnId: "turn-1", text: "reply-turn-1" },
       { threadId: "thread-child", turnId: "turn-2", text: "reply-turn-2" },
+    ]);
+  });
+
+  it("rekeys one unscoped Main provisional capture and keeps later real turns separate", () => {
+    const capture = createAssistantTranscriptCapture(undefined);
+    capture.sink.emit({
+      event: "run.started",
+      data: { runId: "run-1", providerId: "codex", attemptId: "attempt-1", actionType: "chat.ask" },
+    });
+    capture.sink.emit({
+      event: "assistant.delta",
+      data: {
+        runId: "run-1",
+        providerId: "codex",
+        attemptId: "attempt-1",
+        threadId: "thread-main",
+        turnId: "turn-1",
+        agentRoleId: "main-agent",
+        delta: "first",
+      },
+    });
+    capture.sink.emit({
+      event: "run.status",
+      data: {
+        runId: "run-1",
+        providerId: "codex",
+        attemptId: "attempt-1",
+        threadId: "thread-main",
+        turnId: "turn-1",
+        agentRoleId: "main-agent",
+        status: "completed",
+      },
+    });
+    capture.sink.emit({
+      event: "assistant.delta",
+      data: {
+        runId: "run-1",
+        providerId: "codex",
+        attemptId: "attempt-1",
+        threadId: "thread-main",
+        turnId: "turn-2",
+        agentRoleId: "main-agent",
+        delta: "second",
+      },
+    });
+
+    expect([...capture.mainCaptures.values()].map((main) => ({
+      canonicalId: main.canonicalId,
+      threadId: main.threadId,
+      turnId: main.turnId,
+      text: main.text,
+    }))).toEqual([
+      { canonicalId: "main:run-1:turn:1", threadId: "thread-main", turnId: "turn-1", text: "first" },
+      { canonicalId: "main:run-1:turn:2", threadId: "thread-main", turnId: "turn-2", text: "second" },
     ]);
   });
 

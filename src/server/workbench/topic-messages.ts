@@ -10,7 +10,7 @@ import type {
   TopicMessageRequest,
 } from "./types.js";
 
-export async function readCreateTopicBody(request: IncomingMessage): Promise<{ title: string; body?: string; contextRefs?: CreateTopicRequest["contextRefs"]; attachmentIds?: string[] }> {
+export async function readCreateTopicBody(request: IncomingMessage): Promise<{ title: string; body?: string; contextRefs?: CreateTopicRequest["contextRefs"]; attachmentIds?: string[]; providerId?: string }> {
   const body = await readJsonBody<CreateTopicRequest>(request);
   if (body.confirm !== true) {
     const error = new Error("Creating a demand conversation requires confirm: true.");
@@ -22,7 +22,7 @@ export async function readCreateTopicBody(request: IncomingMessage): Promise<{ t
     error.name = "BadRequest";
     throw error;
   }
-  return { title: body.title.trim(), body: body.body, contextRefs: body.contextRefs, attachmentIds: body.attachmentIds };
+  return { title: body.title.trim(), body: body.body, contextRefs: body.contextRefs, attachmentIds: body.attachmentIds, providerId: body.providerId };
 }
 
 export async function readTopicMessageBody(request: IncomingMessage): Promise<TopicMessageRequest> {

@@ -2,22 +2,20 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { openNativeFolderDialog } from "./native-dialog.js";
 import { matchProjectWorkbenchRoute } from "./routes.js";
 import { resolveProjectInputWithDirect } from "./direct-project.js";
-import { getWorkbenchCodexDiagnostics } from "./codex-diagnostics.js";
 import { getRuntimeDiagnostics } from "./runtime-diagnostics.js";
 import { getRuntimeActivityLog } from "./runtime-activity-log.js";
-import { getCodexProviderRuntimeSummary } from "../../provider-runtime/index.js";
+import { defaultProviderRegistry } from "../../provider-runtime/index.js";
+import type { ProviderRegistry } from "../../provider-runtime/registry.js";
 import { listProjectFileChildren, readProjectFilePreview, searchProjectFiles } from "../../workbench/file-references.js";
 import { createTopicAttachment, deleteTopicAttachment } from "../../workbench/attachments.js";
 import { getProjectGitCommitDetail, getProjectGitCommitDiff, getProjectGitDiff, getProjectGitHistory, getProjectGitStatus } from "../../workbench/git-panel.js";
-import { getCodexBridgeStatus, syncCodexBridge } from "../../codex/bridge.js";
-import { getCodexModelSettingsSnapshot, setSelectedCodexModel } from "../../codex/model-settings.js";
-import { addSkillRoot, listSkillRoots, listSkills, refreshSkills, setSkillEnabled, type SkillSourceKind } from "../../skill/catalog.js";
-import { addExistingProject, createNewProject, initProjectHarness, listProjectStatuses, removeRegisteredProject, trustCodexProjectForWorkbench } from "./project-admin.js";
+import { addSkillRoot, listSkillRoots, refreshSkills, setSkillEnabled, type SkillSourceKind } from "../../skill/catalog.js";
+import { addExistingProject, createNewProject, initProjectHarness, listProjectStatuses, removeRegisteredProject } from "./project-admin.js";
 import { handleDirectWorkbenchApi } from "./direct-routes.js";
 import { handleProjectWorkbenchApi } from "./project-routes.js";
 import { handleTerminalApi } from "./terminal-routes.js";
-import { assertLocalWorkbenchRequest, assertRegisteredProject, readJsonBody, sendJson } from "./http.js";
-import type { AddExistingProjectRequest, CreateNewProjectRequest, InitProjectHarnessRequest, RemoveProjectRequest, TrustCodexProjectRequest, WorkbenchServerContext } from "./types.js";
+import { assertConfirmed, assertLocalWorkbenchRequest, assertRegisteredProject, readJsonBody, sendJson } from "./http.js";
+import type { AddExistingProjectRequest, CreateNewProjectRequest, InitProjectHarnessRequest, RemoveProjectRequest, WorkbenchServerContext } from "./types.js";
 
 export async function handleApi(context: WorkbenchServerContext, request: IncomingMessage, response: ServerResponse, url: URL): Promise<void> {
   if (request.method !== "GET") {
@@ -37,22 +35,31 @@ export async function handleApi(context: WorkbenchServerContext, request: Incomi
     sendJson(response, 200, { mode: context.input ? "project" : "app", directProjectId: context.input?.project?.id ?? null });
     return;
   }
-  if (request.method === "GET" && url.pathname === "/api/codex/diagnostics") {
-    sendJson(response, 200, await getWorkbenchCodexDiagnostics(null));
-    return;
-  }
   if (request.method === "GET" && url.pathname === "/api/runtime/diagnostics") {
     sendJson(response, 200, await getRuntimeDiagnostics(context, null));
     return;
   }
   if (request.method === "GET" && url.pathname === "/api/providers/capabilities") {
-    const summary = await getCodexProviderRuntimeSummary(null);
-    sendJson(response, 200, { providers: [summary.snapshot], runtimeSummaries: [summary] });
+    const runtimeSummaries = await Promise.all(defaultProviderRegistry.list().map((provider) => provider.runtimeSummary(null)));
+    sendJson(response, 200, { providers: runtimeSummaries.map((summary) => summary.snapshot), runtimeSummaries });
     return;
   }
-  if (request.method === "GET" && url.pathname === "/api/codex/models") {
-    sendJson(response, 200, await getCodexModelSettingsSnapshot());
+  if (request.method === "GET" && url.pathname === "/api/providers") {
+    sendJson(response, 200, { providers: defaultProviderRegistry.list().map((provider) => ({ providerId: provider.id, displayName: provider.displayName })) });
     return;
+  }
+  const globalProviderSurface = url.pathname.match(/^\/api\/providers\/([^/]+)\/(diagnostics|models)$/);
+  if (globalProviderSurface?.[1] && globalProviderSurface[2]) {
+    const provider = defaultProviderRegistry.get(decodeURIComponent(globalProviderSurface[1]));
+    if (request.method === "GET" && globalProviderSurface[2] === "diagnostics") {
+      sendJson(response, 200, await provider.diagnostics(null));
+      return;
+    }
+    if (globalProviderSurface[2] === "models" && (request.method === "GET" || request.method === "POST")) {
+      const selected = request.method === "POST" ? (await readJsonBody<{ selectedModel?: string | null }>(request)).selectedModel ?? null : undefined;
+      sendJson(response, 200, selected === undefined ? await provider.models.read() : await provider.models.select(selected));
+      return;
+    }
   }
   if (request.method === "GET" && url.pathname === "/api/projects") {
     sendJson(response, 200, { projects: await listProjectStatuses(context.store, context.input) });
@@ -80,17 +87,6 @@ export async function handleApi(context: WorkbenchServerContext, request: Incomi
     sendJson(response, 200, await initProjectHarness(context.store, decodeURIComponent(initMatch[1]), await readJsonBody<InitProjectHarnessRequest>(request)));
     return;
   }
-  const codexTrustMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/codex\/trust$/);
-  if (request.method === "POST" && codexTrustMatch?.[1]) {
-    sendJson(response, 200, await trustCodexProjectForWorkbench(context.store, decodeURIComponent(codexTrustMatch[1]), await readJsonBody<TrustCodexProjectRequest>(request)));
-    return;
-  }
-  const codexDiagnosticsMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/codex\/diagnostics$/);
-  if (request.method === "GET" && codexDiagnosticsMatch?.[1]) {
-    const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(codexDiagnosticsMatch[1]));
-    sendJson(response, 200, await getWorkbenchCodexDiagnostics(input.project, input.path));
-    return;
-  }
   const runtimeDiagnosticsMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/runtime\/diagnostics$/);
   if (request.method === "GET" && runtimeDiagnosticsMatch?.[1]) {
     sendJson(response, 200, await getRuntimeDiagnostics(context, decodeURIComponent(runtimeDiagnosticsMatch[1])));
@@ -107,36 +103,40 @@ export async function handleApi(context: WorkbenchServerContext, request: Incomi
   const providerCapabilitiesMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/providers\/capabilities$/);
   if (request.method === "GET" && providerCapabilitiesMatch?.[1]) {
     const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(providerCapabilitiesMatch[1]));
-    const summary = await getCodexProviderRuntimeSummary(input.project, input.path);
-    sendJson(response, 200, { providers: [summary.snapshot], runtimeSummaries: [summary] });
+    const runtimeSummaries = await Promise.all(defaultProviderRegistry.list().map((provider) => provider.runtimeSummary(input.project, input.path)));
+    sendJson(response, 200, { providers: runtimeSummaries.map((summary) => summary.snapshot), runtimeSummaries });
     return;
   }
-  const codexModelsMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/codex\/models$/);
-  if (codexModelsMatch?.[1]) {
-    const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(codexModelsMatch[1]));
-    if (request.method === "GET") {
-      sendJson(response, 200, await getCodexModelSettingsSnapshot(input.path));
+  const projectProviderDefaultMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/provider-default$/);
+  if (request.method === "POST" && projectProviderDefaultMatch?.[1]) {
+    const projectId = decodeURIComponent(projectProviderDefaultMatch[1]);
+    const body = await readJsonBody<{ providerId?: string | null }>(request);
+    if (body.providerId) defaultProviderRegistry.get(body.providerId);
+    sendJson(response, 200, { project: await context.store.setDefaultProvider(projectId, body.providerId ?? null) });
+    return;
+  }
+  const projectProviderSurface = url.pathname.match(/^\/api\/projects\/([^/]+)\/providers\/([^/]+)\/(diagnostics|models)$/);
+  if (projectProviderSurface?.[1] && projectProviderSurface[2] && projectProviderSurface[3]) {
+    const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(projectProviderSurface[1]));
+    const provider = defaultProviderRegistry.get(decodeURIComponent(projectProviderSurface[2]));
+    if (request.method === "GET" && projectProviderSurface[3] === "diagnostics") {
+      sendJson(response, 200, await provider.diagnostics(input.project, input.path));
       return;
     }
-    if (request.method === "POST") {
-      const body = await readJsonBody<{ selectedModel?: string | null }>(request);
-      if (Object.prototype.hasOwnProperty.call(body, "selectedModel")) {
-        const selectedModel = typeof body.selectedModel === "string" ? body.selectedModel.trim() : null;
-        if (selectedModel) {
-          const snapshot = await getCodexModelSettingsSnapshot(input.path);
-          const candidate = snapshot.candidates.find((item) => item.id === selectedModel || item.model === selectedModel);
-          if (!candidate) {
-            sendJson(response, 400, { error: "Selected Codex model must come from the current runtime/config candidates." });
-            return;
-          }
-          await setSelectedCodexModel(candidate.model);
-        } else {
-          await setSelectedCodexModel(null);
-        }
-      }
-      sendJson(response, 200, await getCodexModelSettingsSnapshot(input.path));
+    if (projectProviderSurface[3] === "models" && (request.method === "GET" || request.method === "POST")) {
+      const selected = request.method === "POST" ? (await readJsonBody<{ selectedModel?: string | null }>(request)).selectedModel ?? null : undefined;
+      sendJson(response, 200, selected === undefined ? await provider.models.read(input.path) : await provider.models.select(selected, input.path));
       return;
     }
+  }
+  const projectProviderAction = url.pathname.match(/^\/api\/projects\/([^/]+)\/providers\/([^/]+)\/actions\/([^/]+)$/);
+  if (request.method === "POST" && projectProviderAction?.[1] && projectProviderAction[2] && projectProviderAction[3]) {
+    const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(projectProviderAction[1]));
+    assertRegisteredProject(input);
+    assertConfirmed((await readJsonBody<{ confirm?: boolean }>(request)).confirm);
+    const provider = defaultProviderRegistry.get(decodeURIComponent(projectProviderAction[2]));
+    sendJson(response, 200, await provider.projectActions.execute(decodeURIComponent(projectProviderAction[3]), input.project, input.path));
+    return;
   }
   const fileSearchMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/files\/search$/);
   if (request.method === "GET" && fileSearchMatch?.[1]) {
@@ -285,7 +285,12 @@ export async function handleApi(context: WorkbenchServerContext, request: Incomi
     const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(skillsMatch[1]));
     assertRegisteredProject(input);
     if (request.method === "GET") {
-      sendJson(response, 200, { roots: await listSkillRoots(input.project), skills: await listSkills(input.project), bridge: await getCodexBridgeStatus(input.project) });
+      const provider = resolveProjectSkillProvider(input.project, url.searchParams.get("providerId"));
+      sendJson(response, 200, {
+        roots: await listSkillRoots(input.project),
+        skills: await provider.skillRoleBinding.bindCatalog(input.project),
+        bridge: await provider.skillRoleBinding.status(input.project),
+      });
       return;
     }
     if (request.method === "POST") {
@@ -301,11 +306,13 @@ export async function handleApi(context: WorkbenchServerContext, request: Incomi
     sendJson(response, 200, { skills: await setSkillEnabled(input.project, decodeURIComponent(skillEnableMatch[2]), { enabled: Boolean(body.enabled), topic: body.topic }) });
     return;
   }
-  const skillBridgeMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/skills\/codex-bridge\/sync$/);
+  const skillBridgeMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/skills\/provider-binding\/sync$/);
   if (request.method === "POST" && skillBridgeMatch?.[1]) {
     const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(skillBridgeMatch[1]));
     assertRegisteredProject(input);
-    sendJson(response, 200, await syncCodexBridge(input.project));
+    const body = await readJsonBody<{ providerId?: string }>(request);
+    const provider = resolveProjectSkillProvider(input.project, body.providerId);
+    sendJson(response, 200, await provider.skillRoleBinding.sync(input.project));
     return;
   }
 
@@ -313,7 +320,13 @@ export async function handleApi(context: WorkbenchServerContext, request: Incomi
   sendJson(response, 404, { error: "Not found." });
 }
 
+export function resolveProjectSkillProvider(project: { defaultProviderId?: string }, requestedProviderId?: string | null, registry: ProviderRegistry = defaultProviderRegistry) {
+  const providerId = requestedProviderId || project.defaultProviderId;
+  if (providerId) return registry.get(providerId);
+  return registry.requireOnly();
+}
+
 function normalizeSkillSourceKind(value: string | undefined): SkillSourceKind {
-  if (value === "project-codex" || value === "global-codex" || value === "managed") return value;
+  if (value === "managed" || value === "system-aho") return value;
   return "custom";
 }

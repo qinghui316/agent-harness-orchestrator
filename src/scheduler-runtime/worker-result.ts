@@ -181,7 +181,7 @@ function assertLeaseMatchesWorkerStart(lease: WorkerLease, workerStart: Schedule
 }
 
 function assertCodeRunMatchesWorkerStart(codeRun: RunMetadata, workerStart: SchedulerRuntimeWorkerStart): void {
-  if (codeRun.changeId !== workerStart.changeId || codeRun.id !== workerStart.runId || codeRun.taskRunId !== workerStart.taskRunId || codeRun.runtime !== "coder-codex") {
+  if (codeRun.changeId !== workerStart.changeId || codeRun.id !== workerStart.runId || codeRun.taskRunId !== workerStart.taskRunId || codeRun.runtime !== "provider-code") {
     throw new Error("planning.scheduler.worker.reconcile-result code run scope mismatch.");
   }
   if (!codeRun.taskIds?.some((taskId) => taskId.toUpperCase() === workerStart.taskId.toUpperCase())) {

@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { getCodexBridgeStatus, installCodexBridge, syncCodexBridge } from "../../src/codex/bridge.js";
+import { bindCodexEnabledSkills, bindCodexSkillCatalog, getCodexBridgeStatus, installCodexBridge, listNativeCodexSkills, syncCodexBridge } from "../../src/codex/bridge.js";
 import { listAgentRoles, showAgentRole, syncAgentCatalog } from "../../src/agent/catalog.js";
 import { writeProjectMarker } from "../../src/project/marker.js";
 import { addSkillRoot, getEnabledSkillContext, getRuntimeAssignedHarnessSkillContext, importSkill, listSkills, setSkillEnabled } from "../../src/skill/catalog.js";
@@ -125,36 +125,20 @@ describe("AHO skill source and Codex bridge", () => {
     expect(manifest.agents.some((item: { id: string }) => ["coder", "auditor", "validator", "merge-reviewer-agent"].includes(item.id))).toBe(false);
   });
 
-  it("discovers global Codex skills as native runtime skills and skips bridge materialization", async () => {
+  it("keeps native Codex Skill discovery inside the Codex bridge", async () => {
     const repo = project();
     await mkdir(repo.path, { recursive: true });
     await writeProjectMarker(repo, "external-local");
     const nativeRoot = join(process.env.CODEX_HOME ?? "", "skills");
     await createSkillSource("native-codex-skill", nativeRoot);
 
-    const skills = await listSkills(repo);
-    const native = skills.find((item) => item.skillId === "native-codex-skill");
-    expect(native).toMatchObject({
-      sourceKind: "global-codex",
-      runtimeTargets: [expect.objectContaining({ provider: "codex", status: "native", materializationMode: "native" })],
-    });
-
-    await setSkillEnabled(repo, "native-codex-skill", { enabled: true });
-    const context = await getEnabledSkillContext(repo, "change-a");
-    expect(context.warnings).toEqual([]);
-    expect(context.records[0]).toMatchObject({
-      id: "native-codex-skill",
-      sourceKind: "global-codex",
-      materializationMode: "native",
-      bridge: "codex:native",
-      materializedHash: null,
-    });
-    expect(context.promptSection).toContain("$native-codex-skill");
-
-    const synced = await syncCodexBridge(repo);
-    expect(synced.synced).toHaveLength(0);
-    expect(existsSync(join(process.env.CODEX_HOME ?? "", "plugins", "aho-managed", "skills", "demo__native-codex-skill"))).toBe(false);
-    expect((await getCodexBridgeStatus(repo)).project?.outOfSync).toEqual([]);
+    expect((await listSkills(repo)).some((item) => item.skillId === "native-codex-skill")).toBe(false);
+    expect(await listNativeCodexSkills(repo)).toEqual([expect.objectContaining({
+      skillId: "native-codex-skill",
+      scope: "global",
+      contentHash: expect.any(String),
+      sourcePath: join(nativeRoot, "native-codex-skill"),
+    })]);
   });
 
   it("discovers bundled AHO system skills and materializes them through the AHO-managed bridge", async () => {
@@ -167,15 +151,19 @@ describe("AHO skill source and Codex bridge", () => {
     const authoringSkill = skills.find((item) => item.skillId === "aho-workflow-authoring");
     expect(authoringSkill).toMatchObject({
       sourceKind: "system-aho",
-      runtimeTargets: [expect.objectContaining({ provider: "codex", status: "not-synced", materializationMode: "aho-managed" })],
+      providerBindings: [],
     });
+    expect((await bindCodexSkillCatalog(repo, [authoringSkill!]))[0].providerBindings)
+      .toEqual([expect.objectContaining({ providerId: "codex", status: "unavailable", bindingKind: "materialized" })]);
 
     await expect(setSkillEnabled(repo, "aho-harness-engineering", { topic: "change-a", enabled: true }))
       .rejects.toThrow("Runtime-assigned");
     await setSkillEnabled(repo, "aho-workflow-authoring", { topic: "change-a", enabled: true });
     const beforeSync = await getEnabledSkillContext(repo, "change-a");
-    expect(beforeSync.records).toEqual([expect.objectContaining({ id: "aho-workflow-authoring", sourceKind: "system-aho", materializationMode: "aho-managed" })]);
-    expect(beforeSync.warnings).toEqual(["Skill aho-workflow-authoring is not synced to the Codex bridge."]);
+    expect(beforeSync.records).toEqual([expect.objectContaining({ id: "aho-workflow-authoring", sourceKind: "system-aho", providerBindings: [] })]);
+    expect(beforeSync.warnings).toEqual([]);
+    expect((await bindCodexEnabledSkills(repo, beforeSync.records)).warnings)
+      .toEqual(["Skill aho-workflow-authoring is not synced to the Codex bridge."]);
 
     const legacy = join(process.env.CODEX_HOME ?? "", "plugins", "aho-managed", "skills", "demo__aho-harness-onboarding");
     await mkdir(legacy, { recursive: true });
@@ -191,6 +179,8 @@ describe("AHO skill source and Codex bridge", () => {
     expect(existsSync(join(materializedAuthoring, "references", "workflow-patterns.md"))).toBe(true);
     expect(existsSync(join(process.env.CODEX_HOME ?? "", "skills", "aho-harness-engineering"))).toBe(false);
     expect(existsSync(join(process.env.CODEX_HOME ?? "", "skills", "aho-workflow-authoring"))).toBe(false);
+    expect((await bindCodexSkillCatalog(repo)).find((item) => item.skillId === "aho-workflow-authoring")?.providerBindings)
+      .toEqual([expect.objectContaining({ providerId: "codex", status: "ready" })]);
   });
 
   it("records native runtime-assigned Skill input without injecting its body", async () => {
@@ -209,9 +199,9 @@ describe("AHO skill source and Codex bridge", () => {
     expect(context.records).toEqual([expect.objectContaining({
       id: "aho-harness-engineering",
       sourceKind: "system-aho",
-      materializationMode: "native",
-      bridge: "app-server:skill-input",
-      materializedHash: null,
+      contentHash: expect.any(String),
+      compatibility: { requiredCapabilities: ["skill.native-load"] },
+      providerBindings: [],
     })]);
     expect(context.promptSection).toContain("Harness Engineering Task Packet");
     expect(context.promptSection).not.toContain("references/project-and-harness-detection.md");

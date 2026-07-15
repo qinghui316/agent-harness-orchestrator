@@ -228,7 +228,7 @@ function threadItemFromMessage(message: TopicThreadEntry, sortKey: number): Thre
       actionType: undefined,
       activity: message.activity,
       blocks: blocksFromMessage(message),
-      codexUserInput: message.codexUserInput,
+      providerUserInput: message.providerUserInput,
       semanticKey: `message:${message.id}`,
       sortKey,
       subOrder: 0,
@@ -432,7 +432,7 @@ function blocksFromActivity(activity: AssistantTurnActivity[] | undefined, messa
         sequence: index + 1,
         kind,
         timestamp: assistantEvent.timestamp ?? event.timestamp,
-        source: "codex",
+        source: "provider",
         status: assistantEvent.phase,
         title: assistantEvent.title ?? assistantEventTitle(assistantEvent.kind),
         text: assistantEvent.summary,
@@ -453,7 +453,7 @@ function blocksFromActivity(activity: AssistantTurnActivity[] | undefined, messa
         sequence: index + 1,
         kind: "command",
         timestamp: event.timestamp,
-        source: "codex",
+        source: "provider",
         status: event.tool.status ?? event.tool.phase,
         title: event.tool.isError ? "命令失败" : event.tool.phase === "started" ? "正在运行命令" : "命令完成",
         command: event.tool.command,
@@ -468,7 +468,7 @@ function blocksFromActivity(activity: AssistantTurnActivity[] | undefined, messa
         sequence: index + 1,
         kind: "usage",
         timestamp: event.timestamp,
-        source: "codex",
+        source: "provider",
         title: "用量",
         text: formatUsageSummary(event.usage),
       });
@@ -479,7 +479,7 @@ function blocksFromActivity(activity: AssistantTurnActivity[] | undefined, messa
         sequence: index + 1,
         kind: "error",
         timestamp: event.timestamp,
-        source: "codex",
+        source: "provider",
         title: "错误",
         text: event.message,
         isError: true,
@@ -594,11 +594,6 @@ function isMainThreadBlock(block: AssistantTurnBlock): boolean {
   if (block.kind !== "status") return true;
   const normalized = `${block.title ?? ""} ${block.text ?? ""} ${block.status ?? ""}`.toLowerCase();
   if (isAgentLifecycleStatus(normalized)) return true;
-  if (normalized.includes("codex thread started")) return false;
-  if (normalized.includes("codex initialized the thread")) return false;
-  if (normalized.includes("codex turn running")) return false;
-  if (normalized.includes("codex started processing the turn")) return false;
-  if (normalized.includes("codex turn completed")) return false;
   return Boolean(block.isError) || normalized.includes("validation") || normalized.includes("audit") || normalized.includes("failed") || normalized.includes("blocked");
 }
 
@@ -660,11 +655,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function hasInternalRunMetadata(text: string | undefined): boolean {
   if (!text) return false;
   const normalized = text.toLowerCase();
-  const artifactSignals = ["codex-events.jsonl", "events.jsonl", "stdout.log", "stderr.log", "last-message.md"];
+  const artifactSignals = ["provider-events.jsonl", "events.jsonl", "stdout.log", "stderr.log", "last-message.md"];
   const hasArtifactSignal = artifactSignals.some((signal) => normalized.includes(signal));
   const hasRunMetadataShape = normalized.includes('"runtime"') && normalized.includes('"artifacts"') && normalized.includes('"promptstack"');
-  const hasCodexInvocation = normalized.includes('"command"') && normalized.includes('"codex"') && normalized.includes("--output-last-message");
-  return hasRunMetadataShape || hasCodexInvocation || (hasArtifactSignal && normalized.includes('"artifacts"'));
+  return hasRunMetadataShape || (hasArtifactSignal && normalized.includes('"artifacts"'));
 }
 
 function mergeAssistantTurn(target: ThreadStreamDraft, incoming: ThreadStreamDraft): void {

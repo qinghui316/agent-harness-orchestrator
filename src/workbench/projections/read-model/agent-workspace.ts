@@ -1,7 +1,8 @@
 import type { StoredProviderThreadLink } from "../../store.js";
-import type { WorkbenchAgentWorkspace, WorkbenchAgentWorkspaceAgent, WorkbenchRoleRunSummary, WorkbenchTopicDetail, WorkbenchWorkpad } from "../../read-model-types.js";
+import type { WorkbenchAgentWorkspace, WorkbenchAgentWorkspaceAgent, WorkbenchTopicDetail, WorkbenchWorkpad } from "../../read-model-types.js";
 import { buildAgentScopedTranscriptCells, type ParentAgentTranscript, type ParentAgentTranscriptCell } from "../../parent-agent-transcript.js";
 import { agentRoleDisplayName, baseAgentDisplayLabel, composeAgentDisplayLabel } from "../../../agent-display-label.js";
+import { agentThreadSurfaceId } from "../../../provider-runtime/agent-surface-id.js";
 
 const MODEL_ROLES = new Set([
   "planning-agent",
@@ -15,7 +16,6 @@ const MODEL_ROLES = new Set([
   "evolution-scorer",
   "child-agent",
 ]);
-
 export function emptyAgentWorkspace(): WorkbenchAgentWorkspace {
   return { selectedAgentId: "", agents: [] };
 }
@@ -29,10 +29,25 @@ export function buildAgentWorkspace(input: {
 }): WorkbenchAgentWorkspace {
   const agents = new Map<string, WorkbenchAgentWorkspaceAgent>();
   const providerAgentIds = new Map<string, string>();
-  for (const link of input.providerThreads ?? []) {
-    if (!input.graphScopeId || link.graphScopeId !== input.graphScopeId) continue;
+  const scopedLinks = (input.providerThreads ?? []).filter((link) => input.graphScopeId && link.graphScopeId === input.graphScopeId);
+  const surfaceByProviderThread = new Map(scopedLinks.map((link) => {
+    const providerId = link.providerId;
+    return [providerThreadKey(providerId, link.providerThreadId), link.roleId === "main-agent" ? "main-agent" : agentThreadSurfaceId(providerId, link.providerThreadId)] as const;
+  }));
+  const scopedItems = (input.selectedTopic?.threadItems ?? []).filter((item) => input.graphScopeId && item.graphScopeId === input.graphScopeId);
+  for (const item of scopedItems) {
+    if (!item.threadId || !item.agentRoleId) continue;
+    const providerId = providerIdOf(item);
+    if (!providerId) continue;
+    surfaceByProviderThread.set(
+      providerThreadKey(providerId, item.threadId),
+      item.agentRoleId === "main-agent" ? "main-agent" : agentThreadSurfaceId(providerId, item.threadId),
+    );
+  }
+  for (const link of scopedLinks) {
     if (link.roleId === "main-agent" || !MODEL_ROLES.has(link.roleId)) continue;
-    const id = `thread:${link.providerThreadId}`;
+    const providerId = link.providerId;
+    const id = agentThreadSurfaceId(providerId, link.providerThreadId);
     const cells = input.selectedTopic ? buildAgentScopedTranscriptCells(input.selectedTopic.threadItems, {
       agentRoleId: link.roleId,
       threadId: link.providerThreadId,
@@ -40,23 +55,27 @@ export function buildAgentWorkspace(input: {
     agents.set(id, agentSurface({
       id,
       roleId: link.roleId,
+      providerId,
       providerThreadId: link.providerThreadId,
       providerDisplayName: link.displayName ?? undefined,
       parentThreadId: link.parentThreadId ?? undefined,
+      parentAgentId: parentAgentId(providerId, link.parentThreadId, surfaceByProviderThread),
       runId: link.runId ?? undefined,
       status: cells.some((cell) => cell.status === "running") ? "running" : "completed",
       cells,
       summary: cells.at(-1)?.text ?? "真实 Agent 对话。",
       label: composeAgentDisplayLabel(link.roleId, link.displayName ?? undefined),
     }));
-    providerAgentIds.set(providerTaskKey(link.conversationId, link.roleId), id);
+    providerAgentIds.set(providerTaskKey(providerId, link.conversationId, link.roleId), id);
   }
 
-  for (const item of input.selectedTopic?.threadItems ?? []) {
-    if (!input.graphScopeId || item.graphScopeId !== input.graphScopeId) continue;
+  for (const item of scopedItems) {
     const roleId = item.agentRoleId;
     if (!roleId || roleId === "main-agent" || !MODEL_ROLES.has(roleId)) continue;
-    const id = item.threadId ? `thread:${item.threadId}` : item.runId ? `run:${item.runId}` : null;
+    if (!item.threadId) continue;
+    const providerId = providerIdOf(item);
+    if (!providerId) continue;
+    const id = agentThreadSurfaceId(providerId, item.threadId);
     if (!id || agents.has(id)) continue;
     const cells = buildAgentScopedTranscriptCells(input.selectedTopic!.threadItems, {
       agentRoleId: roleId,
@@ -65,8 +84,10 @@ export function buildAgentWorkspace(input: {
     agents.set(id, agentSurface({
       id,
       roleId,
+      providerId,
       providerThreadId: item.threadId,
       parentThreadId: item.parentThreadId,
+      parentAgentId: parentAgentId(providerId, item.parentThreadId, surfaceByProviderThread),
       runId: item.runId,
       status: cells.some((cell) => cell.status === "running") ? "running" : "completed",
       cells,
@@ -76,21 +97,15 @@ export function buildAgentWorkspace(input: {
 
   const execution = input.includeExecution ? input.workpad.mainAgentExecution : undefined;
   if (execution) {
-    for (const run of execution.runs) {
-      if (!MODEL_ROLES.has(run.roleId) || run.roleId === "planning-agent") continue;
-      const id = run.runId ? `run:${run.runId}` : `run:${run.roleId}:${stablePart(run.artifact ?? run.summary)}`;
-      agents.set(id, runSurface(id, run));
-    }
     for (const task of execution.agentTasks) {
       const taskRoleId = normalizedRoleId(task.roleId);
       if (!MODEL_ROLES.has(taskRoleId) || taskRoleId === "planning-agent") continue;
-      const providerAgentId = providerAgentIds.get(providerTaskKey(task.conversationId, taskRoleId));
-      const providerAgent = providerAgentId
-        ? agents.get(providerAgentId)
-        : task.runId
-          ? [...agents.values()].find((agent) => agent.runId === task.runId)
-          : undefined;
-      const id = providerAgent?.id ?? (task.runId ? `run:${task.runId}` : `task:${task.id}`);
+      const taskProviderId = providerIdOf(task);
+      const providerAgentId = (taskProviderId ? providerAgentIds.get(providerTaskKey(taskProviderId, task.conversationId, taskRoleId)) : undefined)
+        ?? uniqueAgentForRole(agents, taskRoleId, task.runId);
+      const providerAgent = providerAgentId ? agents.get(providerAgentId) : undefined;
+      if (!providerAgent) continue;
+      const id = providerAgent.id;
       const existing = agents.get(id);
       const cell = processCell(`task:${task.id}`, roleLabel(taskRoleId), task.resultSummary ?? task.summary, task.status, taskRoleId, task.runId, task.evidenceRefs[0]);
       agents.set(id, existing ? {
@@ -98,14 +113,7 @@ export function buildAgentWorkspace(input: {
         status: task.status,
         summary: task.resultSummary ?? task.summary,
         transcript: transcript(task.roleId, [...(existing.transcript.cells ?? []), cell]),
-      } : agentSurface({
-        id,
-        roleId: taskRoleId,
-        runId: task.runId,
-        status: task.status,
-        cells: [cell],
-        summary: task.resultSummary ?? task.summary,
-      }));
+      } : providerAgent);
     }
   }
 
@@ -113,23 +121,14 @@ export function buildAgentWorkspace(input: {
   return { selectedAgentId: "", agents: ordered };
 }
 
-function runSurface(id: string, run: WorkbenchRoleRunSummary): WorkbenchAgentWorkspaceAgent {
-  return agentSurface({
-    id,
-    roleId: run.roleId,
-    runId: run.runId,
-    status: run.status,
-    summary: run.summary,
-    cells: [processCell(`run:${id}`, roleLabel(run.roleId), run.summary, run.status, run.roleId, run.runId, run.artifact)],
-  });
-}
-
 function agentSurface(input: {
   id: string;
   roleId: string;
+  providerId: string;
   providerThreadId?: string;
   providerDisplayName?: string;
   parentThreadId?: string;
+  parentAgentId: string;
   runId?: string;
   status: string;
   summary: string;
@@ -139,9 +138,11 @@ function agentSurface(input: {
   return {
     id: input.id,
     roleId: input.roleId,
+    providerId: input.providerId,
     providerThreadId: input.providerThreadId,
     providerDisplayName: input.providerDisplayName,
     parentThreadId: input.parentThreadId,
+    parentAgentId: input.parentAgentId,
     runId: input.runId,
     label: input.label ?? roleLabel(input.roleId),
     status: input.status,
@@ -180,7 +181,7 @@ function transcript(roleId: string, cells: ParentAgentTranscriptCell[]): ParentA
       id: `agent-workspace:item:${cell.id}`,
       actor: cell.kind === "user-message" ? "user" : "parent-agent",
       timestamp: cell.timestamp,
-      derived: cell.source !== "codex-runtime" && cell.source !== "user",
+      derived: cell.source !== "provider-runtime" && cell.source !== "user",
       blocks: [{
         id: `agent-workspace:block:${cell.id}`,
         kind: cell.kind === "assistant-message" || cell.kind === "user-message" ? "prose" : cell.kind === "process-row" ? "process" : "evidence",
@@ -220,10 +221,28 @@ function normalizedRoleId(roleId: string): string {
   return roleId;
 }
 
-function providerTaskKey(conversationId: string, roleId: string): string {
-  return `${conversationId}:${normalizedRoleId(roleId)}`;
+function providerIdOf(value: object): string | null {
+  const providerId = "providerId" in value && typeof value.providerId === "string" ? value.providerId.trim() : "";
+  return providerId || null;
 }
 
-function stablePart(value: string): string {
-  return value.replace(/[^a-zA-Z0-9]+/g, "-").slice(0, 48) || "agent";
+function providerThreadKey(providerId: string, providerThreadId: string): string {
+  return `${providerId}\u0000${providerThreadId}`;
+}
+
+function parentAgentId(providerId: string, parentThreadId: string | null | undefined, surfaces: Map<string, string>): string {
+  if (!parentThreadId) return "main-agent";
+  return surfaces.get(providerThreadKey(providerId, parentThreadId)) ?? "main-agent";
+}
+
+function providerTaskKey(providerId: string, conversationId: string, roleId: string): string {
+  return `${providerId}\u0000${conversationId}\u0000${normalizedRoleId(roleId)}`;
+}
+
+function uniqueAgentForRole(agents: Map<string, WorkbenchAgentWorkspaceAgent>, roleId: string, runId?: string): string | undefined {
+  const roleAgents = [...agents.values()].filter((agent) => agent.roleId === roleId);
+  const runMatch = runId ? roleAgents.find((agent) => agent.runId === runId) : undefined;
+  if (runMatch) return runMatch.id;
+  const matches = roleAgents;
+  return matches.length === 1 ? matches[0]?.id : undefined;
 }

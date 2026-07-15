@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+﻿import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { writeJsonFile } from "../fs/json.js";
 import { runtimeContinuityPaths } from "../runtime-continuity/paths.js";
@@ -20,11 +20,10 @@ export interface CodeRunPaths {
   stdout: string;
   stderr: string;
   prompt: string;
-  codexEvents: string;
-  appServerEvents: string;
-  appServerStderr: string;
-  appServerLastMessage: string;
-  agentSession: string;
+  providerEvents: string;
+  providerStderr: string;
+  providerLastMessage: string;
+  providerSession: string;
   lastMessage: string;
   diff: string;
   diffStat: string;
@@ -47,11 +46,10 @@ export async function createCodeRunSession(memory: ResolvedMemory, runId: string
     stdout: `${relativeDir}/stdout.log`,
     stderr: `${relativeDir}/stderr.log`,
     prompt: `${relativeDir}/prompt.md`,
-    codexEvents: `${relativeDir}/codex-events.jsonl`,
-    appServerEvents: `${relativeDir}/app-server-events.jsonl`,
-    appServerStderr: `${relativeDir}/app-server-stderr.log`,
-    appServerLastMessage: `${relativeDir}/app-server-last-message.md`,
-    agentSession: `${relativeDir}/agent-session.json`,
+    providerEvents: `${relativeDir}/provider-events.jsonl`,
+    providerStderr: `${relativeDir}/provider-stderr.log`,
+    providerLastMessage: `${relativeDir}/provider-last-message.md`,
+    providerSession: `${relativeDir}/provider-session.json`,
     lastMessage: `${relativeDir}/last-message.md`,
     diff: `${relativeDir}/diff.patch`,
     diffStat: `${relativeDir}/diff-stat.txt`,
@@ -66,11 +64,10 @@ export async function createCodeRunSession(memory: ResolvedMemory, runId: string
     stdout: join(directory, "stdout.log"),
     stderr: join(directory, "stderr.log"),
     prompt: join(directory, "prompt.md"),
-    codexEvents: join(directory, "codex-events.jsonl"),
-    appServerEvents: join(directory, "app-server-events.jsonl"),
-    appServerStderr: join(directory, "app-server-stderr.log"),
-    appServerLastMessage: join(directory, "app-server-last-message.md"),
-    agentSession: join(directory, "agent-session.json"),
+    providerEvents: join(directory, "provider-events.jsonl"),
+    providerStderr: join(directory, "provider-stderr.log"),
+    providerLastMessage: join(directory, "provider-last-message.md"),
+    providerSession: join(directory, "provider-session.json"),
     lastMessage: join(directory, "last-message.md"),
     diff: join(directory, "diff.patch"),
     diffStat: join(directory, "diff-stat.txt"),

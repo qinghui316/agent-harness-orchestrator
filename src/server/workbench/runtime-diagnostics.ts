@@ -1,5 +1,4 @@
-import { getCodexModelSettingsSnapshot } from "../../codex/model-settings.js";
-import { getWorkbenchCodexDiagnostics } from "./codex-diagnostics.js";
+import { defaultProviderRegistry } from "../../provider-runtime/index.js";
 import { resolveProjectInputWithDirect } from "./direct-project.js";
 import { listProjectStatuses } from "./project-admin.js";
 import type { WorkbenchServerContext } from "./types.js";
@@ -28,6 +27,7 @@ export interface RuntimeDiagnosticsSnapshot {
 export async function getRuntimeDiagnostics(context: WorkbenchServerContext, projectId?: string | null): Promise<RuntimeDiagnosticsSnapshot> {
   const items: RuntimeDiagnosticItem[] = [];
   let projectPath: string | undefined;
+  let selectedProject: ProjectStatus["project"] | null = null;
 
   if (projectId) {
     try {
@@ -35,6 +35,7 @@ export async function getRuntimeDiagnostics(context: WorkbenchServerContext, pro
       projectPath = input.path;
       const statuses = await listProjectStatuses(context.store, context.input) as ProjectStatus[];
       const status = statuses.find((item) => item.project?.id === projectId);
+      selectedProject = status?.project ?? null;
       if (!status) {
         items.push({
           id: "project:missing",
@@ -84,43 +85,26 @@ export async function getRuntimeDiagnostics(context: WorkbenchServerContext, pro
     });
   }
 
-  try {
-    const input = projectId ? await resolveProjectInputWithDirect(context.store, context.input, projectId) : null;
-    const diagnostics = await getWorkbenchCodexDiagnostics(input?.project ?? null, input?.path);
-    items.push({
-      id: "codex:cli",
-      title: "Codex",
-      status: diagnostics.available && diagnostics.errors.length === 0 ? "ok" : "warning",
-      summary: diagnostics.available ? "Codex CLI 可用。" : "Codex CLI 暂不可用。",
-      detail: [...diagnostics.errors, diagnostics.version ? `version: ${diagnostics.version}` : "", `config: ${diagnostics.configPath}`].filter(Boolean).join("\n"),
-    });
-  } catch (cause) {
-    items.push({
-      id: "codex:error",
-      title: "Codex",
-      status: "warning",
-      summary: "Codex 诊断读取失败。",
-      detail: messageFrom(cause),
-    });
-  }
-
-  try {
-    const models = await getCodexModelSettingsSnapshot(projectPath);
-    items.push({
-      id: "codex:model-list",
-      title: "模型列表",
-      status: models.modelList.available ? "ok" : "warning",
-      summary: models.modelList.available ? "模型候选已读取。" : "模型列表暂不可用，仍可使用配置或默认模型。",
-      detail: models.modelList.degradedReason ?? `effective model: ${models.effectiveModel ?? "default"}`,
-    });
-  } catch (cause) {
-    items.push({
-      id: "codex:model-list-error",
-      title: "模型列表",
-      status: "warning",
-      summary: "模型设置读取失败。",
-      detail: messageFrom(cause),
-    });
+  for (const provider of defaultProviderRegistry.list()) {
+    try {
+      const diagnostics = await provider.diagnostics(selectedProject ?? null, projectPath);
+      items.push({
+        id: `provider:${provider.id}`,
+        title: provider.displayName,
+        status: diagnostics.sessionHealth === "ready" ? "ok" : "warning",
+        summary: diagnostics.installation.available ? `${provider.displayName} 可用。` : `${provider.displayName} 暂不可用。`,
+        detail: [diagnostics.lastError, diagnostics.installation.version ? `version: ${diagnostics.installation.version}` : ""].filter(Boolean).join("\n"),
+      });
+      items.push({
+        id: `provider:${provider.id}:models`,
+        title: "模型列表",
+        status: diagnostics.models.available ? "ok" : "warning",
+        summary: diagnostics.models.available ? "模型候选已读取。" : "模型列表暂不可用，仍可使用配置或默认模型。",
+        detail: diagnostics.models.degradedReason ?? `effective model: ${diagnostics.models.effectiveModel?.modelId ?? "default"}`,
+      });
+    } catch (cause) {
+      items.push({ id: `provider:${provider.id}:error`, title: provider.displayName, status: "warning", summary: "Provider 诊断读取失败。", detail: messageFrom(cause) });
+    }
   }
 
   const terminal = await context.terminalRuntime.checkAvailability();

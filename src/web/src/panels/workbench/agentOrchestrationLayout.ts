@@ -1,9 +1,7 @@
 import type {
-  DemandAgentRunGraph,
-  DemandAgentRunGraphEdge,
-  DemandAgentRunGraphNode,
-  DemandAgentRunGraphStage,
-  DemandAgentRunGraphVisualKind,
+  AgentRelationGraph,
+  AgentRelationGraphEdge,
+  AgentRelationGraphNode,
 } from "../../types.js";
 
 export const ORCHESTRATION_NODE_WIDTH = 200;
@@ -12,14 +10,12 @@ export const ORCHESTRATION_GAP_X = 54;
 export const ORCHESTRATION_GAP_Y = 72;
 export const ORCHESTRATION_PADDING = 72;
 
-export type AgentOrchestrationLayoutNode = DemandAgentRunGraphNode & {
+export type AgentOrchestrationLayoutNode = AgentRelationGraphNode & {
   x: number;
   y: number;
-  stage: DemandAgentRunGraphStage;
-  visualKind: DemandAgentRunGraphVisualKind;
 };
 
-export type AgentOrchestrationLayoutEdge = DemandAgentRunGraphEdge & {
+export type AgentOrchestrationLayoutEdge = AgentRelationGraphEdge & {
   path: string;
   fromX: number;
   fromY: number;
@@ -35,7 +31,7 @@ export interface AgentOrchestrationLayout {
   edges: AgentOrchestrationLayoutEdge[];
 }
 
-export function layoutAgentOrchestrationGraph(graph: DemandAgentRunGraph): AgentOrchestrationLayout {
+export function layoutAgentOrchestrationGraph(graph: AgentRelationGraph): AgentOrchestrationLayout {
   const topologyKey = graphTopologyKey(graph);
   if (graph.nodes.length === 0) {
     return { width: 760, height: 460, topologyKey, nodes: [], edges: [] };
@@ -64,8 +60,6 @@ export function layoutAgentOrchestrationGraph(graph: DemandAgentRunGraph): Agent
     const row = rows.get(depth) ?? [];
     row.push({
       ...node,
-      stage: node.stage ?? stageForNode(node),
-      visualKind: node.visualKind ?? visualKindForNode(node),
       x: 0,
       y: 0,
     });
@@ -104,20 +98,7 @@ export function layoutAgentOrchestrationGraph(graph: DemandAgentRunGraph): Agent
   return { width, height, topologyKey, nodes: layoutNodes, edges: layoutEdges };
 }
 
-export function stageForNode(node: Pick<DemandAgentRunGraphNode, "kind" | "lane">): DemandAgentRunGraphStage {
-  if (node.lane === "maintenance") return "maintenance";
-  if (node.kind === "main-agent") return "demand";
-  if (node.kind === "planning-agent") return "planning";
-  if (node.kind === "auditor-agent") return "review";
-  return "execution";
-}
-
-export function visualKindForNode(node: Pick<DemandAgentRunGraphNode, "kind">): DemandAgentRunGraphVisualKind {
-  if (["main-agent", "planning-agent", "coder-agent", "rework-coder", "auditor-agent", "delegate-task", "documentation-agent", "evolution-agent", "evolution-scorer"].includes(node.kind)) return "agent";
-  return "default";
-}
-
-function propagateDepths(nodes: DemandAgentRunGraphNode[], parentByChild: Map<string, string>, depths: Map<string, number>): void {
+function propagateDepths(nodes: AgentRelationGraphNode[], parentByChild: Map<string, string>, depths: Map<string, number>): void {
   for (let pass = 0; pass < nodes.length; pass += 1) {
     let changed = false;
     for (const node of nodes) {
@@ -132,22 +113,22 @@ function propagateDepths(nodes: DemandAgentRunGraphNode[], parentByChild: Map<st
   }
 }
 
-function compareNodes(a: DemandAgentRunGraphNode, b: DemandAgentRunGraphNode): number {
+function compareNodes(a: AgentRelationGraphNode, b: AgentRelationGraphNode): number {
   if (a.kind === "main-agent" && b.kind !== "main-agent") return -1;
   if (b.kind === "main-agent" && a.kind !== "main-agent") return 1;
   return a.id.localeCompare(b.id);
 }
 
-function graphTopologyKey(graph: DemandAgentRunGraph): string {
+function graphTopologyKey(graph: AgentRelationGraph): string {
   return `${graph.nodes.map((node) => node.id).sort().join("|")}::${graph.edges.map((edge) => `${edge.from}>${edge.to}`).sort().join("|")}`;
 }
 
-function edgePath(from: AgentOrchestrationLayoutNode, to: AgentOrchestrationLayoutNode, edge: DemandAgentRunGraphEdge): string {
+function edgePath(from: AgentOrchestrationLayoutNode, to: AgentOrchestrationLayoutNode, _edge: AgentRelationGraphEdge): string {
   const fromX = from.x + ORCHESTRATION_NODE_WIDTH / 2;
   const fromY = from.y + ORCHESTRATION_NODE_HEIGHT;
   const toX = to.x + ORCHESTRATION_NODE_WIDTH / 2;
   const toY = to.y;
-  if (edge.edgeStyle === "loop" || edge.edgeRole === "rework" || toY <= fromY) {
+  if (toY <= fromY) {
     const side = Math.max(from.x, to.x) + ORCHESTRATION_NODE_WIDTH + 34;
     return `M ${fromX} ${fromY} C ${side} ${fromY + 22}, ${side} ${toY - 22}, ${toX} ${toY}`;
   }

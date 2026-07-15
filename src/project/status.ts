@@ -1,6 +1,5 @@
 import { existsSync } from "node:fs";
 import type { ManagedProject, ProjectStatus } from "../types/index.js";
-import { readCodexProjectTrust } from "../codex/trust.js";
 import { auditHarness } from "../harness/audit.js";
 import { getMemoryStatus } from "../memory/status.js";
 import { getGitBranch, isGitDirty, isGitRepo } from "./git.js";
@@ -22,7 +21,6 @@ export async function getProjectStatus(project: ManagedProject | null, path: str
     dirty: pathExists ? await isGitDirty(path) : null,
     managed: marker !== null,
     memory,
-    codexTrust: await readCodexProjectTrust(path),
     harness: pathExists
       ? await auditHarness(path)
       : {

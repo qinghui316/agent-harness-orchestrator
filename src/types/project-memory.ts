@@ -4,6 +4,7 @@ export interface ManagedProject {
   path: string;
   addedAt: string;
   lastSeenAt: string;
+  defaultProviderId?: string;
 }
 
 export interface ProjectMarker {
@@ -113,14 +114,6 @@ export interface HarnessAuditResult {
   components: HarnessComponentStatus[];
 }
 
-export interface CodexProjectTrustStatus {
-  trusted: boolean;
-  configPath: string;
-  projectKey: string;
-  configExists: boolean;
-  reason?: string;
-}
-
 export interface ProjectStatus {
   project: ManagedProject | null;
   path: string;
@@ -131,5 +124,4 @@ export interface ProjectStatus {
   managed: boolean;
   memory: MemoryStatus;
   harness: HarnessAuditResult;
-  codexTrust: CodexProjectTrustStatus;
 }

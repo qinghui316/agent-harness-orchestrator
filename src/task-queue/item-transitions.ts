@@ -58,6 +58,26 @@ export async function finishTaskQueueItem(memory: ResolvedMemory, item: TaskQueu
   return written;
 }
 
+export async function requeueTaskQueueItemAfterInterruption(
+  memory: ResolvedMemory,
+  item: TaskQueueItem,
+  taskRun: TaskRun,
+  reason: string,
+): Promise<TaskQueueItem> {
+  if (taskRun.status !== "interrupted") throw new Error(`TaskRun ${taskRun.id} is not interrupted.`);
+  const written = await writeTaskQueueItem(memory, {
+    ...item,
+    status: "queued",
+    taskRunId: taskRun.id,
+    updatedAt: new Date().toISOString(),
+    finishedAt: null,
+    blockedReason: undefined,
+    failureReason: undefined,
+  });
+  await appendTaskQueueTaskEvent(memory, item, "task.paused", { taskRunId: taskRun.id, status: "queued", reason });
+  return written;
+}
+
 export async function updateTaskQueueAfterItem(memory: ResolvedMemory, queue: TaskQueueRun): Promise<TaskQueueRun> {
   const items = await listTaskQueueItems(memory, queue.changeId, queue.id);
   const completedCount = items.filter((item) => item.status === "completed").length;

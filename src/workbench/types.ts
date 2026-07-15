@@ -1,6 +1,7 @@
-import type { CodexReadableEvent } from "../codex/jsonl.js";
+import type { ProviderId, ProviderReadableEvent, ProviderUserInputQuestion } from "../provider-runtime/index.js";
 import type { HarnessExecutionMode, RunMetadata } from "../types/index.js";
 import type { WorkflowActionType } from "../workflow-actions/registry.js";
+import type { ParentAgentTranscriptCell } from "./parent-agent-transcript.js";
 
 export type TopicThreadEventType =
   | "user.message"
@@ -26,6 +27,7 @@ export interface TopicThreadEntry {
   graphScopeId?: string;
   changeId: string;
   position?: number;
+  completedTurnSequence?: number;
   text?: string;
   actionRunId?: string;
   actionType?: string;
@@ -34,6 +36,7 @@ export interface TopicThreadEntry {
   threadId?: string;
   parentThreadId?: string;
   turnId?: string;
+  itemId?: string;
   agentRoleId?: string;
   agentTaskId?: string;
   artifact?: string;
@@ -43,7 +46,10 @@ export interface TopicThreadEntry {
   blocks?: AssistantTurnBlock[];
   intake?: unknown;
   clarification?: unknown;
-  codexUserInput?: WorkbenchCodexUserInputRequest;
+  providerId?: ProviderId;
+  sessionId?: string;
+  attemptId?: string;
+  providerUserInput?: WorkbenchProviderUserInputRequest;
   contextRefs?: TopicFileReference[];
   attachments?: TopicAttachment[];
   planHandoff?: ValidatedPlanHandoffIntent;
@@ -59,7 +65,7 @@ export interface TopicFileReference {
 }
 
 export type TopicAttachmentKind = "image" | "text" | "unsupported";
-export type TopicAttachmentRuntimeMode = "codex-image-input" | "bounded-text-preview" | "metadata-only";
+export type TopicAttachmentRuntimeMode = "provider-image-input" | "bounded-text-preview" | "metadata-only";
 
 export interface TopicAttachment {
   id: string;
@@ -89,13 +95,15 @@ export type AssistantTurnBlockKind =
 
 export interface AssistantTurnBlock {
   id: string;
+  providerId?: ProviderId;
+  attemptId?: string;
   runId?: string;
   threadId?: string;
   turnId?: string;
   sequence: number;
   kind: AssistantTurnBlockKind;
   timestamp: string;
-  source: "codex" | "aho" | "workflow" | "validation" | "audit" | "decision";
+  source: "provider" | "aho" | "workflow" | "validation" | "audit" | "decision";
   status?: string;
   title?: string;
   text?: string;
@@ -119,16 +127,10 @@ export type AssistantTurnActivity =
   | { kind: "usage"; usage: Record<string, unknown>; timestamp: string }
   | { kind: "error"; message: string; timestamp: string };
 
-export interface WorkbenchCodexUserInputQuestion {
-  id: string;
-  header?: string;
-  question: string;
-  isOther?: boolean;
-  isSecret?: boolean;
-  options?: Array<{ label: string; description?: string }>;
-}
+export type WorkbenchProviderUserInputQuestion = ProviderUserInputQuestion;
 
-export interface WorkbenchCodexUserInputRequest {
+export interface WorkbenchProviderUserInputRequest {
+  providerId: ProviderId;
   requestKey: string;
   requestId: string;
   threadId?: string;
@@ -141,7 +143,8 @@ export interface WorkbenchCodexUserInputRequest {
   graphScopeId?: string;
   agentRoleId?: string;
   agentTaskId?: string;
-  questions: WorkbenchCodexUserInputQuestion[];
+  attemptId: string;
+  questions: WorkbenchProviderUserInputQuestion[];
   status: "pending" | "submitting" | "submitted";
   answers?: Record<string, string | string[]>;
   submittedAt?: string;
@@ -151,7 +154,7 @@ export interface TopicMessageResult {
   user: TopicThreadEntry;
   assistant: TopicThreadEntry | null;
   run: RunMetadata | null;
-  codexSessionId: string | null;
+  providerSessionId: string | null;
   mode?: WorkbenchMessageMode;
   assistantMessage?: string;
 }
@@ -162,6 +165,9 @@ export interface WorkbenchLiveIdentity {
   graphScopeId?: string;
   changeId?: string;
   runId?: string;
+  providerId?: ProviderId;
+  attemptId?: string;
+  sessionId?: string;
   threadId?: string;
   parentThreadId?: string;
   turnId?: string;
@@ -175,16 +181,17 @@ export interface WorkbenchLiveIdentity {
 }
 
 export type WorkbenchLiveEvent =
-  | { event: "topic.created"; data: { topic: { id?: string; conversationId?: string; changeId?: string; title: string; state: "active" } } }
+  | { event: "topic.created"; data: { topic: { id?: string; conversationId?: string; changeId?: string; title: string; state: "active"; selectedProviderId?: string } } }
   | { event: "topic.message"; data: TopicThreadEntry }
+  | { event: "timeline.patch"; data: { conversationId: string; graphScopeId?: string; messageId: string; agentSurfaceId: string; providerId?: ProviderId; roleId?: string; threadId?: string; parentThreadId?: string; status?: string; cells: ParentAgentTranscriptCell[] } }
   | { event: "run.started"; data: WorkbenchLiveIdentity & { runId: string; actionType?: string; runtime?: string; taskIds?: string[] } }
   | { event: "run.status"; data: WorkbenchLiveIdentity & { actionRunId?: string; status: string; label?: string } }
   | { event: "assistant.delta"; data: WorkbenchLiveIdentity & { delta: string } }
   | { event: "assistant.message"; data: TopicThreadEntry }
   | { event: "assistant.event"; data: WorkbenchAssistantEvent }
   | { event: "tool.event"; data: WorkbenchLiveToolEvent }
-  | { event: "codex.userInput.requested"; data: WorkbenchCodexUserInputRequest }
-  | { event: "codex.userInput.submitted"; data: WorkbenchLiveIdentity & { requestKey: string; requestId: string } }
+  | { event: "provider.userInput.requested"; data: WorkbenchProviderUserInputRequest }
+  | { event: "provider.userInput.submitted"; data: WorkbenchLiveIdentity & { requestKey: string; requestId: string } }
   | { event: "usage"; data: WorkbenchLiveIdentity & { usage?: Record<string, unknown> } }
   | { event: "snapshot"; data: unknown }
   | { event: "error"; data: WorkbenchLiveIdentity & { message: string; runId?: string; actionRunId?: string } }
@@ -197,6 +204,9 @@ export interface WorkbenchLiveSink {
 
 export interface WorkbenchLiveToolEvent {
   runId: string;
+  providerId?: ProviderId;
+  attemptId?: string;
+  sessionId?: string;
   projectId?: string;
   conversationId?: string;
   changeId?: string;
@@ -219,8 +229,11 @@ export interface WorkbenchLiveToolEvent {
   status?: string;
 }
 
-export interface WorkbenchAssistantEvent extends CodexReadableEvent {
+export interface WorkbenchAssistantEvent extends ProviderReadableEvent {
   runId: string;
+  providerId?: ProviderId;
+  attemptId?: string;
+  sessionId?: string;
   projectId?: string;
   conversationId?: string;
   changeId?: string;
@@ -243,6 +256,8 @@ export interface TopicMessageInput {
   contextRefs?: TopicFileReference[];
   attachmentIds?: string[];
   planHandoffIntent?: PlanHandoffIntent;
+  providerId?: ProviderId;
+  providerSwitchIntent?: "resume-workflow" | "conversation-only";
 }
 
 export type PlanHandoffAgentRoleId = "planning-agent";

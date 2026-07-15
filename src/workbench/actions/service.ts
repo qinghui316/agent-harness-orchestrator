@@ -9,6 +9,7 @@ import type {
 } from "../types.js";
 import type { ChildTranscriptCapture } from "../live-transcript.js";
 import { isMainAgentExecutionStopAction } from "../../workflow-actions/main-agent-execution.js";
+import type { ConversationTimelineWriter } from "../conversation-thread.js";
 
 interface AssistantTranscriptCapture {
   sink: WorkbenchLiveSink;
@@ -35,9 +36,12 @@ export interface WorkbenchActionDecisionInput {
 
 export interface WorkbenchActionServiceDeps {
   resolveChangeId(project: ManagedProject, request: WorkbenchWorkflowActionRequest): Promise<string>;
-  createTranscriptCapture(live: WorkbenchLiveSink | undefined): AssistantTranscriptCapture;
+  createTranscriptCapture(
+    live: WorkbenchLiveSink | undefined,
+    persistBeforeEmit?: (capture: AssistantTranscriptCapture) => boolean,
+  ): AssistantTranscriptCapture;
+  openTimelineWriter(project: ManagedProject, changeId: string): Promise<ConversationTimelineWriter>;
   readThreadEntries(project: ManagedProject, changeId: string): Promise<TopicThreadEntry[]>;
-  appendThreadEntry(project: ManagedProject, changeId: string, input: Omit<TopicThreadEntry, "id" | "timestamp" | "changeId">): Promise<TopicThreadEntry>;
   execute(project: ManagedProject, changeId: string, request: WorkbenchWorkflowActionRequest, live?: WorkbenchLiveSink): Promise<unknown>;
   labelForAction(actionType: WorkbenchWorkflowActionRequest["actionType"]): string;
   extractRunId(result: unknown): string | undefined;
@@ -64,7 +68,6 @@ export async function runWorkbenchWorkflowActionService(
   deps: WorkbenchActionServiceDeps,
 ): Promise<WorkbenchWorkflowActionResult> {
   const actionRunId = `action-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-  const persistedChildTurns = new Set<string>();
   const changeId = await deps.resolveChangeId(project, request);
   if (!isConcurrentControlAction(request.actionType)) {
     const active = findActiveWorkflowAction(await deps.readThreadEntries(project, changeId));
@@ -77,21 +80,73 @@ export async function runWorkbenchWorkflowActionService(
       throw error;
     }
   }
-  const started = await deps.appendThreadEntry(project, changeId, { type: "workflow.started", actionRunId, actionType: request.actionType, status: "running" });
+  const writer = await deps.openTimelineWriter(project, changeId);
+  const timelineId = `workflow:${actionRunId}`;
+  const startedAt = new Date().toISOString();
+  let canonicalPersistenceError: Error | null = null;
+  let started: TopicThreadEntry;
+  try {
+    started = writer.upsert({
+      id: timelineId,
+      type: "workflow.started",
+      timestamp: startedAt,
+      changeId,
+      actionRunId,
+      actionType: request.actionType,
+      status: "running",
+    });
+  } catch (error) {
+    writer.close();
+    throw error;
+  }
   live?.emit({ event: "topic.message", data: started });
   live?.emit({ event: "run.status", data: { actionRunId, status: "running", label: deps.labelForAction(request.actionType) } });
-  const capture = deps.createTranscriptCapture(live);
+  let capture: AssistantTranscriptCapture;
+  try {
+    capture = deps.createTranscriptCapture(live, (snapshot) => {
+      try {
+        persistActionCapture(writer, {
+          timelineId,
+          startedAt,
+          changeId,
+          actionRunId,
+          actionType: request.actionType,
+          capture: snapshot,
+        });
+        return true;
+      } catch (error) {
+        canonicalPersistenceError = error instanceof Error ? error : new Error(String(error));
+        return false;
+      }
+    });
+  } catch (error) {
+    writer.close();
+    throw error;
+  }
   try {
     capture.sink.emit({ event: "run.status", data: { actionRunId, status: "running", label: deps.labelForAction(request.actionType) } });
     const result = await deps.execute(project, changeId, request, capture.sink);
+    if (canonicalPersistenceError) throw canonicalPersistenceError;
     const runId = deps.extractRunId(result);
     const failureMessage = deps.failureMessage(request.actionType, result);
     const finalStatus = failureMessage ? "failed" : "completed";
     const resultSummary = failureMessage ?? deps.summarizeResult(request.actionType, result);
     capture.sink.emit({ event: "run.status", data: { runId, actionRunId, status: finalStatus, label: deps.labelForAction(request.actionType) } });
-    await persistChildTranscriptCaptures(project, changeId, actionRunId, runId, finalStatus, capture, deps, live, persistedChildTurns);
-    const completed = await deps.appendThreadEntry(project, changeId, {
+    if (canonicalPersistenceError) throw canonicalPersistenceError;
+    persistActionCapture(writer, {
+      timelineId,
+      startedAt,
+      changeId,
+      actionRunId,
+      actionType: request.actionType,
+      capture,
+      statusOverride: finalStatus,
+    });
+    const completed = writer.upsert({
+      id: timelineId,
       type: failureMessage ? "workflow.failed" : "workflow.completed",
+      timestamp: startedAt,
+      changeId,
       actionRunId,
       actionType: request.actionType,
       status: finalStatus,
@@ -128,12 +183,25 @@ export async function runWorkbenchWorkflowActionService(
     });
     return { actionRunId, actionType: request.actionType, status: finalStatus, result, runId, error: failureMessage ?? undefined };
   } catch (error) {
+    if (canonicalPersistenceError) throw canonicalPersistenceError;
     const message = error instanceof Error ? error.message : String(error);
     const resultSummary = `${deps.labelForAction(request.actionType)}执行失败。请查看错误和证据后再决定是否重试或调整。`;
     capture.sink.emit({ event: "run.status", data: { actionRunId, status: "failed", label: deps.labelForAction(request.actionType) } });
-    await persistChildTranscriptCaptures(project, changeId, actionRunId, undefined, "failed", capture, deps, live, persistedChildTurns);
-    const failed = await deps.appendThreadEntry(project, changeId, {
+    if (canonicalPersistenceError) throw canonicalPersistenceError;
+    persistActionCapture(writer, {
+      timelineId,
+      startedAt,
+      changeId,
+      actionRunId,
+      actionType: request.actionType,
+      capture,
+      statusOverride: "failed",
+    });
+    const failed = writer.upsert({
+      id: timelineId,
       type: "workflow.failed",
+      timestamp: startedAt,
+      changeId,
       actionRunId,
       actionType: request.actionType,
       status: "failed",
@@ -154,31 +222,48 @@ export async function runWorkbenchWorkflowActionService(
       result: { error: message },
     });
     return { actionRunId, actionType: request.actionType, status: "failed", error: message };
+  } finally {
+    writer.close();
   }
 }
 
-async function persistChildTranscriptCaptures(
-  project: ManagedProject,
-  changeId: string,
-  actionRunId: string,
-  fallbackRunId: string | undefined,
-  fallbackStatus: "completed" | "failed",
-  capture: AssistantTranscriptCapture,
-  deps: WorkbenchActionServiceDeps,
-  live: WorkbenchLiveSink | undefined,
-  persistedChildTurns: Set<string>,
-): Promise<void> {
-  const childCaptures = [...capture.childCaptures.values()]
+function persistActionCapture(
+  writer: ConversationTimelineWriter,
+  input: {
+    timelineId: string;
+    startedAt: string;
+    changeId: string;
+    actionRunId: string;
+    actionType: WorkbenchWorkflowActionRequest["actionType"];
+    capture: AssistantTranscriptCapture;
+    statusOverride?: "running" | "completed" | "failed";
+  },
+): void {
+  const status = input.statusOverride ?? actionCaptureStatus(input.capture);
+  writer.upsert({
+    id: input.timelineId,
+    type: status === "failed" ? "workflow.failed" : status === "completed" ? "workflow.completed" : "workflow.started",
+    timestamp: input.startedAt,
+    changeId: input.changeId,
+    actionRunId: input.actionRunId,
+    actionType: input.actionType,
+    status,
+    text: input.capture.text.trim() || undefined,
+    activity: input.capture.activity,
+    blocks: input.capture.blocks,
+  });
+  const childCaptures = [...input.capture.childCaptures.values()]
     .filter((child) => child.blocks.length > 0 || child.activity.length > 0)
     .sort((left, right) => childCaptureTimestamp(left).localeCompare(childCaptureTimestamp(right)));
   for (const child of childCaptures) {
-    const identity = `${child.threadId}:${child.turnId ?? "turn"}`;
-    if (persistedChildTurns.has(identity)) continue;
-    const entry = await deps.appendThreadEntry(project, changeId, {
+    writer.upsert({
+      id: `assistant:${input.actionRunId}:${child.canonicalId ?? `${child.threadId}:${child.turnId ?? "turn"}`}:process`,
       type: "assistant.message",
-      actionRunId,
-      status: childCaptureStatus(child, fallbackStatus),
-      runId: child.runId ?? fallbackRunId ?? actionRunId,
+      timestamp: childCaptureTimestamp(child) || input.startedAt,
+      changeId: input.changeId,
+      actionRunId: input.actionRunId,
+      status: childCaptureStatus(child, status === "failed" ? "failed" : "completed"),
+      runId: child.runId ?? input.actionRunId,
       threadId: child.threadId,
       parentThreadId: child.parentThreadId,
       turnId: child.turnId,
@@ -186,9 +271,15 @@ async function persistChildTranscriptCaptures(
       activity: child.activity,
       blocks: child.blocks,
     });
-    persistedChildTurns.add(identity);
-    live?.emit({ event: "assistant.message", data: entry });
   }
+}
+
+function actionCaptureStatus(capture: AssistantTranscriptCapture): "running" | "completed" | "failed" {
+  const terminal = [...capture.activity].reverse().find((activity) => activity.kind === "status");
+  if (terminal?.kind !== "status") return "running";
+  if (terminal.label === "completed") return "completed";
+  if (terminal.label === "failed" || terminal.label === "blocked") return "failed";
+  return "running";
 }
 
 function childCaptureTimestamp(capture: ChildTranscriptCapture): string {

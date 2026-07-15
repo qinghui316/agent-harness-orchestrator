@@ -258,9 +258,9 @@ describe("workbench read-model projections", () => {
       text: "Fallback final message should not duplicate the cell stream.",
       runId: "run-codex-transcript",
       blocks: [
-        { id: "p1", runId: "run-codex-transcript", sequence: 1, kind: "prose", timestamp: "2026-05-31T00:00:00.000Z", source: "codex", text: "我会先检查计价模块。" },
-        { id: "p2", runId: "run-codex-transcript", sequence: 2, kind: "prose", timestamp: "2026-05-31T00:00:01.000Z", source: "codex", text: "然后补充边界测试。" },
-        { id: "cmd", runId: "run-codex-transcript", sequence: 3, kind: "command", timestamp: "2026-05-31T00:00:02.000Z", source: "codex", title: "Command completed", command: "npm test", preview: "测试通过", status: "completed", exitCode: 0 },
+        { id: "p1", runId: "run-codex-transcript", sequence: 1, kind: "prose", timestamp: "2026-05-31T00:00:00.000Z", source: "provider", text: "我会先检查计价模块。" },
+        { id: "p2", runId: "run-codex-transcript", sequence: 2, kind: "prose", timestamp: "2026-05-31T00:00:01.000Z", source: "provider", text: "然后补充边界测试。" },
+        { id: "cmd", runId: "run-codex-transcript", sequence: 3, kind: "command", timestamp: "2026-05-31T00:00:02.000Z", source: "provider", title: "Command completed", command: "npm test", preview: "测试通过", status: "completed", exitCode: 0 },
         { id: "validation", runId: "run-codex-transcript", sequence: 4, kind: "workflow-evidence", timestamp: "2026-05-31T00:00:03.000Z", source: "validation", title: "验证通过", text: "targeted tests passed", status: "passed", artifactRef: "runs/validation.md" },
       ],
     });
@@ -271,7 +271,7 @@ describe("workbench read-model projections", () => {
     expect(cells).toEqual(expect.arrayContaining([
       expect.objectContaining({
         kind: "assistant-message",
-        source: "codex-runtime",
+        source: "provider-runtime",
         text: expect.stringContaining("我会先检查计价模块"),
       }),
       expect.objectContaining({
@@ -425,7 +425,7 @@ describe("workbench read-model projections", () => {
         source: "composer",
         createdAt: "2026-06-28T12:00:00.000Z",
         storagePath: "attachments/att-20260628120000-abcdef123456/content.png",
-        runtimeMode: "codex-image-input",
+        runtimeMode: "provider-image-input",
       }],
     });
 
@@ -533,11 +533,32 @@ describe("workbench read-model projections", () => {
   it("keeps persisted planning-agent output out of the main transcript and restores it in the Agent workspace", async () => {
     await initHarness(project());
     const topic = await createConversationChangeFixture(project(), { title: "Planning Agent Transcript", body: "Create a reviewable plan." });
+    const memory = await resolveProjectMemory(project());
+    const store = await WorkbenchStore.open(memory);
+    try {
+      store.writeProviderThread({
+        projectId: project().id,
+        conversationId: topic.conversationId,
+        providerId: "codex",
+        providerThreadId: "thread-planning-agent",
+        roleId: "planning-agent",
+        parentThreadId: "thread-main",
+        changeId: topic.changeId,
+        graphScopeId: store.readConversation(project().id, topic.conversationId)?.currentGraphScopeId ?? null,
+        capabilityProfile: "planner-child-v1",
+        runId: "run-planning-agent",
+        updatedAt: "2026-07-02T10:00:00.000Z",
+      });
+    } finally {
+      store.close();
+    }
     await appendConversationThreadEntry(project(), topic.changeId, {
       type: "assistant.message",
       status: "planning-agent-generated",
       text: "CHILD PLANNING DRAFT BODY",
       runId: "run-planning-agent",
+      threadId: "thread-planning-agent",
+      parentThreadId: "thread-main",
       agentRoleId: "planning-agent",
       agentTaskId: "task-planning-agent",
       blocks: [{
@@ -546,7 +567,7 @@ describe("workbench read-model projections", () => {
         sequence: 1,
         kind: "prose",
         timestamp: "2026-07-02T10:00:00.000Z",
-        source: "codex",
+        source: "provider",
         text: "CHILD PLANNING DRAFT BODY",
       }],
     });
@@ -635,9 +656,9 @@ describe("workbench read-model projections", () => {
       runId: "run-dedupe",
       text: "I checked the repository.",
       blocks: [
-        { id: "p1", runId: "run-dedupe", sequence: 1, kind: "prose", timestamp: "2026-05-15T12:00:00.000Z", source: "codex", text: "I checked the repository." },
-        { id: "c1", runId: "run-dedupe", itemId: "cmd-1", sequence: 2, kind: "command", timestamp: "2026-05-15T12:00:01.000Z", source: "codex", command: "npm test", preview: "ok", exitCode: 0 },
-        { id: "u1", runId: "run-dedupe", sequence: 3, kind: "usage", timestamp: "2026-05-15T12:00:02.000Z", source: "codex", text: "用量：1 input tokens · 2 output tokens" },
+        { id: "p1", runId: "run-dedupe", sequence: 1, kind: "prose", timestamp: "2026-05-15T12:00:00.000Z", source: "provider", text: "I checked the repository." },
+        { id: "c1", runId: "run-dedupe", itemId: "cmd-1", sequence: 2, kind: "command", timestamp: "2026-05-15T12:00:01.000Z", source: "provider", command: "npm test", preview: "ok", exitCode: 0 },
+        { id: "u1", runId: "run-dedupe", sequence: 3, kind: "usage", timestamp: "2026-05-15T12:00:02.000Z", source: "provider", text: "用量：1 input tokens · 2 output tokens" },
       ],
       activity: [
         { kind: "assistant-event", event: { runId: "run-dedupe", itemId: "cmd-1", kind: "command", phase: "completed", command: "npm test", preview: "ok", exitCode: 0 }, timestamp: "2026-05-15T12:00:03.000Z" },
@@ -1330,7 +1351,7 @@ async function writeCoderRun(changeId: string, runId: string, taskIds: string[],
     id: runId,
     changeId,
     projectPath: getTempDir(),
-    runtime: "coder-codex",
+    runtime: "provider-code",
     executionMode: "worktree",
     proposalOnly: true,
     command: ["codex", "exec"],

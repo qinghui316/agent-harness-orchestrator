@@ -18,7 +18,7 @@ import {
   emitAuditAssistantEvent,
   emitDelegatedRoleReturn,
   emitValidationAssistantEvents,
-  forwardCodexStreamEvent,
+  forwardProviderStreamEvent,
   type WorkflowRuntimeLiveSink,
 } from "./kernel/live-events.js";
 
@@ -31,7 +31,7 @@ export type WorkflowRuntimeLeafStoppedAt = "boundary" | "code" | "validation" | 
 export interface WorkflowRuntimeCoderLeafResult {
   leaf: "coder";
   roleId: "coder-agent" | "rework-coder";
-  status: "completed" | "failed";
+  status: "completed" | "interrupted" | "failed";
   stoppedAt?: WorkflowRuntimeLeafStoppedAt;
   code?: CodeLeafRun;
   boundaryAudit?: Awaited<ReturnType<typeof recordPostRunBoundaryAudit>>;
@@ -96,6 +96,7 @@ export async function runCoderLeafStage(input: {
   orchestration: WorkflowRuntimeExecutionState;
   decision?: Extract<WorkflowRuntimeDecision, { kind: "delegate-role" }>;
   executionGate?: CodeExecutionGateOptions;
+  existingWorktreeId?: string;
 }): Promise<WorkflowRuntimeCoderLeafResult> {
   const coderInputArtifacts = input.decision?.inputArtifacts.length ? input.decision.inputArtifacts : input.taskRunId ? [input.taskRunId] : [];
   const coderDispatch = await createDelegatedForegroundTask(input.memory, {
@@ -120,13 +121,14 @@ export async function runCoderLeafStage(input: {
       taskIds: input.taskIds,
       taskRunId: input.taskRunId,
       executionGate: input.executionGate,
+      existingWorktreeId: input.existingWorktreeId,
       live: {
         onRunStarted: (run) => {
           coderStartedEmitted = true;
           input.live?.emit({ event: "run.started", data: { runId: run.id, changeId: run.changeId, runtime: run.runtime, actionType: "code.run", taskIds: run.taskIds } });
         },
         onStatus: (event) => input.live?.emit({ event: "run.status", data: event }),
-        onCodexEvent: (event) => forwardCodexStreamEvent(event.runId, event, input.live),
+        onProviderEvent: (event) => forwardProviderStreamEvent(event.runId, event, input.live),
         onCallbackError: (event) => input.live?.emit({ event: "error", data: { runId: event.runId, message: event.error instanceof Error ? event.error.message : String(event.error) } }),
       },
     });
@@ -205,6 +207,29 @@ export async function runCoderLeafStage(input: {
     });
     emitDelegatedRoleReturn(input.live, input.changeId, input.roleId, "failed", "coder-agent 越过了允许边界，结果不会进入应用流程。", coderBoundaryRef);
     return { leaf: "coder", roleId: input.roleId, status: "failed", code, stoppedAt: "boundary", boundaryAudit: coderBoundaryAudit, orchestration };
+  }
+
+  if (code.run.status === "interrupted" && code.run.worktree?.worktreeId) {
+    const coderOutputArtifacts = compactArtifactRefs(code.run.artifacts.directory, code.run.artifacts.implementation);
+    orchestration = recordWorkflowRuntimeExecutionStep(orchestration, {
+      roleId: workflowRuntimeCoderRole(input.roleId),
+      status: "failed",
+      inputArtifacts: coderInputArtifacts,
+      outputArtifacts: coderOutputArtifacts,
+      failureClassification: "code-failure",
+      stoppedAt: "code",
+      summary: "Coder was interrupted; its worktree is preserved for provider-neutral resume.",
+    });
+    await completeAgentTask(input.memory, coderTask, {
+      status: "cancelled",
+      summary: "Coder was interrupted; its worktree is preserved for resume.",
+      artifactRefs: coderOutputArtifacts,
+      policyAuditRefs: [coderDispatch.policyAuditRef],
+      boundaryAuditRefs: [coderBoundaryRef],
+      nextRecommendation: "Resume the same TaskRun in its existing worktree.",
+    });
+    emitDelegatedRoleReturn(input.live, input.changeId, input.roleId, "failed", "coder-agent 已中断，当前 worktree 已保留等待继续。", code.run.artifacts.directory);
+    return { leaf: "coder", roleId: input.roleId, status: "interrupted", code, stoppedAt: "code", orchestration };
   }
 
   if (code.run.status !== "completed" || !code.run.worktree?.worktreeId) {

@@ -8,7 +8,7 @@ import { resolveProjectMemory } from "../memory/resolver.js";
 import type { ManagedProject } from "../types/index.js";
 
 export type TopicAttachmentKind = "image" | "text" | "unsupported";
-export type TopicAttachmentRuntimeMode = "codex-image-input" | "bounded-text-preview" | "metadata-only";
+export type TopicAttachmentRuntimeMode = "provider-image-input" | "bounded-text-preview" | "metadata-only";
 
 export interface TopicAttachment {
   id: string;
@@ -71,7 +71,7 @@ const AttachmentMetadataSchema = z.object({
   source: z.literal("composer"),
   createdAt: z.string(),
   storagePath: z.string(),
-  runtimeMode: z.enum(["codex-image-input", "bounded-text-preview", "metadata-only"]),
+  runtimeMode: z.enum(["provider-image-input", "bounded-text-preview", "metadata-only"]),
   message: z.string().optional(),
 });
 
@@ -113,7 +113,7 @@ export async function createTopicAttachment(project: ManagedProject, input: Crea
     source: "composer",
     createdAt: now,
     storagePath: `${ATTACHMENT_DIR}/${id}/${dataFile}`,
-    runtimeMode: kind === "image" ? "codex-image-input" : "bounded-text-preview",
+    runtimeMode: kind === "image" ? "provider-image-input" : "bounded-text-preview",
   };
   await writeJsonFile(join(directory, "attachment.json"), attachment);
   return attachment;
@@ -159,13 +159,13 @@ export async function renderTopicAttachmentsForPrompt(project: ManagedProject, a
       lines.push("  preview:");
       for (const line of preview.split(/\r?\n/).slice(0, 80)) lines.push(`    ${line}`);
     } else if (attachment.kind === "image") {
-      lines.push("  image: passed to image-capable Codex runtimes when available; otherwise use this metadata and ask for clarification if needed.");
+      lines.push("  image: passed to image-capable Agent providers when available; otherwise use this metadata and ask for clarification if needed.");
     }
   }
   return lines;
 }
 
-export async function codexImageInputsForAttachments(project: ManagedProject, attachments: TopicAttachment[] | undefined): Promise<Array<{ path: string; mediaType: string; fileName: string }>> {
+export async function providerImageInputsForAttachments(project: ManagedProject, attachments: TopicAttachment[] | undefined): Promise<Array<{ path: string; mediaType: string; fileName: string }>> {
   if (!attachments?.length) return [];
   const memory = await resolveProjectMemory(project);
   return attachments

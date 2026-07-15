@@ -93,6 +93,32 @@ describe("authored ready-set Scheduler initialization", () => {
       claimReservation: { status: "reserved", reservedCount: 1 },
     });
     expect(initialized.claimReservation.launchConfirmed).toBeUndefined();
+    expect(initialized.workerPlan.plannedStages.map((stage) => ({
+      stage: stage.stage,
+      adapterFamily: stage.adapterFamily,
+      expectedEventTypes: stage.eventSourceExpectation.expectedEventTypes,
+    }))).toEqual([
+      {
+        stage: "coder",
+        adapterFamily: "provider-code",
+        expectedEventTypes: ["permission.profile.attached", "external-execution.requested", "provider.started", "provider.exited", "external-execution.completed"],
+      },
+      {
+        stage: "validation",
+        adapterFamily: "validation-command",
+        expectedEventTypes: ["permission.profile.attached", "external-execution.requested", "validation.command.started", "validation.command.exited", "external-execution.completed"],
+      },
+      {
+        stage: "audit",
+        adapterFamily: "provider-readonly",
+        expectedEventTypes: ["permission.profile.attached", "external-execution.requested", "audit.started", "provider.started", "provider.exited", "external-execution.completed"],
+      },
+      {
+        stage: "bounded-rework",
+        adapterFamily: "provider-code",
+        expectedEventTypes: ["permission.profile.attached", "external-execution.requested", "provider.started", "provider.exited", "external-execution.completed"],
+      },
+    ]);
     expect(initialized.claimReconcilePlan.claimIntents[0]).toMatchObject({
       claimIntentId: graph.nodes[0].claimIntentId,
       nodeId: graph.nodes[0].schedulerNodeId,

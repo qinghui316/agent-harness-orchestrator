@@ -1,8 +1,13 @@
 ﻿import Database from "better-sqlite3";
-import { mkdir } from "node:fs/promises";
-import { dirname } from "node:path";
+import { mkdir, readdir } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import type { ResolvedMemory } from "../types/index.js";
-import type { WorkbenchCodexUserInputRequest } from "./types.js";
+import type { ProviderRegistry } from "../provider-runtime/registry.js";
+import type { ProviderCapabilitySnapshot, ProviderId, ProviderModelRef } from "../provider-runtime/index.js";
+import type { WorkbenchProviderUserInputRequest } from "./types.js";
+import { acquireWorkbenchRuntimeMutationLock, type WorkbenchRuntimeMutationLock } from "./schema-rebuild-gate.js";
+
+const WORKBENCH_SCHEMA_VERSION = 4;
 
 export interface StoredTopicMessage {
   id: string;
@@ -17,6 +22,10 @@ export interface StoredTopicMessage {
   actionType: string | null;
   status: string | null;
   runId: string | null;
+  providerId?: string | null;
+  threadId?: string | null;
+  turnId?: string | null;
+  itemId?: string | null;
   artifact: string | null;
   error: string | null;
   rawJson: string;
@@ -29,6 +38,8 @@ export interface StoredConversation {
   state: "active" | "archive";
   boundChangeId: string | null;
   currentGraphScopeId: string | null;
+  selectedProviderId: ProviderId;
+  completedTurnSequence: number;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -37,6 +48,7 @@ export interface StoredConversation {
 export interface StoredProviderThreadLink {
   projectId: string;
   conversationId: string;
+  providerId: ProviderId;
   providerThreadId: string;
   roleId: string;
   parentThreadId: string | null;
@@ -46,6 +58,51 @@ export interface StoredProviderThreadLink {
   displayName?: string | null;
   runId?: string | null;
   updatedAt: string;
+}
+
+export interface StoredConversationProviderBinding {
+  projectId: string;
+  conversationId: string;
+  providerId: ProviderId;
+  nativeSessionId: string | null;
+  lastDeliveredCompletedTurn: number;
+  preferredModel: ProviderModelRef | null;
+  lastUsedAt: string | null;
+  bindingStatus: "ready" | "unavailable" | "stale";
+}
+
+export interface StoredProviderAttempt {
+  projectId: string;
+  conversationId: string | null;
+  attemptId: string;
+  graphScopeId: string | null;
+  changeId: string | null;
+  agentTaskId: string | null;
+  roleId: string;
+  operationProfile: string;
+  providerId: ProviderId;
+  nativeSessionId: string | null;
+  model: ProviderModelRef | null;
+  capabilitySnapshot: ProviderCapabilitySnapshot;
+  handoffHash: string;
+  deliveredThroughCompletedTurn: number;
+  worktreeId: string | null;
+  status: "queued" | "running" | "completed" | "interrupted" | "failed" | "blocked";
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StoredProviderResumePoint {
+  projectId: string;
+  conversationId: string;
+  resumePointId: string;
+  graphScopeId: string | null;
+  changeId: string | null;
+  previousProviderId: ProviderId;
+  targetProviderId: ProviderId;
+  snapshotJson: string;
+  snapshotHash: string;
+  createdAt: string;
 }
 
 export interface StoredSkillIndex {
@@ -120,12 +177,47 @@ export class WorkbenchStore {
     this.db = db;
   }
 
-  static async open(memory: ResolvedMemory): Promise<WorkbenchStore> {
+  static async open(memory: ResolvedMemory, options: { providerRegistry?: ProviderRegistry } = {}): Promise<WorkbenchStore> {
     await mkdir(dirname(memory.workbenchDbPath), { recursive: true });
     const db = new Database(memory.workbenchDbPath);
     db.pragma("journal_mode = WAL");
     db.pragma("foreign_keys = ON");
-    migrate(db);
+    const currentVersion = Number(db.pragma("user_version", { simple: true }) ?? 0);
+    const needsRebuild = currentVersion !== WORKBENCH_SCHEMA_VERSION;
+    const rebuildingExistingRuntime = needsRebuild && hasWorkbenchRuntimeTables(db);
+    let rebuildTransaction = false;
+    let rebuildLock: WorkbenchRuntimeMutationLock | null = null;
+    if (rebuildingExistingRuntime) {
+      try {
+        rebuildLock = await acquireWorkbenchRuntimeMutationLock(memory, "重建 Workbench 会话数据库");
+        beginExclusiveSchemaRebuild(db);
+        rebuildTransaction = true;
+        assertRuntimeDatabaseResetSafe(db);
+        await assertProviderTurnsStoppedBeforeReset(db, options.providerRegistry);
+        const { listAgentTasks } = await import("../agent-task/repository.js");
+        const activeTasks = (await listAgentTasks(memory))
+          .filter((task) => task.status === "claimed" || task.status === "running");
+        if (activeTasks.length > 0) {
+          throw new Error("Workbench 会话数据库需要重建，但仍有后台 Agent 任务正在运行。请等待任务结束后重试。");
+        }
+        await assertWorkflowModelAttemptsStopped(memory);
+      } catch (error) {
+        if (rebuildTransaction) db.exec("ROLLBACK");
+        db.close();
+        await rebuildLock?.release();
+        throw error;
+      }
+    }
+    try {
+      migrate(db);
+      if (rebuildTransaction) db.exec("COMMIT");
+      await rebuildLock?.release();
+    } catch (error) {
+      if (rebuildTransaction) db.exec("ROLLBACK");
+      db.close();
+      await rebuildLock?.release();
+      throw error;
+    }
     return new WorkbenchStore(db);
   }
 
@@ -135,14 +227,14 @@ export class WorkbenchStore {
 
   appendMessage(message: Omit<StoredTopicMessage, "position">): StoredTopicMessage {
     const row = this.db.prepare(
-      "SELECT COALESCE(MAX(position), 0) + 1 AS nextPosition FROM messages WHERE project_id = ? AND conversation_id = ?",
+      "SELECT COALESCE(MAX(position), 0) + 1 AS nextPosition FROM canonical_timeline_items WHERE project_id = ? AND conversation_id = ?",
     ).get(message.projectId, message.conversationId) as SqliteRow;
     const position = Number(row.nextPosition ?? 1);
     this.db.prepare(`
-      INSERT INTO messages (
+      INSERT INTO canonical_timeline_items (
         id, project_id, conversation_id, change_id, position, type, timestamp, text, action_run_id,
-        action_type, status, run_id, artifact, error, raw_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        action_type, status, run_id, provider_id, thread_id, turn_id, item_id, artifact, error, raw_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       message.id,
       message.projectId,
@@ -156,6 +248,10 @@ export class WorkbenchStore {
       message.actionType,
       message.status,
       message.runId,
+      message.providerId ?? null,
+      message.threadId ?? null,
+      message.turnId ?? null,
+      message.itemId ?? null,
       message.artifact,
       message.error,
       message.rawJson,
@@ -165,8 +261,8 @@ export class WorkbenchStore {
 
   updateMessage(message: Omit<StoredTopicMessage, "position">): void {
     const result = this.db.prepare(`
-      UPDATE messages SET change_id = ?, type = ?, timestamp = ?, text = ?, action_run_id = ?,
-        action_type = ?, status = ?, run_id = ?, artifact = ?, error = ?, raw_json = ?
+      UPDATE canonical_timeline_items SET change_id = ?, type = ?, timestamp = ?, text = ?, action_run_id = ?,
+        action_type = ?, status = ?, run_id = ?, provider_id = ?, thread_id = ?, turn_id = ?, item_id = ?, artifact = ?, error = ?, raw_json = ?
       WHERE id = ? AND project_id = ? AND conversation_id = ?
     `).run(
       message.changeId,
@@ -177,6 +273,10 @@ export class WorkbenchStore {
       message.actionType,
       message.status,
       message.runId,
+      message.providerId ?? null,
+      message.threadId ?? null,
+      message.turnId ?? null,
+      message.itemId ?? null,
       message.artifact,
       message.error,
       message.rawJson,
@@ -187,33 +287,33 @@ export class WorkbenchStore {
     if (result.changes !== 1) throw new Error(`Conversation message not found: ${message.id}.`);
   }
 
-  transitionCodexUserInputRequest(
+  transitionProviderUserInputRequest(
     projectId: string,
     conversationId: string,
     requestKey: string,
-    expectedStatus: WorkbenchCodexUserInputRequest["status"],
-    nextStatus: WorkbenchCodexUserInputRequest["status"],
+    expectedStatus: WorkbenchProviderUserInputRequest["status"],
+    nextStatus: WorkbenchProviderUserInputRequest["status"],
     answers: Record<string, string | string[]> | undefined,
     updatedAt: string,
-  ): WorkbenchCodexUserInputRequest {
+  ): WorkbenchProviderUserInputRequest {
     return this.db.transaction(() => {
       const row = this.listConversationMessages(projectId, conversationId)
         .reverse()
         .find((message) => {
           try {
-            const raw = JSON.parse(message.rawJson) as { codexUserInput?: WorkbenchCodexUserInputRequest };
-            return raw.codexUserInput?.requestKey === requestKey;
+            const raw = JSON.parse(message.rawJson) as { providerUserInput?: WorkbenchProviderUserInputRequest };
+            return raw.providerUserInput?.requestKey === requestKey;
           } catch {
             return false;
           }
         });
-      if (!row) throw new Error(`Codex user input request was not persisted: ${requestKey}.`);
-      const raw = JSON.parse(row.rawJson) as Record<string, unknown> & { codexUserInput: WorkbenchCodexUserInputRequest };
-      if (raw.codexUserInput.status !== expectedStatus) {
-        throw new Error(`Codex user input request ${requestKey} is ${raw.codexUserInput.status}, not ${expectedStatus}.`);
+      if (!row) throw new Error(`Provider user input request was not persisted: ${requestKey}.`);
+      const raw = JSON.parse(row.rawJson) as Record<string, unknown> & { providerUserInput: WorkbenchProviderUserInputRequest };
+      if (raw.providerUserInput.status !== expectedStatus) {
+        throw new Error(`Provider user input request ${requestKey} is ${raw.providerUserInput.status}, not ${expectedStatus}.`);
       }
-      const nextRequest: WorkbenchCodexUserInputRequest = {
-        ...raw.codexUserInput,
+      const nextRequest: WorkbenchProviderUserInputRequest = {
+        ...raw.providerUserInput,
         status: nextStatus,
         ...(answers ? { answers } : {}),
         ...(nextStatus === "submitted" ? { submittedAt: updatedAt } : {}),
@@ -222,30 +322,30 @@ export class WorkbenchStore {
         ...row,
         timestamp: updatedAt,
         status: nextStatus,
-        rawJson: JSON.stringify({ ...raw, timestamp: updatedAt, status: nextStatus, codexUserInput: nextRequest }),
+        rawJson: JSON.stringify({ ...raw, timestamp: updatedAt, status: nextStatus, providerUserInput: nextRequest }),
       });
       return nextRequest;
     })();
   }
 
-  readCodexUserInputRequest(
+  readProviderUserInputRequest(
     projectId: string,
     conversationId: string,
     requestKey: string,
-  ): WorkbenchCodexUserInputRequest | null {
+  ): WorkbenchProviderUserInputRequest | null {
     const row = this.listConversationMessages(projectId, conversationId)
       .reverse()
       .find((message) => {
         try {
-          const raw = JSON.parse(message.rawJson) as { codexUserInput?: WorkbenchCodexUserInputRequest };
-          return raw.codexUserInput?.requestKey === requestKey;
+          const raw = JSON.parse(message.rawJson) as { providerUserInput?: WorkbenchProviderUserInputRequest };
+          return raw.providerUserInput?.requestKey === requestKey;
         } catch {
           return false;
         }
       });
     if (!row) return null;
-    const raw = JSON.parse(row.rawJson) as { codexUserInput?: WorkbenchCodexUserInputRequest };
-    return raw.codexUserInput ?? null;
+    const raw = JSON.parse(row.rawJson) as { providerUserInput?: WorkbenchProviderUserInputRequest };
+    return raw.providerUserInput ?? null;
   }
 
   updatePlanningMessageStatus(projectId: string, conversationId: string, artifact: string, status: string): void {
@@ -269,8 +369,9 @@ export class WorkbenchStore {
     return (this.db.prepare(`
       SELECT id, project_id AS projectId, conversation_id AS conversationId, change_id AS changeId, position, type, timestamp,
         text, action_run_id AS actionRunId, action_type AS actionType, status, run_id AS runId,
+        provider_id AS providerId, thread_id AS threadId, turn_id AS turnId, item_id AS itemId,
         artifact, error, raw_json AS rawJson
-      FROM messages
+      FROM canonical_timeline_items
       WHERE project_id = ? AND change_id = ?
       ORDER BY position ASC
     `).all(projectId, changeId) as SqliteRow[]).map(mapMessageRow);
@@ -280,8 +381,9 @@ export class WorkbenchStore {
     return (this.db.prepare(`
       SELECT id, project_id AS projectId, conversation_id AS conversationId, change_id AS changeId, position, type, timestamp,
         text, action_run_id AS actionRunId, action_type AS actionType, status, run_id AS runId,
+        provider_id AS providerId, thread_id AS threadId, turn_id AS turnId, item_id AS itemId,
         artifact, error, raw_json AS rawJson
-      FROM messages
+      FROM canonical_timeline_items
       WHERE project_id = ? AND conversation_id = ?
       ORDER BY position ASC
     `).all(projectId, conversationId) as SqliteRow[]).map(mapMessageRow);
@@ -291,8 +393,9 @@ export class WorkbenchStore {
     return (this.db.prepare(`
       SELECT id, project_id AS projectId, conversation_id AS conversationId, change_id AS changeId, position, type, timestamp,
         text, action_run_id AS actionRunId, action_type AS actionType, status, run_id AS runId,
+        provider_id AS providerId, thread_id AS threadId, turn_id AS turnId, item_id AS itemId,
         artifact, error, raw_json AS rawJson
-      FROM messages
+      FROM canonical_timeline_items
       WHERE project_id = ? AND conversation_id = ?
       ORDER BY position DESC
       LIMIT ?
@@ -303,8 +406,9 @@ export class WorkbenchStore {
     return (this.db.prepare(`
       SELECT id, project_id AS projectId, conversation_id AS conversationId, change_id AS changeId, position, type, timestamp,
         text, action_run_id AS actionRunId, action_type AS actionType, status, run_id AS runId,
+        provider_id AS providerId, thread_id AS threadId, turn_id AS turnId, item_id AS itemId,
         artifact, error, raw_json AS rawJson
-      FROM messages
+      FROM canonical_timeline_items
       WHERE project_id = ? AND conversation_id = ? AND position < ?
       ORDER BY position DESC
       LIMIT ?
@@ -315,34 +419,35 @@ export class WorkbenchStore {
     return (this.db.prepare(`
       SELECT id, project_id AS projectId, conversation_id AS conversationId, change_id AS changeId, position, type, timestamp,
         text, action_run_id AS actionRunId, action_type AS actionType, status, run_id AS runId,
+        provider_id AS providerId, thread_id AS threadId, turn_id AS turnId, item_id AS itemId,
         artifact, error, raw_json AS rawJson
-      FROM messages
+      FROM canonical_timeline_items
       WHERE project_id = ?
       ORDER BY timestamp ASC, position ASC
     `).all(projectId) as SqliteRow[]).map(mapMessageRow);
   }
 
   hasMessages(projectId: string, changeId: string): boolean {
-    const row = this.db.prepare("SELECT COUNT(*) AS count FROM messages WHERE project_id = ? AND conversation_id = ?").get(projectId, changeId) as SqliteRow;
+    const row = this.db.prepare("SELECT COUNT(*) AS count FROM canonical_timeline_items WHERE project_id = ? AND conversation_id = ?").get(projectId, changeId) as SqliteRow;
     return Number(row.count ?? 0) > 0;
   }
 
   countMessages(projectId: string, changeId: string): number {
-    const row = this.db.prepare("SELECT COUNT(*) AS count FROM messages WHERE project_id = ? AND conversation_id = ?").get(projectId, changeId) as SqliteRow;
+    const row = this.db.prepare("SELECT COUNT(*) AS count FROM canonical_timeline_items WHERE project_id = ? AND conversation_id = ?").get(projectId, changeId) as SqliteRow;
     return Number(row.count ?? 0);
   }
 
   deleteMessages(projectId: string, changeId: string): number {
-    const result = this.db.prepare("DELETE FROM messages WHERE project_id = ? AND conversation_id = ?").run(projectId, changeId);
+    const result = this.db.prepare("DELETE FROM canonical_timeline_items WHERE project_id = ? AND conversation_id = ?").run(projectId, changeId);
     return result.changes;
   }
 
   importMessages(messages: StoredTopicMessage[]): number {
     const insert = this.db.prepare(`
-      INSERT OR IGNORE INTO messages (
+      INSERT OR IGNORE INTO canonical_timeline_items (
         id, project_id, conversation_id, change_id, position, type, timestamp, text, action_run_id,
-        action_type, status, run_id, artifact, error, raw_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        action_type, status, run_id, provider_id, thread_id, turn_id, item_id, artifact, error, raw_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const transaction = this.db.transaction((items: StoredTopicMessage[]) => {
       let count = 0;
@@ -360,6 +465,10 @@ export class WorkbenchStore {
           item.actionType,
           item.status,
           item.runId,
+          item.providerId ?? null,
+          item.threadId ?? null,
+          item.turnId ?? null,
+          item.itemId ?? null,
           item.artifact,
           item.error,
           item.rawJson,
@@ -374,12 +483,16 @@ export class WorkbenchStore {
   createConversation(conversation: StoredConversation): void {
     this.db.prepare(`
       INSERT INTO conversations (
-        project_id, conversation_id, title, state, bound_change_id, current_graph_scope_id, created_at, updated_at, deleted_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        project_id, conversation_id, title, state, bound_change_id, current_graph_scope_id,
+        selected_provider_id, completed_turn_sequence, created_at, updated_at, deleted_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(project_id, conversation_id) DO UPDATE SET
         title = excluded.title,
         state = excluded.state,
         bound_change_id = excluded.bound_change_id,
+        current_graph_scope_id = excluded.current_graph_scope_id,
+        selected_provider_id = excluded.selected_provider_id,
+        completed_turn_sequence = excluded.completed_turn_sequence,
         updated_at = excluded.updated_at,
         deleted_at = excluded.deleted_at
     `).run(
@@ -389,6 +502,8 @@ export class WorkbenchStore {
       conversation.state,
       conversation.boundChangeId,
       conversation.currentGraphScopeId,
+      conversation.selectedProviderId,
+      conversation.completedTurnSequence,
       conversation.createdAt,
       conversation.updatedAt,
       conversation.deletedAt,
@@ -399,7 +514,9 @@ export class WorkbenchStore {
     const rows = options.includeDeleted
       ? this.db.prepare(`
         SELECT project_id AS projectId, conversation_id AS conversationId, title, state,
-          bound_change_id AS boundChangeId, current_graph_scope_id AS currentGraphScopeId, created_at AS createdAt, updated_at AS updatedAt,
+          bound_change_id AS boundChangeId, current_graph_scope_id AS currentGraphScopeId,
+          selected_provider_id AS selectedProviderId, completed_turn_sequence AS completedTurnSequence,
+          created_at AS createdAt, updated_at AS updatedAt,
           deleted_at AS deletedAt
         FROM conversations
         WHERE project_id = ?
@@ -407,7 +524,9 @@ export class WorkbenchStore {
       `).all(projectId) as SqliteRow[]
       : this.db.prepare(`
         SELECT project_id AS projectId, conversation_id AS conversationId, title, state,
-          bound_change_id AS boundChangeId, current_graph_scope_id AS currentGraphScopeId, created_at AS createdAt, updated_at AS updatedAt,
+          bound_change_id AS boundChangeId, current_graph_scope_id AS currentGraphScopeId,
+          selected_provider_id AS selectedProviderId, completed_turn_sequence AS completedTurnSequence,
+          created_at AS createdAt, updated_at AS updatedAt,
           deleted_at AS deletedAt
         FROM conversations
         WHERE project_id = ? AND deleted_at IS NULL
@@ -419,7 +538,9 @@ export class WorkbenchStore {
   readConversation(projectId: string, conversationId: string, options: { includeDeleted?: boolean } = {}): StoredConversation | null {
     const row = this.db.prepare(`
       SELECT project_id AS projectId, conversation_id AS conversationId, title, state,
-        bound_change_id AS boundChangeId, current_graph_scope_id AS currentGraphScopeId, created_at AS createdAt, updated_at AS updatedAt,
+        bound_change_id AS boundChangeId, current_graph_scope_id AS currentGraphScopeId,
+        selected_provider_id AS selectedProviderId, completed_turn_sequence AS completedTurnSequence,
+        created_at AS createdAt, updated_at AS updatedAt,
         deleted_at AS deletedAt
       FROM conversations
       WHERE project_id = ? AND conversation_id = ? ${options.includeDeleted ? "" : "AND deleted_at IS NULL"}
@@ -431,6 +552,7 @@ export class WorkbenchStore {
     const row = this.db.prepare(`
       SELECT c.project_id AS projectId, c.conversation_id AS conversationId, c.title, c.state,
         c.bound_change_id AS boundChangeId, c.current_graph_scope_id AS currentGraphScopeId,
+        c.selected_provider_id AS selectedProviderId, c.completed_turn_sequence AS completedTurnSequence,
         c.created_at AS createdAt, c.updated_at AS updatedAt,
         c.deleted_at AS deletedAt
       FROM conversations c
@@ -472,16 +594,16 @@ export class WorkbenchStore {
     `).run(hiddenAt, hiddenAt, projectId, conversationId);
   }
 
-  readProviderThread(projectId: string, conversationId: string, roleId: string): StoredProviderThreadLink | null {
+  readProviderThread(projectId: string, conversationId: string, providerId: ProviderId, roleId: string): StoredProviderThreadLink | null {
     const row = this.db.prepare(`
       SELECT project_id AS projectId, conversation_id AS conversationId,
-        provider_thread_id AS providerThreadId, role_id AS roleId,
+        provider_id AS providerId, provider_thread_id AS providerThreadId, role_id AS roleId,
         parent_thread_id AS parentThreadId, change_id AS changeId, graph_scope_id AS graphScopeId,
         capability_profile AS capabilityProfile, display_name AS displayName, run_id AS runId, updated_at AS updatedAt
       FROM provider_thread_links
-      WHERE project_id = ? AND conversation_id = ? AND role_id = ?
+      WHERE project_id = ? AND conversation_id = ? AND provider_id = ? AND role_id = ?
       ORDER BY updated_at DESC LIMIT 1
-    `).get(projectId, conversationId, roleId) as SqliteRow | undefined;
+    `).get(projectId, conversationId, providerId, roleId) as SqliteRow | undefined;
     return row ? mapProviderThreadRow(row) : null;
   }
 
@@ -493,10 +615,197 @@ export class WorkbenchStore {
     `).run(state, updatedAt, projectId, conversationId);
   }
 
+  selectConversationProvider(projectId: string, conversationId: string, providerId: ProviderId, updatedAt: string): void {
+    const result = this.db.prepare(`
+      UPDATE conversations SET selected_provider_id = ?, updated_at = ?
+      WHERE project_id = ? AND conversation_id = ? AND deleted_at IS NULL
+    `).run(providerId, updatedAt, projectId, conversationId);
+    if (result.changes !== 1) throw new Error(`Conversation not found: ${conversationId}`);
+  }
+
+  advanceCompletedTurnSequence(projectId: string, conversationId: string, expected: number, updatedAt: string): number {
+    const result = this.db.prepare(`
+      UPDATE conversations SET completed_turn_sequence = completed_turn_sequence + 1, updated_at = ?
+      WHERE project_id = ? AND conversation_id = ? AND completed_turn_sequence = ? AND deleted_at IS NULL
+    `).run(updatedAt, projectId, conversationId, expected);
+    if (result.changes !== 1) throw new Error(`Conversation completed-turn sequence changed concurrently: ${conversationId}`);
+    return expected + 1;
+  }
+
+  readConversationProviderBinding(projectId: string, conversationId: string, providerId: ProviderId): StoredConversationProviderBinding | null {
+    const row = this.db.prepare(`
+      SELECT project_id AS projectId, conversation_id AS conversationId, provider_id AS providerId,
+        native_session_id AS nativeSessionId, last_delivered_completed_turn AS lastDeliveredCompletedTurn,
+        preferred_model_json AS preferredModelJson, last_used_at AS lastUsedAt,
+        binding_status AS bindingStatus
+      FROM conversation_provider_bindings
+      WHERE project_id = ? AND conversation_id = ? AND provider_id = ?
+    `).get(projectId, conversationId, providerId) as SqliteRow | undefined;
+    return row ? mapConversationProviderBindingRow(row) : null;
+  }
+
+  writeConversationProviderBinding(binding: StoredConversationProviderBinding): void {
+    this.db.prepare(`
+      INSERT INTO conversation_provider_bindings (
+        project_id, conversation_id, provider_id, native_session_id,
+        last_delivered_completed_turn, preferred_model_json, last_used_at, binding_status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(project_id, conversation_id, provider_id) DO UPDATE SET
+        native_session_id = excluded.native_session_id,
+        last_delivered_completed_turn = excluded.last_delivered_completed_turn,
+        preferred_model_json = excluded.preferred_model_json,
+        last_used_at = excluded.last_used_at,
+        binding_status = excluded.binding_status
+    `).run(
+      binding.projectId,
+      binding.conversationId,
+      binding.providerId,
+      binding.nativeSessionId,
+      binding.lastDeliveredCompletedTurn,
+      binding.preferredModel ? JSON.stringify(binding.preferredModel) : null,
+      binding.lastUsedAt,
+      binding.bindingStatus,
+    );
+  }
+
+  createProviderAttempt(attempt: StoredProviderAttempt): void {
+    this.db.prepare(`
+      INSERT INTO provider_attempts (
+        project_id, conversation_id, attempt_id, graph_scope_id, provider_id,
+        change_id, agent_task_id, role_id, operation_profile,
+        native_session_id, model_json, capability_snapshot_json, handoff_hash,
+        delivered_through_completed_turn, worktree_id, status, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      attempt.projectId,
+      attempt.conversationId,
+      attempt.attemptId,
+      attempt.graphScopeId,
+      attempt.providerId,
+      attempt.changeId,
+      attempt.agentTaskId,
+      attempt.roleId,
+      attempt.operationProfile,
+      attempt.nativeSessionId,
+      attempt.model ? JSON.stringify(attempt.model) : null,
+      JSON.stringify(attempt.capabilitySnapshot),
+      attempt.handoffHash,
+      attempt.deliveredThroughCompletedTurn,
+      attempt.worktreeId,
+      attempt.status,
+      attempt.createdAt,
+      attempt.updatedAt,
+    );
+  }
+
+  startQueuedProviderAttempt(
+    projectId: string,
+    attemptId: string,
+    input: Pick<StoredProviderAttempt, "capabilitySnapshot" | "handoffHash" | "deliveredThroughCompletedTurn" | "model" | "updatedAt">,
+  ): void {
+    const result = this.db.prepare(`
+      UPDATE provider_attempts
+      SET status = 'running', capability_snapshot_json = ?, handoff_hash = ?,
+          delivered_through_completed_turn = ?, model_json = ?, updated_at = ?
+      WHERE project_id = ? AND attempt_id = ? AND status = 'queued'
+    `).run(
+      JSON.stringify(input.capabilitySnapshot),
+      input.handoffHash,
+      input.deliveredThroughCompletedTurn,
+      input.model ? JSON.stringify(input.model) : null,
+      input.updatedAt,
+      projectId,
+      attemptId,
+    );
+    if (result.changes !== 1) throw new Error(`Queued provider attempt is no longer claimable: ${attemptId}.`);
+  }
+
+  completeProviderAttempt(projectId: string, attemptId: string, status: StoredProviderAttempt["status"], nativeSessionId: string | null, updatedAt: string): void {
+    const result = this.db.prepare(`
+      UPDATE provider_attempts SET status = ?, native_session_id = COALESCE(?, native_session_id), updated_at = ?
+      WHERE project_id = ? AND attempt_id = ?
+    `).run(status, nativeSessionId, updatedAt, projectId, attemptId);
+    if (result.changes !== 1) throw new Error(`Provider attempt not found: ${attemptId}`);
+  }
+
+  listProviderAttempts(projectId: string, conversationId: string): StoredProviderAttempt[] {
+    const rows = this.db.prepare(`
+      SELECT project_id AS projectId, conversation_id AS conversationId, attempt_id AS attemptId,
+        graph_scope_id AS graphScopeId, provider_id AS providerId, native_session_id AS nativeSessionId,
+        change_id AS changeId, agent_task_id AS agentTaskId, role_id AS roleId, operation_profile AS operationProfile,
+        model_json AS modelJson, capability_snapshot_json AS capabilitySnapshotJson,
+        handoff_hash AS handoffHash, delivered_through_completed_turn AS deliveredThroughCompletedTurn,
+        worktree_id AS worktreeId, status, created_at AS createdAt, updated_at AS updatedAt
+      FROM provider_attempts
+      WHERE project_id = ? AND conversation_id = ?
+      ORDER BY created_at ASC
+    `).all(projectId, conversationId) as SqliteRow[];
+    return rows.map(mapProviderAttemptRow);
+  }
+
+  writeProviderResumePoint(point: StoredProviderResumePoint): void {
+    this.db.prepare(`
+      INSERT INTO provider_resume_points (
+        project_id, conversation_id, resume_point_id, graph_scope_id, change_id,
+        previous_provider_id, target_provider_id, snapshot_json, snapshot_hash, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      point.projectId,
+      point.conversationId,
+      point.resumePointId,
+      point.graphScopeId,
+      point.changeId,
+      point.previousProviderId,
+      point.targetProviderId,
+      point.snapshotJson,
+      point.snapshotHash,
+      point.createdAt,
+    );
+  }
+
+  commitConversationProviderSwitch(
+    point: StoredProviderResumePoint,
+    binding: StoredConversationProviderBinding,
+    expectedProviderId: ProviderId,
+    resumeAttempt: StoredProviderAttempt,
+  ): void {
+    this.db.transaction(() => {
+      const selected = this.db.prepare(`
+        UPDATE conversations SET selected_provider_id = ?, updated_at = ?
+        WHERE project_id = ? AND conversation_id = ? AND selected_provider_id = ? AND deleted_at IS NULL
+      `).run(
+        point.targetProviderId,
+        point.createdAt,
+        point.projectId,
+        point.conversationId,
+        expectedProviderId,
+      );
+      if (selected.changes !== 1) {
+        throw new Error(`Conversation provider changed concurrently: ${point.conversationId}`);
+      }
+      this.writeProviderResumePoint(point);
+      this.writeConversationProviderBinding(binding);
+      this.createProviderAttempt(resumeAttempt);
+    })();
+  }
+
+  readLatestProviderResumePoint(projectId: string, conversationId: string): StoredProviderResumePoint | null {
+    const row = this.db.prepare(`
+      SELECT project_id AS projectId, conversation_id AS conversationId, resume_point_id AS resumePointId,
+        graph_scope_id AS graphScopeId, change_id AS changeId, previous_provider_id AS previousProviderId,
+        target_provider_id AS targetProviderId, snapshot_json AS snapshotJson, snapshot_hash AS snapshotHash,
+        created_at AS createdAt
+      FROM provider_resume_points
+      WHERE project_id = ? AND conversation_id = ?
+      ORDER BY created_at DESC LIMIT 1
+    `).get(projectId, conversationId) as SqliteRow | undefined;
+    return row ? mapProviderResumePointRow(row) : null;
+  }
+
   listProviderThreads(projectId: string, conversationId: string): StoredProviderThreadLink[] {
     return (this.db.prepare(`
       SELECT project_id AS projectId, conversation_id AS conversationId,
-        provider_thread_id AS providerThreadId, role_id AS roleId,
+        provider_id AS providerId, provider_thread_id AS providerThreadId, role_id AS roleId,
         parent_thread_id AS parentThreadId, change_id AS changeId, graph_scope_id AS graphScopeId,
         capability_profile AS capabilityProfile, display_name AS displayName, run_id AS runId, updated_at AS updatedAt
       FROM provider_thread_links
@@ -508,10 +817,10 @@ export class WorkbenchStore {
   writeProviderThread(link: StoredProviderThreadLink): void {
     this.db.prepare(`
       INSERT INTO provider_thread_links (
-        project_id, conversation_id, provider_thread_id, role_id,
+        project_id, conversation_id, provider_id, provider_thread_id, role_id,
         parent_thread_id, change_id, graph_scope_id, capability_profile, display_name, run_id, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(project_id, provider_thread_id) DO UPDATE SET
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(project_id, provider_id, provider_thread_id) DO UPDATE SET
         conversation_id = excluded.conversation_id,
         role_id = excluded.role_id,
         parent_thread_id = excluded.parent_thread_id,
@@ -524,6 +833,7 @@ export class WorkbenchStore {
     `).run(
       link.projectId,
       link.conversationId,
+      link.providerId,
       link.providerThreadId,
       link.roleId,
       link.parentThreadId,
@@ -643,10 +953,10 @@ export class WorkbenchStore {
           AND (role_id = 'main-agent' OR provider_thread_id = ?)
       `).run(graphScopeId, updatedAt, projectId, conversationId, plannerThreadId);
       const rows = this.db.prepare(`
-        SELECT id, raw_json AS rawJson FROM messages
+        SELECT id, raw_json AS rawJson FROM canonical_timeline_items
         WHERE project_id = ? AND conversation_id = ? AND run_id = ?
       `).all(projectId, conversationId, runId) as SqliteRow[];
-      const update = this.db.prepare("UPDATE messages SET raw_json = ? WHERE id = ? AND project_id = ?");
+      const update = this.db.prepare("UPDATE canonical_timeline_items SET raw_json = ? WHERE id = ? AND project_id = ?");
       for (const row of rows) {
         let raw: Record<string, unknown> = {};
         try { raw = JSON.parse(String(row.rawJson)) as Record<string, unknown>; } catch { /* keep the row readable */ }
@@ -694,6 +1004,7 @@ export class WorkbenchStore {
     const row = this.db.prepare(`
       SELECT c.project_id AS projectId, c.conversation_id AS conversationId, c.title, c.state,
         c.bound_change_id AS boundChangeId, c.current_graph_scope_id AS currentGraphScopeId,
+        c.selected_provider_id AS selectedProviderId, c.completed_turn_sequence AS completedTurnSequence,
         c.created_at AS createdAt, c.updated_at AS updatedAt,
         c.deleted_at AS deletedAt
       FROM conversation_change_links l
@@ -877,8 +1188,12 @@ export class WorkbenchStore {
 }
 
 function migrate(db: Database.Database): void {
+  const currentVersion = Number(db.pragma("user_version", { simple: true }));
+  if (currentVersion !== WORKBENCH_SCHEMA_VERSION) {
+    resetWorkbenchConversationRunSchema(db);
+  }
   db.exec(`
-    CREATE TABLE IF NOT EXISTS messages (
+    CREATE TABLE IF NOT EXISTS canonical_timeline_items (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL,
       conversation_id TEXT NOT NULL DEFAULT '',
@@ -891,11 +1206,15 @@ function migrate(db: Database.Database): void {
       action_type TEXT,
       status TEXT,
       run_id TEXT,
+      provider_id TEXT,
+      thread_id TEXT,
+      turn_id TEXT,
+      item_id TEXT,
       artifact TEXT,
       error TEXT,
       raw_json TEXT NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS idx_messages_topic ON messages(project_id, change_id, position);
+    CREATE INDEX IF NOT EXISTS idx_timeline_change ON canonical_timeline_items(project_id, change_id, position);
 
     CREATE TABLE IF NOT EXISTS conversations (
       project_id TEXT NOT NULL,
@@ -904,6 +1223,8 @@ function migrate(db: Database.Database): void {
       state TEXT NOT NULL DEFAULT 'active',
       bound_change_id TEXT,
       current_graph_scope_id TEXT,
+      selected_provider_id TEXT NOT NULL,
+      completed_turn_sequence INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       deleted_at TEXT,
@@ -927,6 +1248,7 @@ function migrate(db: Database.Database): void {
     CREATE TABLE IF NOT EXISTS provider_thread_links (
       project_id TEXT NOT NULL,
       conversation_id TEXT NOT NULL,
+      provider_id TEXT NOT NULL,
       provider_thread_id TEXT NOT NULL,
       role_id TEXT NOT NULL,
       parent_thread_id TEXT,
@@ -936,10 +1258,62 @@ function migrate(db: Database.Database): void {
       display_name TEXT,
       run_id TEXT,
       updated_at TEXT NOT NULL,
-      PRIMARY KEY(project_id, provider_thread_id)
+      PRIMARY KEY(project_id, provider_id, provider_thread_id)
     );
     CREATE INDEX IF NOT EXISTS idx_provider_threads_conversation_role
-      ON provider_thread_links(project_id, conversation_id, role_id, updated_at);
+      ON provider_thread_links(project_id, conversation_id, provider_id, role_id, updated_at);
+
+    CREATE TABLE IF NOT EXISTS conversation_provider_bindings (
+      project_id TEXT NOT NULL,
+      conversation_id TEXT NOT NULL,
+      provider_id TEXT NOT NULL,
+      native_session_id TEXT,
+      last_delivered_completed_turn INTEGER NOT NULL DEFAULT 0,
+      preferred_model_json TEXT,
+      last_used_at TEXT,
+      binding_status TEXT NOT NULL,
+      PRIMARY KEY(project_id, conversation_id, provider_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS provider_attempts (
+      project_id TEXT NOT NULL,
+      conversation_id TEXT,
+      attempt_id TEXT NOT NULL,
+      graph_scope_id TEXT,
+      provider_id TEXT NOT NULL,
+      change_id TEXT,
+      agent_task_id TEXT,
+      role_id TEXT NOT NULL,
+      operation_profile TEXT NOT NULL,
+      native_session_id TEXT,
+      model_json TEXT,
+      capability_snapshot_json TEXT NOT NULL,
+      handoff_hash TEXT NOT NULL,
+      delivered_through_completed_turn INTEGER NOT NULL,
+      worktree_id TEXT,
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, attempt_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_provider_attempts_conversation
+      ON provider_attempts(project_id, conversation_id, graph_scope_id, updated_at);
+
+    CREATE TABLE IF NOT EXISTS provider_resume_points (
+      project_id TEXT NOT NULL,
+      conversation_id TEXT NOT NULL,
+      resume_point_id TEXT NOT NULL,
+      graph_scope_id TEXT,
+      change_id TEXT,
+      previous_provider_id TEXT NOT NULL,
+      target_provider_id TEXT NOT NULL,
+      snapshot_json TEXT NOT NULL,
+      snapshot_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, resume_point_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_provider_resume_points_conversation
+      ON provider_resume_points(project_id, conversation_id, created_at);
 
     CREATE TABLE IF NOT EXISTS conversation_change_links (
       project_id TEXT NOT NULL,
@@ -1041,18 +1415,6 @@ function migrate(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_decision_records_topic ON decision_records(project_id, change_id, updated_at);
   `);
-  const providerThreadColumns = new Set((db.prepare("PRAGMA table_info(provider_thread_links)").all() as Array<{ name: string }>).map((column) => column.name));
-  if (!providerThreadColumns.has("display_name")) db.exec("ALTER TABLE provider_thread_links ADD COLUMN display_name TEXT;");
-  if (!providerThreadColumns.has("run_id")) db.exec("ALTER TABLE provider_thread_links ADD COLUMN run_id TEXT;");
-  if (!providerThreadColumns.has("graph_scope_id")) {
-    db.exec("ALTER TABLE provider_thread_links ADD COLUMN graph_scope_id TEXT;");
-    db.exec("DELETE FROM provider_thread_links WHERE role_id <> 'main-agent';");
-    db.exec("UPDATE provider_thread_links SET change_id = NULL, graph_scope_id = NULL WHERE role_id = 'main-agent';");
-  }
-  const conversationColumns = new Set((db.prepare("PRAGMA table_info(conversations)").all() as Array<{ name: string }>).map((column) => column.name));
-  if (!conversationColumns.has("current_graph_scope_id")) db.exec("ALTER TABLE conversations ADD COLUMN current_graph_scope_id TEXT;");
-  const conversationChangeColumns = new Set((db.prepare("PRAGMA table_info(conversation_change_links)").all() as Array<{ name: string }>).map((column) => column.name));
-  if (!conversationChangeColumns.has("graph_scope_id")) db.exec("ALTER TABLE conversation_change_links ADD COLUMN graph_scope_id TEXT;");
   db.exec(`
     DELETE FROM conversation_change_links
     WHERE graph_scope_id IS NOT NULL AND rowid NOT IN (
@@ -1071,9 +1433,100 @@ function migrate(db: Database.Database): void {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_conversation_change_change_id
       ON conversation_change_links(project_id, change_id);
   `);
-  const acceptanceColumns = new Set((db.prepare("PRAGMA table_info(planning_acceptance_commits)").all() as Array<{ name: string }>).map((column) => column.name));
-  if (!acceptanceColumns.has("graph_scope_id")) db.exec("ALTER TABLE planning_acceptance_commits ADD COLUMN graph_scope_id TEXT;");
-  db.exec("CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(project_id, conversation_id, position);");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_timeline_conversation ON canonical_timeline_items(project_id, conversation_id, position);");
+  db.pragma(`user_version = ${WORKBENCH_SCHEMA_VERSION}`);
+}
+
+function hasWorkbenchRuntimeTables(db: Database.Database): boolean {
+  const row = db.prepare("SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name IN ('conversations', 'messages', 'canonical_timeline_items', 'provider_attempts') LIMIT 1").get() as SqliteRow | undefined;
+  return Boolean(row?.present);
+}
+
+function beginExclusiveSchemaRebuild(db: Database.Database): void {
+  try {
+    db.pragma("busy_timeout = 250");
+    db.exec("BEGIN EXCLUSIVE");
+    db.pragma("busy_timeout = 5000");
+  } catch (error) {
+    if (error instanceof Error && /busy|locked/i.test(error.message)) {
+      throw new Error("Workbench 会话数据库需要重建，但另一个 Workbench 实例正在使用该数据库。请先停止其他实例后重试。", { cause: error });
+    }
+    throw error;
+  }
+}
+
+function assertRuntimeDatabaseResetSafe(db: Database.Database): void {
+  const tables = new Set((db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as SqliteRow[]).map((row) => String(row.name)));
+  if (tables.has("provider_attempts")) {
+    const active = db.prepare("SELECT COUNT(*) AS count FROM provider_attempts WHERE status IN ('queued', 'running')").get() as SqliteRow;
+    if (Number(active.count ?? 0) > 0) throw new Error("Workbench 会话数据库需要重建，但仍有模型执行尚未结束或完成对账。");
+  }
+  if (tables.has("action_runs")) {
+    const columns = db.prepare("PRAGMA table_info(action_runs)").all() as SqliteRow[];
+    if (columns.some((column) => String(column.name) === "status")) {
+      const active = db.prepare("SELECT COUNT(*) AS count FROM action_runs WHERE status IN ('queued', 'running')").get() as SqliteRow;
+      if (Number(active.count ?? 0) > 0) throw new Error("Workbench 会话数据库需要重建，但仍有 Workbench action 正在运行。");
+    }
+  }
+}
+
+async function assertProviderTurnsStoppedBeforeReset(db: Database.Database, providerRegistry?: ProviderRegistry): Promise<void> {
+  const registry = providerRegistry ?? (await import("../provider-runtime/default-registry.js")).defaultProviderRegistry;
+  if (registry.listActiveTurns().length > 0) {
+    throw new Error("Workbench 会话数据库需要重建，但仍有 Agent provider turn 正在运行。请先停止并等待退出。");
+  }
+  const tables = new Set((db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as SqliteRow[]).map((row) => String(row.name)));
+  const scopeIds = new Set<string>();
+  if (tables.has("conversations")) {
+    const columns = new Set((db.prepare("PRAGMA table_info(conversations)").all() as SqliteRow[]).map((row) => String(row.name)));
+    const fields = [columns.has("conversation_id") ? "conversation_id" : null, columns.has("bound_change_id") ? "bound_change_id" : null].filter((field): field is string => Boolean(field));
+    if (fields.length > 0) {
+      for (const row of db.prepare(`SELECT ${fields.join(", ")} FROM conversations`).all() as SqliteRow[]) {
+        for (const field of fields) if (row[field]) scopeIds.add(String(row[field]));
+      }
+    }
+  }
+  if (tables.has("provider_attempts")) {
+    for (const row of db.prepare("SELECT attempt_id FROM provider_attempts WHERE status IN ('queued', 'running')").all() as SqliteRow[]) {
+      if (row.attempt_id) scopeIds.add(String(row.attempt_id));
+    }
+  }
+  if (registry.findActiveTurns(scopeIds).length > 0) {
+    throw new Error("Workbench 会话数据库需要重建，但仍有 Agent provider turn 正在运行。请先停止并等待退出。");
+  }
+}
+
+async function assertWorkflowModelAttemptsStopped(memory: ResolvedMemory): Promise<void> {
+  const activeRoot = join(memory.changesRoot, "active");
+  const entries = await readdir(activeRoot, { withFileTypes: true }).catch(() => []);
+  if (entries.length === 0) return;
+  const { listTaskRuns } = await import("../task-run/repository.js");
+  const { isActiveTaskRunStatus } = await import("../task-run/guards.js");
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.name === ".gitkeep") continue;
+    const active = (await listTaskRuns(memory, entry.name)).filter((run) => isActiveTaskRunStatus(run.status));
+    if (active.length > 0) {
+      throw new Error("Workbench 会话数据库需要重建，但仍有 Workflow 模型节点正在运行。请先暂停并完成对账。");
+    }
+  }
+}
+
+function resetWorkbenchConversationRunSchema(db: Database.Database): void {
+  db.exec(`
+    DROP TABLE IF EXISTS messages;
+    DROP TABLE IF EXISTS canonical_timeline_items;
+    DROP TABLE IF EXISTS conversations;
+    DROP TABLE IF EXISTS action_runs;
+    DROP TABLE IF EXISTS provider_thread_links;
+    DROP TABLE IF EXISTS conversation_provider_bindings;
+    DROP TABLE IF EXISTS provider_attempts;
+    DROP TABLE IF EXISTS provider_resume_points;
+    DROP TABLE IF EXISTS conversation_change_links;
+    DROP TABLE IF EXISTS conversation_graph_scopes;
+    DROP TABLE IF EXISTS planning_acceptance_commits;
+    DROP TABLE IF EXISTS approval_cache;
+    DROP TABLE IF EXISTS decision_records;
+  `);
 }
 
 function mapMessageRow(row: SqliteRow): StoredTopicMessage {
@@ -1090,6 +1543,10 @@ function mapMessageRow(row: SqliteRow): StoredTopicMessage {
     actionType: nullableString(row.actionType),
     status: nullableString(row.status),
     runId: nullableString(row.runId),
+    providerId: nullableString(row.providerId),
+    threadId: nullableString(row.threadId),
+    turnId: nullableString(row.turnId),
+    itemId: nullableString(row.itemId),
     artifact: nullableString(row.artifact),
     error: nullableString(row.error),
     rawJson: String(row.rawJson),
@@ -1104,6 +1561,8 @@ function mapConversationRow(row: SqliteRow): StoredConversation {
     state: row.state === "archive" ? "archive" : "active",
     boundChangeId: nullableString(row.boundChangeId),
     currentGraphScopeId: nullableString(row.currentGraphScopeId),
+    selectedProviderId: String(row.selectedProviderId),
+    completedTurnSequence: Number(row.completedTurnSequence),
     createdAt: String(row.createdAt),
     updatedAt: String(row.updatedAt),
     deletedAt: nullableString(row.deletedAt),
@@ -1114,6 +1573,7 @@ function mapProviderThreadRow(row: SqliteRow): StoredProviderThreadLink {
   return {
     projectId: String(row.projectId),
     conversationId: String(row.conversationId),
+    providerId: String(row.providerId),
     providerThreadId: String(row.providerThreadId),
     roleId: String(row.roleId),
     parentThreadId: nullableString(row.parentThreadId),
@@ -1124,6 +1584,70 @@ function mapProviderThreadRow(row: SqliteRow): StoredProviderThreadLink {
     runId: nullableString(row.runId),
     updatedAt: String(row.updatedAt),
   };
+}
+
+function mapConversationProviderBindingRow(row: SqliteRow): StoredConversationProviderBinding {
+  return {
+    projectId: String(row.projectId),
+    conversationId: String(row.conversationId),
+    providerId: String(row.providerId),
+    nativeSessionId: nullableString(row.nativeSessionId),
+    lastDeliveredCompletedTurn: Number(row.lastDeliveredCompletedTurn),
+    preferredModel: parseJsonObject<ProviderModelRef>(row.preferredModelJson),
+    lastUsedAt: nullableString(row.lastUsedAt),
+    bindingStatus: row.bindingStatus === "unavailable" ? "unavailable" : row.bindingStatus === "stale" ? "stale" : "ready",
+  };
+}
+
+function mapProviderAttemptRow(row: SqliteRow): StoredProviderAttempt {
+  const capabilitySnapshot = parseJsonObject<ProviderCapabilitySnapshot>(row.capabilitySnapshotJson);
+  if (!capabilitySnapshot) throw new Error(`Provider attempt has invalid capability snapshot: ${String(row.attemptId)}`);
+  const status = String(row.status);
+  return {
+    projectId: String(row.projectId),
+    conversationId: nullableString(row.conversationId),
+    attemptId: String(row.attemptId),
+    graphScopeId: nullableString(row.graphScopeId),
+    changeId: nullableString(row.changeId),
+    agentTaskId: nullableString(row.agentTaskId),
+    roleId: String(row.roleId),
+    operationProfile: String(row.operationProfile),
+    providerId: String(row.providerId),
+    nativeSessionId: nullableString(row.nativeSessionId),
+    model: parseJsonObject<ProviderModelRef>(row.modelJson),
+    capabilitySnapshot,
+    handoffHash: String(row.handoffHash),
+    deliveredThroughCompletedTurn: Number(row.deliveredThroughCompletedTurn),
+    worktreeId: nullableString(row.worktreeId),
+    status: status === "queued" || status === "running" || status === "completed" || status === "interrupted" || status === "blocked" ? status : "failed",
+    createdAt: String(row.createdAt),
+    updatedAt: String(row.updatedAt),
+  };
+}
+
+function mapProviderResumePointRow(row: SqliteRow): StoredProviderResumePoint {
+  return {
+    projectId: String(row.projectId),
+    conversationId: String(row.conversationId),
+    resumePointId: String(row.resumePointId),
+    graphScopeId: nullableString(row.graphScopeId),
+    changeId: nullableString(row.changeId),
+    previousProviderId: String(row.previousProviderId),
+    targetProviderId: String(row.targetProviderId),
+    snapshotJson: String(row.snapshotJson),
+    snapshotHash: String(row.snapshotHash),
+    createdAt: String(row.createdAt),
+  };
+}
+
+function parseJsonObject<T>(value: unknown): T | null {
+  if (typeof value !== "string" || value.length === 0) return null;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return typeof parsed === "object" && parsed !== null ? parsed as T : null;
+  } catch {
+    return null;
+  }
 }
 
 function mapSkillRow(row: SqliteRow): StoredSkillIndex {

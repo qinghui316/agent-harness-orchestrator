@@ -1,4 +1,4 @@
-import type { ConversationLifecycle, DemandAgentRunGraphNodeStatus, ThreadStreamItem, WorkbenchCodingPackage, WorkbenchTaskNode, Workpad, WorkpadRuntimeStatus, WorkpadUserStatus } from "./types.js";
+import type { ConversationLifecycle, AgentRelationGraphNodeStatus, ThreadStreamItem, WorkbenchCodingPackage, WorkbenchTaskNode, Workpad, WorkpadRuntimeStatus, WorkpadUserStatus } from "./types.js";
 
 type ProjectDisplayInput = {
   id?: string | null;
@@ -58,7 +58,7 @@ export function conversationLifecycleLabel(status?: ConversationLifecycle): stri
   return "当前需求";
 }
 
-export function agentRunStatusLabel(status: DemandAgentRunGraphNodeStatus): string {
+export function agentRunStatusLabel(status: AgentRelationGraphNodeStatus): string {
   if (status === "running") return "进行中";
   if (status === "queued") return "等待中";
   if (status === "completed") return "已完成";
@@ -174,8 +174,8 @@ export function stateLabel(state: string): string {
 }
 
 export function runtimeLabel(runtime: string): string {
-  if (runtime === "codex-readonly") return "AI 只读回复";
-  if (runtime === "coder-codex") return "代码实现";
+  if (runtime === "provider-readonly") return "AI 只读回复";
+  if (runtime === "provider-code") return "代码实现";
   if (runtime === "validator") return "验证";
   if (runtime === "auditor") return "审查";
   if (runtime === "orchestrator" || runtime === "orchestrator.plan") return "AI 计划";
@@ -232,8 +232,8 @@ export function roleLabel(roleId: string): string {
 export function eventLabel(type: string): string {
   if (type === "run.created") return "创建运行";
   if (type === "context.prepared") return "准备上下文";
-  if (type === "codex.started" || type === "coder.started") return "启动 Codex";
-  if (type === "codex.exited" || type === "coder.exited") return "Codex 结束";
+  if (type === "provider.started" || type === "coder.started") return "启动 Agent Provider";
+  if (type === "provider.exited" || type === "coder.exited") return "Agent Provider 结束";
   if (type === "validation.started") return "开始验证";
   if (type === "validation.command.started") return "运行验证命令";
   if (type === "validation.command.exited") return "验证命令结束";

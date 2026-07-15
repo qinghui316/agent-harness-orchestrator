@@ -2,15 +2,13 @@ import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { join, resolve } from "node:path";
-import { trustCodexProject } from "../../codex/trust.js";
 import { resolveExistingDirectory } from "../../fs/path.js";
 import { ensureProjectRuntime, initHarness } from "../../harness/init.js";
 import { getProjectStatus } from "../../project/status.js";
 import type { ProjectRegistryStore } from "../../registry/store.js";
-import type { CodexProjectTrustStatus } from "../../types/index.js";
 import type { ManagedProject, MemoryMode } from "../../types/index.js";
 import { assertConfirmed, isWithinDirectory } from "./http.js";
-import type { AddExistingProjectRequest, CreateNewProjectRequest, InitProjectHarnessRequest, RemoveProjectRequest, TrustCodexProjectRequest } from "./types.js";
+import type { AddExistingProjectRequest, CreateNewProjectRequest, InitProjectHarnessRequest, RemoveProjectRequest } from "./types.js";
 import { listProjectStatusesWithDirect } from "./direct-project.js";
 import type { WorkbenchProjectInput } from "../../workbench/manager.js";
 
@@ -84,18 +82,6 @@ export async function initProjectHarness(store: ProjectRegistryStore, projectId:
   const memoryMode = parseMemoryMode(body.memoryMode);
   const result = await initHarness(project, { memoryMode });
   return { result, status: await getProjectStatus(project, project.path) };
-}
-
-export async function trustCodexProjectForWorkbench(store: ProjectRegistryStore, projectId: string, body: TrustCodexProjectRequest): Promise<{ codexTrust: CodexProjectTrustStatus; status: unknown }> {
-  assertConfirmed(body.confirm);
-  const project = await store.resolveProject(projectId);
-  if (!project) {
-    const error = new Error(`Project not found: ${projectId}`);
-    error.name = "NotFound";
-    throw error;
-  }
-  const codexTrust = await trustCodexProject(project.path);
-  return { codexTrust, status: await getProjectStatus(project, project.path) };
 }
 
 function assertSafeDirectoryName(value: unknown): string {

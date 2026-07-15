@@ -295,6 +295,10 @@ export function getActiveCodexAppServerTurn(scopeId: string): ActiveCodexAppServ
   return activeTurns.get(scopeId) ?? null;
 }
 
+export function listActiveCodexAppServerTurns(): ActiveCodexAppServerTurn[] {
+  return [...new Map([...activeTurns.values()].map((turn) => [`${turn.runtimeScopeId}:${turn.runId}:${turn.turnId}`, turn])).values()];
+}
+
 export async function respondToCodexAppServerUserInput(
   scopeId: string,
   requestId: string,
@@ -343,6 +347,7 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
   let goalPausePromise: Promise<void> | null = null;
   let waitingGoalAttachPending = false;
   let activeTurnRunning = false;
+  let acceptingTurnEvents = false;
   const childThreads: CodexAppServerChildThreadResult[] = [];
   const childThreadDisplayNames = new Map<string, string>();
   const changedFiles = new Set<string>();
@@ -428,6 +433,7 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
       goal = goalBeforeSession;
       terminalStatus = "completed";
     }
+    if (goalBeforeSession?.status === "active") acceptingTurnEvents = true;
     const threadResponse = terminalStatus
       ? null
       : threadId
@@ -499,11 +505,13 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
           }],
         });
       }
+      acceptingTurnEvents = true;
       const activation = parseThreadGoalResponse(await sendRequest("thread/goal/set", { threadId, status: "active" }));
       if (activation) goal = activation;
       waitingGoalAttachPending = false;
     } else if ((!goalBeforeSession || isResumableGoalStatus(goalBeforeSession.status)) && !terminalStatus) {
       const turnModel = options.model?.trim() || null;
+      acceptingTurnEvents = true;
       const turnResponse = await sendRequest("turn/start", {
         threadId,
         input: [userTextInput(options.prompt), ...skillInputs(options.skillInputs), ...imageInputs(options.imageInputs)],
@@ -683,8 +691,9 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
     const notification = { method, params, raw };
     const notificationThreadId = stringValue(params.threadId ?? params.thread_id);
     const isParentNotification = !notificationThreadId || !threadId || notificationThreadId === threadId;
-    if (isParentNotification) for (const path of extractFileChangePaths(params)) changedFiles.add(path);
     if (isParentNotification) options.onNotification?.(notification);
+    if (!acceptsCurrentTurnNotification(method, params, notificationThreadId)) return;
+    if (isParentNotification) for (const path of extractFileChangePaths(params)) changedFiles.add(path);
     const collab = extractCodexAppServerCollabToolCall(method, params);
     if (collab?.tool === "spawn_agent") {
       for (const childThreadId of collab.receiverThreadIds) {
@@ -813,6 +822,22 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
     pending.clear();
   }
 
+  function acceptsCurrentTurnNotification(
+    method: string,
+    params: Record<string, unknown>,
+    notificationThreadId: string | undefined,
+  ): boolean {
+    if (method === "thread/goal/updated") return true;
+    if (!acceptingTurnEvents) return false;
+    const isParentNotification = !notificationThreadId || !threadId || notificationThreadId === threadId;
+    if (!isParentNotification) return true;
+    const notificationTurnId = stringValue(params.turnId ?? params.turn_id)
+      ?? stringValue(isRecord(params.turn) ? params.turn.id : undefined);
+    if (method === "turn/started") return !turnId || !notificationTurnId || notificationTurnId === turnId;
+    if (turnId && notificationTurnId && notificationTurnId !== turnId) return false;
+    return Boolean(turnId || notificationTurnId);
+  }
+
   function emitRealtime(method: string, params: Record<string, unknown>): void {
     if (!options.onRealtimeEvent) return;
     const eventThreadId = stringValue(params.threadId ?? params.thread_id) ?? threadId ?? `run:${options.runId}`;
@@ -846,7 +871,7 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
       ...(options.agentTaskId ? { agentTaskId: options.agentTaskId } : {}),
       displayName: providerDisplayName ?? childThreadDisplayNames.get(eventThreadId) ?? agentRoleDisplayName(roleId),
       ...(receiverThreadId ? {
-        targetAgentSurfaceId: `thread:${receiverThreadId}`,
+        targetThreadId: receiverThreadId,
         targetAgentDisplayName: composeAgentDisplayLabel(targetRoleId ?? "child-agent", childThreadDisplayNames.get(receiverThreadId)),
       } : {}),
     })) options.onRealtimeEvent(realtimeEvent);

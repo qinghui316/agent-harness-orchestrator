@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+﻿import { existsSync } from "node:fs";
 import { open, readFile, stat } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 import type { ResolvedMemory, RunMetadata } from "../../types/index.js";
@@ -13,7 +13,7 @@ export async function summarizeRunArtifacts(memory: ResolvedMemory, run: RunMeta
   const runDirectory = resolve(baseRoot, run.artifacts.directory);
   const known = Object.entries(run.artifacts)
     .filter(([key, value]) => key !== "base" && key !== "directory" && typeof value === "string") as Array<[string, string]>;
-  const extraKnown = ["codex-events.jsonl", "last-message.md", "diff.patch", "diff-stat.txt", "validation.json", "audit.json", "audit.md", "implementation.md"];
+  const extraKnown = ["provider-events.jsonl", "last-message.md", "diff.patch", "diff-stat.txt", "validation.json", "audit.json", "audit.md", "implementation.md"];
 
   for (const [key, artifactPath] of known) {
     artifacts.push(await summarizeArtifact(key, artifactPath, baseRoot, runDirectory, diagnostics));
@@ -94,7 +94,7 @@ function isWithinDirectory(path: string, directory: string): boolean {
 }
 
 function keyForKnownArtifact(fileName: string): string {
-  if (fileName === "codex-events.jsonl") return "codexEvents";
+  if (fileName === "provider-events.jsonl") return "providerEvents";
   if (fileName === "last-message.md") return "lastMessage";
   if (fileName === "diff.patch") return "diff";
   if (fileName === "diff-stat.txt") return "diffStat";
@@ -104,7 +104,7 @@ function keyForKnownArtifact(fileName: string): string {
 
 function artifactKind(key: string, path: string): string {
   if (key === "stdout" || key === "stderr") return "log";
-  if (key === "events" || key === "codexEvents") return "jsonl";
+  if (key === "events" || key === "providerEvents") return "jsonl";
   if (path.endsWith(".json")) return "json";
   if (path.endsWith(".patch")) return "patch";
   if (path.endsWith(".md")) return "markdown";

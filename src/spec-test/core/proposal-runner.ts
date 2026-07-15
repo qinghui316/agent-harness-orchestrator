@@ -1,18 +1,19 @@
 ﻿import { existsSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { z } from "zod";
 import { collectWorktreeDiff } from "../../audit/diff.js";
-import { buildCodexReadonlyArgv, detectCodexCapabilities } from "../../codex/capabilities.js";
-import { extractFinalMessageFromCodexJsonl } from "../../codex/jsonl.js";
 import { readRequiredJsonFile, writeJsonFile } from "../../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../../memory/resolver.js";
+import type { ProviderTurnResult } from "../../provider-runtime/index.js";
 import { appendRunEvent, buildContextProjection, buildRunId } from "../../run/manager.js";
-import { executeProcessStreaming } from "../../run/process.js";
+import { finishProviderAttempt, startProviderAttempt } from "../../workbench/provider-attempts.js";
 import { getTemplateRoot } from "../../template-source/paths.js";
 import { getLatestValidationSummary } from "../../validation/artifacts.js";
 import { resolveRunnableChangeTarget } from "../../change/target.js";
 import { getSpecTestContextForChange, getSpecTestStatus, linkSpecTestRefs } from "./status.js";
+import { resolveSpecTestProvider } from "./provider.js";
 import type {
   ManagedProject,
   ResolvedMemory,
@@ -64,6 +65,42 @@ const modelOutputSchema = z.object({
   warnings: z.array(z.string()).default([]),
 });
 
+const proposalOutputJsonSchema: Record<string, unknown> = {
+  type: "object",
+  additionalProperties: false,
+  required: ["status", "evidence", "warnings"],
+  properties: {
+    status: { type: "string", enum: ["proposed", "blocked", "failed"] },
+    evidence: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["acId", "source", "kind", "refs", "rationale"],
+        properties: {
+          refId: { type: "string" },
+          acId: { type: "string" },
+          source: { type: "string", enum: ["source-root", "worktree-only", "suggested", "unknown"] },
+          kind: { type: "string", enum: ["existingEvidence", "alreadyLinked", "missingEvidence", "suggestedNewTests", "openQuestions"] },
+          refs: {
+            type: "array",
+            items: {
+              anyOf: [
+                { type: "object", additionalProperties: false, required: ["type", "path"], properties: { type: { const: "file" }, path: { type: "string" } } },
+                { type: "object", additionalProperties: false, required: ["type", "name", "path"], properties: { type: { const: "testName" }, name: { type: "string" }, path: { type: "string" } } },
+                { type: "object", additionalProperties: false, required: ["type", "commandName"], properties: { type: { const: "command" }, commandName: { type: "string" } } },
+                { type: "object", additionalProperties: false, required: ["type", "text"], properties: { type: { const: "note" }, text: { type: "string" } } },
+              ],
+            },
+          },
+          rationale: { type: "string" },
+        },
+      },
+    },
+    warnings: { type: "array", items: { type: "string" } },
+  },
+};
+
 export interface SpecTestProposeOptions {
   worktreeId?: string;
   prompt?: string;
@@ -106,7 +143,8 @@ export async function startSpecTestProposalRun(project: ManagedProject, options:
     stdout: `${relativeDir}/stdout.log`,
     stderr: `${relativeDir}/stderr.log`,
     prompt: `${relativeDir}/prompt.md`,
-    codexEvents: `${relativeDir}/codex-events.jsonl`,
+    providerEvents: `${relativeDir}/provider-events.jsonl`,
+    providerSession: `${relativeDir}/provider-session.json`,
     lastMessage: `${relativeDir}/last-message.md`,
     specTestProposal: `${relativeDir}/spec-test-proposal.json`,
     specTestProposalMarkdown: `${relativeDir}/spec-test-proposal.md`,
@@ -118,7 +156,8 @@ export async function startSpecTestProposalRun(project: ManagedProject, options:
     stdout: join(directory, "stdout.log"),
     stderr: join(directory, "stderr.log"),
     prompt: join(directory, "prompt.md"),
-    codexEvents: join(directory, "codex-events.jsonl"),
+    providerEvents: join(directory, "provider-events.jsonl"),
+    providerSession: join(directory, "provider-session.json"),
     lastMessage: join(directory, "last-message.md"),
     proposal: join(directory, "spec-test-proposal.json"),
     proposalMarkdown: join(directory, "spec-test-proposal.md"),
@@ -134,7 +173,7 @@ export async function startSpecTestProposalRun(project: ManagedProject, options:
     runtime: "spec-test-proposer",
     executionMode: "direct",
     proposalOnly: true,
-    command: ["codex"],
+    command: ["provider", "turn.start"],
     status: "created",
     exitCode: null,
     signal: null,
@@ -165,20 +204,23 @@ export async function startSpecTestProposalRun(project: ManagedProject, options:
   });
   await writeFile(paths.prompt, prompt, "utf8");
 
-  const capabilities = await detectCodexCapabilities();
-  if (capabilities.errors.length > 0) {
-    await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.capabilities.failed", runId, data: { capabilities } });
-    const message = renderUnavailableProposalMessage(capabilities.errors);
+  let provider;
+  try {
+    provider = await resolveSpecTestProvider(memory, project, changeId, "auditor", project.path);
+  } catch (error) {
+    const failure = error instanceof Error ? error.message : String(error);
+    await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "provider.exited", runId, data: { status: "failed", error: failure } });
+    const message = renderUnavailableProposalMessage([failure]);
     await writeFile(paths.lastMessage, message, "utf8");
     await writeFile(paths.stdout, "", "utf8");
-    await writeFile(paths.codexEvents, "", "utf8");
-    await writeFile(paths.stderr, `${capabilities.errors.join("\n")}\n`, "utf8");
+    await writeFile(paths.providerEvents, "", "utf8");
+    await writeFile(paths.stderr, `${failure}\n`, "utf8");
     const proposal = await writeProposal(paths.proposal, paths.proposalMarkdown, {
       runId,
       changeId,
       status: "failed",
       message,
-      output: { status: "failed", evidence: [], warnings: capabilities.errors },
+      output: { status: "failed", evidence: [], warnings: [failure] },
       worktreeId: options.worktreeId,
       artifacts,
       startedAt: now,
@@ -189,51 +231,81 @@ export async function startSpecTestProposalRun(project: ManagedProject, options:
     return { run, proposal };
   }
 
-  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.capabilities.detected", runId, data: { capabilities } });
-  const additionalReadDirs = [
-    ...(memory.mode === "external-local" ? [memory.memoryRoot] : []),
-    ...(options.worktreeId && capabilities.supportsAddDir && worktreeDiff ? [worktreeDiff.worktree.checkoutPath] : []),
-  ];
-  const argv = buildCodexReadonlyArgv(capabilities, {
-    projectPath: project.path,
-    lastMessagePath: paths.lastMessage,
-    additionalReadDirs,
-  });
-  run = { ...run, command: [argv.command, ...argv.args], status: "running" };
+  const providerId = provider.id;
+  const capabilitySnapshot = await provider.capabilitySnapshot(project, project.path);
+  run = { ...run, command: ["provider", "turn.start"], status: "running" };
   await writeJsonFile(paths.run, run);
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "spec-test.proposal.started", runId, data: { cwd: project.path, command: run.command } });
-  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.started", runId, data: { cwd: project.path, command: run.command } });
+  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "provider.started", runId, data: { cwd: project.path, providerId, capabilitySnapshot } });
 
-  const processResult = await executeProcessStreaming({
-    cwd: project.path,
-    command: argv.command,
-    args: argv.args,
-    stdin: prompt,
-    stdoutPath: paths.stdout,
-    stderrPath: paths.stderr,
-    mirrorStdoutPath: paths.codexEvents,
+  await startProviderAttempt(memory, {
+    attemptId: runId,
+    providerId,
+    capabilitySnapshot,
+    operationProfile: "auditor",
+    roleId: "spec-test-proposer",
+    handoffHash: createHash("sha256").update(prompt).digest("hex"),
+    changeId,
+    worktreeId: options.worktreeId ?? null,
+    model: capabilitySnapshot.effectiveModel ? { providerId, modelId: capabilitySnapshot.effectiveModel } : null,
   });
+
+  let providerResult: ProviderTurnResult;
+  try {
+    providerResult = await provider.leafExecution.runTurn({
+      providerId,
+      operationProfile: "auditor",
+      projectId: project.id,
+      changeId,
+      runtimeScopeId: runId,
+      roleId: "spec-test-proposer",
+      runId,
+      attemptId: runId,
+      cwd: project.path,
+      prompt,
+      sandboxPolicy: "read-only",
+      paths: {
+        events: paths.providerEvents,
+        stderr: paths.stderr,
+        lastMessage: paths.lastMessage,
+        session: paths.providerSession,
+      },
+      runtimeWorkspaceRoots: [...new Set([
+        project.path,
+        memory.memoryRoot,
+        ...(worktreeDiff ? [worktreeDiff.worktree.checkoutPath] : []),
+      ])],
+      writableRoots: [],
+      model: capabilitySnapshot.effectiveModel ? { providerId, modelId: capabilitySnapshot.effectiveModel } : null,
+      outputSchema: proposalOutputJsonSchema,
+    });
+  } catch (error) {
+    providerResult = failedProviderTurn(providerId, error);
+  }
   await appendRunEvent(paths.events, {
     timestamp: new Date().toISOString(),
-    type: "codex.exited",
+    type: "provider.exited",
     runId,
-    data: { exitCode: processResult.exitCode, signal: processResult.signal },
+    data: { providerId, status: providerResult.status, sessionId: providerResult.session?.sessionId, turnId: providerResult.turnId, error: providerResult.error },
   });
 
-  const lastMessage = await ensureLastMessage(paths.lastMessage, processResult.stdoutSample, processResult.stderrSample);
+  const lastMessage = await ensureProviderMessage(paths.lastMessage, providerResult);
+  await writeFile(paths.stdout, providerResult.lastMessage, "utf8");
   const parsed = parseSpecTestProposalMessage(lastMessage);
+  const providerSucceeded = providerResult.status === "completed";
+  await finishProviderAttempt(memory, runId, providerSucceeded ? "completed" : providerResult.status === "interrupted" ? "interrupted" : "failed", providerResult.session?.sessionId ?? null);
   const proposal = await writeProposal(paths.proposal, paths.proposalMarkdown, {
     runId,
     changeId,
-    status: processResult.exitCode === 0 ? parsed.status : "failed",
+    status: providerSucceeded ? parsed.status : "failed",
     message: lastMessage,
     output: parsed,
     worktreeId: options.worktreeId,
     artifacts,
     startedAt: now,
   });
-  const status: RunStatus = processResult.exitCode === 0 && proposal.status !== "failed" ? "completed" : "failed";
-  run = await finishRun(paths.run, run, status, processResult.exitCode, processResult.signal);
+  const status: RunStatus = providerSucceeded && proposal.status !== "failed" ? "completed" : "failed";
+  run = await finishRun(paths.run, run, status, status === "completed" ? 0 : 1, null);
   await appendRunEvent(paths.events, { timestamp: run.finishedAt ?? new Date().toISOString(), type: proposal.status === "failed" ? "spec-test.proposal.failed" : "spec-test.proposal.completed", runId, data: { proposalStatus: proposal.status } });
   await appendRunEvent(paths.events, { timestamp: run.finishedAt ?? new Date().toISOString(), type: status === "completed" ? "run.completed" : "run.failed", runId });
   return { run, proposal };
@@ -350,7 +422,7 @@ async function composeSpecTestProposalPrompt(input: {
     "",
     "## Output Contract",
     "",
-    "Your final answer must include a JSON object in a fenced ```json block.",
+    "Your final answer must be a JSON object matching the provider structured-output schema.",
     "The JSON shape is:",
     "",
     "```json",
@@ -520,7 +592,7 @@ function renderProposalMarkdown(proposal: SpecTestProposal, message: string): st
     proposal.warnings.length ? "## Warnings" : "",
     ...proposal.warnings.map((warning) => `- ${warning}`),
     "",
-    "## Codex Final Message",
+    "## Provider Final Message",
     "",
     message.trim() || "(empty)",
     "",
@@ -577,7 +649,7 @@ function renderUnavailableProposalMessage(errors: string[]): string {
     "",
     "# Spec-Test Proposal Unavailable",
     "",
-    "AHO could not safely start Codex in read-only non-interactive mode.",
+    "AHO could not start a provider with the required read-only structured-output capability.",
     "",
     ...errors.map((error) => `- ${error}`),
     "",
@@ -588,27 +660,36 @@ function renderUnavailableProposalMessage(errors: string[]): string {
   ].join("\n");
 }
 
-async function ensureLastMessage(path: string, stdout: string, stderr: string): Promise<string> {
-  if (existsSync(path)) {
-    const existing = await readFile(path, "utf8");
-    if (existing.trim()) return existing;
+async function ensureProviderMessage(path: string, result: ProviderTurnResult): Promise<string> {
+  if (result.lastMessage.trim()) {
+    if (!existsSync(path)) await writeFile(path, result.lastMessage, "utf8");
+    return result.lastMessage;
   }
-  const parsed = extractFinalMessageFromCodexJsonl(stdout);
-  const message = parsed ?? [
+  const message = [
     "Status: failed",
     "",
-    "AHO did not find a final Codex message in output-last-message or JSONL stdout.",
-    "",
-    stderr.trim() ? "## stderr sample" : "",
-    stderr.trim(),
+    `The provider turn ended with status ${result.status} without a final proposal message.${result.error ? ` ${result.error}` : ""}`,
     "",
     "```json",
-    JSON.stringify({ status: "failed", evidence: [], warnings: ["Codex final message was not captured."] }, null, 2),
+    JSON.stringify({ status: "failed", evidence: [], warnings: ["Provider final message was not captured."] }, null, 2),
     "```",
     "",
   ].join("\n");
   await writeFile(path, message, "utf8");
   return message;
+}
+
+function failedProviderTurn(providerId: string, error: unknown): ProviderTurnResult {
+  return {
+    providerId,
+    status: "failed",
+    session: null,
+    turnId: null,
+    lastMessage: "",
+    childThreads: [],
+    changedFiles: [],
+    error: error instanceof Error ? error.message : String(error),
+  };
 }
 
 function displayArtifactPath(memory: ResolvedMemory, absolutePath: string): string {

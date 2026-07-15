@@ -1,20 +1,20 @@
 ﻿import { existsSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
 import { collectWorktreeDiff } from "../../audit/diff.js";
-import { buildCodexWorkspaceWriteArgv, detectCodexCapabilities } from "../../codex/capabilities.js";
-import { extractFinalMessageFromCodexJsonl } from "../../codex/jsonl.js";
-import { readPromptInput } from "../../codex/prompt.js";
 import { resolveRunnableChangeTarget } from "../../change/target.js";
 import { writeJsonFile } from "../../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../../memory/resolver.js";
+import type { ProviderTurnResult } from "../../provider-runtime/index.js";
 import { getGitStatusShortIgnoringAhoMemory } from "../../project/git.js";
 import { appendRunEvent, buildContextProjection, buildRunId } from "../../run/manager.js";
-import { executeProcessStreaming } from "../../run/process.js";
+import { finishProviderAttempt, startProviderAttempt } from "../../workbench/provider-attempts.js";
 import { getTemplateRoot } from "../../template-source/paths.js";
 import { getLatestValidationSummary } from "../../validation/artifacts.js";
 import { createWorktree, getWorktreeMetadataPath } from "../../worktree/manager.js";
 import { getSpecTestStatus } from "./status.js";
+import { resolveSpecTestProvider } from "./provider.js";
 import type { ChangeStatus, ManagedProject, ResolvedMemory, RunMetadata, RunStatus, RunWorktreeInfo, SpecTestAcStatus } from "../../types/index.js";
 
 export interface SpecTestGenerateOptions {
@@ -62,7 +62,7 @@ export async function startSpecTestGenerationRun(project: ManagedProject, option
     };
   }
 
-  const extraPrompt = options.prompt ? await readPromptInput({ prompt: options.prompt }) : undefined;
+  const extraPrompt = options.prompt?.trim() || undefined;
   const runId = buildRunId(changeId, ["spec-test-generator", ...selectedAcs, extraPrompt ?? ""]);
   const sourceBefore = await getSortedSourceStatus(project.path);
   const created = await createWorktree(project, memory, changeId, { runId });
@@ -85,7 +85,8 @@ export async function startSpecTestGenerationRun(project: ManagedProject, option
     stdout: `${relativeDir}/stdout.log`,
     stderr: `${relativeDir}/stderr.log`,
     prompt: `${relativeDir}/prompt.md`,
-    codexEvents: `${relativeDir}/codex-events.jsonl`,
+    providerEvents: `${relativeDir}/provider-events.jsonl`,
+    providerSession: `${relativeDir}/provider-session.json`,
     lastMessage: `${relativeDir}/last-message.md`,
     diff: `${relativeDir}/diff.patch`,
     diffStat: `${relativeDir}/diff-stat.txt`,
@@ -98,7 +99,8 @@ export async function startSpecTestGenerationRun(project: ManagedProject, option
     stdout: join(directory, "stdout.log"),
     stderr: join(directory, "stderr.log"),
     prompt: join(directory, "prompt.md"),
-    codexEvents: join(directory, "codex-events.jsonl"),
+    providerEvents: join(directory, "provider-events.jsonl"),
+    providerSession: join(directory, "provider-session.json"),
     lastMessage: join(directory, "last-message.md"),
     diff: join(directory, "diff.patch"),
     diffStat: join(directory, "diff-stat.txt"),
@@ -115,7 +117,7 @@ export async function startSpecTestGenerationRun(project: ManagedProject, option
     runtime: "spec-test-generator",
     executionMode: "worktree",
     proposalOnly: true,
-    command: ["codex"],
+    command: ["provider", "turn.start"],
     status: "created",
     exitCode: null,
     signal: null,
@@ -146,39 +148,70 @@ export async function startSpecTestGenerationRun(project: ManagedProject, option
   });
   await writeFile(paths.prompt, prompt, "utf8");
 
-  const capabilities = await detectCodexCapabilities();
-  if (capabilities.errors.length > 0) {
-    await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.capabilities.failed", runId, data: { capabilities } });
-    const message = renderUnavailableMessage(capabilities.errors);
+  let provider;
+  try {
+    provider = await resolveSpecTestProvider(memory, project, changeId, "coder", worktree.checkoutPath);
+  } catch (error) {
+    const failure = error instanceof Error ? error.message : String(error);
+    await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "provider.exited", runId, data: { status: "failed", error: failure } });
+    const message = renderUnavailableMessage([failure]);
     await writeEmptyArtifacts(paths, message);
     run = await finishRun(paths.run, run, "failed", 1, null);
     await appendRunEvent(paths.events, { timestamp: run.finishedAt ?? new Date().toISOString(), type: "spec-test.generation.failed", runId, data: { selectedAcs } });
     await appendRunEvent(paths.events, { timestamp: run.finishedAt ?? new Date().toISOString(), type: "run.failed", runId });
-    return { run, selectedAcs, noOp: false, warnings: capabilities.errors };
+    return { run, selectedAcs, noOp: false, warnings: [failure] };
   }
-  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.capabilities.detected", runId, data: { capabilities } });
 
-  const argv = buildCodexWorkspaceWriteArgv(capabilities, {
-    projectPath: worktree.checkoutPath,
-    lastMessagePath: paths.lastMessage,
-  });
-  run = { ...run, command: [argv.command, ...argv.args], status: "running" };
+  const providerId = provider.id;
+  const capabilitySnapshot = await provider.capabilitySnapshot(project, worktree.checkoutPath);
+  run = { ...run, command: ["provider", "turn.start"], status: "running" };
   await writeJsonFile(paths.run, run);
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "spec-test.generation.started", runId, data: { cwd: worktree.checkoutPath, command: run.command, selectedAcs } });
-  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.started", runId, data: { cwd: worktree.checkoutPath, command: run.command } });
+  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "provider.started", runId, data: { cwd: worktree.checkoutPath, providerId, capabilitySnapshot } });
 
-  const processResult = await executeProcessStreaming({
-    cwd: worktree.checkoutPath,
-    command: argv.command,
-    args: argv.args,
-    stdin: prompt,
-    stdoutPath: paths.stdout,
-    stderrPath: paths.stderr,
-    mirrorStdoutPath: paths.codexEvents,
+  await startProviderAttempt(memory, {
+    attemptId: runId,
+    providerId,
+    capabilitySnapshot,
+    operationProfile: "coder",
+    roleId: "spec-test-generator",
+    handoffHash: createHash("sha256").update(prompt).digest("hex"),
+    changeId,
+    worktreeId: worktree.worktreeId,
+    model: capabilitySnapshot.effectiveModel ? { providerId, modelId: capabilitySnapshot.effectiveModel } : null,
   });
-  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.exited", runId, data: { exitCode: processResult.exitCode, signal: processResult.signal } });
 
-  const lastMessage = await ensureLastMessage(paths.lastMessage, processResult.stdoutSample, processResult.stderrSample);
+  let providerResult: ProviderTurnResult;
+  try {
+    providerResult = await provider.leafExecution.runTurn({
+      providerId,
+      operationProfile: "coder",
+      projectId: project.id,
+      changeId,
+      runtimeScopeId: runId,
+      roleId: "spec-test-generator",
+      runId,
+      attemptId: runId,
+      cwd: worktree.checkoutPath,
+      prompt,
+      sandboxPolicy: "workspace-write",
+      paths: {
+        events: paths.providerEvents,
+        stderr: paths.stderr,
+        lastMessage: paths.lastMessage,
+        session: paths.providerSession,
+      },
+      runtimeWorkspaceRoots: [...new Set([worktree.checkoutPath, project.path, memory.memoryRoot])],
+      writableRoots: [worktree.checkoutPath],
+      model: capabilitySnapshot.effectiveModel ? { providerId, modelId: capabilitySnapshot.effectiveModel } : null,
+    });
+  } catch (error) {
+    providerResult = failedProviderTurn(providerId, error);
+  }
+  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "provider.exited", runId, data: { providerId, status: providerResult.status, sessionId: providerResult.session?.sessionId, turnId: providerResult.turnId, error: providerResult.error } });
+
+  const lastMessage = await ensureProviderMessage(paths.lastMessage, providerResult);
+  await writeFile(paths.stdout, providerResult.lastMessage, "utf8");
   const diffResult = await collectWorktreeDiff(memory, worktree.worktreeId, changeId);
   await writeFile(paths.diff, diffResult.diff, "utf8");
   await writeFile(paths.diffStat, diffResult.diffStat, "utf8");
@@ -193,8 +226,8 @@ export async function startSpecTestGenerationRun(project: ManagedProject, option
     ...created.warnings,
     ...(diffResult.diff.trim() ? [] : ["Spec-test generation completed without producing a worktree diff."]),
     ...(diffPolicy.rejected.length > 0 ? [`Spec-test generation produced non-test changes: ${diffPolicy.rejected.join(", ")}.`] : []),
-    ...(sourceChanged ? ["Source project git status changed during spec-test generation; Codex may have modified outside the assigned worktree."] : []),
-    ...(processResult.exitCode !== 0 ? ["Codex spec-test generation process exited non-zero."] : []),
+    ...(sourceChanged ? ["Source project git status changed during spec-test generation; the provider may have modified outside the assigned worktree."] : []),
+    ...(providerResult.status !== "completed" ? [`Spec-test provider turn ${providerResult.status}${providerResult.error ? `: ${providerResult.error}` : "."}`] : []),
   ];
   await writeFile(paths.implementation, renderGenerationSummary({
     lastMessage,
@@ -207,8 +240,9 @@ export async function startSpecTestGenerationRun(project: ManagedProject, option
     sourceAfter,
   }), "utf8");
 
-  const status: RunStatus = processResult.exitCode === 0 && !sourceChanged && diffPolicy.rejected.length === 0 ? "completed" : "failed";
-  run = await finishRun(paths.run, run, status, status === "failed" && processResult.exitCode === 0 ? 1 : processResult.exitCode, processResult.signal);
+  const status: RunStatus = providerResult.status === "completed" && !sourceChanged && diffPolicy.rejected.length === 0 ? "completed" : "failed";
+  await finishProviderAttempt(memory, runId, providerResult.status === "completed" ? "completed" : providerResult.status === "interrupted" ? "interrupted" : "failed", providerResult.session?.sessionId ?? null);
+  run = await finishRun(paths.run, run, status, status === "completed" ? 0 : 1, null);
   await appendRunEvent(paths.events, { timestamp: run.finishedAt ?? new Date().toISOString(), type: status === "completed" ? "spec-test.generation.completed" : "spec-test.generation.failed", runId, data: { selectedAcs, warnings } });
   await appendRunEvent(paths.events, { timestamp: run.finishedAt ?? new Date().toISOString(), type: status === "completed" ? "run.completed" : "run.failed", runId, data: { warnings } });
 
@@ -377,29 +411,25 @@ async function collectTestFiles(root: string): Promise<string[]> {
   return result.sort((a, b) => a.localeCompare(b));
 }
 
-async function ensureLastMessage(path: string, stdout: string, stderr: string): Promise<string> {
-  if (existsSync(path)) {
-    const existing = await readFile(path, "utf8");
-    if (existing.trim()) return existing;
+async function ensureProviderMessage(path: string, result: ProviderTurnResult): Promise<string> {
+  if (result.lastMessage.trim()) {
+    if (!existsSync(path)) await writeFile(path, result.lastMessage, "utf8");
+    return result.lastMessage;
   }
-  const parsed = extractFinalMessageFromCodexJsonl(stdout);
-  const message = parsed ?? [
+  const message = [
     "Status: failed",
     "",
-    "AHO did not find a final Codex message in output-last-message or JSONL stdout.",
-    "",
-    stderr.trim() ? "## stderr sample" : "",
-    stderr.trim(),
+    `The provider turn ended with status ${result.status} without a final generator message.${result.error ? ` ${result.error}` : ""}`,
     "",
   ].join("\n");
   await writeFile(path, message, "utf8");
   return message;
 }
 
-async function writeEmptyArtifacts(paths: { stdout: string; stderr: string; codexEvents: string; lastMessage: string; diff: string; diffStat: string; implementation: string }, message: string): Promise<void> {
+async function writeEmptyArtifacts(paths: { stdout: string; stderr: string; providerEvents: string; lastMessage: string; diff: string; diffStat: string; implementation: string }, message: string): Promise<void> {
   await writeFile(paths.stdout, "", "utf8");
   await writeFile(paths.stderr, message, "utf8");
-  await writeFile(paths.codexEvents, "", "utf8");
+  await writeFile(paths.providerEvents, "", "utf8");
   await writeFile(paths.lastMessage, message, "utf8");
   await writeFile(paths.diff, "", "utf8");
   await writeFile(paths.diffStat, "", "utf8");
@@ -471,11 +501,24 @@ function renderUnavailableMessage(errors: string[]): string {
     "",
     "# Spec-Test Generation Unavailable",
     "",
-    "AHO could not safely start Codex in workspace-write non-interactive mode.",
+    "AHO could not start a provider with the required workspace-write capability.",
     "",
     ...errors.map((error) => `- ${error}`),
     "",
   ].join("\n");
+}
+
+function failedProviderTurn(providerId: string, error: unknown): ProviderTurnResult {
+  return {
+    providerId,
+    status: "failed",
+    session: null,
+    turnId: null,
+    lastMessage: "",
+    childThreads: [],
+    changedFiles: [],
+    error: error instanceof Error ? error.message : String(error),
+  };
 }
 
 function displayArtifactPath(memory: ResolvedMemory, absolutePath: string): string {

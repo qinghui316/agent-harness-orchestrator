@@ -1,17 +1,12 @@
-import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { getChangeStatus } from "../change/status.js";
 import { resolveRunnableChangeTarget } from "../change/target.js";
-import { buildCodexReadonlyArgv, detectCodexCapabilities } from "../codex/capabilities.js";
-import { CodexCompletionTracker, codexLifecycleTiming, type CodexCompletionSnapshot } from "../codex/completion.js";
-import { createCodexJsonlStreamParser, extractFinalMessageFromCodexJsonl, type CodexJsonlStreamEvent } from "../codex/jsonl.js";
-import { resolveCodexEffectiveModel } from "../codex/model-settings.js";
 import { buildRoleContextArtifact, buildRoleContextPacket, contextSourceRef } from "../context/packets.js";
 import { buildAgentSystemPrompt, buildRunAgentRecord, resolveAgentRole } from "../agent/catalog.js";
 import { writeJsonFile } from "../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
-import { codexProviderRunMetadata } from "../provider-runtime/index.js";
+import { defaultProviderRegistry, type ProviderRealtimeEvent, type ProviderTurnResult } from "../provider-runtime/index.js";
 import { getWorktreeMetadataPath } from "../worktree/paths.js";
 import { getLatestValidationSummary, readValidationResult, summarizeValidation } from "../validation/repository.js";
 import { workerPermissionProfileForRole } from "../agent-task/tool-policy.js";
@@ -22,8 +17,8 @@ import type { RuntimeContinuityArtifacts } from "../runtime-continuity/types.js"
 import type { AuditResult, AuditStatus, AuditSummary, ManagedProject, ResolvedMemory, RunMetadata, RunStatus } from "../types/index.js";
 import { appendRunEvent } from "../run/events.js";
 import { buildRunId } from "../run/run-id.js";
-import { isRunStopRequested } from "../run/control.js";
-import { executeProcessStreaming, type ProcessExecutionResult } from "../run/process.js";
+import { WorkbenchStore } from "../workbench/store.js";
+import { finishProviderAttempt, startProviderAttempt } from "../workbench/provider-attempts.js";
 import { collectWorktreeDiff } from "./diff.js";
 import { listAuditResults, readAuditResult, summarizeAudit } from "./repository.js";
 import { parseAuditMessage } from "./parser.js";
@@ -67,7 +62,6 @@ export async function startAuditRun(project: ManagedProject, options: AuditRunOp
     stdout: `${relativeDir}/stdout.log`,
     stderr: `${relativeDir}/stderr.log`,
     prompt: `${relativeDir}/prompt.md`,
-    codexEvents: `${relativeDir}/codex-events.jsonl`,
     lastMessage: `${relativeDir}/last-message.md`,
     audit: `${relativeDir}/audit.json`,
     auditMarkdown: `${relativeDir}/audit.md`,
@@ -82,7 +76,8 @@ export async function startAuditRun(project: ManagedProject, options: AuditRunOp
     stdout: join(directory, "stdout.log"),
     stderr: join(directory, "stderr.log"),
     prompt: join(directory, "prompt.md"),
-    codexEvents: join(directory, "codex-events.jsonl"),
+    providerEvents: join(directory, "provider-events.jsonl"),
+    providerSession: join(directory, "provider-session.json"),
     lastMessage: join(directory, "last-message.md"),
     audit: join(directory, "audit.json"),
     auditMarkdown: join(directory, "audit.md"),
@@ -101,7 +96,7 @@ export async function startAuditRun(project: ManagedProject, options: AuditRunOp
     runtime: "auditor",
     executionMode: "direct",
     proposalOnly: true,
-    command: ["codex"],
+    command: ["provider", "turn.start"],
     status: "created",
     exitCode: null,
     signal: null,
@@ -181,12 +176,13 @@ export async function startAuditRun(project: ManagedProject, options: AuditRunOp
   });
   await writeFile(paths.prompt, prompt, "utf8");
 
+  const cwd = diffResult?.worktree.checkoutPath ?? project.path;
   let continuity = await createRuntimeContinuityArtifacts(paths, {
     projectId: project.id,
     changeId,
     runId,
     roleId: "auditor-agent",
-    adapter: "audit-codex-readonly",
+    adapter: "provider-readonly",
     workspace: runtimeWorkspaceForAudit(project.path, diffResult?.worktree),
     permissionProfile: workerPermissionProfileForRole("auditor-agent"),
     rawArtifactRefs: [
@@ -194,7 +190,7 @@ export async function startAuditRun(project: ManagedProject, options: AuditRunOp
       artifacts.stdout,
       artifacts.stderr,
       artifacts.prompt,
-      artifacts.codexEvents,
+      `${relativeDir}/provider-events.jsonl`,
       artifacts.lastMessage,
       artifacts.audit,
       artifacts.auditMarkdown,
@@ -203,34 +199,42 @@ export async function startAuditRun(project: ManagedProject, options: AuditRunOp
   });
   await appendAuditContinuityWrite(paths, continuity, appendPermissionProfileAttached(paths, continuity, { source: "audit" }));
 
-  const capabilities = await detectCodexCapabilities();
-  if (capabilities.errors.length > 0) {
-    await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.capabilities.failed", runId, data: { capabilities } });
-    await appendAuditContinuityEvent(paths, continuity, "codex.capabilities.failed", {
-      capabilities,
-    }, "Codex auditor unavailable.");
-    await appendAuditContinuityWrite(paths, continuity, appendExternalExecutionFailed(paths, continuity, {
-      requestId: `${runId}:audit-codex-readonly`,
+  const providerId = await selectedProviderForAudit(memory, project, changeId);
+  let provider;
+  let capabilitySnapshot;
+  try {
+    provider = await defaultProviderRegistry.require(providerId, "auditor", project, cwd);
+    capabilitySnapshot = await provider.capabilitySnapshot(project, cwd);
+  } catch (error) {
+    const failure = error instanceof Error ? error.message : String(error);
+    await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "provider.exited", runId, data: { providerId, status: "failed", error: failure } });
+    await appendAuditContinuityEvent(paths, continuity, "provider.exited", {
+      providerId,
       status: "failed",
-      error: capabilities.errors.join("; "),
-      raw: { capabilities },
-      summary: "Codex auditor unavailable.",
+      error: failure,
+    }, "Auditor provider unavailable.");
+    await appendAuditContinuityWrite(paths, continuity, appendExternalExecutionFailed(paths, continuity, {
+      requestId: `${runId}:provider-readonly`,
+      status: "failed",
+      error: failure,
+      raw: { providerId },
+      summary: "Auditor provider unavailable.",
     }));
     const message = [
       "Status: failed",
       "",
-      "Finding: Codex auditor unavailable",
+      "Finding: Auditor provider unavailable",
       "- Severity: note",
       "- Area: validation",
-      `- Evidence: ${capabilities.errors.join("; ")}`,
-      "- Recommendation: Install or configure Codex CLI safe read-only execution, then rerun audit.",
+      `- Evidence: ${failure}`,
+      "- Recommendation: Configure a provider with the auditor capability and read-only leaf execution, then rerun audit.",
       "",
     ].join("\n");
     await writeFile(paths.lastMessage, message, "utf8");
     await writeFile(paths.auditMarkdown, message, "utf8");
     await writeFile(paths.stdout, "", "utf8");
-    await writeFile(paths.codexEvents, "", "utf8");
-    await writeFile(paths.stderr, `${capabilities.errors.join("\n")}\n`, "utf8");
+    await writeFile(paths.providerEvents, "", "utf8");
+    await writeFile(paths.stderr, `${failure}\n`, "utf8");
     const audit = await writeAudit(paths.audit, runId, changeId, "failed", message, {
       worktreeId: options.worktreeId,
       validationId: latestValidation?.id,
@@ -239,107 +243,127 @@ export async function startAuditRun(project: ManagedProject, options: AuditRunOp
       startedAt: now,
     });
     run = await finishRun(paths.run, run, "failed", 1, null);
-    continuity = await markRuntimeContinuityStatus(paths, continuity, "failed", capabilities.errors.join("; "));
+    continuity = await markRuntimeContinuityStatus(paths, continuity, "failed", failure);
     await appendRunEvent(paths.events, { timestamp: run.finishedAt ?? new Date().toISOString(), type: "audit.failed", runId, data: { auditStatus: audit.status } });
     await appendRunEvent(paths.events, { timestamp: run.finishedAt ?? new Date().toISOString(), type: "run.failed", runId });
     return { run, audit };
   }
 
-  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.capabilities.detected", runId, data: { capabilities } });
-  await appendAuditContinuityEvent(paths, continuity, "codex.capabilities.detected", {
-    capabilities,
-  }, "Codex auditor capabilities detected.");
-  const cwd = diffResult?.worktree.checkoutPath ?? project.path;
-  const effectiveModel = await resolveCodexEffectiveModel();
-  const argv = buildCodexReadonlyArgv(capabilities, {
-    projectPath: cwd,
-    lastMessagePath: paths.lastMessage,
-    model: effectiveModel.model ?? undefined,
-    additionalReadDirs: memory.mode === "external-local" ? [memory.memoryRoot] : [],
-  });
-  run = { ...run, command: [argv.command, ...argv.args], status: "running" };
+  run = { ...run, command: ["provider", "turn.start"], status: "running" };
   await writeJsonFile(paths.run, run);
   continuity = await markRuntimeContinuityStatus(paths, continuity, "running");
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "audit.started", runId, data: { cwd, command: run.command } });
-  const providerRunMetadata = codexProviderRunMetadata({ adapter: "audit-codex-readonly", model: effectiveModel.model, modelSource: effectiveModel.source, capabilities });
-  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "codex.started", runId, data: { cwd, command: run.command, model: effectiveModel.model, modelSource: effectiveModel.source, ...providerRunMetadata } });
+  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "provider.started", runId, data: { cwd, providerId, capabilitySnapshot } });
   await appendAuditContinuityEvent(paths, continuity, "audit.started", {
     cwd,
     command: run.command,
   }, "Audit started.");
-  await appendAuditContinuityEvent(paths, continuity, "codex.started", {
+  await appendAuditContinuityEvent(paths, continuity, "provider.started", {
     cwd,
-    command: run.command,
-    model: effectiveModel.model,
-    modelSource: effectiveModel.source,
-    ...providerRunMetadata,
-  }, "Codex readonly audit started.");
+    providerId,
+    capabilitySnapshot,
+  }, "Readonly provider audit started.");
   await appendAuditContinuityWrite(paths, continuity, appendExternalExecutionRequested(paths, continuity, {
-    requestId: `${runId}:audit-codex-readonly`,
-    command: argv.command,
-    args: argv.args,
+    requestId: `${runId}:provider-readonly`,
+    command: providerId,
+    args: ["turn.start"],
     cwd,
-    adapter: "audit-codex-readonly",
+    adapter: "provider-readonly",
   }));
 
-  const completion = new CodexCompletionTracker({ lastMessagePath: paths.lastMessage });
-  const lifecycleTiming = codexLifecycleTiming(8 * 60 * 1000);
+  await startProviderAttempt(memory, {
+    attemptId: runId,
+    providerId,
+    capabilitySnapshot,
+    operationProfile: "auditor",
+    roleId: "auditor-agent",
+    handoffHash: contextArtifact.hash,
+    changeId,
+    worktreeId: options.worktreeId ?? null,
+    model: capabilitySnapshot.effectiveModel ? { providerId, modelId: capabilitySnapshot.effectiveModel } : null,
+  });
+
   const continuityWrites: Promise<void>[] = [];
-  const parser = createCodexJsonlStreamParser((event) => {
-    completion.handleEvent(event);
-    continuityWrites.push(appendAuditContinuityEvent(paths, continuity, event.type, rawCodexEvent(event), summarizeCodexEvent(event)));
-  });
-  const processResult = await executeProcessStreaming({
-    cwd,
-    command: argv.command,
-    args: argv.args,
-    stdin: prompt,
-    stdoutPath: paths.stdout,
-    stderrPath: paths.stderr,
-    mirrorStdoutPath: paths.codexEvents,
-    onStdoutChunk: (text) => parser.feed(text),
-    completionSignal: () => completion.isComplete(),
-    stopSignal: () => isRunStopRequested(runId),
-    completionGraceMs: lifecycleTiming.completionGraceMs,
-    killGraceMs: lifecycleTiming.killGraceMs,
-    timeoutMs: lifecycleTiming.timeoutMs,
-  });
-  parser.flush();
+  let providerResult: ProviderTurnResult;
+  try {
+    providerResult = await provider.leafExecution.runTurn({
+      providerId,
+      operationProfile: "auditor",
+      projectId: project.id,
+      changeId,
+      runtimeScopeId: runId,
+      roleId: "auditor-agent",
+      runId,
+      attemptId: runId,
+      cwd,
+      prompt,
+      sandboxPolicy: "read-only",
+      paths: {
+        events: paths.providerEvents,
+        stderr: paths.stderr,
+        lastMessage: paths.lastMessage,
+        session: paths.providerSession,
+      },
+      runtimeWorkspaceRoots: [...new Set([cwd, memory.memoryRoot])],
+      writableRoots: [],
+      model: capabilitySnapshot.effectiveModel ? { providerId, modelId: capabilitySnapshot.effectiveModel } : null,
+      onRealtimeEvent: (event) => {
+        continuityWrites.push(appendAuditContinuityEvent(
+          paths,
+          continuity,
+          event.streamEvent.type,
+          providerRealtimeData(event),
+          summarizeProviderRealtimeEvent(event),
+        ));
+      },
+    });
+  } catch (error) {
+    const failure = error instanceof Error ? error.message : String(error);
+    providerResult = {
+      providerId,
+      status: "failed",
+      session: null,
+      turnId: null,
+      lastMessage: "",
+      childThreads: [],
+      changedFiles: [],
+      error: failure,
+    };
+    await writeFile(paths.stderr, `${failure}\n`, "utf8");
+  }
   await Promise.all(continuityWrites);
-  const codexCompletion = completion.snapshot();
-  const processDiagnostics = processDiagnosticsData(processResult, codexCompletion);
   await appendRunEvent(paths.events, {
     timestamp: new Date().toISOString(),
-    type: "codex.exited",
+    type: "provider.exited",
     runId,
-    data: { exitCode: processResult.exitCode, signal: processResult.signal, ...processDiagnostics },
+    data: { providerId, status: providerResult.status, sessionId: providerResult.session?.sessionId, turnId: providerResult.turnId, error: providerResult.error },
   });
-  await appendAuditContinuityEvent(paths, continuity, "codex.exited", {
-    exitCode: processResult.exitCode,
-    signal: processResult.signal,
-    ...processDiagnostics,
-  }, "Codex readonly audit exited.");
-  const processSucceeded = processResult.exitCode === 0 || (processResult.terminationReason === "completion-grace-expired" && completion.isComplete());
-  await appendAuditContinuityWrite(paths, continuity, (processSucceeded
+  await appendAuditContinuityEvent(paths, continuity, "provider.exited", {
+    providerId,
+    status: providerResult.status,
+    sessionId: providerResult.session?.sessionId,
+    turnId: providerResult.turnId,
+    error: providerResult.error,
+  }, "Readonly provider audit exited.");
+  const providerSucceeded = providerResult.status === "completed";
+  await finishProviderAttempt(memory, runId, providerSucceeded ? "completed" : providerResult.status === "interrupted" ? "interrupted" : "failed", providerResult.session?.sessionId ?? null);
+  await appendAuditContinuityWrite(paths, continuity, (providerSucceeded
     ? appendExternalExecutionCompleted(paths, continuity, {
-      requestId: `${runId}:audit-codex-readonly`,
-      exitCode: processResult.exitCode,
-      signal: processResult.signal,
+      requestId: `${runId}:provider-readonly`,
       status: "completed",
-      raw: processDiagnostics,
+      raw: { providerId, sessionId: providerResult.session?.sessionId, turnId: providerResult.turnId },
     })
     : appendExternalExecutionFailed(paths, continuity, {
-      requestId: `${runId}:audit-codex-readonly`,
-      exitCode: processResult.exitCode,
-      signal: processResult.signal,
+      requestId: `${runId}:provider-readonly`,
       status: "failed",
-      error: processResult.terminationReason ?? processResult.stderrSample,
-      raw: processDiagnostics,
+      error: providerResult.error ?? providerResult.status,
+      raw: { providerId, sessionId: providerResult.session?.sessionId, turnId: providerResult.turnId },
     })));
 
-  const lastMessage = await ensureLastMessage(paths.lastMessage, processResult.stdoutSample, processResult.stderrSample);
+  const lastMessage = await ensureProviderAuditMessage(paths.lastMessage, providerResult);
+  await writeFile(paths.stdout, providerResult.lastMessage, "utf8");
   await writeFile(paths.auditMarkdown, lastMessage, "utf8");
-  const audit = await writeAudit(paths.audit, runId, changeId, processSucceeded ? null : "failed", lastMessage, {
+  const audit = await writeAudit(paths.audit, runId, changeId, providerSucceeded ? null : "failed", lastMessage, {
     worktreeId: options.worktreeId,
     validationId: latestValidation?.id,
     worktreeDiffHash: diffResult?.diffHash,
@@ -347,8 +371,8 @@ export async function startAuditRun(project: ManagedProject, options: AuditRunOp
     startedAt: now,
   });
 
-  const status: RunStatus = processSucceeded ? "completed" : "failed";
-  run = await finishRun(paths.run, run, status, processSucceeded ? 0 : processResult.exitCode, processResult.signal);
+  const status: RunStatus = providerSucceeded ? "completed" : "failed";
+  run = await finishRun(paths.run, run, status, providerSucceeded ? 0 : 1, null);
   await appendRunEvent(paths.events, { timestamp: run.finishedAt ?? new Date().toISOString(), type: audit.status === "failed" ? "audit.failed" : "audit.completed", runId, data: { auditStatus: audit.status } });
   await appendAuditContinuityEvent(paths, continuity, audit.status === "failed" ? "audit.failed" : "audit.completed", {
     auditStatus: audit.status,
@@ -464,32 +488,30 @@ async function appendAuditContinuityWrite(
   }).catch(() => undefined));
 }
 
-function rawCodexEvent(event: CodexJsonlStreamEvent): Record<string, unknown> {
-  if ("raw" in event && event.raw && typeof event.raw === "object" && !Array.isArray(event.raw)) {
-    return event.raw as Record<string, unknown>;
-  }
-  return { event };
-}
-
-function summarizeCodexEvent(event: CodexJsonlStreamEvent): string | undefined {
-  switch (event.type) {
-    case "text_delta": return event.delta.slice(0, 160);
-    case "status": return event.label;
-    case "error": return event.message;
-    case "tool_event": return event.command ?? event.name ?? event.phase;
-    case "readable_event": return event.event.summary ?? event.event.title ?? event.event.kind;
-    case "raw": return event.line.slice(0, 160);
-    default: return event.type;
-  }
-}
-
-function processDiagnosticsData(processResult: ProcessExecutionResult, completion: CodexCompletionSnapshot): Record<string, unknown> {
+function providerRealtimeData(event: ProviderRealtimeEvent): Record<string, unknown> {
   return {
-    timedOut: processResult.timedOut,
-    terminated: processResult.terminated,
-    terminationReason: processResult.terminationReason,
-    codexCompletion: completion,
+    providerId: event.providerId,
+    method: event.method,
+    sessionId: event.sessionId,
+    threadId: event.threadId,
+    parentThreadId: event.parentThreadId,
+    turnId: event.turnId,
+    itemId: event.itemId,
+    streamEvent: event.streamEvent,
   };
+}
+
+function summarizeProviderRealtimeEvent(event: ProviderRealtimeEvent): string | undefined {
+  const streamEvent = event.streamEvent;
+  switch (streamEvent.type) {
+    case "text_delta": return streamEvent.delta.slice(0, 160);
+    case "status": return streamEvent.label;
+    case "error": return streamEvent.message;
+    case "tool_event": return streamEvent.command ?? streamEvent.name ?? streamEvent.phase;
+    case "readable_event": return streamEvent.event.summary ?? streamEvent.event.title ?? streamEvent.event.kind;
+    case "raw": return streamEvent.line.slice(0, 160);
+    default: return streamEvent.type;
+  }
 }
 
 async function finishRun(path: string, run: RunMetadata, status: RunStatus, exitCode: number | null, signal: NodeJS.Signals | null): Promise<RunMetadata> {
@@ -504,31 +526,29 @@ async function finishRun(path: string, run: RunMetadata, status: RunStatus, exit
   return finished;
 }
 
-async function ensureLastMessage(path: string, stdout: string, stderr: string): Promise<string> {
-  if (existsSync(path)) {
-    const existing = await readFile(path, "utf8");
-    if (existing.trim()) return existing;
-  }
-
-  const parsed = extractFinalMessageFromCodexJsonl(stdout);
-  if (parsed) {
-    await writeFile(path, parsed, "utf8");
-    return parsed;
-  }
-
+async function ensureProviderAuditMessage(path: string, result: ProviderTurnResult): Promise<string> {
+  if (result.lastMessage.trim()) return result.lastMessage;
   const fallback = [
     "Status: failed",
     "",
     "Finding: Auditor output was not captured",
     "- Severity: note",
     "- Area: validation",
-    "- Evidence: AHO did not find a final Codex message in output-last-message or JSONL stdout.",
-    "- Recommendation: Inspect stdout.log, codex-events.jsonl, and stderr.log for diagnostics.",
-    "",
-    stderr.trim() ? "## stderr sample" : "",
-    stderr.trim(),
+    `- Evidence: The provider turn ended with status ${result.status} without a final auditor message.${result.error ? ` ${result.error}` : ""}`,
+    "- Recommendation: Inspect the provider event, session, and stderr artifacts, then rerun audit.",
     "",
   ].join("\n");
   await writeFile(path, fallback, "utf8");
   return fallback;
+}
+
+async function selectedProviderForAudit(memory: ResolvedMemory, project: ManagedProject, changeId: string): Promise<string> {
+  const store = await WorkbenchStore.open(memory);
+  try {
+    const selected = store.findConversationForChange(project.id, changeId)?.selectedProviderId;
+    if (selected) return selected;
+  } finally {
+    store.close();
+  }
+  return project.defaultProviderId ? defaultProviderRegistry.get(project.defaultProviderId).id : defaultProviderRegistry.requireOnly().id;
 }

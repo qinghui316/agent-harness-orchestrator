@@ -70,6 +70,7 @@ function conversationSummaryFromStore(conversation: StoredConversation): Workben
     state: conversation.state,
     path: `workbench/conversations/${conversation.conversationId}`,
     boundChangeId: conversation.boundChangeId,
+    selectedProviderId: conversation.selectedProviderId,
     createdAt: conversation.createdAt,
     updatedAt: conversation.updatedAt,
   };

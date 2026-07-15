@@ -42,6 +42,41 @@ export async function createTaskRunWithLease(memory: ResolvedMemory, input: { pr
   return { taskRun, lease };
 }
 
+export async function reclaimTaskRunWithLease(memory: ResolvedMemory, taskRun: TaskRun): Promise<TaskRunStartResult> {
+  if (taskRun.status !== "interrupted") {
+    throw new Error(`TaskRun ${taskRun.id} cannot resume from status ${taskRun.status}.`);
+  }
+  const now = new Date().toISOString();
+  const leaseId = `lease-${now.replace(/[-:.TZ]/g, "").slice(0, 14)}-${shortHash(`${taskRun.id}:resume:${now}`)}`;
+  const resumed: TaskRun = {
+    ...taskRun,
+    status: "claimed",
+    leaseId,
+    updatedAt: now,
+    finishedAt: null,
+    failureReason: undefined,
+    blockedReason: undefined,
+  };
+  const lease: WorkerLease = {
+    version: "1.0",
+    id: leaseId,
+    projectId: taskRun.projectId,
+    changeId: taskRun.changeId,
+    taskRunId: taskRun.id,
+    taskId: taskRun.taskId,
+    roleId: taskRun.roleId,
+    workerId: localWorkerId(),
+    status: "claimed",
+    claimedAt: now,
+    updatedAt: now,
+    releasedAt: null,
+    expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+  };
+  await writeTaskRun(memory, resumed);
+  await writeWorkerLease(memory, lease);
+  return { taskRun: resumed, lease };
+}
+
 export async function releaseTaskRunLease(memory: ResolvedMemory, taskRun: TaskRun, timestamp: string): Promise<void> {
   const leases = await listWorkerLeases(memory, taskRun.changeId);
   const lease = leases.find((item) => item.id === taskRun.leaseId);

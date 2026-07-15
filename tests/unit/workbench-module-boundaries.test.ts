@@ -75,7 +75,7 @@ describe("Workbench module boundaries", () => {
     expect(provider).toContain('sendRequest("thread/goal/set"');
     expect(conversation).toContain('name: "aho_goal_yield"');
     expect(conversation).toContain('name: "aho_finalize_current_change"');
-    expect(existsSync("src/workbench/codex-chat/bridge.ts")).toBe(false);
+    expect(existsSync("src/workbench/codex-chat")).toBe(false);
     expect(existsSync("src/goal-manager")).toBe(false);
   });
 });

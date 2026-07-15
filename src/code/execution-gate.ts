@@ -15,8 +15,8 @@ export async function assertCodeExecutionGate(
 ): Promise<CodeExecutionGateVerdict> {
   const mode = options.executionGate?.mode ?? (roleId === "rework-coder" ? "rework" : null);
   if (!mode) throw new Error("Code execution requires an explicit Workflow Runtime execution gate.");
-  if (options.existingWorktreeId && mode !== "scheduler-claim-rework") {
-    throw new Error("existingWorktreeId is only allowed for scheduler-claim-rework code execution.");
+  if (options.existingWorktreeId && mode !== "scheduler-claim-rework" && mode !== "workflow-graph") {
+    throw new Error("existingWorktreeId requires an authorized WorkflowGraph resume or scheduler rework execution.");
   }
   if (mode === "rework") {
     return { allowed: true, mode, changeId, taskRunId: options.taskRunId, taskIds: options.taskIds, reason: "Rework code execution remains scoped to existing result review evidence." };
@@ -44,6 +44,12 @@ export async function assertCodeExecutionGate(
       const matchingItem = queueItems.find((item) => item.taskRunId === options.taskRunId);
       if (!matchingItem || matchingItem.workflowGraphPlanId !== workflowGraphPlanId) {
         throw new Error("TaskQueue code execution taskRun is not scoped to the WorkflowGraphPlan.");
+      }
+      if (options.existingWorktreeId) {
+        const taskRun = await readTaskRun(memory, changeId, options.taskRunId);
+        if (taskRun.status !== "running" || taskRun.worktreeId !== options.existingWorktreeId) {
+          throw new Error("TaskQueue code resume worktree does not match the reclaimed TaskRun.");
+        }
       }
     } else if (graph.nodes.length !== 1) {
       throw new Error("Direct code execution requires a single-node authored WorkflowGraphPlan.");

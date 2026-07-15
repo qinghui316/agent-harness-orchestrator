@@ -1,8 +1,5 @@
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { resolveRunnableChangeTarget } from "../change/target.js";
-import { detectCodexAppServerCapability, shouldUseCodexAppServerForMemory } from "../codex/app-server.js";
-import { resolveCodexExecutable } from "../codex/executable.js";
-import { readPromptInput } from "../codex/prompt.js";
 import { buildAgentSystemPrompt, buildRunAgentRecord, resolveAgentRole } from "../agent/catalog.js";
 import { writeJsonFile } from "../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
@@ -13,8 +10,7 @@ import { prepareWorktreeDependencyBridge } from "../worktree/dependencies.js";
 import { readWorktreeMetadata } from "../worktree/repository.js";
 import { composeCoderPrompt } from "./prompt.js";
 import { getSortedSourceStatus, writeEmptyCodeArtifacts } from "./artifacts.js";
-import { runCodexAppServerCode } from "./codex-app-server-runner.js";
-import { runCodexExecCode } from "./codex-exec-runner.js";
+import { runProviderCodeTurn } from "./provider-turn-runner.js";
 import { buildCodeRoleContextArtifact } from "./context.js";
 import { assertCodeExecutionGate } from "./execution-gate.js";
 import { emitCodeLiveStatus } from "./live-events.js";
@@ -48,7 +44,7 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
   const extraPrompt = options.prompt || options.promptFile
     ? await readPromptInput({ prompt: options.prompt, promptFile: options.promptFile })
     : undefined;
-  const runId = buildRunId(changeId, ["coder-codex", ...selectedTasks, extraPrompt ?? ""]);
+  const runId = buildRunId(changeId, ["provider-code", ...selectedTasks, extraPrompt ?? ""]);
   const sourceBefore = await getSortedSourceStatus(project.path);
   const existingWorktree = options.existingWorktreeId ? await readWorktreeMetadata(memory, options.existingWorktreeId) : null;
   if (existingWorktree && existingWorktree.changeId !== changeId) {
@@ -87,10 +83,10 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
     id: runId,
     changeId,
     projectPath: project.path,
-    runtime: "coder-codex",
+    runtime: "provider-code",
     executionMode: "worktree",
     proposalOnly: true,
-    command: [resolveCodexExecutable()],
+    command: ["provider", "turn.start"],
     status: "created",
     exitCode: null,
     signal: null,
@@ -106,7 +102,7 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
     agent: buildRunAgentRecord(role),
   };
   await writeJsonFile(session.paths.run, run);
-  await appendRunEvent(session.paths.events, { timestamp: now, type: "run.created", runId, data: { changeId, runtime: "coder-codex", worktree, taskIds: selectedTasks, taskRunId: options.taskRunId, executionGate: { ...executionGate } } });
+  await appendRunEvent(session.paths.events, { timestamp: now, type: "run.created", runId, data: { changeId, runtime: "provider-code", worktree, taskIds: selectedTasks, taskRunId: options.taskRunId, executionGate: { ...executionGate } } });
   await appendRunEvent(session.paths.events, { timestamp: now, type: "code.execution_gate.allowed", runId, data: { ...executionGate } });
   await appendRunEvent(session.paths.events, { timestamp: now, type: created ? "worktree.created" : "worktree.reused", runId, data: { worktreeId: worktree.worktreeId, checkoutPath: worktree.checkoutPath } });
   emitCodeLiveStatus(options.live, { runId, status: "preparing", label: "Coder" });
@@ -165,11 +161,7 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
     return { run: failedRun, warnings: [message] };
   }
 
-  const appServerCapabilities = await detectCodexAppServerCapability();
-  const useAppServer = appServerCapabilities.available && shouldUseCodexAppServerForMemory(memory.mode);
-  if (useAppServer) {
-    await appendRunEvent(session.paths.events, { timestamp: new Date().toISOString(), type: "app-server.capabilities.detected", runId, data: { supportsStdio: appServerCapabilities.supportsStdio } });
-    return runCodexAppServerCode({
+  return runProviderCodeTurn({
       project,
       memory,
       run,
@@ -181,33 +173,13 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
       sourceBefore,
       createdWarnings: created?.warnings ?? [],
       live: options.live,
-    });
-  }
-  if (appServerCapabilities.available) {
-    await appendRunEvent(session.paths.events, {
-      timestamp: new Date().toISOString(),
-      type: "app-server.skipped",
-      runId,
-      data: { reason: "external-local memory requires codex exec --add-dir memoryRoot", memoryMode: memory.mode },
-    });
-  } else {
-    await appendRunEvent(session.paths.events, { timestamp: new Date().toISOString(), type: "app-server.unavailable", runId, data: { errors: appServerCapabilities.errors } });
-  }
-  emitCodeLiveStatus(options.live, { runId, status: "fallback-next-turn", label: "实时引导不可用" });
-
-  return runCodexExecCode({
-    project,
-    memory,
-    run,
-    paths: session.paths,
-    changeId,
-    roleId,
-    worktree,
-    prompt,
-    sourceBefore,
-    createdWarnings: created?.warnings ?? [],
-    options,
   });
+}
+
+async function readPromptInput(input: { prompt?: string; promptFile?: string }): Promise<string> {
+  if (input.prompt?.trim()) return input.prompt.trim();
+  if (input.promptFile) return (await readFile(input.promptFile, "utf8")).trim();
+  return "";
 }
 
 function bridgeData(input: {

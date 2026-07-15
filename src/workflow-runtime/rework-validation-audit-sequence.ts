@@ -114,7 +114,7 @@ export async function runReworkValidationAuditSequence(
     loopRun,
     stepIndex,
     reworkDecision,
-    rework.status,
+    rework.status === "interrupted" ? "failed" : rework.status,
     rework.stoppedAt ?? null,
     rework.error,
     refsFromCoder(rework),

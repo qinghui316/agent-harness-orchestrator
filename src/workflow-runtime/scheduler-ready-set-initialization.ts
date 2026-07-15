@@ -401,12 +401,12 @@ function repeatedSourceScopes(graph: ReadySetWorkflowGraphPlan): string[] {
 
 function adapterForStage(stage: WorkflowGraphStage): SchedulerWorkerAdapterFamily {
   if (stage === "validation") return "validation-command";
-  if (stage === "audit") return "audit-codex-readonly";
-  return "codex-code";
+  if (stage === "audit") return "provider-readonly";
+  return "provider-code";
 }
 
 function eventSourceExpectation(adapterFamily: SchedulerWorkerAdapterFamily): SchedulerWorkerEventSourceExpectation {
   if (adapterFamily === "validation-command") return { adapterFamily, expectedEventTypes: ["permission.profile.attached", "external-execution.requested", "validation.command.started", "validation.command.exited", "external-execution.completed"] };
-  if (adapterFamily === "audit-codex-readonly") return { adapterFamily, expectedEventTypes: ["permission.profile.attached", "external-execution.requested", "audit.started", "codex.started", "codex.exited", "external-execution.completed"] };
-  return { adapterFamily, expectedEventTypes: ["permission.profile.attached", "external-execution.requested", "codex.started", "codex.exited", "external-execution.completed"] };
+  if (adapterFamily === "provider-readonly") return { adapterFamily, expectedEventTypes: ["permission.profile.attached", "external-execution.requested", "audit.started", "provider.started", "provider.exited", "external-execution.completed"] };
+  return { adapterFamily, expectedEventTypes: ["permission.profile.attached", "external-execution.requested", "provider.started", "provider.exited", "external-execution.completed"] };
 }

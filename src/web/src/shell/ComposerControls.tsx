@@ -3,24 +3,41 @@ import { Bot, File, Paperclip, Sparkles } from "lucide-react";
 import type { ComposerContextKind, ComposerContextSummary } from "./ComposerContextSources.js";
 
 export function ComposerControls({
+  providerDisplayName = "Agent Provider",
   modelLabel,
   onOpenModelSettings,
   enabledSkillCount = 0,
   contextSummary,
   openContextKind = null,
   onToggleContextKind,
+  providerOptions = [],
+  selectedProviderId,
+  onSelectProvider,
 }: {
+  providerDisplayName?: string;
   modelLabel: string;
   onOpenModelSettings?: () => void;
   enabledSkillCount?: number;
   contextSummary?: ComposerContextSummary;
   openContextKind?: ComposerContextKind | null;
   onToggleContextKind?: (kind: ComposerContextKind) => void;
+  providerOptions?: Array<{ id: string; label: string }>;
+  selectedProviderId?: string;
+  onSelectProvider?: (providerId: string) => void;
 }): ReactElement {
   const summary = contextSummary ?? { skillCount: enabledSkillCount, fileCount: 0, attachmentCount: 0, totalCount: enabledSkillCount };
   return (
     <div className="composer-control-strip" aria-label="Composer execution controls">
-      <span className="composer-engine-label"><Bot size={14} />Codex</span>
+      {providerOptions.length > 1 ? (
+        <label className="composer-provider-select">
+          <Bot size={14} aria-hidden="true" />
+          <span className="sr-only">选择 Agent provider</span>
+          <select value={selectedProviderId ?? ""} onChange={(event) => onSelectProvider?.(event.target.value)} aria-label="选择 Agent provider">
+            {!selectedProviderId ? <option value="" disabled>选择 Agent</option> : null}
+            {providerOptions.map((provider) => <option key={provider.id} value={provider.id}>{provider.label}</option>)}
+          </select>
+        </label>
+      ) : <span className="composer-engine-label"><Bot size={14} />{providerDisplayName}</span>}
       <span className="composer-control-divider" aria-hidden="true">/</span>
       {onOpenModelSettings ? (
         <button

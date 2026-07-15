@@ -212,7 +212,7 @@ input:focus-visible {
 
 /* Project sidebar */
 
-.codex-sidebar {
+.project-conversation-sidebar {
   display: flex;
   flex: 1;
   min-height: 0;
@@ -2915,6 +2915,23 @@ input:focus-visible {
 
 .composer-engine-label {
   color: var(--text);
+}
+
+.composer-provider-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text);
+}
+
+.composer-provider-select select {
+  max-width: 160px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
 }
 
 .composer-model-button {
@@ -6026,11 +6043,11 @@ h1 {
   gap: 10px;
 }
 
-.codex-diagnostics-card.is-ready .panel-title-row {
+.provider-diagnostics-card.is-ready .panel-title-row {
   color: var(--success);
 }
 
-.codex-diagnostics-card.has-warning .panel-title-row {
+.provider-diagnostics-card.has-warning .panel-title-row {
   color: var(--warning);
 }
 
@@ -6823,7 +6840,7 @@ h1 {
   color: var(--text);
 }
 
-.codex-model-settings-card {
+.provider-model-settings-card {
   display: grid;
   gap: 10px;
 }

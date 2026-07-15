@@ -12,7 +12,7 @@ import {
   mainAgentLoopRunsRoot,
 } from "../../src/main-agent-orchestration/index.js";
 import { listTaskQueueItems, listTaskQueues, pauseTaskQueue, reconcileTaskQueues, startOrResumeTaskQueue } from "../../src/task-queue/manager.js";
-import { finishTaskRunFromWorkflowResult, markTaskRunStarted } from "../../src/task-run/manager.js";
+import { finishTaskRunFromWorkflowResult, markTaskRunStarted, resumeInterruptedTaskRun } from "../../src/task-run/manager.js";
 import { appendWorkflowTaskEvent, listWorkflowRuns, readWorkflowRun, readWorkflowRunEvents, syncWorkflowRunFromQueue } from "../../src/workflow-run/manager.js";
 import { hashArtifactRefs, hashFile, readLatestWorkflowGraphPlan } from "../../src/workflow-artifacts/manager.js";
 import type { TaskQueueRun, WorkflowRun } from "../../src/types/index.js";
@@ -30,6 +30,7 @@ import {
   writeTaskQueueRecord,
   writeTaskRunRecord,
   writeValidationResult,
+  writeValidationResultWithHash,
   writeWorkerLeaseRecord,
 } from "./workbench/fixtures.js";
 
@@ -462,7 +463,7 @@ describe("workbench task runtime domain", () => {
     });
     const items = await listTaskQueueItems(memory, "workflow-resume-evidence", startedQueue.queue.id);
     expect(items).toEqual([expect.objectContaining({ status: "completed", taskRunId: "taskrun-resume-1" })]);
-    const coderRuns = (await listRuns(memory)).filter((run) => run.runtime === "coder-codex" && run.changeId === "workflow-resume-evidence");
+    const coderRuns = (await listRuns(memory)).filter((run) => run.runtime === "provider-code" && run.changeId === "workflow-resume-evidence");
     expect(coderRuns.map((run) => run.id)).toEqual(["run-resume-coder"]);
     const workflow = await readWorkflowRun(memory, "workflow-resume-evidence", workflowRunId);
     expect(workflow).toMatchObject({ status: "completed", queueRunId: startedQueue.queue.id });
@@ -470,6 +471,62 @@ describe("workbench task runtime domain", () => {
       expect.arrayContaining([expect.objectContaining({ type: "task.completed", taskId: "T-001" })]),
     );
     await expect(readdir(mainAgentLoopRunsRoot(memory))).rejects.toThrow();
+  });
+
+  it("does not reuse validation evidence captured for an older worktree diff", async () => {
+    await initHarness(project());
+    await createConversationChangeFixture(project(), { title: "Stale Validation Resume" });
+    await writeAcceptedSpecAndTasks("stale-validation-resume");
+    const memory = await resolveProjectMemory(project());
+    await writeTaskQueueRecord("stale-validation-resume", "queue-stale-validation", "paused", { totalCount: 1 });
+    await writeTaskQueueItemRecord("stale-validation-resume", "queue-stale-validation", "item-stale-validation", "T-001", 1, "queued", { taskRunId: "taskrun-stale-validation" });
+    await writeTaskRunRecord("stale-validation-resume", "taskrun-stale-validation", "T-001", "evidence-ready", 1, {
+      runId: "run-stale-validation-coder",
+      worktreeId: "wt-stale-validation",
+    });
+    await writeCoderRun("stale-validation-resume", "run-stale-validation-coder", ["T-001"], "wt-stale-validation", "completed", "taskrun-stale-validation");
+    await writeValidationResultWithHash("stale-validation-resume", "run-stale-validation", "wt-stale-validation", "older-diff", "passed");
+    const [item] = await listTaskQueueItems(memory, "stale-validation-resume", "queue-stale-validation");
+    if (!item) throw new Error("Expected stale validation queue item.");
+
+    await expect(findTaskRunStageResumeCandidate(memory, "stale-validation-resume", item)).resolves.toMatchObject({
+      taskRun: { id: "taskrun-stale-validation" },
+      verdict: { kind: "continue-validation", runId: "run-stale-validation-coder" },
+    });
+  });
+
+  it("reclaims an interrupted TaskRun without changing its attempt or worktree", async () => {
+    await initHarness(project());
+    await createConversationChangeFixture(project(), { title: "Workflow Interrupted Resume" });
+    await writeAcceptedSpecAndTasks("workflow-interrupted-resume");
+    const prepared = await prepareAcceptedSequentialWorkflowGraph("workflow-interrupted-resume", ["T-001"]);
+    const startedQueue = await startOrResumeTaskQueue(project(), {
+      changeId: "workflow-interrupted-resume",
+      workflowGraphPlanId: prepared.workflowGraphPlanId,
+    });
+    const memory = await resolveProjectMemory(project());
+    await pauseTaskQueueWithWorkflow(memory, startedQueue.queue, "provider switch");
+    const [item] = await listTaskQueueItems(memory, "workflow-interrupted-resume", startedQueue.queue.id);
+    if (!item) throw new Error("Expected interrupted queue item.");
+    await writeTaskRunRecord("workflow-interrupted-resume", "taskrun-interrupted-1", "T-001", "interrupted", 1, {
+      runId: "run-interrupted-1",
+      worktreeId: "wt-interrupted-1",
+    });
+    await writeCoderRun("workflow-interrupted-resume", "run-interrupted-1", ["T-001"], "wt-interrupted-1", "interrupted", "taskrun-interrupted-1");
+    await writeTaskQueueItemRecord("workflow-interrupted-resume", startedQueue.queue.id, item.id, item.taskId, item.order, "queued", {
+      taskRunId: "taskrun-interrupted-1",
+      workflowRunId: startedQueue.queue.workflowRunId,
+      workflowGraphPlanId: prepared.workflowGraphPlanId,
+    });
+
+    const refreshedItem = (await listTaskQueueItems(memory, "workflow-interrupted-resume", startedQueue.queue.id))[0]!;
+    await expect(findTaskRunStageResumeCandidate(memory, "workflow-interrupted-resume", refreshedItem)).resolves.toMatchObject({
+      taskRun: { id: "taskrun-interrupted-1", attempt: 1, worktreeId: "wt-interrupted-1" },
+      verdict: { kind: "continue-coder", worktreeId: "wt-interrupted-1" },
+    });
+    const reclaimed = await resumeInterruptedTaskRun(project(), { changeId: "workflow-interrupted-resume", taskRunId: "taskrun-interrupted-1" });
+    expect(reclaimed.taskRun).toMatchObject({ id: "taskrun-interrupted-1", attempt: 1, worktreeId: "wt-interrupted-1", status: "claimed" });
+    expect(reclaimed.lease.taskRunId).toBe("taskrun-interrupted-1");
   });
 
   it("does not resume a queue item from TaskRun evidence bound to another queue", async () => {

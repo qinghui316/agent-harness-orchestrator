@@ -8,14 +8,14 @@ import {
   dispatchChangeCloseOutbox,
   recoverExpiredAgentTasks,
   startBackgroundWorker,
-  runCodexMaintenanceAssignment,
+  runMaintenanceAssignment,
   type BackgroundWorkerHandle,
 } from "../agent-task/manager.js";
 import { parseHarnessEngineeringAssignment } from "../agent-task/harness-engineering-contract.js";
 import { resolveProjectMemory } from "../memory/resolver.js";
 import { resolveValidationProfile } from "../validation/profiles.js";
 import type { WorkbenchProjectInput } from "../workbench/manager.js";
-import { forwardCodexRealtimeEvent } from "../workbench/codex-live-events.js";
+import { forwardProviderRealtimeEvent } from "../workbench/provider-live-events.js";
 import { publishProjectLiveEvent } from "../workbench/project-live-events.js";
 import { TerminalRuntime } from "./terminal/terminal-runtime.js";
 import { handleApi } from "./workbench/api-router.js";
@@ -82,8 +82,8 @@ async function startProjectBackgroundWorkers(
       enabled: options.backgroundWorker?.enabled ?? true,
       assignmentFactory: options.backgroundWorker?.assignmentFactory ?? ((task, targetProject) => createServerHarnessAssignment(memory, task, targetProject)),
       runAssignment: options.backgroundWorker?.runAssignment ?? (async ({ task, assignment, signal }) =>
-        runCodexMaintenanceAssignment(memory, project, assignment, signal, (event) =>
-          forwardCodexRealtimeEvent(event, { emit: (liveEvent) => publishProjectLiveEvent(project.id, liveEvent) }), {
+        runMaintenanceAssignment(memory, project, assignment, signal, (event) =>
+          forwardProviderRealtimeEvent(event, { emit: (liveEvent) => publishProjectLiveEvent(project.id, liveEvent) }), {
             taskId: task.id,
             conversationId: task.conversationId,
             changeId: task.changeId,

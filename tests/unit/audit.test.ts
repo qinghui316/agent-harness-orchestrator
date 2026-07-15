@@ -13,27 +13,23 @@ import { repoLocalMemory } from "../../src/memory/resolver.js";
 import type { AuditResult, ManagedProject } from "../../src/types/index.js";
 import type { ValidationResult } from "../../src/types/index.js";
 
-vi.mock("../../src/codex/capabilities.js", () => ({
-  detectCodexCapabilities: vi.fn(async () => ({
-    available: false,
-    version: null,
-    approvalFlagPlacement: "unsupported",
-    supportsJson: false,
-    supportsSandbox: false,
-    supportsCd: false,
-    supportsAddDir: false,
-    supportsColor: false,
-    supportsOutputLastMessage: false,
-    supportsSafeResume: false,
-    errors: ["Codex CLI is not available on PATH."],
-  })),
-  buildCodexReadonlyArgv: vi.fn(() => ({ command: "codex", args: ["exec", "--json"] })),
+const providerRequire = vi.hoisted(() => vi.fn());
+
+vi.mock("../../src/provider-runtime/index.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../../src/provider-runtime/index.js")>(),
+  defaultProviderRegistry: {
+    list: () => [{ id: "test-provider" }],
+    requireOnly: () => ({ id: "test-provider" }),
+    require: providerRequire,
+  },
 }));
 
 let tempDir: string;
 
 beforeEach(async () => {
   tempDir = await mkdtemp(join(tmpdir(), "aho-audit-"));
+  providerRequire.mockReset();
+  providerRequire.mockRejectedValue(new Error("The selected provider does not satisfy the auditor capability profile."));
 });
 
 afterEach(async () => {
@@ -93,7 +89,7 @@ describe("audit parser and prompt", () => {
     expect(prompt).toContain("Use `approved` only when no risk");
     expect(prompt).toContain("Passing validation and other positive evidence belong in the");
     expect(prompt).toContain("Authoritative Audit Packet");
-    expect(prompt).toContain("Do not block only because external-local durable memory is outside the Codex working directory.");
+    expect(prompt).toContain("Do not block only because external-local durable memory is outside the provider working directory.");
     expect(prompt).toContain("AC-001");
     expect(prompt).toContain("README.md | 1 +");
     expect(prompt).toContain("Focus on spec drift.");
@@ -171,17 +167,64 @@ describe("audit close gate", () => {
 
     expect(result.run.status).toBe("failed");
     expect(result.audit.status).toBe("failed");
-    expect(workerSession).toMatchObject({ adapter: "audit-codex-readonly", changeId: "audit-runtime-continuity", runId: result.run.id, roleId: "auditor-agent", status: "failed" });
+    expect(workerSession).toMatchObject({ adapter: "provider-readonly", changeId: "audit-runtime-continuity", runId: result.run.id, roleId: "auditor-agent", status: "failed" });
     expect(runtimeWorkspace).toMatchObject({ workspaceKind: "source-root", cwd: tempDir, roleId: "auditor-agent" });
     expect(runtimeWorkspace.worktreeId).toBeUndefined();
-    expect(eventSource).toMatchObject({ adapter: "audit-codex-readonly", status: "failed", workerSessionId: workerSession.id });
+    expect(eventSource).toMatchObject({ adapter: "provider-readonly", status: "failed", workerSessionId: workerSession.id });
     expect(agentEvents.map((event) => event.eventType)).toEqual(expect.arrayContaining([
       "permission.profile.attached",
-      "codex.capabilities.failed",
+      "provider.exited",
       "external-execution.failed",
     ]));
     expect(agentEvents[0]).toMatchObject({ changeId: "audit-runtime-continuity", runId: result.run.id, roleId: "auditor-agent" });
     expect(agentEvents[0].raw.changeId).toBeUndefined();
+  });
+
+  it("executes Auditor through the selected provider readonly leaf port", async () => {
+    const runTurn = vi.fn(async () => ({
+      providerId: "test-provider",
+      status: "completed" as const,
+      session: { providerId: "test-provider", sessionId: "session-audit" },
+      turnId: "turn-audit",
+      lastMessage: "Status: approved\n",
+      childThreads: [],
+      changedFiles: [],
+    }));
+    providerRequire.mockResolvedValue({
+      id: "test-provider",
+      displayName: "Test Provider",
+      capabilitySnapshot: vi.fn(async () => ({
+        providerId: "test-provider",
+        displayName: "Test Provider",
+        productMode: "harness" as const,
+        status: "ready" as const,
+        runnable: true,
+        checkedAt: "2026-07-15T00:00:00.000Z",
+        snapshotHash: "snapshot",
+        snapshotVersion: 1,
+        effectiveModel: "test-model",
+        effectiveModelSource: "provider-default" as const,
+        degradedReasons: [],
+        capabilities: [],
+      })),
+      leafExecution: { runTurn },
+    });
+    await initHarness(project(tempDir));
+    await createChange(project(tempDir), { title: "Provider Auditor" });
+
+    const result = await startAuditRun(project(tempDir));
+
+    expect(providerRequire).toHaveBeenCalledWith("test-provider", "auditor", expect.objectContaining({ id: "repo" }), tempDir);
+    expect(runTurn).toHaveBeenCalledWith(expect.objectContaining({
+      providerId: "test-provider",
+      operationProfile: "auditor",
+      roleId: "auditor-agent",
+      cwd: tempDir,
+      sandboxPolicy: "read-only",
+      writableRoots: [],
+    }));
+    expect(result.run).toMatchObject({ status: "completed", command: ["provider", "turn.start"] });
+    expect(result.audit.status).toBe("approved");
   });
 
   it("binds scheduler audit to the explicitly requested validation evidence", async () => {

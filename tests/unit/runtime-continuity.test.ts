@@ -49,7 +49,7 @@ describe("runtime continuity evidence", () => {
       changeId: "change-1",
       runId: "run-1",
       roleId: "coder-agent",
-      adapter: "codex-exec",
+      adapter: "provider-code",
       worktree: {
         worktreeId: "wt-1",
         branchName: "aho/wt-1",
@@ -98,7 +98,7 @@ describe("runtime continuity evidence", () => {
       changeId: "change-1",
       runId: "run-concurrent",
       roleId: "coder-agent",
-      adapter: "codex-exec",
+      adapter: "provider-code",
       worktree: {
         worktreeId: "wt-1",
         branchName: "aho/wt-1",
@@ -133,7 +133,7 @@ describe("runtime continuity evidence", () => {
       changeId: "change-1",
       runId: "run-1",
       roleId: "coder-agent",
-      adapter: "codex-exec",
+      adapter: "provider-code",
       worktree: {
         worktreeId: "wt-1",
         branchName: "aho/wt-1",
@@ -225,7 +225,7 @@ describe("runtime continuity evidence", () => {
       changeId: "change-1",
       runId: "run-1",
       roleId: "coder-agent",
-      adapter: "codex-exec",
+      adapter: "provider-code",
       worktree: {
         worktreeId: "wt-1",
         branchName: "aho/wt-1",

@@ -268,6 +268,26 @@ describe("Codex native Goal lifecycle", () => {
     expect(server.methods).not.toContain("thread/inject_items");
   });
 
+  it("keeps resumed-session history out of the new canonical realtime turn", async () => {
+    const server = new FakeGoalAppServer("paused", [], "tool", true);
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+    const realtime: Array<{ turnId?: string; streamEvent: { type: string; [key: string]: unknown } }> = [];
+    const deltas: string[] = [];
+
+    const result = await runCodexAppServerTurn(await options({
+      prompt: "Inspect the current page.",
+      onRealtimeEvent: (event) => realtime.push(event),
+      onTextDelta: (delta) => deltas.push(delta),
+    }));
+
+    expect(result).toMatchObject({ status: "completed", turnId: "turn-user" });
+    expect(deltas.join("")).toBe("");
+    expect(realtime.some((event) => event.turnId === "turn-old")).toBe(false);
+    expect(realtime).toEqual(expect.arrayContaining([
+      expect.objectContaining({ turnId: "turn-user", streamEvent: expect.objectContaining({ type: "status", label: "thinking" }) }),
+    ]));
+  });
+
   it("delivers an ordinary user message without activating the blocked Goal", async () => {
     const server = new FakeGoalAppServer("blocked");
     spawnMock.mockReturnValue(server as unknown as ChildProcess);
@@ -361,6 +381,7 @@ class FakeGoalAppServer extends EventEmitter {
     status: CodexAppServerThreadGoal["status"] | string,
     history: unknown[] = [],
     private readonly activeOutcome: "tool" | "blocked" | "unknown" = "tool",
+    private readonly replayCompletedTurn = false,
   ) {
     super();
     this.goal = {
@@ -424,6 +445,16 @@ class FakeGoalAppServer extends EventEmitter {
         this.respond(id, { goal: this.goal });
         return;
       case "thread/resume":
+        if (this.replayCompletedTurn) {
+          this.notify("turn/started", { threadId: "thread-1", turn: { id: "turn-old", status: "inProgress" } });
+          this.notify("item/agentMessage/delta", { threadId: "thread-1", turnId: "turn-old", delta: "stale history" });
+          this.notify("item/completed", {
+            threadId: "thread-1",
+            turnId: "turn-old",
+            item: { id: "old-command", type: "commandExecution", command: "old command", exitCode: 0 },
+          });
+          this.notify("turn/completed", { threadId: "thread-1", turn: { id: "turn-old", status: "completed" } });
+        }
         this.respond(id, { thread: { id: "thread-1" } });
         if (this.goal.status === "active") {
           this.notify("turn/started", { threadId: "thread-1", turn: { id: "turn-1", status: "inProgress" } });

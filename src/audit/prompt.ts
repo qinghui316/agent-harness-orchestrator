@@ -24,7 +24,7 @@ export async function composeAuditPrompt(input: AuditPromptInput): Promise<strin
     "",
     "For this AHO audit run, the packet below is sufficient review evidence unless a concrete required artifact is missing.",
     "Treat the run context, active AC/task summary, diff stat, full diff, and latest validation summary as the authoritative audit packet for this proposal.",
-    "Do not block only because external-local durable memory is outside the Codex working directory.",
+    "Do not block only because external-local durable memory is outside the provider working directory.",
     "If extra memory is available through an additional read-only directory, you may inspect it, but do not require it when the packet is complete.",
     "",
     "## Run Context Projection",

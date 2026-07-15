@@ -30,8 +30,8 @@ export function SkillsSettingsView({
     ].some((value) => value.toLowerCase().includes(normalized)));
   }, [query, skills]);
   const selectedSkill = skills.find((skill) => skill.skillId === selectedSkillId) ?? filteredSkills[0] ?? null;
-  const selectedTarget = selectedSkill?.runtimeTargets.find((item) => item.provider === "codex");
-  const selectedNative = selectedTarget?.status === "native";
+  const selectedTarget = selectedSkill?.providerBindings[0];
+  const selectedNative = selectedTarget?.bindingKind === "native" && selectedTarget.status === "ready";
 
   async function load(): Promise<void> {
     if (!projectId) {
@@ -71,7 +71,7 @@ export function SkillsSettingsView({
       <section className="settings-empty-state">
         <Sparkles size={24} />
         <h3>选择项目后管理技能</h3>
-        <p>技能只影响 Codex 使用能力，不会自动执行项目操作。</p>
+        <p>技能只影响 Agent Provider 的可用能力，不会自动执行项目操作。</p>
       </section>
     );
   }
@@ -125,7 +125,7 @@ export function SkillsSettingsView({
 
         <div className="skills-settings-list" role="list" aria-label="Skill 列表">
           {filteredSkills.length === 0 ? <p className="muted-copy">还没有扫描到 Skill。</p> : filteredSkills.map((skill) => {
-            const target = skill.runtimeTargets.find((item) => item.provider === "codex");
+            const target = skill.providerBindings[0];
             const active = selectedSkill?.skillId === skill.skillId;
             return (
               <button
@@ -141,7 +141,7 @@ export function SkillsSettingsView({
                 </span>
                 <span className="skill-list-meta">
                   <span className="skill-source-badge">{sourceKindLabel(skill.sourceKind)}</span>
-                  <span className={`skill-sync-state ${target?.status ?? "not-synced"}`}>{runtimeStatusLabel(target?.status)}</span>
+                  <span className={`skill-sync-state ${target?.status ?? "unavailable"}`}>{runtimeStatusLabel(target?.status, target?.bindingKind)}</span>
                 </span>
               </button>
             );
@@ -159,18 +159,18 @@ export function SkillsSettingsView({
               </div>
               <div className="settings-inline-actions">
                 {!selectedNative ? (
-                  <button className="outline-button" disabled={busy} onClick={() => run(async () => { await postJson(`/api/projects/${encodeURIComponent(projectId)}/skills/codex-bridge/sync`, {}); })}>同步到 Codex</button>
+                  <button className="outline-button" disabled={busy} onClick={() => run(async () => { await postJson(`/api/projects/${encodeURIComponent(projectId)}/skills/provider-binding/sync`, {}); })}>同步到 Agent Provider</button>
                 ) : null}
               </div>
             </header>
             <div className="settings-info-grid">
               <Info label="来源" value={sourceKindLabel(selectedSkill.sourceKind)} />
-              <Info label="运行状态" value={runtimeStatusLabel(selectedTarget?.status)} />
+              <Info label="运行状态" value={runtimeStatusLabel(selectedTarget?.status, selectedTarget?.bindingKind)} />
               <Info label="路径" value={selectedSkill.sourcePath} />
             </div>
             <div className="skill-package-summary">
               <h4>包内容</h4>
-              <p>{selectedNative ? "这个 Skill 来自 Codex，可直接选择使用。" : "同步后可供 Codex 使用；scripts 只作为 Skill 包内容保留，AHO 不直接执行。"}</p>
+              <p>{selectedNative ? "这个 Skill 可由当前 Agent Provider 原生加载。" : "同步后可供当前 Agent Provider 使用；scripts 只作为 Skill 包内容保留，AHO 不直接执行。"}</p>
               <div className="skill-package-items">
                 <span><FileText size={13} />SKILL.md</span>
                 <span>references/</span>
@@ -201,17 +201,16 @@ function Info({ label, value }: { label: string; value: string }): ReactElement 
   );
 }
 
-function runtimeStatusLabel(status: SkillListItem["runtimeTargets"][number]["status"] | undefined): string {
-  if (status === "native") return "Codex 可用";
-  if (status === "synced") return "已同步";
-  if (status === "out-of-sync") return "需要重新同步";
+function runtimeStatusLabel(status: SkillListItem["providerBindings"][number]["status"] | undefined, bindingKind?: SkillListItem["providerBindings"][number]["bindingKind"]): string {
+  if (status === "ready" && bindingKind === "native") return "Provider 原生可用";
+  if (status === "ready") return "已同步";
+  if (status === "stale") return "需要重新同步";
   return "需要同步";
 }
 
 function sourceKindLabel(kind: string): string {
   if (kind === "system-aho") return "AHO 内置";
-  if (kind === "global-codex") return "Codex";
-  if (kind === "project-codex") return "项目";
+  if (kind === "provider-native") return "Provider 原生";
   if (kind === "custom") return "自定义";
   if (kind === "managed") return "AHO";
   return kind;

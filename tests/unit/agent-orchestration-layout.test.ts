@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { layoutAgentOrchestrationGraph, stageForNode, visualKindForNode } from "../../src/web/src/panels/workbench/agentOrchestrationLayout.js";
-import type { DemandAgentRunGraph } from "../../src/web/src/types.js";
+import { layoutAgentOrchestrationGraph } from "../../src/web/src/panels/workbench/agentOrchestrationLayout.js";
+import type { AgentRelationGraph } from "../../src/web/src/types.js";
 
 describe("agent orchestration layout", () => {
   it("lays out real parent-child depth instead of workflow stages", () => {
@@ -54,23 +54,17 @@ describe("agent orchestration layout", () => {
     expect(first.nodes.map(({ id, x, y }) => ({ id, x, y }))).toEqual(second.nodes.map(({ id, x, y }) => ({ id, x, y })));
   });
 
-  it("keeps compatibility helpers bounded to Agent presentation", () => {
-    expect(stageForNode({ kind: "main-agent", lane: "main" })).toBe("demand");
-    expect(stageForNode({ kind: "new-agent-kind", lane: "roles" })).toBe("execution");
-    expect(visualKindForNode({ kind: "evolution-scorer" })).toBe("agent");
-    expect(visualKindForNode({ kind: "new-agent-kind" })).toBe("default");
-  });
 });
 
-function graphOf(nodes: DemandAgentRunGraph["nodes"], edges: DemandAgentRunGraph["edges"]): DemandAgentRunGraph {
+function graphOf(nodes: AgentRelationGraph["nodes"], edges: AgentRelationGraph["edges"]): AgentRelationGraph {
   return { conversationId: "conversation-1", title: "Agent 关系", summary: "", lanes: [], nodes, edges };
 }
 
-function edge(from: string, to: string): DemandAgentRunGraph["edges"][number] {
+function edge(from: string, to: string): AgentRelationGraph["edges"][number] {
   return { id: `${from}->${to}`, from, to, kind: "delegates", label: "" };
 }
 
-function node(id: string, kind: DemandAgentRunGraph["nodes"][number]["kind"], label: string): DemandAgentRunGraph["nodes"][number] {
+function node(id: string, kind: AgentRelationGraph["nodes"][number]["kind"], label: string): AgentRelationGraph["nodes"][number] {
   return {
     id,
     kind,

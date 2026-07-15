@@ -268,7 +268,7 @@ function assertLeaseMatchesReworkResult(lease: WorkerLease, result: SchedulerRun
 }
 
 function assertCodeRunMatchesReworkResult(codeRun: RunMetadata, result: SchedulerRuntimeWorkerReworkResult): void {
-  if (codeRun.changeId !== result.changeId || codeRun.id !== result.reworkRunId || codeRun.taskRunId !== result.reworkTaskRunId || codeRun.runtime !== "coder-codex" || codeRun.status !== "completed") {
+  if (codeRun.changeId !== result.changeId || codeRun.id !== result.reworkRunId || codeRun.taskRunId !== result.reworkTaskRunId || codeRun.runtime !== "provider-code" || codeRun.status !== "completed") {
     throw new Error("planning.scheduler.worker.rework-validate-first rework code run scope mismatch.");
   }
   if (!codeRun.taskIds?.some((taskId) => taskId.toUpperCase() === result.taskId.toUpperCase())) {

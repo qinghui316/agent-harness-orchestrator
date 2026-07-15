@@ -31,6 +31,7 @@ export function classifyWorkflowResult(result: unknown): { status: TaskRunStatus
   const codeStatus = isRecord(result.code) && isRecord(result.code.run) && typeof result.code.run.status === "string" ? result.code.run.status : null;
   const validationStatus = isRecord(result.validation) && isRecord(result.validation.validation) && typeof result.validation.validation.status === "string" ? result.validation.validation.status : null;
   const auditStatus = isRecord(result.audit) && isRecord(result.audit.audit) && typeof result.audit.audit.status === "string" ? result.audit.audit.status : null;
+  if (codeStatus === "interrupted") return { status: "interrupted" };
   if (stoppedAt === null && (auditStatus === "approved" || auditStatus === "approved-with-notes")) return { status: "completed" };
   if (stoppedAt === "validation" || validationStatus === "failed") return { status: "blocked", blockedReason: "Validation failed." };
   if (stoppedAt === "audit" || auditStatus === "blocked" || auditStatus === "failed") return { status: "blocked", blockedReason: auditStatus ? `Audit ${auditStatus}.` : "Audit did not approve the task run." };

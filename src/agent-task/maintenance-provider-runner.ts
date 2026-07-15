@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { getRuntimeAssignedHarnessSkillContext, type EnabledSkillContext } from "../skill/catalog.js";
 import type { ManagedProject } from "../types/index.js";
-import type { CodexAppServerRealtimeEvent } from "../codex/app-server-realtime.js";
+import type { ProviderRealtimeEvent } from "../provider-runtime/index.js";
 import { parseHarnessEngineeringAssignment, type HarnessEngineeringAssignment } from "./harness-engineering-contract.js";
 
 export type MaintenanceProviderRole = "maintenance-agent" | "evolution-agent" | "evolution-scorer";
@@ -18,7 +18,7 @@ export interface MaintenanceProviderExecutionRequest {
   writableRoots?: string[];
   existingThreadId?: string | null;
   signal?: AbortSignal;
-  onRealtimeEvent?: (event: CodexAppServerRealtimeEvent) => void;
+  onRealtimeEvent?: (event: ProviderRealtimeEvent) => void;
   taskLineage?: MaintenanceTaskLineage;
 }
 
@@ -60,7 +60,7 @@ export interface RunMaintenanceProviderAssignmentInput {
   executor: MaintenanceProviderExecutor;
   getSkillContext?: typeof getRuntimeAssignedHarnessSkillContext;
   signal?: AbortSignal;
-  onRealtimeEvent?: (event: CodexAppServerRealtimeEvent) => void;
+  onRealtimeEvent?: (event: ProviderRealtimeEvent) => void;
   taskLineage?: MaintenanceTaskLineage;
 }
 

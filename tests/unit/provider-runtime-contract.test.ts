@@ -1,0 +1,542 @@
+import Database from "better-sqlite3";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { repoLocalMemory } from "../../src/memory/resolver.js";
+import type { ProviderDescriptor, ProviderTurnResult } from "../../src/provider-runtime/contracts.js";
+import { ProviderRegistry } from "../../src/provider-runtime/registry.js";
+import { PROVIDER_OPERATION_CAPABILITIES, type ProviderCapabilityKey, type ProviderCapabilitySnapshot } from "../../src/provider-runtime/types.js";
+import type { ManagedProject } from "../../src/types/index.js";
+import { requiredProfilesForResume, switchConversationProviderAtSafePoint, workflowResumeRequestFromHandoff } from "../../src/workbench/provider-switch.js";
+import { assembleSharedConversationContext } from "../../src/workbench/shared-conversation-context.js";
+import { WorkbenchStore } from "../../src/workbench/store.js";
+import { claimAgentTask, createAgentTask } from "../../src/agent-task/manager.js";
+import { acquireWorkbenchRuntimeMutationLock } from "../../src/workbench/schema-rebuild-gate.js";
+import { resolveProjectSkillProvider } from "../../src/server/workbench/api-router.js";
+
+let root: string;
+
+beforeEach(async () => {
+  root = await mkdtemp(join(tmpdir(), "aho-provider-contract-"));
+});
+
+afterEach(async () => {
+  await rm(root, { recursive: true, force: true });
+});
+
+describe("provider-neutral runtime contract", () => {
+  it("fails closed instead of selecting the first provider when more than one is registered", () => {
+    const registry = new ProviderRegistry();
+    registry.register(fakeProvider("alpha"));
+    registry.register(fakeProvider("beta"));
+    expect(() => registry.requireOnly()).toThrow("多个 Agent provider");
+    expect(() => resolveProjectSkillProvider({}, undefined, registry)).toThrow("多个 Agent provider");
+    expect(resolveProjectSkillProvider({ defaultProviderId: "beta" }, undefined, registry).id).toBe("beta");
+    expect(resolveProjectSkillProvider({ defaultProviderId: "beta" }, "alpha", registry).id).toBe("alpha");
+  });
+
+  it("enumerates every provider turn in the same runtime scope", () => {
+    const registry = new ProviderRegistry();
+    for (const providerId of ["alpha", "beta"]) {
+      const provider = fakeProvider(providerId);
+      provider.conversation.getActiveTurn = (runtimeScopeId) => runtimeScopeId === "scope-1" ? {
+        providerId,
+        attemptId: `${providerId}-attempt`,
+        runtimeScopeId,
+        roleId: "coder-agent",
+        runId: `${providerId}-run`,
+        session: { providerId, sessionId: `${providerId}-session` },
+        turnId: `${providerId}-turn`,
+        startedAt: "2026-07-15T00:00:00.000Z",
+        steer: async () => undefined,
+        interrupt: async () => undefined,
+        respondToUserInput: async () => undefined,
+      } : null;
+      registry.register(provider);
+    }
+
+    expect(registry.findActiveTurns(["scope-1"]).map((turn) => turn.providerId).sort()).toEqual(["alpha", "beta"]);
+  });
+
+  it("requires leaf capabilities before resuming a paused task queue", () => {
+    expect(requiredProfilesForResume({
+      workflow: { resume: { nextRuntimeAction: "task.queue.start" } },
+    } as unknown as import("../../src/workbench/shared-conversation-context.js").HandoffSnapshot)).toEqual(["main", "coder", "auditor"]);
+  });
+
+  it("switches a Shared Conversation through a provider-neutral ResumePoint", async () => {
+    const now = new Date().toISOString();
+    const registry = new ProviderRegistry();
+    const alpha = fakeProvider("alpha");
+    let activeAlphaTurn = true;
+    let interrupted = false;
+    alpha.conversation.getActiveTurn = (runtimeScopeId) => activeAlphaTurn && runtimeScopeId === "graph-1" ? {
+      providerId: "alpha",
+      attemptId: "alpha-attempt",
+      runtimeScopeId,
+      roleId: "main-agent",
+      runId: "alpha-run",
+      session: { providerId: "alpha", sessionId: "alpha-session" },
+      turnId: "alpha-turn",
+      startedAt: now,
+      steer: async () => undefined,
+      interrupt: async () => {
+        interrupted = true;
+        activeAlphaTurn = false;
+      },
+      respondToUserInput: async () => undefined,
+    } : null;
+    registry.register(alpha);
+    registry.register(fakeProvider("beta"));
+    const project = managedProject(root);
+    const memory = repoLocalMemory(root, project.id);
+    const store = await WorkbenchStore.open(memory);
+    try {
+      store.createConversation({
+        projectId: project.id,
+        conversationId: "conversation-1",
+        title: "Provider switch",
+        state: "active",
+        boundChangeId: null,
+        currentGraphScopeId: "graph-1",
+        selectedProviderId: "alpha",
+        completedTurnSequence: 0,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      });
+      store.writeConversationProviderBinding({
+        projectId: project.id,
+        conversationId: "conversation-1",
+        providerId: "alpha",
+        nativeSessionId: "alpha-session",
+        lastDeliveredCompletedTurn: 0,
+        preferredModel: null,
+        lastUsedAt: now,
+        bindingStatus: "ready",
+      });
+      store.createProviderAttempt({
+        projectId: project.id,
+        conversationId: "conversation-1",
+        attemptId: "alpha-attempt",
+        graphScopeId: "graph-1",
+        changeId: null,
+        agentTaskId: null,
+        roleId: "main-agent",
+        operationProfile: "main",
+        providerId: "alpha",
+        nativeSessionId: "alpha-session",
+        model: null,
+        capabilitySnapshot: await alpha.capabilitySnapshot(project, project.path),
+        handoffHash: "alpha-handoff",
+        deliveredThroughCompletedTurn: 0,
+        worktreeId: null,
+        status: "running",
+        createdAt: now,
+        updatedAt: now,
+      });
+    } finally {
+      store.close();
+    }
+
+    const result = await switchConversationProviderAtSafePoint({
+      project,
+      memory,
+      conversationId: "conversation-1",
+      targetProviderId: "beta",
+      registry,
+    });
+
+    expect(interrupted).toBe(true);
+    expect(result).toMatchObject({ previousProviderId: "alpha", selectedProviderId: "beta", graphScopeId: "graph-1" });
+    const verified = await WorkbenchStore.open(memory);
+    try {
+      expect(verified.readConversation(project.id, "conversation-1")?.selectedProviderId).toBe("beta");
+      expect(verified.readConversationProviderBinding(project.id, "conversation-1", "beta")).toMatchObject({ nativeSessionId: null, bindingStatus: "ready" });
+      expect(verified.readLatestProviderResumePoint(project.id, "conversation-1")).toMatchObject({
+        resumePointId: result.resumePointId,
+        snapshotHash: result.resumePointHash,
+        previousProviderId: "alpha",
+        targetProviderId: "beta",
+      });
+      expect(verified.listProviderAttempts(project.id, "conversation-1")).toEqual([
+        expect.objectContaining({
+          attemptId: "alpha-attempt",
+          providerId: "alpha",
+          status: "interrupted",
+        }),
+        expect.objectContaining({
+          attemptId: result.resumeAttemptId,
+          providerId: "beta",
+          roleId: "main-agent",
+          operationProfile: "main",
+          status: "queued",
+          handoffHash: result.resumePointHash,
+        }),
+      ]);
+    } finally {
+      verified.close();
+    }
+
+    const handoff = await assembleSharedConversationContext({
+      project,
+      memory,
+      conversationId: "conversation-1",
+      providerId: "beta",
+      currentUserMessage: "继续当前节点",
+    });
+    expect(handoff.snapshot.resumePoint).toMatchObject({ hash: result.resumePointHash, targetProviderId: "beta" });
+    const claimStore = await WorkbenchStore.open(memory);
+    try {
+      claimStore.startQueuedProviderAttempt(project.id, result.resumeAttemptId, {
+        capabilitySnapshot: await registry.get("beta").capabilitySnapshot(project, project.path),
+        handoffHash: handoff.hash,
+        deliveredThroughCompletedTurn: 0,
+        model: null,
+        updatedAt: new Date().toISOString(),
+      });
+      expect(claimStore.listProviderAttempts(project.id, "conversation-1")).toEqual([
+        expect.objectContaining({
+          attemptId: "alpha-attempt",
+          providerId: "alpha",
+          status: "interrupted",
+        }),
+        expect.objectContaining({
+          attemptId: result.resumeAttemptId,
+          providerId: "beta",
+          handoffHash: handoff.hash,
+          status: "running",
+        }),
+      ]);
+    } finally {
+      claimStore.close();
+    }
+  });
+
+  it("maps an exact paused Workflow handoff back to the existing queue resume action", () => {
+    const snapshot = {
+      change: { id: "change-1", active: true },
+      workflow: {
+        workflowRunId: "workflow-1",
+        queueRunId: "queue-1",
+        graph: { id: "graph-1" },
+        resume: { nextRuntimeAction: "task.queue.start" },
+      },
+    } as unknown as import("../../src/workbench/shared-conversation-context.js").HandoffSnapshot;
+    expect(workflowResumeRequestFromHandoff(snapshot)).toEqual({
+      actionType: "task.queue.start",
+      changeId: "change-1",
+      workflowGraphPlanId: "graph-1",
+      workflowRunId: "workflow-1",
+      queueRunId: "queue-1",
+    });
+    snapshot.workflow!.resume.nextRuntimeAction = "none";
+    expect(workflowResumeRequestFromHandoff(snapshot)).toBeNull();
+  });
+
+  it("delivers only unseen completed canonical turns to each provider binding", async () => {
+    const project = managedProject(root);
+    const memory = repoLocalMemory(root, project.id);
+    const store = await WorkbenchStore.open(memory);
+    const now = new Date().toISOString();
+    try {
+      store.createConversation({
+        projectId: project.id,
+        conversationId: "conversation-sync",
+        title: "Shared timeline",
+        state: "active",
+        boundChangeId: null,
+        currentGraphScopeId: "graph-sync",
+        selectedProviderId: "alpha",
+        completedTurnSequence: 2,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      });
+      store.writeConversationProviderBinding({
+        projectId: project.id,
+        conversationId: "conversation-sync",
+        providerId: "alpha",
+        nativeSessionId: "alpha-session",
+        lastDeliveredCompletedTurn: 2,
+        preferredModel: null,
+        lastUsedAt: now,
+        bindingStatus: "ready",
+      });
+      for (const [id, type, text, sequence] of [
+        ["user-1", "user.message", "第一轮问题", 1],
+        ["assistant-1", "assistant.message", "第一轮回答", 1],
+        ["user-2", "user.message", "第二轮问题", 2],
+        ["assistant-2", "assistant.message", "第二轮回答", 2],
+        ["user-3", "user.message", "仍在运行的第三轮", 3],
+      ] as const) {
+        store.appendMessage({
+          id,
+          projectId: project.id,
+          conversationId: "conversation-sync",
+          changeId: "",
+          type,
+          timestamp: now,
+          text,
+          actionRunId: null,
+          actionType: null,
+          status: null,
+          runId: null,
+          artifact: null,
+          error: null,
+          rawJson: JSON.stringify({ id, type, text, completedTurnSequence: sequence }),
+        });
+      }
+    } finally {
+      store.close();
+    }
+
+    const beta = await assembleSharedConversationContext({ project, memory, conversationId: "conversation-sync", providerId: "beta", currentUserMessage: "接管" });
+    expect(beta.snapshot.recentVisibleConversation.map((entry) => entry.text)).toEqual([
+      "第一轮问题",
+      "第一轮回答",
+      "第二轮问题",
+      "第二轮回答",
+    ]);
+    const alpha = await assembleSharedConversationContext({ project, memory, conversationId: "conversation-sync", providerId: "alpha", currentUserMessage: "继续" });
+    expect(alpha.snapshot.recentVisibleConversation).toEqual([]);
+  });
+
+  it("refuses a schema rebuild while a model attempt is active", async () => {
+    const project = managedProject(root);
+    const memory = repoLocalMemory(root, project.id);
+    await mkdir(memory.workbenchRoot, { recursive: true });
+    const db = new Database(memory.workbenchDbPath);
+    db.exec("CREATE TABLE provider_attempts (attempt_id TEXT, status TEXT); INSERT INTO provider_attempts VALUES ('attempt-1', 'running');");
+    db.pragma("user_version = 2");
+    db.close();
+
+    await expect(WorkbenchStore.open(memory)).rejects.toThrow("模型执行尚未结束");
+  });
+
+  it("refuses a schema rebuild while any registered provider turn is active", async () => {
+    const project = managedProject(root);
+    const memory = repoLocalMemory(root, project.id);
+    const registry = new ProviderRegistry();
+    const provider = fakeProvider("alpha");
+    provider.conversation.listActiveTurns = () => [{
+      providerId: "alpha",
+      attemptId: "alpha-attempt",
+      runtimeScopeId: "conversation-active",
+      roleId: "main-agent",
+      runId: "alpha-run",
+      session: { providerId: "alpha", sessionId: "alpha-session" },
+      turnId: "alpha-turn",
+      startedAt: "2026-07-15T00:00:00.000Z",
+      steer: async () => undefined,
+      interrupt: async () => undefined,
+      respondToUserInput: async () => undefined,
+    }];
+    registry.register(provider);
+    await mkdir(memory.workbenchRoot, { recursive: true });
+    const db = new Database(memory.workbenchDbPath);
+    db.exec("CREATE TABLE conversations (conversation_id TEXT, bound_change_id TEXT);");
+    db.pragma("user_version = 2");
+    db.close();
+
+    await expect(WorkbenchStore.open(memory, { providerRegistry: registry })).rejects.toThrow("provider turn 正在运行");
+  });
+
+  it("refuses a schema rebuild while a background AgentTask is running", async () => {
+    const project = managedProject(root);
+    const memory = repoLocalMemory(root, project.id);
+    await createAgentTask(memory, {
+      conversationId: "conversation-background",
+      changeId: "change-background",
+      roleId: "memory-maintenance-agent",
+      kind: "background",
+      summary: "维护项目记忆",
+      initialStatus: "running",
+    });
+    await mkdir(memory.workbenchRoot, { recursive: true });
+    const db = new Database(memory.workbenchDbPath);
+    db.exec("CREATE TABLE conversations (conversation_id TEXT, bound_change_id TEXT);");
+    db.pragma("user_version = 2");
+    db.close();
+
+    await expect(WorkbenchStore.open(memory)).rejects.toThrow("后台 Agent 任务正在运行");
+  });
+
+  it("refuses a schema rebuild while another Workbench writer owns the database", async () => {
+    const project = managedProject(root);
+    const memory = repoLocalMemory(root, project.id);
+    await mkdir(memory.workbenchRoot, { recursive: true });
+    const db = new Database(memory.workbenchDbPath);
+    db.pragma("journal_mode = WAL");
+    db.exec("CREATE TABLE conversations (conversation_id TEXT, bound_change_id TEXT);");
+    db.pragma("user_version = 2");
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      await expect(WorkbenchStore.open(memory)).rejects.toThrow("另一个 Workbench 实例正在使用");
+    } finally {
+      db.exec("ROLLBACK");
+      db.close();
+    }
+  });
+
+  it("rebuilds conversation state without deleting Skill settings", async () => {
+    const project = managedProject(root);
+    const memory = repoLocalMemory(root, project.id);
+    const now = new Date().toISOString();
+    const store = await WorkbenchStore.open(memory);
+    try {
+      store.createConversation({
+        projectId: project.id,
+        conversationId: "old-conversation",
+        title: "Old history",
+        state: "active",
+        boundChangeId: null,
+        currentGraphScopeId: null,
+        selectedProviderId: "alpha",
+        completedTurnSequence: 0,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      });
+      store.upsertSkill({
+        projectId: project.id,
+        skillId: "project-skill",
+        name: "Project Skill",
+        description: "Persisted setting",
+        sourcePath: join(root, "skills", "project-skill"),
+        sourceKind: "managed",
+        sourceHash: "source-hash",
+        metadataJson: "{}",
+        updatedAt: now,
+      });
+      store.upsertSkillRoot({ projectId: project.id, rootPath: join(root, "skills"), sourceKind: "managed", updatedAt: now });
+      store.setSkillEnablement({ projectId: project.id, changeId: null, skillId: "project-skill", scope: "project", enabled: true, updatedAt: now });
+      store.upsertBridgeSync({
+        projectId: project.id,
+        skillId: "project-skill",
+        sourceHash: "source-hash",
+        materializedPath: join(root, "provider-skills", "project-skill"),
+        materializedHash: "materialized-hash",
+        bridgeVersion: "1",
+        syncedAt: now,
+      });
+    } finally {
+      store.close();
+    }
+    const old = new Database(memory.workbenchDbPath);
+    old.pragma("user_version = 2");
+    old.close();
+
+    const rebuilt = await WorkbenchStore.open(memory);
+    try {
+      expect(rebuilt.readConversation(project.id, "old-conversation")).toBeNull();
+      expect(rebuilt.readSkill(project.id, "project-skill")).toMatchObject({ sourceHash: "source-hash" });
+      expect(rebuilt.listSkillRoots(project.id)).toEqual([expect.objectContaining({ rootPath: join(root, "skills") })]);
+      expect(rebuilt.listSkillEnablement(project.id)).toEqual([expect.objectContaining({ skillId: "project-skill", enabled: true })]);
+      expect(rebuilt.readBridgeSync(project.id, "project-skill")).toMatchObject({ materializedHash: "materialized-hash" });
+    } finally {
+      rebuilt.close();
+    }
+  });
+
+  it("prevents a file-backed AgentTask claim from racing a schema rebuild", async () => {
+    const project = managedProject(root);
+    const memory = repoLocalMemory(root, project.id);
+    const task = await createAgentTask(memory, {
+      conversationId: "conversation-race",
+      changeId: "change-race",
+      roleId: "memory-maintenance-agent",
+      kind: "background",
+      summary: "等待领取",
+    });
+    const rebuild = await acquireWorkbenchRuntimeMutationLock(memory, "重建 Workbench 会话数据库");
+    try {
+      await expect(claimAgentTask(memory, task)).rejects.toThrow("暂时不能领取 Agent 任务");
+    } finally {
+      await rebuild.release();
+    }
+    await expect(claimAgentTask(memory, task)).resolves.toMatchObject({ status: "claimed" });
+  });
+
+  it("recovers a runtime mutation lock whose owning process no longer exists", async () => {
+    const project = managedProject(root);
+    const memory = repoLocalMemory(root, project.id);
+    await mkdir(memory.workbenchRoot, { recursive: true });
+    await writeFile(join(memory.workbenchRoot, "runtime-mutation.lock"), `${JSON.stringify({
+      action: "已崩溃的数据库重建",
+      pid: 2_147_483_647,
+      createdAt: "2026-07-15T00:00:00.000Z",
+    })}\n`, "utf8");
+
+    const lock = await acquireWorkbenchRuntimeMutationLock(memory, "恢复后的状态变更");
+    await lock.release();
+  });
+});
+
+function managedProject(path: string): ManagedProject {
+  const now = new Date().toISOString();
+  return { id: "provider-contract-project", name: "Provider Contract", path, addedAt: now, lastSeenAt: now };
+}
+
+function fakeProvider(providerId: string): ProviderDescriptor {
+  const snapshot = capabilitySnapshot(providerId);
+  const turnResult = (sessionId: string): ProviderTurnResult => ({
+    providerId,
+    status: "completed",
+    session: { providerId, sessionId },
+    turnId: `${providerId}-turn`,
+    lastMessage: `${providerId} completed`,
+    childThreads: [],
+    changedFiles: [],
+  });
+  return {
+    id: providerId,
+    displayName: providerId,
+    capabilitySnapshot: async () => snapshot,
+    runtimeSummary: async () => ({ providerId, productMode: "harness", harnessExecutionModes: ["stepwise", "scoped-auto"], snapshot }),
+    models: {
+      read: async () => ({ providerId, selectedModel: null, effectiveModel: null, effectiveModelSource: "provider-default", candidates: [], available: true }),
+      select: async () => ({ providerId, selectedModel: null, effectiveModel: null, effectiveModelSource: "provider-default", candidates: [], available: true }),
+    },
+    diagnostics: async () => ({
+      providerId,
+      displayName: providerId,
+      installation: { available: true, version: "test" },
+      adapter: { id: `${providerId}-test`, version: "1" },
+      capabilities: snapshot,
+      models: await Promise.resolve({ providerId, selectedModel: null, effectiveModel: null, effectiveModelSource: "provider-default" as const, candidates: [], available: true }),
+      sessionHealth: "ready",
+      lastError: null,
+      rawEvidenceRefs: [],
+      projectActions: [],
+    }),
+    projectActions: { list: async () => [], execute: async () => { throw new Error("No test project actions."); } },
+    skillRoleBinding: {
+      status: async () => ({ state: "ready", installed: true, discoverable: true, manifestValid: true, paths: { root }, diagnostics: [] }),
+      install: async () => ({ paths: { root }, manifest: join(root, "manifest.json") }),
+      sync: async () => ({ synced: [], syncedAgents: [], status: { state: "ready", installed: true, discoverable: true, manifestValid: true, paths: { root }, diagnostics: [] } }),
+      bindCatalog: async () => [],
+    },
+    conversation: { runTurn: async (request) => turnResult(request.existingSession?.sessionId ?? `${providerId}-session`), getActiveTurn: () => null, listActiveTurns: () => [] },
+    leafExecution: { runTurn: async () => turnResult(`${providerId}-leaf-session`) },
+  };
+}
+
+function capabilitySnapshot(providerId: string): ProviderCapabilitySnapshot {
+  const keys = new Set<ProviderCapabilityKey>(Object.values(PROVIDER_OPERATION_CAPABILITIES).flat());
+  return {
+    providerId,
+    displayName: providerId,
+    productMode: "harness",
+    status: "ready",
+    runnable: true,
+    checkedAt: new Date().toISOString(),
+    snapshotHash: `${providerId}-snapshot`,
+    snapshotVersion: 1,
+    effectiveModel: null,
+    effectiveModelSource: "provider-default",
+    degradedReasons: [],
+    capabilities: [...keys].map((key) => ({ key, label: key, spec: "supported", runtime: "ready", summary: "ready" })),
+  };
+}

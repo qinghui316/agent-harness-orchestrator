@@ -1,0 +1,315 @@
+import { createHash, randomUUID } from "node:crypto";
+import { listAgentTasks } from "../agent-task/repository.js";
+import { defaultProviderRegistry } from "../provider-runtime/index.js";
+import type { ProviderRegistry } from "../provider-runtime/registry.js";
+import type { ProviderOperationProfile } from "../provider-runtime/types.js";
+import { reconcileTaskQueues } from "../task-queue/reconcile.js";
+import { isActiveTaskRunStatus } from "../task-run/guards.js";
+import { listTaskRuns, listWorkerLeases } from "../task-run/repository.js";
+import { reconcileTaskRuns } from "../task-run/reconcile.js";
+import type { ManagedProject, ResolvedMemory } from "../types/index.js";
+import type { WorkbenchWorkflowActionRequest } from "./types.js";
+import { reconcileDemandWorkersForRuntime } from "../workflow-runtime/demand-worker.js";
+import { assembleSharedConversationContext, type HandoffSnapshot } from "./shared-conversation-context.js";
+import { WorkbenchStore, type StoredConversation, type StoredProviderAttempt } from "./store.js";
+
+const ACTIVE_ATTEMPT_STATUSES = new Set(["queued", "running"]);
+const PROVIDER_STOP_TIMEOUT_MS = 30_000;
+
+export interface ProviderSwitchResult {
+  conversationId: string;
+  previousProviderId: string;
+  selectedProviderId: string;
+  graphScopeId: string | null;
+  resumePointId: string;
+  resumePointHash: string;
+  resumeAttemptId: string;
+  switchedAt: string;
+}
+
+export async function resolveProviderSwitchWorkflowResumeRequest(input: {
+  project: ManagedProject;
+  memory: ResolvedMemory;
+  conversationId: string;
+  switchResult: ProviderSwitchResult;
+}): Promise<WorkbenchWorkflowActionRequest | null> {
+  if (input.switchResult.resumePointId === "unchanged" || !input.memory.projectId) return null;
+  const current = await readSwitchState(input.memory, input.conversationId);
+  if (current.conversation.selectedProviderId !== input.switchResult.selectedProviderId) return null;
+  if (current.resumePoint?.resumePointId !== input.switchResult.resumePointId) return null;
+  const handoff = await assembleSharedConversationContext({
+    project: input.project,
+    memory: input.memory,
+    conversationId: input.conversationId,
+    providerId: input.switchResult.selectedProviderId,
+    currentUserMessage: "",
+  });
+  return workflowResumeRequestFromHandoff(handoff.snapshot);
+}
+
+export function workflowResumeRequestFromHandoff(snapshot: HandoffSnapshot): WorkbenchWorkflowActionRequest | null {
+  const workflow = snapshot.workflow;
+  if (!workflow || workflow.resume.nextRuntimeAction !== "task.queue.start") return null;
+  if (!snapshot.change?.active || !workflow.graph || !workflow.workflowRunId || !workflow.queueRunId) return null;
+  const resumableTaskRun = workflow.resume.taskRunId
+    ? workflow.taskRuns.find((taskRun) => taskRun.id === workflow.resume.taskRunId)
+    : null;
+  if (workflow.resume.taskRunId && !resumableTaskRun) {
+    throw new Error(`Workflow 恢复需要精确 TaskRun ${workflow.resume.taskRunId}，但 handoff 中缺少该证据。`);
+  }
+  if (resumableTaskRun?.status === "interrupted") {
+    if (!resumableTaskRun.worktreeId || workflow.activeWorktree?.id !== resumableTaskRun.worktreeId || !workflow.activeWorktree.diffHash) {
+      throw new Error("Workflow 已中断，但当前 worktree 或 diff 证据不完整，不能自动切换 provider 继续。");
+    }
+  }
+  return {
+    actionType: "task.queue.start",
+    changeId: snapshot.change.id,
+    workflowGraphPlanId: workflow.graph.id,
+    workflowRunId: workflow.workflowRunId,
+    queueRunId: workflow.queueRunId,
+  };
+}
+
+export async function switchConversationProviderAtSafePoint(input: {
+  project: ManagedProject;
+  memory: ResolvedMemory;
+  conversationId: string;
+  targetProviderId: string;
+  registry?: ProviderRegistry;
+}): Promise<ProviderSwitchResult> {
+  if (!input.memory.projectId) throw new Error("Project id is required to switch provider.");
+  const registry = input.registry ?? defaultProviderRegistry;
+  const initial = await readSwitchState(input.memory, input.conversationId);
+  if (initial.conversation.selectedProviderId === input.targetProviderId) {
+    const latest = initial.resumePoint;
+    return {
+      conversationId: input.conversationId,
+      previousProviderId: initial.conversation.selectedProviderId,
+      selectedProviderId: initial.conversation.selectedProviderId,
+      graphScopeId: initial.conversation.currentGraphScopeId,
+      resumePointId: latest?.resumePointId ?? "unchanged",
+      resumePointHash: latest?.snapshotHash ?? "unchanged",
+      resumeAttemptId: "unchanged",
+      switchedAt: latest?.createdAt ?? initial.conversation.updatedAt,
+    };
+  }
+
+  assertNoPendingProviderInput(initial.messages);
+  const activeTasks = (await listAgentTasks(input.memory, initial.conversation.boundChangeId ?? undefined))
+    .filter((task) => task.kind === "background" && (task.status === "claimed" || task.status === "running"));
+  if (activeTasks.length > 0) throw new Error("当前后台 Agent 任务仍在运行，完成后才能切换 provider。");
+
+  const preflightHandoff = await assembleSharedConversationContext({
+    project: input.project,
+    memory: input.memory,
+    conversationId: input.conversationId,
+    providerId: input.targetProviderId,
+    currentUserMessage: "验证目标 provider 能否接管当前 Workflow。",
+  });
+  const preflight = await registry.requireProfiles(
+    input.targetProviderId,
+    requiredProfilesForResume(preflightHandoff.snapshot),
+    input.project,
+    input.project.path,
+  );
+
+  const scopeIds = switchRuntimeScopeIds(initial.conversation, initial.attempts);
+  const activeTurns = registry.findActiveTurns(scopeIds);
+  await Promise.all(activeTurns.map((turn) => turn.interrupt("用户正在安全暂停 Workflow 并切换 Agent provider。")));
+  await waitForProviderTurnsToStop(registry, scopeIds);
+  await fenceStoppedProviderAttempts(registry, input.memory, input.conversationId, scopeIds);
+
+  if (initial.conversation.boundChangeId) {
+    await waitForWorkflowWritersToSettle(input.project, input.memory, initial.conversation.boundChangeId);
+    await reconcileDemandWorkersForRuntime(input.project);
+    await assertNoActiveWorkflowWriter(input.memory, initial.conversation.boundChangeId);
+  }
+
+  const handoff = await assembleSharedConversationContext({
+    project: input.project,
+    memory: input.memory,
+    conversationId: input.conversationId,
+    providerId: input.targetProviderId,
+    currentUserMessage: "从已安全暂停并完成对账的 Workflow 状态继续。",
+  });
+  const resumePointId = `resume-${randomUUID()}`;
+  const switchedAt = new Date().toISOString();
+  const resumeSnapshot = {
+    version: "1.0",
+    resumePointId,
+    previousProviderId: initial.conversation.selectedProviderId,
+    targetProviderId: input.targetProviderId,
+    reconciledAt: switchedAt,
+    handoff: handoff.snapshot,
+  };
+  const snapshotJson = JSON.stringify(resumeSnapshot);
+  const snapshotHash = createHash("sha256").update(snapshotJson).digest("hex");
+  const resumeAttemptId = `attempt-${resumePointId}`;
+  const postReconcile = await registry.requireProfiles(
+    input.targetProviderId,
+    requiredProfilesForResume(handoff.snapshot),
+    input.project,
+    input.project.path,
+  );
+  const capabilitySnapshot = postReconcile.snapshot.snapshotHash === preflight.snapshot.snapshotHash
+    ? preflight.snapshot
+    : postReconcile.snapshot;
+
+  const store = await WorkbenchStore.open(input.memory);
+  try {
+    const point = {
+      projectId: input.memory.projectId,
+      conversationId: input.conversationId,
+      resumePointId,
+      graphScopeId: initial.conversation.currentGraphScopeId,
+      changeId: initial.conversation.boundChangeId,
+      previousProviderId: initial.conversation.selectedProviderId,
+      targetProviderId: input.targetProviderId,
+      snapshotJson,
+      snapshotHash,
+      createdAt: switchedAt,
+    };
+    const existingBinding = store.readConversationProviderBinding(input.memory.projectId, input.conversationId, input.targetProviderId);
+    store.commitConversationProviderSwitch(point, existingBinding ?? {
+      projectId: input.memory.projectId,
+      conversationId: input.conversationId,
+      providerId: input.targetProviderId,
+      nativeSessionId: null,
+      lastDeliveredCompletedTurn: 0,
+      preferredModel: null,
+      lastUsedAt: null,
+      bindingStatus: "ready",
+    }, initial.conversation.selectedProviderId, {
+      projectId: input.memory.projectId,
+      conversationId: input.conversationId,
+      attemptId: resumeAttemptId,
+      graphScopeId: initial.conversation.currentGraphScopeId,
+      changeId: initial.conversation.boundChangeId,
+      agentTaskId: null,
+      roleId: "main-agent",
+      operationProfile: "main",
+      providerId: input.targetProviderId,
+      nativeSessionId: existingBinding?.nativeSessionId ?? null,
+      model: capabilitySnapshot.effectiveModel ? { providerId: input.targetProviderId, modelId: capabilitySnapshot.effectiveModel } : null,
+      capabilitySnapshot,
+      handoffHash: snapshotHash,
+      deliveredThroughCompletedTurn: initial.conversation.completedTurnSequence,
+      worktreeId: null,
+      status: "queued",
+      createdAt: switchedAt,
+      updatedAt: switchedAt,
+    });
+  } finally {
+    store.close();
+  }
+  return {
+    conversationId: input.conversationId,
+    previousProviderId: initial.conversation.selectedProviderId,
+    selectedProviderId: input.targetProviderId,
+    graphScopeId: initial.conversation.currentGraphScopeId,
+    resumePointId,
+    resumePointHash: snapshotHash,
+    resumeAttemptId,
+    switchedAt,
+  };
+}
+
+export function requiredProfilesForResume(snapshot: HandoffSnapshot): ProviderOperationProfile[] {
+  const profiles = new Set<ProviderOperationProfile>(["main"]);
+  if (snapshot.workflow?.resume.nextRuntimeAction === "task.queue.start") {
+    profiles.add("coder");
+    profiles.add("auditor");
+  }
+  return [...profiles];
+}
+
+async function waitForWorkflowWritersToSettle(project: ManagedProject, memory: ResolvedMemory, changeId: string): Promise<void> {
+  const deadline = Date.now() + PROVIDER_STOP_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    await reconcileTaskRuns(project, { changeId });
+    await reconcileTaskQueues(project, { changeId });
+    const [taskRuns, leases] = await Promise.all([listTaskRuns(memory, changeId), listWorkerLeases(memory, changeId)]);
+    if (!taskRuns.some((run) => isActiveTaskRunStatus(run.status)) && !leases.some((lease) => lease.status === "claimed")) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error("Workflow 模型任务未能在限定时间内停止并释放写入租约，未执行 provider 切换。");
+}
+
+async function readSwitchState(memory: ResolvedMemory, conversationId: string): Promise<{
+  conversation: StoredConversation;
+  attempts: StoredProviderAttempt[];
+  messages: Array<{ rawJson: string }>;
+  resumePoint: ReturnType<WorkbenchStore["readLatestProviderResumePoint"]>;
+}> {
+  if (!memory.projectId) throw new Error("Project id is required to read provider switch state.");
+  const store = await WorkbenchStore.open(memory);
+  try {
+    const conversation = store.readConversation(memory.projectId, conversationId);
+    if (!conversation) throw new Error(`Conversation not found: ${conversationId}.`);
+    return {
+      conversation,
+      attempts: store.listProviderAttempts(memory.projectId, conversationId),
+      messages: store.listConversationMessages(memory.projectId, conversationId),
+      resumePoint: store.readLatestProviderResumePoint(memory.projectId, conversationId),
+    };
+  } finally {
+    store.close();
+  }
+}
+
+function assertNoPendingProviderInput(messages: Array<{ rawJson: string }>): void {
+  const pending = messages.some((message) => {
+    try {
+      const raw = JSON.parse(message.rawJson) as { providerUserInput?: { status?: string } };
+      return raw.providerUserInput?.status === "pending" || raw.providerUserInput?.status === "submitting";
+    } catch {
+      return false;
+    }
+  });
+  if (pending) throw new Error("当前 Agent 正在等待你的回答，完成回答后才能切换 provider。");
+}
+
+function switchRuntimeScopeIds(conversation: StoredConversation, attempts: StoredProviderAttempt[]): Set<string> {
+  return new Set([
+    conversation.conversationId,
+    ...(conversation.currentGraphScopeId ? [conversation.currentGraphScopeId] : []),
+    ...(conversation.boundChangeId ? [conversation.boundChangeId] : []),
+    ...attempts.filter((attempt) => ACTIVE_ATTEMPT_STATUSES.has(attempt.status)).flatMap((attempt) => [attempt.attemptId]),
+  ]);
+}
+
+async function waitForProviderTurnsToStop(registry: ProviderRegistry, scopeIds: Set<string>): Promise<void> {
+  const deadline = Date.now() + PROVIDER_STOP_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const activeTurns = registry.findActiveTurns(scopeIds);
+    if (activeTurns.length === 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error("Agent provider 未能在限定时间内停止并完成对账，未执行 provider 切换。");
+}
+
+async function fenceStoppedProviderAttempts(registry: ProviderRegistry, memory: ResolvedMemory, conversationId: string, scopeIds: Set<string>): Promise<void> {
+  if (!memory.projectId) throw new Error("Project id is required to fence provider attempts.");
+  if (registry.findActiveTurns(scopeIds).length > 0) {
+    throw new Error("Agent provider turn 仍在运行，不能 fencing 旧 attempt。");
+  }
+  const store = await WorkbenchStore.open(memory);
+  try {
+    for (const attempt of store.listProviderAttempts(memory.projectId, conversationId)) {
+      if (!ACTIVE_ATTEMPT_STATUSES.has(attempt.status)) continue;
+      store.completeProviderAttempt(memory.projectId, attempt.attemptId, "interrupted", attempt.nativeSessionId, new Date().toISOString());
+    }
+  } finally {
+    store.close();
+  }
+}
+
+async function assertNoActiveWorkflowWriter(memory: ResolvedMemory, changeId: string): Promise<void> {
+  const [taskRuns, leases] = await Promise.all([listTaskRuns(memory, changeId), listWorkerLeases(memory, changeId)]);
+  const activeRuns = taskRuns.filter((run) => isActiveTaskRunStatus(run.status));
+  const activeLeases = leases.filter((lease) => lease.status === "claimed");
+  if (activeRuns.length > 0 || activeLeases.length > 0) {
+    throw new Error("Workflow writer 或工作租约尚未完成 fencing，对账完成前不能切换 provider。");
+  }
+}

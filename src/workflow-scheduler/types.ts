@@ -11,7 +11,7 @@ export type SchedulerMode = "parallel-readiness-v1";
 export type SchedulerWorkerStageStatus = "planned" | "blocked";
 export type SchedulerClaimIntentStatus = "planned" | "blocked";
 export type SchedulerWorkerWorkspaceKind = "future-local-worktree";
-export type SchedulerWorkerAdapterFamily = "codex-code" | "validation-command" | "audit-codex-readonly";
+export type SchedulerWorkerAdapterFamily = "provider-code" | "validation-command" | "provider-readonly";
 export type SchedulerWorkerRecoveryKeyCoverage = "complete" | "partial";
 
 export interface SchedulerContractNode {

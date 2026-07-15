@@ -1,15 +1,15 @@
-import { z } from "zod";
+﻿import { z } from "zod";
 
 export const runMetadataSchema = z.object({
   version: z.literal("1.0"),
   id: z.string(),
   changeId: z.string(),
   projectPath: z.string(),
-  runtime: z.enum(["local-command", "codex-readonly", "validator", "auditor", "coder-codex", "worktree-apply", "worktree-discard", "spec-test-proposer", "spec-test-generator", "spec-agent", "planner", "orchestrator", "agent-codex", "intake-scan"]),
+  runtime: z.enum(["local-command", "provider-readonly", "validator", "auditor", "provider-code", "worktree-apply", "worktree-discard", "spec-test-proposer", "spec-test-generator", "spec-agent", "planner", "orchestrator", "provider-agent", "intake-scan"]),
   executionMode: z.enum(["direct", "worktree"]).optional(),
   proposalOnly: z.boolean().optional(),
   command: z.array(z.string()),
-  status: z.enum(["created", "running", "completed", "failed"]),
+  status: z.enum(["created", "running", "interrupted", "completed", "failed"]),
   exitCode: z.number().nullable(),
   signal: z.string().nullable(),
   startedAt: z.string(),
@@ -23,7 +23,7 @@ export const runMetadataSchema = z.object({
     stdout: z.string(),
     stderr: z.string(),
     prompt: z.string().optional(),
-    codexEvents: z.string().optional(),
+    providerEvents: z.string().optional(),
     lastMessage: z.string().optional(),
     implementation: z.string().optional(),
     worktree: z.string().optional(),
@@ -56,11 +56,12 @@ export const runMetadataSchema = z.object({
   }).optional(),
   taskIds: z.array(z.string()).optional(),
   taskRunId: z.string().optional(),
+  worktreeDiffHash: z.string().optional(),
   promptStack: z.array(z.string()).optional(),
   enabledSkills: z.array(z.object({
     id: z.string(),
-    runtimeTarget: z.literal("codex").optional(),
-    sourceKind: z.enum(["managed", "project-codex", "global-codex", "custom", "system-aho"]).optional(),
+    providerId: z.string().optional(),
+    sourceKind: z.enum(["managed", "custom", "system-aho", "provider-native"]).optional(),
     sourceHash: z.string(),
     materializationMode: z.enum(["native", "aho-managed"]).optional(),
     materializedHash: z.string().nullable().optional(),

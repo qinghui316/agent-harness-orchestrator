@@ -81,7 +81,7 @@ export function ProjectConversationSidebar({
     onProjectMenuMode("closed");
   }
   return (
-    <div className="codex-sidebar">
+    <div className="project-conversation-sidebar">
       <nav className="global-nav" aria-label="全局入口">
         <label className="sidebar-search">
           <Search size={15} />
