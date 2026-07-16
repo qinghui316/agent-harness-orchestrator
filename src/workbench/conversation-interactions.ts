@@ -2,10 +2,11 @@ import { createHash } from "node:crypto";
 import type { ResolvedMemory } from "../types/index.js";
 import { agentThreadSurfaceId } from "../provider-runtime/agent-surface-id.js";
 import { readPlannerChildProposal, type PlannerChildProposal } from "./planning/planner-child-proposal.js";
+import { canonicalPlanDocumentFromEntry, canonicalPlanDocumentText } from "./plan-documents.js";
 import { fromStoredThreadMessage } from "./conversation-thread-log.js";
 import { WorkbenchStore } from "./store.js";
 import type { ClarificationRequest } from "./intake.js";
-import type { TopicThreadEntry, WorkbenchProviderUserInputRequest } from "./types.js";
+import type { CanonicalPlanDocument, TopicThreadEntry, WorkbenchProviderUserInputRequest } from "./types.js";
 import type {
   ConversationInteraction,
   ConversationInteractionQuestion,
@@ -15,7 +16,7 @@ import type {
 export type ResolvedConversationInteraction =
   | { kind: "provider-input"; public: ConversationInteraction & { kind: "provider-input" }; source: { entry: TopicThreadEntry; request: WorkbenchProviderUserInputRequest } }
   | { kind: "clarification"; public: ConversationInteraction & { kind: "clarification" }; source: { entry: TopicThreadEntry; clarification: ClarificationRequest } }
-  | { kind: "plan"; public: ConversationInteraction & { kind: "plan" }; source: { entry: TopicThreadEntry; proposal: PlannerChildProposal } };
+  | { kind: "plan"; public: ConversationInteraction & { kind: "plan" }; source: { entry: TopicThreadEntry; proposal: PlannerChildProposal; document: CanonicalPlanDocument } };
 
 const TERMINAL_PLAN_STATUSES = new Set(["accepted", "revision-requested", "skipped", "superseded", "planner-proposal-invalid"]);
 
@@ -84,6 +85,9 @@ async function resolveConversationInteractions(
     const clarification = clarificationOf(entry);
     if (clarification) latestClarification.set(clarification.id, entry);
   }
+  const latestPlanEntry = [...currentEntries].reverse().find((entry) => (
+    entry.agentRoleId === "planning-agent" && canonicalPlanDocumentFromEntry(entry)
+  ));
   const interactions: ResolvedConversationInteraction[] = [];
   for (const entry of currentEntries) {
     if (entry.providerUserInput
@@ -132,13 +136,22 @@ async function resolveConversationInteractions(
       });
       continue;
     }
-    if (entry.agentRoleId !== "planning-agent" || !entry.artifact || TERMINAL_PLAN_STATUSES.has(entry.status ?? "")) continue;
-    const proposal = await readPlannerChildProposal(entry.artifact).catch(() => null);
-    if (!proposal || proposal.conversationId !== conversationId || proposal.runId !== entry.runId || proposal.status !== "proposed" || proposal.openQuestions.length > 0) continue;
+    const document = canonicalPlanDocumentFromEntry(entry);
+    if (!document || entry.id !== latestPlanEntry?.id || entry.agentRoleId !== "planning-agent" || TERMINAL_PLAN_STATUSES.has(entry.status ?? "")) continue;
+    const proposal = await readPlannerChildProposal(document.proposalArtifact).catch(() => null);
+    if (!proposal
+      || proposal.conversationId !== conversationId
+      || proposal.runId !== entry.runId
+      || proposal.id !== document.proposalId
+      || proposal.hash !== document.proposalHash
+      || proposal.artifact !== document.proposalArtifact
+      || proposal.status !== "proposed"
+      || proposal.openQuestions.length > 0
+      || !canonicalPlanDocumentText(entry, document)) continue;
     interactions.push({
       kind: "plan",
       public: {
-        interactionId: interactionId("plan", conversationId, graphScopeId, entry.id, proposal.hash),
+        interactionId: interactionId("plan", conversationId, graphScopeId, document.documentId, proposal.hash),
         conversationId,
         graphScopeId,
         canonicalSequence: entry.position ?? 0,
@@ -154,7 +167,7 @@ async function resolveConversationInteractions(
         }],
         canSkip: true,
       },
-      source: { entry, proposal },
+      source: { entry, proposal, document },
     });
   }
   return interactions.sort((left, right) => left.public.canonicalSequence - right.public.canonicalSequence || left.public.interactionId.localeCompare(right.public.interactionId));

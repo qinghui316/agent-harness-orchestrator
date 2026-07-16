@@ -177,7 +177,20 @@ function isCodexProtocolNoise(event: CodexAppServerRealtimeEvent): boolean {
 }
 
 function mapChild(child: import("../codex/app-server.js").CodexAppServerChildThreadResult): ProviderChildThreadResult {
-  return { ...child, providerId: CODEX_PROVIDER_ID };
+  return {
+    providerId: CODEX_PROVIDER_ID,
+    ...(child.itemId ? { spawnItemId: child.itemId } : {}),
+    tool: child.tool,
+    parentThreadId: child.parentThreadId,
+    threadId: child.threadId,
+    status: child.status,
+    initialInput: child.initialUserItem,
+    model: child.model,
+    reasoningEffort: child.reasoningEffort,
+    displayName: child.displayName,
+    finalText: child.finalText,
+    changedFiles: child.changedFiles,
+  };
 }
 
 function mapUserInput(request: ProviderTurnRequest, input: import("../codex/app-server.js").CodexAppServerUserInputRequest): ProviderUserInputRequest {

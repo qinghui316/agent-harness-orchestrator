@@ -40,6 +40,7 @@ export interface TopicThreadEntry {
   itemId?: string;
   agentRoleId?: string;
   agentTaskId?: string;
+  initialThreadInput?: boolean;
   artifact?: string;
   error?: string;
   resultSummary?: string;
@@ -54,6 +55,29 @@ export interface TopicThreadEntry {
   contextRefs?: TopicFileReference[];
   attachments?: TopicAttachment[];
   planHandoff?: ValidatedPlanHandoffIntent;
+  document?: CanonicalPlanDocument;
+}
+
+export interface CanonicalPlanDocument {
+  documentId: string;
+  documentKind: "plan";
+  title: string;
+  sourceMessageId: string;
+  sourceCanonicalItemId: string;
+  proposalId: string;
+  proposalHash: string;
+  proposalArtifact: string;
+  contentHash: string;
+  agentSurfaceId: string;
+}
+
+export interface CanonicalDocumentReference {
+  documentId: string;
+  documentKind: "plan";
+  title: string;
+  sourceMessageId: string;
+  sourceCanonicalItemId: string;
+  proposalHash: string;
 }
 
 export interface TopicFileReference {
@@ -119,6 +143,8 @@ export interface AssistantTurnBlock {
   targetAgentSurfaceId?: string;
   targetAgentDisplayName?: string;
   children?: AssistantTurnBlock[];
+  document?: CanonicalPlanDocument;
+  documentRef?: CanonicalDocumentReference;
 }
 
 export type AssistantTurnActivity =
@@ -271,6 +297,9 @@ export interface PlanHandoffIntent {
   sourceRunId: string;
   sourceAgentRoleId: PlanHandoffAgentRoleId;
   sourceArtifact?: string;
+  sourceDocumentId?: string;
+  sourceCanonicalItemId?: string;
+  sourceProposalHash?: string;
   kind: PlanHandoffIntentKind;
   executionMode?: HarnessExecutionMode;
   feedback?: string;
@@ -279,6 +308,9 @@ export interface PlanHandoffIntent {
 export interface ValidatedPlanHandoffIntent extends PlanHandoffIntent {
   planText: string;
   sourceArtifact: string;
+  sourceDocumentId: string;
+  sourceCanonicalItemId: string;
+  sourceProposalHash: string;
 }
 
 export interface WorkbenchWorkflowActionRequest {

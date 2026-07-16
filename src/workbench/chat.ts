@@ -28,6 +28,7 @@ import { dispatchWorkbenchWorkflowAction } from "./actions/dispatcher.js";
 import { buildWorkbenchActionHandlers } from "./actions/handlers/index.js";
 import { recordWorkbenchDecision } from "./decisions.js";
 import { validatePlanHandoffIntent } from "./plan-handoff.js";
+import { attachCanonicalPlanDocument, canonicalPlanDocumentReference } from "./plan-documents.js";
 import { resolveTopicAttachments } from "./attachments.js";
 import { resolveTopicFileReferences } from "./file-references.js";
 import { childTranscriptCapturesForThread, createAssistantTranscriptCapture, type AssistantTranscriptCapture, type ChildTranscriptCapture, type MainTranscriptCapture } from "./live-transcript.js";
@@ -364,6 +365,8 @@ async function runProjectScopedMainAgentTurn(
   } : undefined;
   await writeFile(join(directory, "prompt.md"), prompt, "utf8");
   let acceptedPlanMarker: TopicThreadEntry | null = null;
+  let terminalCanonicalPatches: CanonicalTimelinePatch[] = [];
+  let planDocumentCreated = false;
   let acceptedPlanning: Awaited<ReturnType<typeof acceptCurrentConversationPlanningPackage>> | null = null;
   const sessionStore = await WorkbenchStore.open(memory);
   try {
@@ -455,44 +458,46 @@ async function runProjectScopedMainAgentTurn(
   canonicalStore = await WorkbenchStore.open(memory);
   const liveChildAttemptIds = new Set<string>();
   const liveChildThreadIds = new Set<string>();
-  const registerLiveChildAttempt = (event: import("../provider-runtime/index.js").ProviderRealtimeEvent): void => {
-    if (!canonicalStore) return;
-    const isChildEvent = event.roleId !== "main-agent" && Boolean(event.parentThreadId);
-    const childThreadId = isChildEvent ? event.threadId : event.targetThreadId;
-    const parentThreadId = isChildEvent ? event.parentThreadId : event.threadId;
-    if (!childThreadId || !parentThreadId) return;
-    if (liveChildThreadIds.has(childThreadId)) return;
+  const registerLiveChildThread = (childThreadId: string, parentThreadId: string, childRoleId: string, displayName?: string): void => {
+    if (!canonicalStore || !childThreadId || !parentThreadId || liveChildThreadIds.has(childThreadId)) return;
     const childAttemptId = providerChildAttemptId(attemptId, childThreadId);
-    const childRoleId = isChildEvent ? event.roleId : "child-agent";
     const childProfile = providerOperationProfileForChildRole(childRoleId);
     canonicalStore.createProviderAttempt({
-        projectId: memory.projectId!,
-        conversationId,
-        attemptId: childAttemptId,
-        graphScopeId,
-        changeId: boundChangeId,
-        agentTaskId: null,
-        roleId: childRoleId,
-        operationProfile: childProfile,
-        providerId: providerId!,
-        nativeSessionId: childThreadId,
-        model: capabilitySnapshot.effectiveModel ? { providerId: providerId!, modelId: capabilitySnapshot.effectiveModel } : null,
-        capabilitySnapshot,
-        handoffHash: createHash("sha256").update(JSON.stringify({ parentHandoffHash: handoff.hash, parentAttemptId: attemptId, parentThreadId, childThreadId, roleId: childRoleId })).digest("hex"),
-        deliveredThroughCompletedTurn: completedTurnSequence,
-        worktreeId: null,
-        status: "running",
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      });
+      projectId: memory.projectId!,
+      conversationId,
+      attemptId: childAttemptId,
+      graphScopeId,
+      changeId: boundChangeId,
+      agentTaskId: null,
+      roleId: childRoleId,
+      operationProfile: childProfile,
+      providerId: providerId!,
+      nativeSessionId: childThreadId,
+      model: capabilitySnapshot.effectiveModel ? { providerId: providerId!, modelId: capabilitySnapshot.effectiveModel } : null,
+      capabilitySnapshot,
+      handoffHash: createHash("sha256").update(JSON.stringify({ parentHandoffHash: handoff.hash, parentAttemptId: attemptId, parentThreadId, childThreadId, roleId: childRoleId })).digest("hex"),
+      deliveredThroughCompletedTurn: completedTurnSequence,
+      worktreeId: null,
+      status: "running",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
     liveChildAttemptIds.add(childAttemptId);
     canonicalStore.bindProviderAttemptThread(memory.projectId!, {
       attemptId: childAttemptId,
       threadId: childThreadId,
       parentThreadId,
-      displayName: isChildEvent ? event.displayName : undefined,
+      displayName,
     }, new Date().toISOString());
     liveChildThreadIds.add(childThreadId);
+  };
+  const registerLiveChildAttempt = (event: import("../provider-runtime/index.js").ProviderRealtimeEvent): void => {
+    const isChildEvent = event.roleId !== "main-agent" && Boolean(event.parentThreadId);
+    const childThreadId = isChildEvent ? event.threadId : event.targetThreadId;
+    const parentThreadId = isChildEvent ? event.parentThreadId : event.threadId;
+    if (!childThreadId || !parentThreadId) return;
+    const childRoleId = isChildEvent ? event.roleId : "child-agent";
+    registerLiveChildThread(childThreadId, parentThreadId, childRoleId, isChildEvent ? event.displayName : undefined);
   };
   persistCanonicalCapture({
     store: canonicalStore,
@@ -566,7 +571,7 @@ async function runProjectScopedMainAgentTurn(
           acceptedStore.close();
         }
         acceptedPlanMarker = {
-          ...projectScopedPlanningMessage(conversationId, graphScopeId, runId, `Accepted proposal ${accepted.proposalId}.`, PROJECT_PLANNING_AGENT_ROLE_ID, undefined, acceptedProposal.childThreadId, providerId!),
+          ...projectScopedPlanningStatusMessage(conversationId, graphScopeId, runId, `Accepted proposal ${accepted.proposalId}.`, acceptedProposal.childThreadId, providerId!),
           status: "accepted",
         };
         if (accepted.workflowGraphPlan.graphMode === "ready-set-v1") {
@@ -637,7 +642,32 @@ async function runProjectScopedMainAgentTurn(
     },
     onRealtimeEvent: (event) => {
       registerLiveChildAttempt(event);
-      forwardProviderRealtimeEvent(event, capture.sink, { graphScopeId });
+      const canonicalEvent = event.roleId !== "main-agent" && event.parentThreadId
+        ? { ...event, attemptId: providerChildAttemptId(attemptId, event.threadId) }
+        : event;
+      forwardProviderRealtimeEvent(canonicalEvent, capture.sink, { graphScopeId });
+    },
+    onChildThreadResult: (child) => {
+      const initial = child.initialInput;
+      if (!initial || !canonicalStore) return;
+      registerLiveChildThread(child.threadId, child.parentThreadId, "child-agent", child.displayName);
+      const childAttemptId = providerChildAttemptId(attemptId, child.threadId);
+      const entry = projectScopedChildInputMessage({
+        conversationId,
+        graphScopeId,
+        runId,
+        providerId: providerId!,
+        attemptId: childAttemptId,
+        roleId: "child-agent",
+        threadId: child.threadId,
+        parentThreadId: child.parentThreadId,
+        turnId: initial.turnId,
+        itemId: initial.itemId,
+        text: initial.text,
+      });
+      const storedEntry = toConversationStoredMessage(memory.projectId!, conversationId, entry);
+      upsertCanonicalMessage(canonicalStore, canonicalMessageIds, storedEntry);
+      capture.sink.emit({ event: "timeline.patch", data: canonicalTimelinePatchForEntry(entry, "thread-start") });
     },
     onUserInputRequest: (request) => {
       const requestKey = providerUserInputRequestKey(runId, request);
@@ -809,8 +839,8 @@ async function runProjectScopedMainAgentTurn(
     activity: capture.activity,
     blocks: capture.blocks,
   } : null;
-  const planMessages: TopicThreadEntry[] = [];
-  let planReadyMarker: TopicThreadEntry | null = null;
+  let latestChildMessage: TopicThreadEntry | null = null;
+  let planReferenceMarker: TopicThreadEntry | null = null;
   if (!canonicalStore) throw new Error("Canonical conversation store closed before turn completion.");
   const store = canonicalStore;
   const completedChildAttemptIds = new Set<string>();
@@ -901,12 +931,11 @@ async function runProjectScopedMainAgentTurn(
           childProcessMessage.sessionId = child.threadId;
           childProcessMessage.attemptId = isPlannerChild ? providerChildAttemptId(attemptId, child.threadId) : attemptId;
           childProcessMessage.status = childCaptureTimelineStatus(childCapture);
-          planMessages.push(childProcessMessage);
+          latestChildMessage = childProcessMessage;
           upsertCanonicalMessage(store, canonicalMessageIds, toConversationStoredMessage(memory.projectId, conversationId, childProcessMessage, completedTurnSequence + 1));
         }
       }
       if (!isPlannerChild) continue;
-      let message: TopicThreadEntry;
       try {
         const proposal = await writePlannerChildProposal({
           directory,
@@ -916,18 +945,17 @@ async function runProjectScopedMainAgentTurn(
           parentThreadId: child.parentThreadId,
           childThreadId: child.threadId,
         });
-        message = projectScopedPlanningMessage(
-          conversationId,
-          graphScopeId,
-          runId,
-          `${proposal.planMd.trim()}\n\nProposal hash: ${proposal.hash}\nLineage: ${proposal.parentThreadId} -> ${proposal.childThreadId}`,
-          PROJECT_PLANNING_AGENT_ROLE_ID,
-          proposal.artifact,
-          child.threadId,
-          providerId!,
-        );
-        const planReadyBlock: AssistantTurnBlock = {
-          id: `plan-ready:${providerId}:${proposal.id}`,
+        const childAttemptId = providerChildAttemptId(attemptId, child.threadId);
+        const document = attachCanonicalPlanDocument({
+          captures: terminalChildCaptures,
+          proposal,
+          providerId: providerId!,
+          attemptId: childAttemptId,
+          sourceMessageIdForCapture: (sourceCapture) => childProcessMessageId(conversationId, providerId!, runId, sourceCapture),
+        });
+        planDocumentCreated = true;
+        const planReferenceBlock: AssistantTurnBlock = {
+          id: `document-reference:${document.documentId}`,
           providerId,
           attemptId,
           runId,
@@ -938,51 +966,37 @@ async function runProjectScopedMainAgentTurn(
           timestamp: new Date().toISOString(),
           source: "aho",
           status: "completed",
-          title: "计划已准备",
-          text: "Plan Agent 已完成可确认的实现计划。",
-          artifactRef: proposal.artifact,
-          targetAgentSurfaceId: agentThreadSurfaceId(providerId, child.threadId),
+          title: document.title,
+          text: document.title,
+          documentRef: canonicalPlanDocumentReference(document),
         };
-        if (assistant) {
-          assistant.blocks = [...(assistant.blocks ?? []), planReadyBlock];
-          if (!assistant.text) assistant.text = "Plan Agent 已完成可确认的实现计划。";
+        const latestMainCapture = [...capture.mainCaptures.values()].at(-1);
+        if (latestMainCapture) {
+          latestMainCapture.blocks.push(planReferenceBlock);
+        } else if (assistant) {
+          assistant.blocks = [...(assistant.blocks ?? []), planReferenceBlock];
           assistant.threadId ??= result.session?.sessionId;
           assistant.turnId ??= result.turnId ?? undefined;
-          const latestMainCapture = [...capture.mainCaptures.values()].at(-1);
-          if (latestMainCapture) {
-            latestMainCapture.blocks.push(planReadyBlock);
-            if (!latestMainCapture.text) latestMainCapture.text = "Plan Agent 已完成可确认的实现计划。";
-          }
         } else {
-          planReadyMarker = {
-            id: `assistant:${conversationId}:${providerId}:${runId}:plan-ready:${proposal.id}`,
+          planReferenceMarker = {
+            id: `assistant:${conversationId}:${providerId}:${runId}:document-reference:${document.documentId}`,
             type: "assistant.message",
-            timestamp: planReadyBlock.timestamp,
+            timestamp: planReferenceBlock.timestamp,
             conversationId,
             graphScopeId,
             changeId: "",
-            text: "Plan Agent 已完成可确认的实现计划。",
             runId,
             providerId,
             threadId: result.session?.sessionId,
             turnId: result.turnId ?? undefined,
-            blocks: [planReadyBlock],
+            blocks: [planReferenceBlock],
           };
         }
       } catch (cause) {
-        message = {
-          ...projectScopedPlanningMessage(conversationId, graphScopeId, runId, child.finalText || "Plan child did not return a valid proposal.", PROJECT_PLANNING_AGENT_ROLE_ID, undefined, child.threadId, providerId!),
-          status: "planner-proposal-invalid",
-        };
         capture.sink.emit({ event: "error", data: { runId, message: cause instanceof Error ? cause.message : String(cause) } });
       }
-      planMessages.push(message);
-      message.providerId = providerId;
-      message.sessionId = child.threadId;
-      message.attemptId = providerChildAttemptId(attemptId, child.threadId);
-      upsertCanonicalMessage(store, canonicalMessageIds, toConversationStoredMessage(memory.projectId, conversationId, message, completedTurnSequence + 1));
     }
-    persistCanonicalCapture({
+    terminalCanonicalPatches = persistCanonicalCapture({
       store,
       messageIds: canonicalMessageIds,
       projectId: memory.projectId,
@@ -996,7 +1010,7 @@ async function runProjectScopedMainAgentTurn(
       snapshot: capture,
     });
     if (acceptedPlanMarker) upsertCanonicalMessage(store, canonicalMessageIds, toConversationStoredMessage(memory.projectId, conversationId, acceptedPlanMarker, completedTurnSequence + 1));
-    if (planReadyMarker) upsertCanonicalMessage(store, canonicalMessageIds, toConversationStoredMessage(memory.projectId, conversationId, planReadyMarker, completedTurnSequence + 1));
+    if (planReferenceMarker) upsertCanonicalMessage(store, canonicalMessageIds, toConversationStoredMessage(memory.projectId, conversationId, planReferenceMarker, completedTurnSequence + 1));
     if (assistant && capture.mainCaptures.size === 0) {
       upsertCanonicalMessage(store, canonicalMessageIds, toConversationStoredMessage(memory.projectId, conversationId, assistant, completedTurnSequence + 1));
     }
@@ -1046,12 +1060,15 @@ async function runProjectScopedMainAgentTurn(
     store.close();
     canonicalStore = null;
   }
-  for (const planMessage of planMessages) live?.emit({ event: "timeline.patch", data: canonicalTimelinePatchForEntry(planMessage) });
+  for (const patch of terminalCanonicalPatches) live?.emit({ event: "timeline.patch", data: patch });
   for (const interactionEntry of terminalInteractionEntries) live?.emit({ event: "timeline.patch", data: canonicalTimelinePatchForEntry(interactionEntry) });
   if (terminalInteractionEntries.length > 0) {
     capture.sink.emit({ event: "conversation.interactions.updated", data: await buildConversationInteractionQueue(memory, conversationId, graphScopeId) });
   }
-  if (planReadyMarker) live?.emit({ event: "timeline.patch", data: canonicalTimelinePatchForEntry(planReadyMarker) });
+  if (planDocumentCreated) {
+    live?.emit({ event: "conversation.interactions.updated", data: await buildConversationInteractionQueue(memory, conversationId, graphScopeId) });
+  }
+  if (planReferenceMarker) live?.emit({ event: "timeline.patch", data: canonicalTimelinePatchForEntry(planReferenceMarker) });
   if (assistant && capture.mainCaptures.size === 0) live?.emit({ event: "timeline.patch", data: canonicalTimelinePatchForEntry(assistant) });
   if (postRunInvariantError) throw postRunInvariantError;
   const autoAcceptedPlanning = acceptedPlanning as Awaited<ReturnType<typeof acceptCurrentConversationPlanningPackage>> | null;
@@ -1072,7 +1089,7 @@ async function runProjectScopedMainAgentTurn(
       terminalStore.close();
     }
   }
-  return assistant ?? planReadyMarker ?? planMessages.at(-1) ?? {
+  return assistant ?? planReferenceMarker ?? latestChildMessage ?? {
     id: `assistant:${conversationId}:${runId}:empty`,
     type: "assistant.message",
     timestamp: new Date().toISOString(),
@@ -1085,33 +1102,31 @@ async function runProjectScopedMainAgentTurn(
   };
 }
 
-function projectScopedPlanningMessage(conversationId: string, graphScopeId: string, runId: string, planText: string, roleId = PROJECT_PLANNING_AGENT_ROLE_ID, artifact?: string, childThreadId = "child", providerId?: string): TopicThreadEntry {
+function projectScopedPlanningStatusMessage(conversationId: string, graphScopeId: string, runId: string, text: string, childThreadId: string, providerId: string): TopicThreadEntry {
   const timestamp = new Date().toISOString();
   const block: AssistantTurnBlock = {
-    id: `native-plan:${runId}`,
+    id: `planning-status:${providerId}:${runId}:${childThreadId}`,
     runId,
     sequence: 1,
-    kind: artifact ? "tool-result" : "status",
+    kind: "status",
     timestamp,
     source: "aho",
     status: "completed",
-    title: artifact ? "计划已准备" : "Plan proposal",
-    text: planText.trim(),
-    artifactRef: artifact,
+    title: "计划状态",
+    text: text.trim(),
   };
   return {
-    id: `assistant:${conversationId}:${providerId ?? "provider"}:${runId}:planning-agent:${childThreadId}`,
+    id: `assistant:${conversationId}:${providerId}:${runId}:planning-status:${childThreadId}`,
     type: "assistant.message",
     timestamp,
     conversationId,
     graphScopeId,
     changeId: "",
-    text: planText.trim(),
+    text: text.trim(),
     runId,
     providerId,
     threadId: childThreadId,
-    agentRoleId: roleId,
-    artifact,
+    agentRoleId: PROJECT_PLANNING_AGENT_ROLE_ID,
     blocks: [block],
   };
 }
@@ -1168,6 +1183,7 @@ interface CanonicalTimelinePatch {
   threadId?: string;
   parentThreadId?: string;
   status?: string;
+  placement?: "thread-start";
   cells: ParentAgentTranscriptCell[];
 }
 
@@ -1268,7 +1284,7 @@ function persistCanonicalCapture(input: {
   return patches;
 }
 
-function canonicalTimelinePatchForEntry(entry: TopicThreadEntry): CanonicalTimelinePatch {
+function canonicalTimelinePatchForEntry(entry: TopicThreadEntry, placement?: "thread-start"): CanonicalTimelinePatch {
   const child = Boolean(entry.agentRoleId && entry.agentRoleId !== "main-agent" && entry.threadId && entry.providerId);
   return {
     conversationId: entry.conversationId ?? "",
@@ -1280,6 +1296,7 @@ function canonicalTimelinePatchForEntry(entry: TopicThreadEntry): CanonicalTimel
     threadId: entry.threadId,
     parentThreadId: entry.parentThreadId,
     status: entry.status,
+    ...(placement ? { placement } : {}),
     cells: canonicalTranscriptCellsFromThreadItem({
       ...entry,
       kind: entry.type === "user.message" ? "user-message" : "assistant-turn",
@@ -1404,7 +1421,7 @@ function projectScopedChildProcessMessage(
   if (!capture || (capture.blocks.length === 0 && capture.activity.length === 0)) return null;
   const timestamp = capture.blocks[0]?.timestamp ?? capture.activity[0]?.timestamp ?? new Date().toISOString();
   return {
-    id: `assistant:${conversationId}:${providerId}:${runId}:${capture.canonicalId ?? `${roleId}:${childThreadId}:${capture.turnId ?? "turn"}`}:process`,
+    id: childProcessMessageId(conversationId, providerId, runId, capture),
     type: "assistant.message",
     timestamp,
     conversationId,
@@ -1418,6 +1435,45 @@ function projectScopedChildProcessMessage(
     agentRoleId: roleId,
     activity: capture.activity,
     blocks: capture.blocks,
+    document: capture.blocks.find((block) => block.document)?.document,
+    artifact: capture.blocks.find((block) => block.document)?.document?.proposalArtifact,
+  };
+}
+
+function childProcessMessageId(conversationId: string, providerId: string, runId: string, capture: ChildTranscriptCapture): string {
+  return `assistant:${conversationId}:${providerId}:${runId}:${capture.canonicalId}:process`;
+}
+
+function projectScopedChildInputMessage(input: {
+  conversationId: string;
+  graphScopeId: string;
+  runId: string;
+  providerId: string;
+  attemptId: string;
+  roleId: string;
+  threadId: string;
+  parentThreadId: string;
+  turnId: string;
+  itemId: string;
+  text: string;
+}): TopicThreadEntry {
+  return {
+    id: `user:${input.providerId}:${input.attemptId}:${input.threadId}:${input.turnId}:${input.itemId}`,
+    type: "user.message",
+    timestamp: new Date().toISOString(),
+    conversationId: input.conversationId,
+    graphScopeId: input.graphScopeId,
+    changeId: "",
+    runId: input.runId,
+    providerId: input.providerId,
+    attemptId: input.attemptId,
+    threadId: input.threadId,
+    parentThreadId: input.parentThreadId,
+    turnId: input.turnId,
+    itemId: input.itemId,
+    agentRoleId: input.roleId,
+    initialThreadInput: true,
+    text: input.text,
   };
 }
 

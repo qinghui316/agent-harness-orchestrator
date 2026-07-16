@@ -1896,7 +1896,8 @@ describe("Workbench web app", () => {
   it("shows a bounded graph projection error and retries without inventing nodes", async () => {
     window.history.replaceState({}, "", "/?project=repo&topic=member-discount");
     let graphAttempts = 0;
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    let graphAvailable = false;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/providers") return jsonResponse({ providers: [{ providerId: "codex", displayName: "Codex" }] });
@@ -1904,18 +1905,23 @@ describe("Workbench web app", () => {
       if (url.includes("/workbench/projections/transcript/")) return jsonResponse(snapshot.center.parentAgentTranscript);
       if (url.includes("/workbench/projections/agent-graph/")) {
         graphAttempts += 1;
-        if (graphAttempts === 1) return new Response("projection unavailable", { status: 503 });
+        if (!graphAvailable) return new Response("projection unavailable", { status: 503 });
         return jsonResponse(snapshot.center.agentRelationGraph);
       }
       return jsonResponse(url.includes("/stream/") ? stream : snapshot);
-    }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
 
     render(<App />);
     await waitFor(() => expect(screen.getByTestId("main-conversation-view")).toBeTruthy());
+    await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => (
+      String(input).includes("/workbench/projections/transcript/member-discount?limit=100")
+    ))).toBe(true));
     fireEvent.click(screen.getByTestId("orchestration-overlay-toggle"));
 
     expect((await screen.findByRole("alert")).textContent).toContain("Agent 关系加载失败");
     expect(screen.queryByTestId("agent-relation-node-planning-agent")).toBeNull();
+    graphAvailable = true;
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
     expect(await screen.findByTestId("agent-relation-node-main-agent")).toBeTruthy();
     expect(graphAttempts).toBe(2);
@@ -3989,6 +3995,7 @@ describe("Workbench web app", () => {
   });
 
   it("shows the new demand immediately while waiting for the first live topic event", async () => {
+    const canonicalUserCell = { id: "cell:user:user-message-new-demand", kind: "user-message" as const, source: "user" as const, text: "实现设置入口" };
     const noTopicSnapshot = {
       ...snapshot,
       left: { ...snapshot.left, topics: [], workpads: [] },
@@ -4004,6 +4011,7 @@ describe("Workbench web app", () => {
       center: {
         ...snapshot.center,
         selectedTopic: { id: "new-demand", title: "实现设置入口", state: "active", acCount: 0, taskCount: 0 },
+        parentAgentTranscript: { title: "实现设置入口", cells: [], items: [] },
       },
     };
     let delayedEventsStarted = false;
@@ -4018,13 +4026,17 @@ describe("Workbench web app", () => {
       if (url === "/api/projects/repo/workbench/topics/live" && init?.method === "POST") {
         return delayedSseResponse([
           ["topic.created", { topic: { changeId: "new-demand", title: "实现设置入口", state: "active" } }],
+          ["timeline.patch", { conversationId: "new-demand", messageId: "user-message-new-demand", agentSurfaceId: "main-agent", cells: [canonicalUserCell] }],
         ], [
+          ["timeline.patch", { conversationId: "new-demand", messageId: "assistant-new-demand", agentSurfaceId: "main-agent", cells: [{ id: "cell:assistant:new-demand", kind: "assistant-message", source: "provider-runtime", text: "开始处理" }] }],
           ["snapshot", selectedSnapshot],
           ["done", { status: "completed" }],
         ], () => { delayedEventsStarted = true; }, 3_000);
       }
       if (url === "/api/projects/repo/workbench/snapshot?topic=new-demand") return jsonResponse(selectedSnapshot);
-      if (url === "/api/projects/repo/workbench/projections/transcript/new-demand?limit=100") return jsonResponse(selectedSnapshot.center.parentAgentTranscript);
+      if (url === "/api/projects/repo/workbench/projections/transcript/new-demand?limit=100") {
+        return jsonResponse({ title: "实现设置入口", cells: [canonicalUserCell], items: [] });
+      }
       if (url === "/api/projects/repo/workbench/projections/agent-graph/new-demand") return jsonResponse(selectedSnapshot.center.agentRelationGraph);
       return jsonResponse(noTopicSnapshot);
     }));
@@ -4038,6 +4050,7 @@ describe("Workbench web app", () => {
 
     await waitFor(() => expect(screen.getAllByText("实现设置入口").length).toBeGreaterThan(0), { timeout: 150 });
     expect(screen.getAllByText("实现设置入口").length).toBeGreaterThan(0);
+    await waitFor(() => expect(document.querySelectorAll('[data-cell-id="cell:user:user-message-new-demand"]')).toHaveLength(1));
     expect(screen.queryByText("等待回复")).toBeNull();
     expect(delayedEventsStarted).toBe(false);
     expect(fetchCallUrls().some((url) => url.includes("/workbench/projections/transcript/pending%3A"))).toBe(false);
@@ -4049,6 +4062,8 @@ describe("Workbench web app", () => {
     await waitFor(() => expect(delayedEventsStarted).toBe(true), { timeout: 4_000 });
     expect(screen.getByTestId("agent-graph-center-view")).toBeTruthy();
     expect(screen.getByTestId("agent-relation-node-main-agent")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("orchestration-overlay-toggle"));
+    await waitFor(() => expect(document.querySelectorAll('[data-cell-id="cell:user:user-message-new-demand"]')).toHaveLength(1));
     await waitFor(() => expect(screen.queryByText("等待回复")).toBeNull());
     expect(window.location.search).toContain("project=repo");
     expect(window.location.search).toContain("topic=new-demand");

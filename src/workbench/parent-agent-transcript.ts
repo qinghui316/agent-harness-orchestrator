@@ -1,11 +1,11 @@
-import type { AssistantTurnActivity, AssistantTurnBlock, TopicAttachment, TopicFileReference, WorkbenchProviderUserInputRequest } from "./types.js";
+import type { AssistantTurnActivity, AssistantTurnBlock, CanonicalDocumentReference, TopicAttachment, TopicFileReference, WorkbenchProviderUserInputRequest } from "./types.js";
 import type { InteractionHistoryRecord } from "./conversation-interaction-contract.js";
 import { commandDetailText, commandGroupDetailText, commandGroupSummary, commandRowTitle, groupConsecutiveCommandBlocks } from "../command-transcript.js";
 
 export type ParentAgentTranscriptActor = "user" | "parent-agent";
 export type ParentAgentTranscriptBlockKind = "prose" | "process" | "tool-result" | "evidence";
 export type ParentAgentTranscriptBlockSource = "user" | "provider-runtime" | "aho-orchestration" | "workflow-evidence" | "maintenance";
-export type ParentAgentTranscriptCellKind = "user-message" | "assistant-message" | "process-row" | "evidence-row" | "user-input" | "detail-only";
+export type ParentAgentTranscriptCellKind = "user-message" | "assistant-message" | "process-row" | "evidence-row" | "user-input" | "document-preview" | "detail-only";
 
 export interface ParentAgentEvidenceRef {
   label: string;
@@ -38,6 +38,7 @@ export interface ParentAgentTranscriptCell {
   source: ParentAgentTranscriptBlockSource;
   agentRoleId?: string;
   agentTaskId?: string;
+  initialThreadInput?: boolean;
   runId?: string;
   providerId?: string;
   attemptId?: string;
@@ -60,6 +61,7 @@ export interface ParentAgentTranscriptCell {
   contextRefs?: TopicFileReference[];
   attachments?: TopicAttachment[];
   interactionHistory?: InteractionHistoryRecord;
+  documentRef?: CanonicalDocumentReference;
 }
 
 export interface ParentAgentTranscript {
@@ -108,9 +110,11 @@ interface TranscriptThreadItemInput {
   threadId?: string;
   parentThreadId?: string;
   turnId?: string;
+  itemId?: string;
   artifact?: string;
   agentRoleId?: string;
   agentTaskId?: string;
+  initialThreadInput?: boolean;
   activity?: AssistantTurnActivity[];
   blocks?: AssistantTurnBlock[];
   contextRefs?: TopicFileReference[];
@@ -142,7 +146,8 @@ export function buildAgentScopedTranscriptCells(
   return normalizeCellEvidenceRefs(threadItems
     .filter((item) => (scope.threadId ? item.threadId === scope.threadId : item.agentRoleId === scope.agentRoleId)
       && (!scope.runId || item.runId === scope.runId))
-    .flatMap((item) => canonicalTranscriptCellsFromThreadItem(item, { forceAgentRoleId: scope.agentRoleId })));
+    .flatMap((item) => canonicalTranscriptCellsFromThreadItem(item, { forceAgentRoleId: scope.agentRoleId })))
+    .sort((left, right) => Number(Boolean(right.initialThreadInput)) - Number(Boolean(left.initialThreadInput)));
 }
 
 export function pageParentAgentTranscript(
@@ -193,13 +198,18 @@ export function canonicalTranscriptCellsFromThreadItem(
       ? [{
           id: `cell:user:${item.id}`,
           kind: "user-message",
-          source: "user",
+          source: item.providerId ? "provider-runtime" : "user",
           timestamp: item.timestamp,
           agentRoleId,
           agentTaskId: item.agentTaskId,
+          initialThreadInput: item.initialThreadInput,
           runId: item.runId,
+          providerId: item.providerId,
+          attemptId: item.attemptId,
           threadId: item.threadId,
           parentThreadId: item.parentThreadId,
+          turnId: item.turnId,
+          itemId: item.itemId,
           text,
           contextRefs: item.contextRefs?.length ? item.contextRefs : undefined,
           attachments: item.attachments?.length ? item.attachments : undefined,
@@ -244,7 +254,7 @@ export function canonicalTranscriptCellsFromThreadItem(
         itemId: providerIdentity?.itemId,
         targetAgentSurfaceId: block.targetAgentSurfaceId,
         targetAgentDisplayName: block.targetAgentDisplayName,
-        evidenceRefs: item.artifact
+        evidenceRefs: item.artifact && block.document
           ? [{ label: "Plan proposal", ref: item.artifact, kind: "artifact" }, ...(cell.evidenceRefs ?? [])]
           : cell.evidenceRefs,
       });
@@ -291,7 +301,8 @@ function activityCellsFromThreadItem(item: TranscriptThreadItemInput, agentRoleI
       attemptId: item.attemptId,
       threadId: item.threadId,
       parentThreadId: item.parentThreadId,
-      turnId: item.turnId,
+          turnId: item.turnId,
+          itemId: item.itemId,
       title,
       text: "",
       status: latest?.label ?? "running",
@@ -342,6 +353,19 @@ function transcriptCellFromAssistantBlock(
   const text = isGeneratedRunContext(rawText) ? "" : cleanPrimaryText(rawText);
   const itemId = item.id;
   const timestamp = item.timestamp;
+
+  if (block.documentRef?.documentKind === "plan") {
+    return {
+      id: `cell:document:${block.documentRef.documentId}`,
+      kind: "document-preview",
+      source: "aho-orchestration",
+      timestamp,
+      title: block.documentRef.title,
+      text: block.documentRef.title,
+      status: block.status,
+      documentRef: block.documentRef,
+    };
+  }
 
   if (block.kind === "workflow-evidence") return null;
   if (source === "workflow-evidence" && block.kind === "prose") {
@@ -404,11 +428,7 @@ function transcriptCellFromAssistantBlock(
     };
   }
 
-  const isPlanReadyArtifact = source === "aho-orchestration"
-    && block.kind === "tool-result"
-    && Boolean(block.artifactRef)
-    && cleanToolTitle(block.title) === "计划已准备";
-  if (source !== "provider-runtime" && block.kind !== "error" && !isPlanReadyArtifact) return null;
+  if (source !== "provider-runtime" && block.kind !== "error") return null;
 
   if (block.kind === "command-group") {
     const failedCount = block.children?.filter((child) => child.kind === "command" && child.isError).length ?? 0;

@@ -41,6 +41,7 @@ import { getWorkbenchSnapshot } from "../../src/workbench/manager.js";
 import { getWorkbenchAgentRelationGraphProjection, getWorkbenchTranscriptProjection } from "../../src/workbench/projections/read-model/implementation.js";
 import { readLatestWorkflowGraphPlan } from "../../src/workflow-artifacts/manager.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
+import { planDocumentContentHash } from "../../src/workbench/plan-documents.js";
 import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
 
 let root: string;
@@ -328,13 +329,41 @@ describe("Workbench provider planning flow", () => {
 
   it("does not mark a proposal accepted when Main declines the acceptance tool", async () => {
     const topic = await createConversationChangeFixture(project(), { title: "Declined plan", body: "Plan this work." });
+    const sourceCanonicalItemId = "prose:codex:attempt-declined:thread-plan:turn-plan:item-plan";
+    const planText = "# Plan\n\nA proposal that Main still needs to inspect.";
+    const document = {
+      documentId: "plan-document-declined",
+      documentKind: "plan" as const,
+      title: "实现计划",
+      sourceMessageId: "message-declined-plan",
+      sourceCanonicalItemId,
+      proposalId: "proposal-declined",
+      proposalHash: "proposal-hash-declined",
+      proposalArtifact: "workbench/proposals/declined-plan.json",
+      contentHash: planDocumentContentHash(planText),
+      agentSurfaceId: "agent:codex:thread:thread-plan",
+    };
     await appendConversationThreadEntry(project(), topic.changeId, {
       type: "assistant.message",
       status: "planning-agent-generated",
-      text: "A proposal that Main still needs to inspect.",
       runId: "run-declined-plan",
       agentRoleId: "planning-agent",
       artifact: "workbench/proposals/declined-plan.json",
+      document,
+      blocks: [{
+        id: sourceCanonicalItemId,
+        providerId: "codex",
+        attemptId: "attempt-declined",
+        threadId: "thread-plan",
+        turnId: "turn-plan",
+        itemId: "item-plan",
+        sequence: 1,
+        kind: "prose",
+        timestamp: "2026-07-16T00:00:00.000Z",
+        source: "provider",
+        text: planText,
+        document,
+      }],
     });
     appServerTurn.mockResolvedValueOnce({
       status: "completed",
@@ -353,6 +382,9 @@ describe("Workbench provider planning flow", () => {
         sourceRunId: "run-declined-plan",
         sourceAgentRoleId: "planning-agent",
         sourceArtifact: "workbench/proposals/declined-plan.json",
+        sourceDocumentId: document.documentId,
+        sourceCanonicalItemId,
+        sourceProposalHash: document.proposalHash,
       },
     });
 
@@ -565,7 +597,7 @@ describe("Workbench provider planning flow", () => {
           threadId: "thread-planner",
           prompt: `Write the proposal files under ${options.writableRoots?.[0] ?? "planner-proposal"}`,
           status: "completed",
-          finalText: plannerProposal(),
+          finalText: plannerPlanText(),
           changedFiles: [
             join(options.writableRoots?.[0] ?? "", "spec.md"),
             join(options.writableRoots?.[0] ?? "", "plan.md"),
@@ -602,9 +634,10 @@ describe("Workbench provider planning flow", () => {
     ]));
   });
 
-  it("persists a Main plan-ready marker when the provider returns no parent prose", async () => {
+  it("persists one Main Plan document reference when the provider returns no parent prose", async () => {
     appServerTurn.mockImplementationOnce(async (options) => {
       await writePlannerFiles(options.writableRoots?.[0] ?? "");
+      emitCanonicalPlannerText(options, plannerPlanText(), "thread-main-empty-prose", "thread-planner-empty-prose", "turn-planner-empty-prose", "message-planner-empty-prose");
       return {
         status: "completed",
         threadId: "thread-main-empty-prose",
@@ -618,7 +651,7 @@ describe("Workbench provider planning flow", () => {
           threadId: "thread-planner-empty-prose",
           status: "completed",
           displayName: "Sagan",
-          finalText: plannerProposal(),
+          finalText: plannerPlanText(),
           changedFiles: [
             join(options.writableRoots?.[0] ?? "", "spec.md"),
             join(options.writableRoots?.[0] ?? "", "plan.md"),
@@ -634,24 +667,22 @@ describe("Workbench provider planning flow", () => {
       body: "Plan a small but structured change.",
     });
     const messages = await listConversationMessages(project(), conversation.conversationId);
-    const marker = messages.find((message) => message.blocks?.some((block) => block.id.startsWith("plan-ready:")));
+    const marker = messages.find((message) => message.blocks?.some((block) => block.documentRef?.documentKind === "plan"));
     expect(marker).toMatchObject({
       type: "assistant.message",
-      text: "Plan Agent 已完成可确认的实现计划。",
       threadId: "thread-main-empty-prose",
       turnId: "turn-main-empty-prose",
     });
     expect(marker?.blocks).toEqual([
       expect.objectContaining({
         kind: "tool-result",
-        title: "计划已准备",
-        targetAgentSurfaceId: "agent:codex:thread:thread-planner-empty-prose",
-        artifactRef: expect.stringContaining("planner-proposal"),
+        title: "实现计划",
+        documentRef: expect.objectContaining({ documentId: expect.stringMatching(/^plan-document-/) }),
       }),
     ]);
     const transcript = await getWorkbenchTranscriptProjection({ project: project(), path: root }, conversation.conversationId);
     expect(transcript.cells).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: "process-row", title: "计划已准备" }),
+      expect.objectContaining({ kind: "document-preview", title: "实现计划" }),
     ]));
   });
 
@@ -683,15 +714,41 @@ describe("Workbench provider planning flow", () => {
           ["item/started", { item: { id: "cmd-1", type: "commandExecution", command: "Get-Content index.html" } }],
           ["item/completed", { item: { id: "cmd-1", type: "commandExecution", command: "Get-Content index.html", aggregatedOutput: "ok", exitCode: 0 } }],
           ["item/completed", { item: { id: "file-1", type: "fileChange", path: "plan.md", status: "completed" } }],
-          ["item/agentMessage/delta", { itemId: "message-1", delta: "计划边界已经确认。" }],
+          ["item/agentMessage/delta", { itemId: "message-1", delta: plannerPlanText() }],
           ["turn/completed", { turnId: "turn-planner" }],
         ];
         for (const [method, params] of childNotifications) {
           for (const event of normalizeCodexAppServerNotification(method, params, childIdentity)) options.onRealtimeEvent?.(event);
         }
+        const messagesBeforeChildInput = await listConversationMessages(project(), options.conversationId ?? "");
+        const childProcessPosition = messagesBeforeChildInput.find(
+          (message) => message.type === "assistant.message" && message.threadId === "thread-planner",
+        )?.position;
+        options.onChildThreadResult?.({
+          itemId: "item-spawn-planner",
+          tool: "spawn_agent",
+          parentThreadId: "thread-main",
+          threadId: "thread-planner",
+          status: "running",
+          prompt: "Draft the exact proposal.",
+          initialUserItem: { turnId: "turn-planner", itemId: "item-child-input", text: "Draft the exact proposal." },
+          displayName: "Newton",
+          finalText: "",
+          changedFiles: [],
+          snapshot: {},
+        });
         const liveMessages = await listConversationMessages(project(), options.conversationId ?? "");
-        const liveChildProcess = liveMessages.filter((message) => message.threadId === "thread-planner" && !message.artifact);
+        const liveChildInput = liveMessages.find((message) => message.type === "user.message" && message.threadId === "thread-planner");
+        expect(liveChildInput).toMatchObject({
+          id: expect.stringContaining(":turn-planner:item-child-input"),
+          attemptId: expect.stringContaining(":child:thread-planner"),
+          turnId: "turn-planner",
+          itemId: "item-child-input",
+          text: "Draft the exact proposal.",
+        });
+        const liveChildProcess = liveMessages.filter((message) => message.type === "assistant.message" && message.threadId === "thread-planner" && !message.artifact);
         expect(liveChildProcess).toHaveLength(1);
+        expect(liveChildProcess[0]?.position).toBe(childProcessPosition);
         expect(liveChildProcess[0]).toMatchObject({
           status: "completed",
           turnId: "turn-planner",
@@ -726,7 +783,7 @@ describe("Workbench provider planning flow", () => {
             threadId: "thread-planner",
             status: "completed",
             displayName: "Newton",
-            finalText: plannerProposal(),
+            finalText: plannerPlanText(),
             changedFiles: [
               `${options.writableRoots[0]}/spec.md`,
               `${options.writableRoots[0]}/plan.md`,
@@ -788,18 +845,26 @@ describe("Workbench provider planning flow", () => {
         text: "计划子 Agent 已返回方案。\n我还会把当前限制和验收事实一并说明。",
       }),
     ]));
-    const plan = messages.find((message) => message.agentRoleId === "planning-agent" && message.artifact);
+    const plan = messages.find((message) => message.agentRoleId === "planning-agent" && message.document?.documentKind === "plan");
     expect(plan).toMatchObject({ runId: expect.any(String), agentRoleId: "planning-agent" });
     expect(plan?.graphScopeId).toBeTruthy();
-    expect(plan?.text).toMatch(/Proposal hash: [a-f0-9]{64}/);
-    expect(plan?.text).toContain("Lineage: thread-main -> thread-planner");
+    expect(plan?.document).toMatchObject({ proposalHash: expect.stringMatching(/^[a-f0-9]{64}$/), sourceCanonicalItemId: expect.stringContaining(":message-1") });
     const proposalSnapshot = await getWorkbenchSnapshot({ project: project(), path: root }, { topicId: conversation.conversationId });
     expect(proposalSnapshot.center.conversationInteractions.items).toEqual([
       expect.objectContaining({ kind: "plan", graphScopeId: plan?.graphScopeId }),
     ]);
+    const plannerWorkspace = proposalSnapshot.right.agentWorkspace.agents.find((agent) => agent.providerThreadId === "thread-planner");
+    expect(plannerWorkspace?.transcript.cells[0]).toMatchObject({
+      kind: "user-message",
+      source: "provider-runtime",
+      providerId: "codex",
+      turnId: "turn-planner",
+      itemId: "item-child-input",
+      text: "Draft the exact proposal.",
+    });
     const childTimeline = messages.filter((message) => message.agentRoleId === "planning-agent" && message.threadId === "thread-planner");
-    expect(childTimeline).toHaveLength(2);
-    expect(childTimeline[0]).toMatchObject({ parentThreadId: "thread-main", turnId: "turn-planner", artifact: undefined });
+    expect(childTimeline).toHaveLength(1);
+    expect(childTimeline[0]).toMatchObject({ parentThreadId: "thread-main", turnId: "turn-planner", artifact: expect.stringContaining("planner-proposal") });
     expect(childTimeline[0]?.blocks?.map((block) => block.kind)).toEqual(expect.arrayContaining([
       "reasoning-summary", "command", "file-change", "prose",
     ]));
@@ -807,7 +872,6 @@ describe("Workbench provider planning flow", () => {
       expect.objectContaining({ kind: "status", label: "thinking" }),
       expect.objectContaining({ kind: "status", label: "completed" }),
     ]));
-    expect(childTimeline[1]?.artifact).toBeTruthy();
 
     await postConversationMessage(project(), conversation.conversationId, {
       mode: "chat",
@@ -816,6 +880,10 @@ describe("Workbench provider planning flow", () => {
         kind: "execute-plan",
         sourceRunId: plan?.runId ?? "",
         sourceAgentRoleId: "planning-agent",
+        sourceArtifact: plan?.document?.proposalArtifact,
+        sourceDocumentId: plan?.document?.documentId,
+        sourceCanonicalItemId: plan?.document?.sourceCanonicalItemId,
+        sourceProposalHash: plan?.document?.proposalHash,
         executionMode: "stepwise",
       },
     });
@@ -879,7 +947,7 @@ describe("Workbench provider planning flow", () => {
       "process-row", "assistant-message",
     ]));
     expect(durablePlanner?.transcript.cells.filter((cell) => `${cell.title ?? ""}\n${cell.text}\n${cell.detailText ?? ""}`.includes("正在检查需求边界"))).toHaveLength(1);
-    expect(durablePlanner?.transcript.cells.filter((cell) => `${cell.text}\n${cell.detailText ?? ""}`.includes("计划边界已经确认。"))).toHaveLength(1);
+    expect(durablePlanner?.transcript.cells.filter((cell) => `${cell.text}\n${cell.detailText ?? ""}`.includes("Add the route and regression coverage."))).toHaveLength(1);
     expect(durablePlanner?.transcript.cells.filter((cell) => cell.evidenceRefs?.some((ref) => ref.label === "Plan proposal"))).toHaveLength(1);
     expect(snapshot.right.confirmationQueue.primary?.actions).toEqual(expect.arrayContaining([
       expect.objectContaining({ actionType: "workflow.run.start", changeId }),
@@ -911,6 +979,26 @@ function emitCanonicalMainText(
     turnId,
     itemId,
     roleId: "main-agent",
+  })) options.onRealtimeEvent?.(event);
+}
+
+function emitCanonicalPlannerText(
+  options: { runId: string; conversationId?: string; onRealtimeEvent?: (event: ReturnType<typeof normalizeCodexAppServerNotification>[number]) => void },
+  text: string,
+  parentThreadId: string,
+  threadId: string,
+  turnId: string,
+  itemId: string,
+): void {
+  for (const event of normalizeCodexAppServerNotification("item/agentMessage/delta", { itemId, delta: text }, {
+    projectId: project().id,
+    conversationId: options.conversationId,
+    runId: options.runId,
+    threadId,
+    parentThreadId,
+    turnId,
+    itemId,
+    roleId: "planning-agent",
   })) options.onRealtimeEvent?.(event);
 }
 
@@ -970,6 +1058,10 @@ function plannerProposal(): string {
     assumptions: [],
     warnings: [],
   });
+}
+
+function plannerPlanText(): string {
+  return (JSON.parse(plannerProposal()) as { planMd: string }).planMd;
 }
 
 async function writePlannerFiles(directory: string): Promise<void> {

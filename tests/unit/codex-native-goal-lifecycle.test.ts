@@ -23,6 +23,7 @@ describe("Codex native Goal lifecycle", () => {
     const server = new FakePlannerChildAppServer();
     spawnMock.mockReturnValue(server as unknown as ChildProcess);
     const observed: string[] = [];
+    const initialInputs: string[] = [];
     const parentLifecycle: string[] = [];
     const resolvedRequests: string[] = [];
     const realtimeEvents: Array<{ threadId: string; roleId: string; displayName?: string }> = [];
@@ -35,7 +36,10 @@ describe("Codex native Goal lifecycle", () => {
         { name: "aho_goal_yield", description: "Yield", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
         { name: "aho_accept_current_plan", description: "Accept", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
       ],
-      onChildThreadResult: (child) => observed.push(child.finalText),
+      onChildThreadResult: (child) => {
+        if (child.finalText) observed.push(child.finalText);
+        if (child.initialUserItem) initialInputs.push(child.initialUserItem.text);
+      },
       onUserInputResolved: (resolution) => resolvedRequests.push(resolution.requestId),
       onRealtimeEvent: (event) => realtimeEvents.push(event),
       onNotification: (notification) => {
@@ -52,6 +56,7 @@ describe("Codex native Goal lifecycle", () => {
       finalText: '{"specMd":"# Spec","planMd":"# Plan","tasksMd":"# Tasks"}',
     })]);
     expect(observed).toEqual(['{"specMd":"# Spec","planMd":"# Plan","tasksMd":"# Tasks"}']);
+    expect(new Set(initialInputs)).toEqual(new Set(["Draft the project plan."]));
     expect(parentLifecycle).toEqual(["thread-parent"]);
     expect(resolvedRequests).toEqual(["77"]);
     expect(server.methods).toContain("thread/read");
@@ -64,6 +69,39 @@ describe("Codex native Goal lifecycle", () => {
     ]));
     expect(server.threadStartParams.config).toEqual({ "features.default_mode_request_user_input": true });
     expect(server.methods.filter((method) => method === "thread/goal/set")).toHaveLength(0);
+  });
+
+  it("retries child thread/read until the provider-native initial input is visible", async () => {
+    const server = new FakePlannerChildAppServer(["aho-main-orchestration", "aho-workflow-authoring"], 1, 250);
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+    const observed: Array<{ status?: string; input?: string }> = [];
+
+    await runCodexAppServerTurn(await options({
+      existingThreadId: null,
+      goalSession: false,
+      onChildThreadResult: (child) => observed.push({ status: child.status, input: child.initialUserItem?.text }),
+    }));
+
+    expect(observed).toEqual(expect.arrayContaining([
+      { status: "running", input: "Draft the project plan." },
+    ]));
+    expect(server.methods.filter((method) => method === "thread/read").length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("does not emit running child input after a terminal read claims the same item", async () => {
+    const server = new FakePlannerChildAppServer(["aho-main-orchestration", "aho-workflow-authoring"], 0, 0, 200);
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+    const observed: Array<{ status?: string; input?: string }> = [];
+
+    await runCodexAppServerTurn(await options({
+      existingThreadId: null,
+      goalSession: false,
+      onChildThreadResult: (child) => {
+        if (child.initialUserItem) observed.push({ status: child.status, input: child.initialUserItem.text });
+      },
+    }));
+
+    expect(observed).toEqual([{ status: "completed", input: "Draft the project plan." }]);
   });
 
   it("registers native Skills before starting a turn and carries workspace facts as protocol input", async () => {
@@ -548,8 +586,14 @@ class FakePlannerChildAppServer extends EventEmitter {
   readonly threadStartParams: Record<string, unknown> = {};
   readonly turnStartParams: Record<string, unknown> = {};
   private input = "";
+  private childReadCount = 0;
 
-  constructor(private readonly discoveredSkills = ["aho-main-orchestration", "aho-workflow-authoring"]) {
+  constructor(
+    private readonly discoveredSkills = ["aho-main-orchestration", "aho-workflow-authoring"],
+    private readonly delayedInitialInputReads = 0,
+    private readonly childTerminalDelayMs = 0,
+    private readonly firstChildReadResponseDelayMs = 0,
+  ) {
     super();
     this.stdin = new Writable({
       write: (chunk, _encoding, callback) => {
@@ -618,22 +662,45 @@ class FakePlannerChildAppServer extends EventEmitter {
           threadId: "thread-parent",
         });
         this.notify("item/agentMessage/delta", { threadId: "thread-planner", delta: "child output must not leak" });
-        this.notify("turn/completed", { threadId: "thread-planner", turn: { id: "turn-planner", status: "completed" } });
-        this.notify("turn/completed", { threadId: "thread-parent", turn: { id: "turn-parent", status: "completed" } });
+        if (this.childTerminalDelayMs > 0) {
+          setTimeout(() => {
+            this.notify("turn/completed", { threadId: "thread-planner", turn: { id: "turn-planner", status: "completed" } });
+            this.notify("turn/completed", { threadId: "thread-parent", turn: { id: "turn-parent", status: "completed" } });
+          }, this.childTerminalDelayMs);
+        } else {
+          this.notify("turn/completed", { threadId: "thread-planner", turn: { id: "turn-planner", status: "completed" } });
+          this.notify("turn/completed", { threadId: "thread-parent", turn: { id: "turn-parent", status: "completed" } });
+        }
         return;
-      case "thread/read":
-        this.respond(id, {
+      case "thread/read": {
+        this.childReadCount += 1;
+        const childSnapshot = {
           thread: {
             id: "thread-planner",
             agentNickname: "Feynman",
-            turns: [{ items: [{
-              type: "agentMessage",
-              role: "assistant",
-              content: [{ type: "output_text", text: '{"specMd":"# Spec","planMd":"# Plan","tasksMd":"# Tasks"}' }],
-            }] }],
+            turns: [
+              ...(this.childReadCount > this.delayedInitialInputReads ? [{ id: "turn-delegation", items: [{
+                id: "item-child-input",
+                type: "userMessage",
+                role: "user",
+                content: [{ type: "input_text", text: "Draft the project plan." }],
+              }] }] : []),
+              { id: "turn-planner", items: [{
+                id: "item-child-output",
+                type: "agentMessage",
+                role: "assistant",
+                content: [{ type: "output_text", text: '{"specMd":"# Spec","planMd":"# Plan","tasksMd":"# Tasks"}' }],
+              }] },
+            ],
           },
-        });
+        };
+        if (this.childReadCount === 1 && this.firstChildReadResponseDelayMs > 0) {
+          setTimeout(() => this.respond(id, childSnapshot), this.firstChildReadResponseDelayMs);
+        } else {
+          this.respond(id, childSnapshot);
+        }
         return;
+      }
       default:
         throw new Error(`Unexpected app-server method ${message.method}`);
     }

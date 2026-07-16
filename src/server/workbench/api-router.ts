@@ -7,6 +7,7 @@ import { getRuntimeActivityLog } from "./runtime-activity-log.js";
 import { defaultProviderRegistry } from "../../provider-runtime/index.js";
 import type { ProviderRegistry } from "../../provider-runtime/registry.js";
 import { listProjectFileChildren, readProjectFilePreview, searchProjectFiles } from "../../workbench/file-references.js";
+import { resolveWorkspaceResource, type WorkspaceResourceTarget } from "../../workbench/workspace-resources.js";
 import { createTopicAttachment, deleteTopicAttachment } from "../../workbench/attachments.js";
 import { getProjectGitCommitDetail, getProjectGitCommitDiff, getProjectGitDiff, getProjectGitHistory, getProjectGitStatus } from "../../workbench/git-panel.js";
 import { addSkillRoot, listSkillRoots, refreshSkills, setSkillEnabled, type SkillSourceKind } from "../../skill/catalog.js";
@@ -194,6 +195,23 @@ export async function handleApi(context: WorkbenchServerContext, request: Incomi
       sendJson(response, 200, await listProjectFileChildren(input.project, url.searchParams.get("path") ?? ""));
     } catch (error) {
       sendJson(response, 400, { error: error instanceof Error ? error.message : String(error) });
+    }
+    return;
+  }
+  const workspaceResourceMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/workspace-resources\/resolve$/);
+  if (request.method === "POST" && workspaceResourceMatch?.[1]) {
+    const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(workspaceResourceMatch[1]));
+    if (!input.project) {
+      sendJson(response, 400, { error: "Workspace resources require a selected project." });
+      return;
+    }
+    try {
+      const body = await readJsonBody<{ target?: WorkspaceResourceTarget }>(request);
+      if (!body.target) throw new Error("Workspace resource target is required.");
+      sendJson(response, 200, await resolveWorkspaceResource({ ...input, project: input.project }, body.target));
+    } catch (error) {
+      const status = error instanceof Error && error.name === "NotFound" ? 404 : 400;
+      sendJson(response, status, { error: error instanceof Error ? error.message : String(error) });
     }
     return;
   }

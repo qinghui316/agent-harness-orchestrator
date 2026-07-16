@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   listProjectFileChildren,
   readProjectFilePreview,
+  readProjectTextDocument,
   renderTopicFileReferencesForPrompt,
   resolveTopicFileReferences,
   searchProjectFiles,
@@ -41,6 +42,8 @@ describe("Workbench file references", () => {
     await writeFile(join(root, ".agent-harness", "project.json"), "{}", "utf8");
     await writeFile(join(root, "dist", "bundle.js"), "console.log(1);\n", "utf8");
     await writeFile(join(root, "large.bin"), Buffer.alloc(5 * 1024 * 1024 + 1));
+    await writeFile(join(root, "large.txt"), Buffer.alloc(5 * 1024 * 1024 + 1, 65));
+    await writeFile(join(root, "binary.txt"), Buffer.from([0, 1, 2, 3]));
     await writeFile(join(outsideRoot, "outside.ts"), "export const outside = true;\n", "utf8");
 
     try {
@@ -104,6 +107,25 @@ describe("Workbench file references", () => {
 
     const unsafePreview = await readProjectFilePreview(project(), "../outside.ts");
     expect(unsafePreview.status).toBe("not-found");
+  });
+
+  it("reads complete Markdown/TXT workspace documents through the project safety boundary", async () => {
+    const document = await readProjectTextDocument(project(), "src/notes.md");
+    expect(document).toMatchObject({
+      relativePath: "src/notes.md",
+      kind: "markdown-file",
+      language: "markdown",
+      content: "# Notes\n",
+      revision: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    await expect(readProjectTextDocument(project(), "src/pricing.ts")).rejects.toThrow("只支持 Markdown 和 TXT");
+    await expect(readProjectTextDocument(project(), "../outside.ts")).rejects.toThrow("不在当前项目安全范围内");
+    await expect(readProjectTextDocument(project(), "node_modules/pkg/index.js")).rejects.toThrow("只允许读取当前项目");
+    await expect(readProjectTextDocument(project(), "large.txt")).rejects.toThrow("超过 5 MB");
+    await expect(readProjectTextDocument(project(), "binary.txt")).rejects.toThrow("二进制文件");
+    if (existsSync(join(root, "linked-src"))) {
+      await expect(readProjectTextDocument(project(), "linked-src/notes.md")).rejects.toThrow("符号链接");
+    }
   });
 
   it("resolves selected and handwritten @file references without swallowing unknown tokens", async () => {

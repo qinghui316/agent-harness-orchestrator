@@ -21,7 +21,7 @@ afterEach(async () => {
 });
 
 describe("ProviderAttempt-owned thread binding", () => {
-  it("uses schema 6 and binds idempotently from attempt-owned facts", async () => {
+  it("uses schema 7 and binds idempotently from attempt-owned facts", async () => {
     const memory = repoLocalMemory(root, projectId);
     await seedConversation(memory);
     await startAttempt(memory, "attempt-1");
@@ -56,7 +56,7 @@ describe("ProviderAttempt-owned thread binding", () => {
       store.close();
     }
     const db = new Database(memory.workbenchDbPath, { readonly: true });
-    expect(db.pragma("user_version", { simple: true })).toBe(6);
+    expect(db.pragma("user_version", { simple: true })).toBe(7);
     expect(db.prepare("PRAGMA table_info(provider_thread_links)").all()).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "attempt_id", notnull: 1 }),
     ]));

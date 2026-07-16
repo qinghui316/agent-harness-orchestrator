@@ -7,10 +7,12 @@ export function ProjectFilesPanel({
   projectId,
   selectedRefs,
   onSelectedRefsChange,
+  onOpenTextDocument,
 }: {
   projectId: string | null;
   selectedRefs: TopicFileReference[];
   onSelectedRefsChange: (refs: TopicFileReference[]) => void;
+  onOpenTextDocument: (relativePath: string) => void;
 }): ReactElement {
   const [path, setPath] = useState("");
   const [query, setQuery] = useState("");
@@ -66,6 +68,16 @@ export function ProjectFilesPanel({
     } finally {
       setLoadingPreview(false);
     }
+  }
+
+  async function selectEntry(ref: TopicFileReference): Promise<void> {
+    if (ref.kind === "file" && isWorkspaceTextDocument(ref)) {
+      setSelectedPath(ref.relativePath);
+      setPreview(null);
+      onOpenTextDocument(ref.relativePath);
+      return;
+    }
+    await loadPreview(ref);
   }
 
   function insertReference(ref?: TopicFileReference | null): void {
@@ -124,7 +136,7 @@ export function ProjectFilesPanel({
             type="button"
             key={entry.relativePath}
             className={`project-files-row ${entry.relativePath === selectedPath ? "selected" : ""}`}
-            onClick={() => void loadPreview(entry)}
+            onClick={() => void selectEntry(entry)}
           >
             {entry.kind === "directory" ? <Folder size={15} aria-hidden="true" /> : <File size={15} aria-hidden="true" />}
             <span>{entry.name}</span>
@@ -160,4 +172,9 @@ export function ProjectFilesPanel({
       </div>
     </section>
   );
+}
+
+function isWorkspaceTextDocument(ref: TopicFileReference): boolean {
+  const extension = (ref.extension ?? "").toLowerCase();
+  return extension === "md" || extension === "markdown" || extension === "txt";
 }

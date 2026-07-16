@@ -4,6 +4,7 @@ import type {
   TopicThreadEntry,
   ValidatedPlanHandoffIntent,
 } from "./types.js";
+import { canonicalPlanDocumentFromEntry, canonicalPlanDocumentText } from "./plan-documents.js";
 
 const ELIGIBLE_PLAN_HANDOFF_ROLES = new Set<PlanHandoffAgentRoleId>(["planning-agent"]);
 const DEFAULT_EXECUTION_MODE = "scoped-auto" as const;
@@ -28,22 +29,42 @@ export function validatePlanHandoffIntent(
   }
   const sourceRunId = intent.sourceRunId.trim();
   if (!sourceRunId) throw badRequest("Plan handoff source run id is required.");
+  const sourceDocumentId = intent.sourceDocumentId?.trim();
+  const sourceCanonicalItemId = intent.sourceCanonicalItemId?.trim();
+  const sourceProposalHash = intent.sourceProposalHash?.trim();
+  if (!sourceDocumentId || !sourceCanonicalItemId || !sourceProposalHash) {
+    throw staleHandoff("Plan handoff canonical document identity is missing.");
+  }
   const source = [...messages].reverse().find((message) => (
     message.type === "assistant.message"
     && message.agentRoleId === intent.sourceAgentRoleId
     && message.runId === sourceRunId
     && !["accepted", "revision-requested", "skipped", "superseded"].includes(message.status ?? "")
-    && (!intent.sourceArtifact || message.artifact === intent.sourceArtifact)
-    && Boolean(extractPlanText(message))
-    && Boolean(message.artifact)
+    && canonicalPlanDocumentFromEntry(message)?.documentId === sourceDocumentId
   ));
   if (!source) throw staleHandoff("Plan handoff source is stale or unavailable in the selected conversation.");
-  const planText = extractPlanText(source);
+  const latestPlanSource = [...messages].reverse().find((message) => (
+    message.type === "assistant.message"
+    && message.agentRoleId === intent.sourceAgentRoleId
+    && canonicalPlanDocumentFromEntry(message)
+  ));
+  if (latestPlanSource?.id !== source.id) throw staleHandoff("Plan handoff source has been superseded by a newer proposal.");
+  const document = canonicalPlanDocumentFromEntry(source);
+  if (!document
+    || document.sourceCanonicalItemId !== sourceCanonicalItemId
+    || document.proposalHash !== sourceProposalHash
+    || (intent.sourceArtifact && document.proposalArtifact !== intent.sourceArtifact)) {
+    throw staleHandoff("Plan handoff source identity no longer matches the current proposal.");
+  }
+  const planText = canonicalPlanDocumentText(source, document);
   if (!planText) throw staleHandoff("Plan handoff source did not contain plan text.");
   return {
     ...intent,
     sourceRunId,
-    sourceArtifact: source.artifact as string,
+    sourceArtifact: document.proposalArtifact,
+    sourceDocumentId,
+    sourceCanonicalItemId,
+    sourceProposalHash,
     executionMode: intent.executionMode ?? DEFAULT_EXECUTION_MODE,
     feedback,
     planText,
@@ -75,15 +96,6 @@ export function planHandoffUserMessage(handoff: PlanHandoffIntent): string {
     : handoff.kind === "revise-plan"
     ? `请主 Agent 先审查下面的计划修改意见，再决定是否让 Plan Agent 修改计划：\n\n${handoff.feedback ?? ""}`
     : "请主 Agent 基于当前计划继续判断执行路径。";
-}
-
-function extractPlanText(message: TopicThreadEntry): string {
-  const blockText = (message.blocks ?? [])
-    .filter((block) => block.kind === "prose" || block.kind === "reasoning-summary")
-    .map((block) => block.text ?? block.preview ?? "")
-    .join("\n\n")
-    .trim();
-  return blockText || (message.text ?? "").trim();
 }
 
 function badRequest(message: string): Error {

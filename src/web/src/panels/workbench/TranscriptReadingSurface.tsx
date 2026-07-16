@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
-import { Bot, Brain, CheckCircle2, FilePenLine, LoaderCircle, Search, Terminal, Wrench } from "lucide-react";
+import { ArrowUpRight, Bot, Brain, CheckCircle2, FilePenLine, FileText, LoaderCircle, Search, Terminal, Wrench } from "lucide-react";
+import { postJson } from "../../api.js";
 import { artifactName } from "./RunReplayPanel.js";
 import { formatTime, humanStatus } from "../../formatters.js";
 import { cleanTranscriptText, cleanTranscriptTitle } from "../../liveTranscript.js";
@@ -8,7 +9,7 @@ import {
   isLongTranscriptCell,
   transcriptCellDisplayText,
 } from "./transcriptMeasurement.js";
-import type { InteractionHistoryRecord, ParentAgentTranscriptCell } from "../../types.js";
+import type { CanonicalDocumentReference, InteractionHistoryRecord, ParentAgentTranscriptCell, TextDocumentResource } from "../../types.js";
 
 export function AgentTranscriptPane({ cells, emptyMessage = "暂无 Agent 消息。", testId = "agent-transcript-pane" }: {
   cells: ParentAgentTranscriptCell[];
@@ -38,11 +39,14 @@ export function AgentTranscriptPane({ cells, emptyMessage = "暂无 Agent 消息
   );
 }
 
-export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded, onOpenAgent }: {
+export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded, onOpenAgent, onOpenDocument, projectId, conversationId }: {
   cell: ParentAgentTranscriptCell;
   expanded: boolean;
   onToggleExpanded: () => void;
   onOpenAgent?: (agentSurfaceId: string) => void;
+  onOpenDocument?: (document: CanonicalDocumentReference) => void;
+  projectId?: string | null;
+  conversationId?: string | null;
 }): ReactElement {
   const isUser = cell.kind === "user-message";
   const rowKind = isUser ? "user" : "parent";
@@ -63,6 +67,13 @@ export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded
           <TranscriptAssistantMessage cell={cell} expanded={expanded} onToggleExpanded={onToggleExpanded} />
         ) : cell.kind === "user-input" && cell.interactionHistory ? (
           <InteractionHistoryView history={cell.interactionHistory} />
+        ) : cell.kind === "document-preview" && cell.documentRef ? (
+          <PlanDocumentPreview
+            document={cell.documentRef}
+            projectId={projectId}
+            conversationId={conversationId}
+            onOpen={() => onOpenDocument?.(cell.documentRef!)}
+          />
         ) : (
           <TranscriptActivityRow cell={cell} expanded={expanded} onToggleExpanded={onToggleExpanded} onOpenAgent={onOpenAgent} />
         )}
@@ -190,6 +201,36 @@ export function TranscriptActivityRow({ cell, expanded, onToggleExpanded, onOpen
         </div>
       ) : null}
     </div>
+  );
+}
+
+function PlanDocumentPreview({ document, projectId, conversationId, onOpen }: {
+  document: CanonicalDocumentReference;
+  projectId?: string | null;
+  conversationId?: string | null;
+  onOpen: () => void;
+}): ReactElement {
+  const [resource, setResource] = useState<TextDocumentResource | null>(null);
+  useEffect(() => {
+    let active = true;
+    if (!projectId || !conversationId) return () => { active = false; };
+    void postJson<TextDocumentResource>(`/api/projects/${encodeURIComponent(projectId)}/workspace-resources/resolve`, {
+      target: { kind: "document", conversationId, documentId: document.documentId },
+    }).then((result) => {
+      if (active) setResource(result);
+    }).catch(() => {
+      if (active) setResource(null);
+    });
+    return () => { active = false; };
+  }, [conversationId, document.documentId, projectId]);
+  return (
+    <button type="button" className="plan-document-preview" data-testid="plan-document-preview" onClick={onOpen}>
+      <span className="plan-document-preview-heading"><FileText size={16} aria-hidden="true" /><span>{document.title}</span><ArrowUpRight size={14} aria-hidden="true" /></span>
+      <span className="plan-document-preview-body">
+        {resource ? <TranscriptMarkdownLite text={resource.content} idPrefix={`plan-preview:${document.documentId}`} compact /> : <span className="plan-document-preview-loading">正在读取计划...</span>}
+      </span>
+      <span className="plan-document-preview-fade" aria-hidden="true" />
+    </button>
   );
 }
 

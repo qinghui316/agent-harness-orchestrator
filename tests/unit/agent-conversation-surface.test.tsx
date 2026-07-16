@@ -3,7 +3,7 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { canonicalTranscriptCellsFromThreadItem } from "../../src/workbench/parent-agent-transcript.js";
-import { AgentWorkspacePanel } from "../../src/web/src/panels/workbench/AgentWorkspacePanel.js";
+import { ResourceWorkspacePanel } from "../../src/web/src/panels/workbench/ResourceWorkspacePanel.js";
 import { AgentTranscriptPane, ParentAgentTranscriptCellView } from "../../src/web/src/panels/workbench/TranscriptReadingSurface.js";
 import { replaceCanonicalMessageCells } from "../../src/web/src/liveTranscript.js";
 import type { AgentWorkspaceAgent, AssistantTurnBlock, ParentAgentTranscript } from "../../src/web/src/types.js";
@@ -11,6 +11,47 @@ import type { AgentWorkspaceAgent, AssistantTurnBlock, ParentAgentTranscript } f
 afterEach(cleanup);
 
 describe("Agent conversation surfaces", () => {
+  it("inserts a late provider-qualified child input before output from the same turn", () => {
+    const lineage = { providerId: "codex", attemptId: "attempt:child", threadId: "thread-child", turnId: "turn-child" };
+    let transcript: ParentAgentTranscript = { title: "Child", cells: [], items: [] };
+    transcript = replaceCanonicalMessageCells(transcript, [], [{
+      id: "cell:assistant",
+      kind: "assistant-message",
+      source: "provider-runtime",
+      ...lineage,
+      itemId: "assistant-item",
+      text: "Working on the delegated task.",
+    }]);
+    transcript = replaceCanonicalMessageCells(transcript, [], [{
+      id: "cell:user",
+      kind: "user-message",
+      source: "provider-runtime",
+      ...lineage,
+      itemId: "user-item",
+      text: "Delegated task",
+      turnId: "parent-turn-that-created-child",
+    }], "thread-start");
+
+    expect(transcript.cells.map((cell) => cell.id)).toEqual(["cell:user", "cell:assistant"]);
+  });
+
+  it("replaces a canonical cell after message-owner state is rebuilt", () => {
+    const current: ParentAgentTranscript = { title: "Demand", cells: [{
+      id: "cell:assistant:stable",
+      kind: "assistant-message",
+      source: "provider-runtime",
+      text: "Partial",
+    }], items: [] };
+    const transcript = replaceCanonicalMessageCells(current, [], [{
+      id: "cell:assistant:stable",
+      kind: "assistant-message",
+      source: "provider-runtime",
+      text: "Complete",
+    }]);
+
+    expect(transcript.cells).toEqual([expect.objectContaining({ id: "cell:assistant:stable", text: "Complete" })]);
+  });
+
   it("replaces one canonical message in place through repeated patches", () => {
     let transcript: ParentAgentTranscript = { title: "Demand", cells: [], items: [] };
     let owned: string[] = [];
@@ -64,26 +105,31 @@ describe("Agent conversation surfaces", () => {
     const onSelect = vi.fn();
     const onClose = vi.fn();
     const onBack = vi.fn();
-    render(<AgentWorkspacePanel
+    render(<ResourceWorkspacePanel
       workspace={{ selectedAgentId: first.id, agents: [first, second] }}
-      selectedAgentId={first.id}
-      openAgentIds={[first.id, second.id]}
-      busy={false}
-      onSelectAgent={onSelect}
-      onCloseAgent={onClose}
+      tabs={[
+        { resourceId: `agent:${first.id}`, target: { kind: "agent", conversationId: "conversation-1", agentSurfaceId: first.id } },
+        { resourceId: `agent:${second.id}`, target: { kind: "agent", conversationId: "conversation-1", agentSurfaceId: second.id } },
+      ]}
+      selectedResourceId={`agent:${first.id}`}
+      documents={{}}
+      loadingResourceIds={[]}
+      resourceErrors={{}}
+      onSelectResource={onSelect}
+      onCloseResource={onClose}
       onBack={onBack}
       onSendAgentMessage={async () => undefined}
       providerDisplayName="Claude Code"
       modelLabel="default"
     />);
-    const tabs = screen.getByRole("tablist", { name: "已打开的 Agent" });
+    const tabs = screen.getByRole("tablist", { name: "已打开的资源" });
     expect(within(tabs).getByRole("tab", { name: /Coder Agent 1/ })).toBeTruthy();
     expect(within(tabs).getByRole("tab", { name: /Coder Agent 2/ })).toBeTruthy();
     expect(screen.getByText("Coder one result")).toBeTruthy();
     fireEvent.click(within(tabs).getByRole("tab", { name: /Coder Agent 2/ }));
-    expect(onSelect).toHaveBeenCalledWith(second.id);
+    expect(onSelect).toHaveBeenCalledWith(`agent:${second.id}`);
     fireEvent.click(screen.getByRole("button", { name: "关闭 Coder Agent 1" }));
-    expect(onClose).toHaveBeenCalledWith(first.id);
+    expect(onClose).toHaveBeenCalledWith(`agent:${first.id}`);
     fireEvent.click(screen.getByRole("button", { name: "返回工具列表" }));
     expect(onBack).toHaveBeenCalledOnce();
   });

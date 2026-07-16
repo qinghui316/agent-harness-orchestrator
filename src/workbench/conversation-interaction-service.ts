@@ -115,6 +115,9 @@ async function settlePlan(
     sourceRunId: resolved.source.proposal.runId,
     sourceAgentRoleId: "planning-agent" as const,
     sourceArtifact: resolved.source.proposal.artifact,
+    sourceDocumentId: resolved.source.document.documentId,
+    sourceCanonicalItemId: resolved.source.document.sourceCanonicalItemId,
+    sourceProposalHash: resolved.source.document.proposalHash,
     kind,
     feedback,
   };

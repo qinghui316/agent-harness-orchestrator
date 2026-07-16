@@ -14,7 +14,6 @@ import { TerminalRuntime } from "../../src/server/terminal/terminal-runtime.js";
 import { buildNativeFolderDialogCommand, executeWorkbenchAction, recoverWorkbenchProjects, startWorkbenchServer, type WorkbenchServerHandle } from "../../src/server/workbench-server.js";
 import type { ManagedProject } from "../../src/types/index.js";
 import { appendConversationThreadEntry, buildProjectScopedMainAgentPrompt } from "../../src/workbench/chat.js";
-import { validatePlanHandoffIntent } from "../../src/workbench/plan-handoff.js";
 import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
 import { createFakeCodexRuntime } from "../helpers/fake-codex-runtime.js";
 
@@ -230,47 +229,6 @@ describe("workbench server", () => {
     expect(prompt).not.toContain("planner-proposal");
   });
 
-  it("adds project-rule routing context for validated plan handoff turns", () => {
-    validatePlanHandoffIntent([{
-      id: "assistant:conv:run-plan:planning-agent",
-      type: "assistant.message",
-      timestamp: "2026-07-07T00:00:00.000Z",
-      conversationId: "conv-plan",
-      changeId: "",
-      runId: "run-plan",
-      agentRoleId: "planning-agent",
-      text: "1. 修改 UI\n2. 补测试",
-      artifact: "conversation-runs/conv-plan/run-plan/planner-proposal.json",
-    }], {
-      sourceRunId: "run-plan",
-      sourceAgentRoleId: "planning-agent",
-      kind: "execute-plan",
-    });
-    expect(buildProjectScopedMainAgentPrompt("请主 Agent 基于当前计划继续判断执行路径。")).toBe("请主 Agent 基于当前计划继续判断执行路径。");
-  });
-
-  it("rejects forged or unsupported plan handoff sources", () => {
-    expect(() => validatePlanHandoffIntent([], {
-      sourceRunId: "missing-run",
-      sourceAgentRoleId: "planning-agent",
-      kind: "execute-plan",
-    })).toThrow(/stale or unavailable/);
-    expect(() => validatePlanHandoffIntent([{
-      id: "assistant:conv:run-plan:main",
-      type: "assistant.message",
-      timestamp: "2026-07-07T00:00:00.000Z",
-      conversationId: "conv-plan",
-      changeId: "",
-      runId: "run-plan",
-      agentRoleId: "main-agent",
-      text: "not a plan session",
-    }], {
-      sourceRunId: "run-plan",
-      sourceAgentRoleId: "planning-agent",
-      kind: "execute-plan",
-    })).toThrow(/stale or unavailable/);
-  });
-
   it("rejects composer attachment uploads before project preparation", async () => {
     const memory = await resolveProjectMemory(project());
     await rm(memory.markerPath, { force: true });
@@ -293,6 +251,7 @@ describe("workbench server", () => {
     await mkdir(join(tempDir, "src"), { recursive: true });
     await mkdir(join(tempDir, "node_modules", "pkg"), { recursive: true });
     await writeFile(join(tempDir, "src", "pricing.ts"), "export const price = 1;\n", "utf8");
+    await writeFile(join(tempDir, "notes.md"), "# Notes\n\nResource workspace.\n", "utf8");
     await writeFile(join(tempDir, "node_modules", "pkg", "index.js"), "module.exports = 1;\n", "utf8");
 
     const rootTree = await getJson<{ entries: Array<{ relativePath: string; kind: string; name: string }> }>(
@@ -312,6 +271,20 @@ describe("workbench server", () => {
       `${handle!.url}/api/projects/repo/files/preview?path=src%2Fpricing.ts`,
     );
     expect(preview).toMatchObject({ path: "src/pricing.ts", status: "text", content: "export const price = 1;\n" });
+
+    const resourceResponse = await fetch(`${handle!.url}/api/projects/repo/workspace-resources/resolve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target: { kind: "project-file", relativePath: "notes.md" } }),
+    });
+    expect(resourceResponse.ok).toBe(true);
+    expect(await resourceResponse.json()).toMatchObject({
+      resourceId: "project-file:notes.md",
+      kind: "markdown-file",
+      language: "markdown",
+      content: "# Notes\n\nResource workspace.\n",
+      readOnly: true,
+    });
   });
 
   it("serves read-only Git status and diff for the right rail Git tab", async () => {

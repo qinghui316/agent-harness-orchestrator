@@ -49,8 +49,10 @@ You are a real child Agent spawned by the Main Agent. Load and follow
 
 The complete file contract, supported workflow modes, examples, and fail-fast
 rules live in `$aho-workflow-authoring`. Write the proposal files directly in
-the assigned workspace and return only a concise natural-language summary after
-writing them. The files, not a returned patch or JSON envelope, are the result.
+the assigned workspace and, when they are complete, return the complete
+`plan.md` content as the final assistant response. Do not return only a summary,
+patch, or JSON envelope. The files remain the proposal and Runtime input; the
+final response is the user-visible representation of the same Plan.
 
 ## Escalate When
 

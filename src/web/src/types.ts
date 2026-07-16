@@ -397,13 +397,18 @@ export type ParentAgentTranscriptBlock = {
 };
 export type ParentAgentTranscriptCell = {
   id: string;
-  kind: "user-message" | "assistant-message" | "process-row" | "evidence-row" | "user-input" | "detail-only";
+  kind: "user-message" | "assistant-message" | "process-row" | "evidence-row" | "user-input" | "document-preview" | "detail-only";
   source: "user" | "provider-runtime" | "aho-orchestration" | "workflow-evidence" | "maintenance";
   agentRoleId?: string;
   agentTaskId?: string;
+  initialThreadInput?: boolean;
   runId?: string;
+  providerId?: string;
+  attemptId?: string;
   threadId?: string;
+  parentThreadId?: string;
   turnId?: string;
+  itemId?: string;
   agentSurfaceId?: string;
   agentDisplayName?: string;
   targetAgentSurfaceId?: string;
@@ -420,6 +425,37 @@ export type ParentAgentTranscriptCell = {
   contextRefs?: TopicFileReference[];
   attachments?: TopicAttachment[];
   interactionHistory?: InteractionHistoryRecord;
+  documentRef?: CanonicalDocumentReference;
+};
+
+export type CanonicalDocumentReference = {
+  documentId: string;
+  documentKind: "plan";
+  title: string;
+  sourceMessageId: string;
+  sourceCanonicalItemId: string;
+  proposalHash: string;
+};
+
+export type WorkspaceResourceTarget =
+  | { kind: "agent"; conversationId: string; agentSurfaceId: string }
+  | { kind: "document"; conversationId: string; documentId: string }
+  | { kind: "project-file"; relativePath: string };
+
+export type TextDocumentResource = {
+  resourceId: string;
+  kind: "plan" | "markdown-file" | "text-file";
+  title: string;
+  language: "markdown" | "text";
+  content: string;
+  revision: string;
+  readOnly: true;
+  target: Extract<WorkspaceResourceTarget, { kind: "document" | "project-file" }>;
+};
+
+export type WorkspaceResourceTab = {
+  resourceId: string;
+  target: WorkspaceResourceTarget;
 };
 export type ParentAgentTranscriptItem = {
   id: string;
@@ -1598,7 +1634,7 @@ export type FolderDialogResult = { path: string | null; canceled: boolean; suppo
 export type WorkbenchLiveEvent =
   | { event: "topic.created"; data: { topic: { id?: string; conversationId?: string; changeId?: string; title: string; state: "active"; selectedProviderId?: string } } }
   | { event: "topic.message"; data: TopicMessageEntry }
-  | { event: "timeline.patch"; data: { conversationId: string; graphScopeId?: string; messageId: string; agentSurfaceId: string; providerId?: ProviderId; roleId?: string; threadId?: string; parentThreadId?: string; status?: string; cells: ParentAgentTranscriptCell[] } }
+  | { event: "timeline.patch"; data: { conversationId: string; graphScopeId?: string; messageId: string; agentSurfaceId: string; providerId?: ProviderId; roleId?: string; threadId?: string; parentThreadId?: string; status?: string; placement?: "thread-start"; cells: ParentAgentTranscriptCell[] } }
   | { event: "conversation.interactions.updated"; data: ConversationInteractionQueue }
   | { event: "run.started"; data: WorkbenchLiveIdentity & { runId: string; actionType?: string; runtime?: string; taskIds?: string[] } }
   | { event: "run.status"; data: WorkbenchLiveIdentity & { actionRunId?: string; status: string; label?: string } }

@@ -111,6 +111,11 @@ export interface CodexAppServerChildThreadResult {
   threadId: string;
   status?: string;
   prompt?: string;
+  initialUserItem?: {
+    turnId: string;
+    itemId: string;
+    text: string;
+  };
   model?: string;
   reasoningEffort?: string;
   displayName?: string;
@@ -363,6 +368,8 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
   const subAgentThreadItems = new Map<string, string>();
   const pendingChildReads = new Set<Promise<void>>();
   const readChildThreadIds = new Set<string>();
+  const pendingInitialChildReads = new Set<string>();
+  const deliveredInitialChildReads = new Set<string>();
   let terminalStatus: CodexAppServerTurnResult["status"] | null = null;
   let terminalError: string | undefined;
   const pending = new Map<number, { resolve: (value: Record<string, unknown>) => void; reject: (error: Error) => void }>();
@@ -715,6 +722,7 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
       for (const childThreadId of collab.receiverThreadIds) {
         childThreadParents.set(childThreadId, collab.senderThreadId ?? notificationThreadId ?? threadId ?? "");
         childThreadRoles.set(childThreadId, "child-agent");
+        queueChildInitialThreadRead(collab, childThreadId);
         if (isTerminalCollabStatus(collab.status)) queueChildThreadRead(collab, childThreadId);
       }
     }
@@ -724,6 +732,12 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
       subAgentThreadItems.set(subAgent.threadId, subAgent.itemId);
       childThreadParents.set(subAgent.threadId, notificationThreadId ?? threadId ?? "");
       childThreadRoles.set(subAgent.threadId, "child-agent");
+      queueChildInitialThreadRead({
+        itemId: subAgent.itemId,
+        tool: "spawn_agent",
+        senderThreadId: notificationThreadId ?? threadId ?? undefined,
+        receiverThreadIds: [subAgent.threadId],
+      }, subAgent.threadId);
     }
     if (method === "turn/completed" && notificationThreadId && subAgentThreadItems.has(notificationThreadId)) {
       queueChildThreadRead({
@@ -925,6 +939,8 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
     readChildThreadIds.add(childThreadId);
     const parentThreadId = threadId;
     const read = sendRequest("thread/read", { threadId: childThreadId, includeTurns: true }).then((snapshot) => {
+      const initialUserItem = extractCodexAppServerThreadInitialUserItem(snapshot);
+      if (initialUserItem) deliveredInitialChildReads.add(childThreadId);
       const result: CodexAppServerChildThreadResult = {
         ...(call.itemId ? { itemId: call.itemId } : {}),
         tool: "spawn_agent",
@@ -934,6 +950,7 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
         ...((call.prompt || extractCodexAppServerThreadInitialPrompt(snapshot))
           ? { prompt: call.prompt || extractCodexAppServerThreadInitialPrompt(snapshot) }
           : {}),
+        ...(initialUserItem ? { initialUserItem } : {}),
         ...(call.model ? { model: call.model } : {}),
         ...(call.reasoningEffort ? { reasoningEffort: call.reasoningEffort } : {}),
         displayName: extractCodexAppServerThreadDisplayName(snapshot)
@@ -946,6 +963,46 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
       childThreads.push(result);
       options.onChildThreadResult?.(result);
     }).finally(() => pendingChildReads.delete(read));
+    pendingChildReads.add(read);
+  }
+
+  function queueChildInitialThreadRead(call: CodexAppServerCollabToolCall, childThreadId: string): void {
+    if (!threadId || deliveredInitialChildReads.has(childThreadId) || pendingInitialChildReads.has(childThreadId)) return;
+    pendingInitialChildReads.add(childThreadId);
+    const parentThreadId = threadId;
+    const read = (async () => {
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        if (deliveredInitialChildReads.has(childThreadId)) return;
+        const snapshot = await sendRequest("thread/read", { threadId: childThreadId, includeTurns: true }).catch(() => null);
+        const initialUserItem = snapshot ? extractCodexAppServerThreadInitialUserItem(snapshot) : undefined;
+        if (snapshot && initialUserItem) {
+          if (deliveredInitialChildReads.has(childThreadId)) return;
+          deliveredInitialChildReads.add(childThreadId);
+          options.onChildThreadResult?.({
+            ...(call.itemId ? { itemId: call.itemId } : {}),
+            tool: "spawn_agent",
+            parentThreadId,
+            threadId: childThreadId,
+            status: "running",
+            prompt: initialUserItem.text,
+            initialUserItem,
+            ...(call.model ? { model: call.model } : {}),
+            ...(call.reasoningEffort ? { reasoningEffort: call.reasoningEffort } : {}),
+            displayName: extractCodexAppServerThreadDisplayName(snapshot)
+              ?? childThreadDisplayNames.get(childThreadId)
+              ?? agentRoleDisplayName(childThreadRoles.get(childThreadId) ?? "child-agent"),
+            finalText: "",
+            changedFiles: [],
+            snapshot,
+          });
+          return;
+        }
+        if (attempt < 19) await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    })().finally(() => {
+      pendingInitialChildReads.delete(childThreadId);
+      pendingChildReads.delete(read);
+    });
     pendingChildReads.add(read);
   }
 
@@ -1048,15 +1105,35 @@ export function extractCodexAppServerThreadInitialPrompt(snapshot: Record<string
     const items = Array.isArray(turn.items) ? turn.items : Array.isArray(turn.output) ? turn.output : [];
     for (const item of items) {
       if (!isRecord(item)) continue;
-      const role = stringValue(item.role);
       const type = stringValue(item.type ?? item.kind);
-      if (role && role !== "user") continue;
-      if (type && !/userMessage|user|message|input/i.test(type)) continue;
+      if (type !== "userMessage") continue;
       const text = textFromThreadItem(item);
       if (text) return text;
     }
   }
   return "";
+}
+
+export function extractCodexAppServerThreadInitialUserItem(snapshot: Record<string, unknown>): { turnId: string; itemId: string; text: string } | undefined {
+  const thread = isRecord(snapshot.thread) ? snapshot.thread : snapshot;
+  const turns = Array.isArray(thread.turns) ? thread.turns : [];
+  for (const turn of turns) {
+    if (!isRecord(turn)) continue;
+    const turnId = stringValue(turn.id ?? turn.turnId ?? turn.turn_id);
+    if (!turnId) continue;
+    const items = Array.isArray(turn.items) ? turn.items : Array.isArray(turn.output) ? turn.output : [];
+    for (const item of items) {
+      if (!isRecord(item)) continue;
+      const role = stringValue(item.role);
+      const type = stringValue(item.type ?? item.kind);
+      if (role && role !== "user") continue;
+      if (type && !/userMessage|user|message|input/i.test(type)) continue;
+      const itemId = stringValue(item.id ?? item.itemId ?? item.item_id);
+      const text = textFromThreadItem(item);
+      if (itemId && text) return { turnId, itemId, text };
+    }
+  }
+  return undefined;
 }
 
 export function extractCodexAppServerThreadDisplayName(snapshot: Record<string, unknown>): string | undefined {

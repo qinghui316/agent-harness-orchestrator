@@ -133,18 +133,21 @@ export interface ProviderUserInputResolution {
 
 export interface ProviderChildThreadResult {
   providerId: ProviderId;
-  itemId?: string;
+  spawnItemId?: string;
   tool: "spawn_agent";
   parentThreadId: string;
   threadId: string;
   status?: string;
-  prompt?: string;
+  initialInput?: {
+    turnId: string;
+    itemId: string;
+    text: string;
+  };
   model?: string;
   reasoningEffort?: string;
   displayName?: string;
   finalText: string;
   changedFiles: string[];
-  snapshot: Record<string, unknown>;
 }
 
 export interface ProviderToolSpec {

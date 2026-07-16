@@ -30,12 +30,18 @@ export function MainConversationView({
   onLoadEarlierTranscript,
   loadingEarlierTranscript,
   onOpenAgent,
+  onOpenDocument,
+  projectId,
+  conversationId,
 }: {
   transcript: ParentAgentTranscript;
   scrollContainerRef: RefObject<HTMLDivElement | null>;
   onLoadEarlierTranscript: () => Promise<void>;
   loadingEarlierTranscript: boolean;
   onOpenAgent: (agentSurfaceId: string) => void;
+  onOpenDocument: (document: import("../../types.js").CanonicalDocumentReference) => void;
+  projectId: string | null;
+  conversationId: string | null;
 }): ReactElement {
   return (
     <div className="main-conversation-view" data-testid="main-conversation-view">
@@ -45,6 +51,9 @@ export function MainConversationView({
         onLoadEarlierTranscript={onLoadEarlierTranscript}
         loadingEarlierTranscript={loadingEarlierTranscript}
         onOpenAgent={onOpenAgent}
+        onOpenDocument={onOpenDocument}
+        projectId={projectId}
+        conversationId={conversationId}
       />
     </div>
   );
@@ -56,12 +65,18 @@ function ParentAgentTranscriptView({
   onLoadEarlierTranscript,
   loadingEarlierTranscript,
   onOpenAgent,
+  onOpenDocument,
+  projectId,
+  conversationId,
 }: {
   transcript: ParentAgentTranscript;
   scrollContainerRef: RefObject<HTMLDivElement | null>;
   onLoadEarlierTranscript: () => Promise<void>;
   loadingEarlierTranscript: boolean;
   onOpenAgent: (agentSurfaceId: string) => void;
+  onOpenDocument: (document: import("../../types.js").CanonicalDocumentReference) => void;
+  projectId: string | null;
+  conversationId: string | null;
 }): ReactElement {
   const cells = transcript.cells?.length ? transcript.cells.filter((cell) => cell.kind !== "detail-only") : [];
   const [expandedCells, setExpandedCells] = useState<Set<string>>(new Set());
@@ -192,7 +207,10 @@ function ParentAgentTranscriptView({
                     return next;
                   });
                 }}
-                onOpenAgent={onOpenAgent}
+              onOpenAgent={onOpenAgent}
+              onOpenDocument={onOpenDocument}
+              projectId={projectId}
+              conversationId={conversationId}
               />
             </div>
           );

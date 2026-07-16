@@ -1,5 +1,6 @@
 import type { Dirent } from "node:fs";
-import { lstat, readFile, readdir, realpath, stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { lstat, open, readFile, readdir, realpath, stat, type FileHandle } from "node:fs/promises";
 import { extname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { ManagedProject } from "../types/index.js";
 
@@ -46,6 +47,16 @@ export interface ProjectFilePreviewResult {
 export interface TopicFileReferenceResolution {
   text: string;
   contextRefs: TopicFileReference[];
+}
+
+export interface ProjectTextDocumentResult {
+  relativePath: string;
+  name: string;
+  kind: "markdown-file" | "text-file";
+  language: "markdown" | "text";
+  content: string;
+  revision: string;
+  size: number;
 }
 
 const DEFAULT_LIMIT = 50;
@@ -194,6 +205,74 @@ export async function readProjectFilePreview(project: ManagedProject, relativePa
   };
 }
 
+export async function readProjectTextDocument(project: ManagedProject, relativePath: string): Promise<ProjectTextDocumentResult> {
+  const root = await safeProjectRoot(project);
+  const normalizedPath = normalizeRelativePath(relativePath);
+  if (!normalizedPath || containsIgnoredPathSegment(normalizedPath)) throw badRequest("只允许读取当前项目中的文本文件。");
+  if (!isInside(root, resolve(root, normalizedPath))) throw badRequest("文件不存在或不在当前项目安全范围内。");
+  try {
+    await assertNoSymlinkSegments(root, normalizedPath);
+  } catch (error) {
+    if (error instanceof Error && error.name === "BadRequest") throw error;
+    throw badRequest("文件不存在或不在当前项目安全范围内。");
+  }
+  const absolutePath = resolve(root, normalizedPath);
+  const ref = await toSafeReference(root, absolutePath, { allowLargeFiles: true }).catch(() => null);
+  if (!ref || ref.kind !== "file") throw badRequest("文件不存在或不在当前项目安全范围内。");
+  const extension = (ref.extension ?? "").toLowerCase();
+  if (extension !== "md" && extension !== "markdown" && extension !== "txt") {
+    throw badRequest("资源工作区只支持 Markdown 和 TXT 文件。");
+  }
+  const before = await lstat(absolutePath).catch(() => null);
+  if (!before?.isFile() || before.isSymbolicLink()) throw badRequest("文件不存在或不在当前项目安全范围内。");
+  const canonicalPath = await realpath(absolutePath).catch(() => null);
+  if (!canonicalPath || !isInside(root, canonicalPath)) throw badRequest("文件不存在或不在当前项目安全范围内。");
+  const handle = await open(absolutePath, "r").catch(() => null);
+  if (!handle) throw badRequest("文件不存在或不在当前项目安全范围内。");
+  let buffer: Buffer;
+  try {
+    const opened = await handle.stat();
+    const after = await lstat(absolutePath).catch(() => null);
+    const currentCanonicalPath = await realpath(absolutePath).catch(() => null);
+    if (!after?.isFile()
+      || after.isSymbolicLink()
+      || !currentCanonicalPath
+      || currentCanonicalPath !== canonicalPath
+      || opened.dev !== before.dev
+      || opened.ino !== before.ino
+      || after.dev !== opened.dev
+      || after.ino !== opened.ino) {
+      throw badRequest("文件读取期间发生变化，请重试。");
+    }
+    if (opened.size > MAX_FILE_SIZE_BYTES) throw badRequest("文件超过 5 MB 安全读取上限。");
+    buffer = await readBoundedHandle(handle, MAX_FILE_SIZE_BYTES);
+  } finally {
+    await handle.close();
+  }
+  if (looksBinary(buffer)) throw badRequest("二进制文件不能作为文本文档打开。");
+  return {
+    relativePath: ref.relativePath,
+    name: ref.name,
+    kind: extension === "txt" ? "text-file" : "markdown-file",
+    language: extension === "txt" ? "text" : "markdown",
+    content: buffer.toString("utf8"),
+    revision: createHash("sha256").update(buffer).digest("hex"),
+    size: buffer.byteLength,
+  };
+}
+
+async function readBoundedHandle(handle: FileHandle, maxBytes: number): Promise<Buffer> {
+  const buffer = Buffer.allocUnsafe(maxBytes + 1);
+  let offset = 0;
+  while (offset < buffer.length) {
+    const { bytesRead } = await handle.read(buffer, offset, buffer.length - offset, offset);
+    if (bytesRead === 0) break;
+    offset += bytesRead;
+  }
+  if (offset > maxBytes) throw badRequest("文件超过 5 MB 安全读取上限。");
+  return buffer.subarray(0, offset);
+}
+
 export async function resolveTopicFileReferences(
   project: ManagedProject,
   text: string,
@@ -300,6 +379,25 @@ function normalizeLimit(value?: number): number {
 
 function shouldIgnoreName(name: string): boolean {
   return IGNORED_NAMES.has(name);
+}
+
+function containsIgnoredPathSegment(relativePath: string): boolean {
+  return relativePath.split("/").some((segment) => shouldIgnoreName(segment));
+}
+
+async function assertNoSymlinkSegments(root: string, relativePath: string): Promise<void> {
+  const segments = relativePath.split("/").filter(Boolean);
+  let current = root;
+  for (const segment of segments) {
+    current = resolve(current, segment);
+    if ((await lstat(current)).isSymbolicLink()) throw badRequest("符号链接文件不能在资源工作区打开。");
+  }
+}
+
+function badRequest(message: string): Error {
+  const error = new Error(message);
+  error.name = "BadRequest";
+  return error;
 }
 
 function compareDirent(a: Dirent, b: Dirent): number {

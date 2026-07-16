@@ -182,12 +182,16 @@ export interface ThreadStreamItem {
   artifact?: string;
   status?: string;
   graphScopeId?: string;
+  providerId?: string;
+  attemptId?: string;
   runId?: string;
   threadId?: string;
   parentThreadId?: string;
   turnId?: string;
+  itemId?: string;
   agentRoleId?: string;
   agentTaskId?: string;
+  initialThreadInput?: boolean;
   actionRunId?: string;
   actionType?: string;
   actions?: ThreadStreamAction[];

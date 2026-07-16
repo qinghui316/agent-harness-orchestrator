@@ -147,6 +147,7 @@ export function fromStoredThreadMessage(row: StoredTopicMessage): TopicThreadEnt
     itemId: row.itemId ?? (typeof raw.itemId === "string" ? raw.itemId : undefined),
     agentRoleId: typeof raw.agentRoleId === "string" ? raw.agentRoleId : undefined,
     agentTaskId: typeof raw.agentTaskId === "string" ? raw.agentTaskId : undefined,
+    initialThreadInput: raw.initialThreadInput === true ? true : undefined,
     artifact: row.artifact ?? undefined,
     error: row.error ?? undefined,
     resultSummary: typeof raw.resultSummary === "string" ? raw.resultSummary : undefined,
@@ -161,6 +162,7 @@ export function fromStoredThreadMessage(row: StoredTopicMessage): TopicThreadEnt
     contextRefs: Array.isArray(raw.contextRefs) ? raw.contextRefs.filter(isTopicFileReference) : undefined,
     attachments: Array.isArray(raw.attachments) ? raw.attachments.filter(isTopicAttachment) : undefined,
     planHandoff: isValidatedPlanHandoffIntent(raw.planHandoff) ? raw.planHandoff : undefined,
+    document: isCanonicalPlanDocument(raw.document) ? raw.document : undefined,
     position: row.position,
     completedTurnSequence: typeof raw.completedTurnSequence === "number" ? raw.completedTurnSequence : undefined,
   };
@@ -180,8 +182,25 @@ function isValidatedPlanHandoffIntent(value: unknown): value is import("./types.
     && value.sourceAgentRoleId === "planning-agent"
     && (value.kind === "execute-plan" || value.kind === "revise-plan" || value.kind === "skip-plan")
     && typeof value.sourceRunId === "string"
+    && typeof value.sourceDocumentId === "string"
+    && typeof value.sourceCanonicalItemId === "string"
+    && typeof value.sourceProposalHash === "string"
     && typeof value.planText === "string"
     && (value.executionMode === undefined || value.executionMode === "stepwise" || value.executionMode === "scoped-auto");
+}
+
+function isCanonicalPlanDocument(value: unknown): value is import("./types.js").CanonicalPlanDocument {
+  return isRecord(value)
+    && value.documentKind === "plan"
+    && typeof value.documentId === "string"
+    && typeof value.title === "string"
+    && typeof value.sourceMessageId === "string"
+    && typeof value.sourceCanonicalItemId === "string"
+    && typeof value.proposalId === "string"
+    && typeof value.proposalHash === "string"
+    && typeof value.proposalArtifact === "string"
+    && typeof value.contentHash === "string"
+    && typeof value.agentSurfaceId === "string";
 }
 
 function isAssistantTurnActivity(value: unknown): value is AssistantTurnActivity {

@@ -9,37 +9,50 @@ export function emptyParentAgentTranscript(): ParentAgentTranscript {
   };
 }
 
-export function reconcileTimelineCells(
-  currentCells: ParentAgentTranscriptCell[],
-  incomingCells: ParentAgentTranscriptCell[],
-): ParentAgentTranscriptCell[] {
-  const cells = [...currentCells];
-  const positions = new Map(cells.map((cell, index) => [cell.id, index]));
-  for (const incoming of incomingCells) {
-    const position = positions.get(incoming.id);
-    if (position === undefined) {
-      positions.set(incoming.id, cells.length);
-      cells.push(incoming);
-    } else {
-      cells[position] = mergeTimelineCell(cells[position]!, incoming);
-    }
-  }
-  return cells;
-}
-
 export function replaceCanonicalMessageCells(
   transcript: ParentAgentTranscript,
   previousCellIds: readonly string[],
   nextCells: ParentAgentTranscriptCell[],
+  placement?: "thread-start",
 ): ParentAgentTranscript {
   const previous = new Set(previousCellIds);
+  const nextIds = new Set(nextCells.map((cell) => cell.id));
   const current = transcript.cells ?? [];
-  const firstPreviousIndex = current.findIndex((cell) => previous.has(cell.id));
-  const retained = current.filter((cell) => !previous.has(cell.id));
-  const insertionIndex = firstPreviousIndex < 0 ? retained.length : Math.min(firstPreviousIndex, retained.length);
+  const firstOwnedIndex = current.findIndex((cell) => previous.has(cell.id) || nextIds.has(cell.id));
+  const retained = current.filter((cell) => !previous.has(cell.id) && !nextIds.has(cell.id));
+  const canonicalThreadStart = firstOwnedIndex < 0 && placement === "thread-start" ? exactProviderThreadStart(retained, nextCells) : -1;
+  const canonicalTurnStart = firstOwnedIndex < 0 && canonicalThreadStart < 0 ? exactProviderTurnStart(retained, nextCells) : -1;
+  const insertionIndex = firstOwnedIndex >= 0
+    ? Math.min(firstOwnedIndex, retained.length)
+    : canonicalThreadStart >= 0 ? canonicalThreadStart : canonicalTurnStart >= 0 ? canonicalTurnStart : retained.length;
   const cells = [...retained];
   cells.splice(insertionIndex, 0, ...nextCells);
   return normalizeParentAgentTranscript({ ...transcript, cells, items: transcriptItemsFromCells(cells) });
+}
+
+function exactProviderThreadStart(
+  current: ParentAgentTranscriptCell[],
+  incoming: ParentAgentTranscriptCell[],
+): number {
+  if (incoming.length !== 1 || incoming[0]?.kind !== "user-message") return -1;
+  const user = incoming[0];
+  if (!user.providerId || !user.attemptId || !user.threadId) return -1;
+  return current.findIndex((cell) => cell.providerId === user.providerId
+    && cell.attemptId === user.attemptId
+    && cell.threadId === user.threadId);
+}
+
+function exactProviderTurnStart(
+  current: ParentAgentTranscriptCell[],
+  incoming: ParentAgentTranscriptCell[],
+): number {
+  if (incoming.length !== 1 || incoming[0]?.kind !== "user-message") return -1;
+  const user = incoming[0];
+  if (!user.providerId || !user.attemptId || !user.threadId || !user.turnId) return -1;
+  return current.findIndex((cell) => cell.providerId === user.providerId
+    && cell.attemptId === user.attemptId
+    && cell.threadId === user.threadId
+    && cell.turnId === user.turnId);
 }
 
 export function mergeTranscriptPage(current: ParentAgentTranscript | null, incoming: ParentAgentTranscript): ParentAgentTranscript {
@@ -106,16 +119,4 @@ export function normalizeParentAgentTranscript(value: ParentAgentTranscript | nu
 
 export function isParentAgentTranscriptPayload(value: ParentAgentTranscript | null | undefined): boolean {
   return Array.isArray(value?.cells) || Array.isArray(value?.items);
-}
-
-function mergeTimelineCell(current: ParentAgentTranscriptCell, incoming: ParentAgentTranscriptCell): ParentAgentTranscriptCell {
-  return {
-    ...current,
-    ...incoming,
-    realtime: incoming.realtime,
-    contextRefs: incoming.contextRefs ?? current.contextRefs,
-    attachments: incoming.attachments ?? current.attachments,
-    evidenceRefs: incoming.evidenceRefs ?? current.evidenceRefs,
-    interactionHistory: incoming.interactionHistory ?? current.interactionHistory,
-  };
 }

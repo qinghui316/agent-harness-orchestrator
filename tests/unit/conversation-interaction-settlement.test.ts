@@ -210,6 +210,11 @@ describe("conversation interaction settlement", () => {
       public: { questions: [] },
       source: {
         proposal: { runId: "run-plan", artifact: "proposals/run-plan/plan.md" },
+        document: {
+          documentId: "plan-document-1",
+          sourceCanonicalItemId: "prose:codex:attempt:thread:turn:item",
+          proposalHash: "proposal-hash",
+        },
       },
     };
     domainSettlement.postConversationMessage.mockResolvedValue({ status: "completed" });
@@ -219,9 +224,9 @@ describe("conversation interaction settlement", () => {
     await settleConversationInteraction(project(), "conversation-plan", "interaction-plan", { action: "skip" });
 
     expect(domainSettlement.postConversationMessage.mock.calls.map((call) => call[2].planHandoffIntent)).toEqual([
-      expect.objectContaining({ kind: "execute-plan", sourceRunId: "run-plan" }),
-      expect.objectContaining({ kind: "revise-plan", feedback: "补充回滚验证" }),
-      expect.objectContaining({ kind: "skip-plan", feedback: undefined }),
+      expect.objectContaining({ kind: "execute-plan", sourceRunId: "run-plan", sourceDocumentId: "plan-document-1", sourceProposalHash: "proposal-hash" }),
+      expect.objectContaining({ kind: "revise-plan", feedback: "补充回滚验证", sourceCanonicalItemId: "prose:codex:attempt:thread:turn:item" }),
+      expect.objectContaining({ kind: "skip-plan", feedback: undefined, sourceDocumentId: "plan-document-1" }),
     ]);
   });
 });

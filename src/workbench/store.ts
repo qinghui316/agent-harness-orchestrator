@@ -7,7 +7,7 @@ import type { ProviderCapabilitySnapshot, ProviderId, ProviderModelRef } from ".
 import type { WorkbenchProviderUserInputRequest } from "./types.js";
 import { acquireWorkbenchRuntimeMutationLock, type WorkbenchRuntimeMutationLock } from "./schema-rebuild-gate.js";
 
-const WORKBENCH_SCHEMA_VERSION = 6;
+const WORKBENCH_SCHEMA_VERSION = 7;
 
 export interface StoredTopicMessage {
   id: string;

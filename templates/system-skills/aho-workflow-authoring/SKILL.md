@@ -35,8 +35,9 @@ arbitrary loops, nested workflows, pipelines, or whole-wave dispatch.
 5. Write concrete node titles and prompts, then map every Task and AC.
 6. Put the user-readable plan before the Workflow JSON appendix.
 7. Validate syntax, references, dependencies, scopes, and coverage before
-   returning a concise natural-language summary. The proposal files are the
-   result; the Runtime reads and validates them as written.
+   returning the complete `plan.md` content as the final assistant response.
+   The proposal files remain the Runtime input; the final response is the
+   provider-visible representation of that same Plan, not a second proposal.
 
 Read `references/fixed-plan-format.md` for every proposal. Read
 `references/workflow-patterns.md` before choosing topology. Read
@@ -74,11 +75,12 @@ domain objective; do not write `implement the accepted task` as a substitute.
 ## Result
 
 Write `spec.md`, `plan.md`, `tasks.md`, and optional `notes.md` directly in the
-Runtime-provided proposal workspace. After writing, report briefly what was
-written and list any open question or assumption in natural language. Do not
-return a patch JSON object and do not ask Runtime to reconstruct files from the
-summary. If a blocking unknown prevents a safe plan, leave the files absent or
-incomplete and explain the open question instead of inventing repository facts.
+Runtime-provided proposal workspace. After writing a complete proposal, return
+the complete contents of `plan.md` as the final assistant response, without a
+summary-only wrapper or a patch JSON object. Do not ask Runtime to reconstruct
+files from the response. If a blocking unknown prevents a safe plan, leave the
+files absent or incomplete and explain the open question instead of returning
+a Plan document or inventing repository facts.
 
 ## Final Check
 
@@ -91,3 +93,4 @@ Before returning, verify:
 - AC, Task, and Workflow syntax exactly matches the fixed format.
 - Every identifier resolves and every Task/AC is covered.
 - No proposal text claims execution authority.
+- The final assistant response matches the complete `plan.md` content.

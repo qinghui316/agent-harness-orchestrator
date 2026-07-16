@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { evaluateCodexAppServerCapabilities, extractCodexAppServerCollabToolCall, extractCodexAppServerPlanText, extractCodexAppServerThreadDisplayName, extractCodexAppServerThreadFinalText, extractCodexAppServerThreadInitialPrompt, shouldUseCodexAppServerForMemory, shouldUseCodexAppServerForReadOnlyTurn } from "../../src/codex/app-server.js";
+import { evaluateCodexAppServerCapabilities, extractCodexAppServerCollabToolCall, extractCodexAppServerPlanText, extractCodexAppServerThreadDisplayName, extractCodexAppServerThreadFinalText, extractCodexAppServerThreadInitialPrompt, extractCodexAppServerThreadInitialUserItem, shouldUseCodexAppServerForMemory, shouldUseCodexAppServerForReadOnlyTurn } from "../../src/codex/app-server.js";
 import { buildCodexReadonlyArgv, buildCodexReadonlyResumeArgv, buildCodexWorkspaceWriteArgv, detectCodexCapabilities, evaluateCodexCapabilities } from "../../src/codex/capabilities.js";
 import { codexExecutableEnvironmentKey, resolveCodexExecutable } from "../../src/codex/executable.js";
 import { createCodexJsonlStreamParser, extractFinalMessageFromCodexJsonl, truncateReadablePreview, type CodexJsonlStreamEvent } from "../../src/codex/jsonl.js";
@@ -146,13 +146,20 @@ describe("codex capabilities", () => {
         id: "thread-child",
         agentNickname: "Newton",
         agentRole: "planner",
-        turns: [{ items: [
-          { type: "userMessage", role: "user", content: [{ type: "input_text", text: "Use $aho-workflow-authoring and draft the proposal." }] },
+        turns: [{ id: "turn-child-1", items: [
+          { id: "item-child-input-1", type: "userMessage", role: "user", content: [{ type: "input_text", text: "Use $aho-workflow-authoring and draft the proposal." }] },
           { type: "agentMessage", role: "assistant", content: [{ type: "output_text", text: "{\"planMd\":\"# Plan\"}" }] },
         ] }],
       },
     };
     expect(extractCodexAppServerThreadInitialPrompt(snapshot)).toBe("Use $aho-workflow-authoring and draft the proposal.");
+    expect(extractCodexAppServerThreadInitialUserItem(snapshot)).toEqual({
+      turnId: "turn-child-1",
+      itemId: "item-child-input-1",
+      text: "Use $aho-workflow-authoring and draft the proposal.",
+    });
+    expect(extractCodexAppServerThreadInitialUserItem({ thread: { turns: [{ id: "turn-1", items: [{ id: "developer-1", type: "developerMessage", role: "developer", content: [{ type: "input_text", text: "hidden" }] }] }] } })).toBeUndefined();
+    expect(extractCodexAppServerThreadInitialUserItem({ thread: { turns: [{ items: [{ id: "item-1", type: "userMessage", content: [{ type: "input_text", text: "missing turn" }] }] }] } })).toBeUndefined();
     expect(extractCodexAppServerThreadFinalText(snapshot)).toBe('{"planMd":"# Plan"}');
     expect(extractCodexAppServerThreadDisplayName(snapshot)).toBe("Newton");
     expect(extractCodexAppServerThreadDisplayName({ thread: { id: "unnamed-child" } })).toBeUndefined();

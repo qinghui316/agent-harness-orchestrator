@@ -17,7 +17,9 @@ import { MainConversationView,
   ProjectFilesPanel,
   ProjectGitPanel,
   RuntimeDiagnosticsRailPanel,
-  AgentWorkspacePanel,
+  ResourceWorkspacePanel,
+  projectFileResourceTabs,
+  workspaceResourceRequestScope,
   TerminalDock,
   WorkspaceDockToggleBar,
   type RightToolRailTab,
@@ -69,7 +71,11 @@ import type {
   RuntimeActivityLogSnapshot,
   RuntimeDiagnosticsSnapshot,
   AgentWorkspaceAgent,
+  CanonicalDocumentReference,
   ConversationInteractionSettlement,
+  TextDocumentResource,
+  WorkspaceResourceTab,
+  WorkspaceResourceTarget,
 } from "./types.js";
 import { extractInlineSkillMentions } from "./shell/skill-mentions.js";
 import { extractInlineFileMentions } from "./shell/file-mentions.js";
@@ -176,8 +182,11 @@ export function App(): ReactElement {
   const [composerText, setComposerText] = useState("");
   const [actionRunning, setActionRunning] = useState<string | null>(null);
   const interactionDraftsRef = useRef<Record<string, ConversationInteractionDraft>>({});
-  const [openAgentSurfaceIds, setOpenAgentSurfaceIds] = useState<string[]>([]);
-  const [loadedTranscript, setLoadedTranscript] = useState<ParentAgentTranscript | null>(null);
+  const [workspaceResourceTabs, setWorkspaceResourceTabs] = useState<WorkspaceResourceTab[]>([]);
+  const [workspaceDocuments, setWorkspaceDocuments] = useState<Record<string, TextDocumentResource>>({});
+  const [workspaceResourceErrors, setWorkspaceResourceErrors] = useState<Record<string, string>>({});
+  const [loadingWorkspaceResourceIds, setLoadingWorkspaceResourceIds] = useState<string[]>([]);
+  const [conversationTranscripts, setConversationTranscripts] = useState<Record<string, ParentAgentTranscript>>({});
   const [loadingEarlierTranscript, setLoadingEarlierTranscript] = useState(false);
   const [loadedAgentRelationGraph, setLoadedAgentRelationGraph] = useState<AgentRelationGraph | null>(null);
   const [agentGraphLoadState, setAgentGraphLoadState] = useState<"idle" | "loading" | "ready" | "error">("idle");
@@ -208,7 +217,7 @@ export function App(): ReactElement {
   const [rightToolView, setRightToolView] = useState<RightToolRailView>("launcher");
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(LEFT_SIDEBAR_DEFAULT_WIDTH);
   const [rightToolRailWidth, setRightToolRailWidth] = useState(RIGHT_RAIL_DEFAULT_WIDTH);
-  const [selectedAgentWorkspaceAgentId, setSelectedAgentWorkspaceAgentId] = useState<string | null>(null);
+  const [selectedWorkspaceResourceId, setSelectedWorkspaceResourceId] = useState<string | null>(null);
   const [projectionVersion, setProjectionVersion] = useState(0);
   const [latestHidden, setLatestHidden] = useState(false);
   const threadScrollRef = useRef<HTMLDivElement | null>(null);
@@ -220,6 +229,10 @@ export function App(): ReactElement {
   const pendingAgentSurfaceRefreshesRef = useRef(new Map<string, number>());
   const agentProjectionContextRef = useRef<string | null>(null);
   const graphScopeRef = useRef<string | null>(null);
+  const workspaceResourceRequestCounterRef = useRef(0);
+  const workspaceResourceRequestTokensRef = useRef(new Map<string, number>());
+  const workspaceResourceScopeRef = useRef("");
+  const selectedProjectIdRef = useRef<string | null>(null);
   const selectedComposerSkillIds = useMemo(
     () => activeComposerSkillIds(skillItems, selectedTopic, draftSkillOverrides),
     [draftSkillOverrides, selectedTopic, skillItems],
@@ -520,7 +533,7 @@ export function App(): ReactElement {
     setExpandedProjects((current) => new Set([...current, projectId]));
     setSelectedTopic(null);
     syncWorkbenchLocation(projectId, null);
-    clearTopicScopedLiveState();
+    clearTopicScopedLiveState({ preserveProjectFiles: projectId === selectedProjectId });
     setDraftSkillOverrides({});
     setComposerAttachments([]);
     setComposerFileRefs([]);
@@ -557,7 +570,7 @@ export function App(): ReactElement {
     persistSelectedProjectId(projectId);
     setSelectedTopic(null);
     syncWorkbenchLocation(projectId, null);
-    clearTopicScopedLiveState();
+    clearTopicScopedLiveState({ preserveProjectFiles: projectId === selectedProjectId });
     setDraftSkillOverrides({});
     setOrchestrationOpen(false);
     setExpandedProjects((current) => new Set([...current, projectId]));
@@ -606,7 +619,7 @@ export function App(): ReactElement {
     persistSelectedProjectId(projectId);
     setSelectedTopic(conversationId);
     syncWorkbenchLocation(projectId, conversationId);
-    clearTopicScopedLiveState();
+    clearTopicScopedLiveState({ preserveProjectFiles: projectId === selectedProjectId });
     setDraftSkillOverrides({});
     setComposerAttachments([]);
     setComposerFileRefs([]);
@@ -644,8 +657,13 @@ export function App(): ReactElement {
     if (selectedProjectId === projectId && selectedTopic === conversationId) {
       setSelectedTopic(null);
       syncWorkbenchLocation(projectId, null);
-      setLoadedTranscript(null);
     }
+    const transcriptKey = conversationTranscriptKey(projectId, conversationId);
+    setConversationTranscripts((current) => {
+      const next = { ...current };
+      delete next[transcriptKey];
+      return next;
+    });
     await refresh(projectId, topicToRefresh);
   }
 
@@ -939,7 +957,6 @@ export function App(): ReactElement {
         setPendingDemandConversation(pendingConversation);
         mainMessageCellOwnersRef.current.clear();
         agentMessageCellOwnersRef.current.clear();
-        setLoadedTranscript(null);
         setLoadedAgentRelationGraph(null);
       }
       draftUploadProjectId = effectiveProjectId;
@@ -1160,25 +1177,25 @@ export function App(): ReactElement {
     }
     if (event.event === "snapshot") {
       setSnapshot(event.data);
-      setLoadedTranscript(normalizeParentAgentTranscript(event.data.center.parentAgentTranscript));
-      mainMessageCellOwnersRef.current.clear();
       agentMessageCellOwnersRef.current.clear();
       setPendingDemandConversation(null);
       invalidateProjectionCache();
       return;
     }
     if (event.event === "timeline.patch") {
-      if (activeTopic?.id && event.data.conversationId !== activeTopic.id) return;
       if (event.data.agentSurfaceId === "main-agent") {
-        const previous = mainMessageCellOwnersRef.current.get(event.data.messageId) ?? [];
-        setLoadedTranscript((current) => replaceCanonicalMessageCells(
-          normalizeParentAgentTranscript(current ?? snapshot.center.parentAgentTranscript ?? emptyParentAgentTranscript()),
+        const transcriptKey = conversationTranscriptKey(selectedProjectId, event.data.conversationId);
+        const messageOwnerKey = `${transcriptKey}:${event.data.messageId}`;
+        const previous = mainMessageCellOwnersRef.current.get(messageOwnerKey) ?? [];
+        setConversationTranscripts((current) => ({ ...current, [transcriptKey]: replaceCanonicalMessageCells(
+          normalizeParentAgentTranscript(current[transcriptKey] ?? emptyParentAgentTranscript()),
           previous,
           event.data.cells,
-        ));
-        mainMessageCellOwnersRef.current.set(event.data.messageId, event.data.cells.map((cell) => cell.id));
+        ) }));
+        mainMessageCellOwnersRef.current.set(messageOwnerKey, event.data.cells.map((cell) => cell.id));
         if (event.data.cells.some((cell) => cell.targetAgentSurfaceId)) scheduleAgentProjectionRefresh();
       } else {
+        if (activeTopic?.id && event.data.conversationId !== activeTopic.id && !isPendingTopic) return;
         const ownerKey = `${event.data.agentSurfaceId}:${event.data.messageId}`;
         const previous = agentMessageCellOwnersRef.current.get(ownerKey) ?? [];
         setSnapshot((current) => {
@@ -1191,7 +1208,7 @@ export function App(): ReactElement {
                 ...workspace,
                 agents: workspace.agents.map((agent) => agent.id === event.data.agentSurfaceId ? {
                   ...agent,
-                  transcript: replaceCanonicalMessageCells(agent.transcript, previous, event.data.cells),
+                  transcript: replaceCanonicalMessageCells(agent.transcript, previous, event.data.cells, event.data.placement),
                 } : agent),
               },
             },
@@ -1271,29 +1288,77 @@ export function App(): ReactElement {
     if (!activeAgentWorkspace.agents.some((agent) => agent.id === agentSurfaceId)) {
       pendingAgentSurfaceRefreshesRef.current.set(agentSurfaceId, 0);
     }
-    setOpenAgentSurfaceIds((current) => current.includes(agentSurfaceId) ? current : [...current, agentSurfaceId]);
-    setSelectedAgentWorkspaceAgentId(agentSurfaceId);
-    setRightToolView("agent");
-    setDecisionPaneCollapsed(false);
+    const conversationId = activeTopic?.id;
+    if (!conversationId) return;
+    openWorkspaceResource({ kind: "agent", conversationId, agentSurfaceId });
     scheduleAgentProjectionRefresh();
   }
 
-  function closeChildAgentWorkspace(agentSurfaceId: string): void {
-    setOpenAgentSurfaceIds((current) => {
-      const index = current.indexOf(agentSurfaceId);
-      const next = current.filter((id) => id !== agentSurfaceId);
-      setSelectedAgentWorkspaceAgentId((selected) => selected === agentSurfaceId ? next[Math.min(index, next.length - 1)] ?? null : selected);
+  function openWorkspaceResource(target: WorkspaceResourceTarget): void {
+    const resourceId = workspaceResourceId(target);
+    setWorkspaceResourceTabs((current) => current.some((tab) => tab.resourceId === resourceId) ? current : [...current, { resourceId, target }]);
+    setSelectedWorkspaceResourceId(resourceId);
+    setRightToolView("agent");
+    setDecisionPaneCollapsed(false);
+    if (target.kind !== "agent") void loadWorkspaceResource(target, resourceId);
+  }
+
+  async function loadWorkspaceResource(target: Exclude<WorkspaceResourceTarget, { kind: "agent" }>, resourceId = workspaceResourceId(target)): Promise<void> {
+    if (!selectedProjectId) return;
+    const projectId = selectedProjectId;
+    const scope = workspaceResourceRequestScope(projectId, activeTopic?.id ?? "", target);
+    const requestToken = ++workspaceResourceRequestCounterRef.current;
+    workspaceResourceRequestTokensRef.current.set(resourceId, requestToken);
+    const isCurrentRequest = (): boolean => (
+      (target.kind === "project-file" ? selectedProjectIdRef.current === projectId : workspaceResourceScopeRef.current === scope)
+      && workspaceResourceRequestTokensRef.current.get(resourceId) === requestToken
+    );
+    setLoadingWorkspaceResourceIds((current) => current.includes(resourceId) ? current : [...current, resourceId]);
+    setWorkspaceResourceErrors((current) => {
+      const next = { ...current };
+      delete next[resourceId];
+      return next;
+    });
+    try {
+      const resource = await postJson<TextDocumentResource>(`/api/projects/${encodeURIComponent(projectId)}/workspace-resources/resolve`, { target });
+      if (!isCurrentRequest()) return;
+      setWorkspaceDocuments((current) => ({ ...current, [resourceId]: resource }));
+    } catch (cause) {
+      if (!isCurrentRequest()) return;
+      setWorkspaceResourceErrors((current) => ({ ...current, [resourceId]: cause instanceof Error ? cause.message : String(cause) }));
+    } finally {
+      if (isCurrentRequest()) setLoadingWorkspaceResourceIds((current) => current.filter((id) => id !== resourceId));
+    }
+  }
+
+  function selectWorkspaceResource(resourceId: string): void {
+    setSelectedWorkspaceResourceId(resourceId);
+    const tab = workspaceResourceTabs.find((candidate) => candidate.resourceId === resourceId);
+    if (tab?.target.kind !== "agent" && tab) void loadWorkspaceResource(tab.target, resourceId);
+  }
+
+  function closeWorkspaceResource(resourceId: string): void {
+    workspaceResourceRequestTokensRef.current.delete(resourceId);
+    setWorkspaceResourceTabs((current) => {
+      const index = current.findIndex((tab) => tab.resourceId === resourceId);
+      const next = current.filter((tab) => tab.resourceId !== resourceId);
+      setSelectedWorkspaceResourceId((selected) => selected === resourceId ? next[Math.min(index, next.length - 1)]?.resourceId ?? null : selected);
+      return next;
+    });
+    setWorkspaceDocuments((current) => {
+      if (!(resourceId in current)) return current;
+      const next = { ...current };
+      delete next[resourceId];
       return next;
     });
   }
 
   function invalidateProjectionCache(): void {
-    setLoadedTranscript(null);
     setLoadedAgentRelationGraph(null);
     setProjectionVersion((value) => value + 1);
   }
 
-  function clearTopicScopedLiveState(): void {
+  function clearTopicScopedLiveState(options: { preserveProjectFiles?: boolean } = {}): void {
     if (agentProjectionRefreshTimerRef.current) clearTimeout(agentProjectionRefreshTimerRef.current);
     agentProjectionRefreshTimerRef.current = null;
     pendingAgentSurfaceRefreshesRef.current.clear();
@@ -1301,8 +1366,27 @@ export function App(): ReactElement {
     agentMessageCellOwnersRef.current.clear();
     setActionRunning(null);
     setLatestHidden(false);
-    setSelectedAgentWorkspaceAgentId(null);
-    setOpenAgentSurfaceIds([]);
+    if (!options.preserveProjectFiles) {
+      workspaceResourceRequestTokensRef.current.clear();
+      setSelectedWorkspaceResourceId(null);
+      setWorkspaceResourceTabs([]);
+      setWorkspaceDocuments({});
+      setWorkspaceResourceErrors({});
+      setLoadingWorkspaceResourceIds([]);
+      return;
+    }
+    setWorkspaceResourceTabs((current) => {
+      const retained = projectFileResourceTabs(current);
+      const retainedIds = new Set(retained.map((tab) => tab.resourceId));
+      workspaceResourceRequestTokensRef.current = new Map(
+        [...workspaceResourceRequestTokensRef.current].filter(([resourceId]) => retainedIds.has(resourceId)),
+      );
+      setSelectedWorkspaceResourceId((selected) => selected && retainedIds.has(selected) ? selected : retained.at(-1)?.resourceId ?? null);
+      setWorkspaceDocuments((documents) => Object.fromEntries(Object.entries(documents).filter(([resourceId]) => retainedIds.has(resourceId))));
+      setWorkspaceResourceErrors((errors) => Object.fromEntries(Object.entries(errors).filter(([resourceId]) => retainedIds.has(resourceId))));
+      setLoadingWorkspaceResourceIds((resourceIds) => resourceIds.filter((resourceId) => retainedIds.has(resourceId)));
+      return retained;
+    });
   }
 
   const activePendingConversation = pendingDemandConversation
@@ -1326,6 +1410,8 @@ export function App(): ReactElement {
     ? `${selectedProjectId}:${activeTopic.id}`
     : null;
   const activeTopicIsConversation = activeTopic?.kind === "conversation";
+  selectedProjectIdRef.current = selectedProjectId;
+  workspaceResourceScopeRef.current = `conversation:${selectedProjectId ?? ""}:${activeTopic?.id ?? ""}`;
   const composerProviderOptions = providerCapabilities.map((provider) => ({ id: provider.providerId, label: provider.displayName }));
   const selectedProjectDefaultProviderId = projects.find((item) => item.project?.id === selectedProjectId)?.project?.defaultProviderId ?? null;
 
@@ -1342,10 +1428,13 @@ export function App(): ReactElement {
   const selectedProjectStatus = useMemo(() => projects.find((item) => item.project?.id === selectedProjectId) ?? null, [projects, selectedProjectId]);
   const selectedProjectHistoryUnavailable = Boolean(selectedProjectStatus?.managed && selectedProjectStatus.memory?.memoryAvailable === false);
   const runIds = useMemo(() => snapshot.center.agentLoop.runs.map((run) => run.id).join("|"), [snapshot.center.agentLoop.runs]);
+  const activeTranscriptKey = conversationTranscriptKey(selectedProjectId, activeTopic?.id ?? null);
   const snapshotTranscript = useMemo(() => {
-    if (activePendingConversation && !loadedTranscript) return pendingDemandTranscript(activePendingConversation);
-    return normalizeParentAgentTranscript(loadedTranscript ?? snapshot.center.parentAgentTranscript);
-  }, [activePendingConversation, loadedTranscript, snapshot.center.parentAgentTranscript]);
+    const canonical = conversationTranscripts[activeTranscriptKey];
+    if (canonical) return normalizeParentAgentTranscript(canonical);
+    if (activePendingConversation) return pendingDemandTranscript(activePendingConversation);
+    return normalizeParentAgentTranscript(snapshot.center.parentAgentTranscript);
+  }, [activePendingConversation, activeTranscriptKey, conversationTranscripts, snapshot.center.parentAgentTranscript]);
   const activeTranscript = snapshotTranscript;
   const activeTranscriptVisualExtent = useMemo(() => (activeTranscript.cells ?? []).reduce(
     (total, cell) => total
@@ -1393,8 +1482,14 @@ export function App(): ReactElement {
     graphScopeRef.current = graphScopeId;
     if (!previous || previous === graphScopeId) return;
     setSelectedAgentGraphNodeId(null);
-    setSelectedAgentWorkspaceAgentId(null);
-    setOpenAgentSurfaceIds([]);
+    setWorkspaceResourceTabs((current) => {
+      const next = current.filter((tab) => tab.target.kind !== "agent");
+      setSelectedWorkspaceResourceId((selected) => {
+        const selectedTab = current.find((tab) => tab.resourceId === selected);
+        return selectedTab?.target.kind === "agent" ? next.at(-1)?.resourceId ?? null : selected;
+      });
+      return next;
+    });
   }, [activeAgentGraph.graphScopeId]);
   const selectedAgentGraphNode = useMemo(() => (
     activeAgentGraph.nodes.find((node) => node.id === selectedAgentGraphNodeId) ?? activeAgentGraph.nodes[0] ?? null
@@ -1436,10 +1531,11 @@ export function App(): ReactElement {
   function openRightToolPanel(tab: RightToolRailTab): void {
     setRightToolView(tab);
     if (tab === "agent") {
-      const agentId = selectedAgentWorkspaceAgentId
-        ?? activeAgentWorkspace.agents.find((agent) => agent.status === "running")?.id
-        ?? activeAgentWorkspace.agents[0]?.id;
-      if (agentId) openChildAgentWorkspace(agentId);
+      if (!selectedWorkspaceResourceId && workspaceResourceTabs.length === 0) {
+        const agentId = activeAgentWorkspace.agents.find((agent) => agent.status === "running")?.id
+          ?? activeAgentWorkspace.agents[0]?.id;
+        if (agentId) openChildAgentWorkspace(agentId);
+      }
     }
     if (tab === "diagnostics") {
       void loadRuntimeDiagnostics();
@@ -1468,7 +1564,6 @@ export function App(): ReactElement {
       restore.topicId && restore.topicId === activeTopic?.id && restore.orchestrationOpen,
     ));
     setSelectedAgentGraphNodeId(null);
-    setLoadedTranscript(null);
     setLoadedAgentRelationGraph(null);
     setAgentGraphLoadState("idle");
     setAgentGraphLoadError(null);
@@ -1486,7 +1581,11 @@ export function App(): ReactElement {
         `/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/projections/transcript/${encodeURIComponent(activeTopic.id)}?limit=100&beforeCursor=${encodeURIComponent(cursor)}`,
       );
       if (isParentAgentTranscriptPayload(projection)) {
-        setLoadedTranscript((current) => mergeTranscriptPage(current, normalizeParentAgentTranscript(projection)));
+        const transcriptKey = conversationTranscriptKey(selectedProjectId, activeTopic.id);
+        setConversationTranscripts((current) => ({
+          ...current,
+          [transcriptKey]: mergeTranscriptPage(current[transcriptKey] ?? null, normalizeParentAgentTranscript(projection)),
+        }));
       }
     } catch (cause: unknown) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -1506,8 +1605,8 @@ export function App(): ReactElement {
       .then((projection) => {
         if (!cancelled && isParentAgentTranscriptPayload(projection)) {
           const normalized = normalizeParentAgentTranscript(projection);
-          setLoadedTranscript(normalized);
-          mainMessageCellOwnersRef.current.clear();
+          const transcriptKey = conversationTranscriptKey(selectedProjectId, activeTopic.id);
+          setConversationTranscripts((current) => ({ ...current, [transcriptKey]: normalized }));
         }
       })
       .catch((cause: unknown) => {
@@ -1727,6 +1826,12 @@ export function App(): ReactElement {
                     onLoadEarlierTranscript={loadEarlierTranscriptPage}
                     loadingEarlierTranscript={loadingEarlierTranscript}
                     onOpenAgent={openChildAgentWorkspace}
+                    onOpenDocument={(document: CanonicalDocumentReference) => {
+                      if (!activeTopic?.id) return;
+                      openWorkspaceResource({ kind: "document", conversationId: activeTopic.id, documentId: document.documentId });
+                    }}
+                    projectId={selectedProjectId}
+                    conversationId={activeTopic.id}
                   />
                 </div>
                 {latestHidden ? <button className="latest-button" onClick={() => {
@@ -1820,12 +1925,15 @@ export function App(): ReactElement {
         onToolOpen={openRightToolPanel}
         onBackToLauncher={() => setRightToolView("launcher")}
         agentPanel={
-          <AgentWorkspacePanel
+          <ResourceWorkspacePanel
             workspace={activeAgentWorkspace}
-            selectedAgentId={selectedAgentWorkspaceAgentId}
-            openAgentIds={openAgentSurfaceIds}
-            onSelectAgent={setSelectedAgentWorkspaceAgentId}
-            onCloseAgent={closeChildAgentWorkspace}
+            tabs={workspaceResourceTabs}
+            selectedResourceId={selectedWorkspaceResourceId}
+            documents={workspaceDocuments}
+            loadingResourceIds={loadingWorkspaceResourceIds}
+            resourceErrors={workspaceResourceErrors}
+            onSelectResource={selectWorkspaceResource}
+            onCloseResource={closeWorkspaceResource}
             onBack={() => setRightToolView("launcher")}
             onSendAgentMessage={sendAgentWorkspaceMessage}
             providerDisplayName={providerDisplayName}
@@ -1851,6 +1959,7 @@ export function App(): ReactElement {
             projectId={selectedProjectId}
             selectedRefs={composerFileRefs}
             onSelectedRefsChange={appendComposerFileRefs}
+            onOpenTextDocument={(relativePath) => openWorkspaceResource({ kind: "project-file", relativePath })}
           />
         }
         gitPanel={
@@ -2039,6 +2148,16 @@ async function resolveDefaultProviderId(): Promise<string> {
   if (providers.length === 0) throw new Error("没有可用的 Agent provider。");
   if (providers.length > 1) throw new Error("当前存在多个 Agent provider，请先选择当前 provider。");
   return providers[0]!.providerId;
+}
+
+function workspaceResourceId(target: WorkspaceResourceTarget): string {
+  if (target.kind === "agent") return `agent:${target.agentSurfaceId}`;
+  if (target.kind === "document") return target.documentId;
+  return `project-file:${target.relativePath.replace(/\\/g, "/")}`;
+}
+
+function conversationTranscriptKey(projectId: string | null, conversationId: string | null): string {
+  return `${projectId ?? ""}\u0000${conversationId ?? ""}`;
 }
 
 function syncWorkbenchLocation(projectId: string | null, topicId: string | null): void {

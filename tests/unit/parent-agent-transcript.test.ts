@@ -12,7 +12,7 @@ function providerBlockIdentity(itemId: string, identity: { attemptId?: string; t
 }
 
 describe("parent agent transcript paging", () => {
-  it("projects only the artifact-backed AHO plan-ready item into the Main timeline", () => {
+  it("projects one canonical Plan document reference into the Main timeline", () => {
     const transcript = buildParentAgentTranscript({
       workpad: { conversationId: "conv", boundChangeId: null, title: "Plan handoff" },
       threadItems: [{
@@ -29,15 +29,21 @@ describe("parent agent transcript paging", () => {
             text: "This must remain diagnostic-only.",
           },
           {
-            id: "plan-ready",
+            id: "document-reference:plan-document-1",
             runId: "run-plan",
             sequence: 2,
             kind: "tool-result" as const,
             source: "aho" as const,
-            title: "计划已准备",
-            text: "Plan Agent 已完成可确认的实现计划。",
-            artifactRef: "proposal.json",
-            targetAgentSurfaceId: "agent:codex:thread:plan",
+            title: "实现计划",
+            text: "实现计划",
+            documentRef: {
+              documentId: "plan-document-1",
+              documentKind: "plan",
+              title: "实现计划",
+              sourceMessageId: "assistant-plan-source",
+              sourceCanonicalItemId: "prose:codex:attempt:thread:turn:item",
+              proposalHash: "proposal-hash",
+            },
           },
         ],
       }],
@@ -45,10 +51,11 @@ describe("parent agent transcript paging", () => {
 
     expect(transcript.cells).toEqual([
       expect.objectContaining({
-        id: "cell:tool-result:plan-ready",
+        id: "cell:document:plan-document-1",
+        kind: "document-preview",
         source: "aho-orchestration",
-        title: "计划已准备",
-        evidenceRefs: [expect.objectContaining({ ref: "proposal.json", kind: "artifact" })],
+        title: "实现计划",
+        documentRef: expect.objectContaining({ documentId: "plan-document-1" }),
       }),
     ]);
   });
@@ -316,14 +323,13 @@ describe("parent agent transcript paging", () => {
     ]);
   });
 
-  it("keeps revised planning proposals separated by run and artifact", () => {
+  it("keeps revised canonical Planning items separated by run and identity", () => {
     const threadItems = [
       {
         id: "planning-initial",
         kind: "assistant-turn",
         label: "planning-agent",
         runId: "run-initial",
-        artifact: "initial-proposal.json",
         agentRoleId: "planning-agent",
         agentTaskId: "planner-thread",
         blocks: [{
@@ -340,7 +346,6 @@ describe("parent agent transcript paging", () => {
         kind: "assistant-turn",
         label: "planning-agent",
         runId: "run-revision",
-        artifact: "revised-proposal.json",
         agentRoleId: "planning-agent",
         agentTaskId: "planner-thread",
         blocks: [{
@@ -358,12 +363,10 @@ describe("parent agent transcript paging", () => {
       expect.objectContaining({
         runId: "run-initial",
         text: "# Plan: Initial proposal",
-        evidenceRefs: [expect.objectContaining({ ref: "initial-proposal.json" })],
       }),
       expect.objectContaining({
         runId: "run-revision",
         text: "# Plan: Revised proposal",
-        evidenceRefs: [expect.objectContaining({ ref: "revised-proposal.json" })],
       }),
     ]);
   });
