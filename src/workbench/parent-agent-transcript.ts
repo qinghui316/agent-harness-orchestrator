@@ -1,4 +1,5 @@
 import type { AssistantTurnActivity, AssistantTurnBlock, TopicAttachment, TopicFileReference, WorkbenchProviderUserInputRequest } from "./types.js";
+import type { InteractionHistoryRecord } from "./conversation-interaction-contract.js";
 import { commandDetailText, commandGroupDetailText, commandGroupSummary, commandRowTitle, groupConsecutiveCommandBlocks } from "../command-transcript.js";
 
 export type ParentAgentTranscriptActor = "user" | "parent-agent";
@@ -55,7 +56,7 @@ export interface ParentAgentTranscriptCell {
   detailText?: string;
   contextRefs?: TopicFileReference[];
   attachments?: TopicAttachment[];
-  providerUserInput?: WorkbenchProviderUserInputRequest;
+  interactionHistory?: InteractionHistoryRecord;
 }
 
 export interface ParentAgentTranscript {
@@ -205,6 +206,7 @@ export function canonicalTranscriptCellsFromThreadItem(
 
   if (item.providerUserInput) {
     const request = item.providerUserInput;
+    if (request.status === "pending" || request.status === "submitting") return [];
     const questionText = request.questions.map((question) => question.question).filter(Boolean).join("\n");
     return [{
       id: `cell:provider-user-input:${request.requestKey}`,
@@ -212,13 +214,10 @@ export function canonicalTranscriptCellsFromThreadItem(
       source: "provider-runtime",
       timestamp: item.timestamp,
       agentRoleId,
-      runId: request.runId,
-      threadId: request.threadId,
-      turnId: request.turnId,
       title: request.status === "submitted" ? "已回答" : "需要你回答",
       text: questionText || "Agent 需要你的回答。",
       status: request.status,
-      providerUserInput: request,
+      interactionHistory: providerInteractionHistory(request),
     }];
   }
 
@@ -245,6 +244,19 @@ export function canonicalTranscriptCellsFromThreadItem(
   }
   cells.push(...activityCellsFromThreadItem(item, agentRoleId));
   return cells.filter((cell) => Boolean(cell.text.trim() || cell.detailText?.trim()));
+}
+
+export function providerInteractionHistory(request: WorkbenchProviderUserInputRequest): InteractionHistoryRecord {
+  const status = request.status === "submitted"
+    ? request.disposition === "skipped" ? "skipped" : "answered"
+    : request.status;
+  return {
+    kind: "provider-input",
+    status,
+    questions: request.questions.map((question) => ({ questionId: question.id, title: question.question })),
+    answers: request.publicAnswers,
+    skippedQuestionIds: request.skippedQuestionIds,
+  };
 }
 
 function activityCellsFromThreadItem(item: TranscriptThreadItemInput, agentRoleId?: string): ParentAgentTranscriptCell[] {
@@ -428,8 +440,15 @@ function transcriptCellFromAssistantBlock(
   }
 
   if (block.kind === "tool-result" || block.kind === "file-change") {
-    const title = block.kind === "file-change" ? "文件变更" : cleanToolTitle(block.title);
-    const summary = block.kind === "file-change"
+    const targetLabel = block.targetAgentSurfaceId && block.targetAgentDisplayName
+      ? cleanToolTitle(block.targetAgentDisplayName)
+      : "";
+    const title = targetLabel
+      ? agentLifecycleTitle(targetLabel, block.status)
+      : block.kind === "file-change" ? "文件变更" : cleanToolTitle(block.title);
+    const summary = targetLabel
+      ? title
+      : block.kind === "file-change"
       ? "文件已变更"
       : title
         ? `${title} 已完成`
@@ -443,7 +462,7 @@ function transcriptCellFromAssistantBlock(
       source,
       timestamp,
       title,
-      text: summary,
+      text: summary || "工具调用已完成",
       status: block.status,
       isError: block.isError,
       activityKind: block.targetAgentSurfaceId ? "agent" : block.kind === "file-change" ? "file" : /search/i.test(block.title ?? "") ? "search" : "tool",
@@ -469,6 +488,12 @@ function transcriptCellFromAssistantBlock(
   }
 
   return assertNever(block.kind);
+}
+
+function agentLifecycleTitle(label: string, status?: string): string {
+  if (status === "failed") return `${label} 执行失败`;
+  if (status === "completed") return `${label} 已完成`;
+  return `${label} ${label.startsWith("Plan Agent") ? "正在规划" : "正在工作"}`;
 }
 
 function assertNever(value: never): never {

@@ -83,6 +83,47 @@ describe("parent agent transcript paging", () => {
     expect(transcript.cells.at(-1)?.id).toBe("cell:turn:codex:attempt-turn-1:thread-1:turn-1");
   });
 
+  it("projects a provider child lifecycle as one navigable canonical process row", () => {
+    const transcript = buildParentAgentTranscript({
+      workpad: { conversationId: "conv", boundChangeId: null, title: "Child lifecycle" },
+      threadItems: [{
+        id: "assistant-child-lifecycle",
+        kind: "assistant-turn",
+        label: "AI",
+        providerId: "codex",
+        attemptId: "attempt-1",
+        runId: "run-1",
+        threadId: "thread-main",
+        turnId: "turn-main",
+        blocks: [{
+          id: "assistant:codex:run-1:thread-main:spawn-1:tool-result",
+          providerId: "codex",
+          attemptId: "attempt-1",
+          runId: "run-1",
+          threadId: "thread-main",
+          turnId: "turn-main",
+          itemId: "spawn-1",
+          sequence: 1,
+          kind: "tool-result",
+          timestamp: "2026-07-16T00:00:00.000Z",
+          source: "provider",
+          status: "processing",
+          title: "Plan Agent · Sagan",
+          targetAgentSurfaceId: "agent:codex:thread:thread-child",
+          targetAgentDisplayName: "Plan Agent · Sagan",
+        }],
+      }],
+    });
+
+    expect(transcript.cells).toEqual([expect.objectContaining({
+      id: "cell:tool-result:codex:attempt-1:run-1:thread-main:turn-main:spawn-1",
+      title: "Plan Agent · Sagan 正在规划",
+      activityKind: "agent",
+      status: "processing",
+      targetAgentSurfaceId: "agent:codex:thread:thread-child",
+    })]);
+  });
+
   it("keeps the full transcript compatible and returns the latest page by default", () => {
     const transcript = buildParentAgentTranscript({
       workpad: { conversationId: "conv", boundChangeId: "change", title: "Long demand" },
@@ -370,9 +411,16 @@ describe("parent agent transcript paging", () => {
       runtimeScopeId: "conv",
       attemptId: "run-1",
       conversationId: "conv",
-      questions: [{ id: "q1", question: "是否保留旧文件？" }],
+      questions: [{
+        id: "q1",
+        question: "是否保留旧文件？",
+        inputMode: "single" as const,
+        allowCustom: false,
+        options: [{ value: "discard", label: "不保留" }],
+      }],
       status: "submitted" as const,
-      answers: { q1: "不保留" },
+      publicAnswers: { q1: "不保留" },
+      disposition: "answered" as const,
       submittedAt: "2026-07-15T00:00:05.000Z",
     };
     const transcript = buildParentAgentTranscript({
@@ -391,8 +439,14 @@ describe("parent agent transcript paging", () => {
       id: "cell:provider-user-input:run-1:main:turn:item:request-1",
       kind: "user-input",
       status: "submitted",
-      providerUserInput: request,
+      interactionHistory: {
+        kind: "provider-input",
+        status: "answered",
+        questions: [{ questionId: "q1", title: "是否保留旧文件？" }],
+        answers: { q1: "不保留" },
+      },
     })]);
+    expect(transcript.cells[0]).not.toHaveProperty("providerUserInput");
   });
 
   it("keeps repeated provider request ids distinct across durable turns", () => {
@@ -406,8 +460,16 @@ describe("parent agent transcript paging", () => {
       threadId: "main",
       turnId,
       conversationId: "conv",
-      questions: [{ id: "q1", question: `Question ${turnId}` }],
-      status: "pending" as const,
+      questions: [{
+        id: "q1",
+        question: `Question ${turnId}`,
+        inputMode: "text" as const,
+        allowCustom: true,
+        options: [],
+      }],
+      status: "submitted" as const,
+      disposition: "answered" as const,
+      publicAnswers: { q1: `Answer ${turnId}` },
     }));
     const transcript = buildParentAgentTranscript({
       workpad: { conversationId: "conv", title: "Repeated request ids" },
@@ -425,6 +487,34 @@ describe("parent agent transcript paging", () => {
       `cell:provider-user-input:${requests[0].requestKey}`,
       `cell:provider-user-input:${requests[1].requestKey}`,
     ]);
+  });
+
+  it("keeps pending provider questions exclusively in the Interaction Dock projection", () => {
+    const request = {
+      providerId: "codex" as const,
+      requestKey: "run-pending:main:turn:item:1",
+      requestId: "1",
+      runId: "run-pending",
+      runtimeScopeId: "conv",
+      attemptId: "run-pending",
+      conversationId: "conv",
+      questions: [{ id: "q1", question: "Pending question", inputMode: "text" as const, allowCustom: true, options: [] }],
+      status: "pending" as const,
+    };
+
+    const transcript = buildParentAgentTranscript({
+      workpad: { conversationId: "conv", title: "Pending request" },
+      threadItems: [{
+        id: `provider-user-input:${request.requestKey}`,
+        kind: "assistant-turn",
+        label: "需要你回答",
+        source: "chat",
+        timestamp: "2026-07-15T00:00:00.000Z",
+        providerUserInput: request,
+      }],
+    });
+
+    expect(transcript.cells).toEqual([]);
   });
 });
 

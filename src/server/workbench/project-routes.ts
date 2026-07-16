@@ -13,13 +13,13 @@ import {
 import { getWorkbenchProjection } from "./projections.js";
 import { readWorkbenchActionEvents, sendActionEventReplay } from "./live.js";
 import { assertConfirmed, assertRegisteredProject, readJsonBody, sendJson } from "./http.js";
-import { handleClarificationAnswer, handleClarificationSkip, handleIntakeReanalyze, handleIntakeScan } from "./intake.js";
-import { handleProviderUserInputAnswer } from "./provider-user-input.js";
+import { handleIntakeReanalyze, handleIntakeScan } from "./intake.js";
+import { sendConversationInteractionSettlement } from "./conversation-interactions.js";
 import { sendWorkbenchActionLive } from "./live-actions.js";
 import { readCreateTopicBody, readTopicMessageBody, sendConversationMessageLive, sendCreateTopicLive, sendTopicMessageReplay } from "./topic-messages.js";
 import { executeWorkbenchAction } from "./actions.js";
 import { sendProjectLiveEvents } from "./project-live-events.js";
-import type { ClarificationAnswerRequest, ProviderUserInputAnswerRequest, IntakeRequest, WorkbenchActionRequest, WorkbenchServerContext } from "./types.js";
+import type { IntakeRequest, WorkbenchActionRequest, WorkbenchServerContext } from "./types.js";
 
 export async function handleProjectWorkbenchApi(context: WorkbenchServerContext, input: WorkbenchProjectInput, request: IncomingMessage, response: ServerResponse, rest: string, url: URL): Promise<void> {
   if (request.method === "GET" && rest === "events/live") {
@@ -78,22 +78,16 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
     sendJson(response, 200, await handleIntakeReanalyze(input, await readJsonBody<IntakeRequest>(request)));
     return;
   }
-  const clarificationAnswerMatch = rest.match(/^clarifications\/([^/]+)\/answer$/);
-  if (request.method === "POST" && clarificationAnswerMatch?.[1]) {
+  const interactionSettlementMatch = rest.match(/^conversations\/([^/]+)\/interactions\/([^/]+)\/settle$/);
+  if (request.method === "POST" && interactionSettlementMatch?.[1] && interactionSettlementMatch[2]) {
     assertRegisteredProject(input);
-    sendJson(response, 200, await handleClarificationAnswer(input, decodeURIComponent(clarificationAnswerMatch[1]), await readJsonBody<ClarificationAnswerRequest>(request)));
-    return;
-  }
-  const clarificationSkipMatch = rest.match(/^clarifications\/([^/]+)\/skip$/);
-  if (request.method === "POST" && clarificationSkipMatch?.[1]) {
-    assertRegisteredProject(input);
-    sendJson(response, 200, await handleClarificationSkip(input, decodeURIComponent(clarificationSkipMatch[1]), await readJsonBody<ClarificationAnswerRequest>(request)));
-    return;
-  }
-  const providerUserInputAnswerMatch = rest.match(/^providers\/user-input\/([^/]+)\/answer$/);
-  if (request.method === "POST" && providerUserInputAnswerMatch?.[1]) {
-    assertRegisteredProject(input);
-    sendJson(response, 200, await handleProviderUserInputAnswer(input, decodeURIComponent(providerUserInputAnswerMatch[1]), await readJsonBody<ProviderUserInputAnswerRequest>(request)));
+    await sendConversationInteractionSettlement(
+      input,
+      decodeURIComponent(interactionSettlementMatch[1]),
+      decodeURIComponent(interactionSettlementMatch[2]),
+      request,
+      response,
+    );
     return;
   }
   const topicMessagesMatch = rest.match(/^topics\/([^/]+)\/messages(?:\/stream)?$/);

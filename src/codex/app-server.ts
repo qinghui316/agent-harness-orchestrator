@@ -99,6 +99,11 @@ export interface CodexAppServerUserInputResponse {
   answers: Record<string, string | string[]>;
 }
 
+export interface CodexAppServerUserInputResolution {
+  requestId: string;
+  threadId?: string;
+}
+
 export interface CodexAppServerChildThreadResult {
   itemId?: string;
   tool: "spawn_agent";
@@ -168,6 +173,7 @@ export interface CodexAppServerTurnOptions {
   onRealtimeEvent?: (event: CodexAppServerRealtimeEvent) => void;
   onChildThreadResult?: (result: CodexAppServerChildThreadResult) => void;
   onUserInputRequest?: CodexAppServerUserInputRequestHandler;
+  onUserInputResolved?: (resolution: CodexAppServerUserInputResolution) => void;
   dynamicTools?: CodexAppServerDynamicToolSpec[];
   onDynamicToolCall?: (call: CodexAppServerDynamicToolCall) => Promise<CodexAppServerDynamicToolResult>;
   onGoalUpdate?: (goal: CodexAppServerThreadGoal) => void;
@@ -186,6 +192,7 @@ export interface CodexAppServerTurnOptions {
   additionalContext?: Record<string, { kind: "untrusted" | "application"; value: string }>;
   writableRoots?: string[];
   developerInstructions?: string;
+  enableDefaultModeUserInput?: boolean;
   outputSchema?: Record<string, unknown>;
 }
 
@@ -448,6 +455,7 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
           cwd: options.cwd,
           sandbox: options.sandboxPolicy,
           approvalPolicy: "never",
+          ...(options.enableDefaultModeUserInput ? { config: { "features.default_mode_request_user_input": true } } : {}),
           ...(options.runtimeWorkspaceRoots?.length ? { runtimeWorkspaceRoots: options.runtimeWorkspaceRoots } : {}),
           ...(options.developerInstructions?.trim() ? { developerInstructions: options.developerInstructions.trim() } : {}),
           ...(options.dynamicTools?.length ? { dynamicTools: options.dynamicTools } : {}),
@@ -690,6 +698,14 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
   function handleNotification(method: string, params: Record<string, unknown>, raw: Record<string, unknown>): void {
     const notification = { method, params, raw };
     const notificationThreadId = stringValue(params.threadId ?? params.thread_id);
+    if (method === "serverRequest/resolved") {
+      const resolvedRequestId = params.requestId ?? params.request_id;
+      if (typeof resolvedRequestId === "string" || typeof resolvedRequestId === "number") {
+        const requestId = String(resolvedRequestId);
+        pendingServerRequests.delete(requestId);
+        options.onUserInputResolved?.({ requestId, ...(notificationThreadId ? { threadId: notificationThreadId } : {}) });
+      }
+    }
     const isParentNotification = !notificationThreadId || !threadId || notificationThreadId === threadId;
     if (isParentNotification) options.onNotification?.(notification);
     if (!acceptsCurrentTurnNotification(method, params, notificationThreadId)) return;

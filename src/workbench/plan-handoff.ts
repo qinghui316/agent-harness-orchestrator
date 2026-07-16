@@ -16,7 +16,7 @@ export function validatePlanHandoffIntent(
   if (!ELIGIBLE_PLAN_HANDOFF_ROLES.has(intent.sourceAgentRoleId)) {
     throw badRequest(`Plan handoff source role is not supported: ${intent.sourceAgentRoleId}`);
   }
-  if (intent.kind !== "execute-plan" && intent.kind !== "revise-plan" && intent.kind !== "cancel-plan") {
+  if (intent.kind !== "execute-plan" && intent.kind !== "revise-plan" && intent.kind !== "skip-plan") {
     throw badRequest("Plan handoff intent kind is invalid.");
   }
   if (intent.executionMode !== undefined && intent.executionMode !== "stepwise" && intent.executionMode !== "scoped-auto") {
@@ -32,7 +32,7 @@ export function validatePlanHandoffIntent(
     message.type === "assistant.message"
     && message.agentRoleId === intent.sourceAgentRoleId
     && message.runId === sourceRunId
-    && !["accepted", "revision-requested", "cancelled"].includes(message.status ?? "")
+    && !["accepted", "revision-requested", "skipped", "superseded"].includes(message.status ?? "")
     && (!intent.sourceArtifact || message.artifact === intent.sourceArtifact)
     && Boolean(extractPlanText(message))
     && Boolean(message.artifact)
@@ -70,8 +70,8 @@ export function buildMainAgentPlanHandoffPromptContext(handoff: ValidatedPlanHan
 }
 
 export function planHandoffUserMessage(handoff: PlanHandoffIntent): string {
-  return handoff.kind === "cancel-plan"
-    ? "取消当前计划，不进入执行。"
+  return handoff.kind === "skip-plan"
+    ? "我跳过了这次计划确认。请在没有执行授权的前提下，根据当前上下文继续判断下一步。"
     : handoff.kind === "revise-plan"
     ? `请主 Agent 先审查下面的计划修改意见，再决定是否让 Plan Agent 修改计划：\n\n${handoff.feedback ?? ""}`
     : "请主 Agent 基于当前计划继续判断执行路径。";

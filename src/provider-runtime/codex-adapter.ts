@@ -54,6 +54,14 @@ export async function runCodexTurn(request: ProviderTurnRequest): Promise<Provid
     } : undefined,
     onChildThreadResult: request.onChildThreadResult ? (child) => request.onChildThreadResult?.(mapChild(child)) : undefined,
     onUserInputRequest: request.onUserInputRequest ? (input) => request.onUserInputRequest?.(mapUserInput(request, input)) : undefined,
+    onUserInputResolved: request.onUserInputResolved ? (input) => request.onUserInputResolved?.({
+      providerId: CODEX_PROVIDER_ID,
+      requestId: input.requestId,
+      runtimeScopeId,
+      runId: request.runId,
+      attemptId: request.attemptId,
+      ...(input.threadId ? { threadId: input.threadId } : {}),
+    }) : undefined,
     dynamicTools: request.tools,
     onDynamicToolCall: request.onToolCall ? async (call) => request.onToolCall?.({ ...call, providerId: CODEX_PROVIDER_ID }) as Promise<import("./contracts.js").ProviderToolResult> : undefined,
     onGoalUpdate: request.onObjectiveUpdate ? (goal) => request.onObjectiveUpdate?.(mapObjective(goal)) : undefined,
@@ -72,6 +80,7 @@ export async function runCodexTurn(request: ProviderTurnRequest): Promise<Provid
     additionalContext: request.additionalContext,
     writableRoots: request.writableRoots,
     developerInstructions: request.developerInstructions,
+    enableDefaultModeUserInput: request.operationProfile === "main" || request.operationProfile === "planning",
     outputSchema: request.outputSchema,
     });
   } finally {
@@ -114,7 +123,7 @@ function mapActiveCodexTurn(active: ActiveCodexAppServerTurn): ActiveProviderTur
     startedAt: active.startedAt,
     steer: active.steer,
     interrupt: active.interrupt,
-    respondToUserInput: (requestId, response, expected) => active.respondToUserInput(requestId, response, { runId: expected?.runId ?? active.runId, threadId: expected?.sessionId, turnId: expected?.turnId }),
+    respondToUserInput: (requestId, response, expected) => active.respondToUserInput(requestId, { answers: response.answers }, { runId: expected?.runId ?? active.runId, threadId: expected?.sessionId, turnId: expected?.turnId }),
   };
 }
 
@@ -148,7 +157,20 @@ function mapChild(child: import("../codex/app-server.js").CodexAppServerChildThr
 }
 
 function mapUserInput(request: ProviderTurnRequest, input: import("../codex/app-server.js").CodexAppServerUserInputRequest): ProviderUserInputRequest {
-  return { ...input, providerId: CODEX_PROVIDER_ID, attemptId: request.attemptId, sessionId: input.threadId };
+  return {
+    ...input,
+    providerId: CODEX_PROVIDER_ID,
+    attemptId: request.attemptId,
+    sessionId: input.threadId,
+    questions: input.questions.map((question) => ({
+      id: question.id,
+      header: question.header,
+      question: question.question,
+      inputMode: question.isSecret ? "secret" : question.options?.length ? "single" : "text",
+      allowCustom: question.isOther !== false,
+      options: question.options?.map((option) => ({ value: option.label, label: option.label, description: option.description })),
+    })),
+  };
 }
 
 function mapObjective(goal: import("../codex/app-server.js").CodexAppServerThreadGoal): ProviderObjectiveState {

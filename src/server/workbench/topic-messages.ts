@@ -26,7 +26,16 @@ export async function readCreateTopicBody(request: IncomingMessage): Promise<{ t
 }
 
 export async function readTopicMessageBody(request: IncomingMessage): Promise<TopicMessageRequest> {
-  const message = await readJsonBody<TopicMessageRequest>(request);
+  const raw = await readJsonBody<TopicMessageRequest>(request);
+  const message: TopicMessageRequest = {
+    text: raw.text,
+    message: raw.message,
+    mode: raw.mode,
+    contextRefs: raw.contextRefs,
+    attachmentIds: raw.attachmentIds,
+    providerId: raw.providerId,
+    providerSwitchIntent: raw.providerSwitchIntent,
+  };
   assertTopicMessageText(message);
   return message;
 }
@@ -65,8 +74,7 @@ export async function sendCreateTopicLive(
 }
 
 export async function sendConversationMessageLive(input: WorkbenchProjectInput & { project: ManagedProject }, conversationId: string, request: IncomingMessage, response: ServerResponse): Promise<void> {
-  const message = await readJsonBody<TopicMessageRequest>(request);
-  assertTopicMessageText(message);
+  const message = await readTopicMessageBody(request);
   const sse = createSseResponse(response);
   const sink = createLiveSink(sse);
   let resolvedConversationId = conversationId;

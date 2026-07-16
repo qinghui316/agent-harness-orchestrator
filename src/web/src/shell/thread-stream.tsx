@@ -14,7 +14,7 @@ export function threadItemFromTopicEntry(entry: TopicMessageEntry): ThreadStream
       providerId: entry.providerId, attemptId: entry.attemptId, itemId: entry.itemId,
       threadId: entry.threadId, parentThreadId: entry.parentThreadId, turnId: entry.turnId,
       agentRoleId: entry.agentRoleId, agentTaskId: entry.agentTaskId,
-      activity: entry.activity, blocks: entry.blocks, providerUserInput: entry.providerUserInput,
+      activity: entry.activity, blocks: entry.blocks, interactionHistory: entry.interactionHistory,
     };
   }
   if (entry.type === "orchestrator.plan") {

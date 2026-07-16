@@ -75,6 +75,26 @@ export function normalizeCodexAppServerNotification(
 
   if (isItemLifecycle(normalizedMethod)) {
     const phase = normalizedMethod.endsWith("started") ? "started" : normalizedMethod.endsWith("updated") ? "updated" : "completed";
+    const itemType = normalizeItemType(item.type ?? item.kind);
+    const childLifecycleKind = stringValue(item.kind)?.toLowerCase();
+    const lifecycleStatus = childLifecycleKind === "started"
+      ? "processing"
+      : phase !== "completed"
+      ? "processing"
+      : item.status === "failed" ? "failed" : "completed";
+    if ((itemType === "collabtoolcall" || itemType === "collabagenttoolcall" || itemType === "subagentactivity") && receiverThreadId) {
+      return [event(scoped, method, {
+        type: "readable_event",
+        event: {
+          itemId,
+          kind: "tool-result",
+          phase,
+          status: lifecycleStatus,
+          title: scoped.targetAgentDisplayName ?? "Child Agent",
+        },
+        raw: params,
+      })];
+    }
     const readable = readableEventFromItem(phase === "started" ? "item.started" : "item.completed", item);
     const exitCode = numberValue(item.exitCode ?? item.exit_code);
     const commandStatus = phase !== "completed"
@@ -92,7 +112,7 @@ export function normalizeCodexAppServerNotification(
       },
       raw: params,
     }));
-    if (normalizeItemType(item.type ?? item.kind) === "commandexecution") {
+    if (itemType === "commandexecution") {
       const output = stringValue(item.aggregatedOutput ?? item.aggregated_output ?? item.output);
       events.push(event(scoped, method, {
         type: "tool_event",

@@ -5,7 +5,6 @@ import {
   ResultReviewNarrative,
   RoleToolResultRows,
 } from "./workpad/PlanningCards.js";
-import { ClarificationCard } from "./workpad/TaskGraphCards.js";
 import { WorkpadActionButton } from "./workpad/WorkpadActionButton.js";
 import { WorkpadDiagnosticDetails } from "./workpad/WorkpadDetails.js";
 import { mainAgentExecutionForWorkpad } from "./workpad/main-agent-execution.js";
@@ -17,7 +16,6 @@ export function WorkpadView(props: {
   busy: boolean;
   onWorkflowAction: (actionType: string, options?: Record<string, unknown>) => Promise<void>;
   onConfirmApproval: (approvalId: string) => void;
-  onAnswerClarification: (clarificationId: string, answer: string) => Promise<void>;
   onSelectDecisionContext: (contextId: string) => void;
 }): ReactElement {
   const { workpad, approvals, busy, onWorkflowAction, onConfirmApproval } = props;
@@ -65,25 +63,6 @@ export function WorkpadView(props: {
           </div>
         ) : null}
       </section>
-
-      {workpad.intake.pendingClarifications?.length ? (
-        <section className="parent-agent-section">
-          <div className="parent-section-header">
-            <h3>需要确认</h3>
-            <span>{workpad.intake.pendingClarifications.length}</span>
-          </div>
-          <div className="clarification-list">
-            {workpad.intake.pendingClarifications.map((clarification) => (
-              <ClarificationCard
-                key={clarification.id}
-                clarification={clarification}
-                busy={busy}
-                onAnswer={props.onAnswerClarification}
-              />
-            ))}
-          </div>
-        </section>
-      ) : null}
 
       {maintenanceNotice ? (
         <section className="parent-agent-section maintenance-nudge">

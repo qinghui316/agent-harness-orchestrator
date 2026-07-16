@@ -39,6 +39,7 @@ export interface ProviderRealtimeIdentity {
   displayName?: string;
   targetAgentSurfaceId?: string;
   targetAgentDisplayName?: string;
+  targetThreadId?: string;
 }
 
 export type ProviderReadableEventKind =
@@ -85,6 +86,7 @@ export interface ProviderRealtimeEvent extends ProviderRealtimeIdentity {
 }
 
 export interface ProviderUserInputOption {
+  value: string;
   label: string;
   description?: string;
 }
@@ -93,8 +95,8 @@ export interface ProviderUserInputQuestion {
   id: string;
   header?: string;
   question: string;
-  isOther?: boolean;
-  isSecret?: boolean;
+  inputMode: "single" | "multiple" | "text" | "secret";
+  allowCustom: boolean;
   options?: ProviderUserInputOption[];
 }
 
@@ -111,10 +113,22 @@ export interface ProviderUserInputRequest {
   runtimeScopeId: string;
   roleId: string;
   questions: ProviderUserInputQuestion[];
+  expiresAt?: string;
 }
 
 export interface ProviderUserInputResponse {
   answers: Record<string, string | string[]>;
+  skippedQuestionIds: string[];
+  disposition: "answered" | "skipped";
+}
+
+export interface ProviderUserInputResolution {
+  providerId: ProviderId;
+  requestId: string;
+  runtimeScopeId: string;
+  runId: string;
+  attemptId: string;
+  threadId?: string;
 }
 
 export interface ProviderChildThreadResult {
@@ -196,6 +210,7 @@ export interface ProviderTurnRequest {
   onRealtimeEvent?: (event: ProviderRealtimeEvent) => void;
   onChildThreadResult?: (result: ProviderChildThreadResult) => void;
   onUserInputRequest?: (request: ProviderUserInputRequest) => void;
+  onUserInputResolved?: (resolution: ProviderUserInputResolution) => void;
   tools?: ProviderToolSpec[];
   onToolCall?: (call: ProviderToolCall) => Promise<ProviderToolResult>;
   onObjectiveUpdate?: (objective: ProviderObjectiveState) => void;

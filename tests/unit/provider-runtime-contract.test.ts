@@ -26,6 +26,11 @@ afterEach(async () => {
 });
 
 describe("provider-neutral runtime contract", () => {
+  it("requires native user-input settlement for both main and planning operations", () => {
+    expect(PROVIDER_OPERATION_CAPABILITIES.main).toContain("turn.user-input");
+    expect(PROVIDER_OPERATION_CAPABILITIES.planning).toContain("turn.user-input");
+  });
+
   it("fails closed instead of selecting the first provider when more than one is registered", () => {
     const registry = new ProviderRegistry();
     registry.register(fakeProvider("alpha"));

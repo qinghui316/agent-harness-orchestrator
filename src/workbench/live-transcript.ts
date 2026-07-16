@@ -95,9 +95,7 @@ export function createAssistantTranscriptCapture(
     if (identity.agentDisplayName && identity.providerId) {
       const targetSurfaceId = agentThreadSurfaceId(identity.providerId, identity.threadId);
       const targetDisplayName = composeAgentDisplayLabel(identity.agentRoleId, identity.agentDisplayName);
-      for (const block of blocks) {
-        if (block.targetAgentSurfaceId === targetSurfaceId) block.targetAgentDisplayName = targetDisplayName;
-      }
+      updateTargetAgentBlocks(targetSurfaceId, targetDisplayName);
     }
     const exactKey = childCaptureIdentity(identity.threadId, identity.turnId);
     let existing = childCaptures.get(exactKey);
@@ -138,6 +136,18 @@ export function createAssistantTranscriptCapture(
     return created;
   }
 
+  function updateTargetAgentBlocks(targetSurfaceId: string, targetDisplayName: string, status?: string): void {
+    const targets = [blocks, ...[...mainCaptures.values()].map((capture) => capture.blocks)];
+    for (const target of targets) {
+      for (const block of target) {
+        if (block.targetAgentSurfaceId !== targetSurfaceId) continue;
+        block.targetAgentDisplayName = targetDisplayName;
+        block.title = targetDisplayName;
+        if (status) block.status = status;
+      }
+    }
+  }
+
   function appendAssistantEventBlock(event: WorkbenchAssistantEvent, timestamp: string): void {
     const block = assistantEventToBlock(event, timestamp, nextSequence());
     if (block) upsertTranscriptBlock(blocks, block);
@@ -154,6 +164,9 @@ export function createAssistantTranscriptCapture(
     blocks,
     mainCaptures,
     childCaptures,
+    updateTargetAgent(targetSurfaceId, roleId, displayName, status) {
+      updateTargetAgentBlocks(targetSurfaceId, composeAgentDisplayLabel(roleId, displayName), status);
+    },
     sink: {
       emit(event: WorkbenchLiveEvent): void {
         const timestamp = new Date().toISOString();
@@ -285,6 +298,7 @@ export interface AssistantTranscriptCapture {
   blocks: AssistantTurnBlock[];
   mainCaptures: Map<string, MainTranscriptCapture>;
   childCaptures: Map<string, ChildTranscriptCapture>;
+  updateTargetAgent: (targetSurfaceId: string, roleId: string, displayName?: string, status?: string) => void;
 }
 
 export interface MainTranscriptCapture {

@@ -1,4 +1,6 @@
 import type { WorkbenchThreadActionType } from "./workflow-actions.js";
+import type { ConversationInteractionQueue, InteractionHistoryRecord } from "../../workbench/conversation-interaction-contract.js";
+export type { ConversationInteraction, ConversationInteractionQuestion, ConversationInteractionQueue, ConversationInteractionSettlement, InteractionHistoryRecord } from "../../workbench/conversation-interaction-contract.js";
 
 export type AppStatus = { mode: "app" | "project"; directProjectId: string | null };
 export type ProviderDiagnostics = {
@@ -322,6 +324,7 @@ export type Snapshot = {
     agentLoop: { runs: RunSummary[] };
     thread: { items: ThreadStreamItem[] };
     parentAgentTranscript: ParentAgentTranscript;
+    conversationInteractions: ConversationInteractionQueue;
     activeTab?: CenterTab;
     agentRelationGraph: AgentRelationGraph;
   };
@@ -416,7 +419,7 @@ export type ParentAgentTranscriptCell = {
     detailText?: string;
   contextRefs?: TopicFileReference[];
   attachments?: TopicAttachment[];
-  providerUserInput?: ProviderUserInputRequest;
+  interactionHistory?: InteractionHistoryRecord;
 };
 export type ParentAgentTranscriptItem = {
   id: string;
@@ -440,24 +443,6 @@ export type ParentAgentTranscript = {
   };
 };
 
-export type PlanHandoffAgentRoleId = "planning-agent";
-export type PlanHandoffIntentKind = "execute-plan" | "revise-plan" | "cancel-plan";
-export type PlanHandoffIntent = {
-  sourceRunId: string;
-  sourceAgentRoleId: PlanHandoffAgentRoleId;
-  sourceArtifact?: string;
-  kind: PlanHandoffIntentKind;
-  executionMode?: HarnessExecutionMode;
-  feedback?: string;
-};
-export type PlanHandoffCandidate = {
-  sourceRunId: string;
-  sourceAgentRoleId: PlanHandoffAgentRoleId;
-  title: string;
-  planText: string;
-  sourceArtifact?: string;
-  proposalKey: string;
-};
 export type TopicDetail = Topic & {
   closeGate?: { ready: boolean; warnings: string[]; blockingIssues: string[] };
   reviewStatus?: string | null;
@@ -1417,14 +1402,14 @@ export type ThreadStreamItem = {
     iteration?: { currentUnderstanding: string; confirmedConstraints: string[]; openQuestions: string[]; assumptions: string[] };
   };
   clarification?: ClarificationRequest;
-  providerUserInput?: ProviderUserInputRequest;
+  interactionHistory?: InteractionHistoryRecord;
   contextRefs?: TopicFileReference[];
   attachments?: TopicAttachment[];
 };
 export type ClarificationRequest = {
   id: string;
   status: "pending" | "answered" | "skipped" | "expired";
-  source: "aho" | "provider";
+  source: "aho";
   stage: "intake" | "spec" | "plan" | "run";
   questions: Array<{ id: string; header?: string; question: string; options?: Array<{ label: string; description?: string }>; allowFreeform: boolean }>;
   answers?: Array<{ questionId: string; answer: string }>;
@@ -1611,46 +1596,17 @@ export type StreamPacket = {
   diagnostics: string[];
 };
 export type FolderDialogResult = { path: string | null; canceled: boolean; supported: boolean; error?: string };
-export type ProviderUserInputQuestion = {
-  id: string;
-  header?: string;
-  question: string;
-  isOther?: boolean;
-  isSecret?: boolean;
-  options?: Array<{ label: string; description?: string }>;
-};
-export type ProviderUserInputRequest = {
-  providerId: ProviderId;
-  attemptId: string;
-  requestKey: string;
-  requestId: string;
-  threadId?: string;
-  turnId?: string;
-  itemId?: string;
-  runId: string;
-  runtimeScopeId: string;
-  changeId?: string;
-  conversationId?: string;
-  graphScopeId?: string;
-  agentRoleId?: string;
-  agentTaskId?: string;
-  questions: ProviderUserInputQuestion[];
-  status: "pending" | "submitting" | "submitted";
-  answers?: Record<string, string | string[]>;
-  submittedAt?: string;
-};
 export type WorkbenchLiveEvent =
   | { event: "topic.created"; data: { topic: { id?: string; conversationId?: string; changeId?: string; title: string; state: "active"; selectedProviderId?: string } } }
   | { event: "topic.message"; data: TopicMessageEntry }
   | { event: "timeline.patch"; data: { conversationId: string; graphScopeId?: string; messageId: string; agentSurfaceId: string; providerId?: ProviderId; roleId?: string; threadId?: string; parentThreadId?: string; status?: string; cells: ParentAgentTranscriptCell[] } }
+  | { event: "conversation.interactions.updated"; data: ConversationInteractionQueue }
   | { event: "run.started"; data: WorkbenchLiveIdentity & { runId: string; actionType?: string; runtime?: string; taskIds?: string[] } }
   | { event: "run.status"; data: WorkbenchLiveIdentity & { actionRunId?: string; status: string; label?: string } }
   | { event: "assistant.delta"; data: WorkbenchLiveIdentity & { delta: string } }
   | { event: "assistant.message"; data: TopicMessageEntry }
   | { event: "assistant.event"; data: AssistantReadableEvent }
   | { event: "tool.event"; data: WorkbenchLiveToolEvent }
-  | { event: "provider.userInput.requested"; data: ProviderUserInputRequest }
-  | { event: "provider.userInput.submitted"; data: WorkbenchLiveIdentity & { requestKey: string; requestId: string } }
   | { event: "usage"; data: WorkbenchLiveIdentity & { usage?: Record<string, unknown> } }
   | { event: "snapshot"; data: Snapshot }
   | { event: "error"; data: WorkbenchLiveIdentity & { message: string; runId?: string; actionRunId?: string } }
@@ -1821,7 +1777,7 @@ export type TopicMessageEntry = {
   blocks?: AssistantTurnBlock[];
   intake?: ThreadStreamItem["intake"];
   clarification?: ClarificationRequest;
-  providerUserInput?: ProviderUserInputRequest;
+  interactionHistory?: InteractionHistoryRecord;
   contextRefs?: TopicFileReference[];
   attachments?: TopicAttachment[];
 };

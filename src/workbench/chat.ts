@@ -38,6 +38,7 @@ import { collectAllConversationThreadEntries, fromStoredThreadMessage, readConve
 import { WorkbenchStore, type StoredTopicMessage } from "./store.js";
 import { assembleSharedConversationContext } from "./shared-conversation-context.js";
 import { resolveProviderSwitchWorkflowResumeRequest, switchConversationProviderAtSafePoint, type ProviderSwitchResult } from "./provider-switch.js";
+import { buildConversationInteractionQueue } from "./conversation-interactions.js";
 import { canonicalTranscriptCellsFromThreadItem, type ParentAgentTranscriptCell } from "./parent-agent-transcript.js";
 import { acceptCurrentConversationPlanningPackage, readPlannerChildProposal, writePlannerChildProposal } from "./planning/planner-child-proposal.js";
 import { hasPlanningExecutionEvidence } from "../change/manager.js";
@@ -206,13 +207,10 @@ export async function postConversationMessage(project: ManagedProject, conversat
     if (planHandoff) {
       const proposalStatus = planHandoff.kind === "revise-plan"
           ? "revision-requested"
-          : planHandoff.kind === "cancel-plan"
-            ? "cancelled"
+          : planHandoff.kind === "skip-plan"
+            ? "skipped"
             : null;
       if (proposalStatus) store.updatePlanningMessageStatus(memory.projectId, conversationId, planHandoff.sourceArtifact, proposalStatus);
-      if (planHandoff.kind === "cancel-plan") {
-        store.markConversationGraphScopeTerminal(memory.projectId, conversationId, graphScopeId, now);
-      }
     }
   } finally {
     store.close();
@@ -281,6 +279,16 @@ async function runProjectScopedMainAgentTurn(
   let completedTurnSequence = 0;
   let boundChangeId: string | null = null;
   let expectedResumeAttemptId: string | null = null;
+  const persistedProviderInputRequests = new Map<string, Promise<TopicThreadEntry>>();
+  const providerInputRequestKeys = new Map<string, string>();
+  const pendingProviderInputResolutions = new Set<Promise<void>>();
+  const flushProviderInputLifecycle = async (): Promise<void> => {
+    await Promise.allSettled([
+      ...persistedProviderInputRequests.values(),
+      ...pendingProviderInputResolutions,
+    ]);
+  };
+  const terminalInteractionEntries: TopicThreadEntry[] = [];
   await mkdir(directory, { recursive: true });
   const capture = createAssistantTranscriptCapture(live, (snapshot) => {
     if (!canonicalStore) return true;
@@ -446,48 +454,55 @@ async function runProjectScopedMainAgentTurn(
   }
   canonicalStore = await WorkbenchStore.open(memory);
   const liveChildAttemptIds = new Set<string>();
+  const liveChildThreadIds = new Set<string>();
   const registerLiveChildAttempt = (event: import("../provider-runtime/index.js").ProviderRealtimeEvent): void => {
-    if (!canonicalStore || !event.threadId || event.roleId === "main-agent" || !event.parentThreadId) return;
-    const childAttemptId = providerChildAttemptId(attemptId, event.threadId);
-    if (liveChildAttemptIds.has(childAttemptId)) return;
-    const childRoleId = event.roleId;
+    if (!canonicalStore) return;
+    const isChildEvent = event.roleId !== "main-agent" && Boolean(event.parentThreadId);
+    const childThreadId = isChildEvent ? event.threadId : event.targetThreadId;
+    const parentThreadId = isChildEvent ? event.parentThreadId : event.threadId;
+    if (!childThreadId || !parentThreadId) return;
+    if (liveChildThreadIds.has(childThreadId)) return;
+    const childAttemptId = providerChildAttemptId(attemptId, childThreadId);
+    const childRoleId = isChildEvent ? event.roleId : "child-agent";
     const childProfile = providerOperationProfileForChildRole(childRoleId);
-    if (!childProfile) return;
-    canonicalStore.createProviderAttempt({
-      projectId: memory.projectId!,
-      conversationId,
-      attemptId: childAttemptId,
-      graphScopeId,
-      changeId: boundChangeId,
-      agentTaskId: null,
-      roleId: childRoleId,
-      operationProfile: childProfile,
-      providerId: providerId!,
-      nativeSessionId: event.threadId,
-      model: capabilitySnapshot.effectiveModel ? { providerId: providerId!, modelId: capabilitySnapshot.effectiveModel } : null,
-      capabilitySnapshot,
-      handoffHash: createHash("sha256").update(JSON.stringify({ parentHandoffHash: handoff.hash, parentAttemptId: attemptId, parentThreadId: event.parentThreadId, childThreadId: event.threadId, roleId: childRoleId })).digest("hex"),
-      deliveredThroughCompletedTurn: completedTurnSequence,
-      worktreeId: null,
-      status: "running",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    });
+    if (childProfile) {
+      canonicalStore.createProviderAttempt({
+        projectId: memory.projectId!,
+        conversationId,
+        attemptId: childAttemptId,
+        graphScopeId,
+        changeId: boundChangeId,
+        agentTaskId: null,
+        roleId: childRoleId,
+        operationProfile: childProfile,
+        providerId: providerId!,
+        nativeSessionId: childThreadId,
+        model: capabilitySnapshot.effectiveModel ? { providerId: providerId!, modelId: capabilitySnapshot.effectiveModel } : null,
+        capabilitySnapshot,
+        handoffHash: createHash("sha256").update(JSON.stringify({ parentHandoffHash: handoff.hash, parentAttemptId: attemptId, parentThreadId, childThreadId, roleId: childRoleId })).digest("hex"),
+        deliveredThroughCompletedTurn: completedTurnSequence,
+        worktreeId: null,
+        status: "running",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      liveChildAttemptIds.add(childAttemptId);
+    }
     canonicalStore.writeProviderThread({
       projectId: memory.projectId!,
       conversationId,
       providerId: providerId!,
-      providerThreadId: event.threadId,
+      providerThreadId: childThreadId,
       roleId: childRoleId,
-      parentThreadId: event.parentThreadId,
+      parentThreadId,
       changeId: boundChangeId,
       graphScopeId,
       capabilityProfile: `${childProfile}-child-live-v1`,
-      displayName: event.displayName,
+      displayName: isChildEvent ? event.displayName : undefined,
       runId,
       updatedAt: new Date().toISOString(),
     });
-    liveChildAttemptIds.add(childAttemptId);
+    liveChildThreadIds.add(childThreadId);
   };
   persistCanonicalCapture({
     store: canonicalStore,
@@ -636,6 +651,7 @@ async function runProjectScopedMainAgentTurn(
     },
     onUserInputRequest: (request) => {
       const requestKey = providerUserInputRequestKey(runId, request);
+      providerInputRequestKeys.set(request.requestId, requestKey);
       const record = {
         providerId: request.providerId,
         attemptId: request.attemptId,
@@ -651,16 +667,61 @@ async function runProjectScopedMainAgentTurn(
         changeId: boundChangeId ?? undefined,
         agentRoleId: request.roleId !== "main-agent" ? request.roleId : undefined,
         questions: request.questions,
+        ...(request.expiresAt ? { expiresAt: request.expiresAt } : {}),
         status: "pending" as const,
       };
-      void persistProviderUserInputRequest(memory, record)
-        .then((entry) => {
+      const persistence = persistProviderUserInputRequest(memory, record);
+      persistedProviderInputRequests.set(request.requestId, persistence);
+      void persistence
+        .then(async (entry) => {
           live?.emit({ event: "timeline.patch", data: canonicalTimelinePatchForEntry(entry) });
-          capture.sink.emit({ event: "provider.userInput.requested", data: record });
+          capture.sink.emit({ event: "conversation.interactions.updated", data: await buildConversationInteractionQueue(memory, conversationId, graphScopeId) });
         })
         .catch((cause) => {
           capture.sink.emit({ event: "error", data: { runId, graphScopeId, message: cause instanceof Error ? cause.message : String(cause) } });
         });
+    },
+    onUserInputResolved: (resolution) => {
+      const persistence = persistedProviderInputRequests.get(resolution.requestId);
+      const resolutionWork = (async () => {
+        if (persistence) await persistence;
+        const requestKey = providerInputRequestKeys.get(resolution.requestId);
+        if (!requestKey) return;
+        const resolutionStore = await WorkbenchStore.open(memory);
+        let entry: TopicThreadEntry | null = null;
+        try {
+          const current = resolutionStore.readProviderUserInputRequest(memory.projectId!, conversationId, requestKey);
+          if (!current || current.status !== "pending") return;
+          resolutionStore.transitionProviderUserInputRequest(
+            memory.projectId!,
+            conversationId,
+            requestKey,
+            "pending",
+            "submitted",
+            {
+              skippedQuestionIds: current.questions.map((question) => question.id),
+              disposition: "skipped",
+            },
+            new Date().toISOString(),
+          );
+          const row = resolutionStore.listConversationMessages(memory.projectId!, conversationId).find((message) => {
+            try {
+              return (JSON.parse(message.rawJson) as { providerUserInput?: { requestKey?: string } }).providerUserInput?.requestKey === requestKey;
+            } catch {
+              return false;
+            }
+          });
+          entry = row ? fromStoredThreadMessage(row) : null;
+        } finally {
+          resolutionStore.close();
+        }
+        if (entry) capture.sink.emit({ event: "timeline.patch", data: canonicalTimelinePatchForEntry(entry) });
+        capture.sink.emit({ event: "conversation.interactions.updated", data: await buildConversationInteractionQueue(memory, conversationId, graphScopeId) });
+      })().catch((cause) => {
+        capture.sink.emit({ event: "error", data: { runId, graphScopeId, message: cause instanceof Error ? cause.message : String(cause) } });
+      });
+      pendingProviderInputResolutions.add(resolutionWork);
+      void resolutionWork.finally(() => pendingProviderInputResolutions.delete(resolutionWork));
     },
     onError: (error) => capture.sink.emit({ event: "error", data: { runId, message: error instanceof Error ? error.message : String(error) } }),
     model: capabilitySnapshot.effectiveModel ? { providerId: providerId!, modelId: capabilitySnapshot.effectiveModel } : null,
@@ -668,8 +729,10 @@ async function runProjectScopedMainAgentTurn(
   } catch (error) {
     canonicalStore?.close();
     canonicalStore = null;
+    await flushProviderInputLifecycle();
     const failedAttemptStore = await WorkbenchStore.open(memory);
     try {
+      terminalInteractionEntries.push(...failedAttemptStore.terminalizeProviderUserInputRequests(memory.projectId, conversationId, runId, new Date().toISOString()).map(fromStoredThreadMessage));
       failedAttemptStore.completeProviderAttempt(memory.projectId, attemptId, "failed", null, new Date().toISOString());
       for (const childAttemptId of liveChildAttemptIds) {
         failedAttemptStore.completeProviderAttempt(memory.projectId, childAttemptId, "failed", null, new Date().toISOString());
@@ -682,8 +745,10 @@ async function runProjectScopedMainAgentTurn(
   if (canonicalPersistenceError) {
     canonicalStore.close();
     canonicalStore = null;
+    await flushProviderInputLifecycle();
     const failedAttemptStore = await WorkbenchStore.open(memory);
     try {
+      terminalInteractionEntries.push(...failedAttemptStore.terminalizeProviderUserInputRequests(memory.projectId, conversationId, runId, new Date().toISOString()).map(fromStoredThreadMessage));
       failedAttemptStore.completeProviderAttempt(memory.projectId, attemptId, "failed", result.session?.sessionId ?? null, new Date().toISOString());
       for (const childAttemptId of liveChildAttemptIds) {
         failedAttemptStore.completeProviderAttempt(memory.projectId, childAttemptId, "failed", null, new Date().toISOString());
@@ -797,6 +862,12 @@ async function runProjectScopedMainAgentTurn(
     for (const child of result.childThreads) {
       const isPlannerChild = plannerChildren.some((planner) => planner.threadId === child.threadId);
       const childRoleId = isPlannerChild ? PROJECT_PLANNING_AGENT_ROLE_ID : "child-agent";
+      capture.updateTargetAgent(
+        agentThreadSurfaceId(providerId, child.threadId),
+        childRoleId,
+        child.displayName,
+        child.status === "failed" ? "failed" : "completed",
+      );
       if (isPlannerChild) {
         const childAttemptId = providerChildAttemptId(attemptId, child.threadId);
         const childHandoffHash = createHash("sha256").update(JSON.stringify({
@@ -961,6 +1032,8 @@ async function runProjectScopedMainAgentTurn(
     if (assistant && capture.mainCaptures.size === 0) {
       upsertCanonicalMessage(store, canonicalMessageIds, toConversationStoredMessage(memory.projectId, conversationId, assistant, completedTurnSequence + 1));
     }
+    await flushProviderInputLifecycle();
+    terminalInteractionEntries.push(...store.terminalizeProviderUserInputRequests(memory.projectId, conversationId, runId, new Date().toISOString()).map(fromStoredThreadMessage));
     for (const childAttemptId of liveChildAttemptIds) {
       if (!completedChildAttemptIds.has(childAttemptId)) {
         store.completeProviderAttempt(
@@ -1006,6 +1079,10 @@ async function runProjectScopedMainAgentTurn(
     canonicalStore = null;
   }
   for (const planMessage of planMessages) live?.emit({ event: "timeline.patch", data: canonicalTimelinePatchForEntry(planMessage) });
+  for (const interactionEntry of terminalInteractionEntries) live?.emit({ event: "timeline.patch", data: canonicalTimelinePatchForEntry(interactionEntry) });
+  if (terminalInteractionEntries.length > 0) {
+    capture.sink.emit({ event: "conversation.interactions.updated", data: await buildConversationInteractionQueue(memory, conversationId, graphScopeId) });
+  }
   if (planReadyMarker) live?.emit({ event: "timeline.patch", data: canonicalTimelinePatchForEntry(planReadyMarker) });
   if (assistant && capture.mainCaptures.size === 0) live?.emit({ event: "timeline.patch", data: canonicalTimelinePatchForEntry(assistant) });
   if (postRunInvariantError) throw postRunInvariantError;
@@ -1056,6 +1133,7 @@ function projectScopedPlanningMessage(conversationId: string, graphScopeId: stri
     type: "assistant.message",
     timestamp,
     conversationId,
+    graphScopeId,
     changeId: "",
     text: planText.trim(),
     runId,

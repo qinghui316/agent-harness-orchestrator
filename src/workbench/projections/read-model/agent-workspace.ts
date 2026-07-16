@@ -61,7 +61,7 @@ export function buildAgentWorkspace(input: {
       parentThreadId: link.parentThreadId ?? undefined,
       parentAgentId: parentAgentId(providerId, link.parentThreadId, surfaceByProviderThread),
       runId: link.runId ?? undefined,
-      status: cells.some((cell) => cell.status === "running") ? "running" : "completed",
+      status: cells.some((cell) => cell.status === "running") || (cells.length === 0 && Boolean(link.runId)) ? "running" : "completed",
       cells,
       summary: cells.at(-1)?.text ?? "真实 Agent 对话。",
       label: composeAgentDisplayLabel(link.roleId, link.displayName ?? undefined),

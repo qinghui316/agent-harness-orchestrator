@@ -3,7 +3,9 @@ import { latestLandingQueueSnapshot } from "../../../landing-queue/manager.js";
 import { getMemoryStatus } from "../../../memory/status.js";
 import { getProjectStatus } from "../../../project/status.js";
 import { readRun } from "../../../run/manager.js";
-import { buildParentAgentTranscript, type ParentAgentTranscript } from "../../parent-agent-transcript.js";
+import { buildParentAgentTranscript, providerInteractionHistory, type ParentAgentTranscript } from "../../parent-agent-transcript.js";
+import { buildConversationInteractionQueue } from "../../conversation-interactions.js";
+import { buildConversationInteractionAttention } from "../../conversation-interactions.js";
 import { deleteConversation, hideConversation } from "../../conversation-thread.js";
 import { WorkbenchStore, type StoredProviderThreadLink } from "../../store.js";
 import { readConversationThreadPage, type ConversationThreadPageOptions } from "../../conversation-thread-log.js";
@@ -164,6 +166,7 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
         workpad: diagnosticWorkpad,
         thread: { items: [] },
         parentAgentTranscript: buildParentAgentTranscript({ workpad: diagnosticWorkpad, threadItems: [] }),
+        conversationInteractions: { items: [] },
         activeTab: "conversation",
         agentLoop: { runs: [] },
         agentRelationGraph: emptyAgentRelationGraph(),
@@ -196,6 +199,7 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
     gaps,
   });
   const graphContext = selectedTopic ? await resolveAgentGraphContext(memory, selectedTopic, options.topicId) : null;
+  const conversationInteractions = await buildConversationInteractionQueue(memory, selectedTopic?.id, graphContext?.graphScopeId);
   const providerThreads = selectedTopic
     ? await readProviderThreads(memory, [
         selectedTopic.id,
@@ -226,6 +230,10 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
     workpad,
     threadItems: [],
   });
+  const publicSelectedTopic = selectedTopic ? {
+    ...selectedTopic,
+    threadItems: selectedTopic.threadItems.map(publicThreadItem),
+  } : null;
   return {
     project: input.project,
     memory: memoryStatus,
@@ -237,10 +245,11 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
         repo: buildRepoSummary(projectStatus),
     },
     center: {
-      selectedTopic,
+      selectedTopic: publicSelectedTopic,
       workpad: shellWorkpad,
-      thread: { items: selectedTopic?.threadItems ?? [] },
+      thread: { items: publicSelectedTopic?.threadItems ?? [] },
       parentAgentTranscript,
+      conversationInteractions,
       activeTab: "conversation",
       agentLoop: { runs: selectedTopic?.runs ?? [] },
       agentRelationGraph: emptyAgentRelationGraph(),
@@ -347,6 +356,7 @@ export async function getWorkbenchAgentRelationGraphProjection(input: WorkbenchP
     graphScopeId: graphContext?.graphScopeId,
     includeExecution: Boolean(graphContext?.changeId),
   });
+  const interactionAttention = await buildConversationInteractionAttention(memory, selectedTopic.id, graphContext?.graphScopeId);
   return buildAgentRelationGraph({
     project: input.project,
     selectedTopic,
@@ -355,7 +365,31 @@ export async function getWorkbenchAgentRelationGraphProjection(input: WorkbenchP
     agents: agentWorkspace.agents,
     graphScopeId: graphContext?.graphScopeId,
     scopeChangeId: graphContext?.changeId,
+    mainNeedsInput: interactionAttention.mainNeedsInput,
+    waitingAgentSurfaceIds: interactionAttention.agentSurfaceIds,
   });
+}
+
+function publicThreadItem(item: import("../../read-model-types.js").ThreadStreamItem): import("../../read-model-types.js").ThreadStreamItem {
+  if (item.providerUserInput) {
+    const { providerUserInput, ...safe } = item;
+    return { ...safe, interactionHistory: providerInteractionHistory(providerUserInput) };
+  }
+  if (item.clarification) {
+    const { clarification, ...safe } = item;
+    return {
+      ...safe,
+      interactionHistory: {
+        kind: "clarification",
+        status: clarification.status === "expired" ? "superseded" : clarification.status,
+        questions: clarification.questions.map((question) => ({ questionId: question.id, title: question.question })),
+        answers: clarification.answers
+          ? Object.fromEntries(clarification.answers.map((answer) => [answer.questionId, answer.answer]))
+          : undefined,
+      },
+    };
+  }
+  return item;
 }
 
 async function resolveAgentGraphContext(

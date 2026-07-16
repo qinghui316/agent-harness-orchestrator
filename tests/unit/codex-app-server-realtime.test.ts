@@ -37,6 +37,78 @@ describe("Codex app-server realtime normalization", () => {
     ]));
   });
 
+  it("keeps one provider-normalized child lifecycle identity across start and completion", () => {
+    const childIdentity = {
+      ...identity,
+      targetThreadId: "thread-child",
+      targetAgentDisplayName: "Child Agent · Sagan",
+    };
+    const item = {
+      id: "spawn-child-1",
+      type: "collabToolCall",
+      tool: "spawn_agent",
+      receiverThreadIds: ["thread-child"],
+    };
+    const started = normalizeCodexAppServerNotification("item/started", { item }, childIdentity);
+    const completed = normalizeCodexAppServerNotification("item/completed", { item: { ...item, status: "completed" } }, childIdentity);
+
+    expect(started).toEqual([expect.objectContaining({
+      itemId: "spawn-child-1",
+      targetThreadId: "thread-child",
+      streamEvent: expect.objectContaining({
+        type: "readable_event",
+        event: expect.objectContaining({ itemId: "spawn-child-1", kind: "tool-result", status: "processing", title: "Child Agent · Sagan" }),
+      }),
+    })]);
+    expect(completed[0]?.itemId).toBe(started[0]?.itemId);
+    expect(completed[0]?.streamEvent).toMatchObject({
+      type: "readable_event",
+      event: { itemId: "spawn-child-1", status: "completed" },
+    });
+  });
+
+  it("normalizes Codex subAgentActivity started as a child lifecycle target", () => {
+    const [started] = normalizeCodexAppServerNotification("item/completed", {
+      item: {
+        id: "call-sub-agent",
+        type: "subAgentActivity",
+        kind: "started",
+        agentThreadId: "thread-child-real",
+      },
+    }, identity);
+
+    expect(started).toMatchObject({
+      itemId: "call-sub-agent",
+      targetThreadId: "thread-child-real",
+      streamEvent: {
+        type: "readable_event",
+        event: { itemId: "call-sub-agent", kind: "tool-result", status: "processing" },
+      },
+    });
+  });
+
+  it("updates one canonical child target in place when its trusted role becomes known", () => {
+    const capture = createAssistantTranscriptCapture(undefined);
+    const forward = (method: "item/started" | "item/completed", status?: string) => {
+      const [event] = normalizeCodexAppServerNotification(method, {
+        item: { id: "spawn-child-1", type: "collabToolCall", tool: "spawn_agent", receiverThreadIds: ["thread-child"], ...(status ? { status } : {}) },
+      }, { ...identity, targetThreadId: "thread-child", targetAgentDisplayName: "Child Agent · Sagan" });
+      forwardProviderRealtimeEvent({ ...event!, providerId: "codex", attemptId: "attempt-1", sessionId: "thread-main", targetAgentSurfaceId: "agent:codex:thread:thread-child" }, capture.sink);
+    };
+    forward("item/started");
+    forward("item/completed", "completed");
+    capture.updateTargetAgent("agent:codex:thread:thread-child", "planning-agent", "Sagan", "completed");
+
+    const main = [...capture.mainCaptures.values()][0];
+    expect(main?.blocks).toEqual([expect.objectContaining({
+      id: expect.stringContaining("spawn-child-1:tool-result"),
+      targetAgentSurfaceId: "agent:codex:thread:thread-child",
+      targetAgentDisplayName: "Plan Agent · Sagan",
+      title: "Plan Agent · Sagan",
+      status: "completed",
+    })]);
+  });
+
   it("normalizes a non-zero terminal command as failed rather than completed", () => {
     const completed = normalizeCodexAppServerNotification("item/completed", {
       item: { id: "cmd-failed", type: "commandExecution", command: "exit 7", aggregatedOutput: "bad", exitCode: 7 },

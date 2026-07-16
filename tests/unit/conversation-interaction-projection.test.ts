@@ -1,0 +1,193 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { initHarness } from "../../src/harness/init.js";
+import { resolveProjectMemory } from "../../src/memory/resolver.js";
+import { git } from "../../src/project/git.js";
+import type { ManagedProject } from "../../src/types/index.js";
+import { createWorkbenchConversation } from "../../src/workbench/chat.js";
+import { fromStoredThreadMessage } from "../../src/workbench/conversation-thread-log.js";
+import { buildConversationInteractionQueue } from "../../src/workbench/conversation-interactions.js";
+import { canonicalTranscriptCellsFromThreadItem } from "../../src/workbench/parent-agent-transcript.js";
+import { WorkbenchStore, type StoredTopicMessage } from "../../src/workbench/store.js";
+
+let root: string;
+let originalAhoHome: string | undefined;
+
+beforeEach(async () => {
+  root = await mkdtemp(join(tmpdir(), "aho-interaction-projection-"));
+  originalAhoHome = process.env.AHO_HOME;
+  process.env.AHO_HOME = join(root, ".aho-home");
+  await git(root, ["init"]);
+  await git(root, ["config", "user.email", "aho-test@example.invalid"]);
+  await git(root, ["config", "user.name", "AHO Test"]);
+  await writeFile(join(root, "package.json"), "{\"name\":\"interaction-projection-fixture\"}\n", "utf8");
+  await git(root, ["add", "package.json"]);
+  await git(root, ["commit", "-m", "fixture baseline"]);
+  await initHarness(project());
+});
+
+afterEach(async () => {
+  if (originalAhoHome === undefined) delete process.env.AHO_HOME;
+  else process.env.AHO_HOME = originalAhoHome;
+  await rm(root, { recursive: true, force: true });
+});
+
+describe("conversation interaction projection", () => {
+  it("projects only current-scope pending interactions in canonical order without provider routing identity", async () => {
+    const conversation = await createWorkbenchConversation(project(), {
+      title: "Interaction projection",
+      body: "Project pending questions.",
+    }, undefined, { runMainAgent: false });
+    const memory = await resolveProjectMemory(project());
+    const store = await WorkbenchStore.open(memory);
+    const graphScopeId = store.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? "";
+    try {
+      appendProviderQuestion(store, conversation.conversationId, "old-scope", "old", "q-old");
+      appendProviderQuestion(store, conversation.conversationId, graphScopeId, "expired", "q-expired", "2020-01-01T00:00:00.000Z");
+      appendProviderQuestion(store, conversation.conversationId, graphScopeId, "first", "q-first");
+      appendProviderQuestion(store, conversation.conversationId, graphScopeId, "second", "q-second");
+    } finally {
+      store.close();
+    }
+
+    const queue = await buildConversationInteractionQueue(memory, conversation.conversationId, graphScopeId);
+
+    expect(queue.items.map((item) => item.questions[0]?.questionId)).toEqual(["q-first", "q-second"]);
+    expect(queue.items.every((item, index, items) => index === 0 || item.canonicalSequence > items[index - 1]!.canonicalSequence)).toBe(true);
+    const publicJson = JSON.stringify(queue);
+    expect(publicJson).not.toContain("request-key");
+    expect(publicJson).not.toContain("thread-secret");
+    expect(publicJson).not.toContain("turn-secret");
+    expect(publicJson).not.toContain("providerId");
+    expect(publicJson).not.toContain("requestId");
+    expect(publicJson).not.toContain("expiresAt");
+
+    const transitionStore = await WorkbenchStore.open(memory);
+    try {
+      transitionStore.startConversationGraphScope(project().id, conversation.conversationId, "scope-next", "2026-07-16T00:00:03.000Z");
+      expect(transitionStore.readProviderUserInputRequest(project().id, conversation.conversationId, "request-key-first")?.status).toBe("superseded");
+      expect(transitionStore.readProviderUserInputRequest(project().id, conversation.conversationId, "request-key-second")?.status).toBe("superseded");
+    } finally {
+      transitionStore.close();
+    }
+    expect((await buildConversationInteractionQueue(memory, conversation.conversationId, "scope-next")).items).toEqual([]);
+  });
+
+  it.each(["interrupted", "superseded"] as const)("retains %s provider input as read-only history", (status) => {
+    const providerUserInput = {
+      providerId: "codex",
+      requestKey: "request-key-history",
+      requestId: "request-history",
+      runId: "run-history",
+      attemptId: "attempt-history",
+      runtimeScopeId: "conversation-history",
+      questions: [],
+      status,
+    };
+    const entry = fromStoredThreadMessage({
+      id: "message-history",
+      projectId: "repo",
+      conversationId: "conversation-history",
+      changeId: "",
+      position: 1,
+      type: "assistant.message",
+      timestamp: "2026-07-16T00:00:00.000Z",
+      text: "历史问题",
+      actionRunId: null,
+      actionType: null,
+      status,
+      runId: "run-history",
+      providerId: "codex",
+      threadId: "thread-history",
+      turnId: "turn-history",
+      itemId: "item-history",
+      artifact: null,
+      error: null,
+      rawJson: JSON.stringify({ providerUserInput }),
+    } satisfies StoredTopicMessage);
+
+    expect(entry.providerUserInput?.status).toBe(status);
+  });
+
+  it("removes terminal provider requests from the active queue and keeps one history record", async () => {
+    const conversation = await createWorkbenchConversation(project(), {
+      title: "Terminal interaction",
+      body: "Do not leave a stale dock.",
+    }, undefined, { runMainAgent: false });
+    const memory = await resolveProjectMemory(project());
+    const store = await WorkbenchStore.open(memory);
+    const graphScopeId = store.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? "";
+    try {
+      appendProviderQuestion(store, conversation.conversationId, graphScopeId, "terminal", "q-terminal");
+      expect(store.terminalizeProviderUserInputRequests(project().id, conversation.conversationId, "run-terminal", "2026-07-16T00:00:04.000Z")).toHaveLength(1);
+      const entry = fromStoredThreadMessage(store.listConversationMessages(project().id, conversation.conversationId)[1]!);
+      const cells = canonicalTranscriptCellsFromThreadItem(entry);
+      expect(cells).toEqual([expect.objectContaining({
+        id: "cell:provider-user-input:request-key-terminal",
+        interactionHistory: expect.objectContaining({ status: "interrupted" }),
+      })]);
+    } finally {
+      store.close();
+    }
+
+    expect((await buildConversationInteractionQueue(memory, conversation.conversationId, graphScopeId)).items).toEqual([]);
+  });
+});
+
+function appendProviderQuestion(
+  store: WorkbenchStore,
+  conversationId: string,
+  graphScopeId: string,
+  suffix: string,
+  questionId: string,
+  expiresAt?: string,
+): void {
+  const entry = {
+    id: `provider-input-${suffix}`,
+    type: "assistant.message" as const,
+    timestamp: `2026-07-16T00:00:0${suffix === "old" ? "0" : suffix === "first" ? "1" : "2"}.000Z`,
+    conversationId,
+    graphScopeId,
+    changeId: "",
+    text: "请选择。",
+    status: "pending",
+    providerUserInput: {
+      providerId: "codex" as const,
+      requestKey: `request-key-${suffix}`,
+      requestId: `request-${suffix}`,
+      runId: `run-${suffix}`,
+      attemptId: `run-${suffix}`,
+      runtimeScopeId: conversationId,
+      threadId: "thread-secret",
+      turnId: "turn-secret",
+      conversationId,
+      graphScopeId,
+      questions: [{
+        id: questionId,
+        question: `Question ${suffix}`,
+        inputMode: "single" as const,
+        allowCustom: false,
+        options: [{ value: "yes", label: "继续", description: "继续当前工作" }],
+      }],
+      ...(expiresAt ? { expiresAt } : {}),
+      status: "pending" as const,
+    },
+  };
+  store.appendMessage({
+    projectId: project().id,
+    conversationId,
+    id: entry.id,
+    changeId: "",
+    type: entry.type,
+    timestamp: entry.timestamp,
+    text: entry.text,
+    status: entry.status,
+    rawJson: JSON.stringify(entry),
+  });
+}
+
+function project(): ManagedProject {
+  return { id: "repo", name: "Repo", path: root, addedAt: "2026-07-16T00:00:00.000Z", lastSeenAt: "2026-07-16T00:00:00.000Z" };
+}

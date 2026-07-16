@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from "react";
+import type { ReactElement } from "react";
 import {
   codingPackageStatusLabel,
   humanStatus,
@@ -7,8 +7,6 @@ import {
 } from "../../../formatters.js";
 import { workflowActionPayloadFromTaskAction } from "../../../workflow-actions.js";
 import type {
-  ClarificationRequest,
-  ProviderUserInputRequest,
   WorkbenchCodingPackage,
   WorkbenchTaskNode,
 } from "../../../types.js";
@@ -113,131 +111,6 @@ export function TaskGraphCard({
       </button>
     </article>
   );
-}
-
-export function ClarificationCard({
-  clarification,
-  busy,
-  onAnswer,
-}: {
-  clarification: ClarificationRequest;
-  busy: boolean;
-  onAnswer: (clarificationId: string, answer: string) => Promise<void>;
-}): ReactElement {
-  const [answer, setAnswer] = useState("");
-  const firstQuestion = clarification.questions[0];
-  const canSubmit = !busy && answer.trim().length > 0;
-  async function submit(): Promise<void> {
-    if (!canSubmit) return;
-    await onAnswer(clarification.id, answer);
-    setAnswer("");
-  }
-  return (
-    <article className="clarification-card" data-testid="clarification-card">
-      <div className="clarification-questions">
-        {clarification.questions.map((question) => (
-          <div key={question.id}>
-            <strong>{question.header ?? "请确认"}</strong>
-            <p>{question.question}</p>
-            {question.options && question.options.length > 0 ? (
-              <div className="clarification-options">
-                {question.options.map((option) => (
-                  <button
-                    className="outline-button"
-                    key={option.label}
-                    type="button"
-                    onClick={() => setAnswer(option.description ? `${option.label}：${option.description}` : option.label)}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </div>
-        ))}
-      </div>
-      <label>
-        <span>回答</span>
-        <textarea
-          value={answer}
-          onChange={(event) => setAnswer(event.target.value)}
-          placeholder={firstQuestion?.allowFreeform === false ? "选择一个选项后提交" : "补充你的约束或答案"}
-          rows={3}
-        />
-      </label>
-      <button className="primary-button" type="button" disabled={!canSubmit} onClick={() => void submit()}>
-        提交回答
-      </button>
-    </article>
-  );
-}
-
-export function ProviderUserInputRequestCard({
-  request,
-  busy,
-  onAnswer,
-}: {
-  request: ProviderUserInputRequest;
-  busy: boolean;
-  onAnswer: (request: ProviderUserInputRequest, answers: Record<string, string | string[]>) => Promise<void>;
-}): ReactElement {
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-  const pending = request.status === "pending";
-  const canSubmit = pending && !busy && (request.questions.length === 0 || request.questions.some((question) => (answers[question.id] ?? "").trim().length > 0));
-  async function submit(): Promise<void> {
-    if (!canSubmit) return;
-    await onAnswer(request, answers);
-    setAnswers({});
-  }
-  return (
-    <article className="clarification-card provider-user-input-card" data-testid="provider-user-input-card">
-      <div className="clarification-questions">
-        {request.questions.map((question) => (
-          <div key={question.id}>
-            <strong>{question.header ?? "Agent 需要确认"}</strong>
-            <p>{question.question}</p>
-            {question.options && question.options.length > 0 ? (
-              <div className="clarification-options">
-                {question.options.map((option) => (
-                  <button
-                    className="outline-button"
-                    key={option.label}
-                    type="button"
-                    disabled={!pending || busy}
-                    onClick={() => setAnswers((current) => ({
-                      ...current,
-                      [question.id]: option.description ? `${option.label}：${option.description}` : option.label,
-                    }))}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-            {pending ? <label>
-              <span>回答</span>
-              <textarea
-                value={answers[question.id] ?? ""}
-                onChange={(event) => setAnswers((current) => ({ ...current, [question.id]: event.target.value }))}
-                placeholder={question.options?.length ? "选择一个选项，或补充说明" : "输入你的回答"}
-                rows={3}
-                disabled={!pending || busy}
-              />
-            </label> : request.answers?.[question.id] ? (
-              <p className="clarification-answer">你的回答：{formatProviderAnswer(request.answers[question.id])}</p>
-            ) : null}
-          </div>
-        ))}
-      </div>
-      <button className="primary-button" type="button" disabled={!canSubmit} onClick={() => void submit()}>
-        {request.status === "submitted" ? "已提交" : request.status === "submitting" ? "正在提交" : "提交回答"}
-      </button>
-    </article>
-  );
-}
-
-function formatProviderAnswer(answer: string | string[]): string {
-  return Array.isArray(answer) ? answer.join("、") : answer;
 }
 
 export function WorkpadMetric({ label, value }: { label: string; value: string }): ReactElement {

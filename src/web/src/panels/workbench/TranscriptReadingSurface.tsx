@@ -4,19 +4,16 @@ import { artifactName } from "./RunReplayPanel.js";
 import { formatTime, humanStatus } from "../../formatters.js";
 import { cleanTranscriptText, cleanTranscriptTitle } from "../../liveTranscript.js";
 import { SentMessageContextSummary, type ComposerContextAttachment } from "../../shell/ComposerContextSources.js";
-import { ProviderUserInputRequestCard } from "./workpad/TaskGraphCards.js";
 import {
   isLongTranscriptCell,
   transcriptCellDisplayText,
 } from "./transcriptMeasurement.js";
-import type { ProviderUserInputRequest, ParentAgentTranscriptCell } from "../../types.js";
+import type { InteractionHistoryRecord, ParentAgentTranscriptCell } from "../../types.js";
 
-export function AgentTranscriptPane({ cells, emptyMessage = "暂无 Agent 消息。", testId = "agent-transcript-pane", busy = false, onAnswerProviderUserInput }: {
+export function AgentTranscriptPane({ cells, emptyMessage = "暂无 Agent 消息。", testId = "agent-transcript-pane" }: {
   cells: ParentAgentTranscriptCell[];
   emptyMessage?: string;
   testId?: string;
-  busy?: boolean;
-  onAnswerProviderUserInput?: (request: ProviderUserInputRequest, answers: Record<string, string | string[]>) => Promise<void>;
 }): ReactElement {
   const [expandedCells, setExpandedCells] = useState<Set<string>>(new Set());
   return (
@@ -35,21 +32,17 @@ export function AgentTranscriptPane({ cells, emptyMessage = "暂无 Agent 消息
               return next;
             });
           }}
-          busy={busy}
-          onAnswerProviderUserInput={onAnswerProviderUserInput}
         />
       ))}
     </div>
   );
 }
 
-export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded, onOpenAgent, busy = false, onAnswerProviderUserInput }: {
+export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded, onOpenAgent }: {
   cell: ParentAgentTranscriptCell;
   expanded: boolean;
   onToggleExpanded: () => void;
   onOpenAgent?: (agentSurfaceId: string) => void;
-  busy?: boolean;
-  onAnswerProviderUserInput?: (request: ProviderUserInputRequest, answers: Record<string, string | string[]>) => Promise<void>;
 }): ReactElement {
   const isUser = cell.kind === "user-message";
   const rowKind = isUser ? "user" : "parent";
@@ -68,12 +61,8 @@ export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded
           <TranscriptUserMessage cell={cell} expanded={expanded} onToggleExpanded={onToggleExpanded} />
         ) : cell.kind === "assistant-message" ? (
           <TranscriptAssistantMessage cell={cell} expanded={expanded} onToggleExpanded={onToggleExpanded} />
-        ) : cell.kind === "user-input" && cell.providerUserInput ? (
-          <ProviderUserInputRequestCard
-            request={cell.providerUserInput}
-            busy={busy}
-            onAnswer={onAnswerProviderUserInput ?? (async () => undefined)}
-          />
+        ) : cell.kind === "user-input" && cell.interactionHistory ? (
+          <InteractionHistoryView history={cell.interactionHistory} />
         ) : (
           <TranscriptActivityRow cell={cell} expanded={expanded} onToggleExpanded={onToggleExpanded} onOpenAgent={onOpenAgent} />
         )}
@@ -166,7 +155,7 @@ export function TranscriptActivityRow({ cell, expanded, onToggleExpanded, onOpen
     if (expanded && node && detailsPinnedRef.current) node.scrollTop = node.scrollHeight;
   }, [detailText, expanded]);
   return (
-    <div className={`parent-agent-tool-result transcript-activity-row compact ${cell.kind} tone-${tone} ${cell.realtime ? "realtime" : ""} ${expanded ? "expanded" : ""} ${hasDetails ? "has-details" : ""} ${cell.isError ? "danger" : ""}`}>
+    <div className={`parent-agent-tool-result transcript-activity-row compact ${cell.kind} tone-${tone} ${cell.activityKind ? `activity-${cell.activityKind}` : ""} ${cell.realtime ? "realtime" : ""} ${expanded ? "expanded" : ""} ${hasDetails ? "has-details" : ""} ${cell.isError ? "danger" : ""}`}>
       <button
         type="button"
         className="transcript-activity-summary"
@@ -200,6 +189,28 @@ export function TranscriptActivityRow({ cell, expanded, onToggleExpanded, onOpen
           ) : null}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function InteractionHistoryView({ history }: { history: InteractionHistoryRecord }): ReactElement {
+  const skipped = new Set(history.skippedQuestionIds ?? []);
+  return (
+    <div className="interaction-history" data-testid="interaction-history">
+      {(history.questions ?? []).map((question) => {
+        const answer = history.answers?.[question.questionId];
+        const text = skipped.has(question.questionId)
+          ? "已跳过"
+          : answer
+            ? `你的回答：${Array.isArray(answer) ? answer.join("、") : answer}`
+            : history.status === "pending" || history.status === "submitting" ? "等待回答" : "未回答";
+        return (
+          <div key={question.questionId} className="interaction-history-item">
+            <strong>{question.title}</strong>
+            <p>{text}</p>
+          </div>
+        );
+      })}
     </div>
   );
 }

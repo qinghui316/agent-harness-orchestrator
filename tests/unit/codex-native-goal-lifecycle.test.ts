@@ -24,16 +24,19 @@ describe("Codex native Goal lifecycle", () => {
     spawnMock.mockReturnValue(server as unknown as ChildProcess);
     const observed: string[] = [];
     const parentLifecycle: string[] = [];
+    const resolvedRequests: string[] = [];
     const realtimeEvents: Array<{ threadId: string; roleId: string; displayName?: string }> = [];
 
     const result = await runCodexAppServerTurn(await options({
       existingThreadId: null,
       goalSession: false,
+      enableDefaultModeUserInput: true,
       dynamicTools: [
         { name: "aho_goal_yield", description: "Yield", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
         { name: "aho_accept_current_plan", description: "Accept", inputSchema: { type: "object", properties: {}, additionalProperties: false } },
       ],
       onChildThreadResult: (child) => observed.push(child.finalText),
+      onUserInputResolved: (resolution) => resolvedRequests.push(resolution.requestId),
       onRealtimeEvent: (event) => realtimeEvents.push(event),
       onNotification: (notification) => {
         if (notification.method === "turn/completed") parentLifecycle.push(String(notification.params.threadId));
@@ -50,6 +53,7 @@ describe("Codex native Goal lifecycle", () => {
     })]);
     expect(observed).toEqual(['{"specMd":"# Spec","planMd":"# Plan","tasksMd":"# Tasks"}']);
     expect(parentLifecycle).toEqual(["thread-parent"]);
+    expect(resolvedRequests).toEqual(["77"]);
     expect(server.methods).toContain("thread/read");
     expect(realtimeEvents).toEqual(expect.arrayContaining([
       expect.objectContaining({ threadId: "thread-planner", roleId: "child-agent", displayName: "Child Agent" }),
@@ -58,6 +62,7 @@ describe("Codex native Goal lifecycle", () => {
       expect.objectContaining({ name: "aho_goal_yield" }),
       expect.objectContaining({ name: "aho_accept_current_plan" }),
     ]));
+    expect(server.threadStartParams.config).toEqual({ "features.default_mode_request_user_input": true });
     expect(server.methods.filter((method) => method === "thread/goal/set")).toHaveLength(0);
   });
 
@@ -601,6 +606,7 @@ class FakePlannerChildAppServer extends EventEmitter {
         Object.assign(this.turnStartParams, params);
         this.respond(id, { turn: { id: "turn-parent" } });
         this.notify("turn/started", { threadId: "thread-parent", turn: { id: "turn-parent" } });
+        this.notify("serverRequest/resolved", { threadId: "thread-parent", requestId: 77 });
         this.notify("item/completed", {
           item: {
             type: "subAgentActivity",

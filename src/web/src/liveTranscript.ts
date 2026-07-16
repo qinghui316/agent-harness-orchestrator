@@ -116,6 +116,6 @@ function mergeTimelineCell(current: ParentAgentTranscriptCell, incoming: ParentA
     contextRefs: incoming.contextRefs ?? current.contextRefs,
     attachments: incoming.attachments ?? current.attachments,
     evidenceRefs: incoming.evidenceRefs ?? current.evidenceRefs,
-    providerUserInput: incoming.providerUserInput ?? current.providerUserInput,
+    interactionHistory: incoming.interactionHistory ?? current.interactionHistory,
   };
 }

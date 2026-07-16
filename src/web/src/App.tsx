@@ -44,7 +44,6 @@ import {
   normalizeParentAgentTranscript,
   replaceCanonicalMessageCells,
 } from "./liveTranscript.js";
-import { derivePlanHandoffCandidate } from "./panels/workbench/planHandoff.js";
 
 import {
   projectDisplayName,
@@ -69,13 +68,12 @@ import type {
   TopicFileReference,
   RuntimeActivityLogSnapshot,
   RuntimeDiagnosticsSnapshot,
-  ProviderUserInputRequest,
   AgentWorkspaceAgent,
-  PlanHandoffCandidate,
-  PlanHandoffIntentKind,
+  ConversationInteractionSettlement,
 } from "./types.js";
 import { extractInlineSkillMentions } from "./shell/skill-mentions.js";
 import { extractInlineFileMentions } from "./shell/file-mentions.js";
+import { ConversationInteractionDock, type ConversationInteractionDraft } from "./panels/workbench/ConversationInteractionDock.js";
 
 const emptySnapshot: Snapshot = {
   project: null,
@@ -87,6 +85,7 @@ const emptySnapshot: Snapshot = {
     agentLoop: { runs: [] },
     thread: { items: [] },
     parentAgentTranscript: emptyParentAgentTranscript(),
+    conversationInteractions: { items: [] },
     activeTab: "conversation",
     agentRelationGraph: emptyAgentRelationGraph(),
   },
@@ -108,6 +107,8 @@ const LEFT_SIDEBAR_MAX_WIDTH = 420;
 const RIGHT_RAIL_DEFAULT_WIDTH = 320;
 const RIGHT_RAIL_MIN_WIDTH = 280;
 const RIGHT_RAIL_MAX_WIDTH = 560;
+const AGENT_PROJECTION_REFRESH_DELAY_MS = 180;
+const AGENT_PROJECTION_MAX_RETRIES = 8;
 type BottomDockKind = "terminal" | null;
 type PendingDemandConversation = {
   id: string;
@@ -174,6 +175,7 @@ export function App(): ReactElement {
   const [error, setError] = useState<string | null>(null);
   const [composerText, setComposerText] = useState("");
   const [actionRunning, setActionRunning] = useState<string | null>(null);
+  const interactionDraftsRef = useRef<Record<string, ConversationInteractionDraft>>({});
   const [openAgentSurfaceIds, setOpenAgentSurfaceIds] = useState<string[]>([]);
   const [loadedTranscript, setLoadedTranscript] = useState<ParentAgentTranscript | null>(null);
   const [loadingEarlierTranscript, setLoadingEarlierTranscript] = useState(false);
@@ -215,6 +217,8 @@ export function App(): ReactElement {
   const mainMessageCellOwnersRef = useRef(new Map<string, string[]>());
   const agentMessageCellOwnersRef = useRef(new Map<string, string[]>());
   const agentProjectionRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingAgentSurfaceRefreshesRef = useRef(new Map<string, number>());
+  const agentProjectionContextRef = useRef<string | null>(null);
   const graphScopeRef = useRef<string | null>(null);
   const selectedComposerSkillIds = useMemo(
     () => activeComposerSkillIds(skillItems, selectedTopic, draftSkillOverrides),
@@ -564,6 +568,7 @@ export function App(): ReactElement {
         workpad: emptyWorkpad(projectDisplayName(baseSnapshot.project ?? status.project, "当前项目")),
         thread: { items: [] },
         parentAgentTranscript: emptyParentAgentTranscript(),
+        conversationInteractions: { items: [] },
         activeTab: "conversation" as const,
         agentLoop: { runs: [] },
         agentRelationGraph: emptyAgentRelationGraph(),
@@ -773,25 +778,6 @@ export function App(): ReactElement {
     } finally {
       setProviderModelSettingsBusy(false);
     }
-  }
-
-  function confirmWorkpadApproval(approvalId: string): void {
-    const approval = snapshot.right.approvals.find((item) => item.id === approvalId);
-    if (!approval?.action || !selectedProjectId) return;
-    setError(null);
-    void (async () => {
-      try {
-        const result = await fetch(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/actions`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: approval.action, confirm: true }),
-        });
-        if (!result.ok) throw new Error(await result.text());
-        await refresh();
-      } catch (cause) {
-        setError(cause instanceof Error ? cause.message : String(cause));
-      }
-    })();
   }
 
   async function requestDecisionFeedback(context: DecisionContext, action: DecisionAction, feedback: string): Promise<void> {
@@ -1122,39 +1108,25 @@ export function App(): ReactElement {
     await runWorkflowAction("conversation.interrupt", { prompt: composerText.trim() || undefined });
   }
 
-  async function answerClarification(clarificationId: string, answer: string): Promise<void> {
-    if (!selectedProjectId || !activeTopic || !answer.trim()) return;
-    setActionRunning("clarification.answer");
-    setError(null);
-    try {
-      const result = await postJson<{ snapshot: Snapshot }>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/clarifications/${encodeURIComponent(clarificationId)}/answer`, {
-        changeId: activeTopic.id,
-        answer: answer.trim(),
-      });
-      setSnapshot(result.snapshot);
-    } finally {
-      setActionRunning(null);
-    }
-  }
-
-  async function answerProviderUserInput(request: ProviderUserInputRequest, answers: Record<string, string | string[]>): Promise<void> {
+  async function settleConversationInteraction(interactionId: string, settlement: ConversationInteractionSettlement): Promise<void> {
     if (!selectedProjectId || !activeTopic) return;
-    setActionRunning("provider.userInput.answer");
+    setActionRunning(`interaction.${settlement.action}`);
     setError(null);
-    updateCanonicalProviderUserInput(request.requestKey, "submitting", answers);
+    let failed = false;
     try {
-      const result = await postJson<{ result: unknown; snapshot: Snapshot }>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/providers/user-input/${encodeURIComponent(request.requestId)}/answer`, {
-        changeId: request.changeId,
-        conversationId: request.conversationId ?? (!request.changeId ? activeTopic.id : undefined),
-        requestKey: request.requestKey,
-        answers,
-      });
-      setSnapshot(result.snapshot);
-      const submittedAt = new Date().toISOString();
-      updateCanonicalProviderUserInput(request.requestKey, "submitted", answers, submittedAt);
-    } catch (cause) {
-      updateCanonicalProviderUserInput(request.requestKey, "pending");
-      throw cause;
+      await consumeWorkbenchLiveStream(
+        `/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/conversations/${encodeURIComponent(activeTopic.id)}/interactions/${encodeURIComponent(interactionId)}/settle`,
+        settlement,
+        (event: WorkbenchLiveEvent) => {
+          if (event.event === "error") failed = true;
+          if (event.event === "snapshot") {
+            const interaction = event.data.center.conversationInteractions?.items.find((item) => item.interactionId === interactionId);
+            if (interaction?.status === "submitting") delete interactionDraftsRef.current[interactionId];
+          }
+          handleLiveEvent(event);
+        },
+      );
+      if (!failed) delete interactionDraftsRef.current[interactionId];
     } finally {
       setActionRunning(null);
     }
@@ -1174,40 +1146,6 @@ export function App(): ReactElement {
     }
   }
 
-  async function sendPlanHandoff(candidate: PlanHandoffCandidate, kind: PlanHandoffIntentKind, feedback?: string): Promise<void> {
-    if (!selectedProjectId || !activeTopic) return;
-    if (activeTopic.state !== "active") {
-      setError("已完成或稍后处理的需求对话为只读，不能继续交接计划。");
-      return;
-    }
-    setActionRunning("plan.handoff");
-    setError(null);
-    const trimmedFeedback = feedback?.trim();
-    const message = kind === "cancel-plan"
-      ? "取消当前计划，不进入执行。"
-      : kind === "revise-plan"
-      ? `请主 Agent 先审查下面的计划修改意见，再决定是否让 Plan Agent 修改计划：\n\n${trimmedFeedback ?? ""}`
-      : "请主 Agent 基于当前计划继续判断执行路径。";
-    try {
-      await consumeWorkbenchLiveStream(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/topics/${encodeURIComponent(activeTopic.id)}/messages/live`, {
-        mode: "chat",
-        message,
-        planHandoffIntent: {
-          sourceRunId: candidate.sourceRunId,
-          sourceAgentRoleId: candidate.sourceAgentRoleId,
-          sourceArtifact: candidate.sourceArtifact,
-          kind,
-          feedback: trimmedFeedback || undefined,
-        },
-      }, handleLiveEvent);
-    } finally {
-      setActionRunning(null);
-    }
-  }
-
-  async function cancelPlanHandoff(candidate: PlanHandoffCandidate): Promise<void> {
-    await sendPlanHandoff(candidate, "cancel-plan");
-  }
 
   function handleLiveEvent(event: WorkbenchLiveEvent): void {
     if (event.event === "topic.created") {
@@ -1239,6 +1177,7 @@ export function App(): ReactElement {
           event.data.cells,
         ));
         mainMessageCellOwnersRef.current.set(event.data.messageId, event.data.cells.map((cell) => cell.id));
+        if (event.data.cells.some((cell) => cell.targetAgentSurfaceId)) scheduleAgentProjectionRefresh();
       } else {
         const ownerKey = `${event.data.agentSurfaceId}:${event.data.messageId}`;
         const previous = agentMessageCellOwnersRef.current.get(ownerKey) ?? [];
@@ -1263,6 +1202,14 @@ export function App(): ReactElement {
       }
       return;
     }
+    if (event.event === "conversation.interactions.updated") {
+      if (activeTopic?.id && event.data.conversationId !== activeTopic.id) return;
+      setSnapshot((current) => ({
+        ...current,
+        center: { ...current.center, conversationInteractions: event.data },
+      }));
+      return;
+    }
     if (event.event === "error") {
       if (isTransientReconnectMessage(event.data.message)) return;
       setError(event.data.message);
@@ -1272,33 +1219,10 @@ export function App(): ReactElement {
     // Agent workspace, and graph surfaces consume canonical server projections.
   }
 
-  function updateCanonicalProviderUserInput(
-    requestKey: string,
-    status: ProviderUserInputRequest["status"],
-    answers?: Record<string, string | string[]>,
-    submittedAt?: string,
-  ): void {
-    setLoadedTranscript((current) => current ? mapProviderUserInputTranscript(current, requestKey, status, answers, submittedAt) : current);
-    setSnapshot((current) => {
-      const workspace = current.right.agentWorkspace ?? { selectedAgentId: "planning-agent", agents: [] };
-      return {
-        ...current,
-        right: {
-          ...current.right,
-          agentWorkspace: {
-            ...workspace,
-            agents: workspace.agents.map((agent) => ({
-              ...agent,
-              transcript: mapProviderUserInputTranscript(agent.transcript, requestKey, status, answers, submittedAt),
-            })),
-          },
-        },
-      };
-    });
-  }
 
   function scheduleAgentProjectionRefresh(): void {
     if (!selectedProjectId || !activeTopic?.id || agentProjectionRefreshTimerRef.current) return;
+    const projectionContext = `${selectedProjectId}:${activeTopic.id}`;
     agentProjectionRefreshTimerRef.current = setTimeout(() => {
       agentProjectionRefreshTimerRef.current = null;
       const projectId = selectedProjectId;
@@ -1308,21 +1232,45 @@ export function App(): ReactElement {
         fetchJson<AgentRelationGraph>(`/api/projects/${encodeURIComponent(projectId)}/workbench/projections/agent-graph/${encodeURIComponent(topicId)}`),
       ])
         .then(([next, graph]) => {
+          if (agentProjectionContextRef.current !== projectionContext) return;
           setSnapshot((current) => ({
             ...current,
             center: { ...current.center, agentRelationGraph: graph },
             right: { ...current.right, agentWorkspace: next.right.agentWorkspace },
           }));
           setLoadedAgentRelationGraph(graph);
+          const availableAgentIds = new Set(next.right.agentWorkspace.agents.map((agent) => agent.id));
+          if (advancePendingAgentProjectionRefreshes(availableAgentIds)) scheduleAgentProjectionRefresh();
         })
         .catch(() => {
-          // The next canonical patch or final snapshot retries projection refresh.
+          if (agentProjectionContextRef.current !== projectionContext) return;
+          if (advancePendingAgentProjectionRefreshes()) scheduleAgentProjectionRefresh();
         });
-    }, 180);
+    }, AGENT_PROJECTION_REFRESH_DELAY_MS);
+  }
+
+  function advancePendingAgentProjectionRefreshes(availableAgentIds = new Set<string>()): boolean {
+    let shouldRetry = false;
+    for (const [agentSurfaceId, attempt] of pendingAgentSurfaceRefreshesRef.current) {
+      if (availableAgentIds.has(agentSurfaceId)) {
+        pendingAgentSurfaceRefreshesRef.current.delete(agentSurfaceId);
+        continue;
+      }
+      if (attempt >= AGENT_PROJECTION_MAX_RETRIES) {
+        pendingAgentSurfaceRefreshesRef.current.delete(agentSurfaceId);
+        continue;
+      }
+      pendingAgentSurfaceRefreshesRef.current.set(agentSurfaceId, attempt + 1);
+      shouldRetry = true;
+    }
+    return shouldRetry;
   }
 
   function openChildAgentWorkspace(agentSurfaceId: string): void {
     if (!agentSurfaceId || agentSurfaceId === "main-agent") return;
+    if (!activeAgentWorkspace.agents.some((agent) => agent.id === agentSurfaceId)) {
+      pendingAgentSurfaceRefreshesRef.current.set(agentSurfaceId, 0);
+    }
     setOpenAgentSurfaceIds((current) => current.includes(agentSurfaceId) ? current : [...current, agentSurfaceId]);
     setSelectedAgentWorkspaceAgentId(agentSurfaceId);
     setRightToolView("agent");
@@ -1348,6 +1296,7 @@ export function App(): ReactElement {
   function clearTopicScopedLiveState(): void {
     if (agentProjectionRefreshTimerRef.current) clearTimeout(agentProjectionRefreshTimerRef.current);
     agentProjectionRefreshTimerRef.current = null;
+    pendingAgentSurfaceRefreshesRef.current.clear();
     mainMessageCellOwnersRef.current.clear();
     agentMessageCellOwnersRef.current.clear();
     setActionRunning(null);
@@ -1373,6 +1322,9 @@ export function App(): ReactElement {
       selectedProviderId: activePendingConversation.selectedProviderId,
     }
     : snapshot.center.selectedTopic;
+  agentProjectionContextRef.current = selectedProjectId && activeTopic?.id
+    ? `${selectedProjectId}:${activeTopic.id}`
+    : null;
   const activeTopicIsConversation = activeTopic?.kind === "conversation";
   const composerProviderOptions = providerCapabilities.map((provider) => ({ id: provider.providerId, label: provider.displayName }));
   const selectedProjectDefaultProviderId = projects.find((item) => item.project?.id === selectedProjectId)?.project?.defaultProviderId ?? null;
@@ -1428,24 +1380,12 @@ export function App(): ReactElement {
     };
     return () => source.close();
   }, [selectedProjectId, selectedProjectStatus?.managed, selectedTopic]);
-  const rawPlanHandoffCandidate = useMemo(() => derivePlanHandoffCandidate(activeAgentWorkspace), [activeAgentWorkspace]);
-  const planHandoffCandidate = activeTopic?.id ? rawPlanHandoffCandidate : null;
+  const activeConversationInteraction = snapshot.center.conversationInteractions?.items[0] ?? null;
   const pendingConfirmationCount = (activeConfirmationQueue.primary ? 1 : 0)
     + activeConfirmationQueue.otherDemands.length
     + activeConfirmationQueue.maintenance.length;
-  const rawActiveAgentGraph = isPendingTopic
-    ? emptyAgentRelationGraph()
-    : loadedAgentRelationGraph ?? snapshot.center.agentRelationGraph;
-  const mainConversationRequestRunning = Boolean(activePendingConversation)
-    || actionRunning === "topic.create"
-    || actionRunning === "chat.ask";
-  const activeAgentGraph = {
-    ...(isAgentRelationGraph(rawActiveAgentGraph) ? rawActiveAgentGraph : emptyAgentRelationGraph()),
-    nodes: withRunningMainNode(
-      (isAgentRelationGraph(rawActiveAgentGraph) ? rawActiveAgentGraph : emptyAgentRelationGraph()).nodes,
-      mainConversationRequestRunning,
-    ),
-  };
+  const rawActiveAgentGraph = loadedAgentRelationGraph ?? snapshot.center.agentRelationGraph;
+  const activeAgentGraph = isAgentRelationGraph(rawActiveAgentGraph) ? rawActiveAgentGraph : emptyAgentRelationGraph();
   useEffect(() => {
     const graphScopeId = activeAgentGraph.graphScopeId;
     if (!graphScopeId) return;
@@ -1577,7 +1517,7 @@ export function App(): ReactElement {
   }, [selectedProjectId, activeTopic?.id, isPendingTopic, projectionVersion]);
 
   useEffect(() => {
-    if (!selectedProjectId || !activeTopic?.id || !orchestrationOpen || isPendingTopic) return;
+    if (!selectedProjectId || !activeTopic?.id || !orchestrationOpen) return;
     let cancelled = false;
     setAgentGraphLoadState("loading");
     setAgentGraphLoadError(null);
@@ -1782,22 +1722,11 @@ export function App(): ReactElement {
                 >
                   <MainConversationView
                     key={activeTopic.id}
-                    workpad={activeWorkpad}
                     transcript={activeTranscript}
                     scrollContainerRef={threadScrollRef}
                     onLoadEarlierTranscript={loadEarlierTranscriptPage}
                     loadingEarlierTranscript={loadingEarlierTranscript}
-                    busy={actionRunning !== null}
-                    approvals={snapshot.right.approvals}
-                    onAction={runWorkflowAction}
-                    onConfirmApproval={confirmWorkpadApproval}
-                    onAnswerClarification={answerClarification}
-                    onAnswerProviderUserInput={answerProviderUserInput}
-                    onSelectDecisionContext={setSelectedDecisionContextId}
                     onOpenAgent={openChildAgentWorkspace}
-                    planHandoffCandidate={planHandoffCandidate}
-                    onPlanHandoff={sendPlanHandoff}
-                    onCancelPlanHandoff={cancelPlanHandoff}
                   />
                 </div>
                 {latestHidden ? <button className="latest-button" onClick={() => {
@@ -1806,38 +1735,50 @@ export function App(): ReactElement {
                   if (node) node.scrollTop = node.scrollHeight;
                   setLatestHidden(false);
                 }}>最新</button> : null}
-                <TopicComposer
-                    value={composerText}
-                    onChange={setComposerText}
-                    providerDisplayName={providerDisplayName}
-                    modelLabel={providerModelLabel}
-                    onOpenModelSettings={() => void openProviderModelPicker()}
-                    enabledSkillCount={enabledSkillCount}
-                    projectId={selectedProjectId}
-                    skills={skillItems}
-                    activeSkillIds={selectedComposerSkillIds}
-                    selectedFileRefs={composerFileRefs}
-                    attachments={composerAttachments}
-                    onAttachFiles={(files) => { void appendComposerAttachments(files); }}
-                    onRemoveAttachment={removeComposerAttachment}
-                    onSelectedFileRefsChange={setComposerFileRefs}
-                    onToggleSkill={toggleComposerSkill}
-                    onOpenSkillsSettings={() => openSettings("skills")}
-                    busy={actionRunning !== null || activeTopic.state !== "active"}
-                    disabledReason={activeTopic.state !== "active"
-                      ? "已完成或稍后处理的需求对话为只读。"
-                      : undefined}
-                    onSend={sendTopicMessage}
-                    onStopAndContinue={stopAndContinueCurrentRun}
-                    onNewWorkpad={createTopicFromComposer}
-                    actionRunning={actionRunning}
-                    currentWorkpadStatus={activeWorkpad.conversationLifecycle === "running" || activeWorkpad.runControlState?.canStop ? "running" : currentWorkpadSummary(snapshot, activeTopic)?.runtimeStatus}
-                    providerOptions={composerProviderOptions}
-                    selectedProviderId={composerProviderId ?? activeTopic.selectedProviderId}
-                    onSelectProvider={(providerId) => { void selectComposerProvider(providerId); }}
-                />
               </div>
               )}
+              {activeConversationInteraction ? (
+                <ConversationInteractionDock
+                  interaction={activeConversationInteraction}
+                  busy={Boolean(actionRunning?.startsWith("interaction."))}
+                  canStop={activeWorkpad.conversationLifecycle === "running" || Boolean(activeWorkpad.runControlState?.canStop)}
+                  initialDraft={interactionDraftsRef.current[activeConversationInteraction.interactionId]}
+                  onDraftChange={(interactionId, draft) => {
+                    interactionDraftsRef.current[interactionId] = draft;
+                  }}
+                  onSettle={settleConversationInteraction}
+                  onStop={stopAndContinueCurrentRun}
+                />
+              ) : !orchestrationOpen ? <TopicComposer
+                  value={composerText}
+                  onChange={setComposerText}
+                  providerDisplayName={providerDisplayName}
+                  modelLabel={providerModelLabel}
+                  onOpenModelSettings={() => void openProviderModelPicker()}
+                  enabledSkillCount={enabledSkillCount}
+                  projectId={selectedProjectId}
+                  skills={skillItems}
+                  activeSkillIds={selectedComposerSkillIds}
+                  selectedFileRefs={composerFileRefs}
+                  attachments={composerAttachments}
+                  onAttachFiles={(files) => { void appendComposerAttachments(files); }}
+                  onRemoveAttachment={removeComposerAttachment}
+                  onSelectedFileRefsChange={setComposerFileRefs}
+                  onToggleSkill={toggleComposerSkill}
+                  onOpenSkillsSettings={() => openSettings("skills")}
+                  busy={actionRunning !== null || activeTopic.state !== "active"}
+                  disabledReason={activeTopic.state !== "active"
+                    ? "已完成或稍后处理的需求对话为只读。"
+                    : undefined}
+                  onSend={sendTopicMessage}
+                  onStopAndContinue={stopAndContinueCurrentRun}
+                  onNewWorkpad={createTopicFromComposer}
+                  actionRunning={actionRunning}
+                  currentWorkpadStatus={activeWorkpad.conversationLifecycle === "running" || activeWorkpad.runControlState?.canStop ? "running" : currentWorkpadSummary(snapshot, activeTopic)?.runtimeStatus}
+                  providerOptions={composerProviderOptions}
+                  selectedProviderId={composerProviderId ?? activeTopic.selectedProviderId}
+                  onSelectProvider={(providerId) => { void selectComposerProvider(providerId); }}
+                /> : null}
             </section>
           </>
         )}
@@ -1883,12 +1824,9 @@ export function App(): ReactElement {
             workspace={activeAgentWorkspace}
             selectedAgentId={selectedAgentWorkspaceAgentId}
             openAgentIds={openAgentSurfaceIds}
-            busy={actionRunning !== null}
             onSelectAgent={setSelectedAgentWorkspaceAgentId}
             onCloseAgent={closeChildAgentWorkspace}
             onBack={() => setRightToolView("launcher")}
-            onAnswerClarification={answerClarification}
-            onAnswerProviderUserInput={answerProviderUserInput}
             onSendAgentMessage={sendAgentWorkspaceMessage}
             providerDisplayName={providerDisplayName}
             modelLabel={providerModelLabel}
@@ -2129,29 +2067,6 @@ function syncWorkbenchOrchestrationTab(open: boolean): void {
 
 function isTransientReconnectMessage(message: string): boolean {
   return /^reconnecting(?:\.\.\.)?\s*\d+\/\d+/i.test(message.trim());
-}
-
-function mapProviderUserInputTranscript(
-  transcript: ParentAgentTranscript,
-  requestKey: string,
-  status: ProviderUserInputRequest["status"],
-  answers?: Record<string, string | string[]>,
-  submittedAt?: string,
-): ParentAgentTranscript {
-  return normalizeParentAgentTranscript({
-    ...transcript,
-    cells: (transcript.cells ?? []).map((cell) => cell.providerUserInput?.requestKey === requestKey ? {
-      ...cell,
-      status,
-      title: status === "submitted" ? "已回答" : "需要你回答",
-      providerUserInput: { ...cell.providerUserInput, status, answers, submittedAt },
-    } : cell),
-  });
-}
-
-function withRunningMainNode(nodes: AgentRelationGraph["nodes"], running: boolean): AgentRelationGraph["nodes"] {
-  if (!running) return nodes;
-  return nodes.map((node) => node.kind === "main-agent" ? { ...node, status: "running" } : node);
 }
 
 function snapshotForProject(project: ProjectStatus | null | undefined): Snapshot {

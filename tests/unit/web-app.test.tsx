@@ -1,20 +1,16 @@
 // @vitest-environment jsdom
 
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../src/web/src/App.js";
 import { DecisionInspectorPane } from "../../src/web/src/panels/workbench/DecisionPanels.js";
-import { ConversationPendingActionStack } from "../../src/web/src/panels/workbench/ConversationPendingActionStack.js";
 import { WorkpadView } from "../../src/web/src/panels/workbench/WorkpadPanel.js";
 import { mainAgentExecutionForWorkpad } from "../../src/web/src/panels/workbench/workpad/main-agent-execution.js";
 import { WorkpadDiagnosticDetails } from "../../src/web/src/panels/workbench/workpad/WorkpadDetails.js";
-import { ProviderUserInputRequestCard } from "../../src/web/src/panels/workbench/workpad/TaskGraphCards.js";
 import { RunReplay } from "../../src/web/src/panels/workbench/RunReplayPanel.js";
 import { TopicComposer } from "../../src/web/src/shell/composer.js";
 import { ComposerControls } from "../../src/web/src/shell/ComposerControls.js";
 import { canonicalTranscriptCellsFromThreadItem } from "../../src/workbench/parent-agent-transcript.js";
-import { derivePlanHandoffCandidate } from "../../src/web/src/panels/workbench/planHandoff.js";
 import type { Workpad, WorkpadMainAgentExecutionSummary } from "../../src/web/src/types.js";
 
 vi.mock("@xterm/xterm", () => ({
@@ -77,53 +73,6 @@ it("does not reconstruct conversation events by parsing provider raw JSONL in th
   expect(screen.queryByText("Command completed")).toBeNull();
 });
 
-it("identifies superseding planner proposals by artifact even when the parent run id is reused", () => {
-  const candidate = derivePlanHandoffCandidate({
-    selectedAgentId: "planning-agent",
-    agents: [{
-      id: "planning-agent",
-      roleId: "planning-agent",
-      label: "Plan Agent",
-      status: "completed",
-      summary: "Revised plan",
-      evidenceRefs: [],
-      actions: [],
-      transcript: {
-        title: "Plan Agent",
-        items: [],
-        cells: [
-          { id: "old", kind: "assistant-message", source: "provider-runtime", runId: "run-1", timestamp: "2026-07-11T00:00:00Z", text: "Old", evidenceRefs: [{ label: "Plan proposal", ref: "old.json", kind: "artifact" }] },
-          { id: "new", kind: "assistant-message", source: "provider-runtime", runId: "run-1", timestamp: "2026-07-11T00:00:01Z", text: "New", evidenceRefs: [{ label: "Plan proposal", ref: "new.json", kind: "artifact" }] },
-        ],
-      },
-    }],
-  });
-
-  expect(candidate).toMatchObject({ sourceRunId: "run-1", sourceArtifact: "new.json", proposalKey: "new.json", planText: "New" });
-});
-
-it("does not derive an action from planner output without a validated proposal artifact", () => {
-  expect(derivePlanHandoffCandidate({
-    selectedAgentId: "planning-agent",
-    agents: [{
-      id: "planning-agent",
-      roleId: "planning-agent",
-      label: "Plan Agent",
-      status: "failed",
-      summary: "Invalid proposal",
-      evidenceRefs: [],
-      actions: [],
-      transcript: {
-        title: "Plan Agent",
-        items: [],
-        cells: [
-          { id: "valid", kind: "assistant-message", source: "provider-runtime", runId: "run-valid", timestamp: "2026-07-11T00:00:00Z", text: "Valid plan", evidenceRefs: [{ label: "Plan proposal", ref: "valid.json", kind: "artifact" }] },
-          { id: "invalid", kind: "assistant-message", source: "provider-runtime", runId: "run-invalid", timestamp: "2026-07-11T00:00:01Z", status: "planner-proposal-invalid", text: "Invalid planner output" },
-        ],
-      },
-    }],
-  })).toBeNull();
-});
 
 const snapshot = {
   project: { id: "repo", name: "Repo", path: "E:/repo" },
@@ -763,7 +712,6 @@ describe("Workbench web app", () => {
       busy={false}
       onWorkflowAction={async () => undefined}
       onConfirmApproval={() => undefined}
-      onAnswerClarification={async () => undefined}
       onSelectDecisionContext={() => undefined}
     />);
 
@@ -1170,6 +1118,7 @@ describe("Workbench web app", () => {
     expect(screen.getByText("当前需求：会员折扣计价")).toBeTruthy();
     fireEvent.click(screen.getByTestId("orchestration-overlay-toggle"));
     expect(await screen.findByTestId("agent-graph-center-view", undefined, { timeout: 5000 })).toBeTruthy();
+    expect(document.querySelector(".topic-composer")).toBeNull();
     expect(new URL(window.location.href).searchParams.get("tab")).toBe("orchestration");
     expect(screen.queryByRole("dialog", { name: "Agent 编排图" })).toBeNull();
     expect(screen.queryByTestId("agent-graph-overlay-backdrop")).toBeNull();
@@ -1282,56 +1231,33 @@ describe("Workbench web app", () => {
     expect(shell.style.getPropertyValue("--right-rail-width")).toBe("380px");
   });
 
-  it("renders plan handoff as execute, feedback submit, and cancel actions", async () => {
-    const onPlanHandoff = vi.fn(async () => undefined);
-    const onCancelPlanHandoff = vi.fn(async () => undefined);
-    function ControlledPlanHandoff(): JSX.Element {
-      const [expanded, setExpanded] = useState(false);
-      return <ConversationPendingActionStack
-        planHandoffCandidate={{
-          sourceRunId: "run-planning-agent",
-          sourceAgentRoleId: "planning-agent",
-          title: "Plan Agent",
-          planText: "Plan text",
-          sourceArtifact: "proposal-1.json",
-          proposalKey: "proposal-1.json",
-        }}
-        busy={false}
-        onPlanHandoff={onPlanHandoff}
-        onCancelPlanHandoff={onCancelPlanHandoff}
-        expanded={expanded}
-        onExpandedChange={setExpanded}
-      />;
-    }
-    render(<ControlledPlanHandoff />);
-    const handoffCard = screen.getByTestId("plan-handoff-pending-card");
-    expect(within(handoffCard).getAllByRole("button")).toHaveLength(3);
-    expect(within(handoffCard).getByRole("button", { name: "执行" })).toBeTruthy();
-    expect(within(handoffCard).queryByRole("button", { name: "提交修改意见" })).toBeNull();
-    expect(within(handoffCard).getByRole("button", { name: "取消" })).toBeTruthy();
-    fireEvent.click(within(handoffCard).getByRole("button", { name: "修改" }));
-    expect((within(handoffCard).getByRole("button", { name: "提交修改意见" }) as HTMLButtonElement).disabled).toBe(true);
-    const feedbackInput = within(handoffCard).getByPlaceholderText("输入你希望 Plan Agent 修改的地方");
-    fireEvent.change(feedbackInput, { target: { value: "先补充 npm test 验收。" } });
-    expect((within(handoffCard).getByRole("button", { name: "提交修改意见" }) as HTMLButtonElement).disabled).toBe(false);
-    fireEvent.click(within(handoffCard).getByRole("button", { name: "提交修改意见" }));
-    await waitFor(() => expect(onPlanHandoff).toHaveBeenCalledWith(
-      expect.objectContaining({ sourceRunId: "run-planning-agent", sourceAgentRoleId: "planning-agent" }),
-      "revise-plan",
-      "先补充 npm test 验收。",
-    ));
-    fireEvent.click(within(handoffCard).getByRole("button", { name: "取消" }));
-    await waitFor(() => expect(onCancelPlanHandoff).toHaveBeenCalledWith(
-      expect.objectContaining({ sourceRunId: "run-planning-agent", sourceAgentRoleId: "planning-agent" }),
-    ));
-  });
-
   it("uses a transcript-first plan session workspace without old planning workflow actions", async () => {
     const planningAgentSnapshot = {
       ...snapshot,
       center: {
         ...snapshot.center,
         selectedTopic: { id: "conv-plan", title: "Plan conversation", state: "active", kind: "conversation", boundChangeId: null },
+        conversationInteractions: {
+          conversationId: "conv-plan",
+          graphScopeId: "scope-plan",
+          items: [{
+            interactionId: "interaction:plan",
+            conversationId: "conv-plan",
+            graphScopeId: "scope-plan",
+            canonicalSequence: 2,
+            kind: "plan",
+            status: "pending",
+            title: "实施此计划？",
+            questions: [{
+              questionId: "plan-decision",
+              title: "实施此计划？",
+              inputMode: "single",
+              options: [{ value: "execute", label: "是，实施此计划" }],
+              allowCustom: true,
+            }],
+            canSkip: true,
+          }],
+        },
         parentAgentTranscript: {
           ...snapshot.center.parentAgentTranscript,
           cells: [{
@@ -1391,8 +1317,11 @@ describe("Workbench web app", () => {
       if (init?.body) calls.push({ url, body: String(init.body) });
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
-      if (url.endsWith("/workbench/topics/conv-plan/messages/live") && init?.method === "POST") {
-        return sseResponse([["snapshot", planningAgentSnapshot], ["done", { status: "completed" }]]);
+      if (url.endsWith("/workbench/conversations/conv-plan/interactions/interaction%3Aplan/settle") && init?.method === "POST") {
+        return sseResponse([["snapshot", {
+          ...planningAgentSnapshot,
+          center: { ...planningAgentSnapshot.center, conversationInteractions: { items: [] } },
+        }], ["done", { status: "completed" }]]);
       }
       if (url.includes("/workbench/projections/transcript/")) return jsonResponse(planningAgentSnapshot.center.parentAgentTranscript);
       if (url.includes("/workbench/projections/agent-graph/")) return jsonResponse(planningAgentSnapshot.center.agentRelationGraph);
@@ -1402,28 +1331,20 @@ describe("Workbench web app", () => {
     render(<App />);
 
     await waitFor(() => expect(screen.getByTestId("main-conversation-view")).toBeTruthy());
-    const pendingStack = screen.getByTestId("conversation-pending-action-stack");
-    const handoffCard = within(pendingStack).getByTestId("plan-handoff-pending-card");
-    expect(handoffCard.textContent).toContain("计划已准备");
-    expect(handoffCard.textContent).toContain("执行");
-    expect(handoffCard.textContent).toContain("修改");
-    expect(handoffCard.textContent).toContain("取消");
-    expect(within(handoffCard).getAllByRole("button")).toHaveLength(3);
-    expect(screen.queryByPlaceholderText("请先处理上方待处理操作。")).toBeNull();
-    expect(document.querySelector(".topic-composer textarea")).toBeTruthy();
-    fireEvent.click(within(handoffCard).getByRole("button", { name: "修改" }));
-    expect(within(handoffCard).getByPlaceholderText("输入你希望 Plan Agent 修改的地方")).toBeTruthy();
-    fireEvent.click(within(handoffCard).getByRole("button", { name: "修改" }));
-    expect(within(handoffCard).queryByPlaceholderText("输入你希望 Plan Agent 修改的地方")).toBeNull();
-    fireEvent.click(within(handoffCard).getByRole("button", { name: "执行" }));
+    const dock = screen.getByTestId("conversation-interaction-dock");
+    expect(within(dock).getByText("实施此计划？")).toBeTruthy();
+    expect(document.querySelector(".topic-composer")).toBeNull();
+    fireEvent.click(screen.getByTestId("orchestration-overlay-toggle"));
+    expect(await screen.findByTestId("agent-graph-center-view")).toBeTruthy();
+    expect(screen.getByTestId("conversation-interaction-dock")).toBeTruthy();
+    expect(document.querySelector(".topic-composer")).toBeNull();
+    fireEvent.click(screen.getByTestId("orchestration-overlay-toggle"));
+    await waitFor(() => expect(screen.queryByTestId("agent-graph-center-view")).toBeNull());
+    fireEvent.click(within(dock).getByRole("button", { name: "是，实施此计划" }));
     await waitFor(() => expect(calls.some((call) => {
-      if (!call.url.endsWith("/workbench/topics/conv-plan/messages/live")) return false;
+      if (!call.url.endsWith("/workbench/conversations/conv-plan/interactions/interaction%3Aplan/settle")) return false;
       const body = JSON.parse(call.body) as Record<string, unknown>;
-      const intent = body.planHandoffIntent as Record<string, unknown> | undefined;
-      return body.mode === "chat"
-        && intent?.sourceRunId === "run-planning-agent"
-        && intent.sourceAgentRoleId === "planning-agent"
-        && intent.kind === "execute-plan";
+      return body.action === "execute-plan";
     })).toBe(true));
     fireEvent.click(screen.getByTestId("decision-pane-toggle"));
     fireEvent.click(await screen.findByTestId("right-tool-launcher-agent"));
@@ -1448,58 +1369,54 @@ describe("Workbench web app", () => {
     expect(calls.some((call) => call.body.includes("planning.revise") || call.body.includes("planning.confirm-execution"))).toBe(false);
   });
 
-  it("does not carry pending plan handoff state into another conversation", async () => {
-    const planningAgentSnapshot = {
+  it("opens a child tab after a transient projection failure and delayed server projection", async () => {
+    const agentSurfaceId = "agent:codex:thread:thread-plan-delayed";
+    const childCell = {
+      id: "child-plan-delayed",
+      kind: "process-row",
+      source: "provider-runtime",
+      title: "Child Agent 正在工作",
+      text: "Child Agent 正在工作",
+      status: "processing",
+      activityKind: "agent",
+      targetAgentSurfaceId: agentSurfaceId,
+    };
+    const delayedSnapshot = {
       ...snapshot,
-      left: {
-        ...snapshot.left,
-        topics: [
-          { id: "conv-plan", title: "Plan conversation", state: "active" },
-          { id: "conv-empty", title: "Clean conversation", state: "active" },
-        ],
-        workpads: [
-          { id: "conv-plan", title: "Plan conversation", state: "active", runtimeStatus: "active", selected: true, waitingDecisionCount: 0, latestRunStatus: "completed" },
-          { id: "conv-empty", title: "Clean conversation", state: "active", runtimeStatus: "active", selected: false, waitingDecisionCount: 0, latestRunStatus: "idle" },
-        ],
-      },
       center: {
         ...snapshot.center,
-        selectedTopic: { id: "conv-plan", title: "Plan conversation", state: "active", kind: "conversation", boundChangeId: null },
         parentAgentTranscript: {
           ...snapshot.center.parentAgentTranscript,
-          cells: [{
-            id: "main-plan-ready",
-            kind: "process-row",
-            source: "aho-orchestration",
-            text: "Plan Agent 已完成可确认的实现计划。",
-            runId: "run-planning-agent",
-            evidenceRefs: [{ label: "Plan proposal", ref: "proposal-1.json", kind: "artifact" }],
-          }],
+          cells: [childCell],
         },
       },
       right: {
         ...snapshot.right,
+        agentWorkspace: { selectedAgentId: agentSurfaceId, agents: [] },
+      },
+    };
+    const readySnapshot = {
+      ...delayedSnapshot,
+      right: {
+        ...delayedSnapshot.right,
         agentWorkspace: {
-          selectedAgentId: "planning-agent",
+          selectedAgentId: agentSurfaceId,
           agents: [{
-            id: "planning-agent",
+            id: agentSurfaceId,
             roleId: "planning-agent",
-            label: "Plan Agent",
-            status: "completed",
-            summary: "真实计划子 Agent 对话。",
+            providerThreadId: "thread-plan-delayed",
+            label: "Plan Agent · Sagan",
+            status: "running",
+            summary: "正在规划",
             transcript: {
-              title: "Plan Agent",
-              emptyMessage: "暂无会话内容。",
+              title: "Plan Agent · Sagan",
+              items: [],
               cells: [{
-                id: "planning-agent-plan",
+                id: "child-plan-message",
                 kind: "assistant-message",
                 source: "provider-runtime",
-                text: "先调整状态文案，再运行测试。",
-                agentRoleId: "planning-agent",
-                runId: "run-planning-agent",
-                evidenceRefs: [{ label: "Plan proposal", ref: "proposal-1.json", kind: "artifact" }],
+                text: "我正在核对实现边界。",
               }],
-              items: [],
             },
             evidenceRefs: [],
             actions: [],
@@ -1507,38 +1424,34 @@ describe("Workbench web app", () => {
         },
       },
     };
-    const cleanConversationSnapshot = {
-      ...planningAgentSnapshot,
-      center: {
-        ...planningAgentSnapshot.center,
-        selectedTopic: { id: "conv-empty", title: "Clean conversation", state: "active", kind: "conversation", boundChangeId: null },
-        parentAgentTranscript: { title: "Clean conversation", cells: [], items: [], emptyMessage: "暂无对话内容。" },
-      },
-      right: {
-        ...planningAgentSnapshot.right,
-        agentWorkspace: { selectedAgentId: "planning-agent", agents: [] },
-      },
-    };
+    let projectionEnabled = false;
+    let projectionReads = 0;
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
-      if (url.includes("/workbench/snapshot?topic=conv-empty")) return jsonResponse(cleanConversationSnapshot);
-      if (url.includes("/workbench/projections/transcript/conv-empty")) return jsonResponse(cleanConversationSnapshot.center.parentAgentTranscript);
-      if (url.includes("/workbench/projections/agent-graph/conv-empty")) return jsonResponse(cleanConversationSnapshot.center.agentRelationGraph);
-      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(planningAgentSnapshot.center.parentAgentTranscript);
-      if (url.includes("/workbench/projections/agent-graph/")) return jsonResponse(planningAgentSnapshot.center.agentRelationGraph);
-      return jsonResponse(url.includes("/stream/") ? stream : planningAgentSnapshot);
+      if (url === "/api/projects/repo/workbench/snapshot?topic=member-discount" && projectionEnabled) {
+        projectionReads += 1;
+        if (projectionReads === 1) throw new Error("temporary projection failure");
+        return jsonResponse(projectionReads === 2 ? delayedSnapshot : readySnapshot);
+      }
+      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(delayedSnapshot.center.parentAgentTranscript);
+      if (url.includes("/workbench/projections/agent-graph/")) return jsonResponse(delayedSnapshot.center.agentRelationGraph);
+      return jsonResponse(delayedSnapshot);
     }));
 
     render(<App />);
 
-    await waitFor(() => expect(screen.getByTestId("conversation-pending-action-stack")).toBeTruthy());
-    fireEvent.click(screen.getByText("Clean conversation"));
+    const lifecycle = await screen.findByRole("button", { name: "Child Agent 正在工作" });
+    projectionEnabled = true;
+    fireEvent.click(lifecycle);
 
-    await waitFor(() => expect(screen.queryByTestId("conversation-pending-action-stack")).toBeNull());
-    expect(screen.getByPlaceholderText("输入问题或下一步需求")).toBeTruthy();
-    expect(screen.queryByTestId("plan-handoff-pending-card")).toBeNull();
+    const panel = await screen.findByTestId("agent-workspace-panel");
+    expect(within(panel).getByText("从对话或 Agent 图中打开一个 Agent。")).toBeTruthy();
+    await waitFor(() => expect(within(panel).getByRole("tab", { name: "打开 Plan Agent · Sagan" })).toBeTruthy(), { timeout: 2_500 });
+    expect(within(panel).getByText("我正在核对实现边界。")).toBeTruthy();
+    expect(projectionReads).toBeGreaterThanOrEqual(3);
+    expect(projectionReads).toBeLessThanOrEqual(9);
   });
 
   it("sends Plan Agent workspace feedback through the Main conversation instead of workflow actions", async () => {
@@ -2228,7 +2141,6 @@ describe("Workbench web app", () => {
       busy={false}
       onWorkflowAction={async () => undefined}
       onConfirmApproval={() => undefined}
-      onAnswerClarification={async () => undefined}
       onSelectDecisionContext={() => undefined}
     />);
 
@@ -4100,8 +4012,9 @@ describe("Workbench web app", () => {
       if (url === "/api/projects/repo/providers/codex/diagnostics") return jsonResponse(codexDiagnostics);
       if (url === "/api/projects/repo/skills") return jsonResponse({ roots: [], skills: [] });
       if (url === "/api/projects/repo/workbench/topics/live" && init?.method === "POST") {
-        return delayedSseResponse([], [
+        return delayedSseResponse([
           ["topic.created", { topic: { changeId: "new-demand", title: "实现设置入口", state: "active" } }],
+        ], [
           ["snapshot", selectedSnapshot],
           ["done", { status: "completed" }],
         ], () => { delayedEventsStarted = true; }, 3_000);
@@ -4126,9 +4039,9 @@ describe("Workbench web app", () => {
     expect(fetchCallUrls().some((url) => url.includes("/workbench/projections/transcript/pending%3A"))).toBe(false);
     expect((screen.getByTestId("orchestration-overlay-toggle") as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(screen.getByTestId("orchestration-overlay-toggle"));
-    expect(screen.getByText("正在加载 Agent 关系...")).toBeTruthy();
-    expect(screen.queryByTestId("agent-relation-node-main-agent")).toBeNull();
-    expect(fetchCallUrls().some((url) => url.includes("/workbench/projections/agent-graph/pending%3A"))).toBe(false);
+    expect(await screen.findByTestId("agent-relation-node-main-agent")).toBeTruthy();
+    expect(fetchCallUrls()).toContain("/api/projects/repo/workbench/projections/agent-graph/new-demand");
+    expect(delayedEventsStarted).toBe(false);
     await waitFor(() => expect(delayedEventsStarted).toBe(true), { timeout: 4_000 });
     expect(screen.getByTestId("agent-graph-center-view")).toBeTruthy();
     expect(screen.getByTestId("agent-relation-node-main-agent")).toBeTruthy();
@@ -4837,33 +4750,6 @@ describe("Workbench web app", () => {
       title: "创建 planning-agent",
       status: "agent-task-created",
     })]);
-  });
-});
-
-describe("provider user-input cards", () => {
-  it("allows submitting an empty-answer request when the provider sends no questions", async () => {
-    const onAnswer = vi.fn().mockResolvedValue(undefined);
-    render(
-      <ProviderUserInputRequestCard
-        request={{
-          providerId: "codex",
-          requestKey: "run-1:main:turn:item:request-1",
-          requestId: "request-1",
-          runId: "run-1",
-          runtimeScopeId: "conv-1",
-          attemptId: "run-1",
-          agentRoleId: "planning-agent",
-          questions: [],
-          status: "pending",
-        }}
-        busy={false}
-        onAnswer={onAnswer}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "提交回答" }));
-
-    await waitFor(() => expect(onAnswer).toHaveBeenCalledWith(expect.objectContaining({ requestId: "request-1" }), {}));
   });
 });
 

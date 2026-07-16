@@ -178,7 +178,7 @@ function parseStoredRawJson(rawJson: string): Record<string, unknown> {
 function isValidatedPlanHandoffIntent(value: unknown): value is import("./types.js").ValidatedPlanHandoffIntent {
   return isRecord(value)
     && value.sourceAgentRoleId === "planning-agent"
-    && (value.kind === "execute-plan" || value.kind === "revise-plan" || value.kind === "cancel-plan")
+    && (value.kind === "execute-plan" || value.kind === "revise-plan" || value.kind === "skip-plan")
     && typeof value.sourceRunId === "string"
     && typeof value.planText === "string"
     && (value.executionMode === undefined || value.executionMode === "stepwise" || value.executionMode === "scoped-auto");
@@ -251,7 +251,11 @@ function isWorkbenchProviderUserInputRequest(value: unknown): value is import(".
     && typeof value.runId === "string"
     && typeof value.runtimeScopeId === "string"
     && Array.isArray(value.questions)
-    && (value.status === "pending" || value.status === "submitting" || value.status === "submitted");
+    && (value.status === "pending"
+      || value.status === "submitting"
+      || value.status === "submitted"
+      || value.status === "interrupted"
+      || value.status === "superseded");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

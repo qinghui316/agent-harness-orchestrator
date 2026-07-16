@@ -1,4 +1,5 @@
 import type { ProviderId, ProviderReadableEvent, ProviderUserInputQuestion } from "../provider-runtime/index.js";
+import type { ConversationInteractionQueue } from "./conversation-interaction-contract.js";
 import type { HarnessExecutionMode, RunMetadata } from "../types/index.js";
 import type { WorkflowActionType } from "../workflow-actions/registry.js";
 import type { ParentAgentTranscriptCell } from "./parent-agent-transcript.js";
@@ -145,8 +146,11 @@ export interface WorkbenchProviderUserInputRequest {
   agentTaskId?: string;
   attemptId: string;
   questions: WorkbenchProviderUserInputQuestion[];
-  status: "pending" | "submitting" | "submitted";
-  answers?: Record<string, string | string[]>;
+  expiresAt?: string;
+  status: "pending" | "submitting" | "submitted" | "interrupted" | "superseded";
+  publicAnswers?: Record<string, string | string[]>;
+  skippedQuestionIds?: string[];
+  disposition?: "answered" | "skipped";
   submittedAt?: string;
 }
 
@@ -184,14 +188,13 @@ export type WorkbenchLiveEvent =
   | { event: "topic.created"; data: { topic: { id?: string; conversationId?: string; changeId?: string; title: string; state: "active"; selectedProviderId?: string } } }
   | { event: "topic.message"; data: TopicThreadEntry }
   | { event: "timeline.patch"; data: { conversationId: string; graphScopeId?: string; messageId: string; agentSurfaceId: string; providerId?: ProviderId; roleId?: string; threadId?: string; parentThreadId?: string; status?: string; cells: ParentAgentTranscriptCell[] } }
+  | { event: "conversation.interactions.updated"; data: ConversationInteractionQueue }
   | { event: "run.started"; data: WorkbenchLiveIdentity & { runId: string; actionType?: string; runtime?: string; taskIds?: string[] } }
   | { event: "run.status"; data: WorkbenchLiveIdentity & { actionRunId?: string; status: string; label?: string } }
   | { event: "assistant.delta"; data: WorkbenchLiveIdentity & { delta: string } }
   | { event: "assistant.message"; data: TopicThreadEntry }
   | { event: "assistant.event"; data: WorkbenchAssistantEvent }
   | { event: "tool.event"; data: WorkbenchLiveToolEvent }
-  | { event: "provider.userInput.requested"; data: WorkbenchProviderUserInputRequest }
-  | { event: "provider.userInput.submitted"; data: WorkbenchLiveIdentity & { requestKey: string; requestId: string } }
   | { event: "usage"; data: WorkbenchLiveIdentity & { usage?: Record<string, unknown> } }
   | { event: "snapshot"; data: unknown }
   | { event: "error"; data: WorkbenchLiveIdentity & { message: string; runId?: string; actionRunId?: string } }
@@ -261,7 +264,7 @@ export interface TopicMessageInput {
 }
 
 export type PlanHandoffAgentRoleId = "planning-agent";
-export type PlanHandoffIntentKind = "execute-plan" | "revise-plan" | "cancel-plan";
+export type PlanHandoffIntentKind = "execute-plan" | "revise-plan" | "skip-plan";
 
 export interface PlanHandoffIntent {
   sourceRunId: string;

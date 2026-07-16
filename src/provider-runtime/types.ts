@@ -117,7 +117,7 @@ export interface ProviderRuntimeSummary {
 
 export const PROVIDER_OPERATION_CAPABILITIES: Readonly<Record<ProviderOperationProfile, readonly ProviderCapabilityKey[]>> = {
   main: ["turn.start", "turn.resume", "turn.interrupt", "turn.user-input", "stream.text", "stream.reasoning-summary", "child.spawn", "child.result", "workspace.read", "workspace.write", "workspace.multiroot", "skill.native-load", "tool.dynamic", "session.continuation"],
-  planning: ["turn.start", "turn.interrupt", "stream.text", "child.result", "workspace.read", "workspace.write", "workspace.multiroot", "skill.native-load"],
+  planning: ["turn.start", "turn.interrupt", "turn.user-input", "stream.text", "child.result", "workspace.read", "workspace.write", "workspace.multiroot", "skill.native-load"],
   coder: ["turn.start", "turn.interrupt", "stream.text", "stream.tool-output", "workspace.read", "workspace.write", "workspace.multiroot"],
   auditor: ["turn.start", "turn.interrupt", "stream.text", "structured-output", "workspace.read", "workspace.multiroot"],
   maintenance: ["turn.start", "turn.resume", "turn.interrupt", "stream.text", "workspace.read", "workspace.write", "workspace.multiroot", "skill.native-load", "session.continuation"],

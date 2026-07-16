@@ -35,11 +35,11 @@ import { defaultProviderRegistry } from "../../src/provider-runtime/index.js";
 import { git } from "../../src/project/git.js";
 import type { ManagedProject } from "../../src/types/index.js";
 import { appendConversationThreadEntry, createWorkbenchConversation, listConversationMessages, postConversationMessage, resumeNativeGoalAfterAction, runWorkbenchWorkflowAction } from "../../src/workbench/chat.js";
+import { buildConversationInteractionQueue } from "../../src/workbench/conversation-interactions.js";
 import { getWorkbenchSnapshot } from "../../src/workbench/manager.js";
-import { getWorkbenchTranscriptProjection } from "../../src/workbench/projections/read-model/implementation.js";
+import { getWorkbenchAgentRelationGraphProjection, getWorkbenchTranscriptProjection } from "../../src/workbench/projections/read-model/implementation.js";
 import { readLatestWorkflowGraphPlan } from "../../src/workflow-artifacts/manager.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
-import { handleProviderUserInputAnswer } from "../../src/server/workbench/provider-user-input.js";
 import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
 
 let root: string;
@@ -175,150 +175,85 @@ describe("Workbench provider planning flow", () => {
     }
   });
 
-  it("serializes concurrent user-input answers and reconciles an orphaned submitting state", async () => {
+  it("projects a native subAgentActivity target into the server-owned graph before the parent turn completes", async () => {
     const conversation = await createWorkbenchConversation(project(), {
-      title: "Provider question",
-      body: "Wait for an answer.",
+      title: "Live child graph",
+      body: "Spawn one child later.",
     }, undefined, { runMainAgent: false });
-    const memory = await resolveProjectMemory(project());
-    const store = await WorkbenchStore.open(memory);
-    const graphScopeId = store.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? undefined;
-    store.appendMessage({
-      projectId: project().id,
-      conversationId: conversation.conversationId,
-      id: "provider-input-message",
-      changeId: "",
-      type: "assistant.message",
-      timestamp: "2026-07-15T00:00:00.000Z",
-      text: "请选择。",
-      status: "pending",
-      rawJson: JSON.stringify({
-        id: "provider-input-message",
-        type: "assistant.message",
-        timestamp: "2026-07-15T00:00:00.000Z",
-        conversationId: conversation.conversationId,
-        graphScopeId,
-        changeId: "",
-        text: "请选择。",
-        providerUserInput: {
-          providerId: "codex",
-          requestKey: "run-1:thread-main:turn-1:item-1:request-1",
-          requestId: "request-1",
-          runId: "run-1",
-          attemptId: "run-1",
-          runtimeScopeId: conversation.conversationId,
-          threadId: "thread-child",
-          turnId: "turn-child",
-          conversationId: conversation.conversationId,
-          graphScopeId,
-          questions: [{ id: "q1", question: "继续吗？" }],
-          status: "pending",
+    appServerTurn.mockImplementationOnce(async (options) => {
+      const [started] = normalizeCodexAppServerNotification("item/completed", {
+        item: {
+          id: "call-live-child",
+          type: "subAgentActivity",
+          kind: "started",
+          agentThreadId: "thread-live-child",
         },
-      }),
+      }, {
+        projectId: project().id,
+        conversationId: conversation.conversationId,
+        runId: options.runId,
+        threadId: "thread-live-main",
+        turnId: "turn-live-main",
+        roleId: "main-agent",
+        targetThreadId: "thread-live-child",
+        targetAgentDisplayName: "Child Agent",
+      });
+      options.onRealtimeEvent?.(started!);
+      const graph = await getWorkbenchAgentRelationGraphProjection({ project: project(), path: root }, conversation.conversationId);
+      expect(graph.nodes).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: "agent:codex:thread:thread-live-child", label: "Child Agent", status: "running", parentAgentId: "main-agent" }),
+      ]));
+      throw new Error("stop after live child graph assertion");
     });
-    store.close();
 
-    let acceptProviderAnswer!: () => void;
-    appServerAnswer.mockImplementationOnce(() => new Promise<void>((resolve) => { acceptProviderAnswer = resolve; }));
-    const body = {
-      conversationId: conversation.conversationId,
-      requestKey: "run-1:thread-main:turn-1:item-1:request-1",
-      answers: { q1: "继续" },
-    };
-    const first = handleProviderUserInputAnswer({ project: project(), path: root }, "request-1", body);
-    await vi.waitFor(() => expect(appServerAnswer).toHaveBeenCalledTimes(1));
-    const concurrentAttempt = handleProviderUserInputAnswer({ project: project(), path: root }, "request-1", body);
-    const concurrentResult = await concurrentAttempt;
-    acceptProviderAnswer();
-    const concurrentResults = [await first, concurrentResult];
-    expect(concurrentResults.map((result) => (result.result as { status: string }).status).sort()).toEqual(["submitted", "submitting"]);
-    expect(appServerAnswer).toHaveBeenCalledTimes(1);
-
-    const recoveryStore = await WorkbenchStore.open(memory);
-    recoveryStore.transitionProviderUserInputRequest(
-      project().id,
-      conversation.conversationId,
-      body.requestKey,
-      "submitted",
-      "submitting",
-      body.answers,
-      "2026-07-15T00:01:00.000Z",
-    );
-    recoveryStore.close();
-    let acceptRecoveredAnswer!: () => void;
-    appServerAnswer.mockImplementationOnce(() => new Promise<void>((resolve) => { acceptRecoveredAnswer = resolve; }));
-    const recovery = handleProviderUserInputAnswer({ project: project(), path: root }, "request-1", body);
-    await vi.waitFor(() => expect(appServerAnswer).toHaveBeenCalledTimes(2));
-    const concurrentRecovery = await handleProviderUserInputAnswer({ project: project(), path: root }, "request-1", body);
-    expect(concurrentRecovery.result).toMatchObject({ status: "submitting" });
-    acceptRecoveredAnswer();
-    await expect(recovery).resolves.toMatchObject({ result: { status: "submitted" } });
-    expect(appServerAnswer).toHaveBeenCalledTimes(2);
-    expect(appServerAnswer).toHaveBeenLastCalledWith(
-      "request-1",
-      { answers: body.answers },
-      expect.objectContaining({ runId: "run-1", threadId: "thread-child", turnId: "turn-child" }),
-    );
+    await expect(postConversationMessage(project(), conversation.conversationId, "请创建子 Agent。"))
+      .rejects.toThrow("stop after live child graph assertion");
   });
 
-  it("fails closed when an orphaned answer submission cannot be proven at the provider", async () => {
+  it("lets a provider-resolved empty answer win the turn-completion race", async () => {
     const conversation = await createWorkbenchConversation(project(), {
-      title: "Interrupted provider question",
-      body: "Wait for an answer.",
+      title: "Resolved provider question",
+      body: "Ask and continue.",
     }, undefined, { runMainAgent: false });
+    appServerTurn.mockImplementationOnce(async (options) => {
+      options.onUserInputRequest?.({
+        requestId: "request-resolved-race",
+        threadId: "thread-resolved-race",
+        turnId: "turn-resolved-race",
+        itemId: "item-resolved-race",
+        runId: options.runId,
+        runtimeScopeId: options.runtimeScopeId ?? conversation.conversationId,
+        roleId: "main-agent",
+        questions: [{ id: "choice", question: "继续吗？", options: [{ label: "继续" }] }],
+      });
+      options.onUserInputResolved?.({ requestId: "request-resolved-race", threadId: "thread-resolved-race" });
+      return {
+        status: "completed",
+        threadId: "thread-resolved-race",
+        turnId: "turn-resolved-race",
+        lastMessage: "已根据现有信息继续。",
+        goal: nativeGoal("active"),
+        childThreads: [],
+        changedFiles: [],
+        error: null,
+      };
+    });
+
+    await postConversationMessage(project(), conversation.conversationId, "请先提问。");
+
+    const messages = await listConversationMessages(project(), conversation.conversationId);
+    const resolved = messages.filter((message) => message.providerUserInput?.requestId === "request-resolved-race");
+    expect(resolved).toHaveLength(1);
+    expect(resolved[0]?.providerUserInput).toMatchObject({
+      status: "submitted",
+      disposition: "skipped",
+      skippedQuestionIds: ["choice"],
+    });
     const memory = await resolveProjectMemory(project());
     const store = await WorkbenchStore.open(memory);
-    store.appendMessage({
-      projectId: project().id,
-      conversationId: conversation.conversationId,
-      id: "orphaned-provider-input-message",
-      changeId: "",
-      type: "assistant.message",
-      timestamp: "2026-07-15T00:00:00.000Z",
-      text: "请选择。",
-      status: "submitting",
-      rawJson: JSON.stringify({
-        id: "orphaned-provider-input-message",
-        type: "assistant.message",
-        timestamp: "2026-07-15T00:00:00.000Z",
-        conversationId: conversation.conversationId,
-        changeId: "",
-        text: "请选择。",
-        providerUserInput: {
-          providerId: "codex",
-          requestKey: "run-orphan:thread-main:turn-1:item-1:request-1",
-          requestId: "request-orphan",
-          runId: "run-orphan",
-          attemptId: "run-orphan",
-          runtimeScopeId: conversation.conversationId,
-          conversationId: conversation.conversationId,
-          questions: [{ id: "q1", question: "继续吗？" }],
-          status: "submitting",
-          answers: { q1: "继续" },
-        },
-      }),
-    });
+    const graphScopeId = store.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? "";
     store.close();
-    await expect(handleProviderUserInputAnswer({ project: project(), path: root }, "wrong-request-id", {
-      conversationId: conversation.conversationId,
-      requestKey: "run-orphan:thread-main:turn-1:item-1:request-1",
-      answers: { q1: "继续" },
-    })).rejects.toThrow("does not match the persisted request key");
-    getActiveAppServerTurn.mockReturnValueOnce(null);
-
-    await expect(handleProviderUserInputAnswer({ project: project(), path: root }, "request-orphan", {
-      conversationId: conversation.conversationId,
-      requestKey: "run-orphan:thread-main:turn-1:item-1:request-1",
-      answers: { q1: "继续" },
-    })).rejects.toThrow("对应 Agent 回合当前不可用");
-
-    const finalStore = await WorkbenchStore.open(memory);
-    expect(finalStore.readProviderUserInputRequest(
-      project().id,
-      conversation.conversationId,
-      "run-orphan:thread-main:turn-1:item-1:request-1",
-    )?.status).toBe("submitting");
-    finalStore.close();
+    expect((await buildConversationInteractionQueue(memory, conversation.conversationId, graphScopeId)).items).toEqual([]);
   });
 
   it("keeps supplemental turns in the same unbound demand scope", async () => {
@@ -423,65 +358,6 @@ describe("Workbench provider planning flow", () => {
     const source = (await listConversationMessages(project(), topic.conversationId))
       .find((message) => message.artifact === "workbench/proposals/declined-plan.json");
     expect(source?.status).toBe("planning-agent-generated");
-  });
-
-  it("ends the current graph when plan cancellation is durable even if Main fails afterward", async () => {
-    const conversation = await createWorkbenchConversation(project(), { title: "Cancelled plan", body: "Plan this." }, undefined, { runMainAgent: false });
-    const memory = await resolveProjectMemory(project());
-    const beforeStore = await WorkbenchStore.open(memory);
-    const initialScope = beforeStore.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId;
-    const planEntry = {
-      id: "assistant:cancel-plan",
-      type: "assistant.message" as const,
-      timestamp: new Date().toISOString(),
-      conversationId: conversation.conversationId,
-      graphScopeId: initialScope,
-      changeId: "",
-      status: "planning-agent-generated",
-      text: "Plan candidate",
-      runId: "run-cancel-plan",
-      agentRoleId: "planning-agent",
-      artifact: "workbench/proposals/cancel-plan.json",
-    };
-    beforeStore.appendMessage({
-      id: planEntry.id,
-      projectId: project().id,
-      conversationId: conversation.conversationId,
-      changeId: "",
-      type: planEntry.type,
-      timestamp: planEntry.timestamp,
-      text: planEntry.text,
-      actionRunId: null,
-      actionType: null,
-      status: planEntry.status,
-      runId: planEntry.runId,
-      artifact: planEntry.artifact,
-      error: null,
-      rawJson: JSON.stringify(planEntry),
-    });
-    beforeStore.close();
-    appServerTurn
-      .mockRejectedValueOnce(new Error("provider unavailable after cancellation"))
-      .mockResolvedValueOnce({ status: "completed", threadId: "thread-main", turnId: "turn-after-cancel", lastMessage: "新需求。", goal: nativeGoal("active"), childThreads: [] });
-
-    await expect(postConversationMessage(project(), conversation.conversationId, {
-      mode: "chat",
-      message: "取消这个计划",
-      planHandoffIntent: {
-        kind: "cancel-plan",
-        sourceRunId: "run-cancel-plan",
-        sourceAgentRoleId: "planning-agent",
-        sourceArtifact: "workbench/proposals/cancel-plan.json",
-      },
-    })).rejects.toThrow("provider unavailable");
-    await postConversationMessage(project(), conversation.conversationId, "开始一个新的需求。");
-
-    const afterStore = await WorkbenchStore.open(memory);
-    try {
-      expect(afterStore.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId).not.toBe(initialScope);
-    } finally {
-      afterStore.close();
-    }
   });
 
   it("keeps one graph scope inside an active Change and starts clean after that Change ends", async () => {
@@ -913,8 +789,13 @@ describe("Workbench provider planning flow", () => {
     ]));
     const plan = messages.find((message) => message.agentRoleId === "planning-agent" && message.artifact);
     expect(plan).toMatchObject({ runId: expect.any(String), agentRoleId: "planning-agent" });
+    expect(plan?.graphScopeId).toBeTruthy();
     expect(plan?.text).toMatch(/Proposal hash: [a-f0-9]{64}/);
     expect(plan?.text).toContain("Lineage: thread-main -> thread-planner");
+    const proposalSnapshot = await getWorkbenchSnapshot({ project: project(), path: root }, { topicId: conversation.conversationId });
+    expect(proposalSnapshot.center.conversationInteractions.items).toEqual([
+      expect.objectContaining({ kind: "plan", graphScopeId: plan?.graphScopeId }),
+    ]);
     const childTimeline = messages.filter((message) => message.agentRoleId === "planning-agent" && message.threadId === "thread-planner");
     expect(childTimeline).toHaveLength(2);
     expect(childTimeline[0]).toMatchObject({ parentThreadId: "thread-main", turnId: "turn-planner", artifact: undefined });

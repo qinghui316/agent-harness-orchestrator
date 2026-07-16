@@ -16,7 +16,6 @@ import {
 import type { Approval, Workpad } from "../../../types.js";
 import { artifactName } from "../RunReplayPanel.js";
 import {
-  ClarificationCard,
   CodingPackageCard,
   TaskGraphCard,
   WorkpadMetric,
@@ -56,7 +55,6 @@ export function WorkpadDiagnosticDetails({
   busy,
   onWorkflowAction,
   onConfirmApproval,
-  onAnswerClarification,
   onSelectDecisionContext,
 }: {
   workpad: Workpad;
@@ -64,14 +62,12 @@ export function WorkpadDiagnosticDetails({
   busy: boolean;
   onWorkflowAction: (actionType: string, options?: Record<string, unknown>) => Promise<void>;
   onConfirmApproval: (approvalId: string) => void;
-  onAnswerClarification: (clarificationId: string, answer: string) => Promise<void>;
   onSelectDecisionContext: (contextId: string) => void;
 }): ReactElement {
   const approval = workpad.nextAction.approvalId ? approvals.find((item) => item.id === workpad.nextAction.approvalId) : undefined;
   const confirmedConstraints = workpad.intake.confirmedConstraints ?? [];
   const openQuestions = workpad.intake.openQuestions ?? [];
   const assumptions = workpad.intake.assumptions ?? [];
-  const pendingClarifications = workpad.intake.pendingClarifications ?? [];
   const mainAgentExecution = mainAgentExecutionForWorkpad(workpad);
   return (
     <div className="workpad" data-testid="workpad-view">
@@ -263,25 +259,6 @@ export function WorkpadDiagnosticDetails({
           </div>
         ) : null}
       </section>
-
-      {pendingClarifications.length > 0 ? (
-        <section className="workpad-section">
-          <div className="workpad-section-header">
-            <h3>需要确认</h3>
-            <span>{pendingClarifications.length}</span>
-          </div>
-          <div className="clarification-list">
-            {pendingClarifications.map((clarification) => (
-              <ClarificationCard
-                key={clarification.id}
-                clarification={clarification}
-                busy={busy}
-                onAnswer={onAnswerClarification}
-              />
-            ))}
-          </div>
-        </section>
-      ) : null}
 
       <section className="workpad-progress-grid" aria-label="需求进度">
         <WorkpadMetric label="需求说明" value={readinessLabel(workpad.progress.spec)} />

@@ -7,9 +7,7 @@ import {
   type RefObject } from "react";
 import { AgentOrchestrationMap } from "./AgentOrchestrationMap.js";
 import { calculateTranscriptVirtualRange } from "./TranscriptVirtualList.js";
-import { ClarificationCard } from "./workpad/TaskGraphCards.js";
 import { ParentAgentTranscriptCellView } from "./TranscriptReadingSurface.js";
-import { ConversationPendingActionStack } from "./ConversationPendingActionStack.js";
 import {
   estimateTranscriptCellHeight,
 } from "./transcriptMeasurement.js";
@@ -18,127 +16,62 @@ import type {
   AgentRelationGraphNode,
   ParentAgentTranscript,
   ParentAgentTranscriptCell,
-  PlanHandoffCandidate,
-  PlanHandoffIntentKind,
   ProjectStatus,
   RunSummary,
   Snapshot,
   StreamPacket,
   TopicDetail,
-  Workpad,
 } from "../../types.js";
 
 const TRANSCRIPT_VIRTUALIZATION_THRESHOLD = 80;
 export function MainConversationView({
-  workpad,
   transcript,
   scrollContainerRef,
   onLoadEarlierTranscript,
   loadingEarlierTranscript,
-  busy,
-  approvals,
-  onAction,
-  onConfirmApproval,
-  onAnswerClarification,
-  onAnswerProviderUserInput,
-  onSelectDecisionContext,
   onOpenAgent,
-  planHandoffCandidate,
-  onPlanHandoff,
-  onCancelPlanHandoff,
 }: {
-  workpad: Workpad;
   transcript: ParentAgentTranscript;
   scrollContainerRef: RefObject<HTMLDivElement | null>;
   onLoadEarlierTranscript: () => Promise<void>;
   loadingEarlierTranscript: boolean;
-  busy: boolean;
-  approvals: Snapshot["right"]["approvals"];
-  onAction: (actionType: string, options?: Record<string, unknown>) => Promise<void>;
-  onConfirmApproval: (approvalId: string) => void;
-  onAnswerClarification: (clarificationId: string, answer: string) => Promise<void>;
-  onAnswerProviderUserInput: (request: import("../../types.js").ProviderUserInputRequest, answers: Record<string, string | string[]>) => Promise<void>;
-  onSelectDecisionContext: (contextId: string) => void;
   onOpenAgent: (agentSurfaceId: string) => void;
-  planHandoffCandidate: PlanHandoffCandidate | null;
-  onPlanHandoff: (candidate: PlanHandoffCandidate, kind: PlanHandoffIntentKind, feedback?: string) => Promise<void>;
-  onCancelPlanHandoff: (candidate: PlanHandoffCandidate) => Promise<void>;
 }): ReactElement {
   return (
     <div className="main-conversation-view" data-testid="main-conversation-view">
       <ParentAgentTranscriptView
-        workpad={workpad}
         transcript={transcript}
         scrollContainerRef={scrollContainerRef}
         onLoadEarlierTranscript={onLoadEarlierTranscript}
         loadingEarlierTranscript={loadingEarlierTranscript}
-        busy={busy}
-        approvals={approvals}
-        onAction={onAction}
-        onConfirmApproval={onConfirmApproval}
-        onAnswerClarification={onAnswerClarification}
-        onAnswerProviderUserInput={onAnswerProviderUserInput}
-        onSelectDecisionContext={onSelectDecisionContext}
         onOpenAgent={onOpenAgent}
-        planHandoffCandidate={planHandoffCandidate}
-        onPlanHandoff={onPlanHandoff}
-        onCancelPlanHandoff={onCancelPlanHandoff}
       />
     </div>
   );
 }
 
 function ParentAgentTranscriptView({
-  workpad,
   transcript,
   scrollContainerRef,
   onLoadEarlierTranscript,
   loadingEarlierTranscript,
-  busy,
-  approvals,
-  onAction,
-  onConfirmApproval,
-  onAnswerClarification,
-  onAnswerProviderUserInput,
-  onSelectDecisionContext,
   onOpenAgent,
-  planHandoffCandidate,
-  onPlanHandoff,
-  onCancelPlanHandoff,
 }: {
-  workpad: Workpad;
   transcript: ParentAgentTranscript;
   scrollContainerRef: RefObject<HTMLDivElement | null>;
   onLoadEarlierTranscript: () => Promise<void>;
   loadingEarlierTranscript: boolean;
-  busy: boolean;
-  approvals: Snapshot["right"]["approvals"];
-  onAction: (actionType: string, options?: Record<string, unknown>) => Promise<void>;
-  onConfirmApproval: (approvalId: string) => void;
-  onAnswerClarification: (clarificationId: string, answer: string) => Promise<void>;
-  onAnswerProviderUserInput: (request: import("../../types.js").ProviderUserInputRequest, answers: Record<string, string | string[]>) => Promise<void>;
-  onSelectDecisionContext: (contextId: string) => void;
   onOpenAgent: (agentSurfaceId: string) => void;
-  planHandoffCandidate: PlanHandoffCandidate | null;
-  onPlanHandoff: (candidate: PlanHandoffCandidate, kind: PlanHandoffIntentKind, feedback?: string) => Promise<void>;
-  onCancelPlanHandoff: (candidate: PlanHandoffCandidate) => Promise<void>;
 }): ReactElement {
-  void busy;
-  void approvals;
-  void onAction;
-  void onConfirmApproval;
-  void onSelectDecisionContext;
   const cells = transcript.cells?.length ? transcript.cells.filter((cell) => cell.kind !== "detail-only") : [];
   const [expandedCells, setExpandedCells] = useState<Set<string>>(new Set());
-  const [expandedPlanArtifact, setExpandedPlanArtifact] = useState<string | null>(null);
   const [measuredCellHeights, setMeasuredCellHeights] = useState<Record<string, number>>({});
   const [scrollMetrics, setScrollMetrics] = useState({ scrollTop: 0, viewportHeight: 720, listWidth: 760 });
   const loadingEarlierRef = useRef(false);
   const heights = useMemo(() => cells.map((cell, index) => (measuredCellHeights[cell.id] ?? (estimateTranscriptCellHeight(cell, {
     expanded: expandedCells.has(cell.id),
     width: scrollMetrics.listWidth,
-  }) + (cellHasPlanCandidate(cell, planHandoffCandidate) ? 180 + (expandedPlanArtifact === planHandoffCandidate?.sourceArtifact ? 170 : 0) : 0)))
-    + (index === 0 ? 0 : sameProviderTurn(cells[index - 1], cell) ? 8 : 20)), [cells, expandedCells, expandedPlanArtifact, measuredCellHeights, planHandoffCandidate, scrollMetrics.listWidth]);
+  }))) + (index === 0 ? 0 : sameProviderTurn(cells[index - 1], cell) ? 8 : 20)), [cells, expandedCells, measuredCellHeights, scrollMetrics.listWidth]);
   const virtualRange = useMemo(() => cells.length <= TRANSCRIPT_VIRTUALIZATION_THRESHOLD
     ? {
         start: 0,
@@ -189,7 +122,7 @@ function ParentAgentTranscriptView({
     });
     root.querySelectorAll<HTMLElement>("[data-transcript-cell-id]").forEach((node) => observer.observe(node));
     return () => observer.disconnect();
-  }, [expandedPlanArtifact, scrollContainerRef, visibleCellIds]);
+  }, [scrollContainerRef, visibleCellIds]);
 
   useEffect(() => {
     const node = scrollContainerRef.current;
@@ -229,24 +162,6 @@ function ParentAgentTranscriptView({
 
   return (
     <div className="parent-agent-transcript" data-testid="parent-agent-transcript">
-      {workpad.intake.pendingClarifications?.length ? (
-        <section className="conversation-clarification-strip" data-testid="conversation-clarification-strip" aria-label="需要确认">
-          <div className="conversation-clarification-header">
-            <span>需要确认</span>
-            <strong>{workpad.intake.pendingClarifications.length}</strong>
-          </div>
-          <div className="clarification-list">
-            {workpad.intake.pendingClarifications.map((clarification) => (
-              <ClarificationCard
-                key={clarification.id}
-                clarification={clarification}
-                busy={busy}
-                onAnswer={onAnswerClarification}
-              />
-            ))}
-          </div>
-        </section>
-      ) : null}
       <div className="parent-agent-message-list" data-testid="transcript-virtual-list">
         {transcript.paging?.hasMoreBefore ? (
           <div className="transcript-load-earlier" data-testid="transcript-load-earlier">
@@ -278,27 +193,7 @@ function ParentAgentTranscriptView({
                   });
                 }}
                 onOpenAgent={onOpenAgent}
-                busy={busy}
-                onAnswerProviderUserInput={onAnswerProviderUserInput}
               />
-              {cellHasPlanCandidate(cell, planHandoffCandidate) ? (
-                <ConversationPendingActionStack
-                  planHandoffCandidate={planHandoffCandidate}
-                  busy={busy}
-                  onPlanHandoff={onPlanHandoff}
-                  onCancelPlanHandoff={onCancelPlanHandoff}
-                  expanded={expandedPlanArtifact === planHandoffCandidate?.sourceArtifact}
-                  onExpandedChange={(expanded) => {
-                    setMeasuredCellHeights((current) => {
-                      if (!(cell.id in current)) return current;
-                      const next = { ...current };
-                      delete next[cell.id];
-                      return next;
-                    });
-                    setExpandedPlanArtifact(expanded ? planHandoffCandidate?.sourceArtifact ?? null : null);
-                  }}
-                />
-              ) : null}
             </div>
           );
         })}
@@ -331,10 +226,6 @@ export function AgentRelationGraphPanel({
       </div>
     </div>
   );
-}
-
-function cellHasPlanCandidate(cell: ParentAgentTranscriptCell, candidate: PlanHandoffCandidate | null): boolean {
-  return Boolean(candidate && cell.evidenceRefs?.some((ref) => ref.ref === candidate.sourceArtifact));
 }
 
 function sameProviderTurn(previous: ParentAgentTranscriptCell | undefined, current: ParentAgentTranscriptCell): boolean {

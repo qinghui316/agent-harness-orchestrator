@@ -4,7 +4,7 @@ import { createRef } from "react";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MainConversationView } from "../../src/web/src/panels/workbench/ConversationPanel.js";
-import type { ParentAgentTranscript, ParentAgentTranscriptCell, Snapshot, Workpad } from "../../src/web/src/types.js";
+import type { ParentAgentTranscript, ParentAgentTranscriptCell } from "../../src/web/src/types.js";
 
 type ResizeCallback = ResizeObserverCallback;
 
@@ -78,27 +78,14 @@ function renderConversation(cellCount: number): void {
       turnId: `turn-${index}`,
     })),
   };
-  const workpad = { intake: { pendingClarifications: [] } } as unknown as Workpad;
-
   render(
     <div ref={scrollRef}>
       <MainConversationView
-        workpad={workpad}
         transcript={transcript}
         scrollContainerRef={scrollRef}
         onLoadEarlierTranscript={async () => {}}
         loadingEarlierTranscript={false}
-        busy={false}
-        approvals={[] as unknown as Snapshot["right"]["approvals"]}
-        onAction={async () => {}}
-        onConfirmApproval={() => {}}
-        onAnswerClarification={async () => {}}
-        onAnswerProviderUserInput={async () => {}}
-        onSelectDecisionContext={() => {}}
         onOpenAgent={() => {}}
-        planHandoffCandidate={null}
-        onPlanHandoff={async () => {}}
-        onCancelPlanHandoff={async () => {}}
       />
     </div>,
   );

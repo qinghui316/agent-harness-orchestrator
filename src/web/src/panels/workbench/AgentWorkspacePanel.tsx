@@ -1,19 +1,15 @@
 import { Bot, ChevronLeft, Send, X } from "lucide-react";
 import { useState, type ReactElement } from "react";
 import { AgentTranscriptPane } from "./TranscriptReadingSurface.js";
-import { ClarificationCard } from "./workpad/TaskGraphCards.js";
-import type { AgentWorkspace, AgentWorkspaceAgent, ProviderUserInputRequest } from "../../types.js";
+import type { AgentWorkspace, AgentWorkspaceAgent } from "../../types.js";
 
 export function AgentWorkspacePanel({
   workspace,
   selectedAgentId,
   openAgentIds,
-  busy,
   onSelectAgent,
   onCloseAgent,
   onBack,
-  onAnswerClarification,
-  onAnswerProviderUserInput,
   onSendAgentMessage,
   providerDisplayName,
   modelLabel,
@@ -22,12 +18,9 @@ export function AgentWorkspacePanel({
   workspace: AgentWorkspace;
   selectedAgentId: string | null;
   openAgentIds: string[];
-  busy: boolean;
   onSelectAgent: (agentId: string) => void;
   onCloseAgent: (agentId: string) => void;
   onBack: () => void;
-  onAnswerClarification: (clarificationId: string, answer: string) => Promise<void>;
-  onAnswerProviderUserInput: (request: ProviderUserInputRequest, answers: Record<string, string | string[]>) => Promise<void>;
   onSendAgentMessage: (agent: AgentWorkspaceAgent, message: string) => Promise<void>;
   providerDisplayName?: string;
   modelLabel: string;
@@ -62,10 +55,7 @@ export function AgentWorkspacePanel({
             cells={cells}
             emptyMessage={selected.transcript.emptyMessage}
             testId="agent-workspace-transcript"
-            busy={busy}
-            onAnswerProviderUserInput={onAnswerProviderUserInput}
           />
-          <AgentClarifications agent={selected} busy={busy} onAnswer={onAnswerClarification} />
         </div>
         <AgentWorkspaceComposer
           agent={selected}
@@ -104,32 +94,6 @@ function AgentWorkspaceRuntimeStrip({
         <span className="composer-model-label" aria-label={`当前模型：${modelLabel}`}>{modelLabel}</span>
       )}
     </div>
-  );
-}
-
-function AgentClarifications({
-  agent,
-  busy,
-  onAnswer,
-}: {
-  agent: AgentWorkspaceAgent;
-  busy: boolean;
-  onAnswer: (clarificationId: string, answer: string) => Promise<void>;
-}): ReactElement {
-  const clarifications = agent.clarifications?.filter((item) => item.status === "pending") ?? [];
-  if (clarifications.length === 0) return <></>;
-  return (
-    <section className="agent-workspace-clarifications" data-testid="agent-workspace-clarifications" aria-label="当前 Agent 需要确认">
-      <div className="conversation-clarification-header">
-        <span>需要确认</span>
-        <strong>{clarifications.length}</strong>
-      </div>
-      <div className="clarification-list">
-        {clarifications.map((clarification) => (
-          <ClarificationCard key={clarification.id} clarification={clarification} busy={busy} onAnswer={onAnswer} />
-        ))}
-      </div>
-    </section>
   );
 }
 

@@ -1,6 +1,7 @@
 import type { AssistantTurnActivity, AssistantTurnBlock } from "./types.js";
 import type { ClarificationRequest, WorkbenchIntakeIteration, WorkbenchIntakeScan } from "./intake.js";
 import type { TopicAttachment, TopicFileReference } from "./types.js";
+import type { ConversationInteractionQueue, InteractionHistoryRecord } from "./conversation-interaction-contract.js";
 import type { ParentAgentTranscript } from "./parent-agent-transcript.js";
 import type { WorkbenchArtifactPreview } from "./artifact-types.js";
 import type { WorkbenchThreadActionType } from "../workflow-actions/registry.js";
@@ -200,6 +201,7 @@ export interface ThreadStreamItem {
   };
   clarification?: ClarificationRequest;
   providerUserInput?: import("./types.js").WorkbenchProviderUserInputRequest;
+  interactionHistory?: InteractionHistoryRecord;
   contextRefs?: TopicFileReference[];
   attachments?: TopicAttachment[];
 }
@@ -1007,6 +1009,7 @@ export interface WorkbenchSnapshot {
       items: ThreadStreamItem[];
     };
     parentAgentTranscript: ParentAgentTranscript;
+    conversationInteractions: ConversationInteractionQueue;
     activeTab: "conversation" | "agentGraph";
     agentLoop: {
       runs: RunMetadata[];

@@ -7,7 +7,7 @@ import type { ProviderCapabilitySnapshot, ProviderId, ProviderModelRef } from ".
 import type { WorkbenchProviderUserInputRequest } from "./types.js";
 import { acquireWorkbenchRuntimeMutationLock, type WorkbenchRuntimeMutationLock } from "./schema-rebuild-gate.js";
 
-const WORKBENCH_SCHEMA_VERSION = 4;
+const WORKBENCH_SCHEMA_VERSION = 5;
 
 export interface StoredTopicMessage {
   id: string;
@@ -293,7 +293,11 @@ export class WorkbenchStore {
     requestKey: string,
     expectedStatus: WorkbenchProviderUserInputRequest["status"],
     nextStatus: WorkbenchProviderUserInputRequest["status"],
-    answers: Record<string, string | string[]> | undefined,
+    settlement: {
+      publicAnswers?: Record<string, string | string[]>;
+      skippedQuestionIds?: string[];
+      disposition?: "answered" | "skipped";
+    } | undefined,
     updatedAt: string,
   ): WorkbenchProviderUserInputRequest {
     return this.db.transaction(() => {
@@ -315,7 +319,9 @@ export class WorkbenchStore {
       const nextRequest: WorkbenchProviderUserInputRequest = {
         ...raw.providerUserInput,
         status: nextStatus,
-        ...(answers ? { answers } : {}),
+        ...(settlement?.publicAnswers ? { publicAnswers: settlement.publicAnswers } : {}),
+        ...(settlement?.skippedQuestionIds ? { skippedQuestionIds: settlement.skippedQuestionIds } : {}),
+        ...(settlement?.disposition ? { disposition: settlement.disposition } : {}),
         ...(nextStatus === "submitted" ? { submittedAt: updatedAt } : {}),
       };
       this.updateMessage({
@@ -346,6 +352,37 @@ export class WorkbenchStore {
     if (!row) return null;
     const raw = JSON.parse(row.rawJson) as { providerUserInput?: WorkbenchProviderUserInputRequest };
     return raw.providerUserInput ?? null;
+  }
+
+  terminalizeProviderUserInputRequests(
+    projectId: string,
+    conversationId: string,
+    runId: string,
+    updatedAt: string,
+  ): StoredTopicMessage[] {
+    return this.db.transaction(() => {
+      const updated: StoredTopicMessage[] = [];
+      for (const row of this.listConversationMessages(projectId, conversationId)) {
+        let raw: Record<string, unknown> & { providerUserInput?: WorkbenchProviderUserInputRequest };
+        try {
+          raw = JSON.parse(row.rawJson) as typeof raw;
+        } catch {
+          continue;
+        }
+        const request = raw.providerUserInput;
+        if (!request || request.runId !== runId || (request.status !== "pending" && request.status !== "submitting")) continue;
+        const nextRequest = { ...request, status: "interrupted" as const };
+        const nextRow = {
+          ...row,
+          timestamp: updatedAt,
+          status: "interrupted",
+          rawJson: JSON.stringify({ ...raw, timestamp: updatedAt, status: "interrupted", providerUserInput: nextRequest }),
+        };
+        this.updateMessage(nextRow);
+        updated.push({ ...nextRow, position: row.position });
+      }
+      return updated;
+    })();
   }
 
   updatePlanningMessageStatus(projectId: string, conversationId: string, artifact: string, status: string): void {
@@ -904,6 +941,10 @@ export class WorkbenchStore {
 
   startConversationGraphScope(projectId: string, conversationId: string, graphScopeId: string, updatedAt: string): void {
     this.db.transaction(() => {
+      const currentScopeId = this.readConversation(projectId, conversationId)?.currentGraphScopeId;
+      if (currentScopeId && currentScopeId !== graphScopeId) {
+        this.supersedeConversationInteractions(projectId, conversationId, currentScopeId, updatedAt);
+      }
       this.db.prepare(`
         UPDATE conversations SET current_graph_scope_id = ?, bound_change_id = NULL, updated_at = ?
         WHERE project_id = ? AND conversation_id = ? AND deleted_at IS NULL
@@ -917,6 +958,47 @@ export class WorkbenchStore {
           updated_at = excluded.updated_at
       `).run(projectId, conversationId, graphScopeId, updatedAt);
     })();
+  }
+
+  private supersedeConversationInteractions(
+    projectId: string,
+    conversationId: string,
+    graphScopeId: string,
+    updatedAt: string,
+  ): void {
+    for (const row of this.listConversationMessages(projectId, conversationId)) {
+      let raw: Record<string, unknown> & {
+        graphScopeId?: string;
+        agentRoleId?: string;
+        artifact?: string;
+        status?: string;
+        providerUserInput?: WorkbenchProviderUserInputRequest;
+        clarification?: { status?: string };
+      };
+      try {
+        raw = JSON.parse(row.rawJson) as typeof raw;
+      } catch {
+        continue;
+      }
+      if (raw.graphScopeId !== graphScopeId) continue;
+      let nextStatus: string | undefined;
+      if (raw.providerUserInput && (raw.providerUserInput.status === "pending" || raw.providerUserInput.status === "submitting")) {
+        raw.providerUserInput = { ...raw.providerUserInput, status: "superseded" };
+        nextStatus = "superseded";
+      } else if (raw.clarification?.status === "pending") {
+        raw.clarification = { ...raw.clarification, status: "expired" };
+        nextStatus = "expired";
+      } else if (raw.agentRoleId === "planning-agent" && raw.artifact && !["accepted", "revision-requested", "skipped", "superseded", "planner-proposal-invalid"].includes(raw.status ?? "")) {
+        nextStatus = "superseded";
+      }
+      if (!nextStatus) continue;
+      this.updateMessage({
+        ...row,
+        timestamp: updatedAt,
+        status: nextStatus,
+        rawJson: JSON.stringify({ ...raw, timestamp: updatedAt, status: nextStatus }),
+      });
+    }
   }
 
   markConversationGraphScopeTerminal(projectId: string, conversationId: string, graphScopeId: string, updatedAt: string): void {

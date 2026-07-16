@@ -43,7 +43,11 @@ export function emptyParentAgentTranscript(): ParentAgentTranscript {
 }
 
 export function shellWorkbenchWorkpad(workpad: WorkbenchWorkpad): WorkbenchWorkpad {
-  return { ...workpad, maintenance: undefined };
+  return {
+    ...workpad,
+    maintenance: undefined,
+    intake: { ...workpad.intake, pendingClarifications: [] },
+  };
 }
 
 export function buildAgentRelationGraph(input: {
@@ -54,6 +58,8 @@ export function buildAgentRelationGraph(input: {
   agents?: WorkbenchAgentWorkspaceAgent[];
   graphScopeId?: string;
   scopeChangeId?: string;
+  mainNeedsInput?: boolean;
+  waitingAgentSurfaceIds?: Set<string>;
 }): AgentRelationGraph {
   const { project, selectedTopic } = input;
   if (!selectedTopic) return emptyAgentRelationGraph();
@@ -67,7 +73,7 @@ export function buildAgentRelationGraph(input: {
     kind: "main-agent",
     label: "主 Agent",
     roleId: "main-agent",
-    status: graphStatus(input.workpad.conversationLifecycle),
+    status: input.mainNeedsInput ? "waiting-user" : graphStatus(input.workpad.conversationLifecycle),
     summary: "",
     target: { ...targetBase, agentSurfaceId: "main-agent" },
   };
@@ -80,7 +86,7 @@ export function buildAgentRelationGraph(input: {
     providerId: agent.providerId,
     providerThreadId: agent.providerThreadId,
     parentAgentId: agent.parentAgentId,
-    status: graphStatus(agent.status),
+    status: input.waitingAgentSurfaceIds?.has(agent.id) ? "waiting-user" : graphStatus(agent.status),
     summary: "",
     target: {
       ...targetBase,

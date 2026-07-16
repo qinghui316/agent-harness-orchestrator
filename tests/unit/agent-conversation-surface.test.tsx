@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { canonicalTranscriptCellsFromThreadItem } from "../../src/workbench/parent-agent-transcript.js";
 import { AgentWorkspacePanel } from "../../src/web/src/panels/workbench/AgentWorkspacePanel.js";
-import { AgentTranscriptPane } from "../../src/web/src/panels/workbench/TranscriptReadingSurface.js";
+import { AgentTranscriptPane, ParentAgentTranscriptCellView } from "../../src/web/src/panels/workbench/TranscriptReadingSurface.js";
 import { blockFromAssistantEvent, mergeAssistantBlocks, normalizeTurnBlocks } from "../../src/web/src/shell/assistant-blocks.js";
 import { replaceCanonicalMessageCells } from "../../src/web/src/liveTranscript.js";
 import type { AgentWorkspaceAgent, AssistantTurnBlock, ParentAgentTranscript } from "../../src/web/src/types.js";
@@ -107,8 +107,6 @@ describe("Agent conversation surfaces", () => {
       onSelectAgent={onSelect}
       onCloseAgent={onClose}
       onBack={onBack}
-      onAnswerClarification={async () => undefined}
-      onAnswerProviderUserInput={async () => undefined}
       onSendAgentMessage={async () => undefined}
       providerDisplayName="Claude Code"
       modelLabel="default"
@@ -190,6 +188,45 @@ describe("Agent conversation surfaces", () => {
     expect(details.scrollTop).toBe(100);
     expect(details.textContent).toContain("line 3");
     vi.restoreAllMocks();
+  });
+
+  it("keeps failed command emphasis deterministic and opens child lifecycle rows by canonical target", () => {
+    const onOpenAgent = vi.fn();
+    const { rerender } = render(<ParentAgentTranscriptCellView
+      cell={{
+        id: "failed-command",
+        kind: "process-row",
+        source: "provider-runtime",
+        title: "命令执行失败 · npm test",
+        text: "命令执行失败 · npm test",
+        status: "failed",
+        isError: true,
+        activityKind: "command",
+      }}
+      expanded={false}
+      onToggleExpanded={vi.fn()}
+    />);
+    const failed = document.querySelector(".transcript-activity-row") as HTMLElement;
+    expect(failed.classList.contains("activity-command")).toBe(true);
+    expect(failed.classList.contains("tone-danger")).toBe(true);
+
+    rerender(<ParentAgentTranscriptCellView
+      cell={{
+        id: "child-lifecycle",
+        kind: "process-row",
+        source: "provider-runtime",
+        title: "Plan Agent · Sagan 正在规划",
+        text: "Plan Agent · Sagan 正在规划",
+        status: "processing",
+        activityKind: "agent",
+        targetAgentSurfaceId: "agent:codex:thread:thread-plan",
+      }}
+      expanded={false}
+      onToggleExpanded={vi.fn()}
+      onOpenAgent={onOpenAgent}
+    />);
+    fireEvent.click(screen.getByRole("button", { name: "Plan Agent · Sagan 正在规划" }));
+    expect(onOpenAgent).toHaveBeenCalledWith("agent:codex:thread:thread-plan");
   });
 });
 

@@ -1,7 +1,6 @@
 import type { IncomingMessage, Server } from "node:http";
 import type { ProjectRegistryStore } from "../../registry/store.js";
 import type { TerminalRuntime } from "../terminal/terminal-runtime.js";
-import type { ClarificationAnswer } from "../../workbench/intake.js";
 import type { WorkbenchApprovalAction, WorkbenchProjectInput } from "../../workbench/manager.js";
 import type { TopicMessageInput, WorkbenchWorkflowActionRequest } from "../../workbench/chat.js";
 import type { MemoryMode } from "../../types/index.js";
@@ -109,20 +108,6 @@ export interface IntakeRequest {
   message?: string;
 }
 
-export interface ClarificationAnswerRequest {
-  changeId?: string;
-  answers?: ClarificationAnswer[];
-  answer?: string;
-}
-
-export interface ProviderUserInputAnswerRequest {
-  changeId?: string;
-  conversationId?: string;
-  requestKey: string;
-  answers?: Record<string, string | string[]>;
-  answer?: string;
-}
-
 export interface AddExistingProjectRequest {
   path?: string;
   name?: string;
@@ -162,7 +147,6 @@ export interface TopicMessageRequest {
   mode?: TopicMessageInput["mode"];
   contextRefs?: TopicMessageInput["contextRefs"];
   attachmentIds?: string[];
-  planHandoffIntent?: TopicMessageInput["planHandoffIntent"];
   providerId?: TopicMessageInput["providerId"];
   providerSwitchIntent?: TopicMessageInput["providerSwitchIntent"];
 }
