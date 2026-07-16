@@ -856,10 +856,11 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
 
   function emitRealtime(method: string, params: Record<string, unknown>): void {
     if (!options.onRealtimeEvent) return;
-    const eventThreadId = stringValue(params.threadId ?? params.thread_id) ?? threadId ?? `run:${options.runId}`;
+    const eventThreadId = stringValue(params.threadId ?? params.thread_id) ?? threadId;
     const eventTurnId = stringValue(params.turnId ?? params.turn_id)
       ?? stringValue((isRecord(params.turn) ? params.turn.id : undefined))
       ?? (eventThreadId === threadId ? turnId ?? undefined : undefined);
+    if (!eventThreadId || !eventTurnId) return;
     const eventItem = isRecord(params.item) ? params.item : params;
     const eventItemId = stringValue(eventItem.id ?? params.itemId ?? params.item_id);
     const isMainThread = !threadId || eventThreadId === threadId;

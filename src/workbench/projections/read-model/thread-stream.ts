@@ -28,7 +28,7 @@ export async function buildThreadStream(
   options: { messages?: TopicThreadEntry[]; includeChangeState?: boolean } = {},
 ): Promise<ThreadStreamItem[]> {
   const messages = options.messages ?? await readConversationThread(memory, topic.path).catch(() => []);
-  const { items, runAnchors, assistantByRun } = buildThreadStreamMessageDrafts(topic, messages, options.includeChangeState ?? true);
+  const { items, runAnchors } = buildThreadStreamMessageDrafts(topic, messages, options.includeChangeState ?? true);
   for (const run of runs) {
     if (!runAnchors.has(run.id)) runAnchors.set(run.id, timestampSortKey(run.finishedAt ?? run.startedAt, 3000));
   }
@@ -44,19 +44,12 @@ export async function buildThreadStream(
       status: validation.status,
       runId: validation.runId,
     } satisfies ThreadStreamEvidence;
-    const assistant = validation.runId ? assistantByRun.get(validation.runId) : undefined;
-    if (assistant) {
-      assistant.evidence = [...(assistant.evidence ?? []), evidence];
-      assistant.blocks = mergeBlocks(assistant.blocks, [workflowEvidenceBlock(evidence, nextBlockSequence(assistant.blocks), "validation")]);
-    } else {
-      items.push({
+    items.push({
       ...evidence,
       kind: "evidence",
-      semanticKey: `validation:${validation.id}`,
       sortKey: anchor !== undefined ? anchor : timestampSortKey(validation.finishedAt, 4000),
       subOrder: 20,
-      });
-    }
+    });
   }
   for (const audit of audits as AuditSummary[]) {
     const anchor = audit.runId ? runAnchors.get(audit.runId) : undefined;
@@ -69,19 +62,12 @@ export async function buildThreadStream(
       status: audit.status,
       runId: audit.runId,
     } satisfies ThreadStreamEvidence;
-    const assistant = audit.runId ? assistantByRun.get(audit.runId) : undefined;
-    if (assistant) {
-      assistant.evidence = [...(assistant.evidence ?? []), evidence];
-      assistant.blocks = mergeBlocks(assistant.blocks, [workflowEvidenceBlock(evidence, nextBlockSequence(assistant.blocks), "audit")]);
-    } else {
-      items.push({
+    items.push({
       ...evidence,
       kind: "evidence",
-      semanticKey: `audit:${audit.id}`,
       sortKey: anchor !== undefined ? anchor : timestampSortKey(audit.finishedAt, 5000),
       subOrder: 30,
-      });
-    }
+    });
   }
   for (const decision of decisions.filter((item) => !item.id.startsWith("workflow:"))) {
     items.push({
@@ -94,7 +80,6 @@ export async function buildThreadStream(
       artifact: decision.artifact,
       status: decision.status,
       runId: decision.runId,
-      semanticKey: `decision:${decision.id}`,
       sortKey: timestampSortKey(decision.completedAt ?? decision.updatedAt, 6000),
       subOrder: 40,
     });
@@ -120,7 +105,6 @@ function buildThreadStreamMessageDrafts(
 ): {
   items: ThreadStreamDraft[];
   runAnchors: Map<string, number>;
-  assistantByRun: Map<string, ThreadStreamDraft>;
 } {
   const items: ThreadStreamDraft[] = [{
     id: `${topic.id}:change-state`,
@@ -131,7 +115,6 @@ function buildThreadStreamMessageDrafts(
     source: "change",
     artifact: topic.path,
     status: topic.state,
-    semanticKey: `change:${topic.id}`,
     sortKey: 0,
     subOrder: 0,
   }];
@@ -139,7 +122,6 @@ function buildThreadStreamMessageDrafts(
   const terminalWorkflowByAction = new Map<string, TopicThreadEntry>();
   const workflowStartedByAction = new Map<string, TopicThreadEntry>();
   const runAnchors = new Map<string, number>();
-  const assistantByRun = new Map<string, ThreadStreamDraft>();
 
   messages.forEach((message, index) => {
     const sortKey = message.position ?? index + 1;
@@ -155,7 +137,6 @@ function buildThreadStreamMessageDrafts(
     const mapped = threadItemFromMessage(message, sortKey);
     if (mapped) {
       items.push(mapped);
-      if (mapped.kind === "assistant-turn" && mapped.runId && !mapped.agentRoleId) assistantByRun.set(mapped.runId, mapped);
     }
   });
 
@@ -164,22 +145,17 @@ function buildThreadStreamMessageDrafts(
     const message = terminal ?? started;
     const sortKey = message.position ?? started.position ?? messages.length + items.length + 1;
     const workflowItem = workflowItemFromMessage(message, sortKey);
-    const existing = message.runId ? assistantByRun.get(message.runId) : undefined;
-    if (existing) mergeAssistantTurn(existing, workflowItem);
-    else {
-      items.push(workflowItem);
-      if (workflowItem.runId) assistantByRun.set(workflowItem.runId, workflowItem);
-    }
+    items.push(workflowItem);
     if (message.runId) runAnchors.set(message.runId, sortKey);
   }
-  return { items, runAnchors, assistantByRun };
+  return { items, runAnchors };
 }
 
 async function finalizeThreadStreamItems(items: ThreadStreamDraft[]): Promise<ThreadStreamItem[]> {
   for (const item of items) {
     item.blocks = finalizeAssistantBlocks(item);
   }
-  return dedupeThreadItems(items)
+  return uniqueThreadItemsById(items)
     .sort((a, b) => a.sortKey - b.sortKey || a.subOrder - b.subOrder || (a.timestamp ?? "").localeCompare(b.timestamp ?? "") || a.id.localeCompare(b.id))
     .map(({ sortKey: _sortKey, subOrder: _subOrder, ...item }) => item);
 }
@@ -203,7 +179,6 @@ function threadItemFromMessage(message: TopicThreadEntry, sortKey: number): Thre
       agentTaskId: message.agentTaskId,
       contextRefs: message.contextRefs,
       attachments: message.attachments,
-      semanticKey: `message:${message.id}`,
       sortKey,
       subOrder: 0,
     };
@@ -229,7 +204,6 @@ function threadItemFromMessage(message: TopicThreadEntry, sortKey: number): Thre
       activity: message.activity,
       blocks: blocksFromMessage(message),
       providerUserInput: message.providerUserInput,
-      semanticKey: `message:${message.id}`,
       sortKey,
       subOrder: 0,
     };
@@ -253,7 +227,6 @@ function threadItemFromMessage(message: TopicThreadEntry, sortKey: number): Thre
       actionType: undefined,
       activity: message.activity,
       blocks: blocksFromMessage(message),
-      semanticKey: `message:${message.id}`,
       sortKey,
       subOrder: 0,
     };
@@ -270,7 +243,6 @@ function threadItemFromMessage(message: TopicThreadEntry, sortKey: number): Thre
       artifact: message.artifact,
       runId: message.runId,
       intake,
-      semanticKey: `intake-scan:${message.id}`,
       sortKey,
       subOrder: 0,
     };
@@ -286,7 +258,6 @@ function threadItemFromMessage(message: TopicThreadEntry, sortKey: number): Thre
       source: "intake",
       artifact: message.artifact,
       intake,
-      semanticKey: `intake-iteration:${message.id}`,
       sortKey,
       subOrder: 0,
     };
@@ -303,7 +274,6 @@ function threadItemFromMessage(message: TopicThreadEntry, sortKey: number): Thre
       runId: message.runId,
       clarification,
       status: clarification?.status,
-      semanticKey: `clarification:${clarification?.id ?? message.id}:${message.type}`,
       sortKey,
       subOrder: 0,
     };
@@ -341,7 +311,6 @@ function workflowItemFromMessage(message: TopicThreadEntry, sortKey: number): Th
     activity: message.activity,
     evidence: [evidence],
     blocks: undefined,
-    semanticKey: `assistant-turn:${message.runId ?? message.actionRunId ?? message.id}`,
     sortKey,
     subOrder: 10,
   };
@@ -402,7 +371,7 @@ function blocksFromMessage(message: TopicThreadEntry, evidence?: ThreadStreamEvi
   if (evidence) {
     blocks.push(workflowEvidenceBlock(evidence, sequence++, evidence.source));
   }
-  return blocks.length > 0 ? dedupeBlocks(blocks).sort((a, b) => a.sequence - b.sequence || a.id.localeCompare(b.id)) : undefined;
+  return blocks.length > 0 ? blocks.sort((a, b) => a.sequence - b.sequence || a.id.localeCompare(b.id)) : undefined;
 }
 
 function workflowDisplayBody(message: TopicThreadEntry): string {
@@ -425,10 +394,15 @@ function blocksFromActivity(activity: AssistantTurnActivity[] | undefined, messa
   for (const [index, event] of (activity ?? []).entries()) {
     if (event.kind === "assistant-event") {
       const assistantEvent = event.event;
+      if (!hasCanonicalActivityItemIdentity(assistantEvent)) continue;
       const kind = assistantEventBlockKind(assistantEvent.kind);
       const block: AssistantTurnBlock = {
-        id: `message-activity:${message.id}:${index}`,
+        id: `${kind}:${assistantEvent.providerId}:${assistantEvent.attemptId}:${assistantEvent.threadId}:${assistantEvent.turnId}:${assistantEvent.itemId}`,
+        providerId: assistantEvent.providerId,
+        attemptId: assistantEvent.attemptId,
         runId: assistantEvent.runId ?? message.runId,
+        threadId: assistantEvent.threadId,
+        turnId: assistantEvent.turnId,
         sequence: index + 1,
         kind,
         timestamp: assistantEvent.timestamp ?? event.timestamp,
@@ -447,9 +421,15 @@ function blocksFromActivity(activity: AssistantTurnActivity[] | undefined, messa
       };
       if (isMainThreadBlock(block)) blocks.push(block);
     } else if (event.kind === "tool" && event.tool.phase !== "stderr" && event.tool.command) {
+      if (!hasCanonicalActivityItemIdentity(event.tool)) continue;
       blocks.push({
-        id: `message-tool:${message.id}:${index}`,
+        id: `command:${event.tool.providerId}:${event.tool.attemptId}:${event.tool.threadId}:${event.tool.turnId}:${event.tool.itemId}`,
+        providerId: event.tool.providerId,
+        attemptId: event.tool.attemptId,
         runId: event.tool.runId,
+        threadId: event.tool.threadId,
+        turnId: event.tool.turnId,
+        itemId: event.tool.itemId,
         sequence: index + 1,
         kind: "command",
         timestamp: event.timestamp,
@@ -461,32 +441,19 @@ function blocksFromActivity(activity: AssistantTurnActivity[] | undefined, messa
         preview: hasInternalRunMetadata(event.tool.outputTail) ? undefined : event.tool.outputTail,
         isError: event.tool.isError,
       });
-    } else if (event.kind === "usage") {
-      blocks.push({
-        id: `message-usage:${message.id}:${index}`,
-        runId: message.runId,
-        sequence: index + 1,
-        kind: "usage",
-        timestamp: event.timestamp,
-        source: "provider",
-        title: "用量",
-        text: formatUsageSummary(event.usage),
-      });
-    } else if (event.kind === "error") {
-      blocks.push({
-        id: `message-error:${message.id}:${index}`,
-        runId: message.runId,
-        sequence: index + 1,
-        kind: "error",
-        timestamp: event.timestamp,
-        source: "provider",
-        title: "错误",
-        text: event.message,
-        isError: true,
-      });
     }
   }
   return blocks;
+}
+
+function hasCanonicalActivityItemIdentity(value: {
+  providerId?: string;
+  attemptId?: string;
+  threadId?: string;
+  turnId?: string;
+  itemId?: string;
+}): value is typeof value & Required<Pick<typeof value, "providerId" | "attemptId" | "threadId" | "turnId" | "itemId">> {
+  return Boolean(value.providerId && value.attemptId && value.threadId && value.turnId && value.itemId);
 }
 
 function workflowEvidenceBlock(evidence: ThreadStreamEvidence, sequence: number, source: AssistantTurnBlock["source"]): AssistantTurnBlock {
@@ -525,64 +492,8 @@ function finalizeAssistantBlocks(item: ThreadStreamItem): AssistantTurnBlock[] |
   for (const evidence of item.evidence ?? []) {
     blocks.push(workflowEvidenceBlock(evidence, sequence++, evidence.source));
   }
-  blocks = dedupeBlocks(blocks).sort((a, b) => a.sequence - b.sequence || a.id.localeCompare(b.id));
+  blocks = blocks.sort((a, b) => a.sequence - b.sequence || a.id.localeCompare(b.id));
   return blocks.length > 0 ? blocks : undefined;
-}
-
-function mergeBlocks(left: AssistantTurnBlock[] | undefined, right: AssistantTurnBlock[] | undefined): AssistantTurnBlock[] | undefined {
-  const merged = dedupeBlocks([...(left ?? []), ...(right ?? [])]);
-  if (merged.length === 0) return undefined;
-  return merged.sort((a, b) => a.sequence - b.sequence || (a.timestamp ?? "").localeCompare(b.timestamp ?? "") || a.id.localeCompare(b.id));
-}
-
-function dedupeBlocks(blocks: AssistantTurnBlock[]): AssistantTurnBlock[] {
-  const byKey = new Map<string, AssistantTurnBlock>();
-  for (const block of blocks) {
-    const key = assistantBlockSemanticKey(block);
-    const existing = byKey.get(key);
-    byKey.set(key, existing ? mergeAssistantBlock(existing, block) : block);
-  }
-  return [...byKey.values()];
-}
-
-function mergeAssistantBlock(existing: AssistantTurnBlock, incoming: AssistantTurnBlock): AssistantTurnBlock {
-  return {
-    ...existing,
-    ...incoming,
-    id: existing.id,
-    sequence: existing.sequence,
-    timestamp: existing.timestamp,
-    text: incoming.text ?? existing.text,
-    preview: incoming.preview ?? existing.preview,
-    title: incoming.title ?? existing.title,
-    status: incoming.status ?? existing.status,
-    command: incoming.command ?? existing.command,
-    cwd: incoming.cwd ?? existing.cwd,
-    exitCode: incoming.exitCode ?? existing.exitCode,
-    artifactRef: incoming.artifactRef ?? existing.artifactRef,
-    truncated: incoming.truncated ?? existing.truncated,
-    isError: incoming.isError ?? existing.isError,
-  };
-}
-
-function assistantBlockSemanticKey(block: AssistantTurnBlock): string {
-  const runId = block.runId ?? "";
-  if (block.kind === "usage") return `usage:${runId}`;
-  if (block.kind === "error") return `error:${runId}:${normalizeBlockText(block.text ?? block.preview ?? block.title)}`;
-  if (block.kind === "workflow-evidence") return `workflow-evidence:${runId}:${block.artifactRef ?? block.title ?? block.status ?? block.id}`;
-  if (block.kind === "command") {
-    if (block.itemId) return `command:${runId}:item:${block.itemId}`;
-    return `command:${runId}:command:${normalizeCommandKey(block.command)}`;
-  }
-  return block.itemId ? `${block.kind}:${runId}:item:${block.itemId}` : `${block.id}:${block.kind}`;
-}
-
-function normalizeCommandKey(command: string | undefined): string {
-  return (command ?? "").replace(/\s+/g, " ").trim().toLowerCase();
-}
-
-function normalizeBlockText(text: string | undefined): string {
-  return (text ?? "").replace(/\s+/g, " ").trim().toLowerCase();
 }
 
 function nextBlockSequence(blocks: AssistantTurnBlock[] | undefined): number {
@@ -638,16 +549,6 @@ function evidenceLabel(item: ThreadStreamEvidence): string {
   return item.label;
 }
 
-function formatUsageSummary(usage: Record<string, unknown>): string {
-  const input = typeof usage.input_tokens === "number" ? usage.input_tokens : undefined;
-  const output = typeof usage.output_tokens === "number" ? usage.output_tokens : undefined;
-  const pieces = [
-    input === undefined ? null : `${input} input tokens`,
-    output === undefined ? null : `${output} output tokens`,
-  ].filter((item): item is string => Boolean(item));
-  return pieces.length > 0 ? pieces.join(" · ") : "Usage recorded.";
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -659,40 +560,6 @@ function hasInternalRunMetadata(text: string | undefined): boolean {
   const hasArtifactSignal = artifactSignals.some((signal) => normalized.includes(signal));
   const hasRunMetadataShape = normalized.includes('"runtime"') && normalized.includes('"artifacts"') && normalized.includes('"promptstack"');
   return hasRunMetadataShape || (hasArtifactSignal && normalized.includes('"artifacts"'));
-}
-
-function mergeAssistantTurn(target: ThreadStreamDraft, incoming: ThreadStreamDraft): void {
-  target.actionRunId = target.actionRunId ?? incoming.actionRunId;
-  target.status = target.status ?? incoming.status;
-  target.artifact = target.artifact ?? incoming.artifact;
-  if (!target.body?.trim() && incoming.body?.trim()) target.body = incoming.body;
-  target.activity = mergeActivity(target.activity, incoming.activity);
-  target.evidence = mergeEvidence(target.evidence, incoming.evidence);
-  target.blocks = mergeBlocks(target.blocks, incoming.blocks);
-}
-
-function mergeActivity(left: AssistantTurnActivity[] | undefined, right: AssistantTurnActivity[] | undefined): AssistantTurnActivity[] | undefined {
-  const merged = [...(left ?? []), ...(right ?? [])];
-  if (merged.length === 0) return undefined;
-  const seen = new Set<string>();
-  return merged.filter((event) => {
-    const key = JSON.stringify(event);
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
-function mergeEvidence(left: ThreadStreamEvidence[] | undefined, right: ThreadStreamEvidence[] | undefined): ThreadStreamEvidence[] | undefined {
-  const merged = [...(left ?? []), ...(right ?? [])];
-  if (merged.length === 0) return undefined;
-  const seen = new Set<string>();
-  return merged.filter((event) => {
-    const key = event.id;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
 }
 
 export async function isConcreteChangeFile(memory: ResolvedMemory, changePath: string, fileName: "spec.md" | "plan.md" | "tasks.md"): Promise<boolean> {
@@ -749,11 +616,11 @@ function timestampSortKey(timestamp: string | undefined, offset: number): number
   return Number.isFinite(millis) ? 100000 + millis / 1000 + offset : 100000 + offset;
 }
 
-function dedupeThreadItems(items: ThreadStreamDraft[]): ThreadStreamDraft[] {
+function uniqueThreadItemsById(items: ThreadStreamDraft[]): ThreadStreamDraft[] {
   const seen = new Set<string>();
   const result: ThreadStreamDraft[] = [];
   for (const item of items) {
-    const key = item.semanticKey ?? item.id;
+    const key = item.id;
     if (seen.has(key)) continue;
     seen.add(key);
     result.push(item);

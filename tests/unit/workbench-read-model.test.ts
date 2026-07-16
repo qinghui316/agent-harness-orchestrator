@@ -10,6 +10,7 @@ import { appendConversationThreadEntry, createWorkbenchConversation } from "../.
 import { answerClarification, reanalyzeIntake, runIntakeScan } from "../../src/workbench/intake.js";
 import { deleteWorkbenchConversation, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTopic, getWorkbenchTranscriptProjection, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
+import { bindProviderThreadFixture } from "../helpers/provider-thread-fixture.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { createAgentTask } from "../../src/agent-task/manager.js";
 import { alignDecisionInspectorWithConfirmationPrimary, buildDecisionInspector } from "../../src/workbench/projections/read-model/decision-inspector.js";
@@ -258,9 +259,9 @@ describe("workbench read-model projections", () => {
       text: "Fallback final message should not duplicate the cell stream.",
       runId: "run-codex-transcript",
       blocks: [
-        { id: "p1", runId: "run-codex-transcript", sequence: 1, kind: "prose", timestamp: "2026-05-31T00:00:00.000Z", source: "provider", text: "我会先检查计价模块。" },
-        { id: "p2", runId: "run-codex-transcript", sequence: 2, kind: "prose", timestamp: "2026-05-31T00:00:01.000Z", source: "provider", text: "然后补充边界测试。" },
-        { id: "cmd", runId: "run-codex-transcript", sequence: 3, kind: "command", timestamp: "2026-05-31T00:00:02.000Z", source: "provider", title: "Command completed", command: "npm test", preview: "测试通过", status: "completed", exitCode: 0 },
+        { id: "p1", providerId: "codex", attemptId: "attempt-codex-transcript", threadId: "thread-codex-transcript", turnId: "turn-1", itemId: "prose-1", runId: "run-codex-transcript", sequence: 1, kind: "prose", timestamp: "2026-05-31T00:00:00.000Z", source: "provider", text: "我会先检查计价模块。" },
+        { id: "p2", providerId: "codex", attemptId: "attempt-codex-transcript", threadId: "thread-codex-transcript", turnId: "turn-1", itemId: "prose-2", runId: "run-codex-transcript", sequence: 2, kind: "prose", timestamp: "2026-05-31T00:00:01.000Z", source: "provider", text: "然后补充边界测试。" },
+        { id: "cmd", providerId: "codex", attemptId: "attempt-codex-transcript", threadId: "thread-codex-transcript", turnId: "turn-1", itemId: "command-1", runId: "run-codex-transcript", sequence: 3, kind: "command", timestamp: "2026-05-31T00:00:02.000Z", source: "provider", title: "Command completed", command: "npm test", preview: "测试通过", status: "completed", exitCode: 0 },
         { id: "validation", runId: "run-codex-transcript", sequence: 4, kind: "workflow-evidence", timestamp: "2026-05-31T00:00:03.000Z", source: "validation", title: "验证通过", text: "targeted tests passed", status: "passed", artifactRef: "runs/validation.md" },
       ],
     });
@@ -281,7 +282,7 @@ describe("workbench read-model projections", () => {
         detailText: expect.stringContaining("npm test"),
       }),
     ]));
-    expect(cells.filter((cell) => cell.kind === "assistant-message")).toHaveLength(1);
+    expect(cells.filter((cell) => cell.kind === "assistant-message")).toHaveLength(2);
     expect(JSON.stringify(cells)).not.toContain("Fallback final message should not duplicate");
     expect(JSON.stringify(cells)).not.toContain("验证通过");
     expect(JSON.stringify(cells)).not.toContain("targeted tests passed");
@@ -398,12 +399,22 @@ describe("workbench read-model projections", () => {
         ]),
         evidence: expect.arrayContaining([
           expect.objectContaining({ source: "workflow", status: "completed" }),
-          expect.objectContaining({ source: "validation", status: "passed" }),
-          expect.objectContaining({ source: "audit", status: "approved-with-notes" }),
         ]),
       }),
+      expect.objectContaining({
+        kind: "evidence",
+        source: "validation",
+        status: "passed",
+        runId: run.run.id,
+      }),
+      expect.objectContaining({
+        kind: "evidence",
+        source: "audit",
+        status: "approved-with-notes",
+        runId: run.run.id,
+      }),
     ]));
-    expect(detail.threadItems.some((item) => item.kind === "evidence" && item.runId === run.run.id)).toBe(false);
+    expect(detail.threadItems.filter((item) => item.kind === "evidence" && item.runId === run.run.id)).toHaveLength(2);
     expect(detail.threadItems.some((item) => item.label === "process.started" || item.label === "run.completed")).toBe(false);
   });
 
@@ -536,7 +547,7 @@ describe("workbench read-model projections", () => {
     const memory = await resolveProjectMemory(project());
     const store = await WorkbenchStore.open(memory);
     try {
-      store.writeProviderThread({
+      bindProviderThreadFixture(store, {
         projectId: project().id,
         conversationId: topic.conversationId,
         providerId: "codex",
@@ -563,7 +574,12 @@ describe("workbench read-model projections", () => {
       agentTaskId: "task-planning-agent",
       blocks: [{
         id: "planning-agent-prose",
+        providerId: "codex",
+        attemptId: "run-planning-agent",
         runId: "run-planning-agent",
+        threadId: "thread-planning-agent",
+        turnId: "turn-planning-agent",
+        itemId: "planning-agent-prose",
         sequence: 1,
         kind: "prose",
         timestamp: "2026-07-02T10:00:00.000Z",

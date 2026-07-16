@@ -1,6 +1,6 @@
 import type { ProviderCapabilitySnapshot, ProviderModelRef, ProviderOperationProfile } from "../provider-runtime/index.js";
 import type { ResolvedMemory } from "../types/index.js";
-import { WorkbenchStore, type StoredProviderAttempt } from "./store.js";
+import { WorkbenchStore, type StoredProviderAttempt, type StoredProviderThreadLink } from "./store.js";
 
 export interface StartProviderAttemptInput {
   attemptId: string;
@@ -15,6 +15,29 @@ export interface StartProviderAttemptInput {
   agentTaskId?: string | null;
   worktreeId?: string | null;
   model?: ProviderModelRef | null;
+}
+
+export interface BindProviderAttemptThreadInput {
+  attemptId: string;
+  threadId: string;
+  parentThreadId?: string | null;
+  displayName?: string | null;
+}
+
+export async function bindProviderAttemptThread(memory: ResolvedMemory, input: BindProviderAttemptThreadInput): Promise<StoredProviderThreadLink | null> {
+  if (!memory.projectId) throw new Error("Project id is required to bind a provider attempt thread.");
+  const store = await WorkbenchStore.open(memory);
+  try {
+    const attempt = store.readProviderAttempt(memory.projectId, input.attemptId);
+    if (!attempt) throw new Error(`Provider attempt not found: ${input.attemptId}`);
+    if (!attempt.conversationId || !attempt.graphScopeId) return null;
+    return store.bindProviderAttemptThread(memory.projectId, {
+      ...input,
+      parentThreadId: input.parentThreadId ?? null,
+    }, new Date().toISOString());
+  } finally {
+    store.close();
+  }
 }
 
 export async function startProviderAttempt(memory: ResolvedMemory, input: StartProviderAttemptInput): Promise<StoredProviderAttempt> {
@@ -59,11 +82,23 @@ export async function finishProviderAttempt(
   attemptId: string,
   status: "completed" | "interrupted" | "failed" | "blocked",
   nativeSessionId: string | null,
+  thread?: { parentThreadId?: string | null; displayName?: string | null },
 ): Promise<void> {
   if (!memory.projectId) throw new Error("Project id is required to finish a provider attempt.");
   const store = await WorkbenchStore.open(memory);
   try {
-    store.completeProviderAttempt(memory.projectId, attemptId, status, nativeSessionId, new Date().toISOString());
+    const now = new Date().toISOString();
+    const attempt = store.readProviderAttempt(memory.projectId, attemptId);
+    if (!attempt) throw new Error(`Provider attempt not found: ${attemptId}`);
+    if (nativeSessionId && attempt.conversationId) {
+      store.bindProviderAttemptThread(memory.projectId, {
+        attemptId,
+        threadId: nativeSessionId,
+        parentThreadId: thread?.parentThreadId,
+        displayName: thread?.displayName,
+      }, now);
+    }
+    store.completeProviderAttempt(memory.projectId, attemptId, status, nativeSessionId, now);
   } finally {
     store.close();
   }

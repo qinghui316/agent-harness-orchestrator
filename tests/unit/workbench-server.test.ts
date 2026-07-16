@@ -15,14 +15,15 @@ import { buildNativeFolderDialogCommand, executeWorkbenchAction, recoverWorkbenc
 import type { ManagedProject } from "../../src/types/index.js";
 import { appendConversationThreadEntry, buildProjectScopedMainAgentPrompt } from "../../src/workbench/chat.js";
 import { validatePlanHandoffIntent } from "../../src/workbench/plan-handoff.js";
-import type { WorkbenchLiveSink } from "../../src/workbench/types.js";
 import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
+import { createFakeCodexRuntime } from "../helpers/fake-codex-runtime.js";
 
 let tempDir: string;
 let staticRoot: string;
 let registryRoot: string;
 let handle: WorkbenchServerHandle | null = null;
 let originalCodexHome: string | undefined;
+let originalCodexBin: string | undefined;
 let originalAhoHome: string | undefined;
 let serverConversationId: string;
 const execFileAsync = promisify(execFile);
@@ -42,41 +43,16 @@ function project(): ManagedProject {
   };
 }
 
-async function fakeInitialMainAgentTurn(
-  inputProject: ManagedProject,
-  changeId: string,
-  userMessage: string,
-  live?: WorkbenchLiveSink,
-) {
-  live?.emit({ event: "run.status", data: { runId: "run-main-agent-initial-test", status: "running", label: "Codex" } });
-  const entry = await appendConversationThreadEntry(inputProject, changeId, {
-    type: "assistant.message",
-    status: "main-agent-initial-turn",
-    text: `主 Agent 已读取需求，下一步会先判断规划边界：${userMessage}`,
-    runId: "run-main-agent-initial-test",
-    artifact: ".agent-harness/runs/run-main-agent-initial-test/last-message.md",
-    blocks: [{
-      id: "main-agent-initial-test:prose",
-      runId: "run-main-agent-initial-test",
-      sequence: 1,
-      kind: "prose",
-      timestamp: "2026-05-15T00:00:00.000Z",
-      source: "provider",
-      text: `主 Agent 已读取需求，下一步会先判断规划边界：${userMessage}`,
-    }],
-  });
-  live?.emit({ event: "topic.message", data: entry });
-  return entry;
-}
-
 describe("workbench server", () => {
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), "aho-server-"));
     staticRoot = await mkdtemp(join(tmpdir(), "aho-web-"));
     registryRoot = await mkdtemp(join(tmpdir(), "aho-registry-"));
     originalCodexHome = process.env.CODEX_HOME;
+    originalCodexBin = process.env.AHO_CODEX_BIN;
     originalAhoHome = process.env.AHO_HOME;
     process.env.CODEX_HOME = join(tempDir, "codex-home");
+    process.env.AHO_CODEX_BIN = await createFakeCodexRuntime(tempDir);
     await writeFile(join(staticRoot, "index.html"), "<div>AHO</div>", "utf8");
     await initHarness(project());
     const conversation = await createConversationChangeFixture(project(), { title: "Server Topic" });
@@ -85,7 +61,6 @@ describe("workbench server", () => {
     handle = await startWorkbenchServer({ project: project(), path: tempDir }, {
       port: 0,
       staticRoot,
-      initialMainAgentTurn: fakeInitialMainAgentTurn,
     });
   });
 
@@ -93,6 +68,8 @@ describe("workbench server", () => {
     if (handle) await new Promise<void>((resolve) => handle?.server.close(() => resolve()));
     if (originalCodexHome === undefined) delete process.env.CODEX_HOME;
     else process.env.CODEX_HOME = originalCodexHome;
+    if (originalCodexBin === undefined) delete process.env.AHO_CODEX_BIN;
+    else process.env.AHO_CODEX_BIN = originalCodexBin;
     if (originalAhoHome === undefined) delete process.env.AHO_HOME;
     else process.env.AHO_HOME = originalAhoHome;
     const cleanupOptions = { recursive: true, force: true, maxRetries: 5, retryDelay: 100 } as const;
@@ -236,15 +213,12 @@ describe("workbench server", () => {
     const body = await live.text();
     expect(body).toContain("event: topic.created");
     expect(body).toContain("event: timeline.patch");
-    expect(body).toContain("event: run.status");
     expect(body).toContain("event: snapshot");
     expect(body).toContain("event: done");
     const createdIndex = body.indexOf("event: topic.created");
     const userMessageIndex = body.indexOf("event: timeline.patch");
-    const runStatusIndex = body.indexOf("event: run.status");
     expect(createdIndex).toBeGreaterThanOrEqual(0);
     expect(userMessageIndex).toBeGreaterThan(createdIndex);
-    expect(runStatusIndex).toBeGreaterThan(userMessageIndex);
   });
 
   it("passes the Main Agent only the user's natural-language turn", () => {
@@ -619,7 +593,6 @@ describe("workbench server", () => {
       port: 0,
       staticRoot,
       store,
-      initialMainAgentTurn: fakeInitialMainAgentTurn,
     });
     try {
       const status = await getJson<{ mode: string }>(`${appHandle.url}/api/app/status`);

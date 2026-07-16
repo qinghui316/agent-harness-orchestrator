@@ -129,16 +129,40 @@ function mapActiveCodexTurn(active: ActiveCodexAppServerTurn): ActiveProviderTur
 
 function mapRealtime(request: ProviderTurnRequest, event: CodexAppServerRealtimeEvent): ProviderRealtimeEvent | null {
   if (isCodexProtocolNoise(event)) return null;
+  if (!event.threadId || !event.turnId) return null;
+  const itemId = canonicalItemId(event);
+  if (requiresCanonicalItem(event.streamEvent) && !itemId) return null;
   const targetThreadId = event.targetThreadId ?? null;
   return {
     ...event,
     providerId: CODEX_PROVIDER_ID,
     attemptId: request.attemptId,
     sessionId: event.threadId,
+    turnId: event.turnId,
+    ...(itemId ? { itemId } : {}),
     graphScopeId: request.graphScopeId,
     targetAgentSurfaceId: targetThreadId ? agentThreadSurfaceId(CODEX_PROVIDER_ID, targetThreadId) : undefined,
-    streamEvent: event.streamEvent,
+    streamEvent: canonicalStreamEvent(event.streamEvent, itemId),
   };
+}
+
+function canonicalStreamEvent(
+  event: CodexAppServerRealtimeEvent["streamEvent"],
+  itemId: string | undefined,
+): ProviderRealtimeEvent["streamEvent"] {
+  if (event.type === "tool_event") return { ...event, id: itemId! };
+  if (event.type === "readable_event") return { ...event, event: { ...event.event, itemId: itemId! } };
+  return event;
+}
+
+function requiresCanonicalItem(event: CodexAppServerRealtimeEvent["streamEvent"]): boolean {
+  return event.type === "text_delta" || event.type === "tool_event" || event.type === "readable_event";
+}
+
+function canonicalItemId(event: CodexAppServerRealtimeEvent): string | undefined {
+  if (event.streamEvent.type === "tool_event") return event.streamEvent.id ?? event.itemId;
+  if (event.streamEvent.type === "readable_event") return event.streamEvent.event.itemId ?? event.itemId;
+  return event.itemId;
 }
 
 function isCodexProtocolNoise(event: CodexAppServerRealtimeEvent): boolean {

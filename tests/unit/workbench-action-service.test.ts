@@ -251,7 +251,15 @@ describe("workbench workflow action service", () => {
       async execute(_project, _changeId, _request, live) {
         live?.emit({
           event: "assistant.delta",
-          data: { runId: "run-1", threadId: "thread-main", turnId: "turn-1", itemId: "item-1", delta: "正在实现" },
+          data: {
+            providerId: "codex",
+            attemptId: "attempt-1",
+            runId: "run-1",
+            threadId: "thread-main",
+            turnId: "turn-1",
+            itemId: "item-1",
+            delta: "正在实现",
+          },
         });
         return { ok: true };
       },

@@ -18,7 +18,7 @@ import type { AuditResult, AuditStatus, AuditSummary, ManagedProject, ResolvedMe
 import { appendRunEvent } from "../run/events.js";
 import { buildRunId } from "../run/run-id.js";
 import { WorkbenchStore } from "../workbench/store.js";
-import { finishProviderAttempt, startProviderAttempt } from "../workbench/provider-attempts.js";
+import { bindProviderAttemptThread, finishProviderAttempt, startProviderAttempt } from "../workbench/provider-attempts.js";
 import { collectWorktreeDiff } from "./diff.js";
 import { listAuditResults, readAuditResult, summarizeAudit } from "./repository.js";
 import { parseAuditMessage } from "./parser.js";
@@ -284,6 +284,7 @@ export async function startAuditRun(project: ManagedProject, options: AuditRunOp
   });
 
   const continuityWrites: Promise<void>[] = [];
+  const boundThreadIds = new Set<string>();
   let providerResult: ProviderTurnResult;
   try {
     providerResult = await provider.leafExecution.runTurn({
@@ -308,6 +309,15 @@ export async function startAuditRun(project: ManagedProject, options: AuditRunOp
       writableRoots: [],
       model: capabilitySnapshot.effectiveModel ? { providerId, modelId: capabilitySnapshot.effectiveModel } : null,
       onRealtimeEvent: (event) => {
+        if (!boundThreadIds.has(event.threadId)) {
+          boundThreadIds.add(event.threadId);
+          continuityWrites.push(bindProviderAttemptThread(memory, {
+            attemptId: runId,
+            threadId: event.threadId,
+            parentThreadId: event.parentThreadId,
+            displayName: event.displayName,
+          }).then(() => undefined));
+        }
         continuityWrites.push(appendAuditContinuityEvent(
           paths,
           continuity,

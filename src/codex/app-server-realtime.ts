@@ -26,6 +26,7 @@ export function normalizeCodexAppServerNotification(
   params: Record<string, unknown>,
   identity: CodexAppServerRealtimeIdentity,
 ): CodexAppServerRealtimeEvent[] {
+  if (!identity.threadId || !identity.turnId) return [];
   const item = record(params.item) ?? params;
   const itemId = stringValue(item.id ?? params.itemId ?? params.item_id) ?? identity.itemId;
   const receiverThreadId = firstString(item.receiverThreadIds ?? item.receiver_thread_ids ?? item.agentThreadId ?? item.agent_thread_id);
@@ -56,10 +57,12 @@ export function normalizeCodexAppServerNotification(
 
   const assistantDelta = assistantTextDelta(normalizedMethod, params);
   if (assistantDelta) {
+    if (!itemId) return [];
     return [event(scoped, method, { type: "text_delta", delta: assistantDelta, raw: params })];
   }
   const reasoningSummaryDelta = visibleReasoningSummaryDelta(normalizedMethod, params);
   if (reasoningSummaryDelta) {
+    if (!itemId) return [];
     return [event(scoped, method, {
       type: "readable_event",
       event: {
@@ -74,6 +77,7 @@ export function normalizeCodexAppServerNotification(
   }
 
   if (isItemLifecycle(normalizedMethod)) {
+    if (!itemId) return [];
     const phase = normalizedMethod.endsWith("started") ? "started" : normalizedMethod.endsWith("updated") ? "updated" : "completed";
     const itemType = normalizeItemType(item.type ?? item.kind);
     const childLifecycleKind = stringValue(item.kind)?.toLowerCase();

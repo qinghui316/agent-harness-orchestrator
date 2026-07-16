@@ -8,7 +8,7 @@ import { defaultProviderRegistry, type ProviderRealtimeEvent, type ProviderTurnR
 import { getRuntimeAssignedHarnessSkillContext } from "../skill/catalog.js";
 import type { ManagedProject, ResolvedMemory } from "../types/index.js";
 import { WorkbenchStore } from "../workbench/store.js";
-import { finishProviderAttempt, startProviderAttempt } from "../workbench/provider-attempts.js";
+import { bindProviderAttemptThread, finishProviderAttempt, startProviderAttempt } from "../workbench/provider-attempts.js";
 import { createAssistantTranscriptCapture, type AssistantTranscriptCapture, type ChildTranscriptCapture } from "../workbench/live-transcript.js";
 import { forwardProviderRealtimeEvent } from "../workbench/provider-live-events.js";
 import type { TopicThreadEntry } from "../workbench/types.js";
@@ -203,6 +203,7 @@ async function executeMaintenanceRequest(
     return true;
   });
   const liveScorerAttempts = new Map<string, Promise<unknown>>();
+  let liveMainBinding: Promise<unknown> | null = null;
   const finishLiveScorerAttempts = async (
     completedThreadId: string | null,
     otherStatus: "interrupted" | "failed",
@@ -225,6 +226,13 @@ async function executeMaintenanceRequest(
     if (firstError && !suppressErrors) throw firstError;
   };
   const onRealtimeEvent = (event: ProviderRealtimeEvent): void => {
+    if (!event.parentThreadId && event.roleId === attemptRoleId && !liveMainBinding) {
+      liveMainBinding = bindProviderAttemptThread(memory, {
+        attemptId: runId,
+        threadId: event.threadId,
+        displayName: event.displayName ?? profileId ?? request.role,
+      });
+    }
     if (isScorer && event.parentThreadId && event.threadId && !liveScorerAttempts.has(event.threadId)) {
       const scorerAttemptId = `${runId}:child:${event.threadId}`;
       liveScorerAttempts.set(event.threadId, startProviderAttempt(memory, {
@@ -238,7 +246,12 @@ async function executeMaintenanceRequest(
           changeId: request.taskLineage?.changeId ?? null,
           agentTaskId: request.taskLineage?.taskId ?? null,
           model: attemptModel,
-        }));
+        }).then(() => bindProviderAttemptThread(memory, {
+          attemptId: scorerAttemptId,
+          threadId: event.threadId,
+          parentThreadId: event.parentThreadId,
+          displayName: event.displayName,
+        })));
     }
     forwardProviderRealtimeEvent(event, capture.sink, {
       conversationId: request.taskLineage?.conversationId,
@@ -310,7 +323,14 @@ async function executeMaintenanceRequest(
     request.signal?.removeEventListener("abort", onAbort);
     if (abortPoll) clearInterval(abortPoll);
   }
-  await finishProviderAttempt(memory, runId, result.status === "completed" ? "completed" : result.status === "interrupted" ? "interrupted" : "failed", result.session?.sessionId ?? null);
+  if (liveMainBinding) await liveMainBinding;
+  await finishProviderAttempt(
+    memory,
+    runId,
+    result.status === "completed" ? "completed" : result.status === "interrupted" ? "interrupted" : "failed",
+    result.session?.sessionId ?? null,
+    { displayName: profileId ?? request.role },
+  );
   try {
     persistBackgroundCapture(
       timeline,
@@ -332,7 +352,6 @@ async function executeMaintenanceRequest(
     throw new Error(result.error ?? `Provider maintenance ${request.role} did not complete.`);
   }
   if (!isScorer) {
-    await persistMaintenanceThread(memory, request, runId, providerId, result.session.sessionId, null, profileId ?? request.role);
     return { threadId: result.session.sessionId, parentThreadId: null, finalText: result.lastMessage, changedFiles: result.changedFiles };
   }
   const children = result.childThreads.filter((child) => child.parentThreadId === result.session!.sessionId);
@@ -358,8 +377,10 @@ async function executeMaintenanceRequest(
       model: attemptModel,
     });
   }
-  if (!liveScorerAttempt) await finishProviderAttempt(memory, scorerAttemptId, "completed", children[0].threadId);
-  await persistMaintenanceThread(memory, request, runId, providerId, children[0].threadId, children[0].parentThreadId, "evolution-scorer", children[0].displayName);
+  if (!liveScorerAttempt) await finishProviderAttempt(memory, scorerAttemptId, "completed", children[0].threadId, {
+    parentThreadId: children[0].parentThreadId,
+    displayName: children[0].displayName,
+  });
   return { threadId: children[0].threadId, parentThreadId: children[0].parentThreadId, finalText: children[0].finalText, changedFiles: children[0].changedFiles };
 }
 
@@ -488,38 +509,6 @@ function upsertBackgroundEntry(timeline: BackgroundTimeline, entry: TopicThreadE
   else {
     timeline.store.appendMessage(message);
     timeline.knownIds.add(entry.id);
-  }
-}
-
-async function persistMaintenanceThread(
-  memory: ResolvedMemory,
-  request: MaintenanceProviderExecutionRequest,
-  runId: string,
-  providerId: string,
-  providerThreadId: string,
-  parentThreadId: string | null,
-  roleId: string,
-  displayName?: string,
-): Promise<void> {
-  if (!request.taskLineage || !memory.projectId) return;
-  const store = await WorkbenchStore.open(memory);
-  try {
-    store.writeProviderThread({
-      projectId: memory.projectId,
-      conversationId: request.taskLineage.conversationId,
-      providerId,
-      providerThreadId,
-      roleId,
-      parentThreadId,
-      changeId: request.taskLineage.changeId,
-      graphScopeId: null,
-      capabilityProfile: "background-agent-v1",
-      displayName,
-      runId,
-      updatedAt: new Date().toISOString(),
-    });
-  } finally {
-    store.close();
   }
 }
 

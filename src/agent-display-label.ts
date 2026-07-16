@@ -6,6 +6,7 @@ const ROLE_LABELS: Record<string, string> = {
   "auditor-agent": "Auditor Agent",
   "spec-test-proposer": "Spec-test Proposer",
   "spec-test-generator": "Spec-test Generator",
+  "integration-fix-agent": "Integration Fix Agent",
   "memory-maintenance-agent": "Maintenance Agent",
   "harness-evolution-agent": "Evolution Agent",
   "evolution-scorer": "Scorer Agent",

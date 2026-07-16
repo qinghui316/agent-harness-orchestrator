@@ -1737,7 +1737,7 @@ export function App(): ReactElement {
                 }}>最新</button> : null}
               </div>
               )}
-              {activeConversationInteraction ? (
+              {activeConversationInteraction && !orchestrationOpen ? (
                 <ConversationInteractionDock
                   interaction={activeConversationInteraction}
                   busy={Boolean(actionRunning?.startsWith("interaction."))}

@@ -165,7 +165,7 @@ export function TranscriptActivityRow({ cell, expanded, onToggleExpanded, onOpen
       >
         <ActivityGlyph cell={cell} />
         <span className="tool-result-heading transcript-activity-heading">
-          <strong>{title}{cell.realtime && elapsed !== null ? ` · ${elapsed} 秒` : ""}</strong>
+          <span className="transcript-activity-title">{title}{cell.realtime && elapsed !== null ? ` · ${elapsed} 秒` : ""}</span>
           {status ? <span>{status}</span> : null}
         </span>
         {cell.targetAgentSurfaceId ? <span className="transcript-activity-disclosure" aria-hidden="true">打开</span> : hasDetails ? <span className="transcript-activity-disclosure" aria-hidden="true">{expanded ? "收起" : "详情"}</span> : null}

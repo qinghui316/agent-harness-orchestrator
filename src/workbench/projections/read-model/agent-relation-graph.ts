@@ -18,6 +18,7 @@ const USER_AGENT_ROLES = new Set([
   "auditor-agent",
   "spec-test-proposer",
   "spec-test-generator",
+  "integration-fix-agent",
   "memory-maintenance-agent",
   "harness-evolution-agent",
   "evolution-scorer",

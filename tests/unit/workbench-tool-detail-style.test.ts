@@ -13,4 +13,12 @@ describe("Workbench tool detail viewport contract", () => {
     expect(details).toContain("overscroll-behavior: contain");
     expect(pre).not.toContain("overflow: auto");
   });
+
+  it("keeps command process titles at one normal weight across statuses", async () => {
+    const css = await readFile("src/web/src/styles.css", "utf8");
+    const title = css.match(/\.transcript-activity-row\.activity-command \.transcript-activity-title\s*\{([^}]*)\}/)?.[1] ?? "";
+
+    expect(title).toContain("font-weight: 400");
+    expect(css).not.toMatch(/activity-command[^{}]*strong\s*\{/);
+  });
 });

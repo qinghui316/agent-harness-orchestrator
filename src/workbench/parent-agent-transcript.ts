@@ -39,9 +39,12 @@ export interface ParentAgentTranscriptCell {
   agentRoleId?: string;
   agentTaskId?: string;
   runId?: string;
+  providerId?: string;
+  attemptId?: string;
   threadId?: string;
   parentThreadId?: string;
   turnId?: string;
+  itemId?: string;
   agentSurfaceId?: string;
   targetAgentSurfaceId?: string;
   targetAgentDisplayName?: string;
@@ -119,9 +122,9 @@ export function buildParentAgentTranscript(input: {
   workpad: TranscriptWorkpadInput;
   threadItems: TranscriptThreadItemInput[];
 }): ParentAgentTranscript {
-  const cells = dedupeTranscriptCellEvidenceRefs(consolidateTranscriptCells(input.threadItems
+  const cells = normalizeCellEvidenceRefs(input.threadItems
     .filter(shouldShowInParentTranscript)
-    .flatMap((item) => canonicalTranscriptCellsFromThreadItem(item, { parentVisible: true }))));
+    .flatMap((item) => canonicalTranscriptCellsFromThreadItem(item, { parentVisible: true })));
   return {
     conversationId: input.workpad.conversationId,
     changeId: input.workpad.boundChangeId,
@@ -136,10 +139,10 @@ export function buildAgentScopedTranscriptCells(
   threadItems: TranscriptThreadItemInput[],
   scope: { agentRoleId: string; threadId?: string; runId?: string },
 ): ParentAgentTranscriptCell[] {
-  return dedupeTranscriptCellEvidenceRefs(consolidateTranscriptCells(threadItems
+  return normalizeCellEvidenceRefs(threadItems
     .filter((item) => (scope.threadId ? item.threadId === scope.threadId : item.agentRoleId === scope.agentRoleId)
       && (!scope.runId || item.runId === scope.runId))
-    .flatMap((item) => canonicalTranscriptCellsFromThreadItem(item, { forceAgentRoleId: scope.agentRoleId }))));
+    .flatMap((item) => canonicalTranscriptCellsFromThreadItem(item, { forceAgentRoleId: scope.agentRoleId })));
 }
 
 export function pageParentAgentTranscript(
@@ -223,6 +226,8 @@ export function canonicalTranscriptCellsFromThreadItem(
 
   const cells: ParentAgentTranscriptCell[] = [];
   for (const block of groupConsecutiveCommandBlocks(item.blocks ?? [])) {
+    const providerIdentity = canonicalProviderBlockIdentity(block);
+    if (block.source === "provider" && !providerIdentity) continue;
     const cell = transcriptCellFromAssistantBlock(block, item);
     if (cell) {
       cells.push({
@@ -230,10 +235,13 @@ export function canonicalTranscriptCellsFromThreadItem(
         agentRoleId,
         agentTaskId: item.agentTaskId,
         runId: cell.runId ?? item.runId,
+        providerId: providerIdentity?.providerId,
+        attemptId: providerIdentity?.attemptId,
         status: cell.status ?? item.status,
         threadId: cell.threadId ?? block.threadId ?? item.threadId,
         parentThreadId: cell.parentThreadId ?? item.parentThreadId,
         turnId: cell.turnId ?? block.turnId,
+        itemId: providerIdentity?.itemId,
         targetAgentSurfaceId: block.targetAgentSurfaceId,
         targetAgentDisplayName: block.targetAgentDisplayName,
         evidenceRefs: item.artifact
@@ -260,6 +268,7 @@ export function providerInteractionHistory(request: WorkbenchProviderUserInputRe
 }
 
 function activityCellsFromThreadItem(item: TranscriptThreadItemInput, agentRoleId?: string): ParentAgentTranscriptCell[] {
+  if (!hasCanonicalTurnIdentity(item)) return [];
   if (item.source === "workflow") return [];
   const activities = item.activity ?? [];
   if (activities.length === 0) return [];
@@ -271,17 +280,15 @@ function activityCellsFromThreadItem(item: TranscriptThreadItemInput, agentRoleI
     const latest = [...activities].reverse().find((activity): activity is Extract<AssistantTurnActivity, { kind: "status" }> => activity.kind === "status");
     const title = liveActivityTitle(latest?.label);
     return [{
-      id: item.attemptId && item.turnId
-        ? `cell:turn:${item.providerId ?? "provider"}:${item.attemptId}:${item.threadId ?? "main"}:${item.turnId}`
-        : item.attemptId
-        ? `cell:turn:${item.providerId ?? "provider"}:${item.attemptId}:provisional`
-        : `cell:turn:${item.providerId ?? "provider"}:${item.runId ?? item.id}:${item.threadId ?? "main"}:${item.turnId ?? "turn"}`,
+      id: `cell:turn:${canonicalTurnIdentity(item)}`,
       kind: "process-row",
       source: "provider-runtime",
       timestamp: item.timestamp,
       agentRoleId,
       agentTaskId: item.agentTaskId,
       runId: item.runId,
+      providerId: item.providerId,
+      attemptId: item.attemptId,
       threadId: item.threadId,
       parentThreadId: item.parentThreadId,
       turnId: item.turnId,
@@ -296,17 +303,15 @@ function activityCellsFromThreadItem(item: TranscriptThreadItemInput, agentRoleI
   const failed = terminal.label !== "completed";
   const title = failed ? `本轮需要处理 · ${elapsedSeconds} 秒` : `已完成 · ${elapsedSeconds} 秒`;
   return [{
-    id: item.attemptId && item.turnId
-      ? `cell:turn:${item.providerId ?? "provider"}:${item.attemptId}:${item.threadId ?? "main"}:${item.turnId}`
-      : item.attemptId
-      ? `cell:turn:${item.providerId ?? "provider"}:${item.attemptId}:provisional`
-      : `cell:turn:${item.providerId ?? "provider"}:${item.runId ?? item.id}:${item.threadId ?? "main"}:${item.turnId ?? "turn"}`,
+    id: `cell:turn:${canonicalTurnIdentity(item)}`,
     kind: "process-row",
     source: "provider-runtime",
     timestamp: item.timestamp,
     agentRoleId,
     agentTaskId: item.agentTaskId,
     runId: item.runId,
+    providerId: item.providerId,
+    attemptId: item.attemptId,
     threadId: item.threadId,
     parentThreadId: item.parentThreadId,
     turnId: item.turnId,
@@ -501,9 +506,8 @@ function assertNever(value: never): never {
 }
 
 function transcriptCellIdForBlock(block: AssistantTurnBlock, kind: string): string {
-  const identity = block.itemId
-    ? `${block.providerId ?? "provider"}:${block.attemptId ?? "attempt"}:${block.runId ?? "run"}:${block.threadId ?? "main"}:${block.turnId ?? "turn"}:${block.itemId}`
-    : block.id;
+  const canonical = canonicalProviderBlockIdentity(block);
+  const identity = canonical ? `${canonicalTurnIdentity(canonical)}:${canonical.itemId}` : block.id;
   return `cell:${kind}:${identity}`;
 }
 
@@ -512,52 +516,17 @@ function reasoningHeadline(text: string): string {
   return normalized.length > 72 ? `${normalized.slice(0, 72)}...` : normalized;
 }
 
-function consolidateTranscriptCells(cells: ParentAgentTranscriptCell[]): ParentAgentTranscriptCell[] {
-  const result: ParentAgentTranscriptCell[] = [];
-  for (const cell of cells) {
-    if (!cell.text.trim() && !cell.detailText?.trim()) continue;
-    const prev = result.at(-1);
-    if (
-      prev
-      && prev.kind === "assistant-message"
-      && cell.kind === "assistant-message"
-      && prev.source === cell.source
-      && prev.agentRoleId === cell.agentRoleId
-      && prev.agentTaskId === cell.agentTaskId
-      && prev.runId === cell.runId
-      && !prev.title
-      && !cell.title
-    ) {
-      result[result.length - 1] = {
-        ...prev,
-        id: `${prev.id}+${cell.id}`,
-        text: cleanPrimaryText(`${prev.text}\n\n${cell.text}`),
-        timestamp: prev.timestamp ?? cell.timestamp,
-      };
-      continue;
-    }
-    result.push(cell);
-  }
-  return result;
-}
-
-function dedupeTranscriptCellEvidenceRefs(cells: ParentAgentTranscriptCell[]): ParentAgentTranscriptCell[] {
-  const seenCells = new Set<string>();
-  const seenRefs = new Set<string>();
-  const result: ParentAgentTranscriptCell[] = [];
-  for (const cell of cells) {
+function normalizeCellEvidenceRefs(cells: ParentAgentTranscriptCell[]): ParentAgentTranscriptCell[] {
+  return cells.map((cell) => {
+    const seenRefs = new Set<string>();
     const refs = cell.evidenceRefs?.filter((ref) => {
       const key = `${ref.kind}:${ref.ref}`;
       if (seenRefs.has(key)) return false;
       seenRefs.add(key);
       return true;
     });
-    const key = `${cell.agentRoleId ?? ""}:${cell.agentTaskId ?? ""}:${cell.kind}:${cell.source}:${cell.title ?? ""}:${cell.text}:${cell.status ?? ""}:${refs?.map((ref) => ref.ref).join("|") ?? ""}`;
-    if (seenCells.has(key)) continue;
-    seenCells.add(key);
-    result.push({ ...cell, ...(refs?.length ? { evidenceRefs: refs } : { evidenceRefs: undefined }) });
-  }
-  return result;
+    return { ...cell, ...(refs?.length ? { evidenceRefs: refs } : { evidenceRefs: undefined }) };
+  });
 }
 
 function isAgentLifecycleStatus(value: string): boolean {
@@ -605,6 +574,24 @@ function cleanToolTitle(value: string | undefined): string | undefined {
   if (text === "Planning draft revised") return "计划已修改";
   if (text === "Planning confirmed") return "计划已确认";
   return text;
+}
+
+type CanonicalTurnIdentity = Required<Pick<TranscriptThreadItemInput, "providerId" | "attemptId" | "threadId" | "turnId">>;
+type CanonicalBlockIdentity = Required<Pick<AssistantTurnBlock, "providerId" | "attemptId" | "threadId" | "turnId" | "itemId">>;
+
+function hasCanonicalTurnIdentity(item: TranscriptThreadItemInput): item is TranscriptThreadItemInput & CanonicalTurnIdentity {
+  return Boolean(item.providerId && item.attemptId && item.threadId && item.turnId);
+}
+
+function canonicalProviderBlockIdentity(block: AssistantTurnBlock): CanonicalBlockIdentity | null {
+  const candidate = block.kind === "command-group" ? block.children?.[0] : block;
+  return candidate?.providerId && candidate.attemptId && candidate.threadId && candidate.turnId && candidate.itemId
+    ? candidate as CanonicalBlockIdentity
+    : null;
+}
+
+function canonicalTurnIdentity(identity: CanonicalTurnIdentity): string {
+  return `${identity.providerId}:${identity.attemptId}:${identity.threadId}:${identity.turnId}`;
 }
 
 function cleanPrimaryText(value: string | undefined): string {

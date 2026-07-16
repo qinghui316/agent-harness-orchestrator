@@ -11,23 +11,24 @@ export function createAssistantTranscriptCapture(
   const mainCaptures = new Map<string, MainTranscriptCapture>();
   const childCaptures = new Map<string, ChildTranscriptCapture>();
   let sequence = 0;
-  let mainTurnSequence = 0;
 
   function nextSequence(): number {
     sequence += 1;
     return sequence;
   }
 
-  function appendProseTo(target: AssistantTurnBlock[], delta: string, identity: { runId?: string; threadId?: string; turnId?: string; itemId?: string } = {}): void {
-    if (!delta) return;
+  function appendProseTo(target: AssistantTurnBlock[], delta: string, identity: WorkbenchLiveIdentity): void {
+    if (!delta || !hasCanonicalItemIdentity(identity)) return;
     const last = target.at(-1);
-    if (last?.kind === "prose" && last.source === "provider" && (!identity.itemId || !last.itemId || last.itemId === identity.itemId)) {
+    if (last?.kind === "prose" && last.source === "provider" && canonicalBlockIdentity(last) === canonicalItemKey("prose", identity)) {
       last.text = `${last.text ?? ""}${delta}`;
       return;
     }
     const currentSequence = nextSequence();
     upsertTranscriptBlock(target, {
-      id: `prose:${identity.runId ?? "assistant"}:${identity.threadId ?? "main"}:${identity.itemId ?? currentSequence}`,
+      id: canonicalItemKey("prose", identity),
+      providerId: identity.providerId,
+      attemptId: identity.attemptId,
       runId: identity.runId,
       threadId: identity.threadId,
       turnId: identity.turnId,
@@ -40,45 +41,22 @@ export function createAssistantTranscriptCapture(
     });
   }
 
-  function appendProse(delta: string, identity: { runId?: string; threadId?: string; turnId?: string; itemId?: string } = {}): void {
+  function appendProse(delta: string, identity: WorkbenchLiveIdentity): void {
     appendProseTo(blocks, delta, identity);
   }
 
-  function mainCaptureFor(identity: WorkbenchLiveIdentity): MainTranscriptCapture {
-    const exactKey = mainCaptureIdentity(identity.threadId, identity.turnId);
-    let existing = mainCaptures.get(exactKey);
-    if (!existing && identity.turnId) {
-      const provisionalKey = mainCaptureIdentity(identity.threadId);
-      const directProvisional = mainCaptures.get(provisionalKey);
-      const provisionalCandidates = directProvisional
-        ? [directProvisional]
-        : [...mainCaptures.values()].filter((candidate) => !candidate.turnId
-          && !mainCaptureIsTerminal(candidate)
-          && (!candidate.threadId || !identity.threadId || candidate.threadId === identity.threadId));
-      const provisional = provisionalCandidates.length === 1 ? provisionalCandidates[0] : undefined;
-      if (provisional) {
-        for (const [key, candidate] of mainCaptures) {
-          if (candidate === provisional) mainCaptures.delete(key);
-        }
-        provisional.threadId = identity.threadId ?? provisional.threadId;
-        provisional.turnId = identity.turnId;
-        mainCaptures.set(exactKey, provisional);
-        existing = provisional;
-      }
-    }
-    if (!existing && !identity.turnId) {
-      const active = [...mainCaptures.values()].filter((candidate) => !mainCaptureIsTerminal(candidate));
-      if (active.length === 1) existing = active[0];
-    }
+  function mainCaptureFor(identity: WorkbenchLiveIdentity): MainTranscriptCapture | null {
+    if (!hasCanonicalTurnIdentity(identity)) return null;
+    const exactKey = canonicalTurnKey(identity);
+    const existing = mainCaptures.get(exactKey);
     if (existing) {
       existing.runId = identity.runId ?? existing.runId;
-      existing.threadId = identity.threadId ?? existing.threadId;
-      existing.turnId = identity.turnId ?? existing.turnId;
       return existing;
     }
-    mainTurnSequence += 1;
     const created: MainTranscriptCapture = {
-      canonicalId: `main:${identity.runId ?? "assistant"}:turn:${mainTurnSequence}`,
+      canonicalId: `main:${canonicalTurnKey(identity)}`,
+      providerId: identity.providerId,
+      attemptId: identity.attemptId,
       runId: identity.runId,
       threadId: identity.threadId,
       turnId: identity.turnId,
@@ -91,38 +69,24 @@ export function createAssistantTranscriptCapture(
   }
 
   function childCaptureFor(identity: WorkbenchLiveIdentity): ChildTranscriptCapture | null {
-    if (!identity.threadId || !identity.agentRoleId || identity.agentRoleId === "main-agent") return null;
+    if (!hasCanonicalTurnIdentity(identity) || !identity.agentRoleId || identity.agentRoleId === "main-agent") return null;
     if (identity.agentDisplayName && identity.providerId) {
       const targetSurfaceId = agentThreadSurfaceId(identity.providerId, identity.threadId);
       const targetDisplayName = composeAgentDisplayLabel(identity.agentRoleId, identity.agentDisplayName);
       updateTargetAgentBlocks(targetSurfaceId, targetDisplayName);
     }
-    const exactKey = childCaptureIdentity(identity.threadId, identity.turnId);
-    let existing = childCaptures.get(exactKey);
-    if (!existing && identity.turnId) {
-      const provisionalKey = childCaptureIdentity(identity.threadId);
-      const provisional = childCaptures.get(provisionalKey);
-      if (provisional) {
-        childCaptures.delete(provisionalKey);
-        provisional.turnId = identity.turnId;
-        childCaptures.set(exactKey, provisional);
-        existing = provisional;
-      }
-    }
-    if (!existing && !identity.turnId) {
-      const matching = [...childCaptures.values()].filter((capture) => capture.threadId === identity.threadId);
-      const active = matching.filter((capture) => !childCaptureIsTerminal(capture));
-      if (active.length === 1) existing = active[0];
-    }
+    const exactKey = canonicalTurnKey(identity);
+    const existing = childCaptures.get(exactKey);
     if (existing) {
       existing.runId = identity.runId ?? existing.runId;
       existing.parentThreadId = identity.parentThreadId ?? existing.parentThreadId;
-      existing.turnId = identity.turnId ?? existing.turnId;
       existing.displayName = identity.agentDisplayName ?? existing.displayName;
       return existing;
     }
     const created: ChildTranscriptCapture = {
-      canonicalId: `child:${identity.runId ?? "assistant"}:${identity.threadId}:${identity.turnId ?? "turn"}`,
+      canonicalId: `child:${canonicalTurnKey(identity)}`,
+      providerId: identity.providerId,
+      attemptId: identity.attemptId,
       runId: identity.runId,
       threadId: identity.threadId,
       parentThreadId: identity.parentThreadId,
@@ -172,7 +136,9 @@ export function createAssistantTranscriptCapture(
         const timestamp = new Date().toISOString();
         if (event.event === "run.started") {
           const child = childCaptureFor(event.data);
-          const target = child?.activity ?? mainCaptureFor(event.data).activity;
+          const main = child ? null : mainCaptureFor(event.data);
+          const target = child?.activity ?? main?.activity;
+          if (!target) return;
           target.push({
             kind: "status",
             label: "started",
@@ -182,7 +148,9 @@ export function createAssistantTranscriptCapture(
           if (!child) activity.push(target.at(-1)!);
         } else if (event.event === "run.status") {
           const child = childCaptureFor(event.data);
-          const target = child?.activity ?? mainCaptureFor(event.data).activity;
+          const main = child ? null : mainCaptureFor(event.data);
+          const target = child?.activity ?? main?.activity;
+          if (!target) return;
           target.push({
             kind: "status",
             label: event.data.status,
@@ -191,17 +159,20 @@ export function createAssistantTranscriptCapture(
           });
           if (!child) activity.push(target.at(-1)!);
         } else if (event.event === "assistant.delta") {
+          if (!hasCanonicalItemIdentity(event.data)) return;
           const child = childCaptureFor(event.data);
           if (child) {
             appendProseTo(child.blocks, event.data.delta, event.data);
           } else {
             const main = mainCaptureFor(event.data);
+            if (!main) return;
             main.text += event.data.delta;
             appendProseTo(main.blocks, event.data.delta, event.data);
             capture.text += event.data.delta;
             appendProse(event.data.delta, event.data);
           }
         } else if (event.event === "assistant.event") {
+          if (!hasCanonicalItemIdentity(event.data)) return;
           const child = childCaptureFor(event.data);
           if (child) {
             child.activity.push({ kind: "assistant-event", event: { ...event.data, timestamp: event.data.timestamp ?? timestamp }, timestamp });
@@ -209,6 +180,7 @@ export function createAssistantTranscriptCapture(
             if (block) upsertTranscriptBlock(child.blocks, block);
           } else {
             const main = mainCaptureFor(event.data);
+            if (!main) return;
             main.activity.push({
               kind: "assistant-event",
               event: { ...event.data, timestamp: event.data.timestamp ?? timestamp },
@@ -224,6 +196,7 @@ export function createAssistantTranscriptCapture(
             appendAssistantEventBlock({ ...event.data, timestamp: event.data.timestamp ?? timestamp }, timestamp);
           }
         } else if (event.event === "tool.event") {
+          if (!hasCanonicalItemIdentity(event.data)) return;
           const child = childCaptureFor(event.data);
           if (child) {
             child.activity.push({ kind: "tool", tool: event.data, timestamp });
@@ -231,6 +204,7 @@ export function createAssistantTranscriptCapture(
             if (block) upsertTranscriptBlock(child.blocks, block);
           } else {
             const main = mainCaptureFor(event.data);
+            if (!main) return;
             main.activity.push({ kind: "tool", tool: event.data, timestamp });
             const mainBlock = toolEventToBlock(event.data, timestamp, nextSequence());
             if (mainBlock) upsertTranscriptBlock(main.blocks, mainBlock);
@@ -239,25 +213,34 @@ export function createAssistantTranscriptCapture(
           }
         } else if (event.event === "usage" && isRecord(event.data.usage)) {
           const child = childCaptureFor(event.data);
+          const main = child ? null : mainCaptureFor(event.data);
+          if (!child && !main) return;
           const targetActivity = child?.activity ?? activity;
           const targetBlocks = child?.blocks ?? blocks;
           if (!child) {
-            const main = mainCaptureFor(event.data);
-            main.activity.push({ kind: "usage", usage: event.data.usage, timestamp });
+            main!.activity.push({ kind: "usage", usage: event.data.usage, timestamp });
           }
           targetActivity.push({ kind: "usage", usage: event.data.usage, timestamp });
-          const currentSequence = nextSequence();
-          upsertTranscriptBlock(targetBlocks, {
-            id: `usage:${event.data.runId ?? "assistant"}:${currentSequence}`,
-            runId: event.data.runId,
-            sequence: currentSequence,
-            kind: "usage",
-            timestamp,
-            source: "provider",
-            title: "Usage recorded",
-            text: formatUsageSummary(event.data.usage),
-          });
+          if (hasCanonicalItemIdentity(event.data)) {
+            const currentSequence = nextSequence();
+            upsertTranscriptBlock(targetBlocks, {
+              id: canonicalItemKey("usage", event.data),
+              providerId: event.data.providerId,
+              attemptId: event.data.attemptId,
+              runId: event.data.runId,
+              threadId: event.data.threadId,
+              turnId: event.data.turnId,
+              itemId: event.data.itemId,
+              sequence: currentSequence,
+              kind: "usage",
+              timestamp,
+              source: "provider",
+              title: "Usage recorded",
+              text: formatUsageSummary(event.data.usage),
+            });
+          }
         } else if (event.event === "error") {
+          if (!hasCanonicalTurnIdentity(event.data)) return;
           if (isTransientReconnectMessage(event.data.message)) {
             activity.push({ kind: "status", label: "connecting", detail: "正在重新连接", timestamp });
             emitLive(live, { event: "run.status", data: { ...event.data, status: "connecting", label: "正在重新连接" } });
@@ -269,19 +252,26 @@ export function createAssistantTranscriptCapture(
           const main = child ? null : mainCaptureFor(event.data);
           if (main) main.activity.push({ kind: "error", message: event.data.message, timestamp });
           targetActivity.push({ kind: "error", message: event.data.message, timestamp });
-          const currentSequence = nextSequence();
-          targetBlocks.push({
-            id: `error:${event.data.runId ?? event.data.actionRunId ?? "assistant"}:${currentSequence}`,
-            runId: event.data.runId,
-            sequence: currentSequence,
-            kind: "error",
-            timestamp,
-            source: "provider",
-            title: isConnectionFailureMessage(event.data.message) ? "连接失败" : "运行出错",
-            text: event.data.message,
-            isError: true,
-          });
-          if (main) upsertTranscriptBlock(main.blocks, targetBlocks.at(-1)!);
+          if (hasCanonicalItemIdentity(event.data)) {
+            const currentSequence = nextSequence();
+            targetBlocks.push({
+              id: canonicalItemKey("error", event.data),
+              providerId: event.data.providerId,
+              attemptId: event.data.attemptId,
+              runId: event.data.runId,
+              threadId: event.data.threadId,
+              turnId: event.data.turnId,
+              itemId: event.data.itemId,
+              sequence: currentSequence,
+              kind: "error",
+              timestamp,
+              source: "provider",
+              title: isConnectionFailureMessage(event.data.message) ? "连接失败" : "运行出错",
+              text: event.data.message,
+              isError: true,
+            });
+            if (main) upsertTranscriptBlock(main.blocks, targetBlocks.at(-1)!);
+          }
         }
         if (persistBeforeEmit && !persistBeforeEmit(capture)) return;
         emitLive(live, event);
@@ -303,20 +293,24 @@ export interface AssistantTranscriptCapture {
 
 export interface MainTranscriptCapture {
   canonicalId: string;
+  providerId: string;
+  attemptId: string;
   runId?: string;
-  threadId?: string;
-  turnId?: string;
+  threadId: string;
+  turnId: string;
   text: string;
   activity: AssistantTurnActivity[];
   blocks: AssistantTurnBlock[];
 }
 
 export interface ChildTranscriptCapture {
-  canonicalId?: string;
+  canonicalId: string;
+  providerId: string;
+  attemptId: string;
   runId?: string;
   threadId: string;
   parentThreadId?: string;
-  turnId?: string;
+  turnId: string;
   roleId: string;
   displayName?: string;
   activity: AssistantTurnActivity[];
@@ -332,34 +326,32 @@ export function childTranscriptCapturesForThread(
     .sort((left, right) => childCaptureTimestamp(left).localeCompare(childCaptureTimestamp(right)));
 }
 
-function childCaptureIdentity(threadId: string, turnId?: string): string {
-  return `${threadId}:${turnId ?? "pending"}`;
-}
-
 function childCaptureTimestamp(capture: ChildTranscriptCapture): string {
   return capture.blocks[0]?.timestamp ?? capture.activity[0]?.timestamp ?? "";
 }
 
-function childCaptureIsTerminal(capture: ChildTranscriptCapture): boolean {
-  return capture.activity.some((activity) => activity.kind === "status"
-    && (activity.label === "completed" || activity.label === "failed" || activity.label === "blocked"));
+function hasCanonicalTurnIdentity<T extends WorkbenchLiveIdentity>(identity: T): identity is T & Required<Pick<WorkbenchLiveIdentity, "providerId" | "attemptId" | "threadId" | "turnId">> {
+  return Boolean(identity.providerId && identity.attemptId && identity.threadId && identity.turnId);
 }
 
-function mainCaptureIdentity(threadId?: string, turnId?: string): string {
-  return `${threadId ?? "main"}:${turnId ?? "pending"}`;
+function hasCanonicalItemIdentity<T extends WorkbenchLiveIdentity>(identity: T): identity is T & Required<Pick<WorkbenchLiveIdentity, "providerId" | "attemptId" | "threadId" | "turnId" | "itemId">> {
+  return hasCanonicalTurnIdentity(identity) && Boolean(identity.itemId);
 }
 
-function mainCaptureIsTerminal(capture: MainTranscriptCapture): boolean {
-  return capture.activity.some((item) => item.kind === "status"
-    && (item.label === "completed" || item.label === "failed" || item.label === "blocked" || item.label === "cancelled"));
+function canonicalTurnKey(identity: WorkbenchLiveIdentity & Required<Pick<WorkbenchLiveIdentity, "providerId" | "attemptId" | "threadId" | "turnId">>): string {
+  return `${identity.providerId}:${identity.attemptId}:${identity.threadId}:${identity.turnId}`;
+}
+
+function canonicalItemKey(kind: AssistantTurnBlockKind, identity: WorkbenchLiveIdentity & Required<Pick<WorkbenchLiveIdentity, "providerId" | "attemptId" | "threadId" | "turnId" | "itemId">>): string {
+  return `${kind}:${canonicalTurnKey(identity)}:${identity.itemId}`;
 }
 
 function assistantEventToBlock(event: WorkbenchAssistantEvent, timestamp: string, sequence: number): AssistantTurnBlock | null {
-  if (!isMainThreadAssistantStatus(event)) return null;
+  if (!hasCanonicalItemIdentity(event) || !isMainThreadAssistantStatus(event)) return null;
   const kind = assistantEventBlockKind(event.kind);
   const text = event.summary ?? (kind === "usage" ? undefined : event.preview);
   return {
-    id: `assistant:${event.providerId ?? "provider"}:${event.runId}:${event.threadId ?? "main"}:${event.itemId ?? event.kind}:${event.kind}`,
+    id: canonicalItemKey(kind, event),
     providerId: event.providerId,
     attemptId: event.attemptId,
     runId: event.runId,
@@ -386,10 +378,11 @@ function assistantEventToBlock(event: WorkbenchAssistantEvent, timestamp: string
 }
 
 function toolEventToBlock(event: WorkbenchLiveToolEvent, timestamp: string, sequence: number): AssistantTurnBlock | null {
+  if (!hasCanonicalItemIdentity(event)) return null;
   if (event.phase === "stderr") return null;
   if (!event.command && event.phase === "status" && !event.isError) return null;
   return {
-    id: `tool:${event.providerId ?? "provider"}:${event.runId}:${event.threadId ?? "main"}:${event.itemId ?? normalizeCommandKey(event.command ?? event.name)}`,
+    id: canonicalItemKey(event.command ? "command" : "status", event),
     providerId: event.providerId,
     attemptId: event.attemptId,
     runId: event.runId,
@@ -414,16 +407,16 @@ function toolEventToBlock(event: WorkbenchLiveToolEvent, timestamp: string, sequ
 }
 
 function upsertTranscriptBlock(blocks: AssistantTurnBlock[], block: AssistantTurnBlock): void {
-  const key = assistantBlockSemanticKey(block);
-  const index = blocks.findIndex((item) => assistantBlockSemanticKey(item) === key);
+  const key = canonicalBlockIdentity(block);
+  const index = blocks.findIndex((item) => canonicalBlockIdentity(item) === key);
   if (index === -1) {
     blocks.push(block);
     return;
   }
-  blocks[index] = mergeAssistantBlocks(blocks[index], block);
+  blocks[index] = updateCanonicalBlock(blocks[index], block);
 }
 
-function mergeAssistantBlocks(existing: AssistantTurnBlock, incoming: AssistantTurnBlock): AssistantTurnBlock {
+function updateCanonicalBlock(existing: AssistantTurnBlock, incoming: AssistantTurnBlock): AssistantTurnBlock {
   const reasoningDelta = existing.kind === "reasoning-summary" && incoming.kind === "reasoning-summary" && incoming.status === "updated";
   return {
     ...existing,
@@ -446,34 +439,14 @@ function mergeAssistantBlocks(existing: AssistantTurnBlock, incoming: AssistantT
   };
 }
 
-function assistantBlockSemanticKey(block: AssistantTurnBlock): string {
-  const providerId = block.providerId ?? "provider";
-  const attemptId = block.attemptId ?? "attempt";
-  const runId = block.runId ?? "";
-  const threadId = block.threadId ?? "main";
-  const turnId = block.turnId ?? "turn";
-  if (block.kind === "usage") return `usage:${providerId}:${attemptId}:${runId}`;
-  if (block.kind === "error") return `error:${providerId}:${attemptId}:${runId}:${normalizeBlockText(block.text ?? block.preview ?? block.title)}`;
-  if (block.kind === "workflow-evidence") return `workflow-evidence:${providerId}:${attemptId}:${runId}:${block.artifactRef ?? block.title ?? block.status ?? block.id}`;
-  if (block.kind === "command") {
-    if (block.itemId) return `command:${providerId}:${attemptId}:${runId}:${threadId}:${turnId}:item:${block.itemId}`;
-    return `command:${providerId}:${attemptId}:${runId}:${threadId}:${turnId}:command:${normalizeCommandKey(block.command)}`;
-  }
-  return block.itemId ? `${block.kind}:${providerId}:${attemptId}:${runId}:${threadId}:${turnId}:item:${block.itemId}` : `${block.id}:${block.kind}`;
+function canonicalBlockIdentity(block: AssistantTurnBlock): string {
+  return hasCanonicalItemIdentity(block) ? canonicalItemKey(block.kind, block) : block.id;
 }
 
 function commandResultTitle(status: string | undefined): string {
   if (status === "failed") return "Command failed";
   if (status === "completed") return "Command completed";
   return "Command started";
-}
-
-function normalizeCommandKey(command: string | undefined): string {
-  return (command ?? "").replace(/\s+/g, " ").trim().toLowerCase();
-}
-
-function normalizeBlockText(text: string | undefined): string {
-  return (text ?? "").replace(/\s+/g, " ").trim().toLowerCase();
 }
 
 function assistantEventBlockKind(kind: WorkbenchAssistantEvent["kind"]): AssistantTurnBlockKind {

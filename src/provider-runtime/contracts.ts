@@ -32,7 +32,7 @@ export interface ProviderRealtimeIdentity {
   sessionId?: string;
   threadId: string;
   parentThreadId?: string;
-  turnId?: string;
+  turnId: string;
   itemId?: string;
   roleId: string;
   agentTaskId?: string;
@@ -55,7 +55,7 @@ export type ProviderReadableEventKind =
   | "error";
 
 export interface ProviderReadableEvent {
-  itemId?: string;
+  itemId: string;
   kind: ProviderReadableEventKind;
   phase?: string;
   status?: "processing" | "completed" | "failed";
@@ -74,7 +74,7 @@ export type ProviderStreamEvent =
   | { type: "status"; label: string; raw?: unknown }
   | { type: "turn_completed"; usage?: Record<string, unknown>; raw?: unknown }
   | { type: "text_delta"; delta: string; raw?: unknown }
-  | { type: "tool_event"; phase: "started" | "updated" | "completed"; status: "processing" | "completed" | "failed"; id?: string; name?: string; command?: string; output?: string; exitCode?: number; isError?: boolean; raw?: unknown }
+  | { type: "tool_event"; phase: "started" | "updated" | "completed"; status: "processing" | "completed" | "failed"; id: string; name?: string; command?: string; output?: string; exitCode?: number; isError?: boolean; raw?: unknown }
   | { type: "readable_event"; event: ProviderReadableEvent; raw?: unknown }
   | { type: "usage"; usage: Record<string, unknown>; raw?: unknown }
   | { type: "error"; message: string; raw?: unknown }

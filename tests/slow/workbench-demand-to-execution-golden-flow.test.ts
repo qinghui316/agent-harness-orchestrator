@@ -18,6 +18,7 @@ import {
   project,
 } from "../unit/workbench/fixtures.js";
 import type { WorkbenchDecisionAction } from "../../src/workbench/read-model-types.js";
+import { bindProviderThreadFixture } from "../helpers/provider-thread-fixture.js";
 
 const execFileAsync = promisify(execFile);
 const SLOW_FLOW_TIMEOUT_MS = 120_000;
@@ -72,8 +73,8 @@ describe("workbench accepted-graph-to-execution runtime flow", () => {
       const store = await WorkbenchStore.open(memory);
       try {
         const now = new Date().toISOString();
-        store.writeProviderThread({ projectId: project().id, conversationId: conversation.conversationId, providerId: "codex", providerThreadId: parentThreadId, roleId: "main-agent", parentThreadId: null, changeId: null, capabilityProfile: "main-agent-goal-v1", updatedAt: now });
-        store.writeProviderThread({ projectId: project().id, conversationId: conversation.conversationId, providerId: "codex", providerThreadId: childThreadId, roleId: "planning-agent", parentThreadId, changeId: null, capabilityProfile: "planner-child-v1", updatedAt: now });
+        bindProviderThreadFixture(store, { projectId: project().id, conversationId: conversation.conversationId, providerId: "codex", providerThreadId: parentThreadId, roleId: "main-agent", parentThreadId: null, changeId: null, graphScopeId: conversation.graphScopeId ?? null, capabilityProfile: "main-agent-goal-v1", updatedAt: now });
+        bindProviderThreadFixture(store, { projectId: project().id, conversationId: conversation.conversationId, providerId: "codex", providerThreadId: childThreadId, roleId: "planning-agent", parentThreadId, changeId: null, graphScopeId: conversation.graphScopeId ?? null, capabilityProfile: "planner-child-v1", updatedAt: now });
         store.appendMessage({
           id: `assistant:${conversation.conversationId}:${runId}:${childThreadId}`,
           projectId: project().id,

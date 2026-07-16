@@ -16,12 +16,19 @@ const identity = {
 describe("Codex app-server realtime normalization", () => {
   it("maps turn state, ordered text, and visible reasoning summary without exposing hidden reasoning", () => {
     expect(normalizeCodexAppServerNotification("turn/started", { turnId: "turn-1" }, identity)[0]?.streamEvent).toMatchObject({ type: "status", label: "thinking" });
-    expect(normalizeCodexAppServerNotification("item/agentMessage/delta", { delta: "你好" }, identity)[0]?.streamEvent).toMatchObject({ type: "text_delta", delta: "你好" });
-    expect(normalizeCodexAppServerNotification("item/reasoning/summaryTextDelta", { delta: "检查现有结构" }, identity)[0]?.streamEvent).toMatchObject({
+    expect(normalizeCodexAppServerNotification("item/agentMessage/delta", { itemId: "message-1", delta: "你好" }, identity)[0]?.streamEvent).toMatchObject({ type: "text_delta", delta: "你好" });
+    expect(normalizeCodexAppServerNotification("item/reasoning/summaryTextDelta", { itemId: "reasoning-1", delta: "检查现有结构" }, identity)[0]?.streamEvent).toMatchObject({
       type: "readable_event",
       event: { kind: "reasoning-summary", preview: "检查现有结构" },
     });
     expect(normalizeCodexAppServerNotification("item/reasoning/textDelta", { delta: "private" }, identity)).toEqual([]);
+  });
+
+  it("fails closed for visible item events without a provider item identity", () => {
+    expect(normalizeCodexAppServerNotification("item/agentMessage/delta", { delta: "missing identity" }, identity)).toEqual([]);
+    expect(normalizeCodexAppServerNotification("item/started", { item: { type: "commandExecution", command: "npm test" } }, identity)).toEqual([]);
+    expect(normalizeCodexAppServerNotification("item/reasoning/summaryTextDelta", { delta: "missing identity" }, identity)).toEqual([]);
+    expect(normalizeCodexAppServerNotification("turn/started", {}, { ...identity, turnId: undefined })).toEqual([]);
   });
 
   it("keeps a command item on one stable identity across start and completion", () => {
@@ -101,7 +108,7 @@ describe("Codex app-server realtime normalization", () => {
 
     const main = [...capture.mainCaptures.values()][0];
     expect(main?.blocks).toEqual([expect.objectContaining({
-      id: expect.stringContaining("spawn-child-1:tool-result"),
+      id: "tool-result:codex:attempt-1:thread-main:turn-1:spawn-child-1",
       targetAgentSurfaceId: "agent:codex:thread:thread-child",
       targetAgentDisplayName: "Plan Agent · Sagan",
       title: "Plan Agent · Sagan",
@@ -121,7 +128,7 @@ describe("Codex app-server realtime normalization", () => {
 
   it("forwards provider lineage into one Workbench event contract", () => {
     const events: WorkbenchLiveEvent[] = [];
-    const [realtime] = normalizeCodexAppServerNotification("item/agentMessage/delta", { delta: "A" }, {
+    const [realtime] = normalizeCodexAppServerNotification("item/agentMessage/delta", { itemId: "message-child", delta: "A" }, {
       ...identity,
       threadId: "thread-child",
       parentThreadId: "thread-main",
@@ -147,7 +154,7 @@ describe("Codex app-server realtime normalization", () => {
   it("keeps successful reconnect attempts transient instead of persisting error history", () => {
     const forwarded: WorkbenchLiveEvent[] = [];
     const capture = createAssistantTranscriptCapture({ emit: (event) => forwarded.push(event) });
-    capture.sink.emit({ event: "error", data: { runId: "run-1", message: "Reconnecting... 2/5" } });
+    capture.sink.emit({ event: "error", data: { runId: "run-1", providerId: "codex", attemptId: "attempt-1", threadId: "thread-main", turnId: "turn-1", message: "Reconnecting... 2/5" } });
     expect(capture.blocks).toEqual([]);
     expect(forwarded).toEqual([{
       event: "run.status",
@@ -162,9 +169,12 @@ describe("Codex app-server realtime normalization", () => {
         event: "assistant.delta",
         data: {
           runId: "run-1",
+          providerId: "codex",
+          attemptId: "attempt-1",
           threadId: "thread-child",
           parentThreadId: "thread-main",
           turnId,
+          itemId: `message-${turnId}`,
           agentRoleId: "planning-agent",
           delta: `reply-${turnId}`,
         },
@@ -173,6 +183,8 @@ describe("Codex app-server realtime normalization", () => {
         event: "run.status",
         data: {
           runId: "run-1",
+          providerId: "codex",
+          attemptId: "attempt-1",
           threadId: "thread-child",
           parentThreadId: "thread-main",
           turnId,
@@ -192,7 +204,7 @@ describe("Codex app-server realtime normalization", () => {
     ]);
   });
 
-  it("rekeys one unscoped Main provisional capture and keeps later real turns separate", () => {
+  it("fails closed for an unscoped Main event and keeps canonical turns separate", () => {
     const capture = createAssistantTranscriptCapture(undefined);
     capture.sink.emit({
       event: "run.started",
@@ -206,6 +218,7 @@ describe("Codex app-server realtime normalization", () => {
         attemptId: "attempt-1",
         threadId: "thread-main",
         turnId: "turn-1",
+        itemId: "message-1",
         agentRoleId: "main-agent",
         delta: "first",
       },
@@ -230,6 +243,7 @@ describe("Codex app-server realtime normalization", () => {
         attemptId: "attempt-1",
         threadId: "thread-main",
         turnId: "turn-2",
+        itemId: "message-2",
         agentRoleId: "main-agent",
         delta: "second",
       },
@@ -241,18 +255,21 @@ describe("Codex app-server realtime normalization", () => {
       turnId: main.turnId,
       text: main.text,
     }))).toEqual([
-      { canonicalId: "main:run-1:turn:1", threadId: "thread-main", turnId: "turn-1", text: "first" },
-      { canonicalId: "main:run-1:turn:2", threadId: "thread-main", turnId: "turn-2", text: "second" },
+      { canonicalId: "main:codex:attempt-1:thread-main:turn-1", threadId: "thread-main", turnId: "turn-1", text: "first" },
+      { canonicalId: "main:codex:attempt-1:thread-main:turn-2", threadId: "thread-main", turnId: "turn-2", text: "second" },
     ]);
   });
 
-  it("does not attach an unscoped late child event to a completed provider turn", () => {
+  it("fails closed for an unscoped late child event", () => {
     const capture = createAssistantTranscriptCapture(undefined);
     const childIdentity = {
       runId: "run-1",
+      providerId: "codex" as const,
+      attemptId: "attempt-1",
       threadId: "thread-child",
       parentThreadId: "thread-main",
       turnId: "turn-complete",
+      itemId: "message-complete",
       agentRoleId: "planning-agent",
     };
     capture.sink.emit({ event: "assistant.delta", data: { ...childIdentity, delta: "first" } });
@@ -273,7 +290,27 @@ describe("Codex app-server realtime normalization", () => {
       text: child.blocks.map((block) => block.text).join(""),
     }))).toEqual([
       { turnId: "turn-complete", text: "first" },
-      { turnId: undefined, text: "unscoped-late" },
     ]);
+  });
+
+  it("keeps identical command text from different canonical items", () => {
+    const capture = createAssistantTranscriptCapture(undefined);
+    for (const itemId of ["command-1", "command-2"]) {
+      capture.sink.emit({
+        event: "tool.event",
+        data: {
+          runId: "run-1",
+          providerId: "codex",
+          attemptId: "attempt-1",
+          threadId: "thread-main",
+          turnId: "turn-1",
+          itemId,
+          phase: "completed",
+          command: "npm test",
+        },
+      });
+    }
+
+    expect([...capture.mainCaptures.values()][0]?.blocks.map((block) => block.itemId)).toEqual(["command-1", "command-2"]);
   });
 });

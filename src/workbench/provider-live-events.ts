@@ -22,7 +22,7 @@ export function forwardProviderRealtimeEvent(
     const tool: WorkbenchLiveToolEvent = {
       ...identity,
       runId: realtime.runId,
-      itemId: stream.id ?? realtime.itemId,
+      itemId: stream.id,
       phase: stream.phase,
       name: stream.name,
       command: stream.command,
@@ -39,7 +39,7 @@ export function forwardProviderRealtimeEvent(
       ...stream.event,
       ...identity,
       runId: realtime.runId,
-      itemId: stream.event.itemId ?? realtime.itemId,
+      itemId: stream.event.itemId,
       timestamp: new Date().toISOString(),
     };
     sink.emit({ event: "assistant.event", data: readable });

@@ -190,7 +190,6 @@ export interface ThreadStreamItem {
   agentTaskId?: string;
   actionRunId?: string;
   actionType?: string;
-  semanticKey?: string;
   actions?: ThreadStreamAction[];
   activity?: AssistantTurnActivity[];
   evidence?: ThreadStreamEvidence[];

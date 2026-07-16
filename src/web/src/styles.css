@@ -1273,7 +1273,7 @@ input:focus-visible {
   min-width: 0;
 }
 
-.transcript-activity-heading strong {
+.transcript-activity-title {
   overflow: hidden;
   color: var(--text-muted);
   font-size: 13px;
@@ -1282,9 +1282,9 @@ input:focus-visible {
   white-space: nowrap;
 }
 
-.transcript-activity-row.tone-active .transcript-activity-heading strong,
-.transcript-activity-row.tone-attention .transcript-activity-heading strong,
-.transcript-activity-row.tone-danger .transcript-activity-heading strong {
+.transcript-activity-row.tone-active .transcript-activity-title,
+.transcript-activity-row.tone-attention .transcript-activity-title,
+.transcript-activity-row.tone-danger .transcript-activity-title {
   color: var(--text-strong);
 }
 
@@ -1324,7 +1324,7 @@ input:focus-visible {
   overscroll-behavior: contain;
 }
 
-.transcript-activity-row.activity-command .transcript-activity-heading strong {
+.transcript-activity-row.activity-command .transcript-activity-title {
   font-weight: 400;
 }
 

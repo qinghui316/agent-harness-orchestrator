@@ -302,8 +302,8 @@ if (appServerIndex >= 0) {
   const readline = require("readline");
   const rl = readline.createInterface({ input: process.stdin });
   let appCwd = process.cwd();
-  const threadId = "thread-scheduler-fake";
-  const turnId = "turn-scheduler-fake";
+  let threadId = "thread-scheduler-fake-" + process.pid;
+  let turnSequence = 0;
   const reply = (id, result) => console.log(JSON.stringify({ id, result }));
   rl.on("line", (line) => {
     const request = JSON.parse(line);
@@ -315,9 +315,11 @@ if (appServerIndex >= 0) {
       reply(request.id, { data: [{ id: "fake-model", model: "fake-model", displayName: "Fake Model" }] });
     } else if (request.method === "thread/start" || request.method === "thread/resume") {
       appCwd = request.params.cwd || appCwd;
+      if (request.method === "thread/resume" && request.params.threadId) threadId = request.params.threadId;
       reply(request.id, { thread: { id: threadId } });
     } else if (request.method === "turn/start") {
       appCwd = request.params.cwd || appCwd;
+      const turnId = "turn-scheduler-fake-" + process.pid + "-" + (++turnSequence);
       const requestText = JSON.stringify(request.params);
       const isAudit = requestText.includes("Auditor Agent Profile") || requestText.includes("Authoritative Audit Packet");
       const responseText = isAudit
@@ -327,7 +329,7 @@ if (appServerIndex >= 0) {
       reply(request.id, { turn: { id: turnId } });
       setImmediate(() => {
         console.log(JSON.stringify({ method: "turn/started", params: { threadId, turn: { id: turnId, status: "inProgress" } } }));
-        console.log(JSON.stringify({ method: "item/completed", params: { threadId, turnId, item: { id: "message-scheduler-fake", type: "agentMessage", text: responseText } } }));
+        console.log(JSON.stringify({ method: "item/completed", params: { threadId, turnId, item: { id: "message-scheduler-fake-" + process.pid + "-" + turnSequence, type: "agentMessage", text: responseText } } }));
         console.log(JSON.stringify({ method: "turn/completed", params: { threadId, turn: { id: turnId, status: "completed" } } }));
       });
     }

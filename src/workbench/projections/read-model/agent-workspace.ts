@@ -1,5 +1,5 @@
-import type { StoredProviderThreadLink } from "../../store.js";
-import type { WorkbenchAgentWorkspace, WorkbenchAgentWorkspaceAgent, WorkbenchTopicDetail, WorkbenchWorkpad } from "../../read-model-types.js";
+import type { StoredProviderAttempt, StoredProviderThreadLink } from "../../store.js";
+import type { WorkbenchAgentWorkspace, WorkbenchAgentWorkspaceAgent, WorkbenchTopicDetail } from "../../read-model-types.js";
 import { buildAgentScopedTranscriptCells, type ParentAgentTranscript, type ParentAgentTranscriptCell } from "../../parent-agent-transcript.js";
 import { agentRoleDisplayName, baseAgentDisplayLabel, composeAgentDisplayLabel } from "../../../agent-display-label.js";
 import { agentThreadSurfaceId } from "../../../provider-runtime/agent-surface-id.js";
@@ -11,6 +11,7 @@ const MODEL_ROLES = new Set([
   "auditor-agent",
   "spec-test-proposer",
   "spec-test-generator",
+  "integration-fix-agent",
   "memory-maintenance-agent",
   "harness-evolution-agent",
   "evolution-scorer",
@@ -22,30 +23,21 @@ export function emptyAgentWorkspace(): WorkbenchAgentWorkspace {
 
 export function buildAgentWorkspace(input: {
   selectedTopic: WorkbenchTopicDetail | null;
-  workpad: WorkbenchWorkpad;
   providerThreads?: StoredProviderThreadLink[];
+  providerAttempts?: StoredProviderAttempt[];
   graphScopeId?: string;
-  includeExecution?: boolean;
 }): WorkbenchAgentWorkspace {
   const agents = new Map<string, WorkbenchAgentWorkspaceAgent>();
-  const providerAgentIds = new Map<string, string>();
   const scopedLinks = (input.providerThreads ?? []).filter((link) => input.graphScopeId && link.graphScopeId === input.graphScopeId);
+  const attemptsById = new Map((input.providerAttempts ?? []).map((attempt) => [attempt.attemptId, attempt]));
   const surfaceByProviderThread = new Map(scopedLinks.map((link) => {
     const providerId = link.providerId;
     return [providerThreadKey(providerId, link.providerThreadId), link.roleId === "main-agent" ? "main-agent" : agentThreadSurfaceId(providerId, link.providerThreadId)] as const;
   }));
-  const scopedItems = (input.selectedTopic?.threadItems ?? []).filter((item) => input.graphScopeId && item.graphScopeId === input.graphScopeId);
-  for (const item of scopedItems) {
-    if (!item.threadId || !item.agentRoleId) continue;
-    const providerId = providerIdOf(item);
-    if (!providerId) continue;
-    surfaceByProviderThread.set(
-      providerThreadKey(providerId, item.threadId),
-      item.agentRoleId === "main-agent" ? "main-agent" : agentThreadSurfaceId(providerId, item.threadId),
-    );
-  }
   for (const link of scopedLinks) {
     if (link.roleId === "main-agent" || !MODEL_ROLES.has(link.roleId)) continue;
+    const attempt = link.attemptId ? attemptsById.get(link.attemptId) : undefined;
+    if (!attemptMatchesLink(attempt, link, input.graphScopeId)) continue;
     const providerId = link.providerId;
     const id = agentThreadSurfaceId(providerId, link.providerThreadId);
     const cells = input.selectedTopic ? buildAgentScopedTranscriptCells(input.selectedTopic.threadItems, {
@@ -61,60 +53,11 @@ export function buildAgentWorkspace(input: {
       parentThreadId: link.parentThreadId ?? undefined,
       parentAgentId: parentAgentId(providerId, link.parentThreadId, surfaceByProviderThread),
       runId: link.runId ?? undefined,
-      status: cells.some((cell) => cell.status === "running") || (cells.length === 0 && Boolean(link.runId)) ? "running" : "completed",
+      status: attempt.status,
       cells,
       summary: cells.at(-1)?.text ?? "真实 Agent 对话。",
       label: composeAgentDisplayLabel(link.roleId, link.displayName ?? undefined),
     }));
-    providerAgentIds.set(providerTaskKey(providerId, link.conversationId, link.roleId), id);
-  }
-
-  for (const item of scopedItems) {
-    const roleId = item.agentRoleId;
-    if (!roleId || roleId === "main-agent" || !MODEL_ROLES.has(roleId)) continue;
-    if (!item.threadId) continue;
-    const providerId = providerIdOf(item);
-    if (!providerId) continue;
-    const id = agentThreadSurfaceId(providerId, item.threadId);
-    if (!id || agents.has(id)) continue;
-    const cells = buildAgentScopedTranscriptCells(input.selectedTopic!.threadItems, {
-      agentRoleId: roleId,
-      ...(item.threadId ? { threadId: item.threadId } : { runId: item.runId }),
-    });
-    agents.set(id, agentSurface({
-      id,
-      roleId,
-      providerId,
-      providerThreadId: item.threadId,
-      parentThreadId: item.parentThreadId,
-      parentAgentId: parentAgentId(providerId, item.parentThreadId, surfaceByProviderThread),
-      runId: item.runId,
-      status: cells.some((cell) => cell.status === "running") ? "running" : "completed",
-      cells,
-      summary: cells.at(-1)?.text ?? "真实 Agent 对话。",
-    }));
-  }
-
-  const execution = input.includeExecution ? input.workpad.mainAgentExecution : undefined;
-  if (execution) {
-    for (const task of execution.agentTasks) {
-      const taskRoleId = normalizedRoleId(task.roleId);
-      if (!MODEL_ROLES.has(taskRoleId) || taskRoleId === "planning-agent") continue;
-      const taskProviderId = providerIdOf(task);
-      const providerAgentId = (taskProviderId ? providerAgentIds.get(providerTaskKey(taskProviderId, task.conversationId, taskRoleId)) : undefined)
-        ?? uniqueAgentForRole(agents, taskRoleId, task.runId);
-      const providerAgent = providerAgentId ? agents.get(providerAgentId) : undefined;
-      if (!providerAgent) continue;
-      const id = providerAgent.id;
-      const existing = agents.get(id);
-      const cell = processCell(`task:${task.id}`, roleLabel(taskRoleId), task.resultSummary ?? task.summary, task.status, taskRoleId, task.runId, task.evidenceRefs[0]);
-      agents.set(id, existing ? {
-        ...existing,
-        status: task.status,
-        summary: task.resultSummary ?? task.summary,
-        transcript: transcript(task.roleId, [...(existing.transcript.cells ?? []), cell]),
-      } : providerAgent);
-    }
   }
 
   const ordered = numberDuplicateLabels([...agents.values()]);
@@ -197,33 +140,8 @@ function transcript(roleId: string, cells: ParentAgentTranscriptCell[]): ParentA
   };
 }
 
-function processCell(id: string, title: string, text: string, status: string, roleId: string, runId?: string, artifactRef?: string): ParentAgentTranscriptCell {
-  return {
-    id,
-    kind: "process-row",
-    source: "aho-orchestration",
-    agentRoleId: roleId,
-    runId,
-    title,
-    text,
-    status,
-    evidenceRefs: artifactRef ? [{ label: title, ref: artifactRef, kind: "artifact" }] : undefined,
-  };
-}
-
 function roleLabel(roleId: string): string {
   return agentRoleDisplayName(roleId);
-}
-
-function normalizedRoleId(roleId: string): string {
-  if (roleId.startsWith("memory-maintenance-agent:")) return "memory-maintenance-agent";
-  if (roleId.startsWith("harness-evolution-agent:")) return "harness-evolution-agent";
-  return roleId;
-}
-
-function providerIdOf(value: object): string | null {
-  const providerId = "providerId" in value && typeof value.providerId === "string" ? value.providerId.trim() : "";
-  return providerId || null;
 }
 
 function providerThreadKey(providerId: string, providerThreadId: string): string {
@@ -235,14 +153,15 @@ function parentAgentId(providerId: string, parentThreadId: string | null | undef
   return surfaces.get(providerThreadKey(providerId, parentThreadId)) ?? "main-agent";
 }
 
-function providerTaskKey(providerId: string, conversationId: string, roleId: string): string {
-  return `${providerId}\u0000${conversationId}\u0000${normalizedRoleId(roleId)}`;
-}
-
-function uniqueAgentForRole(agents: Map<string, WorkbenchAgentWorkspaceAgent>, roleId: string, runId?: string): string | undefined {
-  const roleAgents = [...agents.values()].filter((agent) => agent.roleId === roleId);
-  const runMatch = runId ? roleAgents.find((agent) => agent.runId === runId) : undefined;
-  if (runMatch) return runMatch.id;
-  const matches = roleAgents;
-  return matches.length === 1 ? matches[0]?.id : undefined;
+function attemptMatchesLink(
+  attempt: StoredProviderAttempt | undefined,
+  link: StoredProviderThreadLink,
+  graphScopeId: string | undefined,
+): attempt is StoredProviderAttempt {
+  return Boolean(attempt
+    && attempt.conversationId === link.conversationId
+    && attempt.providerId === link.providerId
+    && attempt.roleId === link.roleId
+    && attempt.graphScopeId === graphScopeId
+    && attempt.nativeSessionId === link.providerThreadId);
 }

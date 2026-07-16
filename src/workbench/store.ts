@@ -7,7 +7,7 @@ import type { ProviderCapabilitySnapshot, ProviderId, ProviderModelRef } from ".
 import type { WorkbenchProviderUserInputRequest } from "./types.js";
 import { acquireWorkbenchRuntimeMutationLock, type WorkbenchRuntimeMutationLock } from "./schema-rebuild-gate.js";
 
-const WORKBENCH_SCHEMA_VERSION = 5;
+const WORKBENCH_SCHEMA_VERSION = 6;
 
 export interface StoredTopicMessage {
   id: string;
@@ -48,6 +48,7 @@ export interface StoredConversation {
 export interface StoredProviderThreadLink {
   projectId: string;
   conversationId: string;
+  attemptId: string;
   providerId: ProviderId;
   providerThreadId: string;
   roleId: string;
@@ -633,7 +634,7 @@ export class WorkbenchStore {
 
   readProviderThread(projectId: string, conversationId: string, providerId: ProviderId, roleId: string): StoredProviderThreadLink | null {
     const row = this.db.prepare(`
-      SELECT project_id AS projectId, conversation_id AS conversationId,
+      SELECT project_id AS projectId, conversation_id AS conversationId, attempt_id AS attemptId,
         provider_id AS providerId, provider_thread_id AS providerThreadId, role_id AS roleId,
         parent_thread_id AS parentThreadId, change_id AS changeId, graph_scope_id AS graphScopeId,
         capability_profile AS capabilityProfile, display_name AS displayName, run_id AS runId, updated_at AS updatedAt
@@ -765,6 +766,145 @@ export class WorkbenchStore {
     if (result.changes !== 1) throw new Error(`Provider attempt not found: ${attemptId}`);
   }
 
+  readProviderAttempt(projectId: string, attemptId: string): StoredProviderAttempt | null {
+    const row = this.db.prepare(`
+      SELECT project_id AS projectId, conversation_id AS conversationId, attempt_id AS attemptId,
+        graph_scope_id AS graphScopeId, provider_id AS providerId, native_session_id AS nativeSessionId,
+        change_id AS changeId, agent_task_id AS agentTaskId, role_id AS roleId, operation_profile AS operationProfile,
+        model_json AS modelJson, capability_snapshot_json AS capabilitySnapshotJson,
+        handoff_hash AS handoffHash, delivered_through_completed_turn AS deliveredThroughCompletedTurn,
+        worktree_id AS worktreeId, status, created_at AS createdAt, updated_at AS updatedAt
+      FROM provider_attempts WHERE project_id = ? AND attempt_id = ?
+    `).get(projectId, attemptId) as SqliteRow | undefined;
+    return row ? mapProviderAttemptRow(row) : null;
+  }
+
+  bindProviderAttemptThread(
+    projectId: string,
+    input: { attemptId: string; threadId: string; parentThreadId?: string | null; displayName?: string | null },
+    updatedAt: string,
+  ): StoredProviderThreadLink {
+    return this.db.transaction(() => {
+      const attemptRow = this.db.prepare(`
+        SELECT project_id AS projectId, conversation_id AS conversationId, attempt_id AS attemptId,
+          graph_scope_id AS graphScopeId, provider_id AS providerId, native_session_id AS nativeSessionId,
+          change_id AS changeId, role_id AS roleId, operation_profile AS operationProfile
+        FROM provider_attempts
+        WHERE project_id = ? AND attempt_id = ?
+      `).get(projectId, input.attemptId) as SqliteRow | undefined;
+      if (!attemptRow) throw new Error(`Provider attempt not found: ${input.attemptId}`);
+
+      const conversationId = nullableString(attemptRow.conversationId);
+      if (!conversationId) throw new Error(`Provider attempt cannot bind a thread without a conversation: ${input.attemptId}`);
+      const nativeSessionId = nullableString(attemptRow.nativeSessionId);
+      if (nativeSessionId && nativeSessionId !== input.threadId) {
+        throw new Error(`Provider attempt is already bound to another thread: ${input.attemptId}`);
+      }
+
+      const attemptLink = this.db.prepare(`
+        SELECT provider_thread_id AS providerThreadId
+        FROM provider_thread_links
+        WHERE project_id = ? AND attempt_id = ?
+      `).get(projectId, input.attemptId) as SqliteRow | undefined;
+      if (attemptLink && String(attemptLink.providerThreadId) !== input.threadId) {
+        throw new Error(`Provider attempt is already bound to another thread: ${input.attemptId}`);
+      }
+
+      const providerId = String(attemptRow.providerId);
+      const roleId = String(attemptRow.roleId);
+      const existingThread = this.db.prepare(`
+        SELECT conversation_id AS conversationId, attempt_id AS attemptId, provider_id AS providerId,
+          role_id AS roleId, parent_thread_id AS parentThreadId
+        FROM provider_thread_links
+        WHERE project_id = ? AND provider_id = ? AND provider_thread_id = ?
+      `).get(projectId, providerId, input.threadId) as SqliteRow | undefined;
+      const parentThreadId = input.parentThreadId === undefined && existingThread
+        ? nullableString(existingThread.parentThreadId)
+        : input.parentThreadId ?? null;
+      if (existingThread && (
+        String(existingThread.conversationId) !== conversationId
+        || String(existingThread.providerId) !== providerId
+        || String(existingThread.roleId) !== roleId
+        || nullableString(existingThread.parentThreadId) !== parentThreadId
+      )) {
+        throw new Error(`Provider thread cannot resume with different lineage: ${input.threadId}`);
+      }
+
+      this.db.prepare(`
+        INSERT INTO provider_thread_links (
+          project_id, conversation_id, attempt_id, provider_id, provider_thread_id, role_id,
+          parent_thread_id, change_id, graph_scope_id, capability_profile, display_name, run_id, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(project_id, provider_id, provider_thread_id) DO UPDATE SET
+          attempt_id = excluded.attempt_id,
+          change_id = excluded.change_id,
+          graph_scope_id = excluded.graph_scope_id,
+          capability_profile = excluded.capability_profile,
+          display_name = COALESCE(excluded.display_name, provider_thread_links.display_name),
+          run_id = excluded.run_id,
+          updated_at = excluded.updated_at
+      `).run(
+        projectId,
+        conversationId,
+        input.attemptId,
+        providerId,
+        input.threadId,
+        roleId,
+        parentThreadId,
+        nullableString(attemptRow.changeId),
+        nullableString(attemptRow.graphScopeId),
+        String(attemptRow.operationProfile),
+        input.displayName ?? null,
+        input.attemptId,
+        updatedAt,
+      );
+      this.db.prepare(`
+        UPDATE provider_attempts SET native_session_id = ?, updated_at = ?
+        WHERE project_id = ? AND attempt_id = ?
+      `).run(input.threadId, updatedAt, projectId, input.attemptId);
+
+      const bound = this.db.prepare(`
+        SELECT project_id AS projectId, conversation_id AS conversationId, attempt_id AS attemptId,
+          provider_id AS providerId, provider_thread_id AS providerThreadId, role_id AS roleId,
+          parent_thread_id AS parentThreadId, change_id AS changeId, graph_scope_id AS graphScopeId,
+          capability_profile AS capabilityProfile, display_name AS displayName, run_id AS runId, updated_at AS updatedAt
+        FROM provider_thread_links
+        WHERE project_id = ? AND provider_id = ? AND provider_thread_id = ?
+      `).get(projectId, providerId, input.threadId) as SqliteRow;
+      return mapProviderThreadRow(bound);
+    })();
+  }
+
+  refineProviderAttemptSurfaceRole(
+    projectId: string,
+    attemptId: string,
+    input: { roleId: string; operationProfile: string; handoffHash: string; displayName?: string | null },
+    updatedAt: string,
+  ): StoredProviderAttempt {
+    return this.db.transaction(() => {
+      const attempt = this.readProviderAttempt(projectId, attemptId);
+      if (!attempt) throw new Error(`Provider attempt not found: ${attemptId}`);
+      if (!attempt.conversationId || !attempt.graphScopeId || !attempt.nativeSessionId) {
+        throw new Error(`Provider attempt cannot refine an Agent surface without canonical lineage: ${attemptId}`);
+      }
+      if (attempt.roleId !== input.roleId && attempt.roleId !== "child-agent") {
+        throw new Error(`Provider attempt role is already authoritative: ${attemptId}`);
+      }
+      this.db.prepare(`
+        UPDATE provider_attempts
+        SET role_id = ?, operation_profile = ?, handoff_hash = ?, updated_at = ?
+        WHERE project_id = ? AND attempt_id = ?
+      `).run(input.roleId, input.operationProfile, input.handoffHash, updatedAt, projectId, attemptId);
+      this.db.prepare(`
+        UPDATE provider_thread_links
+        SET role_id = ?, capability_profile = ?,
+            display_name = COALESCE(?, display_name), updated_at = ?
+        WHERE project_id = ? AND attempt_id = ? AND provider_thread_id = ?
+      `).run(input.roleId, input.operationProfile, input.displayName ?? null, updatedAt, projectId, attemptId, attempt.nativeSessionId);
+      return this.readProviderAttempt(projectId, attemptId)!;
+    })();
+  }
+
   listProviderAttempts(projectId: string, conversationId: string): StoredProviderAttempt[] {
     const rows = this.db.prepare(`
       SELECT project_id AS projectId, conversation_id AS conversationId, attempt_id AS attemptId,
@@ -841,7 +981,7 @@ export class WorkbenchStore {
 
   listProviderThreads(projectId: string, conversationId: string): StoredProviderThreadLink[] {
     return (this.db.prepare(`
-      SELECT project_id AS projectId, conversation_id AS conversationId,
+      SELECT project_id AS projectId, conversation_id AS conversationId, attempt_id AS attemptId,
         provider_id AS providerId, provider_thread_id AS providerThreadId, role_id AS roleId,
         parent_thread_id AS parentThreadId, change_id AS changeId, graph_scope_id AS graphScopeId,
         capability_profile AS capabilityProfile, display_name AS displayName, run_id AS runId, updated_at AS updatedAt
@@ -849,38 +989,6 @@ export class WorkbenchStore {
       WHERE project_id = ? AND conversation_id = ?
       ORDER BY updated_at ASC
     `).all(projectId, conversationId) as SqliteRow[]).map(mapProviderThreadRow);
-  }
-
-  writeProviderThread(link: StoredProviderThreadLink): void {
-    this.db.prepare(`
-      INSERT INTO provider_thread_links (
-        project_id, conversation_id, provider_id, provider_thread_id, role_id,
-        parent_thread_id, change_id, graph_scope_id, capability_profile, display_name, run_id, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(project_id, provider_id, provider_thread_id) DO UPDATE SET
-        conversation_id = excluded.conversation_id,
-        role_id = excluded.role_id,
-        parent_thread_id = excluded.parent_thread_id,
-        change_id = excluded.change_id,
-        graph_scope_id = excluded.graph_scope_id,
-        capability_profile = excluded.capability_profile,
-        display_name = excluded.display_name,
-        run_id = excluded.run_id,
-        updated_at = excluded.updated_at
-    `).run(
-      link.projectId,
-      link.conversationId,
-      link.providerId,
-      link.providerThreadId,
-      link.roleId,
-      link.parentThreadId,
-      link.changeId,
-      link.graphScopeId,
-      link.capabilityProfile,
-      link.displayName ?? null,
-      link.runId ?? null,
-      link.updatedAt,
-    );
   }
 
   linkConversationChange(projectId: string, conversationId: string, changeId: string, linkedAt: string): void {
@@ -1330,6 +1438,7 @@ function migrate(db: Database.Database): void {
     CREATE TABLE IF NOT EXISTS provider_thread_links (
       project_id TEXT NOT NULL,
       conversation_id TEXT NOT NULL,
+      attempt_id TEXT NOT NULL,
       provider_id TEXT NOT NULL,
       provider_thread_id TEXT NOT NULL,
       role_id TEXT NOT NULL,
@@ -1344,6 +1453,9 @@ function migrate(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_provider_threads_conversation_role
       ON provider_thread_links(project_id, conversation_id, provider_id, role_id, updated_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_threads_attempt
+      ON provider_thread_links(project_id, attempt_id)
+      WHERE attempt_id IS NOT NULL;
 
     CREATE TABLE IF NOT EXISTS conversation_provider_bindings (
       project_id TEXT NOT NULL,
@@ -1655,6 +1767,7 @@ function mapProviderThreadRow(row: SqliteRow): StoredProviderThreadLink {
   return {
     projectId: String(row.projectId),
     conversationId: String(row.conversationId),
+    attemptId: String(row.attemptId),
     providerId: String(row.providerId),
     providerThreadId: String(row.providerThreadId),
     roleId: String(row.roleId),

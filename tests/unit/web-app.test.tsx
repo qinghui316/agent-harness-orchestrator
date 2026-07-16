@@ -1334,13 +1334,17 @@ describe("Workbench web app", () => {
     const dock = screen.getByTestId("conversation-interaction-dock");
     expect(within(dock).getByText("实施此计划？")).toBeTruthy();
     expect(document.querySelector(".topic-composer")).toBeNull();
+    fireEvent.click(within(dock).getByRole("button", { name: "否，并告诉 Agent 应该如何做得不同" }));
+    fireEvent.change(within(dock).getByLabelText("修改意见"), { target: { value: "保留这条草稿" } });
     fireEvent.click(screen.getByTestId("orchestration-overlay-toggle"));
     expect(await screen.findByTestId("agent-graph-center-view")).toBeTruthy();
-    expect(screen.getByTestId("conversation-interaction-dock")).toBeTruthy();
+    expect(screen.queryByTestId("conversation-interaction-dock")).toBeNull();
     expect(document.querySelector(".topic-composer")).toBeNull();
     fireEvent.click(screen.getByTestId("orchestration-overlay-toggle"));
     await waitFor(() => expect(screen.queryByTestId("agent-graph-center-view")).toBeNull());
-    fireEvent.click(within(dock).getByRole("button", { name: "是，实施此计划" }));
+    const restoredDock = screen.getByTestId("conversation-interaction-dock");
+    expect((within(restoredDock).getByLabelText("修改意见") as HTMLTextAreaElement).value).toBe("保留这条草稿");
+    fireEvent.click(within(restoredDock).getByRole("button", { name: "是，实施此计划" }));
     await waitFor(() => expect(calls.some((call) => {
       if (!call.url.endsWith("/workbench/conversations/conv-plan/interactions/interaction%3Aplan/settle")) return false;
       const body = JSON.parse(call.body) as Record<string, unknown>;
@@ -4737,6 +4741,11 @@ describe("Workbench web app", () => {
       timestamp: "2026-07-02T00:00:00.000Z",
       blocks: [{
         id: "planning-agent-created",
+        providerId: "codex",
+        attemptId: "attempt-planning",
+        threadId: "thread-main",
+        turnId: "turn-main",
+        itemId: "item-planning-agent-created",
         kind: "status",
         source: "provider",
         title: "创建 planning-agent",

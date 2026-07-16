@@ -56,8 +56,8 @@ describe("Workbench Agent relationship graph", () => {
       capabilityProfile: null,
       updatedAt: "2026-07-14T00:00:00.000Z",
     }));
-    const first = buildAgentWorkspace({ selectedTopic: null, workpad: {} as WorkbenchWorkpad, providerThreads: links.slice(0, 1), graphScopeId: "graph-1" });
-    const workspace = buildAgentWorkspace({ selectedTopic: null, workpad: {} as WorkbenchWorkpad, providerThreads: links, graphScopeId: "graph-1" });
+    const first = workspaceFor(links.slice(0, 1), "graph-1");
+    const workspace = workspaceFor(links, "graph-1");
     const labels = new Map(workspace.agents.map((item) => [item.id, item.label]));
 
     expect(first.agents[0]?.label).toBe("Coder Agent");
@@ -66,10 +66,7 @@ describe("Workbench Agent relationship graph", () => {
   });
 
   it("keeps a provider-visible Agent name in the durable workspace", () => {
-    const workspace = buildAgentWorkspace({
-      selectedTopic: null,
-      workpad: {} as WorkbenchWorkpad,
-      providerThreads: [{
+    const workspace = workspaceFor([{
         projectId: "repo",
         providerId: "codex",
         conversationId: "change-1",
@@ -81,11 +78,46 @@ describe("Workbench Agent relationship graph", () => {
         capabilityProfile: null,
         displayName: "Newton",
         updatedAt: "2026-07-14T00:00:00.000Z",
-      }],
-      graphScopeId: "graph-1",
-    });
+      }], "graph-1");
 
     expect(workspace.agents[0]).toMatchObject({ id: "agent:codex:thread:planner-newton", providerId: "codex", label: "Plan Agent · Newton" });
+  });
+
+  it("does not create an Agent from timeline content or an unmatched thread link", () => {
+    const selectedTopic = {
+      id: "conversation-1",
+      title: "Timeline only",
+      kind: "conversation",
+      threadItems: [{
+        id: "timeline-child",
+        kind: "assistant-turn",
+        source: "chat",
+        graphScopeId: "graph-1",
+        providerId: "codex",
+        threadId: "timeline-thread",
+        agentRoleId: "planning-agent",
+      }],
+    } as unknown as WorkbenchTopicDetail;
+    expect(buildAgentWorkspace({ selectedTopic, graphScopeId: "graph-1" }).agents).toEqual([]);
+
+    expect(buildAgentWorkspace({
+      selectedTopic,
+      providerThreads: [{
+        projectId: "repo",
+        conversationId: "conversation-1",
+        attemptId: "missing-attempt",
+        providerId: "codex",
+        providerThreadId: "linked-thread",
+        roleId: "planning-agent",
+        parentThreadId: null,
+        changeId: null,
+        graphScopeId: "graph-1",
+        capabilityProfile: "planning",
+        updatedAt: "2026-07-15T00:00:00.000Z",
+      }],
+      providerAttempts: [],
+      graphScopeId: "graph-1",
+    }).agents).toEqual([]);
   });
 
   it("projects only provider threads assigned to the selected graph scope", () => {
@@ -105,12 +137,7 @@ describe("Workbench Agent relationship graph", () => {
       updatedAt: "2026-07-15T00:00:00.000Z",
     }));
 
-    const workspace = buildAgentWorkspace({
-      selectedTopic: null,
-      workpad: {} as WorkbenchWorkpad,
-      providerThreads,
-      graphScopeId: "graph-current",
-    });
+    const workspace = workspaceFor(providerThreads, "graph-current");
 
     expect(workspace.agents.map((agent) => agent.id)).toEqual(["agent:codex:thread:current-plan"]);
   });
@@ -131,7 +158,7 @@ describe("Workbench Agent relationship graph", () => {
       ...item,
     }));
 
-    const workspace = buildAgentWorkspace({ selectedTopic: null, workpad: {} as WorkbenchWorkpad, providerThreads, graphScopeId: "graph-current" });
+    const workspace = workspaceFor(providerThreads, "graph-current");
     const graph = buildAgentRelationGraph({
       project: { id: "repo" } as ManagedProject,
       selectedTopic: { id: "conversation-1", title: "Shared", kind: "conversation" } as WorkbenchTopicDetail,
@@ -166,31 +193,15 @@ describe("Workbench Agent relationship graph", () => {
       displayName: "Sagan",
       updatedAt: "2026-07-14T00:00:00.000Z",
     }));
-    const workspace = buildAgentWorkspace({ selectedTopic: null, workpad: {} as WorkbenchWorkpad, providerThreads, graphScopeId: "graph-1" });
+    const workspace = workspaceFor(providerThreads, "graph-1");
     const labels = new Map(workspace.agents.map((item) => [item.id, item.label]));
 
     expect(labels.get("agent:codex:thread:planner-a")).toBe("Plan Agent · Sagan 1");
     expect(labels.get("agent:codex:thread:planner-b")).toBe("Plan Agent · Sagan 2");
   });
 
-  it("merges a background task summary into its durable provider thread surface", () => {
-    const workspace = buildAgentWorkspace({
-      selectedTopic: null,
-      workpad: {
-        mainAgentExecution: {
-          runs: [],
-          agentTasks: [{
-            id: "maintenance-task-1",
-            conversationId: "maintenance:change-1",
-            roleId: "memory-maintenance-agent",
-            status: "running",
-            summary: "维护项目说明",
-            resultSummary: null,
-            evidenceRefs: [],
-          }],
-        },
-      } as unknown as WorkbenchWorkpad,
-      providerThreads: [{
+  it("takes background Agent status only from its owning provider attempt", () => {
+    const workspace = workspaceFor([{
         projectId: "repo",
         providerId: "codex",
         conversationId: "maintenance:change-1",
@@ -203,16 +214,46 @@ describe("Workbench Agent relationship graph", () => {
         displayName: "Maintenance Agent",
         runId: "maintenance-run-1",
         updatedAt: "2026-07-14T00:00:00.000Z",
-      }],
-      graphScopeId: "graph-1",
-      includeExecution: true,
-    });
+      }], "graph-1", "failed");
 
     expect(workspace.agents).toHaveLength(1);
     expect(workspace.agents[0]).toMatchObject({ id: "agent:codex:thread:maintenance-thread-1", runId: "maintenance-run-1" });
-    expect(workspace.agents[0]?.transcript.cells?.some((cell) => cell.id === "task:maintenance-task-1")).toBe(true);
+    expect(workspace.agents[0]?.status).toBe("failed");
+    expect(workspace.agents[0]?.transcript.cells).toEqual([]);
   });
 });
+
+function workspaceFor(
+  rawThreads: Array<Record<string, unknown> & { providerId: string; providerThreadId: string; conversationId: string; roleId: string; graphScopeId: string | null }>,
+  graphScopeId: string,
+  status: "running" | "failed" = "running",
+) {
+  const providerThreads = rawThreads.map((thread) => ({
+    ...thread,
+    attemptId: `attempt:${thread.providerId}:${thread.providerThreadId}`,
+  })) as Parameters<typeof buildAgentWorkspace>[0]["providerThreads"];
+  const providerAttempts = providerThreads!.map((link) => ({
+    projectId: link.projectId,
+    conversationId: link.conversationId,
+    attemptId: link.attemptId!,
+    graphScopeId: link.graphScopeId,
+    changeId: link.changeId,
+    agentTaskId: null,
+    roleId: link.roleId,
+    operationProfile: link.capabilityProfile ?? "main",
+    providerId: link.providerId,
+    nativeSessionId: link.providerThreadId,
+    model: null,
+    capabilitySnapshot: { providerId: link.providerId, operationProfile: "main", supported: [], missing: [], checkedAt: "2026-07-15T00:00:00.000Z" },
+    handoffHash: "handoff",
+    deliveredThroughCompletedTurn: 0,
+    worktreeId: null,
+    status,
+    createdAt: link.updatedAt,
+    updatedAt: link.updatedAt,
+  })) as Parameters<typeof buildAgentWorkspace>[0]["providerAttempts"];
+  return buildAgentWorkspace({ selectedTopic: null, providerThreads, providerAttempts, graphScopeId });
+}
 
 function agent(id: string, roleId: string, label: string, parentAgentId = "main-agent"): WorkbenchAgentWorkspaceAgent {
   return {

@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { bindProviderThreadFixture } from "../helpers/provider-thread-fixture.js";
 
 const appServerTurn = vi.hoisted(() => vi.fn());
 const appServerAnswer = vi.hoisted(() => vi.fn());
@@ -375,7 +376,7 @@ describe("Workbench provider planning flow", () => {
       initialScope = store.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? "";
       expect(initialScope).not.toBe("");
       store.linkConversationChange(project().id, conversation.conversationId, changeId, new Date().toISOString());
-      store.writeProviderThread({
+      bindProviderThreadFixture(store, {
         projectId: project().id,
         conversationId: conversation.conversationId,
         providerId: "codex",
@@ -513,7 +514,7 @@ describe("Workbench provider planning flow", () => {
     const store = await WorkbenchStore.open(memory);
     const changeId = conversation.changeId;
     const graphScopeId = store.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? null;
-    store.writeProviderThread({
+    bindProviderThreadFixture(store, {
       projectId: project().id,
       conversationId: conversation.conversationId,
       providerId: "codex",
@@ -549,7 +550,7 @@ describe("Workbench provider planning flow", () => {
     appServerTurn.mockImplementationOnce(async (options) => {
       await writePlannerFiles(options.writableRoots?.[0] ?? "");
       const text = "规划子 Agent 已返回完整方案。\n当前还缺少可继续执行的目标状态。";
-      options.onTextDelta?.(text);
+      emitCanonicalMainText(options, text, "thread-main", "turn-plan-without-goal", "message-no-goal");
       return {
         status: "failed",
         threadId: "thread-main",
@@ -673,7 +674,7 @@ describe("Workbench provider planning flow", () => {
           threadId: "thread-planner",
           parentThreadId: "thread-main",
           turnId: "turn-planner",
-          roleId: "planning-agent",
+          roleId: "child-agent",
           displayName: "Newton",
         };
         const childNotifications: Array<[string, Record<string, unknown>]> = [
@@ -694,7 +695,7 @@ describe("Workbench provider planning flow", () => {
         expect(liveChildProcess[0]).toMatchObject({
           status: "completed",
           turnId: "turn-planner",
-          agentRoleId: "planning-agent",
+          agentRoleId: "child-agent",
         });
         expect(liveChildProcess[0]?.blocks?.map((block) => block.kind)).toEqual(expect.arrayContaining([
           "reasoning-summary", "command", "file-change", "prose",
@@ -703,7 +704,7 @@ describe("Workbench provider planning flow", () => {
         const liveStore = await WorkbenchStore.open(liveMemory);
         try {
           expect(liveStore.listProviderAttempts(project().id, options.conversationId ?? "")).toEqual(expect.arrayContaining([
-            expect.objectContaining({ roleId: "planning-agent", operationProfile: "planning", nativeSessionId: "thread-planner", status: "running" }),
+            expect.objectContaining({ roleId: "child-agent", operationProfile: "main", nativeSessionId: "thread-planner", status: "running" }),
           ]));
         } finally {
           liveStore.close();
@@ -711,7 +712,7 @@ describe("Workbench provider planning flow", () => {
         expect(options.dynamicTools).toEqual(expect.arrayContaining([
           expect.objectContaining({ name: "aho_finalize_current_change", inputSchema: expect.objectContaining({ additionalProperties: false }) }),
         ]));
-        options.onTextDelta?.("计划子 Agent 已返回方案。\n我还会把当前限制和验收事实一并说明。");
+        emitCanonicalMainText(options, "计划子 Agent 已返回方案。\n我还会把当前限制和验收事实一并说明。", "thread-main", "turn-plan", "message-plan");
         return {
           status: "completed",
           threadId: "thread-main",
@@ -749,7 +750,7 @@ describe("Workbench provider planning flow", () => {
           arguments: {},
         });
         expect(accepted).toMatchObject({ success: true });
-        options.onTextDelta?.("计划已接受，等待当前执行确认。");
+        emitCanonicalMainText(options, "计划已接受，等待当前执行确认。", "thread-main", "turn-accept", "message-accept");
         return {
           status: "completed",
           threadId: "thread-main",
@@ -894,6 +895,24 @@ describe("Workbench provider planning flow", () => {
     expect(appServerTurn).toHaveBeenCalledTimes(3);
   });
 });
+
+function emitCanonicalMainText(
+  options: { runId: string; conversationId?: string; onRealtimeEvent?: (event: ReturnType<typeof normalizeCodexAppServerNotification>[number]) => void },
+  text: string,
+  threadId: string,
+  turnId: string,
+  itemId: string,
+): void {
+  for (const event of normalizeCodexAppServerNotification("item/agentMessage/delta", { itemId, delta: text }, {
+    projectId: project().id,
+    conversationId: options.conversationId,
+    runId: options.runId,
+    threadId,
+    turnId,
+    itemId,
+    roleId: "main-agent",
+  })) options.onRealtimeEvent?.(event);
+}
 
 function nativeGoal(status: "active" | "paused" | "blocked" | "complete") {
   return {

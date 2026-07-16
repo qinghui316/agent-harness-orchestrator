@@ -1392,7 +1392,6 @@ export type ThreadStreamItem = {
   agentTaskId?: string;
   actionType?: string;
   actionRunId?: string;
-  semanticKey?: string;
   actions?: ThreadStreamAction[];
   activity?: LiveTurnEvent[];
   evidence?: ThreadStreamEvidence[];

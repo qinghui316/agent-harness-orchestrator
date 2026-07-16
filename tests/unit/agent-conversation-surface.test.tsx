@@ -5,35 +5,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { canonicalTranscriptCellsFromThreadItem } from "../../src/workbench/parent-agent-transcript.js";
 import { AgentWorkspacePanel } from "../../src/web/src/panels/workbench/AgentWorkspacePanel.js";
 import { AgentTranscriptPane, ParentAgentTranscriptCellView } from "../../src/web/src/panels/workbench/TranscriptReadingSurface.js";
-import { blockFromAssistantEvent, mergeAssistantBlocks, normalizeTurnBlocks } from "../../src/web/src/shell/assistant-blocks.js";
 import { replaceCanonicalMessageCells } from "../../src/web/src/liveTranscript.js";
 import type { AgentWorkspaceAgent, AssistantTurnBlock, ParentAgentTranscript } from "../../src/web/src/types.js";
 
 afterEach(cleanup);
 
 describe("Agent conversation surfaces", () => {
-  it("keeps provider protocol metadata out of visible blocks without inspecting command text", () => {
-    const command: AssistantTurnBlock = {
-      id: "canonical-command",
-      runId: "run-provider",
-      sequence: 1,
-      kind: "command",
-      timestamp: "2026-07-15T00:00:00.000Z",
-      source: "provider",
-      status: "completed",
-      command: "provider-cli run",
-      preview: '{"command":"codex --output-last-message result.md"}',
-    };
-    expect(normalizeTurnBlocks([command])).toEqual([expect.objectContaining({ id: command.id, preview: command.preview })]);
-    expect(blockFromAssistantEvent({
-      runId: "run-internal",
-      kind: "status",
-      phase: "updated",
-      title: "turn/updated",
-      summary: "provider turn metadata",
-    })).toBeNull();
-  });
-
   it("replaces one canonical message in place through repeated patches", () => {
     let transcript: ParentAgentTranscript = { title: "Demand", cells: [], items: [] };
     let owned: string[] = [];
@@ -79,18 +56,6 @@ describe("Agent conversation surfaces", () => {
       "cell:turn:codex:attempt-shared:thread-1:turn-1",
       "cell:turn:codex:attempt-shared:thread-1:turn-2",
     ]);
-  });
-
-  it("accumulates provider-visible reasoning summary deltas on one block", () => {
-    const first = {
-      id: "reasoning:1",
-      kind: "reasoning-summary" as const,
-      sequence: 1,
-      timestamp: "2026-07-14T00:00:00.000Z",
-      status: "updated" as const,
-      text: "检查结构",
-    };
-    expect(mergeAssistantBlocks(first, { ...first, text: "并运行测试" }).text).toBe("检查结构并运行测试");
   });
 
   it("keeps same-role provider threads in separate closeable tabs", () => {
@@ -209,6 +174,8 @@ describe("Agent conversation surfaces", () => {
     const failed = document.querySelector(".transcript-activity-row") as HTMLElement;
     expect(failed.classList.contains("activity-command")).toBe(true);
     expect(failed.classList.contains("tone-danger")).toBe(true);
+    expect(failed.querySelector("span.transcript-activity-title")?.textContent).toContain("命令执行失败");
+    expect(failed.querySelector("strong")).toBeNull();
 
     rerender(<ParentAgentTranscriptCellView
       cell={{

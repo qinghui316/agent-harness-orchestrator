@@ -15,6 +15,7 @@ import { finishRun, type CodeRunPaths } from "./run-session.js";
 import type { CodeRunLiveCallbacks, CodeRunResult } from "./types.js";
 import { WorkbenchStore, type StoredConversation } from "../workbench/store.js";
 import { assembleSharedConversationContext } from "../workbench/shared-conversation-context.js";
+import { bindProviderAttemptThread, finishProviderAttempt } from "../workbench/provider-attempts.js";
 
 export async function runProviderCodeTurn(input: {
   project: ManagedProject;
@@ -87,6 +88,7 @@ export async function runProviderCodeTurn(input: {
   });
   continuity = await markRuntimeContinuityStatus(input.paths, continuity, "running");
   const continuityWrites: Promise<void>[] = [];
+  const boundThreadIds = new Set<string>();
   const recordContinuity = (promise: Promise<unknown>): void => {
     continuityWrites.push(promise.then(() => undefined).catch((error) => appendRuntimeContinuityFailure(input.paths, run.id, error)));
   };
@@ -128,6 +130,15 @@ export async function runProviderCodeTurn(input: {
       session: input.paths.providerSession,
     },
     onRealtimeEvent: (realtime) => {
+      if (!boundThreadIds.has(realtime.threadId)) {
+        boundThreadIds.add(realtime.threadId);
+        recordContinuity(bindProviderAttemptThread(input.memory, {
+          attemptId: run.id,
+          threadId: realtime.threadId,
+          parentThreadId: realtime.parentThreadId,
+          displayName: realtime.displayName,
+        }));
+      }
       const event = realtime.streamEvent;
       recordContinuity(appendAgentEventEnvelope(input.paths, continuity.session, continuity.eventSource, {
         eventType: event.type,
@@ -154,26 +165,16 @@ export async function runProviderCodeTurn(input: {
     additionalContext: handoff.context,
     });
   } catch (error) {
-    const failedAttemptStore = await WorkbenchStore.open(input.memory);
-    try {
-      failedAttemptStore.completeProviderAttempt(input.project.id, input.run.id, "failed", null, new Date().toISOString());
-    } finally {
-      failedAttemptStore.close();
-    }
+    await finishProviderAttempt(input.memory, input.run.id, "failed", null);
     throw error;
   }
-  const completedAttemptStore = await WorkbenchStore.open(input.memory);
-  try {
-    completedAttemptStore.completeProviderAttempt(
-      input.project.id,
-      input.run.id,
-      providerResult.status,
-      providerResult.session?.sessionId ?? null,
-      new Date().toISOString(),
-    );
-  } finally {
-    completedAttemptStore.close();
-  }
+  await Promise.all(continuityWrites);
+  await finishProviderAttempt(
+    input.memory,
+    input.run.id,
+    providerResult.status,
+    providerResult.session?.sessionId ?? null,
+  );
   recordContinuity((providerResult.status === "completed"
     ? appendExternalExecutionCompleted(input.paths, continuity, {
       requestId: `${run.id}:provider-turn`,

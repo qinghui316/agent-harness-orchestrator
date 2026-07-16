@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { buildAgentScopedTranscriptCells, buildParentAgentTranscript, pageParentAgentTranscript } from "../../src/workbench/parent-agent-transcript.js";
 
+function providerBlockIdentity(itemId: string, identity: { attemptId?: string; threadId?: string; turnId?: string } = {}) {
+  return {
+    providerId: "codex" as const,
+    attemptId: identity.attemptId ?? "attempt-1",
+    threadId: identity.threadId ?? "thread-main",
+    turnId: identity.turnId ?? "turn-1",
+    itemId,
+  };
+}
+
 describe("parent agent transcript paging", () => {
   it("projects only the artifact-backed AHO plan-ready item into the Main timeline", () => {
     const transcript = buildParentAgentTranscript({
@@ -65,6 +75,7 @@ describe("parent agent transcript paging", () => {
         ],
         blocks: [{
           id: "reasoning-1",
+          ...providerBlockIdentity("reasoning-1", { attemptId: "attempt-turn-1", threadId: "thread-1" }),
           runId: "run-1",
           sequence: 1,
           kind: "reasoning-summary",
@@ -79,7 +90,7 @@ describe("parent agent transcript paging", () => {
       expect.objectContaining({ id: "cell:turn:codex:attempt-turn-1:thread-1:turn-1", kind: "process-row", title: "已完成 · 24 秒", status: "completed" }),
       expect.objectContaining({ kind: "process-row", title: "思考摘要 · Checked the implementation boundary.", text: "", detailText: "Checked the implementation boundary." }),
     ]));
-    expect(transcript.cells[0]?.id).toBe("cell:reasoning:reasoning-1");
+    expect(transcript.cells[0]?.id).toBe("cell:reasoning:codex:attempt-turn-1:thread-1:turn-1:reasoning-1");
     expect(transcript.cells.at(-1)?.id).toBe("cell:turn:codex:attempt-turn-1:thread-1:turn-1");
   });
 
@@ -116,7 +127,7 @@ describe("parent agent transcript paging", () => {
     });
 
     expect(transcript.cells).toEqual([expect.objectContaining({
-      id: "cell:tool-result:codex:attempt-1:run-1:thread-main:turn-main:spawn-1",
+      id: "cell:tool-result:codex:attempt-1:thread-main:turn-main:spawn-1",
       title: "Plan Agent · Sagan 正在规划",
       activityKind: "agent",
       status: "processing",
@@ -176,7 +187,7 @@ describe("parent agent transcript paging", () => {
     const latest = pageParentAgentTranscript(transcript, { limit: 100 });
     expect(latest.cells).toHaveLength(100);
     expect(latest.cells[0]?.id).toBe("cell:user:msg-9900");
-    expect(latest.cells.at(-1)?.id).toBe("cell:assistant:block-9999");
+    expect(latest.cells.at(-1)?.id).toBe("cell:assistant:codex:attempt-9999:thread-main:turn-9999:block-9999");
     expect(latest.paging).toEqual({
       limit: 100,
       totalCount: 10_000,
@@ -187,12 +198,70 @@ describe("parent agent transcript paging", () => {
     const earlier = pageParentAgentTranscript(transcript, { limit: 100, beforeCursor: latest.paging?.nextBeforeCursor });
     expect(earlier.cells).toHaveLength(100);
     expect(earlier.cells[0]?.id).toBe("cell:user:msg-9800");
-    expect(earlier.cells.at(-1)?.id).toBe("cell:assistant:block-9899");
+    expect(earlier.cells.at(-1)?.id).toBe("cell:assistant:codex:attempt-9899:thread-main:turn-9899:block-9899");
+  });
+
+  it("keeps identical visible content from distinct canonical message items", () => {
+    const threadItems = ["message-1", "message-2"].map((itemId) => ({
+      id: `assistant-${itemId}`,
+      kind: "assistant-turn",
+      label: "AI",
+      blocks: [{
+        id: itemId,
+        ...providerBlockIdentity(itemId),
+        sequence: 1,
+        kind: "prose" as const,
+        source: "provider" as const,
+        text: "Same visible reply",
+      }],
+    }));
+
+    const cells = buildParentAgentTranscript({ workpad: { title: "Identity" }, threadItems }).cells;
+    expect(cells.map((cell) => cell.id)).toEqual([
+      "cell:assistant:codex:attempt-1:thread-main:turn-1:message-1",
+      "cell:assistant:codex:attempt-1:thread-main:turn-1:message-2",
+    ]);
+    expect(cells.map((cell) => cell.text)).toEqual(["Same visible reply", "Same visible reply"]);
+  });
+
+  it("keeps canonical cell identity stable across snapshot refresh projection", () => {
+    const threadItems = [{
+      id: "assistant-refresh",
+      kind: "assistant-turn",
+      label: "AI",
+      blocks: [{
+        id: "message-refresh",
+        ...providerBlockIdentity("message-refresh", { attemptId: "attempt-refresh", turnId: "turn-refresh" }),
+        sequence: 1,
+        kind: "prose" as const,
+        source: "provider" as const,
+        text: "Stable reply",
+      }],
+    }];
+    const input = { workpad: { conversationId: "conv", title: "Refresh" }, threadItems };
+
+    expect(buildParentAgentTranscript(input).cells.map((cell) => cell.id))
+      .toEqual(buildParentAgentTranscript(input).cells.map((cell) => cell.id));
+  });
+
+  it("fails closed for provider-visible blocks without canonical identity", () => {
+    const transcript = buildParentAgentTranscript({
+      workpad: { title: "Missing identity" },
+      threadItems: [{
+        id: "assistant-missing-identity",
+        kind: "assistant-turn",
+        label: "AI",
+        blocks: [{ id: "message", sequence: 1, kind: "prose", source: "provider", text: "Do not infer me" }],
+      }],
+    });
+
+    expect(transcript.cells).toEqual([]);
   });
 
   it("keeps child-agent transcript cells out of the parent transcript and available by role", () => {
     const childBlock = {
       id: "planning-prose",
+      ...providerBlockIdentity("planning-prose", { threadId: "thread-planning" }),
       sequence: 1,
       kind: "prose" as const,
       timestamp: "2026-07-02T10:00:00.000Z",
@@ -207,6 +276,7 @@ describe("parent agent transcript paging", () => {
         body: "Main agent response.",
         blocks: [{
           id: "main-prose",
+          ...providerBlockIdentity("main-prose"),
           sequence: 1,
           kind: "prose" as const,
           timestamp: "2026-07-02T10:00:00.000Z",
@@ -258,6 +328,7 @@ describe("parent agent transcript paging", () => {
         agentTaskId: "planner-thread",
         blocks: [{
           id: "initial-plan",
+          ...providerBlockIdentity("initial-plan", { attemptId: "attempt-initial", threadId: "planner-thread", turnId: "turn-initial" }),
           sequence: 1,
           kind: "prose" as const,
           source: "provider" as const,
@@ -274,6 +345,7 @@ describe("parent agent transcript paging", () => {
         agentTaskId: "planner-thread",
         blocks: [{
           id: "revised-plan",
+          ...providerBlockIdentity("revised-plan", { attemptId: "attempt-revision", threadId: "planner-thread", turnId: "turn-revision" }),
           sequence: 1,
           kind: "prose" as const,
           source: "provider" as const,
@@ -306,6 +378,7 @@ describe("parent agent transcript paging", () => {
       agentRoleId: "coder-agent",
       blocks: [{
         id: `coder-prose-${index + 1}`,
+        ...providerBlockIdentity(`coder-prose-${index + 1}`, { attemptId: `attempt-coder-${index + 1}`, threadId, turnId: `turn-coder-${index + 1}` }),
         sequence: 1,
         kind: "prose" as const,
         source: "provider" as const,
@@ -328,6 +401,7 @@ describe("parent agent transcript paging", () => {
         label: "AI",
         blocks: [{
           id: "main-leak-block",
+          ...providerBlockIdentity("main-leak-block"),
           sequence: 1,
           kind: "prose" as const,
           source: "provider" as const,
@@ -348,6 +422,7 @@ describe("parent agent transcript paging", () => {
         label: "AI",
         blocks: [{
           id: "persisted-main-leak-block",
+          ...providerBlockIdentity("persisted-main-leak-block"),
           sequence: 1,
           kind: "prose" as const,
           source: "provider" as const,
@@ -391,6 +466,7 @@ describe("parent agent transcript paging", () => {
         label: "AI",
         blocks: [{
           id: "main-delegation-leak-block",
+          ...providerBlockIdentity("main-delegation-leak-block"),
           sequence: 1,
           kind: "prose" as const,
           source: "provider" as const,
@@ -537,6 +613,7 @@ function syntheticThreadItems(count: number) {
       timestamp,
       blocks: [{
         id: `block-${index}`,
+        ...providerBlockIdentity(`block-${index}`, { attemptId: `attempt-${index}`, turnId: `turn-${index}` }),
         sequence: index,
         kind: "prose" as const,
         timestamp,

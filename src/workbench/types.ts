@@ -232,7 +232,8 @@ export interface WorkbenchLiveToolEvent {
   status?: string;
 }
 
-export interface WorkbenchAssistantEvent extends ProviderReadableEvent {
+export interface WorkbenchAssistantEvent extends Omit<ProviderReadableEvent, "itemId"> {
+  itemId?: string;
   runId: string;
   providerId?: ProviderId;
   attemptId?: string;

@@ -11,6 +11,7 @@ import { acceptCurrentConversationPlanningPackage, writePlannerChildProposal } f
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import { startOrResumeTaskQueue } from "../../src/task-queue/manager.js";
 import { issueLocalExecutionAuthorization, readExecutionAuthorization } from "../../src/workflow-runtime/execution-authorization.js";
+import { bindProviderThreadFixture } from "../helpers/provider-thread-fixture.js";
 
 let root: string;
 
@@ -29,8 +30,8 @@ describe("conversation planner-child package acceptance", () => {
     try {
       const oldScope = store.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? "";
       store.acceptConversationChangeBinding(project().id, conversation.conversationId, "old-change", new Date().toISOString(), "duplicate-commit", "hash-old");
-      store.writeProviderThread({ projectId: project().id, conversationId: conversation.conversationId, providerId: "codex", providerThreadId: "parent-atomic", roleId: "main-agent", parentThreadId: null, changeId: "old-change", graphScopeId: oldScope, capabilityProfile: "main-agent-goal-v1", updatedAt: new Date().toISOString() });
-      store.writeProviderThread({ projectId: project().id, conversationId: conversation.conversationId, providerId: "codex", providerThreadId: "child-atomic", roleId: "planning-agent", parentThreadId: "parent-atomic", changeId: "old-change", graphScopeId: oldScope, capabilityProfile: "planner-child-v1", runId: "run-atomic", updatedAt: new Date().toISOString() });
+      bindProviderThreadFixture(store, { projectId: project().id, conversationId: conversation.conversationId, providerId: "codex", providerThreadId: "parent-atomic", roleId: "main-agent", parentThreadId: null, changeId: "old-change", graphScopeId: oldScope, capabilityProfile: "main-agent-goal-v1", updatedAt: new Date().toISOString() });
+      bindProviderThreadFixture(store, { projectId: project().id, conversationId: conversation.conversationId, providerId: "codex", providerThreadId: "child-atomic", roleId: "planning-agent", parentThreadId: "parent-atomic", changeId: "old-change", graphScopeId: oldScope, capabilityProfile: "planner-child-v1", runId: "run-atomic", updatedAt: new Date().toISOString() });
 
       expect(() => store.acceptConversationChangeBinding(
         project().id,
@@ -76,7 +77,7 @@ describe("conversation planner-child package acceptance", () => {
     const memory = await resolveProjectMemory(project());
     const proposal = await proposalFor(memory.workbenchRoot, conversation.conversationId, "Return ok.");
     const beforeAcceptance = await WorkbenchStore.open(memory);
-    beforeAcceptance.writeProviderThread({
+    bindProviderThreadFixture(beforeAcceptance, {
       projectId: project().id,
       conversationId: conversation.conversationId,
       providerId: "codex",
@@ -323,8 +324,8 @@ async function proposalFor(workbenchRoot: string, conversationId: string, prompt
   const now = new Date().toISOString();
   try {
     const graphScopeId = store.readConversation(project().id, conversationId)?.currentGraphScopeId ?? null;
-    store.writeProviderThread({ projectId: project().id, conversationId, providerId, providerThreadId: "parent-1", roleId: "main-agent", parentThreadId: null, changeId: null, graphScopeId, capabilityProfile: "main-agent-goal-v1", updatedAt: now });
-    store.writeProviderThread({ projectId: project().id, conversationId, providerId, providerThreadId: childThreadId, roleId: "planning-agent", parentThreadId: "parent-1", changeId: null, graphScopeId, capabilityProfile: "planner-child-v1", updatedAt: now });
+    bindProviderThreadFixture(store, { projectId: project().id, conversationId, providerId, providerThreadId: "parent-1", roleId: "main-agent", parentThreadId: null, changeId: null, graphScopeId, capabilityProfile: "main-agent-goal-v1", updatedAt: now });
+    bindProviderThreadFixture(store, { projectId: project().id, conversationId, providerId, providerThreadId: childThreadId, roleId: "planning-agent", parentThreadId: "parent-1", changeId: null, graphScopeId, capabilityProfile: "planner-child-v1", updatedAt: now });
     store.appendMessage({
       id: `assistant:${conversationId}:${runId}:${childThreadId}`,
       projectId: project().id,

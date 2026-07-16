@@ -7,7 +7,7 @@ import { buildParentAgentTranscript, providerInteractionHistory, type ParentAgen
 import { buildConversationInteractionQueue } from "../../conversation-interactions.js";
 import { buildConversationInteractionAttention } from "../../conversation-interactions.js";
 import { deleteConversation, hideConversation } from "../../conversation-thread.js";
-import { WorkbenchStore, type StoredProviderThreadLink } from "../../store.js";
+import { WorkbenchStore, type StoredProviderAttempt, type StoredProviderThreadLink } from "../../store.js";
 import { readConversationThreadPage, type ConversationThreadPageOptions } from "../../conversation-thread-log.js";
 import { summarizeRunArtifacts } from "../artifact-preview.js";
 import { buildThreadStreamFromMessages, readRunEvents } from "./thread-stream.js";
@@ -261,10 +261,9 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
       confirmationQueue,
       agentWorkspace: buildAgentWorkspace({
         selectedTopic,
-        workpad,
         providerThreads,
+        providerAttempts: await readProviderAttempts(memory, providerThreads.map((link) => link.conversationId)),
         graphScopeId: graphContext?.graphScopeId,
-        includeExecution: Boolean(graphContext?.changeId),
       }),
     },
     roles,
@@ -351,10 +350,9 @@ export async function getWorkbenchAgentRelationGraphProjection(input: WorkbenchP
   ]);
   const agentWorkspace = buildAgentWorkspace({
     selectedTopic,
-    workpad,
     providerThreads,
+    providerAttempts: await readProviderAttempts(memory, providerThreads.map((link) => link.conversationId)),
     graphScopeId: graphContext?.graphScopeId,
-    includeExecution: Boolean(graphContext?.changeId),
   });
   const interactionAttention = await buildConversationInteractionAttention(memory, selectedTopic.id, graphContext?.graphScopeId);
   return buildAgentRelationGraph({
@@ -424,6 +422,17 @@ async function readProviderThreads(memory: ResolvedMemory, conversationIds: stri
   try {
     const ids = [...new Set(Array.isArray(conversationIds) ? conversationIds : [conversationIds])];
     return ids.flatMap((conversationId) => store.listProviderThreads(memory.projectId!, conversationId));
+  } finally {
+    store.close();
+  }
+}
+
+async function readProviderAttempts(memory: ResolvedMemory, conversationIds: string | string[]): Promise<StoredProviderAttempt[]> {
+  if (!memory.projectId) return [];
+  const store = await WorkbenchStore.open(memory);
+  try {
+    const ids = [...new Set(Array.isArray(conversationIds) ? conversationIds : [conversationIds])];
+    return ids.flatMap((conversationId) => store.listProviderAttempts(memory.projectId!, conversationId));
   } finally {
     store.close();
   }
