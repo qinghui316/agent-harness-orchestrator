@@ -83,7 +83,6 @@ function renderConversation(cellCount: number): void {
       <MainConversationView
         transcript={transcript}
         scrollContainerRef={scrollRef}
-        onLoadEarlierTranscript={async () => {}}
         loadingEarlierTranscript={false}
         onOpenAgent={() => {}}
       />

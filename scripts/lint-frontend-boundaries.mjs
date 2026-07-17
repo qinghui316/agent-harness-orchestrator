@@ -12,8 +12,24 @@ const violations = [];
 const timelineProtocolOwners = new Set([
   "src/web/src/canonicalTimelineController.ts",
   "src/web/src/canonicalTimelineStore.ts",
+  "src/web/src/workbenchProjectionStream.ts",
   "src/web/src/types.ts",
 ]);
+const projectionStreamOwner = "src/web/src/workbenchProjectionStream.ts";
+const workspaceResourceOwner = "src/web/src/controllers/useWorkspaceResourceController.ts";
+const appShellOwner = "src/web/src/App.tsx";
+const appForbiddenDomainAccess = [
+  "consumeWorkbenchLiveStream",
+  "postJson",
+  "/workbench/topics/live",
+  "/messages/live",
+  "/workbench/projections/agent-graph/",
+  "/workspace-resources/resolve",
+  "/providers/capabilities",
+  "/providers/",
+  "/skills",
+  "/attachments",
+];
 const retiredSymbols = [
   "conversationTranscripts",
   "parentAgentTranscript",
@@ -48,6 +64,24 @@ for (const file of webFiles) {
     && /workbench\/conversations\/[^\s"'`]+\/timeline/.test(content)) {
     violations.push(`${relativePath}: Timeline HTTP requests belong to canonicalTimelineController`);
   }
+  if (relativePath !== projectionStreamOwner && content.includes("/workbench/events/live")) {
+    violations.push(`${relativePath}: project EventSource belongs to workbenchProjectionStream`);
+  }
+  if (relativePath !== workspaceResourceOwner && content.includes("/workspace-resources/resolve")) {
+    violations.push(`${relativePath}: resource resolution belongs to useWorkspaceResourceController`);
+  }
+  if (relativePath === appShellOwner) {
+    for (const symbol of appForbiddenDomainAccess) {
+      if (content.includes(symbol)) violations.push(`${relativePath}: migrated domain access ${symbol} does not belong in the App shell`);
+    }
+  }
+}
+
+try {
+  await readFile(resolve(root, "tests/unit/web-app.test.tsx"), "utf8");
+  violations.push("tests/unit/web-app.test.tsx: retired giant App test must not return");
+} catch (cause) {
+  if (cause?.code !== "ENOENT") throw cause;
 }
 
 for (const file of sourceFiles) {

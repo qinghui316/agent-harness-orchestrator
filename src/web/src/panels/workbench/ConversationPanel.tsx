@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactElement, type RefObject } from "react";
+import type { ReactElement, RefObject } from "react";
 import { AgentOrchestrationMap } from "./AgentOrchestrationMap.js";
 import { TranscriptCellVirtualList } from "./TranscriptCellVirtualList.js";
 import { ParentAgentTranscriptCellView } from "./TranscriptReadingSurface.js";
@@ -16,33 +16,30 @@ import type {
 export function MainConversationView({
   transcript,
   scrollContainerRef,
-  onLoadEarlierTranscript,
   loadingEarlierTranscript,
   onOpenAgent,
   onOpenDocument,
-  projectId,
-  conversationId,
+  documentResources,
+  onEnsureDocument,
 }: {
   transcript: ParentAgentTranscript;
   scrollContainerRef: RefObject<HTMLDivElement | null>;
-  onLoadEarlierTranscript: () => Promise<void>;
   loadingEarlierTranscript: boolean;
   onOpenAgent: (agentSurfaceId: string) => void;
   onOpenDocument: (document: import("../../types.js").CanonicalDocumentReference) => void;
-  projectId: string | null;
-  conversationId: string | null;
+  documentResources: Record<string, import("../../types.js").TextDocumentResource>;
+  onEnsureDocument: (document: import("../../types.js").CanonicalDocumentReference) => void;
 }): ReactElement {
   return (
     <div className="main-conversation-view" data-testid="main-conversation-view">
       <ParentAgentTranscriptView
         transcript={transcript}
         scrollContainerRef={scrollContainerRef}
-        onLoadEarlierTranscript={onLoadEarlierTranscript}
         loadingEarlierTranscript={loadingEarlierTranscript}
         onOpenAgent={onOpenAgent}
         onOpenDocument={onOpenDocument}
-        projectId={projectId}
-        conversationId={conversationId}
+        documentResources={documentResources}
+        onEnsureDocument={onEnsureDocument}
       />
     </div>
   );
@@ -51,41 +48,21 @@ export function MainConversationView({
 function ParentAgentTranscriptView({
   transcript,
   scrollContainerRef,
-  onLoadEarlierTranscript,
   loadingEarlierTranscript,
   onOpenAgent,
   onOpenDocument,
-  projectId,
-  conversationId,
+  documentResources,
+  onEnsureDocument,
 }: {
   transcript: ParentAgentTranscript;
   scrollContainerRef: RefObject<HTMLDivElement | null>;
-  onLoadEarlierTranscript: () => Promise<void>;
   loadingEarlierTranscript: boolean;
   onOpenAgent: (agentSurfaceId: string) => void;
   onOpenDocument: (document: import("../../types.js").CanonicalDocumentReference) => void;
-  projectId: string | null;
-  conversationId: string | null;
+  documentResources: Record<string, import("../../types.js").TextDocumentResource>;
+  onEnsureDocument: (document: import("../../types.js").CanonicalDocumentReference) => void;
 }): ReactElement {
   const cells = transcript.cells?.length ? transcript.cells.filter((cell) => cell.kind !== "detail-only") : [];
-  const loadingEarlierRef = useRef(false);
-  const [scrollTop] = useStateFromScrollContainer(scrollContainerRef);
-
-  useEffect(() => {
-    const node = scrollContainerRef.current;
-    if (!node || loadingEarlierTranscript || loadingEarlierRef.current) return;
-    if (!transcript.paging?.hasMoreBefore) return;
-    if (scrollTop > 260) return;
-    loadingEarlierRef.current = true;
-    const previousScrollHeight = node.scrollHeight;
-    void onLoadEarlierTranscript().finally(() => {
-      requestAnimationFrame(() => {
-        const current = scrollContainerRef.current;
-        if (current) current.scrollTop += Math.max(0, current.scrollHeight - previousScrollHeight);
-        loadingEarlierRef.current = false;
-      });
-    });
-  }, [loadingEarlierTranscript, onLoadEarlierTranscript, scrollContainerRef, scrollTop, transcript.paging?.hasMoreBefore]);
 
   return (
     <div className="parent-agent-transcript" data-testid="parent-agent-transcript">
@@ -108,8 +85,8 @@ function ParentAgentTranscriptView({
             onToggleExpanded={onToggleExpanded}
             onOpenAgent={onOpenAgent}
             onOpenDocument={onOpenDocument}
-            projectId={projectId}
-            conversationId={conversationId}
+            documentResources={documentResources}
+            onEnsureDocument={onEnsureDocument}
           />
         )}
       />
@@ -140,19 +117,6 @@ export function AgentRelationGraphPanel({
       </div>
     </div>
   );
-}
-
-function useStateFromScrollContainer(scrollContainerRef: RefObject<HTMLDivElement | null>): [number] {
-  const [scrollTop, setScrollTop] = useState(0);
-  useEffect(() => {
-    const node = scrollContainerRef.current;
-    if (!node) return;
-    const update = () => setScrollTop(node.scrollTop);
-    update();
-    node.addEventListener("scroll", update);
-    return () => node.removeEventListener("scroll", update);
-  }, [scrollContainerRef]);
-  return [scrollTop];
 }
 
 export function BottomStatusBar({ snapshot, project, topic }: { snapshot: Snapshot; project: ProjectStatus | null; topic: TopicDetail | null }): ReactElement {

@@ -6,17 +6,27 @@ import {
   createCanonicalTimelineState,
   type CanonicalTimelineRequestKind,
 } from "./canonicalTimelineStore.js";
-import type { CanonicalTimelinePage, CanonicalTimelineScope, WorkbenchLiveEvent, WorkspaceResourceTab } from "./types.js";
+import type { CanonicalTimelineEnvelope, CanonicalTimelinePage, CanonicalTimelineScope } from "./types.js";
+
+export type CanonicalTimelineReconnectCandidate = {
+  target: {
+    kind: string;
+    conversationId?: string;
+    agentSurfaceId?: string;
+  };
+};
 
 export function canonicalTimelineReconnectScopes(
   projectId: string,
   conversationId: string,
-  tabs: WorkspaceResourceTab[],
+  candidates: readonly CanonicalTimelineReconnectCandidate[],
 ): CanonicalTimelineScope[] {
   const surfaceIds = new Set(["main-agent"]);
-  for (const tab of tabs) {
-    if (tab.target.kind === "agent" && tab.target.conversationId === conversationId) {
-      surfaceIds.add(tab.target.agentSurfaceId);
+  for (const candidate of candidates) {
+    if (candidate.target.kind === "agent"
+      && candidate.target.conversationId === conversationId
+      && candidate.target.agentSurfaceId) {
+      surfaceIds.add(candidate.target.agentSurfaceId);
     }
   }
   return [...surfaceIds].map((agentSurfaceId) => ({ projectId, conversationId, agentSurfaceId }));
@@ -53,17 +63,8 @@ export function useCanonicalTimelineController(onError: (message: string) => voi
   const loadEarlier = useCallback((scope: CanonicalTimelineScope, beforeCursor: string) => (
     load(scope, "before", beforeCursor)
   ), [load]);
-  const ingestLiveEvent = useCallback((projectId: string, event: WorkbenchLiveEvent): {
-    handled: boolean;
-    refreshAgentProjection: boolean;
-  } => {
-    if (event.event !== "timeline.patch") return { handled: false, refreshAgentProjection: false };
-    dispatch({ type: "envelope.received", projectId, envelope: event.data });
-    return {
-      handled: true,
-      refreshAgentProjection: event.data.agentSurfaceId !== "main-agent"
-        || event.data.cells.some((cell) => cell.targetAgentSurfaceId),
-    };
+  const ingestEnvelope = useCallback((projectId: string, envelope: CanonicalTimelineEnvelope): void => {
+    dispatch({ type: "envelope.received", projectId, envelope });
   }, []);
   const clearProject = useCallback((projectId: string) => {
     dispatch({ type: "project.cleaned", projectId });
@@ -72,5 +73,5 @@ export function useCanonicalTimelineController(onError: (message: string) => voi
     dispatch({ type: "conversation.cleaned", projectId, conversationId });
   }, []);
 
-  return { state, loadLatest, loadEarlier, ingestLiveEvent, clearProject, clearConversation };
+  return { state, loadLatest, loadEarlier, ingestEnvelope, clearProject, clearConversation };
 }

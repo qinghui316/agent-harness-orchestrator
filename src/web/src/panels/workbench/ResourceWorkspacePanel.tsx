@@ -1,15 +1,8 @@
 import { Bot, ChevronLeft, FileText, Send, X } from "lucide-react";
-import { useEffect, useRef, useState, type ReactElement } from "react";
+import { useRef, type ReactElement } from "react";
 import { AgentTranscriptPane, TranscriptMarkdownLite } from "./TranscriptReadingSurface.js";
-import type { AgentWorkspace, AgentWorkspaceAgent, ParentAgentTranscript, TextDocumentResource, WorkspaceResourceTab, WorkspaceResourceTarget } from "../../types.js";
-
-export function projectFileResourceTabs(tabs: WorkspaceResourceTab[]): WorkspaceResourceTab[] {
-  return tabs.filter((tab) => tab.target.kind === "project-file");
-}
-
-export function workspaceResourceRequestScope(projectId: string, conversationId: string, target: WorkspaceResourceTarget): string {
-  return target.kind === "project-file" ? `project:${projectId}` : `conversation:${projectId}:${conversationId}`;
-}
+import type { AgentWorkspace, AgentWorkspaceAgent, ParentAgentTranscript, TextDocumentResource, WorkspaceResourceTab } from "../../types.js";
+import { agentDraftKey } from "../../controllers/useWorkspaceResourceController.js";
 
 export function ResourceWorkspacePanel({
   workspace,
@@ -23,7 +16,10 @@ export function ResourceWorkspacePanel({
   onSelectResource,
   onCloseResource,
   onBack,
-  onSendAgentMessage,
+  agentDrafts,
+  pendingAgentMessages,
+  onAgentDraftChange,
+  onSubmitAgentMessage,
   onLoadEarlierAgentTranscript,
   providerDisplayName,
   modelLabel,
@@ -40,14 +36,15 @@ export function ResourceWorkspacePanel({
   onSelectResource: (resourceId: string) => void;
   onCloseResource: (resourceId: string) => void;
   onBack: () => void;
-  onSendAgentMessage: (agent: AgentWorkspaceAgent, message: string) => Promise<void>;
+  agentDrafts: Record<string, string>;
+  pendingAgentMessages: Record<string, string>;
+  onAgentDraftChange: (agentSurfaceId: string, value: string) => void;
+  onSubmitAgentMessage: (agent: AgentWorkspaceAgent) => Promise<void>;
   onLoadEarlierAgentTranscript: (agentSurfaceId: string, cursor: string) => Promise<void>;
   providerDisplayName?: string;
   modelLabel: string;
   onOpenModelSettings?: () => void;
 }): ReactElement {
-  const [agentDrafts, setAgentDrafts] = useState<Record<string, string>>({});
-  const [pendingAgentMessages, setPendingAgentMessages] = useState<Record<string, string>>({});
   const availableTabs = tabs.filter((tab) => {
     const target = tab.target;
     return target.kind !== "agent" || workspace.agents.some((agent) => (
@@ -66,13 +63,6 @@ export function ResourceWorkspacePanel({
   const mountedAgentTranscript = mountedAgent ? agentTranscripts[mountedAgent.id] : undefined;
   const cells = (mountedAgentTranscript?.cells ?? []).filter((cell) => cell.kind !== "detail-only");
   const mountedAgentKey = mountedAgent ? agentDraftKey(conversationId, mountedAgent.id) : null;
-  useEffect(() => {
-    const retainedKeys = new Set(availableTabs.flatMap((tab) => tab.target.kind === "agent"
-      ? [agentDraftKey(conversationId, tab.target.agentSurfaceId)]
-      : []));
-    setAgentDrafts((current) => retainKeys(current, retainedKeys));
-    setPendingAgentMessages((current) => retainKeys(current, retainedKeys));
-  }, [conversationId, tabs]);
   return (
     <div className="agent-workspace-panel resource-workspace-panel" data-testid="agent-workspace-panel" data-resource-workspace="true">
       <div className="agent-workspace-tabbar">
@@ -114,28 +104,11 @@ export function ResourceWorkspacePanel({
           agent={mountedAgent}
           value={mountedAgentKey ? agentDrafts[mountedAgentKey] ?? "" : ""}
           pending={mountedAgentKey ? pendingAgentMessages[mountedAgentKey] ?? null : null}
-          onValueChange={(value) => {
-            if (!mountedAgentKey) return;
-            setAgentDrafts((current) => ({ ...current, [mountedAgentKey]: value }));
-          }}
-          onRestoreValue={(value) => {
-            if (!mountedAgentKey) return;
-            setAgentDrafts((current) => current[mountedAgentKey]
-              ? current
-              : { ...current, [mountedAgentKey]: value });
-          }}
-          onPendingChange={(pending, expectedPendingId) => {
-            if (!mountedAgentKey) return;
-            setPendingAgentMessages((current) => {
-              if (pending) return { ...current, [mountedAgentKey]: pending };
-              if (expectedPendingId && current[mountedAgentKey] !== expectedPendingId) return current;
-              return withoutKey(current, mountedAgentKey);
-            });
-          }}
+          onValueChange={(value) => onAgentDraftChange(mountedAgent.id, value)}
+          onSubmit={() => onSubmitAgentMessage(mountedAgent)}
           providerDisplayName={mountedAgent.providerDisplayName ?? providerDisplayName}
           modelLabel={modelLabel}
           onOpenModelSettings={onOpenModelSettings}
-          onSendAgentMessage={onSendAgentMessage}
         />
       </section> : null}
       {selectedTab && selectedTab.target.kind !== "agent" ? (
@@ -185,39 +158,22 @@ function AgentWorkspaceRuntimeStrip({ providerDisplayName = "Agent Provider", mo
   );
 }
 
-function AgentWorkspaceComposer({ agent, value, pending, onValueChange, onRestoreValue, onPendingChange, providerDisplayName, modelLabel, onOpenModelSettings, onSendAgentMessage }: {
+function AgentWorkspaceComposer({ agent, value, pending, onValueChange, onSubmit, providerDisplayName, modelLabel, onOpenModelSettings }: {
   agent: AgentWorkspaceAgent;
   value: string;
   pending: string | null;
   onValueChange: (value: string) => void;
-  onRestoreValue: (value: string) => void;
-  onPendingChange: (pending: string | null, expectedPendingId?: string) => void;
+  onSubmit: () => Promise<void>;
   providerDisplayName?: string;
   modelLabel: string;
   onOpenModelSettings?: () => void;
-  onSendAgentMessage: (agent: AgentWorkspaceAgent, message: string) => Promise<void>;
 }): ReactElement {
   const text = value.trim();
   const canInteract = agent.roleId === "planning-agent";
   const submitDisabled = pending !== null || !canInteract || !text;
   async function submit(): Promise<void> {
     if (submitDisabled) return;
-    const message = text;
-    const pendingId = `agent-message:${agent.id}:${Date.now()}`;
-    onPendingChange(pendingId);
-    onValueChange("");
-    const releasePending = globalThis.setTimeout(() => {
-      onPendingChange(null, pendingId);
-    }, 1200);
-    try {
-      await onSendAgentMessage(agent, message);
-    } catch (error) {
-      onRestoreValue(message);
-      throw error;
-    } finally {
-      globalThis.clearTimeout(releasePending);
-      onPendingChange(null, pendingId);
-    }
+    await onSubmit();
   }
   return (
     <div className="topic-composer agent-workspace-composer" data-testid="agent-workspace-composer" aria-label={`${agent.label} 输入框`}>
@@ -229,22 +185,6 @@ function AgentWorkspaceComposer({ agent, value, pending, onValueChange, onRestor
       </div>
     </div>
   );
-}
-
-function agentDraftKey(conversationId: string, agentSurfaceId: string): string {
-  return `${conversationId}\u0000${agentSurfaceId}`;
-}
-
-function retainKeys(values: Record<string, string>, retained: Set<string>): Record<string, string> {
-  const entries = Object.entries(values).filter(([key]) => retained.has(key));
-  return entries.length === Object.keys(values).length ? values : Object.fromEntries(entries);
-}
-
-function withoutKey(values: Record<string, string>, key: string): Record<string, string> {
-  if (!(key in values)) return values;
-  const next = { ...values };
-  delete next[key];
-  return next;
 }
 
 function fileName(relativePath: string): string {

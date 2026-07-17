@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from "react";
 import { ArrowUpRight, Bot, Brain, CheckCircle2, FilePenLine, FileText, LoaderCircle, Search, Terminal, Wrench } from "lucide-react";
-import { postJson } from "../../api.js";
 import { artifactName } from "./RunReplayPanel.js";
 import { formatTime, humanStatus } from "../../formatters.js";
 import { cleanTranscriptText, cleanTranscriptTitle } from "./transcriptDisplay.js";
@@ -34,14 +33,14 @@ export function AgentTranscriptPane({ cells, emptyMessage = "暂无 Agent 消息
   );
 }
 
-export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded, onOpenAgent, onOpenDocument, projectId, conversationId }: {
+export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded, onOpenAgent, onOpenDocument, documentResources, onEnsureDocument }: {
   cell: ParentAgentTranscriptCell;
   expanded: boolean;
   onToggleExpanded: () => void;
   onOpenAgent?: (agentSurfaceId: string) => void;
   onOpenDocument?: (document: CanonicalDocumentReference) => void;
-  projectId?: string | null;
-  conversationId?: string | null;
+  documentResources?: Record<string, TextDocumentResource>;
+  onEnsureDocument?: (document: CanonicalDocumentReference) => void;
 }): ReactElement {
   const isUser = cell.kind === "user-message";
   const rowKind = isUser ? "user" : "parent";
@@ -65,8 +64,8 @@ export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded
         ) : cell.kind === "document-preview" && cell.documentRef ? (
           <PlanDocumentPreview
             document={cell.documentRef}
-            projectId={projectId}
-            conversationId={conversationId}
+            resource={documentResources?.[cell.documentRef.documentId] ?? null}
+            onEnsure={() => onEnsureDocument?.(cell.documentRef!)}
             onOpen={() => onOpenDocument?.(cell.documentRef!)}
           />
         ) : (
@@ -199,25 +198,15 @@ export function TranscriptActivityRow({ cell, expanded, onToggleExpanded, onOpen
   );
 }
 
-function PlanDocumentPreview({ document, projectId, conversationId, onOpen }: {
+function PlanDocumentPreview({ document, resource, onEnsure, onOpen }: {
   document: CanonicalDocumentReference;
-  projectId?: string | null;
-  conversationId?: string | null;
+  resource: TextDocumentResource | null;
+  onEnsure: () => void;
   onOpen: () => void;
 }): ReactElement {
-  const [resource, setResource] = useState<TextDocumentResource | null>(null);
   useEffect(() => {
-    let active = true;
-    if (!projectId || !conversationId) return () => { active = false; };
-    void postJson<TextDocumentResource>(`/api/projects/${encodeURIComponent(projectId)}/workspace-resources/resolve`, {
-      target: { kind: "document", conversationId, documentId: document.documentId },
-    }).then((result) => {
-      if (active) setResource(result);
-    }).catch(() => {
-      if (active) setResource(null);
-    });
-    return () => { active = false; };
-  }, [conversationId, document.documentId, projectId]);
+    if (!resource) onEnsure();
+  }, [document.documentId, onEnsure, resource]);
   return (
     <button type="button" className="plan-document-preview" data-testid="plan-document-preview" onClick={onOpen}>
       <span className="plan-document-preview-heading"><FileText size={16} aria-hidden="true" /><span>{document.title}</span><ArrowUpRight size={14} aria-hidden="true" /></span>

@@ -25,8 +25,8 @@ describe("Agent conversation surfaces", () => {
   });
 
   it("keeps same-role provider threads in separate closeable tabs", () => {
-    const first = agent("thread:coder-1", "thread-coder-1", "Coder Agent 1", "Coder one result");
-    const second = agent("thread:coder-2", "thread-coder-2", "Coder Agent 2", "Coder two result");
+    const first = agent("agent:codex:thread:coder-1", "thread-coder-1", "Coder Agent 1", "Coder one result");
+    const second = agent("agent:codex:thread:coder-2", "thread-coder-2", "Coder Agent 2", "Coder two result");
     const onSelect = vi.fn();
     const onClose = vi.fn();
     const onBack = vi.fn();
@@ -48,7 +48,10 @@ describe("Agent conversation surfaces", () => {
       onSelectResource={onSelect}
       onCloseResource={onClose}
       onBack={onBack}
-      onSendAgentMessage={async () => undefined}
+      agentDrafts={{}}
+      pendingAgentMessages={{}}
+      onAgentDraftChange={vi.fn()}
+      onSubmitAgentMessage={async () => undefined}
       onLoadEarlierAgentTranscript={async () => undefined}
       providerDisplayName="Claude Code"
       modelLabel="default"

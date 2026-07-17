@@ -7,6 +7,6 @@ export { ProjectGitPanel } from "./workbench/ProjectGitPanel.js";
 export { GitDiffViewer } from "./workbench/GitDiffViewer.js";
 export { RuntimeDiagnosticsRailPanel } from "./workbench/RuntimeDiagnosticsDock.js";
 export { RuntimeActivityLogPanel } from "./workbench/RuntimeActivityLogPanel.js";
-export { ResourceWorkspacePanel, projectFileResourceTabs, workspaceResourceRequestScope } from "./workbench/ResourceWorkspacePanel.js";
+export { ResourceWorkspacePanel } from "./workbench/ResourceWorkspacePanel.js";
 export { TerminalDock, WorkspaceDockToggleBar, type TerminalTab } from "./workbench/TerminalDock.js";
 export { WorkpadView } from "./workbench/WorkpadPanel.js";
