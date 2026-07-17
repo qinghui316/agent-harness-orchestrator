@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { buildInitialProjectAgentEvents } from "../../src/server/workbench/project-live-events.js";
+import { createLiveSink } from "../../src/server/workbench/live.js";
 import { publishProjectLiveEvent, subscribeProjectLiveEvents } from "../../src/workbench/project-live-events.js";
 import type { AgentTask } from "../../src/types/index.js";
 import type { WorkbenchAgentWorkspaceAgent } from "../../src/workbench/read-model-types.js";
+import type { WorkbenchLiveEvent } from "../../src/workbench/types.js";
 
 describe("project live Agent events", () => {
   it("fans out background events by project without persisting a second event truth", () => {
@@ -44,11 +46,11 @@ describe("project live Agent events", () => {
       id: "run:maintenance-run-5",
       roleId: "memory-maintenance-agent",
       runId: "maintenance-run-5",
+      agentTaskId: "maintenance-5",
       providerDisplayName: "Sagan",
       label: "Maintenance Agent · Sagan",
       status: "running",
       summary: "",
-      transcript: { title: "Maintenance Agent", cells: [{ id: "task:maintenance-5", kind: "process-row", source: "aho-orchestration", text: "" }], items: [] },
       evidenceRefs: [],
       actions: [],
     } as WorkbenchAgentWorkspaceAgent;
@@ -65,5 +67,32 @@ describe("project live Agent events", () => {
         agentDisplayName: "Sagan",
       },
     });
+  });
+
+  it("publishes the same canonical envelope after the request SSE disconnects", () => {
+    const projectSubscriber = vi.fn();
+    const unsubscribe = subscribeProjectLiveEvents("repo", projectSubscriber);
+    const requestSend = vi.fn();
+    const sink = createLiveSink({ closed: true, send: requestSend } as never, "repo");
+    const patch = {
+      event: "timeline.patch",
+      data: {
+        conversationId: "conversation-1",
+        agentSurfaceId: "main-agent",
+        messageId: "message-1",
+        position: 1,
+        revision: 2,
+        orderClass: "sequence",
+        cells: [],
+      },
+    } satisfies WorkbenchLiveEvent;
+
+    sink.emit(patch);
+    sink.emit({ event: "done", data: { status: "completed" } });
+
+    expect(projectSubscriber).toHaveBeenCalledTimes(1);
+    expect(projectSubscriber).toHaveBeenCalledWith(patch);
+    expect(requestSend).not.toHaveBeenCalled();
+    unsubscribe();
   });
 });

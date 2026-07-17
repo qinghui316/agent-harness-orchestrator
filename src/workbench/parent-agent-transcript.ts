@@ -81,20 +81,6 @@ export interface ParentAgentTranscriptPaging {
   nextBeforeCursor?: string;
 }
 
-export interface ParentAgentTranscriptPageOptions {
-  beforeCursor?: string;
-  limit?: number;
-}
-
-const DEFAULT_TRANSCRIPT_PAGE_LIMIT = 100;
-const MAX_TRANSCRIPT_PAGE_LIMIT = 500;
-
-interface TranscriptWorkpadInput {
-  conversationId?: string;
-  boundChangeId?: string;
-  title: string;
-}
-
 interface TranscriptThreadItemInput {
   id: string;
   kind: string;
@@ -120,71 +106,6 @@ interface TranscriptThreadItemInput {
   contextRefs?: TopicFileReference[];
   attachments?: TopicAttachment[];
   providerUserInput?: WorkbenchProviderUserInputRequest;
-}
-
-export function buildParentAgentTranscript(input: {
-  workpad: TranscriptWorkpadInput;
-  threadItems: TranscriptThreadItemInput[];
-}): ParentAgentTranscript {
-  const cells = normalizeCellEvidenceRefs(input.threadItems
-    .filter(shouldShowInParentTranscript)
-    .flatMap((item) => canonicalTranscriptCellsFromThreadItem(item, { parentVisible: true })));
-  return {
-    conversationId: input.workpad.conversationId,
-    changeId: input.workpad.boundChangeId,
-    title: cleanPrimaryText(input.workpad.title) || "需求对话",
-    cells,
-    items: transcriptItemsFromCells(cells),
-    emptyMessage: "暂无对话内容。输入需求后，主 agent 会在这里持续回复。",
-  };
-}
-
-export function buildAgentScopedTranscriptCells(
-  threadItems: TranscriptThreadItemInput[],
-  scope: { agentRoleId: string; threadId?: string; runId?: string },
-): ParentAgentTranscriptCell[] {
-  return normalizeCellEvidenceRefs(threadItems
-    .filter((item) => (scope.threadId ? item.threadId === scope.threadId : item.agentRoleId === scope.agentRoleId)
-      && (!scope.runId || item.runId === scope.runId))
-    .flatMap((item) => canonicalTranscriptCellsFromThreadItem(item, { forceAgentRoleId: scope.agentRoleId })))
-    .sort((left, right) => Number(Boolean(right.initialThreadInput)) - Number(Boolean(left.initialThreadInput)));
-}
-
-export function pageParentAgentTranscript(
-  transcript: ParentAgentTranscript,
-  options: ParentAgentTranscriptPageOptions = {},
-): ParentAgentTranscript {
-  const limit = normalizeTranscriptPageLimit(options.limit);
-  const displayCells = transcript.cells.filter((cell) => cell.kind !== "detail-only");
-  const beforeIndex = options.beforeCursor
-    ? displayCells.findIndex((cell) => cell.id === options.beforeCursor)
-    : -1;
-  const endExclusive = beforeIndex >= 0 ? beforeIndex : displayCells.length;
-  const start = Math.max(0, endExclusive - limit);
-  const cells = displayCells.slice(start, endExclusive);
-  const hasMoreBefore = start > 0;
-  return {
-    ...transcript,
-    cells,
-    items: transcriptItemsFromCells(cells),
-    paging: {
-      limit,
-      totalCount: displayCells.length,
-      hasMoreBefore,
-      nextBeforeCursor: hasMoreBefore ? cells[0]?.id : undefined,
-    },
-  };
-}
-
-function normalizeTranscriptPageLimit(value?: number): number {
-  if (!Number.isFinite(value) || !value) return DEFAULT_TRANSCRIPT_PAGE_LIMIT;
-  return Math.max(1, Math.min(MAX_TRANSCRIPT_PAGE_LIMIT, Math.trunc(value)));
-}
-
-function shouldShowInParentTranscript(item: TranscriptThreadItemInput): boolean {
-  if (item.kind === "change-state") return false;
-  if (item.agentRoleId && item.agentRoleId !== "main-agent") return false;
-  return true;
 }
 
 export function canonicalTranscriptCellsFromThreadItem(
@@ -261,7 +182,7 @@ export function canonicalTranscriptCellsFromThreadItem(
     }
   }
   cells.push(...activityCellsFromThreadItem(item, agentRoleId));
-  return cells.filter((cell) => Boolean(cell.text.trim() || cell.detailText?.trim()));
+  return normalizeCellEvidenceRefs(cells.filter((cell) => Boolean(cell.text.trim() || cell.detailText?.trim())));
 }
 
 export function providerInteractionHistory(request: WorkbenchProviderUserInputRequest): InteractionHistoryRecord {
@@ -552,27 +473,6 @@ function normalizeCellEvidenceRefs(cells: ParentAgentTranscriptCell[]): ParentAg
 function isAgentLifecycleStatus(value: string): boolean {
   return /(委派|创建|运行中|返回结果|失败).{0,24}(planning-agent|coder-agent|validator|auditor|rework|scheduler worker)/i.test(value)
     || /(planning-agent|coder-agent|validator|auditor|rework|scheduler worker).{0,24}(委派|创建|运行中|返回结果|失败)/i.test(value);
-}
-
-function transcriptItemsFromCells(cells: ParentAgentTranscriptCell[]): ParentAgentTranscriptItem[] {
-  return cells
-    .filter((cell) => cell.kind !== "detail-only")
-    .map((cell) => ({
-      id: `item:${cell.id}`,
-      actor: cell.kind === "user-message" ? "user" : "parent-agent",
-      timestamp: cell.timestamp,
-      derived: cell.source !== "user" && cell.source !== "provider-runtime",
-      blocks: [{
-        id: `block:${cell.id}`,
-        kind: cell.kind === "assistant-message" || cell.kind === "user-message" ? "prose" : cell.kind === "process-row" ? "process" : "evidence",
-        source: cell.source,
-        title: cell.title,
-        text: cell.text,
-        status: cell.status,
-        evidenceRefs: cell.evidenceRefs,
-        isError: cell.isError,
-      }],
-    }));
 }
 
 function isGeneratedRunContext(value: string | undefined): boolean {

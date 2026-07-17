@@ -282,6 +282,7 @@ async function providerInteraction(status: "pending" | "submitting" = "pending")
     store.appendMessage({
       projectId: project().id,
       conversationId: conversation.conversationId,
+      agentSurfaceId: "main-agent",
       id: entry.id,
       changeId: "",
       type: entry.type,

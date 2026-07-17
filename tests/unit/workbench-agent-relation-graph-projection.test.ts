@@ -219,7 +219,7 @@ describe("Workbench Agent relationship graph", () => {
     expect(workspace.agents).toHaveLength(1);
     expect(workspace.agents[0]).toMatchObject({ id: "agent:codex:thread:maintenance-thread-1", runId: "maintenance-run-1" });
     expect(workspace.agents[0]?.status).toBe("failed");
-    expect(workspace.agents[0]?.transcript.cells).toEqual([]);
+    expect(workspace.agents[0]).not.toHaveProperty("transcript");
   });
 });
 
@@ -264,7 +264,6 @@ function agent(id: string, roleId: string, label: string, parentAgentId = "main-
     parentAgentId,
     status: "running",
     summary: "",
-    transcript: { title: label, cells: [], items: [] },
     evidenceRefs: [],
     actions: [],
   };

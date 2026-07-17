@@ -323,7 +323,6 @@ export type Snapshot = {
     workpad: Workpad;
     agentLoop: { runs: RunSummary[] };
     thread: { items: ThreadStreamItem[] };
-    parentAgentTranscript: ParentAgentTranscript;
     conversationInteractions: ConversationInteractionQueue;
     activeTab?: CenterTab;
     agentRelationGraph: AgentRelationGraph;
@@ -1558,7 +1557,6 @@ export type AgentWorkspaceAgent = {
   summary: string;
   inputSummary?: string;
   outputSummary?: string;
-  transcript: ParentAgentTranscript;
   evidenceRefs: AgentEvidenceRef[];
   actions: DecisionAction[];
   clarifications?: ClarificationRequest[];
@@ -1631,15 +1629,41 @@ export type StreamPacket = {
   diagnostics: string[];
 };
 export type FolderDialogResult = { path: string | null; canceled: boolean; supported: boolean; error?: string };
+export type CanonicalTimelineScope = {
+  projectId: string;
+  conversationId: string;
+  agentSurfaceId: string;
+};
+export type CanonicalTimelineEnvelope = {
+  conversationId: string;
+  graphScopeId?: string;
+  agentSurfaceId: string;
+  messageId: string;
+  position: number;
+  revision: number;
+  orderClass: "sequence" | "thread-start";
+  cells: ParentAgentTranscriptCell[];
+};
+export type CanonicalTimelinePage = {
+  conversationId: string;
+  agentSurfaceId: string;
+  watermark: number;
+  pinned: CanonicalTimelineEnvelope[];
+  entries: CanonicalTimelineEnvelope[];
+  paging: {
+    limit: number;
+    totalCount: number;
+    hasMoreBefore: boolean;
+    nextBeforeCursor?: string;
+  };
+};
 export type WorkbenchLiveEvent =
   | { event: "topic.created"; data: { topic: { id?: string; conversationId?: string; changeId?: string; title: string; state: "active"; selectedProviderId?: string } } }
-  | { event: "topic.message"; data: TopicMessageEntry }
-  | { event: "timeline.patch"; data: { conversationId: string; graphScopeId?: string; messageId: string; agentSurfaceId: string; providerId?: ProviderId; roleId?: string; threadId?: string; parentThreadId?: string; status?: string; placement?: "thread-start"; cells: ParentAgentTranscriptCell[] } }
+  | { event: "timeline.patch"; data: CanonicalTimelineEnvelope }
   | { event: "conversation.interactions.updated"; data: ConversationInteractionQueue }
   | { event: "run.started"; data: WorkbenchLiveIdentity & { runId: string; actionType?: string; runtime?: string; taskIds?: string[] } }
   | { event: "run.status"; data: WorkbenchLiveIdentity & { actionRunId?: string; status: string; label?: string } }
   | { event: "assistant.delta"; data: WorkbenchLiveIdentity & { delta: string } }
-  | { event: "assistant.message"; data: TopicMessageEntry }
   | { event: "assistant.event"; data: AssistantReadableEvent }
   | { event: "tool.event"; data: WorkbenchLiveToolEvent }
   | { event: "usage"; data: WorkbenchLiveIdentity & { usage?: Record<string, unknown> } }

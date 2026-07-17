@@ -42,6 +42,8 @@ describe("Resource workspace panel", () => {
     const onClose = vi.fn();
     const props = {
       workspace: { selectedAgentId: agent.id, agents: [agent] },
+      agentTranscripts: { [agent.id]: agentTranscript() },
+      conversationId: "conversation-1",
       tabs,
       documents,
       loadingResourceIds: [],
@@ -50,6 +52,7 @@ describe("Resource workspace panel", () => {
       onCloseResource: onClose,
       onBack: vi.fn(),
       onSendAgentMessage: vi.fn(async () => undefined),
+      onLoadEarlierAgentTranscript: vi.fn(async () => undefined),
       modelLabel: "default",
     };
     const view = render(<ResourceWorkspacePanel {...props} selectedResourceId="plan-document-1" />);
@@ -80,6 +83,8 @@ describe("Resource workspace panel", () => {
     const neverSettles = new Promise<void>(() => undefined);
     render(<ResourceWorkspacePanel
       workspace={{ selectedAgentId: agent.id, agents: [agent] }}
+      agentTranscripts={{ [agent.id]: agentTranscript() }}
+      conversationId="conversation-1"
       tabs={[{ resourceId: `agent:${agent.id}`, target: { kind: "agent", conversationId: "conversation-1", agentSurfaceId: agent.id } }]}
       selectedResourceId={`agent:${agent.id}`}
       documents={{}}
@@ -89,6 +94,7 @@ describe("Resource workspace panel", () => {
       onCloseResource={vi.fn()}
       onBack={vi.fn()}
       onSendAgentMessage={vi.fn(() => neverSettles)}
+      onLoadEarlierAgentTranscript={vi.fn(async () => undefined)}
       modelLabel="default"
     />);
     const input = screen.getByPlaceholderText("给当前 Agent 发送反馈") as HTMLTextAreaElement;
@@ -97,6 +103,119 @@ describe("Resource workspace panel", () => {
     expect(input.disabled).toBe(true);
     await act(async () => { vi.advanceTimersByTime(1200); });
     expect(input.disabled).toBe(false);
+  });
+
+  it("does not let an older slow submission clear a newer pending submission", async () => {
+    vi.useFakeTimers();
+    const agent = planningAgent();
+    let resolveFirst!: () => void;
+    let resolveSecond!: () => void;
+    const first = new Promise<void>((resolve) => { resolveFirst = resolve; });
+    const second = new Promise<void>((resolve) => { resolveSecond = resolve; });
+    const onSend = vi.fn()
+      .mockImplementationOnce(() => first)
+      .mockImplementationOnce(() => second);
+    render(<ResourceWorkspacePanel
+      workspace={{ selectedAgentId: agent.id, agents: [agent] }}
+      agentTranscripts={{ [agent.id]: agentTranscript() }}
+      conversationId="conversation-1"
+      tabs={[{ resourceId: `agent:${agent.id}`, target: { kind: "agent", conversationId: "conversation-1", agentSurfaceId: agent.id } }]}
+      selectedResourceId={`agent:${agent.id}`}
+      documents={{}}
+      loadingResourceIds={[]}
+      resourceErrors={{}}
+      onSelectResource={vi.fn()}
+      onCloseResource={vi.fn()}
+      onBack={vi.fn()}
+      onSendAgentMessage={onSend}
+      onLoadEarlierAgentTranscript={vi.fn(async () => undefined)}
+      modelLabel="default"
+    />);
+    const input = screen.getByPlaceholderText("给当前 Agent 发送反馈") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "第一条" } });
+    fireEvent.click(screen.getByTitle("发送给当前 Agent"));
+    await act(async () => { vi.advanceTimersByTime(1200); });
+    fireEvent.change(input, { target: { value: "第二条" } });
+    fireEvent.click(screen.getByTitle("发送给当前 Agent"));
+    expect(input.disabled).toBe(true);
+
+    await act(async () => { resolveFirst(); await first; });
+    expect(input.disabled).toBe(true);
+    await act(async () => { resolveSecond(); await second; });
+    expect(input.disabled).toBe(false);
+  });
+
+  it("isolates drafts and pending state between Agent surfaces", () => {
+    const first = planningAgent();
+    const second = { ...planningAgent(), id: "agent:codex:thread:planner-2", label: "Plan Agent 2" };
+    const tabs: WorkspaceResourceTab[] = [first, second].map((agent) => ({
+      resourceId: `agent:${agent.id}`,
+      target: { kind: "agent", conversationId: "conversation-1", agentSurfaceId: agent.id },
+    }));
+    const props = {
+      workspace: { selectedAgentId: first.id, agents: [first, second] },
+      agentTranscripts: { [first.id]: agentTranscript(), [second.id]: agentTranscript() },
+      conversationId: "conversation-1",
+      tabs,
+      documents: {},
+      loadingResourceIds: [],
+      resourceErrors: {},
+      onSelectResource: vi.fn(),
+      onCloseResource: vi.fn(),
+      onBack: vi.fn(),
+      onSendAgentMessage: vi.fn(async () => undefined),
+      onLoadEarlierAgentTranscript: vi.fn(async () => undefined),
+      modelLabel: "default",
+    };
+    const view = render(<ResourceWorkspacePanel {...props} selectedResourceId={`agent:${first.id}`} />);
+    fireEvent.change(screen.getByPlaceholderText("给当前 Agent 发送反馈"), { target: { value: "Agent A 草稿" } });
+    view.rerender(<ResourceWorkspacePanel {...props} selectedResourceId={`agent:${second.id}`} />);
+    expect((screen.getByPlaceholderText("给当前 Agent 发送反馈") as HTMLTextAreaElement).value).toBe("");
+    fireEvent.change(screen.getByPlaceholderText("给当前 Agent 发送反馈"), { target: { value: "Agent B 草稿" } });
+    view.rerender(<ResourceWorkspacePanel {...props} selectedResourceId={`agent:${first.id}`} />);
+    expect((screen.getByPlaceholderText("给当前 Agent 发送反馈") as HTMLTextAreaElement).value).toBe("Agent A 草稿");
+    view.rerender(<ResourceWorkspacePanel
+      {...props}
+      conversationId="conversation-2"
+      tabs={tabs.map((tab) => tab.target.kind === "agent"
+        ? { ...tab, target: { ...tab.target, conversationId: "conversation-2" } }
+        : tab)}
+      selectedResourceId={`agent:${first.id}`}
+    />);
+    expect((screen.getByPlaceholderText("给当前 Agent 发送反馈") as HTMLTextAreaElement).value).toBe("");
+  });
+
+  it("keeps a slow Agent submission from disabling another Agent composer", async () => {
+    vi.useFakeTimers();
+    const first = planningAgent();
+    const second = { ...planningAgent(), id: "agent:codex:thread:planner-2", label: "Plan Agent 2" };
+    const neverSettles = new Promise<void>(() => undefined);
+    const tabs: WorkspaceResourceTab[] = [first, second].map((agent) => ({
+      resourceId: `agent:${agent.id}`,
+      target: { kind: "agent", conversationId: "conversation-1", agentSurfaceId: agent.id },
+    }));
+    const props = {
+      workspace: { selectedAgentId: first.id, agents: [first, second] },
+      agentTranscripts: { [first.id]: agentTranscript(), [second.id]: agentTranscript() },
+      conversationId: "conversation-1",
+      tabs,
+      documents: {},
+      loadingResourceIds: [],
+      resourceErrors: {},
+      onSelectResource: vi.fn(),
+      onCloseResource: vi.fn(),
+      onBack: vi.fn(),
+      onSendAgentMessage: vi.fn(() => neverSettles),
+      onLoadEarlierAgentTranscript: vi.fn(async () => undefined),
+      modelLabel: "default",
+    };
+    const view = render(<ResourceWorkspacePanel {...props} selectedResourceId={`agent:${first.id}`} />);
+    fireEvent.change(screen.getByPlaceholderText("给当前 Agent 发送反馈"), { target: { value: "继续A" } });
+    fireEvent.click(screen.getByTitle("发送给当前 Agent"));
+    expect((screen.getByPlaceholderText("给当前 Agent 发送反馈") as HTMLTextAreaElement).disabled).toBe(true);
+    view.rerender(<ResourceWorkspacePanel {...props} selectedResourceId={`agent:${second.id}`} />);
+    expect((screen.getByPlaceholderText("给当前 Agent 发送反馈") as HTMLTextAreaElement).disabled).toBe(false);
+    await act(async () => { vi.advanceTimersByTime(1200); });
   });
 });
 
@@ -109,13 +228,16 @@ function planningAgent(): AgentWorkspaceAgent {
     label: "Plan Agent",
     status: "completed",
     summary: "完成",
-    transcript: {
-      title: "Plan Agent",
-      items: [],
-      cells: [{ id: "cell-1", kind: "assistant-message", source: "provider-runtime", text: "原有 Agent 对话" }],
-    },
     evidenceRefs: [],
     actions: [],
+  };
+}
+
+function agentTranscript() {
+  return {
+    title: "Plan Agent",
+    items: [],
+    cells: [{ id: "cell-1", kind: "assistant-message" as const, source: "provider-runtime" as const, text: "原有 Agent 对话" }],
   };
 }
 

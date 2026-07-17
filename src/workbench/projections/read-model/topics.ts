@@ -17,7 +17,7 @@ import { listWorktreesForChange } from "../../../worktree/manager.js";
 import type { AcMap, ChangeIndexItem, ManagedProject, ResolvedMemory } from "../../../types/index.js";
 import type { WorkbenchTopicDetail, WorkbenchTopicState, WorkbenchTopicSummary } from "../../read-model-types.js";
 import { WorkbenchStore, type StoredConversation } from "../../store.js";
-import { fromStoredThreadMessage, readConversationThreadPage } from "../../conversation-thread-log.js";
+import { fromStoredThreadMessage, readRecentConversationThread } from "../../conversation-thread-log.js";
 import { buildThreadStream, buildThreadStreamFromMessages } from "./thread-stream.js";
 import { listWorkbenchDecisions } from "./decision-store.js";
 import { readChangeMetadataAt, stateRank } from "./support.js";
@@ -201,8 +201,8 @@ export async function selectTopicDetail(
   const threadItems = threadMode === "none"
     ? []
     : threadMode === "latest"
-      ? await readConversationThreadPage(memory, topic.path, { limit: options.threadLimit ?? 100 })
-        .then((page) => buildThreadStreamFromMessages(memory, topic, page.entries, { includeChangeState: true }))
+      ? await readRecentConversationThread(memory, topic.path, options.threadLimit ?? 100)
+        .then((entries) => buildThreadStreamFromMessages(memory, topic, entries, { includeChangeState: true }))
         .catch(() => [])
       : await buildThreadStream(memory, topic, runs, validations, audits, decisions);
   return {
@@ -242,7 +242,7 @@ async function readConversationMessages(memory: ResolvedMemory, conversationId: 
   if (!memory.projectId) return [];
   const store = await WorkbenchStore.open(memory);
   try {
-    return store.listLatestMessages(memory.projectId, conversationId, Math.max(1, Math.min(500, limit))).map(fromStoredThreadMessage);
+    return store.listRecentSemanticMessages(memory.projectId, conversationId, Math.max(1, Math.min(500, limit))).map(fromStoredThreadMessage);
   } finally {
     store.close();
   }

@@ -280,6 +280,7 @@ describe("provider-neutral runtime contract", () => {
           id,
           projectId: project.id,
           conversationId: "conversation-sync",
+          agentSurfaceId: "main-agent",
           changeId: "",
           type,
           timestamp: now,

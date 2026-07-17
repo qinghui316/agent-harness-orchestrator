@@ -16,7 +16,7 @@ export async function sendConversationInteractionSettlement(
 ): Promise<void> {
   const settlement = await readJsonBody<ConversationInteractionSettlement>(request);
   const sse = createSseResponse(response);
-  const sink = createLiveSink(sse);
+  const sink = createLiveSink(sse, input.project.id);
   try {
     await settleConversationInteraction(input.project, conversationId, interactionId, settlement, sink);
     sink.emit({ event: "snapshot", data: await getWorkbenchSnapshot(input, { topicId: conversationId }) });

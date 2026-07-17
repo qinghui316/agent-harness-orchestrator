@@ -1,4 +1,4 @@
-﻿import { existsSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -6,9 +6,9 @@ import { createChange, closeChange } from "../../src/change/manager.js";
 import { initHarness } from "../../src/harness/init.js";
 import { startLocalCommandRun } from "../../src/run/manager.js";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
-import { appendConversationThreadEntry, createWorkbenchConversation } from "../../src/workbench/chat.js";
+import { appendConversationTimelineEntry, createWorkbenchConversation } from "../../src/workbench/chat.js";
 import { answerClarification, reanalyzeIntake, runIntakeScan } from "../../src/workbench/intake.js";
-import { deleteWorkbenchConversation, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTopic, getWorkbenchTranscriptProjection, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
+import { deleteWorkbenchConversation, getCanonicalTimelinePage, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTopic, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import { bindProviderThreadFixture } from "../helpers/provider-thread-fixture.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
@@ -237,12 +237,7 @@ describe("workbench read-model projections", () => {
     expect(snapshot.center.thread.items.some((item) => item.kind === "change-state")).toBe(true);
     expect(snapshot.center.thread.items.some((item) => item.runId === snapshot.center.agentLoop.runs[0]?.id)).toBe(false);
     expect(snapshot.center.activeTab).toBe("conversation");
-    expect(snapshot.center.parentAgentTranscript.cells).toHaveLength(0);
-    expect(snapshot.center.parentAgentTranscript.items).toHaveLength(0);
-    const transcriptText = JSON.stringify(snapshot.center.parentAgentTranscript);
-    for (const forbidden of ["AI 回复", "执行结果", "TaskRun", "WorkerLease", "DemandWorker", "TaskRepository", "blocked", "T-001", "AC-001"]) {
-      expect(transcriptText).not.toContain(forbidden);
-    }
+    expect(snapshot.center).not.toHaveProperty("parentAgentTranscript");
     expect(JSON.stringify(snapshot.right)).not.toContain("change.close");
     expect(snapshot.roles.map((item) => item.id)).toEqual(expect.arrayContaining([
       "coder-agent", "auditor-agent", "memory-maintenance-agent", "harness-evolution-agent",
@@ -254,7 +249,7 @@ describe("workbench read-model projections", () => {
   it("projects Codex runtime output into transcript cells before derived workflow summaries", async () => {
     await initHarness(project());
     const topic = await createConversationChangeFixture(project(), { title: "Codex Transcript", body: "实现会员满 100 九折" });
-    await appendConversationThreadEntry(project(), topic.changeId, {
+    await appendConversationTimelineEntry(project(), topic.changeId, {
       type: "assistant.message",
       text: "Fallback final message should not duplicate the cell stream.",
       runId: "run-codex-transcript",
@@ -266,8 +261,8 @@ describe("workbench read-model projections", () => {
       ],
     });
 
-    const transcript = await getWorkbenchTranscriptProjection({ project: project(), path: getTempDir() }, topic.id);
-    const cells = transcript.cells;
+    const page = await getCanonicalTimelinePage({ project: project(), path: getTempDir() }, topic.conversationId, "main-agent");
+    const cells = [...page.pinned, ...page.entries].flatMap((envelope) => envelope.cells);
 
     expect(cells).toEqual(expect.arrayContaining([
       expect.objectContaining({
@@ -292,7 +287,7 @@ describe("workbench read-model projections", () => {
   it("keeps archived topic messages in the semantic thread stream", async () => {
     await initHarness(project());
     const topic = await createConversationChangeFixture(project(), { title: "Archive Messages", body: "Need a durable archived thread." });
-    await appendConversationThreadEntry(project(), topic.changeId, {
+    await appendConversationTimelineEntry(project(), topic.changeId, {
       type: "orchestrator.plan",
       text: "Historical planning output remains readable as plain assistant text.",
     });
@@ -319,8 +314,8 @@ describe("workbench read-model projections", () => {
     await initHarness(project());
     const topic = await createConversationChangeFixture(project(), { title: "Code Evidence", body: "Implement the pricing rule." });
     const run = await startLocalCommandRun(project(), [process.execPath, "-e", "console.log('code')"]);
-    await appendConversationThreadEntry(project(), topic.changeId, { type: "workflow.started", actionRunId: "action-code", actionType: "code.run", status: "running" });
-    await appendConversationThreadEntry(project(), topic.changeId, {
+    await appendConversationTimelineEntry(project(), topic.changeId, { type: "workflow.started", actionRunId: "action-code", actionType: "code.run", status: "running" });
+    await appendConversationTimelineEntry(project(), topic.changeId, {
       type: "workflow.completed",
       actionRunId: "action-code",
       actionType: "code.run",
@@ -422,7 +417,7 @@ describe("workbench read-model projections", () => {
   it("projects user message file and attachment metadata into parent transcript cells", async () => {
     await initHarness(project());
     const topic = await createConversationChangeFixture(project(), { title: "Context Metadata", body: "Initial demand." });
-    await appendConversationThreadEntry(project(), topic.changeId, {
+    await appendConversationTimelineEntry(project(), topic.changeId, {
       type: "user.message",
       text: "Please use this context.",
       contextRefs: [{ relativePath: "src/pricing.ts", name: "pricing.ts", kind: "file", source: "composer" }],
@@ -440,9 +435,10 @@ describe("workbench read-model projections", () => {
       }],
     });
 
-    const transcript = await getWorkbenchTranscriptProjection({ project: project(), path: getTempDir() }, topic.changeId);
+    const page = await getCanonicalTimelinePage({ project: project(), path: getTempDir() }, topic.conversationId, "main-agent");
+    const cells = [...page.pinned, ...page.entries].flatMap((envelope) => envelope.cells);
 
-    expect(transcript.cells).toEqual(expect.arrayContaining([
+    expect(cells).toEqual(expect.arrayContaining([
       expect.objectContaining({
         kind: "user-message",
         text: "Please use this context.",
@@ -563,11 +559,12 @@ describe("workbench read-model projections", () => {
     } finally {
       store.close();
     }
-    await appendConversationThreadEntry(project(), topic.changeId, {
+    await appendConversationTimelineEntry(project(), topic.changeId, {
       type: "assistant.message",
       status: "planning-agent-generated",
       text: "CHILD PLANNING DRAFT BODY",
       runId: "run-planning-agent",
+      agentSurfaceId: "agent:codex:thread:thread-planning-agent",
       threadId: "thread-planning-agent",
       parentThreadId: "thread-main",
       agentRoleId: "planning-agent",
@@ -589,15 +586,10 @@ describe("workbench read-model projections", () => {
     });
 
     const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
-    const parentText = JSON.stringify(snapshot.center.parentAgentTranscript);
     const planningAgent = snapshot.right.agentWorkspace.agents.find((agent) => agent.roleId === "planning-agent");
 
-    expect(parentText).not.toContain("CHILD PLANNING DRAFT BODY");
-    expect(JSON.stringify(planningAgent?.transcript.cells)).toContain("CHILD PLANNING DRAFT BODY");
-    expect(JSON.stringify(planningAgent?.transcript.cells)).not.toContain("方案材料");
-    expect(planningAgent?.transcript.cells).toEqual(expect.arrayContaining([
-      expect.objectContaining({ agentRoleId: "planning-agent", runId: "run-planning-agent" }),
-    ]));
+    expect(snapshot.center).not.toHaveProperty("parentAgentTranscript");
+    expect(planningAgent).not.toHaveProperty("transcript");
     expect(planningAgent?.clarifications).toBeUndefined();
   });
 
@@ -605,11 +597,15 @@ describe("workbench read-model projections", () => {
     await initHarness(project());
     const conversation = await createWorkbenchConversation(project(), { title: "Bound Conversation", body: "Plan this demand." }, undefined, { runMainAgent: false });
     const topic = await createConversationChangeFixture(project(), { title: "Bound Change", body: "Plan this demand." });
-    await appendConversationThreadEntry(project(), topic.changeId, {
+    await appendConversationTimelineEntry(project(), topic.changeId, {
       type: "assistant.message",
       status: "planning-agent-generated",
       text: "BOUND CHILD PLAN BODY",
       runId: "run-bound-planning-agent",
+      agentSurfaceId: "agent:codex:thread:thread-bound-planning-agent",
+      providerId: "codex",
+      threadId: "thread-bound-planning-agent",
+      turnId: "turn-bound-planning-agent",
       agentRoleId: "planning-agent",
       agentTaskId: "task-bound-planning-agent",
     });
@@ -638,7 +634,7 @@ describe("workbench read-model projections", () => {
       expect.objectContaining({ id: run.run.id, changeId: topic.changeId }),
     ]));
     expect(snapshot.center.selectedTopic?.closeGate).toBeDefined();
-    expect(snapshot.center.parentAgentTranscript.conversationId).toBe(conversation.conversationId);
+    expect(snapshot.center).not.toHaveProperty("parentAgentTranscript");
     expect(snapshot.center.workpad).toMatchObject({
       conversationId: conversation.conversationId,
       boundChangeId: topic.changeId,
@@ -667,7 +663,7 @@ describe("workbench read-model projections", () => {
   it("prefers persisted assistant blocks over duplicate activity when rebuilding the thread", async () => {
     await initHarness(project());
     const topic = await createConversationChangeFixture(project(), { title: "Block Dedupe", body: "Show one command and one usage." });
-    await appendConversationThreadEntry(project(), topic.changeId, {
+    await appendConversationTimelineEntry(project(), topic.changeId, {
       type: "assistant.message",
       runId: "run-dedupe",
       text: "I checked the repository.",

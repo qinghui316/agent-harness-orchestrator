@@ -7,7 +7,7 @@ import type { ProviderCapabilitySnapshot, ProviderId, ProviderModelRef } from ".
 import type { WorkbenchProviderUserInputRequest } from "./types.js";
 import { acquireWorkbenchRuntimeMutationLock, type WorkbenchRuntimeMutationLock } from "./schema-rebuild-gate.js";
 
-const WORKBENCH_SCHEMA_VERSION = 7;
+const WORKBENCH_SCHEMA_VERSION = 8;
 
 export interface StoredTopicMessage {
   id: string;
@@ -15,6 +15,9 @@ export interface StoredTopicMessage {
   conversationId: string;
   changeId: string;
   position: number;
+  revision: number;
+  agentSurfaceId: string;
+  initialThreadInput: boolean;
   type: string;
   timestamp: string;
   text: string | null;
@@ -31,15 +34,22 @@ export interface StoredTopicMessage {
   rawJson: string;
 }
 
+export type StoredTopicMessageWrite = Omit<StoredTopicMessage, "position" | "revision" | "initialThreadInput"> & {
+  initialThreadInput?: boolean;
+};
+
 export interface StoredConversation {
   projectId: string;
   conversationId: string;
   title: string;
   state: "active" | "archive";
+  surfaceKind?: "user" | "runtime";
   boundChangeId: string | null;
   currentGraphScopeId: string | null;
   selectedProviderId: ProviderId;
   completedTurnSequence: number;
+  timelinePosition: number;
+  timelineRevision: number;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -226,22 +236,33 @@ export class WorkbenchStore {
     this.db.close();
   }
 
-  appendMessage(message: Omit<StoredTopicMessage, "position">): StoredTopicMessage {
-    const row = this.db.prepare(
-      "SELECT COALESCE(MAX(position), 0) + 1 AS nextPosition FROM canonical_timeline_items WHERE project_id = ? AND conversation_id = ?",
-    ).get(message.projectId, message.conversationId) as SqliteRow;
-    const position = Number(row.nextPosition ?? 1);
-    this.db.prepare(`
+  appendMessage(message: StoredTopicMessageWrite): StoredTopicMessage {
+    return this.db.transaction(() => {
+      const counter = this.db.prepare(`
+        UPDATE conversations
+        SET timeline_position = timeline_position + 1, timeline_revision = timeline_revision + 1
+        WHERE project_id = ? AND conversation_id = ? AND deleted_at IS NULL
+        RETURNING timeline_position AS position, timeline_revision AS revision
+      `).get(message.projectId, message.conversationId) as SqliteRow | undefined;
+      if (!counter) throw new Error(`Conversation not found: ${message.conversationId}.`);
+      const position = Number(counter.position);
+      const revision = Number(counter.revision);
+      const agentSurfaceId = message.agentSurfaceId.trim();
+      if (!agentSurfaceId) throw new Error("Canonical Timeline append requires agentSurfaceId.");
+      this.db.prepare(`
       INSERT INTO canonical_timeline_items (
-        id, project_id, conversation_id, change_id, position, type, timestamp, text, action_run_id,
+        id, project_id, conversation_id, change_id, position, revision, agent_surface_id, initial_thread_input, type, timestamp, text, action_run_id,
         action_type, status, run_id, provider_id, thread_id, turn_id, item_id, artifact, error, raw_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       message.id,
       message.projectId,
       message.conversationId,
       message.changeId,
       position,
+      revision,
+      agentSurfaceId,
+      message.initialThreadInput ? 1 : 0,
       message.type,
       message.timestamp,
       message.text,
@@ -257,13 +278,37 @@ export class WorkbenchStore {
       message.error,
       message.rawJson,
     );
-    return { ...message, position };
+      return { ...message, position, revision, agentSurfaceId, initialThreadInput: message.initialThreadInput === true };
+    })();
   }
 
-  updateMessage(message: Omit<StoredTopicMessage, "position">): void {
-    const result = this.db.prepare(`
+  updateMessage(message: StoredTopicMessageWrite): StoredTopicMessage {
+    return this.db.transaction(() => {
+      const existing = this.readMessage(message.projectId, message.conversationId, message.id);
+      if (!existing) throw new Error(`Conversation message not found: ${message.id}.`);
+      const identityFields = ["providerId", "threadId", "turnId", "itemId"] as const;
+      for (const field of identityFields) {
+        if ((message[field] ?? null) !== existing[field]) {
+          throw new Error(`Canonical Timeline ${field} is immutable for ${message.id}.`);
+        }
+      }
+      if (message.agentSurfaceId !== existing.agentSurfaceId) {
+        throw new Error(`Canonical Timeline agentSurfaceId is immutable for ${message.id}.`);
+      }
+      if (message.initialThreadInput !== undefined && message.initialThreadInput !== existing.initialThreadInput) {
+        throw new Error(`Canonical Timeline orderClass is immutable for ${message.id}.`);
+      }
+      const counter = this.db.prepare(`
+        UPDATE conversations SET timeline_revision = timeline_revision + 1
+        WHERE project_id = ? AND conversation_id = ? AND deleted_at IS NULL
+        RETURNING timeline_revision AS revision
+      `).get(message.projectId, message.conversationId) as SqliteRow | undefined;
+      if (!counter) throw new Error(`Conversation not found: ${message.conversationId}.`);
+      const revision = Number(counter.revision);
+      const result = this.db.prepare(`
       UPDATE canonical_timeline_items SET change_id = ?, type = ?, timestamp = ?, text = ?, action_run_id = ?,
-        action_type = ?, status = ?, run_id = ?, provider_id = ?, thread_id = ?, turn_id = ?, item_id = ?, artifact = ?, error = ?, raw_json = ?
+        action_type = ?, status = ?, run_id = ?, provider_id = ?, thread_id = ?, turn_id = ?, item_id = ?, artifact = ?, error = ?,
+        raw_json = ?, revision = ?
       WHERE id = ? AND project_id = ? AND conversation_id = ?
     `).run(
       message.changeId,
@@ -281,11 +326,100 @@ export class WorkbenchStore {
       message.artifact,
       message.error,
       message.rawJson,
+      revision,
       message.id,
       message.projectId,
       message.conversationId,
     );
     if (result.changes !== 1) throw new Error(`Conversation message not found: ${message.id}.`);
+      return {
+        ...message,
+        position: existing.position,
+        revision,
+        agentSurfaceId: existing.agentSurfaceId,
+        initialThreadInput: existing.initialThreadInput,
+      };
+    })();
+  }
+
+  readMessage(projectId: string, conversationId: string, messageId: string): StoredTopicMessage | null {
+    const row = this.db.prepare(`${timelineMessageSelect()}
+      WHERE project_id = ? AND conversation_id = ? AND id = ?
+    `).get(projectId, conversationId, messageId) as SqliteRow | undefined;
+    return row ? mapMessageRow(row) : null;
+  }
+
+  listTimelineSurfaceLatest(projectId: string, conversationId: string, agentSurfaceId: string, limit: number): StoredTopicMessage[] {
+    return (this.db.prepare(`${timelineMessageSelect()}
+      WHERE project_id = ? AND conversation_id = ? AND agent_surface_id = ?
+        AND ${timelineSequencePredicate()}
+      ORDER BY position DESC
+      LIMIT ?
+    `).all(projectId, conversationId, agentSurfaceId, limit) as SqliteRow[]).map(mapMessageRow).reverse();
+  }
+
+  listTimelineSurfaceBeforePosition(projectId: string, conversationId: string, agentSurfaceId: string, beforePosition: number, limit: number): StoredTopicMessage[] {
+    return (this.db.prepare(`${timelineMessageSelect()}
+      WHERE project_id = ? AND conversation_id = ? AND agent_surface_id = ? AND position < ?
+        AND ${timelineSequencePredicate()}
+      ORDER BY position DESC
+      LIMIT ?
+    `).all(projectId, conversationId, agentSurfaceId, beforePosition, limit) as SqliteRow[]).map(mapMessageRow).reverse();
+  }
+
+  listTimelineSurfacePinned(projectId: string, conversationId: string, agentSurfaceId: string): StoredTopicMessage[] {
+    return (this.db.prepare(`${timelineMessageSelect()}
+      WHERE project_id = ? AND conversation_id = ? AND agent_surface_id = ?
+        AND ${timelineThreadStartPredicate()}
+      ORDER BY position ASC
+    `).all(projectId, conversationId, agentSurfaceId) as SqliteRow[]).map(mapMessageRow);
+  }
+
+  readTimelineSurfacePageSnapshot(
+    projectId: string,
+    conversationId: string,
+    agentSurfaceId: string,
+    options: { beforePosition?: number; limit: number },
+  ): {
+    conversation: StoredConversation;
+    rows: StoredTopicMessage[];
+    pinnedRows: StoredTopicMessage[];
+    totalCount: number;
+    hasMoreBefore: boolean;
+  } | null {
+    return this.db.transaction(() => {
+      const conversation = this.readConversation(projectId, conversationId, { includeDeleted: true });
+      if (!conversation) return null;
+      const rows = options.beforePosition === undefined
+        ? this.listTimelineSurfaceLatest(projectId, conversationId, agentSurfaceId, options.limit)
+        : this.listTimelineSurfaceBeforePosition(projectId, conversationId, agentSurfaceId, options.beforePosition, options.limit);
+      const pinnedRows = this.listTimelineSurfacePinned(projectId, conversationId, agentSurfaceId);
+      const totalCount = this.countTimelineSurface(projectId, conversationId, agentSurfaceId);
+      const firstPosition = rows[0]?.position;
+      const hasMoreBefore = firstPosition === undefined
+        ? false
+        : this.hasTimelineSurfaceBeforePosition(projectId, conversationId, agentSurfaceId, firstPosition);
+      return { conversation, rows, pinnedRows, totalCount, hasMoreBefore };
+    })();
+  }
+
+  countTimelineSurface(projectId: string, conversationId: string, agentSurfaceId: string): number {
+    const row = this.db.prepare(`
+      SELECT COUNT(*) AS count FROM canonical_timeline_items
+      WHERE project_id = ? AND conversation_id = ? AND agent_surface_id = ?
+        AND ${timelineSequencePredicate()}
+    `).get(projectId, conversationId, agentSurfaceId) as SqliteRow;
+    return Number(row.count ?? 0);
+  }
+
+  hasTimelineSurfaceBeforePosition(projectId: string, conversationId: string, agentSurfaceId: string, position: number): boolean {
+    const row = this.db.prepare(`
+      SELECT 1 AS present FROM canonical_timeline_items
+      WHERE project_id = ? AND conversation_id = ? AND agent_surface_id = ? AND position < ?
+        AND ${timelineSequencePredicate()}
+      LIMIT 1
+    `).get(projectId, conversationId, agentSurfaceId, position) as SqliteRow | undefined;
+    return Boolean(row?.present);
   }
 
   transitionProviderUserInputRequest(
@@ -379,8 +513,7 @@ export class WorkbenchStore {
           status: "interrupted",
           rawJson: JSON.stringify({ ...raw, timestamp: updatedAt, status: "interrupted", providerUserInput: nextRequest }),
         };
-        this.updateMessage(nextRow);
-        updated.push({ ...nextRow, position: row.position });
+        updated.push(this.updateMessage(nextRow));
       }
       return updated;
     })();
@@ -405,7 +538,8 @@ export class WorkbenchStore {
 
   listMessages(projectId: string, changeId: string): StoredTopicMessage[] {
     return (this.db.prepare(`
-      SELECT id, project_id AS projectId, conversation_id AS conversationId, change_id AS changeId, position, type, timestamp,
+      SELECT id, project_id AS projectId, conversation_id AS conversationId, change_id AS changeId, position, revision,
+        agent_surface_id AS agentSurfaceId, type, timestamp,
         text, action_run_id AS actionRunId, action_type AS actionType, status, run_id AS runId,
         provider_id AS providerId, thread_id AS threadId, turn_id AS turnId, item_id AS itemId,
         artifact, error, raw_json AS rawJson
@@ -417,7 +551,8 @@ export class WorkbenchStore {
 
   listConversationMessages(projectId: string, conversationId: string): StoredTopicMessage[] {
     return (this.db.prepare(`
-      SELECT id, project_id AS projectId, conversation_id AS conversationId, change_id AS changeId, position, type, timestamp,
+      SELECT id, project_id AS projectId, conversation_id AS conversationId, change_id AS changeId, position, revision,
+        agent_surface_id AS agentSurfaceId, type, timestamp,
         text, action_run_id AS actionRunId, action_type AS actionType, status, run_id AS runId,
         provider_id AS providerId, thread_id AS threadId, turn_id AS turnId, item_id AS itemId,
         artifact, error, raw_json AS rawJson
@@ -427,9 +562,10 @@ export class WorkbenchStore {
     `).all(projectId, conversationId) as SqliteRow[]).map(mapMessageRow);
   }
 
-  listLatestMessages(projectId: string, changeId: string, limit: number): StoredTopicMessage[] {
+  listRecentSemanticMessages(projectId: string, conversationId: string, limit: number): StoredTopicMessage[] {
     return (this.db.prepare(`
-      SELECT id, project_id AS projectId, conversation_id AS conversationId, change_id AS changeId, position, type, timestamp,
+      SELECT id, project_id AS projectId, conversation_id AS conversationId, change_id AS changeId, position, revision,
+        agent_surface_id AS agentSurfaceId, type, timestamp,
         text, action_run_id AS actionRunId, action_type AS actionType, status, run_id AS runId,
         provider_id AS providerId, thread_id AS threadId, turn_id AS turnId, item_id AS itemId,
         artifact, error, raw_json AS rawJson
@@ -437,25 +573,13 @@ export class WorkbenchStore {
       WHERE project_id = ? AND conversation_id = ?
       ORDER BY position DESC
       LIMIT ?
-    `).all(projectId, changeId, limit) as SqliteRow[]).map(mapMessageRow).reverse();
-  }
-
-  listMessagesBeforePosition(projectId: string, changeId: string, beforePosition: number, limit: number): StoredTopicMessage[] {
-    return (this.db.prepare(`
-      SELECT id, project_id AS projectId, conversation_id AS conversationId, change_id AS changeId, position, type, timestamp,
-        text, action_run_id AS actionRunId, action_type AS actionType, status, run_id AS runId,
-        provider_id AS providerId, thread_id AS threadId, turn_id AS turnId, item_id AS itemId,
-        artifact, error, raw_json AS rawJson
-      FROM canonical_timeline_items
-      WHERE project_id = ? AND conversation_id = ? AND position < ?
-      ORDER BY position DESC
-      LIMIT ?
-    `).all(projectId, changeId, beforePosition, limit) as SqliteRow[]).map(mapMessageRow).reverse();
+    `).all(projectId, conversationId, limit) as SqliteRow[]).map(mapMessageRow).reverse();
   }
 
   listAllMessages(projectId: string): StoredTopicMessage[] {
     return (this.db.prepare(`
-      SELECT id, project_id AS projectId, conversation_id AS conversationId, change_id AS changeId, position, type, timestamp,
+      SELECT id, project_id AS projectId, conversation_id AS conversationId, change_id AS changeId, position, revision,
+        agent_surface_id AS agentSurfaceId, type, timestamp,
         text, action_run_id AS actionRunId, action_type AS actionType, status, run_id AS runId,
         provider_id AS providerId, thread_id AS threadId, turn_id AS turnId, item_id AS itemId,
         artifact, error, raw_json AS rawJson
@@ -483,9 +607,9 @@ export class WorkbenchStore {
   importMessages(messages: StoredTopicMessage[]): number {
     const insert = this.db.prepare(`
       INSERT OR IGNORE INTO canonical_timeline_items (
-        id, project_id, conversation_id, change_id, position, type, timestamp, text, action_run_id,
+        id, project_id, conversation_id, change_id, position, revision, agent_surface_id, type, timestamp, text, action_run_id,
         action_type, status, run_id, provider_id, thread_id, turn_id, item_id, artifact, error, raw_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const transaction = this.db.transaction((items: StoredTopicMessage[]) => {
       let count = 0;
@@ -496,6 +620,8 @@ export class WorkbenchStore {
           item.conversationId,
           item.changeId,
           item.position,
+          item.revision,
+          item.agentSurfaceId,
           item.type,
           item.timestamp,
           item.text,
@@ -518,15 +644,16 @@ export class WorkbenchStore {
     return transaction(messages) as number;
   }
 
-  createConversation(conversation: StoredConversation): void {
+  createConversation(conversation: Omit<StoredConversation, "timelinePosition" | "timelineRevision"> & Partial<Pick<StoredConversation, "timelinePosition" | "timelineRevision">>): void {
     this.db.prepare(`
       INSERT INTO conversations (
-        project_id, conversation_id, title, state, bound_change_id, current_graph_scope_id,
-        selected_provider_id, completed_turn_sequence, created_at, updated_at, deleted_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        project_id, conversation_id, title, state, surface_kind, bound_change_id, current_graph_scope_id,
+        selected_provider_id, completed_turn_sequence, timeline_position, timeline_revision, created_at, updated_at, deleted_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(project_id, conversation_id) DO UPDATE SET
         title = excluded.title,
         state = excluded.state,
+        surface_kind = excluded.surface_kind,
         bound_change_id = excluded.bound_change_id,
         current_graph_scope_id = excluded.current_graph_scope_id,
         selected_provider_id = excluded.selected_provider_id,
@@ -538,10 +665,13 @@ export class WorkbenchStore {
       conversation.conversationId,
       conversation.title,
       conversation.state,
+      conversation.surfaceKind ?? "user",
       conversation.boundChangeId,
       conversation.currentGraphScopeId,
       conversation.selectedProviderId,
       conversation.completedTurnSequence,
+      conversation.timelinePosition ?? 0,
+      conversation.timelineRevision ?? 0,
       conversation.createdAt,
       conversation.updatedAt,
       conversation.deletedAt,
@@ -551,23 +681,25 @@ export class WorkbenchStore {
   listConversations(projectId: string, options: { includeDeleted?: boolean } = {}): StoredConversation[] {
     const rows = options.includeDeleted
       ? this.db.prepare(`
-        SELECT project_id AS projectId, conversation_id AS conversationId, title, state,
+        SELECT project_id AS projectId, conversation_id AS conversationId, title, state, surface_kind AS surfaceKind,
           bound_change_id AS boundChangeId, current_graph_scope_id AS currentGraphScopeId,
           selected_provider_id AS selectedProviderId, completed_turn_sequence AS completedTurnSequence,
+          timeline_position AS timelinePosition, timeline_revision AS timelineRevision,
           created_at AS createdAt, updated_at AS updatedAt,
           deleted_at AS deletedAt
         FROM conversations
-        WHERE project_id = ?
+        WHERE project_id = ? AND surface_kind = 'user'
         ORDER BY updated_at DESC
       `).all(projectId) as SqliteRow[]
       : this.db.prepare(`
-        SELECT project_id AS projectId, conversation_id AS conversationId, title, state,
+        SELECT project_id AS projectId, conversation_id AS conversationId, title, state, surface_kind AS surfaceKind,
           bound_change_id AS boundChangeId, current_graph_scope_id AS currentGraphScopeId,
           selected_provider_id AS selectedProviderId, completed_turn_sequence AS completedTurnSequence,
+          timeline_position AS timelinePosition, timeline_revision AS timelineRevision,
           created_at AS createdAt, updated_at AS updatedAt,
           deleted_at AS deletedAt
         FROM conversations
-        WHERE project_id = ? AND deleted_at IS NULL
+        WHERE project_id = ? AND deleted_at IS NULL AND surface_kind = 'user'
         ORDER BY updated_at DESC
       `).all(projectId) as SqliteRow[];
     return rows.map(mapConversationRow);
@@ -575,9 +707,10 @@ export class WorkbenchStore {
 
   readConversation(projectId: string, conversationId: string, options: { includeDeleted?: boolean } = {}): StoredConversation | null {
     const row = this.db.prepare(`
-      SELECT project_id AS projectId, conversation_id AS conversationId, title, state,
+      SELECT project_id AS projectId, conversation_id AS conversationId, title, state, surface_kind AS surfaceKind,
         bound_change_id AS boundChangeId, current_graph_scope_id AS currentGraphScopeId,
         selected_provider_id AS selectedProviderId, completed_turn_sequence AS completedTurnSequence,
+        timeline_position AS timelinePosition, timeline_revision AS timelineRevision,
         created_at AS createdAt, updated_at AS updatedAt,
         deleted_at AS deletedAt
       FROM conversations
@@ -588,9 +721,10 @@ export class WorkbenchStore {
 
   readConversationByChangeId(projectId: string, changeId: string): StoredConversation | null {
     const row = this.db.prepare(`
-      SELECT c.project_id AS projectId, c.conversation_id AS conversationId, c.title, c.state,
+      SELECT c.project_id AS projectId, c.conversation_id AS conversationId, c.title, c.state, c.surface_kind AS surfaceKind,
         c.bound_change_id AS boundChangeId, c.current_graph_scope_id AS currentGraphScopeId,
         c.selected_provider_id AS selectedProviderId, c.completed_turn_sequence AS completedTurnSequence,
+        c.timeline_position AS timelinePosition, c.timeline_revision AS timelineRevision,
         c.created_at AS createdAt, c.updated_at AS updatedAt,
         c.deleted_at AS deletedAt
       FROM conversations c
@@ -1192,9 +1326,10 @@ export class WorkbenchStore {
 
   findConversationForChange(projectId: string, changeId: string): StoredConversation | null {
     const row = this.db.prepare(`
-      SELECT c.project_id AS projectId, c.conversation_id AS conversationId, c.title, c.state,
+      SELECT c.project_id AS projectId, c.conversation_id AS conversationId, c.title, c.state, c.surface_kind AS surfaceKind,
         c.bound_change_id AS boundChangeId, c.current_graph_scope_id AS currentGraphScopeId,
         c.selected_provider_id AS selectedProviderId, c.completed_turn_sequence AS completedTurnSequence,
+        c.timeline_position AS timelinePosition, c.timeline_revision AS timelineRevision,
         c.created_at AS createdAt, c.updated_at AS updatedAt,
         c.deleted_at AS deletedAt
       FROM conversation_change_links l
@@ -1389,6 +1524,9 @@ function migrate(db: Database.Database): void {
       conversation_id TEXT NOT NULL DEFAULT '',
       change_id TEXT NOT NULL,
       position INTEGER NOT NULL,
+      revision INTEGER NOT NULL,
+      agent_surface_id TEXT NOT NULL,
+      initial_thread_input INTEGER NOT NULL DEFAULT 0,
       type TEXT NOT NULL,
       timestamp TEXT NOT NULL,
       text TEXT,
@@ -1405,16 +1543,23 @@ function migrate(db: Database.Database): void {
       raw_json TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_timeline_change ON canonical_timeline_items(project_id, change_id, position);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_timeline_conversation_position
+      ON canonical_timeline_items(project_id, conversation_id, position);
+    CREATE INDEX IF NOT EXISTS idx_timeline_surface_position
+      ON canonical_timeline_items(project_id, conversation_id, agent_surface_id, position);
 
     CREATE TABLE IF NOT EXISTS conversations (
       project_id TEXT NOT NULL,
       conversation_id TEXT NOT NULL,
       title TEXT NOT NULL,
       state TEXT NOT NULL DEFAULT 'active',
+      surface_kind TEXT NOT NULL DEFAULT 'user',
       bound_change_id TEXT,
       current_graph_scope_id TEXT,
       selected_provider_id TEXT NOT NULL,
       completed_turn_sequence INTEGER NOT NULL DEFAULT 0,
+      timeline_position INTEGER NOT NULL DEFAULT 0,
+      timeline_revision INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       deleted_at TEXT,
@@ -1730,6 +1875,9 @@ function mapMessageRow(row: SqliteRow): StoredTopicMessage {
     conversationId: String(row.conversationId),
     changeId: String(row.changeId),
     position: Number(row.position),
+    revision: Number(row.revision),
+    agentSurfaceId: String(row.agentSurfaceId),
+    initialThreadInput: Number(row.initialThreadInput) === 1,
     type: String(row.type),
     timestamp: String(row.timestamp),
     text: nullableString(row.text),
@@ -1753,14 +1901,34 @@ function mapConversationRow(row: SqliteRow): StoredConversation {
     conversationId: String(row.conversationId),
     title: String(row.title),
     state: row.state === "archive" ? "archive" : "active",
+    surfaceKind: row.surfaceKind === "runtime" ? "runtime" : "user",
     boundChangeId: nullableString(row.boundChangeId),
     currentGraphScopeId: nullableString(row.currentGraphScopeId),
     selectedProviderId: String(row.selectedProviderId),
     completedTurnSequence: Number(row.completedTurnSequence),
+    timelinePosition: Number(row.timelinePosition),
+    timelineRevision: Number(row.timelineRevision),
     createdAt: String(row.createdAt),
     updatedAt: String(row.updatedAt),
     deletedAt: nullableString(row.deletedAt),
   };
+}
+
+function timelineMessageSelect(): string {
+  return `SELECT id, project_id AS projectId, conversation_id AS conversationId, change_id AS changeId,
+    position, revision, agent_surface_id AS agentSurfaceId, initial_thread_input AS initialThreadInput, type, timestamp, text,
+    action_run_id AS actionRunId, action_type AS actionType, status, run_id AS runId,
+    provider_id AS providerId, thread_id AS threadId, turn_id AS turnId, item_id AS itemId,
+    artifact, error, raw_json AS rawJson
+    FROM canonical_timeline_items`;
+}
+
+function timelineThreadStartPredicate(): string {
+  return "initial_thread_input = 1";
+}
+
+function timelineSequencePredicate(): string {
+  return `NOT (${timelineThreadStartPredicate()})`;
 }
 
 function mapProviderThreadRow(row: SqliteRow): StoredProviderThreadLink {

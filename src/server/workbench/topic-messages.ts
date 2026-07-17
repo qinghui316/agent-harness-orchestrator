@@ -1,6 +1,6 @@
 ﻿import type { IncomingMessage, ServerResponse } from "node:http";
 import { createSseResponse } from "../sse.js";
-import { createWorkbenchConversation, listConversationMessages, postConversationMessage, resolveConversationId } from "../../workbench/chat.js";
+import { createWorkbenchConversation, postConversationMessage, resolveConversationId } from "../../workbench/chat.js";
 import { getWorkbenchSnapshot, type WorkbenchProjectInput } from "../../workbench/manager.js";
 import type { ManagedProject } from "../../types/index.js";
 import { createLiveSink } from "./live.js";
@@ -40,16 +40,6 @@ export async function readTopicMessageBody(request: IncomingMessage): Promise<To
   return message;
 }
 
-export async function sendTopicMessageReplay(project: ManagedProject, changeId: string, response: ServerResponse): Promise<void> {
-  const messages = await listConversationMessages(project, changeId);
-  response.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-store", Connection: "close" });
-  for (const message of messages) {
-    response.write(`event: message\n`);
-    response.write(`data: ${JSON.stringify(message)}\n\n`);
-  }
-  response.end();
-}
-
 export async function sendCreateTopicLive(
   input: WorkbenchProjectInput & { project: ManagedProject },
   request: IncomingMessage,
@@ -57,7 +47,7 @@ export async function sendCreateTopicLive(
 ): Promise<void> {
   const body = await readCreateTopicBody(request);
   const sse = createSseResponse(response);
-  const sink = createLiveSink(sse);
+  const sink = createLiveSink(sse, input.project.id);
   let conversationId: string | undefined;
   try {
     const topic = await createWorkbenchConversation(input.project, body, sink);
@@ -76,7 +66,7 @@ export async function sendCreateTopicLive(
 export async function sendConversationMessageLive(input: WorkbenchProjectInput & { project: ManagedProject }, conversationId: string, request: IncomingMessage, response: ServerResponse): Promise<void> {
   const message = await readTopicMessageBody(request);
   const sse = createSseResponse(response);
-  const sink = createLiveSink(sse);
+  const sink = createLiveSink(sse, input.project.id);
   let resolvedConversationId = conversationId;
   try {
     resolvedConversationId = await resolveConversationId(input.project, conversationId);

@@ -10,6 +10,7 @@ import type {
 import type { ChildTranscriptCapture } from "../live-transcript.js";
 import { isMainAgentExecutionStopAction } from "../../workflow-actions/main-agent-execution.js";
 import type { ConversationTimelineWriter } from "../conversation-thread.js";
+import { agentThreadSurfaceId } from "../../provider-runtime/agent-surface-id.js";
 
 interface AssistantTranscriptCapture {
   sink: WorkbenchLiveSink;
@@ -40,7 +41,7 @@ export interface WorkbenchActionServiceDeps {
     live: WorkbenchLiveSink | undefined,
     persistBeforeEmit?: (capture: AssistantTranscriptCapture) => boolean,
   ): AssistantTranscriptCapture;
-  openTimelineWriter(project: ManagedProject, changeId: string): Promise<ConversationTimelineWriter>;
+  openTimelineWriter(project: ManagedProject, changeId: string, live?: WorkbenchLiveSink): Promise<ConversationTimelineWriter>;
   readThreadEntries(project: ManagedProject, changeId: string): Promise<TopicThreadEntry[]>;
   execute(project: ManagedProject, changeId: string, request: WorkbenchWorkflowActionRequest, live?: WorkbenchLiveSink): Promise<unknown>;
   labelForAction(actionType: WorkbenchWorkflowActionRequest["actionType"]): string;
@@ -80,13 +81,12 @@ export async function runWorkbenchWorkflowActionService(
       throw error;
     }
   }
-  const writer = await deps.openTimelineWriter(project, changeId);
+  const writer = await deps.openTimelineWriter(project, changeId, live);
   const timelineId = `workflow:${actionRunId}`;
   const startedAt = new Date().toISOString();
   let canonicalPersistenceError: Error | null = null;
-  let started: TopicThreadEntry;
   try {
-    started = writer.upsert({
+    writer.upsert({
       id: timelineId,
       type: "workflow.started",
       timestamp: startedAt,
@@ -99,7 +99,6 @@ export async function runWorkbenchWorkflowActionService(
     writer.close();
     throw error;
   }
-  live?.emit({ event: "topic.message", data: started });
   live?.emit({ event: "run.status", data: { actionRunId, status: "running", label: deps.labelForAction(request.actionType) } });
   let capture: AssistantTranscriptCapture;
   try {
@@ -142,7 +141,7 @@ export async function runWorkbenchWorkflowActionService(
       capture,
       statusOverride: finalStatus,
     });
-    const completed = writer.upsert({
+    writer.upsert({
       id: timelineId,
       type: failureMessage ? "workflow.failed" : "workflow.completed",
       timestamp: startedAt,
@@ -157,7 +156,6 @@ export async function runWorkbenchWorkflowActionService(
       activity: capture.activity,
       blocks: capture.blocks,
     });
-    live?.emit({ event: "topic.message", data: completed });
     if (failureMessage) live?.emit({ event: "error", data: { message: failureMessage, runId, actionRunId } });
     await deps.recordDecision(project, {
       id: `workflow:${actionRunId}`,
@@ -197,7 +195,7 @@ export async function runWorkbenchWorkflowActionService(
       capture,
       statusOverride: "failed",
     });
-    const failed = writer.upsert({
+    writer.upsert({
       id: timelineId,
       type: "workflow.failed",
       timestamp: startedAt,
@@ -211,7 +209,6 @@ export async function runWorkbenchWorkflowActionService(
       activity: capture.activity,
       blocks: capture.blocks,
     });
-    live?.emit({ event: "topic.message", data: failed });
     live?.emit({ event: "error", data: { message, actionRunId } });
     await resumeGoalAfterAction(deps, capture, {
       project,
@@ -256,14 +253,16 @@ function persistActionCapture(
     .filter((child) => child.blocks.length > 0 || child.activity.length > 0)
     .sort((left, right) => childCaptureTimestamp(left).localeCompare(childCaptureTimestamp(right)));
   for (const child of childCaptures) {
+    if (!child.canonicalId || !child.providerId || !child.threadId || !child.turnId) continue;
     writer.upsert({
-      id: `assistant:${input.actionRunId}:${child.canonicalId ?? `${child.threadId}:${child.turnId ?? "turn"}`}:process`,
+      id: `assistant:${input.actionRunId}:${child.canonicalId}:process`,
       type: "assistant.message",
       timestamp: childCaptureTimestamp(child) || input.startedAt,
       changeId: input.changeId,
       actionRunId: input.actionRunId,
       status: childCaptureStatus(child, status === "failed" ? "failed" : "completed"),
       runId: child.runId ?? input.actionRunId,
+      agentSurfaceId: agentThreadSurfaceId(child.providerId, child.threadId),
       threadId: child.threadId,
       parentThreadId: child.parentThreadId,
       turnId: child.turnId,

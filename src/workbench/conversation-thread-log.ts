@@ -26,88 +26,22 @@ export async function readConversationThread(memory: ResolvedMemory, changePath:
   }
 }
 
-export interface ConversationThreadPageOptions {
-  limit?: number;
-  beforeCursor?: string;
-}
-
-export interface TopicThreadLogPage {
-  entries: TopicThreadEntry[];
-  limit: number;
-  totalCount: number;
-  hasMoreBefore: boolean;
-  nextBeforeCursor?: string;
-}
-
-const DEFAULT_THREAD_PAGE_LIMIT = 100;
-const MAX_THREAD_PAGE_LIMIT = 500;
-
-export async function readConversationThreadPage(
+export async function readRecentConversationThread(
   memory: ResolvedMemory,
   changePath: string,
-  options: ConversationThreadPageOptions = {},
-): Promise<TopicThreadLogPage> {
+  limit = 100,
+): Promise<TopicThreadEntry[]> {
   const changeId = await readCanonicalThreadChangeId(memory, changePath);
   const projectId = memory.projectId ?? "unregistered";
-  const limit = normalizeThreadPageLimit(options.limit);
-  const beforePosition = options.beforeCursor ? decodeTopicThreadCursor(options.beforeCursor) : undefined;
+  const boundedLimit = Math.max(1, Math.min(500, Math.trunc(limit)));
   const store = await WorkbenchStore.open(memory);
   try {
     const conversation = store.readConversation(projectId, changeId) ?? store.findConversationForChange(projectId, changeId);
-    if (!conversation) {
-      return {
-        entries: [],
-        limit,
-        totalCount: 0,
-        hasMoreBefore: false,
-      };
-    }
-    const totalCount = store.countMessages(projectId, conversation.conversationId);
-    if (beforePosition !== undefined && beforePosition > totalCount) throw invalidCursor();
-    const rows = beforePosition !== undefined
-      ? store.listMessagesBeforePosition(projectId, conversation.conversationId, beforePosition, limit)
-      : store.listLatestMessages(projectId, conversation.conversationId, limit);
-    const firstPosition = rows[0]?.position;
-    return {
-      entries: rows.map(fromStoredThreadMessage),
-      limit,
-      totalCount,
-      hasMoreBefore: firstPosition !== undefined ? firstPosition > 1 : false,
-      nextBeforeCursor: firstPosition !== undefined && firstPosition > 1 ? encodeTopicThreadCursor(firstPosition) : undefined,
-    };
+    if (!conversation) return [];
+    return store.listRecentSemanticMessages(projectId, conversation.conversationId, boundedLimit).map(fromStoredThreadMessage);
   } finally {
     store.close();
   }
-}
-
-export function encodeTopicThreadCursor(position: number): string {
-  return `thread-position:${Buffer.from(JSON.stringify({ position }), "utf8").toString("base64url")}`;
-}
-
-export function decodeTopicThreadCursor(cursor: string): number {
-  const prefix = "thread-position:";
-  if (!cursor.startsWith(prefix)) throw invalidCursor();
-  try {
-    const decoded = JSON.parse(Buffer.from(cursor.slice(prefix.length), "base64url").toString("utf8")) as unknown;
-    if (!isRecord(decoded) || typeof decoded.position !== "number") throw invalidCursor();
-    const position = Math.trunc(decoded.position);
-    if (!Number.isSafeInteger(position) || position < 1) throw invalidCursor();
-    return position;
-  } catch (error) {
-    if (error instanceof Error && error.name === "BadRequest") throw error;
-    throw invalidCursor();
-  }
-}
-
-function normalizeThreadPageLimit(value?: number): number {
-  if (!Number.isFinite(value) || !value) return DEFAULT_THREAD_PAGE_LIMIT;
-  return Math.max(1, Math.min(MAX_THREAD_PAGE_LIMIT, Math.trunc(value)));
-}
-
-function invalidCursor(): Error {
-  const error = new Error("Invalid transcript cursor.");
-  error.name = "BadRequest";
-  return error;
 }
 
 export async function collectAllConversationThreadEntries(memory: ResolvedMemory): Promise<TopicThreadEntry[]> {
@@ -141,13 +75,14 @@ export function fromStoredThreadMessage(row: StoredTopicMessage): TopicThreadEnt
     actionType: row.actionType ?? undefined,
     status: row.status ?? undefined,
     runId: row.runId ?? undefined,
-    threadId: row.threadId ?? (typeof raw.threadId === "string" ? raw.threadId : undefined),
+    agentSurfaceId: row.agentSurfaceId,
+    threadId: row.threadId ?? undefined,
     parentThreadId: typeof raw.parentThreadId === "string" ? raw.parentThreadId : undefined,
-    turnId: row.turnId ?? (typeof raw.turnId === "string" ? raw.turnId : undefined),
-    itemId: row.itemId ?? (typeof raw.itemId === "string" ? raw.itemId : undefined),
+    turnId: row.turnId ?? undefined,
+    itemId: row.itemId ?? undefined,
     agentRoleId: typeof raw.agentRoleId === "string" ? raw.agentRoleId : undefined,
     agentTaskId: typeof raw.agentTaskId === "string" ? raw.agentTaskId : undefined,
-    initialThreadInput: raw.initialThreadInput === true ? true : undefined,
+    initialThreadInput: row.initialThreadInput ? true : undefined,
     artifact: row.artifact ?? undefined,
     error: row.error ?? undefined,
     resultSummary: typeof raw.resultSummary === "string" ? raw.resultSummary : undefined,
@@ -155,7 +90,7 @@ export function fromStoredThreadMessage(row: StoredTopicMessage): TopicThreadEnt
     blocks: Array.isArray(raw.blocks) ? raw.blocks.filter(isAssistantTurnBlock) : undefined,
     intake: raw.intake,
     clarification: raw.clarification,
-    providerId: row.providerId ?? (typeof raw.providerId === "string" ? raw.providerId : undefined),
+    providerId: row.providerId ?? undefined,
     sessionId: typeof raw.sessionId === "string" ? raw.sessionId : undefined,
     attemptId: typeof raw.attemptId === "string" ? raw.attemptId : undefined,
     providerUserInput: isWorkbenchProviderUserInputRequest(raw.providerUserInput) ? raw.providerUserInput : undefined,

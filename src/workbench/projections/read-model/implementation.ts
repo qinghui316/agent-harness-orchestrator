@@ -3,21 +3,20 @@ import { latestLandingQueueSnapshot } from "../../../landing-queue/manager.js";
 import { getMemoryStatus } from "../../../memory/status.js";
 import { getProjectStatus } from "../../../project/status.js";
 import { readRun } from "../../../run/manager.js";
-import { buildParentAgentTranscript, providerInteractionHistory, type ParentAgentTranscript } from "../../parent-agent-transcript.js";
+import { providerInteractionHistory } from "../../parent-agent-transcript.js";
 import { buildConversationInteractionQueue } from "../../conversation-interactions.js";
 import { buildConversationInteractionAttention } from "../../conversation-interactions.js";
 import { deleteConversation, hideConversation } from "../../conversation-thread.js";
 import { WorkbenchStore, type StoredProviderAttempt, type StoredProviderThreadLink } from "../../store.js";
-import { readConversationThreadPage, type ConversationThreadPageOptions } from "../../conversation-thread-log.js";
 import { summarizeRunArtifacts } from "../artifact-preview.js";
-import { buildThreadStreamFromMessages, readRunEvents } from "./thread-stream.js";
+import { readRunEvents } from "./thread-stream.js";
 import { buildAgentWorkspace, emptyAgentWorkspace } from "./agent-workspace.js";
 import { buildConfirmationQueue, emptyConfirmationQueue } from "./confirmation-queue.js";
 import { listWorkbenchDecisions } from "./decision-store.js";
 import { alignDecisionInspectorWithConfirmationPrimary, buildDecisionInspector, emptyDecisionInspector } from "./decision-inspector.js";
 import { buildApprovalInbox } from "./approval-inbox.js";
 import { buildMaintenanceSummary } from "./maintenance-summary.js";
-import { buildAgentRelationGraph, emptyAgentRelationGraph, emptyParentAgentTranscript, shellWorkbenchWorkpad } from "./agent-relation-graph.js";
+import { buildAgentRelationGraph, emptyAgentRelationGraph, shellWorkbenchWorkpad } from "./agent-relation-graph.js";
 import { listWorkbenchRoles } from "./roles.js";
 import { buildHarnessGaps, buildRepoSummary, resolveWorkbenchMemory } from "./support.js";
 import { listWorkbenchTopicsFromMemory, selectTopicDetail } from "./topics.js";
@@ -165,7 +164,6 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
         selectedTopic: null,
         workpad: diagnosticWorkpad,
         thread: { items: [] },
-        parentAgentTranscript: buildParentAgentTranscript({ workpad: diagnosticWorkpad, threadItems: [] }),
         conversationInteractions: { items: [] },
         activeTab: "conversation",
         agentLoop: { runs: [] },
@@ -226,10 +224,6 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
     });
   const alignedDecisionInspector = alignDecisionInspectorWithConfirmationPrimary(decisionInspector, confirmationQueue.primary, selectedTopic?.id);
   const shellWorkpad = shellWorkbenchWorkpad(workpad);
-  const parentAgentTranscript = buildParentAgentTranscript({
-    workpad,
-    threadItems: [],
-  });
   const publicSelectedTopic = selectedTopic ? {
     ...selectedTopic,
     threadItems: selectedTopic.threadItems.map(publicThreadItem),
@@ -248,7 +242,6 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
       selectedTopic: publicSelectedTopic,
       workpad: shellWorkpad,
       thread: { items: publicSelectedTopic?.threadItems ?? [] },
-      parentAgentTranscript,
       conversationInteractions,
       activeTab: "conversation",
       agentLoop: { runs: selectedTopic?.runs ?? [] },
@@ -269,47 +262,6 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
     roles,
     harnessGaps: gaps,
     warnings,
-  };
-}
-
-export async function getWorkbenchTranscriptProjection(input: WorkbenchProjectInput, changeId: string): Promise<ParentAgentTranscript> {
-  const memory = await resolveWorkbenchMemory(input);
-  if (!memory.supported) return emptyParentAgentTranscript();
-  const topics = await listWorkbenchTopicsFromMemory(memory, { includeDeleted: true });
-  const selectedTopic = await selectTopicDetail(input.project, memory, topics, changeId);
-  if (!selectedTopic) return emptyParentAgentTranscript();
-  const workpad = await buildWorkbenchProjectionWorkpad(input, memory, topics, selectedTopic);
-  return buildParentAgentTranscript({ workpad, threadItems: selectedTopic.threadItems });
-}
-
-export async function getWorkbenchTranscriptPageProjection(
-  input: WorkbenchProjectInput,
-  changeId: string,
-  paging: ConversationThreadPageOptions,
-): Promise<ParentAgentTranscript> {
-  const memory = await resolveWorkbenchMemory(input);
-  if (!memory.supported) return emptyParentAgentTranscript();
-  const topics = await listWorkbenchTopicsFromMemory(memory, { includeDeleted: true });
-  const topic = topics.find((item) => item.id === changeId || item.name === changeId);
-  if (!topic) return emptyParentAgentTranscript();
-  const page = await readConversationThreadPage(memory, topic.path, paging);
-  const threadItems = await buildThreadStreamFromMessages(memory, topic, page.entries, { includeChangeState: topic.kind !== "conversation" });
-  const transcript = buildParentAgentTranscript({
-    workpad: {
-      conversationId: topic.id,
-      boundChangeId: topic.kind === "conversation" ? topic.boundChangeId ?? undefined : topic.id,
-      title: topic.title,
-    },
-    threadItems,
-  });
-  return {
-    ...transcript,
-    paging: {
-      limit: page.limit,
-      totalCount: page.totalCount,
-      hasMoreBefore: page.hasMoreBefore,
-      nextBeforeCursor: page.nextBeforeCursor,
-    },
   };
 }
 

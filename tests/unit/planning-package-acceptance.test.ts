@@ -330,6 +330,7 @@ async function proposalFor(workbenchRoot: string, conversationId: string, prompt
       id: `assistant:${conversationId}:${runId}:${childThreadId}`,
       projectId: project().id,
       conversationId,
+      agentSurfaceId: `agent:${providerId}:thread:${childThreadId}`,
       changeId: "",
       type: "assistant.message",
       timestamp: now,

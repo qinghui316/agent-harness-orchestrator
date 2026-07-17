@@ -94,7 +94,7 @@ export async function assembleSharedConversationContext(input: {
     if (!stored) throw new Error(`Conversation not found: ${input.conversationId}.`);
     conversation = stored;
     deliveredAfterCompletedTurn = store.readConversationProviderBinding(input.memory.projectId, input.conversationId, input.providerId)?.lastDeliveredCompletedTurn ?? 0;
-    recentRows = store.listLatestMessages(input.memory.projectId, input.conversationId, 256);
+    recentRows = store.listRecentSemanticMessages(input.memory.projectId, input.conversationId, 256);
     pendingConfirmations = store.listDecisions(input.memory.projectId, stored.boundChangeId ?? undefined)
       .filter((decision) => decision.status === "pending" || decision.status === "requested-changes")
       .map((decision) => ({

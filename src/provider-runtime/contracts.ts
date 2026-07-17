@@ -240,6 +240,7 @@ export interface ProviderTurnResult {
   status: "completed" | "interrupted" | "failed";
   session: ProviderSessionRef | null;
   turnId: string | null;
+  lastMessageItemId?: string | null;
   lastMessage: string;
   planText?: string;
   objective?: ProviderObjectiveState | null;

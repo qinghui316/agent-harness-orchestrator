@@ -178,6 +178,7 @@ function appendProviderQuestion(
   store.appendMessage({
     projectId: project().id,
     conversationId,
+    agentSurfaceId: "main-agent",
     id: entry.id,
     changeId: "",
     type: entry.type,

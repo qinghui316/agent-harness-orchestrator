@@ -1,6 +1,5 @@
 import type { StoredProviderAttempt, StoredProviderThreadLink } from "../../store.js";
 import type { WorkbenchAgentWorkspace, WorkbenchAgentWorkspaceAgent, WorkbenchTopicDetail } from "../../read-model-types.js";
-import { buildAgentScopedTranscriptCells, type ParentAgentTranscript, type ParentAgentTranscriptCell } from "../../parent-agent-transcript.js";
 import { agentRoleDisplayName, baseAgentDisplayLabel, composeAgentDisplayLabel } from "../../../agent-display-label.js";
 import { agentThreadSurfaceId } from "../../../provider-runtime/agent-surface-id.js";
 
@@ -40,10 +39,6 @@ export function buildAgentWorkspace(input: {
     if (!attemptMatchesLink(attempt, link, input.graphScopeId)) continue;
     const providerId = link.providerId;
     const id = agentThreadSurfaceId(providerId, link.providerThreadId);
-    const cells = input.selectedTopic ? buildAgentScopedTranscriptCells(input.selectedTopic.threadItems, {
-      agentRoleId: link.roleId,
-      threadId: link.providerThreadId,
-    }) : [];
     agents.set(id, agentSurface({
       id,
       roleId: link.roleId,
@@ -53,9 +48,9 @@ export function buildAgentWorkspace(input: {
       parentThreadId: link.parentThreadId ?? undefined,
       parentAgentId: parentAgentId(providerId, link.parentThreadId, surfaceByProviderThread),
       runId: link.runId ?? undefined,
+      agentTaskId: attempt.agentTaskId ?? undefined,
       status: attempt.status,
-      cells,
-      summary: cells.at(-1)?.text ?? "真实 Agent 对话。",
+      summary: "真实 Agent 对话。",
       label: composeAgentDisplayLabel(link.roleId, link.displayName ?? undefined),
     }));
   }
@@ -73,9 +68,9 @@ function agentSurface(input: {
   parentThreadId?: string;
   parentAgentId: string;
   runId?: string;
+  agentTaskId?: string;
   status: string;
   summary: string;
-  cells: ParentAgentTranscriptCell[];
   label?: string;
 }): WorkbenchAgentWorkspaceAgent {
   return {
@@ -87,10 +82,10 @@ function agentSurface(input: {
     parentThreadId: input.parentThreadId,
     parentAgentId: input.parentAgentId,
     runId: input.runId,
+    agentTaskId: input.agentTaskId,
     label: input.label ?? roleLabel(input.roleId),
     status: input.status,
     summary: input.summary,
-    transcript: transcript(input.roleId, input.cells),
     evidenceRefs: [],
     actions: [],
   };
@@ -114,30 +109,6 @@ function numberDuplicateLabels(agents: WorkbenchAgentWorkspaceAgent[]): Workbenc
     if ((totals.get(base) ?? 0) < 2) return { ...agent, label: base };
     return { ...agent, label: `${base} ${indexById.get(agent.id) ?? 1}` };
   });
-}
-
-function transcript(roleId: string, cells: ParentAgentTranscriptCell[]): ParentAgentTranscript {
-  return {
-    title: roleLabel(roleId),
-    cells,
-    items: cells.map((cell) => ({
-      id: `agent-workspace:item:${cell.id}`,
-      actor: cell.kind === "user-message" ? "user" : "parent-agent",
-      timestamp: cell.timestamp,
-      derived: cell.source !== "provider-runtime" && cell.source !== "user",
-      blocks: [{
-        id: `agent-workspace:block:${cell.id}`,
-        kind: cell.kind === "assistant-message" || cell.kind === "user-message" ? "prose" : cell.kind === "process-row" ? "process" : "evidence",
-        source: cell.source,
-        title: cell.title,
-        text: cell.text,
-        status: cell.status,
-        evidenceRefs: cell.evidenceRefs,
-        isError: cell.isError,
-      }],
-    })),
-    emptyMessage: "暂无 Agent 消息。",
-  };
 }
 
 function roleLabel(roleId: string): string {

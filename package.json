@@ -30,6 +30,7 @@
     "test:integration": "vitest run tests/integration/cli-flow.test.ts",
     "typecheck": "tsc --noEmit",
     "lint:provider-boundaries": "node scripts/lint-provider-boundaries.mjs",
+    "lint:frontend-boundaries": "node scripts/lint-frontend-boundaries.mjs",
     "clean": "node scripts/clean.mjs"
   },
   "dependencies": {

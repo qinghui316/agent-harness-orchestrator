@@ -1,8 +1,8 @@
-﻿import { defaultProviderRegistry } from "../../../provider-runtime/index.js";
+import { defaultProviderRegistry } from "../../../provider-runtime/index.js";
 import { requestRunStop } from "../../../run/control.js";
 import type { ManagedProject, RunMetadata } from "../../../types/index.js";
 import { emitAssistantEvent } from "../../live-events.js";
-import { appendConversationThreadEntry } from "../../conversation-thread.js";
+import { appendConversationTimelineEntry } from "../../conversation-thread.js";
 import type { WorkbenchLiveSink } from "../../types.js";
 
 export interface ConversationControlDeps {
@@ -21,22 +21,22 @@ export async function stopRunningPipeline(
     const message = prompt?.trim()
       ? "当前执行已经结束，这条输入会作为完成后的修改反馈处理。"
       : "当前没有正在执行的本地 run。";
-    const assistant = await appendConversationThreadEntry(project, changeId, { type: "assistant.message", status: "stop-not-needed", text: message });
-    live?.emit({ event: "assistant.message", data: assistant });
+    const assistant = await appendConversationTimelineEntry(project, changeId, { type: "assistant.message", status: "stop-not-needed", text: message });
+    live?.emit({ event: "timeline.patch", data: assistant });
     return { status: "already-completed", message };
   }
   requestRunStop(runningRun.id, prompt?.trim() || "User requested stop from the main conversation.");
   const user = prompt?.trim()
-    ? await appendConversationThreadEntry(project, changeId, { type: "user.message", text: prompt.trim(), status: "stop-and-continue", runId: runningRun.id })
+    ? await appendConversationTimelineEntry(project, changeId, { type: "user.message", text: prompt.trim(), status: "stop-and-continue", runId: runningRun.id })
     : null;
-  if (user) live?.emit({ event: "topic.message", data: user });
-  const assistant = await appendConversationThreadEntry(project, changeId, {
+  if (user) live?.emit({ event: "timeline.patch", data: user });
+  const assistant = await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: "stop-requested",
     runId: runningRun.id,
     text: "已请求停止当前本地执行。停止证据会保留，随后会基于你的新指令进入下一轮方案或修改。",
   });
-  live?.emit({ event: "assistant.message", data: assistant });
+  live?.emit({ event: "timeline.patch", data: assistant });
   emitAssistantEvent(live, {
     runId: runningRun.id,
     kind: "status",
@@ -59,27 +59,27 @@ export async function steerConversation(
   const activeTurn = defaultProviderRegistry.findActiveTurn(changeId);
   if (!activeTurn) {
     const runningRun = await deps.findRunningRunForChange(project, changeId);
-    const user = await appendConversationThreadEntry(project, changeId, { type: "user.message", text: message, status: "pending-feedback", runId: runningRun?.id });
-    live?.emit({ event: "topic.message", data: user });
-    const assistant = await appendConversationThreadEntry(project, changeId, {
+    const user = await appendConversationTimelineEntry(project, changeId, { type: "user.message", text: message, status: "pending-feedback", runId: runningRun?.id });
+    live?.emit({ event: "timeline.patch", data: user });
+    const assistant = await appendConversationTimelineEntry(project, changeId, {
       type: "assistant.message",
       status: "pending-feedback",
       runId: runningRun?.id,
       text: "当前运行时不支持实时引导，已记录，将在下一轮生效。",
     });
-    live?.emit({ event: "assistant.message", data: assistant });
+    live?.emit({ event: "timeline.patch", data: assistant });
     return { status: "pending-feedback", realtime: false };
   }
-  const user = await appendConversationThreadEntry(project, changeId, { type: "user.message", text: message, status: "steering-sent", runId: activeTurn.runId });
-  live?.emit({ event: "topic.message", data: user });
+  const user = await appendConversationTimelineEntry(project, changeId, { type: "user.message", text: message, status: "steering-sent", runId: activeTurn.runId });
+  live?.emit({ event: "timeline.patch", data: user });
   await activeTurn.steer(message);
-  const assistant = await appendConversationThreadEntry(project, changeId, {
+  const assistant = await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: "steering-sent",
     runId: activeTurn.runId,
     text: "已发送给当前执行。",
   });
-  live?.emit({ event: "assistant.message", data: assistant });
+  live?.emit({ event: "timeline.patch", data: assistant });
   emitAssistantEvent(live, {
     runId: activeTurn.runId,
     kind: "status",
@@ -103,17 +103,17 @@ export async function interruptConversation(
   }
   const message = prompt?.trim();
   if (message) {
-    const user = await appendConversationThreadEntry(project, changeId, { type: "user.message", text: message, status: "interrupt-requested", runId: activeTurn.runId });
-    live?.emit({ event: "topic.message", data: user });
+    const user = await appendConversationTimelineEntry(project, changeId, { type: "user.message", text: message, status: "interrupt-requested", runId: activeTurn.runId });
+    live?.emit({ event: "timeline.patch", data: user });
   }
   await activeTurn.interrupt(message || "User requested interrupt from the main conversation.");
-  const assistant = await appendConversationThreadEntry(project, changeId, {
+  const assistant = await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: "interrupt-requested",
     runId: activeTurn.runId,
     text: "已请求停止当前执行。停止证据会保留，你可以继续用自然语言说明下一步。",
   });
-  live?.emit({ event: "assistant.message", data: assistant });
+  live?.emit({ event: "timeline.patch", data: assistant });
   emitAssistantEvent(live, {
     runId: activeTurn.runId,
     kind: "status",

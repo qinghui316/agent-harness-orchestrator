@@ -1,4 +1,4 @@
-﻿import { existsSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { extname, join, relative } from "node:path";
 import { buildChangeIndex } from "../ecl/index.js";
@@ -11,7 +11,7 @@ import { listRuns } from "../run/manager.js";
 import { listAuditResults, summarizeAudit } from "../audit/artifacts.js";
 import { listValidationResults, summarizeValidation } from "../validation/artifacts.js";
 import type { ManagedProject, ResolvedMemory, RunMetadata } from "../types/index.js";
-import { appendConversationThreadEntry } from "./chat.js";
+import { appendConversationTimelineEntry } from "./chat.js";
 import { readConversationThread } from "./conversation-thread-log.js";
 import type { TopicThreadEntry } from "./types.js";
 
@@ -160,7 +160,7 @@ export async function runIntakeScan(project: ManagedProject, changeId: string, p
   await appendRunEvent(paths.events, { timestamp: finishedAt, type: "intake.scan.completed", runId, data: { candidateFileCount: scan.candidateFiles.length } });
   await appendRunEvent(paths.events, { timestamp: finishedAt, type: "run.completed", runId });
 
-  await appendConversationThreadEntry(project, changeId, {
+  await appendConversationTimelineEntry(project, changeId, {
     type: "intake.scan",
     text: `已分析项目：找到 ${scan.candidateFiles.length} 个候选文件、${scan.scripts.length} 个脚本和 ${scan.evidence.length} 条证据。`,
     runId,
@@ -193,7 +193,7 @@ export async function reanalyzeIntake(project: ManagedProject, changeId: string,
     scanRunId: state.latestScan?.runId,
     createdAt: now,
   };
-  await appendConversationThreadEntry(project, changeId, {
+  await appendConversationTimelineEntry(project, changeId, {
     type: "intake.iteration",
     text: iteration.currentUnderstanding,
     artifact: state.latestScan ? state.latestScan.runId : undefined,
@@ -211,7 +211,7 @@ export async function answerClarification(project: ManagedProject, changeId: str
   if (!existing) throw new Error(`Clarification not found: ${clarificationId}`);
   if (existing.status !== "pending") throw new Error(`Clarification is not pending: ${clarificationId}`);
   const answered: ClarificationRequest = { ...existing, status: "answered", answers, answeredAt: new Date().toISOString() };
-  await appendConversationThreadEntry(project, changeId, {
+  await appendConversationTimelineEntry(project, changeId, {
     type: "clarification.answer",
     text: answers.map((answer) => answer.answer).join("\n"),
     clarification: answered,
@@ -228,7 +228,7 @@ export async function skipClarification(project: ManagedProject, changeId: strin
   const existing = state.clarifications.find((item) => item.id === clarificationId);
   if (!existing) throw new Error(`Clarification not found: ${clarificationId}`);
   const skipped: ClarificationRequest = { ...existing, status: "skipped", answeredAt: new Date().toISOString() };
-  await appendConversationThreadEntry(project, changeId, {
+  await appendConversationTimelineEntry(project, changeId, {
     type: "clarification.skip",
     text: "用户跳过了这个需求确认问题。",
     clarification: skipped,
@@ -437,7 +437,7 @@ async function createClarification(project: ManagedProject, changeId: string, qu
     })),
     createdAt: new Date().toISOString(),
   };
-  await appendConversationThreadEntry(project, changeId, {
+  await appendConversationTimelineEntry(project, changeId, {
     type: "clarification.request",
     text: questions.join("\n"),
     runId,

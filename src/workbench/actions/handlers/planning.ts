@@ -54,7 +54,7 @@ import {
 } from "../../../workflow-artifacts/manager.js";
 import { recordWorkbenchDecision } from "../../decisions.js";
 import { emitAssistantEvent } from "../../live-events.js";
-import { appendConversationThreadEntry } from "../../conversation-thread.js";
+import { appendConversationTimelineEntry } from "../../conversation-thread.js";
 import { resolveTopic } from "../../topic-resolver.js";
 import { readExecutionAuthorization } from "../../../workflow-runtime/execution-authorization.js";
 import type {
@@ -81,13 +81,13 @@ export async function startPlanningSchedulerFirstWorker(
     reservationIntentId: request.reservationIntentId,
     claimIntentId: request.claimIntentId,
   });
-  await appendConversationThreadEntry(project, changeId, {
+  await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: "scheduler-first-worker-started",
     text: renderSchedulerRuntimeWorkerStartMarkdown(result.workerStart),
     artifact: result.workerStart.artifact,
     runId: result.code.run.id,
-  });
+  }, live);
   emitAssistantEvent(live, {
     runId: result.code.run.id,
     kind: "file-change",
@@ -143,13 +143,13 @@ export async function startPlanningSchedulerNextWorker(
     reservationIntentId: request.reservationIntentId,
     claimIntentId: request.claimIntentId,
   });
-  await appendConversationThreadEntry(project, changeId, {
+  await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: "scheduler-next-worker-started",
     text: renderSchedulerRuntimeWorkerStartMarkdown(result.workerStart),
     artifact: result.workerStart.artifact,
     runId: result.code.run.id,
-  });
+  }, live);
   emitAssistantEvent(live, {
     runId: result.code.run.id,
     kind: "file-change",
@@ -202,13 +202,13 @@ export async function reconcilePlanningSchedulerFirstWorkerResult(
     schedulerWorkerStartId: request.schedulerWorkerStartId,
   });
   if (result.status === "running") {
-    await appendConversationThreadEntry(project, changeId, {
+    await appendConversationTimelineEntry(project, changeId, {
       type: "assistant.message",
       status: "scheduler-first-worker-running",
       text: `第一个 scheduler coder worker 仍在运行：TaskRun ${result.taskRun.id}，WorkerLease ${result.lease.id}${result.codeRun?.id ? `，code run ${result.codeRun.id}` : ""}。未写入 terminal result，也未释放 lease。`,
       artifact: result.workerStart.artifact,
       runId: result.codeRun?.id,
-    });
+    }, live);
     emitAssistantEvent(live, {
       runId: result.codeRun?.id ?? result.workerStart.id,
       kind: "status",
@@ -244,13 +244,13 @@ export async function reconcilePlanningSchedulerFirstWorkerResult(
     });
     return result;
   }
-  await appendConversationThreadEntry(project, changeId, {
+  await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: result.result.status === "evidence-ready" ? "scheduler-first-worker-result-ready" : "scheduler-first-worker-result-failed",
     text: renderSchedulerRuntimeWorkerResultMarkdown(result.result),
     artifact: result.result.artifact,
     runId: result.codeRun?.id ?? undefined,
-  });
+  }, live);
   emitAssistantEvent(live, {
     runId: result.codeRun?.id ?? result.result.id,
     kind: "file-change",
@@ -305,13 +305,13 @@ export async function validatePlanningSchedulerFirstWorker(
     schedulerRunId: request.schedulerRunId,
     schedulerWorkerResultId: request.schedulerWorkerResultId,
   });
-  await appendConversationThreadEntry(project, changeId, {
+  await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: result.schedulerValidation.status === "passed" ? "scheduler-first-worker-validation-passed" : "scheduler-first-worker-validation-failed",
     text: renderSchedulerRuntimeWorkerValidationMarkdown(result.schedulerValidation),
     artifact: result.schedulerValidation.artifact,
     runId: result.validationRun.id,
-  });
+  }, live);
   emitAssistantEvent(live, {
     runId: result.validationRun.id,
     kind: "file-change",
@@ -371,13 +371,13 @@ export async function auditPlanningSchedulerFirstWorker(
     schedulerWorkerValidationId: request.schedulerWorkerValidationId,
   });
   const approved = result.schedulerAudit.status === "approved" || result.schedulerAudit.status === "approved-with-notes";
-  await appendConversationThreadEntry(project, changeId, {
+  await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: approved ? "scheduler-first-worker-audit-approved" : "scheduler-first-worker-audit-blocked",
     text: renderSchedulerRuntimeWorkerAuditMarkdown(result.schedulerAudit),
     artifact: result.schedulerAudit.artifact,
     runId: result.auditRun.id,
-  });
+  }, live);
   emitAssistantEvent(live, {
     runId: result.auditRun.id,
     kind: "file-change",
@@ -439,12 +439,12 @@ export async function compilePlanningSchedulerFirstWorkerReworkPlan(
     schedulerWorkerValidationId: request.schedulerWorkerValidationId,
     ...(request.schedulerWorkerAuditId ? { schedulerWorkerAuditId: request.schedulerWorkerAuditId } : {}),
   });
-  await appendConversationThreadEntry(project, changeId, {
+  await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: "scheduler-first-worker-rework-plan-compiled",
     text: renderSchedulerRuntimeWorkerReworkPlanMarkdown(result.reworkPlan),
     artifact: result.reworkPlan.artifact,
-  });
+  }, live);
   emitAssistantEvent(live, {
     runId: result.reworkPlan.id,
     kind: "file-change",
@@ -521,12 +521,12 @@ export async function startPlanningSchedulerFirstWorkerRework(
       }),
     } : undefined,
   });
-  await appendConversationThreadEntry(project, changeId, {
+  await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: "scheduler-first-worker-rework-started",
     text: renderSchedulerRuntimeWorkerReworkStartMarkdown(result.reworkStart),
     artifact: result.reworkStart.artifact,
-  });
+  }, live);
   emitAssistantEvent(live, {
     runId: result.reworkStart.id,
     kind: "file-change",
@@ -628,12 +628,12 @@ export async function reconcilePlanningSchedulerFirstWorkerReworkResult(
     });
     return result;
   }
-  await appendConversationThreadEntry(project, changeId, {
+  await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: result.result.status === "evidence-ready" ? "scheduler-first-worker-rework-result-ready" : "scheduler-first-worker-rework-result-failed",
     text: renderSchedulerRuntimeWorkerReworkResultMarkdown(result.result),
     artifact: result.result.artifact,
-  });
+  }, live);
   emitAssistantEvent(live, {
     runId: result.result.id,
     kind: "file-change",
@@ -699,12 +699,12 @@ export async function validatePlanningSchedulerFirstWorkerRework(
     schedulerRunId: request.schedulerRunId,
     schedulerWorkerReworkResultId: request.schedulerWorkerReworkResultId,
   });
-  await appendConversationThreadEntry(project, changeId, {
+  await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: result.schedulerReworkValidation.status === "passed" ? "scheduler-first-worker-rework-validation-passed" : "scheduler-first-worker-rework-validation-failed",
     text: renderSchedulerRuntimeWorkerReworkValidationMarkdown(result.schedulerReworkValidation),
     artifact: result.schedulerReworkValidation.artifact,
-  });
+  }, live);
   emitAssistantEvent(live, {
     runId: result.schedulerReworkValidation.id,
     kind: "file-change",
@@ -774,12 +774,12 @@ export async function auditPlanningSchedulerFirstWorkerRework(
     schedulerWorkerReworkValidationId: request.schedulerWorkerReworkValidationId,
   });
   const approved = result.schedulerReworkAudit.status === "approved" || result.schedulerReworkAudit.status === "approved-with-notes";
-  await appendConversationThreadEntry(project, changeId, {
+  await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: approved ? "scheduler-first-worker-rework-audit-approved" : "scheduler-first-worker-rework-audit-blocked",
     text: renderSchedulerRuntimeWorkerReworkAuditMarkdown(result.schedulerReworkAudit),
     artifact: result.schedulerReworkAudit.artifact,
-  });
+  }, live);
   emitAssistantEvent(live, {
     runId: result.schedulerReworkAudit.id,
     kind: "file-change",
@@ -849,12 +849,12 @@ export async function compilePlanningSchedulerIntegrationCandidate(
     changeId,
     schedulerRunId: request.schedulerRunId,
   });
-  await appendConversationThreadEntry(project, changeId, {
+  await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: "scheduler-integration-candidate-compiled",
     text: renderSchedulerIntegrationCandidateMarkdown(result.candidate),
     artifact: result.candidate.artifact,
-  });
+  }, live);
   emitAssistantEvent(live, {
     runId: result.candidate.schedulerRunId,
     kind: "file-change",
@@ -906,12 +906,12 @@ export async function runPlanningSchedulerIntegrationCheckHandoff(
     schedulerRunId: request.schedulerRunId,
     schedulerIntegrationCandidateId: request.schedulerIntegrationCandidateId,
   });
-  await appendConversationThreadEntry(project, changeId, {
+  await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: "scheduler-integration-check-handoff-completed",
     text: renderSchedulerIntegrationCheckHandoffMarkdown(result.handoff),
     artifact: result.handoff.artifact,
-  });
+  }, live);
   emitAssistantEvent(live, {
     runId: result.handoff.integrationCheckId,
     kind: "file-change",
@@ -1003,12 +1003,12 @@ export async function reconcilePlanningSchedulerIntegrationOutcome(
     },
     completedAt: new Date().toISOString(),
   });
-  await appendConversationThreadEntry(project, changeId, {
+  await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     text: event.text,
     actionRunId: event.runId,
     runId: result.integrationCheck.id,
-  });
+  }, live);
   return result;
 }
 
@@ -1062,12 +1062,12 @@ export async function completePlanningSchedulerRun(
     },
     completedAt: new Date().toISOString(),
   });
-  await appendConversationThreadEntry(project, changeId, {
+  await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     text,
     actionRunId: result.completion.integrationCheckId,
     runId: result.completion.integrationCheckId,
-  });
+  }, live);
   return result;
 }
 
@@ -1124,12 +1124,12 @@ export async function closeBlockedPlanningSchedulerRun(
     },
     completedAt: new Date().toISOString(),
   });
-  await appendConversationThreadEntry(project, changeId, {
+  await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     text,
     actionRunId: result.closeout.schedulerRunId,
     runId: result.closeout.schedulerRunId,
-  });
+  }, live);
   return result;
 }
 
@@ -1147,12 +1147,12 @@ export async function startAcceptedSequentialWorkflow(
   if (authoredGraph.authoringContractVersion !== "1.0" || authoredGraph.graphMode !== "sequential-v1" || authoredGraph.status !== "compiled" || authoredGraph.changeId !== changeId || latestGraph.id !== authoredGraph.id) {
     throw new Error("workflow.run.start authored graph target is stale.");
   }
-  await appendConversationThreadEntry(project, changeId, {
+  await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: "taskqueue-starting",
     text: `WorkflowGraphPlan ${authoredGraph.id} confirmed for scoped sequential execution.`,
     artifact: authoredGraph.artifact,
-  });
+  }, live);
   let executionMode: "stepwise" | "scoped-auto" | undefined;
   try {
     const intentPath = join(memory.changesRoot, "active", changeId, "planning", "execution-authorization-intent.json");

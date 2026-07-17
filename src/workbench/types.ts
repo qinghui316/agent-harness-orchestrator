@@ -2,7 +2,7 @@ import type { ProviderId, ProviderReadableEvent, ProviderUserInputQuestion } fro
 import type { ConversationInteractionQueue } from "./conversation-interaction-contract.js";
 import type { HarnessExecutionMode, RunMetadata } from "../types/index.js";
 import type { WorkflowActionType } from "../workflow-actions/registry.js";
-import type { ParentAgentTranscriptCell } from "./parent-agent-transcript.js";
+import type { CanonicalTimelineEnvelope } from "./canonical-timeline.js";
 
 export type TopicThreadEventType =
   | "user.message"
@@ -34,6 +34,7 @@ export interface TopicThreadEntry {
   actionType?: string;
   status?: string;
   runId?: string;
+  agentSurfaceId?: string;
   threadId?: string;
   parentThreadId?: string;
   turnId?: string;
@@ -212,13 +213,11 @@ export interface WorkbenchLiveIdentity {
 
 export type WorkbenchLiveEvent =
   | { event: "topic.created"; data: { topic: { id?: string; conversationId?: string; changeId?: string; title: string; state: "active"; selectedProviderId?: string } } }
-  | { event: "topic.message"; data: TopicThreadEntry }
-  | { event: "timeline.patch"; data: { conversationId: string; graphScopeId?: string; messageId: string; agentSurfaceId: string; providerId?: ProviderId; roleId?: string; threadId?: string; parentThreadId?: string; status?: string; cells: ParentAgentTranscriptCell[] } }
+  | { event: "timeline.patch"; data: CanonicalTimelineEnvelope }
   | { event: "conversation.interactions.updated"; data: ConversationInteractionQueue }
   | { event: "run.started"; data: WorkbenchLiveIdentity & { runId: string; actionType?: string; runtime?: string; taskIds?: string[] } }
   | { event: "run.status"; data: WorkbenchLiveIdentity & { actionRunId?: string; status: string; label?: string } }
   | { event: "assistant.delta"; data: WorkbenchLiveIdentity & { delta: string } }
-  | { event: "assistant.message"; data: TopicThreadEntry }
   | { event: "assistant.event"; data: WorkbenchAssistantEvent }
   | { event: "tool.event"; data: WorkbenchLiveToolEvent }
   | { event: "usage"; data: WorkbenchLiveIdentity & { usage?: Record<string, unknown> } }

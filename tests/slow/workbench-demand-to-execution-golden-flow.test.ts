@@ -79,6 +79,7 @@ describe("workbench accepted-graph-to-execution runtime flow", () => {
           id: `assistant:${conversation.conversationId}:${runId}:${childThreadId}`,
           projectId: project().id,
           conversationId: conversation.conversationId,
+          agentSurfaceId: `agent:codex:thread:${childThreadId}`,
           changeId: "",
           type: "assistant.message",
           timestamp: now,

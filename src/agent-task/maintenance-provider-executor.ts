@@ -5,13 +5,15 @@ import { writeJsonFile } from "../fs/json.js";
 import { executeProcessStreaming } from "../run/process.js";
 import { getSystemSkillsRoot } from "../template-source/paths.js";
 import { defaultProviderRegistry, type ProviderRealtimeEvent, type ProviderTurnResult } from "../provider-runtime/index.js";
+import { agentThreadSurfaceId } from "../provider-runtime/agent-surface-id.js";
 import { getRuntimeAssignedHarnessSkillContext } from "../skill/catalog.js";
 import type { ManagedProject, ResolvedMemory } from "../types/index.js";
 import { WorkbenchStore } from "../workbench/store.js";
 import { bindProviderAttemptThread, finishProviderAttempt, startProviderAttempt } from "../workbench/provider-attempts.js";
 import { createAssistantTranscriptCapture, type AssistantTranscriptCapture, type ChildTranscriptCapture } from "../workbench/live-transcript.js";
 import { forwardProviderRealtimeEvent } from "../workbench/provider-live-events.js";
-import type { TopicThreadEntry } from "../workbench/types.js";
+import { canonicalTimelineEnvelopeFromStoredRow, type CanonicalTimelineEnvelope } from "../workbench/canonical-timeline.js";
+import type { AssistantTurnBlock, TopicThreadEntry } from "../workbench/types.js";
 import type { HarnessEngineeringAssignment } from "./harness-engineering-contract.js";
 import {
   EvolutionScoreBlockedError,
@@ -33,6 +35,7 @@ export async function runMaintenanceAssignment(
   signal?: AbortSignal,
   onRealtimeEvent?: (event: ProviderRealtimeEvent) => void,
   taskLineage?: MaintenanceTaskLineage,
+  onTimelinePatch?: (envelope: CanonicalTimelineEnvelope) => void,
 ): Promise<{ summary: string; artifactRefs: string[] }> {
   const evidencePath = join(memory.workbenchRoot, "maintenance", "evidence", `${assignment.taskId}.json`);
   let evidence;
@@ -43,6 +46,7 @@ export async function runMaintenanceAssignment(
       executor: createMaintenanceProviderExecutor(memory),
       signal,
       onRealtimeEvent,
+      onTimelinePatch,
       taskLineage,
     });
   } catch (error) {
@@ -61,7 +65,7 @@ export async function runMaintenanceAssignment(
       return { summary: evidence.producer.summary, artifactRefs: [evidencePath] };
     }
     if (verificationAttempt === 1) {
-      const repair = await continueAfterVerificationFailure(memory, project, assignment, evidence, signal, onRealtimeEvent, taskLineage);
+      const repair = await continueAfterVerificationFailure(memory, project, assignment, evidence, signal, onRealtimeEvent, taskLineage, onTimelinePatch);
       evidence.producer = {
         ...evidence.producer,
         summary: repair.finalText.trim() || evidence.producer.summary,
@@ -89,6 +93,7 @@ async function continueAfterVerificationFailure(
   signal?: AbortSignal,
   onRealtimeEvent?: (event: ProviderRealtimeEvent) => void,
   taskLineage?: MaintenanceTaskLineage,
+  onTimelinePatch?: (envelope: CanonicalTimelineEnvelope) => void,
 ): Promise<MaintenanceProviderExecutionResult> {
   const failures = (evidence.verification ?? []).filter((item) => !item.passed);
   const prompt = [
@@ -116,6 +121,7 @@ async function continueAfterVerificationFailure(
     existingThreadId: evidence.producer.threadId,
     signal,
     onRealtimeEvent,
+    onTimelinePatch,
     taskLineage,
   });
 }
@@ -197,7 +203,7 @@ async function executeMaintenanceRequest(
     cwd: request.cwd,
     roots: request.runtimeWorkspaceRoots ?? [],
   })).digest("hex");
-  const timeline = await openBackgroundTimeline(memory, request);
+  const timeline = await openBackgroundTimeline(memory, request, providerId);
   const capture = createAssistantTranscriptCapture(undefined, (snapshot) => {
     persistBackgroundCapture(timeline, request, runId, providerId, snapshot);
     return true;
@@ -227,6 +233,10 @@ async function executeMaintenanceRequest(
   };
   const onRealtimeEvent = (event: ProviderRealtimeEvent): void => {
     if (!event.parentThreadId && event.roleId === attemptRoleId && !liveMainBinding) {
+      if (timeline) {
+        timeline.primaryThreadId = event.threadId;
+        timeline.primaryAgentSurfaceId = agentThreadSurfaceId(providerId, event.threadId);
+      }
       liveMainBinding = bindProviderAttemptThread(memory, {
         attemptId: runId,
         threadId: event.threadId,
@@ -324,6 +334,10 @@ async function executeMaintenanceRequest(
     if (abortPoll) clearInterval(abortPoll);
   }
   if (liveMainBinding) await liveMainBinding;
+  if (timeline && result.session?.sessionId) {
+    timeline.primaryThreadId = result.session.sessionId;
+    timeline.primaryAgentSurfaceId = agentThreadSurfaceId(providerId, result.session.sessionId);
+  }
   await finishProviderAttempt(
     memory,
     runId,
@@ -340,6 +354,8 @@ async function executeMaintenanceRequest(
       capture,
       result.status === "completed" ? "completed" : "failed",
       result.lastMessage,
+      result.turnId ?? undefined,
+      result.lastMessageItemId ?? undefined,
     );
   } catch (error) {
     await finishLiveScorerAttempts(null, "failed", true);
@@ -389,22 +405,49 @@ interface BackgroundTimeline {
   projectId: string;
   conversationId: string;
   graphScopeId?: string;
+  surfaceKind: "user" | "runtime";
+  primaryThreadId?: string;
+  primaryAgentSurfaceId?: string;
   knownIds: Set<string>;
 }
 
 async function openBackgroundTimeline(
   memory: ResolvedMemory,
   request: MaintenanceProviderExecutionRequest,
+  providerId: string,
 ): Promise<BackgroundTimeline | null> {
   if (!memory.projectId || !request.taskLineage?.conversationId) return null;
   const store = await WorkbenchStore.open(memory);
-  const conversation = store.readConversation(memory.projectId, request.taskLineage.conversationId);
-  const conversationId = conversation?.conversationId ?? request.taskLineage.conversationId;
+  let conversation = store.readConversation(memory.projectId, request.taskLineage.conversationId);
+  if (!conversation) {
+    const now = new Date().toISOString();
+    store.createConversation({
+      projectId: memory.projectId,
+      conversationId: request.taskLineage.conversationId,
+      title: `Runtime ${request.role}`,
+      state: "active",
+      surfaceKind: "runtime",
+      boundChangeId: request.taskLineage.changeId ?? null,
+      currentGraphScopeId: null,
+      selectedProviderId: providerId,
+      completedTurnSequence: 0,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+    conversation = store.readConversation(memory.projectId, request.taskLineage.conversationId);
+  }
+  if (!conversation) {
+    store.close();
+    throw new Error(`Runtime Conversation could not be created: ${request.taskLineage.conversationId}.`);
+  }
+  const conversationId = conversation.conversationId;
   return {
     store,
     projectId: memory.projectId,
     conversationId,
     graphScopeId: conversation?.currentGraphScopeId ?? undefined,
+    surfaceKind: conversation.surfaceKind ?? "user",
     knownIds: new Set(store.listConversationMessages(memory.projectId, conversationId).map((message) => message.id)),
   };
 }
@@ -417,6 +460,8 @@ function persistBackgroundCapture(
   capture: AssistantTranscriptCapture,
   terminalStatus?: "completed" | "failed",
   finalText?: string,
+  terminalTurnId?: string,
+  terminalItemId?: string,
 ): void {
   if (!timeline) return;
   const fallbackRoleId = request.role === "maintenance-agent"
@@ -424,8 +469,32 @@ function persistBackgroundCapture(
     : request.role === "evolution-agent"
       ? "harness-evolution-agent"
       : request.role;
-  if (capture.childCaptures.size === 0 && (capture.blocks.length > 0 || capture.activity.length > 0 || finalText?.trim())) {
-    upsertBackgroundEntry(timeline, {
+  if (capture.childCaptures.size === 0
+    && (timeline.surfaceKind === "runtime" || timeline.primaryAgentSurfaceId)
+    && (capture.blocks.length > 0 || capture.activity.length > 0 || finalText?.trim())) {
+    const mainLineage = [...capture.blocks].reverse().find((block) => block.kind !== "usage" && block.threadId && block.turnId);
+    const threadId = mainLineage?.threadId ?? timeline.primaryThreadId;
+    const turnId = mainLineage?.turnId ?? terminalTurnId;
+    if (!threadId || !turnId) return;
+    const blocks: AssistantTurnBlock[] = capture.blocks.length === 0 && finalText?.trim() && terminalItemId
+      ? [{
+          id: `provider-final:${providerId}:${threadId}:${turnId}:${terminalItemId}`,
+          providerId,
+          attemptId: runId,
+          runId,
+          threadId,
+          turnId,
+          itemId: terminalItemId,
+          sequence: 1,
+          kind: "prose",
+          timestamp: new Date().toISOString(),
+          source: "provider",
+          status: terminalStatus ?? "completed",
+          text: finalText.trim(),
+        }]
+      : capture.blocks;
+    if (blocks.length === 0 && capture.activity.length === 0) return;
+    const stored = upsertBackgroundEntry(timeline, {
       id: `assistant:${runId}:background`,
       type: "assistant.message",
       timestamp: capture.blocks[0]?.timestamp ?? capture.activity[0]?.timestamp ?? new Date().toISOString(),
@@ -437,14 +506,21 @@ function persistBackgroundCapture(
       runId,
       providerId,
       attemptId: runId,
+      threadId,
+      turnId,
+      itemId: capture.blocks.length === 0 ? terminalItemId : undefined,
+      agentSurfaceId: timeline.primaryAgentSurfaceId,
       agentRoleId: fallbackRoleId,
       activity: capture.activity,
-      blocks: capture.blocks,
+      blocks,
     });
+    request.onTimelinePatch?.(canonicalTimelineEnvelopeFromStoredRow(stored));
   }
   for (const child of capture.childCaptures.values()) {
     if (child.blocks.length === 0 && child.activity.length === 0) continue;
-    upsertBackgroundEntry(timeline, backgroundChildEntry(timeline, request, runId, providerId, child, terminalStatus, finalText));
+    if (!child.canonicalId || !child.providerId || !child.threadId || !child.turnId) continue;
+    const stored = upsertBackgroundEntry(timeline, backgroundChildEntry(timeline, request, runId, providerId, child, terminalStatus, finalText));
+    request.onTimelinePatch?.(canonicalTimelineEnvelopeFromStoredRow(stored));
   }
 }
 
@@ -458,7 +534,7 @@ function backgroundChildEntry(
   finalText?: string,
 ): TopicThreadEntry {
   return {
-    id: `assistant:${runId}:${child.canonicalId ?? `${child.threadId}:${child.turnId ?? "turn"}`}:process`,
+    id: `assistant:${runId}:${child.canonicalId}:process`,
     type: "assistant.message",
     timestamp: child.blocks[0]?.timestamp ?? child.activity[0]?.timestamp ?? new Date().toISOString(),
     conversationId: timeline.conversationId,
@@ -468,6 +544,7 @@ function backgroundChildEntry(
     text: (!request.role.includes("scorer") || child.parentThreadId) ? finalText?.trim() || undefined : undefined,
     runId: child.runId ?? runId,
     providerId,
+    agentSurfaceId: agentThreadSurfaceId(child.providerId, child.threadId),
     sessionId: child.threadId,
     attemptId: request.role === "evolution-scorer" && child.parentThreadId
       ? `${runId}:child:${child.threadId}`
@@ -488,7 +565,8 @@ function captureStatus(activity: AssistantTranscriptCapture["activity"]): string
   return "running";
 }
 
-function upsertBackgroundEntry(timeline: BackgroundTimeline, entry: TopicThreadEntry): void {
+function upsertBackgroundEntry(timeline: BackgroundTimeline, entry: TopicThreadEntry): import("../workbench/store.js").StoredTopicMessage {
+  if (!entry.agentSurfaceId) throw new Error(`Background Timeline entry ${entry.id} requires agentSurfaceId.`);
   const message = {
     id: entry.id,
     projectId: timeline.projectId,
@@ -501,14 +579,20 @@ function upsertBackgroundEntry(timeline: BackgroundTimeline, entry: TopicThreadE
     actionType: entry.actionType ?? null,
     status: entry.status ?? null,
     runId: entry.runId ?? null,
+    agentSurfaceId: entry.agentSurfaceId,
+    providerId: entry.providerId ?? null,
+    threadId: entry.threadId ?? null,
+    turnId: entry.turnId ?? null,
+    itemId: entry.itemId ?? null,
     artifact: entry.artifact ?? null,
     error: entry.error ?? null,
     rawJson: JSON.stringify(entry),
   };
-  if (timeline.knownIds.has(entry.id)) timeline.store.updateMessage(message);
+  if (timeline.knownIds.has(entry.id)) return timeline.store.updateMessage(message);
   else {
-    timeline.store.appendMessage(message);
+    const stored = timeline.store.appendMessage(message);
     timeline.knownIds.add(entry.id);
+    return stored;
   }
 }
 

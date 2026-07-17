@@ -13,7 +13,7 @@ import { startLocalCommandRun } from "../../src/run/manager.js";
 import { TerminalRuntime } from "../../src/server/terminal/terminal-runtime.js";
 import { buildNativeFolderDialogCommand, executeWorkbenchAction, recoverWorkbenchProjects, startWorkbenchServer, type WorkbenchServerHandle } from "../../src/server/workbench-server.js";
 import type { ManagedProject } from "../../src/types/index.js";
-import { appendConversationThreadEntry, buildProjectScopedMainAgentPrompt } from "../../src/workbench/chat.js";
+import { appendConversationTimelineEntry, buildProjectScopedMainAgentPrompt } from "../../src/workbench/chat.js";
 import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
 import { createFakeCodexRuntime } from "../helpers/fake-codex-runtime.js";
 
@@ -91,21 +91,21 @@ describe("workbench server", () => {
     expect(await page.text()).toContain("AHO");
   });
 
-  it("serves messages and replay through the bound conversation id", async () => {
-    await appendConversationThreadEntry(project(), "server-topic", { type: "user.message", text: "Conversation route message." });
+  it("serves one canonical Timeline and retires flattened message reads", async () => {
+    await appendConversationTimelineEntry(project(), "server-topic", { type: "user.message", text: "Conversation route message." });
 
-    const payload = await getJson<{ messages: Array<{ conversationId: string; changeId: string; text?: string }> }>(
-      `${handle!.url}/api/projects/repo/workbench/topics/${serverConversationId}/messages`,
+    const payload = await getJson<{ conversationId: string; entries: Array<{ cells: Array<{ text?: string }> }> }>(
+      `${handle!.url}/api/projects/repo/workbench/conversations/${serverConversationId}/timeline?agentSurfaceId=main-agent&limit=100`,
     );
-    const conversationId = payload.messages[0]?.conversationId;
-    expect(conversationId).toBe(serverConversationId);
-    expect(payload.messages).toEqual(expect.arrayContaining([
-      expect.objectContaining({ conversationId, changeId: "server-topic", text: "Conversation route message." }),
+    expect(payload.conversationId).toBe(serverConversationId);
+    expect(payload.entries.flatMap((entry) => entry.cells)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ text: "Conversation route message." }),
     ]));
 
+    const oldMessages = await fetch(`${handle!.url}/api/projects/repo/workbench/topics/${serverConversationId}/messages`);
     const replay = await fetch(`${handle!.url}/api/projects/repo/workbench/topics/${serverConversationId}/messages/stream`);
-    expect(replay.ok).toBe(true);
-    expect(await replay.text()).toContain(`"conversationId":"${conversationId}"`);
+    expect(oldMessages.status).toBe(404);
+    expect(replay.status).toBe(404);
   });
 
   it("serves project Skill catalog and provider binding routes", async () => {
@@ -190,10 +190,10 @@ describe("workbench server", () => {
     });
     expect(topicResponse.ok).toBe(true);
     const topicPayload = await topicResponse.json() as { topic: { id: string; conversationId: string } };
-    const messages = await getJson<{ messages: Array<{ type: string; attachments?: Array<{ id: string; fileName: string }> }> }>(
-      `${handle!.url}/api/projects/repo/workbench/topics/${encodeURIComponent(topicPayload.topic.conversationId ?? topicPayload.topic.id)}/messages`,
+    const timeline = await getJson<{ entries: Array<{ cells: Array<{ kind: string; attachments?: Array<{ id: string; fileName: string }> }> }> }>(
+      `${handle!.url}/api/projects/repo/workbench/conversations/${encodeURIComponent(topicPayload.topic.conversationId ?? topicPayload.topic.id)}/timeline?agentSurfaceId=main-agent&limit=100`,
     );
-    const userMessage = messages.messages.find((message) => message.type === "user.message");
+    const userMessage = timeline.entries.flatMap((entry) => entry.cells).find((cell) => cell.kind === "user-message");
     expect(userMessage?.attachments).toContainEqual(expect.objectContaining({
       id: attachmentPayload.attachment.id,
       fileName: "note.md",
@@ -544,17 +544,44 @@ describe("workbench server", () => {
 
   });
 
-  it("serves lazy Workbench projections separately from the snapshot shell", async () => {
-    const snapshot = await getJson<SnapshotResponse & { center: { agentRelationGraph: { nodes: unknown[] }; agentLoop: { runs: Array<{ id: string }> } } }>(`${handle!.url}/api/workbench/snapshot?topic=${serverConversationId}`);
+  it("serves one Main/child Timeline API and retires transcript projections", async () => {
+    await appendConversationTimelineEntry(project(), "server-topic", { type: "assistant.message", text: "Main answer 1" });
+    await appendConversationTimelineEntry(project(), "server-topic", { type: "assistant.message", text: "Main answer 2" });
+    await appendConversationTimelineEntry(project(), "server-topic", {
+      type: "assistant.message",
+      text: "Child answer",
+      providerId: "codex",
+      agentSurfaceId: "agent:codex:thread:thread-child",
+      threadId: "thread-child",
+      parentThreadId: "thread-main",
+      agentRoleId: "planning-agent",
+    });
+    const snapshot = await getJson<SnapshotResponse & { center: { agentRelationGraph: { nodes: unknown[] }; agentLoop: { runs: Array<{ id: string }> } }; right: { agentWorkspace: { agents: unknown[] } } }>(`${handle!.url}/api/workbench/snapshot?topic=${serverConversationId}`);
     expect(snapshot.center.agentRelationGraph.nodes).toEqual([]);
+    expect(snapshot.center).not.toHaveProperty("parentAgentTranscript");
+    expect(JSON.stringify(snapshot.right.agentWorkspace)).not.toContain("transcript");
 
-    const transcript = await getJson<{ cells: unknown[] }>(`${handle!.url}/api/workbench/projections/transcript/${serverConversationId}`);
-    expect(Array.isArray(transcript.cells)).toBe(true);
+    const main = await getJson<{ watermark: number; pinned: Array<{ agentSurfaceId: string; orderClass: string; revision: number }>; entries: Array<{ agentSurfaceId: string; orderClass: string; position: number; revision: number }>; paging: { limit: number; totalCount: number; nextBeforeCursor?: string } }>(
+      `${handle!.url}/api/projects/repo/workbench/conversations/${serverConversationId}/timeline?agentSurfaceId=main-agent&limit=2`,
+    );
+    expect(main).toMatchObject({ pinned: [], paging: { limit: 2 } });
+    expect(main.entries.every((envelope) => envelope.agentSurfaceId === "main-agent" && envelope.orderClass === "sequence" && envelope.revision <= main.watermark)).toBe(true);
+    expect(main.paging.nextBeforeCursor).toEqual(expect.any(String));
 
-    const pagedTranscript = await getJson<{ cells: unknown[]; paging?: { limit: number; totalCount: number; hasMoreBefore: boolean } }>(`${handle!.url}/api/workbench/projections/transcript/${serverConversationId}?limit=2`);
-    expect(Array.isArray(pagedTranscript.cells)).toBe(true);
-    expect(pagedTranscript.paging?.limit).toBe(2);
-    expect(typeof pagedTranscript.paging?.totalCount).toBe("number");
+    const childSurfaceId = "agent:codex:thread:thread-child";
+    const child = await getJson<typeof main>(
+      `${handle!.url}/api/projects/repo/workbench/conversations/${serverConversationId}/timeline?agentSurfaceId=${encodeURIComponent(childSurfaceId)}`,
+    );
+    expect(child.entries).toHaveLength(1);
+    expect(child.entries[0]).toMatchObject({ agentSurfaceId: childSurfaceId, orderClass: "sequence" });
+
+    const crossScopeCursor = await fetch(
+      `${handle!.url}/api/projects/repo/workbench/conversations/${serverConversationId}/timeline?agentSurfaceId=${encodeURIComponent(childSurfaceId)}&beforeCursor=${encodeURIComponent(main.paging.nextBeforeCursor!)}`,
+    );
+    expect(crossScopeCursor.status).toBe(400);
+
+    const retired = await fetch(`${handle!.url}/api/workbench/projections/transcript/${serverConversationId}`);
+    expect(retired.status).toBe(400);
 
     const graph = await getJson<{ nodes: Array<{ id: string }> }>(`${handle!.url}/api/workbench/projections/agent-graph/${serverConversationId}`);
     expect(graph.nodes.some((node) => node.id === "main-agent")).toBe(true);
@@ -594,20 +621,14 @@ describe("workbench server", () => {
       expect(projectTopic.ok).toBe(true);
       const projectTopicBody = await projectTopic.json() as { topic: { id: string; conversationId: string } };
       const projectTopicId = projectTopicBody.topic.conversationId ?? projectTopicBody.topic.id;
-      const projectMessages = await getJson<{ messages: Array<{ type: string; status?: string; runId?: string; artifact?: string; text?: string }> }>(
-        `${appHandle.url}/api/projects/${addedBody.project.id}/workbench/topics/${projectTopicId}/messages`,
+      const projectTimeline = await getJson<{ pinned: unknown[]; entries: Array<{ cells: Array<{ kind: string; text?: string }> }> }>(
+        `${appHandle.url}/api/projects/${addedBody.project.id}/workbench/conversations/${projectTopicId}/timeline?agentSurfaceId=main-agent&limit=100`,
       );
-      expect(projectMessages.messages).toEqual(expect.arrayContaining([
-        expect.objectContaining({
-          type: "user.message",
-          text: "Keep route behavior",
-        }),
+      expect(Array.isArray(projectTimeline.entries)).toBe(true);
+      expect(projectTimeline.entries.flatMap((entry) => entry.cells)).toEqual(expect.arrayContaining([
+        expect.objectContaining({ kind: "user-message", text: "Keep route behavior" }),
       ]));
-      const projectTranscript = await getJson<{ cells: Array<{ kind: string; text?: string }> }>(
-        `${appHandle.url}/api/projects/${addedBody.project.id}/workbench/projections/transcript/${projectTopicId}?limit=100`,
-      );
-      expect(Array.isArray(projectTranscript.cells)).toBe(true);
-      await appendConversationThreadEntry({ ...project(), id: addedBody.project.id, name: "Server Repo" }, "server-topic", {
+      await appendConversationTimelineEntry({ ...project(), id: addedBody.project.id, name: "Server Repo" }, "server-topic", {
         type: "workflow.completed",
         actionRunId: "action-private-path",
         actionType: "code.run",

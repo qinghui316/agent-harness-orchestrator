@@ -5,98 +5,23 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { canonicalTranscriptCellsFromThreadItem } from "../../src/workbench/parent-agent-transcript.js";
 import { ResourceWorkspacePanel } from "../../src/web/src/panels/workbench/ResourceWorkspacePanel.js";
 import { AgentTranscriptPane, ParentAgentTranscriptCellView } from "../../src/web/src/panels/workbench/TranscriptReadingSurface.js";
-import { replaceCanonicalMessageCells } from "../../src/web/src/liveTranscript.js";
-import type { AgentWorkspaceAgent, AssistantTurnBlock, ParentAgentTranscript } from "../../src/web/src/types.js";
+import type { AgentWorkspaceAgent, AssistantTurnBlock } from "../../src/web/src/types.js";
 
 afterEach(cleanup);
 
 describe("Agent conversation surfaces", () => {
-  it("inserts a late provider-qualified child input before output from the same turn", () => {
-    const lineage = { providerId: "codex", attemptId: "attempt:child", threadId: "thread-child", turnId: "turn-child" };
-    let transcript: ParentAgentTranscript = { title: "Child", cells: [], items: [] };
-    transcript = replaceCanonicalMessageCells(transcript, [], [{
-      id: "cell:assistant",
-      kind: "assistant-message",
-      source: "provider-runtime",
-      ...lineage,
-      itemId: "assistant-item",
-      text: "Working on the delegated task.",
-    }]);
-    transcript = replaceCanonicalMessageCells(transcript, [], [{
-      id: "cell:user",
-      kind: "user-message",
-      source: "provider-runtime",
-      ...lineage,
-      itemId: "user-item",
-      text: "Delegated task",
-      turnId: "parent-turn-that-created-child",
-    }], "thread-start");
-
-    expect(transcript.cells.map((cell) => cell.id)).toEqual(["cell:user", "cell:assistant"]);
-  });
-
-  it("replaces a canonical cell after message-owner state is rebuilt", () => {
-    const current: ParentAgentTranscript = { title: "Demand", cells: [{
-      id: "cell:assistant:stable",
-      kind: "assistant-message",
-      source: "provider-runtime",
-      text: "Partial",
-    }], items: [] };
-    const transcript = replaceCanonicalMessageCells(current, [], [{
-      id: "cell:assistant:stable",
-      kind: "assistant-message",
-      source: "provider-runtime",
-      text: "Complete",
-    }]);
-
-    expect(transcript.cells).toEqual([expect.objectContaining({ id: "cell:assistant:stable", text: "Complete" })]);
-  });
-
-  it("replaces one canonical message in place through repeated patches", () => {
-    let transcript: ParentAgentTranscript = { title: "Demand", cells: [], items: [] };
-    let owned: string[] = [];
-    for (let index = 0; index < 100; index += 1) {
-      const cell = {
-        id: "cell:turn:codex:attempt-1:thread-1:turn-1",
-        kind: "process-row" as const,
+  it("keeps long child transcripts DOM-bounded through the shared virtual list", () => {
+    render(<div style={{ height: 500, overflow: "auto" }}>
+      <AgentTranscriptPane cells={Array.from({ length: 120 }, (_, index) => ({
+        id: `child-cell:${index}`,
+        kind: "assistant-message" as const,
         source: "provider-runtime" as const,
-        title: "正在思考",
-        text: "",
-        status: "thinking",
-        realtime: true,
-      };
-      transcript = replaceCanonicalMessageCells(transcript, owned, [cell]);
-      owned = [cell.id];
-      expect(transcript.cells).toHaveLength(1);
-    }
-    transcript = replaceCanonicalMessageCells(transcript, owned, [{
-      ...transcript.cells[0]!,
-      title: "已完成 · 5 秒",
-      text: "已完成 · 5 秒",
-      status: "completed",
-      realtime: false,
-    }]);
-    expect(transcript.cells).toEqual([expect.objectContaining({ title: "已完成 · 5 秒", realtime: false })]);
-  });
-
-  it("keeps two turns in one attempt as separate canonical cells", () => {
-    let transcript: ParentAgentTranscript = { title: "Demand", cells: [], items: [] };
-    transcript = replaceCanonicalMessageCells(transcript, [], [{
-      id: "cell:turn:codex:attempt-shared:thread-1:turn-1",
-      kind: "process-row",
-      source: "provider-runtime",
-      text: "已完成 · 4 秒",
-    }]);
-    transcript = replaceCanonicalMessageCells(transcript, [], [{
-      id: "cell:turn:codex:attempt-shared:thread-1:turn-2",
-      kind: "process-row",
-      source: "provider-runtime",
-      text: "已完成 · 3 秒",
-    }]);
-    expect(transcript.cells.map((cell) => cell.id)).toEqual([
-      "cell:turn:codex:attempt-shared:thread-1:turn-1",
-      "cell:turn:codex:attempt-shared:thread-1:turn-2",
-    ]);
+        text: `Child output ${index}`,
+      }))} />
+    </div>);
+    const pane = screen.getByTestId("agent-transcript-pane");
+    expect(pane.querySelectorAll("[data-transcript-cell-id]").length).toBeLessThan(120);
+    expect(pane.querySelectorAll(".transcript-virtual-spacer").length).toBeGreaterThan(0);
   });
 
   it("keeps same-role provider threads in separate closeable tabs", () => {
@@ -107,6 +32,11 @@ describe("Agent conversation surfaces", () => {
     const onBack = vi.fn();
     render(<ResourceWorkspacePanel
       workspace={{ selectedAgentId: first.id, agents: [first, second] }}
+      agentTranscripts={{
+        [first.id]: first.transcript!,
+        [second.id]: second.transcript!,
+      }}
+      conversationId="conversation-1"
       tabs={[
         { resourceId: `agent:${first.id}`, target: { kind: "agent", conversationId: "conversation-1", agentSurfaceId: first.id } },
         { resourceId: `agent:${second.id}`, target: { kind: "agent", conversationId: "conversation-1", agentSurfaceId: second.id } },
@@ -119,6 +49,7 @@ describe("Agent conversation surfaces", () => {
       onCloseResource={onClose}
       onBack={onBack}
       onSendAgentMessage={async () => undefined}
+      onLoadEarlierAgentTranscript={async () => undefined}
       providerDisplayName="Claude Code"
       modelLabel="default"
     />);

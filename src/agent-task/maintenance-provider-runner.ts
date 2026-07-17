@@ -2,6 +2,7 @@ import { z } from "zod";
 import { getRuntimeAssignedHarnessSkillContext, type EnabledSkillContext } from "../skill/catalog.js";
 import type { ManagedProject } from "../types/index.js";
 import type { ProviderRealtimeEvent } from "../provider-runtime/index.js";
+import type { CanonicalTimelineEnvelope } from "../workbench/canonical-timeline.js";
 import { parseHarnessEngineeringAssignment, type HarnessEngineeringAssignment } from "./harness-engineering-contract.js";
 
 export type MaintenanceProviderRole = "maintenance-agent" | "evolution-agent" | "evolution-scorer";
@@ -19,6 +20,7 @@ export interface MaintenanceProviderExecutionRequest {
   existingThreadId?: string | null;
   signal?: AbortSignal;
   onRealtimeEvent?: (event: ProviderRealtimeEvent) => void;
+  onTimelinePatch?: (envelope: CanonicalTimelineEnvelope) => void;
   taskLineage?: MaintenanceTaskLineage;
 }
 
@@ -61,6 +63,7 @@ export interface RunMaintenanceProviderAssignmentInput {
   getSkillContext?: typeof getRuntimeAssignedHarnessSkillContext;
   signal?: AbortSignal;
   onRealtimeEvent?: (event: ProviderRealtimeEvent) => void;
+  onTimelinePatch?: (envelope: CanonicalTimelineEnvelope) => void;
   taskLineage?: MaintenanceTaskLineage;
 }
 
@@ -112,6 +115,7 @@ export async function runMaintenanceProviderAssignment(
       writableRoots,
       signal: input.signal,
       onRealtimeEvent: input.onRealtimeEvent,
+      onTimelinePatch: input.onTimelinePatch,
       taskLineage: input.taskLineage,
     });
     assertThreadLineage(result, null, "Maintenance Agent");
@@ -129,6 +133,7 @@ export async function runMaintenanceProviderAssignment(
     writable: false,
     signal: input.signal,
     onRealtimeEvent: input.onRealtimeEvent,
+    onTimelinePatch: input.onTimelinePatch,
     taskLineage: input.taskLineage,
   });
   assertThreadLineage(proposal, null, "Evolution Agent");
@@ -149,6 +154,7 @@ export async function runMaintenanceProviderAssignment(
       writable: false,
       signal: input.signal,
       onRealtimeEvent: input.onRealtimeEvent,
+      onTimelinePatch: input.onTimelinePatch,
       taskLineage: input.taskLineage,
     });
     if (scoringResult.parentThreadId !== proposal.threadId || scoringResult.threadId === proposal.threadId) {
@@ -195,6 +201,7 @@ export async function runMaintenanceProviderAssignment(
       writable: false,
       signal: input.signal,
       onRealtimeEvent: input.onRealtimeEvent,
+      onTimelinePatch: input.onTimelinePatch,
       taskLineage: input.taskLineage,
     });
     if (revised.threadId !== proposal.threadId) throw new Error("Evolution revision must continue the proposal thread.");
@@ -215,6 +222,7 @@ export async function runMaintenanceProviderAssignment(
     writableRoots,
     signal: input.signal,
     onRealtimeEvent: input.onRealtimeEvent,
+    onTimelinePatch: input.onTimelinePatch,
     taskLineage: input.taskLineage,
   });
   if (applied.threadId !== proposal.threadId) throw new Error("Evolution edit must continue the accepted proposal thread.");

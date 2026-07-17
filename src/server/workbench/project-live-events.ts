@@ -56,7 +56,7 @@ export function buildInitialProjectAgentEvents(
     });
   }
   for (const task of tasks.filter((item) => item.kind === "background" && (item.status === "running" || item.status === "queued" || item.status === "claimed"))) {
-    const projectedAgent = agents.find((agent) => agent.transcript.cells?.some((cell) => cell.id === `task:${task.id}`));
+    const projectedAgent = agents.find((agent) => agent.agentTaskId === task.id);
     if (!projectedAgent) continue;
     const agentSurfaceId = projectedAgent.id;
     if (announced.has(agentSurfaceId)) continue;

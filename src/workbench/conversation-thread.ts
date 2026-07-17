@@ -2,16 +2,18 @@
 import type { ManagedProject, ResolvedMemory } from "../types/index.js";
 import { resolveTopic } from "./topic-resolver.js";
 import { WorkbenchStore } from "./store.js";
-import type { TopicThreadEntry } from "./types.js";
+import { canonicalTimelineEnvelopeFromStoredRow, type CanonicalTimelineEnvelope } from "./canonical-timeline.js";
+import type { TopicThreadEntry, WorkbenchLiveSink } from "./types.js";
 
 export interface ConversationTimelineWriter {
-  upsert(entry: TopicThreadEntry): TopicThreadEntry;
+  upsert(entry: TopicThreadEntry): CanonicalTimelineEnvelope;
   close(): void;
 }
 
 export async function openConversationTimelineWriter(
   project: ManagedProject,
   changeId: string,
+  live?: WorkbenchLiveSink,
 ): Promise<ConversationTimelineWriter> {
   const { memory } = await resolveTopic(project, changeId);
   assertWritableMemory(memory, "Topic thread update");
@@ -45,6 +47,7 @@ export async function openConversationTimelineWriter(
         actionType: canonical.actionType ?? null,
         status: canonical.status ?? null,
         runId: canonical.runId ?? null,
+        agentSurfaceId: canonicalAgentSurfaceId(canonical),
         providerId: canonical.providerId ?? null,
         threadId: canonical.threadId ?? null,
         turnId: canonical.turnId ?? null,
@@ -53,13 +56,16 @@ export async function openConversationTimelineWriter(
         error: canonical.error ?? null,
         rawJson: JSON.stringify(canonical),
       };
+      let storedRow;
       if (knownIds.has(canonical.id)) {
-        store.updateMessage(stored);
+        storedRow = store.updateMessage(stored);
       } else {
-        store.appendMessage(stored);
+        storedRow = store.appendMessage(stored);
         knownIds.add(canonical.id);
       }
-      return canonical;
+      const envelope = canonicalTimelineEnvelopeFromStoredRow(storedRow);
+      live?.emit({ event: "timeline.patch", data: envelope });
+      return envelope;
     },
     close() {
       store.close();
@@ -67,7 +73,12 @@ export async function openConversationTimelineWriter(
   };
 }
 
-export async function appendConversationThreadEntry(project: ManagedProject, changeId: string, input: Omit<TopicThreadEntry, "id" | "timestamp" | "changeId">): Promise<TopicThreadEntry> {
+export async function appendConversationTimelineEntry(
+  project: ManagedProject,
+  changeId: string,
+  input: Omit<TopicThreadEntry, "id" | "timestamp" | "changeId">,
+  live?: WorkbenchLiveSink,
+): Promise<CanonicalTimelineEnvelope> {
   const { memory } = await resolveTopic(project, changeId);
   assertWritableMemory(memory, "Topic thread update");
   const store = await WorkbenchStore.open(memory);
@@ -85,7 +96,7 @@ export async function appendConversationThreadEntry(project: ManagedProject, cha
     ...input,
   };
   try {
-    store.appendMessage({
+    const stored = store.appendMessage({
       id: entry.id,
       projectId: project.id,
       conversationId: conversation.conversationId,
@@ -97,6 +108,7 @@ export async function appendConversationThreadEntry(project: ManagedProject, cha
       actionType: entry.actionType ?? null,
       status: entry.status ?? null,
       runId: entry.runId ?? null,
+      agentSurfaceId: canonicalAgentSurfaceId(entry),
       providerId: entry.providerId ?? null,
       threadId: entry.threadId ?? null,
       turnId: entry.turnId ?? null,
@@ -105,10 +117,20 @@ export async function appendConversationThreadEntry(project: ManagedProject, cha
       error: entry.error ?? null,
       rawJson: JSON.stringify(entry),
     });
+    const envelope = canonicalTimelineEnvelopeFromStoredRow(stored);
+    live?.emit({ event: "timeline.patch", data: envelope });
+    return envelope;
   } finally {
     store.close();
   }
-  return entry;
+}
+
+function canonicalAgentSurfaceId(entry: TopicThreadEntry): string {
+  if (entry.agentSurfaceId?.trim()) return entry.agentSurfaceId;
+  if (entry.agentRoleId && entry.agentRoleId !== "main-agent") {
+    throw new Error(`Canonical child Timeline entry ${entry.id} requires agentSurfaceId.`);
+  }
+  return "main-agent";
 }
 
 export async function deleteConversation(memory: ResolvedMemory, conversationId: string): Promise<void> {

@@ -172,6 +172,9 @@ describe("workbench workflow action service", () => {
         activity: [],
         blocks: [],
         childCaptures: new Map([["thread-coder:turn-running", {
+          canonicalId: "child:codex:attempt-coder:thread-coder:turn-running",
+          providerId: "codex",
+          attemptId: "attempt-coder",
           runId: "run-coder",
           threadId: "thread-coder",
           parentThreadId: "thread-main",
@@ -192,6 +195,51 @@ describe("workbench workflow action service", () => {
     });
   });
 
+  it("fails closed when a child capture lacks canonical turn identity", async () => {
+    const appended: TopicThreadEntry[] = [];
+    const deps = fakeDeps({
+      append(entry) {
+        appended.push(entry);
+      },
+      capture: {
+        sink: { emit() {} },
+        text: "",
+        activity: [],
+        blocks: [],
+        childCaptures: new Map([
+          ["thread-coder:missing-canonical", {
+            canonicalId: "",
+            providerId: "codex",
+            attemptId: "attempt-coder",
+            runId: "run-coder",
+            threadId: "thread-coder",
+            parentThreadId: "thread-main",
+            turnId: "turn-1",
+            roleId: "coder-agent",
+            activity: [{ kind: "status", label: "completed", timestamp: "2026-06-20T00:00:01.000Z" }],
+            blocks: [],
+          }],
+          ["thread-coder:missing-turn", {
+            canonicalId: "child:codex:attempt-coder:thread-coder:turn-2",
+            providerId: "codex",
+            attemptId: "attempt-coder",
+            runId: "run-coder",
+            threadId: "thread-coder",
+            parentThreadId: "thread-main",
+            turnId: "",
+            roleId: "coder-agent",
+            activity: [{ kind: "status", label: "completed", timestamp: "2026-06-20T00:00:02.000Z" }],
+            blocks: [],
+          }],
+        ]),
+      },
+    });
+
+    await runWorkbenchWorkflowActionService(fakeProject(), { actionType: "code.run" }, undefined, deps);
+
+    expect(appended.filter((entry) => entry.type === "assistant.message")).toHaveLength(0);
+  });
+
   it("persists each real child turn before the workflow result so refresh keeps the Agent timeline", async () => {
     const appended: TopicThreadEntry[] = [];
     const deps = fakeDeps({
@@ -205,6 +253,9 @@ describe("workbench workflow action service", () => {
         blocks: [],
         childCaptures: new Map([
           ["thread-coder:turn-1", {
+            canonicalId: "child:codex:attempt-coder:thread-coder:turn-1",
+            providerId: "codex",
+            attemptId: "attempt-coder",
             runId: "run-coder",
             threadId: "thread-coder",
             parentThreadId: "thread-main",
@@ -236,6 +287,7 @@ describe("workbench workflow action service", () => {
       parentThreadId: "thread-main",
       turnId: "turn-1",
       agentRoleId: "coder-agent",
+      agentSurfaceId: "agent:codex:thread:thread-coder",
     });
     expect(child?.blocks).toHaveLength(1);
     expect(appended.findIndex((entry) => entry === child)).toBeLessThan(appended.findLastIndex((entry) => entry.type === "workflow.completed"));

@@ -87,7 +87,7 @@ async function startProjectBackgroundWorkers(
             taskId: task.id,
             conversationId: task.conversationId,
             changeId: task.changeId,
-          })),
+          }, (envelope) => publishProjectLiveEvent(project.id, { event: "timeline.patch", data: envelope }))),
     });
     workers.push(worker);
     await worker.poll();

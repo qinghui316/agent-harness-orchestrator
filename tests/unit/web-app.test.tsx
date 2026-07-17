@@ -11,7 +11,7 @@ import { RunReplay } from "../../src/web/src/panels/workbench/RunReplayPanel.js"
 import { TopicComposer } from "../../src/web/src/shell/composer.js";
 import { ComposerControls } from "../../src/web/src/shell/ComposerControls.js";
 import { canonicalTranscriptCellsFromThreadItem } from "../../src/workbench/parent-agent-transcript.js";
-import type { Workpad, WorkpadMainAgentExecutionSummary } from "../../src/web/src/types.js";
+import type { CanonicalTimelineEnvelope, CanonicalTimelinePage, ParentAgentTranscriptCell, Workpad, WorkpadMainAgentExecutionSummary } from "../../src/web/src/types.js";
 
 vi.mock("@xterm/xterm", () => ({
   Terminal: class {
@@ -73,6 +73,112 @@ it("does not reconstruct conversation events by parsing provider raw JSONL in th
   expect(screen.queryByText("Command completed")).toBeNull();
 });
 
+
+type CanonicalTimelinePageFixture = CanonicalTimelinePage & {
+  conversationId: string;
+  agentSurfaceId: string;
+};
+
+function canonicalTimelineEnvelope(
+  conversationId: string,
+  agentSurfaceId: string,
+  messageId: string,
+  position: number,
+  revision: number,
+  cells: ParentAgentTranscriptCell[],
+  orderClass: CanonicalTimelineEnvelope["orderClass"] = "sequence",
+): CanonicalTimelineEnvelope {
+  return { conversationId, agentSurfaceId, messageId, position, revision, orderClass, cells };
+}
+
+function canonicalTimelinePage(
+  conversationId: string,
+  agentSurfaceId: string,
+  cells: ParentAgentTranscriptCell[] = [],
+  options: {
+    pinnedCells?: ParentAgentTranscriptCell[];
+    totalCount?: number;
+    hasMoreBefore?: boolean;
+    nextBeforeCursor?: string;
+  } = {},
+): CanonicalTimelinePageFixture {
+  const pinned = (options.pinnedCells ?? []).map((cell, index) => canonicalTimelineEnvelope(
+    conversationId,
+    agentSurfaceId,
+    `pinned:${cell.id}`,
+    index + 1,
+    index + 1,
+    [cell],
+    "thread-start",
+  ));
+  const entries = cells.map((cell, index) => canonicalTimelineEnvelope(
+    conversationId,
+    agentSurfaceId,
+    `message:${cell.id}`,
+    pinned.length + index + 1,
+    pinned.length + index + 1,
+    [cell],
+  ));
+  const watermark = pinned.length + entries.length;
+  return {
+    conversationId,
+    agentSurfaceId,
+    watermark,
+    pinned,
+    entries,
+    paging: {
+      limit: 100,
+      totalCount: options.totalCount ?? entries.length,
+      hasMoreBefore: options.hasMoreBefore ?? false,
+      ...(options.nextBeforeCursor ? { nextBeforeCursor: options.nextBeforeCursor } : {}),
+    },
+  };
+}
+
+const mainTimelinePage = canonicalTimelinePage("member-discount", "main-agent", [
+  {
+    id: "cell:user:e1",
+    kind: "user-message",
+    source: "user",
+    timestamp: "2026-05-15T12:00:00.000Z",
+    text: "会员用户满 100 元享 9 折",
+  },
+  {
+    id: "cell:assistant:e3",
+    kind: "assistant-message",
+    source: "provider-runtime",
+    timestamp: "2026-05-15T12:01:00.000Z",
+    text: "Codex final summary 完整显示。\n\n下一步可以查看验证和审查证据。",
+  },
+  {
+    id: "cell:command:b2",
+    kind: "process-row",
+    source: "provider-runtime",
+    timestamp: "2026-05-15T12:01:05.000Z",
+    title: "已运行命令",
+    text: "已运行 1 条命令",
+    status: "completed",
+    detailText: "npm test\n测试通过",
+  },
+]);
+
+let canonicalTimelineFixtures = new Map<string, CanonicalTimelinePageFixture>();
+
+function setCanonicalTimelineFixtures(...pages: CanonicalTimelinePageFixture[]): void {
+  canonicalTimelineFixtures = new Map(pages.map((page) => [`${page.conversationId}:${page.agentSurfaceId}`, page]));
+}
+
+function canonicalTimelineResponse(url: string): Response | null {
+  const parsed = new URL(url, "http://localhost");
+  const match = /\/workbench\/conversations\/([^/]+)\/timeline$/.exec(parsed.pathname);
+  const agentSurfaceId = parsed.searchParams.get("agentSurfaceId");
+  if (!match?.[1] || !agentSurfaceId) return null;
+  const conversationId = decodeURIComponent(match[1]);
+  const page = canonicalTimelineFixtures.get(`${conversationId}:${agentSurfaceId}`)
+    ?? (conversationId === "member-discount" && agentSurfaceId === "main-agent" ? mainTimelinePage : undefined)
+    ?? canonicalTimelinePage(conversationId, agentSurfaceId);
+  return jsonResponse(page);
+}
 
 const snapshot = {
   project: { id: "repo", name: "Repo", path: "E:/repo" },
@@ -239,37 +345,6 @@ const snapshot = {
         ],
       },
     ] },
-    parentAgentTranscript: {
-      title: "会员折扣计价",
-      cells: [
-        {
-          id: "cell:user:e1",
-          kind: "user-message",
-          source: "user",
-          timestamp: "2026-05-15T12:00:00.000Z",
-          text: "会员用户满 100 元享 9 折",
-        },
-        {
-          id: "cell:assistant:e3",
-          kind: "assistant-message",
-          source: "provider-runtime",
-          timestamp: "2026-05-15T12:01:00.000Z",
-          text: "Codex final summary 完整显示。\n\n下一步可以查看验证和审查证据。",
-        },
-        {
-          id: "cell:command:b2",
-          kind: "process-row",
-          source: "provider-runtime",
-          timestamp: "2026-05-15T12:01:05.000Z",
-          title: "已运行命令",
-          text: "已运行 1 条命令",
-          status: "completed",
-          detailText: "npm test\n测试通过",
-        },
-      ],
-      items: [],
-      emptyMessage: "暂无对话内容。输入需求后，主 agent 会在这里持续回复。",
-    },
     agentLoop: { runs: [{ id: "run-1", runtime: "provider-code", status: "completed" }] },
     agentRelationGraph: {
       conversationId: "member-discount",
@@ -503,6 +578,12 @@ function fetchCallUrls(): string[] {
     .map(([input]) => String(input));
 }
 
+function isCanonicalTimelineRequest(url: string, conversationId: string, agentSurfaceId: string): boolean {
+  const parsed = new URL(url, "http://localhost");
+  return parsed.pathname.endsWith(`/workbench/conversations/${encodeURIComponent(conversationId)}/timeline`)
+    && parsed.searchParams.get("agentSurfaceId") === agentSurfaceId;
+}
+
 function expectNoForbiddenToolControls(container: HTMLElement): void {
   const forbidden = /(^|\b)(Run|Stop|stage|unstage|discard|commit|push|sync|remote|merge|command|preset|autofix|retry)(\b|$)|\bPR\b|自动修复|执行命令|命令预设|清空控制台|暂存|取消暂存|放弃更改|提交|推送|同步|远端|合并|重试/i;
   const controls = within(container).queryAllByRole("button")
@@ -589,6 +670,7 @@ function rawSchedulerQueueItem() {
 
 describe("Workbench web app", () => {
   beforeEach(() => {
+    setCanonicalTimelineFixtures(mainTimelinePage);
     window.history.replaceState({}, "", "/");
     const storage = new Map<string, string>();
     Object.defineProperty(window, "localStorage", {
@@ -602,6 +684,8 @@ describe("Workbench web app", () => {
     });
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") {
         return new Response(JSON.stringify({ mode: "project", directProjectId: "repo" }), {
           status: 200,
@@ -623,11 +707,8 @@ describe("Workbench web app", () => {
       if (url === "/api/providers/capabilities" || url.endsWith("/providers/capabilities")) {
         return jsonResponse(providerCapabilityPayload);
       }
-      if (url.includes("/workbench/projections/transcript/")) {
-        return new Response(JSON.stringify(snapshot.center.parentAgentTranscript), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
+      if (url.includes("/workbench/conversations/") && url.includes("/timeline?agentSurfaceId=")) {
+        return jsonResponse(mainTimelinePage);
       }
       if (url.includes("/workbench/projections/agent-graph/")) {
         return new Response(JSON.stringify({
@@ -847,22 +928,20 @@ describe("Workbench web app", () => {
   });
 
   it("loads a paged transcript and keeps large conversations bounded in the DOM", async () => {
-    const largeTranscript = {
-      ...snapshot.center.parentAgentTranscript,
-      cells: Array.from({ length: 1000 }, (_, index) => ({
+    const largeTimelinePage = canonicalTimelinePage("member-discount", "main-agent", Array.from({ length: 1000 }, (_, index) => ({
         id: `cell:assistant:${index}`,
-        kind: "assistant-message",
-        source: "provider-runtime",
+        kind: "assistant-message" as const,
+        source: "provider-runtime" as const,
         text: `message ${index}`,
-      })),
-      items: [],
-      paging: { limit: 100, totalCount: 1000, hasMoreBefore: false },
-    };
+      })), { totalCount: 1000 });
+    setCanonicalTimelineFixtures(largeTimelinePage);
     vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
-      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(largeTranscript);
+      if (url.includes("/workbench/conversations/member-discount/timeline?agentSurfaceId=main-agent")) return jsonResponse(largeTimelinePage);
       if (url.includes("/workbench/projections/agent-graph/")) return jsonResponse(snapshot.center.agentRelationGraph);
       return jsonResponse(url.includes("/stream/") ? stream : snapshot);
     });
@@ -870,29 +949,27 @@ describe("Workbench web app", () => {
     render(<App />);
 
     await screen.findByTestId("transcript-virtual-list");
-    await waitFor(() => expect(fetchCallUrls().some((url) => url.includes("/workbench/projections/transcript/member-discount?limit=100"))).toBe(true));
+    await waitFor(() => expect(fetchCallUrls()).toContain("/api/projects/repo/workbench/conversations/member-discount/timeline?agentSurfaceId=main-agent&limit=100"));
     expect(screen.getAllByTestId("parent-message-parent-agent").length).toBeLessThan(80);
   });
 
   it("folds very long transcript messages until the user expands them", async () => {
     const hiddenSentinel = "FULL_SENTINEL_END";
     const longText = `preview line\n${"a".repeat(7000)}\n${hiddenSentinel}`;
-    const transcript = {
-      ...snapshot.center.parentAgentTranscript,
-      cells: [{
+    const timelinePage = canonicalTimelinePage("member-discount", "main-agent", [{
         id: "cell:assistant:long",
         kind: "assistant-message",
         source: "provider-runtime",
         text: longText,
-      }],
-      items: [],
-      paging: { limit: 100, totalCount: 1, hasMoreBefore: false },
-    };
+      }]);
+    setCanonicalTimelineFixtures(timelinePage);
     vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
-      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(transcript);
+      if (url.includes("/workbench/conversations/member-discount/timeline?agentSurfaceId=main-agent")) return jsonResponse(timelinePage);
       if (url.includes("/workbench/projections/agent-graph/")) return jsonResponse(snapshot.center.agentRelationGraph);
       return jsonResponse(url.includes("/stream/") ? stream : snapshot);
     });
@@ -906,9 +983,7 @@ describe("Workbench web app", () => {
   });
 
   it("renders transcript as reference-style reading prose and collapsible activity rows", async () => {
-    const transcript = {
-      ...snapshot.center.parentAgentTranscript,
-      cells: [{
+    const timelinePage = canonicalTimelinePage("member-discount", "main-agent", [{
         id: "cell:user:reading",
         kind: "user-message",
         source: "user",
@@ -947,15 +1022,15 @@ describe("Workbench web app", () => {
         text: "验证失败",
         status: "failed",
         isError: true,
-      }],
-      items: [],
-      paging: { limit: 100, totalCount: 6, hasMoreBefore: false },
-    };
+      }]);
+    setCanonicalTimelineFixtures(timelinePage);
     vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
-      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(transcript);
+      if (url.includes("/workbench/conversations/member-discount/timeline?agentSurfaceId=main-agent")) return jsonResponse(timelinePage);
       if (url.includes("/workbench/projections/agent-graph/")) return jsonResponse(snapshot.center.agentRelationGraph);
       return jsonResponse(url.includes("/stream/") ? stream : snapshot);
     });
@@ -1068,6 +1143,7 @@ describe("Workbench web app", () => {
     render(<App />);
 
     await waitFor(() => expect(screen.getAllByText("会员折扣计价").length).toBeGreaterThan(0));
+    await screen.findByText("Codex final summary 完整显示。");
     expect(screen.getByTestId("main-conversation-view")).toBeTruthy();
     expect(screen.queryByRole("tab", { name: "对话" })).toBeNull();
     expect(screen.queryByRole("tab", { name: "工作台" })).toBeNull();
@@ -1161,9 +1237,11 @@ describe("Workbench web app", () => {
   it("defaults the confirmation pane to a collapsed rail and expands without submitting actions", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
-      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(snapshot.center.parentAgentTranscript);
+      if (url.includes("/workbench/conversations/") && url.includes("/timeline?agentSurfaceId=")) return jsonResponse(mainTimelinePage);
       if (url.includes("/workbench/projections/agent-graph/")) return jsonResponse(snapshot.center.agentRelationGraph);
       return jsonResponse(url.includes("/stream/") ? stream : snapshot);
     }));
@@ -1196,9 +1274,11 @@ describe("Workbench web app", () => {
   it("resizes side rails by changing only the dragged rail width variable", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
-      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(snapshot.center.parentAgentTranscript);
+      if (url.includes("/workbench/conversations/") && url.includes("/timeline?agentSurfaceId=")) return jsonResponse(mainTimelinePage);
       if (url.includes("/workbench/projections/agent-graph/")) return jsonResponse(snapshot.center.agentRelationGraph);
       return jsonResponse(url.includes("/stream/") ? stream : snapshot);
     }));
@@ -1232,6 +1312,32 @@ describe("Workbench web app", () => {
   });
 
   it("uses a transcript-first plan session workspace without old planning workflow actions", async () => {
+    const planningMainTimelinePage = canonicalTimelinePage("conv-plan", "main-agent", [{
+      id: "main-plan-ready",
+      kind: "process-row",
+      source: "aho-orchestration",
+      text: "Plan Agent 已完成可确认的实现计划。",
+      runId: "run-planning-agent",
+      evidenceRefs: [{ label: "Plan proposal", ref: "proposal-1.json", kind: "artifact" }],
+    }]);
+    const planningChildTimelinePage = canonicalTimelinePage("conv-plan", "planning-agent", [{
+      id: "planning-agent-plan",
+      kind: "assistant-message",
+      source: "provider-runtime",
+      text: "为 `message.txt` 增加指定文本的实施方案",
+      agentRoleId: "planning-agent",
+      runId: "run-planning-agent",
+      evidenceRefs: [{ label: "Plan proposal", ref: "proposal-1.json", kind: "artifact" }],
+      timestamp: "2026-07-07T00:00:01.000Z",
+    }], { pinnedCells: [{
+      id: "planning-agent-user",
+      kind: "user-message",
+      source: "user",
+      text: "请先规划 message.txt 的改动。",
+      agentRoleId: "planning-agent",
+      timestamp: "2026-07-07T00:00:00.000Z",
+    }] });
+    setCanonicalTimelineFixtures(planningMainTimelinePage, planningChildTimelinePage);
     const planningAgentSnapshot = {
       ...snapshot,
       center: {
@@ -1258,17 +1364,6 @@ describe("Workbench web app", () => {
             canSkip: true,
           }],
         },
-        parentAgentTranscript: {
-          ...snapshot.center.parentAgentTranscript,
-          cells: [{
-            id: "main-plan-ready",
-            kind: "process-row",
-            source: "aho-orchestration",
-            text: "Plan Agent 已完成可确认的实现计划。",
-            runId: "run-planning-agent",
-            evidenceRefs: [{ label: "Plan proposal", ref: "proposal-1.json", kind: "artifact" }],
-          }],
-        },
       },
       right: {
         ...snapshot.right,
@@ -1280,31 +1375,6 @@ describe("Workbench web app", () => {
             label: "Plan Agent",
             status: "draft",
             summary: "真实计划子 Agent 对话。",
-            transcript: {
-              title: "Plan Agent",
-              emptyMessage: "暂无计划会话内容。",
-              cells: [
-                {
-                  id: "planning-agent-user",
-                  kind: "user-message",
-                  source: "user",
-                  text: "请先规划 message.txt 的改动。",
-                  agentRoleId: "planning-agent",
-                  timestamp: "2026-07-07T00:00:00.000Z",
-                },
-                {
-                  id: "planning-agent-plan",
-                  kind: "assistant-message",
-                  source: "provider-runtime",
-                  text: "为 `message.txt` 增加指定文本的实施方案",
-                  agentRoleId: "planning-agent",
-                  runId: "run-planning-agent",
-                  evidenceRefs: [{ label: "Plan proposal", ref: "proposal-1.json", kind: "artifact" }],
-                  timestamp: "2026-07-07T00:00:01.000Z",
-                },
-              ],
-              items: [],
-            },
             evidenceRefs: [],
             actions: [],
           }],
@@ -1314,6 +1384,8 @@ describe("Workbench web app", () => {
     const calls: Array<{ url: string; body: string }> = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (init?.body) calls.push({ url, body: String(init.body) });
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
@@ -1323,7 +1395,8 @@ describe("Workbench web app", () => {
           center: { ...planningAgentSnapshot.center, conversationInteractions: { items: [] } },
         }], ["done", { status: "completed" }]]);
       }
-      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(planningAgentSnapshot.center.parentAgentTranscript);
+      if (isCanonicalTimelineRequest(url, "conv-plan", "main-agent")) return jsonResponse(planningMainTimelinePage);
+      if (isCanonicalTimelineRequest(url, "conv-plan", "planning-agent")) return jsonResponse(planningChildTimelinePage);
       if (url.includes("/workbench/projections/agent-graph/")) return jsonResponse(planningAgentSnapshot.center.agentRelationGraph);
       return jsonResponse(url.includes("/stream/") ? stream : planningAgentSnapshot);
     }));
@@ -1375,7 +1448,7 @@ describe("Workbench web app", () => {
 
   it("opens a child tab after a transient projection failure and delayed server projection", async () => {
     const agentSurfaceId = "agent:codex:thread:thread-plan-delayed";
-    const childCell = {
+    const childCell: ParentAgentTranscriptCell = {
       id: "child-plan-delayed",
       kind: "process-row",
       source: "provider-runtime",
@@ -1385,15 +1458,22 @@ describe("Workbench web app", () => {
       activityKind: "agent",
       targetAgentSurfaceId: agentSurfaceId,
     };
+    const delayedMainTimelinePage = canonicalTimelinePage("member-discount", "main-agent", [childCell]);
+    const delayedChildTimelinePage = canonicalTimelinePage("member-discount", agentSurfaceId, [{
+      id: "child-plan-message",
+      kind: "assistant-message",
+      source: "provider-runtime",
+      text: "我正在核对实现边界。",
+    }], { pinnedCells: [{
+      id: "child-plan-input",
+      kind: "user-message",
+      source: "user",
+      text: "请核对实现边界。",
+    }] });
+    setCanonicalTimelineFixtures(delayedMainTimelinePage, delayedChildTimelinePage);
     const delayedSnapshot = {
       ...snapshot,
-      center: {
-        ...snapshot.center,
-        parentAgentTranscript: {
-          ...snapshot.center.parentAgentTranscript,
-          cells: [childCell],
-        },
-      },
+      center: { ...snapshot.center },
       right: {
         ...snapshot.right,
         agentWorkspace: { selectedAgentId: agentSurfaceId, agents: [] },
@@ -1412,16 +1492,6 @@ describe("Workbench web app", () => {
             label: "Plan Agent · Sagan",
             status: "running",
             summary: "正在规划",
-            transcript: {
-              title: "Plan Agent · Sagan",
-              items: [],
-              cells: [{
-                id: "child-plan-message",
-                kind: "assistant-message",
-                source: "provider-runtime",
-                text: "我正在核对实现边界。",
-              }],
-            },
             evidenceRefs: [],
             actions: [],
           }],
@@ -1432,6 +1502,8 @@ describe("Workbench web app", () => {
     let projectionReads = 0;
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
       if (url === "/api/projects/repo/workbench/snapshot?topic=member-discount" && projectionEnabled) {
@@ -1439,7 +1511,8 @@ describe("Workbench web app", () => {
         if (projectionReads === 1) throw new Error("temporary projection failure");
         return jsonResponse(projectionReads === 2 ? delayedSnapshot : readySnapshot);
       }
-      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(delayedSnapshot.center.parentAgentTranscript);
+      if (isCanonicalTimelineRequest(url, "member-discount", "main-agent")) return jsonResponse(delayedMainTimelinePage);
+      if (isCanonicalTimelineRequest(url, "member-discount", agentSurfaceId)) return jsonResponse(delayedChildTimelinePage);
       if (url.includes("/workbench/projections/agent-graph/")) return jsonResponse(delayedSnapshot.center.agentRelationGraph);
       return jsonResponse(delayedSnapshot);
     }));
@@ -1459,6 +1532,20 @@ describe("Workbench web app", () => {
   });
 
   it("sends Plan Agent workspace feedback through the Main conversation instead of workflow actions", async () => {
+    const planningMainTimelinePage = canonicalTimelinePage("conv-plan", "main-agent");
+    const planningChildTimelinePage = canonicalTimelinePage("conv-plan", "planning-agent", [{
+      id: "planning-agent-plan",
+      kind: "assistant-message",
+      source: "provider-runtime",
+      text: "先整理目标，再确认执行方式。",
+      agentRoleId: "planning-agent",
+    }], { pinnedCells: [{
+      id: "planning-agent-input",
+      kind: "user-message",
+      source: "user",
+      text: "请规划当前需求。",
+    }] });
+    setCanonicalTimelineFixtures(planningMainTimelinePage, planningChildTimelinePage);
     const planningAgentSnapshot = {
       ...snapshot,
       center: {
@@ -1475,18 +1562,6 @@ describe("Workbench web app", () => {
             label: "Plan Agent",
             status: "completed",
             summary: "真实计划子 Agent 对话。",
-            transcript: {
-              title: "Plan Agent",
-              emptyMessage: "暂无会话内容。",
-              cells: [{
-                id: "planning-agent-plan",
-                kind: "assistant-message",
-                source: "provider-runtime",
-                text: "先整理目标，再确认执行方式。",
-                agentRoleId: "planning-agent",
-              }],
-              items: [],
-            },
             evidenceRefs: [],
             actions: [],
           }],
@@ -1496,13 +1571,16 @@ describe("Workbench web app", () => {
     const calls: Array<{ url: string; body: string }> = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (init?.body) calls.push({ url, body: String(init.body) });
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
       if (url.endsWith("/workbench/topics/conv-plan/messages/live") && init?.method === "POST") {
         return sseResponse([["snapshot", planningAgentSnapshot], ["done", { status: "completed" }]]);
       }
-      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(planningAgentSnapshot.center.parentAgentTranscript);
+      if (isCanonicalTimelineRequest(url, "conv-plan", "main-agent")) return jsonResponse(planningMainTimelinePage);
+      if (isCanonicalTimelineRequest(url, "conv-plan", "planning-agent")) return jsonResponse(planningChildTimelinePage);
       if (url.includes("/workbench/projections/agent-graph/")) return jsonResponse(planningAgentSnapshot.center.agentRelationGraph);
       return jsonResponse(url.includes("/stream/") ? stream : planningAgentSnapshot);
     }));
@@ -1527,6 +1605,8 @@ describe("Workbench web app", () => {
     const fileRef = { relativePath: "src/pricing.ts", name: "pricing.ts", kind: "file", extension: ".ts", size: 24 };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
       if (url === "/api/projects/repo/files/children?path=") {
@@ -1659,7 +1739,7 @@ describe("Workbench web app", () => {
           ],
         });
       }
-      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(snapshot.center.parentAgentTranscript);
+      if (url.includes("/workbench/conversations/") && url.includes("/timeline?agentSurfaceId=")) return jsonResponse(mainTimelinePage);
       if (url.includes("/workbench/projections/agent-graph/")) return jsonResponse(snapshot.center.agentRelationGraph);
       return jsonResponse(url.includes("/stream/") ? stream : snapshot);
     }));
@@ -1791,11 +1871,13 @@ describe("Workbench web app", () => {
   it("shows a readable terminal timeout instead of staying in connecting state", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
       if (url === "/api/projects/repo/terminal/sessions") return new Promise<Response>(() => undefined);
       if (url.includes("/api/projects/repo/terminal/sessions/") && url.endsWith("/resize")) return jsonResponse({ ok: true });
-      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(snapshot.center.parentAgentTranscript);
+      if (url.includes("/workbench/conversations/") && url.includes("/timeline?agentSurfaceId=")) return jsonResponse(mainTimelinePage);
       if (url.includes("/workbench/projections/agent-graph/")) return jsonResponse(snapshot.center.agentRelationGraph);
       return jsonResponse(url.includes("/stream/") ? stream : snapshot);
     }));
@@ -1825,6 +1907,8 @@ describe("Workbench web app", () => {
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" }, memory: { memoryMode: "repo-local", memoryAvailable: true, harnessReady: true } }] });
       if (url === "/api/projects/repo/git/status") {
@@ -1869,9 +1953,11 @@ describe("Workbench web app", () => {
     window.history.replaceState({}, "", "/?project=repo&topic=member-discount");
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
-      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(snapshot.center.parentAgentTranscript);
+      if (url.includes("/workbench/conversations/") && url.includes("/timeline?agentSurfaceId=")) return jsonResponse(mainTimelinePage);
       if (url.includes("/workbench/projections/agent-graph/")) return jsonResponse(snapshot.center.agentRelationGraph);
       return jsonResponse(url.includes("/stream/") ? stream : snapshot);
     }));
@@ -1899,10 +1985,12 @@ describe("Workbench web app", () => {
     let graphAvailable = false;
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/providers") return jsonResponse({ providers: [{ providerId: "codex", displayName: "Codex" }] });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
-      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(snapshot.center.parentAgentTranscript);
+      if (url.includes("/workbench/conversations/") && url.includes("/timeline?agentSurfaceId=")) return jsonResponse(mainTimelinePage);
       if (url.includes("/workbench/projections/agent-graph/")) {
         graphAttempts += 1;
         if (!graphAvailable) return new Response("projection unavailable", { status: 503 });
@@ -1915,7 +2003,7 @@ describe("Workbench web app", () => {
     render(<App />);
     await waitFor(() => expect(screen.getByTestId("main-conversation-view")).toBeTruthy());
     await waitFor(() => expect(fetchMock.mock.calls.some(([input]) => (
-      String(input).includes("/workbench/projections/transcript/member-discount?limit=100")
+      isCanonicalTimelineRequest(String(input), "member-discount", "main-agent")
     ))).toBe(true));
     fireEvent.click(screen.getByTestId("orchestration-overlay-toggle"));
 
@@ -1977,9 +2065,11 @@ describe("Workbench web app", () => {
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
-      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(uiSnapshot.center.parentAgentTranscript);
+      if (isCanonicalTimelineRequest(url, "member-discount", "main-agent")) return jsonResponse(mainTimelinePage);
       if (url.includes("/workbench/projections/agent-graph/")) return jsonResponse(uiSnapshot.center.agentRelationGraph);
       return jsonResponse(url.includes("/stream/") ? stream : uiSnapshot);
     }));
@@ -1987,6 +2077,7 @@ describe("Workbench web app", () => {
     render(<App />);
 
     await waitFor(() => expect(screen.getAllByText("会员折扣计价").length).toBeGreaterThan(0));
+    await screen.findByText("Codex final summary 完整显示。");
     const transcript = screen.getByTestId("parent-agent-transcript");
     expect(within(transcript).getByText("会员用户满 100 元享 9 折")).toBeTruthy();
     expect(within(transcript).getByText("Codex final summary 完整显示。")).toBeTruthy();
@@ -2021,6 +2112,19 @@ describe("Workbench web app", () => {
 
   it("renders workflow result summaries in the main thread surface", async () => {
     const resultSummary = "本次执行：继续执行下一个任务。下一步候选：检查当前结果。";
+    const resultTimelinePage = canonicalTimelinePage("member-discount", "main-agent", [
+      ...mainTimelinePage.entries.flatMap((entry) => entry.cells),
+      {
+        id: "cell:workflow-result:summary-prose",
+        kind: "assistant-message",
+        source: "workflow-evidence",
+        timestamp: "2026-06-20T12:00:00.000Z",
+        title: "执行结果",
+        text: resultSummary,
+        status: "completed",
+      },
+    ]);
+    setCanonicalTimelineFixtures(resultTimelinePage);
     const uiSnapshot = {
       ...snapshot,
       center: {
@@ -2045,28 +2149,15 @@ describe("Workbench web app", () => {
             },
           ],
         },
-        parentAgentTranscript: {
-          ...snapshot.center.parentAgentTranscript,
-          cells: [
-            ...snapshot.center.parentAgentTranscript.cells,
-            {
-              id: "cell:workflow-result:summary-prose",
-              kind: "assistant-message",
-              source: "workflow-evidence",
-              timestamp: "2026-06-20T12:00:00.000Z",
-              title: "执行结果",
-              text: resultSummary,
-              status: "completed",
-            },
-          ],
-        },
       },
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
-      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(uiSnapshot.center.parentAgentTranscript);
+      if (isCanonicalTimelineRequest(url, "member-discount", "main-agent")) return jsonResponse(resultTimelinePage);
       if (url.includes("/workbench/projections/agent-graph/")) return jsonResponse(snapshot.center.agentRelationGraph);
       return jsonResponse(url.includes("/stream/") ? stream : uiSnapshot);
     }));
@@ -2166,6 +2257,32 @@ describe("Workbench web app", () => {
   });
 
   it("deduplicates persisted assistant command and usage blocks", async () => {
+    const dedupeTimelinePage = canonicalTimelinePage("member-discount", "main-agent", [
+      {
+        id: "cell:assistant:p1",
+        kind: "assistant-message",
+        source: "provider-runtime",
+        text: "我会检查现有实现。",
+      },
+      {
+        id: "cell:error:err1",
+        kind: "process-row",
+        source: "provider-runtime",
+        title: "Error",
+        text: "Reconnecting...",
+        isError: true,
+      },
+      {
+        id: "cell:command:c-done",
+        kind: "process-row",
+        source: "provider-runtime",
+        title: "已运行命令",
+        text: "已运行 1 条命令",
+        status: "completed",
+        detailText: "npm test\nok",
+      },
+    ]);
+    setCanonicalTimelineFixtures(dedupeTimelinePage);
     const dedupeSnapshot = {
       ...snapshot,
       center: {
@@ -2189,43 +2306,16 @@ describe("Workbench web app", () => {
             ],
           }],
         },
-        parentAgentTranscript: {
-          title: "会员折扣计价",
-          cells: [
-            {
-              id: "cell:assistant:p1",
-              kind: "assistant-message",
-              source: "provider-runtime",
-              text: "我会检查现有实现。",
-            },
-            {
-              id: "cell:error:err1",
-              kind: "process-row",
-              source: "provider-runtime",
-              title: "Error",
-              text: "Reconnecting...",
-              isError: true,
-            },
-            {
-              id: "cell:command:c-done",
-              kind: "process-row",
-              source: "provider-runtime",
-              title: "已运行命令",
-              text: "已运行 1 条命令",
-              status: "completed",
-              detailText: "npm test\nok",
-            },
-          ],
-          items: [],
-          emptyMessage: "暂无对话内容。输入需求后，主 agent 会在这里持续回复。",
-        },
         agentLoop: { runs: [{ id: "run-dedupe", runtime: "provider-readonly", status: "completed" }] },
       },
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      if (isCanonicalTimelineRequest(url, "member-discount", "main-agent")) return jsonResponse(dedupeTimelinePage);
       return jsonResponse(url.includes("/stream/") ? { ...stream, run: { id: "run-dedupe", runtime: "provider-readonly", status: "completed" } } : dedupeSnapshot);
     }));
 
@@ -2241,42 +2331,24 @@ describe("Workbench web app", () => {
     expect(document.querySelectorAll("[data-testid^='assistant-block']")).toHaveLength(0);
   });
 
-  it("does not render legacy parent transcript items when runtime cells are absent", async () => {
-    const legacyOnlySnapshot = {
-      ...snapshot,
-      center: {
-        ...snapshot.center,
-        parentAgentTranscript: {
-          title: "会员折扣计价",
-          cells: [],
-          items: [{
-            id: "legacy-derived-item",
-            actor: "parent-agent",
-            blocks: [{
-              id: "legacy-derived-block",
-              kind: "evidence",
-              source: "workflow-evidence",
-              title: "证据摘要",
-              text: "The confirmed workflow action completed.",
-            }],
-          }],
-          emptyMessage: "暂无真实运行记录。",
-        },
-      },
-    };
+  it("renders an empty canonical Timeline without deriving legacy thread facts", async () => {
+    const emptyTimelinePage = canonicalTimelinePage("member-discount", "main-agent");
+    setCanonicalTimelineFixtures(emptyTimelinePage);
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
-      return jsonResponse(url.includes("/stream/") ? stream : legacyOnlySnapshot);
+      if (isCanonicalTimelineRequest(url, "member-discount", "main-agent")) return jsonResponse(emptyTimelinePage);
+      return jsonResponse(url.includes("/stream/") ? stream : snapshot);
     }));
 
     render(<App />);
 
-    await waitFor(() => expect(screen.getByText("暂无真实运行记录。")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("暂无对话内容。输入需求后，主 agent 会在这里持续回复。")).toBeTruthy());
     const transcriptText = document.querySelector(".parent-agent-transcript")?.textContent ?? "";
-    expect(transcriptText).not.toContain("证据摘要");
-    expect(transcriptText).not.toContain("The confirmed workflow action completed.");
+    expect(transcriptText).not.toContain("Codex final summary 完整显示。");
   });
 
   it("renders PR provider guidance without a fake create button when remote handoff is unavailable", async () => {
@@ -2316,6 +2388,8 @@ describe("Workbench web app", () => {
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
       return jsonResponse(url.includes("/stream/") ? stream : landingSnapshot);
@@ -2369,6 +2443,8 @@ describe("Workbench web app", () => {
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
       return jsonResponse(url.includes("/stream/") ? stream : prReadySnapshot);
@@ -2421,6 +2497,8 @@ describe("Workbench web app", () => {
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
       return jsonResponse(url.includes("/stream/") ? stream : reviewReadySnapshot);
@@ -2486,6 +2564,8 @@ describe("Workbench web app", () => {
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
       return jsonResponse(url.includes("/stream/") ? stream : replySnapshot);
@@ -2540,6 +2620,8 @@ describe("Workbench web app", () => {
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
       return jsonResponse(url.includes("/stream/") ? stream : mergeSnapshot);
@@ -2608,6 +2690,8 @@ describe("Workbench web app", () => {
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
       return jsonResponse(url.includes("/stream/") ? stream : queueSnapshot);
@@ -2676,6 +2760,8 @@ describe("Workbench web app", () => {
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
       return jsonResponse(url.includes("/stream/") ? stream : postMergeSnapshot);
@@ -2795,6 +2881,8 @@ describe("Workbench web app", () => {
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
       if (url.endsWith("/workbench/actions/live")) return sseResponse([["snapshot", blockedSnapshot], ["done", { status: "completed" }]]);
@@ -2881,6 +2969,8 @@ describe("Workbench web app", () => {
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
       if (url.endsWith("/workbench/actions") && init?.method === "POST") return jsonResponse({ result: { ok: true }, snapshot: closeSnapshot });
@@ -2930,11 +3020,13 @@ describe("Workbench web app", () => {
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
       if (url.includes("/messages/live")) {
         return sseResponse([
-          ["topic.message", { id: "live-user-planning-note", type: "user.message", changeId: "member-discount", text: "先补充边界，不要生成方案" }],
+          ["timeline.patch", canonicalTimelineEnvelope("member-discount", "main-agent", "live-user-planning-note", 4, 4, [{ id: "cell:user:live-user-planning-note", kind: "user-message", source: "user", text: "先补充边界，不要生成方案" }])],
           ["done", { status: "completed" }],
         ]);
       }
@@ -2981,46 +3073,22 @@ describe("Workbench web app", () => {
             },
           ],
         },
-        parentAgentTranscript: {
-          ...snapshot.center.parentAgentTranscript,
-          cells: [
-            ...snapshot.center.parentAgentTranscript.cells,
-            {
-              id: "cell:user:live-user-final",
-              kind: "user-message",
-              source: "user",
-              text: "继续说明边界",
-            },
-            {
-              id: "cell:assistant:live-ai-final",
-              kind: "assistant-message",
-              source: "provider-runtime",
-              text: "完整 AI 输出已经落盘。",
-            },
-            {
-              id: "cell:command:live-cmd-1",
-              kind: "process-row",
-              source: "provider-runtime",
-              title: "已运行命令",
-              text: "已运行 1 条命令",
-              status: "completed",
-              detailText: "npm test\n测试通过",
-            },
-          ],
-        },
       },
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") {
         return jsonResponse({ mode: "project", directProjectId: "repo" });
       }
       if (url === "/api/projects") {
         return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
       }
+      if (isCanonicalTimelineRequest(url, "member-discount", "main-agent")) return jsonResponse(mainTimelinePage);
       if (url.includes("/messages/live")) {
         return sseResponse([
-          ["topic.message", { id: "live-user", type: "user.message", changeId: "member-discount", text: "继续说明边界" }],
+          ["timeline.patch", canonicalTimelineEnvelope("member-discount", "main-agent", "live-user-final", 4, 4, [{ id: "cell:user:live-user-final", kind: "user-message", source: "user", text: "继续说明边界" }])],
           ["run.started", { runId: "run-live", changeId: "member-discount", runtime: "provider-readonly", actionType: "chat.ask" }],
           ["run.status", { runId: "run-live", status: "running", label: "Codex" }],
           ["tool.event", { runId: "run-live", itemId: "cmd-1", phase: "started", name: "Bash", command: "npm test" }],
@@ -3029,7 +3097,8 @@ describe("Workbench web app", () => {
           ["assistant.event", { runId: "run-live", kind: "usage", phase: "completed", title: "Usage recorded", summary: "10 input tokens · 5 output tokens" }],
           ["assistant.delta", { runId: "run-live", delta: "实时 AI 输出" }],
           ["usage", { runId: "run-live", usage: { input_tokens: 10, output_tokens: 5 } }],
-          ["assistant.message", { id: "live-ai", type: "assistant.message", changeId: "member-discount", runId: "run-live", text: "完整 AI 输出已经落盘。" }],
+          ["timeline.patch", canonicalTimelineEnvelope("member-discount", "main-agent", "live-ai-final", 5, 5, [{ id: "cell:assistant:live-ai-final", kind: "assistant-message", source: "provider-runtime", text: "完整 AI 输出已经落盘。" }])],
+          ["timeline.patch", canonicalTimelineEnvelope("member-discount", "main-agent", "live-command-final", 6, 6, [{ id: "cell:command:live-cmd-1", kind: "process-row", source: "provider-runtime", title: "已运行命令", text: "已运行 1 条命令", status: "completed", detailText: "npm test\n测试通过" }])],
           ["snapshot", liveSnapshot],
           ["done", { status: "completed" }],
         ]);
@@ -3088,6 +3157,8 @@ describe("Workbench web app", () => {
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") {
         return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
@@ -3116,6 +3187,8 @@ describe("Workbench web app", () => {
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
       return jsonResponse(url.includes("/stream/") ? stream : noCodeSnapshot);
@@ -3136,6 +3209,8 @@ describe("Workbench web app", () => {
     const postBodies: unknown[] = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/providers") return jsonResponse({ providers: [{ providerId: "codex", displayName: "Codex" }] });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
@@ -3160,7 +3235,7 @@ describe("Workbench web app", () => {
         }
         return jsonResponse(codexModelSettings);
       }
-      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(snapshot.center.parentAgentTranscript);
+      if (url.includes("/workbench/conversations/") && url.includes("/timeline?agentSurfaceId=")) return jsonResponse(mainTimelinePage);
       if (url.includes("/workbench/projections/agent-graph/")) return jsonResponse(snapshot.center.agentRelationGraph);
       return jsonResponse(url.includes("/stream/") ? stream : snapshot);
     }));
@@ -3193,6 +3268,8 @@ describe("Workbench web app", () => {
     const toolsProject = { project: toolsSnapshot.project, path: "E:/tools", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" }, codexTrust: { trusted: true } };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "app", directProjectId: null });
       if (url === "/api/projects") return jsonResponse({ projects: [repoProject, toolsProject] });
       if (url === "/api/projects/tools/providers/codex/diagnostics") return jsonResponse(codexDiagnostics);
@@ -3237,6 +3314,8 @@ describe("Workbench web app", () => {
     const toolsProject = { project: toolsSnapshot.project, path: "E:/tools", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" }, codexTrust: { trusted: true } };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [repoProject, toolsProject] });
       if (url === "/api/projects/tools/providers/codex/diagnostics") return jsonResponse(codexDiagnostics);
@@ -3244,7 +3323,7 @@ describe("Workbench web app", () => {
       if (url === "/api/projects/tools/skills") return jsonResponse({ roots: [], skills: [] });
       if (url === "/api/projects/tools/workbench/snapshot?topic=tools-topic") return jsonResponse(toolsSnapshot);
       if (url === "/api/projects/tools/workbench/projections/agent-graph/tools-topic") return jsonResponse(toolsSnapshot.center.agentRelationGraph);
-      if (url === "/api/projects/tools/workbench/projections/transcript/tools-topic?limit=100") return jsonResponse(toolsSnapshot.center.parentAgentTranscript);
+      if (url === "/api/projects/tools/workbench/conversations/tools-topic/timeline?agentSurfaceId=main-agent&limit=100") return jsonResponse(canonicalTimelinePage("tools-topic", "main-agent", mainTimelinePage.entries.flatMap((entry) => entry.cells)));
       return jsonResponse(url.includes("/stream/") ? stream : snapshot);
     }));
 
@@ -3275,13 +3354,15 @@ describe("Workbench web app", () => {
     const toolsProject = { project: toolsSnapshot.project, path: "E:/tools", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" }, codexTrust: { trusted: true } };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "tools" });
       if (url === "/api/projects") return jsonResponse({ projects: [toolsProject] });
       if (url === "/api/projects/tools/providers/codex/diagnostics") return jsonResponse(codexDiagnostics);
       if (url === "/api/projects/tools/providers/codex/models") return jsonResponse(codexModelSettings);
       if (url === "/api/projects/tools/skills") return jsonResponse({ roots: [], skills: [] });
       if (url === "/api/projects/tools/workbench/snapshot?topic=tools-topic") return jsonResponse(toolsSnapshot);
-      if (url === "/api/projects/tools/workbench/projections/transcript/tools-topic?limit=100") return jsonResponse(toolsSnapshot.center.parentAgentTranscript);
+      if (url === "/api/projects/tools/workbench/conversations/tools-topic/timeline?agentSurfaceId=main-agent&limit=100") return jsonResponse(canonicalTimelinePage("tools-topic", "main-agent", mainTimelinePage.entries.flatMap((entry) => entry.cells)));
       return jsonResponse(url.includes("/stream/") ? stream : snapshot);
     }));
 
@@ -3313,6 +3394,8 @@ describe("Workbench web app", () => {
     const toolsProject = { project: toolsSnapshot.project, path: "E:/tools", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" }, codexTrust: { trusted: true } };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "tools" });
       if (url === "/api/projects") return jsonResponse({ projects: [toolsProject] });
       if (url === "/api/projects/tools/providers/codex/diagnostics") return jsonResponse(codexDiagnostics);
@@ -3320,7 +3403,7 @@ describe("Workbench web app", () => {
       if (url === "/api/projects/tools/providers/capabilities") return jsonResponse(providerCapabilityPayload);
       if (url === "/api/projects/tools/skills") return jsonResponse({ roots: [], skills: [] });
       if (url === "/api/projects/tools/workbench/snapshot?topic=tools-topic") return jsonResponse(toolsSnapshot);
-      if (url === "/api/projects/tools/workbench/projections/transcript/tools-topic?limit=100") return jsonResponse(toolsSnapshot.center.parentAgentTranscript);
+      if (url === "/api/projects/tools/workbench/conversations/tools-topic/timeline?agentSurfaceId=main-agent&limit=100") return jsonResponse(canonicalTimelinePage("tools-topic", "main-agent", mainTimelinePage.entries.flatMap((entry) => entry.cells)));
       return jsonResponse(url.includes("/stream/") ? stream : snapshot);
     }));
 
@@ -3341,6 +3424,8 @@ describe("Workbench web app", () => {
     window.history.replaceState({}, "", "/?project=missing&topic=member-discount");
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
       return jsonResponse(url.includes("/stream/") ? stream : snapshot);
@@ -3356,6 +3441,8 @@ describe("Workbench web app", () => {
   it("renders rich live assistant turn before canonical snapshot replacement", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") {
         return jsonResponse({ mode: "project", directProjectId: "repo" });
       }
@@ -3364,20 +3451,16 @@ describe("Workbench web app", () => {
       }
       if (url.includes("/messages/live")) {
         return sseResponse([
-          ["timeline.patch", {
-            conversationId: "member-discount",
-            messageId: "assistant-live",
-            agentSurfaceId: "main-agent",
-            cells: [
+          ["timeline.patch", canonicalTimelineEnvelope("member-discount", "main-agent", "assistant-live", 4, 4, [
               { id: "cell:reasoning:live", kind: "process-row", source: "provider-runtime", title: "思考摘要 · Checked existing constraints.", text: "", detailText: "Checked existing constraints.", activityKind: "reasoning" },
               { id: "cell:command:live", kind: "process-row", source: "provider-runtime", title: "命令已完成 · npm test", text: "命令已完成 · npm test", detailText: "$ npm test\n测试通过", status: "completed", activityKind: "command" },
               { id: "cell:prose:live", kind: "assistant-message", source: "provider-runtime", text: "实时 AI 输出" },
               { id: "cell:turn:live", kind: "process-row", source: "provider-runtime", title: "已完成 · 2 秒", text: "已完成 · 2 秒", status: "completed", activityKind: "turn" },
-            ],
-          }],
+            ])],
           ["done", { status: "completed" }],
         ]);
       }
+      if (isCanonicalTimelineRequest(url, "member-discount", "main-agent")) return jsonResponse(mainTimelinePage);
       return jsonResponse(url.includes("/stream/") ? stream : snapshot);
     }));
 
@@ -3459,6 +3542,8 @@ describe("Workbench web app", () => {
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
       return jsonResponse(url.includes("/stream/") ? stream : multiSnapshot);
@@ -3505,6 +3590,8 @@ describe("Workbench web app", () => {
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
       return jsonResponse(url.includes("/stream/") ? stream : runningSnapshot);
@@ -3525,6 +3612,8 @@ describe("Workbench web app", () => {
     });
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
       if (url.endsWith("/workbench/actions")) return actionResponse;
@@ -3553,6 +3642,8 @@ describe("Workbench web app", () => {
   it("renders sidebar project onboarding when no direct project is selected", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") {
         return new Response(JSON.stringify({ mode: "app", directProjectId: null }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
@@ -3591,17 +3682,15 @@ describe("Workbench web app", () => {
   it("keeps one in-place Main activity row when usage initially carries the previous provider turn", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") {
         return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
       }
       if (url.includes("/messages/live")) {
         return sseResponse([
-          ["timeline.patch", {
-            conversationId: "member-discount",
-            messageId: "assistant-stable",
-            agentSurfaceId: "main-agent",
-            cells: [{
+          ["timeline.patch", canonicalTimelineEnvelope("member-discount", "main-agent", "assistant-stable", 4, 4, [{
               id: "cell:turn:codex:attempt-stable:thread-main:turn-current",
               kind: "process-row",
               source: "provider-runtime",
@@ -3613,12 +3702,11 @@ describe("Workbench web app", () => {
               status: "thinking",
               realtime: true,
               activityKind: "turn",
-            }],
-          }],
+            }])],
           ["done", { status: "completed" }],
         ]);
       }
-      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(snapshot.center.parentAgentTranscript);
+      if (url.includes("/workbench/conversations/") && url.includes("/timeline?agentSurfaceId=")) return jsonResponse(mainTimelinePage);
       return jsonResponse(url.includes("/stream/") ? stream : snapshot);
     }));
 
@@ -3641,9 +3729,64 @@ describe("Workbench web app", () => {
     expect(document.querySelectorAll('[data-run-id="run-stable"][data-cell-id="cell:turn:codex:attempt-stable:thread-main:turn-current"]')).toHaveLength(1);
   });
 
+  it("does not force the Main viewport down after the user scrolls up", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
+      if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
+      if (url === "/api/projects") {
+        return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
+      }
+      if (url.includes("/messages/live")) {
+        return sseResponse([
+          ["timeline.patch", canonicalTimelineEnvelope("member-discount", "main-agent", "assistant-after-scroll", 4, 4, [{
+            id: "cell:assistant:after-scroll",
+            kind: "assistant-message",
+            source: "provider-runtime",
+            text: "继续输出",
+          }])],
+          ["done", { status: "completed" }],
+        ]);
+      }
+      return jsonResponse(url.includes("/stream/") ? stream : snapshot);
+    }));
+
+    render(<App />);
+    await screen.findByText("Codex final summary 完整显示。");
+    const viewport = document.querySelector(".thread-scroll") as HTMLDivElement;
+    Object.defineProperty(viewport, "scrollHeight", { configurable: true, value: 1_000 });
+    Object.defineProperty(viewport, "clientHeight", { configurable: true, value: 300 });
+    viewport.scrollTop = 120;
+    fireEvent.scroll(viewport);
+    expect(screen.getByRole("button", { name: "最新" })).toBeTruthy();
+
+    fireEvent.change(screen.getByPlaceholderText("输入问题或下一步需求"), { target: { value: "继续" } });
+    fireEvent.click(screen.getByTitle("发送"));
+
+    await screen.findByText("继续输出");
+    expect(viewport.scrollTop).toBe(120);
+    expect(screen.getByRole("button", { name: "最新" })).toBeTruthy();
+  });
+
   it("keeps child Agent output out of the main transcript until the user opens that Agent", async () => {
     const childAgentId = "agent:codex:thread:thread-plan-live";
     const childCells = [{ id: "cell:child-plan-live", kind: "assistant-message" as const, source: "provider-runtime" as const, text: "只属于 Plan Agent 的实时内容", agentRoleId: "planning-agent", threadId: "thread-plan-live" }];
+    const childTimelineBasePage = canonicalTimelinePage("member-discount", childAgentId, [], { pinnedCells: [{
+      id: "cell:child-plan-input",
+      kind: "user-message",
+      source: "user",
+      text: "请规划这项需求",
+      agentRoleId: "planning-agent",
+      threadId: "thread-plan-live",
+    }] });
+    const childTimelinePage: CanonicalTimelinePageFixture = {
+      ...childTimelineBasePage,
+      watermark: 4,
+      entries: [canonicalTimelineEnvelope("member-discount", childAgentId, "assistant-child-live", 2, 4, childCells)],
+      paging: { ...childTimelineBasePage.paging, totalCount: 1 },
+    };
+    setCanonicalTimelineFixtures(mainTimelinePage, childTimelinePage);
     const childProjectionSnapshot = {
       ...snapshot,
       center: {
@@ -3671,7 +3814,6 @@ describe("Workbench web app", () => {
             label: "Plan Agent · Sagan",
             status: "running",
             summary: "真实 Agent 对话。",
-            transcript: { title: "Plan Agent · Sagan", cells: childCells, items: [] },
             evidenceRefs: [],
             actions: [],
           }],
@@ -3681,6 +3823,8 @@ describe("Workbench web app", () => {
     let childProjectionReady = false;
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") {
         return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
@@ -3688,23 +3832,13 @@ describe("Workbench web app", () => {
       if (url.includes("/messages/live")) {
         childProjectionReady = true;
         return sseResponse([
-          ["timeline.patch", {
-            conversationId: "member-discount",
-            graphScopeId: "graph-member-discount",
-            messageId: "assistant-child-live",
-            agentSurfaceId: childAgentId,
-            providerId: "codex",
-            roleId: "planning-agent",
-            threadId: "thread-plan-live",
-            parentThreadId: "thread-main",
-            status: "running",
-            cells: childCells,
-          }],
+          ["timeline.patch", canonicalTimelineEnvelope("member-discount", childAgentId, "assistant-child-live", 2, 4, childCells)],
           ["done", { status: "completed" }],
         ]);
       }
       if (url.includes("/workbench/projections/agent-graph/")) return jsonResponse(childProjectionSnapshot.center.agentRelationGraph);
-      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(snapshot.center.parentAgentTranscript);
+      if (isCanonicalTimelineRequest(url, "member-discount", "main-agent")) return jsonResponse(mainTimelinePage);
+      if (isCanonicalTimelineRequest(url, "member-discount", childAgentId)) return jsonResponse(childTimelinePage);
       if (url.includes("/workbench/snapshot?topic=")) return jsonResponse({
         ...childProjectionSnapshot,
         center: {
@@ -3740,6 +3874,8 @@ describe("Workbench web app", () => {
   it("renders the project home without triggering project mutations", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "app", directProjectId: null });
       if (url === "/api/providers/codex/diagnostics" || url.endsWith("/providers/codex/diagnostics")) return jsonResponse(codexDiagnostics);
       return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
@@ -3765,6 +3901,8 @@ describe("Workbench web app", () => {
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/providers") return jsonResponse({ providers: [{ providerId: "codex", displayName: "Codex" }] });
       if (url === "/api/projects") {
@@ -3852,6 +3990,8 @@ describe("Workbench web app", () => {
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") {
         return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, memory: { memoryMode: "external-local", memoryAvailable: true, harnessReady: true, artifactBase: "memory-root", roots: { memoryRoot: "E:/aho-home/projects/repo" } }, harness: { readiness: "ready" }, codexTrust: { trusted: true } }] });
@@ -3948,6 +4088,8 @@ describe("Workbench web app", () => {
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") {
         return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, memory: { memoryMode: "external-local", memoryAvailable: true, harnessReady: true, artifactBase: "memory-root" }, harness: { readiness: "ready" }, codexTrust: { trusted: true } }] });
@@ -3957,7 +4099,7 @@ describe("Workbench web app", () => {
       if (url === "/api/projects/repo/skills/pricing-helper/enable" && init?.method === "POST") return jsonResponse(skillPayload);
       if (url === "/api/projects/repo/workbench/topics/live" && init?.method === "POST") return topicCreateLiveResponse("new-demand", selectedSnapshot, "实现设置入口");
       if (url === "/api/projects/repo/workbench/snapshot?topic=new-demand") return jsonResponse(selectedSnapshot);
-      if (url === "/api/projects/repo/workbench/projections/transcript/new-demand?limit=100") return jsonResponse(selectedSnapshot.center.parentAgentTranscript);
+      if (url === "/api/projects/repo/workbench/conversations/new-demand/timeline?agentSurfaceId=main-agent&limit=100") return jsonResponse(canonicalTimelinePage("new-demand", "main-agent"));
       if (url === "/api/projects/repo/workbench/projections/agent-graph/new-demand") return jsonResponse(selectedSnapshot.center.agentRelationGraph);
       return jsonResponse(noTopicSnapshot);
     }));
@@ -3994,12 +4136,19 @@ describe("Workbench web app", () => {
     expect(JSON.parse(String(enablePost?.[1]?.body))).toMatchObject({ enabled: true, topic: "new-demand" });
   });
 
-  it("shows the new demand immediately while waiting for the first live topic event", async () => {
+  it("keeps the new demand visible while waiting for its canonical Timeline page", async () => {
     const canonicalUserCell = { id: "cell:user:user-message-new-demand", kind: "user-message" as const, source: "user" as const, text: "实现设置入口" };
+    const newDemandTimelinePage: CanonicalTimelinePageFixture = {
+      ...canonicalTimelinePage("new-demand", "main-agent"),
+      watermark: 1,
+      entries: [canonicalTimelineEnvelope("new-demand", "main-agent", "user-message-new-demand", 1, 1, [canonicalUserCell])],
+      paging: { limit: 100, totalCount: 1, hasMoreBefore: false },
+    };
+    setCanonicalTimelineFixtures(newDemandTimelinePage);
     const noTopicSnapshot = {
       ...snapshot,
       left: { ...snapshot.left, topics: [], workpads: [] },
-      center: { ...snapshot.center, selectedTopic: null, workpad: null, parentAgentTranscript: { title: "需求对话", cells: [], items: [] } },
+      center: { ...snapshot.center, selectedTopic: null, workpad: null },
     };
     const selectedSnapshot = {
       ...snapshot,
@@ -4011,12 +4160,13 @@ describe("Workbench web app", () => {
       center: {
         ...snapshot.center,
         selectedTopic: { id: "new-demand", title: "实现设置入口", state: "active", acCount: 0, taskCount: 0 },
-        parentAgentTranscript: { title: "实现设置入口", cells: [], items: [] },
       },
     };
     let delayedEventsStarted = false;
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") {
         return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, memory: { memoryMode: "external-local", memoryAvailable: true, harnessReady: true, artifactBase: "memory-root" }, harness: { readiness: "ready" }, codexTrust: { trusted: true } }] });
@@ -4026,17 +4176,15 @@ describe("Workbench web app", () => {
       if (url === "/api/projects/repo/workbench/topics/live" && init?.method === "POST") {
         return delayedSseResponse([
           ["topic.created", { topic: { changeId: "new-demand", title: "实现设置入口", state: "active" } }],
-          ["timeline.patch", { conversationId: "new-demand", messageId: "user-message-new-demand", agentSurfaceId: "main-agent", cells: [canonicalUserCell] }],
+          ["timeline.patch", canonicalTimelineEnvelope("new-demand", "main-agent", "user-message-new-demand", 1, 1, [canonicalUserCell])],
         ], [
-          ["timeline.patch", { conversationId: "new-demand", messageId: "assistant-new-demand", agentSurfaceId: "main-agent", cells: [{ id: "cell:assistant:new-demand", kind: "assistant-message", source: "provider-runtime", text: "开始处理" }] }],
+          ["timeline.patch", canonicalTimelineEnvelope("new-demand", "main-agent", "assistant-new-demand", 2, 2, [{ id: "cell:assistant:new-demand", kind: "assistant-message", source: "provider-runtime", text: "开始处理" }])],
           ["snapshot", selectedSnapshot],
           ["done", { status: "completed" }],
         ], () => { delayedEventsStarted = true; }, 3_000);
       }
       if (url === "/api/projects/repo/workbench/snapshot?topic=new-demand") return jsonResponse(selectedSnapshot);
-      if (url === "/api/projects/repo/workbench/projections/transcript/new-demand?limit=100") {
-        return jsonResponse({ title: "实现设置入口", cells: [canonicalUserCell], items: [] });
-      }
+      if (url === "/api/projects/repo/workbench/conversations/new-demand/timeline?agentSurfaceId=main-agent&limit=100") return jsonResponse(newDemandTimelinePage);
       if (url === "/api/projects/repo/workbench/projections/agent-graph/new-demand") return jsonResponse(selectedSnapshot.center.agentRelationGraph);
       return jsonResponse(noTopicSnapshot);
     }));
@@ -4050,16 +4198,18 @@ describe("Workbench web app", () => {
 
     await waitFor(() => expect(screen.getAllByText("实现设置入口").length).toBeGreaterThan(0), { timeout: 150 });
     expect(screen.getAllByText("实现设置入口").length).toBeGreaterThan(0);
-    await waitFor(() => expect(document.querySelectorAll('[data-cell-id="cell:user:user-message-new-demand"]')).toHaveLength(1));
     expect(screen.queryByText("等待回复")).toBeNull();
+    await waitFor(() => expect(document.querySelectorAll('[data-cell-id="cell:user:user-message-new-demand"]')).toHaveLength(1));
+    expect(document.querySelector('[data-cell-id="cell:assistant:new-demand"]')).toBeNull();
     expect(delayedEventsStarted).toBe(false);
-    expect(fetchCallUrls().some((url) => url.includes("/workbench/projections/transcript/pending%3A"))).toBe(false);
+    expect(fetchCallUrls().some((url) => url.includes("/workbench/conversations/pending%3A") && url.includes("/timeline?"))).toBe(false);
     expect((screen.getByTestId("orchestration-overlay-toggle") as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(screen.getByTestId("orchestration-overlay-toggle"));
     expect(await screen.findByTestId("agent-relation-node-main-agent")).toBeTruthy();
     expect(fetchCallUrls()).toContain("/api/projects/repo/workbench/projections/agent-graph/new-demand");
     expect(delayedEventsStarted).toBe(false);
     await waitFor(() => expect(delayedEventsStarted).toBe(true), { timeout: 4_000 });
+    await waitFor(() => expect(fetchCallUrls()).toContain("/api/projects/repo/workbench/conversations/new-demand/timeline?agentSurfaceId=main-agent&limit=100"));
     expect(screen.getByTestId("agent-graph-center-view")).toBeTruthy();
     expect(screen.getByTestId("agent-relation-node-main-agent")).toBeTruthy();
     fireEvent.click(screen.getByTestId("orchestration-overlay-toggle"));
@@ -4088,6 +4238,8 @@ describe("Workbench web app", () => {
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") {
         return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
@@ -4097,10 +4249,10 @@ describe("Workbench web app", () => {
       if (url === "/api/projects/repo/skills/pricing-helper/enable" && init?.method === "POST") return jsonResponse(skillPayload);
       if (url.includes("/messages/live")) {
         return sseResponse([
-          ["topic.message", { id: "live-user", type: "user.message", changeId: "member-discount", text: "请继续" }],
+          ["timeline.patch", canonicalTimelineEnvelope("member-discount", "main-agent", "live-user", 4, 4, [{ id: "cell:user:live-user", kind: "user-message", source: "user", text: "请继续" }])],
         ]);
       }
-      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(snapshot.center.parentAgentTranscript);
+      if (url.includes("/workbench/conversations/") && url.includes("/timeline?agentSurfaceId=")) return jsonResponse(mainTimelinePage);
       if (url.includes("/workbench/projections/agent-graph/")) return jsonResponse(snapshot.center.agentRelationGraph);
       return jsonResponse(url.includes("/stream/") ? stream : snapshot);
     }));
@@ -4145,6 +4297,8 @@ describe("Workbench web app", () => {
     const fileRef = { relativePath: "src/pricing.ts", name: "pricing.ts", kind: "file", extension: ".ts", size: 24 };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") {
         return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, memory: { memoryMode: "external-local", memoryAvailable: true, harnessReady: true, artifactBase: "memory-root" }, harness: { readiness: "ready" }, codexTrust: { trusted: true } }] });
@@ -4154,7 +4308,7 @@ describe("Workbench web app", () => {
       if (url.startsWith("/api/projects/repo/files/search")) return jsonResponse({ files: [fileRef] });
       if (url === "/api/projects/repo/workbench/topics/live" && init?.method === "POST") return topicCreateLiveResponse("new-demand", selectedSnapshot, "请改");
       if (url === "/api/projects/repo/workbench/snapshot?topic=new-demand") return jsonResponse(selectedSnapshot);
-      if (url === "/api/projects/repo/workbench/projections/transcript/new-demand?limit=100") return jsonResponse(selectedSnapshot.center.parentAgentTranscript);
+      if (url === "/api/projects/repo/workbench/conversations/new-demand/timeline?agentSurfaceId=main-agent&limit=100") return jsonResponse(canonicalTimelinePage("new-demand", "main-agent"));
       return jsonResponse(noTopicSnapshot);
     }));
 
@@ -4182,6 +4336,8 @@ describe("Workbench web app", () => {
     const fileRef = { relativePath: "src/pricing.ts", name: "pricing.ts", kind: "file", extension: ".ts", size: 24 };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") {
         return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, harness: { readiness: "ready" } }] });
@@ -4191,10 +4347,10 @@ describe("Workbench web app", () => {
       if (url.startsWith("/api/projects/repo/files/search")) return jsonResponse({ files: [fileRef] });
       if (url.includes("/messages/live")) {
         return sseResponse([
-          ["topic.message", { id: "live-user", type: "user.message", changeId: "member-discount", text: "检查" }],
+          ["timeline.patch", canonicalTimelineEnvelope("member-discount", "main-agent", "live-user", 4, 4, [{ id: "cell:user:live-user", kind: "user-message", source: "user", text: "检查" }])],
         ]);
       }
-      if (url.includes("/workbench/projections/transcript/")) return jsonResponse(snapshot.center.parentAgentTranscript);
+      if (url.includes("/workbench/conversations/") && url.includes("/timeline?agentSurfaceId=")) return jsonResponse(mainTimelinePage);
       if (url.includes("/workbench/projections/agent-graph/")) return jsonResponse(snapshot.center.agentRelationGraph);
       return jsonResponse(url.includes("/stream/") ? stream : snapshot);
     }));
@@ -4252,6 +4408,8 @@ describe("Workbench web app", () => {
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") return jsonResponse({ projects: [repoProject, toolsProject] });
       if (url === "/api/projects/repo/providers/codex/diagnostics" || url === "/api/projects/tools/providers/codex/diagnostics") return jsonResponse(codexDiagnostics);
@@ -4290,6 +4448,8 @@ describe("Workbench web app", () => {
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "aho-self" });
       if (url === "/api/projects") {
         return jsonResponse({ projects: [{
@@ -4342,6 +4502,8 @@ describe("Workbench web app", () => {
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "aho-self" });
       if (url === "/api/projects" && init?.method !== "POST") {
         return jsonResponse({ projects: [{
@@ -4370,7 +4532,7 @@ describe("Workbench web app", () => {
       if (url === "/api/projects/aho-self/providers/codex/diagnostics") return jsonResponse(codexDiagnostics);
       if (url === "/api/projects/aho-self/workbench/topics/live" && init?.method === "POST") return topicCreateLiveResponse("saved-demand", selectedSnapshot, "保存后的需求");
       if (url === "/api/projects/aho-self/workbench/snapshot?topic=saved-demand") return jsonResponse(selectedSnapshot);
-      if (url === "/api/projects/aho-self/workbench/projections/transcript/saved-demand?limit=100") return jsonResponse(selectedSnapshot.center.parentAgentTranscript);
+      if (url === "/api/projects/aho-self/workbench/conversations/saved-demand/timeline?agentSurfaceId=main-agent&limit=100") return jsonResponse(canonicalTimelinePage("saved-demand", "main-agent"));
       return jsonResponse(noTopicSnapshot);
     }));
 
@@ -4399,6 +4561,8 @@ describe("Workbench web app", () => {
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") {
         return jsonResponse({ projects: [{
@@ -4451,6 +4615,8 @@ describe("Workbench web app", () => {
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") {
         return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: true, memory: { memoryMode: "external-local", memoryAvailable: true, harnessReady: true, artifactBase: "memory-root" }, harness: { readiness: "ready" }, codexTrust: { trusted: true } }] });
@@ -4460,7 +4626,7 @@ describe("Workbench web app", () => {
         return topicCreateLiveResponse("new-demand", selectedSnapshot, "实现设置入口");
       }
       if (url === "/api/projects/repo/workbench/snapshot?topic=new-demand") return jsonResponse(selectedSnapshot);
-      if (url === "/api/projects/repo/workbench/projections/transcript/new-demand?limit=100") return jsonResponse(selectedSnapshot.center.parentAgentTranscript);
+      if (url === "/api/projects/repo/workbench/conversations/new-demand/timeline?agentSurfaceId=main-agent&limit=100") return jsonResponse(canonicalTimelinePage("new-demand", "main-agent"));
       return jsonResponse(noTopicSnapshot);
     }));
 
@@ -4501,6 +4667,8 @@ describe("Workbench web app", () => {
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") {
         return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: false, memory: { registered: true, memoryMode: "external-local", memoryAvailable: false, harnessReady: false, artifactBase: "memory-root" }, harness: { readiness: "missing" }, codexTrust: { trusted: true } }] });
@@ -4509,7 +4677,7 @@ describe("Workbench web app", () => {
       if (url === "/api/projects/repo/harness/init" && init?.method === "POST") return jsonResponse({ result: { ok: true }, status: { project: snapshot.project } });
       if (url === "/api/projects/repo/workbench/topics/live" && init?.method === "POST") return topicCreateLiveResponse("prepared-demand", selectedSnapshot, "准备后创建需求");
       if (url === "/api/projects/repo/workbench/snapshot?topic=prepared-demand") return jsonResponse(selectedSnapshot);
-      if (url === "/api/projects/repo/workbench/projections/transcript/prepared-demand?limit=100") return jsonResponse(selectedSnapshot.center.parentAgentTranscript);
+      if (url === "/api/projects/repo/workbench/conversations/prepared-demand/timeline?agentSurfaceId=main-agent&limit=100") return jsonResponse(canonicalTimelinePage("prepared-demand", "main-agent"));
       return jsonResponse(noTopicSnapshot);
     }));
 
@@ -4548,6 +4716,8 @@ describe("Workbench web app", () => {
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") {
         return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: false, memory: { registered: true, memoryMode: "external-local", memoryAvailable: false, harnessReady: false, artifactBase: "memory-root" }, harness: { readiness: "missing" }, codexTrust: { trusted: true } }] });
@@ -4559,7 +4729,7 @@ describe("Workbench web app", () => {
       }
       if (url === "/api/projects/repo/workbench/topics/live" && init?.method === "POST") return topicCreateLiveResponse("attached-demand", selectedSnapshot, "根据附件分析");
       if (url === "/api/projects/repo/workbench/snapshot?topic=attached-demand") return jsonResponse(selectedSnapshot);
-      if (url === "/api/projects/repo/workbench/projections/transcript/attached-demand?limit=100") return jsonResponse(selectedSnapshot.center.parentAgentTranscript);
+      if (url === "/api/projects/repo/workbench/conversations/attached-demand/timeline?agentSurfaceId=main-agent&limit=100") return jsonResponse(canonicalTimelinePage("attached-demand", "main-agent"));
       return jsonResponse(noTopicSnapshot);
     }));
 
@@ -4606,6 +4776,8 @@ describe("Workbench web app", () => {
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") {
         return jsonResponse({ projects: [{ project: snapshot.project, path: "E:/repo", pathExists: true, isGitRepo: true, managed: false, memory: { registered: true, memoryMode: "external-local", memoryAvailable: false, harnessReady: false, artifactBase: "memory-root" }, harness: { readiness: "missing" }, codexTrust: { trusted: true } }] });
@@ -4645,6 +4817,8 @@ describe("Workbench web app", () => {
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") {
         return new Response(JSON.stringify({ mode: "project", directProjectId: "repo" }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
@@ -4684,6 +4858,8 @@ describe("Workbench web app", () => {
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") return jsonResponse({ mode: "project", directProjectId: "repo" });
       if (url === "/api/projects") {
         return jsonResponse({ projects: [{
@@ -4702,7 +4878,7 @@ describe("Workbench web app", () => {
           harness: { readiness: "partial" },
         }] });
       }
-      if (url === "/api/projects/repo/workbench/projections/transcript/member-discount?limit=100") return jsonResponse(snapshot.center.parentAgentTranscript);
+      if (url === "/api/projects/repo/workbench/conversations/member-discount/timeline?agentSurfaceId=main-agent&limit=100") return jsonResponse(mainTimelinePage);
       return jsonResponse(historySnapshot);
     }));
 
@@ -4719,6 +4895,8 @@ describe("Workbench web app", () => {
   it("adds an existing project from the native folder picker", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      const timelineResponse = canonicalTimelineResponse(url);
+      if (timelineResponse) return timelineResponse;
       if (url === "/api/app/status") {
         return new Response(JSON.stringify({ mode: "app", directProjectId: null }), { status: 200, headers: { "Content-Type": "application/json" } });
       }

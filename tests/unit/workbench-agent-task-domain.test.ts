@@ -52,7 +52,7 @@ describe("workbench AgentTask domain", () => {
         evidenceRefs: ["runs/run-agent-task/implementation.md"],
       }),
     ]));
-    expect(snapshot.center.parentAgentTranscript.cells).toHaveLength(0);
+    expect(snapshot.center).not.toHaveProperty("parentAgentTranscript");
     expect(snapshot.center.agentRelationGraph.nodes).toEqual([]);
     const graph = await getWorkbenchAgentRelationGraphProjection({ project: project(), path: project().path }, "agent-task-demand");
     expect(graph.nodes).toEqual([

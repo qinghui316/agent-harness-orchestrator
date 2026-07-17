@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { repoLocalMemory } from "../../src/memory/resolver.js";
 import type { ManagedProject } from "../../src/types/index.js";
 import type { HarnessEngineeringAssignment } from "../../src/agent-task/harness-engineering-contract.js";
+import { canonicalTimelineEnvelopeFromStoredRow, type CanonicalTimelineEnvelope } from "../../src/workbench/canonical-timeline.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
 
 const appServerTurn = vi.hoisted(() => vi.fn());
@@ -85,6 +86,9 @@ describe("provider adapter maintenance verification repair", () => {
     });
     const store = await WorkbenchStore.open(setup.memory);
     try {
+      expect(store.readConversation(setup.project.id, "maintenance:change-1")).toMatchObject({ surfaceKind: "runtime" });
+      expect(store.listConversations(setup.project.id).map((conversation) => conversation.conversationId))
+        .not.toContain("maintenance:change-1");
       expect(store.listProviderThreads(setup.project.id, "maintenance:change-1")).toEqual([
         expect.objectContaining({
           providerId: "codex",
@@ -93,6 +97,10 @@ describe("provider adapter maintenance verification repair", () => {
           runId: expect.stringMatching(/^maintenance-/),
         }),
       ]);
+      const terminalRows = store.listConversationMessages(setup.project.id, "maintenance:change-1");
+      expect(terminalRows).toHaveLength(2);
+      expect(terminalRows.every((row) => Boolean(row.threadId && row.turnId && row.itemId))).toBe(true);
+      expect(terminalRows.map((row) => canonicalTimelineEnvelopeFromStoredRow(row).cells.length)).toEqual([1, 1]);
     } finally {
       store.close();
     }
@@ -121,7 +129,28 @@ describe("provider adapter maintenance verification repair", () => {
 
   it("persists background Agent timeline items before publishing live events", async () => {
     const setup = await fixture();
+    const seededStore = await WorkbenchStore.open(setup.memory);
+    try {
+      const now = new Date().toISOString();
+      seededStore.createConversation({
+        projectId: setup.project.id,
+        conversationId: "maintenance:change-1",
+        title: "User conversation",
+        state: "active",
+        surfaceKind: "user",
+        boundChangeId: "change-1",
+        currentGraphScopeId: "graph-1",
+        selectedProviderId: "codex",
+        completedTurnSequence: 0,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      });
+    } finally {
+      seededStore.close();
+    }
     let durableRowsAtLiveDelivery = 0;
+    const timelinePatches: CanonicalTimelineEnvelope[] = [];
     appServerTurn.mockImplementation(async (options: { onRealtimeEvent?: (event: unknown) => void }) => {
       options.onRealtimeEvent?.({
         projectId: setup.project.id,
@@ -150,13 +179,26 @@ describe("provider adapter maintenance verification repair", () => {
         }
       },
       { taskId: "task-1", conversationId: "maintenance:change-1", changeId: "change-1" },
+      (envelope) => timelinePatches.push(envelope),
     );
 
     expect(durableRowsAtLiveDelivery).toBeGreaterThan(0);
+    expect(timelinePatches.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(timelinePatches.map((patch) => patch.messageId)).size).toBe(1);
+    expect(timelinePatches.map((patch) => patch.revision)).toEqual(
+      [...timelinePatches.map((patch) => patch.revision)].sort((left, right) => left - right),
+    );
+    expect(timelinePatches.at(-1)?.cells).toEqual([
+      expect.objectContaining({ kind: "assistant-message", text: "正在维护项目说明" }),
+    ]);
     const store = await WorkbenchStore.open(setup.memory);
     try {
       const messages = store.listConversationMessages(setup.project.id, "maintenance:change-1");
       expect(messages).toHaveLength(1);
+      expect(store.readConversation(setup.project.id, "maintenance:change-1")).toMatchObject({ surfaceKind: "user" });
+      expect(store.listConversations(setup.project.id).map((conversation) => conversation.conversationId))
+        .toContain("maintenance:change-1");
+      expect(messages[0]?.agentSurfaceId).not.toBe("main-agent");
       expect(JSON.parse(messages[0]!.rawJson)).toMatchObject({
         providerId: "codex",
         agentRoleId: "memory-maintenance-agent",
@@ -205,6 +247,7 @@ function providerResult(message: string) {
     status: "completed",
     threadId: "maintenance-thread",
     turnId: `turn-${message}`,
+    lastMessageItemId: `item-${message}`,
     lastMessage: message,
     changedFiles: [],
     childThreads: [],

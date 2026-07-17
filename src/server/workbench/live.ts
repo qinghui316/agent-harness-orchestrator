@@ -1,6 +1,7 @@
 import type { ServerResponse } from "node:http";
 import { getWorkbenchActionEvents, type WorkbenchLiveEvent, type WorkbenchLiveSink } from "../../workbench/chat.js";
 import type { ManagedProject } from "../../types/index.js";
+import { publishProjectLiveEvent } from "../../workbench/project-live-events.js";
 import type { createSseResponse } from "../sse.js";
 
 export async function sendActionEventReplay(project: ManagedProject, actionRunId: string, response: ServerResponse): Promise<void> {
@@ -16,10 +17,11 @@ export async function readWorkbenchActionEvents(project: ManagedProject, actionR
   return getWorkbenchActionEvents(project, actionRunId);
 }
 
-export function createLiveSink(sse: ReturnType<typeof createSseResponse>): WorkbenchLiveSink {
+export function createLiveSink(sse: ReturnType<typeof createSseResponse>, projectId?: string): WorkbenchLiveSink {
   let id = 0;
   return {
     emit(event: WorkbenchLiveEvent): void {
+      if (projectId && event.event === "timeline.patch") publishProjectLiveEvent(projectId, event);
       if (sse.closed) return;
       sse.send(event.event, event.data, ++id);
     },

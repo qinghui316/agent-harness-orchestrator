@@ -59,6 +59,7 @@ describe("workspace resource resolver", () => {
         id: sourceMessageId,
         projectId: project().id,
         conversationId: conversation.conversationId,
+        agentSurfaceId: document.agentSurfaceId,
         changeId: "",
         type: "assistant.message",
         timestamp: "2026-07-16T00:00:00.000Z",

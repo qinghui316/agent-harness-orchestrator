@@ -1,7 +1,7 @@
 import { Bot, ChevronLeft, FileText, Send, X } from "lucide-react";
-import { useRef, useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { AgentTranscriptPane, TranscriptMarkdownLite } from "./TranscriptReadingSurface.js";
-import type { AgentWorkspace, AgentWorkspaceAgent, TextDocumentResource, WorkspaceResourceTab, WorkspaceResourceTarget } from "../../types.js";
+import type { AgentWorkspace, AgentWorkspaceAgent, ParentAgentTranscript, TextDocumentResource, WorkspaceResourceTab, WorkspaceResourceTarget } from "../../types.js";
 
 export function projectFileResourceTabs(tabs: WorkspaceResourceTab[]): WorkspaceResourceTab[] {
   return tabs.filter((tab) => tab.target.kind === "project-file");
@@ -13,6 +13,8 @@ export function workspaceResourceRequestScope(projectId: string, conversationId:
 
 export function ResourceWorkspacePanel({
   workspace,
+  agentTranscripts,
+  conversationId,
   tabs,
   selectedResourceId,
   documents,
@@ -22,11 +24,14 @@ export function ResourceWorkspacePanel({
   onCloseResource,
   onBack,
   onSendAgentMessage,
+  onLoadEarlierAgentTranscript,
   providerDisplayName,
   modelLabel,
   onOpenModelSettings,
 }: {
   workspace: AgentWorkspace;
+  agentTranscripts: Record<string, ParentAgentTranscript>;
+  conversationId: string;
   tabs: WorkspaceResourceTab[];
   selectedResourceId: string | null;
   documents: Record<string, TextDocumentResource>;
@@ -36,10 +41,13 @@ export function ResourceWorkspacePanel({
   onCloseResource: (resourceId: string) => void;
   onBack: () => void;
   onSendAgentMessage: (agent: AgentWorkspaceAgent, message: string) => Promise<void>;
+  onLoadEarlierAgentTranscript: (agentSurfaceId: string, cursor: string) => Promise<void>;
   providerDisplayName?: string;
   modelLabel: string;
   onOpenModelSettings?: () => void;
 }): ReactElement {
+  const [agentDrafts, setAgentDrafts] = useState<Record<string, string>>({});
+  const [pendingAgentMessages, setPendingAgentMessages] = useState<Record<string, string>>({});
   const availableTabs = tabs.filter((tab) => {
     const target = tab.target;
     return target.kind !== "agent" || workspace.agents.some((agent) => (
@@ -55,7 +63,16 @@ export function ResourceWorkspacePanel({
   if (selectedAgent) lastAgentIdRef.current = selectedAgent.id;
   const mountedAgent = selectedAgent ?? workspace.agents.find((agent) => agent.id === lastAgentIdRef.current) ?? null;
   const selectedDocument = selectedTab && selectedTab.target.kind !== "agent" ? documents[selectedTab.resourceId] ?? null : null;
-  const cells = (mountedAgent?.transcript.cells ?? []).filter((cell) => cell.kind !== "detail-only");
+  const mountedAgentTranscript = mountedAgent ? agentTranscripts[mountedAgent.id] : undefined;
+  const cells = (mountedAgentTranscript?.cells ?? []).filter((cell) => cell.kind !== "detail-only");
+  const mountedAgentKey = mountedAgent ? agentDraftKey(conversationId, mountedAgent.id) : null;
+  useEffect(() => {
+    const retainedKeys = new Set(availableTabs.flatMap((tab) => tab.target.kind === "agent"
+      ? [agentDraftKey(conversationId, tab.target.agentSurfaceId)]
+      : []));
+    setAgentDrafts((current) => retainKeys(current, retainedKeys));
+    setPendingAgentMessages((current) => retainKeys(current, retainedKeys));
+  }, [conversationId, tabs]);
   return (
     <div className="agent-workspace-panel resource-workspace-panel" data-testid="agent-workspace-panel" data-resource-workspace="true">
       <div className="agent-workspace-tabbar">
@@ -84,10 +101,37 @@ export function ResourceWorkspacePanel({
       </div>
       {mountedAgent ? <section className="agent-workspace-surface" hidden={!selectedAgent}>
         <div className="agent-workspace-transcript-region">
-          <AgentTranscriptPane cells={cells} emptyMessage={mountedAgent.transcript.emptyMessage} testId="agent-workspace-transcript" />
+          <AgentTranscriptPane key={`${conversationId}:${mountedAgent.id}`} cells={cells} emptyMessage={mountedAgentTranscript?.emptyMessage} testId="agent-workspace-transcript" />
+          {mountedAgentTranscript?.paging?.hasMoreBefore && mountedAgentTranscript.paging.nextBeforeCursor ? (
+            <button
+              type="button"
+              className="transcript-load-earlier"
+              onClick={() => void onLoadEarlierAgentTranscript(mountedAgent.id, mountedAgentTranscript.paging!.nextBeforeCursor!)}
+            >加载更早消息</button>
+          ) : null}
         </div>
         <AgentWorkspaceComposer
           agent={mountedAgent}
+          value={mountedAgentKey ? agentDrafts[mountedAgentKey] ?? "" : ""}
+          pending={mountedAgentKey ? pendingAgentMessages[mountedAgentKey] ?? null : null}
+          onValueChange={(value) => {
+            if (!mountedAgentKey) return;
+            setAgentDrafts((current) => ({ ...current, [mountedAgentKey]: value }));
+          }}
+          onRestoreValue={(value) => {
+            if (!mountedAgentKey) return;
+            setAgentDrafts((current) => current[mountedAgentKey]
+              ? current
+              : { ...current, [mountedAgentKey]: value });
+          }}
+          onPendingChange={(pending, expectedPendingId) => {
+            if (!mountedAgentKey) return;
+            setPendingAgentMessages((current) => {
+              if (pending) return { ...current, [mountedAgentKey]: pending };
+              if (expectedPendingId && current[mountedAgentKey] !== expectedPendingId) return current;
+              return withoutKey(current, mountedAgentKey);
+            });
+          }}
           providerDisplayName={mountedAgent.providerDisplayName ?? providerDisplayName}
           modelLabel={modelLabel}
           onOpenModelSettings={onOpenModelSettings}
@@ -141,15 +185,18 @@ function AgentWorkspaceRuntimeStrip({ providerDisplayName = "Agent Provider", mo
   );
 }
 
-function AgentWorkspaceComposer({ agent, providerDisplayName, modelLabel, onOpenModelSettings, onSendAgentMessage }: {
+function AgentWorkspaceComposer({ agent, value, pending, onValueChange, onRestoreValue, onPendingChange, providerDisplayName, modelLabel, onOpenModelSettings, onSendAgentMessage }: {
   agent: AgentWorkspaceAgent;
+  value: string;
+  pending: string | null;
+  onValueChange: (value: string) => void;
+  onRestoreValue: (value: string) => void;
+  onPendingChange: (pending: string | null, expectedPendingId?: string) => void;
   providerDisplayName?: string;
   modelLabel: string;
   onOpenModelSettings?: () => void;
   onSendAgentMessage: (agent: AgentWorkspaceAgent, message: string) => Promise<void>;
 }): ReactElement {
-  const [value, setValue] = useState("");
-  const [pending, setPending] = useState<string | null>(null);
   const text = value.trim();
   const canInteract = agent.roleId === "planning-agent";
   const submitDisabled = pending !== null || !canInteract || !text;
@@ -157,31 +204,47 @@ function AgentWorkspaceComposer({ agent, providerDisplayName, modelLabel, onOpen
     if (submitDisabled) return;
     const message = text;
     const pendingId = `agent-message:${agent.id}:${Date.now()}`;
-    setPending(pendingId);
-    setValue("");
+    onPendingChange(pendingId);
+    onValueChange("");
     const releasePending = globalThis.setTimeout(() => {
-      setPending((current) => current === pendingId ? null : current);
+      onPendingChange(null, pendingId);
     }, 1200);
     try {
       await onSendAgentMessage(agent, message);
     } catch (error) {
-      setValue((current) => current || message);
+      onRestoreValue(message);
       throw error;
     } finally {
       globalThis.clearTimeout(releasePending);
-      setPending((current) => current === pendingId ? null : current);
+      onPendingChange(null, pendingId);
     }
   }
   return (
     <div className="topic-composer agent-workspace-composer" data-testid="agent-workspace-composer" aria-label={`${agent.label} 输入框`}>
       <AgentWorkspaceRuntimeStrip providerDisplayName={providerDisplayName} modelLabel={modelLabel} onOpenModelSettings={onOpenModelSettings} />
-      <textarea value={value} onChange={(event) => setValue(event.target.value)} placeholder="给当前 Agent 发送反馈" disabled={pending !== null || !canInteract} />
+      <textarea value={value} onChange={(event) => onValueChange(event.target.value)} placeholder="给当前 Agent 发送反馈" disabled={pending !== null || !canInteract} />
       <div className="composer-toolbar">
         <span className="composer-spacer" />
         <button type="button" className={`composer-send ${pending ? "running" : ""}`} disabled={submitDisabled} title="发送给当前 Agent" onClick={() => void submit()}><Send size={16} /></button>
       </div>
     </div>
   );
+}
+
+function agentDraftKey(conversationId: string, agentSurfaceId: string): string {
+  return `${conversationId}\u0000${agentSurfaceId}`;
+}
+
+function retainKeys(values: Record<string, string>, retained: Set<string>): Record<string, string> {
+  const entries = Object.entries(values).filter(([key]) => retained.has(key));
+  return entries.length === Object.keys(values).length ? values : Object.fromEntries(entries);
+}
+
+function withoutKey(values: Record<string, string>, key: string): Record<string, string> {
+  if (!(key in values)) return values;
+  const next = { ...values };
+  delete next[key];
+  return next;
 }
 
 function fileName(relativePath: string): string {

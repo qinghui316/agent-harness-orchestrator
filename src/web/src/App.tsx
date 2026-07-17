@@ -40,12 +40,11 @@ import {
 import { SettingsSurface, type SettingsSection } from "./panels/SettingsSurface.js";
 import { workflowActionPayloadFromScope } from "./workflow-actions.js";
 import {
-  emptyParentAgentTranscript,
-  isParentAgentTranscriptPayload,
-  mergeTranscriptPage,
-  normalizeParentAgentTranscript,
-  replaceCanonicalMessageCells,
-} from "./liveTranscript.js";
+  canonicalTimelineScopeKey,
+  selectCanonicalTimelineSurface,
+  selectCanonicalTimelineTranscript,
+} from "./canonicalTimelineStore.js";
+import { canonicalTimelineReconnectScopes, useCanonicalTimelineController } from "./canonicalTimelineController.js";
 
 import {
   projectDisplayName,
@@ -71,6 +70,7 @@ import type {
   RuntimeActivityLogSnapshot,
   RuntimeDiagnosticsSnapshot,
   AgentWorkspaceAgent,
+  CanonicalTimelineScope,
   CanonicalDocumentReference,
   ConversationInteractionSettlement,
   TextDocumentResource,
@@ -90,7 +90,6 @@ const emptySnapshot: Snapshot = {
     workpad: emptyWorkpad(),
     agentLoop: { runs: [] },
     thread: { items: [] },
-    parentAgentTranscript: emptyParentAgentTranscript(),
     conversationInteractions: { items: [] },
     activeTab: "conversation",
     agentRelationGraph: emptyAgentRelationGraph(),
@@ -122,6 +121,7 @@ type PendingDemandConversation = {
   title: string;
   body: string;
   startedAt: string;
+  canonical: boolean;
   selectedProviderId?: string;
 };
 
@@ -150,15 +150,6 @@ function pointerClientX(event: { clientX?: number; pageX?: number; screenX?: num
   return 0;
 }
 
-function pendingDemandTranscript(pending: PendingDemandConversation): ParentAgentTranscript {
-  return normalizeParentAgentTranscript({
-    title: pending.title,
-    cells: [],
-    items: [],
-    emptyMessage: "正在等待主 Agent 回复。",
-  });
-}
-
 export function App(): ReactElement {
   const [projects, setProjects] = useState<ProjectStatus[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
@@ -179,6 +170,7 @@ export function App(): ReactElement {
   const [confirming, setConfirming] = useState<string | null>(null);
   const [selectedDecisionContextId, setSelectedDecisionContextId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const timeline = useCanonicalTimelineController(setError);
   const [composerText, setComposerText] = useState("");
   const [actionRunning, setActionRunning] = useState<string | null>(null);
   const interactionDraftsRef = useRef<Record<string, ConversationInteractionDraft>>({});
@@ -186,8 +178,6 @@ export function App(): ReactElement {
   const [workspaceDocuments, setWorkspaceDocuments] = useState<Record<string, TextDocumentResource>>({});
   const [workspaceResourceErrors, setWorkspaceResourceErrors] = useState<Record<string, string>>({});
   const [loadingWorkspaceResourceIds, setLoadingWorkspaceResourceIds] = useState<string[]>([]);
-  const [conversationTranscripts, setConversationTranscripts] = useState<Record<string, ParentAgentTranscript>>({});
-  const [loadingEarlierTranscript, setLoadingEarlierTranscript] = useState(false);
   const [loadedAgentRelationGraph, setLoadedAgentRelationGraph] = useState<AgentRelationGraph | null>(null);
   const [agentGraphLoadState, setAgentGraphLoadState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [agentGraphLoadError, setAgentGraphLoadError] = useState<string | null>(null);
@@ -222,9 +212,7 @@ export function App(): ReactElement {
   const [latestHidden, setLatestHidden] = useState(false);
   const threadScrollRef = useRef<HTMLDivElement | null>(null);
   const threadPinnedToBottomRef = useRef(true);
-  const transcriptVisualExtentRef = useRef(0);
-  const mainMessageCellOwnersRef = useRef(new Map<string, string[]>());
-  const agentMessageCellOwnersRef = useRef(new Map<string, string[]>());
+  const handledTimelineMutationRef = useRef<string | null>(null);
   const agentProjectionRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingAgentSurfaceRefreshesRef = useRef(new Map<string, number>());
   const agentProjectionContextRef = useRef<string | null>(null);
@@ -233,6 +221,12 @@ export function App(): ReactElement {
   const workspaceResourceRequestTokensRef = useRef(new Map<string, number>());
   const workspaceResourceScopeRef = useRef("");
   const selectedProjectIdRef = useRef<string | null>(null);
+  useEffect(() => () => {
+    if (agentProjectionRefreshTimerRef.current) clearTimeout(agentProjectionRefreshTimerRef.current);
+    agentProjectionRefreshTimerRef.current = null;
+    agentProjectionContextRef.current = null;
+    pendingAgentSurfaceRefreshesRef.current.clear();
+  }, []);
   const selectedComposerSkillIds = useMemo(
     () => activeComposerSkillIds(skillItems, selectedTopic, draftSkillOverrides),
     [draftSkillOverrides, selectedTopic, skillItems],
@@ -580,7 +574,6 @@ export function App(): ReactElement {
         selectedTopic: null,
         workpad: emptyWorkpad(projectDisplayName(baseSnapshot.project ?? status.project, "当前项目")),
         thread: { items: [] },
-        parentAgentTranscript: emptyParentAgentTranscript(),
         conversationInteractions: { items: [] },
         activeTab: "conversation" as const,
         agentLoop: { runs: [] },
@@ -636,6 +629,7 @@ export function App(): ReactElement {
     const ok = window.confirm(`移出“${name}”？\n\n只会从 App 项目列表移出，不会删除代码、不会修改 Git，也不会删除项目证据。之后可以重新添加。`);
     if (!ok) return;
     await postJson(`/api/projects/${encodeURIComponent(projectId)}/remove`, { confirm: true });
+    timeline.clearProject(projectId);
     if (selectedProjectId === projectId) {
       clearPersistedSelectedProjectId();
       setSelectedProjectId(null);
@@ -658,12 +652,7 @@ export function App(): ReactElement {
       setSelectedTopic(null);
       syncWorkbenchLocation(projectId, null);
     }
-    const transcriptKey = conversationTranscriptKey(projectId, conversationId);
-    setConversationTranscripts((current) => {
-      const next = { ...current };
-      delete next[transcriptKey];
-      return next;
-    });
+    timeline.clearConversation(projectId, conversationId);
     await refresh(projectId, topicToRefresh);
   }
 
@@ -947,6 +936,7 @@ export function App(): ReactElement {
         title,
         body: demandBody,
         startedAt: new Date().toISOString(),
+        canonical: false,
         selectedProviderId: composerProviderId ?? undefined,
       };
       if (showPendingBeforeCreate) {
@@ -955,8 +945,6 @@ export function App(): ReactElement {
         persistSelectedProjectId(effectiveProjectId);
         setSelectedTopic(pendingConversation.id);
         setPendingDemandConversation(pendingConversation);
-        mainMessageCellOwnersRef.current.clear();
-        agentMessageCellOwnersRef.current.clear();
         setLoadedAgentRelationGraph(null);
       }
       draftUploadProjectId = effectiveProjectId;
@@ -979,16 +967,17 @@ export function App(): ReactElement {
           setSelectedTopic(createdId);
           syncWorkbenchLocation(effectiveProjectId, createdId);
           setPendingDemandConversation((current) => current && current.projectId === effectiveProjectId
-            ? { ...current, id: createdId, title: event.data.topic.title, selectedProviderId: event.data.topic.selectedProviderId ?? current.selectedProviderId }
+            ? { ...current, id: createdId, title: event.data.topic.title, canonical: true, selectedProviderId: event.data.topic.selectedProviderId ?? current.selectedProviderId }
             : {
               ...pendingConversation,
               id: createdId,
               title: event.data.topic.title,
               startedAt: new Date().toISOString(),
+              canonical: true,
               selectedProviderId: event.data.topic.selectedProviderId,
             });
         }
-        handleLiveEvent(event);
+        handleLiveEvent(effectiveProjectId, event);
       });
       if (!createdTopicId) throw new Error("Demand conversation was not created.");
       uploadedDraft = [];
@@ -1013,6 +1002,13 @@ export function App(): ReactElement {
       setError(cause instanceof Error ? cause.message : String(cause));
       throw cause;
     } finally {
+      if (createdTopicId && draftUploadProjectId) {
+        await timeline.loadLatest({
+          projectId: draftUploadProjectId,
+          conversationId: createdTopicId,
+          agentSurfaceId: "main-agent",
+        });
+      }
       if (uploadedDraft.length > 0 && draftUploadProjectId) {
         const cleanupProjectId = draftUploadProjectId;
         await Promise.all(uploadedDraft.map((attachment) => deleteAttachmentForProject(cleanupProjectId, attachment.id)));
@@ -1061,10 +1057,11 @@ export function App(): ReactElement {
         attachmentIds,
         providerId: composerProviderId ?? activeTopic.selectedProviderId,
         providerSwitchIntent: composerProviderId && composerProviderId !== activeTopic.selectedProviderId ? "resume-workflow" : undefined,
-      }, handleLiveEvent);
+      }, (event: WorkbenchLiveEvent) => handleLiveEvent(selectedProjectId, event));
       setComposerFileRefs([]);
       setComposerAttachments([]);
     } finally {
+      await timeline.loadLatest({ projectId: selectedProjectId, conversationId: activeTopic.id, agentSurfaceId: "main-agent" });
       setActionRunning(null);
     }
   }
@@ -1106,7 +1103,7 @@ export function App(): ReactElement {
         confirm: true,
         prompt: composerText.trim() || undefined,
         ...actionOptions,
-      }, handleLiveEvent);
+      }, (event: WorkbenchLiveEvent) => handleLiveEvent(selectedProjectId, event));
       if (shouldPreserveSelectedTopic && topicBeforeAction) {
         const refreshed = await refresh(selectedProjectId, topicBeforeAction);
         if (refreshed && !refreshed.center.selectedTopic && snapshotBeforeAction.center.selectedTopic?.id === topicBeforeAction) {
@@ -1117,6 +1114,7 @@ export function App(): ReactElement {
       }
       if (composerText.trim()) setComposerText("");
     } finally {
+      await timeline.loadLatest({ projectId: selectedProjectId, conversationId: activeTopic.id, agentSurfaceId: "main-agent" });
       setActionRunning(null);
     }
   }
@@ -1140,11 +1138,12 @@ export function App(): ReactElement {
             const interaction = event.data.center.conversationInteractions?.items.find((item) => item.interactionId === interactionId);
             if (interaction?.status === "submitting") delete interactionDraftsRef.current[interactionId];
           }
-          handleLiveEvent(event);
+          handleLiveEvent(selectedProjectId, event);
         },
       );
       if (!failed) delete interactionDraftsRef.current[interactionId];
     } finally {
+      await timeline.loadLatest({ projectId: selectedProjectId, conversationId: activeTopic.id, agentSurfaceId: "main-agent" });
       setActionRunning(null);
     }
   }
@@ -1157,66 +1156,34 @@ export function App(): ReactElement {
       await consumeWorkbenchLiveStream(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/topics/${encodeURIComponent(activeTopic.id)}/messages/live`, {
         mode: "chat",
         message: message.trim(),
-      }, handleLiveEvent);
+      }, (event: WorkbenchLiveEvent) => handleLiveEvent(selectedProjectId, event));
     } finally {
+      await timeline.loadLatest({ projectId: selectedProjectId, conversationId: activeTopic.id, agentSurfaceId: agent.id });
       setActionRunning(null);
     }
   }
 
 
-  function handleLiveEvent(event: WorkbenchLiveEvent): void {
+  function handleLiveEvent(projectId: string, event: WorkbenchLiveEvent): void {
+    const timelineEvent = timeline.ingestLiveEvent(projectId, event);
+    if (timelineEvent.handled) {
+      if (timelineEvent.refreshAgentProjection) scheduleAgentProjectionRefresh();
+      return;
+    }
     if (event.event === "topic.created") {
       const topicId = event.data.topic.conversationId ?? event.data.topic.id ?? event.data.topic.changeId;
       if (!topicId) return;
       setSelectedTopic(topicId);
       syncWorkbenchLocation(selectedProjectId, topicId);
       setPendingDemandConversation((current) => current
-        ? { ...current, id: topicId, title: event.data.topic.title }
+        ? { ...current, id: topicId, title: event.data.topic.title, canonical: true }
         : current);
       return;
     }
     if (event.event === "snapshot") {
       setSnapshot(event.data);
-      agentMessageCellOwnersRef.current.clear();
       setPendingDemandConversation(null);
       invalidateProjectionCache();
-      return;
-    }
-    if (event.event === "timeline.patch") {
-      if (event.data.agentSurfaceId === "main-agent") {
-        const transcriptKey = conversationTranscriptKey(selectedProjectId, event.data.conversationId);
-        const messageOwnerKey = `${transcriptKey}:${event.data.messageId}`;
-        const previous = mainMessageCellOwnersRef.current.get(messageOwnerKey) ?? [];
-        setConversationTranscripts((current) => ({ ...current, [transcriptKey]: replaceCanonicalMessageCells(
-          normalizeParentAgentTranscript(current[transcriptKey] ?? emptyParentAgentTranscript()),
-          previous,
-          event.data.cells,
-        ) }));
-        mainMessageCellOwnersRef.current.set(messageOwnerKey, event.data.cells.map((cell) => cell.id));
-        if (event.data.cells.some((cell) => cell.targetAgentSurfaceId)) scheduleAgentProjectionRefresh();
-      } else {
-        if (activeTopic?.id && event.data.conversationId !== activeTopic.id && !isPendingTopic) return;
-        const ownerKey = `${event.data.agentSurfaceId}:${event.data.messageId}`;
-        const previous = agentMessageCellOwnersRef.current.get(ownerKey) ?? [];
-        setSnapshot((current) => {
-          const workspace = current.right.agentWorkspace ?? { selectedAgentId: "planning-agent", agents: [] };
-          return {
-            ...current,
-            right: {
-              ...current.right,
-              agentWorkspace: {
-                ...workspace,
-                agents: workspace.agents.map((agent) => agent.id === event.data.agentSurfaceId ? {
-                  ...agent,
-                  transcript: replaceCanonicalMessageCells(agent.transcript, previous, event.data.cells, event.data.placement),
-                } : agent),
-              },
-            },
-          };
-        });
-        agentMessageCellOwnersRef.current.set(ownerKey, event.data.cells.map((cell) => cell.id));
-        scheduleAgentProjectionRefresh();
-      }
       return;
     }
     if (event.event === "conversation.interactions.updated") {
@@ -1289,8 +1256,9 @@ export function App(): ReactElement {
       pendingAgentSurfaceRefreshesRef.current.set(agentSurfaceId, 0);
     }
     const conversationId = activeTopic?.id;
-    if (!conversationId) return;
+    if (!conversationId || !selectedProjectId) return;
     openWorkspaceResource({ kind: "agent", conversationId, agentSurfaceId });
+    void timeline.loadLatest({ projectId: selectedProjectId, conversationId, agentSurfaceId });
     scheduleAgentProjectionRefresh();
   }
 
@@ -1334,7 +1302,16 @@ export function App(): ReactElement {
   function selectWorkspaceResource(resourceId: string): void {
     setSelectedWorkspaceResourceId(resourceId);
     const tab = workspaceResourceTabs.find((candidate) => candidate.resourceId === resourceId);
-    if (tab?.target.kind !== "agent" && tab) void loadWorkspaceResource(tab.target, resourceId);
+    if (!tab) return;
+    if (tab.target.kind === "agent") {
+      if (selectedProjectId) void timeline.loadLatest({
+          projectId: selectedProjectId,
+          conversationId: tab.target.conversationId,
+          agentSurfaceId: tab.target.agentSurfaceId,
+        });
+      return;
+    }
+    void loadWorkspaceResource(tab.target, resourceId);
   }
 
   function closeWorkspaceResource(resourceId: string): void {
@@ -1362,8 +1339,6 @@ export function App(): ReactElement {
     if (agentProjectionRefreshTimerRef.current) clearTimeout(agentProjectionRefreshTimerRef.current);
     agentProjectionRefreshTimerRef.current = null;
     pendingAgentSurfaceRefreshesRef.current.clear();
-    mainMessageCellOwnersRef.current.clear();
-    agentMessageCellOwnersRef.current.clear();
     setActionRunning(null);
     setLatestHidden(false);
     if (!options.preserveProjectFiles) {
@@ -1422,26 +1397,30 @@ export function App(): ReactElement {
         : providerCapabilities.length === 1 ? providerCapabilities[0]!.providerId : null);
     setComposerProviderId(selected);
   }, [activeTopic?.id, activeTopic?.selectedProviderId, providerCapabilities, selectedProjectDefaultProviderId, selectedProjectId]);
-  const isPendingTopic = Boolean(activePendingConversation && activeTopic?.id === activePendingConversation.id);
+  const isPendingTopic = Boolean(activePendingConversation && !activePendingConversation.canonical);
   const activeWorkpad = activePendingConversation ? emptyWorkpad(activePendingConversation.title) : snapshot.center.workpad ?? emptyWorkpad(activeTopic?.title ?? projectDisplayName(snapshot.project));
   const activeRun = useMemo(() => snapshot.center.agentLoop.runs.find((run) => run.id === selectedRun) ?? snapshot.center.agentLoop.runs[0], [snapshot, selectedRun]);
   const selectedProjectStatus = useMemo(() => projects.find((item) => item.project?.id === selectedProjectId) ?? null, [projects, selectedProjectId]);
   const selectedProjectHistoryUnavailable = Boolean(selectedProjectStatus?.managed && selectedProjectStatus.memory?.memoryAvailable === false);
   const runIds = useMemo(() => snapshot.center.agentLoop.runs.map((run) => run.id).join("|"), [snapshot.center.agentLoop.runs]);
-  const activeTranscriptKey = conversationTranscriptKey(selectedProjectId, activeTopic?.id ?? null);
-  const snapshotTranscript = useMemo(() => {
-    const canonical = conversationTranscripts[activeTranscriptKey];
-    if (canonical) return normalizeParentAgentTranscript(canonical);
-    if (activePendingConversation) return pendingDemandTranscript(activePendingConversation);
-    return normalizeParentAgentTranscript(snapshot.center.parentAgentTranscript);
-  }, [activePendingConversation, activeTranscriptKey, conversationTranscripts, snapshot.center.parentAgentTranscript]);
-  const activeTranscript = snapshotTranscript;
-  const activeTranscriptVisualExtent = useMemo(() => (activeTranscript.cells ?? []).reduce(
-    (total, cell) => total
-      + (cell.kind === "assistant-message" || cell.kind === "user-message" ? cell.text.length : 0)
-      + (cell.detailText?.length ?? 0),
-    0,
-  ), [activeTranscript.cells]);
+  const activeTimelineScope = useMemo<CanonicalTimelineScope | null>(() => (
+    selectedProjectId && activeTopic?.id && !isPendingTopic
+      ? { projectId: selectedProjectId, conversationId: activeTopic.id, agentSurfaceId: "main-agent" }
+      : null
+  ), [activeTopic?.id, isPendingTopic, selectedProjectId]);
+  const activeTranscript = useMemo<ParentAgentTranscript>(() => activeTimelineScope
+    ? selectCanonicalTimelineTranscript(timeline.state, activeTimelineScope)
+    : {
+      conversationId: activeTopic?.id,
+      title: activeTopic?.title ?? "需求对话",
+      cells: [],
+      items: [],
+      emptyMessage: activePendingConversation ? "正在等待主 Agent 回复。" : "暂无对话内容。",
+    }, [activePendingConversation, activeTimelineScope, activeTopic?.id, activeTopic?.title, timeline.state]);
+  const activeTimelineSurface = activeTimelineScope
+    ? selectCanonicalTimelineSurface(timeline.state, activeTimelineScope)
+    : null;
+  const loadingEarlierTranscript = activeTimelineSurface?.requests.before.status === "loading";
   const activeDecisionInspector = useMemo(() => {
     const inspector = snapshot.right.decisionInspector ?? { primary: null, related: [], history: [] };
     if (!selectedDecisionContextId) return inspector;
@@ -1456,19 +1435,37 @@ export function App(): ReactElement {
   }, [selectedDecisionContextId, snapshot.right.decisionInspector]);
   const activeConfirmationQueue = snapshot.right.confirmationQueue ?? { primary: null, current: [], otherDemands: [], maintenance: [], history: [] };
   const activeAgentWorkspace = snapshot.right.agentWorkspace ?? { selectedAgentId: "planning-agent", agents: [] };
+  const activeAgentTranscripts = useMemo<Record<string, ParentAgentTranscript>>(() => {
+    if (!selectedProjectId || !activeTopic?.id) return {};
+    return Object.fromEntries(activeAgentWorkspace.agents.map((agent) => [
+      agent.id,
+      selectCanonicalTimelineTranscript(timeline.state, {
+        projectId: selectedProjectId,
+        conversationId: activeTopic.id,
+        agentSurfaceId: agent.id,
+      }),
+    ]));
+  }, [activeAgentWorkspace.agents, activeTopic?.id, selectedProjectId, timeline.state]);
 
   useEffect(() => {
-    if (!selectedProjectId || !selectedProjectStatus?.managed || typeof EventSource === "undefined") return;
+    if (!selectedProjectId || typeof EventSource === "undefined") return;
     const source = new EventSource(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/events/live`);
+    source.onopen = () => {
+      const conversationId = activeTopic?.id;
+      if (!conversationId || isPendingTopic) return;
+      for (const scope of canonicalTimelineReconnectScopes(selectedProjectId, conversationId, workspaceResourceTabs)) {
+        void timeline.loadLatest(scope);
+      }
+    };
     source.onmessage = (message) => {
       try {
-        handleLiveEvent(JSON.parse(message.data) as WorkbenchLiveEvent);
+        handleLiveEvent(selectedProjectId, JSON.parse(message.data) as WorkbenchLiveEvent);
       } catch {
         // The request-level snapshot remains authoritative after malformed diagnostic frames.
       }
     };
     return () => source.close();
-  }, [selectedProjectId, selectedProjectStatus?.managed, selectedTopic]);
+  }, [activeTopic?.id, isPendingTopic, selectedProjectId, selectedTopic, timeline.loadLatest, workspaceResourceTabs]);
   const activeConversationInteraction = snapshot.center.conversationInteractions?.items[0] ?? null;
   const pendingConfirmationCount = (activeConfirmationQueue.primary ? 1 : 0)
     + activeConfirmationQueue.otherDemands.length
@@ -1572,26 +1569,10 @@ export function App(): ReactElement {
   }, [activeTopic?.id, isPendingTopic]);
 
   async function loadEarlierTranscriptPage(): Promise<void> {
-    if (!selectedProjectId || !activeTopic?.id || isPendingTopic || loadingEarlierTranscript) return;
+    if (!activeTimelineScope || loadingEarlierTranscript) return;
     const cursor = activeTranscript.paging?.nextBeforeCursor;
     if (!cursor || activeTranscript.paging?.hasMoreBefore === false) return;
-    setLoadingEarlierTranscript(true);
-    try {
-      const projection = await fetchJson<ParentAgentTranscript>(
-        `/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/projections/transcript/${encodeURIComponent(activeTopic.id)}?limit=100&beforeCursor=${encodeURIComponent(cursor)}`,
-      );
-      if (isParentAgentTranscriptPayload(projection)) {
-        const transcriptKey = conversationTranscriptKey(selectedProjectId, activeTopic.id);
-        setConversationTranscripts((current) => ({
-          ...current,
-          [transcriptKey]: mergeTranscriptPage(current[transcriptKey] ?? null, normalizeParentAgentTranscript(projection)),
-        }));
-      }
-    } catch (cause: unknown) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setLoadingEarlierTranscript(false);
-    }
+    await timeline.loadEarlier(activeTimelineScope, cursor);
   }
 
   async function createTopicFromComposer(): Promise<void> {
@@ -1599,21 +1580,9 @@ export function App(): ReactElement {
   }
 
   useEffect(() => {
-    if (!selectedProjectId || !activeTopic?.id || isPendingTopic) return;
-    let cancelled = false;
-    fetchJson<ParentAgentTranscript>(`/api/projects/${encodeURIComponent(selectedProjectId)}/workbench/projections/transcript/${encodeURIComponent(activeTopic.id)}?limit=100`)
-      .then((projection) => {
-        if (!cancelled && isParentAgentTranscriptPayload(projection)) {
-          const normalized = normalizeParentAgentTranscript(projection);
-          const transcriptKey = conversationTranscriptKey(selectedProjectId, activeTopic.id);
-          setConversationTranscripts((current) => ({ ...current, [transcriptKey]: normalized }));
-        }
-      })
-      .catch((cause: unknown) => {
-        if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
-      });
-    return () => { cancelled = true; };
-  }, [selectedProjectId, activeTopic?.id, isPendingTopic, projectionVersion]);
+    if (!activeTimelineScope) return;
+    void timeline.loadLatest(activeTimelineScope);
+  }, [activeTimelineScope, projectionVersion, timeline.loadLatest]);
 
   useEffect(() => {
     if (!selectedProjectId || !activeTopic?.id || !orchestrationOpen) return;
@@ -1642,22 +1611,25 @@ export function App(): ReactElement {
 
   useEffect(() => {
     const node = threadScrollRef.current;
-    const previousExtent = transcriptVisualExtentRef.current;
-    transcriptVisualExtentRef.current = activeTranscriptVisualExtent;
-    if (!node || activeTranscriptVisualExtent <= previousExtent || !threadPinnedToBottomRef.current) return;
+    const mutation = activeTimelineSurface?.lastMutation;
+    if (!node || !mutation || mutation.scopeKey !== (activeTimelineScope ? canonicalTimelineScopeKey(activeTimelineScope) : null)) return;
+    const mutationKey = `${mutation.scopeKey}:${mutation.revision}:${mutation.kind}:${mutation.addedMessageIds.join(",")}:${mutation.updatedMessageIds.join(",")}`;
+    if (handledTimelineMutationRef.current === mutationKey) return;
+    handledTimelineMutationRef.current = mutationKey;
+    if (!threadPinnedToBottomRef.current || (mutation.kind !== "append-tail" && mutation.kind !== "replace-tail-growth")) return;
     requestAnimationFrame(() => {
       const current = threadScrollRef.current;
       if (!current || !threadPinnedToBottomRef.current) return;
       current.scrollTop = current.scrollHeight;
       setLatestHidden(false);
     });
-  }, [activeTranscriptVisualExtent]);
+  }, [activeTimelineScope, activeTimelineSurface?.lastMutation]);
 
   useEffect(() => {
     threadPinnedToBottomRef.current = true;
-    transcriptVisualExtentRef.current = 0;
+    handledTimelineMutationRef.current = null;
     setLatestHidden(false);
-  }, [activeTopic?.id]);
+  }, [activeTimelineScope ? canonicalTimelineScopeKey(activeTimelineScope) : null]);
 
   useEffect(() => {
     if (!selectedProjectId) return;
@@ -1820,7 +1792,7 @@ export function App(): ReactElement {
                   }}
                 >
                   <MainConversationView
-                    key={activeTopic.id}
+                    key={`timeline:${selectedProjectId ?? ""}:${activeTopic.id}:main-agent`}
                     transcript={activeTranscript}
                     scrollContainerRef={threadScrollRef}
                     onLoadEarlierTranscript={loadEarlierTranscriptPage}
@@ -1927,6 +1899,8 @@ export function App(): ReactElement {
         agentPanel={
           <ResourceWorkspacePanel
             workspace={activeAgentWorkspace}
+            agentTranscripts={activeAgentTranscripts}
+            conversationId={activeTopic?.id ?? ""}
             tabs={workspaceResourceTabs}
             selectedResourceId={selectedWorkspaceResourceId}
             documents={workspaceDocuments}
@@ -1936,6 +1910,14 @@ export function App(): ReactElement {
             onCloseResource={closeWorkspaceResource}
             onBack={() => setRightToolView("launcher")}
             onSendAgentMessage={sendAgentWorkspaceMessage}
+            onLoadEarlierAgentTranscript={async (agentSurfaceId, cursor) => {
+              if (!selectedProjectId || !activeTopic?.id) return;
+              await timeline.loadEarlier({
+                projectId: selectedProjectId,
+                conversationId: activeTopic.id,
+                agentSurfaceId,
+              }, cursor);
+            }}
             providerDisplayName={providerDisplayName}
             modelLabel={providerModelLabel}
             onOpenModelSettings={() => void openProviderModelPicker()}
@@ -2048,7 +2030,6 @@ function preserveSelectedWorkbenchTopic(next: Snapshot, previous: Snapshot): Sna
       ...next.center,
       selectedTopic: previous.center.selectedTopic,
       workpad: previous.center.workpad,
-      parentAgentTranscript: previous.center.parentAgentTranscript,
       agentRelationGraph: previous.center.agentRelationGraph,
       agentLoop: previous.center.agentLoop,
     },
@@ -2154,10 +2135,6 @@ function workspaceResourceId(target: WorkspaceResourceTarget): string {
   if (target.kind === "agent") return `agent:${target.agentSurfaceId}`;
   if (target.kind === "document") return target.documentId;
   return `project-file:${target.relativePath.replace(/\\/g, "/")}`;
-}
-
-function conversationTranscriptKey(projectId: string | null, conversationId: string | null): string {
-  return `${projectId ?? ""}\u0000${conversationId ?? ""}`;
 }
 
 function syncWorkbenchLocation(projectId: string | null, topicId: string | null): void {

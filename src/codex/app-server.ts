@@ -205,6 +205,7 @@ export interface CodexAppServerTurnResult {
   status: "completed" | "interrupted" | "failed";
   threadId: string | null;
   turnId: string | null;
+  lastMessageItemId: string | null;
   lastMessage: string;
   planText?: string;
   goal?: CodexAppServerThreadGoal | null;
@@ -352,6 +353,7 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
   let threadId: string | null = options.existingThreadId ?? null;
   let turnId: string | null = null;
   let lastMessage = "";
+  let lastMessageItemId: string | null = null;
   let planText = "";
   let goal: CodexAppServerThreadGoal | null = null;
   let pendingYieldCallId: string | null = null;
@@ -554,14 +556,14 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
     await writeFile(options.paths.lastMessage, lastMessage, "utf8");
     const finalStatus = terminalStatus ?? "failed";
     await writeSession(finalStatus);
-    return { status: finalStatus, threadId, turnId, lastMessage, planText, goal, childThreads, changedFiles: [...changedFiles] };
+    return { status: finalStatus, threadId, turnId, lastMessageItemId, lastMessage, planText, goal, childThreads, changedFiles: [...changedFiles] };
   } catch (error) {
     terminalStatus = "failed";
     terminalError = error instanceof Error ? error.message : String(error);
     options.onError?.(error);
     await writeFile(options.paths.lastMessage, lastMessage || terminalError, "utf8");
     await writeSession("failed", terminalError).catch(() => undefined);
-    return { status: "failed", threadId, turnId, lastMessage, planText, goal, childThreads, changedFiles: [...changedFiles], error: terminalError };
+    return { status: "failed", threadId, turnId, lastMessageItemId, lastMessage, planText, goal, childThreads, changedFiles: [...changedFiles], error: terminalError };
   } finally {
     activeTurns.delete(activeScopeId);
     activeSessionScopes.delete(activeSessionKey);
@@ -830,7 +832,10 @@ export async function runCodexAppServerTurn(options: CodexAppServerTurnOptions):
         }
       }
       const finalText = extractCompletedText(params);
-      if (isAssistantMessageItem(params) && finalText && !lastMessage.includes(finalText)) lastMessage += finalText;
+      if (isAssistantMessageItem(params) && finalText) {
+        lastMessageItemId = stringValue(isRecord(params.item) ? params.item.id : params.itemId ?? params.item_id) ?? lastMessageItemId;
+        if (!lastMessage.includes(finalText)) lastMessage += finalText;
+      }
       if (isPlanItem(params) && finalText) {
         planText = finalText;
         options.onPlanUpdate?.(finalText, params);

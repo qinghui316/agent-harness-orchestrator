@@ -3,7 +3,8 @@ import { ArrowUpRight, Bot, Brain, CheckCircle2, FilePenLine, FileText, LoaderCi
 import { postJson } from "../../api.js";
 import { artifactName } from "./RunReplayPanel.js";
 import { formatTime, humanStatus } from "../../formatters.js";
-import { cleanTranscriptText, cleanTranscriptTitle } from "../../liveTranscript.js";
+import { cleanTranscriptText, cleanTranscriptTitle } from "./transcriptDisplay.js";
+import { TranscriptCellVirtualList } from "./TranscriptCellVirtualList.js";
 import { SentMessageContextSummary, type ComposerContextAttachment } from "../../shell/ComposerContextSources.js";
 import {
   isLongTranscriptCell,
@@ -16,26 +17,20 @@ export function AgentTranscriptPane({ cells, emptyMessage = "暂无 Agent 消息
   emptyMessage?: string;
   testId?: string;
 }): ReactElement {
-  const [expandedCells, setExpandedCells] = useState<Set<string>>(new Set());
   return (
-    <div className="agent-transcript-pane" data-testid={testId}>
-      {cells.length === 0 ? <div className="empty-state">{emptyMessage}</div> : null}
-      {cells.map((cell) => (
+    <TranscriptCellVirtualList
+      cells={cells}
+      className="agent-transcript-pane"
+      testId={testId}
+      emptyMessage={emptyMessage}
+      renderCell={(cell, expanded, onToggleExpanded) => (
         <ParentAgentTranscriptCellView
-          key={cell.id}
           cell={cell}
-          expanded={expandedCells.has(cell.id)}
-          onToggleExpanded={() => {
-            setExpandedCells((current) => {
-              const next = new Set(current);
-              if (next.has(cell.id)) next.delete(cell.id);
-              else next.add(cell.id);
-              return next;
-            });
-          }}
+          expanded={expanded}
+          onToggleExpanded={onToggleExpanded}
         />
-      ))}
-    </div>
+      )}
+    />
   );
 }
 

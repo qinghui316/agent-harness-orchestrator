@@ -3,8 +3,6 @@ import {
   getWorkbenchLandingQueueProjection,
   getWorkbenchMaintenanceProjection,
   getWorkbenchAgentRelationGraphProjection,
-  getWorkbenchTranscriptPageProjection,
-  getWorkbenchTranscriptProjection,
   getWorkbenchWorkflowGraphPlanProjection,
   getWorkbenchSchedulerContractProjection,
   getWorkbenchSchedulerDispatchDryRunProjection,
@@ -32,18 +30,11 @@ import {
   type WorkbenchProjectInput,
 } from "../../workbench/manager.js";
 
-export async function getWorkbenchProjection(input: WorkbenchProjectInput, rest: string, searchParams = new URLSearchParams()): Promise<unknown> {
+export async function getWorkbenchProjection(input: WorkbenchProjectInput, rest: string, _searchParams = new URLSearchParams()): Promise<unknown> {
   const [kind, encodedChangeId, encodedId, encodedExtraId] = rest.split("/");
   const changeId = encodedChangeId ? decodeURIComponent(encodedChangeId) : undefined;
   const id = encodedId ? decodeURIComponent(encodedId) : undefined;
   const extraId = encodedExtraId ? decodeURIComponent(encodedExtraId) : undefined;
-  if (kind === "transcript") {
-    if (!changeId) throw badRequest("transcript projection requires changeId.");
-    const paging = readTranscriptPaging(searchParams);
-    return paging
-      ? getWorkbenchTranscriptPageProjection(input, changeId, paging)
-      : getWorkbenchTranscriptProjection(input, changeId);
-  }
   if (kind === "agent-graph") {
     if (!changeId) throw badRequest("agent-graph projection requires changeId.");
     return getWorkbenchAgentRelationGraphProjection(input, changeId);
@@ -180,17 +171,6 @@ export async function getWorkbenchProjection(input: WorkbenchProjectInput, rest:
   if (kind === "maintenance") return getWorkbenchMaintenanceProjection(input);
   if (kind === "landing-queue") return getWorkbenchLandingQueueProjection(input);
   throw badRequest(`Unknown Workbench projection: ${kind ?? ""}`);
-}
-
-function readTranscriptPaging(searchParams: URLSearchParams): { limit?: number; beforeCursor?: string } | null {
-  const limitRaw = searchParams.get("limit");
-  const beforeCursor = searchParams.get("beforeCursor") ?? undefined;
-  if (!limitRaw && !beforeCursor) return null;
-  const limit = limitRaw ? Number(limitRaw) : undefined;
-  return {
-    limit: Number.isFinite(limit) ? limit : undefined,
-    beforeCursor,
-  };
 }
 
 function badRequest(message: string): Error {

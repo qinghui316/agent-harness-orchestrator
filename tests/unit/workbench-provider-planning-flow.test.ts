@@ -33,12 +33,13 @@ import { initHarness } from "../../src/harness/init.js";
 import { normalizeCodexAppServerNotification } from "../../src/codex/app-server-realtime.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { defaultProviderRegistry } from "../../src/provider-runtime/index.js";
+import { agentThreadSurfaceId } from "../../src/provider-runtime/agent-surface-id.js";
 import { git } from "../../src/project/git.js";
 import type { ManagedProject } from "../../src/types/index.js";
-import { appendConversationThreadEntry, createWorkbenchConversation, listConversationMessages, postConversationMessage, resumeNativeGoalAfterAction, runWorkbenchWorkflowAction } from "../../src/workbench/chat.js";
+import { appendConversationTimelineEntry, createWorkbenchConversation, listConversationMessages, postConversationMessage, resumeNativeGoalAfterAction, runWorkbenchWorkflowAction } from "../../src/workbench/chat.js";
 import { buildConversationInteractionQueue } from "../../src/workbench/conversation-interactions.js";
-import { getWorkbenchSnapshot } from "../../src/workbench/manager.js";
-import { getWorkbenchAgentRelationGraphProjection, getWorkbenchTranscriptProjection } from "../../src/workbench/projections/read-model/implementation.js";
+import { getCanonicalTimelinePage, getWorkbenchSnapshot } from "../../src/workbench/manager.js";
+import { getWorkbenchAgentRelationGraphProjection } from "../../src/workbench/projections/read-model/implementation.js";
 import { readLatestWorkflowGraphPlan } from "../../src/workflow-artifacts/manager.js";
 import { WorkbenchStore } from "../../src/workbench/store.js";
 import { planDocumentContentHash } from "../../src/workbench/plan-documents.js";
@@ -258,6 +259,56 @@ describe("Workbench provider planning flow", () => {
     expect((await buildConversationInteractionQueue(memory, conversation.conversationId, graphScopeId)).items).toEqual([]);
   });
 
+  it("projects a child provider question onto its exact canonical surface", async () => {
+    const conversation = await createWorkbenchConversation(project(), {
+      title: "Child provider question",
+      body: "Let the child ask one question.",
+    }, undefined, { runMainAgent: false });
+    appServerTurn.mockImplementationOnce(async (options) => {
+      options.onUserInputRequest?.({
+        requestId: "request-child-question",
+        threadId: "thread-child-question",
+        turnId: "turn-child-question",
+        itemId: "item-child-question",
+        runId: options.runId,
+        runtimeScopeId: options.runtimeScopeId ?? conversation.conversationId,
+        roleId: "planning-agent",
+        questions: [{ id: "choice", question: "采用哪种方案？", options: [{ label: "方案 A" }] }],
+      });
+
+      const childSurfaceId = agentThreadSurfaceId("codex", "thread-child-question");
+      await vi.waitFor(async () => {
+        const page = await getCanonicalTimelinePage(project(), conversation.conversationId, childSurfaceId, { limit: 100 });
+        expect(page.entries).toEqual([
+          expect.objectContaining({
+            agentSurfaceId: childSurfaceId,
+            cells: [],
+          }),
+        ]);
+      });
+      const memory = await resolveProjectMemory(project());
+      const store = await WorkbenchStore.open(memory);
+      const graphScopeId = store.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? "";
+      store.close();
+      expect((await buildConversationInteractionQueue(memory, conversation.conversationId, graphScopeId)).items).toEqual([
+        expect.objectContaining({ kind: "provider-input", status: "pending" }),
+      ]);
+
+      return {
+        status: "completed",
+        threadId: "thread-main-question",
+        turnId: "turn-main-question",
+        lastMessage: "已继续处理。",
+        goal: nativeGoal("active"),
+        childThreads: [],
+        changedFiles: [],
+        error: null,
+      };
+    });
+
+    await postConversationMessage(project(), conversation.conversationId, "请让 Plan Agent 确认方案。");
+  });
+
   it("keeps supplemental turns in the same unbound demand scope", async () => {
     const conversation = await createWorkbenchConversation(project(), {
       title: "Unbound multi-turn demand",
@@ -343,10 +394,11 @@ describe("Workbench provider planning flow", () => {
       contentHash: planDocumentContentHash(planText),
       agentSurfaceId: "agent:codex:thread:thread-plan",
     };
-    await appendConversationThreadEntry(project(), topic.changeId, {
+    await appendConversationTimelineEntry(project(), topic.changeId, {
       type: "assistant.message",
       status: "planning-agent-generated",
       runId: "run-declined-plan",
+      agentSurfaceId: document.agentSurfaceId,
       agentRoleId: "planning-agent",
       artifact: "workbench/proposals/declined-plan.json",
       document,
@@ -680,8 +732,8 @@ describe("Workbench provider planning flow", () => {
         documentRef: expect.objectContaining({ documentId: expect.stringMatching(/^plan-document-/) }),
       }),
     ]);
-    const transcript = await getWorkbenchTranscriptProjection({ project: project(), path: root }, conversation.conversationId);
-    expect(transcript.cells).toEqual(expect.arrayContaining([
+    const timeline = await getCanonicalTimelinePage({ project: project(), path: root }, conversation.conversationId, "main-agent");
+    expect([...timeline.pinned, ...timeline.entries].flatMap((envelope) => envelope.cells)).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "document-preview", title: "实现计划" }),
     ]));
   });
@@ -854,7 +906,15 @@ describe("Workbench provider planning flow", () => {
       expect.objectContaining({ kind: "plan", graphScopeId: plan?.graphScopeId }),
     ]);
     const plannerWorkspace = proposalSnapshot.right.agentWorkspace.agents.find((agent) => agent.providerThreadId === "thread-planner");
-    expect(plannerWorkspace?.transcript.cells[0]).toMatchObject({
+    expect(plannerWorkspace).not.toHaveProperty("transcript");
+    const plannerTimeline = await getCanonicalTimelinePage(
+      { project: project(), path: root },
+      conversation.conversationId,
+      agentThreadSurfaceId("codex", "thread-planner"),
+    );
+    const plannerInputEnvelope = plannerTimeline.pinned.find((envelope) => envelope.orderClass === "thread-start");
+    expect(plannerInputEnvelope).toMatchObject({ orderClass: "thread-start" });
+    expect(plannerInputEnvelope?.cells[0]).toMatchObject({
       kind: "user-message",
       source: "provider-runtime",
       providerId: "codex",
@@ -943,12 +1003,19 @@ describe("Workbench provider planning flow", () => {
     });
     const snapshot = await getWorkbenchSnapshot({ project: project(), path: root }, { topicId: conversation.conversationId });
     const durablePlanner = snapshot.right.agentWorkspace.agents.find((agent) => agent.providerThreadId === "thread-planner");
-    expect(durablePlanner?.transcript.cells.map((cell) => cell.kind)).toEqual(expect.arrayContaining([
+    expect(durablePlanner).not.toHaveProperty("transcript");
+    const durablePlannerTimeline = await getCanonicalTimelinePage(
+      { project: project(), path: root },
+      conversation.conversationId,
+      agentThreadSurfaceId("codex", "thread-planner"),
+    );
+    const durablePlannerCells = [...durablePlannerTimeline.pinned, ...durablePlannerTimeline.entries].flatMap((envelope) => envelope.cells);
+    expect(durablePlannerCells.map((cell) => cell.kind)).toEqual(expect.arrayContaining([
       "process-row", "assistant-message",
     ]));
-    expect(durablePlanner?.transcript.cells.filter((cell) => `${cell.title ?? ""}\n${cell.text}\n${cell.detailText ?? ""}`.includes("正在检查需求边界"))).toHaveLength(1);
-    expect(durablePlanner?.transcript.cells.filter((cell) => `${cell.text}\n${cell.detailText ?? ""}`.includes("Add the route and regression coverage."))).toHaveLength(1);
-    expect(durablePlanner?.transcript.cells.filter((cell) => cell.evidenceRefs?.some((ref) => ref.label === "Plan proposal"))).toHaveLength(1);
+    expect(durablePlannerCells.filter((cell) => `${cell.title ?? ""}\n${cell.text}\n${cell.detailText ?? ""}`.includes("正在检查需求边界"))).toHaveLength(1);
+    expect(durablePlannerCells.filter((cell) => `${cell.text}\n${cell.detailText ?? ""}`.includes("Add the route and regression coverage."))).toHaveLength(1);
+    expect(durablePlannerCells.filter((cell) => cell.evidenceRefs?.some((ref) => ref.label === "Plan proposal"))).toHaveLength(1);
     expect(snapshot.right.confirmationQueue.primary?.actions).toEqual(expect.arrayContaining([
       expect.objectContaining({ actionType: "workflow.run.start", changeId }),
     ]));

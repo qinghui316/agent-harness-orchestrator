@@ -1,21 +1,11 @@
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactElement,
-  type RefObject } from "react";
+import { useEffect, useRef, useState, type ReactElement, type RefObject } from "react";
 import { AgentOrchestrationMap } from "./AgentOrchestrationMap.js";
-import { calculateTranscriptVirtualRange } from "./TranscriptVirtualList.js";
+import { TranscriptCellVirtualList } from "./TranscriptCellVirtualList.js";
 import { ParentAgentTranscriptCellView } from "./TranscriptReadingSurface.js";
-import {
-  estimateTranscriptCellHeight,
-} from "./transcriptMeasurement.js";
 import type {
   AgentRelationGraph,
   AgentRelationGraphNode,
   ParentAgentTranscript,
-  ParentAgentTranscriptCell,
   ProjectStatus,
   RunSummary,
   Snapshot,
@@ -23,7 +13,6 @@ import type {
   TopicDetail,
 } from "../../types.js";
 
-const TRANSCRIPT_VIRTUALIZATION_THRESHOLD = 80;
 export function MainConversationView({
   transcript,
   scrollContainerRef,
@@ -79,91 +68,14 @@ function ParentAgentTranscriptView({
   conversationId: string | null;
 }): ReactElement {
   const cells = transcript.cells?.length ? transcript.cells.filter((cell) => cell.kind !== "detail-only") : [];
-  const [expandedCells, setExpandedCells] = useState<Set<string>>(new Set());
-  const [measuredCellHeights, setMeasuredCellHeights] = useState<Record<string, number>>({});
-  const [scrollMetrics, setScrollMetrics] = useState({ scrollTop: 0, viewportHeight: 720, listWidth: 760 });
   const loadingEarlierRef = useRef(false);
-  const heights = useMemo(() => cells.map((cell, index) => (measuredCellHeights[cell.id] ?? (estimateTranscriptCellHeight(cell, {
-    expanded: expandedCells.has(cell.id),
-    width: scrollMetrics.listWidth,
-  }))) + (index === 0 ? 0 : sameProviderTurn(cells[index - 1], cell) ? 8 : 20)), [cells, expandedCells, measuredCellHeights, scrollMetrics.listWidth]);
-  const virtualRange = useMemo(() => cells.length <= TRANSCRIPT_VIRTUALIZATION_THRESHOLD
-    ? {
-        start: 0,
-        end: cells.length,
-        topSpacer: 0,
-        bottomSpacer: 0,
-        totalHeight: heights.reduce((total, height) => total + height, 0),
-      }
-    : calculateTranscriptVirtualRange({
-        heights,
-        scrollTop: scrollMetrics.scrollTop,
-        viewportHeight: scrollMetrics.viewportHeight,
-        overscan: 10,
-      }), [cells.length, heights, scrollMetrics.scrollTop, scrollMetrics.viewportHeight]);
-  const visibleCells = cells.slice(virtualRange.start, virtualRange.end);
-  const visibleCellIds = visibleCells.map((cell) => cell.id).join("|");
-
-  useEffect(() => {
-    const currentIds = new Set(cells.map((cell) => cell.id));
-    setMeasuredCellHeights((current) => {
-      const entries = Object.entries(current).filter(([id]) => currentIds.has(id));
-      if (entries.length === Object.keys(current).length) return current;
-      return Object.fromEntries(entries);
-    });
-    setExpandedCells((current) => {
-      const next = new Set([...current].filter((id) => currentIds.has(id)));
-      return next.size === current.size ? current : next;
-    });
-  }, [cells]);
-
-  useEffect(() => {
-    const root = scrollContainerRef.current;
-    if (!root || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver((entries) => {
-      setMeasuredCellHeights((current) => {
-        let changed = false;
-        const next = { ...current };
-        for (const entry of entries) {
-          const id = (entry.target as HTMLElement).dataset.transcriptCellId;
-          const height = Math.ceil(entry.contentRect.height);
-          if (id && height > 0 && next[id] !== height) {
-            next[id] = height;
-            changed = true;
-          }
-        }
-        return changed ? next : current;
-      });
-    });
-    root.querySelectorAll<HTMLElement>("[data-transcript-cell-id]").forEach((node) => observer.observe(node));
-    return () => observer.disconnect();
-  }, [scrollContainerRef, visibleCellIds]);
-
-  useEffect(() => {
-    const node = scrollContainerRef.current;
-    if (!node) return;
-    function updateMetrics(): void {
-      if (!node) return;
-      setScrollMetrics({
-        scrollTop: node.scrollTop,
-        viewportHeight: node.clientHeight || 720,
-        listWidth: Math.max(320, node.clientWidth - 80),
-      });
-    }
-    updateMetrics();
-    node.addEventListener("scroll", updateMetrics);
-    window.addEventListener("resize", updateMetrics);
-    return () => {
-      node.removeEventListener("scroll", updateMetrics);
-      window.removeEventListener("resize", updateMetrics);
-    };
-  }, [scrollContainerRef]);
+  const [scrollTop] = useStateFromScrollContainer(scrollContainerRef);
 
   useEffect(() => {
     const node = scrollContainerRef.current;
     if (!node || loadingEarlierTranscript || loadingEarlierRef.current) return;
     if (!transcript.paging?.hasMoreBefore) return;
-    if (scrollMetrics.scrollTop > 260) return;
+    if (scrollTop > 260) return;
     loadingEarlierRef.current = true;
     const previousScrollHeight = node.scrollHeight;
     void onLoadEarlierTranscript().finally(() => {
@@ -173,50 +85,34 @@ function ParentAgentTranscriptView({
         loadingEarlierRef.current = false;
       });
     });
-  }, [loadingEarlierTranscript, onLoadEarlierTranscript, scrollContainerRef, scrollMetrics.scrollTop, transcript.paging?.hasMoreBefore]);
+  }, [loadingEarlierTranscript, onLoadEarlierTranscript, scrollContainerRef, scrollTop, transcript.paging?.hasMoreBefore]);
 
   return (
     <div className="parent-agent-transcript" data-testid="parent-agent-transcript">
-      <div className="parent-agent-message-list" data-testid="transcript-virtual-list">
-        {transcript.paging?.hasMoreBefore ? (
-          <div className="transcript-load-earlier" data-testid="transcript-load-earlier">
-            {loadingEarlierTranscript ? "正在加载更早消息..." : "向上滚动加载更早消息"}
-          </div>
-        ) : null}
-        {cells.length === 0 ? <div className="empty-state">{transcript.emptyMessage ?? "暂无对话内容。"}</div> : null}
-        {virtualRange.topSpacer > 0 ? <div className="transcript-virtual-spacer" style={{ height: virtualRange.topSpacer }} /> : null}
-        {visibleCells.map((cell, visibleIndex) => {
-          const cellIndex = virtualRange.start + visibleIndex;
-          const previous = cellIndex > 0 ? cells[cellIndex - 1] : undefined;
-          return (
-            <div key={cell.id} data-transcript-cell-id={cell.id} className={sameProviderTurn(previous, cell) ? "transcript-same-turn" : "transcript-turn-boundary"}>
-              <ParentAgentTranscriptCellView
-                cell={cell}
-                expanded={expandedCells.has(cell.id)}
-                onToggleExpanded={() => {
-                  setMeasuredCellHeights((current) => {
-                    if (!(cell.id in current)) return current;
-                    const next = { ...current };
-                    delete next[cell.id];
-                    return next;
-                  });
-                  setExpandedCells((current) => {
-                    const next = new Set(current);
-                    if (next.has(cell.id)) next.delete(cell.id);
-                    else next.add(cell.id);
-                    return next;
-                  });
-                }}
-              onOpenAgent={onOpenAgent}
-              onOpenDocument={onOpenDocument}
-              projectId={projectId}
-              conversationId={conversationId}
-              />
-            </div>
-          );
-        })}
-        {virtualRange.bottomSpacer > 0 ? <div className="transcript-virtual-spacer" style={{ height: virtualRange.bottomSpacer }} /> : null}
-      </div>
+      {transcript.paging?.hasMoreBefore ? (
+        <div className="transcript-load-earlier" data-testid="transcript-load-earlier">
+          {loadingEarlierTranscript ? "正在加载更早消息..." : "向上滚动加载更早消息"}
+        </div>
+      ) : null}
+      <TranscriptCellVirtualList
+        cells={cells}
+        scrollContainerRef={scrollContainerRef}
+        className="parent-agent-message-list"
+        testId="transcript-virtual-list"
+        emptyMessage={transcript.emptyMessage ?? "暂无对话内容。"}
+        groupedByTurn
+        renderCell={(cell, expanded, onToggleExpanded) => (
+          <ParentAgentTranscriptCellView
+            cell={cell}
+            expanded={expanded}
+            onToggleExpanded={onToggleExpanded}
+            onOpenAgent={onOpenAgent}
+            onOpenDocument={onOpenDocument}
+            projectId={projectId}
+            conversationId={conversationId}
+          />
+        )}
+      />
     </div>
   );
 }
@@ -246,10 +142,17 @@ export function AgentRelationGraphPanel({
   );
 }
 
-function sameProviderTurn(previous: ParentAgentTranscriptCell | undefined, current: ParentAgentTranscriptCell): boolean {
-  return Boolean(previous?.threadId && previous.turnId && current.threadId && current.turnId
-    && previous.threadId === current.threadId
-    && previous.turnId === current.turnId);
+function useStateFromScrollContainer(scrollContainerRef: RefObject<HTMLDivElement | null>): [number] {
+  const [scrollTop, setScrollTop] = useState(0);
+  useEffect(() => {
+    const node = scrollContainerRef.current;
+    if (!node) return;
+    const update = () => setScrollTop(node.scrollTop);
+    update();
+    node.addEventListener("scroll", update);
+    return () => node.removeEventListener("scroll", update);
+  }, [scrollContainerRef]);
+  return [scrollTop];
 }
 
 export function BottomStatusBar({ snapshot, project, topic }: { snapshot: Snapshot; project: ProjectStatus | null; topic: TopicDetail | null }): ReactElement {

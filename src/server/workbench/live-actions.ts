@@ -14,7 +14,7 @@ export async function sendWorkbenchActionLive(input: WorkbenchProjectInput & { p
   const body = await readJsonBody<WorkbenchActionRequest>(request);
   const changeId = body.changeId;
   const sse = createSseResponse(response);
-  const sink = createLiveSink(sse);
+  const sink = createLiveSink(sse, input.project.id);
   let terminalStatus: "completed" | "failed" = "completed";
   try {
     if (body.actionType) {

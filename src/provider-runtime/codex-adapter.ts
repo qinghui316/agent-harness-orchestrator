@@ -91,6 +91,7 @@ export async function runCodexTurn(request: ProviderTurnRequest): Promise<Provid
     status: result.status,
     session: result.threadId ? { providerId: CODEX_PROVIDER_ID, sessionId: result.threadId } : null,
     turnId: result.turnId,
+    lastMessageItemId: result.lastMessageItemId,
     lastMessage: result.lastMessage,
     planText: result.planText,
     objective: result.goal ? mapObjective(result.goal) : result.goal,

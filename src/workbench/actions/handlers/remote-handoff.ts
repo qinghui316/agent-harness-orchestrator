@@ -1,4 +1,4 @@
-﻿import { completeAgentTask } from "../../../agent-task/manager.js";
+import { completeAgentTask } from "../../../agent-task/manager.js";
 import { resolveProjectMemory } from "../../../memory/resolver.js";
 import { prepareLandingPackage, reviewLandingPackage } from "../../../landing/manager.js";
 import { mergeNextLandingQueueCandidate, prepareLandingQueue, refreshLandingQueue } from "../../../landing-queue/manager.js";
@@ -11,7 +11,7 @@ import type { ManagedProject } from "../../../types/index.js";
 import { runPrFeedbackReworkWorkflow, type PrFeedbackReworkWorkflowResult } from "../../../workflow-runtime/code-workflow.js";
 import { selectLandingReviewArtifactRef, selectLandingSummaryArtifactRef } from "../../artifact-selection.js";
 import { emitAssistantEvent } from "../../live-events.js";
-import { appendConversationThreadEntry } from "../../conversation-thread.js";
+import { appendConversationTimelineEntry } from "../../conversation-thread.js";
 import type { WorkbenchLiveSink, WorkbenchWorkflowActionRequest } from "../../types.js";
 
 export async function prepareLandingForAction(
@@ -28,7 +28,7 @@ export async function prepareLandingForAction(
     "",
     reviewed.review?.riskSummary ?? reviewed.riskSummary,
   ].filter(Boolean).join("\n");
-  const entry = await appendConversationThreadEntry(project, changeId, {
+  const entry = await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: "landing-readiness",
     text,
@@ -57,7 +57,7 @@ export async function prepareLandingForAction(
       },
     ],
   });
-  live?.emit({ event: "assistant.message", data: entry });
+  live?.emit({ event: "timeline.patch", data: entry });
   emitAssistantEvent(live, {
     runId: reviewed.id,
     kind: "tool-result",
@@ -77,13 +77,13 @@ export async function reviewLandingForAction(
 ): Promise<unknown> {
   if (!request.landingPackageId) throw new Error("landing.review requires landingPackageId.");
   const reviewed = await reviewLandingPackage(project, request.landingPackageId);
-  const entry = await appendConversationThreadEntry(project, changeId, {
+  const entry = await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: "landing-review",
     text: reviewed.review?.summary ?? reviewed.summary,
     artifact: selectLandingReviewArtifactRef(reviewed.artifactRefs, { fallback: "package" }),
   });
-  live?.emit({ event: "assistant.message", data: entry });
+  live?.emit({ event: "timeline.patch", data: entry });
   return { package: reviewed };
 }
 
@@ -95,13 +95,13 @@ export async function preparePrDraftForAction(
 ): Promise<unknown> {
   if (!request.landingPackageId) throw new Error("pr-draft.prepare requires landingPackageId.");
   const pkg = await preparePrDraftPackage(project, request.landingPackageId);
-  const entry = await appendConversationThreadEntry(project, changeId, {
+  const entry = await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: "pr-draft-prepared",
     text: `PR 草稿材料已准备好。这不会 push、创建 PR 或 merge。\n\n证据：${pkg.bodyArtifact}`,
     artifact: pkg.bodyArtifact,
   });
-  live?.emit({ event: "assistant.message", data: entry });
+  live?.emit({ event: "timeline.patch", data: entry });
   return { package: pkg };
 }
 
@@ -121,13 +121,13 @@ export async function createPrDraftForAction(
     "",
     "这是远端协作草稿，不会自动 merge 或 land。",
   ].join("\n");
-  const entry = await appendConversationThreadEntry(project, changeId, {
+  const entry = await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: "pr-draft-created",
     text,
     artifact: pkg.bodyArtifact,
   });
-  live?.emit({ event: "assistant.message", data: entry });
+  live?.emit({ event: "timeline.patch", data: entry });
   return { package: pkg };
 }
 
@@ -139,13 +139,13 @@ export async function refreshPrDraftForAction(
 ): Promise<unknown> {
   if (!request.landingPackageId) throw new Error("pr-draft.refresh requires landingPackageId.");
   const pkg = await refreshPrDraftStatus(project, request.landingPackageId);
-  const entry = await appendConversationThreadEntry(project, changeId, {
+  const entry = await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: "pr-draft-refreshed",
     text: pkg.prUrl ? `Draft PR 状态已刷新：${pkg.prUrl}` : "Draft PR 状态已刷新；还没有可用 PR URL。",
     artifact: pkg.packageArtifact,
   });
-  live?.emit({ event: "assistant.message", data: entry });
+  live?.emit({ event: "timeline.patch", data: entry });
   return { package: pkg };
 }
 
@@ -166,7 +166,7 @@ export async function refreshPrFeedbackForAction(
       ? "主 agent 判断：这些反馈需要在同一需求中重新处理。"
       : "主 agent 判断：当前没有必须自动修改的远端反馈。",
   ].join("\n");
-  const entry = await appendConversationThreadEntry(project, changeId, {
+  const entry = await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: "pr-feedback-refreshed",
     text,
@@ -195,7 +195,7 @@ export async function refreshPrFeedbackForAction(
       },
     ],
   });
-  live?.emit({ event: "assistant.message", data: entry });
+  live?.emit({ event: "timeline.patch", data: entry });
   return feedback;
 }
 
@@ -208,7 +208,7 @@ export async function reworkPrFeedbackForAction(
   if (!request.landingPackageId) throw new Error("pr-feedback.rework requires landingPackageId.");
   const memory = await resolveProjectMemory(project);
   const started = await startPrFeedbackReworkAttempt(project, request.landingPackageId, request.prompt, { expectedChangeId: changeId });
-  const intro = await appendConversationThreadEntry(project, changeId, {
+  const intro = await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: "pr-feedback-rework-started",
     text: [
@@ -220,7 +220,7 @@ export async function reworkPrFeedbackForAction(
     ].join("\n"),
     artifact: started.feedback.summary.evidenceRefs[0],
   });
-  live?.emit({ event: "assistant.message", data: intro });
+  live?.emit({ event: "timeline.patch", data: intro });
   const workflow = await runPrFeedbackReworkWorkflow({
     project,
     changeId,
@@ -267,13 +267,13 @@ export async function updatePrDraftForAction(
     "",
     "这只是更新 Draft PR，不会 merge、land、标记 ready for review 或归档需求。",
   ].join("\n");
-  const entry = await appendConversationThreadEntry(project, changeId, {
+  const entry = await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: "pr-draft-updated",
     text,
     artifact: result.revision.artifactRefs[0],
   });
-  live?.emit({ event: "assistant.message", data: entry });
+  live?.emit({ event: "timeline.patch", data: entry });
   return result;
 }
 
@@ -295,13 +295,13 @@ export async function preparePrReviewForAction(
       : "当前不能提交人工评审，请先处理上面的原因。",
     readiness.prUrl ? `\nPR: ${readiness.prUrl}` : "",
   ].filter(Boolean).join("\n");
-  const entry = await appendConversationThreadEntry(project, changeId, {
+  const entry = await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: "pr-review-readiness",
     text,
     artifact: readiness.summaryArtifact,
   });
-  live?.emit({ event: "assistant.message", data: entry });
+  live?.emit({ event: "timeline.patch", data: entry });
   return { readiness };
 }
 
@@ -321,13 +321,13 @@ export async function submitPrReviewForAction(
     "当前需求进入等待远端评审状态。后续反馈仍通过“检查 PR 反馈”回到同一需求对话处理。",
     "这不会 merge、land、push main、启用自动合并或归档需求。",
   ].join("\n");
-  const entry = await appendConversationThreadEntry(project, changeId, {
+  const entry = await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: "pr-review-submitted",
     text,
     artifact: result.handoff.artifactRefs[0],
   });
-  live?.emit({ event: "assistant.message", data: entry });
+  live?.emit({ event: "timeline.patch", data: entry });
   return result;
 }
 
@@ -339,13 +339,13 @@ export async function refreshPrReviewForAction(
 ): Promise<unknown> {
   if (!request.landingPackageId) throw new Error("pr-review.refresh requires landingPackageId.");
   const readiness = await refreshPrReviewState(project, request.landingPackageId);
-  const entry = await appendConversationThreadEntry(project, changeId, {
+  const entry = await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: "pr-review-refreshed",
     text: `${readiness.summary}\n\n${readiness.reason}`,
     artifact: readiness.summaryArtifact,
   });
-  live?.emit({ event: "assistant.message", data: entry });
+  live?.emit({ event: "timeline.patch", data: entry });
   return { readiness };
 }
 
@@ -366,13 +366,13 @@ export async function preparePrReviewReplyForAction(
       ? "右侧可以确认回复评审；如果 provider 支持，也可以标记对应 thread 已处理。"
       : "右侧可以确认回复评审；当前 provider 没有可用的 thread resolve 能力。",
   ].join("\n");
-  const entry = await appendConversationThreadEntry(project, changeId, {
+  const entry = await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: "pr-review-reply-draft",
     text,
     artifact: draft.artifactRef,
   });
-  live?.emit({ event: "assistant.message", data: entry });
+  live?.emit({ event: "timeline.patch", data: entry });
   return { draft };
 }
 
@@ -389,13 +389,13 @@ export async function submitPrReviewReplyForAction(
     "",
     "这只是提交回复，不会 merge、land、push main、归档需求或标记自动合并。",
   ].join("\n");
-  const entry = await appendConversationThreadEntry(project, changeId, {
+  const entry = await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: "pr-review-reply-submitted",
     text,
     artifact: result.handoff.artifactRefs[0],
   });
-  live?.emit({ event: "assistant.message", data: entry });
+  live?.emit({ event: "timeline.patch", data: entry });
   return result;
 }
 
@@ -407,13 +407,13 @@ export async function resolvePrReviewThreadForAction(
 ): Promise<unknown> {
   if (!request.landingPackageId) throw new Error("pr-review.thread-resolve requires landingPackageId.");
   const result = await resolvePrReviewThread(project, request.landingPackageId);
-  const entry = await appendConversationThreadEntry(project, changeId, {
+  const entry = await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: "pr-review-thread-resolved",
     text: "已标记评审 thread 为已处理。此操作不会 merge、land、push main 或归档需求。",
     artifact: result.resolution.artifactRefs[0],
   });
-  live?.emit({ event: "assistant.message", data: entry });
+  live?.emit({ event: "timeline.patch", data: entry });
   return result;
 }
 
@@ -423,13 +423,13 @@ export async function prepareLandingQueueForAction(
   live: WorkbenchLiveSink | undefined,
 ): Promise<unknown> {
   const snapshot = await prepareLandingQueue(project);
-  const entry = await appendConversationThreadEntry(project, changeId, {
+  const entry = await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: "landing-queue-prepared",
     text: `${snapshot.summary}\n\n右侧会只显示当前需要确认的 PR 合并动作；不会自动合并全部。`,
     artifact: snapshot.summaryArtifact,
   });
-  live?.emit({ event: "assistant.message", data: entry });
+  live?.emit({ event: "timeline.patch", data: entry });
   return { snapshot };
 }
 
@@ -439,13 +439,13 @@ export async function refreshLandingQueueForAction(
   live: WorkbenchLiveSink | undefined,
 ): Promise<unknown> {
   const snapshot = await refreshLandingQueue(project);
-  const entry = await appendConversationThreadEntry(project, changeId, {
+  const entry = await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: "landing-queue-refreshed",
     text: `${snapshot.summary}\n\n我已经重新检查队列。每次合并前仍会再次刷新选中的 PR。`,
     artifact: snapshot.summaryArtifact,
   });
-  live?.emit({ event: "assistant.message", data: entry });
+  live?.emit({ event: "timeline.patch", data: entry });
   return { snapshot };
 }
 
@@ -465,13 +465,13 @@ export async function mergeNextLandingQueueForAction(
     "",
     "每个 PR 仍需要单独确认；AHO 不会自动合并剩余 PR。",
   ].join("\n");
-  const entry = await appendConversationThreadEntry(project, changeId, {
+  const entry = await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: result.result.status === "merged" ? "landing-queue-merged-one" : "landing-queue-not-merged",
     text,
     artifact: result.result.artifactRefs[0],
   });
-  live?.emit({ event: "assistant.message", data: entry });
+  live?.emit({ event: "timeline.patch", data: entry });
   return result;
 }
 
@@ -493,13 +493,13 @@ export async function prepareRemoteLandingForAction(
       : "当前不能合并 PR；请先处理上面的原因。",
     readiness.prUrl ? `\nPR: ${readiness.prUrl}` : "",
   ].filter(Boolean).join("\n");
-  const entry = await appendConversationThreadEntry(project, changeId, {
+  const entry = await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: "remote-landing-readiness",
     text,
     artifact: readiness.summaryArtifact,
   });
-  live?.emit({ event: "assistant.message", data: entry });
+  live?.emit({ event: "timeline.patch", data: entry });
   return { readiness };
 }
 
@@ -527,13 +527,13 @@ export async function mergeRemoteLandingForAction(
       "",
       "AHO 只记录失败证据，不会自动修复、合并或改写稳定记忆。",
     ].join("\n");
-  const entry = await appendConversationThreadEntry(project, changeId, {
+  const entry = await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: result.result.status === "merged" ? "remote-landing-merged" : "remote-landing-failed",
     text,
     artifact: result.result.artifactRefs[0],
   });
-  live?.emit({ event: "assistant.message", data: entry });
+  live?.emit({ event: "timeline.patch", data: entry });
   return result;
 }
 
@@ -545,13 +545,13 @@ export async function refreshRemoteLandingForAction(
 ): Promise<unknown> {
   if (!request.landingPackageId) throw new Error("remote-landing.refresh requires landingPackageId.");
   const readiness = await refreshRemoteLanding(project, request.landingPackageId);
-  const entry = await appendConversationThreadEntry(project, changeId, {
+  const entry = await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: "remote-landing-refreshed",
     text: `${readiness.summary}\n\n${readiness.reason}`,
     artifact: readiness.summaryArtifact,
   });
-  live?.emit({ event: "assistant.message", data: entry });
+  live?.emit({ event: "timeline.patch", data: entry });
   return { readiness };
 }
 
@@ -564,7 +564,7 @@ export async function preparePostMergeForAction(
   if (!request.landingPackageId) throw new Error("post-merge.prepare requires landingPackageId.");
   if (!request.remoteLandingResultId) throw new Error("post-merge.prepare requires remoteLandingResultId.");
   const handoff = await preparePostMergeHandoff(project, request.landingPackageId, request.remoteLandingResultId);
-  const entry = await appendConversationThreadEntry(project, changeId, {
+  const entry = await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: "post-merge-prepared",
     text: [
@@ -578,7 +578,7 @@ export async function preparePostMergeForAction(
     ].join("\n"),
     artifact: handoff.summaryArtifact,
   });
-  live?.emit({ event: "assistant.message", data: entry });
+  live?.emit({ event: "timeline.patch", data: entry });
   return { handoff };
 }
 
@@ -591,13 +591,13 @@ export async function prepareLocalSyncForAction(
   if (!request.landingPackageId) throw new Error("post-merge.sync-local.prepare requires landingPackageId.");
   if (!request.remoteLandingResultId) throw new Error("post-merge.sync-local.prepare requires remoteLandingResultId.");
   const readiness = await prepareLocalSync(project, request.landingPackageId, request.remoteLandingResultId);
-  const entry = await appendConversationThreadEntry(project, changeId, {
+  const entry = await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: "post-merge-local-sync-readiness",
     text: `${readiness.summary}\n\n${readiness.reason}`,
     artifact: readiness.readinessArtifact,
   });
-  live?.emit({ event: "assistant.message", data: entry });
+  live?.emit({ event: "timeline.patch", data: entry });
   return { readiness };
 }
 
@@ -610,7 +610,7 @@ export async function syncLocalForAction(
   if (!request.landingPackageId) throw new Error("post-merge.sync-local.run requires landingPackageId.");
   if (!request.remoteLandingResultId) throw new Error("post-merge.sync-local.run requires remoteLandingResultId.");
   const result = await syncLocalAfterMerge(project, request.landingPackageId, request.remoteLandingResultId);
-  const entry = await appendConversationThreadEntry(project, changeId, {
+  const entry = await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: result.result.status === "synced" ? "post-merge-local-synced" : "post-merge-local-sync-skipped",
     text: result.result.status === "synced"
@@ -618,7 +618,7 @@ export async function syncLocalForAction(
       : `${result.readiness.summary}\n\n${result.result.failureReason ?? result.readiness.reason}`,
     artifact: result.result.artifactRefs[0],
   });
-  live?.emit({ event: "assistant.message", data: entry });
+  live?.emit({ event: "timeline.patch", data: entry });
   return result;
 }
 
@@ -631,13 +631,13 @@ export async function prepareRemoteBranchCleanupForAction(
   if (!request.landingPackageId) throw new Error("post-merge.cleanup-branch.prepare requires landingPackageId.");
   if (!request.remoteLandingResultId) throw new Error("post-merge.cleanup-branch.prepare requires remoteLandingResultId.");
   const readiness = await prepareRemoteBranchCleanup(project, request.landingPackageId, request.remoteLandingResultId);
-  const entry = await appendConversationThreadEntry(project, changeId, {
+  const entry = await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: "post-merge-branch-cleanup-readiness",
     text: `${readiness.summary}\n\n${readiness.reason}`,
     artifact: readiness.readinessArtifact,
   });
-  live?.emit({ event: "assistant.message", data: entry });
+  live?.emit({ event: "timeline.patch", data: entry });
   return { readiness };
 }
 
@@ -650,7 +650,7 @@ export async function cleanupRemoteBranchForAction(
   if (!request.landingPackageId) throw new Error("post-merge.cleanup-branch.run requires landingPackageId.");
   if (!request.remoteLandingResultId) throw new Error("post-merge.cleanup-branch.run requires remoteLandingResultId.");
   const result = await cleanupRemoteBranchAfterMerge(project, request.landingPackageId, request.remoteLandingResultId);
-  const entry = await appendConversationThreadEntry(project, changeId, {
+  const entry = await appendConversationTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: result.result.status === "deleted" ? "post-merge-branch-cleaned" : "post-merge-branch-cleanup-skipped",
     text: result.result.status === "deleted"
@@ -658,7 +658,7 @@ export async function cleanupRemoteBranchForAction(
       : `${result.readiness.summary}\n\n${result.result.failureReason ?? result.readiness.reason}`,
     artifact: result.result.artifactRefs[0],
   });
-  live?.emit({ event: "assistant.message", data: entry });
+  live?.emit({ event: "timeline.patch", data: entry });
   return result;
 }
 

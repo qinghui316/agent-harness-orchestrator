@@ -1,7 +1,8 @@
 ﻿import type { IncomingMessage, ServerResponse } from "node:http";
-import { createWorkbenchConversation, listConversationMessages, postConversationMessage, resolveConversationId } from "../../workbench/chat.js";
+import { createWorkbenchConversation } from "../../workbench/chat.js";
 import {
   getWorkbenchSnapshot,
+  getCanonicalTimelinePage,
   getWorkbenchStream,
   getWorkbenchTopic,
   deleteWorkbenchConversation,
@@ -16,7 +17,7 @@ import { assertConfirmed, assertRegisteredProject, readJsonBody, sendJson } from
 import { handleIntakeReanalyze, handleIntakeScan } from "./intake.js";
 import { sendConversationInteractionSettlement } from "./conversation-interactions.js";
 import { sendWorkbenchActionLive } from "./live-actions.js";
-import { readCreateTopicBody, readTopicMessageBody, sendConversationMessageLive, sendCreateTopicLive, sendTopicMessageReplay } from "./topic-messages.js";
+import { readCreateTopicBody, sendConversationMessageLive, sendCreateTopicLive } from "./topic-messages.js";
 import { executeWorkbenchAction } from "./actions.js";
 import { sendProjectLiveEvents } from "./project-live-events.js";
 import type { IntakeRequest, WorkbenchActionRequest, WorkbenchServerContext } from "./types.js";
@@ -78,6 +79,22 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
     sendJson(response, 200, await handleIntakeReanalyze(input, await readJsonBody<IntakeRequest>(request)));
     return;
   }
+  const timelineMatch = rest.match(/^conversations\/([^/]+)\/timeline$/);
+  if (request.method === "GET" && timelineMatch?.[1]) {
+    const conversationId = decodeURIComponent(timelineMatch[1]);
+    const agentSurfaceId = url.searchParams.get("agentSurfaceId")?.trim();
+    if (!agentSurfaceId) {
+      const error = new Error("Canonical Timeline requires agentSurfaceId.");
+      error.name = "BadRequest";
+      throw error;
+    }
+    const limitRaw = url.searchParams.get("limit");
+    sendJson(response, 200, await getCanonicalTimelinePage(input, conversationId, agentSurfaceId, {
+      limit: limitRaw === null ? undefined : Number(limitRaw),
+      beforeCursor: url.searchParams.get("beforeCursor") ?? undefined,
+    }));
+    return;
+  }
   const interactionSettlementMatch = rest.match(/^conversations\/([^/]+)\/interactions\/([^/]+)\/settle$/);
   if (request.method === "POST" && interactionSettlementMatch?.[1] && interactionSettlementMatch[2]) {
     assertRegisteredProject(input);
@@ -90,32 +107,15 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
     );
     return;
   }
-  const topicMessagesMatch = rest.match(/^topics\/([^/]+)\/messages(?:\/stream)?$/);
-  if (topicMessagesMatch?.[1]) {
-    assertRegisteredProject(input);
-    const topicId = decodeURIComponent(topicMessagesMatch[1]);
-    if (rest.endsWith("/stream")) {
-      await sendTopicMessageReplay(input.project, topicId, response);
-      return;
-    }
-    if (request.method === "GET") {
-      const messages = await listConversationMessages(input.project, topicId);
-      sendJson(response, 200, { messages });
-      return;
-    }
-    if (request.method === "POST") {
-      const message = await readTopicMessageBody(request);
-      const conversationId = await resolveConversationId(input.project, topicId);
-      const result = await postConversationMessage(input.project, conversationId, message);
-      sendJson(response, 200, { result, messages: result.assistant ? [result.user, result.assistant] : [result.user], snapshot: await getWorkbenchSnapshot(input, { topicId: conversationId }) });
-      return;
-    }
-  }
   const topicMessagesLiveMatch = rest.match(/^topics\/([^/]+)\/messages\/live$/);
   if (request.method === "POST" && topicMessagesLiveMatch?.[1]) {
     assertRegisteredProject(input);
     const id = decodeURIComponent(topicMessagesLiveMatch[1]);
     await sendConversationMessageLive(input, id, request, response);
+    return;
+  }
+  if (request.method === "GET" && /^topics\/[^/]+\/messages(?:\/stream)?$/.test(rest)) {
+    sendJson(response, 404, { error: "Not found." });
     return;
   }
   if (request.method === "GET" && rest.startsWith("topics/")) {
