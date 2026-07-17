@@ -1,4 +1,4 @@
-import type { StoredProviderAttempt, StoredProviderThreadLink } from "../../store.js";
+import type { StoredProviderAttempt, StoredProviderThreadLink } from "../../persistence/contracts.js";
 import type { WorkbenchAgentWorkspace, WorkbenchAgentWorkspaceAgent, WorkbenchTopicDetail } from "../../read-model-types.js";
 import { agentRoleDisplayName, baseAgentDisplayLabel, composeAgentDisplayLabel } from "../../../agent-display-label.js";
 import { agentThreadSurfaceId } from "../../../provider-runtime/agent-surface-id.js";

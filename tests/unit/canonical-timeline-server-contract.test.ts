@@ -20,7 +20,9 @@ import type {
   CanonicalTimelineEnvelope as WebTimelineEnvelope,
   CanonicalTimelinePage as WebTimelinePage,
 } from "../../src/web/src/types.js";
-import { WorkbenchStore, type StoredTopicMessageWrite } from "../../src/workbench/store.js";
+import { openWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
+import type { WorkbenchDatabase } from "../../src/workbench/persistence/database.js";
+import { type StoredTopicMessageWrite } from "../../src/workbench/persistence/contracts.js";
 
 let root: string;
 const projectId = "timeline-project";
@@ -45,12 +47,12 @@ afterEach(async () => {
 describe("canonical Timeline server contract", () => {
   it("allocates immutable positions and mutation revisions transactionally", async () => {
     const memory = repoLocalMemory(root, projectId);
-    const store = await WorkbenchStore.open(memory);
+    const store = await openWorkbenchDatabase(memory);
     try {
       seedConversation(store);
-      const main = store.appendMessage(message("main", "main-agent"));
-      const child = store.appendMessage(message("child", "planning-agent", "thread-child"));
-      const updated = store.updateMessage({ ...message("main", "main-agent"), text: "updated" });
+      const main = store.timeline.appendMessage(message("main", "main-agent"));
+      const child = store.timeline.appendMessage(message("child", "planning-agent", "thread-child"));
+      const updated = store.timeline.updateMessage({ ...message("main", "main-agent"), text: "updated" });
 
       expect(main).toMatchObject({ position: 1, revision: 1, agentSurfaceId: "main-agent" });
       expect(child).toMatchObject({
@@ -59,22 +61,22 @@ describe("canonical Timeline server contract", () => {
         agentSurfaceId: agentThreadSurfaceId("codex", "thread-child"),
       });
       expect(updated).toMatchObject({ position: 1, revision: 3, agentSurfaceId: "main-agent", text: "updated" });
-      expect(() => store.updateMessage({ ...message("main", "main-agent"), agentSurfaceId: "other-surface" }))
+      expect(() => store.timeline.updateMessage({ ...message("main", "main-agent"), agentSurfaceId: "other-surface" }))
         .toThrow("agentSurfaceId is immutable");
-      expect(() => store.updateMessage({ ...message("main", "main-agent"), initialThreadInput: true }))
+      expect(() => store.timeline.updateMessage({ ...message("main", "main-agent"), initialThreadInput: true }))
         .toThrow("orderClass is immutable");
-      expect(() => store.updateMessage({ ...message("main", "main-agent"), providerId: "claude" }))
+      expect(() => store.timeline.updateMessage({ ...message("main", "main-agent"), providerId: "claude" }))
         .toThrow("providerId is immutable");
-      expect(() => store.updateMessage({ ...message("main", "main-agent"), threadId: "other-thread" }))
+      expect(() => store.timeline.updateMessage({ ...message("main", "main-agent"), threadId: "other-thread" }))
         .toThrow("threadId is immutable");
-      expect(() => store.updateMessage({ ...message("main", "main-agent"), turnId: "other-turn" }))
+      expect(() => store.timeline.updateMessage({ ...message("main", "main-agent"), turnId: "other-turn" }))
         .toThrow("turnId is immutable");
-      expect(() => store.updateMessage({ ...message("main", "main-agent"), itemId: "other-item" }))
+      expect(() => store.timeline.updateMessage({ ...message("main", "main-agent"), itemId: "other-item" }))
         .toThrow("itemId is immutable");
 
-      expect(() => store.appendMessage(message("main", "main-agent"))).toThrow();
-      expect(store.readConversation(projectId, conversationId)).toMatchObject({ timelinePosition: 2, timelineRevision: 3 });
-      expect(store.listConversationMessages(projectId, conversationId).map((row) => [row.id, row.position, row.revision])).toEqual([
+      expect(() => store.timeline.appendMessage(message("main", "main-agent"))).toThrow();
+      expect(store.conversations.readConversation(projectId, conversationId)).toMatchObject({ timelinePosition: 2, timelineRevision: 3 });
+      expect(store.timeline.listConversationMessages(projectId, conversationId).map((row) => [row.id, row.position, row.revision])).toEqual([
         ["main", 1, 3],
         ["child", 2, 2],
       ]);
@@ -95,11 +97,11 @@ describe("canonical Timeline server contract", () => {
 
   it("builds patches from persisted rows and rejects cross-scope cursors", async () => {
     const memory = repoLocalMemory(root, projectId);
-    const store = await WorkbenchStore.open(memory);
+    const store = await openWorkbenchDatabase(memory);
     let persisted;
     try {
       seedConversation(store);
-      persisted = store.appendMessage(message("child", "planning-agent", "thread-child"));
+      persisted = store.timeline.appendMessage(message("child", "planning-agent", "thread-child"));
     } finally {
       store.close();
     }
@@ -131,12 +133,12 @@ describe("canonical Timeline server contract", () => {
     };
     await initHarness(project);
     const memory = await resolveProjectMemory(project);
-    const store = await WorkbenchStore.open(memory);
+    const store = await openWorkbenchDatabase(memory);
     try {
       seedConversation(store);
-      store.appendMessage(message("child-input", "planning-agent", "thread-child", true));
+      store.timeline.appendMessage(message("child-input", "planning-agent", "thread-child", true));
       for (let index = 1; index <= 10; index += 1) {
-        store.appendMessage(message(`child-${index}`, "planning-agent", "thread-child"));
+        store.timeline.appendMessage(message(`child-${index}`, "planning-agent", "thread-child"));
       }
     } finally {
       store.close();
@@ -157,15 +159,15 @@ describe("canonical Timeline server contract", () => {
 
   it("reads page rows, pinned input, and watermark from one store snapshot", async () => {
     const memory = repoLocalMemory(root, projectId);
-    const store = await WorkbenchStore.open(memory);
+    const store = await openWorkbenchDatabase(memory);
     try {
       seedConversation(store);
-      store.appendMessage(message("child-input", "planning-agent", "thread-child", true));
-      store.appendMessage(message("child-output", "planning-agent", "thread-child"));
-      store.updateMessage({ ...message("child-output", "planning-agent", "thread-child"), text: "updated output" });
+      store.timeline.appendMessage(message("child-input", "planning-agent", "thread-child", true));
+      store.timeline.appendMessage(message("child-output", "planning-agent", "thread-child"));
+      store.timeline.updateMessage({ ...message("child-output", "planning-agent", "thread-child"), text: "updated output" });
 
       const surfaceId = agentThreadSurfaceId("codex", "thread-child");
-      const snapshot = store.readTimelineSurfacePageSnapshot(projectId, conversationId, surfaceId, { limit: 10 });
+      const snapshot = store.timeline.readTimelineSurfacePageSnapshot(projectId, conversationId, surfaceId, { limit: 10 });
       expect(snapshot?.conversation.timelineRevision).toBe(3);
       expect(snapshot?.pinnedRows.map((row) => [row.id, row.revision])).toEqual([["child-input", 1]]);
       expect(snapshot?.rows.map((row) => [row.id, row.revision, row.text])).toEqual([
@@ -178,8 +180,8 @@ describe("canonical Timeline server contract", () => {
   });
 });
 
-function seedConversation(store: WorkbenchStore): void {
-  store.createConversation({
+function seedConversation(store: WorkbenchDatabase): void {
+  store.conversations.createConversation({
     projectId,
     conversationId,
     title: "Timeline conversation",

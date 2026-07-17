@@ -1,6 +1,7 @@
 import { resolveProjectMemory } from "../memory/resolver.js";
 import type { ManagedProject } from "../types/index.js";
-import { WorkbenchStore, type StoredDecisionRecord } from "./store.js";
+import { openWorkbenchDatabase } from "./persistence/open-workbench-database.js";
+import { type StoredDecisionRecord } from "./persistence/contracts.js";
 
 export async function recordWorkbenchDecision(project: ManagedProject, input: {
   id: string;
@@ -19,9 +20,9 @@ export async function recordWorkbenchDecision(project: ManagedProject, input: {
 }): Promise<void> {
   const memory = await resolveProjectMemory(project);
   const now = new Date().toISOString();
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
-    store.upsertDecision({
+    store.decisions.upsertDecision({
       id: input.id,
       projectId: memory.projectId ?? "unregistered",
       changeId: input.changeId,

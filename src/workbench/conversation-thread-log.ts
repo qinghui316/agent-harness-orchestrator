@@ -1,7 +1,8 @@
 ﻿import { join } from "node:path";
 import { canonicalThreadChangeIdForPath, readChangeMetadataFile } from "../change/metadata.js";
 import type { ResolvedMemory } from "../types/index.js";
-import { WorkbenchStore, type StoredTopicMessage } from "./store.js";
+import { openWorkbenchDatabase } from "./persistence/open-workbench-database.js";
+import { type StoredTopicMessage } from "./persistence/contracts.js";
 import type {
   AssistantTurnActivity,
   AssistantTurnBlock,
@@ -16,11 +17,11 @@ import type {
 export async function readConversationThread(memory: ResolvedMemory, changePath: string): Promise<TopicThreadEntry[]> {
   const changeId = await readCanonicalThreadChangeId(memory, changePath);
   const projectId = memory.projectId ?? "unregistered";
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
-    const conversation = store.readConversation(projectId, changeId) ?? store.findConversationForChange(projectId, changeId);
+    const conversation = store.conversations.readConversation(projectId, changeId) ?? store.conversations.findConversationForChange(projectId, changeId);
     if (!conversation) return [];
-    return store.listConversationMessages(projectId, conversation.conversationId).map(fromStoredThreadMessage);
+    return store.timeline.listConversationMessages(projectId, conversation.conversationId).map(fromStoredThreadMessage);
   } finally {
     store.close();
   }
@@ -34,11 +35,11 @@ export async function readRecentConversationThread(
   const changeId = await readCanonicalThreadChangeId(memory, changePath);
   const projectId = memory.projectId ?? "unregistered";
   const boundedLimit = Math.max(1, Math.min(500, Math.trunc(limit)));
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
-    const conversation = store.readConversation(projectId, changeId) ?? store.findConversationForChange(projectId, changeId);
+    const conversation = store.conversations.readConversation(projectId, changeId) ?? store.conversations.findConversationForChange(projectId, changeId);
     if (!conversation) return [];
-    return store.listRecentSemanticMessages(projectId, conversation.conversationId, boundedLimit).map(fromStoredThreadMessage);
+    return store.timeline.listRecentSemanticMessages(projectId, conversation.conversationId, boundedLimit).map(fromStoredThreadMessage);
   } finally {
     store.close();
   }
@@ -46,9 +47,9 @@ export async function readRecentConversationThread(
 
 export async function collectAllConversationThreadEntries(memory: ResolvedMemory): Promise<TopicThreadEntry[]> {
   if (!memory.projectId) return [];
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
-    return store.listAllMessages(memory.projectId).map(fromStoredThreadMessage);
+    return store.timeline.listAllMessages(memory.projectId).map(fromStoredThreadMessage);
   } finally {
     store.close();
   }

@@ -16,7 +16,8 @@ import { summarizeValidation } from "../../../validation/artifacts.js";
 import { listWorktreesForChange } from "../../../worktree/manager.js";
 import type { AcMap, ChangeIndexItem, ManagedProject, ResolvedMemory } from "../../../types/index.js";
 import type { WorkbenchTopicDetail, WorkbenchTopicState, WorkbenchTopicSummary } from "../../read-model-types.js";
-import { WorkbenchStore, type StoredConversation } from "../../store.js";
+import { openWorkbenchDatabase } from "../../persistence/open-workbench-database.js";
+import { type StoredConversation } from "../../persistence/contracts.js";
 import { fromStoredThreadMessage, readRecentConversationThread } from "../../conversation-thread-log.js";
 import { buildThreadStream, buildThreadStreamFromMessages } from "./thread-stream.js";
 import { listWorkbenchDecisions } from "./decision-store.js";
@@ -53,9 +54,9 @@ export async function listWorkbenchTopicsFromMemory(memory: ResolvedMemory, opti
 
 async function listConversationTopics(memory: ResolvedMemory, options: ListWorkbenchTopicsOptions): Promise<WorkbenchTopicSummary[]> {
   if (!memory.projectId) return [];
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
-    return store.listConversations(memory.projectId, options).map(conversationSummaryFromStore);
+    return store.conversations.listConversations(memory.projectId, options).map(conversationSummaryFromStore);
   } finally {
     store.close();
   }
@@ -240,9 +241,9 @@ async function findChangeTopic(memory: ResolvedMemory, changeId: string): Promis
 
 async function readConversationMessages(memory: ResolvedMemory, conversationId: string, limit: number): Promise<import("../../types.js").TopicThreadEntry[]> {
   if (!memory.projectId) return [];
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
-    return store.listRecentSemanticMessages(memory.projectId, conversationId, Math.max(1, Math.min(500, limit))).map(fromStoredThreadMessage);
+    return store.timeline.listRecentSemanticMessages(memory.projectId, conversationId, Math.max(1, Math.min(500, limit))).map(fromStoredThreadMessage);
   } finally {
     store.close();
   }

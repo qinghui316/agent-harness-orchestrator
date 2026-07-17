@@ -1,6 +1,6 @@
 import { defaultProviderRegistry, type ProviderDescriptor, type ProviderOperationProfile } from "../../provider-runtime/index.js";
 import type { ManagedProject, ResolvedMemory } from "../../types/index.js";
-import { WorkbenchStore } from "../../workbench/store.js";
+import { openWorkbenchDatabase } from "../../workbench/persistence/open-workbench-database.js";
 
 export async function resolveSpecTestProvider(
   memory: ResolvedMemory,
@@ -9,10 +9,10 @@ export async function resolveSpecTestProvider(
   profile: ProviderOperationProfile,
   cwd: string,
 ): Promise<ProviderDescriptor> {
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   let selectedProviderId: string | undefined;
   try {
-    selectedProviderId = store.findConversationForChange(project.id, changeId)?.selectedProviderId;
+    selectedProviderId = store.conversations.findConversationForChange(project.id, changeId)?.selectedProviderId;
   } finally {
     store.close();
   }

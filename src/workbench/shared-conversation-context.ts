@@ -10,7 +10,8 @@ import { listValidationResults } from "../validation/repository.js";
 import { listAuditResults } from "../audit/repository.js";
 import { collectWorktreeDiff } from "../audit/diff.js";
 import { readLatestWorkflowGraphPlan } from "../workflow-artifacts/manager.js";
-import { WorkbenchStore, type StoredConversation } from "./store.js";
+import { openWorkbenchDatabase } from "./persistence/open-workbench-database.js";
+import { type StoredConversation } from "./persistence/contracts.js";
 import { fromStoredThreadMessage } from "./conversation-thread-log.js";
 
 const MAX_RECENT_COMPLETED_TURNS = 8;
@@ -83,19 +84,19 @@ export async function assembleSharedConversationContext(input: {
   currentUserMessage: string;
 }): Promise<AssembledHandoff> {
   if (!input.memory.projectId) throw new Error("Project id is required to assemble Shared Conversation context.");
-  const store = await WorkbenchStore.open(input.memory);
+  const store = await openWorkbenchDatabase(input.memory);
   let conversation: StoredConversation;
   let deliveredAfterCompletedTurn = 0;
   let recentRows;
   let pendingConfirmations: HandoffSnapshot["pendingConfirmations"] = [];
   let resumePoint: HandoffSnapshot["resumePoint"] = null;
   try {
-    const stored = store.readConversation(input.memory.projectId, input.conversationId);
+    const stored = store.conversations.readConversation(input.memory.projectId, input.conversationId);
     if (!stored) throw new Error(`Conversation not found: ${input.conversationId}.`);
     conversation = stored;
-    deliveredAfterCompletedTurn = store.readConversationProviderBinding(input.memory.projectId, input.conversationId, input.providerId)?.lastDeliveredCompletedTurn ?? 0;
-    recentRows = store.listRecentSemanticMessages(input.memory.projectId, input.conversationId, 256);
-    pendingConfirmations = store.listDecisions(input.memory.projectId, stored.boundChangeId ?? undefined)
+    deliveredAfterCompletedTurn = store.providerAttempts.readConversationProviderBinding(input.memory.projectId, input.conversationId, input.providerId)?.lastDeliveredCompletedTurn ?? 0;
+    recentRows = store.timeline.listRecentSemanticMessages(input.memory.projectId, input.conversationId, 256);
+    pendingConfirmations = store.decisions.listDecisions(input.memory.projectId, stored.boundChangeId ?? undefined)
       .filter((decision) => decision.status === "pending" || decision.status === "requested-changes")
       .map((decision) => ({
         id: decision.id,
@@ -105,7 +106,7 @@ export async function assembleSharedConversationContext(input: {
         targetId: decision.targetId,
         artifact: decision.artifact,
       }));
-    const storedResumePoint = store.readLatestProviderResumePoint(input.memory.projectId, input.conversationId);
+    const storedResumePoint = store.providerAttempts.readLatestProviderResumePoint(input.memory.projectId, input.conversationId);
     if (storedResumePoint) {
       resumePoint = {
         id: storedResumePoint.resumePointId,

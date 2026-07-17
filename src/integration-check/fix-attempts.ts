@@ -17,7 +17,7 @@ import { integrationArtifact } from "./artifacts.js";
 import { appendIntegrationEvent } from "./repository.js";
 import { collectCheckoutPatch, prepareIntegrationFixCheckout } from "./patch-workspace.js";
 import type { IntegrationArtifact, IntegrationFixAttempt, IntegrationFixAttemptStatus } from "./types.js";
-import { WorkbenchStore } from "../workbench/store.js";
+import { openWorkbenchDatabase } from "../workbench/persistence/open-workbench-database.js";
 import { finishProviderAttempt, startProviderAttempt } from "../workbench/provider-attempts.js";
 
 export interface IntegrationFixRepairRunnerInput {
@@ -273,9 +273,9 @@ async function runProviderIntegrationRepair(input: IntegrationFixRepairRunnerInp
 
 async function selectedProviderForIntegrationFix(memory: ResolvedMemory, project: ManagedProject, changeId: string): Promise<string> {
   if (!memory.projectId) throw new Error("Project id is required to resolve the integration-fix provider.");
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
-    return store.findConversationForChange(memory.projectId, changeId)?.selectedProviderId
+    return store.conversations.findConversationForChange(memory.projectId, changeId)?.selectedProviderId
       ?? (project.defaultProviderId ? defaultProviderRegistry.get(project.defaultProviderId).id : undefined)
       ?? defaultProviderRegistry.requireOnly().id;
   } finally {

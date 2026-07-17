@@ -1,6 +1,7 @@
 import type { ProviderCapabilitySnapshot, ProviderModelRef, ProviderOperationProfile } from "../provider-runtime/index.js";
 import type { ResolvedMemory } from "../types/index.js";
-import { WorkbenchStore, type StoredProviderAttempt, type StoredProviderThreadLink } from "./store.js";
+import { openWorkbenchDatabase } from "./persistence/open-workbench-database.js";
+import { type StoredProviderAttempt, type StoredProviderThreadLink } from "./persistence/contracts.js";
 
 export interface StartProviderAttemptInput {
   attemptId: string;
@@ -26,12 +27,12 @@ export interface BindProviderAttemptThreadInput {
 
 export async function bindProviderAttemptThread(memory: ResolvedMemory, input: BindProviderAttemptThreadInput): Promise<StoredProviderThreadLink | null> {
   if (!memory.projectId) throw new Error("Project id is required to bind a provider attempt thread.");
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
-    const attempt = store.readProviderAttempt(memory.projectId, input.attemptId);
+    const attempt = store.providerAttempts.readProviderAttempt(memory.projectId, input.attemptId);
     if (!attempt) throw new Error(`Provider attempt not found: ${input.attemptId}`);
     if (!attempt.conversationId || !attempt.graphScopeId) return null;
-    return store.bindProviderAttemptThread(memory.projectId, {
+    return store.providerAttempts.bindProviderAttemptThread(memory.projectId, {
       ...input,
       parentThreadId: input.parentThreadId ?? null,
     }, new Date().toISOString());
@@ -42,12 +43,12 @@ export async function bindProviderAttemptThread(memory: ResolvedMemory, input: B
 
 export async function startProviderAttempt(memory: ResolvedMemory, input: StartProviderAttemptInput): Promise<StoredProviderAttempt> {
   if (!memory.projectId) throw new Error("Project id is required to record a provider attempt.");
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
     const conversation = input.conversationId
-      ? store.readConversation(memory.projectId, input.conversationId)
+      ? store.conversations.readConversation(memory.projectId, input.conversationId)
       : input.changeId
-        ? store.findConversationForChange(memory.projectId, input.changeId)
+        ? store.conversations.findConversationForChange(memory.projectId, input.changeId)
         : null;
     const now = new Date().toISOString();
     const attempt: StoredProviderAttempt = {
@@ -70,7 +71,7 @@ export async function startProviderAttempt(memory: ResolvedMemory, input: StartP
       createdAt: now,
       updatedAt: now,
     };
-    store.createProviderAttempt(attempt);
+    store.providerAttempts.createProviderAttempt(attempt);
     return attempt;
   } finally {
     store.close();
@@ -85,20 +86,20 @@ export async function finishProviderAttempt(
   thread?: { parentThreadId?: string | null; displayName?: string | null },
 ): Promise<void> {
   if (!memory.projectId) throw new Error("Project id is required to finish a provider attempt.");
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
     const now = new Date().toISOString();
-    const attempt = store.readProviderAttempt(memory.projectId, attemptId);
+    const attempt = store.providerAttempts.readProviderAttempt(memory.projectId, attemptId);
     if (!attempt) throw new Error(`Provider attempt not found: ${attemptId}`);
     if (nativeSessionId && attempt.conversationId) {
-      store.bindProviderAttemptThread(memory.projectId, {
+      store.providerAttempts.bindProviderAttemptThread(memory.projectId, {
         attemptId,
         threadId: nativeSessionId,
         parentThreadId: thread?.parentThreadId,
         displayName: thread?.displayName,
       }, now);
     }
-    store.completeProviderAttempt(memory.projectId, attemptId, status, nativeSessionId, now);
+    store.providerAttempts.completeProviderAttempt(memory.projectId, attemptId, status, nativeSessionId, now);
   } finally {
     store.close();
   }

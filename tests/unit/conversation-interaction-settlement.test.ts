@@ -47,7 +47,7 @@ import type { ManagedProject } from "../../src/types/index.js";
 import { createWorkbenchConversation } from "../../src/workbench/chat.js";
 import { settleConversationInteraction } from "../../src/workbench/conversation-interaction-service.js";
 import { buildConversationInteractionQueue } from "../../src/workbench/conversation-interactions.js";
-import { WorkbenchStore } from "../../src/workbench/store.js";
+import { openWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 
 let root: string;
 let originalAhoHome: string | undefined;
@@ -108,15 +108,15 @@ describe("conversation interaction settlement", () => {
       expect.objectContaining({ runId: "run-1", threadId: "thread-main", turnId: "turn-main" }),
     );
     const memory = await resolveProjectMemory(project());
-    const store = await WorkbenchStore.open(memory);
+    const store = await openWorkbenchDatabase(memory);
     try {
-      const request = store.readProviderUserInputRequest(project().id, fixture.conversationId, "request-key-1");
+      const request = store.interactions.readProviderUserInputRequest(project().id, fixture.conversationId, "request-key-1");
       expect(request).toMatchObject({
         status: "submitted",
         publicAnswers: { choice: "continue", token: "已提供敏感信息" },
         disposition: "answered",
       });
-      expect(store.listConversationMessages(project().id, fixture.conversationId).map((item) => item.rawJson).join("\n"))
+      expect(store.timeline.listConversationMessages(project().id, fixture.conversationId).map((item) => item.rawJson).join("\n"))
         .not.toContain("top-secret-value");
     } finally {
       store.close();
@@ -147,10 +147,10 @@ describe("conversation interaction settlement", () => {
       .rejects.toThrow("transport outcome unknown");
 
     const memory = await resolveProjectMemory(project());
-    const store = await WorkbenchStore.open(memory);
+    const store = await openWorkbenchDatabase(memory);
     try {
-      expect(store.readProviderUserInputRequest(project().id, fixture.conversationId, "request-key-1")?.status).toBe("submitting");
-      expect(store.listConversationMessages(project().id, fixture.conversationId).map((item) => item.rawJson).join("\n"))
+      expect(store.interactions.readProviderUserInputRequest(project().id, fixture.conversationId, "request-key-1")?.status).toBe("submitting");
+      expect(store.timeline.listConversationMessages(project().id, fixture.conversationId).map((item) => item.rawJson).join("\n"))
         .not.toContain("must-not-replay");
     } finally {
       store.close();
@@ -164,9 +164,9 @@ describe("conversation interaction settlement", () => {
   it("rejects a stale interaction after the graph scope changes", async () => {
     const fixture = await providerInteraction();
     const memory = await resolveProjectMemory(project());
-    const store = await WorkbenchStore.open(memory);
+    const store = await openWorkbenchDatabase(memory);
     try {
-      store.startConversationGraphScope(project().id, fixture.conversationId, "scope-next", new Date().toISOString());
+      store.unitOfWork.startConversationGraphScope(project().id, fixture.conversationId, "scope-next", new Date().toISOString());
     } finally {
       store.close();
     }
@@ -237,8 +237,8 @@ async function providerInteraction(status: "pending" | "submitting" = "pending")
     body: "Wait for grouped answers.",
   }, undefined, { runMainAgent: false });
   const memory = await resolveProjectMemory(project());
-  const store = await WorkbenchStore.open(memory);
-  const graphScopeId = store.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? "";
+  const store = await openWorkbenchDatabase(memory);
+  const graphScopeId = store.conversations.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? "";
   const entry = {
     id: "provider-input-message",
     type: "assistant.message" as const,
@@ -279,7 +279,7 @@ async function providerInteraction(status: "pending" | "submitting" = "pending")
     },
   };
   try {
-    store.appendMessage({
+    store.timeline.appendMessage({
       projectId: project().id,
       conversationId: conversation.conversationId,
       agentSurfaceId: "main-agent",

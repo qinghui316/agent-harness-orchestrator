@@ -8,7 +8,8 @@ import { defaultProviderRegistry, type ProviderRealtimeEvent, type ProviderTurnR
 import { agentThreadSurfaceId } from "../provider-runtime/agent-surface-id.js";
 import { getRuntimeAssignedHarnessSkillContext } from "../skill/catalog.js";
 import type { ManagedProject, ResolvedMemory } from "../types/index.js";
-import { WorkbenchStore } from "../workbench/store.js";
+import { openWorkbenchDatabase } from "../workbench/persistence/open-workbench-database.js";
+import type { WorkbenchDatabase } from "../workbench/persistence/database.js";
 import { bindProviderAttemptThread, finishProviderAttempt, startProviderAttempt } from "../workbench/provider-attempts.js";
 import { createAssistantTranscriptCapture, type AssistantTranscriptCapture, type ChildTranscriptCapture } from "../workbench/live-transcript.js";
 import { forwardProviderRealtimeEvent } from "../workbench/provider-live-events.js";
@@ -401,7 +402,7 @@ async function executeMaintenanceRequest(
 }
 
 interface BackgroundTimeline {
-  store: WorkbenchStore;
+  store: WorkbenchDatabase;
   projectId: string;
   conversationId: string;
   graphScopeId?: string;
@@ -417,11 +418,11 @@ async function openBackgroundTimeline(
   providerId: string,
 ): Promise<BackgroundTimeline | null> {
   if (!memory.projectId || !request.taskLineage?.conversationId) return null;
-  const store = await WorkbenchStore.open(memory);
-  let conversation = store.readConversation(memory.projectId, request.taskLineage.conversationId);
+  const store = await openWorkbenchDatabase(memory);
+  let conversation = store.conversations.readConversation(memory.projectId, request.taskLineage.conversationId);
   if (!conversation) {
     const now = new Date().toISOString();
-    store.createConversation({
+    store.conversations.createConversation({
       projectId: memory.projectId,
       conversationId: request.taskLineage.conversationId,
       title: `Runtime ${request.role}`,
@@ -435,7 +436,7 @@ async function openBackgroundTimeline(
       updatedAt: now,
       deletedAt: null,
     });
-    conversation = store.readConversation(memory.projectId, request.taskLineage.conversationId);
+    conversation = store.conversations.readConversation(memory.projectId, request.taskLineage.conversationId);
   }
   if (!conversation) {
     store.close();
@@ -448,7 +449,7 @@ async function openBackgroundTimeline(
     conversationId,
     graphScopeId: conversation?.currentGraphScopeId ?? undefined,
     surfaceKind: conversation.surfaceKind ?? "user",
-    knownIds: new Set(store.listConversationMessages(memory.projectId, conversationId).map((message) => message.id)),
+    knownIds: new Set(store.timeline.listConversationMessages(memory.projectId, conversationId).map((message) => message.id)),
   };
 }
 
@@ -565,7 +566,7 @@ function captureStatus(activity: AssistantTranscriptCapture["activity"]): string
   return "running";
 }
 
-function upsertBackgroundEntry(timeline: BackgroundTimeline, entry: TopicThreadEntry): import("../workbench/store.js").StoredTopicMessage {
+function upsertBackgroundEntry(timeline: BackgroundTimeline, entry: TopicThreadEntry): import("../workbench/persistence/contracts.js").StoredTopicMessage {
   if (!entry.agentSurfaceId) throw new Error(`Background Timeline entry ${entry.id} requires agentSurfaceId.`);
   const message = {
     id: entry.id,
@@ -588,9 +589,9 @@ function upsertBackgroundEntry(timeline: BackgroundTimeline, entry: TopicThreadE
     error: entry.error ?? null,
     rawJson: JSON.stringify(entry),
   };
-  if (timeline.knownIds.has(entry.id)) return timeline.store.updateMessage(message);
+  if (timeline.knownIds.has(entry.id)) return timeline.store.timeline.updateMessage(message);
   else {
-    const stored = timeline.store.appendMessage(message);
+    const stored = timeline.store.timeline.appendMessage(message);
     timeline.knownIds.add(entry.id);
     return stored;
   }
@@ -598,10 +599,10 @@ function upsertBackgroundEntry(timeline: BackgroundTimeline, entry: TopicThreadE
 
 async function selectedProviderForMaintenance(memory: ResolvedMemory, request: MaintenanceProviderExecutionRequest): Promise<string> {
   if (!memory.projectId) throw new Error("Project id is required to resolve the maintenance provider.");
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
     if (request.taskLineage?.conversationId) {
-      const conversation = store.readConversation(memory.projectId, request.taskLineage.conversationId);
+      const conversation = store.conversations.readConversation(memory.projectId, request.taskLineage.conversationId);
       if (conversation) return conversation.selectedProviderId;
     }
     if (request.project.defaultProviderId) return defaultProviderRegistry.get(request.project.defaultProviderId).id;

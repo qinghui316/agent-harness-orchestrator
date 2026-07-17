@@ -9,7 +9,7 @@ import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import { appendConversationTimelineEntry, createWorkbenchConversation } from "../../src/workbench/chat.js";
 import { answerClarification, reanalyzeIntake, runIntakeScan } from "../../src/workbench/intake.js";
 import { deleteWorkbenchConversation, getCanonicalTimelinePage, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTopic, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
-import { WorkbenchStore } from "../../src/workbench/store.js";
+import { openWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import { bindProviderThreadFixture } from "../helpers/provider-thread-fixture.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { createAgentTask } from "../../src/agent-task/manager.js";
@@ -541,7 +541,7 @@ describe("workbench read-model projections", () => {
     await initHarness(project());
     const topic = await createConversationChangeFixture(project(), { title: "Planning Agent Transcript", body: "Create a reviewable plan." });
     const memory = await resolveProjectMemory(project());
-    const store = await WorkbenchStore.open(memory);
+    const store = await openWorkbenchDatabase(memory);
     try {
       bindProviderThreadFixture(store, {
         projectId: project().id,
@@ -551,7 +551,7 @@ describe("workbench read-model projections", () => {
         roleId: "planning-agent",
         parentThreadId: "thread-main",
         changeId: topic.changeId,
-        graphScopeId: store.readConversation(project().id, topic.conversationId)?.currentGraphScopeId ?? null,
+        graphScopeId: store.conversations.readConversation(project().id, topic.conversationId)?.currentGraphScopeId ?? null,
         capabilityProfile: "planner-child-v1",
         runId: "run-planning-agent",
         updatedAt: "2026-07-02T10:00:00.000Z",
@@ -612,9 +612,9 @@ describe("workbench read-model projections", () => {
     const run = await startLocalCommandRun(project(), [process.execPath, "-e", "console.log('bound conversation run')"]);
     await writeFile(join(getTempDir(), "harness", "changes", "active", topic.changeId, "reviews", "review.md"), "Status: approved\n", "utf8");
     const memory = await resolveProjectMemory(project());
-    const store = await WorkbenchStore.open(memory);
+    const store = await openWorkbenchDatabase(memory);
     try {
-      store.bindConversationToChange(project().id, conversation.conversationId, topic.changeId, "2026-07-04T00:00:00.000Z");
+      store.conversations.bindConversationToChange(project().id, conversation.conversationId, topic.changeId, "2026-07-04T00:00:00.000Z");
     } finally {
       store.close();
     }

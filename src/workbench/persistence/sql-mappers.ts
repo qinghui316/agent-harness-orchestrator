@@ -1,0 +1,233 @@
+import type { ProviderCapabilitySnapshot, ProviderModelRef } from "../../provider-runtime/index.js";
+import type { StoredBridgeSync, StoredConversation, StoredConversationProviderBinding, StoredDecisionRecord, StoredDecisionStatus, StoredProviderAttempt, StoredProviderResumePoint, StoredProviderThreadLink, StoredSkillEnablement, StoredSkillIndex, StoredSkillRoot, StoredTopicMessage } from "./contracts.js";
+
+export interface SqliteRow { [key: string]: unknown; }
+
+export function mapMessageRow(row: SqliteRow): StoredTopicMessage {
+  return {
+    id: String(row.id),
+    projectId: String(row.projectId),
+    conversationId: String(row.conversationId),
+    changeId: String(row.changeId),
+    position: Number(row.position),
+    revision: Number(row.revision),
+    agentSurfaceId: String(row.agentSurfaceId),
+    initialThreadInput: Number(row.initialThreadInput) === 1,
+    type: String(row.type),
+    timestamp: String(row.timestamp),
+    text: nullableString(row.text),
+    actionRunId: nullableString(row.actionRunId),
+    actionType: nullableString(row.actionType),
+    status: nullableString(row.status),
+    runId: nullableString(row.runId),
+    providerId: nullableString(row.providerId),
+    threadId: nullableString(row.threadId),
+    turnId: nullableString(row.turnId),
+    itemId: nullableString(row.itemId),
+    artifact: nullableString(row.artifact),
+    error: nullableString(row.error),
+    rawJson: String(row.rawJson),
+  };
+}
+
+export function mapConversationRow(row: SqliteRow): StoredConversation {
+  return {
+    projectId: String(row.projectId),
+    conversationId: String(row.conversationId),
+    title: String(row.title),
+    state: row.state === "archive" ? "archive" : "active",
+    surfaceKind: row.surfaceKind === "runtime" ? "runtime" : "user",
+    boundChangeId: nullableString(row.boundChangeId),
+    currentGraphScopeId: nullableString(row.currentGraphScopeId),
+    selectedProviderId: String(row.selectedProviderId),
+    completedTurnSequence: Number(row.completedTurnSequence),
+    timelinePosition: Number(row.timelinePosition),
+    timelineRevision: Number(row.timelineRevision),
+    createdAt: String(row.createdAt),
+    updatedAt: String(row.updatedAt),
+    deletedAt: nullableString(row.deletedAt),
+  };
+}
+
+export function timelineMessageSelect(): string {
+  return `SELECT id, project_id AS projectId, conversation_id AS conversationId, change_id AS changeId,
+    position, revision, agent_surface_id AS agentSurfaceId, initial_thread_input AS initialThreadInput, type, timestamp, text,
+    action_run_id AS actionRunId, action_type AS actionType, status, run_id AS runId,
+    provider_id AS providerId, thread_id AS threadId, turn_id AS turnId, item_id AS itemId,
+    artifact, error, raw_json AS rawJson
+    FROM canonical_timeline_items`;
+}
+
+export function timelineThreadStartPredicate(): string {
+  return "initial_thread_input = 1";
+}
+
+export function timelineSequencePredicate(): string {
+  return `NOT (${timelineThreadStartPredicate()})`;
+}
+
+export function mapProviderThreadRow(row: SqliteRow): StoredProviderThreadLink {
+  return {
+    projectId: String(row.projectId),
+    conversationId: String(row.conversationId),
+    attemptId: String(row.attemptId),
+    providerId: String(row.providerId),
+    providerThreadId: String(row.providerThreadId),
+    roleId: String(row.roleId),
+    parentThreadId: nullableString(row.parentThreadId),
+    changeId: nullableString(row.changeId),
+    graphScopeId: nullableString(row.graphScopeId),
+    capabilityProfile: nullableString(row.capabilityProfile),
+    displayName: nullableString(row.displayName),
+    runId: nullableString(row.runId),
+    updatedAt: String(row.updatedAt),
+  };
+}
+
+export function mapConversationProviderBindingRow(row: SqliteRow): StoredConversationProviderBinding {
+  return {
+    projectId: String(row.projectId),
+    conversationId: String(row.conversationId),
+    providerId: String(row.providerId),
+    nativeSessionId: nullableString(row.nativeSessionId),
+    lastDeliveredCompletedTurn: Number(row.lastDeliveredCompletedTurn),
+    preferredModel: parseJsonObject<ProviderModelRef>(row.preferredModelJson),
+    lastUsedAt: nullableString(row.lastUsedAt),
+    bindingStatus: row.bindingStatus === "unavailable" ? "unavailable" : row.bindingStatus === "stale" ? "stale" : "ready",
+  };
+}
+
+export function mapProviderAttemptRow(row: SqliteRow): StoredProviderAttempt {
+  const capabilitySnapshot = parseJsonObject<ProviderCapabilitySnapshot>(row.capabilitySnapshotJson);
+  if (!capabilitySnapshot) throw new Error(`Provider attempt has invalid capability snapshot: ${String(row.attemptId)}`);
+  const status = String(row.status);
+  return {
+    projectId: String(row.projectId),
+    conversationId: nullableString(row.conversationId),
+    attemptId: String(row.attemptId),
+    graphScopeId: nullableString(row.graphScopeId),
+    changeId: nullableString(row.changeId),
+    agentTaskId: nullableString(row.agentTaskId),
+    roleId: String(row.roleId),
+    operationProfile: String(row.operationProfile),
+    providerId: String(row.providerId),
+    nativeSessionId: nullableString(row.nativeSessionId),
+    model: parseJsonObject<ProviderModelRef>(row.modelJson),
+    capabilitySnapshot,
+    handoffHash: String(row.handoffHash),
+    deliveredThroughCompletedTurn: Number(row.deliveredThroughCompletedTurn),
+    worktreeId: nullableString(row.worktreeId),
+    status: status === "queued" || status === "running" || status === "completed" || status === "interrupted" || status === "blocked" ? status : "failed",
+    createdAt: String(row.createdAt),
+    updatedAt: String(row.updatedAt),
+  };
+}
+
+export function mapProviderResumePointRow(row: SqliteRow): StoredProviderResumePoint {
+  return {
+    projectId: String(row.projectId),
+    conversationId: String(row.conversationId),
+    resumePointId: String(row.resumePointId),
+    graphScopeId: nullableString(row.graphScopeId),
+    changeId: nullableString(row.changeId),
+    previousProviderId: String(row.previousProviderId),
+    targetProviderId: String(row.targetProviderId),
+    snapshotJson: String(row.snapshotJson),
+    snapshotHash: String(row.snapshotHash),
+    createdAt: String(row.createdAt),
+  };
+}
+
+export function parseJsonObject<T>(value: unknown): T | null {
+  if (typeof value !== "string" || value.length === 0) return null;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return typeof parsed === "object" && parsed !== null ? parsed as T : null;
+  } catch {
+    return null;
+  }
+}
+
+export function mapSkillRow(row: SqliteRow): StoredSkillIndex {
+  return {
+    projectId: String(row.projectId),
+    skillId: String(row.skillId),
+    name: String(row.name),
+    description: String(row.description),
+    sourcePath: String(row.sourcePath),
+    sourceKind: String(row.sourceKind ?? "managed"),
+    sourceHash: String(row.sourceHash),
+    metadataJson: String(row.metadataJson),
+    updatedAt: String(row.updatedAt),
+  };
+}
+
+export function mapSkillRootRow(row: SqliteRow): StoredSkillRoot {
+  return {
+    projectId: String(row.projectId),
+    rootPath: String(row.rootPath),
+    sourceKind: String(row.sourceKind),
+    updatedAt: String(row.updatedAt),
+  };
+}
+
+export function mapEnablementRow(row: SqliteRow): StoredSkillEnablement {
+  return {
+    projectId: String(row.projectId),
+      changeId: decodeScopeChangeId(row.changeId),
+    skillId: String(row.skillId),
+    scope: row.scope === "topic" ? "topic" : "project",
+    enabled: Number(row.enabled) === 1,
+    updatedAt: String(row.updatedAt),
+  };
+}
+
+export function mapBridgeRow(row: SqliteRow): StoredBridgeSync {
+  return {
+    projectId: String(row.projectId),
+    skillId: String(row.skillId),
+    sourceHash: String(row.sourceHash),
+    materializedPath: String(row.materializedPath),
+    materializedHash: String(row.materializedHash),
+    bridgeVersion: String(row.bridgeVersion),
+    syncedAt: String(row.syncedAt),
+  };
+}
+
+export function mapDecisionRow(row: SqliteRow): StoredDecisionRecord {
+  return {
+    id: String(row.id),
+    projectId: String(row.projectId),
+    changeId: decodeScopeChangeId(row.changeId),
+    decisionType: String(row.decisionType),
+    status: normalizeDecisionStatus(row.status),
+    label: String(row.label),
+    summary: String(row.summary),
+    targetId: nullableString(row.targetId),
+    runId: nullableString(row.runId),
+    artifact: nullableString(row.artifact),
+    actionId: nullableString(row.actionId),
+    feedback: nullableString(row.feedback),
+    payloadJson: String(row.payloadJson),
+    createdAt: String(row.createdAt),
+    updatedAt: String(row.updatedAt),
+    completedAt: nullableString(row.completedAt),
+  };
+}
+
+export function nullableString(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+export function encodeScopeChangeId(value: string | null): string {
+  return value ?? "";
+}
+
+export function decodeScopeChangeId(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+export function normalizeDecisionStatus(value: unknown): StoredDecisionStatus {
+  if (value === "accepted" || value === "requested-changes" || value === "dismissed" || value === "completed" || value === "failed") return value;
+  return "pending";
+}

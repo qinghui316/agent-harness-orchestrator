@@ -11,7 +11,8 @@ import type { ManagedProject, ResolvedMemory } from "../types/index.js";
 import type { WorkbenchWorkflowActionRequest } from "./types.js";
 import { reconcileDemandWorkersForRuntime } from "../workflow-runtime/demand-worker.js";
 import { assembleSharedConversationContext, type HandoffSnapshot } from "./shared-conversation-context.js";
-import { WorkbenchStore, type StoredConversation, type StoredProviderAttempt } from "./store.js";
+import { openWorkbenchDatabase } from "./persistence/open-workbench-database.js";
+import { type StoredConversation, type StoredProviderAttempt, type StoredProviderResumePoint } from "./persistence/contracts.js";
 
 const ACTIVE_ATTEMPT_STATUSES = new Set(["queued", "running"]);
 const PROVIDER_STOP_TIMEOUT_MS = 30_000;
@@ -156,7 +157,7 @@ export async function switchConversationProviderAtSafePoint(input: {
     ? preflight.snapshot
     : postReconcile.snapshot;
 
-  const store = await WorkbenchStore.open(input.memory);
+  const store = await openWorkbenchDatabase(input.memory);
   try {
     const point = {
       projectId: input.memory.projectId,
@@ -170,8 +171,8 @@ export async function switchConversationProviderAtSafePoint(input: {
       snapshotHash,
       createdAt: switchedAt,
     };
-    const existingBinding = store.readConversationProviderBinding(input.memory.projectId, input.conversationId, input.targetProviderId);
-    store.commitConversationProviderSwitch(point, existingBinding ?? {
+    const existingBinding = store.providerAttempts.readConversationProviderBinding(input.memory.projectId, input.conversationId, input.targetProviderId);
+    store.unitOfWork.commitConversationProviderSwitch(point, existingBinding ?? {
       projectId: input.memory.projectId,
       conversationId: input.conversationId,
       providerId: input.targetProviderId,
@@ -240,18 +241,18 @@ async function readSwitchState(memory: ResolvedMemory, conversationId: string): 
   conversation: StoredConversation;
   attempts: StoredProviderAttempt[];
   messages: Array<{ rawJson: string }>;
-  resumePoint: ReturnType<WorkbenchStore["readLatestProviderResumePoint"]>;
+  resumePoint: StoredProviderResumePoint | null;
 }> {
   if (!memory.projectId) throw new Error("Project id is required to read provider switch state.");
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
-    const conversation = store.readConversation(memory.projectId, conversationId);
+    const conversation = store.conversations.readConversation(memory.projectId, conversationId);
     if (!conversation) throw new Error(`Conversation not found: ${conversationId}.`);
     return {
       conversation,
-      attempts: store.listProviderAttempts(memory.projectId, conversationId),
-      messages: store.listConversationMessages(memory.projectId, conversationId),
-      resumePoint: store.readLatestProviderResumePoint(memory.projectId, conversationId),
+      attempts: store.providerAttempts.listProviderAttempts(memory.projectId, conversationId),
+      messages: store.timeline.listConversationMessages(memory.projectId, conversationId),
+      resumePoint: store.providerAttempts.readLatestProviderResumePoint(memory.projectId, conversationId),
     };
   } finally {
     store.close();
@@ -294,11 +295,11 @@ async function fenceStoppedProviderAttempts(registry: ProviderRegistry, memory: 
   if (registry.findActiveTurns(scopeIds).length > 0) {
     throw new Error("Agent provider turn 仍在运行，不能 fencing 旧 attempt。");
   }
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
-    for (const attempt of store.listProviderAttempts(memory.projectId, conversationId)) {
+    for (const attempt of store.providerAttempts.listProviderAttempts(memory.projectId, conversationId)) {
       if (!ACTIVE_ATTEMPT_STATUSES.has(attempt.status)) continue;
-      store.completeProviderAttempt(memory.projectId, attempt.attemptId, "interrupted", attempt.nativeSessionId, new Date().toISOString());
+      store.providerAttempts.completeProviderAttempt(memory.projectId, attempt.attemptId, "interrupted", attempt.nativeSessionId, new Date().toISOString());
     }
   } finally {
     store.close();

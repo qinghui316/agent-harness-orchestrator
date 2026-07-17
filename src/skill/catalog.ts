@@ -7,7 +7,9 @@ import { resolveExistingDirectory, slugify } from "../fs/path.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { getSystemSkillsRoot } from "../template-source/paths.js";
 import type { ManagedProject, ResolvedMemory } from "../types/index.js";
-import { WorkbenchStore, type StoredSkillIndex, type StoredSkillRoot } from "../workbench/store.js";
+import { openWorkbenchDatabase } from "../workbench/persistence/open-workbench-database.js";
+import type { WorkbenchDatabase } from "../workbench/persistence/database.js";
+import { type StoredSkillIndex, type StoredSkillRoot } from "../workbench/persistence/contracts.js";
 
 export type SkillSourceKind = "managed" | "custom" | "system-aho" | "provider-native";
 
@@ -99,9 +101,9 @@ export async function addSkillRoot(project: ManagedProject, rootPathInput: strin
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "Skill root registration");
   const rootPath = await resolveExistingDirectory(rootPathInput);
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
-    store.upsertSkillRoot({
+    store.skills.upsertSkillRoot({
       projectId: project.id,
       rootPath,
       sourceKind,
@@ -115,9 +117,9 @@ export async function addSkillRoot(project: ManagedProject, rootPathInput: strin
 
 export async function listSkillRoots(project: ManagedProject): Promise<SkillRootListItem[]> {
   const memory = await resolveProjectMemory(project);
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
-    return store.listSkillRoots(project.id).map(mapSkillRoot);
+    return store.skills.listSkillRoots(project.id).map(mapSkillRoot);
   } finally {
     store.close();
   }
@@ -130,10 +132,10 @@ export async function refreshSkills(project: ManagedProject): Promise<SkillRefre
 
 export async function listSkills(project: ManagedProject): Promise<SkillListItem[]> {
   const memory = await resolveProjectMemory(project);
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
     await refreshSkillIndex(memory, project, store);
-    const skills = store.listSkills(project.id).filter((item) => !isRuntimeAssignedSkill(item.skillId));
+    const skills = store.skills.listSkills(project.id).filter((item) => !isRuntimeAssignedSkill(item.skillId));
     return await Promise.all(skills.map((item) => decorateSkill(memory, item, store)));
   } finally {
     store.close();
@@ -145,12 +147,12 @@ export async function setSkillEnabled(project: ManagedProject, skillIdInput: str
   assertWritableMemory(memory, "Skill enablement");
   const skillId = slugify(skillIdInput);
   if (isRuntimeAssignedSkill(skillId)) throw new Error(`Skill ${skillId} is Runtime-assigned and cannot be enabled from project or conversation settings.`);
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
     await refreshSkillIndex(memory, project, store);
-    const skill = store.readSkill(project.id, skillId);
+    const skill = store.skills.readSkill(project.id, skillId);
     if (!skill) throw new Error(`Unknown skill: ${skillId}`);
-    store.setSkillEnablement({
+    store.skills.setSkillEnablement({
       projectId: project.id,
       changeId: options.topic ?? null,
       skillId,
@@ -158,7 +160,7 @@ export async function setSkillEnabled(project: ManagedProject, skillIdInput: str
       enabled: options.enabled,
       updatedAt: new Date().toISOString(),
     });
-    const skills = store.listSkills(project.id);
+    const skills = store.skills.listSkills(project.id);
     return await Promise.all(skills.map((item) => decorateSkill(memory, item, store)));
   } finally {
     store.close();
@@ -167,11 +169,11 @@ export async function setSkillEnabled(project: ManagedProject, skillIdInput: str
 
 export async function getEnabledSkillContext(project: ManagedProject, changeId?: string): Promise<EnabledSkillContext> {
   const memory = await resolveProjectMemory(project);
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
     await refreshSkillIndex(memory, project, store);
-    const skills = store.listSkills(project.id);
-    const enablements = store.listSkillEnablement(project.id);
+    const skills = store.skills.listSkills(project.id);
+    const enablements = store.skills.listSkillEnablement(project.id);
     const projectEnabled = new Set(enablements.filter((item) => item.scope === "project" && item.enabled).map((item) => item.skillId));
     const topicEnabled = new Set(enablements.filter((item) => item.scope === "topic" && item.changeId === changeId && item.enabled).map((item) => item.skillId));
     const topicDisabled = new Set(enablements.filter((item) => item.scope === "topic" && item.changeId === changeId && !item.enabled).map((item) => item.skillId));
@@ -219,10 +221,10 @@ export async function getRuntimeAssignedHarnessSkillContext(
   const { parseHarnessEngineeringAssignment } = await import("../agent-task/harness-engineering-contract.js");
   const parsed = parseHarnessEngineeringAssignment(assignment);
   const memory = await resolveProjectMemory(project);
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
     await refreshSkillIndex(memory, project, store);
-    const skill = store.listSkills(project.id).find((item) => item.skillId === "aho-harness-engineering");
+    const skill = store.skills.listSkills(project.id).find((item) => item.skillId === "aho-harness-engineering");
     const sourceKind = skill ? normalizeSourceKind(skill.sourceKind) : null;
     const valid = skill && sourceKind === "system-aho";
     return {
@@ -295,7 +297,7 @@ async function upsertSkillIndex(
   sourceKind: SkillSourceKind,
   sourceHash: string,
 ): Promise<StoredSkillIndex> {
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
     const indexed: StoredSkillIndex = {
       projectId,
@@ -308,21 +310,21 @@ async function upsertSkillIndex(
       metadataJson: JSON.stringify(metadata.metadata),
       updatedAt: new Date().toISOString(),
     };
-    store.upsertSkill(indexed);
+    store.skills.upsertSkill(indexed);
     return indexed;
   } finally {
     store.close();
   }
 }
 
-async function refreshSkillIndex(memory: ResolvedMemory, project: ManagedProject, store: WorkbenchStore): Promise<void> {
+async function refreshSkillIndex(memory: ResolvedMemory, project: ManagedProject, store: WorkbenchDatabase): Promise<void> {
   const sources = await discoverSkillSources(memory, project, store);
-  store.deleteSkillsExcept(project.id, sources.map((source) => source.skillId));
+  store.skills.deleteSkillsExcept(project.id, sources.map((source) => source.skillId));
   for (const source of sources) {
     const raw = await readFile(join(source.sourcePath, "SKILL.md"), "utf8");
     const metadata = parseSkillMetadata(raw, basename(source.sourcePath));
     const sourceHash = await hashSkillDirectory(source.sourcePath);
-    store.upsertSkill({
+    store.skills.upsertSkill({
       projectId: project.id,
       skillId: source.skillId,
       name: metadata.name,
@@ -336,11 +338,11 @@ async function refreshSkillIndex(memory: ResolvedMemory, project: ManagedProject
   }
 }
 
-async function decorateSkill(memory: ResolvedMemory, skill: StoredSkillIndex, providedStore?: WorkbenchStore): Promise<SkillListItem> {
+async function decorateSkill(memory: ResolvedMemory, skill: StoredSkillIndex, providedStore?: WorkbenchDatabase): Promise<SkillListItem> {
   const closeStore = !providedStore;
-  const store = providedStore ?? await WorkbenchStore.open(memory);
+  const store = providedStore ?? await openWorkbenchDatabase(memory);
   try {
-    const enablements = store.listSkillEnablement(skill.projectId).filter((item) => item.skillId === skill.skillId);
+    const enablements = store.skills.listSkillEnablement(skill.projectId).filter((item) => item.skillId === skill.skillId);
     const sourceKind = normalizeSourceKind(skill.sourceKind);
     return {
       skillId: skill.skillId,
@@ -400,12 +402,12 @@ async function collectPackageFiles(packageRoot: string, current: string, files: 
   }
 }
 
-async function discoverSkillSources(memory: ResolvedMemory, project: ManagedProject, store: WorkbenchStore): Promise<Array<{ skillId: string; sourcePath: string; sourceKind: SkillSourceKind }>> {
+async function discoverSkillSources(memory: ResolvedMemory, project: ManagedProject, store: WorkbenchDatabase): Promise<Array<{ skillId: string; sourcePath: string; sourceKind: SkillSourceKind }>> {
   const candidates: Array<{ sourcePath: string; sourceKind: SkillSourceKind }> = [];
   const systemSkillsRoot = getSystemSkillsRoot();
   if (existsSync(systemSkillsRoot)) candidates.push(...await discoverSkillsInRoot(systemSkillsRoot, "system-aho"));
   if (existsSync(memory.skillsRoot)) candidates.push(...await discoverSkillsInRoot(memory.skillsRoot, "managed"));
-  for (const root of store.listSkillRoots(project.id)) {
+  for (const root of store.skills.listSkillRoots(project.id)) {
     if (existsSync(root.rootPath)) candidates.push(...await discoverSkillsInRoot(root.rootPath, normalizeSourceKind(root.sourceKind)));
   }
 

@@ -41,7 +41,7 @@ import { buildConversationInteractionQueue } from "../../src/workbench/conversat
 import { getCanonicalTimelinePage, getWorkbenchSnapshot } from "../../src/workbench/manager.js";
 import { getWorkbenchAgentRelationGraphProjection } from "../../src/workbench/projections/read-model/implementation.js";
 import { readLatestWorkflowGraphPlan } from "../../src/workflow-artifacts/manager.js";
-import { WorkbenchStore } from "../../src/workbench/store.js";
+import { openWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import { planDocumentContentHash } from "../../src/workbench/plan-documents.js";
 import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
 
@@ -90,8 +90,8 @@ describe("Workbench provider planning flow", () => {
     }, undefined, { runMainAgent: false });
     const memory = await resolveProjectMemory(project());
     const capabilitySnapshot = await defaultProviderRegistry.get("codex").capabilitySnapshot(project(), root);
-    const store = await WorkbenchStore.open(memory);
-    const stored = store.readConversation(project().id, conversation.conversationId)!;
+    const store = await openWorkbenchDatabase(memory);
+    const stored = store.conversations.readConversation(project().id, conversation.conversationId)!;
     const baseAttempt = {
       projectId: project().id,
       conversationId: conversation.conversationId,
@@ -109,10 +109,10 @@ describe("Workbench provider planning flow", () => {
       status: "queued" as const,
     };
     try {
-      store.writeProviderResumePoint({ projectId: project().id, conversationId: conversation.conversationId, resumePointId: "resume-old", graphScopeId: stored.currentGraphScopeId, changeId: null, previousProviderId: "alpha", targetProviderId: "codex", snapshotJson: "{}", snapshotHash: "old-hash", createdAt: "2026-07-15T00:00:00.000Z" });
-      store.createProviderAttempt({ ...baseAttempt, attemptId: "attempt-resume-old", handoffHash: "old-hash", createdAt: "2026-07-15T00:00:00.000Z", updatedAt: "2026-07-15T00:00:00.000Z" });
-      store.writeProviderResumePoint({ projectId: project().id, conversationId: conversation.conversationId, resumePointId: "resume-latest", graphScopeId: stored.currentGraphScopeId, changeId: null, previousProviderId: "alpha", targetProviderId: "codex", snapshotJson: "{}", snapshotHash: "latest-hash", createdAt: "2026-07-15T00:00:01.000Z" });
-      store.createProviderAttempt({ ...baseAttempt, attemptId: "attempt-resume-latest", handoffHash: "latest-hash", createdAt: "2026-07-15T00:00:01.000Z", updatedAt: "2026-07-15T00:00:01.000Z" });
+      store.providerAttempts.writeProviderResumePoint({ projectId: project().id, conversationId: conversation.conversationId, resumePointId: "resume-old", graphScopeId: stored.currentGraphScopeId, changeId: null, previousProviderId: "alpha", targetProviderId: "codex", snapshotJson: "{}", snapshotHash: "old-hash", createdAt: "2026-07-15T00:00:00.000Z" });
+      store.providerAttempts.createProviderAttempt({ ...baseAttempt, attemptId: "attempt-resume-old", handoffHash: "old-hash", createdAt: "2026-07-15T00:00:00.000Z", updatedAt: "2026-07-15T00:00:00.000Z" });
+      store.providerAttempts.writeProviderResumePoint({ projectId: project().id, conversationId: conversation.conversationId, resumePointId: "resume-latest", graphScopeId: stored.currentGraphScopeId, changeId: null, previousProviderId: "alpha", targetProviderId: "codex", snapshotJson: "{}", snapshotHash: "latest-hash", createdAt: "2026-07-15T00:00:01.000Z" });
+      store.providerAttempts.createProviderAttempt({ ...baseAttempt, attemptId: "attempt-resume-latest", handoffHash: "latest-hash", createdAt: "2026-07-15T00:00:01.000Z", updatedAt: "2026-07-15T00:00:01.000Z" });
     } finally {
       store.close();
     }
@@ -129,9 +129,9 @@ describe("Workbench provider planning flow", () => {
 
     await postConversationMessage(project(), conversation.conversationId, { mode: "chat", message: "继续。" });
 
-    const verified = await WorkbenchStore.open(memory);
+    const verified = await openWorkbenchDatabase(memory);
     try {
-      expect(verified.listProviderAttempts(project().id, conversation.conversationId)).toEqual(expect.arrayContaining([
+      expect(verified.providerAttempts.listProviderAttempts(project().id, conversation.conversationId)).toEqual(expect.arrayContaining([
         expect.objectContaining({ attemptId: "attempt-resume-old", status: "interrupted" }),
         expect.objectContaining({ attemptId: "attempt-resume-latest", status: "completed" }),
       ]));
@@ -165,9 +165,9 @@ describe("Workbench provider planning flow", () => {
     })).rejects.toThrow("provider disconnected");
 
     const memory = await resolveProjectMemory(project());
-    const store = await WorkbenchStore.open(memory);
+    const store = await openWorkbenchDatabase(memory);
     try {
-      const attempts = store.listProviderAttempts(project().id, conversation.conversationId);
+      const attempts = store.providerAttempts.listProviderAttempts(project().id, conversation.conversationId);
       expect(attempts).toEqual(expect.arrayContaining([
         expect.objectContaining({ roleId: "main-agent", status: "failed" }),
         expect.objectContaining({ roleId: "planning-agent", nativeSessionId: "thread-planner-failed", status: "failed" }),
@@ -253,8 +253,8 @@ describe("Workbench provider planning flow", () => {
       skippedQuestionIds: ["choice"],
     });
     const memory = await resolveProjectMemory(project());
-    const store = await WorkbenchStore.open(memory);
-    const graphScopeId = store.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? "";
+    const store = await openWorkbenchDatabase(memory);
+    const graphScopeId = store.conversations.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? "";
     store.close();
     expect((await buildConversationInteractionQueue(memory, conversation.conversationId, graphScopeId)).items).toEqual([]);
   });
@@ -287,8 +287,8 @@ describe("Workbench provider planning flow", () => {
         ]);
       });
       const memory = await resolveProjectMemory(project());
-      const store = await WorkbenchStore.open(memory);
-      const graphScopeId = store.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? "";
+      const store = await openWorkbenchDatabase(memory);
+      const graphScopeId = store.conversations.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? "";
       store.close();
       expect((await buildConversationInteractionQueue(memory, conversation.conversationId, graphScopeId)).items).toEqual([
         expect.objectContaining({ kind: "provider-input", status: "pending" }),
@@ -315,8 +315,8 @@ describe("Workbench provider planning flow", () => {
       body: "Start a simple demand.",
     }, undefined, { runMainAgent: false });
     const memory = await resolveProjectMemory(project());
-    const initialStore = await WorkbenchStore.open(memory);
-    const initialScope = initialStore.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId;
+    const initialStore = await openWorkbenchDatabase(memory);
+    const initialScope = initialStore.conversations.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId;
     initialStore.close();
     appServerTurn.mockResolvedValue({
       status: "completed",
@@ -329,10 +329,10 @@ describe("Workbench provider planning flow", () => {
     await postConversationMessage(project(), conversation.conversationId, "补充第一个细节。");
     await postConversationMessage(project(), conversation.conversationId, "再补充第二个细节。");
 
-    const finalStore = await WorkbenchStore.open(memory);
+    const finalStore = await openWorkbenchDatabase(memory);
     try {
-      expect(finalStore.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId).toBe(initialScope);
-      expect(finalStore.listConversationMessages(project().id, conversation.conversationId)
+      expect(finalStore.conversations.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId).toBe(initialScope);
+      expect(finalStore.timeline.listConversationMessages(project().id, conversation.conversationId)
         .map((message) => JSON.parse(message.rawJson).graphScopeId)
         .filter(Boolean)).toEqual(expect.arrayContaining([initialScope, initialScope]));
     } finally {
@@ -346,8 +346,8 @@ describe("Workbench provider planning flow", () => {
       body: "Create a simple page.",
     }, undefined, { runMainAgent: false });
     const memory = await resolveProjectMemory(project());
-    const initialStore = await WorkbenchStore.open(memory);
-    const initialScope = initialStore.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId;
+    const initialStore = await openWorkbenchDatabase(memory);
+    const initialScope = initialStore.conversations.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId;
     initialStore.close();
     appServerTurn
       .mockResolvedValueOnce({
@@ -370,9 +370,9 @@ describe("Workbench provider planning flow", () => {
     await postConversationMessage(project(), conversation.conversationId, "完成这个简单需求。");
     await postConversationMessage(project(), conversation.conversationId, "这是一个新的顶层需求。");
 
-    const finalStore = await WorkbenchStore.open(memory);
+    const finalStore = await openWorkbenchDatabase(memory);
     try {
-      expect(finalStore.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId).not.toBe(initialScope);
+      expect(finalStore.conversations.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId).not.toBe(initialScope);
     } finally {
       finalStore.close();
     }
@@ -454,12 +454,12 @@ describe("Workbench provider planning flow", () => {
     const changeId = "scope-lifecycle-change";
     await mkdir(join(memory.changesRoot, "active", changeId), { recursive: true });
 
-    const store = await WorkbenchStore.open(memory);
+    const store = await openWorkbenchDatabase(memory);
     let initialScope: string;
     try {
-      initialScope = store.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? "";
+      initialScope = store.conversations.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? "";
       expect(initialScope).not.toBe("");
-      store.linkConversationChange(project().id, conversation.conversationId, changeId, new Date().toISOString());
+      store.conversations.linkConversationChange(project().id, conversation.conversationId, changeId, new Date().toISOString());
       bindProviderThreadFixture(store, {
         projectId: project().id,
         conversationId: conversation.conversationId,
@@ -493,9 +493,9 @@ describe("Workbench provider planning flow", () => {
       });
 
     await postConversationMessage(project(), conversation.conversationId, "继续当前 Change 的同一项工作。");
-    const sameChangeStore = await WorkbenchStore.open(memory);
+    const sameChangeStore = await openWorkbenchDatabase(memory);
     try {
-      expect(sameChangeStore.readConversation(project().id, conversation.conversationId)).toMatchObject({
+      expect(sameChangeStore.conversations.readConversation(project().id, conversation.conversationId)).toMatchObject({
         boundChangeId: changeId,
         currentGraphScopeId: initialScope,
       });
@@ -505,12 +505,12 @@ describe("Workbench provider planning flow", () => {
 
     await rm(join(memory.changesRoot, "active", changeId), { recursive: true, force: true });
     await postConversationMessage(project(), conversation.conversationId, "这是下一个独立的顶层需求。");
-    const nextDemandStore = await WorkbenchStore.open(memory);
+    const nextDemandStore = await openWorkbenchDatabase(memory);
     try {
-      const next = nextDemandStore.readConversation(project().id, conversation.conversationId);
+      const next = nextDemandStore.conversations.readConversation(project().id, conversation.conversationId);
       expect(next?.boundChangeId).toBeNull();
       expect(next?.currentGraphScopeId).not.toBe(initialScope);
-      expect(nextDemandStore.listProviderThreads(project().id, conversation.conversationId))
+      expect(nextDemandStore.providerAttempts.listProviderThreads(project().id, conversation.conversationId))
         .toEqual(expect.arrayContaining([
           expect.objectContaining({ providerThreadId: "thread-old-child", graphScopeId: initialScope }),
           expect.objectContaining({ providerThreadId: "thread-main", graphScopeId: next?.currentGraphScopeId }),
@@ -595,9 +595,9 @@ describe("Workbench provider planning flow", () => {
   it("resumes the bound native Goal from committed post-apply evidence", async () => {
     const conversation = await createConversationChangeFixture(project(), { title: "Post apply continuity", body: "Apply and finalize." });
     const memory = await resolveProjectMemory(project());
-    const store = await WorkbenchStore.open(memory);
+    const store = await openWorkbenchDatabase(memory);
     const changeId = conversation.changeId;
-    const graphScopeId = store.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? null;
+    const graphScopeId = store.conversations.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? null;
     bindProviderThreadFixture(store, {
       projectId: project().id,
       conversationId: conversation.conversationId,
@@ -668,12 +668,17 @@ describe("Workbench provider planning flow", () => {
 
     await creation.catch(() => undefined);
     const memory = await resolveProjectMemory(project());
-    const store = await WorkbenchStore.open(memory);
+    const store = await openWorkbenchDatabase(memory);
     let conversationId = "";
     try {
-      const conversations = store.listConversations(project().id);
+      const conversations = store.conversations.listConversations(project().id);
       expect(conversations).toHaveLength(1);
       conversationId = conversations[0]?.conversationId ?? "";
+      const attempts = store.providerAttempts.listProviderAttempts(project().id, conversationId);
+      expect(attempts).toEqual(expect.arrayContaining([
+        expect.objectContaining({ roleId: "planning-agent", nativeSessionId: "thread-planner", status: "completed" }),
+      ]));
+      expect(attempts.some((attempt) => attempt.status === "running")).toBe(false);
     } finally {
       store.close();
     }
@@ -810,9 +815,9 @@ describe("Workbench provider planning flow", () => {
           "reasoning-summary", "command", "file-change", "prose",
         ]));
         const liveMemory = await resolveProjectMemory(project());
-        const liveStore = await WorkbenchStore.open(liveMemory);
+        const liveStore = await openWorkbenchDatabase(liveMemory);
         try {
-          expect(liveStore.listProviderAttempts(project().id, options.conversationId ?? "")).toEqual(expect.arrayContaining([
+          expect(liveStore.providerAttempts.listProviderAttempts(project().id, options.conversationId ?? "")).toEqual(expect.arrayContaining([
             expect.objectContaining({ roleId: "child-agent", operationProfile: "main", nativeSessionId: "thread-planner", status: "running" }),
           ]));
         } finally {
@@ -952,17 +957,17 @@ describe("Workbench provider planning flow", () => {
       .at(-1)).toMatchObject({ status: "accepted", artifact: undefined, threadId: "thread-planner" });
 
     const memory = await resolveProjectMemory(project());
-    const store = await WorkbenchStore.open(memory);
+    const store = await openWorkbenchDatabase(memory);
     let changeId: string;
     try {
-      const stored = store.readConversation(project().id, conversation.conversationId);
+      const stored = store.conversations.readConversation(project().id, conversation.conversationId);
       expect(stored?.boundChangeId).toBeTruthy();
       changeId = stored?.boundChangeId ?? "";
-      expect(store.listProviderThreads(project().id, conversation.conversationId)).toEqual(expect.arrayContaining([
+      expect(store.providerAttempts.listProviderThreads(project().id, conversation.conversationId)).toEqual(expect.arrayContaining([
         expect.objectContaining({ roleId: "main-agent", providerThreadId: "thread-main" }),
         expect.objectContaining({ roleId: "planning-agent", providerThreadId: "thread-planner", parentThreadId: "thread-main", displayName: "Newton" }),
       ]));
-      expect(store.listProviderAttempts(project().id, conversation.conversationId)).toEqual(expect.arrayContaining([
+      expect(store.providerAttempts.listProviderAttempts(project().id, conversation.conversationId)).toEqual(expect.arrayContaining([
         expect.objectContaining({
           providerId: "codex",
           roleId: "planning-agent",

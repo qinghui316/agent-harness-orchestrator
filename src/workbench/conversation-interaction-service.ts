@@ -5,7 +5,7 @@ import { answerClarification, skipClarification, type ClarificationAnswer } from
 import { postConversationMessage, type WorkbenchLiveSink } from "./chat.js";
 import { planHandoffUserMessage } from "./plan-handoff.js";
 import { resolveConversationInteraction } from "./conversation-interactions.js";
-import { WorkbenchStore } from "./store.js";
+import { openWorkbenchDatabase } from "./persistence/open-workbench-database.js";
 import type { ConversationInteractionQuestion, ConversationInteractionSettlement } from "./conversation-interaction-contract.js";
 import type { PlanHandoffIntentKind } from "./types.js";
 
@@ -177,9 +177,9 @@ async function transitionProviderRequest(
 ): Promise<void> {
   const memory = await resolveProjectMemory(project);
   if (!memory.projectId) throw new Error("Project id is required to persist an interaction settlement.");
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
-    store.transitionProviderUserInputRequest(memory.projectId, conversationId, requestKey, expectedStatus, nextStatus, settlement, new Date().toISOString());
+    store.interactions.transitionProviderUserInputRequest(memory.projectId, conversationId, requestKey, expectedStatus, nextStatus, settlement, new Date().toISOString());
   } finally {
     store.close();
   }

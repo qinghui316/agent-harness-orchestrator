@@ -10,7 +10,9 @@ import { createWorkbenchConversation } from "../../src/workbench/chat.js";
 import { fromStoredThreadMessage } from "../../src/workbench/conversation-thread-log.js";
 import { buildConversationInteractionQueue } from "../../src/workbench/conversation-interactions.js";
 import { canonicalTranscriptCellsFromThreadItem } from "../../src/workbench/parent-agent-transcript.js";
-import { WorkbenchStore, type StoredTopicMessage } from "../../src/workbench/store.js";
+import { openWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
+import type { WorkbenchDatabase } from "../../src/workbench/persistence/database.js";
+import { type StoredTopicMessage } from "../../src/workbench/persistence/contracts.js";
 
 let root: string;
 let originalAhoHome: string | undefined;
@@ -41,8 +43,8 @@ describe("conversation interaction projection", () => {
       body: "Project pending questions.",
     }, undefined, { runMainAgent: false });
     const memory = await resolveProjectMemory(project());
-    const store = await WorkbenchStore.open(memory);
-    const graphScopeId = store.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? "";
+    const store = await openWorkbenchDatabase(memory);
+    const graphScopeId = store.conversations.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? "";
     try {
       appendProviderQuestion(store, conversation.conversationId, "old-scope", "old", "q-old");
       appendProviderQuestion(store, conversation.conversationId, graphScopeId, "expired", "q-expired", "2020-01-01T00:00:00.000Z");
@@ -64,11 +66,11 @@ describe("conversation interaction projection", () => {
     expect(publicJson).not.toContain("requestId");
     expect(publicJson).not.toContain("expiresAt");
 
-    const transitionStore = await WorkbenchStore.open(memory);
+    const transitionStore = await openWorkbenchDatabase(memory);
     try {
-      transitionStore.startConversationGraphScope(project().id, conversation.conversationId, "scope-next", "2026-07-16T00:00:03.000Z");
-      expect(transitionStore.readProviderUserInputRequest(project().id, conversation.conversationId, "request-key-first")?.status).toBe("superseded");
-      expect(transitionStore.readProviderUserInputRequest(project().id, conversation.conversationId, "request-key-second")?.status).toBe("superseded");
+      transitionStore.unitOfWork.startConversationGraphScope(project().id, conversation.conversationId, "scope-next", "2026-07-16T00:00:03.000Z");
+      expect(transitionStore.interactions.readProviderUserInputRequest(project().id, conversation.conversationId, "request-key-first")?.status).toBe("superseded");
+      expect(transitionStore.interactions.readProviderUserInputRequest(project().id, conversation.conversationId, "request-key-second")?.status).toBe("superseded");
     } finally {
       transitionStore.close();
     }
@@ -117,12 +119,12 @@ describe("conversation interaction projection", () => {
       body: "Do not leave a stale dock.",
     }, undefined, { runMainAgent: false });
     const memory = await resolveProjectMemory(project());
-    const store = await WorkbenchStore.open(memory);
-    const graphScopeId = store.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? "";
+    const store = await openWorkbenchDatabase(memory);
+    const graphScopeId = store.conversations.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? "";
     try {
       appendProviderQuestion(store, conversation.conversationId, graphScopeId, "terminal", "q-terminal");
-      expect(store.terminalizeProviderUserInputRequests(project().id, conversation.conversationId, "run-terminal", "2026-07-16T00:00:04.000Z")).toHaveLength(1);
-      const entry = fromStoredThreadMessage(store.listConversationMessages(project().id, conversation.conversationId)[1]!);
+      expect(store.interactions.terminalizeProviderUserInputRequests(project().id, conversation.conversationId, "run-terminal", "2026-07-16T00:00:04.000Z")).toHaveLength(1);
+      const entry = fromStoredThreadMessage(store.timeline.listConversationMessages(project().id, conversation.conversationId)[1]!);
       const cells = canonicalTranscriptCellsFromThreadItem(entry);
       expect(cells).toEqual([expect.objectContaining({
         id: "cell:provider-user-input:request-key-terminal",
@@ -137,7 +139,7 @@ describe("conversation interaction projection", () => {
 });
 
 function appendProviderQuestion(
-  store: WorkbenchStore,
+  store: WorkbenchDatabase,
   conversationId: string,
   graphScopeId: string,
   suffix: string,
@@ -175,7 +177,7 @@ function appendProviderQuestion(
       status: "pending" as const,
     },
   };
-  store.appendMessage({
+  store.timeline.appendMessage({
     projectId: project().id,
     conversationId,
     agentSurfaceId: "main-agent",

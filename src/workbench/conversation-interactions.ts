@@ -4,7 +4,7 @@ import { agentThreadSurfaceId } from "../provider-runtime/agent-surface-id.js";
 import { readPlannerChildProposal, type PlannerChildProposal } from "./planning/planner-child-proposal.js";
 import { canonicalPlanDocumentFromEntry, canonicalPlanDocumentText } from "./plan-documents.js";
 import { fromStoredThreadMessage } from "./conversation-thread-log.js";
-import { WorkbenchStore } from "./store.js";
+import { openWorkbenchDatabase } from "./persistence/open-workbench-database.js";
 import type { ClarificationRequest } from "./intake.js";
 import type { CanonicalPlanDocument, TopicThreadEntry, WorkbenchProviderUserInputRequest } from "./types.js";
 import type {
@@ -36,10 +36,10 @@ export async function resolveConversationInteraction(
   interactionId: string,
 ): Promise<ResolvedConversationInteraction> {
   if (!memory.projectId) throw notFound("Conversation interaction is unavailable.");
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   let graphScopeId: string | null;
   try {
-    const conversation = store.readConversation(memory.projectId, conversationId);
+    const conversation = store.conversations.readConversation(memory.projectId, conversationId);
     if (!conversation) throw notFound("Conversation interaction is unavailable.");
     graphScopeId = conversation.currentGraphScopeId;
   } finally {
@@ -183,9 +183,9 @@ function clarificationOf(entry: TopicThreadEntry): ClarificationRequest | null {
 }
 
 async function readEntries(memory: ResolvedMemory, conversationId: string): Promise<TopicThreadEntry[]> {
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
-    return store.listConversationMessages(memory.projectId!, conversationId).map(fromStoredThreadMessage);
+    return store.timeline.listConversationMessages(memory.projectId!, conversationId).map(fromStoredThreadMessage);
   } finally {
     store.close();
   }

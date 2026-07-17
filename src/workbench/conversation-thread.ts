@@ -1,7 +1,8 @@
 ﻿import { assertWritableMemory } from "../memory/resolver.js";
 import type { ManagedProject, ResolvedMemory } from "../types/index.js";
 import { resolveTopic } from "./topic-resolver.js";
-import { WorkbenchStore } from "./store.js";
+import { openWorkbenchDatabase } from "./persistence/open-workbench-database.js";
+import type { WorkbenchDatabase } from "./persistence/database.js";
 import { canonicalTimelineEnvelopeFromStoredRow, type CanonicalTimelineEnvelope } from "./canonical-timeline.js";
 import type { TopicThreadEntry, WorkbenchLiveSink } from "./types.js";
 
@@ -17,15 +18,15 @@ export async function openConversationTimelineWriter(
 ): Promise<ConversationTimelineWriter> {
   const { memory } = await resolveTopic(project, changeId);
   assertWritableMemory(memory, "Topic thread update");
-  const store = await WorkbenchStore.open(memory);
-  const conversation = store.findConversationForChange(project.id, changeId);
+  const store = await openWorkbenchDatabase(memory);
+  const conversation = store.conversations.findConversationForChange(project.id, changeId);
   if (!conversation) {
     store.close();
     throw new Error(`Change ${changeId} is not bound to a Demand Conversation.`);
   }
-  const graphScopeId = store.findGraphScopeForChange(project.id, changeId) ?? undefined;
+  const graphScopeId = store.conversations.findGraphScopeForChange(project.id, changeId) ?? undefined;
   const knownIds = new Set(
-    store.listConversationMessages(project.id, conversation.conversationId).map((message) => message.id),
+    store.timeline.listConversationMessages(project.id, conversation.conversationId).map((message) => message.id),
   );
   return {
     upsert(entry) {
@@ -58,9 +59,9 @@ export async function openConversationTimelineWriter(
       };
       let storedRow;
       if (knownIds.has(canonical.id)) {
-        storedRow = store.updateMessage(stored);
+        storedRow = store.timeline.updateMessage(stored);
       } else {
-        storedRow = store.appendMessage(stored);
+        storedRow = store.timeline.appendMessage(stored);
         knownIds.add(canonical.id);
       }
       const envelope = canonicalTimelineEnvelopeFromStoredRow(storedRow);
@@ -81,8 +82,8 @@ export async function appendConversationTimelineEntry(
 ): Promise<CanonicalTimelineEnvelope> {
   const { memory } = await resolveTopic(project, changeId);
   assertWritableMemory(memory, "Topic thread update");
-  const store = await WorkbenchStore.open(memory);
-  const conversation = store.findConversationForChange(project.id, changeId);
+  const store = await openWorkbenchDatabase(memory);
+  const conversation = store.conversations.findConversationForChange(project.id, changeId);
   if (!conversation) {
     store.close();
     throw new Error(`Change ${changeId} is not bound to a Demand Conversation.`);
@@ -92,11 +93,11 @@ export async function appendConversationTimelineEntry(
     timestamp: new Date().toISOString(),
     conversationId: conversation.conversationId,
     changeId,
-    graphScopeId: store.findGraphScopeForChange(project.id, changeId) ?? undefined,
+    graphScopeId: store.conversations.findGraphScopeForChange(project.id, changeId) ?? undefined,
     ...input,
   };
   try {
-    const stored = store.appendMessage({
+    const stored = store.timeline.appendMessage({
       id: entry.id,
       projectId: project.id,
       conversationId: conversation.conversationId,
@@ -136,9 +137,9 @@ function canonicalAgentSurfaceId(entry: TopicThreadEntry): string {
 export async function deleteConversation(memory: ResolvedMemory, conversationId: string): Promise<void> {
   const store = await requireConversationStore(memory);
   try {
-    const conversation = store.readConversation(memory.projectId!, conversationId, { includeDeleted: true });
+    const conversation = store.conversations.readConversation(memory.projectId!, conversationId, { includeDeleted: true });
     if (!conversation) throw conversationNotFound(conversationId);
-    store.deleteConversation(memory.projectId!, conversationId, new Date().toISOString());
+    store.unitOfWork.deleteConversation(memory.projectId!, conversationId, new Date().toISOString());
   } finally {
     store.close();
   }
@@ -147,26 +148,26 @@ export async function deleteConversation(memory: ResolvedMemory, conversationId:
 export async function hideConversation(memory: ResolvedMemory, conversationId: string): Promise<void> {
   const store = await requireConversationStore(memory);
   try {
-    const conversation = store.readConversation(memory.projectId!, conversationId);
+    const conversation = store.conversations.readConversation(memory.projectId!, conversationId);
     if (!conversation) throw conversationNotFound(conversationId);
     if (conversation.state !== "archive") {
       const error = new Error("Only archived or completed conversations can be removed from the sidebar.");
       error.name = "Conflict";
       throw error;
     }
-    store.hideConversation(memory.projectId!, conversationId, new Date().toISOString());
+    store.conversations.hideConversation(memory.projectId!, conversationId, new Date().toISOString());
   } finally {
     store.close();
   }
 }
 
-async function requireConversationStore(memory: ResolvedMemory): Promise<WorkbenchStore> {
+async function requireConversationStore(memory: ResolvedMemory): Promise<WorkbenchDatabase> {
   if (!memory.projectId) {
     const error = new Error("Project id is required to update a conversation.");
     error.name = "Conflict";
     throw error;
   }
-  return WorkbenchStore.open(memory);
+  return openWorkbenchDatabase(memory);
 }
 
 function conversationNotFound(conversationId: string): Error {

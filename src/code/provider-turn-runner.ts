@@ -13,7 +13,8 @@ import { getSortedSourceStatus, renderImplementationSummary } from "./artifacts.
 import { emitCodeLiveCallbackError, emitCodeLiveRunStarted, emitCodeLiveStatus } from "./live-events.js";
 import { finishRun, type CodeRunPaths } from "./run-session.js";
 import type { CodeRunLiveCallbacks, CodeRunResult } from "./types.js";
-import { WorkbenchStore, type StoredConversation } from "../workbench/store.js";
+import { openWorkbenchDatabase } from "../workbench/persistence/open-workbench-database.js";
+import { type StoredConversation } from "../workbench/persistence/contracts.js";
 import { assembleSharedConversationContext } from "../workbench/shared-conversation-context.js";
 import { bindProviderAttemptThread, finishProviderAttempt } from "../workbench/provider-attempts.js";
 
@@ -42,9 +43,9 @@ export async function runProviderCodeTurn(input: {
     providerId,
     currentUserMessage: input.prompt,
   });
-  const attemptStore = await WorkbenchStore.open(input.memory);
+  const attemptStore = await openWorkbenchDatabase(input.memory);
   try {
-    attemptStore.createProviderAttempt({
+    attemptStore.providerAttempts.createProviderAttempt({
       projectId: input.project.id,
       conversationId: conversation.conversationId,
       attemptId: input.run.id,
@@ -234,9 +235,9 @@ export async function runProviderCodeTurn(input: {
 
 async function conversationForChange(memory: ResolvedMemory, changeId: string): Promise<StoredConversation> {
   if (!memory.projectId) throw new Error("Project id is required to resolve the Coder provider.");
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
-    const conversation = store.findConversationForChange(memory.projectId, changeId);
+    const conversation = store.conversations.findConversationForChange(memory.projectId, changeId);
     if (!conversation) throw new Error(`Change ${changeId} is not bound to a Shared Conversation.`);
     return conversation;
   } finally {

@@ -2,7 +2,7 @@ import { createConcurrentChange } from "../../src/change/manager.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import type { ManagedProject } from "../../src/types/index.js";
 import { appendConversationTimelineEntry } from "../../src/workbench/chat.js";
-import { WorkbenchStore } from "../../src/workbench/store.js";
+import { openWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 
 export async function createConversationChangeFixture(
   project: ManagedProject,
@@ -15,9 +15,9 @@ export async function createConversationChangeFixture(
   const now = new Date().toISOString();
   const conversationId = `conv-${result.change.id}`;
   const graphScopeId = `graph:${conversationId}`;
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
-    store.createConversation({
+    store.conversations.createConversation({
       projectId: memory.projectId,
       conversationId,
       title: input.title,
@@ -30,7 +30,7 @@ export async function createConversationChangeFixture(
       updatedAt: now,
       deletedAt: null,
     });
-    store.acceptConversationChangeBinding(
+    store.unitOfWork.acceptConversationChangeBinding(
       memory.projectId,
       conversationId,
       result.change.id,

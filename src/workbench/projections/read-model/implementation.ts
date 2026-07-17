@@ -7,7 +7,8 @@ import { providerInteractionHistory } from "../../parent-agent-transcript.js";
 import { buildConversationInteractionQueue } from "../../conversation-interactions.js";
 import { buildConversationInteractionAttention } from "../../conversation-interactions.js";
 import { deleteConversation, hideConversation } from "../../conversation-thread.js";
-import { WorkbenchStore, type StoredProviderAttempt, type StoredProviderThreadLink } from "../../store.js";
+import { openWorkbenchDatabase } from "../../persistence/open-workbench-database.js";
+import { type StoredProviderAttempt, type StoredProviderThreadLink } from "../../persistence/contracts.js";
 import { summarizeRunArtifacts } from "../artifact-preview.js";
 import { readRunEvents } from "./thread-stream.js";
 import { buildAgentWorkspace, emptyAgentWorkspace } from "./agent-workspace.js";
@@ -348,16 +349,16 @@ async function resolveAgentGraphContext(
   requestedId?: string,
 ): Promise<{ graphScopeId: string; changeId?: string } | null> {
   if (!memory.projectId) return null;
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
-    const conversation = store.readConversation(memory.projectId, selectedTopic.id)
-      ?? store.findConversationForChange(memory.projectId, requestedId ?? selectedTopic.id);
+    const conversation = store.conversations.readConversation(memory.projectId, selectedTopic.id)
+      ?? store.conversations.findConversationForChange(memory.projectId, requestedId ?? selectedTopic.id);
     if (!conversation) return null;
     const requestedChangeId = requestedId && requestedId !== conversation.conversationId
       ? requestedId
       : undefined;
     const graphScopeId = requestedChangeId
-      ? store.findGraphScopeForChange(memory.projectId, requestedChangeId)
+      ? store.conversations.findGraphScopeForChange(memory.projectId, requestedChangeId)
       : conversation.currentGraphScopeId;
     if (!graphScopeId) return null;
     const changeId = requestedChangeId
@@ -370,10 +371,10 @@ async function resolveAgentGraphContext(
 
 async function readProviderThreads(memory: ResolvedMemory, conversationIds: string | string[]): Promise<StoredProviderThreadLink[]> {
   if (!memory.projectId) return [];
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
     const ids = [...new Set(Array.isArray(conversationIds) ? conversationIds : [conversationIds])];
-    return ids.flatMap((conversationId) => store.listProviderThreads(memory.projectId!, conversationId));
+    return ids.flatMap((conversationId) => store.providerAttempts.listProviderThreads(memory.projectId!, conversationId));
   } finally {
     store.close();
   }
@@ -381,10 +382,10 @@ async function readProviderThreads(memory: ResolvedMemory, conversationIds: stri
 
 async function readProviderAttempts(memory: ResolvedMemory, conversationIds: string | string[]): Promise<StoredProviderAttempt[]> {
   if (!memory.projectId) return [];
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
     const ids = [...new Set(Array.isArray(conversationIds) ? conversationIds : [conversationIds])];
-    return ids.flatMap((conversationId) => store.listProviderAttempts(memory.projectId!, conversationId));
+    return ids.flatMap((conversationId) => store.providerAttempts.listProviderAttempts(memory.projectId!, conversationId));
   } finally {
     store.close();
   }

@@ -7,7 +7,7 @@ import { writeJsonFile } from "../fs/json.js";
 import { resolveProjectMemory } from "../memory/resolver.js";
 import { copySkillToBridge, hashSkillDirectory, isRuntimeAssignedSkill, listSkills, type EnabledSkillRecord, type SkillListItem } from "../skill/catalog.js";
 import type { ManagedProject, RunSkillRecord } from "../types/index.js";
-import { WorkbenchStore } from "../workbench/store.js";
+import { openWorkbenchDatabase } from "../workbench/persistence/open-workbench-database.js";
 
 export const AHO_BRIDGE_VERSION = "1.0";
 
@@ -118,10 +118,10 @@ export async function bindCodexSkillCatalog(project: ManagedProject, skillsInput
   const skills = skillsInput ?? await listSkills(project);
   const nativeSkills = await listNativeCodexSkills(project);
   const memory = await resolveProjectMemory(project);
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
     const bound = skills.map((skill) => {
-      const sync = store.readBridgeSync(project.id, skill.skillId);
+      const sync = store.skills.readBridgeSync(project.id, skill.skillId);
       const ready = Boolean(sync && existsSync(sync.materializedPath) && sync.sourceHash === skill.contentHash);
       return {
         ...skill,
@@ -160,11 +160,11 @@ export async function bindCodexEnabledSkills(
   records: EnabledSkillRecord[],
 ): Promise<{ records: RunSkillRecord[]; warnings: string[] }> {
   const memory = await resolveProjectMemory(project);
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
     const warnings: string[] = [];
     const bound = records.map((record): RunSkillRecord => {
-      const sync = store.readBridgeSync(project.id, record.id);
+      const sync = store.skills.readBridgeSync(project.id, record.id);
       if (!sync || !existsSync(sync.materializedPath) || sync.sourceHash !== record.contentHash) {
         warnings.push(`Skill ${record.id} is not synced to the Codex bridge.`);
       }
@@ -223,13 +223,13 @@ export async function syncCodexBridge(project: ManagedProject): Promise<CodexBri
   await installCodexBridge();
   const paths = getCodexBridgePaths();
   const memory = await resolveProjectMemory(project);
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   const synced: CodexBridgeSyncResult["synced"] = [];
   const syncedAgents: CodexBridgeSyncResult["syncedAgents"] = [];
   try {
     await syncAgentCatalog(project);
     const skills = await listSkills(project);
-    const enablements = store.listSkillEnablement(project.id);
+    const enablements = store.skills.listSkillEnablement(project.id);
     const enabledIds = new Set(enablements.filter((item) => item.enabled && !isRuntimeAssignedSkill(item.skillId)).map((item) => item.skillId));
     const desiredManagedDirs = new Set(skills
       .filter((item) => enabledIds.has(item.skillId))
@@ -244,7 +244,7 @@ export async function syncCodexBridge(project: ManagedProject): Promise<CodexBri
       const target = join(paths.skillsRoot, materializedSkillId);
       await copySkillToBridge(skill.sourcePath, target, materializedSkillId);
       const materializedHash = await hashSkillDirectory(target);
-      store.upsertBridgeSync({
+      store.skills.upsertBridgeSync({
         projectId: project.id,
         skillId: skill.skillId,
         sourceHash: skill.contentHash,

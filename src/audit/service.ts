@@ -17,7 +17,7 @@ import type { RuntimeContinuityArtifacts } from "../runtime-continuity/types.js"
 import type { AuditResult, AuditStatus, AuditSummary, ManagedProject, ResolvedMemory, RunMetadata, RunStatus } from "../types/index.js";
 import { appendRunEvent } from "../run/events.js";
 import { buildRunId } from "../run/run-id.js";
-import { WorkbenchStore } from "../workbench/store.js";
+import { openWorkbenchDatabase } from "../workbench/persistence/open-workbench-database.js";
 import { bindProviderAttemptThread, finishProviderAttempt, startProviderAttempt } from "../workbench/provider-attempts.js";
 import { collectWorktreeDiff } from "./diff.js";
 import { listAuditResults, readAuditResult, summarizeAudit } from "./repository.js";
@@ -553,9 +553,9 @@ async function ensureProviderAuditMessage(path: string, result: ProviderTurnResu
 }
 
 async function selectedProviderForAudit(memory: ResolvedMemory, project: ManagedProject, changeId: string): Promise<string> {
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
-    const selected = store.findConversationForChange(project.id, changeId)?.selectedProviderId;
+    const selected = store.conversations.findConversationForChange(project.id, changeId)?.selectedProviderId;
     if (selected) return selected;
   } finally {
     store.close();

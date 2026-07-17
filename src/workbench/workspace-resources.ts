@@ -5,7 +5,7 @@ import { fromStoredThreadMessage } from "./conversation-thread-log.js";
 import { readProjectTextDocument } from "./file-references.js";
 import { canonicalPlanDocumentFromEntry, canonicalPlanDocumentText } from "./plan-documents.js";
 import { getWorkbenchSnapshot } from "./projections/read-model/implementation.js";
-import { WorkbenchStore } from "./store.js";
+import { openWorkbenchDatabase } from "./persistence/open-workbench-database.js";
 
 export type WorkspaceResourceTarget =
   | { kind: "agent"; conversationId: string; agentSurfaceId: string }
@@ -67,11 +67,11 @@ export async function resolveWorkspaceResource(
 
   const memory = await resolveProjectMemory(input.project);
   if (!memory.projectId) throw notFound("Plan document project is unavailable.");
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
-    const conversation = store.readConversation(memory.projectId, target.conversationId);
+    const conversation = store.conversations.readConversation(memory.projectId, target.conversationId);
     if (!conversation) throw notFound("Plan document conversation is unavailable.");
-    const entries = store.listConversationMessages(memory.projectId, target.conversationId).map(fromStoredThreadMessage);
+    const entries = store.timeline.listConversationMessages(memory.projectId, target.conversationId).map(fromStoredThreadMessage);
     const source = entries.find((entry) => canonicalPlanDocumentFromEntry(entry)?.documentId === target.documentId);
     const document = source ? canonicalPlanDocumentFromEntry(source) : null;
     const content = source && document ? canonicalPlanDocumentText(source, document) : null;

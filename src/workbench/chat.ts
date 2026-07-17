@@ -36,7 +36,9 @@ import { forwardProviderRealtimeEvent } from "./provider-live-events.js";
 import { getSingleActiveChangeId, resolveTopic } from "./topic-resolver.js";
 import { openConversationTimelineWriter } from "./conversation-thread.js";
 import { collectAllConversationThreadEntries, fromStoredThreadMessage, readConversationThread as readThreadLog } from "./conversation-thread-log.js";
-import { WorkbenchStore, type StoredTopicMessage, type StoredTopicMessageWrite } from "./store.js";
+import { openWorkbenchDatabase } from "./persistence/open-workbench-database.js";
+import type { WorkbenchDatabase } from "./persistence/database.js";
+import { type StoredTopicMessage, type StoredTopicMessageWrite } from "./persistence/contracts.js";
 import { canonicalTimelineEnvelopeFromStoredRow, type CanonicalTimelineEnvelope } from "./canonical-timeline.js";
 import { assembleSharedConversationContext } from "./shared-conversation-context.js";
 import { resolveProviderSwitchWorkflowResumeRequest, switchConversationProviderAtSafePoint, type ProviderSwitchResult } from "./provider-switch.js";
@@ -103,10 +105,10 @@ export async function createWorkbenchConversation(
     : project.defaultProviderId
     ? defaultProviderRegistry.get(project.defaultProviderId).id
     : defaultProviderRegistry.requireOnly().id;
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   let storedUserRow: StoredTopicMessage;
   try {
-    store.createConversation({
+    storedUserRow = store.unitOfWork.createConversationWithInitialMessage({
       projectId: memory.projectId,
       conversationId,
       title: input.title,
@@ -118,8 +120,7 @@ export async function createWorkbenchConversation(
       createdAt: now,
       updatedAt: now,
       deletedAt: null,
-    });
-    storedUserRow = store.appendMessage(toConversationStoredMessage(memory.projectId, conversationId, {
+    }, toConversationStoredMessage(memory.projectId, conversationId, {
       id: `user:${conversationId}:1`,
       type: "user.message",
       timestamp: now,
@@ -167,11 +168,11 @@ export async function postConversationMessage(project: ManagedProject, conversat
   let planHandoff: ValidatedPlanHandoffIntent | undefined;
   let storedUser: TopicThreadEntry = user;
   let storedUserRow: StoredTopicMessage;
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
-    const conversation = store.readConversation(memory.projectId, conversationId);
+    const conversation = store.conversations.readConversation(memory.projectId, conversationId);
     if (!conversation) throw new Error(`Conversation not found: ${conversationId}.`);
-    const existingMessages = store.listConversationMessages(memory.projectId, conversationId).map(fromStoredThreadMessage);
+    const existingMessages = store.timeline.listConversationMessages(memory.projectId, conversationId).map(fromStoredThreadMessage);
     planHandoff = validatePlanHandoffIntent(existingMessages, parsed.planHandoffIntent);
     const supersedingExecutedChange = Boolean(
       planHandoff?.kind === "revise-plan"
@@ -185,24 +186,24 @@ export async function postConversationMessage(project: ManagedProject, conversat
     );
     const terminalGraphScope = Boolean(
       conversation.currentGraphScopeId
-      && store.isConversationGraphScopeTerminal(memory.projectId, conversation.currentGraphScopeId),
+      && store.conversations.isConversationGraphScopeTerminal(memory.projectId, conversation.currentGraphScopeId),
     );
     const graphScopeId = !completedBoundChange && !supersedingExecutedChange && !terminalGraphScope && conversation.currentGraphScopeId
       ? conversation.currentGraphScopeId
       : createGraphScopeId(conversationId);
     if (graphScopeId !== conversation.currentGraphScopeId) {
-      store.startConversationGraphScope(memory.projectId, conversationId, graphScopeId, now);
+      store.unitOfWork.startConversationGraphScope(memory.projectId, conversationId, graphScopeId, now);
     }
     user = { ...user, graphScopeId, completedTurnSequence: conversation.completedTurnSequence + 1 };
     storedUser = { ...user, planHandoff };
-    storedUserRow = store.appendMessage(toConversationStoredMessage(memory.projectId, conversationId, storedUser));
+    storedUserRow = store.timeline.appendMessage(toConversationStoredMessage(memory.projectId, conversationId, storedUser));
     if (planHandoff) {
       const proposalStatus = planHandoff.kind === "revise-plan"
           ? "revision-requested"
           : planHandoff.kind === "skip-plan"
             ? "skipped"
             : null;
-      if (proposalStatus) store.updatePlanningMessageStatus(memory.projectId, conversationId, planHandoff.sourceArtifact, proposalStatus);
+      if (proposalStatus) store.interactions.updatePlanningMessageStatus(memory.projectId, conversationId, planHandoff.sourceArtifact, proposalStatus);
     }
   } finally {
     store.close();
@@ -220,9 +221,9 @@ export async function listConversationMessages(project: ManagedProject, conversa
   const memory = await resolveProjectMemory(project);
   if (!memory.projectId) return [];
   conversationId = await resolveConversationId(project, conversationId);
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
-    return store.listConversationMessages(memory.projectId, conversationId).map(fromStoredThreadMessage);
+    return store.timeline.listConversationMessages(memory.projectId, conversationId).map(fromStoredThreadMessage);
   } finally {
     store.close();
   }
@@ -232,10 +233,10 @@ export async function resolveConversationId(project: ManagedProject, targetId: s
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "Workbench conversation resolution");
   if (!memory.projectId) throw new Error("Project id is required to resolve a conversation.");
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
-    const conversation = store.readConversation(memory.projectId, targetId)
-      ?? store.readConversationByChangeId(memory.projectId, targetId);
+    const conversation = store.conversations.readConversation(memory.projectId, targetId)
+      ?? store.conversations.readConversationByChangeId(memory.projectId, targetId);
     if (!conversation) throw new Error(`Conversation not found: ${targetId}.`);
     return conversation.conversationId;
   } finally {
@@ -263,7 +264,7 @@ async function runProjectScopedMainAgentTurn(
   const directory = join(memory.workbenchRoot, "conversations", conversationId, "runs", runId);
   let mainTimelineId = `assistant:${conversationId}:pending:${runId}:main`;
   const canonicalMessageIds = new Set<string>();
-  let canonicalStore: WorkbenchStore | null = null;
+  let canonicalStore: WorkbenchDatabase | null = null;
   let canonicalPersistenceError: Error | null = null;
   let providerId = "";
   let attemptId = "";
@@ -361,16 +362,16 @@ async function runProjectScopedMainAgentTurn(
   let terminalAssistantPatch: CanonicalTimelineEnvelope | null = null;
   let planDocumentCreated = false;
   let acceptedPlanning: Awaited<ReturnType<typeof acceptCurrentConversationPlanningPackage>> | null = null;
-  const sessionStore = await WorkbenchStore.open(memory);
+  const sessionStore = await openWorkbenchDatabase(memory);
   try {
-    const conversation = sessionStore.readConversation(memory.projectId, conversationId);
+    const conversation = sessionStore.conversations.readConversation(memory.projectId, conversationId);
     if (!conversation) throw new Error(`Conversation not found: ${conversationId}.`);
     providerId = conversation.selectedProviderId;
     completedTurnSequence = conversation.completedTurnSequence;
     boundChangeId = conversation?.boundChangeId ?? null;
-    const binding = sessionStore.readConversationProviderBinding(memory.projectId, conversationId, providerId);
+    const binding = sessionStore.providerAttempts.readConversationProviderBinding(memory.projectId, conversationId, providerId);
     mainSessionId = binding?.nativeSessionId ?? null;
-    const resumePoint = sessionStore.readLatestProviderResumePoint(memory.projectId, conversationId);
+    const resumePoint = sessionStore.providerAttempts.readLatestProviderResumePoint(memory.projectId, conversationId);
     expectedResumeAttemptId = resumePoint
       && resumePoint.targetProviderId === providerId
       && resumePoint.graphScopeId === graphScopeId
@@ -404,7 +405,7 @@ async function runProjectScopedMainAgentTurn(
   const provider = resolvedProvider.descriptor;
   const capabilitySnapshot = resolvedProvider.snapshot;
   const attemptStartedAt = new Date().toISOString();
-  const attemptStore = await WorkbenchStore.open(memory);
+  const attemptStore = await openWorkbenchDatabase(memory);
   try {
     const attemptRecord = {
       projectId: memory.projectId,
@@ -432,10 +433,10 @@ async function runProjectScopedMainAgentTurn(
       && candidate.providerId === providerId
       && candidate.roleId === "main-agent"
       && candidate.operationProfile === "main")) {
-      attemptStore.completeProviderAttempt(memory.projectId, stale.attemptId, "interrupted", stale.nativeSessionId, attemptStartedAt);
+      attemptStore.providerAttempts.completeProviderAttempt(memory.projectId, stale.attemptId, "interrupted", stale.nativeSessionId, attemptStartedAt);
     }
     if (queuedResumeAttempt) {
-      attemptStore.startQueuedProviderAttempt(memory.projectId, attemptId, {
+      attemptStore.providerAttempts.startQueuedProviderAttempt(memory.projectId, attemptId, {
         capabilitySnapshot,
         handoffHash: handoff.hash,
         deliveredThroughCompletedTurn: completedTurnSequence,
@@ -443,19 +444,52 @@ async function runProjectScopedMainAgentTurn(
         updatedAt: attemptStartedAt,
       });
     } else {
-      attemptStore.createProviderAttempt(attemptRecord);
+      attemptStore.providerAttempts.createProviderAttempt(attemptRecord);
     }
   } finally {
     attemptStore.close();
   }
-  canonicalStore = await WorkbenchStore.open(memory);
+  canonicalStore = await openWorkbenchDatabase(memory);
   const liveChildAttemptIds = new Set<string>();
+  const terminalChildAttempts = new Map<string, { status: "completed" | "failed"; nativeSessionId: string }>();
   const liveChildThreadIds = new Set<string>();
+  const allChildAttemptIds = (): string[] => [
+    ...new Set([...liveChildAttemptIds, ...terminalChildAttempts.keys()]),
+  ];
+  const commitFailedProviderTurn = (database: WorkbenchDatabase, nativeSessionId: string | null): void => {
+    const failedAt = new Date().toISOString();
+    const terminal = database.unitOfWork.commitProviderTurnTerminal({
+      projectId: memory.projectId!,
+      conversationId,
+      runId,
+      mainAttemptId: attemptId,
+      mainStatus: "failed",
+      mainNativeSessionId: nativeSessionId,
+      childAttempts: allChildAttemptIds().map((childAttemptId) => ({
+        attemptId: childAttemptId,
+        status: "failed",
+        nativeSessionId: terminalChildAttempts.get(childAttemptId)?.nativeSessionId ?? null,
+      })),
+      expectedCompletedTurnSequence: completedTurnSequence,
+      advanceCompletedTurn: false,
+      binding: {
+        projectId: memory.projectId!,
+        conversationId,
+        providerId,
+        nativeSessionId: nativeSessionId ?? mainSessionId,
+        preferredModel: capabilitySnapshot.effectiveModel ? { providerId, modelId: capabilitySnapshot.effectiveModel } : null,
+        lastUsedAt: failedAt,
+        bindingStatus: "stale",
+      },
+      updatedAt: failedAt,
+    });
+    terminalInteractionRows.push(...terminal.interactionRows);
+  };
   const registerLiveChildThread = (childThreadId: string, parentThreadId: string, childRoleId: string, displayName?: string): void => {
     if (!canonicalStore || !childThreadId || !parentThreadId || liveChildThreadIds.has(childThreadId)) return;
     const childAttemptId = providerChildAttemptId(attemptId, childThreadId);
     const childProfile = providerOperationProfileForChildRole(childRoleId);
-    canonicalStore.createProviderAttempt({
+    canonicalStore.providerAttempts.createProviderAttempt({
       projectId: memory.projectId!,
       conversationId,
       attemptId: childAttemptId,
@@ -476,7 +510,7 @@ async function runProjectScopedMainAgentTurn(
       updatedAt: new Date().toISOString(),
     });
     liveChildAttemptIds.add(childAttemptId);
-    canonicalStore.bindProviderAttemptThread(memory.projectId!, {
+    canonicalStore.providerAttempts.bindProviderAttemptThread(memory.projectId!, {
       attemptId: childAttemptId,
       threadId: childThreadId,
       parentThreadId,
@@ -544,9 +578,9 @@ async function runProjectScopedMainAgentTurn(
         const accepted = await acceptCurrentConversationPlanningPackage(project, conversationId, planHandoff.sourceArtifact);
         acceptedPlanning = accepted;
         boundChangeId = accepted.changeId;
-        const acceptedStore = await WorkbenchStore.open(memory);
+        const acceptedStore = await openWorkbenchDatabase(memory);
         try {
-          acceptedStore.updatePlanningMessageStatus(memory.projectId!, conversationId, planHandoff.sourceArtifact, "accepted");
+          acceptedStore.interactions.updatePlanningMessageStatus(memory.projectId!, conversationId, planHandoff.sourceArtifact, "accepted");
         } finally {
           acceptedStore.close();
         }
@@ -688,12 +722,12 @@ async function runProjectScopedMainAgentTurn(
         if (persistence) await persistence;
         const requestKey = providerInputRequestKeys.get(resolution.requestId);
         if (!requestKey) return;
-        const resolutionStore = await WorkbenchStore.open(memory);
+        const resolutionStore = await openWorkbenchDatabase(memory);
         let row: StoredTopicMessage | null = null;
         try {
-          const current = resolutionStore.readProviderUserInputRequest(memory.projectId!, conversationId, requestKey);
+          const current = resolutionStore.interactions.readProviderUserInputRequest(memory.projectId!, conversationId, requestKey);
           if (!current || current.status !== "pending") return;
-          resolutionStore.transitionProviderUserInputRequest(
+          resolutionStore.interactions.transitionProviderUserInputRequest(
             memory.projectId!,
             conversationId,
             requestKey,
@@ -705,7 +739,7 @@ async function runProjectScopedMainAgentTurn(
             },
             new Date().toISOString(),
           );
-          row = resolutionStore.listConversationMessages(memory.projectId!, conversationId).find((message) => {
+          row = resolutionStore.timeline.listConversationMessages(memory.projectId!, conversationId).find((message) => {
             try {
               return (JSON.parse(message.rawJson) as { providerUserInput?: { requestKey?: string } }).providerUserInput?.requestKey === requestKey;
             } catch {
@@ -730,13 +764,9 @@ async function runProjectScopedMainAgentTurn(
     canonicalStore?.close();
     canonicalStore = null;
     await flushProviderInputLifecycle();
-    const failedAttemptStore = await WorkbenchStore.open(memory);
+    const failedAttemptStore = await openWorkbenchDatabase(memory);
     try {
-      terminalInteractionRows.push(...failedAttemptStore.terminalizeProviderUserInputRequests(memory.projectId, conversationId, runId, new Date().toISOString()));
-      failedAttemptStore.completeProviderAttempt(memory.projectId, attemptId, "failed", null, new Date().toISOString());
-      for (const childAttemptId of liveChildAttemptIds) {
-        failedAttemptStore.completeProviderAttempt(memory.projectId, childAttemptId, "failed", null, new Date().toISOString());
-      }
+      commitFailedProviderTurn(failedAttemptStore, null);
     } finally {
       failedAttemptStore.close();
     }
@@ -746,13 +776,9 @@ async function runProjectScopedMainAgentTurn(
     canonicalStore.close();
     canonicalStore = null;
     await flushProviderInputLifecycle();
-    const failedAttemptStore = await WorkbenchStore.open(memory);
+    const failedAttemptStore = await openWorkbenchDatabase(memory);
     try {
-      terminalInteractionRows.push(...failedAttemptStore.terminalizeProviderUserInputRequests(memory.projectId, conversationId, runId, new Date().toISOString()));
-      failedAttemptStore.completeProviderAttempt(memory.projectId, attemptId, "failed", result.session?.sessionId ?? null, new Date().toISOString());
-      for (const childAttemptId of liveChildAttemptIds) {
-        failedAttemptStore.completeProviderAttempt(memory.projectId, childAttemptId, "failed", null, new Date().toISOString());
-      }
+      commitFailedProviderTurn(failedAttemptStore, result.session?.sessionId ?? null);
     } finally {
       failedAttemptStore.close();
     }
@@ -823,9 +849,8 @@ async function runProjectScopedMainAgentTurn(
   let planReferenceMarker: TopicThreadEntry | null = null;
   if (!canonicalStore) throw new Error("Canonical conversation store closed before turn completion.");
   const store = canonicalStore;
-  const completedChildAttemptIds = new Set<string>();
   try {
-    if (result.session) store.bindProviderAttemptThread(memory.projectId, {
+    if (result.session) store.providerAttempts.bindProviderAttemptThread(memory.projectId, {
       attemptId,
       threadId: result.session.sessionId,
       parentThreadId: null,
@@ -871,20 +896,22 @@ async function runProjectScopedMainAgentTurn(
         };
         if (liveChildAttemptIds.has(childAttemptId)) {
           if (isPlannerChild) {
-            store.refineProviderAttemptSurfaceRole(memory.projectId, childAttemptId, {
+            store.providerAttempts.refineProviderAttemptSurfaceRole(memory.projectId, childAttemptId, {
               roleId: childRoleId,
               operationProfile: childProfile,
               handoffHash: childHandoffHash,
               displayName: child.displayName,
             }, childAttempt.updatedAt);
           }
-          store.completeProviderAttempt(memory.projectId, childAttemptId, childAttempt.status, child.threadId, childAttempt.updatedAt);
         } else {
-          store.createProviderAttempt(childAttempt);
+          store.providerAttempts.createProviderAttempt({ ...childAttempt, status: "running" });
         }
-        completedChildAttemptIds.add(childAttemptId);
+        terminalChildAttempts.set(childAttemptId, {
+          status: childAttempt.status,
+          nativeSessionId: child.threadId,
+        });
       }
-      store.bindProviderAttemptThread(memory.projectId, {
+      store.providerAttempts.bindProviderAttemptThread(memory.projectId, {
         attemptId: providerChildAttemptId(attemptId, child.threadId),
         threadId: child.threadId,
         parentThreadId: child.parentThreadId,
@@ -996,43 +1023,42 @@ async function runProjectScopedMainAgentTurn(
       terminalAssistantPatch = canonicalTimelineEnvelopeFromStoredRow(upsertCanonicalMessage(store, canonicalMessageIds, toConversationStoredMessage(memory.projectId, conversationId, assistant, completedTurnSequence + 1)));
     }
     await flushProviderInputLifecycle();
-    terminalInteractionRows.push(...store.terminalizeProviderUserInputRequests(memory.projectId, conversationId, runId, new Date().toISOString()));
-    for (const childAttemptId of liveChildAttemptIds) {
-      if (!completedChildAttemptIds.has(childAttemptId)) {
-        store.completeProviderAttempt(
-          memory.projectId,
-          childAttemptId,
-          result.status === "interrupted" ? "interrupted" : "failed",
-          null,
-          new Date().toISOString(),
-        );
-      }
-    }
-    store.completeProviderAttempt(memory.projectId, attemptId, result.status, result.session?.sessionId ?? null, new Date().toISOString());
-    if (result.status === "completed") {
-      completedTurnSequence = store.advanceCompletedTurnSequence(memory.projectId, conversationId, completedTurnSequence, new Date().toISOString());
-    }
-    store.writeConversationProviderBinding({
+    const terminalAt = new Date().toISOString();
+    const terminalCommit = store.unitOfWork.commitProviderTurnTerminal({
       projectId: memory.projectId,
       conversationId,
-      providerId,
-      nativeSessionId: result.session?.sessionId ?? mainSessionId,
-      lastDeliveredCompletedTurn: completedTurnSequence,
-      preferredModel: capabilitySnapshot.effectiveModel ? { providerId, modelId: capabilitySnapshot.effectiveModel } : null,
-      lastUsedAt: new Date().toISOString(),
-      bindingStatus: result.status === "failed" ? "stale" : "ready",
+      runId,
+      mainAttemptId: attemptId,
+      mainStatus: result.status,
+      mainNativeSessionId: result.session?.sessionId ?? null,
+      childAttempts: allChildAttemptIds().map((childAttemptId) => {
+        const terminal = terminalChildAttempts.get(childAttemptId);
+        return terminal
+          ? { attemptId: childAttemptId, ...terminal }
+          : {
+              attemptId: childAttemptId,
+              status: result.status === "interrupted" ? "interrupted" as const : "failed" as const,
+              nativeSessionId: null,
+            };
+      }),
+      expectedCompletedTurnSequence: completedTurnSequence,
+      advanceCompletedTurn: result.status === "completed",
+      binding: {
+        projectId: memory.projectId,
+        conversationId,
+        providerId,
+        nativeSessionId: result.session?.sessionId ?? mainSessionId,
+        preferredModel: capabilitySnapshot.effectiveModel ? { providerId, modelId: capabilitySnapshot.effectiveModel } : null,
+        lastUsedAt: terminalAt,
+        bindingStatus: result.status === "failed" ? "stale" : "ready",
+      },
+      updatedAt: terminalAt,
     });
+    terminalInteractionRows.push(...terminalCommit.interactionRows);
+    completedTurnSequence = terminalCommit.completedTurnSequence;
   } catch (error) {
-    const failedAt = new Date().toISOString();
-    for (const childAttemptId of liveChildAttemptIds) {
-      try {
-        store.completeProviderAttempt(memory.projectId, childAttemptId, "failed", null, failedAt);
-      } catch {
-        // Preserve the original canonical persistence error.
-      }
-    }
     try {
-      store.completeProviderAttempt(memory.projectId, attemptId, "failed", result.session?.sessionId ?? null, failedAt);
+      commitFailedProviderTurn(store, result.session?.sessionId ?? null);
     } catch {
       // Preserve the original canonical persistence error.
     }
@@ -1063,9 +1089,9 @@ async function runProjectScopedMainAgentTurn(
     }, live);
   }
   if (result.objective?.status === "complete") {
-    const terminalStore = await WorkbenchStore.open(memory);
+    const terminalStore = await openWorkbenchDatabase(memory);
     try {
-      terminalStore.markConversationGraphScopeTerminal(memory.projectId, conversationId, graphScopeId, new Date().toISOString());
+      terminalStore.conversations.markConversationGraphScopeTerminal(memory.projectId, conversationId, graphScopeId, new Date().toISOString());
     } finally {
       terminalStore.close();
     }
@@ -1115,9 +1141,9 @@ function projectScopedPlanningStatusMessage(conversationId: string, graphScopeId
 
 async function readProviderAttempts(memory: ResolvedMemory, conversationId: string) {
   if (!memory.projectId) return [];
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
-    return store.listProviderAttempts(memory.projectId, conversationId);
+    return store.providerAttempts.listProviderAttempts(memory.projectId, conversationId);
   } finally {
     store.close();
   }
@@ -1156,7 +1182,7 @@ function providerOperationProfileForChildRole(roleId: string | undefined): Provi
 }
 
 function persistCanonicalCapture(input: {
-  store: WorkbenchStore;
+  store: WorkbenchDatabase;
   messageIds: Set<string>;
   projectId: string;
   conversationId: string;
@@ -1264,14 +1290,14 @@ function mainCaptureTimelineStatus(capture: MainTranscriptCapture): string {
 }
 
 function upsertCanonicalMessage(
-  store: WorkbenchStore,
+  store: WorkbenchDatabase,
   messageIds: Set<string>,
   message: StoredTopicMessageWrite,
 ): StoredTopicMessage {
   if (messageIds.has(message.id)) {
-    return store.updateMessage(message);
+    return store.timeline.updateMessage(message);
   }
-  const stored = store.appendMessage(message);
+  const stored = store.timeline.appendMessage(message);
   messageIds.add(message.id);
   return stored;
 }
@@ -1299,9 +1325,9 @@ function createGraphScopeId(conversationId: string): string {
 
 async function currentConversationGraphScope(memory: ResolvedMemory, conversationId: string): Promise<string> {
   if (!memory.projectId) throw new Error("Project id is required to resolve graph scope.");
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
-    const graphScopeId = store.readConversation(memory.projectId, conversationId)?.currentGraphScopeId;
+    const graphScopeId = store.conversations.readConversation(memory.projectId, conversationId)?.currentGraphScopeId;
     if (!graphScopeId) throw new Error("The current conversation has no Agent graph scope.");
     return graphScopeId;
   } finally {
@@ -1580,11 +1606,11 @@ export async function resumeNativeGoalAfterAction(input: {
   const { memory, changePath } = await resolveTopic(input.project, input.changeId);
   const conversationId = await resolveConversationId(input.project, input.changeId);
   if (!memory.projectId) return;
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
-    const conversation = store.readConversation(memory.projectId, conversationId);
-    const link = conversation ? store.readProviderThread(memory.projectId, conversationId, conversation.selectedProviderId, "main-agent") : null;
-    const attempt = link ? store.readProviderAttempt(memory.projectId, link.attemptId) : null;
+    const conversation = store.conversations.readConversation(memory.projectId, conversationId);
+    const link = conversation ? store.providerAttempts.readProviderThread(memory.projectId, conversationId, conversation.selectedProviderId, "main-agent") : null;
+    const attempt = link ? store.providerAttempts.readProviderAttempt(memory.projectId, link.attemptId) : null;
     if (!link || attempt?.operationProfile !== "main" || attempt.roleId !== "main-agent") return;
   } finally {
     store.close();
@@ -1780,9 +1806,9 @@ async function persistProviderUserInputRequest(
     status: request.status,
     providerUserInput: request,
   };
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
-    return store.appendMessage(toConversationStoredMessage(memory.projectId, request.conversationId, entry));
+    return store.timeline.appendMessage(toConversationStoredMessage(memory.projectId, request.conversationId, entry));
   } finally {
     store.close();
   }

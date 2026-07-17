@@ -15,7 +15,7 @@ import { writeJsonFile } from "../../fs/json.js";
 import { readRequiredJsonFile } from "../../fs/json.js";
 import { resolveProjectMemory } from "../../memory/resolver.js";
 import type { ManagedProject } from "../../types/index.js";
-import { WorkbenchStore } from "../store.js";
+import { openWorkbenchDatabase } from "../persistence/open-workbench-database.js";
 
 const plannerChildOutputSchema = z.object({
   status: z.enum(["proposed", "blocked", "failed"]).default("proposed"),
@@ -162,10 +162,10 @@ async function acceptCurrentConversationPlanningPackageUnlocked(
   const memory = await resolveProjectMemory(project);
   if (!memory.projectId) throw new Error("Project id is required to accept a conversation planning package.");
   const input = await validateCurrentConversationPlanningPackage(memory, conversationId, proposalArtifact);
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
     const commitPort: PlanningAcceptanceCommitPort = {
-      hasCommit: (transactionId) => store.hasPlanningAcceptanceCommit(transactionId),
+      hasCommit: (transactionId) => store.conversations.hasPlanningAcceptanceCommit(transactionId),
       commit: (commit) => {
         const scopeTransition = commit.newGraphScopeRequired
           ? {
@@ -174,7 +174,7 @@ async function acceptCurrentConversationPlanningPackageUnlocked(
               plannerThreadId: commit.plannerThreadId,
             }
           : undefined;
-        store.acceptConversationChangeBinding(
+        store.unitOfWork.acceptConversationChangeBinding(
           commit.projectId,
           commit.conversationId,
           commit.changeId,
@@ -184,7 +184,7 @@ async function acceptCurrentConversationPlanningPackageUnlocked(
           scopeTransition,
         );
       },
-      deleteCommit: (transactionId) => store.deletePlanningAcceptanceCommit(transactionId),
+      deleteCommit: (transactionId) => store.conversations.deletePlanningAcceptanceCommit(transactionId),
     };
     return await acceptPlanningPackage(project, input, commitPort);
   } finally {
@@ -217,16 +217,16 @@ async function validateCurrentConversationPlanningPackage(
     throw new Error("Only a complete proposed planner result with no open questions can be accepted.");
   }
 
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
-    const conversation = store.readConversation(projectId, conversationId);
+    const conversation = store.conversations.readConversation(projectId, conversationId);
     if (!conversation) throw new Error(`Conversation not found: ${conversationId}.`);
-    const lineage = store.listProviderThreads(projectId, conversationId)
+    const lineage = store.providerAttempts.listProviderThreads(projectId, conversationId)
       .filter((link) => link.providerThreadId === proposal.childThreadId && link.roleId === "planning-agent")
       .flatMap((childThread) => {
         const providerId = childThread.providerId;
         return providerId
-          ? [{ childThread, mainThread: store.readProviderThread(projectId, conversationId, providerId, "main-agent") }]
+          ? [{ childThread, mainThread: store.providerAttempts.readProviderThread(projectId, conversationId, providerId, "main-agent") }]
           : [];
       })
       .filter(({ childThread, mainThread }) => mainThread
@@ -235,7 +235,7 @@ async function validateCurrentConversationPlanningPackage(
     if (lineage.length !== 1) {
       throw new Error("Planner proposal does not belong to the current Main/child provider lineage.");
     }
-    const latestProposalArtifact = store.listConversationMessages(projectId, conversationId)
+    const latestProposalArtifact = store.timeline.listConversationMessages(projectId, conversationId)
       .filter((message) => storedAgentRoleId(message.rawJson) === "planning-agent")
       .at(-1)?.artifact;
     if (latestProposalArtifact !== proposal.artifact) throw new Error("Planner proposal is stale or superseded.");

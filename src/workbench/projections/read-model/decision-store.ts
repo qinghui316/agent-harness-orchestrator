@@ -1,12 +1,13 @@
 import type { ResolvedMemory } from "../../../types/index.js";
 import type { WorkbenchDecisionItem } from "../../read-model-types.js";
-import { WorkbenchStore, type StoredDecisionRecord } from "../../store.js";
+import { openWorkbenchDatabase } from "../../persistence/open-workbench-database.js";
+import { type StoredDecisionRecord } from "../../persistence/contracts.js";
 
 export async function listWorkbenchDecisions(memory: ResolvedMemory, topicId?: string): Promise<WorkbenchDecisionItem[]> {
   if (!memory.projectId) return [];
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
-    return store.listDecisions(memory.projectId, topicId).slice(0, 20).map(mapDecisionRecord);
+    return store.decisions.listDecisions(memory.projectId, topicId).slice(0, 20).map(mapDecisionRecord);
   } finally {
     store.close();
   }

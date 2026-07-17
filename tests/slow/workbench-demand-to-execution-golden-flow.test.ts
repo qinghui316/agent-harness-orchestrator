@@ -9,7 +9,7 @@ import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import { createWorkbenchConversation } from "../../src/workbench/chat.js";
 import { getWorkbenchSnapshot } from "../../src/workbench/manager.js";
 import { acceptCurrentConversationPlanningPackage, writePlannerChildProposal } from "../../src/workbench/planning/planner-child-proposal.js";
-import { WorkbenchStore } from "../../src/workbench/store.js";
+import { openWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import {
   createFakeCodex,
   getTempDir,
@@ -70,12 +70,12 @@ describe("workbench accepted-graph-to-execution runtime flow", () => {
         parentThreadId,
         childThreadId,
       });
-      const store = await WorkbenchStore.open(memory);
+      const store = await openWorkbenchDatabase(memory);
       try {
         const now = new Date().toISOString();
         bindProviderThreadFixture(store, { projectId: project().id, conversationId: conversation.conversationId, providerId: "codex", providerThreadId: parentThreadId, roleId: "main-agent", parentThreadId: null, changeId: null, graphScopeId: conversation.graphScopeId ?? null, capabilityProfile: "main-agent-goal-v1", updatedAt: now });
         bindProviderThreadFixture(store, { projectId: project().id, conversationId: conversation.conversationId, providerId: "codex", providerThreadId: childThreadId, roleId: "planning-agent", parentThreadId, changeId: null, graphScopeId: conversation.graphScopeId ?? null, capabilityProfile: "planner-child-v1", updatedAt: now });
-        store.appendMessage({
+        store.timeline.appendMessage({
           id: `assistant:${conversation.conversationId}:${runId}:${childThreadId}`,
           projectId: project().id,
           conversationId: conversation.conversationId,

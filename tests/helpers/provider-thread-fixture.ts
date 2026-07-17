@@ -1,5 +1,6 @@
 import type { ProviderCapabilitySnapshot, ProviderOperationProfile } from "../../src/provider-runtime/index.js";
-import { WorkbenchStore, type StoredProviderThreadLink } from "../../src/workbench/store.js";
+import type { WorkbenchDatabase } from "../../src/workbench/persistence/database.js";
+import { type StoredProviderThreadLink } from "../../src/workbench/persistence/contracts.js";
 
 type ProviderThreadFixture = Omit<StoredProviderThreadLink, "attemptId" | "runId"> & {
   attemptId?: string;
@@ -8,14 +9,14 @@ type ProviderThreadFixture = Omit<StoredProviderThreadLink, "attemptId" | "runId
 
 let fixtureAttemptSequence = 0;
 
-export function bindProviderThreadFixture(store: WorkbenchStore, link: ProviderThreadFixture): StoredProviderThreadLink {
+export function bindProviderThreadFixture(store: WorkbenchDatabase, link: ProviderThreadFixture): StoredProviderThreadLink {
   const baseAttemptId = link.attemptId ?? link.runId ?? `fixture:${link.providerId}:${link.providerThreadId}`;
-  const attemptId = store.readProviderAttempt(link.projectId, baseAttemptId)
+  const attemptId = store.providerAttempts.readProviderAttempt(link.projectId, baseAttemptId)
     ? `${baseAttemptId}:resume:${++fixtureAttemptSequence}`
     : baseAttemptId;
   const now = link.updatedAt;
-  const conversation = store.readConversation(link.projectId, link.conversationId);
-  store.createProviderAttempt({
+  const conversation = store.conversations.readConversation(link.projectId, link.conversationId);
+  store.providerAttempts.createProviderAttempt({
     projectId: link.projectId,
     conversationId: link.conversationId,
     attemptId,
@@ -35,13 +36,13 @@ export function bindProviderThreadFixture(store: WorkbenchStore, link: ProviderT
     createdAt: now,
     updatedAt: now,
   });
-  const bound = store.bindProviderAttemptThread(link.projectId, {
+  const bound = store.providerAttempts.bindProviderAttemptThread(link.projectId, {
     attemptId,
     threadId: link.providerThreadId,
     parentThreadId: link.parentThreadId,
     displayName: link.displayName,
   }, now);
-  store.completeProviderAttempt(link.projectId, attemptId, "completed", link.providerThreadId, now);
+  store.providerAttempts.completeProviderAttempt(link.projectId, attemptId, "completed", link.providerThreadId, now);
   return bound;
 }
 

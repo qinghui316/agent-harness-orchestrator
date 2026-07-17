@@ -43,7 +43,7 @@ describe("Workbench module boundaries", () => {
   });
 
   it("keeps Change acceptance independent of Workbench, web, and server storage", () => {
-    const output = rgOutput(["-n", "workbench|src/web|src/server|WorkbenchStore", "src/change"]);
+    const output = rgOutput(["-n", "workbench|src/web|src/server", "src/change"]);
     expect(output.trim()).toBe("");
   });
 

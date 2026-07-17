@@ -8,7 +8,7 @@ import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import type { ManagedProject } from "../../src/types/index.js";
 import { createWorkbenchConversation } from "../../src/workbench/chat.js";
 import { acceptCurrentConversationPlanningPackage, writePlannerChildProposal } from "../../src/workbench/planning/planner-child-proposal.js";
-import { WorkbenchStore } from "../../src/workbench/store.js";
+import { openWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import { startOrResumeTaskQueue } from "../../src/task-queue/manager.js";
 import { issueLocalExecutionAuthorization, readExecutionAuthorization } from "../../src/workflow-runtime/execution-authorization.js";
 import { bindProviderThreadFixture } from "../helpers/provider-thread-fixture.js";
@@ -26,14 +26,14 @@ describe("conversation planner-child package acceptance", () => {
   it("rolls back a superseding graph scope when the acceptance commit fails", async () => {
     const conversation = await createWorkbenchConversation(project(), { title: "Atomic graph acceptance", body: "Plan it." }, undefined, { runMainAgent: false });
     const memory = await resolveProjectMemory(project());
-    const store = await WorkbenchStore.open(memory);
+    const store = await openWorkbenchDatabase(memory);
     try {
-      const oldScope = store.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? "";
-      store.acceptConversationChangeBinding(project().id, conversation.conversationId, "old-change", new Date().toISOString(), "duplicate-commit", "hash-old");
+      const oldScope = store.conversations.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? "";
+      store.unitOfWork.acceptConversationChangeBinding(project().id, conversation.conversationId, "old-change", new Date().toISOString(), "duplicate-commit", "hash-old");
       bindProviderThreadFixture(store, { projectId: project().id, conversationId: conversation.conversationId, providerId: "codex", providerThreadId: "parent-atomic", roleId: "main-agent", parentThreadId: null, changeId: "old-change", graphScopeId: oldScope, capabilityProfile: "main-agent-goal-v1", updatedAt: new Date().toISOString() });
       bindProviderThreadFixture(store, { projectId: project().id, conversationId: conversation.conversationId, providerId: "codex", providerThreadId: "child-atomic", roleId: "planning-agent", parentThreadId: "parent-atomic", changeId: "old-change", graphScopeId: oldScope, capabilityProfile: "planner-child-v1", runId: "run-atomic", updatedAt: new Date().toISOString() });
 
-      expect(() => store.acceptConversationChangeBinding(
+      expect(() => store.unitOfWork.acceptConversationChangeBinding(
         project().id,
         conversation.conversationId,
         "new-change",
@@ -43,12 +43,12 @@ describe("conversation planner-child package acceptance", () => {
         { graphScopeId: "graph:new-atomic", runId: "run-atomic", plannerThreadId: "child-atomic" },
       )).toThrow();
 
-      expect(store.readConversation(project().id, conversation.conversationId)).toMatchObject({
+      expect(store.conversations.readConversation(project().id, conversation.conversationId)).toMatchObject({
         boundChangeId: "old-change",
         currentGraphScopeId: oldScope,
       });
-      expect(store.findChangeForGraphScope(project().id, oldScope)).toBe("old-change");
-      expect(store.findChangeForGraphScope(project().id, "graph:new-atomic")).toBeNull();
+      expect(store.conversations.findChangeForGraphScope(project().id, oldScope)).toBe("old-change");
+      expect(store.conversations.findChangeForGraphScope(project().id, "graph:new-atomic")).toBeNull();
     } finally {
       store.close();
     }
@@ -76,7 +76,7 @@ describe("conversation planner-child package acceptance", () => {
     const conversation = await createWorkbenchConversation(project(), { title: "Add a health endpoint", body: "Add GET /health and test it." }, undefined, { runMainAgent: false });
     const memory = await resolveProjectMemory(project());
     const proposal = await proposalFor(memory.workbenchRoot, conversation.conversationId, "Return ok.");
-    const beforeAcceptance = await WorkbenchStore.open(memory);
+    const beforeAcceptance = await openWorkbenchDatabase(memory);
     bindProviderThreadFixture(beforeAcceptance, {
       projectId: project().id,
       conversationId: conversation.conversationId,
@@ -114,13 +114,13 @@ describe("conversation planner-child package acceptance", () => {
     const queue = await startOrResumeTaskQueue(project(), { changeId: accepted.changeId, workflowGraphPlanId: accepted.workflowGraphPlan.id });
     expect(queue).toMatchObject({ resumed: false, queue: { workflowGraphPlanId: accepted.workflowGraphPlan.id }, items: [{ taskId: "T-001" }] });
 
-    const store = await WorkbenchStore.open(memory);
+    const store = await openWorkbenchDatabase(memory);
     try {
-      expect(store.listConversationChangeIds(project().id, conversation.conversationId)).toEqual([accepted.changeId]);
-      const acceptedScope = store.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? null;
-      expect(store.findGraphScopeForChange(project().id, accepted.changeId)).toBe(acceptedScope);
-      expect(acceptedScope && store.findChangeForGraphScope(project().id, acceptedScope)).toBe(accepted.changeId);
-      const links = new Map(store.listProviderThreads(project().id, conversation.conversationId).map((link) => [link.providerThreadId, link]));
+      expect(store.conversations.listConversationChangeIds(project().id, conversation.conversationId)).toEqual([accepted.changeId]);
+      const acceptedScope = store.conversations.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? null;
+      expect(store.conversations.findGraphScopeForChange(project().id, accepted.changeId)).toBe(acceptedScope);
+      expect(acceptedScope && store.conversations.findChangeForGraphScope(project().id, acceptedScope)).toBe(accepted.changeId);
+      const links = new Map(store.providerAttempts.listProviderThreads(project().id, conversation.conversationId).map((link) => [link.providerThreadId, link]));
       expect(links.get("child-1")?.changeId).toBe(accepted.changeId);
       expect(links.get("old-scope-child")?.changeId).toBeNull();
     } finally {
@@ -185,9 +185,9 @@ describe("conversation planner-child package acceptance", () => {
     const conversation = await createWorkbenchConversation(project(), { title: "Traversal", body: "Plan it." }, undefined, { runMainAgent: false });
     const memory = await resolveProjectMemory(project());
     const proposal = await proposalFor(memory.workbenchRoot, conversation.conversationId, "Return ok.");
-    const store = await WorkbenchStore.open(memory);
+    const store = await openWorkbenchDatabase(memory);
     try {
-      store.acceptConversationChangeBinding(project().id, conversation.conversationId, "..\\escaped", new Date().toISOString(), "malicious-binding", proposal.hash);
+      store.unitOfWork.acceptConversationChangeBinding(project().id, conversation.conversationId, "..\\escaped", new Date().toISOString(), "malicious-binding", proposal.hash);
     } finally {
       store.close();
     }
@@ -200,8 +200,8 @@ describe("conversation planner-child package acceptance", () => {
     const memory = await resolveProjectMemory(project());
     const first = await proposalFor(memory.workbenchRoot, conversation.conversationId, "Return ok.");
     const accepted = await acceptCurrentConversationPlanningPackage(project(), conversation.conversationId, first.artifact);
-    const firstStore = await WorkbenchStore.open(memory);
-    const firstScope = firstStore.findGraphScopeForChange(project().id, accepted.changeId);
+    const firstStore = await openWorkbenchDatabase(memory);
+    const firstScope = firstStore.conversations.findGraphScopeForChange(project().id, accepted.changeId);
     firstStore.close();
     await startOrResumeTaskQueue(project(), { changeId: accepted.changeId, workflowGraphPlanId: accepted.workflowGraphPlan.id });
     const second = await proposalFor(memory.workbenchRoot, conversation.conversationId, "Return healthy.", "run-2", "child-2");
@@ -211,13 +211,13 @@ describe("conversation planner-child package acceptance", () => {
     expect(revised.changeId).not.toBe(accepted.changeId);
     expect(existsSync(join(memory.changesRoot, "active", accepted.changeId))).toBe(true);
     expect(await readFile(join(memory.changesRoot, "active", revised.changeId, "plan.md"), "utf8")).toContain("Return healthy.");
-    const revisedStore = await WorkbenchStore.open(memory);
+    const revisedStore = await openWorkbenchDatabase(memory);
     try {
-      const revisedScope = revisedStore.findGraphScopeForChange(project().id, revised.changeId);
+      const revisedScope = revisedStore.conversations.findGraphScopeForChange(project().id, revised.changeId);
       expect(revisedScope).toBeTruthy();
       expect(revisedScope).not.toBe(firstScope);
-      expect(revisedStore.findChangeForGraphScope(project().id, firstScope!)).toBe(accepted.changeId);
-      expect(revisedStore.findChangeForGraphScope(project().id, revisedScope!)).toBe(revised.changeId);
+      expect(revisedStore.conversations.findChangeForGraphScope(project().id, firstScope!)).toBe(accepted.changeId);
+      expect(revisedStore.conversations.findChangeForGraphScope(project().id, revisedScope!)).toBe(revised.changeId);
     } finally {
       revisedStore.close();
     }
@@ -285,9 +285,9 @@ describe("conversation planner-child package acceptance", () => {
       backupPath,
       replacing: true,
     }), "utf8");
-    const store = await WorkbenchStore.open(memory);
+    const store = await openWorkbenchDatabase(memory);
     try {
-      store.acceptConversationChangeBinding(project().id, conversation.conversationId, accepted.changeId, new Date().toISOString(), "crash-after-db", proposal.hash);
+      store.unitOfWork.acceptConversationChangeBinding(project().id, conversation.conversationId, accepted.changeId, new Date().toISOString(), "crash-after-db", proposal.hash);
     } finally {
       store.close();
     }
@@ -320,13 +320,13 @@ async function proposalFor(workbenchRoot: string, conversationId: string, prompt
     childThreadId,
   });
   const memory = await resolveProjectMemory(project());
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   const now = new Date().toISOString();
   try {
-    const graphScopeId = store.readConversation(project().id, conversationId)?.currentGraphScopeId ?? null;
+    const graphScopeId = store.conversations.readConversation(project().id, conversationId)?.currentGraphScopeId ?? null;
     bindProviderThreadFixture(store, { projectId: project().id, conversationId, providerId, providerThreadId: "parent-1", roleId: "main-agent", parentThreadId: null, changeId: null, graphScopeId, capabilityProfile: "main-agent-goal-v1", updatedAt: now });
     bindProviderThreadFixture(store, { projectId: project().id, conversationId, providerId, providerThreadId: childThreadId, roleId: "planning-agent", parentThreadId: "parent-1", changeId: null, graphScopeId, capabilityProfile: "planner-child-v1", updatedAt: now });
-    store.appendMessage({
+    store.timeline.appendMessage({
       id: `assistant:${conversationId}:${runId}:${childThreadId}`,
       projectId: project().id,
       conversationId,

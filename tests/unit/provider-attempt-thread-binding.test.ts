@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { repoLocalMemory } from "../../src/memory/resolver.js";
 import type { ProviderCapabilitySnapshot } from "../../src/provider-runtime/index.js";
 import { bindProviderAttemptThread, finishProviderAttempt, startProviderAttempt } from "../../src/workbench/provider-attempts.js";
-import { WorkbenchStore } from "../../src/workbench/store.js";
+import { openWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 
 let root: string;
 const projectId = "provider-thread-owner";
@@ -48,10 +48,10 @@ describe("ProviderAttempt-owned thread binding", () => {
       runId: "attempt-1",
     });
     expect(second.displayName).toBe("Coder");
-    const store = await WorkbenchStore.open(memory);
+    const store = await openWorkbenchDatabase(memory);
     try {
-      expect(store.listProviderThreads(projectId, "conversation-1")).toHaveLength(1);
-      expect(store.listProviderAttempts(projectId, "conversation-1")[0]?.nativeSessionId).toBe("thread-1");
+      expect(store.providerAttempts.listProviderThreads(projectId, "conversation-1")).toHaveLength(1);
+      expect(store.providerAttempts.listProviderAttempts(projectId, "conversation-1")[0]?.nativeSessionId).toBe("thread-1");
     } finally {
       store.close();
     }
@@ -92,11 +92,11 @@ describe("ProviderAttempt-owned thread binding", () => {
 
     expect(resumed).toMatchObject({ attemptId: "attempt-2", providerThreadId: "thread-1", displayName: "Resumed coder", runId: "attempt-2" });
     await finishProviderAttempt(memory, "attempt-2", "completed", "thread-1");
-    const store = await WorkbenchStore.open(memory);
+    const store = await openWorkbenchDatabase(memory);
     try {
-      expect(store.listProviderThreads(projectId, "conversation-1")).toHaveLength(1);
-      expect(store.listProviderThreads(projectId, "conversation-1")[0]?.parentThreadId).toBe("parent-1");
-      expect(store.listProviderAttempts(projectId, "conversation-1").find((attempt) => attempt.attemptId === "attempt-2")).toMatchObject({
+      expect(store.providerAttempts.listProviderThreads(projectId, "conversation-1")).toHaveLength(1);
+      expect(store.providerAttempts.listProviderThreads(projectId, "conversation-1")[0]?.parentThreadId).toBe("parent-1");
+      expect(store.providerAttempts.listProviderAttempts(projectId, "conversation-1").find((attempt) => attempt.attemptId === "attempt-2")).toMatchObject({
         nativeSessionId: "thread-1",
         status: "completed",
       });
@@ -115,12 +115,12 @@ describe("ProviderAttempt-owned thread binding", () => {
       displayName: "Terminal coder",
     });
 
-    const store = await WorkbenchStore.open(memory);
+    const store = await openWorkbenchDatabase(memory);
     try {
-      expect(store.listProviderThreads(projectId, "conversation-1")).toEqual([
+      expect(store.providerAttempts.listProviderThreads(projectId, "conversation-1")).toEqual([
         expect.objectContaining({ attemptId: "attempt-terminal", providerThreadId: "thread-terminal", parentThreadId: "parent-terminal" }),
       ]);
-      expect(store.listProviderAttempts(projectId, "conversation-1")[0]).toMatchObject({ status: "completed", nativeSessionId: "thread-terminal" });
+      expect(store.providerAttempts.listProviderAttempts(projectId, "conversation-1")[0]).toMatchObject({ status: "completed", nativeSessionId: "thread-terminal" });
     } finally {
       store.close();
     }
@@ -144,15 +144,15 @@ describe("ProviderAttempt-owned thread binding", () => {
     })).resolves.toBeNull();
     await finishProviderAttempt(memory, "attempt-cli", "completed", "thread-cli");
 
-    const store = await WorkbenchStore.open(memory);
+    const store = await openWorkbenchDatabase(memory);
     try {
-      expect(store.readProviderAttempt(projectId, "attempt-cli")).toMatchObject({
+      expect(store.providerAttempts.readProviderAttempt(projectId, "attempt-cli")).toMatchObject({
         conversationId: null,
         graphScopeId: null,
         nativeSessionId: "thread-cli",
         status: "completed",
       });
-      expect(store.listProviderThreads(projectId, "conversation-cli")).toEqual([]);
+      expect(store.providerAttempts.listProviderThreads(projectId, "conversation-cli")).toEqual([]);
     } finally {
       store.close();
     }
@@ -160,10 +160,10 @@ describe("ProviderAttempt-owned thread binding", () => {
 });
 
 async function seedConversation(memory: ReturnType<typeof repoLocalMemory>): Promise<void> {
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
     const now = new Date().toISOString();
-    store.createConversation({
+    store.conversations.createConversation({
       projectId,
       conversationId: "conversation-1",
       title: "Provider thread owner",

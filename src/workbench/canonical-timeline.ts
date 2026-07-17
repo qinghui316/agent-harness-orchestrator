@@ -3,7 +3,8 @@ import { canonicalTranscriptCellsFromThreadItem } from "./parent-agent-transcrip
 import type { WorkbenchProjectInput } from "./read-model-types.js";
 import { resolveWorkbenchMemory } from "./projections/read-model/support.js";
 import { fromStoredThreadMessage } from "./conversation-thread-log.js";
-import { WorkbenchStore, type StoredTopicMessage } from "./store.js";
+import { openWorkbenchDatabase } from "./persistence/open-workbench-database.js";
+import { type StoredTopicMessage } from "./persistence/contracts.js";
 
 export interface CanonicalTimelineScope {
   projectId: string;
@@ -58,10 +59,10 @@ export async function getCanonicalTimelinePage(
   if (!memory.supported || !memory.projectId) throw notFound(`Conversation not found: ${conversationId}.`);
   const scope = { projectId: memory.projectId, conversationId, agentSurfaceId };
   const limit = normalizePageLimit(options.limit);
-  const store = await WorkbenchStore.open(memory);
+  const store = await openWorkbenchDatabase(memory);
   try {
     const cursor = options.beforeCursor ? decodeCanonicalTimelineCursor(options.beforeCursor, scope) : undefined;
-    const snapshot = store.readTimelineSurfacePageSnapshot(scope.projectId, conversationId, agentSurfaceId, {
+    const snapshot = store.timeline.readTimelineSurfacePageSnapshot(scope.projectId, conversationId, agentSurfaceId, {
       beforePosition: cursor?.beforePosition,
       limit,
     });

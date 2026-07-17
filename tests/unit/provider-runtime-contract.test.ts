@@ -10,7 +10,7 @@ import { PROVIDER_OPERATION_CAPABILITIES, type ProviderCapabilityKey, type Provi
 import type { ManagedProject } from "../../src/types/index.js";
 import { requiredProfilesForResume, switchConversationProviderAtSafePoint, workflowResumeRequestFromHandoff } from "../../src/workbench/provider-switch.js";
 import { assembleSharedConversationContext } from "../../src/workbench/shared-conversation-context.js";
-import { WorkbenchStore } from "../../src/workbench/store.js";
+import { openWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import { claimAgentTask, createAgentTask } from "../../src/agent-task/manager.js";
 import { acquireWorkbenchRuntimeMutationLock } from "../../src/workbench/schema-rebuild-gate.js";
 import { resolveProjectSkillProvider } from "../../src/server/workbench/api-router.js";
@@ -96,9 +96,9 @@ describe("provider-neutral runtime contract", () => {
     registry.register(fakeProvider("beta"));
     const project = managedProject(root);
     const memory = repoLocalMemory(root, project.id);
-    const store = await WorkbenchStore.open(memory);
+    const store = await openWorkbenchDatabase(memory);
     try {
-      store.createConversation({
+      store.conversations.createConversation({
         projectId: project.id,
         conversationId: "conversation-1",
         title: "Provider switch",
@@ -111,7 +111,7 @@ describe("provider-neutral runtime contract", () => {
         updatedAt: now,
         deletedAt: null,
       });
-      store.writeConversationProviderBinding({
+      store.providerAttempts.writeConversationProviderBinding({
         projectId: project.id,
         conversationId: "conversation-1",
         providerId: "alpha",
@@ -121,7 +121,7 @@ describe("provider-neutral runtime contract", () => {
         lastUsedAt: now,
         bindingStatus: "ready",
       });
-      store.createProviderAttempt({
+      store.providerAttempts.createProviderAttempt({
         projectId: project.id,
         conversationId: "conversation-1",
         attemptId: "alpha-attempt",
@@ -155,17 +155,17 @@ describe("provider-neutral runtime contract", () => {
 
     expect(interrupted).toBe(true);
     expect(result).toMatchObject({ previousProviderId: "alpha", selectedProviderId: "beta", graphScopeId: "graph-1" });
-    const verified = await WorkbenchStore.open(memory);
+    const verified = await openWorkbenchDatabase(memory);
     try {
-      expect(verified.readConversation(project.id, "conversation-1")?.selectedProviderId).toBe("beta");
-      expect(verified.readConversationProviderBinding(project.id, "conversation-1", "beta")).toMatchObject({ nativeSessionId: null, bindingStatus: "ready" });
-      expect(verified.readLatestProviderResumePoint(project.id, "conversation-1")).toMatchObject({
+      expect(verified.conversations.readConversation(project.id, "conversation-1")?.selectedProviderId).toBe("beta");
+      expect(verified.providerAttempts.readConversationProviderBinding(project.id, "conversation-1", "beta")).toMatchObject({ nativeSessionId: null, bindingStatus: "ready" });
+      expect(verified.providerAttempts.readLatestProviderResumePoint(project.id, "conversation-1")).toMatchObject({
         resumePointId: result.resumePointId,
         snapshotHash: result.resumePointHash,
         previousProviderId: "alpha",
         targetProviderId: "beta",
       });
-      expect(verified.listProviderAttempts(project.id, "conversation-1")).toEqual([
+      expect(verified.providerAttempts.listProviderAttempts(project.id, "conversation-1")).toEqual([
         expect.objectContaining({
           attemptId: "alpha-attempt",
           providerId: "alpha",
@@ -192,16 +192,16 @@ describe("provider-neutral runtime contract", () => {
       currentUserMessage: "继续当前节点",
     });
     expect(handoff.snapshot.resumePoint).toMatchObject({ hash: result.resumePointHash, targetProviderId: "beta" });
-    const claimStore = await WorkbenchStore.open(memory);
+    const claimStore = await openWorkbenchDatabase(memory);
     try {
-      claimStore.startQueuedProviderAttempt(project.id, result.resumeAttemptId, {
+      claimStore.providerAttempts.startQueuedProviderAttempt(project.id, result.resumeAttemptId, {
         capabilitySnapshot: await registry.get("beta").capabilitySnapshot(project, project.path),
         handoffHash: handoff.hash,
         deliveredThroughCompletedTurn: 0,
         model: null,
         updatedAt: new Date().toISOString(),
       });
-      expect(claimStore.listProviderAttempts(project.id, "conversation-1")).toEqual([
+      expect(claimStore.providerAttempts.listProviderAttempts(project.id, "conversation-1")).toEqual([
         expect.objectContaining({
           attemptId: "alpha-attempt",
           providerId: "alpha",
@@ -243,10 +243,10 @@ describe("provider-neutral runtime contract", () => {
   it("delivers only unseen completed canonical turns to each provider binding", async () => {
     const project = managedProject(root);
     const memory = repoLocalMemory(root, project.id);
-    const store = await WorkbenchStore.open(memory);
+    const store = await openWorkbenchDatabase(memory);
     const now = new Date().toISOString();
     try {
-      store.createConversation({
+      store.conversations.createConversation({
         projectId: project.id,
         conversationId: "conversation-sync",
         title: "Shared timeline",
@@ -259,7 +259,7 @@ describe("provider-neutral runtime contract", () => {
         updatedAt: now,
         deletedAt: null,
       });
-      store.writeConversationProviderBinding({
+      store.providerAttempts.writeConversationProviderBinding({
         projectId: project.id,
         conversationId: "conversation-sync",
         providerId: "alpha",
@@ -276,7 +276,7 @@ describe("provider-neutral runtime contract", () => {
         ["assistant-2", "assistant.message", "第二轮回答", 2],
         ["user-3", "user.message", "仍在运行的第三轮", 3],
       ] as const) {
-        store.appendMessage({
+        store.timeline.appendMessage({
           id,
           projectId: project.id,
           conversationId: "conversation-sync",
@@ -318,7 +318,7 @@ describe("provider-neutral runtime contract", () => {
     db.pragma("user_version = 2");
     db.close();
 
-    await expect(WorkbenchStore.open(memory)).rejects.toThrow("模型执行尚未结束");
+    await expect(openWorkbenchDatabase(memory)).rejects.toThrow("模型执行尚未结束");
   });
 
   it("refuses a schema rebuild while any registered provider turn is active", async () => {
@@ -346,7 +346,7 @@ describe("provider-neutral runtime contract", () => {
     db.pragma("user_version = 2");
     db.close();
 
-    await expect(WorkbenchStore.open(memory, { providerRegistry: registry })).rejects.toThrow("provider turn 正在运行");
+    await expect(openWorkbenchDatabase(memory, { providerRegistry: registry })).rejects.toThrow("provider turn 正在运行");
   });
 
   it("refuses a schema rebuild while a background AgentTask is running", async () => {
@@ -366,7 +366,7 @@ describe("provider-neutral runtime contract", () => {
     db.pragma("user_version = 2");
     db.close();
 
-    await expect(WorkbenchStore.open(memory)).rejects.toThrow("后台 Agent 任务正在运行");
+    await expect(openWorkbenchDatabase(memory)).rejects.toThrow("后台 Agent 任务正在运行");
   });
 
   it("refuses a schema rebuild while another Workbench writer owns the database", async () => {
@@ -379,7 +379,7 @@ describe("provider-neutral runtime contract", () => {
     db.pragma("user_version = 2");
     db.exec("BEGIN IMMEDIATE");
     try {
-      await expect(WorkbenchStore.open(memory)).rejects.toThrow("另一个 Workbench 实例正在使用");
+      await expect(openWorkbenchDatabase(memory)).rejects.toThrow("另一个 Workbench 实例正在使用");
     } finally {
       db.exec("ROLLBACK");
       db.close();
@@ -390,9 +390,9 @@ describe("provider-neutral runtime contract", () => {
     const project = managedProject(root);
     const memory = repoLocalMemory(root, project.id);
     const now = new Date().toISOString();
-    const store = await WorkbenchStore.open(memory);
+    const store = await openWorkbenchDatabase(memory);
     try {
-      store.createConversation({
+      store.conversations.createConversation({
         projectId: project.id,
         conversationId: "old-conversation",
         title: "Old history",
@@ -405,7 +405,7 @@ describe("provider-neutral runtime contract", () => {
         updatedAt: now,
         deletedAt: null,
       });
-      store.upsertSkill({
+      store.skills.upsertSkill({
         projectId: project.id,
         skillId: "project-skill",
         name: "Project Skill",
@@ -416,9 +416,9 @@ describe("provider-neutral runtime contract", () => {
         metadataJson: "{}",
         updatedAt: now,
       });
-      store.upsertSkillRoot({ projectId: project.id, rootPath: join(root, "skills"), sourceKind: "managed", updatedAt: now });
-      store.setSkillEnablement({ projectId: project.id, changeId: null, skillId: "project-skill", scope: "project", enabled: true, updatedAt: now });
-      store.upsertBridgeSync({
+      store.skills.upsertSkillRoot({ projectId: project.id, rootPath: join(root, "skills"), sourceKind: "managed", updatedAt: now });
+      store.skills.setSkillEnablement({ projectId: project.id, changeId: null, skillId: "project-skill", scope: "project", enabled: true, updatedAt: now });
+      store.skills.upsertBridgeSync({
         projectId: project.id,
         skillId: "project-skill",
         sourceHash: "source-hash",
@@ -434,13 +434,13 @@ describe("provider-neutral runtime contract", () => {
     old.pragma("user_version = 2");
     old.close();
 
-    const rebuilt = await WorkbenchStore.open(memory);
+    const rebuilt = await openWorkbenchDatabase(memory);
     try {
-      expect(rebuilt.readConversation(project.id, "old-conversation")).toBeNull();
-      expect(rebuilt.readSkill(project.id, "project-skill")).toMatchObject({ sourceHash: "source-hash" });
-      expect(rebuilt.listSkillRoots(project.id)).toEqual([expect.objectContaining({ rootPath: join(root, "skills") })]);
-      expect(rebuilt.listSkillEnablement(project.id)).toEqual([expect.objectContaining({ skillId: "project-skill", enabled: true })]);
-      expect(rebuilt.readBridgeSync(project.id, "project-skill")).toMatchObject({ materializedHash: "materialized-hash" });
+      expect(rebuilt.conversations.readConversation(project.id, "old-conversation")).toBeNull();
+      expect(rebuilt.skills.readSkill(project.id, "project-skill")).toMatchObject({ sourceHash: "source-hash" });
+      expect(rebuilt.skills.listSkillRoots(project.id)).toEqual([expect.objectContaining({ rootPath: join(root, "skills") })]);
+      expect(rebuilt.skills.listSkillEnablement(project.id)).toEqual([expect.objectContaining({ skillId: "project-skill", enabled: true })]);
+      expect(rebuilt.skills.readBridgeSync(project.id, "project-skill")).toMatchObject({ materializedHash: "materialized-hash" });
     } finally {
       rebuilt.close();
     }

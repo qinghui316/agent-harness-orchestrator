@@ -7,7 +7,7 @@ import { repoLocalMemory } from "../../src/memory/resolver.js";
 import type { ManagedProject } from "../../src/types/index.js";
 import type { HarnessEngineeringAssignment } from "../../src/agent-task/harness-engineering-contract.js";
 import { canonicalTimelineEnvelopeFromStoredRow, type CanonicalTimelineEnvelope } from "../../src/workbench/canonical-timeline.js";
-import { WorkbenchStore } from "../../src/workbench/store.js";
+import { openWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 
 const appServerTurn = vi.hoisted(() => vi.fn());
 
@@ -84,12 +84,12 @@ describe("provider adapter maintenance verification repair", () => {
       changeId: "change-1",
       agentTaskId: "task-1",
     });
-    const store = await WorkbenchStore.open(setup.memory);
+    const store = await openWorkbenchDatabase(setup.memory);
     try {
-      expect(store.readConversation(setup.project.id, "maintenance:change-1")).toMatchObject({ surfaceKind: "runtime" });
-      expect(store.listConversations(setup.project.id).map((conversation) => conversation.conversationId))
+      expect(store.conversations.readConversation(setup.project.id, "maintenance:change-1")).toMatchObject({ surfaceKind: "runtime" });
+      expect(store.conversations.listConversations(setup.project.id).map((conversation) => conversation.conversationId))
         .not.toContain("maintenance:change-1");
-      expect(store.listProviderThreads(setup.project.id, "maintenance:change-1")).toEqual([
+      expect(store.providerAttempts.listProviderThreads(setup.project.id, "maintenance:change-1")).toEqual([
         expect.objectContaining({
           providerId: "codex",
           providerThreadId: "maintenance-thread",
@@ -97,7 +97,7 @@ describe("provider adapter maintenance verification repair", () => {
           runId: expect.stringMatching(/^maintenance-/),
         }),
       ]);
-      const terminalRows = store.listConversationMessages(setup.project.id, "maintenance:change-1");
+      const terminalRows = store.timeline.listConversationMessages(setup.project.id, "maintenance:change-1");
       expect(terminalRows).toHaveLength(2);
       expect(terminalRows.every((row) => Boolean(row.threadId && row.turnId && row.itemId))).toBe(true);
       expect(terminalRows.map((row) => canonicalTimelineEnvelopeFromStoredRow(row).cells.length)).toEqual([1, 1]);
@@ -129,10 +129,10 @@ describe("provider adapter maintenance verification repair", () => {
 
   it("persists background Agent timeline items before publishing live events", async () => {
     const setup = await fixture();
-    const seededStore = await WorkbenchStore.open(setup.memory);
+    const seededStore = await openWorkbenchDatabase(setup.memory);
     try {
       const now = new Date().toISOString();
-      seededStore.createConversation({
+      seededStore.conversations.createConversation({
         projectId: setup.project.id,
         conversationId: "maintenance:change-1",
         title: "User conversation",
@@ -191,12 +191,12 @@ describe("provider adapter maintenance verification repair", () => {
     expect(timelinePatches.at(-1)?.cells).toEqual([
       expect.objectContaining({ kind: "assistant-message", text: "正在维护项目说明" }),
     ]);
-    const store = await WorkbenchStore.open(setup.memory);
+    const store = await openWorkbenchDatabase(setup.memory);
     try {
-      const messages = store.listConversationMessages(setup.project.id, "maintenance:change-1");
+      const messages = store.timeline.listConversationMessages(setup.project.id, "maintenance:change-1");
       expect(messages).toHaveLength(1);
-      expect(store.readConversation(setup.project.id, "maintenance:change-1")).toMatchObject({ surfaceKind: "user" });
-      expect(store.listConversations(setup.project.id).map((conversation) => conversation.conversationId))
+      expect(store.conversations.readConversation(setup.project.id, "maintenance:change-1")).toMatchObject({ surfaceKind: "user" });
+      expect(store.conversations.listConversations(setup.project.id).map((conversation) => conversation.conversationId))
         .toContain("maintenance:change-1");
       expect(messages[0]?.agentSurfaceId).not.toBe("main-agent");
       expect(JSON.parse(messages[0]!.rawJson)).toMatchObject({
