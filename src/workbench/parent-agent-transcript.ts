@@ -1,68 +1,22 @@
-import type { AssistantTurnActivity, AssistantTurnBlock, CanonicalDocumentReference, TopicAttachment, TopicFileReference, WorkbenchProviderUserInputRequest } from "./types.js";
+import type { AssistantTurnActivity, AssistantTurnBlock, WorkbenchProviderUserInputRequest } from "./types.js";
 import type { InteractionHistoryRecord } from "./conversation-interaction-contract.js";
+import type { TopicAttachment, TopicFileReference } from "./timeline-cell-contract.js";
+export type {
+  ParentAgentEvidenceRef,
+  ParentAgentTranscriptActor,
+  ParentAgentTranscriptBlock,
+  ParentAgentTranscriptBlockKind,
+  ParentAgentTranscriptBlockSource,
+  ParentAgentTranscriptCell,
+  ParentAgentTranscriptCellKind,
+  ParentAgentTranscriptItem,
+} from "./timeline-cell-contract.js";
+import type {
+  ParentAgentTranscriptBlockSource,
+  ParentAgentTranscriptCell,
+  ParentAgentTranscriptItem,
+} from "./timeline-cell-contract.js";
 import { commandDetailText, commandGroupDetailText, commandGroupSummary, commandRowTitle, groupConsecutiveCommandBlocks } from "../command-transcript.js";
-
-export type ParentAgentTranscriptActor = "user" | "parent-agent";
-export type ParentAgentTranscriptBlockKind = "prose" | "process" | "tool-result" | "evidence";
-export type ParentAgentTranscriptBlockSource = "user" | "provider-runtime" | "aho-orchestration" | "workflow-evidence" | "maintenance";
-export type ParentAgentTranscriptCellKind = "user-message" | "assistant-message" | "process-row" | "evidence-row" | "user-input" | "document-preview" | "detail-only";
-
-export interface ParentAgentEvidenceRef {
-  label: string;
-  ref: string;
-  kind: "artifact" | "run" | "decision" | "remote" | "maintenance";
-}
-
-export interface ParentAgentTranscriptBlock {
-  id: string;
-  kind: ParentAgentTranscriptBlockKind;
-  source: ParentAgentTranscriptBlockSource;
-  title?: string;
-  text: string;
-  status?: string;
-  evidenceRefs?: ParentAgentEvidenceRef[];
-  isError?: boolean;
-}
-
-export interface ParentAgentTranscriptItem {
-  id: string;
-  actor: ParentAgentTranscriptActor;
-  timestamp?: string;
-  blocks: ParentAgentTranscriptBlock[];
-  derived?: boolean;
-}
-
-export interface ParentAgentTranscriptCell {
-  id: string;
-  kind: ParentAgentTranscriptCellKind;
-  source: ParentAgentTranscriptBlockSource;
-  agentRoleId?: string;
-  agentTaskId?: string;
-  initialThreadInput?: boolean;
-  runId?: string;
-  providerId?: string;
-  attemptId?: string;
-  threadId?: string;
-  parentThreadId?: string;
-  turnId?: string;
-  itemId?: string;
-  agentSurfaceId?: string;
-  targetAgentSurfaceId?: string;
-  targetAgentDisplayName?: string;
-  timestamp?: string;
-  title?: string;
-  text: string;
-  status?: string;
-  evidenceRefs?: ParentAgentEvidenceRef[];
-  isError?: boolean;
-  realtime?: boolean;
-  activityKind?: "turn" | "reasoning" | "command" | "file" | "search" | "tool" | "agent" | "status";
-  detailText?: string;
-  contextRefs?: TopicFileReference[];
-  attachments?: TopicAttachment[];
-  interactionHistory?: InteractionHistoryRecord;
-  documentRef?: CanonicalDocumentReference;
-}
 
 export interface ParentAgentTranscript {
   conversationId?: string;

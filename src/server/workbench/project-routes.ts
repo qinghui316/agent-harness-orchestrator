@@ -1,8 +1,7 @@
 ﻿import type { IncomingMessage, ServerResponse } from "node:http";
-import { createWorkbenchConversation } from "../../workbench/chat.js";
+import { createWorkbenchConversation } from "../../workbench/conversation-service.js";
 import {
   getWorkbenchSnapshot,
-  getCanonicalTimelinePage,
   getWorkbenchStream,
   getWorkbenchTopic,
   deleteWorkbenchConversation,
@@ -10,7 +9,8 @@ import {
   listWorkbenchApprovals,
   listWorkbenchTopics,
   type WorkbenchProjectInput,
-} from "../../workbench/manager.js";
+} from "../../workbench/projections/read-model/implementation.js";
+import { getCanonicalTimelinePage } from "../../workbench/canonical-timeline-query.js";
 import { getWorkbenchProjection } from "./projections.js";
 import { readWorkbenchActionEvents, sendActionEventReplay } from "./live.js";
 import { assertConfirmed, assertRegisteredProject, readJsonBody, sendJson } from "./http.js";

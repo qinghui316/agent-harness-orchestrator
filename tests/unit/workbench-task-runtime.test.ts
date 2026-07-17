@@ -6,7 +6,7 @@ import { createConversationChangeFixture } from "../helpers/conversation-change-
 import { initHarness } from "../../src/harness/init.js";
 import { listRuns } from "../../src/run/manager.js";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
-import { getWorkbenchSnapshot } from "../../src/workbench/manager.js";
+import { getWorkbenchSnapshot } from "../../src/workbench/projections/read-model/implementation.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import {
   mainAgentLoopRunsRoot,

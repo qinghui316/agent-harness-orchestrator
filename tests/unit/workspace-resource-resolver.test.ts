@@ -6,7 +6,7 @@ import { initHarness } from "../../src/harness/init.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { git } from "../../src/project/git.js";
 import type { ManagedProject } from "../../src/types/index.js";
-import { createWorkbenchConversation } from "../../src/workbench/chat.js";
+import { createWorkbenchConversation } from "../../src/workbench/conversation-service.js";
 import { planDocumentContentHash } from "../../src/workbench/plan-documents.js";
 import { openWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import { resolveWorkspaceResource } from "../../src/workbench/workspace-resources.js";

@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+﻿import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -36,9 +36,13 @@ import { defaultProviderRegistry } from "../../src/provider-runtime/index.js";
 import { agentThreadSurfaceId } from "../../src/provider-runtime/agent-surface-id.js";
 import { git } from "../../src/project/git.js";
 import type { ManagedProject } from "../../src/types/index.js";
-import { appendConversationTimelineEntry, createWorkbenchConversation, listConversationMessages, postConversationMessage, resumeNativeGoalAfterAction, runWorkbenchWorkflowAction } from "../../src/workbench/chat.js";
+import { appendCanonicalTimelineEntry } from "../../src/workbench/canonical-timeline-command.js";
+import { createWorkbenchConversation, listConversationMessages, postConversationMessage } from "../../src/workbench/conversation-service.js";
+import { runProjectScopedMainAgentTurn } from "../../src/workbench/main-agent-turn-coordinator.js";
+import { resumeNativeGoalAfterAction, runWorkbenchWorkflowAction } from "../../src/workbench/workflow-conversation-bridge.js";
 import { buildConversationInteractionQueue } from "../../src/workbench/conversation-interactions.js";
-import { getCanonicalTimelinePage, getWorkbenchSnapshot } from "../../src/workbench/manager.js";
+import { getWorkbenchSnapshot } from "../../src/workbench/projections/read-model/implementation.js";
+import { getCanonicalTimelinePage } from "../../src/workbench/canonical-timeline-query.js";
 import { getWorkbenchAgentRelationGraphProjection } from "../../src/workbench/projections/read-model/implementation.js";
 import { readLatestWorkflowGraphPlan } from "../../src/workflow-artifacts/manager.js";
 import { openWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
@@ -394,7 +398,7 @@ describe("Workbench provider planning flow", () => {
       contentHash: planDocumentContentHash(planText),
       agentSurfaceId: "agent:codex:thread:thread-plan",
     };
-    await appendConversationTimelineEntry(project(), topic.changeId, {
+    await appendCanonicalTimelineEntry(project(), topic.changeId, {
       type: "assistant.message",
       status: "planning-agent-generated",
       runId: "run-declined-plan",
@@ -625,7 +629,7 @@ describe("Workbench provider planning flow", () => {
     await resumeNativeGoalAfterAction({
       project: project(), changeId, actionRunId: "approval:result.apply:wt-1", actionType: "result.apply",
       status: "completed", result: { apply: { status: "applied", committed: true, commitHash: "abc" } },
-    });
+    }, { continueMainAgentTurn: runProjectScopedMainAgentTurn });
 
     expect(appServerTurn).toHaveBeenCalledTimes(1);
   });
@@ -1028,6 +1032,9 @@ describe("Workbench provider planning flow", () => {
       actionType: "conversation.continue",
       changeId,
       prompt: "Continue the accepted health endpoint Goal.",
+    }, undefined, {
+      postConversationMessage,
+      continueMainAgentTurn: runProjectScopedMainAgentTurn,
     });
     expect(continued.error).toBeUndefined();
     expect(continued.status).toBe("completed");

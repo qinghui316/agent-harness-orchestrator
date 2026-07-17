@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+﻿import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { writeJsonFile } from "../fs/json.js";
@@ -13,7 +13,7 @@ import type { WorkbenchDatabase } from "../workbench/persistence/database.js";
 import { bindProviderAttemptThread, finishProviderAttempt, startProviderAttempt } from "../workbench/provider-attempts.js";
 import { createAssistantTranscriptCapture, type AssistantTranscriptCapture, type ChildTranscriptCapture } from "../workbench/live-transcript.js";
 import { forwardProviderRealtimeEvent } from "../workbench/provider-live-events.js";
-import { canonicalTimelineEnvelopeFromStoredRow, type CanonicalTimelineEnvelope } from "../workbench/canonical-timeline.js";
+import { CanonicalTimelineDelivery, type CanonicalTimelinePublisher } from "../workbench/canonical-timeline-delivery.js";
 import type { AssistantTurnBlock, TopicThreadEntry } from "../workbench/types.js";
 import type { HarnessEngineeringAssignment } from "./harness-engineering-contract.js";
 import {
@@ -36,7 +36,7 @@ export async function runMaintenanceAssignment(
   signal?: AbortSignal,
   onRealtimeEvent?: (event: ProviderRealtimeEvent) => void,
   taskLineage?: MaintenanceTaskLineage,
-  onTimelinePatch?: (envelope: CanonicalTimelineEnvelope) => void,
+  timelinePublisher?: CanonicalTimelinePublisher,
 ): Promise<{ summary: string; artifactRefs: string[] }> {
   const evidencePath = join(memory.workbenchRoot, "maintenance", "evidence", `${assignment.taskId}.json`);
   let evidence;
@@ -47,7 +47,7 @@ export async function runMaintenanceAssignment(
       executor: createMaintenanceProviderExecutor(memory),
       signal,
       onRealtimeEvent,
-      onTimelinePatch,
+      timelinePublisher,
       taskLineage,
     });
   } catch (error) {
@@ -66,7 +66,7 @@ export async function runMaintenanceAssignment(
       return { summary: evidence.producer.summary, artifactRefs: [evidencePath] };
     }
     if (verificationAttempt === 1) {
-      const repair = await continueAfterVerificationFailure(memory, project, assignment, evidence, signal, onRealtimeEvent, taskLineage, onTimelinePatch);
+      const repair = await continueAfterVerificationFailure(memory, project, assignment, evidence, signal, onRealtimeEvent, taskLineage, timelinePublisher);
       evidence.producer = {
         ...evidence.producer,
         summary: repair.finalText.trim() || evidence.producer.summary,
@@ -94,7 +94,7 @@ async function continueAfterVerificationFailure(
   signal?: AbortSignal,
   onRealtimeEvent?: (event: ProviderRealtimeEvent) => void,
   taskLineage?: MaintenanceTaskLineage,
-  onTimelinePatch?: (envelope: CanonicalTimelineEnvelope) => void,
+  timelinePublisher?: CanonicalTimelinePublisher,
 ): Promise<MaintenanceProviderExecutionResult> {
   const failures = (evidence.verification ?? []).filter((item) => !item.passed);
   const prompt = [
@@ -122,7 +122,7 @@ async function continueAfterVerificationFailure(
     existingThreadId: evidence.producer.threadId,
     signal,
     onRealtimeEvent,
-    onTimelinePatch,
+    timelinePublisher,
     taskLineage,
   });
 }
@@ -403,13 +403,13 @@ async function executeMaintenanceRequest(
 
 interface BackgroundTimeline {
   store: WorkbenchDatabase;
+  delivery: CanonicalTimelineDelivery;
   projectId: string;
   conversationId: string;
   graphScopeId?: string;
   surfaceKind: "user" | "runtime";
   primaryThreadId?: string;
   primaryAgentSurfaceId?: string;
-  knownIds: Set<string>;
 }
 
 async function openBackgroundTimeline(
@@ -445,11 +445,11 @@ async function openBackgroundTimeline(
   const conversationId = conversation.conversationId;
   return {
     store,
+    delivery: new CanonicalTimelineDelivery(store, request.timelinePublisher),
     projectId: memory.projectId,
     conversationId,
     graphScopeId: conversation?.currentGraphScopeId ?? undefined,
     surfaceKind: conversation.surfaceKind ?? "user",
-    knownIds: new Set(store.timeline.listConversationMessages(memory.projectId, conversationId).map((message) => message.id)),
   };
 }
 
@@ -495,7 +495,7 @@ function persistBackgroundCapture(
         }]
       : capture.blocks;
     if (blocks.length === 0 && capture.activity.length === 0) return;
-    const stored = upsertBackgroundEntry(timeline, {
+    persistBackgroundEntry(timeline, {
       id: `assistant:${runId}:background`,
       type: "assistant.message",
       timestamp: capture.blocks[0]?.timestamp ?? capture.activity[0]?.timestamp ?? new Date().toISOString(),
@@ -515,13 +515,11 @@ function persistBackgroundCapture(
       activity: capture.activity,
       blocks,
     });
-    request.onTimelinePatch?.(canonicalTimelineEnvelopeFromStoredRow(stored));
   }
   for (const child of capture.childCaptures.values()) {
     if (child.blocks.length === 0 && child.activity.length === 0) continue;
     if (!child.canonicalId || !child.providerId || !child.threadId || !child.turnId) continue;
-    const stored = upsertBackgroundEntry(timeline, backgroundChildEntry(timeline, request, runId, providerId, child, terminalStatus, finalText));
-    request.onTimelinePatch?.(canonicalTimelineEnvelopeFromStoredRow(stored));
+    persistBackgroundEntry(timeline, backgroundChildEntry(timeline, request, runId, providerId, child, terminalStatus, finalText));
   }
 }
 
@@ -566,7 +564,7 @@ function captureStatus(activity: AssistantTranscriptCapture["activity"]): string
   return "running";
 }
 
-function upsertBackgroundEntry(timeline: BackgroundTimeline, entry: TopicThreadEntry): import("../workbench/persistence/contracts.js").StoredTopicMessage {
+function persistBackgroundEntry(timeline: BackgroundTimeline, entry: TopicThreadEntry): void {
   if (!entry.agentSurfaceId) throw new Error(`Background Timeline entry ${entry.id} requires agentSurfaceId.`);
   const message = {
     id: entry.id,
@@ -589,12 +587,7 @@ function upsertBackgroundEntry(timeline: BackgroundTimeline, entry: TopicThreadE
     error: entry.error ?? null,
     rawJson: JSON.stringify(entry),
   };
-  if (timeline.knownIds.has(entry.id)) return timeline.store.timeline.updateMessage(message);
-  else {
-    const stored = timeline.store.timeline.appendMessage(message);
-    timeline.knownIds.add(entry.id);
-    return stored;
-  }
+  timeline.delivery.upsert(message);
 }
 
 async function selectedProviderForMaintenance(memory: ResolvedMemory, request: MaintenanceProviderExecutionRequest): Promise<string> {

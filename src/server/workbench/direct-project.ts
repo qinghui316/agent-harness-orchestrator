@@ -3,7 +3,7 @@ import { getProjectStatus } from "../../project/status.js";
 import { readProjectMarker } from "../../project/marker.js";
 import type { ProjectRegistryStore } from "../../registry/store.js";
 import type { ManagedProject, ProjectStatus } from "../../types/index.js";
-import type { WorkbenchProjectInput } from "../../workbench/manager.js";
+import type { WorkbenchProjectInput } from "../../workbench/read-model-types.js";
 
 export async function restoreDirectProjectInput(input: WorkbenchProjectInput | null, store: ProjectRegistryStore): Promise<WorkbenchProjectInput | null> {
   if (!input || input.project) return input;

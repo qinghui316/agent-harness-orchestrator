@@ -7,7 +7,7 @@ import { afterEach, beforeEach, expect } from "vitest";
 import { createConversationChangeFixture } from "../../helpers/conversation-change-fixture.js";
 import { initHarness } from "../../../src/harness/init.js";
 import { executeWorkbenchAction } from "../../../src/server/workbench-server.js";
-import { getWorkbenchSnapshot } from "../../../src/workbench/manager.js";
+import { getWorkbenchSnapshot } from "../../../src/workbench/projections/read-model/implementation.js";
 import type { WorkbenchDecisionAction } from "../../../src/workbench/read-model-types.js";
 import { resolveProjectMemory } from "../../../src/memory/resolver.js";
 import { compileWorkflowGraphPlan, hashArtifactRefs, writeWorkflowGraphPlan, type WorkflowAuthoringPlan } from "../../../src/workflow-artifacts/manager.js";

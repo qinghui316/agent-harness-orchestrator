@@ -9,7 +9,7 @@ import type {
 } from "../types.js";
 import type { ChildTranscriptCapture } from "../live-transcript.js";
 import { isMainAgentExecutionStopAction } from "../../workflow-actions/main-agent-execution.js";
-import type { ConversationTimelineWriter } from "../conversation-thread.js";
+import type { CanonicalTimelineWriter } from "../canonical-timeline-command.js";
 import { agentThreadSurfaceId } from "../../provider-runtime/agent-surface-id.js";
 
 interface AssistantTranscriptCapture {
@@ -41,7 +41,7 @@ export interface WorkbenchActionServiceDeps {
     live: WorkbenchLiveSink | undefined,
     persistBeforeEmit?: (capture: AssistantTranscriptCapture) => boolean,
   ): AssistantTranscriptCapture;
-  openTimelineWriter(project: ManagedProject, changeId: string, live?: WorkbenchLiveSink): Promise<ConversationTimelineWriter>;
+  openTimelineWriter(project: ManagedProject, changeId: string, live?: WorkbenchLiveSink): Promise<CanonicalTimelineWriter>;
   readThreadEntries(project: ManagedProject, changeId: string): Promise<TopicThreadEntry[]>;
   execute(project: ManagedProject, changeId: string, request: WorkbenchWorkflowActionRequest, live?: WorkbenchLiveSink): Promise<unknown>;
   labelForAction(actionType: WorkbenchWorkflowActionRequest["actionType"]): string;
@@ -225,7 +225,7 @@ export async function runWorkbenchWorkflowActionService(
 }
 
 function persistActionCapture(
-  writer: ConversationTimelineWriter,
+  writer: CanonicalTimelineWriter,
   input: {
     timelineId: string;
     startedAt: string;

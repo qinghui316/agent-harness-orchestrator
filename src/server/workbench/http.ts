@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { relative, resolve } from "node:path";
 import type { ManagedProject } from "../../types/index.js";
-import type { WorkbenchProjectInput } from "../../workbench/manager.js";
+import type { WorkbenchProjectInput } from "../../workbench/read-model-types.js";
 
 export async function readJsonBody<T>(request: IncomingMessage): Promise<T> {
   const chunks: Buffer[] = [];

@@ -16,6 +16,11 @@ import { readRequiredJsonFile } from "../../fs/json.js";
 import { resolveProjectMemory } from "../../memory/resolver.js";
 import type { ManagedProject } from "../../types/index.js";
 import { openWorkbenchDatabase } from "../persistence/open-workbench-database.js";
+import type { StoredTopicMessage } from "../persistence/contracts.js";
+
+export interface AcceptedConversationPlanningPackage extends AcceptedPlanningPackage {
+  timelineRows: StoredTopicMessage[];
+}
 
 const plannerChildOutputSchema = z.object({
   status: z.enum(["proposed", "blocked", "failed"]).default("proposed"),
@@ -138,7 +143,7 @@ export async function acceptCurrentConversationPlanningPackage(
   project: ManagedProject,
   conversationId: string,
   proposalArtifact: string,
-): Promise<AcceptedPlanningPackage> {
+): Promise<AcceptedConversationPlanningPackage> {
   const key = `${project.path}:${project.id}:${conversationId}`;
   const previous = planningAcceptanceLocks.get(key) ?? Promise.resolve();
   let release!: () => void;
@@ -158,11 +163,12 @@ async function acceptCurrentConversationPlanningPackageUnlocked(
   project: ManagedProject,
   conversationId: string,
   proposalArtifact: string,
-): Promise<AcceptedPlanningPackage> {
+): Promise<AcceptedConversationPlanningPackage> {
   const memory = await resolveProjectMemory(project);
   if (!memory.projectId) throw new Error("Project id is required to accept a conversation planning package.");
   const input = await validateCurrentConversationPlanningPackage(memory, conversationId, proposalArtifact);
   const store = await openWorkbenchDatabase(memory);
+  let timelineRows: StoredTopicMessage[] = [];
   try {
     const commitPort: PlanningAcceptanceCommitPort = {
       hasCommit: (transactionId) => store.conversations.hasPlanningAcceptanceCommit(transactionId),
@@ -174,7 +180,7 @@ async function acceptCurrentConversationPlanningPackageUnlocked(
               plannerThreadId: commit.plannerThreadId,
             }
           : undefined;
-        store.unitOfWork.acceptConversationChangeBinding(
+        timelineRows = store.unitOfWork.acceptConversationChangeBinding(
           commit.projectId,
           commit.conversationId,
           commit.changeId,
@@ -186,7 +192,7 @@ async function acceptCurrentConversationPlanningPackageUnlocked(
       },
       deleteCommit: (transactionId) => store.conversations.deletePlanningAcceptanceCommit(transactionId),
     };
-    return await acceptPlanningPackage(project, input, commitPort);
+    return { ...await acceptPlanningPackage(project, input, commitPort), timelineRows };
   } finally {
     store.close();
   }

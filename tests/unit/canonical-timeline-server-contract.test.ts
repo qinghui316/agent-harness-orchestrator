@@ -6,16 +6,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { initHarness } from "../../src/harness/init.js";
 import { repoLocalMemory, resolveProjectMemory } from "../../src/memory/resolver.js";
 import { agentThreadSurfaceId } from "../../src/provider-runtime/agent-surface-id.js";
-import {
-  canonicalTimelineEnvelopeFromStoredRow,
-  decodeCanonicalTimelineCursor,
-  encodeCanonicalTimelineCursor,
-  getCanonicalTimelinePage,
-} from "../../src/workbench/canonical-timeline.js";
+import { decodeCanonicalTimelineCursor, encodeCanonicalTimelineCursor, getCanonicalTimelinePage } from "../../src/workbench/canonical-timeline-query.js";
+import { projectCanonicalTimelineEnvelope } from "../../src/workbench/canonical-timeline-projector.js";
+import { CanonicalTimelineDelivery } from "../../src/workbench/canonical-timeline-delivery.js";
 import type {
   CanonicalTimelineEnvelope as ServerTimelineEnvelope,
   CanonicalTimelinePage as ServerTimelinePage,
-} from "../../src/workbench/canonical-timeline.js";
+} from "../../src/workbench/canonical-timeline-contract.js";
 import type {
   CanonicalTimelineEnvelope as WebTimelineEnvelope,
   CanonicalTimelinePage as WebTimelinePage,
@@ -106,7 +103,7 @@ describe("canonical Timeline server contract", () => {
       store.close();
     }
 
-    const envelope = canonicalTimelineEnvelopeFromStoredRow(persisted);
+    const envelope = projectCanonicalTimelineEnvelope(persisted);
     expect(envelope).toMatchObject({
       conversationId,
       agentSurfaceId: agentThreadSurfaceId("codex", "thread-child"),
@@ -174,6 +171,47 @@ describe("canonical Timeline server contract", () => {
         ["child-output", 3, "updated output"],
       ]);
       expect(snapshot?.rows.every((row) => row.revision <= (snapshot?.conversation.timelineRevision ?? 0))).toBe(true);
+    } finally {
+      store.close();
+    }
+  });
+
+  it("publishes only after persistence and keeps a committed row when publication fails", async () => {
+    const memory = repoLocalMemory(root, projectId);
+    const store = await openWorkbenchDatabase(memory);
+    try {
+      seedConversation(store);
+      const published: string[] = [];
+      const delivery = new CanonicalTimelineDelivery(store, (envelope) => published.push(envelope.messageId));
+      delivery.append(message("first", "main-agent"));
+      expect(published).toEqual(["first"]);
+
+      expect(() => delivery.append(message("first", "main-agent"))).toThrow();
+      expect(published).toEqual(["first"]);
+
+      const failingDelivery = new CanonicalTimelineDelivery(store, () => { throw new Error("transport unavailable"); });
+      expect(() => failingDelivery.append(message("committed", "main-agent"))).not.toThrow();
+      expect(store.timeline.readMessage(projectId, conversationId, "committed")).toMatchObject({ position: 2, revision: 2 });
+    } finally {
+      store.close();
+    }
+  });
+
+  it("upserts one canonical message through repeated revisions without a local identity set", async () => {
+    const memory = repoLocalMemory(root, projectId);
+    const store = await openWorkbenchDatabase(memory);
+    try {
+      seedConversation(store);
+      const revisions: number[] = [];
+      const delivery = new CanonicalTimelineDelivery(store, (envelope) => revisions.push(envelope.revision));
+      delivery.upsert(message("stable", "main-agent"));
+      for (let index = 1; index <= 100; index += 1) {
+        delivery.upsert({ ...message("stable", "main-agent"), text: `revision-${index}` });
+      }
+      expect(store.timeline.countMessages(projectId, conversationId)).toBe(1);
+      expect(store.timeline.readMessage(projectId, conversationId, "stable")).toMatchObject({ position: 1, revision: 101, text: "revision-100" });
+      expect(revisions).toHaveLength(101);
+      expect(new Set(revisions).size).toBe(101);
     } finally {
       store.close();
     }

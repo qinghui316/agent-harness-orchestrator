@@ -48,8 +48,17 @@ export class WorkbenchUnitOfWork {
     advanceCompletedTurn: boolean;
     binding?: Omit<StoredConversationProviderBinding, "lastDeliveredCompletedTurn">;
     updatedAt: string;
-  }): { interactionRows: StoredTopicMessage[]; completedTurnSequence: number } {
+    timelineMessages?: StoredTopicMessageWrite[];
+  }): { timelineRows: StoredTopicMessage[]; interactionRows: StoredTopicMessage[]; completedTurnSequence: number } {
     return this.db.transaction(() => {
+      const timelineMessages = input.timelineMessages ?? [];
+      if (new Set(timelineMessages.map((message) => message.id)).size !== timelineMessages.length) {
+        throw new Error("Provider terminal commit requires one final mutation per canonical message.");
+      }
+      const timelineRows = timelineMessages.map((message) =>
+        this.timeline.readMessage(message.projectId, message.conversationId, message.id)
+          ? this.timeline.updateMessage(message)
+          : this.timeline.appendMessage(message));
       const interactionRows = this.interactions.terminalizeProviderUserInputRequests(
         input.projectId,
         input.conversationId,
@@ -86,7 +95,7 @@ export class WorkbenchUnitOfWork {
           lastDeliveredCompletedTurn: completedTurnSequence,
         });
       }
-      return { interactionRows, completedTurnSequence };
+      return { timelineRows, interactionRows, completedTurnSequence };
     })();
   }
 
@@ -105,13 +114,14 @@ export class WorkbenchUnitOfWork {
     acceptanceId?: string,
     proposalHash?: string,
     scopeTransition?: { graphScopeId: string; runId?: string; plannerThreadId?: string },
-  ): void {
-    this.db.transaction(() => {
+  ): StoredTopicMessage[] {
+    return this.db.transaction(() => {
+      let timelineRows: StoredTopicMessage[] = [];
       if (scopeTransition) {
         if (!scopeTransition.runId || !scopeTransition.plannerThreadId) {
           throw new Error("A superseding planning acceptance requires durable provider lineage.");
         }
-        this.moveConversationRunToGraphScope(
+        timelineRows = this.moveConversationRunToGraphScope(
           projectId,
           conversationId,
           scopeTransition.runId,
@@ -141,16 +151,32 @@ export class WorkbenchUnitOfWork {
           linkedAt,
         );
       }
+      return timelineRows;
     })();
   }
 
-  startConversationGraphScope(projectId: string, conversationId: string, graphScopeId: string, updatedAt: string): void {
-    this.db.transaction(() => {
+  startConversationGraphScope(projectId: string, conversationId: string, graphScopeId: string, updatedAt: string): StoredTopicMessage[] {
+    return this.db.transaction(() => {
+      let rows: StoredTopicMessage[] = [];
       const currentScopeId = this.conversations.readConversation(projectId, conversationId)?.currentGraphScopeId;
       if (currentScopeId && currentScopeId !== graphScopeId) {
-        this.interactions.supersedeGraphScope(projectId, conversationId, currentScopeId, updatedAt);
+        rows = this.interactions.supersedeGraphScope(projectId, conversationId, currentScopeId, updatedAt);
       }
       this.conversations.activateGraphScope(projectId, conversationId, graphScopeId, updatedAt);
+      return rows;
+    })();
+  }
+
+  terminalizeConversationGraphScope(
+    projectId: string,
+    conversationId: string,
+    graphScopeId: string,
+    updatedAt: string,
+  ): StoredTopicMessage[] {
+    return this.db.transaction(() => {
+      const rows = this.interactions.supersedeGraphScope(projectId, conversationId, graphScopeId, updatedAt);
+      this.conversations.markConversationGraphScopeTerminal(projectId, conversationId, graphScopeId, updatedAt);
+      return rows;
     })();
   }
 
@@ -161,9 +187,9 @@ export class WorkbenchUnitOfWork {
     plannerThreadId: string,
     graphScopeId: string,
     updatedAt: string,
-  ): void {
-    this.db.transaction(() => {
-      this.startConversationGraphScope(projectId, conversationId, graphScopeId, updatedAt);
+  ): StoredTopicMessage[] {
+    return this.db.transaction(() => {
+      const rows = this.startConversationGraphScope(projectId, conversationId, graphScopeId, updatedAt);
       this.providerAttempts.moveConversationThreadsToGraphScope(
         projectId,
         conversationId,
@@ -171,7 +197,7 @@ export class WorkbenchUnitOfWork {
         graphScopeId,
         updatedAt,
       );
-      this.timeline.moveRunToGraphScope(projectId, conversationId, runId, graphScopeId);
+      return [...rows, ...this.timeline.moveRunToGraphScope(projectId, conversationId, runId, graphScopeId)];
     })();
   }
 

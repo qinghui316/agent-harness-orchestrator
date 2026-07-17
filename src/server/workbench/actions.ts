@@ -2,8 +2,11 @@ import { recordDemandMemoryCloseout, recordMaintenanceLedgerEntry } from "../../
 import { abandonChangeForChange } from "../../change/manager.js";
 import { resolveProjectMemory } from "../../memory/resolver.js";
 import type { ManagedProject } from "../../types/index.js";
-import { recordWorkbenchDecision, resumeNativeGoalAfterAction, runWorkbenchWorkflowAction } from "../../workbench/chat.js";
-import { getWorkbenchSnapshot, type WorkbenchProjectInput } from "../../workbench/manager.js";
+import { resumeNativeGoalAfterAction, runWorkbenchWorkflowAction } from "../../workbench/workflow-conversation-bridge.js";
+import { postConversationMessage } from "../../workbench/conversation-service.js";
+import { runProjectScopedMainAgentTurn } from "../../workbench/main-agent-turn-coordinator.js";
+import { recordWorkbenchDecision } from "../../workbench/decisions.js";
+import { getWorkbenchSnapshot, type WorkbenchProjectInput } from "../../workbench/projections/read-model/implementation.js";
 import { assertCurrentWorkflowAction } from "./action-revalidation.js";
 import {
   allowedActionIds,
@@ -15,6 +18,11 @@ import {
 } from "./approval-actions.js";
 import { resolveFeedbackRouteFromPrimary, resolveLegacyFeedbackRoute, type FeedbackRoute, type FeedbackSnapshotPrimary } from "./feedback-routing.js";
 import type { WorkbenchActionRequest } from "./types.js";
+
+const workflowConversationPorts = {
+  postConversationMessage,
+  continueMainAgentTurn: runProjectScopedMainAgentTurn,
+};
 
 export async function executeWorkbenchAction(input: WorkbenchProjectInput, body: WorkbenchActionRequest): Promise<{ result: unknown; snapshot: unknown }> {
   if (!input.project) throw new Error("Workbench actions require a registered project.");
@@ -152,7 +160,7 @@ async function executeWorkflowAction(input: WorkbenchProjectInput & { project: M
     validationRunId: body.validationRunId,
     reworkValidationRunId: body.reworkValidationRunId,
     auditRunId: body.auditRunId,
-  });
+  }, undefined, workflowConversationPorts);
   return { result, snapshot: await getWorkbenchSnapshot(input, { topicId: body.changeId }) };
 }
 
@@ -184,7 +192,12 @@ async function executeApprovalOrFeedbackAction(input: WorkbenchProjectInput & { 
       await recordPostDecisionMaintenance(input.project, feedbackChangeId, "user-feedback", body.feedback.trim(), []);
     }
     if (route.workflowRequest) {
-      const routed = await runWorkbenchWorkflowAction(input.project, route.workflowRequest);
+      const routed = await runWorkbenchWorkflowAction(
+        input.project,
+        route.workflowRequest,
+        undefined,
+        workflowConversationPorts,
+      );
       return {
         result: { status: "requested-changes", routedTo: route.workflowRequest.actionType, result: routed },
         snapshot: await getWorkbenchSnapshot(input, { topicId: route.workflowRequest.changeId }),
@@ -228,7 +241,7 @@ async function executeApprovalOrFeedbackAction(input: WorkbenchProjectInput & { 
       actionType: "result.apply",
       status: "completed",
       result,
-    });
+    }, workflowConversationPorts);
   }
   return { result, snapshot: await getWorkbenchSnapshot(input) };
 }

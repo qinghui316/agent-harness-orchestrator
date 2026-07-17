@@ -6,7 +6,7 @@ import { initHarness } from "../../src/harness/init.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { git } from "../../src/project/git.js";
 import type { ManagedProject } from "../../src/types/index.js";
-import { createWorkbenchConversation } from "../../src/workbench/chat.js";
+import { createWorkbenchConversation } from "../../src/workbench/conversation-service.js";
 import { fromStoredThreadMessage } from "../../src/workbench/conversation-thread-log.js";
 import { buildConversationInteractionQueue } from "../../src/workbench/conversation-interactions.js";
 import { canonicalTranscriptCellsFromThreadItem } from "../../src/workbench/parent-agent-transcript.js";
@@ -75,6 +75,51 @@ describe("conversation interaction projection", () => {
       transitionStore.close();
     }
     expect((await buildConversationInteractionQueue(memory, conversation.conversationId, "scope-next")).items).toEqual([]);
+  });
+
+  it("terminalizes provider, clarification, and Plan interactions with the graph scope", async () => {
+    const conversation = await createWorkbenchConversation(project(), {
+      title: "Terminal interaction scope",
+      body: "Finish every pending interaction with the objective.",
+    }, undefined, { runMainAgent: false });
+    const memory = await resolveProjectMemory(project());
+    const store = await openWorkbenchDatabase(memory);
+    const graphScopeId = store.conversations.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? "";
+    try {
+      appendProviderQuestion(store, conversation.conversationId, graphScopeId, "terminal", "q-terminal");
+      appendInteractionFact(store, conversation.conversationId, {
+        id: "clarification-terminal",
+        graphScopeId,
+        status: "pending",
+        clarification: {
+          clarificationId: "clarification-terminal",
+          status: "pending",
+          questions: [{ id: "clarify", question: "补充范围？" }],
+        },
+      });
+      appendInteractionFact(store, conversation.conversationId, {
+        id: "plan-terminal",
+        graphScopeId,
+        status: "planning-agent-generated",
+        agentRoleId: "planning-agent",
+        artifact: "workbench/proposals/terminal-plan.json",
+      });
+
+      const committed = store.unitOfWork.terminalizeConversationGraphScope(
+        project().id,
+        conversation.conversationId,
+        graphScopeId,
+        "2026-07-16T00:00:04.000Z",
+      );
+      expect(committed).toHaveLength(3);
+      expect(committed.map((row) => row.status).sort()).toEqual(["expired", "superseded", "superseded"]);
+      expect(store.conversations.isConversationGraphScopeTerminal(project().id, graphScopeId)).toBe(true);
+      expect(store.interactions.readProviderUserInputRequest(project().id, conversation.conversationId, "request-key-terminal")?.status).toBe("superseded");
+    } finally {
+      store.close();
+    }
+
+    expect((await buildConversationInteractionQueue(memory, conversation.conversationId, graphScopeId)).items).toEqual([]);
   });
 
   it.each(["interrupted", "superseded"] as const)("retains %s provider input as read-only history", (status) => {
@@ -188,6 +233,33 @@ function appendProviderQuestion(
     text: entry.text,
     status: entry.status,
     rawJson: JSON.stringify(entry),
+  });
+}
+
+function appendInteractionFact(
+  store: WorkbenchDatabase,
+  conversationId: string,
+  fact: Record<string, unknown> & { id: string; graphScopeId: string; status: string },
+): void {
+  const timestamp = "2026-07-16T00:00:03.000Z";
+  store.timeline.appendMessage({
+    projectId: project().id,
+    conversationId,
+    agentSurfaceId: "main-agent",
+    id: fact.id,
+    changeId: "",
+    type: "assistant.message",
+    timestamp,
+    text: fact.id,
+    status: fact.status,
+    artifact: typeof fact.artifact === "string" ? fact.artifact : null,
+    rawJson: JSON.stringify({
+      type: "assistant.message",
+      timestamp,
+      conversationId,
+      changeId: "",
+      ...fact,
+    }),
   });
 }
 

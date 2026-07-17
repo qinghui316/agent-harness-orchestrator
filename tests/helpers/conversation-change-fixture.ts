@@ -1,7 +1,7 @@
-import { createConcurrentChange } from "../../src/change/manager.js";
+﻿import { createConcurrentChange } from "../../src/change/manager.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import type { ManagedProject } from "../../src/types/index.js";
-import { appendConversationTimelineEntry } from "../../src/workbench/chat.js";
+import { appendCanonicalTimelineEntry } from "../../src/workbench/canonical-timeline-command.js";
 import { openWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 
 export async function createConversationChangeFixture(
@@ -41,6 +41,6 @@ export async function createConversationChangeFixture(
   } finally {
     store.close();
   }
-  await appendConversationTimelineEntry(project, result.change.id, { type: "user.message", text: body });
+  await appendCanonicalTimelineEntry(project, result.change.id, { type: "user.message", text: body });
   return { changeId: result.change.id, conversationId, title: result.change.title, state: "active" };
 }

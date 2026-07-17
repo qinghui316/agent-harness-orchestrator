@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createSseResponse } from "../sse.js";
 import { settleConversationInteraction } from "../../workbench/conversation-interaction-service.js";
-import { getWorkbenchSnapshot, type WorkbenchProjectInput } from "../../workbench/manager.js";
+import { getWorkbenchSnapshot, type WorkbenchProjectInput } from "../../workbench/projections/read-model/implementation.js";
 import type { ManagedProject } from "../../types/index.js";
 import type { ConversationInteractionSettlement } from "../../workbench/conversation-interaction-contract.js";
 import { createLiveSink } from "./live.js";

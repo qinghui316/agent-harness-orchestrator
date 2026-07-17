@@ -1,49 +1,8 @@
-import type { ParentAgentTranscriptCell } from "./parent-agent-transcript.js";
-import { canonicalTranscriptCellsFromThreadItem } from "./parent-agent-transcript.js";
 import type { WorkbenchProjectInput } from "./read-model-types.js";
 import { resolveWorkbenchMemory } from "./projections/read-model/support.js";
-import { fromStoredThreadMessage } from "./conversation-thread-log.js";
 import { openWorkbenchDatabase } from "./persistence/open-workbench-database.js";
-import { type StoredTopicMessage } from "./persistence/contracts.js";
-
-export interface CanonicalTimelineScope {
-  projectId: string;
-  conversationId: string;
-  agentSurfaceId: string;
-}
-
-export interface CanonicalTimelineEnvelope {
-  conversationId: string;
-  agentSurfaceId: string;
-  messageId: string;
-  position: number;
-  revision: number;
-  orderClass: "sequence" | "thread-start";
-  graphScopeId?: string;
-  cells: ParentAgentTranscriptCell[];
-}
-
-export interface CanonicalTimelinePage {
-  conversationId: string;
-  agentSurfaceId: string;
-  watermark: number;
-  pinned: CanonicalTimelineEnvelope[];
-  entries: CanonicalTimelineEnvelope[];
-  paging: {
-    limit: number;
-    totalCount: number;
-    hasMoreBefore: boolean;
-    nextBeforeCursor?: string;
-  };
-}
-
-interface CanonicalTimelineCursor {
-  projectId: string;
-  conversationId: string;
-  agentSurfaceId: string;
-  beforePosition: number;
-  watermarkRevision: number;
-}
+import type { CanonicalTimelineCursor, CanonicalTimelinePage, CanonicalTimelineScope } from "./canonical-timeline-contract.js";
+import { projectCanonicalTimelineEnvelope } from "./canonical-timeline-projector.js";
 
 const DEFAULT_TIMELINE_PAGE_LIMIT = 100;
 const MAX_TIMELINE_PAGE_LIMIT = 500;
@@ -59,56 +18,35 @@ export async function getCanonicalTimelinePage(
   if (!memory.supported || !memory.projectId) throw notFound(`Conversation not found: ${conversationId}.`);
   const scope = { projectId: memory.projectId, conversationId, agentSurfaceId };
   const limit = normalizePageLimit(options.limit);
-  const store = await openWorkbenchDatabase(memory);
+  const database = await openWorkbenchDatabase(memory);
   try {
     const cursor = options.beforeCursor ? decodeCanonicalTimelineCursor(options.beforeCursor, scope) : undefined;
-    const snapshot = store.timeline.readTimelineSurfacePageSnapshot(scope.projectId, conversationId, agentSurfaceId, {
+    const snapshot = database.timeline.readTimelineSurfacePageSnapshot(scope.projectId, conversationId, agentSurfaceId, {
       beforePosition: cursor?.beforePosition,
       limit,
     });
     if (!snapshot) throw notFound(`Conversation not found: ${conversationId}.`);
     if (cursor && cursor.watermarkRevision > snapshot.conversation.timelineRevision) throw invalidCursor();
-    const { rows, pinnedRows, totalCount, hasMoreBefore } = snapshot;
-    const firstPosition = rows[0]?.position;
+    const firstPosition = snapshot.rows[0]?.position;
     const watermark = snapshot.conversation.timelineRevision;
     return {
       conversationId,
       agentSurfaceId,
       watermark,
-      pinned: pinnedRows.map(canonicalTimelineEnvelopeFromStoredRow),
-      entries: rows.map(canonicalTimelineEnvelopeFromStoredRow),
+      pinned: snapshot.pinnedRows.map(projectCanonicalTimelineEnvelope),
+      entries: snapshot.rows.map(projectCanonicalTimelineEnvelope),
       paging: {
         limit,
-        totalCount,
-        hasMoreBefore,
-        ...(hasMoreBefore && firstPosition !== undefined ? {
+        totalCount: snapshot.totalCount,
+        hasMoreBefore: snapshot.hasMoreBefore,
+        ...(snapshot.hasMoreBefore && firstPosition !== undefined ? {
           nextBeforeCursor: encodeCanonicalTimelineCursor({ ...scope, beforePosition: firstPosition, watermarkRevision: watermark }),
         } : {}),
       },
     };
   } finally {
-    store.close();
+    database.close();
   }
-}
-
-export function canonicalTimelineEnvelopeFromStoredRow(row: StoredTopicMessage): CanonicalTimelineEnvelope {
-  const entry = fromStoredThreadMessage(row);
-  const child = row.agentSurfaceId !== "main-agent";
-  return {
-    conversationId: row.conversationId,
-    agentSurfaceId: row.agentSurfaceId,
-    messageId: row.id,
-    position: row.position,
-    revision: row.revision,
-    orderClass: row.initialThreadInput ? "thread-start" : "sequence",
-    graphScopeId: entry.graphScopeId,
-    cells: canonicalTranscriptCellsFromThreadItem({
-      ...entry,
-      kind: entry.type === "user.message" ? "user-message" : "assistant-turn",
-      label: entry.text ?? entry.type,
-      body: entry.text,
-    }, child ? { forceAgentRoleId: entry.agentRoleId } : { parentVisible: true }),
-  };
 }
 
 export function encodeCanonicalTimelineCursor(cursor: CanonicalTimelineCursor): string {

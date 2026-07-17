@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+﻿import { existsSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
@@ -13,7 +13,8 @@ import { startLocalCommandRun } from "../../src/run/manager.js";
 import { TerminalRuntime } from "../../src/server/terminal/terminal-runtime.js";
 import { buildNativeFolderDialogCommand, executeWorkbenchAction, recoverWorkbenchProjects, startWorkbenchServer, type WorkbenchServerHandle } from "../../src/server/workbench-server.js";
 import type { ManagedProject } from "../../src/types/index.js";
-import { appendConversationTimelineEntry, buildProjectScopedMainAgentPrompt } from "../../src/workbench/chat.js";
+import { appendCanonicalTimelineEntry } from "../../src/workbench/canonical-timeline-command.js";
+import { buildProjectScopedMainAgentPrompt } from "../../src/workbench/main-agent-turn-coordinator.js";
 import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
 import { createFakeCodexRuntime } from "../helpers/fake-codex-runtime.js";
 
@@ -92,7 +93,7 @@ describe("workbench server", () => {
   });
 
   it("serves one canonical Timeline and retires flattened message reads", async () => {
-    await appendConversationTimelineEntry(project(), "server-topic", { type: "user.message", text: "Conversation route message." });
+    await appendCanonicalTimelineEntry(project(), "server-topic", { type: "user.message", text: "Conversation route message." });
 
     const payload = await getJson<{ conversationId: string; entries: Array<{ cells: Array<{ text?: string }> }> }>(
       `${handle!.url}/api/projects/repo/workbench/conversations/${serverConversationId}/timeline?agentSurfaceId=main-agent&limit=100`,
@@ -545,9 +546,9 @@ describe("workbench server", () => {
   });
 
   it("serves one Main/child Timeline API and retires transcript projections", async () => {
-    await appendConversationTimelineEntry(project(), "server-topic", { type: "assistant.message", text: "Main answer 1" });
-    await appendConversationTimelineEntry(project(), "server-topic", { type: "assistant.message", text: "Main answer 2" });
-    await appendConversationTimelineEntry(project(), "server-topic", {
+    await appendCanonicalTimelineEntry(project(), "server-topic", { type: "assistant.message", text: "Main answer 1" });
+    await appendCanonicalTimelineEntry(project(), "server-topic", { type: "assistant.message", text: "Main answer 2" });
+    await appendCanonicalTimelineEntry(project(), "server-topic", {
       type: "assistant.message",
       text: "Child answer",
       providerId: "codex",
@@ -628,7 +629,7 @@ describe("workbench server", () => {
       expect(projectTimeline.entries.flatMap((entry) => entry.cells)).toEqual(expect.arrayContaining([
         expect.objectContaining({ kind: "user-message", text: "Keep route behavior" }),
       ]));
-      await appendConversationTimelineEntry({ ...project(), id: addedBody.project.id, name: "Server Repo" }, "server-topic", {
+      await appendCanonicalTimelineEntry({ ...project(), id: addedBody.project.id, name: "Server Repo" }, "server-topic", {
         type: "workflow.completed",
         actionRunId: "action-private-path",
         actionType: "code.run",

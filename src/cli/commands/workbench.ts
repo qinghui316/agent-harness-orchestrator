@@ -7,7 +7,7 @@ import {
   listWorkbenchApprovals,
   listWorkbenchRoles,
   listWorkbenchTopics,
-} from "../../workbench/manager.js";
+} from "../../workbench/projections/read-model/implementation.js";
 import { printJson, printTable } from "../output.js";
 import { openUrl, resolveRegisteredOrPath, type CliContext } from "../context.js";
 

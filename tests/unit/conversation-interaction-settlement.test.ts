@@ -26,8 +26,8 @@ vi.mock("../../src/workbench/intake.js", async (importOriginal) => {
     skipClarification: domainSettlement.skipClarification,
   };
 });
-vi.mock("../../src/workbench/chat.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/workbench/chat.js")>();
+vi.mock("../../src/workbench/conversation-service.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/workbench/conversation-service.js")>();
   return { ...actual, postConversationMessage: domainSettlement.postConversationMessage };
 });
 vi.mock("../../src/workbench/conversation-interactions.js", async (importOriginal) => {
@@ -44,7 +44,7 @@ import { initHarness } from "../../src/harness/init.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { git } from "../../src/project/git.js";
 import type { ManagedProject } from "../../src/types/index.js";
-import { createWorkbenchConversation } from "../../src/workbench/chat.js";
+import { createWorkbenchConversation } from "../../src/workbench/conversation-service.js";
 import { settleConversationInteraction } from "../../src/workbench/conversation-interaction-service.js";
 import { buildConversationInteractionQueue } from "../../src/workbench/conversation-interactions.js";
 import { openWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";

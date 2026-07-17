@@ -15,7 +15,7 @@ import {
 } from "../../src/demand-worker/manager.js";
 import { initHarness } from "../../src/harness/init.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
-import { getWorkbenchSnapshot } from "../../src/workbench/manager.js";
+import { getWorkbenchSnapshot } from "../../src/workbench/projections/read-model/implementation.js";
 import { getTempDir, project } from "./workbench/fixtures.js";
 import { startNextDemandWorkerForRuntime } from "../../src/workflow-runtime/code-workflow.js";
 

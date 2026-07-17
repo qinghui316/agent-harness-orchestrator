@@ -8,11 +8,11 @@ const mocks = vi.hoisted(() => ({
   assertCurrentWorkflowAction: vi.fn(),
 }));
 
-vi.mock("../../src/workbench/chat.js", () => ({
+vi.mock("../../src/workbench/workflow-conversation-bridge.js", () => ({
   runWorkbenchWorkflowAction: mocks.runWorkbenchWorkflowAction,
 }));
 
-vi.mock("../../src/workbench/manager.js", () => ({
+vi.mock("../../src/workbench/projections/read-model/implementation.js", () => ({
   getWorkbenchSnapshot: mocks.getWorkbenchSnapshot,
 }));
 

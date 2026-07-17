@@ -1,8 +1,11 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createSseResponse } from "../sse.js";
 import type { ManagedProject } from "../../types/index.js";
-import { runWorkbenchWorkflowAction, type WorkbenchWorkflowActionRequest } from "../../workbench/chat.js";
-import { getWorkbenchSnapshot, type WorkbenchProjectInput } from "../../workbench/manager.js";
+import { runWorkbenchWorkflowAction } from "../../workbench/workflow-conversation-bridge.js";
+import { postConversationMessage } from "../../workbench/conversation-service.js";
+import { runProjectScopedMainAgentTurn } from "../../workbench/main-agent-turn-coordinator.js";
+import type { WorkbenchWorkflowActionRequest } from "../../workbench/types.js";
+import { getWorkbenchSnapshot, type WorkbenchProjectInput } from "../../workbench/projections/read-model/implementation.js";
 import { isLiveWorkflowActionType } from "../../workflow-actions/registry.js";
 import { assertCurrentWorkflowAction } from "./action-revalidation.js";
 import { executeWorkbenchAction } from "./actions.js";
@@ -74,7 +77,10 @@ export async function sendWorkbenchActionLive(input: WorkbenchProjectInput & { p
         validationRunId: body.validationRunId,
         reworkValidationRunId: body.reworkValidationRunId,
         auditRunId: body.auditRunId,
-      }, sink);
+      }, sink, {
+        postConversationMessage,
+        continueMainAgentTurn: runProjectScopedMainAgentTurn,
+      });
       terminalStatus = result.status;
     } else {
       await executeWorkbenchAction(input, body);

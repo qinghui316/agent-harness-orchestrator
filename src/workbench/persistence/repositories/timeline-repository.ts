@@ -10,14 +10,9 @@ constructor(private readonly db: Database.Database) {}
     conversationId: string,
     runId: string,
     graphScopeId: string,
-  ): void {
-    const rows = this.db.prepare(`
-      SELECT id, raw_json AS rawJson FROM canonical_timeline_items
-      WHERE project_id = ? AND conversation_id = ? AND run_id = ?
-    `).all(projectId, conversationId, runId) as SqliteRow[];
-    const update = this.db.prepare(
-      "UPDATE canonical_timeline_items SET raw_json = ? WHERE id = ? AND project_id = ?",
-    );
+  ): StoredTopicMessage[] {
+    const rows = this.listConversationMessages(projectId, conversationId).filter((row) => row.runId === runId);
+    const updated: StoredTopicMessage[] = [];
     for (const row of rows) {
       let raw: Record<string, unknown> = {};
       try {
@@ -25,8 +20,12 @@ constructor(private readonly db: Database.Database) {}
       } catch {
         // Preserve malformed diagnostic payloads while updating canonical scope.
       }
-      update.run(JSON.stringify({ ...raw, graphScopeId }), String(row.id), projectId);
+      updated.push(this.updateMessage({
+        ...row,
+        rawJson: JSON.stringify({ ...raw, graphScopeId }),
+      }));
     }
+    return updated;
   }
 
 appendMessage(message: StoredTopicMessageWrite): StoredTopicMessage {
@@ -284,43 +283,4 @@ deleteMessages(projectId: string, changeId: string): number {
     return result.changes;
   }
 
-importMessages(messages: StoredTopicMessage[]): number {
-    const insert = this.db.prepare(`
-      INSERT OR IGNORE INTO canonical_timeline_items (
-        id, project_id, conversation_id, change_id, position, revision, agent_surface_id, type, timestamp, text, action_run_id,
-        action_type, status, run_id, provider_id, thread_id, turn_id, item_id, artifact, error, raw_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    const transaction = this.db.transaction((items: StoredTopicMessage[]) => {
-      let count = 0;
-      for (const item of items) {
-        const result = insert.run(
-          item.id,
-          item.projectId,
-          item.conversationId,
-          item.changeId,
-          item.position,
-          item.revision,
-          item.agentSurfaceId,
-          item.type,
-          item.timestamp,
-          item.text,
-          item.actionRunId,
-          item.actionType,
-          item.status,
-          item.runId,
-          item.providerId ?? null,
-          item.threadId ?? null,
-          item.turnId ?? null,
-          item.itemId ?? null,
-          item.artifact,
-          item.error,
-          item.rawJson,
-        );
-        count += result.changes;
-      }
-      return count;
-    });
-    return transaction(messages) as number;
-  }
 }

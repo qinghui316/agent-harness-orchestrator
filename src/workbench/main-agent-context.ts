@@ -3,7 +3,7 @@ import { buildContextProjection } from "../run/manager.js";
 import type { ManagedProject, ResolvedMemory } from "../types/index.js";
 import { renderTopicAttachmentsForPrompt } from "./attachments.js";
 import { renderTopicFileReferencesForPrompt } from "./file-references.js";
-import { getWorkbenchSnapshot } from "./manager.js";
+import { getWorkbenchSnapshot } from "./projections/read-model/implementation.js";
 import type { TopicAttachment, TopicFileReference } from "./types.js";
 import { resolveTopic } from "./topic-resolver.js";
 import { readConversationThread as readThreadLog } from "./conversation-thread-log.js";

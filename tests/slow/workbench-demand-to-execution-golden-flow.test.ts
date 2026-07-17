@@ -6,8 +6,8 @@ import { describe, expect, it } from "vitest";
 import { initHarness } from "../../src/harness/init.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
-import { createWorkbenchConversation } from "../../src/workbench/chat.js";
-import { getWorkbenchSnapshot } from "../../src/workbench/manager.js";
+import { createWorkbenchConversation } from "../../src/workbench/conversation-service.js";
+import { getWorkbenchSnapshot } from "../../src/workbench/projections/read-model/implementation.js";
 import { acceptCurrentConversationPlanningPackage, writePlannerChildProposal } from "../../src/workbench/planning/planner-child-proposal.js";
 import { openWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import {

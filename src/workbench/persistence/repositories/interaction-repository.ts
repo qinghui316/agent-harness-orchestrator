@@ -11,7 +11,8 @@ export class InteractionRepository {
     conversationId: string,
     graphScopeId: string,
     updatedAt: string,
-  ): void {
+  ): StoredTopicMessage[] {
+    const updated: StoredTopicMessage[] = [];
     for (const row of this.timeline.listConversationMessages(projectId, conversationId)) {
       let raw: Record<string, unknown> & {
         graphScopeId?: string;
@@ -40,13 +41,14 @@ export class InteractionRepository {
         nextStatus = "superseded";
       }
       if (!nextStatus) continue;
-      this.timeline.updateMessage({
+      updated.push(this.timeline.updateMessage({
         ...row,
         timestamp: updatedAt,
         status: nextStatus,
         rawJson: JSON.stringify({ ...raw, timestamp: updatedAt, status: nextStatus }),
-      });
+      }));
     }
+    return updated;
   }
 
 transitionProviderUserInputRequest(
@@ -61,7 +63,7 @@ transitionProviderUserInputRequest(
       disposition?: "answered" | "skipped";
     } | undefined,
     updatedAt: string,
-  ): WorkbenchProviderUserInputRequest {
+  ): { request: WorkbenchProviderUserInputRequest; row: StoredTopicMessage } {
     return this.db.transaction(() => {
       const row = this.timeline.listConversationMessages(projectId, conversationId)
         .reverse()
@@ -86,13 +88,13 @@ transitionProviderUserInputRequest(
         ...(settlement?.disposition ? { disposition: settlement.disposition } : {}),
         ...(nextStatus === "submitted" ? { submittedAt: updatedAt } : {}),
       };
-      this.timeline.updateMessage({
+      const updatedRow = this.timeline.updateMessage({
         ...row,
         timestamp: updatedAt,
         status: nextStatus,
         rawJson: JSON.stringify({ ...raw, timestamp: updatedAt, status: nextStatus, providerUserInput: nextRequest }),
       });
-      return nextRequest;
+      return { request: nextRequest, row: updatedRow };
     })();
   }
 
@@ -146,7 +148,7 @@ terminalizeProviderUserInputRequests(
     })();
   }
 
-updatePlanningMessageStatus(projectId: string, conversationId: string, artifact: string, status: string): void {
+updatePlanningMessageStatus(projectId: string, conversationId: string, artifact: string, status: string): StoredTopicMessage {
     const row = this.timeline.listConversationMessages(projectId, conversationId)
       .find((message) => message.artifact === artifact && message.type === "assistant.message");
     if (!row) throw new Error(`Planning proposal message not found: ${artifact}.`);
@@ -156,7 +158,7 @@ updatePlanningMessageStatus(projectId: string, conversationId: string, artifact:
     } catch {
       // Keep the durable row usable even if an old diagnostic payload was malformed.
     }
-    this.timeline.updateMessage({
+    return this.timeline.updateMessage({
       ...row,
       status,
       rawJson: JSON.stringify({ ...raw, status }),

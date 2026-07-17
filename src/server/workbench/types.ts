@@ -1,8 +1,8 @@
 import type { IncomingMessage, Server } from "node:http";
 import type { ProjectRegistryStore } from "../../registry/store.js";
 import type { TerminalRuntime } from "../terminal/terminal-runtime.js";
-import type { WorkbenchApprovalAction, WorkbenchProjectInput } from "../../workbench/manager.js";
-import type { TopicMessageInput, WorkbenchWorkflowActionRequest } from "../../workbench/chat.js";
+import type { WorkbenchApprovalAction, WorkbenchProjectInput } from "../../workbench/read-model-types.js";
+import type { TopicMessageInput, WorkbenchWorkflowActionRequest } from "../../workbench/types.js";
 import type { MemoryMode } from "../../types/index.js";
 import type { BackgroundWorkerOptions } from "../../agent-task/background-worker.js";
 

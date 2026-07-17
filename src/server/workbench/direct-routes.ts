@@ -12,7 +12,7 @@ import {
   listWorkbenchApprovals,
   listWorkbenchTopics,
   type WorkbenchProjectInput,
-} from "../../workbench/manager.js";
+} from "../../workbench/projections/read-model/implementation.js";
 import type { IntakeRequest, WorkbenchActionRequest } from "./types.js";
 
 export async function handleDirectWorkbenchApi(input: WorkbenchProjectInput | null, request: IncomingMessage, response: ServerResponse, url: URL): Promise<boolean> {

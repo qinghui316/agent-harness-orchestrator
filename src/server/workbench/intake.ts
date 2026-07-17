@@ -1,5 +1,5 @@
 import { reanalyzeIntake, runIntakeScan } from "../../workbench/intake.js";
-import { getWorkbenchSnapshot, type WorkbenchProjectInput } from "../../workbench/manager.js";
+import { getWorkbenchSnapshot, type WorkbenchProjectInput } from "../../workbench/projections/read-model/implementation.js";
 import type { ManagedProject } from "../../types/index.js";
 import { requireChangeId } from "./http.js";
 import type { IntakeRequest } from "./types.js";

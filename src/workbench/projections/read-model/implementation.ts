@@ -6,7 +6,7 @@ import { readRun } from "../../../run/manager.js";
 import { providerInteractionHistory } from "../../parent-agent-transcript.js";
 import { buildConversationInteractionQueue } from "../../conversation-interactions.js";
 import { buildConversationInteractionAttention } from "../../conversation-interactions.js";
-import { deleteConversation, hideConversation } from "../../conversation-thread.js";
+import { deleteConversation, hideConversation } from "../../conversation-lifecycle.js";
 import { openWorkbenchDatabase } from "../../persistence/open-workbench-database.js";
 import { type StoredProviderAttempt, type StoredProviderThreadLink } from "../../persistence/contracts.js";
 import { summarizeRunArtifacts } from "../artifact-preview.js";

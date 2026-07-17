@@ -1,5 +1,5 @@
 import { ProjectRegistryStore } from "../../registry/store.js";
-import type { WorkbenchProjectInput } from "../../workbench/manager.js";
+import type { WorkbenchProjectInput } from "../../workbench/read-model-types.js";
 
 export function matchProjectWorkbenchRoute(pathname: string): { projectId: string; rest: string } | null {
   const match = pathname.match(/^\/api\/projects\/([^/]+)\/workbench(?:\/(.*))?$/);

@@ -11,7 +11,7 @@ import { resolveSpecTestProvider } from "../../src/spec-test/core/provider.js";
 import { getSpecTestDriftReport } from "../../src/spec-test/drift.js";
 import { writeJsonFile } from "../../src/fs/json.js";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
-import { getWorkbenchSnapshot } from "../../src/workbench/manager.js";
+import { getWorkbenchSnapshot } from "../../src/workbench/projections/read-model/implementation.js";
 import { createWorktree } from "../../src/worktree/manager.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { git } from "../../src/project/git.js";

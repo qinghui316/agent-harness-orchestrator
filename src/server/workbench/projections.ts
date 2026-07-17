@@ -28,7 +28,7 @@ import {
   getWorkbenchWorkflowRunProjection,
   getWorkbenchWorkpadProjection,
   type WorkbenchProjectInput,
-} from "../../workbench/manager.js";
+} from "../../workbench/projections/read-model/implementation.js";
 
 export async function getWorkbenchProjection(input: WorkbenchProjectInput, rest: string, _searchParams = new URLSearchParams()): Promise<unknown> {
   const [kind, encodedChangeId, encodedId, encodedExtraId] = rest.split("/");

@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+﻿import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -6,9 +6,11 @@ import { createChange, closeChange } from "../../src/change/manager.js";
 import { initHarness } from "../../src/harness/init.js";
 import { startLocalCommandRun } from "../../src/run/manager.js";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
-import { appendConversationTimelineEntry, createWorkbenchConversation } from "../../src/workbench/chat.js";
+import { appendCanonicalTimelineEntry } from "../../src/workbench/canonical-timeline-command.js";
+import { createWorkbenchConversation } from "../../src/workbench/conversation-service.js";
 import { answerClarification, reanalyzeIntake, runIntakeScan } from "../../src/workbench/intake.js";
-import { deleteWorkbenchConversation, getCanonicalTimelinePage, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTopic, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/manager.js";
+import { deleteWorkbenchConversation, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTopic, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/projections/read-model/implementation.js";
+import { getCanonicalTimelinePage } from "../../src/workbench/canonical-timeline-query.js";
 import { openWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import { bindProviderThreadFixture } from "../helpers/provider-thread-fixture.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
@@ -249,7 +251,7 @@ describe("workbench read-model projections", () => {
   it("projects Codex runtime output into transcript cells before derived workflow summaries", async () => {
     await initHarness(project());
     const topic = await createConversationChangeFixture(project(), { title: "Codex Transcript", body: "实现会员满 100 九折" });
-    await appendConversationTimelineEntry(project(), topic.changeId, {
+    await appendCanonicalTimelineEntry(project(), topic.changeId, {
       type: "assistant.message",
       text: "Fallback final message should not duplicate the cell stream.",
       runId: "run-codex-transcript",
@@ -287,7 +289,7 @@ describe("workbench read-model projections", () => {
   it("keeps archived topic messages in the semantic thread stream", async () => {
     await initHarness(project());
     const topic = await createConversationChangeFixture(project(), { title: "Archive Messages", body: "Need a durable archived thread." });
-    await appendConversationTimelineEntry(project(), topic.changeId, {
+    await appendCanonicalTimelineEntry(project(), topic.changeId, {
       type: "orchestrator.plan",
       text: "Historical planning output remains readable as plain assistant text.",
     });
@@ -314,8 +316,8 @@ describe("workbench read-model projections", () => {
     await initHarness(project());
     const topic = await createConversationChangeFixture(project(), { title: "Code Evidence", body: "Implement the pricing rule." });
     const run = await startLocalCommandRun(project(), [process.execPath, "-e", "console.log('code')"]);
-    await appendConversationTimelineEntry(project(), topic.changeId, { type: "workflow.started", actionRunId: "action-code", actionType: "code.run", status: "running" });
-    await appendConversationTimelineEntry(project(), topic.changeId, {
+    await appendCanonicalTimelineEntry(project(), topic.changeId, { type: "workflow.started", actionRunId: "action-code", actionType: "code.run", status: "running" });
+    await appendCanonicalTimelineEntry(project(), topic.changeId, {
       type: "workflow.completed",
       actionRunId: "action-code",
       actionType: "code.run",
@@ -417,7 +419,7 @@ describe("workbench read-model projections", () => {
   it("projects user message file and attachment metadata into parent transcript cells", async () => {
     await initHarness(project());
     const topic = await createConversationChangeFixture(project(), { title: "Context Metadata", body: "Initial demand." });
-    await appendConversationTimelineEntry(project(), topic.changeId, {
+    await appendCanonicalTimelineEntry(project(), topic.changeId, {
       type: "user.message",
       text: "Please use this context.",
       contextRefs: [{ relativePath: "src/pricing.ts", name: "pricing.ts", kind: "file", source: "composer" }],
@@ -559,7 +561,7 @@ describe("workbench read-model projections", () => {
     } finally {
       store.close();
     }
-    await appendConversationTimelineEntry(project(), topic.changeId, {
+    await appendCanonicalTimelineEntry(project(), topic.changeId, {
       type: "assistant.message",
       status: "planning-agent-generated",
       text: "CHILD PLANNING DRAFT BODY",
@@ -597,7 +599,7 @@ describe("workbench read-model projections", () => {
     await initHarness(project());
     const conversation = await createWorkbenchConversation(project(), { title: "Bound Conversation", body: "Plan this demand." }, undefined, { runMainAgent: false });
     const topic = await createConversationChangeFixture(project(), { title: "Bound Change", body: "Plan this demand." });
-    await appendConversationTimelineEntry(project(), topic.changeId, {
+    await appendCanonicalTimelineEntry(project(), topic.changeId, {
       type: "assistant.message",
       status: "planning-agent-generated",
       text: "BOUND CHILD PLAN BODY",
@@ -663,7 +665,7 @@ describe("workbench read-model projections", () => {
   it("prefers persisted assistant blocks over duplicate activity when rebuilding the thread", async () => {
     await initHarness(project());
     const topic = await createConversationChangeFixture(project(), { title: "Block Dedupe", body: "Show one command and one usage." });
-    await appendConversationTimelineEntry(project(), topic.changeId, {
+    await appendCanonicalTimelineEntry(project(), topic.changeId, {
       type: "assistant.message",
       runId: "run-dedupe",
       text: "I checked the repository.",

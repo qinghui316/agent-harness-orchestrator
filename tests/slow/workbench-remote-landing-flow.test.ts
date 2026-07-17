@@ -10,7 +10,7 @@ import { listDemandMemoryCloseouts, recordDemandMemoryCloseout } from "../../src
 import { createWorktree } from "../../src/worktree/manager.js";
 import { cleanupRemoteBranchAfterMerge, preparePostMergeHandoff, syncLocalAfterMerge } from "../../src/post-merge/manager.js";
 import { mergeNextLandingQueueCandidate, prepareLandingQueue } from "../../src/landing-queue/manager.js";
-import { getWorkbenchSnapshot } from "../../src/workbench/manager.js";
+import { getWorkbenchSnapshot } from "../../src/workbench/projections/read-model/implementation.js";
 import {
   createFakeGh,
   execFileAsync,

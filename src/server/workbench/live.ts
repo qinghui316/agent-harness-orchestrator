@@ -1,5 +1,6 @@
 import type { ServerResponse } from "node:http";
-import { getWorkbenchActionEvents, type WorkbenchLiveEvent, type WorkbenchLiveSink } from "../../workbench/chat.js";
+import { getWorkbenchActionEvents } from "../../workbench/workflow-conversation-bridge.js";
+import type { WorkbenchLiveEvent, WorkbenchLiveSink } from "../../workbench/types.js";
 import type { ManagedProject } from "../../types/index.js";
 import { publishProjectLiveEvent } from "../../workbench/project-live-events.js";
 import type { createSseResponse } from "../sse.js";

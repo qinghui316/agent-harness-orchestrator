@@ -10,7 +10,7 @@ import type { ManagedProject, MemoryMode } from "../../types/index.js";
 import { assertConfirmed, isWithinDirectory } from "./http.js";
 import type { AddExistingProjectRequest, CreateNewProjectRequest, InitProjectHarnessRequest, RemoveProjectRequest } from "./types.js";
 import { listProjectStatusesWithDirect } from "./direct-project.js";
-import type { WorkbenchProjectInput } from "../../workbench/manager.js";
+import type { WorkbenchProjectInput } from "../../workbench/read-model-types.js";
 
 export async function listProjectStatuses(store: ProjectRegistryStore, directInput: WorkbenchProjectInput | null = null): Promise<unknown[]> {
   return listProjectStatusesWithDirect(store, directInput);

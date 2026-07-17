@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { listAgentTasks } from "../../agent-task/repository.js";
 import type { AgentTask } from "../../types/index.js";
-import { getWorkbenchSnapshot, type WorkbenchProjectInput } from "../../workbench/manager.js";
+import { getWorkbenchSnapshot, type WorkbenchProjectInput } from "../../workbench/projections/read-model/implementation.js";
 import { subscribeProjectLiveEvents } from "../../workbench/project-live-events.js";
 import { resolveWorkbenchMemory } from "../../workbench/projections/read-model/support.js";
 import type { WorkbenchAgentWorkspaceAgent } from "../../workbench/read-model-types.js";

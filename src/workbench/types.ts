@@ -2,7 +2,7 @@ import type { ProviderId, ProviderReadableEvent, ProviderUserInputQuestion } fro
 import type { ConversationInteractionQueue } from "./conversation-interaction-contract.js";
 import type { HarnessExecutionMode, RunMetadata } from "../types/index.js";
 import type { WorkflowActionType } from "../workflow-actions/registry.js";
-import type { CanonicalTimelineEnvelope } from "./canonical-timeline.js";
+import type { CanonicalTimelineEnvelope } from "./canonical-timeline-contract.js";
 
 export type TopicThreadEventType =
   | "user.message"

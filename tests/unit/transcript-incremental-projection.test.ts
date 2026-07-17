@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 import { initHarness } from "../../src/harness/init.js";
-import { appendConversationTimelineEntry } from "../../src/workbench/chat.js";
-import { getCanonicalTimelinePage, getWorkbenchSnapshot } from "../../src/workbench/manager.js";
+import { appendCanonicalTimelineEntry } from "../../src/workbench/canonical-timeline-command.js";
+import { getWorkbenchSnapshot } from "../../src/workbench/projections/read-model/implementation.js";
+import { getCanonicalTimelinePage } from "../../src/workbench/canonical-timeline-query.js";
 import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
 import { getTempDir, project } from "./workbench/fixtures.js";
 
@@ -50,7 +51,7 @@ describe("incremental canonical Timeline delivery", () => {
 
 async function appendMessages(repo: ReturnType<typeof project>, changeId: string, start: number, endInclusive: number): Promise<void> {
   for (let index = start; index <= endInclusive; index += 1) {
-    await appendConversationTimelineEntry(repo, changeId, { type: "user.message", text: `message ${index}` });
+    await appendCanonicalTimelineEntry(repo, changeId, { type: "user.message", text: `message ${index}` });
   }
 }
 

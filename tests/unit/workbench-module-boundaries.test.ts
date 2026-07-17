@@ -70,13 +70,58 @@ describe("Workbench module boundaries", () => {
 
   it("keeps native Goal lifecycle provider-owned without an AHO Goal state store", () => {
     const provider = readFileSync("src/codex/app-server.ts", "utf8");
-    const conversation = readFileSync("src/workbench/chat.ts", "utf8");
+    const conversation = readFileSync("src/workbench/main-agent-turn-coordinator.ts", "utf8");
     expect(provider).toContain('sendRequest("thread/goal/get"');
     expect(provider).toContain('sendRequest("thread/goal/set"');
     expect(conversation).toContain('name: "aho_goal_yield"');
     expect(conversation).toContain('name: "aho_finalize_current_change"');
     expect(existsSync("src/workbench/codex-chat")).toBe(false);
     expect(existsSync("src/goal-manager")).toBe(false);
+  });
+
+  it("keeps canonical Timeline delivery and Conversation lifecycle in exact owners", () => {
+    for (const retired of [
+      "src/workbench/chat.ts",
+      "src/workbench/manager.ts",
+      "src/workbench/canonical-timeline.ts",
+      "src/workbench/conversation-thread.ts",
+    ]) expect(existsSync(retired), retired).toBe(false);
+
+    const directPublishers = rgOutput(["-l", 'emit\\(\\{ event: "timeline\\.patch"', "src/workbench"])
+      .trim().split(/\r?\n/).filter(Boolean).map((path) => path.replaceAll("\\", "/"));
+    expect(directPublishers).toEqual(["src/workbench/canonical-timeline-delivery.ts"]);
+
+    const directWrites = rgOutput(["-l", "\\.timeline\\.(appendMessage|updateMessage)\\(", "src/workbench"])
+      .trim().split(/\r?\n/).filter(Boolean).map((path) => path.replaceAll("\\", "/")).sort();
+    expect(directWrites).toEqual([
+      "src/workbench/canonical-timeline-delivery.ts",
+      "src/workbench/persistence/repositories/interaction-repository.ts",
+      "src/workbench/persistence/unit-of-work.ts",
+    ]);
+
+    const contract = readFileSync("src/workbench/canonical-timeline-contract.ts", "utf8");
+    expect(contract).not.toMatch(/read-model|database|provider-runtime|\.\/types\.js/);
+    const retiredSymbols = rgOutput([
+      "-n",
+      "knownIds|canonicalMessageIds|upsertCanonicalMessage|upsertBackgroundEntry|appendConversationTimelineEntry|openConversationTimelineWriter|ConversationTimelineWriter",
+      "src",
+    ]);
+    expect(retiredSymbols.trim()).toBe("");
+  });
+
+  it("keeps Conversation, Main Agent, and Workflow lifecycle owners acyclic", () => {
+    const conversation = readFileSync("src/workbench/conversation-service.ts", "utf8");
+    const main = readFileSync("src/workbench/main-agent-turn-coordinator.ts", "utf8");
+    const workflow = readFileSync("src/workbench/workflow-conversation-bridge.ts", "utf8");
+    const identity = readFileSync("src/workbench/conversation-identity.ts", "utf8");
+
+    expect(conversation).toContain('from "./main-agent-turn-coordinator.js"');
+    expect(conversation).toContain('from "./workflow-conversation-bridge.js"');
+    expect(main).toContain('from "./workflow-conversation-bridge.js"');
+    expect(main).not.toMatch(/childProcessMessage\.attemptId\s*=\s*isPlannerChild/);
+    expect(workflow).not.toMatch(/conversation-service|main-agent-turn-coordinator/);
+    expect(workflow).toContain('from "./conversation-identity.js"');
+    expect(identity).not.toMatch(/conversation-service|main-agent-turn-coordinator|workflow-conversation-bridge/);
   });
 });
 

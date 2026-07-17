@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createChange } from "../../src/change/manager.js";
 import { initHarness } from "../../src/harness/init.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
-import { getWorkbenchAgentRelationGraphProjection, getWorkbenchSnapshot } from "../../src/workbench/manager.js";
+import { getWorkbenchAgentRelationGraphProjection, getWorkbenchSnapshot } from "../../src/workbench/projections/read-model/implementation.js";
 import {
   completeAgentTask,
   createAgentTask,

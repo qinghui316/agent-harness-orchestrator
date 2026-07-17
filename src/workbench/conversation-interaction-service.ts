@@ -2,12 +2,13 @@ import { defaultProviderRegistry } from "../provider-runtime/index.js";
 import { resolveProjectMemory } from "../memory/resolver.js";
 import type { ManagedProject } from "../types/index.js";
 import { answerClarification, skipClarification, type ClarificationAnswer } from "./intake.js";
-import { postConversationMessage, type WorkbenchLiveSink } from "./chat.js";
+import { postConversationMessage } from "./conversation-service.js";
 import { planHandoffUserMessage } from "./plan-handoff.js";
 import { resolveConversationInteraction } from "./conversation-interactions.js";
 import { openWorkbenchDatabase } from "./persistence/open-workbench-database.js";
+import { CanonicalTimelineDelivery } from "./canonical-timeline-delivery.js";
 import type { ConversationInteractionQuestion, ConversationInteractionSettlement } from "./conversation-interaction-contract.js";
-import type { PlanHandoffIntentKind } from "./types.js";
+import type { PlanHandoffIntentKind, WorkbenchLiveSink } from "./types.js";
 
 const activeSettlements = new Set<string>();
 
@@ -22,7 +23,7 @@ export async function settleConversationInteraction(
   if (!memory.projectId) throw new Error("Project id is required to settle a conversation interaction.");
   const resolved = await resolveConversationInteraction(memory, conversationId, interactionId);
   if (resolved.kind === "provider-input") {
-    return settleProviderInput(project, conversationId, interactionId, resolved, settlement);
+    return settleProviderInput(project, conversationId, interactionId, resolved, settlement, live);
   }
   if (resolved.kind === "clarification") {
     return settleClarification(project, resolved, settlement);
@@ -36,6 +37,7 @@ async function settleProviderInput(
   interactionId: string,
   resolved: Extract<Awaited<ReturnType<typeof resolveConversationInteraction>>, { kind: "provider-input" }>,
   settlement: ConversationInteractionSettlement,
+  live?: WorkbenchLiveSink,
 ): Promise<{ status: "submitted"; interactionId: string }> {
   if (settlement.action !== "answer" && settlement.action !== "skip") throw badRequest("该操作不适用于Agent问题。");
   const request = resolved.source.request;
@@ -52,7 +54,7 @@ async function settleProviderInput(
     const provider = defaultProviderRegistry.get(request.providerId);
     const active = provider.conversation.getActiveTurn(request.runtimeScopeId);
     if (!active || active.attemptId !== request.attemptId) throw conflict("对应Agent回合当前不可用，请恢复该任务后重试。");
-    await transitionProviderRequest(project, conversationId, request.requestKey, "pending", "submitting");
+    await transitionProviderRequest(project, conversationId, request.requestKey, "pending", "submitting", undefined, live);
     transitioned = true;
     transportInvoked = true;
     await active.respondToUserInput(request.requestId, normalized, {
@@ -64,11 +66,11 @@ async function settleProviderInput(
       publicAnswers: sanitizeAnswers(resolved.public.questions, normalized.answers),
       skippedQuestionIds: normalized.skippedQuestionIds,
       disposition: normalized.disposition,
-    });
+    }, live);
     return { status: "submitted", interactionId };
   } catch (cause) {
     if (transitioned && !transportInvoked) {
-      await transitionProviderRequest(project, conversationId, request.requestKey, "submitting", "pending").catch(() => undefined);
+      await transitionProviderRequest(project, conversationId, request.requestKey, "submitting", "pending", undefined, live).catch(() => undefined);
     }
     throw cause;
   } finally {
@@ -174,12 +176,14 @@ async function transitionProviderRequest(
   expectedStatus: "pending" | "submitting",
   nextStatus: "pending" | "submitting" | "submitted",
   settlement?: { publicAnswers?: Record<string, string | string[]>; skippedQuestionIds?: string[]; disposition?: "answered" | "skipped" },
+  live?: WorkbenchLiveSink,
 ): Promise<void> {
   const memory = await resolveProjectMemory(project);
   if (!memory.projectId) throw new Error("Project id is required to persist an interaction settlement.");
   const store = await openWorkbenchDatabase(memory);
   try {
-    store.interactions.transitionProviderUserInputRequest(memory.projectId, conversationId, requestKey, expectedStatus, nextStatus, settlement, new Date().toISOString());
+    const transition = store.interactions.transitionProviderUserInputRequest(memory.projectId, conversationId, requestKey, expectedStatus, nextStatus, settlement, new Date().toISOString());
+    new CanonicalTimelineDelivery(store, live).publishCommitted(transition.row);
   } finally {
     store.close();
   }

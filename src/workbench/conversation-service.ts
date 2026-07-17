@@ -1,0 +1,197 @@
+import { existsSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { join } from "node:path";
+import { defaultProviderRegistry } from "../provider-runtime/index.js";
+import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
+import { ensureProjectRuntime } from "../harness/init.js";
+import type { ManagedProject } from "../types/index.js";
+import { resolveTopicAttachments } from "./attachments.js";
+import { resolveTopicFileReferences } from "./file-references.js";
+import { validatePlanHandoffIntent } from "./plan-handoff.js";
+import { hasPlanningExecutionEvidence } from "../change/manager.js";
+import { openWorkbenchDatabase } from "./persistence/open-workbench-database.js";
+import type { StoredTopicMessage } from "./persistence/contracts.js";
+import { fromStoredThreadMessage } from "./conversation-thread-log.js";
+import { CanonicalTimelineDelivery, publishCommittedCanonicalTimelineRow } from "./canonical-timeline-delivery.js";
+import { toCanonicalTimelineMessage } from "./canonical-timeline-message.js";
+import { resolveProviderSwitchWorkflowResumeRequest, switchConversationProviderAtSafePoint, type ProviderSwitchResult } from "./provider-switch.js";
+import { runProjectScopedMainAgentTurn } from "./main-agent-turn-coordinator.js";
+import { resolveConversationId } from "./conversation-identity.js";
+import { runWorkbenchWorkflowAction } from "./workflow-conversation-bridge.js";
+import type { TopicAttachment, TopicMessageInput, TopicMessageResult, TopicThreadEntry, ValidatedPlanHandoffIntent, WorkbenchLiveSink } from "./types.js";
+
+export async function createWorkbenchConversation(
+  project: ManagedProject,
+  input: { title: string; body?: string; contextRefs?: TopicMessageInput["contextRefs"]; attachmentIds?: string[]; providerId?: string },
+  live?: WorkbenchLiveSink,
+  options: { runMainAgent?: boolean } = {},
+): Promise<{ conversationId: string; title: string; state: "active" }> {
+  const memory = await ensureProjectRuntime(project);
+  assertWritableMemory(memory, "Workbench conversation");
+  if (!memory.projectId) throw new Error("Project id is required to create a conversation.");
+  const resolved = await resolveTopicFileReferences(project, input.body ?? input.title, input.contextRefs);
+  const attachments = await resolveTopicAttachments(project, input.attachmentIds);
+  const body = resolved.text || defaultAttachmentMessage(attachments);
+  const now = new Date().toISOString();
+  const conversationId = `conv-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
+  const graphScopeId = createGraphScopeId(conversationId);
+  const selectedProviderId = input.providerId
+    ? defaultProviderRegistry.get(input.providerId).id
+    : project.defaultProviderId
+      ? defaultProviderRegistry.get(project.defaultProviderId).id
+      : defaultProviderRegistry.requireOnly().id;
+  const database = await openWorkbenchDatabase(memory);
+  let storedUserRow: StoredTopicMessage;
+  try {
+    storedUserRow = database.unitOfWork.createConversationWithInitialMessage({
+      projectId: memory.projectId,
+      conversationId,
+      title: input.title,
+      state: "active",
+      boundChangeId: null,
+      currentGraphScopeId: graphScopeId,
+      selectedProviderId,
+      completedTurnSequence: 0,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    }, toCanonicalTimelineMessage(memory.projectId, conversationId, {
+      id: `user:${conversationId}:1`,
+      type: "user.message",
+      timestamp: now,
+      conversationId,
+      graphScopeId,
+      changeId: "",
+      completedTurnSequence: 1,
+      text: body,
+      contextRefs: resolved.contextRefs.length > 0 ? resolved.contextRefs : undefined,
+      attachments: attachments.length > 0 ? attachments : undefined,
+    }));
+  } finally {
+    database.close();
+  }
+  live?.emit({ event: "topic.created", data: { topic: { id: conversationId, conversationId, title: input.title, state: "active", selectedProviderId } } });
+  publishCommittedCanonicalTimelineRow(live, storedUserRow);
+  if (options.runMainAgent !== false) {
+    await runProjectScopedMainAgentTurn(project, conversationId, body, live, undefined, { graphScopeId });
+  }
+  return { conversationId, title: input.title, state: "active" };
+}
+
+export async function postConversationMessage(
+  project: ManagedProject,
+  conversationId: string,
+  input: string | TopicMessageInput,
+  live?: WorkbenchLiveSink,
+): Promise<TopicMessageResult> {
+  const parsed = await normalizeTopicMessageInput(project, input);
+  const memory = await ensureProjectRuntime(project);
+  assertWritableMemory(memory, "Workbench conversation");
+  if (!memory.projectId) throw new Error("Project id is required to post a conversation message.");
+  conversationId = await resolveConversationId(project, conversationId);
+  let providerSwitch: ProviderSwitchResult | null = null;
+  if (parsed.providerId) providerSwitch = await switchConversationProviderAtSafePoint({ project, memory, conversationId, targetProviderId: parsed.providerId });
+  const now = new Date().toISOString();
+  let user: TopicThreadEntry = {
+    id: `user:${conversationId}:${Date.now().toString(36)}`,
+    type: "user.message",
+    timestamp: now,
+    conversationId,
+    changeId: "",
+    text: parsed.message,
+    contextRefs: parsed.contextRefs,
+    attachments: parsed.attachments,
+  };
+  let planHandoff: ValidatedPlanHandoffIntent | undefined;
+  let storedUser: TopicThreadEntry = user;
+  const database = await openWorkbenchDatabase(memory);
+  try {
+    const delivery = new CanonicalTimelineDelivery(database, live);
+    const conversation = database.conversations.readConversation(memory.projectId, conversationId);
+    if (!conversation) throw new Error(`Conversation not found: ${conversationId}.`);
+    planHandoff = validatePlanHandoffIntent(
+      database.timeline.listConversationMessages(memory.projectId, conversationId).map(fromStoredThreadMessage),
+      parsed.planHandoffIntent,
+    );
+    const supersedingExecutedChange = Boolean(planHandoff?.kind === "revise-plan"
+      && conversation.boundChangeId
+      && await hasPlanningExecutionEvidence(memory, conversation.boundChangeId));
+    const completedBoundChange = Boolean(!planHandoff && conversation.boundChangeId
+      && !existsSync(join(memory.changesRoot, "active", conversation.boundChangeId)));
+    const terminalGraphScope = Boolean(conversation.currentGraphScopeId
+      && database.conversations.isConversationGraphScopeTerminal(memory.projectId, conversation.currentGraphScopeId));
+    const graphScopeId = !completedBoundChange && !supersedingExecutedChange && !terminalGraphScope && conversation.currentGraphScopeId
+      ? conversation.currentGraphScopeId
+      : createGraphScopeId(conversationId);
+    if (graphScopeId !== conversation.currentGraphScopeId) {
+      delivery.publishCommittedMany(database.unitOfWork.startConversationGraphScope(memory.projectId, conversationId, graphScopeId, now));
+    }
+    user = { ...user, graphScopeId, completedTurnSequence: conversation.completedTurnSequence + 1 };
+    storedUser = { ...user, planHandoff };
+    delivery.append(toCanonicalTimelineMessage(memory.projectId, conversationId, storedUser));
+    const proposalStatus = planHandoff?.kind === "revise-plan"
+      ? "revision-requested"
+      : planHandoff?.kind === "skip-plan" ? "skipped" : null;
+    if (proposalStatus && planHandoff) {
+      delivery.publishCommitted(database.interactions.updatePlanningMessageStatus(memory.projectId, conversationId, planHandoff.sourceArtifact, proposalStatus));
+    }
+  } finally {
+    database.close();
+  }
+  const assistant = await runProjectScopedMainAgentTurn(project, conversationId, parsed.message, live, planHandoff, { graphScopeId: storedUser.graphScopeId });
+  if (providerSwitch && parsed.providerSwitchIntent === "resume-workflow") {
+    const request = await resolveProviderSwitchWorkflowResumeRequest({ project, memory, conversationId, switchResult: providerSwitch });
+    if (request) {
+      await runWorkbenchWorkflowAction(project, request, live, {
+        postConversationMessage,
+        continueMainAgentTurn: runProjectScopedMainAgentTurn,
+      });
+    }
+  }
+  return { user: storedUser, assistant, run: null, providerSessionId: null, mode: "chat", assistantMessage: assistant.text ?? "" };
+}
+
+export async function listConversationMessages(project: ManagedProject, conversationId: string): Promise<TopicThreadEntry[]> {
+  const memory = await resolveProjectMemory(project);
+  if (!memory.projectId) return [];
+  conversationId = await resolveConversationId(project, conversationId);
+  const database = await openWorkbenchDatabase(memory);
+  try {
+    return database.timeline.listConversationMessages(memory.projectId, conversationId).map(fromStoredThreadMessage);
+  } finally {
+    database.close();
+  }
+}
+
+async function normalizeTopicMessageInput(project: ManagedProject, input: string | TopicMessageInput): Promise<Required<Pick<TopicMessageInput, "mode" | "message">> & { contextRefs?: TopicMessageInput["contextRefs"]; attachments?: TopicAttachment[]; planHandoffIntent?: TopicMessageInput["planHandoffIntent"]; providerId?: string; providerSwitchIntent: "resume-workflow" | "conversation-only" }> {
+  const mode = typeof input === "string" ? "chat" : input.mode ?? "chat";
+  const message = typeof input === "string" ? input : input.message ?? input.text ?? "";
+  if (mode !== "chat") throw new Error("Message mode must be chat; planning is delegated by the Main Agent to a real child.");
+  const attachments = await resolveTopicAttachments(project, typeof input === "string" ? [] : input.attachmentIds);
+  if (!message.trim() && attachments.length === 0) throw new Error("Message text is required.");
+  const resolved = await resolveTopicFileReferences(project, message, typeof input === "string" ? [] : input.contextRefs);
+  const resolvedMessage = resolved.text.trim() || defaultAttachmentMessage(attachments);
+  if (!resolvedMessage.trim()) throw new Error("Message text is required.");
+  return {
+    mode,
+    message: resolvedMessage,
+    contextRefs: resolved.contextRefs.length > 0 ? resolved.contextRefs : undefined,
+    attachments: attachments.length > 0 ? attachments : undefined,
+    planHandoffIntent: typeof input === "string" ? undefined : input.planHandoffIntent,
+    providerId: typeof input === "string" ? undefined : input.providerId,
+    providerSwitchIntent: typeof input === "string" ? "conversation-only" : input.providerSwitchIntent ?? (input.providerId ? "resume-workflow" : "conversation-only"),
+  };
+}
+
+function createGraphScopeId(conversationId: string): string {
+  return `graph:${conversationId}:${Date.now().toString(36)}:${randomUUID().slice(0, 8)}`;
+}
+
+function defaultAttachmentMessage(attachments: TopicAttachment[]): string {
+  if (attachments.length === 0) return "";
+  const imageCount = attachments.filter((attachment) => attachment.kind === "image").length;
+  const textCount = attachments.filter((attachment) => attachment.kind === "text").length;
+  if (imageCount > 0 && textCount === 0) return "Please inspect the attached image first, describe what you see, and ask a clarifying question if the requested outcome is unclear.";
+  if (textCount > 0 && imageCount === 0) return "Please use the attached file content as message-scoped context for this request.";
+  return "Please use the attached images and files as message-scoped context for this request.";
+}

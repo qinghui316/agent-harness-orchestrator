@@ -10,7 +10,7 @@ import { writeChangeIndex } from "../../src/ecl/index.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { getSpecTestStatus } from "../../src/spec-test/manager.js";
 import { getSpecTestDriftReport } from "../../src/spec-test/drift.js";
-import { getWorkbenchSnapshot, getWorkbenchStream, listWorkbenchApprovals } from "../../src/workbench/manager.js";
+import { getWorkbenchSnapshot, getWorkbenchStream, listWorkbenchApprovals } from "../../src/workbench/projections/read-model/implementation.js";
 import type { ManagedProject } from "../../src/types/index.js";
 
 const execFileAsync = promisify(execFile);

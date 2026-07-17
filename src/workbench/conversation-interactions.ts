@@ -78,6 +78,12 @@ async function resolveConversationInteractions(
   conversationId: string,
   graphScopeId: string,
 ): Promise<ResolvedConversationInteraction[]> {
+  const database = await openWorkbenchDatabase(memory);
+  try {
+    if (database.conversations.isConversationGraphScopeTerminal(memory.projectId!, graphScopeId)) return [];
+  } finally {
+    database.close();
+  }
   const entries = await readEntries(memory, conversationId);
   const currentEntries = entries.filter((entry) => entry.graphScopeId === graphScopeId);
   const latestClarification = new Map<string, TopicThreadEntry>();

@@ -14,7 +14,7 @@ import { listIntegrationChecks, runIntegrationCheck } from "../../src/integratio
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { getGitCommit, getGitStatusShort } from "../../src/project/git.js";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
-import { getWorkbenchSnapshot, listWorkbenchTopics } from "../../src/workbench/manager.js";
+import { getWorkbenchSnapshot, listWorkbenchTopics } from "../../src/workbench/projections/read-model/implementation.js";
 import { createWorktree } from "../../src/worktree/manager.js";
 import { claimTransitionExecution, issueLocalExecutionAuthorization, markTransitionExecutionStarted, readExecutionAuthorization, readTransitionExecution, revokeLocalExecutionAuthorization } from "../../src/workflow-runtime/execution-authorization.js";
 import { runExecutionAuthorizationTransaction } from "../../src/workflow-runtime/execution-authorization-repository.js";

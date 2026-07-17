@@ -14,7 +14,7 @@ import {
 import { parseHarnessEngineeringAssignment } from "../agent-task/harness-engineering-contract.js";
 import { resolveProjectMemory } from "../memory/resolver.js";
 import { resolveValidationProfile } from "../validation/profiles.js";
-import type { WorkbenchProjectInput } from "../workbench/manager.js";
+import type { WorkbenchProjectInput } from "../workbench/read-model-types.js";
 import { forwardProviderRealtimeEvent } from "../workbench/provider-live-events.js";
 import { publishProjectLiveEvent } from "../workbench/project-live-events.js";
 import { TerminalRuntime } from "./terminal/terminal-runtime.js";

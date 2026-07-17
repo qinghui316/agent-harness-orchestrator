@@ -6,7 +6,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { repoLocalMemory } from "../../src/memory/resolver.js";
 import type { ManagedProject } from "../../src/types/index.js";
 import type { HarnessEngineeringAssignment } from "../../src/agent-task/harness-engineering-contract.js";
-import { canonicalTimelineEnvelopeFromStoredRow, type CanonicalTimelineEnvelope } from "../../src/workbench/canonical-timeline.js";
+import type { CanonicalTimelineEnvelope } from "../../src/workbench/canonical-timeline-contract.js";
+import { projectCanonicalTimelineEnvelope } from "../../src/workbench/canonical-timeline-projector.js";
 import { openWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 
 const appServerTurn = vi.hoisted(() => vi.fn());
@@ -100,7 +101,7 @@ describe("provider adapter maintenance verification repair", () => {
       const terminalRows = store.timeline.listConversationMessages(setup.project.id, "maintenance:change-1");
       expect(terminalRows).toHaveLength(2);
       expect(terminalRows.every((row) => Boolean(row.threadId && row.turnId && row.itemId))).toBe(true);
-      expect(terminalRows.map((row) => canonicalTimelineEnvelopeFromStoredRow(row).cells.length)).toEqual([1, 1]);
+      expect(terminalRows.map((row) => projectCanonicalTimelineEnvelope(row).cells.length)).toEqual([1, 1]);
     } finally {
       store.close();
     }

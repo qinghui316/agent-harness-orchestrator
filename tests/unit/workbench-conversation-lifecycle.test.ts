@@ -3,7 +3,7 @@ import { createConversationChangeFixture } from "../helpers/conversation-change-
 import { createChange } from "../../src/change/manager.js";
 import { initHarness } from "../../src/harness/init.js";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
-import { getWorkbenchSnapshot, listWorkbenchTopics } from "../../src/workbench/manager.js";
+import { getWorkbenchSnapshot, listWorkbenchTopics } from "../../src/workbench/projections/read-model/implementation.js";
 import { writeRawActiveChange } from "./workbench/change-fixtures.js";
 import {
   getTempDir,

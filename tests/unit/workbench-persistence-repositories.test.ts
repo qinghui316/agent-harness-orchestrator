@@ -93,11 +93,13 @@ describe("Workbench persistence owners", () => {
           bindingStatus: "ready",
         },
         updatedAt: now,
+        timelineMessages: [{ ...message("terminal-row", "conversation-1"), type: "assistant.message", status: "completed" }],
       })).toThrow("completed-turn sequence changed concurrently");
 
       expect(database.providerAttempts.readProviderAttempt(projectId, "attempt-1")?.status).toBe("running");
       expect(database.interactions.readProviderUserInputRequest(projectId, "conversation-1", "request-key")?.status).toBe("pending");
       expect(database.providerAttempts.readConversationProviderBinding(projectId, "conversation-1", "codex")).toBeNull();
+      expect(database.timeline.readMessage(projectId, "conversation-1", "terminal-row")).toBeNull();
     } finally {
       database.close();
     }
@@ -135,6 +137,44 @@ describe("Workbench persistence owners", () => {
       expect(database.conversations.readConversation(projectId, "conversation-1")?.selectedProviderId).toBe("alpha");
       expect(database.providerAttempts.readLatestProviderResumePoint(projectId, "conversation-1")).toBeNull();
       expect(database.providerAttempts.readConversationProviderBinding(projectId, "conversation-1", "beta")).toBeNull();
+    } finally {
+      database.close();
+    }
+  });
+
+  it("returns revisioned rows when a graph scope supersedes an interaction and moves its run", async () => {
+    const database = await openWorkbenchDatabase(repoLocalMemory(root, projectId));
+    try {
+      database.conversations.createConversation(conversation("conversation-1"));
+      database.timeline.appendMessage({
+        ...message("request-1", "conversation-1"),
+        runId: "run-1",
+        status: "pending",
+        rawJson: JSON.stringify({
+          graphScopeId: "graph-1",
+          providerUserInput: { requestKey: "request-key", runId: "run-1", status: "pending" },
+        }),
+      });
+
+      const rows = database.unitOfWork.moveConversationRunToGraphScope(
+        projectId,
+        "conversation-1",
+        "run-1",
+        "thread-plan",
+        "graph-2",
+        now,
+      );
+
+      expect(rows.map((row) => [row.id, row.revision])).toEqual([
+        ["request-1", 2],
+        ["request-1", 3],
+      ]);
+      const stored = database.timeline.readMessage(projectId, "conversation-1", "request-1");
+      expect(stored).toMatchObject({ revision: 3, status: "superseded" });
+      expect(JSON.parse(stored!.rawJson)).toMatchObject({
+        graphScopeId: "graph-2",
+        providerUserInput: { status: "superseded" },
+      });
     } finally {
       database.close();
     }
