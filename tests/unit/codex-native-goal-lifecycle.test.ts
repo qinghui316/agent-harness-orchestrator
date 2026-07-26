@@ -51,7 +51,7 @@ describe("Codex native Goal lifecycle", () => {
     expect(result.childThreads).toEqual([expect.objectContaining({
       parentThreadId: "thread-parent",
       threadId: "thread-planner",
-      tool: "spawn_agent",
+      roleHint: "planning-agent",
       displayName: "Feynman",
       finalText: '{"specMd":"# Spec","planMd":"# Plan","tasksMd":"# Tasks"}',
     })]);
@@ -61,7 +61,7 @@ describe("Codex native Goal lifecycle", () => {
     expect(resolvedRequests).toEqual(["77"]);
     expect(server.methods).toContain("thread/read");
     expect(realtimeEvents).toEqual(expect.arrayContaining([
-      expect.objectContaining({ threadId: "thread-planner", roleId: "child-agent", displayName: "Child Agent" }),
+      expect.objectContaining({ threadId: "thread-planner", roleId: "planning-agent" }),
     ]));
     expect(server.threadStartParams.dynamicTools).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "aho_goal_yield" }),
@@ -657,7 +657,7 @@ class FakePlannerChildAppServer extends EventEmitter {
             id: "collab-plan",
             kind: "started",
             agentThreadId: "thread-planner",
-            agentPath: "/root/plan_welcome_upgrade",
+            agentPath: "/root/planning_agent",
           },
           threadId: "thread-parent",
         });

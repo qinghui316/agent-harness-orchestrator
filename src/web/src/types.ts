@@ -1,6 +1,8 @@
 import type { WorkbenchThreadActionType } from "./workflow-actions.js";
 import type { ConversationInteractionQueue, InteractionHistoryRecord } from "../../workbench/conversation-interaction-contract.js";
+import type { AgentSurfacesInvalidated } from "../../workbench/agent-surface-contract.js";
 export type { ConversationInteraction, ConversationInteractionQuestion, ConversationInteractionQueue, ConversationInteractionSettlement, InteractionHistoryRecord } from "../../workbench/conversation-interaction-contract.js";
+export type { AgentSurfaceProjection, AgentSurfaceProjectionItem, AgentSurfaceStatus, AgentSurfacesInvalidated, AgentSurfacesInvalidationReason } from "../../workbench/agent-surface-contract.js";
 
 export type AppStatus = { mode: "app" | "project"; directProjectId: string | null };
 export type ProviderDiagnostics = {
@@ -325,9 +327,8 @@ export type Snapshot = {
     thread: { items: ThreadStreamItem[] };
     conversationInteractions: ConversationInteractionQueue;
     activeTab?: CenterTab;
-    agentRelationGraph: AgentRelationGraph;
   };
-  right: { approvals: Approval[]; decisions: Decision[]; decisionInspector: DecisionInspector; confirmationQueue: ConfirmationQueue; agentWorkspace: AgentWorkspace };
+  right: { approvals: Approval[]; decisions: Decision[]; decisionInspector: DecisionInspector; confirmationQueue: ConfirmationQueue };
   harnessGaps: Array<{ id: string; status: string; summary: string }>;
   warnings: string[];
 };
@@ -353,37 +354,8 @@ export type WorkpadSummary = {
   blocker?: string;
   updatedAt?: string;
 };
-export type AgentRelationGraphNodeStatus = "idle" | "queued" | "running" | "completed" | "needs-change" | "failed" | "waiting-user" | "skipped";
 export type AgentEvidenceRef = { label: string; ref: string; kind: "artifact" | "run" | "task" | "decision" | "remote" | "maintenance" };
-export type AgentRelationGraphNode = {
-  id: string;
-  kind: "main-agent" | "agent";
-  label: string;
-  roleId: string;
-  providerId?: string;
-  providerThreadId?: string;
-  parentAgentId?: string;
-  status: AgentRelationGraphNodeStatus;
-  summary: string;
-  target: {
-    projectId?: string | null;
-    conversationId?: string;
-    changeId?: string;
-    agentSurfaceId: string;
-  };
-};
-export type AgentRelationGraphEdge = { id: string; from: string; to: string; kind: "parent-child" };
-export type AgentRelationGraph = {
-  graphScopeId?: string;
-  conversationId?: string;
-  changeId?: string;
-  title: string;
-  summary: string;
-  nodes: AgentRelationGraphNode[];
-  edges: AgentRelationGraphEdge[];
-  updatedAt?: string;
-};
-export type CenterTab = "conversation" | "workpad" | "agentGraph";
+export type CenterTab = "conversation" | "workpad" | "agentOffice";
 export type ParentAgentTranscriptBlock = {
   id: string;
   kind: "prose" | "process" | "tool-result" | "evidence";
@@ -1543,28 +1515,6 @@ export type DecisionInspector = {
   history: DecisionContext[];
   selectedContextId?: string;
 };
-export type AgentWorkspaceAgent = {
-  id: string;
-  roleId: string;
-  providerId: string;
-  providerThreadId?: string;
-  providerDisplayName?: string;
-  parentThreadId?: string;
-  parentAgentId: string;
-  runId?: string;
-  label: string;
-  status: string;
-  summary: string;
-  inputSummary?: string;
-  outputSummary?: string;
-  evidenceRefs: AgentEvidenceRef[];
-  actions: DecisionAction[];
-  clarifications?: ClarificationRequest[];
-};
-export type AgentWorkspace = {
-  selectedAgentId: string;
-  agents: AgentWorkspaceAgent[];
-};
 export type ConfirmationQueueItem = {
   id: string;
   kind: string;
@@ -1661,6 +1611,7 @@ export type WorkbenchLiveEvent =
   | { event: "topic.created"; data: { topic: { id?: string; conversationId?: string; changeId?: string; title: string; state: "active"; selectedProviderId?: string } } }
   | { event: "timeline.patch"; data: CanonicalTimelineEnvelope }
   | { event: "conversation.interactions.updated"; data: ConversationInteractionQueue }
+  | { event: "agent-surfaces.invalidated"; data: AgentSurfacesInvalidated }
   | { event: "run.started"; data: WorkbenchLiveIdentity & { runId: string; actionType?: string; runtime?: string; taskIds?: string[] } }
   | { event: "run.status"; data: WorkbenchLiveIdentity & { actionRunId?: string; status: string; label?: string } }
   | { event: "assistant.delta"; data: WorkbenchLiveIdentity & { delta: string } }

@@ -1,0 +1,18 @@
+{
+  "method": "local before/after luminance difference with exact source furniture mask",
+  "sourcePath": "C:\\Users\\qinghui\\.codex\\visualizations\\2026\\07\\24\\019f93b2-6925-7350-84a1-1b873837f8ef\\agent-office-shadow-proof\\10-main-workstation-canonical-input.png",
+  "editedPath": "C:\\Users\\qinghui\\.codex\\visualizations\\2026\\07\\24\\019f93b2-6925-7350-84a1-1b873837f8ef\\agent-office-shadow-proof\\15-main-workstation-candidate-3.png",
+  "floorMinY": 390,
+  "protectionRadius": 2,
+  "extractedPixels": 254630,
+  "maximumAlpha": 255,
+  "previewOpacity": 0.55,
+  "occludedFillPixels": 22781,
+  "rgbForEveryShadowPixel": [
+    0,
+    0,
+    0
+  ],
+  "transparentPath": "C:\\Users\\qinghui\\.codex\\visualizations\\2026\\07\\24\\019f93b2-6925-7350-84a1-1b873837f8ef\\agent-office-shadow-proof\\16-main-workstation-local-diff-shadow-transparent.png",
+  "compositePath": "C:\\Users\\qinghui\\.codex\\visualizations\\2026\\07\\24\\019f93b2-6925-7350-84a1-1b873837f8ef\\agent-office-shadow-proof\\16-main-workstation-local-diff-layered-proof.png"
+}

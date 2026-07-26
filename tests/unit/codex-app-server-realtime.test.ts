@@ -52,8 +52,8 @@ describe("Codex app-server realtime normalization", () => {
     };
     const item = {
       id: "spawn-child-1",
-      type: "collabToolCall",
-      tool: "spawn_agent",
+      type: "collabAgentToolCall",
+      tool: "spawnAgent",
       receiverThreadIds: ["thread-child"],
     };
     const started = normalizeCodexAppServerNotification("item/started", { item }, childIdentity);
@@ -81,6 +81,7 @@ describe("Codex app-server realtime normalization", () => {
         type: "subAgentActivity",
         kind: "started",
         agentThreadId: "thread-child-real",
+        agentPath: "/root/planning_agent",
       },
     }, identity);
 
@@ -98,7 +99,7 @@ describe("Codex app-server realtime normalization", () => {
     const capture = createAssistantTranscriptCapture(undefined);
     const forward = (method: "item/started" | "item/completed", status?: string) => {
       const [event] = normalizeCodexAppServerNotification(method, {
-        item: { id: "spawn-child-1", type: "collabToolCall", tool: "spawn_agent", receiverThreadIds: ["thread-child"], ...(status ? { status } : {}) },
+        item: { id: "spawn-child-1", type: "collabAgentToolCall", tool: "spawnAgent", receiverThreadIds: ["thread-child"], ...(status ? { status } : {}) },
       }, { ...identity, targetThreadId: "thread-child", targetAgentDisplayName: "Child Agent · Sagan" });
       forwardProviderRealtimeEvent({ ...event!, providerId: "codex", attemptId: "attempt-1", sessionId: "thread-main", targetAgentSurfaceId: "agent:codex:thread:thread-child" }, capture.sink);
     };

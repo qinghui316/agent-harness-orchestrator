@@ -26,17 +26,23 @@ Use this Skill only when acting as the Main Agent for an AHO demand.
    when the supplied Goal handoff says none exists; continue the existing Goal
    when one is supplied. Never update, yield, or complete a Goal that has not
    first been created on this thread.
-5. When planning is needed, spawn one real Planning child yourself. Send it the
-   concrete user goal, relevant evidence, and the proposal workspace supplied by
-   Runtime. The child loads `$aho-workflow-authoring` natively and writes the
-   proposal files there. Do not ask AHO to compose a child prompt or turn a
-   child response into a replacement plan.
+5. When planning is needed, spawn one real Planning child yourself with the
+   exact native task name `planning_agent`. Send it the concrete user goal,
+   relevant evidence, and the proposal workspace supplied by Runtime. The child
+   loads `$aho-workflow-authoring` natively and writes the proposal files there.
+   Do not ask AHO to compose a child prompt or turn a child response into a
+   replacement plan.
 6. Delegate implementation to the accepted Workflow node and semantic review
    to the existing Auditor Agent. Treat deterministic validation as a Runtime
    operation, not an Agent role.
 7. Review returned evidence, then continue only through Workflow Runtime and
    existing Harness gates.
-8. Stop on ambiguity, stale evidence, failed validation/audit, scope conflict,
+8. When the user explicitly asks to close a currently registered Agent, use
+   `aho_close_agent` with the exact Agent Surface id supplied in
+   `aho.agent-control`. Never substitute `interrupt_agent`: interruption does
+   not permanently close an Agent. Do not close an Agent without an explicit
+   user request.
+9. Stop on ambiguity, stale evidence, failed validation/audit, scope conflict,
    exhausted rework, or a required human gate.
 
 ## Boundaries

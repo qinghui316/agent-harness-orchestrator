@@ -1,10 +1,11 @@
-import { getActiveCodexAppServerTurn, listActiveCodexAppServerTurns, runCodexAppServerTurn, type ActiveCodexAppServerTurn, type CodexAppServerThreadGoalStatus } from "../codex/app-server.js";
+import { getActiveCodexAppServerTurn, isCodexAppServerChildAvailable, listActiveCodexAppServerTurns, runCodexAppServerChildClose, runCodexAppServerChildTurn, runCodexAppServerTurn, type ActiveCodexAppServerTurn, type CodexAppServerThreadGoalStatus } from "../codex/app-server.js";
 import type { CodexAppServerRealtimeEvent } from "../codex/app-server-realtime.js";
 import { getCodexProviderCapabilitySnapshot, getCodexProviderRuntimeSummary } from "./codex.js";
 import { executeCodexProjectAction, getCodexDiagnostics, listCodexProjectActions } from "./codex-diagnostics.js";
 import { codexModelSettings, selectCodexModel } from "./codex-models.js";
 import { bindCodexSkillCatalog, getCodexBridgeStatus, installCodexBridge, syncCodexBridge } from "../codex/bridge.js";
-import type { ActiveProviderTurn, ProviderChildThreadResult, ProviderDescriptor, ProviderObjectiveState, ProviderRealtimeEvent, ProviderTurnRequest, ProviderTurnResult, ProviderUserInputRequest } from "./contracts.js";
+import { defaultCodexAppServerHostRegistry } from "../codex/app-server-host.js";
+import type { ActiveProviderTurn, ProviderChildCloseRequest, ProviderChildLifecycleEvent, ProviderChildSessionRequest, ProviderChildThreadResult, ProviderChildTurnRequest, ProviderDescriptor, ProviderObjectiveState, ProviderRealtimeEvent, ProviderTurnRequest, ProviderTurnResult, ProviderUserInputRequest } from "./contracts.js";
 import { agentThreadSurfaceId } from "./agent-surface-id.js";
 
 export const CODEX_PROVIDER_ID = "codex" as const;
@@ -13,6 +14,9 @@ const activeAttemptByScope = new Map<string, string>();
 export const codexProviderDescriptor: ProviderDescriptor = {
   id: CODEX_PROVIDER_ID,
   displayName: "Codex",
+  runtime: {
+    shutdown: (reason) => defaultCodexAppServerHostRegistry.disposeAll(reason),
+  },
   capabilitySnapshot: getCodexProviderCapabilitySnapshot,
   runtimeSummary: getCodexProviderRuntimeSummary,
   models: { read: codexModelSettings, select: selectCodexModel },
@@ -24,7 +28,7 @@ export const codexProviderDescriptor: ProviderDescriptor = {
     sync: syncCodexBridge,
     bindCatalog: bindCodexSkillCatalog,
   },
-  conversation: { runTurn: runCodexTurn, getActiveTurn: activeCodexTurn, listActiveTurns: activeCodexTurns },
+  conversation: { runTurn: runCodexTurn, inspectChild: inspectCodexChild, continueChild: runCodexChildTurn, closeChild: closeCodexChild, getActiveTurn: activeCodexTurn, listActiveTurns: activeCodexTurns },
   leafExecution: { runTurn: runCodexTurn },
 };
 
@@ -47,11 +51,16 @@ export async function runCodexTurn(request: ProviderTurnRequest): Promise<Provid
     sandboxPolicy: request.sandboxPolicy,
     paths: request.paths,
     existingThreadId: request.existingSession?.sessionId,
+    goalSession: request.objectiveSession,
+    goalResume: request.objectiveResume,
     timeoutMs: request.timeoutMs,
     onRealtimeEvent: request.onRealtimeEvent ? (event) => {
       const mapped = mapRealtime(request, event);
       if (mapped) request.onRealtimeEvent?.(mapped);
     } : undefined,
+    onChildLifecycleEvent: request.onChildLifecycleEvent
+      ? (event) => request.onChildLifecycleEvent?.(mapChildLifecycle(event))
+      : undefined,
     onChildThreadResult: request.onChildThreadResult ? (child) => request.onChildThreadResult?.(mapChild(child)) : undefined,
     onUserInputRequest: request.onUserInputRequest ? (input) => request.onUserInputRequest?.(mapUserInput(request, input)) : undefined,
     onUserInputResolved: request.onUserInputResolved ? (input) => request.onUserInputResolved?.({
@@ -65,8 +74,6 @@ export async function runCodexTurn(request: ProviderTurnRequest): Promise<Provid
     dynamicTools: request.tools,
     onDynamicToolCall: request.onToolCall ? async (call) => request.onToolCall?.({ ...call, providerId: CODEX_PROVIDER_ID }) as Promise<import("./contracts.js").ProviderToolResult> : undefined,
     onGoalUpdate: request.onObjectiveUpdate ? (goal) => request.onObjectiveUpdate?.(mapObjective(goal)) : undefined,
-    goalSession: request.objectiveSession,
-    goalResume: request.objectiveResume,
     onTextDelta: request.onTextDelta,
     onPlanDelta: request.onPlanDelta,
     onPlanUpdate: request.onPlanUpdate,
@@ -97,8 +104,119 @@ export async function runCodexTurn(request: ProviderTurnRequest): Promise<Provid
     objective: result.goal ? mapObjective(result.goal) : result.goal,
     childThreads: result.childThreads.map(mapChild),
     changedFiles: result.changedFiles,
+    ...(result.host ? { runtimeHost: result.host } : {}),
     error: result.error,
   };
+}
+
+export async function runCodexChildTurn(request: ProviderChildTurnRequest): Promise<ProviderTurnResult> {
+  if (request.providerId !== CODEX_PROVIDER_ID || request.parentSession.providerId !== CODEX_PROVIDER_ID || request.targetSession.providerId !== CODEX_PROVIDER_ID) {
+    throw new Error("Codex Child continuation requires Codex parent and Child sessions.");
+  }
+  const result = await runCodexAppServerChildTurn({
+    projectId: request.projectId,
+    conversationId: request.conversationId,
+    changeId: request.changeId,
+    runtimeScopeId: request.runtimeScopeId,
+    roleId: request.roleId,
+    agentTaskId: request.agentTaskId,
+    runId: request.runId,
+    cwd: request.cwd,
+    prompt: request.prompt,
+    sandboxPolicy: request.sandboxPolicy,
+    paths: request.paths,
+    parentThreadId: request.parentSession.sessionId,
+    targetThreadId: request.targetSession.sessionId,
+    targetDisplayName: request.targetDisplayName,
+    timeoutMs: request.timeoutMs,
+    onRealtimeEvent: request.onRealtimeEvent ? (event) => {
+      const mapped = mapRealtime(request, event);
+      if (mapped) request.onRealtimeEvent?.(mapped);
+    } : undefined,
+    onChildLifecycleEvent: request.onChildLifecycleEvent
+      ? (event) => request.onChildLifecycleEvent?.(mapChildLifecycle(event))
+      : undefined,
+    onChildThreadResult: request.onChildThreadResult ? (child) => request.onChildThreadResult?.(mapChild(child)) : undefined,
+    onError: request.onError,
+    model: request.model?.modelId,
+    runtimeWorkspaceRoots: request.runtimeWorkspaceRoots,
+    additionalContext: request.additionalContext,
+    writableRoots: request.writableRoots,
+  });
+  const child = [...result.childThreads].reverse()
+    .find((candidate) => candidate.threadId === request.targetSession.sessionId && candidate.finalText.trim());
+  return {
+    providerId: CODEX_PROVIDER_ID,
+    status: child ? child.status === "failed" ? "failed" : child.status === "interrupted" ? "interrupted" : "completed" : "failed",
+    session: request.targetSession,
+    turnId: child ? latestThreadTurnId(child.snapshot) : null,
+    lastMessage: child?.finalText ?? "",
+    childThreads: result.childThreads.map(mapChild),
+    changedFiles: child?.changedFiles ?? [],
+    ...(result.host ? { runtimeHost: result.host } : {}),
+    ...(!child ? { error: result.error ?? "Codex did not complete the selected native Child follow-up." } : {}),
+  };
+}
+
+async function inspectCodexChild(request: ProviderChildSessionRequest): Promise<"available" | "stale"> {
+  if (request.providerId !== CODEX_PROVIDER_ID || request.parentSession.providerId !== CODEX_PROVIDER_ID || request.targetSession.providerId !== CODEX_PROVIDER_ID) {
+    return "stale";
+  }
+  return isCodexAppServerChildAvailable(request.cwd, request.parentSession.sessionId, request.targetSession.sessionId)
+    ? "available"
+    : "stale";
+}
+
+async function closeCodexChild(request: ProviderChildCloseRequest): Promise<ProviderTurnResult> {
+  if (request.providerId !== CODEX_PROVIDER_ID || request.parentSession.providerId !== CODEX_PROVIDER_ID || request.targetSession.providerId !== CODEX_PROVIDER_ID) {
+    throw new Error("Codex Child close requires Codex parent and Child sessions.");
+  }
+  const result = await runCodexAppServerChildClose({
+    projectId: request.projectId,
+    conversationId: request.conversationId,
+    changeId: request.changeId,
+    runtimeScopeId: request.runtimeScopeId,
+    roleId: request.roleId,
+    runId: request.runId,
+    cwd: request.cwd,
+    sandboxPolicy: "read-only",
+    paths: request.paths,
+    parentThreadId: request.parentSession.sessionId,
+    targetThreadId: request.targetSession.sessionId,
+    targetDisplayName: request.targetDisplayName,
+    timeoutMs: request.timeoutMs,
+    onRealtimeEvent: request.onRealtimeEvent ? (event) => {
+      const mapped = mapRealtime(request, event);
+      if (mapped) request.onRealtimeEvent?.(mapped);
+    } : undefined,
+    onChildLifecycleEvent: request.onChildLifecycleEvent
+      ? (event) => request.onChildLifecycleEvent?.(mapChildLifecycle(event))
+      : undefined,
+    onError: request.onError,
+  });
+  return {
+    providerId: CODEX_PROVIDER_ID,
+    status: result.status,
+    session: request.targetSession,
+    turnId: result.turnId,
+    lastMessage: "",
+    childThreads: [],
+    changedFiles: [],
+    ...(result.host ? { runtimeHost: result.host } : {}),
+    error: result.error,
+  };
+}
+
+function latestThreadTurnId(snapshot: Record<string, unknown>): string | null {
+  const thread = snapshot.thread;
+  if (!thread || typeof thread !== "object") return null;
+  const turns = (thread as { turns?: unknown }).turns;
+  if (!Array.isArray(turns)) return null;
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    const turn = turns[index];
+    if (turn && typeof turn === "object" && typeof (turn as { id?: unknown }).id === "string") return (turn as { id: string }).id;
+  }
+  return null;
 }
 
 function activeCodexTurn(runtimeScopeId: string): ActiveProviderTurn | null {
@@ -128,7 +246,7 @@ function mapActiveCodexTurn(active: ActiveCodexAppServerTurn): ActiveProviderTur
   };
 }
 
-function mapRealtime(request: ProviderTurnRequest, event: CodexAppServerRealtimeEvent): ProviderRealtimeEvent | null {
+function mapRealtime(request: Pick<ProviderTurnRequest, "attemptId" | "graphScopeId">, event: CodexAppServerRealtimeEvent): ProviderRealtimeEvent | null {
   if (isCodexProtocolNoise(event)) return null;
   if (!event.threadId || !event.turnId) return null;
   const itemId = canonicalItemId(event);
@@ -180,10 +298,10 @@ function isCodexProtocolNoise(event: CodexAppServerRealtimeEvent): boolean {
 function mapChild(child: import("../codex/app-server.js").CodexAppServerChildThreadResult): ProviderChildThreadResult {
   return {
     providerId: CODEX_PROVIDER_ID,
-    ...(child.itemId ? { spawnItemId: child.itemId } : {}),
-    tool: child.tool,
+    ...(child.itemId ? { activityId: child.itemId } : {}),
     parentThreadId: child.parentThreadId,
     threadId: child.threadId,
+    roleHint: child.roleHint,
     status: child.status,
     initialInput: child.initialUserItem,
     model: child.model,
@@ -191,6 +309,18 @@ function mapChild(child: import("../codex/app-server.js").CodexAppServerChildThr
     displayName: child.displayName,
     finalText: child.finalText,
     changedFiles: child.changedFiles,
+  };
+}
+
+function mapChildLifecycle(event: import("../codex/collaboration-normalizer.js").CodexChildLifecycleEvent): ProviderChildLifecycleEvent {
+  return {
+    providerId: CODEX_PROVIDER_ID,
+    kind: event.kind,
+    activityId: event.activityId,
+    parentSession: { providerId: CODEX_PROVIDER_ID, sessionId: event.parentThreadId },
+    childSession: { providerId: CODEX_PROVIDER_ID, sessionId: event.childThreadId },
+    turnId: event.turnId,
+    roleHint: event.roleHint,
   };
 }
 

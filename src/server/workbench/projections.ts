@@ -2,7 +2,6 @@ import {
   getWorkbenchEvidenceProjection,
   getWorkbenchLandingQueueProjection,
   getWorkbenchMaintenanceProjection,
-  getWorkbenchAgentRelationGraphProjection,
   getWorkbenchWorkflowGraphPlanProjection,
   getWorkbenchSchedulerContractProjection,
   getWorkbenchSchedulerDispatchDryRunProjection,
@@ -29,15 +28,16 @@ import {
   getWorkbenchWorkpadProjection,
   type WorkbenchProjectInput,
 } from "../../workbench/projections/read-model/implementation.js";
+import { getAgentSurfaceProjection } from "../../workbench/agent-surface-projection.js";
 
 export async function getWorkbenchProjection(input: WorkbenchProjectInput, rest: string, _searchParams = new URLSearchParams()): Promise<unknown> {
   const [kind, encodedChangeId, encodedId, encodedExtraId] = rest.split("/");
   const changeId = encodedChangeId ? decodeURIComponent(encodedChangeId) : undefined;
   const id = encodedId ? decodeURIComponent(encodedId) : undefined;
   const extraId = encodedExtraId ? decodeURIComponent(encodedExtraId) : undefined;
-  if (kind === "agent-graph") {
-    if (!changeId) throw badRequest("agent-graph projection requires changeId.");
-    return getWorkbenchAgentRelationGraphProjection(input, changeId);
+  if (kind === "agent-surfaces") {
+    if (!changeId) throw badRequest("agent-surfaces projection requires conversationId.");
+    return getAgentSurfaceProjection(input, changeId);
   }
   if (kind === "workpad") {
     if (!changeId) throw badRequest("workpad projection requires changeId.");

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, expect } from "vitest";
+import { defaultProviderRegistry } from "../../../src/provider-runtime/default-registry.js";
 import { createConversationChangeFixture } from "../../helpers/conversation-change-fixture.js";
 import { initHarness } from "../../../src/harness/init.js";
 import { executeWorkbenchAction } from "../../../src/server/workbench-server.js";
@@ -85,6 +86,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  await defaultProviderRegistry.shutdownAll("Workbench fixture cleanup.");
   await rm(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
@@ -302,7 +304,8 @@ if (appServerIndex >= 0) {
   const readline = require("readline");
   const rl = readline.createInterface({ input: process.stdin });
   let appCwd = process.cwd();
-  let threadId = "thread-scheduler-fake-" + process.pid;
+  let threadSequence = 0;
+  let threadId = "thread-scheduler-fake-" + process.pid + "-0";
   let turnSequence = 0;
   const reply = (id, result) => console.log(JSON.stringify({ id, result }));
   rl.on("line", (line) => {
@@ -315,7 +318,8 @@ if (appServerIndex >= 0) {
       reply(request.id, { data: [{ id: "fake-model", model: "fake-model", displayName: "Fake Model" }] });
     } else if (request.method === "thread/start" || request.method === "thread/resume") {
       appCwd = request.params.cwd || appCwd;
-      if (request.method === "thread/resume" && request.params.threadId) threadId = request.params.threadId;
+      if (request.method === "thread/start") threadId = "thread-scheduler-fake-" + process.pid + "-" + (++threadSequence);
+      else if (request.params.threadId) threadId = request.params.threadId;
       reply(request.id, { thread: { id: threadId } });
     } else if (request.method === "turn/start") {
       appCwd = request.params.cwd || appCwd;

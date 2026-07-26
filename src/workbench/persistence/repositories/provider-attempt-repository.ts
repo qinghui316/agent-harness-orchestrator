@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import type { ProviderId } from "../../../provider-runtime/index.js";
+import { agentThreadSurfaceId } from "../../../provider-runtime/agent-surface-id.js";
 import type { StoredConversationProviderBinding, StoredProviderAttempt, StoredProviderResumePoint, StoredProviderThreadLink } from "../contracts.js";
 import { mapConversationProviderBindingRow, mapProviderAttemptRow, mapProviderResumePointRow, mapProviderThreadRow, nullableString, type SqliteRow } from "../sql-mappers.js";
 
@@ -27,6 +28,22 @@ constructor(private readonly db: Database.Database) {}
     updatedAt: string,
   ): void {
     this.db.prepare(`
+      UPDATE provider_attempts SET graph_scope_id = ?, updated_at = ?
+      WHERE project_id = ? AND conversation_id = ? AND attempt_id IN (
+        SELECT attempt_id FROM provider_thread_links
+        WHERE project_id = ? AND conversation_id = ?
+          AND (role_id = 'main-agent' OR provider_thread_id = ?)
+      )
+    `).run(
+      graphScopeId,
+      updatedAt,
+      projectId,
+      conversationId,
+      projectId,
+      conversationId,
+      plannerThreadId,
+    );
+    this.db.prepare(`
       UPDATE provider_thread_links SET graph_scope_id = ?, updated_at = ?
       WHERE project_id = ? AND conversation_id = ?
         AND (role_id = 'main-agent' OR provider_thread_id = ?)
@@ -37,7 +54,8 @@ readProviderThread(projectId: string, conversationId: string, providerId: Provid
     const row = this.db.prepare(`
       SELECT project_id AS projectId, conversation_id AS conversationId, attempt_id AS attemptId,
         provider_id AS providerId, provider_thread_id AS providerThreadId, role_id AS roleId,
-        parent_thread_id AS parentThreadId, change_id AS changeId, graph_scope_id AS graphScopeId,
+        parent_thread_id AS parentThreadId, parent_agent_surface_id AS parentAgentSurfaceId,
+        change_id AS changeId, graph_scope_id AS graphScopeId,
         capability_profile AS capabilityProfile, display_name AS displayName, run_id AS runId, updated_at AS updatedAt
       FROM provider_thread_links
       WHERE project_id = ? AND conversation_id = ? AND provider_id = ? AND role_id = ?
@@ -136,7 +154,9 @@ startQueuedProviderAttempt(
 
 completeProviderAttempt(projectId: string, attemptId: string, status: StoredProviderAttempt["status"], nativeSessionId: string | null, updatedAt: string): void {
     const result = this.db.prepare(`
-      UPDATE provider_attempts SET status = ?, native_session_id = COALESCE(?, native_session_id), updated_at = ?
+      UPDATE provider_attempts
+      SET status = CASE WHEN status = 'terminated' THEN 'terminated' ELSE ? END,
+          native_session_id = COALESCE(?, native_session_id), updated_at = ?
       WHERE project_id = ? AND attempt_id = ?
     `).run(status, nativeSessionId, updatedAt, projectId, attemptId);
     if (result.changes !== 1) throw new Error(`Provider attempt not found: ${attemptId}`);
@@ -157,7 +177,13 @@ readProviderAttempt(projectId: string, attemptId: string): StoredProviderAttempt
 
 bindProviderAttemptThread(
     projectId: string,
-    input: { attemptId: string; threadId: string; parentThreadId?: string | null; displayName?: string | null },
+    input: {
+      attemptId: string;
+      threadId: string;
+      parentThreadId?: string | null;
+      parentAgentSurfaceId?: string | null;
+      displayName?: string | null;
+    },
     updatedAt: string,
   ): StoredProviderThreadLink {
     return this.db.transaction(() => {
@@ -190,18 +216,35 @@ bindProviderAttemptThread(
       const roleId = String(attemptRow.roleId);
       const existingThread = this.db.prepare(`
         SELECT conversation_id AS conversationId, attempt_id AS attemptId, provider_id AS providerId,
-          role_id AS roleId, parent_thread_id AS parentThreadId
+          role_id AS roleId, parent_thread_id AS parentThreadId,
+          parent_agent_surface_id AS parentAgentSurfaceId, graph_scope_id AS graphScopeId
         FROM provider_thread_links
         WHERE project_id = ? AND provider_id = ? AND provider_thread_id = ?
       `).get(projectId, providerId, input.threadId) as SqliteRow | undefined;
       const parentThreadId = input.parentThreadId === undefined && existingThread
         ? nullableString(existingThread.parentThreadId)
         : input.parentThreadId ?? null;
+      const requestedParentAgentSurfaceId = input.parentAgentSurfaceId === undefined && existingThread
+        ? nullableString(existingThread.parentAgentSurfaceId)
+        : input.parentAgentSurfaceId;
+      const graphScopeId = nullableString(attemptRow.graphScopeId);
+      const parentAgentSurfaceId = resolveParentAgentSurfaceId({
+        db: this.db,
+        projectId,
+        conversationId,
+        providerId,
+        roleId,
+        graphScopeId,
+        parentThreadId,
+        requestedParentAgentSurfaceId,
+      });
       if (existingThread && (
         String(existingThread.conversationId) !== conversationId
         || String(existingThread.providerId) !== providerId
         || String(existingThread.roleId) !== roleId
         || nullableString(existingThread.parentThreadId) !== parentThreadId
+        || nullableString(existingThread.parentAgentSurfaceId) !== parentAgentSurfaceId
+        || (roleId !== "main-agent" && nullableString(existingThread.graphScopeId) !== graphScopeId)
       )) {
         throw new Error(`Provider thread cannot resume with different lineage: ${input.threadId}`);
       }
@@ -209,8 +252,9 @@ bindProviderAttemptThread(
       this.db.prepare(`
         INSERT INTO provider_thread_links (
           project_id, conversation_id, attempt_id, provider_id, provider_thread_id, role_id,
-          parent_thread_id, change_id, graph_scope_id, capability_profile, display_name, run_id, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          parent_thread_id, parent_agent_surface_id, change_id, graph_scope_id,
+          capability_profile, display_name, run_id, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(project_id, provider_id, provider_thread_id) DO UPDATE SET
           attempt_id = excluded.attempt_id,
           change_id = excluded.change_id,
@@ -227,8 +271,9 @@ bindProviderAttemptThread(
         input.threadId,
         roleId,
         parentThreadId,
+        parentAgentSurfaceId,
         nullableString(attemptRow.changeId),
-        nullableString(attemptRow.graphScopeId),
+        graphScopeId,
         String(attemptRow.operationProfile),
         input.displayName ?? null,
         input.attemptId,
@@ -242,42 +287,13 @@ bindProviderAttemptThread(
       const bound = this.db.prepare(`
         SELECT project_id AS projectId, conversation_id AS conversationId, attempt_id AS attemptId,
           provider_id AS providerId, provider_thread_id AS providerThreadId, role_id AS roleId,
-          parent_thread_id AS parentThreadId, change_id AS changeId, graph_scope_id AS graphScopeId,
+          parent_thread_id AS parentThreadId, parent_agent_surface_id AS parentAgentSurfaceId,
+          change_id AS changeId, graph_scope_id AS graphScopeId,
           capability_profile AS capabilityProfile, display_name AS displayName, run_id AS runId, updated_at AS updatedAt
         FROM provider_thread_links
         WHERE project_id = ? AND provider_id = ? AND provider_thread_id = ?
       `).get(projectId, providerId, input.threadId) as SqliteRow;
       return mapProviderThreadRow(bound);
-    })();
-  }
-
-refineProviderAttemptSurfaceRole(
-    projectId: string,
-    attemptId: string,
-    input: { roleId: string; operationProfile: string; handoffHash: string; displayName?: string | null },
-    updatedAt: string,
-  ): StoredProviderAttempt {
-    return this.db.transaction(() => {
-      const attempt = this.readProviderAttempt(projectId, attemptId);
-      if (!attempt) throw new Error(`Provider attempt not found: ${attemptId}`);
-      if (!attempt.conversationId || !attempt.graphScopeId || !attempt.nativeSessionId) {
-        throw new Error(`Provider attempt cannot refine an Agent surface without canonical lineage: ${attemptId}`);
-      }
-      if (attempt.roleId !== input.roleId && attempt.roleId !== "child-agent") {
-        throw new Error(`Provider attempt role is already authoritative: ${attemptId}`);
-      }
-      this.db.prepare(`
-        UPDATE provider_attempts
-        SET role_id = ?, operation_profile = ?, handoff_hash = ?, updated_at = ?
-        WHERE project_id = ? AND attempt_id = ?
-      `).run(input.roleId, input.operationProfile, input.handoffHash, updatedAt, projectId, attemptId);
-      this.db.prepare(`
-        UPDATE provider_thread_links
-        SET role_id = ?, capability_profile = ?,
-            display_name = COALESCE(?, display_name), updated_at = ?
-        WHERE project_id = ? AND attempt_id = ? AND provider_thread_id = ?
-      `).run(input.roleId, input.operationProfile, input.displayName ?? null, updatedAt, projectId, attemptId, attempt.nativeSessionId);
-      return this.readProviderAttempt(projectId, attemptId)!;
     })();
   }
 
@@ -333,11 +349,56 @@ listProviderThreads(projectId: string, conversationId: string): StoredProviderTh
     return (this.db.prepare(`
       SELECT project_id AS projectId, conversation_id AS conversationId, attempt_id AS attemptId,
         provider_id AS providerId, provider_thread_id AS providerThreadId, role_id AS roleId,
-        parent_thread_id AS parentThreadId, change_id AS changeId, graph_scope_id AS graphScopeId,
+        parent_thread_id AS parentThreadId, parent_agent_surface_id AS parentAgentSurfaceId,
+        change_id AS changeId, graph_scope_id AS graphScopeId,
         capability_profile AS capabilityProfile, display_name AS displayName, run_id AS runId, updated_at AS updatedAt
       FROM provider_thread_links
       WHERE project_id = ? AND conversation_id = ?
       ORDER BY updated_at ASC
     `).all(projectId, conversationId) as SqliteRow[]).map(mapProviderThreadRow);
   }
+}
+
+function resolveParentAgentSurfaceId(input: {
+  db: Database.Database;
+  projectId: string;
+  conversationId: string;
+  providerId: string;
+  roleId: string;
+  graphScopeId: string | null;
+  parentThreadId: string | null;
+  requestedParentAgentSurfaceId: string | null | undefined;
+}): string | null {
+  if (input.roleId === "main-agent") {
+    if (input.parentThreadId || input.requestedParentAgentSurfaceId) {
+      throw new Error("Main Agent thread cannot have parent lineage.");
+    }
+    return null;
+  }
+  if (!input.graphScopeId) throw new Error("Non-Main Agent thread requires a graph scope.");
+  if (!input.parentThreadId) {
+    if (input.requestedParentAgentSurfaceId !== "main-agent") {
+      throw new Error("Top-level model worker requires explicit main-agent parent lineage.");
+    }
+    return "main-agent";
+  }
+  const parent = input.db.prepare(`
+    SELECT conversation_id AS conversationId, role_id AS roleId,
+      provider_thread_id AS providerThreadId, graph_scope_id AS graphScopeId
+    FROM provider_thread_links
+    WHERE project_id = ? AND provider_id = ? AND provider_thread_id = ?
+  `).get(input.projectId, input.providerId, input.parentThreadId) as SqliteRow | undefined;
+  if (!parent
+    || String(parent.conversationId) !== input.conversationId
+    || nullableString(parent.graphScopeId) !== input.graphScopeId) {
+    throw new Error(`Provider parent thread has no exact Agent surface in the current graph scope: ${input.parentThreadId}`);
+  }
+  const resolved = String(parent.roleId) === "main-agent"
+    ? "main-agent"
+    : agentThreadSurfaceId(input.providerId, String(parent.providerThreadId));
+  if (input.requestedParentAgentSurfaceId !== undefined
+    && input.requestedParentAgentSurfaceId !== resolved) {
+    throw new Error(`Provider parent thread conflicts with canonical Agent surface lineage: ${input.parentThreadId}`);
+  }
+  return resolved;
 }

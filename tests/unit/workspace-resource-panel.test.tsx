@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ResourceWorkspacePanel } from "../../src/web/src/panels/workbench/ResourceWorkspacePanel.js";
 import { projectFileResourceTabs, workspaceResourceRequestScope } from "../../src/web/src/controllers/useWorkspaceResourceController.js";
-import type { AgentWorkspaceAgent, TextDocumentResource, WorkspaceResourceTab } from "../../src/web/src/types.js";
+import type { AgentSurfaceProjectionItem, TextDocumentResource, WorkspaceResourceTab } from "../../src/web/src/types.js";
 
 afterEach(() => {
   cleanup();
@@ -31,7 +31,7 @@ describe("Resource workspace panel", () => {
   it("renders mixed stable tabs while keeping documents read-only and Agent composer behavior", () => {
     const agent = planningAgent();
     const tabs: WorkspaceResourceTab[] = [
-      { resourceId: `agent:${agent.id}`, target: { kind: "agent", conversationId: "conversation-1", agentSurfaceId: agent.id } },
+      { resourceId: `agent:${agent.agentSurfaceId}`, target: { kind: "agent", conversationId: "conversation-1", agentSurfaceId: agent.agentSurfaceId } },
       { resourceId: "plan-document-1", target: { kind: "document", conversationId: "conversation-1", documentId: "plan-document-1" } },
       { resourceId: "project-file:docs/notes.md", target: { kind: "project-file", relativePath: "docs/notes.md" } },
     ];
@@ -42,8 +42,8 @@ describe("Resource workspace panel", () => {
     const onSelect = vi.fn();
     const onClose = vi.fn();
     const props = {
-      workspace: { selectedAgentId: agent.id, agents: [agent] },
-      agentTranscripts: { [agent.id]: agentTranscript() },
+      agents: [agent],
+      agentTranscripts: { [agent.agentSurfaceId]: agentTranscript() },
       conversationId: "conversation-1",
       tabs,
       documents,
@@ -70,27 +70,71 @@ describe("Resource workspace panel", () => {
     fireEvent.click(screen.getByRole("button", { name: "关闭 notes.md" }));
     expect(onClose).toHaveBeenCalledWith("project-file:docs/notes.md");
 
-    view.rerender(<ResourceWorkspacePanel {...props} selectedResourceId={`agent:${agent.id}`} />);
+    view.rerender(<ResourceWorkspacePanel {...props} selectedResourceId={`agent:${agent.agentSurfaceId}`} />);
     expect(screen.getByTestId("agent-workspace-transcript").textContent).toContain("原有 Agent 对话");
     expect(screen.getByTestId("agent-workspace-composer")).toBeTruthy();
     view.rerender(<ResourceWorkspacePanel {...props} selectedResourceId="plan-document-1" />);
     expect(screen.getByTestId("agent-workspace-composer").closest("section")?.hidden).toBe(true);
-    view.rerender(<ResourceWorkspacePanel {...props} selectedResourceId={`agent:${agent.id}`} />);
+    view.rerender(<ResourceWorkspacePanel {...props} selectedResourceId={`agent:${agent.agentSurfaceId}`} />);
     expect(screen.getByPlaceholderText("给当前 Agent 发送反馈")).toBeTruthy();
+
+    const closedAgent = { ...agent, status: "terminated" as const, readOnly: true };
+    view.rerender(<ResourceWorkspacePanel
+      {...props}
+      agents={[closedAgent]}
+      selectedResourceId={`agent:${closedAgent.agentSurfaceId}`}
+    />);
+    expect(screen.getByTestId("agent-workspace-readonly").textContent).toContain("已关闭");
+    expect(screen.queryByPlaceholderText("给当前 Agent 发送反馈")).toBeNull();
+    expect(screen.queryByLabelText(/终止/)).toBeNull();
+  });
+
+  it("keeps an unavailable Agent tab visible instead of rendering a blank workspace", () => {
+    const missingTab: WorkspaceResourceTab = {
+      resourceId: "agent:missing",
+      target: { kind: "agent", conversationId: "conversation-1", agentSurfaceId: "missing" },
+    };
+    const onClose = vi.fn();
+    render(<ResourceWorkspacePanel
+      agents={[]}
+      agentTranscripts={{}}
+      conversationId="conversation-1"
+      tabs={[missingTab]}
+      selectedResourceId={missingTab.resourceId}
+      documents={{}}
+      loadingResourceIds={[]}
+      resourceErrors={{}}
+      onSelectResource={vi.fn()}
+      onCloseResource={onClose}
+      onBack={vi.fn()}
+      agentDrafts={{}}
+      pendingAgentMessages={{}}
+      onAgentDraftChange={vi.fn()}
+      onSubmitAgentMessage={vi.fn(async () => undefined)}
+      onLoadEarlierAgentTranscript={vi.fn(async () => undefined)}
+      modelLabel="default"
+    />);
+    expect(screen.getByRole("status").textContent).toContain("尚未同步");
+    fireEvent.click(screen.getByRole("button", { name: "关闭标签" }));
+    expect(onClose).toHaveBeenCalledWith("agent:missing");
   });
 });
 
-function planningAgent(): AgentWorkspaceAgent {
+function planningAgent(): AgentSurfaceProjectionItem {
   return {
-    id: "agent:codex:thread:planner",
+    agentSurfaceId: "agent:codex:thread:planner",
+    kind: "agent",
     roleId: "planning-agent",
-    providerId: "codex",
-    parentAgentId: "main-agent",
+    roleDisplayName: "Planning Agent",
+    parentAgentSurfaceId: "main-agent",
     label: "Plan Agent",
+    description: "Plans work",
+    skills: ["planning"],
+    graphScopeId: "scope-1",
+    scopeRange: "current",
     status: "completed",
-    summary: "完成",
-    evidenceRefs: [],
-    actions: [],
+    readOnly: false,
+    createdAt: "2026-07-18T00:00:00Z",
   };
 }
 

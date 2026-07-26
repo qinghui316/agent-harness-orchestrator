@@ -5,11 +5,16 @@ param(
 
   [string]$Status = "noop",
   [string]$EvalMode = "dry_run",
-  [string]$Notes = ""
+  [string]$Notes = "",
+  [string]$HarnessRoot = ""
 )
 
 $ErrorActionPreference = "Stop"
-$root = Split-Path -Parent $PSScriptRoot
+$root = if ([string]::IsNullOrWhiteSpace($HarnessRoot)) {
+  Split-Path -Parent $PSScriptRoot
+} else {
+  [System.IO.Path]::GetFullPath($HarnessRoot)
+}
 $evolutionDir = Join-Path $root "harness/evolution"
 $statePath = Join-Path $evolutionDir "state.json"
 $pendingPath = Join-Path $evolutionDir "pending.md"
@@ -28,9 +33,9 @@ function Write-Utf8File {
 function Get-State {
   if (-not (Test-Path -LiteralPath $statePath)) {
     return [pscustomobject]@{
-      version = "1.0"
+      version = "2.0"
       archive_threshold = 5
-      last_completed_archive_count = 0
+      last_completed_candidate_archive_count = 0
       last_completed_at = $null
     }
   }
@@ -56,12 +61,14 @@ $state = Get-State
 $archives = Get-ArchiveChanges
 $candidateArchives = Get-CandidateArchiveChanges
 $archiveCount = @($archives).Count
+$candidateArchiveCount = @($candidateArchives).Count
 
 switch ($Command) {
   "status" {
-    Write-Host "Archive changes: $archiveCount"
+    Write-Host "Candidate archive changes: $candidateArchiveCount"
+    Write-Host "Total archive changes: $archiveCount"
     Write-Host "Threshold: $($state.archive_threshold)"
-    Write-Host "Last completed archive count: $($state.last_completed_archive_count)"
+    Write-Host "Last completed candidate archive count: $($state.last_completed_candidate_archive_count)"
     if (Test-Path -LiteralPath $pendingPath) {
       Write-Host "Pending evolution: yes"
     } else {
@@ -69,13 +76,16 @@ switch ($Command) {
     }
   }
   "check" {
-    $delta = $archiveCount - [int]$state.last_completed_archive_count
+    $delta = $candidateArchiveCount - [int]$state.last_completed_candidate_archive_count
+    if ($delta -lt 0) {
+      throw "Candidate archive count moved backwards. Current: $candidateArchiveCount; completed baseline: $($state.last_completed_candidate_archive_count)."
+    }
     if ($delta -ge [int]$state.archive_threshold) {
       $candidateLines = $candidateArchives | Select-Object -Last $delta | ForEach-Object { "- harness/changes/archive/$($_.Name)/summary.md" }
       $lines = @(
         "# Pending Harness Evolution",
         "",
-        "Generated because $delta archived changes are available since the last completed evolution check.",
+        "Generated because $delta candidate archives are available since the last completed evolution check.",
         "",
         "## Candidate Archives",
         "",
@@ -89,7 +99,7 @@ switch ($Command) {
       Write-Utf8File -Path $pendingPath -Content ($content + "`n")
       Write-Host "Pending evolution created: harness/evolution/pending.md"
     } else {
-      Write-Host "No pending evolution. $delta archived changes since last completion; threshold is $($state.archive_threshold)."
+      Write-Host "No pending evolution. $delta candidate archives since last completion; threshold is $($state.archive_threshold)."
     }
   }
   "mark-complete" {
@@ -100,7 +110,7 @@ switch ($Command) {
     $changeId = "manual"
     $line = "$timestamp`t$changeId`t$Status`t$EvalMode`t$archiveCount`t$Notes"
     Add-Content -LiteralPath $resultsPath -Value $line -Encoding UTF8
-    $state.last_completed_archive_count = $archiveCount
+    $state.last_completed_candidate_archive_count = $candidateArchiveCount
     $state.last_completed_at = $timestamp
     Save-State -State $state
     if (Test-Path -LiteralPath $pendingPath) {

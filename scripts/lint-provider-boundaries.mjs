@@ -20,6 +20,13 @@ const retiredSymbols = [
   "ProjectDocumentLease",
   "MaintenanceDiffManifest",
   "ProjectMemoryApplyTransaction",
+  "childContinuation",
+  "codexChildContinuationPrompt",
+  "stopAfterChildThreadId",
+  "refineProviderAttemptSurfaceRole",
+  "followup_task",
+  "spawn_agent",
+  "child-agent",
 ];
 
 for (const file of files) {

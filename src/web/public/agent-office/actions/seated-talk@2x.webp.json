@@ -1,0 +1,2177 @@
+{
+  "frames": {
+    "seated-talk_0000.png": {
+      "frame": {
+        "x": 2,
+        "y": 2,
+        "w": 232,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 603,
+        "y": 238,
+        "w": 232,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0001.png": {
+      "frame": {
+        "x": 238,
+        "y": 2,
+        "w": 232,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 603,
+        "y": 238,
+        "w": 232,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0002.png": {
+      "frame": {
+        "x": 474,
+        "y": 2,
+        "w": 232,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 603,
+        "y": 238,
+        "w": 232,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0003.png": {
+      "frame": {
+        "x": 710,
+        "y": 2,
+        "w": 232,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 603,
+        "y": 238,
+        "w": 232,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0004.png": {
+      "frame": {
+        "x": 946,
+        "y": 2,
+        "w": 232,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 603,
+        "y": 238,
+        "w": 232,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0005.png": {
+      "frame": {
+        "x": 1182,
+        "y": 2,
+        "w": 232,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 603,
+        "y": 238,
+        "w": 232,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0006.png": {
+      "frame": {
+        "x": 1418,
+        "y": 2,
+        "w": 232,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 603,
+        "y": 238,
+        "w": 232,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0007.png": {
+      "frame": {
+        "x": 1654,
+        "y": 2,
+        "w": 232,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 603,
+        "y": 238,
+        "w": 232,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0008.png": {
+      "frame": {
+        "x": 1890,
+        "y": 2,
+        "w": 232,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 603,
+        "y": 238,
+        "w": 232,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0009.png": {
+      "frame": {
+        "x": 2126,
+        "y": 2,
+        "w": 232,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 603,
+        "y": 238,
+        "w": 232,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0010.png": {
+      "frame": {
+        "x": 2362,
+        "y": 2,
+        "w": 232,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 603,
+        "y": 238,
+        "w": 232,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0011.png": {
+      "frame": {
+        "x": 2598,
+        "y": 2,
+        "w": 235,
+        "h": 278
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 602,
+        "y": 240,
+        "w": 235,
+        "h": 278
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0012.png": {
+      "frame": {
+        "x": 2,
+        "y": 286,
+        "w": 238,
+        "h": 278
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 599,
+        "y": 240,
+        "w": 238,
+        "h": 278
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0013.png": {
+      "frame": {
+        "x": 244,
+        "y": 286,
+        "w": 240,
+        "h": 275
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 597,
+        "y": 243,
+        "w": 240,
+        "h": 275
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0014.png": {
+      "frame": {
+        "x": 488,
+        "y": 286,
+        "w": 243,
+        "h": 275
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 595,
+        "y": 243,
+        "w": 243,
+        "h": 275
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0015.png": {
+      "frame": {
+        "x": 735,
+        "y": 286,
+        "w": 243,
+        "h": 275
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 595,
+        "y": 243,
+        "w": 243,
+        "h": 275
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0016.png": {
+      "frame": {
+        "x": 982,
+        "y": 286,
+        "w": 243,
+        "h": 275
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 595,
+        "y": 243,
+        "w": 243,
+        "h": 275
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0017.png": {
+      "frame": {
+        "x": 1229,
+        "y": 286,
+        "w": 242,
+        "h": 275
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 597,
+        "y": 243,
+        "w": 242,
+        "h": 275
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0018.png": {
+      "frame": {
+        "x": 1475,
+        "y": 286,
+        "w": 240,
+        "h": 278
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 597,
+        "y": 240,
+        "w": 240,
+        "h": 278
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0019.png": {
+      "frame": {
+        "x": 1719,
+        "y": 286,
+        "w": 238,
+        "h": 278
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 599,
+        "y": 240,
+        "w": 238,
+        "h": 278
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0020.png": {
+      "frame": {
+        "x": 1961,
+        "y": 286,
+        "w": 235,
+        "h": 278
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 602,
+        "y": 240,
+        "w": 235,
+        "h": 278
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0021.png": {
+      "frame": {
+        "x": 2200,
+        "y": 286,
+        "w": 232,
+        "h": 278
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 603,
+        "y": 240,
+        "w": 232,
+        "h": 278
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0022.png": {
+      "frame": {
+        "x": 2436,
+        "y": 286,
+        "w": 232,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 603,
+        "y": 238,
+        "w": 232,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0023.png": {
+      "frame": {
+        "x": 2672,
+        "y": 286,
+        "w": 232,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 603,
+        "y": 238,
+        "w": 232,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0024.png": {
+      "frame": {
+        "x": 2,
+        "y": 570,
+        "w": 232,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 605,
+        "y": 238,
+        "w": 232,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0025.png": {
+      "frame": {
+        "x": 238,
+        "y": 570,
+        "w": 232,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 603,
+        "y": 238,
+        "w": 232,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0026.png": {
+      "frame": {
+        "x": 474,
+        "y": 570,
+        "w": 232,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 605,
+        "y": 238,
+        "w": 232,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0027.png": {
+      "frame": {
+        "x": 710,
+        "y": 570,
+        "w": 232,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 603,
+        "y": 238,
+        "w": 232,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0028.png": {
+      "frame": {
+        "x": 946,
+        "y": 570,
+        "w": 232,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 603,
+        "y": 238,
+        "w": 232,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0029.png": {
+      "frame": {
+        "x": 1182,
+        "y": 570,
+        "w": 232,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 603,
+        "y": 238,
+        "w": 232,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0030.png": {
+      "frame": {
+        "x": 1418,
+        "y": 570,
+        "w": 232,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 603,
+        "y": 238,
+        "w": 232,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0031.png": {
+      "frame": {
+        "x": 1654,
+        "y": 570,
+        "w": 232,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 603,
+        "y": 238,
+        "w": 232,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0032.png": {
+      "frame": {
+        "x": 1890,
+        "y": 570,
+        "w": 232,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 603,
+        "y": 238,
+        "w": 232,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0033.png": {
+      "frame": {
+        "x": 2126,
+        "y": 570,
+        "w": 232,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 603,
+        "y": 238,
+        "w": 232,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0034.png": {
+      "frame": {
+        "x": 2362,
+        "y": 570,
+        "w": 232,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 603,
+        "y": 238,
+        "w": 232,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0035.png": {
+      "frame": {
+        "x": 2598,
+        "y": 570,
+        "w": 232,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 603,
+        "y": 238,
+        "w": 232,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0036.png": {
+      "frame": {
+        "x": 2,
+        "y": 854,
+        "w": 232,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 603,
+        "y": 238,
+        "w": 232,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0037.png": {
+      "frame": {
+        "x": 238,
+        "y": 854,
+        "w": 232,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 603,
+        "y": 238,
+        "w": 232,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0038.png": {
+      "frame": {
+        "x": 474,
+        "y": 854,
+        "w": 232,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 603,
+        "y": 238,
+        "w": 232,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0039.png": {
+      "frame": {
+        "x": 710,
+        "y": 854,
+        "w": 232,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 603,
+        "y": 238,
+        "w": 232,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0040.png": {
+      "frame": {
+        "x": 946,
+        "y": 854,
+        "w": 232,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 603,
+        "y": 238,
+        "w": 232,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0041.png": {
+      "frame": {
+        "x": 1182,
+        "y": 854,
+        "w": 232,
+        "h": 279
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 603,
+        "y": 239,
+        "w": 232,
+        "h": 279
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0042.png": {
+      "frame": {
+        "x": 1418,
+        "y": 854,
+        "w": 234,
+        "h": 279
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 602,
+        "y": 239,
+        "w": 234,
+        "h": 279
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0043.png": {
+      "frame": {
+        "x": 1656,
+        "y": 854,
+        "w": 238,
+        "h": 279
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 599,
+        "y": 239,
+        "w": 238,
+        "h": 279
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0044.png": {
+      "frame": {
+        "x": 1898,
+        "y": 854,
+        "w": 240,
+        "h": 276
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 597,
+        "y": 242,
+        "w": 240,
+        "h": 276
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0045.png": {
+      "frame": {
+        "x": 2142,
+        "y": 854,
+        "w": 241,
+        "h": 275
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 596,
+        "y": 243,
+        "w": 241,
+        "h": 275
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0046.png": {
+      "frame": {
+        "x": 2387,
+        "y": 854,
+        "w": 235,
+        "h": 278
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 602,
+        "y": 240,
+        "w": 235,
+        "h": 278
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0047.png": {
+      "frame": {
+        "x": 2626,
+        "y": 854,
+        "w": 231,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 605,
+        "y": 238,
+        "w": 231,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0048.png": {
+      "frame": {
+        "x": 2,
+        "y": 1138,
+        "w": 228,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 609,
+        "y": 238,
+        "w": 228,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0049.png": {
+      "frame": {
+        "x": 234,
+        "y": 1138,
+        "w": 227,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 610,
+        "y": 238,
+        "w": 227,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0050.png": {
+      "frame": {
+        "x": 465,
+        "y": 1138,
+        "w": 227,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 610,
+        "y": 238,
+        "w": 227,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0051.png": {
+      "frame": {
+        "x": 696,
+        "y": 1138,
+        "w": 228,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 609,
+        "y": 238,
+        "w": 228,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0052.png": {
+      "frame": {
+        "x": 928,
+        "y": 1138,
+        "w": 230,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 607,
+        "y": 238,
+        "w": 230,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0053.png": {
+      "frame": {
+        "x": 1162,
+        "y": 1138,
+        "w": 230,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 607,
+        "y": 238,
+        "w": 230,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0054.png": {
+      "frame": {
+        "x": 1396,
+        "y": 1138,
+        "w": 230,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 607,
+        "y": 238,
+        "w": 230,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0055.png": {
+      "frame": {
+        "x": 1630,
+        "y": 1138,
+        "w": 230,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 607,
+        "y": 238,
+        "w": 230,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0056.png": {
+      "frame": {
+        "x": 1864,
+        "y": 1138,
+        "w": 230,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 607,
+        "y": 238,
+        "w": 230,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0057.png": {
+      "frame": {
+        "x": 2098,
+        "y": 1138,
+        "w": 230,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 607,
+        "y": 238,
+        "w": 230,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0058.png": {
+      "frame": {
+        "x": 2332,
+        "y": 1138,
+        "w": 230,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 607,
+        "y": 238,
+        "w": 230,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0059.png": {
+      "frame": {
+        "x": 2566,
+        "y": 1138,
+        "w": 230,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 607,
+        "y": 238,
+        "w": 230,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0060.png": {
+      "frame": {
+        "x": 2,
+        "y": 1422,
+        "w": 230,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 607,
+        "y": 238,
+        "w": 230,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0061.png": {
+      "frame": {
+        "x": 236,
+        "y": 1422,
+        "w": 230,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 607,
+        "y": 238,
+        "w": 230,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0062.png": {
+      "frame": {
+        "x": 470,
+        "y": 1422,
+        "w": 230,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 607,
+        "y": 238,
+        "w": 230,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0063.png": {
+      "frame": {
+        "x": 704,
+        "y": 1422,
+        "w": 230,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 607,
+        "y": 238,
+        "w": 230,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0064.png": {
+      "frame": {
+        "x": 938,
+        "y": 1422,
+        "w": 230,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 607,
+        "y": 238,
+        "w": 230,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0065.png": {
+      "frame": {
+        "x": 1172,
+        "y": 1422,
+        "w": 230,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 607,
+        "y": 238,
+        "w": 230,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0066.png": {
+      "frame": {
+        "x": 1406,
+        "y": 1422,
+        "w": 230,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 607,
+        "y": 238,
+        "w": 230,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0067.png": {
+      "frame": {
+        "x": 1640,
+        "y": 1422,
+        "w": 230,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 607,
+        "y": 238,
+        "w": 230,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0068.png": {
+      "frame": {
+        "x": 1874,
+        "y": 1422,
+        "w": 227,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 610,
+        "y": 238,
+        "w": 227,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0069.png": {
+      "frame": {
+        "x": 2105,
+        "y": 1422,
+        "w": 227,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 610,
+        "y": 238,
+        "w": 227,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0070.png": {
+      "frame": {
+        "x": 2336,
+        "y": 1422,
+        "w": 227,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 610,
+        "y": 238,
+        "w": 227,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0071.png": {
+      "frame": {
+        "x": 2567,
+        "y": 1422,
+        "w": 228,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 609,
+        "y": 238,
+        "w": 228,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0072.png": {
+      "frame": {
+        "x": 2,
+        "y": 1706,
+        "w": 228,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 609,
+        "y": 238,
+        "w": 228,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0073.png": {
+      "frame": {
+        "x": 234,
+        "y": 1706,
+        "w": 228,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 609,
+        "y": 238,
+        "w": 228,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0074.png": {
+      "frame": {
+        "x": 466,
+        "y": 1706,
+        "w": 228,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 609,
+        "y": 238,
+        "w": 228,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0075.png": {
+      "frame": {
+        "x": 698,
+        "y": 1706,
+        "w": 228,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 609,
+        "y": 238,
+        "w": 228,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0076.png": {
+      "frame": {
+        "x": 930,
+        "y": 1706,
+        "w": 228,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 609,
+        "y": 238,
+        "w": 228,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0077.png": {
+      "frame": {
+        "x": 1162,
+        "y": 1706,
+        "w": 228,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 609,
+        "y": 238,
+        "w": 228,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0078.png": {
+      "frame": {
+        "x": 1394,
+        "y": 1706,
+        "w": 228,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 609,
+        "y": 238,
+        "w": 228,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0079.png": {
+      "frame": {
+        "x": 1626,
+        "y": 1706,
+        "w": 228,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 609,
+        "y": 238,
+        "w": 228,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0080.png": {
+      "frame": {
+        "x": 1858,
+        "y": 1706,
+        "w": 228,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 609,
+        "y": 238,
+        "w": 228,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0081.png": {
+      "frame": {
+        "x": 2090,
+        "y": 1706,
+        "w": 228,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 609,
+        "y": 238,
+        "w": 228,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0082.png": {
+      "frame": {
+        "x": 2322,
+        "y": 1706,
+        "w": 228,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 609,
+        "y": 238,
+        "w": 228,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0083.png": {
+      "frame": {
+        "x": 2554,
+        "y": 1706,
+        "w": 228,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 609,
+        "y": 238,
+        "w": 228,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0084.png": {
+      "frame": {
+        "x": 2,
+        "y": 1990,
+        "w": 228,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 609,
+        "y": 238,
+        "w": 228,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "seated-talk_0085.png": {
+      "frame": {
+        "x": 234,
+        "y": 1990,
+        "w": 228,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 609,
+        "y": 238,
+        "w": 228,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    }
+  },
+  "animations": {
+    "seated-talk": [
+      "seated-talk_0000.png",
+      "seated-talk_0001.png",
+      "seated-talk_0002.png",
+      "seated-talk_0003.png",
+      "seated-talk_0004.png",
+      "seated-talk_0005.png",
+      "seated-talk_0006.png",
+      "seated-talk_0007.png",
+      "seated-talk_0008.png",
+      "seated-talk_0009.png",
+      "seated-talk_0010.png",
+      "seated-talk_0011.png",
+      "seated-talk_0012.png",
+      "seated-talk_0013.png",
+      "seated-talk_0014.png",
+      "seated-talk_0015.png",
+      "seated-talk_0016.png",
+      "seated-talk_0017.png",
+      "seated-talk_0018.png",
+      "seated-talk_0019.png",
+      "seated-talk_0020.png",
+      "seated-talk_0021.png",
+      "seated-talk_0022.png",
+      "seated-talk_0023.png",
+      "seated-talk_0024.png",
+      "seated-talk_0025.png",
+      "seated-talk_0026.png",
+      "seated-talk_0027.png",
+      "seated-talk_0028.png",
+      "seated-talk_0029.png",
+      "seated-talk_0030.png",
+      "seated-talk_0031.png",
+      "seated-talk_0032.png",
+      "seated-talk_0033.png",
+      "seated-talk_0034.png",
+      "seated-talk_0035.png",
+      "seated-talk_0036.png",
+      "seated-talk_0037.png",
+      "seated-talk_0038.png",
+      "seated-talk_0039.png",
+      "seated-talk_0040.png",
+      "seated-talk_0041.png",
+      "seated-talk_0042.png",
+      "seated-talk_0043.png",
+      "seated-talk_0044.png",
+      "seated-talk_0045.png",
+      "seated-talk_0046.png",
+      "seated-talk_0047.png",
+      "seated-talk_0048.png",
+      "seated-talk_0049.png",
+      "seated-talk_0050.png",
+      "seated-talk_0051.png",
+      "seated-talk_0052.png",
+      "seated-talk_0053.png",
+      "seated-talk_0054.png",
+      "seated-talk_0055.png",
+      "seated-talk_0056.png",
+      "seated-talk_0057.png",
+      "seated-talk_0058.png",
+      "seated-talk_0059.png",
+      "seated-talk_0060.png",
+      "seated-talk_0061.png",
+      "seated-talk_0062.png",
+      "seated-talk_0063.png",
+      "seated-talk_0064.png",
+      "seated-talk_0065.png",
+      "seated-talk_0066.png",
+      "seated-talk_0067.png",
+      "seated-talk_0068.png",
+      "seated-talk_0069.png",
+      "seated-talk_0070.png",
+      "seated-talk_0071.png",
+      "seated-talk_0072.png",
+      "seated-talk_0073.png",
+      "seated-talk_0074.png",
+      "seated-talk_0075.png",
+      "seated-talk_0076.png",
+      "seated-talk_0077.png",
+      "seated-talk_0078.png",
+      "seated-talk_0079.png",
+      "seated-talk_0080.png",
+      "seated-talk_0081.png",
+      "seated-talk_0082.png",
+      "seated-talk_0083.png",
+      "seated-talk_0084.png",
+      "seated-talk_0085.png"
+    ]
+  },
+  "meta": {
+    "app": "aho-office-assets",
+    "version": "3.0",
+    "image": "seated-talk@2x.webp",
+    "format": "RGBA8888",
+    "size": {
+      "w": 2906,
+      "h": 2272
+    },
+    "scale": 2,
+    "animation": {
+      "fps": 24,
+      "loop": false
+    },
+    "visualAnchor": {
+      "x": 725,
+      "y": 550
+    }
+  }
+}

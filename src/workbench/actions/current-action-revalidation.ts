@@ -35,7 +35,6 @@ interface CurrentWorkflowActionSnapshot {
       otherDemands: Array<{ actions: SnapshotAction[] }>;
       maintenance?: Array<{ actions: SnapshotAction[] }>;
     };
-    agentWorkspace?: { agents?: Array<{ actions?: SnapshotAction[] }> };
   };
 }
 
@@ -54,12 +53,10 @@ export async function assertCurrentWorkflowAction(
   const queueActions = [queue.primary, ...queue.current, ...queue.otherDemands, ...(queue.maintenance ?? [])]
     .filter((item): item is NonNullable<typeof item> => Boolean(item))
     .flatMap((item) => item.actions);
-  const agentWorkspaceActions = snapshot.right.agentWorkspace?.agents?.flatMap((agent) => agent.actions ?? []) ?? [];
   const nextAction = snapshot.center.workpad.nextAction;
   const taskQueueNextAction = snapshot.center.workpad.taskQueue?.nextAction;
   const actions = [
     ...queueActions,
-    ...agentWorkspaceActions,
     ...(nextAction.kind === "workflow-action" && nextAction.actionType ? [nextAction] : []),
     ...(taskQueueNextAction?.actionType ? [{ ...taskQueueNextAction, kind: "workflow-action" as const, changeId: body.changeId }] : []),
   ];

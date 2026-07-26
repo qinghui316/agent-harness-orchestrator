@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 3,
+  "assetFamily": "aho-agent-office-full-frame",
+  "referenceCommit": "6b6aba421417b39f92318a1065e411a5507042b3",
+  "approvedFrameRoot": "design-assets/agent-office/approved",
+  "proofRoot": "design-assets/agent-office/proof",
+  "shadowSourceRoot": "design-assets/agent-office/shadow-sources",
+  "runtimeRoot": "design-assets/agent-office/runtime-v3",
+  "characterAssembly": "complete-frame-only",
+  "style": {
+    "character": "Black geometric beaver with cream muzzle and teeth, paddle tail, and synchronized recolorable scarf mask.",
+    "office": "Horizontal warm-white office with white/light-grey furniture, charcoal screens and structure, and independently baked directional shadow maps.",
+    "stagingBackground": "flat border-connected green, forbidden from approved/runtime assets"
+  },
+  "frame": {
+    "canonical2x": { "width": 960, "height": 960 },
+    "canonical1x": { "width": 480, "height": 480 },
+    "anchor": { "x": 0, "y": 0 },
+    "padding": 2,
+    "maxAtlasWidth2x": 4096,
+    "maxAtlasWidth1x": 2048
+  },
+  "canonicalGeometry": {
+    "seatAnchor2x": { "x": 725, "y": 550 },
+    "groundAnchor2x": { "x": 480, "y": 874 },
+    "referenceScarfWidth2x": 195,
+    "maxLandmarkScaleDriftRatio": 0.03
+  },
+  "validation": {
+    "alphaThreshold": 8,
+    "stationaryFootDriftPixels2x": 2,
+    "visibleKeyPixels": 0,
+    "transparentNonZeroRgb": 0
+  },
+  "proofActionIds": ["standby", "walk-horizontal", "off-chair"],
+  "characterActions": [
+    { "id": "standby", "frames": 62, "sourceFrames": 32, "fps": 20, "loop": true, "sourceKind": "complete-character-frames", "directory": "actions/standby", "framePattern": "standby_%04d.png", "visualAnchor": "seat", "playback": { "type": "ping-pong", "excludeRepeatedEndpoints": true } },
+    { "id": "working", "frames": 68, "fps": 12, "loop": true, "sourceKind": "complete-character-frames", "directory": "actions/working", "framePattern": "working_%04d.png", "visualAnchor": "seat" },
+    { "id": "walk-horizontal", "frames": 49, "fps": 16, "loop": true, "sourceKind": "complete-character-frames", "directory": "actions/walk-horizontal", "framePattern": "walk-horizontal_%04d.png", "visualAnchor": "ground", "canvas2x": { "width": 1280, "height": 960 }, "visualAnchor2x": { "x": 480, "y": 874 } },
+    { "id": "walk-vertical", "frames": 8, "sourceFrames": 8, "fps": 12, "loop": true, "sourceKind": "complete-character-frames", "directory": "actions/walk-vertical", "framePattern": "walk-vertical_%04d.png", "visualAnchor": "ground" },
+    { "id": "leaving", "frames": 21, "sourceFrames": 21, "fps": 12, "loop": false, "sourceKind": "complete-character-frames", "directory": "actions/leaving", "framePattern": "leaving_%04d.png", "visualAnchor": "ground" },
+    { "id": "off-chair", "frames": 34, "fps": 12, "loop": false, "sourceKind": "complete-character-frames", "directory": "actions/off-chair", "framePattern": "off-chair_%04d.png" },
+    { "id": "coffee-drink", "frames": 79, "fps": 12, "loop": false, "sourceKind": "complete-character-frames", "directory": "actions/coffee-drink", "framePattern": "coffee-drink_%04d.png", "visualAnchor": "seat" },
+    { "id": "treadmill", "frames": 45, "fps": 16, "loop": true, "sourceKind": "complete-character-frames", "directory": "actions/treadmill", "framePattern": "treadmill_%04d.png", "visualAnchor": "ground", "canvas2x": { "width": 1600, "height": 1080 }, "visualAnchor2x": { "x": 700, "y": 874 } },
+    { "id": "toilet", "frames": 121, "fps": 24, "loop": false, "sourceKind": "complete-character-frames", "directory": "actions/toilet", "framePattern": "toilet_%04d.png", "visualAnchor": "ground", "visualAnchor2x": { "x": 549, "y": 412 } },
+    { "id": "standing-talk", "frames": 76, "fps": 24, "loop": false, "sourceKind": "complete-character-frames", "directory": "actions/standing-talk", "framePattern": "standing-talk_%04d.png", "visualAnchor": "ground" },
+    { "id": "seated-talk", "frames": 86, "fps": 24, "loop": false, "sourceKind": "complete-character-frames", "directory": "actions/seated-talk", "framePattern": "seated-talk_%04d.png", "visualAnchor": "seat" },
+    { "id": "salute", "frames": 76, "fps": 24, "loop": false, "sourceKind": "complete-character-frames", "directory": "actions/salute", "framePattern": "salute_%04d.png", "visualAnchor": "seat" },
+    { "id": "peek", "frames": 48, "fps": 12, "loop": false, "sourceKind": "complete-character-frames", "directory": "actions/peek", "framePattern": "peek_%04d.png", "visualAnchor": "seat" }
+  ],
+  "scarf": { "sourceKind": "synchronized-frame-mask", "baseColor": "#c96442" },
+  "props": [
+    { "id": "standard-desk", "file": "props/standard-desk.png", "orientation": "flip-y", "anchors2x": { "seat": { "x": 827, "y": 770 }, "keyboard": { "x": 827, "y": 565 }, "monitor": { "x": 827, "y": 300 }, "aisle-entry": { "x": 180, "y": 900 } } },
+    { "id": "standard-chair", "file": "props/standard-chair.png", "anchors2x": { "seat": { "x": 627, "y": 610 } } },
+    { "id": "standard-monitor", "file": "props/standard-monitor.png", "orientation": "flip-y", "anchors2x": { "screen-top-left": { "x": 250, "y": 180 }, "screen-bottom-right": { "x": 1305, "y": 700 } } },
+    { "id": "main-desk", "file": "props/main-desk.png", "anchors2x": { "seat": { "x": 756, "y": 800 }, "keyboard": { "x": 756, "y": 430 }, "monitor": { "x": 756, "y": 250 }, "aisle-entry": { "x": 160, "y": 960 } } },
+    { "id": "main-chair", "file": "props/main-chair.png", "anchors2x": { "seat": { "x": 576, "y": 650 } } },
+    { "id": "water-coffee", "file": "props/water-coffee.png", "anchors2x": { "aisle-entry": { "x": 1420, "y": 980 }, "coffee-contact": { "x": 1180, "y": 540 } } },
+    { "id": "treadmill", "file": "props/treadmill.png", "anchors2x": { "treadmill-contact": { "x": 168.758, "y": 316.508 }, "aisle-entry": { "x": 366, "y": 392 } } },
+    { "id": "toilet-back", "file": "props/toilet-back.png", "anchors2x": { "toilet-contact": { "x": 329, "y": 132 }, "aisle-entry": { "x": 720, "y": 650 } } },
+    { "id": "toilet-tail-occluder", "file": "props/toilet-tail-occluder.png", "anchors2x": { "tail-occlusion": { "x": 307, "y": 323 } } },
+    { "id": "toilet-paper-holder", "file": "props/toilet-paper-holder.png", "anchors2x": { "paper": { "x": 582, "y": 190 } } }
+  ],
+  "shadows": [
+    { "id": "standard-workstation-shadow", "file": "shadows/standard-workstation-shadow.png", "sourceFile": "standard/shadow-extracted.png", "parent": "workstation", "target": "standard", "alpha": 0.42, "proof": { "outputScale": 3.5, "shift": { "x": 126, "y": 140 } } },
+    { "id": "main-workstation-shadow", "file": "shadows/main-workstation-shadow.png", "sourceFile": "main/shadow-extracted.png", "parent": "workstation", "target": "main", "alpha": 0.42, "proof": { "outputScale": 3.4, "shift": { "x": 454, "y": 187 } } },
+    { "id": "coffee-facility-shadow", "file": "shadows/coffee-facility-shadow.png", "sourceFile": "coffee/shadow-extracted.png", "parent": "facility", "target": "coffee", "alpha": 0.42, "proof": { "outputScale": 2.25, "shift": { "x": 496, "y": 203 } } },
+    { "id": "treadmill-facility-shadow", "file": "shadows/treadmill-facility-shadow.png", "sourceFile": "treadmill/shadow-extracted.png", "parent": "facility", "target": "treadmill", "alpha": 0.42, "proof": { "outputScale": 2.25, "shift": { "x": 459, "y": -210 } } }
+  ],
+  "screenAnimations": [
+    { "id": "orchestration", "frames": 145, "fps": 20, "loop": true, "width2x": 912, "height2x": 430, "directory": "screens/orchestration" },
+    { "id": "entertainment-1", "frames": 102, "fps": 24, "loop": true, "width2x": 228, "height2x": 108, "directory": "screens/entertainment-1" },
+    { "id": "entertainment-2", "frames": 102, "fps": 24, "loop": true, "width2x": 228, "height2x": 108, "directory": "screens/entertainment-2" }
+  ],
+  "effects": [
+    { "id": "coffee-cup", "frames": 25, "fps": 24, "loop": true, "width2x": 1068, "height2x": 800, "directory": "effects/coffee-cup" }
+  ]
+}

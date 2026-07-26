@@ -133,10 +133,10 @@ export interface ProviderUserInputResolution {
 
 export interface ProviderChildThreadResult {
   providerId: ProviderId;
-  spawnItemId?: string;
-  tool: "spawn_agent";
+  activityId?: string;
   parentThreadId: string;
   threadId: string;
+  roleHint?: string;
   status?: string;
   initialInput?: {
     turnId: string;
@@ -148,6 +148,17 @@ export interface ProviderChildThreadResult {
   displayName?: string;
   finalText: string;
   changedFiles: string[];
+}
+
+export interface ProviderChildLifecycleEvent {
+  providerId: ProviderId;
+  kind: "started" | "continued" | "closed";
+  activityId: string;
+  parentSession: ProviderSessionRef;
+  childSession: ProviderSessionRef;
+  turnId?: string;
+  roleHint?: string;
+  displayName?: string;
 }
 
 export interface ProviderToolSpec {
@@ -192,6 +203,12 @@ export interface ProviderArtifactPaths {
   session: string;
 }
 
+export interface ProviderRuntimeHostRef {
+  hostId: string;
+  generation: number;
+  pid: number | null;
+}
+
 export interface ProviderTurnRequest {
   providerId: ProviderId;
   operationProfile: ProviderOperationProfile;
@@ -211,6 +228,7 @@ export interface ProviderTurnRequest {
   existingSession?: ProviderSessionRef | null;
   timeoutMs?: number;
   onRealtimeEvent?: (event: ProviderRealtimeEvent) => void;
+  onChildLifecycleEvent?: (event: ProviderChildLifecycleEvent) => void;
   onChildThreadResult?: (result: ProviderChildThreadResult) => void;
   onUserInputRequest?: (request: ProviderUserInputRequest) => void;
   onUserInputResolved?: (resolution: ProviderUserInputResolution) => void;
@@ -235,6 +253,40 @@ export interface ProviderTurnRequest {
   outputSchema?: Record<string, unknown>;
 }
 
+export interface ProviderChildTurnRequest extends Omit<ProviderTurnRequest, "existingSession" | "objectiveSession" | "objectiveResume"> {
+  parentSession: ProviderSessionRef;
+  targetSession: ProviderSessionRef;
+  targetDisplayName?: string;
+}
+
+export interface ProviderChildCloseRequest {
+  providerId: ProviderId;
+  projectId: string;
+  conversationId: string;
+  graphScopeId?: string;
+  changeId?: string;
+  runtimeScopeId: string;
+  roleId: string;
+  runId: string;
+  attemptId: string;
+  cwd: string;
+  parentSession: ProviderSessionRef;
+  targetSession: ProviderSessionRef;
+  targetDisplayName?: string;
+  paths: ProviderArtifactPaths;
+  timeoutMs?: number;
+  onRealtimeEvent?: (event: ProviderRealtimeEvent) => void;
+  onChildLifecycleEvent?: (event: ProviderChildLifecycleEvent) => void;
+  onError?: (error: unknown) => void;
+}
+
+export interface ProviderChildSessionRequest {
+  providerId: ProviderId;
+  cwd: string;
+  parentSession: ProviderSessionRef;
+  targetSession: ProviderSessionRef;
+}
+
 export interface ProviderTurnResult {
   providerId: ProviderId;
   status: "completed" | "interrupted" | "failed";
@@ -246,6 +298,7 @@ export interface ProviderTurnResult {
   objective?: ProviderObjectiveState | null;
   childThreads: ProviderChildThreadResult[];
   changedFiles: string[];
+  runtimeHost?: ProviderRuntimeHostRef;
   error?: string;
 }
 
@@ -266,6 +319,9 @@ export interface ActiveProviderTurn {
 
 export interface ConversationProviderPort {
   runTurn(request: ProviderTurnRequest): Promise<ProviderTurnResult>;
+  inspectChild(request: ProviderChildSessionRequest): Promise<"available" | "stale">;
+  continueChild(request: ProviderChildTurnRequest): Promise<ProviderTurnResult>;
+  closeChild(request: ProviderChildCloseRequest): Promise<ProviderTurnResult>;
   getActiveTurn(runId: string): ActiveProviderTurn | null;
   listActiveTurns(): ActiveProviderTurn[];
 }
@@ -305,6 +361,9 @@ export interface ProviderSkillRoleBindingSyncResult {
 export interface ProviderDescriptor {
   id: ProviderId;
   displayName: string;
+  runtime: {
+    shutdown(reason?: string): void | Promise<void>;
+  };
   capabilitySnapshot(project: import("../types/index.js").ManagedProject | null, projectPath?: string): Promise<ProviderCapabilitySnapshot>;
   runtimeSummary(project: import("../types/index.js").ManagedProject | null, projectPath?: string): Promise<ProviderRuntimeSummary>;
   models: {

@@ -58,6 +58,14 @@ export class ProviderRegistry {
     return [...turns.values()];
   }
 
+  async shutdownAll(reason?: string): Promise<void> {
+    const results = await Promise.allSettled(
+      [...this.descriptors.values()].map((descriptor) => Promise.resolve(descriptor.runtime.shutdown(reason))),
+    );
+    const failures = results.flatMap((result) => result.status === "rejected" ? [result.reason] : []);
+    if (failures.length > 0) throw new AggregateError(failures, "One or more Provider runtimes failed to shut down.");
+  }
+
   async require(providerId: ProviderId, profile: ProviderOperationProfile, project: import("../types/index.js").ManagedProject | null, projectPath?: string): Promise<ProviderDescriptor> {
     return (await this.requireProfiles(providerId, [profile], project, projectPath)).descriptor;
   }

@@ -1,10 +1,8 @@
-import spawn from "cross-spawn";
 import { join } from "node:path";
 import { z } from "zod";
 import { getAhoHome } from "../fs/path.js";
 import { readJsonFile, writeJsonFile } from "../fs/json.js";
-import { codexRuntimeConfigArgs } from "./capabilities.js";
-import { resolveCodexExecutable } from "./executable.js";
+import { defaultCodexAppServerHostRegistry } from "./app-server-host.js";
 import { readCodexConfigModelStatus } from "./trust.js";
 
 export type CodexModelCandidateSource = "runtime" | "config";
@@ -141,78 +139,15 @@ export async function getCodexModelSettingsSnapshot(projectPath?: string): Promi
 }
 
 export async function listCodexRuntimeModels(projectPath = process.cwd()): Promise<CodexModelListStatus> {
-  let child: ReturnType<typeof spawn> | null = null;
-  let lineBuffer = "";
-  let requestId = 1;
-  const pending = new Map<number, { resolve: (value: Record<string, unknown>) => void; reject: (error: Error) => void }>();
   try {
-    child = spawn(resolveCodexExecutable(), [...codexRuntimeConfigArgs(), "app-server", "--listen", "stdio://"], {
-      cwd: projectPath,
-      shell: false,
-      windowsHide: true,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    child.stdout?.on("data", (chunk: Buffer) => {
-      lineBuffer += chunk.toString("utf8");
-      drainLines();
-    });
-    child.stderr?.resume();
-    child.on("error", (error: Error) => rejectAll(error));
-    child.on("close", () => rejectAll(new Error("Codex app-server closed.")));
-    await withTimeout(sendRequest("initialize", {
-      capabilities: { experimentalApi: true },
-      clientInfo: { name: "agent-harness-orchestrator", title: "Agent Harness Orchestrator", version: "0.1.0" },
-    }), 3000, "Codex app-server initialize timed out.");
-    sendNotification("initialized", {});
-    const response = await withTimeout(sendRequest("model/list", {}), 3000, "Codex model_list timed out.");
+    const response = await withTimeout(
+      defaultCodexAppServerHostRegistry.hostFor(projectPath).requestMetadata("model/list", {}),
+      3000,
+      "Codex model_list timed out.",
+    );
     return { available: true, degraded: false, candidates: candidatesFromModelListResponse(response) };
   } catch (error) {
     return { available: false, degraded: true, degradedReason: sanitizeModelListFailure(error), candidates: [] };
-  } finally {
-    for (const [, item] of pending) item.reject(new Error("Codex model_list finished."));
-    pending.clear();
-    try {
-      child?.kill();
-    } catch {
-      // Best-effort cleanup.
-    }
-  }
-
-  function sendRequest(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
-    if (!child?.stdin?.writable) return Promise.reject(new Error("Codex app-server stdin is not writable."));
-    const id = requestId++;
-    child.stdin.write(`${JSON.stringify({ id, method, params })}\n`);
-    return new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
-  }
-
-  function sendNotification(method: string, params: Record<string, unknown>): void {
-    if (child?.stdin?.writable) child.stdin.write(`${JSON.stringify({ method, params })}\n`);
-  }
-
-  function drainLines(): void {
-    for (;;) {
-      const index = lineBuffer.indexOf("\n");
-      if (index < 0) return;
-      const line = lineBuffer.slice(0, index).trim();
-      lineBuffer = lineBuffer.slice(index + 1);
-      if (!line) continue;
-      let payload: Record<string, unknown>;
-      try {
-        payload = JSON.parse(line) as Record<string, unknown>;
-      } catch {
-        continue;
-      }
-      if (typeof payload.id !== "number" || !pending.has(payload.id)) continue;
-      const handler = pending.get(payload.id);
-      pending.delete(payload.id);
-      if (isRecord(payload.error)) handler?.reject(new Error(JSON.stringify(payload.error)));
-      else handler?.resolve(isRecord(payload.result) ? payload.result : payload);
-    }
-  }
-
-  function rejectAll(error: Error): void {
-    for (const [, item] of pending) item.reject(error);
-    pending.clear();
   }
 }
 

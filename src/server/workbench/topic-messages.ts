@@ -36,6 +36,7 @@ export async function readTopicMessageBody(request: IncomingMessage): Promise<To
     attachmentIds: raw.attachmentIds,
     providerId: raw.providerId,
     providerSwitchIntent: raw.providerSwitchIntent,
+    agentSurfaceId: raw.agentSurfaceId,
   };
   assertTopicMessageText(message);
   return message;

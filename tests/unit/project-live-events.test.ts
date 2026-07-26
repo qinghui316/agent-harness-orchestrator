@@ -1,9 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildInitialProjectAgentEvents } from "../../src/server/workbench/project-live-events.js";
 import { createLiveSink } from "../../src/server/workbench/live.js";
-import { publishProjectLiveEvent, subscribeProjectLiveEvents } from "../../src/workbench/project-live-events.js";
-import type { AgentTask } from "../../src/types/index.js";
-import type { WorkbenchAgentWorkspaceAgent } from "../../src/workbench/read-model-types.js";
+import { publishAgentSurfacesInvalidated, publishProjectLiveEvent, subscribeProjectLiveEvents } from "../../src/workbench/project-live-events.js";
 import type { WorkbenchLiveEvent } from "../../src/workbench/types.js";
 
 describe("project live Agent events", () => {
@@ -33,40 +30,20 @@ describe("project live Agent events", () => {
     expect(repoA).toHaveBeenCalledTimes(1);
   });
 
-  it("reuses the durable background surface instead of announcing a task duplicate", () => {
-    const task = {
-      id: "maintenance-5",
+  it("publishes an invalidation hint without projecting Agent facts into the event", () => {
+    const subscriber = vi.fn();
+    const unsubscribe = subscribeProjectLiveEvents("repo", subscriber);
+    publishAgentSurfacesInvalidated("repo", {
       conversationId: "conversation-1",
-      changeId: "change-1",
-      roleId: "memory-maintenance-agent",
-      kind: "background",
-      status: "running",
-    } as AgentTask;
-    const agent = {
-      id: "run:maintenance-run-5",
-      roleId: "memory-maintenance-agent",
-      runId: "maintenance-run-5",
-      agentTaskId: "maintenance-5",
-      providerDisplayName: "Sagan",
-      label: "Maintenance Agent · Sagan",
-      status: "running",
-      summary: "",
-      evidenceRefs: [],
-      actions: [],
-    } as WorkbenchAgentWorkspaceAgent;
-
-    const events = buildInitialProjectAgentEvents("repo", [agent], [task]);
-
-    expect(events).toHaveLength(1);
-    expect(events[0]).toMatchObject({
-      event: "run.status",
-      data: {
-        agentSurfaceId: "run:maintenance-run-5",
-        runId: "maintenance-run-5",
-        agentRoleId: "memory-maintenance-agent",
-        agentDisplayName: "Sagan",
-      },
+      graphScopeId: "graph-1",
+      reason: "attempt-updated",
     });
+    expect(subscriber).toHaveBeenCalledWith({
+      event: "agent-surfaces.invalidated",
+      data: { conversationId: "conversation-1", graphScopeId: "graph-1", reason: "attempt-updated" },
+    });
+    expect(JSON.stringify(subscriber.mock.calls)).not.toMatch(/provider|thread|status|role/i);
+    unsubscribe();
   });
 
   it("publishes the same canonical envelope after the request SSE disconnects", () => {

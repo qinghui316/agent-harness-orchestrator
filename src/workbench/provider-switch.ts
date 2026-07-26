@@ -12,6 +12,7 @@ import type { WorkbenchWorkflowActionRequest } from "./types.js";
 import { reconcileDemandWorkersForRuntime } from "../workflow-runtime/demand-worker.js";
 import { assembleSharedConversationContext, type HandoffSnapshot } from "./shared-conversation-context.js";
 import { openWorkbenchDatabase } from "./persistence/open-workbench-database.js";
+import { publishAgentSurfacesInvalidated } from "./project-live-events.js";
 import { type StoredConversation, type StoredProviderAttempt, type StoredProviderResumePoint } from "./persistence/contracts.js";
 
 const ACTIVE_ATTEMPT_STATUSES = new Set(["queued", "running"]);
@@ -201,6 +202,11 @@ export async function switchConversationProviderAtSafePoint(input: {
       createdAt: switchedAt,
       updatedAt: switchedAt,
     });
+    publishAgentSurfacesInvalidated(input.memory.projectId, {
+      conversationId: input.conversationId,
+      graphScopeId: initial.conversation.currentGraphScopeId ?? undefined,
+      reason: "attempt-updated",
+    });
   } finally {
     store.close();
   }
@@ -297,9 +303,15 @@ async function fenceStoppedProviderAttempts(registry: ProviderRegistry, memory: 
   }
   const store = await openWorkbenchDatabase(memory);
   try {
+    let changed = false;
     for (const attempt of store.providerAttempts.listProviderAttempts(memory.projectId, conversationId)) {
       if (!ACTIVE_ATTEMPT_STATUSES.has(attempt.status)) continue;
       store.providerAttempts.completeProviderAttempt(memory.projectId, attempt.attemptId, "interrupted", attempt.nativeSessionId, new Date().toISOString());
+      changed = true;
+    }
+    if (changed) {
+      const graphScopeId = store.conversations.readConversation(memory.projectId, conversationId)?.currentGraphScopeId;
+      publishAgentSurfacesInvalidated(memory.projectId, { conversationId, graphScopeId: graphScopeId ?? undefined, reason: "provider-interrupted" });
     }
   } finally {
     store.close();

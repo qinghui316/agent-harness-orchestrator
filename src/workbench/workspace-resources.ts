@@ -1,10 +1,11 @@
 import { resolveProjectMemory } from "../memory/resolver.js";
 import type { ManagedProject } from "../types/index.js";
-import type { WorkbenchAgentWorkspaceAgent, WorkbenchProjectInput } from "./read-model-types.js";
+import type { WorkbenchProjectInput } from "./read-model-types.js";
+import type { AgentSurfaceProjectionItem } from "./agent-surface-contract.js";
 import { fromStoredThreadMessage } from "./conversation-thread-log.js";
 import { readProjectTextDocument } from "./file-references.js";
 import { canonicalPlanDocumentFromEntry, canonicalPlanDocumentText } from "./plan-documents.js";
-import { getWorkbenchSnapshot } from "./projections/read-model/implementation.js";
+import { getAgentSurfaceProjection } from "./agent-surface-projection.js";
 import { openWorkbenchDatabase } from "./persistence/open-workbench-database.js";
 
 export type WorkspaceResourceTarget =
@@ -16,8 +17,8 @@ export interface AgentThreadResource {
   resourceId: string;
   kind: "agent";
   title: string;
-  readOnly: false;
-  agent: WorkbenchAgentWorkspaceAgent;
+  readOnly: boolean;
+  agent: AgentSurfaceProjectionItem;
   target: Extract<WorkspaceResourceTarget, { kind: "agent" }>;
 }
 
@@ -39,14 +40,14 @@ export async function resolveWorkspaceResource(
   target: WorkspaceResourceTarget,
 ): Promise<WorkspaceResource> {
   if (target.kind === "agent") {
-    const snapshot = await getWorkbenchSnapshot(input, { topicId: target.conversationId });
-    const agent = snapshot.right.agentWorkspace.agents.find((candidate) => candidate.id === target.agentSurfaceId);
-    if (!agent || agent.roleId === "main-agent") throw notFound("Agent resource is unavailable in the selected conversation.");
+    const projection = await getAgentSurfaceProjection(input, target.conversationId);
+    const agent = projection.surfaces.find((candidate) => candidate.agentSurfaceId === target.agentSurfaceId);
+    if (!agent || agent.kind === "main-agent") throw notFound("Agent resource is unavailable in the selected conversation.");
     return {
-      resourceId: `agent:${agent.id}`,
+      resourceId: `agent:${agent.agentSurfaceId}`,
       kind: "agent",
       title: agent.label,
-      readOnly: false,
+      readOnly: agent.readOnly,
       agent,
       target,
     };

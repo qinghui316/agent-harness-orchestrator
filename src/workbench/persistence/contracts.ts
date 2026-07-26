@@ -54,6 +54,7 @@ export interface StoredProviderThreadLink {
   providerThreadId: string;
   roleId: string;
   parentThreadId: string | null;
+  parentAgentSurfaceId: string | null;
   changeId: string | null;
   graphScopeId: string | null;
   capabilityProfile: string | null;
@@ -89,7 +90,7 @@ export interface StoredProviderAttempt {
   handoffHash: string;
   deliveredThroughCompletedTurn: number;
   worktreeId: string | null;
-  status: "queued" | "running" | "completed" | "interrupted" | "failed" | "blocked";
+  status: "queued" | "running" | "completed" | "interrupted" | "failed" | "blocked" | "terminated";
   createdAt: string;
   updatedAt: string;
 }

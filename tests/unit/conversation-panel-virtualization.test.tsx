@@ -85,6 +85,7 @@ function renderConversation(cellCount: number): void {
         scrollContainerRef={scrollRef}
         loadingEarlierTranscript={false}
         onOpenAgent={() => {}}
+        canOpenAgent={() => true}
       />
     </div>,
   );

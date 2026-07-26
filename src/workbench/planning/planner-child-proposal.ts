@@ -16,6 +16,7 @@ import { readRequiredJsonFile } from "../../fs/json.js";
 import { resolveProjectMemory } from "../../memory/resolver.js";
 import type { ManagedProject } from "../../types/index.js";
 import { openWorkbenchDatabase } from "../persistence/open-workbench-database.js";
+import { publishAgentSurfacesInvalidated } from "../project-live-events.js";
 import type { StoredTopicMessage } from "../persistence/contracts.js";
 
 export interface AcceptedConversationPlanningPackage extends AcceptedPlanningPackage {
@@ -189,6 +190,11 @@ async function acceptCurrentConversationPlanningPackageUnlocked(
           commit.proposalHash,
           scopeTransition,
         );
+        if (scopeTransition) publishAgentSurfacesInvalidated(commit.projectId, {
+          conversationId: commit.conversationId,
+          graphScopeId: scopeTransition.graphScopeId,
+          reason: "scope-changed",
+        });
       },
       deleteCommit: (transactionId) => store.conversations.deletePlanningAcceptanceCommit(transactionId),
     };
@@ -227,13 +233,13 @@ async function validateCurrentConversationPlanningPackage(
   try {
     const conversation = store.conversations.readConversation(projectId, conversationId);
     if (!conversation) throw new Error(`Conversation not found: ${conversationId}.`);
-    const lineage = store.providerAttempts.listProviderThreads(projectId, conversationId)
+    const scopedThreads = store.providerAttempts.listProviderThreads(projectId, conversationId)
+      .filter((link) => link.graphScopeId === conversation.currentGraphScopeId);
+    const lineage = scopedThreads
       .filter((link) => link.providerThreadId === proposal.childThreadId && link.roleId === "planning-agent")
       .flatMap((childThread) => {
-        const providerId = childThread.providerId;
-        return providerId
-          ? [{ childThread, mainThread: store.providerAttempts.readProviderThread(projectId, conversationId, providerId, "main-agent") }]
-          : [];
+        const mainThreads = scopedThreads.filter((link) => link.providerId === childThread.providerId && link.roleId === "main-agent");
+        return mainThreads.map((mainThread) => ({ childThread, mainThread }));
       })
       .filter(({ childThread, mainThread }) => mainThread
         && childThread.parentThreadId === proposal.parentThreadId
@@ -242,7 +248,7 @@ async function validateCurrentConversationPlanningPackage(
       throw new Error("Planner proposal does not belong to the current Main/child provider lineage.");
     }
     const latestProposalArtifact = store.timeline.listConversationMessages(projectId, conversationId)
-      .filter((message) => storedAgentRoleId(message.rawJson) === "planning-agent")
+      .filter((message) => storedAgentRoleId(message.rawJson) === "planning-agent" && Boolean(message.artifact))
       .at(-1)?.artifact;
     if (latestProposalArtifact !== proposal.artifact) throw new Error("Planner proposal is stale or superseded.");
     return {

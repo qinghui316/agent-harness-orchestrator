@@ -1,0 +1,25 @@
+{
+  "method": "local before/after difference",
+  "sourcePath": "C:\\Users\\qinghui\\.codex\\visualizations\\2026\\07\\24\\019f93b2-6925-7350-84a1-1b873837f8ef\\agent-office-shadow-proof\\30-treadmill-facility-canonical-input.png",
+  "editedPath": "C:\\Users\\qinghui\\.codex\\visualizations\\2026\\07\\24\\019f93b2-6925-7350-84a1-1b873837f8ef\\agent-office-shadow-proof\\33-treadmill-facility-candidate-2.png",
+  "floorMinY": 560,
+  "protectionRadius": 2,
+  "previewOpacity": 0.55,
+  "proofTransform": {
+    "outputScale": 2.25,
+    "shift": {
+      "x": 459,
+      "y": -210
+    }
+  },
+  "extractedPixels": 45154,
+  "maximumAlpha": 255,
+  "occludedFillPixels": 5736,
+  "rgbForEveryShadowPixel": [
+    0,
+    0,
+    0
+  ],
+  "transparentPath": "C:\\Users\\qinghui\\.codex\\visualizations\\2026\\07\\24\\019f93b2-6925-7350-84a1-1b873837f8ef\\agent-office-shadow-proof\\34-treadmill-facility-local-diff-shadow-transparent.png",
+  "compositePath": "C:\\Users\\qinghui\\.codex\\visualizations\\2026\\07\\24\\019f93b2-6925-7350-84a1-1b873837f8ef\\agent-office-shadow-proof\\34-treadmill-facility-local-diff-layered-proof.png"
+}

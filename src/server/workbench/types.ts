@@ -149,6 +149,7 @@ export interface TopicMessageRequest {
   attachmentIds?: string[];
   providerId?: TopicMessageInput["providerId"];
   providerSwitchIntent?: TopicMessageInput["providerSwitchIntent"];
+  agentSurfaceId?: TopicMessageInput["agentSurfaceId"];
 }
 
 export interface FolderDialogResult {

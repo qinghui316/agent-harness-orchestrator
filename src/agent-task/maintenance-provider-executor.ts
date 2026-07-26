@@ -241,6 +241,7 @@ async function executeMaintenanceRequest(
       liveMainBinding = bindProviderAttemptThread(memory, {
         attemptId: runId,
         threadId: event.threadId,
+        parentAgentSurfaceId: "main-agent",
         displayName: event.displayName ?? profileId ?? request.role,
       });
     }
@@ -261,6 +262,7 @@ async function executeMaintenanceRequest(
           attemptId: scorerAttemptId,
           threadId: event.threadId,
           parentThreadId: event.parentThreadId,
+          parentAgentSurfaceId: undefined,
           displayName: event.displayName,
         })));
     }
@@ -344,7 +346,7 @@ async function executeMaintenanceRequest(
     runId,
     result.status === "completed" ? "completed" : result.status === "interrupted" ? "interrupted" : "failed",
     result.session?.sessionId ?? null,
-    { displayName: profileId ?? request.role },
+    { parentAgentSurfaceId: "main-agent", displayName: profileId ?? request.role },
   );
   try {
     persistBackgroundCapture(

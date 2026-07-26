@@ -20,6 +20,7 @@ describe("WorkbenchProjectionStream owner", () => {
     routeWorkbenchProjectionEvent("project-a", timelineEvent("main-agent"), ports);
     routeWorkbenchProjectionEvent("project-a", topicEvent(), ports);
     routeWorkbenchProjectionEvent("project-a", interactionEvent(), ports);
+    routeWorkbenchProjectionEvent("project-a", surfaceInvalidationEvent(), ports);
     routeWorkbenchProjectionEvent("project-a", snapshotEvent(), ports);
     routeWorkbenchProjectionEvent("project-a", errorEvent(), ports);
     const diagnostic = routeWorkbenchProjectionEvent("project-a", {
@@ -32,24 +33,19 @@ describe("WorkbenchProjectionStream owner", () => {
     expect(ports.interaction.updated).toHaveBeenCalledTimes(1);
     expect(ports.snapshot.received).toHaveBeenCalledTimes(1);
     expect(ports.error?.received).toHaveBeenCalledTimes(1);
-    expect(ports.graph.invalidate).toHaveBeenCalledTimes(1);
-    expect(ports.graph.invalidate).toHaveBeenCalledWith({ projectId: "project-a", reason: "snapshot" });
+    expect(ports.agentSurfaces.invalidate).toHaveBeenCalledTimes(1);
+    expect(ports.agentSurfaces.invalidate).toHaveBeenCalledWith({ projectId: "project-a", conversationId: "conversation-a", graphScopeId: "scope-a", reason: "attempt-updated" });
     expect(diagnostic).toEqual({ handled: false, event: "run.status" });
   });
 
-  it("invalidates the graph only for child or child-targeting Timeline patches", () => {
+  it("does not infer Agent invalidation from Timeline content", () => {
     const ports = createPorts();
     routeWorkbenchProjectionEvent("project-a", timelineEvent("main-agent"), ports);
     routeWorkbenchProjectionEvent("project-a", timelineEvent("agent:child"), ports);
     routeWorkbenchProjectionEvent("project-a", timelineEvent("main-agent", "agent:child"), ports);
 
     expect(ports.timeline.patch).toHaveBeenCalledTimes(3);
-    expect(ports.graph.invalidate).toHaveBeenCalledTimes(2);
-    expect(ports.graph.invalidate).toHaveBeenNthCalledWith(1, {
-      projectId: "project-a",
-      conversationId: "conversation-a",
-      reason: "timeline.patch",
-    });
+    expect(ports.agentSurfaces.invalidate).not.toHaveBeenCalled();
   });
 
   it("keeps one project EventSource while ports and request routing callbacks change", () => {
@@ -106,7 +102,7 @@ function createPorts(): WorkbenchProjectionRoutePorts {
     topic: { created: vi.fn() },
     interaction: { updated: vi.fn() },
     snapshot: { received: vi.fn() },
-    graph: { invalidate: vi.fn() },
+    agentSurfaces: { invalidate: vi.fn() },
     error: { received: vi.fn() },
   };
 }
@@ -147,6 +143,13 @@ function interactionEvent(): WorkbenchLiveEvent {
       graphScopeId: "scope-a",
       items: [],
     },
+  };
+}
+
+function surfaceInvalidationEvent(): WorkbenchLiveEvent {
+  return {
+    event: "agent-surfaces.invalidated",
+    data: { conversationId: "conversation-a", graphScopeId: "scope-a", reason: "attempt-updated" },
   };
 }
 

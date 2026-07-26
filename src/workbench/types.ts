@@ -3,6 +3,7 @@ import type { ConversationInteractionQueue } from "./conversation-interaction-co
 import type { HarnessExecutionMode, RunMetadata } from "../types/index.js";
 import type { WorkflowActionType } from "../workflow-actions/registry.js";
 import type { CanonicalTimelineEnvelope } from "./canonical-timeline-contract.js";
+import type { AgentSurfacesInvalidated } from "./agent-surface-contract.js";
 
 export type TopicThreadEventType =
   | "user.message"
@@ -215,6 +216,7 @@ export type WorkbenchLiveEvent =
   | { event: "topic.created"; data: { topic: { id?: string; conversationId?: string; changeId?: string; title: string; state: "active"; selectedProviderId?: string } } }
   | { event: "timeline.patch"; data: CanonicalTimelineEnvelope }
   | { event: "conversation.interactions.updated"; data: ConversationInteractionQueue }
+  | { event: "agent-surfaces.invalidated"; data: AgentSurfacesInvalidated }
   | { event: "run.started"; data: WorkbenchLiveIdentity & { runId: string; actionType?: string; runtime?: string; taskIds?: string[] } }
   | { event: "run.status"; data: WorkbenchLiveIdentity & { actionRunId?: string; status: string; label?: string } }
   | { event: "assistant.delta"; data: WorkbenchLiveIdentity & { delta: string } }
@@ -287,6 +289,7 @@ export interface TopicMessageInput {
   planHandoffIntent?: PlanHandoffIntent;
   providerId?: ProviderId;
   providerSwitchIntent?: "resume-workflow" | "conversation-only";
+  agentSurfaceId?: string;
 }
 
 export type PlanHandoffAgentRoleId = "planning-agent";

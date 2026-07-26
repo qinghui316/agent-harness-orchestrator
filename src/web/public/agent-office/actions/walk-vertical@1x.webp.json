@@ -1,0 +1,227 @@
+{
+  "frames": {
+    "walk-vertical_0000.png": {
+      "frame": {
+        "x": 2,
+        "y": 2,
+        "w": 151,
+        "h": 157
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 178,
+        "y": 280,
+        "w": 151,
+        "h": 157
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "walk-vertical_0001.png": {
+      "frame": {
+        "x": 157,
+        "y": 2,
+        "w": 152,
+        "h": 159
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 176,
+        "y": 278,
+        "w": 152,
+        "h": 159
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "walk-vertical_0002.png": {
+      "frame": {
+        "x": 313,
+        "y": 2,
+        "w": 150,
+        "h": 155
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 198,
+        "y": 282,
+        "w": 150,
+        "h": 155
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "walk-vertical_0003.png": {
+      "frame": {
+        "x": 2,
+        "y": 165,
+        "w": 147,
+        "h": 162
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 196,
+        "y": 275,
+        "w": 147,
+        "h": 162
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "walk-vertical_0004.png": {
+      "frame": {
+        "x": 153,
+        "y": 165,
+        "w": 155,
+        "h": 160
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 174,
+        "y": 277,
+        "w": 155,
+        "h": 160
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "walk-vertical_0005.png": {
+      "frame": {
+        "x": 312,
+        "y": 165,
+        "w": 152,
+        "h": 159
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 175,
+        "y": 278,
+        "w": 152,
+        "h": 159
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "walk-vertical_0006.png": {
+      "frame": {
+        "x": 2,
+        "y": 331,
+        "w": 155,
+        "h": 152
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 175,
+        "y": 285,
+        "w": 155,
+        "h": 152
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "walk-vertical_0007.png": {
+      "frame": {
+        "x": 161,
+        "y": 331,
+        "w": 150,
+        "h": 155
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 175,
+        "y": 282,
+        "w": 150,
+        "h": 155
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    }
+  },
+  "animations": {
+    "walk-vertical": [
+      "walk-vertical_0000.png",
+      "walk-vertical_0001.png",
+      "walk-vertical_0002.png",
+      "walk-vertical_0003.png",
+      "walk-vertical_0004.png",
+      "walk-vertical_0005.png",
+      "walk-vertical_0006.png",
+      "walk-vertical_0007.png"
+    ]
+  },
+  "meta": {
+    "app": "aho-office-assets",
+    "version": "3.0",
+    "image": "walk-vertical@1x.webp",
+    "format": "RGBA8888",
+    "size": {
+      "w": 466,
+      "h": 488
+    },
+    "scale": 1,
+    "animation": {
+      "fps": 12,
+      "loop": true
+    },
+    "visualAnchor": {
+      "x": 240,
+      "y": 437
+    }
+  }
+}

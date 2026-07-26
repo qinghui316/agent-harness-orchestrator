@@ -33,11 +33,12 @@ export function AgentTranscriptPane({ cells, emptyMessage = "暂无 Agent 消息
   );
 }
 
-export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded, onOpenAgent, onOpenDocument, documentResources, onEnsureDocument }: {
+export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded, onOpenAgent, canOpenAgent, onOpenDocument, documentResources, onEnsureDocument }: {
   cell: ParentAgentTranscriptCell;
   expanded: boolean;
   onToggleExpanded: () => void;
   onOpenAgent?: (agentSurfaceId: string) => void;
+  canOpenAgent?: (agentSurfaceId: string) => boolean;
   onOpenDocument?: (document: CanonicalDocumentReference) => void;
   documentResources?: Record<string, TextDocumentResource>;
   onEnsureDocument?: (document: CanonicalDocumentReference) => void;
@@ -69,7 +70,7 @@ export function ParentAgentTranscriptCellView({ cell, expanded, onToggleExpanded
             onOpen={() => onOpenDocument?.(cell.documentRef!)}
           />
         ) : (
-          <TranscriptActivityRow cell={cell} expanded={expanded} onToggleExpanded={onToggleExpanded} onOpenAgent={onOpenAgent} />
+          <TranscriptActivityRow cell={cell} expanded={expanded} onToggleExpanded={onToggleExpanded} onOpenAgent={onOpenAgent} canOpenAgent={canOpenAgent} />
         )}
       </div>
       {cell.timestamp && (cell.kind === "user-message" || cell.kind === "assistant-message") ? <time>{formatTime(cell.timestamp)}</time> : null}
@@ -135,11 +136,12 @@ function TranscriptMessageProse({ cell, expanded, onToggleExpanded, className }:
   );
 }
 
-export function TranscriptActivityRow({ cell, expanded, onToggleExpanded, onOpenAgent }: {
+export function TranscriptActivityRow({ cell, expanded, onToggleExpanded, onOpenAgent, canOpenAgent }: {
   cell: ParentAgentTranscriptCell;
   expanded: boolean;
   onToggleExpanded: () => void;
   onOpenAgent?: (agentSurfaceId: string) => void;
+  canOpenAgent?: (agentSurfaceId: string) => boolean;
 }): ReactElement {
   const elapsed = useElapsedSeconds(cell.realtime ? cell.timestamp : undefined);
   const detailsRef = useRef<HTMLDivElement | null>(null);
@@ -155,6 +157,7 @@ export function TranscriptActivityRow({ cell, expanded, onToggleExpanded, onOpen
   const status = cell.status && shouldShowTranscriptStatus(cell) ? humanStatus(cell.status) : null;
   const detailsId = `${cell.id}:details`;
   const tone = transcriptActivityTone(cell);
+  const opensAgent = Boolean(cell.targetAgentSurfaceId && onOpenAgent && (canOpenAgent?.(cell.targetAgentSurfaceId) ?? true));
   useEffect(() => {
     const node = detailsRef.current;
     if (expanded && node && detailsPinnedRef.current) node.scrollTop = node.scrollHeight;
@@ -164,7 +167,7 @@ export function TranscriptActivityRow({ cell, expanded, onToggleExpanded, onOpen
       <button
         type="button"
         className="transcript-activity-summary"
-        onClick={cell.targetAgentSurfaceId && onOpenAgent ? () => onOpenAgent(cell.targetAgentSurfaceId!) : hasDetails ? onToggleExpanded : undefined}
+        onClick={opensAgent ? () => onOpenAgent?.(cell.targetAgentSurfaceId!) : hasDetails ? onToggleExpanded : undefined}
         aria-expanded={hasDetails ? expanded : undefined}
         aria-controls={hasDetails ? detailsId : undefined}
       >
@@ -173,7 +176,7 @@ export function TranscriptActivityRow({ cell, expanded, onToggleExpanded, onOpen
           <span className="transcript-activity-title">{title}{cell.realtime && elapsed !== null ? ` · ${elapsed} 秒` : ""}</span>
           {status ? <span>{status}</span> : null}
         </span>
-        {cell.targetAgentSurfaceId ? <span className="transcript-activity-disclosure" aria-hidden="true">打开</span> : hasDetails ? <span className="transcript-activity-disclosure" aria-hidden="true">{expanded ? "收起" : "详情"}</span> : null}
+        {opensAgent ? <span className="transcript-activity-disclosure" aria-hidden="true">打开</span> : hasDetails ? <span className="transcript-activity-disclosure" aria-hidden="true">{expanded ? "收起" : "详情"}</span> : null}
       </button>
       {text ? <TranscriptMarkdownLite text={text} idPrefix={`${cell.id}:summary`} compact /> : null}
       {hasDetails && expanded ? (

@@ -10,11 +10,10 @@ const ROLE_LABELS: Record<string, string> = {
   "memory-maintenance-agent": "Maintenance Agent",
   "harness-evolution-agent": "Evolution Agent",
   "evolution-scorer": "Scorer Agent",
-  "child-agent": "Child Agent",
 };
 
 export function agentRoleDisplayName(roleId?: string): string {
-  return ROLE_LABELS[roleId ?? ""] ?? (roleId ? "Child Agent" : "Agent");
+  return ROLE_LABELS[roleId ?? ""] ?? roleId ?? "Agent";
 }
 
 export function composeAgentDisplayLabel(roleId: string | undefined, providerDisplayName?: string): string {

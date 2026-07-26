@@ -22,6 +22,7 @@ import { handleApi } from "./workbench/api-router.js";
 import { restoreDirectProjectInput } from "./workbench/direct-project.js";
 import { sendJson, statusForError } from "./workbench/http.js";
 import { defaultStaticRoot, serveStatic } from "./workbench/static.js";
+import { defaultProviderRegistry } from "../provider-runtime/index.js";
 import type { WorkbenchServeOptions, WorkbenchServerContext, WorkbenchServerHandle } from "./workbench/types.js";
 
 export type { WorkbenchServeOptions, WorkbenchServerHandle } from "./workbench/types.js";
@@ -48,8 +49,16 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
       sendJson(response, statusForError(error), { error: error instanceof Error ? error.message : String(error) });
     });
   });
+  let workerDrain: Promise<void> | null = null;
+  let runtimeCleanup: Promise<void> | null = null;
+  const drainWorkers = (): Promise<void> => workerDrain ??= Promise.all(workers.map((worker) => worker.drain())).then(() => undefined);
+  const cleanupRuntime = (): Promise<void> => runtimeCleanup ??= (async () => {
+    await drainWorkers();
+    await defaultProviderRegistry.shutdownAll("Workbench server stopped.");
+    terminalRuntime.cleanup();
+  })();
   server.on("close", () => {
-    void Promise.all(workers.map((worker) => worker.drain())).finally(() => terminalRuntime.cleanup());
+    void cleanupRuntime().catch(() => undefined);
   });
   await new Promise<void>((resolvePromise) => server.listen(port, host, resolvePromise));
   const address = server.address();
@@ -58,9 +67,9 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
     server,
     url: `http://${host}:${actualPort}`,
     async close() {
-      await Promise.all(workers.map((worker) => worker.drain()));
+      await drainWorkers();
       await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-      terminalRuntime.cleanup();
+      await cleanupRuntime();
     },
   };
 }

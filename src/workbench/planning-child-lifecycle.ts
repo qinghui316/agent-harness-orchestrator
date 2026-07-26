@@ -14,6 +14,7 @@ export async function finalizePlanningChild(input: {
   runId: string;
   providerId: string;
   mainAttemptId: string;
+  childAttemptId: string;
   parentTurnId?: string;
   referenceSequence: number;
   child: ProviderChildThreadResult;
@@ -27,12 +28,11 @@ export async function finalizePlanningChild(input: {
     parentThreadId: input.child.parentThreadId,
     childThreadId: input.child.threadId,
   });
-  const childAttemptId = `${input.mainAttemptId}:child:${input.child.threadId}`;
   const document = attachCanonicalPlanDocument({
     captures: input.captures,
     proposal,
     providerId: input.providerId,
-    attemptId: childAttemptId,
+    attemptId: input.childAttemptId,
     sourceMessageIdForCapture: (capture) => childProcessMessageId(input.conversationId, input.providerId, input.runId, capture),
   });
   return {

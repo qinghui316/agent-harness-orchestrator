@@ -6,6 +6,7 @@ import { ComposerControls } from "./ComposerControls.js";
 import { buildComposerContextSummary, ComposerContextSourcesPopover, type ComposerContextKind } from "./ComposerContextSources.js";
 import { FileMentionPicker } from "./FileMentionPicker.js";
 import { SkillMentionPicker } from "./SkillMentionPicker.js";
+import { ComposerFrame } from "./ComposerFrame.js";
 
 export function TopicComposer({
   value,
@@ -81,8 +82,8 @@ export function TopicComposer({
     else void onSend();
   }
   return (
-    <div
-      className={`topic-composer ${dragOver ? "is-drag-over" : ""}`}
+    <ComposerFrame
+      className={dragOver ? "is-drag-over" : ""}
       aria-label="需求对话输入框"
       onDragOver={(event) => {
         if (disabledReason || !hasFileDrag(event)) return;
@@ -98,8 +99,7 @@ export function TopicComposer({
         setDragOver(false);
         void onAttachFiles?.(files);
       }}
-    >
-      <ComposerControls
+      controls={<ComposerControls
         providerDisplayName={providerDisplayName}
         modelLabel={modelLabel}
         onOpenModelSettings={onOpenModelSettings}
@@ -110,7 +110,20 @@ export function TopicComposer({
         providerOptions={providerOptions}
         selectedProviderId={selectedProviderId}
         onSelectProvider={onSelectProvider}
-      />
+      />}
+      toolbar={<>
+        <ComposerAttachButton disabled={Boolean(disabledReason)} onAttachFiles={onAttachFiles} />
+        <span className="composer-spacer" />
+        <button
+          className={`composer-send ${actionRunning ? "running" : ""}`}
+          disabled={sendDisabled}
+          title={buttonTitle}
+          onClick={submit}
+        >
+          {buttonIcon}
+        </button>
+      </>}
+    >
       <ComposerContextSourcesPopover
         kind={openContextKind}
         skills={skills}
@@ -149,18 +162,6 @@ export function TopicComposer({
         disabled={Boolean(disabledReason)}
         placeholder={disabledReason ?? (runningConversation ? "补充要求；支持实时引导时会发送给当前执行" : "输入问题或下一步需求")}
       />
-      <div className="composer-toolbar">
-        <ComposerAttachButton disabled={Boolean(disabledReason)} onAttachFiles={onAttachFiles} />
-        <span className="composer-spacer" />
-        <button
-          className={`composer-send ${actionRunning ? "running" : ""}`}
-          disabled={sendDisabled}
-          title={buttonTitle}
-          onClick={submit}
-        >
-          {buttonIcon}
-        </button>
-      </div>
-    </div>
+    </ComposerFrame>
   );
 }

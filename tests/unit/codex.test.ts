@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { evaluateCodexAppServerCapabilities, extractCodexAppServerCollabToolCall, extractCodexAppServerPlanText, extractCodexAppServerThreadDisplayName, extractCodexAppServerThreadFinalText, extractCodexAppServerThreadInitialPrompt, extractCodexAppServerThreadInitialUserItem, shouldUseCodexAppServerForMemory, shouldUseCodexAppServerForReadOnlyTurn } from "../../src/codex/app-server.js";
+import { evaluateCodexAppServerCapabilities, extractCodexAppServerPlanText, extractCodexAppServerThreadDisplayName, extractCodexAppServerThreadFinalText, extractCodexAppServerThreadInitialPrompt, extractCodexAppServerThreadInitialUserItem, shouldUseCodexAppServerForMemory, shouldUseCodexAppServerForReadOnlyTurn } from "../../src/codex/app-server.js";
 import { buildCodexReadonlyArgv, buildCodexReadonlyResumeArgv, buildCodexWorkspaceWriteArgv, detectCodexCapabilities, evaluateCodexCapabilities } from "../../src/codex/capabilities.js";
 import { codexExecutableEnvironmentKey, resolveCodexExecutable } from "../../src/codex/executable.js";
 import { createCodexJsonlStreamParser, extractFinalMessageFromCodexJsonl, truncateReadablePreview, type CodexJsonlStreamEvent } from "../../src/codex/jsonl.js";
@@ -110,34 +110,6 @@ describe("codex capabilities", () => {
     expect(extractCodexAppServerPlanText("item/completed", {
       item: { type: "proposed-plan", markdown: "## 目标\n生成计划\n\n## 验收\n通过测试" },
     })).toContain("## 目标");
-  });
-
-  it("extracts native Codex collab tool call items for child-agent projection", () => {
-    const call = extractCodexAppServerCollabToolCall("item/completed", {
-      item: {
-        type: "collabAgentToolCall",
-        id: "collab-1",
-        tool: "spawn_agent",
-        status: "completed",
-        senderThreadId: "thread-root",
-        receiverThreadIds: ["thread-child"],
-        prompt: "Draft a plan.",
-        model: "gpt-5.5",
-      },
-    });
-
-    expect(call).toEqual({
-      itemId: "collab-1",
-      tool: "spawn_agent",
-      status: "completed",
-      senderThreadId: "thread-root",
-      receiverThreadIds: ["thread-child"],
-      prompt: "Draft a plan.",
-      model: "gpt-5.5",
-      reasoningEffort: undefined,
-      agentsStates: undefined,
-    });
-    expect(extractCodexAppServerCollabToolCall("item/completed", { item: { type: "dynamicToolCall", tool: "spawn_agent" } })).toBeNull();
   });
 
   it("reads the final assistant output from a provider child thread snapshot", () => {

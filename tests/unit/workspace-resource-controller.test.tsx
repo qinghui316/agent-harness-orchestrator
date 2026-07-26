@@ -7,7 +7,7 @@ import {
   useWorkspaceResourceController,
   workspaceResourceId,
 } from "../../src/web/src/controllers/useWorkspaceResourceController.js";
-import type { AgentWorkspaceAgent, TextDocumentResource, WorkspaceResourceTarget } from "../../src/web/src/types.js";
+import type { AgentSurfaceProjectionItem, TextDocumentResource, WorkspaceResourceTarget } from "../../src/web/src/types.js";
 
 afterEach(() => {
   cleanup();
@@ -15,6 +15,37 @@ afterEach(() => {
 });
 
 describe("Workspace resource controller", () => {
+  it("includes the exact selected Agent surface in the fallback live request", async () => {
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(JSON.parse(String(init?.body))).toEqual({
+        mode: "chat",
+        message: "feedback",
+        agentSurfaceId: "agent:codex:thread:a",
+      });
+      return new Response("event: done\ndata: {\"status\":\"completed\"}\n\n", {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      });
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+    try {
+      const { result } = renderHook(() => useWorkspaceResourceController({
+        projectId: "repo-1",
+        conversationId: "conversation-1",
+      }));
+      const agent = planningAgent("agent:codex:thread:a");
+      act(() => result.current.setAgentDraft(agent.agentSurfaceId, "feedback"));
+      await act(async () => result.current.submitAgentMessage(agent));
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/projects/repo-1/workbench/topics/conversation-1/messages/live",
+        expect.objectContaining({ method: "POST" }),
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("owns stable tabs, selection, document loading, errors, and request generations", async () => {
     let resolveFirst!: (resource: TextDocumentResource) => void;
     const firstRequest = new Promise<TextDocumentResource>((resolve) => { resolveFirst = resolve; });
@@ -65,15 +96,15 @@ describe("Workspace resource controller", () => {
     const agent = planningAgent("agent:codex:thread:a");
 
     act(() => {
-      result.current.openResource({ kind: "agent", conversationId: "conversation-1", agentSurfaceId: agent.id });
+      result.current.openResource({ kind: "agent", conversationId: "conversation-1", agentSurfaceId: agent.agentSurfaceId });
       result.current.openResource(planTarget("conversation-1", "plan-1"));
       result.current.openResource({ kind: "project-file", relativePath: "notes.md" });
-      result.current.setAgentDraft(agent.id, "draft");
+      result.current.setAgentDraft(agent.agentSurfaceId, "draft");
     });
     await act(async () => { await Promise.resolve(); });
 
     act(() => result.current.cleanupTransition("graph-scope-changed"));
-    expect(result.current.tabs.map((tab) => tab.target.kind)).toEqual(["document", "project-file"]);
+    expect(result.current.tabs.map((tab) => tab.target.kind)).toEqual(["agent", "document", "project-file"]);
     expect(result.current.agentDrafts).toEqual({});
     expect(result.current.documents["plan-1"]).toBeTruthy();
 
@@ -121,14 +152,14 @@ describe("Workspace resource controller", () => {
     }));
     const first = planningAgent("agent:codex:thread:a");
     const second = planningAgent("agent:codex:thread:b");
-    const firstKey = agentDraftKey("conversation-1", first.id);
-    const secondKey = agentDraftKey("conversation-1", second.id);
+    const firstKey = agentDraftKey("conversation-1", first.agentSurfaceId);
+    const secondKey = agentDraftKey("conversation-1", second.agentSurfaceId);
 
     act(() => {
-      result.current.openResource({ kind: "agent", conversationId: "conversation-1", agentSurfaceId: first.id });
-      result.current.openResource({ kind: "agent", conversationId: "conversation-1", agentSurfaceId: second.id });
-      result.current.setAgentDraft(first.id, "first draft");
-      result.current.setAgentDraft(second.id, "second draft");
+      result.current.openResource({ kind: "agent", conversationId: "conversation-1", agentSurfaceId: first.agentSurfaceId });
+      result.current.openResource({ kind: "agent", conversationId: "conversation-1", agentSurfaceId: second.agentSurfaceId });
+      result.current.setAgentDraft(first.agentSurfaceId, "first draft");
+      result.current.setAgentDraft(second.agentSurfaceId, "second draft");
     });
     expect(result.current.agentDrafts[firstKey]).toBe("first draft");
     expect(result.current.agentDrafts[secondKey]).toBe("second draft");
@@ -144,6 +175,19 @@ describe("Workspace resource controller", () => {
     expect(result.current.pendingAgentMessages[firstKey]).toBeUndefined();
   });
 
+  it("never submits feedback for a historical or terminated Agent", async () => {
+    const sendAgentMessage = vi.fn(async () => undefined);
+    const { result } = renderHook(() => useWorkspaceResourceController({
+      projectId: "repo-1",
+      conversationId: "conversation-1",
+      sendAgentMessage,
+    }));
+    const historical = { ...planningAgent("agent:codex:thread:old"), scopeRange: "historical" as const, readOnly: true };
+    act(() => result.current.setAgentDraft(historical.agentSurfaceId, "must not send"));
+    await act(async () => result.current.submitAgentMessage(historical));
+    expect(sendAgentMessage).not.toHaveBeenCalled();
+  });
+
   it("does not let an older submission settle or restore state owned by a newer submission", async () => {
     vi.useFakeTimers();
     let rejectFirst!: (reason: Error) => void;
@@ -157,13 +201,13 @@ describe("Workspace resource controller", () => {
       sendAgentMessage,
     }));
     const agent = planningAgent("agent:codex:thread:a");
-    const key = agentDraftKey("conversation-1", agent.id);
+    const key = agentDraftKey("conversation-1", agent.agentSurfaceId);
 
-    act(() => result.current.setAgentDraft(agent.id, "first"));
+    act(() => result.current.setAgentDraft(agent.agentSurfaceId, "first"));
     let firstSubmit!: Promise<void>;
     act(() => { firstSubmit = result.current.submitAgentMessage(agent); });
     await act(async () => { vi.advanceTimersByTime(1200); });
-    act(() => result.current.setAgentDraft(agent.id, "second"));
+    act(() => result.current.setAgentDraft(agent.agentSurfaceId, "second"));
     let secondSubmit!: Promise<void>;
     act(() => { secondSubmit = result.current.submitAgentMessage(agent); });
     expect(result.current.pendingAgentMessages[key]).toBeTruthy();
@@ -186,12 +230,12 @@ describe("Workspace resource controller", () => {
       sendAgentMessage,
     }));
     const agent = planningAgent("agent:codex:thread:a");
-    const target = { kind: "agent", conversationId: "conversation-1", agentSurfaceId: agent.id } as const;
+    const target = { kind: "agent", conversationId: "conversation-1", agentSurfaceId: agent.agentSurfaceId } as const;
     const resourceId = workspaceResourceId(target);
 
     act(() => {
       result.current.openResource(target);
-      result.current.setAgentDraft(agent.id, "feedback");
+      result.current.setAgentDraft(agent.agentSurfaceId, "feedback");
     });
     let submit!: Promise<void>;
     act(() => { submit = result.current.submitAgentMessage(agent); });
@@ -205,17 +249,21 @@ describe("Workspace resource controller", () => {
   });
 });
 
-function planningAgent(id: string): AgentWorkspaceAgent {
+function planningAgent(id: string): AgentSurfaceProjectionItem {
   return {
-    id,
+    agentSurfaceId: id,
+    kind: "agent",
     roleId: "planning-agent",
-    providerId: "codex",
-    parentAgentId: "main-agent",
+    roleDisplayName: "Planning Agent",
+    parentAgentSurfaceId: "main-agent",
     label: id,
+    description: "Plans work",
+    skills: ["planning"],
+    graphScopeId: "scope-1",
+    scopeRange: "current",
     status: "running",
-    summary: "running",
-    evidenceRefs: [],
-    actions: [],
+    readOnly: false,
+    createdAt: "2026-07-18T00:00:00Z",
   };
 }
 

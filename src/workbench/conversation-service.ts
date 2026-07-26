@@ -19,6 +19,8 @@ import { runProjectScopedMainAgentTurn } from "./main-agent-turn-coordinator.js"
 import { resolveConversationId } from "./conversation-identity.js";
 import { runWorkbenchWorkflowAction } from "./workflow-conversation-bridge.js";
 import type { TopicAttachment, TopicMessageInput, TopicMessageResult, TopicThreadEntry, ValidatedPlanHandoffIntent, WorkbenchLiveSink } from "./types.js";
+import { publishAgentSurfacesInvalidated } from "./project-live-events.js";
+import { runExactChildAgentTurn } from "./provider-child-turn-coordinator.js";
 
 export async function createWorkbenchConversation(
   project: ManagedProject,
@@ -89,6 +91,14 @@ export async function postConversationMessage(
   assertWritableMemory(memory, "Workbench conversation");
   if (!memory.projectId) throw new Error("Project id is required to post a conversation message.");
   conversationId = await resolveConversationId(project, conversationId);
+  if (parsed.agentSurfaceId) {
+    if (parsed.contextRefs?.length || parsed.attachments?.length || parsed.planHandoffIntent || parsed.providerId) {
+      const error = new Error("Child Agent feedback supports text only and cannot switch providers or carry Main planning context.");
+      error.name = "BadRequest";
+      throw error;
+    }
+    return runExactChildAgentTurn({ project, conversationId, agentSurfaceId: parsed.agentSurfaceId, message: parsed.message, live });
+  }
   let providerSwitch: ProviderSwitchResult | null = null;
   if (parsed.providerId) providerSwitch = await switchConversationProviderAtSafePoint({ project, memory, conversationId, targetProviderId: parsed.providerId });
   const now = new Date().toISOString();
@@ -125,6 +135,7 @@ export async function postConversationMessage(
       : createGraphScopeId(conversationId);
     if (graphScopeId !== conversation.currentGraphScopeId) {
       delivery.publishCommittedMany(database.unitOfWork.startConversationGraphScope(memory.projectId, conversationId, graphScopeId, now));
+      publishAgentSurfacesInvalidated(memory.projectId, { conversationId, graphScopeId, reason: "scope-changed" });
     }
     user = { ...user, graphScopeId, completedTurnSequence: conversation.completedTurnSequence + 1 };
     storedUser = { ...user, planHandoff };
@@ -134,6 +145,7 @@ export async function postConversationMessage(
       : planHandoff?.kind === "skip-plan" ? "skipped" : null;
     if (proposalStatus && planHandoff) {
       delivery.publishCommitted(database.interactions.updatePlanningMessageStatus(memory.projectId, conversationId, planHandoff.sourceArtifact, proposalStatus));
+      publishAgentSurfacesInvalidated(memory.projectId, { conversationId, graphScopeId, reason: "interaction-updated" });
     }
   } finally {
     database.close();
@@ -163,7 +175,7 @@ export async function listConversationMessages(project: ManagedProject, conversa
   }
 }
 
-async function normalizeTopicMessageInput(project: ManagedProject, input: string | TopicMessageInput): Promise<Required<Pick<TopicMessageInput, "mode" | "message">> & { contextRefs?: TopicMessageInput["contextRefs"]; attachments?: TopicAttachment[]; planHandoffIntent?: TopicMessageInput["planHandoffIntent"]; providerId?: string; providerSwitchIntent: "resume-workflow" | "conversation-only" }> {
+async function normalizeTopicMessageInput(project: ManagedProject, input: string | TopicMessageInput): Promise<Required<Pick<TopicMessageInput, "mode" | "message">> & { contextRefs?: TopicMessageInput["contextRefs"]; attachments?: TopicAttachment[]; planHandoffIntent?: TopicMessageInput["planHandoffIntent"]; providerId?: string; providerSwitchIntent: "resume-workflow" | "conversation-only"; agentSurfaceId?: string }> {
   const mode = typeof input === "string" ? "chat" : input.mode ?? "chat";
   const message = typeof input === "string" ? input : input.message ?? input.text ?? "";
   if (mode !== "chat") throw new Error("Message mode must be chat; planning is delegated by the Main Agent to a real child.");
@@ -180,6 +192,7 @@ async function normalizeTopicMessageInput(project: ManagedProject, input: string
     planHandoffIntent: typeof input === "string" ? undefined : input.planHandoffIntent,
     providerId: typeof input === "string" ? undefined : input.providerId,
     providerSwitchIntent: typeof input === "string" ? "conversation-only" : input.providerSwitchIntent ?? (input.providerId ? "resume-workflow" : "conversation-only"),
+    agentSurfaceId: typeof input === "string" ? undefined : input.agentSurfaceId?.trim() || undefined,
   };
 }
 

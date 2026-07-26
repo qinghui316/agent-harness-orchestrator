@@ -5,26 +5,22 @@ import { getProjectStatus } from "../../../project/status.js";
 import { readRun } from "../../../run/manager.js";
 import { providerInteractionHistory } from "../../parent-agent-transcript.js";
 import { buildConversationInteractionQueue } from "../../conversation-interactions.js";
-import { buildConversationInteractionAttention } from "../../conversation-interactions.js";
 import { deleteConversation, hideConversation } from "../../conversation-lifecycle.js";
 import { openWorkbenchDatabase } from "../../persistence/open-workbench-database.js";
-import { type StoredProviderAttempt, type StoredProviderThreadLink } from "../../persistence/contracts.js";
 import { summarizeRunArtifacts } from "../artifact-preview.js";
 import { readRunEvents } from "./thread-stream.js";
-import { buildAgentWorkspace, emptyAgentWorkspace } from "./agent-workspace.js";
 import { buildConfirmationQueue, emptyConfirmationQueue } from "./confirmation-queue.js";
 import { listWorkbenchDecisions } from "./decision-store.js";
 import { alignDecisionInspectorWithConfirmationPrimary, buildDecisionInspector, emptyDecisionInspector } from "./decision-inspector.js";
 import { buildApprovalInbox } from "./approval-inbox.js";
 import { buildMaintenanceSummary } from "./maintenance-summary.js";
-import { buildAgentRelationGraph, emptyAgentRelationGraph, shellWorkbenchWorkpad } from "./agent-relation-graph.js";
+import { shellWorkbenchWorkpad } from "./workbench-shell.js";
 import { listWorkbenchRoles } from "./roles.js";
 import { buildHarnessGaps, buildRepoSummary, resolveWorkbenchMemory } from "./support.js";
 import { listWorkbenchTopicsFromMemory, selectTopicDetail } from "./topics.js";
 import { buildDiagnosticWorkpad, buildMultiWorkpadSummaries, buildWorkbenchWorkpad } from "./workpad.js";
 import type { LandingQueueSnapshot, ResolvedMemory } from "../../../types/index.js";
 import type {
-  AgentRelationGraph,
   WorkbenchApprovalItem,
   WorkbenchMaintenanceSummary,
   WorkbenchProjectInput,
@@ -37,12 +33,6 @@ import type {
 } from "../../read-model-types.js";
 
 export type {
-  AgentRelationGraph,
-  AgentRelationGraphEdge,
-  AgentRelationGraphEdgeKind,
-  AgentRelationGraphNode,
-  AgentRelationGraphNodeKind,
-  AgentRelationGraphNodeStatus,
   HarnessGap,
   HarnessGapSeverity,
   HarnessGapStatus,
@@ -168,9 +158,8 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
         conversationInteractions: { items: [] },
         activeTab: "conversation",
         agentLoop: { runs: [] },
-        agentRelationGraph: emptyAgentRelationGraph(),
       },
-      right: { approvals: [], decisions: [], decisionInspector: emptyDecisionInspector(), confirmationQueue: emptyConfirmationQueue(), agentWorkspace: emptyAgentWorkspace() },
+      right: { approvals: [], decisions: [], decisionInspector: emptyDecisionInspector(), confirmationQueue: emptyConfirmationQueue() },
       roles,
       harnessGaps: gaps,
       warnings,
@@ -199,12 +188,6 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
   });
   const graphContext = selectedTopic ? await resolveAgentGraphContext(memory, selectedTopic, options.topicId) : null;
   const conversationInteractions = await buildConversationInteractionQueue(memory, selectedTopic?.id, graphContext?.graphScopeId);
-  const providerThreads = selectedTopic
-    ? await readProviderThreads(memory, [
-        selectedTopic.id,
-        ...(workpad.mainAgentExecution?.agentTasks.map((task) => task.conversationId) ?? []),
-      ])
-    : [];
   const decisionInspector = buildDecisionInspector({
     selectedTopic: executionScopedTopic(selectedTopic),
     workpad,
@@ -246,79 +229,17 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
       conversationInteractions,
       activeTab: "conversation",
       agentLoop: { runs: selectedTopic?.runs ?? [] },
-      agentRelationGraph: emptyAgentRelationGraph(),
     },
     right: {
       approvals,
       decisions,
       decisionInspector: alignedDecisionInspector,
       confirmationQueue,
-      agentWorkspace: buildAgentWorkspace({
-        selectedTopic,
-        providerThreads,
-        providerAttempts: await readProviderAttempts(memory, providerThreads.map((link) => link.conversationId)),
-        graphScopeId: graphContext?.graphScopeId,
-      }),
     },
     roles,
     harnessGaps: gaps,
     warnings,
   };
-}
-
-export async function getWorkbenchAgentRelationGraphProjection(input: WorkbenchProjectInput, changeId: string): Promise<AgentRelationGraph> {
-  const memory = await resolveWorkbenchMemory(input);
-  if (!memory.supported) return emptyAgentRelationGraph();
-  const topics = await listWorkbenchTopicsFromMemory(memory, { includeDeleted: true });
-  const selectedTopic = await selectTopicDetail(input.project, memory, topics, changeId);
-  if (!selectedTopic) return emptyAgentRelationGraph();
-  const workflowTopics = workflowScopedTopics(topics);
-  const approvals = input.project ? await buildApprovalInbox(input.project, memory, workflowTopics) : [];
-  const decisions = input.project ? await listWorkbenchDecisions(memory, executionChangeId(selectedTopic)) : [];
-  const workpads = await buildMultiWorkpadSummaries(memory, topics, approvals, selectedTopic.id);
-  const workpad = await buildWorkbenchWorkpad({
-    project: input.project,
-    memory,
-    topics,
-    workpads,
-    selectedTopic,
-    approvals,
-    decisions,
-    warnings: [],
-    gaps: buildHarnessGaps(),
-  });
-  const decisionInspector = buildDecisionInspector({ selectedTopic: executionScopedTopic(selectedTopic), workpad, approvals, decisions });
-  const confirmationQueue = await buildConfirmationQueue({
-    project: input.project,
-    memory,
-    selectedTopic,
-    workpad,
-    decisionInspector,
-    includeProjectWideActions: false,
-  });
-  const graphContext = await resolveAgentGraphContext(memory, selectedTopic, changeId);
-  const providerThreads = await readProviderThreads(memory, [
-    selectedTopic.id ?? changeId,
-    ...(workpad.mainAgentExecution?.agentTasks.map((task) => task.conversationId) ?? []),
-  ]);
-  const agentWorkspace = buildAgentWorkspace({
-    selectedTopic,
-    providerThreads,
-    providerAttempts: await readProviderAttempts(memory, providerThreads.map((link) => link.conversationId)),
-    graphScopeId: graphContext?.graphScopeId,
-  });
-  const interactionAttention = await buildConversationInteractionAttention(memory, selectedTopic.id, graphContext?.graphScopeId);
-  return buildAgentRelationGraph({
-    project: input.project,
-    selectedTopic,
-    workpad,
-    confirmationQueue,
-    agents: agentWorkspace.agents,
-    graphScopeId: graphContext?.graphScopeId,
-    scopeChangeId: graphContext?.changeId,
-    mainNeedsInput: interactionAttention.mainNeedsInput,
-    waitingAgentSurfaceIds: interactionAttention.agentSurfaceIds,
-  });
 }
 
 function publicThreadItem(item: import("../../read-model-types.js").ThreadStreamItem): import("../../read-model-types.js").ThreadStreamItem {
@@ -364,28 +285,6 @@ async function resolveAgentGraphContext(
     const changeId = requestedChangeId
       ?? (conversation.currentGraphScopeId === graphScopeId ? conversation.boundChangeId ?? undefined : undefined);
     return { graphScopeId, changeId };
-  } finally {
-    store.close();
-  }
-}
-
-async function readProviderThreads(memory: ResolvedMemory, conversationIds: string | string[]): Promise<StoredProviderThreadLink[]> {
-  if (!memory.projectId) return [];
-  const store = await openWorkbenchDatabase(memory);
-  try {
-    const ids = [...new Set(Array.isArray(conversationIds) ? conversationIds : [conversationIds])];
-    return ids.flatMap((conversationId) => store.providerAttempts.listProviderThreads(memory.projectId!, conversationId));
-  } finally {
-    store.close();
-  }
-}
-
-async function readProviderAttempts(memory: ResolvedMemory, conversationIds: string | string[]): Promise<StoredProviderAttempt[]> {
-  if (!memory.projectId) return [];
-  const store = await openWorkbenchDatabase(memory);
-  try {
-    const ids = [...new Set(Array.isArray(conversationIds) ? conversationIds : [conversationIds])];
-    return ids.flatMap((conversationId) => store.providerAttempts.listProviderAttempts(memory.projectId!, conversationId));
   } finally {
     store.close();
   }

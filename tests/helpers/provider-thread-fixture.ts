@@ -2,9 +2,10 @@ import type { ProviderCapabilitySnapshot, ProviderOperationProfile } from "../..
 import type { WorkbenchDatabase } from "../../src/workbench/persistence/database.js";
 import { type StoredProviderThreadLink } from "../../src/workbench/persistence/contracts.js";
 
-type ProviderThreadFixture = Omit<StoredProviderThreadLink, "attemptId" | "runId"> & {
+type ProviderThreadFixture = Omit<StoredProviderThreadLink, "attemptId" | "runId" | "parentAgentSurfaceId"> & {
   attemptId?: string;
   runId?: string | null;
+  parentAgentSurfaceId?: string | null;
 };
 
 let fixtureAttemptSequence = 0;
@@ -40,6 +41,8 @@ export function bindProviderThreadFixture(store: WorkbenchDatabase, link: Provid
     attemptId,
     threadId: link.providerThreadId,
     parentThreadId: link.parentThreadId,
+    parentAgentSurfaceId: link.parentAgentSurfaceId
+      ?? (link.parentThreadId ? undefined : link.roleId === "main-agent" ? null : "main-agent"),
     displayName: link.displayName,
   }, now);
   store.providerAttempts.completeProviderAttempt(link.projectId, attemptId, "completed", link.providerThreadId, now);

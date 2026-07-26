@@ -1,0 +1,26 @@
+{
+  "sourcePath": "C:\\Users\\qinghui\\.codex\\visualizations\\2026\\07\\24\\019f93b2-6925-7350-84a1-1b873837f8ef\\agent-office-shadow-proof\\04-standard-workstation-canonical-1536x1024.png",
+  "editedPath": "C:\\Users\\qinghui\\.codex\\visualizations\\2026\\07\\24\\019f93b2-6925-7350-84a1-1b873837f8ef\\agent-office-shadow-proof\\05-standard-workstation-image2-extractable-shadow.png",
+  "output": {
+    "transparentPath": "C:\\Users\\qinghui\\.codex\\visualizations\\2026\\07\\24\\019f93b2-6925-7350-84a1-1b873837f8ef\\agent-office-shadow-proof\\06-standard-workstation-shadow-transparent.png",
+    "whitePath": "C:\\Users\\qinghui\\.codex\\visualizations\\2026\\07\\24\\019f93b2-6925-7350-84a1-1b873837f8ef\\agent-office-shadow-proof\\07-standard-workstation-shadow-on-white.png",
+    "checkerPath": "C:\\Users\\qinghui\\.codex\\visualizations\\2026\\07\\24\\019f93b2-6925-7350-84a1-1b873837f8ef\\agent-office-shadow-proof\\08-standard-workstation-shadow-on-checkerboard.png",
+    "reconstructedPath": "C:\\Users\\qinghui\\.codex\\visualizations\\2026\\07\\24\\019f93b2-6925-7350-84a1-1b873837f8ef\\agent-office-shadow-proof\\09-standard-workstation-original-plus-extracted-shadow.png"
+  },
+  "extraction": {
+    "rgbForEveryPixel": [
+      0,
+      0,
+      0
+    ],
+    "alphaLevels": "derived from Image 2 floor darkening",
+    "visiblePixels": 143953,
+    "maximumAlpha": 255,
+    "averageVisibleAlpha": 84,
+    "furnitureLeakPixels": 0,
+    "furnitureProtectionRadius": 0,
+    "occludedUnderFurnitureFillPixels": 22143,
+    "backgroundDarkeningThreshold": 6,
+    "previewOverallOpacity": 0.55
+  }
+}

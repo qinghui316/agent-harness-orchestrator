@@ -1,4 +1,4 @@
-import type { ConversationLifecycle, AgentRelationGraphNodeStatus, ThreadStreamItem, WorkbenchCodingPackage, WorkbenchTaskNode, Workpad, WorkpadRuntimeStatus, WorkpadUserStatus } from "./types.js";
+import type { AgentSurfaceStatus, ConversationLifecycle, ThreadStreamItem, WorkbenchCodingPackage, WorkbenchTaskNode, Workpad, WorkpadRuntimeStatus, WorkpadUserStatus } from "./types.js";
 
 type ProjectDisplayInput = {
   id?: string | null;
@@ -58,14 +58,14 @@ export function conversationLifecycleLabel(status?: ConversationLifecycle): stri
   return "当前需求";
 }
 
-export function agentRunStatusLabel(status: AgentRelationGraphNodeStatus): string {
+export function agentRunStatusLabel(status: AgentSurfaceStatus): string {
   if (status === "running") return "进行中";
   if (status === "queued") return "等待中";
   if (status === "completed") return "已完成";
   if (status === "needs-change") return "需要修改";
   if (status === "failed") return "失败";
   if (status === "waiting-user") return "等你确认";
-  if (status === "skipped") return "已跳过";
+  if (status === "interrupted") return "已中断";
   return "待开始";
 }
 

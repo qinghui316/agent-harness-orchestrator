@@ -1,0 +1,210 @@
+{
+  "schemaVersion": 1,
+  "sourcePaddingPixels": 8,
+  "shadows": [
+    {
+      "id": "standard-workstation-shadow",
+      "sourceFile": "standard/shadow-extracted.png",
+      "approvedFile": "shadows/standard-workstation-shadow.png",
+      "sourceCanvas": {
+        "width": 1536,
+        "height": 1024
+      },
+      "sourceCrop": {
+        "left": 118,
+        "top": 144,
+        "width": 885,
+        "height": 652
+      },
+      "output2x": {
+        "width": 506,
+        "height": 373
+      },
+      "proof": {
+        "outputScale": 3.5,
+        "shift": {
+          "x": 126,
+          "y": 140
+        }
+      },
+      "parent": "workstation",
+      "target": "standard",
+      "parentOrigin": {
+        "x": 0,
+        "y": 0
+      },
+      "localOffset": {
+        "x": -2.2857142857142856,
+        "y": 1.1428571428571428
+      },
+      "calibrationOffset": {
+        "x": -2.2857142857142856,
+        "y": 1.1428571428571428
+      },
+      "calibrationAdjustment": {
+        "x": 0,
+        "y": 0
+      },
+      "alpha": {
+        "visiblePixels": 56133,
+        "maximum": 255,
+        "levels": 255,
+        "borderMaximum": 0
+      },
+      "sha256": "b5f8624f285b2937dbf253795fd305847661005ab63d12aa50d2e450dacb39d9"
+    },
+    {
+      "id": "main-workstation-shadow",
+      "sourceFile": "main/shadow-extracted.png",
+      "approvedFile": "shadows/main-workstation-shadow.png",
+      "sourceCanvas": {
+        "width": 1536,
+        "height": 1024
+      },
+      "sourceCrop": {
+        "left": 455,
+        "top": 441,
+        "width": 1081,
+        "height": 573
+      },
+      "output2x": {
+        "width": 636,
+        "height": 337
+      },
+      "proof": {
+        "outputScale": 3.4,
+        "shift": {
+          "x": 454,
+          "y": 187
+        }
+      },
+      "parent": "workstation",
+      "target": "main",
+      "parentOrigin": {
+        "x": 0,
+        "y": 0
+      },
+      "localOffset": {
+        "x": 0.29411764705882354,
+        "y": 74.70588235294117
+      },
+      "calibrationOffset": {
+        "x": 0.29411764705882354,
+        "y": 74.70588235294117
+      },
+      "calibrationAdjustment": {
+        "x": 0,
+        "y": 0
+      },
+      "alpha": {
+        "visiblePixels": 96929,
+        "maximum": 255,
+        "levels": 255,
+        "borderMaximum": 0
+      },
+      "sha256": "7148f4552a2186da8495adf0d179ec9d5a15e57339bb92f65360b19349aeb518"
+    },
+    {
+      "id": "coffee-facility-shadow",
+      "sourceFile": "coffee/shadow-extracted.png",
+      "approvedFile": "shadows/coffee-facility-shadow.png",
+      "sourceCanvas": {
+        "width": 1536,
+        "height": 1024
+      },
+      "sourceCrop": {
+        "left": 504,
+        "top": 437,
+        "width": 860,
+        "height": 325
+      },
+      "output2x": {
+        "width": 764,
+        "height": 289
+      },
+      "proof": {
+        "outputScale": 2.25,
+        "shift": {
+          "x": 496,
+          "y": 203
+        }
+      },
+      "parent": "facility",
+      "target": "coffee",
+      "parentOrigin": {
+        "x": 7.173869944337426,
+        "y": 43.183488719400415
+      },
+      "localOffset": {
+        "x": -3.6183143887818705,
+        "y": 60.816511280599585
+      },
+      "calibrationOffset": {
+        "x": 20,
+        "y": 60.816511280599585
+      },
+      "calibrationAdjustment": {
+        "x": 23.61831438878187,
+        "y": 0
+      },
+      "alpha": {
+        "visiblePixels": 101229,
+        "maximum": 236,
+        "levels": 226,
+        "borderMaximum": 0
+      },
+      "sha256": "9d9967851e7d03c20833cf9999e6b97e34276df7e8b8463e64c9b43120701ad4"
+    },
+    {
+      "id": "treadmill-facility-shadow",
+      "sourceFile": "treadmill/shadow-extracted.png",
+      "approvedFile": "shadows/treadmill-facility-shadow.png",
+      "sourceCanvas": {
+        "width": 1536,
+        "height": 1024
+      },
+      "sourceCrop": {
+        "left": 535,
+        "top": 630,
+        "width": 641,
+        "height": 170
+      },
+      "output2x": {
+        "width": 570,
+        "height": 151
+      },
+      "proof": {
+        "outputScale": 2.25,
+        "shift": {
+          "x": 459,
+          "y": -210
+        }
+      },
+      "parent": "facility",
+      "target": "treadmill",
+      "parentOrigin": {
+        "x": 42.83740835706588,
+        "y": 277.7
+      },
+      "localOffset": {
+        "x": -9.059630579288104,
+        "y": 95.63333333333333
+      },
+      "calibrationOffset": {
+        "x": -15,
+        "y": 150
+      },
+      "calibrationAdjustment": {
+        "x": -5.940369420711896,
+        "y": 54.366666666666674
+      },
+      "alpha": {
+        "visiblePixels": 40975,
+        "maximum": 255,
+        "levels": 255,
+        "borderMaximum": 0
+      },
+      "sha256": "16213889912f55eed8c3de47f44882f47c70f03cea2234a9c367947973aecb9b"
+    }
+  ]
+}

@@ -6,8 +6,6 @@ import type {
   WorkbenchLiveEvent,
 } from "./types.js";
 
-export type WorkbenchProjectionInvalidationReason = "timeline.patch" | "snapshot";
-
 export type WorkbenchProjectionRoutePorts = {
   timeline: {
     patch: (projectId: string, envelope: CanonicalTimelineEnvelope) => void;
@@ -21,11 +19,12 @@ export type WorkbenchProjectionRoutePorts = {
   snapshot: {
     received: (projectId: string, snapshot: Snapshot) => void;
   };
-  graph: {
+  agentSurfaces: {
     invalidate: (input: {
       projectId: string;
-      conversationId?: string;
-      reason: WorkbenchProjectionInvalidationReason;
+      conversationId: string;
+      graphScopeId?: string;
+      reason: Extract<WorkbenchLiveEvent, { event: "agent-surfaces.invalidated" }>["data"]["reason"];
     }) => void;
   };
   error?: {
@@ -46,13 +45,6 @@ export function routeWorkbenchProjectionEvent(
   switch (event.event) {
     case "timeline.patch":
       ports.timeline.patch(projectId, event.data);
-      if (timelinePatchInvalidatesAgentGraph(event.data)) {
-        ports.graph.invalidate({
-          projectId,
-          conversationId: event.data.conversationId,
-          reason: "timeline.patch",
-        });
-      }
       return { handled: true, event: event.event };
     case "topic.created":
       ports.topic.created(projectId, event.data);
@@ -60,9 +52,11 @@ export function routeWorkbenchProjectionEvent(
     case "conversation.interactions.updated":
       ports.interaction.updated(projectId, event.data);
       return { handled: true, event: event.event };
+    case "agent-surfaces.invalidated":
+      ports.agentSurfaces.invalidate({ projectId, ...event.data });
+      return { handled: true, event: event.event };
     case "snapshot":
       ports.snapshot.received(projectId, event.data);
-      ports.graph.invalidate({ projectId, reason: "snapshot" });
       return { handled: true, event: event.event };
     case "error":
       ports.error?.received(projectId, event.data);
@@ -132,9 +126,4 @@ export function useWorkbenchProjectionStream(
   }, [projectId]);
 
   return { routeEvent, routeEventForProject };
-}
-
-export function timelinePatchInvalidatesAgentGraph(envelope: CanonicalTimelineEnvelope): boolean {
-  return envelope.agentSurfaceId !== "main-agent"
-    || envelope.cells.some((cell) => Boolean(cell.targetAgentSurfaceId));
 }

@@ -3,7 +3,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { auditHarness } from "../harness/audit.js";
-import { defaultProviderRegistry, type ProviderOperationProfile, type ProviderTurnResult } from "../provider-runtime/index.js";
+import { readAgentCatalog } from "../agent/catalog.js";
+import { defaultProviderRegistry, type ProviderTurnResult } from "../provider-runtime/index.js";
 import { agentThreadSurfaceId } from "../provider-runtime/agent-surface-id.js";
 import { assertWritableMemory } from "../memory/resolver.js";
 import { ensureProjectRuntime } from "../harness/init.js";
@@ -24,6 +25,7 @@ import { childTranscriptCapturesForThread, createAssistantTranscriptCapture } fr
 import { forwardProviderRealtimeEvent } from "./provider-live-events.js";
 import { resolveTopic } from "./topic-resolver.js";
 import { openWorkbenchDatabase } from "./persistence/open-workbench-database.js";
+import { publishAgentSurfacesInvalidated } from "./project-live-events.js";
 import type { WorkbenchDatabase } from "./persistence/database.js";
 import { type StoredTopicMessage } from "./persistence/contracts.js";
 import type { CanonicalTimelineEnvelope } from "./canonical-timeline-contract.js";
@@ -32,10 +34,10 @@ import { toCanonicalTimelineMessage } from "./canonical-timeline-message.js";
 import {
   buildCanonicalCaptureWrites as buildCaptureWrites,
   childCaptureTimelineStatus as captureChildStatus,
-  childInitialInputMessage,
   childProcessMessage as buildChildProcessMessage,
-  providerChildAttemptId as childAttemptIdForThread,
 } from "./provider-capture-persistence.js";
+import { ProviderChildLifecycleOwner } from "./provider-child-lifecycle-owner.js";
+import { listClosableChildAgents, runExactChildAgentClose } from "./provider-child-turn-coordinator.js";
 import { persistProviderUserInputRequest, providerUserInputRequestKey } from "./provider-input-lifecycle.js";
 import { runWorkbenchWorkflowAction as runWorkflowConversationAction } from "./workflow-conversation-bridge.js";
 import { assembleSharedConversationContext } from "./shared-conversation-context.js";
@@ -63,6 +65,7 @@ export async function runProjectScopedMainAgentTurn(
   const memory = await ensureProjectRuntime(project);
   assertWritableMemory(memory, "Project-scoped chat");
   if (!memory.projectId) throw new Error("Project id is required to run project-scoped chat.");
+  const agentCatalog = await readAgentCatalog(memory);
   const graphScopeId = options.graphScopeId ?? await currentConversationGraphScope(memory, conversationId);
   const runId = buildProjectConversationRunId(conversationId);
   const directory = join(memory.workbenchRoot, "conversations", conversationId, "runs", runId);
@@ -115,6 +118,10 @@ export async function runProjectScopedMainAgentTurn(
       return false;
     }
   });
+  const emitInteractionUpdate = async (sink: WorkbenchLiveSink | undefined = capture.sink): Promise<void> => {
+    sink?.emit({ event: "conversation.interactions.updated", data: await buildConversationInteractionQueue(memory, conversationId, graphScopeId) });
+    publishAgentSurfacesInvalidated(memory.projectId!, { conversationId, graphScopeId, reason: "interaction-updated" });
+  };
   const proposalDirectory = join(directory, "planner-proposal");
   await mkdir(proposalDirectory, { recursive: true });
   const mainOrchestrationSkillPath = join(getSystemSkillsRoot(), "aho-main-orchestration", "SKILL.md");
@@ -187,6 +194,19 @@ export async function runProjectScopedMainAgentTurn(
   } finally {
     sessionStore.close();
   }
+  const closableChildAgents = mainSessionId
+    ? await listClosableChildAgents({ project, conversationId, graphScopeId, parentThreadId: mainSessionId })
+    : [];
+  if (closableChildAgents.length > 0) {
+    additionalContext["aho.agent-control"] = {
+      kind: "application",
+      value: JSON.stringify({
+        closeTool: "aho_close_agent",
+        agents: closableChildAgents,
+        rule: "Only call aho_close_agent when the user explicitly asks to close one listed Agent. Do not substitute interrupt_agent.",
+      }),
+    };
+  }
   const handoff = await assembleSharedConversationContext({
     project,
     memory,
@@ -255,14 +275,36 @@ export async function runProjectScopedMainAgentTurn(
   } finally {
     attemptStore.close();
   }
+  publishAgentSurfacesInvalidated(memory.projectId, { conversationId, graphScopeId, reason: "attempt-updated" });
   canonicalStore = await openWorkbenchDatabase(memory);
   canonicalDelivery = new CanonicalTimelineDelivery(canonicalStore, live);
-  const liveChildAttemptIds = new Set<string>();
-  const terminalChildAttempts = new Map<string, { status: "completed" | "failed"; nativeSessionId: string }>();
-  const liveChildThreadIds = new Set<string>();
-  const allChildAttemptIds = (): string[] => [
-    ...new Set([...liveChildAttemptIds, ...terminalChildAttempts.keys()]),
-  ];
+  if (mainSessionId) {
+    canonicalStore.providerAttempts.bindProviderAttemptThread(memory.projectId, {
+      attemptId,
+      threadId: mainSessionId,
+      parentThreadId: null,
+      parentAgentSurfaceId: null,
+    }, attemptStartedAt);
+    publishAgentSurfacesInvalidated(memory.projectId, { conversationId, graphScopeId, reason: "thread-bound" });
+  }
+  let liveMainThreadId: string | null = mainSessionId;
+  const childLifecycleOwner = new ProviderChildLifecycleOwner({
+    database: canonicalStore,
+    delivery: canonicalDelivery,
+    catalog: agentCatalog,
+    projectId: memory.projectId,
+    conversationId,
+    graphScopeId,
+    changeId: boundChangeId,
+    runId,
+    parentAttemptId: attemptId,
+    providerId,
+    capabilitySnapshot,
+    model: capabilitySnapshot.effectiveModel ? { providerId, modelId: capabilitySnapshot.effectiveModel } : null,
+    parentHandoffHash: handoff.hash,
+    deliveredThroughCompletedTurn: completedTurnSequence,
+    onInvalidated: () => publishAgentSurfacesInvalidated(memory.projectId!, { conversationId, graphScopeId, reason: "attempt-updated" }),
+  });
   const commitFailedProviderTurn = (database: WorkbenchDatabase, nativeSessionId: string | null): void => {
     const failedAt = new Date().toISOString();
     const timelineMessages = buildCaptureWrites({
@@ -289,14 +331,7 @@ export async function runProjectScopedMainAgentTurn(
       mainAttemptId: attemptId,
       mainStatus: "failed",
       mainNativeSessionId: nativeSessionId,
-      childAttempts: allChildAttemptIds().map((childAttemptId) => {
-        const child = terminalChildAttempts.get(childAttemptId);
-        return {
-          attemptId: childAttemptId,
-          status: child?.status ?? "failed",
-          nativeSessionId: child?.nativeSessionId ?? null,
-        };
-      }),
+      childAttempts: childLifecycleOwner.terminalAttempts("failed"),
       expectedCompletedTurnSequence: completedTurnSequence,
       advanceCompletedTurn: false,
       binding: {
@@ -311,49 +346,9 @@ export async function runProjectScopedMainAgentTurn(
       updatedAt: failedAt,
       timelineMessages,
     });
+    publishAgentSurfacesInvalidated(memory.projectId!, { conversationId, graphScopeId, reason: "attempt-updated" });
     terminalCommittedRows.push(...terminal.timelineRows);
     terminalCommittedRows.push(...terminal.interactionRows);
-  };
-  const registerLiveChildThread = (childThreadId: string, parentThreadId: string, childRoleId: string, displayName?: string): void => {
-    if (!canonicalStore || !childThreadId || !parentThreadId || liveChildThreadIds.has(childThreadId)) return;
-    const childAttemptId = childAttemptIdForThread(attemptId, childThreadId);
-    const childProfile = providerOperationProfileForChildRole(childRoleId);
-    canonicalStore.providerAttempts.createProviderAttempt({
-      projectId: memory.projectId!,
-      conversationId,
-      attemptId: childAttemptId,
-      graphScopeId,
-      changeId: boundChangeId,
-      agentTaskId: null,
-      roleId: childRoleId,
-      operationProfile: childProfile,
-      providerId: providerId!,
-      nativeSessionId: childThreadId,
-      model: capabilitySnapshot.effectiveModel ? { providerId: providerId!, modelId: capabilitySnapshot.effectiveModel } : null,
-      capabilitySnapshot,
-      handoffHash: createHash("sha256").update(JSON.stringify({ parentHandoffHash: handoff.hash, parentAttemptId: attemptId, parentThreadId, childThreadId, roleId: childRoleId })).digest("hex"),
-      deliveredThroughCompletedTurn: completedTurnSequence,
-      worktreeId: null,
-      status: "running",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    });
-    liveChildAttemptIds.add(childAttemptId);
-    canonicalStore.providerAttempts.bindProviderAttemptThread(memory.projectId!, {
-      attemptId: childAttemptId,
-      threadId: childThreadId,
-      parentThreadId,
-      displayName,
-    }, new Date().toISOString());
-    liveChildThreadIds.add(childThreadId);
-  };
-  const registerLiveChildAttempt = (event: import("../provider-runtime/index.js").ProviderRealtimeEvent): void => {
-    const isChildEvent = event.roleId !== "main-agent" && Boolean(event.parentThreadId);
-    const childThreadId = isChildEvent ? event.threadId : event.targetThreadId;
-    const parentThreadId = isChildEvent ? event.parentThreadId : event.threadId;
-    if (!childThreadId || !parentThreadId) return;
-    const childRoleId = isChildEvent ? event.roleId : "child-agent";
-    registerLiveChildThread(childThreadId, parentThreadId, childRoleId, isChildEvent ? event.displayName : undefined);
   };
   let result: ProviderTurnResult;
   try {
@@ -397,8 +392,44 @@ export async function runProjectScopedMainAgentTurn(
         description: "Declare the current authorized Change complete. AHO revalidates terminal evidence and closes it; this tool accepts no target or authority arguments.",
         inputSchema: { type: "object", properties: {}, additionalProperties: false },
       },
+      {
+        name: "aho_close_agent",
+        description: "Permanently close one currently registered Agent after the user explicitly requests it. Use the exact Agent Surface id supplied by AHO for the current turn; never substitute interrupt_agent.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            agentSurfaceId: { type: "string" },
+          },
+          required: ["agentSurfaceId"],
+          additionalProperties: false,
+        },
+      },
     ],
     onToolCall: async (call) => {
+      if (call.tool === "aho_close_agent") {
+        const keys = Object.keys(call.arguments);
+        const targetSurfaceId = call.arguments.agentSurfaceId;
+        if (keys.length !== 1
+          || typeof targetSurfaceId !== "string"
+          || !closableChildAgents.some((agent) => agent.agentSurfaceId === targetSurfaceId)) {
+          return { contentItems: [{ type: "inputText", text: "The selected Agent is not an exact current registered Agent target." }], success: false };
+        }
+        const closed = await runExactChildAgentClose({
+          project,
+          conversationId,
+          graphScopeId,
+          parentThreadId: call.threadId,
+          agentSurfaceId: targetSurfaceId,
+          onLifecycleEvent: (event) => { childLifecycleOwner.onLifecycle(event); },
+        });
+        return {
+          contentItems: [{
+            type: "inputText",
+            text: `Closed ${closed.displayName ?? closed.roleId} through the Provider-native Child close path. The historical Agent workspace is now read-only.`,
+          }],
+          success: true,
+        };
+      }
       if (Object.keys(call.arguments).length > 0) {
         return { contentItems: [{ type: "inputText", text: "AHO conversation tools do not accept caller-selected targets." }], success: false };
       }
@@ -486,33 +517,44 @@ export async function runProjectScopedMainAgentTurn(
       session: join(directory, "provider-session.json"),
     },
     onRealtimeEvent: (event) => {
-      registerLiveChildAttempt(event);
-      const canonicalEvent = event.roleId !== "main-agent" && event.parentThreadId
-        ? { ...event, attemptId: childAttemptIdForThread(attemptId, event.threadId) }
+      if (event.roleId === "main-agent" && !event.parentThreadId && event.threadId && liveMainThreadId !== event.threadId) {
+        canonicalStore!.providerAttempts.bindProviderAttemptThread(memory.projectId!, {
+          attemptId,
+          threadId: event.threadId,
+          parentThreadId: null,
+          parentAgentSurfaceId: null,
+          displayName: event.displayName,
+        }, new Date().toISOString());
+        liveMainThreadId = event.threadId;
+        publishAgentSurfacesInvalidated(memory.projectId!, { conversationId, graphScopeId, reason: "thread-bound" });
+      }
+      const registeredChild = event.parentThreadId
+        ? childLifecycleOwner.registeredForThread(event.threadId)
+        : null;
+      const canonicalEvent = registeredChild
+        ? { ...event, roleId: registeredChild.roleId, attemptId: registeredChild.attemptId }
         : event;
       forwardProviderRealtimeEvent(canonicalEvent, capture.sink, { graphScopeId });
     },
+    onChildLifecycleEvent: (event) => {
+      const child = childLifecycleOwner.onLifecycle(event);
+      if (!child) return;
+      capture.updateTargetAgent(
+        agentThreadSurfaceId(providerId!, child.threadId),
+        child.roleId,
+        child.displayName,
+        child.status,
+      );
+    },
     onChildThreadResult: (child) => {
-      const initial = child.initialInput;
-      if (!initial || !canonicalStore) return;
-      registerLiveChildThread(child.threadId, child.parentThreadId, "child-agent", child.displayName);
-      const childAttemptId = childAttemptIdForThread(attemptId, child.threadId);
-      const entry = childInitialInputMessage({
-        conversationId,
-        graphScopeId,
-        runId,
-        providerId: providerId!,
-        attemptId: childAttemptId,
-        roleId: "child-agent",
-        threadId: child.threadId,
-        parentThreadId: child.parentThreadId,
-        turnId: initial.turnId,
-        itemId: initial.itemId,
-        text: initial.text,
-      });
-      entry.agentSurfaceId = agentThreadSurfaceId(providerId!, child.threadId);
-      const storedEntry = toCanonicalTimelineMessage(memory.projectId!, conversationId, entry);
-      canonicalDelivery?.upsert(storedEntry);
+      const registered = childLifecycleOwner.onResult(child);
+      if (!registered) return;
+      capture.updateTargetAgent(
+        agentThreadSurfaceId(providerId!, registered.threadId),
+        registered.roleId,
+        child.displayName ?? registered.displayName,
+        registered.status,
+      );
     },
     onUserInputRequest: (request) => {
       const requestKey = providerUserInputRequestKey(runId, request);
@@ -539,7 +581,7 @@ export async function runProjectScopedMainAgentTurn(
       persistedProviderInputRequests.set(request.requestId, persistence);
       void persistence
         .then(async () => {
-          capture.sink.emit({ event: "conversation.interactions.updated", data: await buildConversationInteractionQueue(memory, conversationId, graphScopeId) });
+          await emitInteractionUpdate();
         })
         .catch((cause) => {
           capture.sink.emit({ event: "error", data: { runId, graphScopeId, message: cause instanceof Error ? cause.message : String(cause) } });
@@ -573,7 +615,7 @@ export async function runProjectScopedMainAgentTurn(
           resolutionStore.close();
         }
         if (row) publishCommittedCanonicalTimelineRow(capture.sink, row);
-        capture.sink.emit({ event: "conversation.interactions.updated", data: await buildConversationInteractionQueue(memory, conversationId, graphScopeId) });
+        await emitInteractionUpdate();
       })().catch((cause) => {
         capture.sink.emit({ event: "error", data: { runId, graphScopeId, message: cause instanceof Error ? cause.message : String(cause) } });
       });
@@ -595,7 +637,7 @@ export async function runProjectScopedMainAgentTurn(
       failedAttemptStore.close();
     }
     if (publishTerminalRows() > 0) {
-      capture.sink.emit({ event: "conversation.interactions.updated", data: await buildConversationInteractionQueue(memory, conversationId, graphScopeId) });
+      await emitInteractionUpdate();
     }
     throw error;
   }
@@ -611,22 +653,12 @@ export async function runProjectScopedMainAgentTurn(
       failedAttemptStore.close();
     }
     if (publishTerminalRows() > 0) {
-      capture.sink.emit({ event: "conversation.interactions.updated", data: await buildConversationInteractionQueue(memory, conversationId, graphScopeId) });
+      await emitInteractionUpdate();
     }
     throw canonicalPersistenceError;
   }
-  const proposalFileEvidence = (child: typeof result.childThreads[number]): boolean => child.changedFiles.some((path) => {
-    const normalized = path.replaceAll("\\", "/");
-    return normalized.endsWith("/planner-proposal/spec.md")
-      || normalized.endsWith("/planner-proposal/plan.md")
-      || normalized.endsWith("/planner-proposal/tasks.md");
-  });
-  const childrenWithProposalEvidence = result.childThreads.filter(proposalFileEvidence);
-  const plannerChildren = childrenWithProposalEvidence.length > 0
-    ? childrenWithProposalEvidence
-    : result.childThreads.length === 1
-      ? result.childThreads
-      : [];
+  const plannerChildren = result.childThreads.filter((child) =>
+    childLifecycleOwner.registeredForThread(child.threadId)?.roleId === PLANNING_AGENT_ROLE_ID);
   const postRunInvariantError = result.childThreads.length > 0 && plannerChildren.length !== 1
     ? new Error("Main Agent planning requires exactly one identifiable real planner child.")
     : (plannerChildren.length > 0 || planHandoff?.kind === "execute-plan") && !result.objective
@@ -685,69 +717,20 @@ export async function runProjectScopedMainAgentTurn(
       attemptId,
       threadId: result.session.sessionId,
       parentThreadId: null,
+      parentAgentSurfaceId: null,
     }, new Date().toISOString());
+    if (result.session) publishAgentSurfacesInvalidated(memory.projectId, { conversationId, graphScopeId, reason: "thread-bound" });
     for (const child of result.childThreads) {
-      const isPlannerChild = plannerChildren.some((planner) => planner.threadId === child.threadId);
-      const childRoleId = isPlannerChild ? PLANNING_AGENT_ROLE_ID : "child-agent";
+      const registeredChild = childLifecycleOwner.onResult(child);
+      if (!registeredChild) continue;
+      const childRoleId = registeredChild.roleId;
+      const isPlannerChild = childRoleId === PLANNING_AGENT_ROLE_ID;
       capture.updateTargetAgent(
         agentThreadSurfaceId(providerId, child.threadId),
         childRoleId,
         child.displayName,
         child.status === "failed" ? "failed" : "completed",
       );
-      {
-        const childAttemptId = childAttemptIdForThread(attemptId, child.threadId);
-        const childProfile = providerOperationProfileForChildRole(childRoleId);
-        const childHandoffHash = createHash("sha256").update(JSON.stringify({
-          parentHandoffHash: handoff.hash,
-          parentAttemptId: attemptId,
-          parentThreadId: child.parentThreadId,
-          childThreadId: child.threadId,
-          roleId: childRoleId,
-        })).digest("hex");
-        const childAttempt = {
-          projectId: memory.projectId,
-          conversationId,
-          attemptId: childAttemptId,
-          graphScopeId,
-          changeId: boundChangeId,
-          agentTaskId: null,
-          roleId: childRoleId,
-          operationProfile: childProfile,
-          providerId,
-          nativeSessionId: child.threadId,
-          model: capabilitySnapshot.effectiveModel ? { providerId, modelId: capabilitySnapshot.effectiveModel } : null,
-          capabilitySnapshot,
-          handoffHash: childHandoffHash,
-          deliveredThroughCompletedTurn: completedTurnSequence,
-          worktreeId: null,
-          status: (child.status === "failed" ? "failed" : "completed") as "failed" | "completed",
-          createdAt: attemptStartedAt,
-          updatedAt: new Date().toISOString(),
-        };
-        if (liveChildAttemptIds.has(childAttemptId)) {
-          if (isPlannerChild) {
-            store.providerAttempts.refineProviderAttemptSurfaceRole(memory.projectId, childAttemptId, {
-              roleId: childRoleId,
-              operationProfile: childProfile,
-              handoffHash: childHandoffHash,
-              displayName: child.displayName,
-            }, childAttempt.updatedAt);
-          }
-        } else {
-          store.providerAttempts.createProviderAttempt({ ...childAttempt, status: "running" });
-        }
-        terminalChildAttempts.set(childAttemptId, {
-          status: childAttempt.status,
-          nativeSessionId: child.threadId,
-        });
-      }
-      store.providerAttempts.bindProviderAttemptThread(memory.projectId, {
-        attemptId: childAttemptIdForThread(attemptId, child.threadId),
-        threadId: child.threadId,
-        parentThreadId: child.parentThreadId,
-        displayName: child.displayName,
-      }, new Date().toISOString());
       const terminalChildCaptures = childTranscriptCapturesForThread(capture.childCaptures, child.threadId);
       for (const childCapture of terminalChildCaptures) {
         childCapture.roleId = childRoleId;
@@ -767,7 +750,7 @@ export async function runProjectScopedMainAgentTurn(
         if (childProcessMessage) {
           childProcessMessage.providerId = providerId;
           childProcessMessage.sessionId = child.threadId;
-          childProcessMessage.attemptId = childAttemptIdForThread(attemptId, child.threadId);
+          childProcessMessage.attemptId = registeredChild.attemptId;
           childProcessMessage.agentSurfaceId = agentThreadSurfaceId(providerId!, child.threadId);
           childProcessMessage.status = captureChildStatus(childCapture);
           latestChildMessage = childProcessMessage;
@@ -782,6 +765,7 @@ export async function runProjectScopedMainAgentTurn(
           runId,
           providerId: providerId!,
           mainAttemptId: attemptId,
+          childAttemptId: registeredChild.attemptId,
           parentTurnId: assistant?.turnId ?? result.turnId ?? undefined,
           referenceSequence: (assistant?.blocks?.at(-1)?.sequence ?? 0) + 1,
           child,
@@ -841,16 +825,7 @@ export async function runProjectScopedMainAgentTurn(
       mainAttemptId: attemptId,
       mainStatus: result.status,
       mainNativeSessionId: result.session?.sessionId ?? null,
-      childAttempts: allChildAttemptIds().map((childAttemptId) => {
-        const terminal = terminalChildAttempts.get(childAttemptId);
-        return terminal
-          ? { attemptId: childAttemptId, ...terminal }
-          : {
-              attemptId: childAttemptId,
-              status: result.status === "interrupted" ? "interrupted" as const : "failed" as const,
-              nativeSessionId: null,
-            };
-      }),
+      childAttempts: childLifecycleOwner.terminalAttempts(result.status === "interrupted" ? "interrupted" : "failed"),
       expectedCompletedTurnSequence: completedTurnSequence,
       advanceCompletedTurn: result.status === "completed",
       binding: {
@@ -865,6 +840,7 @@ export async function runProjectScopedMainAgentTurn(
       updatedAt: terminalAt,
       timelineMessages: uniqueTerminalMessages,
     });
+    publishAgentSurfacesInvalidated(memory.projectId, { conversationId, graphScopeId, reason: "attempt-updated" });
     terminalCommittedRows.push(...terminalCommit.timelineRows);
     terminalCommittedRows.push(...terminalCommit.interactionRows);
     completedTurnSequence = terminalCommit.completedTurnSequence;
@@ -875,7 +851,7 @@ export async function runProjectScopedMainAgentTurn(
       // Preserve the original canonical persistence error.
     }
     if (publishTerminalRows() > 0) {
-      capture.sink.emit({ event: "conversation.interactions.updated", data: await buildConversationInteractionQueue(memory, conversationId, graphScopeId) });
+      await emitInteractionUpdate();
     }
     throw error;
   } finally {
@@ -884,10 +860,10 @@ export async function runProjectScopedMainAgentTurn(
     canonicalDelivery = null;
   }
   if (publishTerminalRows() > 0) {
-    capture.sink.emit({ event: "conversation.interactions.updated", data: await buildConversationInteractionQueue(memory, conversationId, graphScopeId) });
+    await emitInteractionUpdate();
   }
   if (planDocumentCreated) {
-    live?.emit({ event: "conversation.interactions.updated", data: await buildConversationInteractionQueue(memory, conversationId, graphScopeId) });
+    await emitInteractionUpdate(live);
   }
   if (postRunInvariantError) throw postRunInvariantError;
   const autoAcceptedPlanning = acceptedPlanning as Awaited<ReturnType<typeof acceptCurrentConversationPlanningPackage>> | null;
@@ -910,13 +886,14 @@ export async function runProjectScopedMainAgentTurn(
         graphScopeId,
         new Date().toISOString(),
       );
+      publishAgentSurfacesInvalidated(memory.projectId!, { conversationId, graphScopeId, reason: "scope-changed" });
       terminalizedInteractionCount = rows.length;
       new CanonicalTimelineDelivery(terminalStore, live).publishCommittedMany(rows);
     } finally {
       terminalStore.close();
     }
     if (terminalizedInteractionCount > 0) {
-      capture.sink.emit({ event: "conversation.interactions.updated", data: await buildConversationInteractionQueue(memory, conversationId, graphScopeId) });
+      await emitInteractionUpdate();
     }
   }
   return assistant ?? planReferenceMarker ?? latestChildMessage ?? {
@@ -988,16 +965,6 @@ function attemptStoreCandidate(
     && attempt.operationProfile === "main"
     && attempt.graphScopeId === graphScopeId
     && attempt.changeId === changeId);
-}
-
-function providerOperationProfileForChildRole(roleId: string | undefined): ProviderOperationProfile {
-  if (roleId === PLANNING_AGENT_ROLE_ID) return "planning";
-  if (roleId === "coder-agent" || roleId === "rework-coder" || roleId === "spec-test-generator") return "coder";
-  if (roleId === "auditor-agent" || roleId === "spec-test-proposer") return "auditor";
-  if (roleId === "memory-maintenance-agent") return "maintenance";
-  if (roleId === "harness-evolution-agent") return "evolution";
-  if (roleId === "evolution-scorer") return "evolution-scorer";
-  return "main";
 }
 
 function stripProjectScopedPromptEcho(message: string, userMessage: string): string {

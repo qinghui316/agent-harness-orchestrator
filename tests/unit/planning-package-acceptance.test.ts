@@ -81,6 +81,18 @@ describe("conversation planner-child package acceptance", () => {
       projectId: project().id,
       conversationId: conversation.conversationId,
       providerId: "codex",
+      providerThreadId: "parent-old",
+      roleId: "main-agent",
+      parentThreadId: null,
+      changeId: null,
+      graphScopeId: "graph-old",
+      capabilityProfile: "main-agent-goal-v1",
+      updatedAt: new Date().toISOString(),
+    });
+    bindProviderThreadFixture(beforeAcceptance, {
+      projectId: project().id,
+      conversationId: conversation.conversationId,
+      providerId: "codex",
       providerThreadId: "old-scope-child",
       roleId: "planning-agent",
       parentThreadId: "parent-old",

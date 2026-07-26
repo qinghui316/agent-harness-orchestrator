@@ -1,0 +1,3052 @@
+{
+  "frames": {
+    "toilet_0000.png": {
+      "frame": {
+        "x": 2,
+        "y": 2,
+        "w": 185,
+        "h": 225
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 457,
+        "y": 188,
+        "w": 185,
+        "h": 225
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0001.png": {
+      "frame": {
+        "x": 191,
+        "y": 2,
+        "w": 185,
+        "h": 227
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 457,
+        "y": 186,
+        "w": 185,
+        "h": 227
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0002.png": {
+      "frame": {
+        "x": 380,
+        "y": 2,
+        "w": 185,
+        "h": 227
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 457,
+        "y": 186,
+        "w": 185,
+        "h": 227
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0003.png": {
+      "frame": {
+        "x": 569,
+        "y": 2,
+        "w": 185,
+        "h": 227
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 457,
+        "y": 186,
+        "w": 185,
+        "h": 227
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0004.png": {
+      "frame": {
+        "x": 758,
+        "y": 2,
+        "w": 185,
+        "h": 227
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 457,
+        "y": 186,
+        "w": 185,
+        "h": 227
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0005.png": {
+      "frame": {
+        "x": 947,
+        "y": 2,
+        "w": 184,
+        "h": 227
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 458,
+        "y": 186,
+        "w": 184,
+        "h": 227
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0006.png": {
+      "frame": {
+        "x": 1135,
+        "y": 2,
+        "w": 184,
+        "h": 227
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 458,
+        "y": 186,
+        "w": 184,
+        "h": 227
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0007.png": {
+      "frame": {
+        "x": 1323,
+        "y": 2,
+        "w": 184,
+        "h": 227
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 458,
+        "y": 186,
+        "w": 184,
+        "h": 227
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0008.png": {
+      "frame": {
+        "x": 1511,
+        "y": 2,
+        "w": 184,
+        "h": 227
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 458,
+        "y": 186,
+        "w": 184,
+        "h": 227
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0009.png": {
+      "frame": {
+        "x": 1699,
+        "y": 2,
+        "w": 185,
+        "h": 227
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 457,
+        "y": 186,
+        "w": 185,
+        "h": 227
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0010.png": {
+      "frame": {
+        "x": 1888,
+        "y": 2,
+        "w": 185,
+        "h": 227
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 457,
+        "y": 186,
+        "w": 185,
+        "h": 227
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0011.png": {
+      "frame": {
+        "x": 2077,
+        "y": 2,
+        "w": 184,
+        "h": 227
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 458,
+        "y": 186,
+        "w": 184,
+        "h": 227
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0012.png": {
+      "frame": {
+        "x": 2265,
+        "y": 2,
+        "w": 184,
+        "h": 227
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 458,
+        "y": 186,
+        "w": 184,
+        "h": 227
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0013.png": {
+      "frame": {
+        "x": 2453,
+        "y": 2,
+        "w": 185,
+        "h": 226
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 457,
+        "y": 187,
+        "w": 185,
+        "h": 226
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0014.png": {
+      "frame": {
+        "x": 2642,
+        "y": 2,
+        "w": 191,
+        "h": 225
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 451,
+        "y": 188,
+        "w": 191,
+        "h": 225
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0015.png": {
+      "frame": {
+        "x": 2,
+        "y": 233,
+        "w": 193,
+        "h": 226
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 449,
+        "y": 187,
+        "w": 193,
+        "h": 226
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0016.png": {
+      "frame": {
+        "x": 199,
+        "y": 233,
+        "w": 194,
+        "h": 226
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 448,
+        "y": 187,
+        "w": 194,
+        "h": 226
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0017.png": {
+      "frame": {
+        "x": 397,
+        "y": 233,
+        "w": 196,
+        "h": 225
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 446,
+        "y": 188,
+        "w": 196,
+        "h": 225
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0018.png": {
+      "frame": {
+        "x": 597,
+        "y": 233,
+        "w": 196,
+        "h": 225
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 446,
+        "y": 188,
+        "w": 196,
+        "h": 225
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0019.png": {
+      "frame": {
+        "x": 797,
+        "y": 233,
+        "w": 196,
+        "h": 225
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 446,
+        "y": 188,
+        "w": 196,
+        "h": 225
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0020.png": {
+      "frame": {
+        "x": 997,
+        "y": 233,
+        "w": 194,
+        "h": 219
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 446,
+        "y": 194,
+        "w": 194,
+        "h": 219
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0021.png": {
+      "frame": {
+        "x": 1195,
+        "y": 233,
+        "w": 193,
+        "h": 211
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 446,
+        "y": 202,
+        "w": 193,
+        "h": 211
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0022.png": {
+      "frame": {
+        "x": 1392,
+        "y": 233,
+        "w": 191,
+        "h": 201
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 446,
+        "y": 212,
+        "w": 191,
+        "h": 201
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0023.png": {
+      "frame": {
+        "x": 1587,
+        "y": 233,
+        "w": 189,
+        "h": 198
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 447,
+        "y": 215,
+        "w": 189,
+        "h": 198
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0024.png": {
+      "frame": {
+        "x": 1780,
+        "y": 233,
+        "w": 178,
+        "h": 238
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 440,
+        "y": 147,
+        "w": 178,
+        "h": 238
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0025.png": {
+      "frame": {
+        "x": 1962,
+        "y": 233,
+        "w": 158,
+        "h": 235
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 422,
+        "y": 105,
+        "w": 158,
+        "h": 235
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0026.png": {
+      "frame": {
+        "x": 2124,
+        "y": 233,
+        "w": 188,
+        "h": 234
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 339,
+        "y": 60,
+        "w": 188,
+        "h": 234
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0027.png": {
+      "frame": {
+        "x": 2316,
+        "y": 233,
+        "w": 196,
+        "h": 228
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 332,
+        "y": 60,
+        "w": 196,
+        "h": 228
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0028.png": {
+      "frame": {
+        "x": 2516,
+        "y": 233,
+        "w": 201,
+        "h": 221
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 327,
+        "y": 60,
+        "w": 201,
+        "h": 221
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0029.png": {
+      "frame": {
+        "x": 2,
+        "y": 475,
+        "w": 203,
+        "h": 216
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 319,
+        "y": 60,
+        "w": 203,
+        "h": 216
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0030.png": {
+      "frame": {
+        "x": 209,
+        "y": 475,
+        "w": 201,
+        "h": 210
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 313,
+        "y": 63,
+        "w": 201,
+        "h": 210
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0031.png": {
+      "frame": {
+        "x": 414,
+        "y": 475,
+        "w": 186,
+        "h": 188
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 298,
+        "y": 103,
+        "w": 186,
+        "h": 188
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0032.png": {
+      "frame": {
+        "x": 604,
+        "y": 475,
+        "w": 186,
+        "h": 187
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 298,
+        "y": 104,
+        "w": 186,
+        "h": 187
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0033.png": {
+      "frame": {
+        "x": 794,
+        "y": 475,
+        "w": 190,
+        "h": 188
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 298,
+        "y": 139,
+        "w": 190,
+        "h": 188
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0034.png": {
+      "frame": {
+        "x": 988,
+        "y": 475,
+        "w": 193,
+        "h": 222
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 305,
+        "y": 150,
+        "w": 193,
+        "h": 222
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0035.png": {
+      "frame": {
+        "x": 1185,
+        "y": 475,
+        "w": 170,
+        "h": 236
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 314,
+        "y": 150,
+        "w": 170,
+        "h": 236
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0036.png": {
+      "frame": {
+        "x": 1359,
+        "y": 475,
+        "w": 163,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 318,
+        "y": 147,
+        "w": 163,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0037.png": {
+      "frame": {
+        "x": 1526,
+        "y": 475,
+        "w": 162,
+        "h": 246
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 319,
+        "y": 144,
+        "w": 162,
+        "h": 246
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0038.png": {
+      "frame": {
+        "x": 1692,
+        "y": 475,
+        "w": 162,
+        "h": 248
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 319,
+        "y": 142,
+        "w": 162,
+        "h": 248
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0039.png": {
+      "frame": {
+        "x": 1858,
+        "y": 475,
+        "w": 163,
+        "h": 246
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 318,
+        "y": 142,
+        "w": 163,
+        "h": 246
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0040.png": {
+      "frame": {
+        "x": 2025,
+        "y": 475,
+        "w": 167,
+        "h": 245
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 142,
+        "w": 167,
+        "h": 245
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0041.png": {
+      "frame": {
+        "x": 2196,
+        "y": 475,
+        "w": 167,
+        "h": 246
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 141,
+        "w": 167,
+        "h": 246
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0042.png": {
+      "frame": {
+        "x": 2367,
+        "y": 475,
+        "w": 167,
+        "h": 245
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 142,
+        "w": 167,
+        "h": 245
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0043.png": {
+      "frame": {
+        "x": 2538,
+        "y": 475,
+        "w": 167,
+        "h": 245
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 142,
+        "w": 167,
+        "h": 245
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0044.png": {
+      "frame": {
+        "x": 2,
+        "y": 727,
+        "w": 167,
+        "h": 245
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 142,
+        "w": 167,
+        "h": 245
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0045.png": {
+      "frame": {
+        "x": 173,
+        "y": 727,
+        "w": 167,
+        "h": 244
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 143,
+        "w": 167,
+        "h": 244
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0046.png": {
+      "frame": {
+        "x": 344,
+        "y": 727,
+        "w": 167,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 167,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0047.png": {
+      "frame": {
+        "x": 515,
+        "y": 727,
+        "w": 167,
+        "h": 241
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 146,
+        "w": 167,
+        "h": 241
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0048.png": {
+      "frame": {
+        "x": 686,
+        "y": 727,
+        "w": 167,
+        "h": 241
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 146,
+        "w": 167,
+        "h": 241
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0049.png": {
+      "frame": {
+        "x": 857,
+        "y": 727,
+        "w": 167,
+        "h": 241
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 146,
+        "w": 167,
+        "h": 241
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0050.png": {
+      "frame": {
+        "x": 1028,
+        "y": 727,
+        "w": 167,
+        "h": 241
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 146,
+        "w": 167,
+        "h": 241
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0051.png": {
+      "frame": {
+        "x": 1199,
+        "y": 727,
+        "w": 167,
+        "h": 241
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 146,
+        "w": 167,
+        "h": 241
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0052.png": {
+      "frame": {
+        "x": 1370,
+        "y": 727,
+        "w": 167,
+        "h": 241
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 146,
+        "w": 167,
+        "h": 241
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0053.png": {
+      "frame": {
+        "x": 1541,
+        "y": 727,
+        "w": 167,
+        "h": 241
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 146,
+        "w": 167,
+        "h": 241
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0054.png": {
+      "frame": {
+        "x": 1712,
+        "y": 727,
+        "w": 167,
+        "h": 241
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 146,
+        "w": 167,
+        "h": 241
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0055.png": {
+      "frame": {
+        "x": 1883,
+        "y": 727,
+        "w": 167,
+        "h": 241
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 146,
+        "w": 167,
+        "h": 241
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0056.png": {
+      "frame": {
+        "x": 2054,
+        "y": 727,
+        "w": 167,
+        "h": 241
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 146,
+        "w": 167,
+        "h": 241
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0057.png": {
+      "frame": {
+        "x": 2225,
+        "y": 727,
+        "w": 167,
+        "h": 241
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 146,
+        "w": 167,
+        "h": 241
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0058.png": {
+      "frame": {
+        "x": 2396,
+        "y": 727,
+        "w": 167,
+        "h": 241
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 146,
+        "w": 167,
+        "h": 241
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0059.png": {
+      "frame": {
+        "x": 2567,
+        "y": 727,
+        "w": 167,
+        "h": 241
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 146,
+        "w": 167,
+        "h": 241
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0060.png": {
+      "frame": {
+        "x": 2,
+        "y": 976,
+        "w": 167,
+        "h": 244
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 143,
+        "w": 167,
+        "h": 244
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0061.png": {
+      "frame": {
+        "x": 173,
+        "y": 976,
+        "w": 167,
+        "h": 245
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 142,
+        "w": 167,
+        "h": 245
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0062.png": {
+      "frame": {
+        "x": 344,
+        "y": 976,
+        "w": 167,
+        "h": 245
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 142,
+        "w": 167,
+        "h": 245
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0063.png": {
+      "frame": {
+        "x": 515,
+        "y": 976,
+        "w": 167,
+        "h": 245
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 142,
+        "w": 167,
+        "h": 245
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0064.png": {
+      "frame": {
+        "x": 686,
+        "y": 976,
+        "w": 167,
+        "h": 246
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 141,
+        "w": 167,
+        "h": 246
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0065.png": {
+      "frame": {
+        "x": 857,
+        "y": 976,
+        "w": 167,
+        "h": 246
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 141,
+        "w": 167,
+        "h": 246
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0066.png": {
+      "frame": {
+        "x": 1028,
+        "y": 976,
+        "w": 167,
+        "h": 246
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 141,
+        "w": 167,
+        "h": 246
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0067.png": {
+      "frame": {
+        "x": 1199,
+        "y": 976,
+        "w": 167,
+        "h": 245
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 142,
+        "w": 167,
+        "h": 245
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0068.png": {
+      "frame": {
+        "x": 1370,
+        "y": 976,
+        "w": 167,
+        "h": 245
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 142,
+        "w": 167,
+        "h": 245
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0069.png": {
+      "frame": {
+        "x": 1541,
+        "y": 976,
+        "w": 167,
+        "h": 245
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 142,
+        "w": 167,
+        "h": 245
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0070.png": {
+      "frame": {
+        "x": 1712,
+        "y": 976,
+        "w": 167,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 167,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0071.png": {
+      "frame": {
+        "x": 1883,
+        "y": 976,
+        "w": 167,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 167,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0072.png": {
+      "frame": {
+        "x": 2054,
+        "y": 976,
+        "w": 167,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 167,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0073.png": {
+      "frame": {
+        "x": 2225,
+        "y": 976,
+        "w": 167,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 167,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0074.png": {
+      "frame": {
+        "x": 2396,
+        "y": 976,
+        "w": 167,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 167,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0075.png": {
+      "frame": {
+        "x": 2567,
+        "y": 976,
+        "w": 172,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 172,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0076.png": {
+      "frame": {
+        "x": 2,
+        "y": 1226,
+        "w": 178,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 178,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0077.png": {
+      "frame": {
+        "x": 184,
+        "y": 1226,
+        "w": 181,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 181,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0078.png": {
+      "frame": {
+        "x": 369,
+        "y": 1226,
+        "w": 183,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 183,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0079.png": {
+      "frame": {
+        "x": 556,
+        "y": 1226,
+        "w": 183,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 183,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0080.png": {
+      "frame": {
+        "x": 743,
+        "y": 1226,
+        "w": 183,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 183,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0081.png": {
+      "frame": {
+        "x": 930,
+        "y": 1226,
+        "w": 183,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 183,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0082.png": {
+      "frame": {
+        "x": 1117,
+        "y": 1226,
+        "w": 183,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 183,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0083.png": {
+      "frame": {
+        "x": 1304,
+        "y": 1226,
+        "w": 181,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 181,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0084.png": {
+      "frame": {
+        "x": 1489,
+        "y": 1226,
+        "w": 180,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 180,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0085.png": {
+      "frame": {
+        "x": 1673,
+        "y": 1226,
+        "w": 175,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 175,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0086.png": {
+      "frame": {
+        "x": 1852,
+        "y": 1226,
+        "w": 172,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 172,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0087.png": {
+      "frame": {
+        "x": 2028,
+        "y": 1226,
+        "w": 168,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 168,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0088.png": {
+      "frame": {
+        "x": 2200,
+        "y": 1226,
+        "w": 165,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 165,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0089.png": {
+      "frame": {
+        "x": 2369,
+        "y": 1226,
+        "w": 163,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 163,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0090.png": {
+      "frame": {
+        "x": 2536,
+        "y": 1226,
+        "w": 164,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 164,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0091.png": {
+      "frame": {
+        "x": 2,
+        "y": 1473,
+        "w": 165,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 165,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0092.png": {
+      "frame": {
+        "x": 171,
+        "y": 1473,
+        "w": 165,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 165,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0093.png": {
+      "frame": {
+        "x": 340,
+        "y": 1473,
+        "w": 164,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 164,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0094.png": {
+      "frame": {
+        "x": 508,
+        "y": 1473,
+        "w": 163,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 163,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0095.png": {
+      "frame": {
+        "x": 675,
+        "y": 1473,
+        "w": 164,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 164,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0096.png": {
+      "frame": {
+        "x": 843,
+        "y": 1473,
+        "w": 167,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 167,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0097.png": {
+      "frame": {
+        "x": 1014,
+        "y": 1473,
+        "w": 170,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 170,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0098.png": {
+      "frame": {
+        "x": 1188,
+        "y": 1473,
+        "w": 173,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 173,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0099.png": {
+      "frame": {
+        "x": 1365,
+        "y": 1473,
+        "w": 180,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 180,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0100.png": {
+      "frame": {
+        "x": 1549,
+        "y": 1473,
+        "w": 181,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 181,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0101.png": {
+      "frame": {
+        "x": 1734,
+        "y": 1473,
+        "w": 183,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 183,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0102.png": {
+      "frame": {
+        "x": 1921,
+        "y": 1473,
+        "w": 183,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 183,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0103.png": {
+      "frame": {
+        "x": 2108,
+        "y": 1473,
+        "w": 183,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 183,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0104.png": {
+      "frame": {
+        "x": 2295,
+        "y": 1473,
+        "w": 183,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 183,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0105.png": {
+      "frame": {
+        "x": 2482,
+        "y": 1473,
+        "w": 183,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 183,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0106.png": {
+      "frame": {
+        "x": 2669,
+        "y": 1473,
+        "w": 181,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 181,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0107.png": {
+      "frame": {
+        "x": 2,
+        "y": 1720,
+        "w": 181,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 181,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0108.png": {
+      "frame": {
+        "x": 187,
+        "y": 1720,
+        "w": 181,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 181,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0109.png": {
+      "frame": {
+        "x": 372,
+        "y": 1720,
+        "w": 181,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 181,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0110.png": {
+      "frame": {
+        "x": 557,
+        "y": 1720,
+        "w": 181,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 181,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0111.png": {
+      "frame": {
+        "x": 742,
+        "y": 1720,
+        "w": 181,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 181,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0112.png": {
+      "frame": {
+        "x": 927,
+        "y": 1720,
+        "w": 181,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 181,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0113.png": {
+      "frame": {
+        "x": 1112,
+        "y": 1720,
+        "w": 181,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 181,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0114.png": {
+      "frame": {
+        "x": 1297,
+        "y": 1720,
+        "w": 181,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 181,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0115.png": {
+      "frame": {
+        "x": 1482,
+        "y": 1720,
+        "w": 181,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 181,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0116.png": {
+      "frame": {
+        "x": 1667,
+        "y": 1720,
+        "w": 181,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 181,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0117.png": {
+      "frame": {
+        "x": 1852,
+        "y": 1720,
+        "w": 181,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 181,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0118.png": {
+      "frame": {
+        "x": 2037,
+        "y": 1720,
+        "w": 181,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 181,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0119.png": {
+      "frame": {
+        "x": 2222,
+        "y": 1720,
+        "w": 181,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 181,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet_0120.png": {
+      "frame": {
+        "x": 2407,
+        "y": 1720,
+        "w": 181,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 316,
+        "y": 144,
+        "w": 181,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 960
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    }
+  },
+  "animations": {
+    "toilet": [
+      "toilet_0000.png",
+      "toilet_0001.png",
+      "toilet_0002.png",
+      "toilet_0003.png",
+      "toilet_0004.png",
+      "toilet_0005.png",
+      "toilet_0006.png",
+      "toilet_0007.png",
+      "toilet_0008.png",
+      "toilet_0009.png",
+      "toilet_0010.png",
+      "toilet_0011.png",
+      "toilet_0012.png",
+      "toilet_0013.png",
+      "toilet_0014.png",
+      "toilet_0015.png",
+      "toilet_0016.png",
+      "toilet_0017.png",
+      "toilet_0018.png",
+      "toilet_0019.png",
+      "toilet_0020.png",
+      "toilet_0021.png",
+      "toilet_0022.png",
+      "toilet_0023.png",
+      "toilet_0024.png",
+      "toilet_0025.png",
+      "toilet_0026.png",
+      "toilet_0027.png",
+      "toilet_0028.png",
+      "toilet_0029.png",
+      "toilet_0030.png",
+      "toilet_0031.png",
+      "toilet_0032.png",
+      "toilet_0033.png",
+      "toilet_0034.png",
+      "toilet_0035.png",
+      "toilet_0036.png",
+      "toilet_0037.png",
+      "toilet_0038.png",
+      "toilet_0039.png",
+      "toilet_0040.png",
+      "toilet_0041.png",
+      "toilet_0042.png",
+      "toilet_0043.png",
+      "toilet_0044.png",
+      "toilet_0045.png",
+      "toilet_0046.png",
+      "toilet_0047.png",
+      "toilet_0048.png",
+      "toilet_0049.png",
+      "toilet_0050.png",
+      "toilet_0051.png",
+      "toilet_0052.png",
+      "toilet_0053.png",
+      "toilet_0054.png",
+      "toilet_0055.png",
+      "toilet_0056.png",
+      "toilet_0057.png",
+      "toilet_0058.png",
+      "toilet_0059.png",
+      "toilet_0060.png",
+      "toilet_0061.png",
+      "toilet_0062.png",
+      "toilet_0063.png",
+      "toilet_0064.png",
+      "toilet_0065.png",
+      "toilet_0066.png",
+      "toilet_0067.png",
+      "toilet_0068.png",
+      "toilet_0069.png",
+      "toilet_0070.png",
+      "toilet_0071.png",
+      "toilet_0072.png",
+      "toilet_0073.png",
+      "toilet_0074.png",
+      "toilet_0075.png",
+      "toilet_0076.png",
+      "toilet_0077.png",
+      "toilet_0078.png",
+      "toilet_0079.png",
+      "toilet_0080.png",
+      "toilet_0081.png",
+      "toilet_0082.png",
+      "toilet_0083.png",
+      "toilet_0084.png",
+      "toilet_0085.png",
+      "toilet_0086.png",
+      "toilet_0087.png",
+      "toilet_0088.png",
+      "toilet_0089.png",
+      "toilet_0090.png",
+      "toilet_0091.png",
+      "toilet_0092.png",
+      "toilet_0093.png",
+      "toilet_0094.png",
+      "toilet_0095.png",
+      "toilet_0096.png",
+      "toilet_0097.png",
+      "toilet_0098.png",
+      "toilet_0099.png",
+      "toilet_0100.png",
+      "toilet_0101.png",
+      "toilet_0102.png",
+      "toilet_0103.png",
+      "toilet_0104.png",
+      "toilet_0105.png",
+      "toilet_0106.png",
+      "toilet_0107.png",
+      "toilet_0108.png",
+      "toilet_0109.png",
+      "toilet_0110.png",
+      "toilet_0111.png",
+      "toilet_0112.png",
+      "toilet_0113.png",
+      "toilet_0114.png",
+      "toilet_0115.png",
+      "toilet_0116.png",
+      "toilet_0117.png",
+      "toilet_0118.png",
+      "toilet_0119.png",
+      "toilet_0120.png"
+    ]
+  },
+  "meta": {
+    "app": "aho-office-assets",
+    "version": "3.0",
+    "image": "toilet@2x.webp",
+    "format": "RGBA8888",
+    "size": {
+      "w": 2852,
+      "h": 1965
+    },
+    "scale": 2,
+    "animation": {
+      "fps": 24,
+      "loop": false
+    },
+    "visualAnchor": {
+      "x": 549,
+      "y": 412
+    }
+  }
+}

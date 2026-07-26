@@ -2,6 +2,7 @@ import type { ProviderCapabilitySnapshot, ProviderModelRef, ProviderOperationPro
 import type { ResolvedMemory } from "../types/index.js";
 import { openWorkbenchDatabase } from "./persistence/open-workbench-database.js";
 import { type StoredProviderAttempt, type StoredProviderThreadLink } from "./persistence/contracts.js";
+import { publishAgentSurfacesInvalidated } from "./project-live-events.js";
 
 export interface StartProviderAttemptInput {
   attemptId: string;
@@ -22,6 +23,7 @@ export interface BindProviderAttemptThreadInput {
   attemptId: string;
   threadId: string;
   parentThreadId?: string | null;
+  parentAgentSurfaceId?: string | null;
   displayName?: string | null;
 }
 
@@ -32,10 +34,16 @@ export async function bindProviderAttemptThread(memory: ResolvedMemory, input: B
     const attempt = store.providerAttempts.readProviderAttempt(memory.projectId, input.attemptId);
     if (!attempt) throw new Error(`Provider attempt not found: ${input.attemptId}`);
     if (!attempt.conversationId || !attempt.graphScopeId) return null;
-    return store.providerAttempts.bindProviderAttemptThread(memory.projectId, {
+    const bound = store.providerAttempts.bindProviderAttemptThread(memory.projectId, {
       ...input,
       parentThreadId: input.parentThreadId ?? null,
     }, new Date().toISOString());
+    publishAgentSurfacesInvalidated(memory.projectId, {
+      conversationId: attempt.conversationId,
+      graphScopeId: attempt.graphScopeId,
+      reason: "thread-bound",
+    });
+    return bound;
   } finally {
     store.close();
   }
@@ -72,6 +80,11 @@ export async function startProviderAttempt(memory: ResolvedMemory, input: StartP
       updatedAt: now,
     };
     store.providerAttempts.createProviderAttempt(attempt);
+    if (attempt.conversationId) publishAgentSurfacesInvalidated(memory.projectId, {
+      conversationId: attempt.conversationId,
+      graphScopeId: attempt.graphScopeId ?? undefined,
+      reason: "attempt-updated",
+    });
     return attempt;
   } finally {
     store.close();
@@ -81,9 +94,9 @@ export async function startProviderAttempt(memory: ResolvedMemory, input: StartP
 export async function finishProviderAttempt(
   memory: ResolvedMemory,
   attemptId: string,
-  status: "completed" | "interrupted" | "failed" | "blocked",
+  status: "completed" | "interrupted" | "failed" | "blocked" | "terminated",
   nativeSessionId: string | null,
-  thread?: { parentThreadId?: string | null; displayName?: string | null },
+  thread?: { parentThreadId?: string | null; parentAgentSurfaceId?: string | null; displayName?: string | null },
 ): Promise<void> {
   if (!memory.projectId) throw new Error("Project id is required to finish a provider attempt.");
   const store = await openWorkbenchDatabase(memory);
@@ -91,15 +104,21 @@ export async function finishProviderAttempt(
     const now = new Date().toISOString();
     const attempt = store.providerAttempts.readProviderAttempt(memory.projectId, attemptId);
     if (!attempt) throw new Error(`Provider attempt not found: ${attemptId}`);
-    if (nativeSessionId && attempt.conversationId) {
+    if (nativeSessionId && attempt.conversationId && attempt.graphScopeId) {
       store.providerAttempts.bindProviderAttemptThread(memory.projectId, {
         attemptId,
         threadId: nativeSessionId,
         parentThreadId: thread?.parentThreadId,
+        parentAgentSurfaceId: thread?.parentAgentSurfaceId,
         displayName: thread?.displayName,
       }, now);
     }
     store.providerAttempts.completeProviderAttempt(memory.projectId, attemptId, status, nativeSessionId, now);
+    if (attempt.conversationId) publishAgentSurfacesInvalidated(memory.projectId, {
+      conversationId: attempt.conversationId,
+      graphScopeId: attempt.graphScopeId ?? undefined,
+      reason: status === "interrupted" ? "provider-interrupted" : status === "terminated" ? "provider-terminated" : "attempt-updated",
+    });
   } finally {
     store.close();
   }

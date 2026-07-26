@@ -347,12 +347,10 @@ export function preserveSelectedWorkbenchTopic(next: Snapshot, previous: Snapsho
       ...next.center,
       selectedTopic: previous.center.selectedTopic,
       workpad: previous.center.workpad,
-      agentRelationGraph: previous.center.agentRelationGraph,
       agentLoop: previous.center.agentLoop,
     },
     right: {
       ...next.right,
-      agentWorkspace: previous.right.agentWorkspace,
     },
   };
 }

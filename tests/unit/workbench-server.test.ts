@@ -557,10 +557,10 @@ describe("workbench server", () => {
       parentThreadId: "thread-main",
       agentRoleId: "planning-agent",
     });
-    const snapshot = await getJson<SnapshotResponse & { center: { agentRelationGraph: { nodes: unknown[] }; agentLoop: { runs: Array<{ id: string }> } }; right: { agentWorkspace: { agents: unknown[] } } }>(`${handle!.url}/api/workbench/snapshot?topic=${serverConversationId}`);
-    expect(snapshot.center.agentRelationGraph.nodes).toEqual([]);
+    const snapshot = await getJson<SnapshotResponse>(`${handle!.url}/api/workbench/snapshot?topic=${serverConversationId}`);
+    expect(snapshot.center).not.toHaveProperty("agentRelationGraph");
     expect(snapshot.center).not.toHaveProperty("parentAgentTranscript");
-    expect(JSON.stringify(snapshot.right.agentWorkspace)).not.toContain("transcript");
+    expect(snapshot.right).not.toHaveProperty("agentWorkspace");
 
     const main = await getJson<{ watermark: number; pinned: Array<{ agentSurfaceId: string; orderClass: string; revision: number }>; entries: Array<{ agentSurfaceId: string; orderClass: string; position: number; revision: number }>; paging: { limit: number; totalCount: number; nextBeforeCursor?: string } }>(
       `${handle!.url}/api/projects/repo/workbench/conversations/${serverConversationId}/timeline?agentSurfaceId=main-agent&limit=2`,
@@ -584,8 +584,12 @@ describe("workbench server", () => {
     const retired = await fetch(`${handle!.url}/api/workbench/projections/transcript/${serverConversationId}`);
     expect(retired.status).toBe(400);
 
-    const graph = await getJson<{ nodes: Array<{ id: string }> }>(`${handle!.url}/api/workbench/projections/agent-graph/${serverConversationId}`);
-    expect(graph.nodes.some((node) => node.id === "main-agent")).toBe(true);
+    const surfaces = await getJson<{ conversationId: string; projectionHash: string; surfaces: Array<{ agentSurfaceId: string }> }>(
+      `${handle!.url}/api/projects/repo/workbench/projections/agent-surfaces/${serverConversationId}`,
+    );
+    expect(surfaces).toMatchObject({ conversationId: serverConversationId, projectionHash: expect.any(String) });
+    expect(surfaces.surfaces.some((surface) => surface.agentSurfaceId === "main-agent")).toBe(true);
+    expect((await fetch(`${handle!.url}/api/workbench/projections/agent-graph/${serverConversationId}`)).status).toBe(400);
   });
 
   it("serves app-level project onboarding routes", async () => {

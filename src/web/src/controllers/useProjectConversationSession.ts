@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { consumeWorkbenchLiveStream, fetchJson, postJson } from "../api.js";
 import { projectDisplayName } from "../formatters.js";
 import type {
-  AgentRelationGraph,
   AppStatus,
   ProjectStatus,
   Snapshot,
@@ -674,7 +673,7 @@ function readWorkbenchRestoreParams(): WorkbenchRestoreParams {
     return {
       projectId: nonEmpty(params.get("project")),
       topicId: nonEmpty(params.get("topic")),
-      orchestrationOpen: tab === "orchestration" || tab === "agentgraph" || tab === "agent-graph",
+      orchestrationOpen: tab === "orchestration",
       settingsOpen: tab === "settings",
     };
   } catch {
@@ -731,23 +730,12 @@ function newConversationSnapshot(base: Snapshot, status: ProjectStatus): Snapsho
       conversationInteractions: { items: [] },
       activeTab: "conversation",
       agentLoop: { runs: [] },
-      agentRelationGraph: emptyAgentRelationGraph(),
     },
     right: {
       ...base.right,
       decisionInspector: { primary: null, related: [], history: [] },
       confirmationQueue: { primary: null, current: [], otherDemands: [], maintenance: [], history: [] },
-      agentWorkspace: { selectedAgentId: "planning-agent", agents: [] },
     },
-  };
-}
-
-function emptyAgentRelationGraph(): AgentRelationGraph {
-  return {
-    title: "Agent 关系",
-    summary: "真实子 Agent 开始工作后，会在这里显示父子关系。",
-    nodes: [],
-    edges: [],
   };
 }
 
@@ -808,14 +796,12 @@ export const emptyWorkbenchSnapshot: Snapshot = {
     thread: { items: [] },
     conversationInteractions: { items: [] },
     activeTab: "conversation",
-    agentRelationGraph: emptyAgentRelationGraph(),
   },
   right: {
     approvals: [],
     decisions: [],
     decisionInspector: { primary: null, related: [], history: [] },
     confirmationQueue: { primary: null, current: [], otherDemands: [], maintenance: [], history: [] },
-    agentWorkspace: { selectedAgentId: "planning-agent", agents: [] },
   },
   harnessGaps: [],
   warnings: [],

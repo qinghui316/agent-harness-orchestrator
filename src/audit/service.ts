@@ -315,6 +315,7 @@ export async function startAuditRun(project: ManagedProject, options: AuditRunOp
             attemptId: runId,
             threadId: event.threadId,
             parentThreadId: event.parentThreadId,
+            parentAgentSurfaceId: event.parentThreadId ? undefined : "main-agent",
             displayName: event.displayName,
           }).then(() => undefined));
         }

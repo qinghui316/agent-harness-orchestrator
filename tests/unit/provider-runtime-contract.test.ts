@@ -64,6 +64,25 @@ describe("provider-neutral runtime contract", () => {
     expect(registry.findActiveTurns(["scope-1"]).map((turn) => turn.providerId).sort()).toEqual(["alpha", "beta"]);
   });
 
+  it("shuts down every registered Provider runtime even when one fails", async () => {
+    const registry = new ProviderRegistry();
+    const calls: string[] = [];
+    const alpha = fakeProvider("alpha");
+    const beta = fakeProvider("beta");
+    alpha.runtime.shutdown = async (reason) => {
+      calls.push(`alpha:${reason}`);
+      throw new Error("alpha shutdown failed");
+    };
+    beta.runtime.shutdown = async (reason) => {
+      calls.push(`beta:${reason}`);
+    };
+    registry.register(alpha);
+    registry.register(beta);
+
+    await expect(registry.shutdownAll("test shutdown")).rejects.toThrow("Provider runtimes failed");
+    expect(calls.sort()).toEqual(["alpha:test shutdown", "beta:test shutdown"]);
+  });
+
   it("requires leaf capabilities before resuming a paused task queue", () => {
     expect(requiredProfilesForResume({
       workflow: { resume: { nextRuntimeAction: "task.queue.start" } },
@@ -499,6 +518,7 @@ function fakeProvider(providerId: string): ProviderDescriptor {
   return {
     id: providerId,
     displayName: providerId,
+    runtime: { shutdown: async () => undefined },
     capabilitySnapshot: async () => snapshot,
     runtimeSummary: async () => ({ providerId, productMode: "harness", harnessExecutionModes: ["stepwise", "scoped-auto"], snapshot }),
     models: {
@@ -524,7 +544,14 @@ function fakeProvider(providerId: string): ProviderDescriptor {
       sync: async () => ({ synced: [], syncedAgents: [], status: { state: "ready", installed: true, discoverable: true, manifestValid: true, paths: { root }, diagnostics: [] } }),
       bindCatalog: async () => [],
     },
-    conversation: { runTurn: async (request) => turnResult(request.existingSession?.sessionId ?? `${providerId}-session`), getActiveTurn: () => null, listActiveTurns: () => [] },
+    conversation: {
+      runTurn: async (request) => turnResult(request.existingSession?.sessionId ?? `${providerId}-session`),
+      inspectChild: async () => "available",
+      continueChild: async (request) => turnResult(request.targetSession.sessionId),
+      closeChild: async (request) => turnResult(request.targetSession.sessionId),
+      getActiveTurn: () => null,
+      listActiveTurns: () => [],
+    },
     leafExecution: { runTurn: async () => turnResult(`${providerId}-leaf-session`) },
   };
 }

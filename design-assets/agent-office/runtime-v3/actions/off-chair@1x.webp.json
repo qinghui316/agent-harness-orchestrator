@@ -1,0 +1,873 @@
+{
+  "frames": {
+    "off-chair_0000.png": {
+      "frame": {
+        "x": 2,
+        "y": 2,
+        "w": 134,
+        "h": 165
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 296,
+        "y": 110,
+        "w": 134,
+        "h": 165
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "off-chair_0001.png": {
+      "frame": {
+        "x": 140,
+        "y": 2,
+        "w": 138,
+        "h": 168
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 292,
+        "y": 107,
+        "w": 138,
+        "h": 168
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "off-chair_0002.png": {
+      "frame": {
+        "x": 282,
+        "y": 2,
+        "w": 154,
+        "h": 262
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 276,
+        "y": 107,
+        "w": 154,
+        "h": 262
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "off-chair_0003.png": {
+      "frame": {
+        "x": 440,
+        "y": 2,
+        "w": 165,
+        "h": 253
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 265,
+        "y": 111,
+        "w": 165,
+        "h": 253
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "off-chair_0004.png": {
+      "frame": {
+        "x": 609,
+        "y": 2,
+        "w": 165,
+        "h": 253
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 265,
+        "y": 111,
+        "w": 165,
+        "h": 253
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "off-chair_0005.png": {
+      "frame": {
+        "x": 778,
+        "y": 2,
+        "w": 126,
+        "h": 252
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 269,
+        "y": 120,
+        "w": 126,
+        "h": 252
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "off-chair_0006.png": {
+      "frame": {
+        "x": 908,
+        "y": 2,
+        "w": 126,
+        "h": 253
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 269,
+        "y": 119,
+        "w": 126,
+        "h": 253
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "off-chair_0007.png": {
+      "frame": {
+        "x": 1038,
+        "y": 2,
+        "w": 126,
+        "h": 254
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 269,
+        "y": 119,
+        "w": 126,
+        "h": 254
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "off-chair_0008.png": {
+      "frame": {
+        "x": 1168,
+        "y": 2,
+        "w": 128,
+        "h": 251
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 264,
+        "y": 123,
+        "w": 128,
+        "h": 251
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "off-chair_0009.png": {
+      "frame": {
+        "x": 1300,
+        "y": 2,
+        "w": 128,
+        "h": 251
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 264,
+        "y": 123,
+        "w": 128,
+        "h": 251
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "off-chair_0010.png": {
+      "frame": {
+        "x": 2,
+        "y": 268,
+        "w": 126,
+        "h": 250
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 265,
+        "y": 125,
+        "w": 126,
+        "h": 250
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "off-chair_0011.png": {
+      "frame": {
+        "x": 132,
+        "y": 268,
+        "w": 122,
+        "h": 243
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 265,
+        "y": 131,
+        "w": 122,
+        "h": 243
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "off-chair_0012.png": {
+      "frame": {
+        "x": 258,
+        "y": 268,
+        "w": 121,
+        "h": 240
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 265,
+        "y": 134,
+        "w": 121,
+        "h": 240
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "off-chair_0013.png": {
+      "frame": {
+        "x": 383,
+        "y": 268,
+        "w": 121,
+        "h": 238
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 265,
+        "y": 136,
+        "w": 121,
+        "h": 238
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "off-chair_0014.png": {
+      "frame": {
+        "x": 508,
+        "y": 268,
+        "w": 120,
+        "h": 266
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 223,
+        "y": 116,
+        "w": 120,
+        "h": 266
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "off-chair_0015.png": {
+      "frame": {
+        "x": 632,
+        "y": 268,
+        "w": 120,
+        "h": 265
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 223,
+        "y": 117,
+        "w": 120,
+        "h": 265
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "off-chair_0016.png": {
+      "frame": {
+        "x": 756,
+        "y": 268,
+        "w": 120,
+        "h": 265
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 223,
+        "y": 117,
+        "w": 120,
+        "h": 265
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "off-chair_0017.png": {
+      "frame": {
+        "x": 880,
+        "y": 268,
+        "w": 120,
+        "h": 265
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 223,
+        "y": 117,
+        "w": 120,
+        "h": 265
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "off-chair_0018.png": {
+      "frame": {
+        "x": 1004,
+        "y": 268,
+        "w": 154,
+        "h": 282
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 161,
+        "y": 153,
+        "w": 154,
+        "h": 282
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "off-chair_0019.png": {
+      "frame": {
+        "x": 1162,
+        "y": 268,
+        "w": 154,
+        "h": 281
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 161,
+        "y": 154,
+        "w": 154,
+        "h": 281
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "off-chair_0020.png": {
+      "frame": {
+        "x": 1320,
+        "y": 268,
+        "w": 154,
+        "h": 281
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 161,
+        "y": 154,
+        "w": 154,
+        "h": 281
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "off-chair_0021.png": {
+      "frame": {
+        "x": 2,
+        "y": 554,
+        "w": 154,
+        "h": 281
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 161,
+        "y": 154,
+        "w": 154,
+        "h": 281
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "off-chair_0022.png": {
+      "frame": {
+        "x": 160,
+        "y": 554,
+        "w": 187,
+        "h": 277
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 130,
+        "y": 161,
+        "w": 187,
+        "h": 277
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "off-chair_0023.png": {
+      "frame": {
+        "x": 351,
+        "y": 554,
+        "w": 187,
+        "h": 277
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 130,
+        "y": 161,
+        "w": 187,
+        "h": 277
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "off-chair_0024.png": {
+      "frame": {
+        "x": 542,
+        "y": 554,
+        "w": 187,
+        "h": 277
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 130,
+        "y": 161,
+        "w": 187,
+        "h": 277
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "off-chair_0025.png": {
+      "frame": {
+        "x": 733,
+        "y": 554,
+        "w": 187,
+        "h": 277
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 130,
+        "y": 161,
+        "w": 187,
+        "h": 277
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "off-chair_0026.png": {
+      "frame": {
+        "x": 924,
+        "y": 554,
+        "w": 182,
+        "h": 277
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 133,
+        "y": 161,
+        "w": 182,
+        "h": 277
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "off-chair_0027.png": {
+      "frame": {
+        "x": 1110,
+        "y": 554,
+        "w": 182,
+        "h": 277
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 133,
+        "y": 161,
+        "w": 182,
+        "h": 277
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "off-chair_0028.png": {
+      "frame": {
+        "x": 1296,
+        "y": 554,
+        "w": 182,
+        "h": 277
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 133,
+        "y": 161,
+        "w": 182,
+        "h": 277
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "off-chair_0029.png": {
+      "frame": {
+        "x": 2,
+        "y": 839,
+        "w": 182,
+        "h": 277
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 133,
+        "y": 161,
+        "w": 182,
+        "h": 277
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "off-chair_0030.png": {
+      "frame": {
+        "x": 188,
+        "y": 839,
+        "w": 175,
+        "h": 279
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 138,
+        "y": 159,
+        "w": 175,
+        "h": 279
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "off-chair_0031.png": {
+      "frame": {
+        "x": 367,
+        "y": 839,
+        "w": 175,
+        "h": 279
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 138,
+        "y": 159,
+        "w": 175,
+        "h": 279
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "off-chair_0032.png": {
+      "frame": {
+        "x": 546,
+        "y": 839,
+        "w": 173,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 140,
+        "y": 158,
+        "w": 173,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "off-chair_0033.png": {
+      "frame": {
+        "x": 723,
+        "y": 839,
+        "w": 173,
+        "h": 280
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 140,
+        "y": 158,
+        "w": 173,
+        "h": 280
+      },
+      "sourceSize": {
+        "w": 480,
+        "h": 480
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    }
+  },
+  "animations": {
+    "off-chair": [
+      "off-chair_0000.png",
+      "off-chair_0001.png",
+      "off-chair_0002.png",
+      "off-chair_0003.png",
+      "off-chair_0004.png",
+      "off-chair_0005.png",
+      "off-chair_0006.png",
+      "off-chair_0007.png",
+      "off-chair_0008.png",
+      "off-chair_0009.png",
+      "off-chair_0010.png",
+      "off-chair_0011.png",
+      "off-chair_0012.png",
+      "off-chair_0013.png",
+      "off-chair_0014.png",
+      "off-chair_0015.png",
+      "off-chair_0016.png",
+      "off-chair_0017.png",
+      "off-chair_0018.png",
+      "off-chair_0019.png",
+      "off-chair_0020.png",
+      "off-chair_0021.png",
+      "off-chair_0022.png",
+      "off-chair_0023.png",
+      "off-chair_0024.png",
+      "off-chair_0025.png",
+      "off-chair_0026.png",
+      "off-chair_0027.png",
+      "off-chair_0028.png",
+      "off-chair_0029.png",
+      "off-chair_0030.png",
+      "off-chair_0031.png",
+      "off-chair_0032.png",
+      "off-chair_0033.png"
+    ]
+  },
+  "meta": {
+    "app": "aho-office-assets",
+    "version": "3.0",
+    "image": "off-chair@1x.webp",
+    "format": "RGBA8888",
+    "size": {
+      "w": 1480,
+      "h": 1121
+    },
+    "scale": 1,
+    "animation": {
+      "fps": 12,
+      "loop": false
+    }
+  }
+}

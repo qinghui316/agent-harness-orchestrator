@@ -1,0 +1,25 @@
+{
+  "method": "local before/after difference",
+  "sourcePath": "C:\\Users\\qinghui\\.codex\\visualizations\\2026\\07\\24\\019f93b2-6925-7350-84a1-1b873837f8ef\\agent-office-shadow-proof\\20-coffee-facility-canonical-input.png",
+  "editedPath": "C:\\Users\\qinghui\\.codex\\visualizations\\2026\\07\\24\\019f93b2-6925-7350-84a1-1b873837f8ef\\agent-office-shadow-proof\\24-coffee-facility-candidate-3.png",
+  "floorMinY": 410,
+  "protectionRadius": 2,
+  "previewOpacity": 0.55,
+  "proofTransform": {
+    "outputScale": 2.25,
+    "shift": {
+      "x": 496,
+      "y": 203
+    }
+  },
+  "extractedPixels": 118879,
+  "maximumAlpha": 227,
+  "occludedFillPixels": 7138,
+  "rgbForEveryShadowPixel": [
+    0,
+    0,
+    0
+  ],
+  "transparentPath": "C:\\Users\\qinghui\\.codex\\visualizations\\2026\\07\\24\\019f93b2-6925-7350-84a1-1b873837f8ef\\agent-office-shadow-proof\\25-coffee-facility-local-diff-shadow-transparent.png",
+  "compositePath": "C:\\Users\\qinghui\\.codex\\visualizations\\2026\\07\\24\\019f93b2-6925-7350-84a1-1b873837f8ef\\agent-office-shadow-proof\\25-coffee-facility-local-diff-layered-proof.png"
+}

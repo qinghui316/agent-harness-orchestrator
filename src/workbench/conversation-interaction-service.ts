@@ -9,6 +9,7 @@ import { openWorkbenchDatabase } from "./persistence/open-workbench-database.js"
 import { CanonicalTimelineDelivery } from "./canonical-timeline-delivery.js";
 import type { ConversationInteractionQuestion, ConversationInteractionSettlement } from "./conversation-interaction-contract.js";
 import type { PlanHandoffIntentKind, WorkbenchLiveSink } from "./types.js";
+import { publishAgentSurfacesInvalidated } from "./project-live-events.js";
 
 const activeSettlements = new Set<string>();
 
@@ -26,7 +27,13 @@ export async function settleConversationInteraction(
     return settleProviderInput(project, conversationId, interactionId, resolved, settlement, live);
   }
   if (resolved.kind === "clarification") {
-    return settleClarification(project, resolved, settlement);
+    const result = await settleClarification(project, resolved, settlement);
+    publishAgentSurfacesInvalidated(project.id, {
+      conversationId: resolved.public.conversationId,
+      graphScopeId: resolved.public.graphScopeId,
+      reason: "interaction-updated",
+    });
+    return result;
   }
   return settlePlan(project, conversationId, resolved, settlement, live);
 }
@@ -184,6 +191,12 @@ async function transitionProviderRequest(
   try {
     const transition = store.interactions.transitionProviderUserInputRequest(memory.projectId, conversationId, requestKey, expectedStatus, nextStatus, settlement, new Date().toISOString());
     new CanonicalTimelineDelivery(store, live).publishCommitted(transition.row);
+    const graphScopeId = store.conversations.readConversation(memory.projectId, conversationId)?.currentGraphScopeId;
+    publishAgentSurfacesInvalidated(memory.projectId, {
+      conversationId,
+      graphScopeId: graphScopeId ?? undefined,
+      reason: "interaction-updated",
+    });
   } finally {
     store.close();
   }

@@ -83,7 +83,7 @@ describe("canonical Timeline server contract", () => {
 
     const db = new Database(memory.workbenchDbPath, { readonly: true });
     try {
-      expect(db.pragma("user_version", { simple: true })).toBe(8);
+      expect(db.pragma("user_version", { simple: true })).toBe(9);
       expect(db.prepare("PRAGMA index_list(canonical_timeline_items)").all()).toEqual(expect.arrayContaining([
         expect.objectContaining({ name: "idx_timeline_conversation_position", unique: 1 }),
       ]));

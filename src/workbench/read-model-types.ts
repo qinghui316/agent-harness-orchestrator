@@ -343,31 +343,6 @@ export interface WorkbenchDecisionInspector {
   selectedContextId?: string;
 }
 
-export interface WorkbenchAgentWorkspaceAgent {
-  id: string;
-  roleId: string;
-  providerId: string;
-  providerThreadId?: string;
-  providerDisplayName?: string;
-  parentThreadId?: string;
-  parentAgentId: string;
-  runId?: string;
-  agentTaskId?: string;
-  label: string;
-  status: string;
-  summary: string;
-  inputSummary?: string;
-  outputSummary?: string;
-  evidenceRefs: AgentEvidenceRef[];
-  actions: WorkbenchDecisionAction[];
-  clarifications?: ClarificationRequest[];
-}
-
-export interface WorkbenchAgentWorkspace {
-  selectedAgentId: string;
-  agents: WorkbenchAgentWorkspaceAgent[];
-}
-
 export type WorkbenchConfirmationQueueItemKind =
   | "planning-confirm"
   | "single-result-apply"
@@ -818,51 +793,10 @@ export interface WorkbenchRolePipelineSummary {
 
 export type WorkbenchMainAgentExecutionSummary = WorkbenchRolePipelineSummary;
 
-export type AgentRelationGraphNodeKind = "main-agent" | "agent";
-export type AgentRelationGraphNodeStatus = "idle" | "queued" | "running" | "completed" | "needs-change" | "failed" | "waiting-user" | "skipped";
-
 export interface AgentEvidenceRef {
   label: string;
   ref: string;
   kind: "artifact" | "run" | "task" | "decision" | "remote" | "maintenance";
-}
-
-export interface AgentRelationGraphNode {
-  id: string;
-  kind: AgentRelationGraphNodeKind;
-  label: string;
-  roleId: string;
-  providerId?: string;
-  providerThreadId?: string;
-  parentAgentId?: string;
-  status: AgentRelationGraphNodeStatus;
-  summary: string;
-  target: {
-    projectId?: string | null;
-    conversationId?: string;
-    changeId?: string;
-    agentSurfaceId: string;
-  };
-}
-
-export interface AgentRelationGraphEdge {
-  id: string;
-  from: string;
-  to: string;
-  kind: "parent-child";
-}
-
-export type AgentRelationGraphEdgeKind = AgentRelationGraphEdge["kind"];
-
-export interface AgentRelationGraph {
-  graphScopeId?: string;
-  conversationId?: string;
-  changeId?: string;
-  title: string;
-  summary: string;
-  nodes: AgentRelationGraphNode[];
-  edges: AgentRelationGraphEdge[];
-  updatedAt?: string;
 }
 
 export type WorkbenchResultReviewStatus =
@@ -1011,18 +945,16 @@ export interface WorkbenchSnapshot {
       items: ThreadStreamItem[];
     };
     conversationInteractions: ConversationInteractionQueue;
-    activeTab: "conversation" | "agentGraph";
+    activeTab: "conversation";
     agentLoop: {
       runs: RunMetadata[];
     };
-    agentRelationGraph: AgentRelationGraph;
   };
   right: {
     approvals: WorkbenchApprovalItem[];
     decisions: WorkbenchDecisionItem[];
     decisionInspector: WorkbenchDecisionInspector;
     confirmationQueue: WorkbenchConfirmationQueue;
-    agentWorkspace: WorkbenchAgentWorkspace;
   };
   roles: WorkbenchRoleSummary[];
   harnessGaps: HarnessGap[];

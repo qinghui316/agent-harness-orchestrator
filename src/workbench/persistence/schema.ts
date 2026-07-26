@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
 import type { SqliteRow } from "./sql-mappers.js";
 
-export const WORKBENCH_SCHEMA_VERSION = 8;
+export const WORKBENCH_SCHEMA_VERSION = 9;
 
 export function migrate(db: Database.Database): void {
   const currentVersion = Number(db.pragma("user_version", { simple: true }));
@@ -79,6 +79,7 @@ export function migrate(db: Database.Database): void {
       provider_thread_id TEXT NOT NULL,
       role_id TEXT NOT NULL,
       parent_thread_id TEXT,
+      parent_agent_surface_id TEXT,
       change_id TEXT,
       graph_scope_id TEXT,
       capability_profile TEXT,

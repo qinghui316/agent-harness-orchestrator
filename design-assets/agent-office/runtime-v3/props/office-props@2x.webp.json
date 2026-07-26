@@ -1,0 +1,535 @@
+{
+  "frames": {
+    "standard-desk.png": {
+      "frame": {
+        "x": 2,
+        "y": 2,
+        "w": 1654,
+        "h": 945
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 1654,
+        "h": 945
+      },
+      "sourceSize": {
+        "w": 1654,
+        "h": 951
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "standard-chair.png": {
+      "frame": {
+        "x": 1660,
+        "y": 2,
+        "w": 599,
+        "h": 682
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 327,
+        "y": 317,
+        "w": 599,
+        "h": 682
+      },
+      "sourceSize": {
+        "w": 1254,
+        "h": 1254
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "standard-monitor.png": {
+      "frame": {
+        "x": 2,
+        "y": 951,
+        "w": 1437,
+        "h": 899
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 59,
+        "y": 63,
+        "w": 1437,
+        "h": 899
+      },
+      "sourceSize": {
+        "w": 1557,
+        "h": 1010
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "main-desk.png": {
+      "frame": {
+        "x": 1443,
+        "y": 951,
+        "w": 1478,
+        "h": 1010
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 17,
+        "y": 9,
+        "w": 1478,
+        "h": 1010
+      },
+      "sourceSize": {
+        "w": 1511,
+        "h": 1041
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "main-chair.png": {
+      "frame": {
+        "x": 2,
+        "y": 1965,
+        "w": 864,
+        "h": 1082
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 144,
+        "y": 140,
+        "w": 864,
+        "h": 1082
+      },
+      "sourceSize": {
+        "w": 1153,
+        "h": 1364
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "water-coffee.png": {
+      "frame": {
+        "x": 870,
+        "y": 1965,
+        "w": 1235,
+        "h": 731
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 152,
+        "y": 124,
+        "w": 1235,
+        "h": 731
+      },
+      "sourceSize": {
+        "w": 1482,
+        "h": 1061
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "treadmill.png": {
+      "frame": {
+        "x": 2109,
+        "y": 1965,
+        "w": 360,
+        "h": 249
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 12,
+        "y": 155,
+        "w": 360,
+        "h": 249
+      },
+      "sourceSize": {
+        "w": 384,
+        "h": 416
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet-back.png": {
+      "frame": {
+        "x": 2473,
+        "y": 1965,
+        "w": 195,
+        "h": 234
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 260,
+        "y": 190,
+        "w": 195,
+        "h": 234
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 720
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet-tail-occluder.png": {
+      "frame": {
+        "x": 2672,
+        "y": 1965,
+        "w": 101,
+        "h": 72
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 307,
+        "y": 323,
+        "w": 101,
+        "h": 72
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 720
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "toilet-paper-holder.png": {
+      "frame": {
+        "x": 2777,
+        "y": 1965,
+        "w": 71,
+        "h": 77
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 547,
+        "y": 151,
+        "w": 71,
+        "h": 77
+      },
+      "sourceSize": {
+        "w": 960,
+        "h": 720
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "standard-workstation-shadow.png": {
+      "frame": {
+        "x": 2852,
+        "y": 1965,
+        "w": 499,
+        "h": 365
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 2,
+        "y": 4,
+        "w": 499,
+        "h": 365
+      },
+      "sourceSize": {
+        "w": 506,
+        "h": 373
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "main-workstation-shadow.png": {
+      "frame": {
+        "x": 2,
+        "y": 3051,
+        "w": 622,
+        "h": 325
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 5,
+        "y": 5,
+        "w": 622,
+        "h": 325
+      },
+      "sourceSize": {
+        "w": 636,
+        "h": 337
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "coffee-facility-shadow.png": {
+      "frame": {
+        "x": 628,
+        "y": 3051,
+        "w": 750,
+        "h": 275
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 7,
+        "y": 7,
+        "w": 750,
+        "h": 275
+      },
+      "sourceSize": {
+        "w": 764,
+        "h": 289
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "treadmill-facility-shadow.png": {
+      "frame": {
+        "x": 1382,
+        "y": 3051,
+        "w": 556,
+        "h": 137
+      },
+      "rotated": false,
+      "trimmed": true,
+      "spriteSourceSize": {
+        "x": 7,
+        "y": 7,
+        "w": 556,
+        "h": 137
+      },
+      "sourceSize": {
+        "w": 570,
+        "h": 151
+      },
+      "anchor": {
+        "x": 0,
+        "y": 0
+      }
+    }
+  },
+  "animations": {
+    "office-props": [
+      "standard-desk.png",
+      "standard-chair.png",
+      "standard-monitor.png",
+      "main-desk.png",
+      "main-chair.png",
+      "water-coffee.png",
+      "treadmill.png",
+      "toilet-back.png",
+      "toilet-tail-occluder.png",
+      "toilet-paper-holder.png",
+      "standard-workstation-shadow.png",
+      "main-workstation-shadow.png",
+      "coffee-facility-shadow.png",
+      "treadmill-facility-shadow.png"
+    ]
+  },
+  "meta": {
+    "app": "aho-office-assets",
+    "version": "3.0",
+    "image": "office-props@2x.webp",
+    "format": "RGBA8888",
+    "size": {
+      "w": 3353,
+      "h": 3378
+    },
+    "scale": 2,
+    "animation": {
+      "fps": 0,
+      "loop": false
+    },
+    "officeProps": {
+      "standard-desk": {
+        "frame": "standard-desk.png",
+        "anchors2x": {
+          "seat": {
+            "x": 827,
+            "y": 181
+          },
+          "keyboard": {
+            "x": 827,
+            "y": 386
+          },
+          "monitor": {
+            "x": 827,
+            "y": 651
+          },
+          "aisle-entry": {
+            "x": 180,
+            "y": 51
+          }
+        },
+        "orientation": "flip-y"
+      },
+      "standard-chair": {
+        "frame": "standard-chair.png",
+        "anchors2x": {
+          "seat": {
+            "x": 627,
+            "y": 610
+          }
+        },
+        "orientation": "identity"
+      },
+      "standard-monitor": {
+        "frame": "standard-monitor.png",
+        "anchors2x": {
+          "screen-top-left": {
+            "x": 250,
+            "y": 310
+          },
+          "screen-bottom-right": {
+            "x": 1305,
+            "y": 830
+          }
+        },
+        "orientation": "flip-y"
+      },
+      "main-desk": {
+        "frame": "main-desk.png",
+        "anchors2x": {
+          "seat": {
+            "x": 756,
+            "y": 800
+          },
+          "keyboard": {
+            "x": 756,
+            "y": 430
+          },
+          "monitor": {
+            "x": 756,
+            "y": 250
+          },
+          "aisle-entry": {
+            "x": 160,
+            "y": 960
+          }
+        },
+        "orientation": "identity"
+      },
+      "main-chair": {
+        "frame": "main-chair.png",
+        "anchors2x": {
+          "seat": {
+            "x": 576,
+            "y": 650
+          }
+        },
+        "orientation": "identity"
+      },
+      "water-coffee": {
+        "frame": "water-coffee.png",
+        "anchors2x": {
+          "aisle-entry": {
+            "x": 1420,
+            "y": 980
+          },
+          "coffee-contact": {
+            "x": 1180,
+            "y": 540
+          }
+        },
+        "orientation": "identity"
+      },
+      "treadmill": {
+        "frame": "treadmill.png",
+        "anchors2x": {
+          "treadmill-contact": {
+            "x": 168.758,
+            "y": 316.508
+          },
+          "aisle-entry": {
+            "x": 366,
+            "y": 392
+          }
+        },
+        "orientation": "identity"
+      },
+      "toilet-back": {
+        "frame": "toilet-back.png",
+        "anchors2x": {
+          "toilet-contact": {
+            "x": 329,
+            "y": 132
+          },
+          "aisle-entry": {
+            "x": 720,
+            "y": 650
+          }
+        },
+        "orientation": "identity"
+      },
+      "toilet-tail-occluder": {
+        "frame": "toilet-tail-occluder.png",
+        "anchors2x": {
+          "tail-occlusion": {
+            "x": 307,
+            "y": 323
+          }
+        },
+        "orientation": "identity"
+      },
+      "toilet-paper-holder": {
+        "frame": "toilet-paper-holder.png",
+        "anchors2x": {
+          "paper": {
+            "x": 582,
+            "y": 190
+          }
+        },
+        "orientation": "identity"
+      },
+      "standard-workstation-shadow": {
+        "frame": "standard-workstation-shadow.png",
+        "anchors2x": {},
+        "orientation": "identity"
+      },
+      "main-workstation-shadow": {
+        "frame": "main-workstation-shadow.png",
+        "anchors2x": {},
+        "orientation": "identity"
+      },
+      "coffee-facility-shadow": {
+        "frame": "coffee-facility-shadow.png",
+        "anchors2x": {},
+        "orientation": "identity"
+      },
+      "treadmill-facility-shadow": {
+        "frame": "treadmill-facility-shadow.png",
+        "anchors2x": {},
+        "orientation": "identity"
+      }
+    }
+  }
+}

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { consumeWorkbenchLiveStream, postJson } from "../api.js";
 import type {
-  AgentWorkspaceAgent,
+  AgentSurfaceProjectionItem,
   TextDocumentResource,
   WorkspaceResourceTab,
   WorkspaceResourceTarget,
@@ -20,7 +20,7 @@ export type WorkspaceResourceControllerOptions = {
   conversationId: string | null;
   resolveResource?: (projectId: string, target: Exclude<WorkspaceResourceTarget, { kind: "agent" }>) => Promise<TextDocumentResource>;
   loadAgentTranscript?: (target: Extract<WorkspaceResourceTarget, { kind: "agent" }>) => void | Promise<void>;
-  sendAgentMessage?: (agent: AgentWorkspaceAgent, message: string) => Promise<void>;
+  sendAgentMessage?: (agent: AgentSurfaceProjectionItem, message: string) => Promise<void>;
   operation?: {
     begin(key: string): WorkbenchOperationToken;
     release(token: WorkbenchOperationToken): void;
@@ -148,14 +148,14 @@ export function useWorkspaceResourceController({
     setAgentDrafts((current) => value ? { ...current, [key]: value } : withoutKey(current, key));
   }, [conversationId]);
 
-  const submitAgentMessage = useCallback(async (agent: AgentWorkspaceAgent): Promise<void> => {
-    if (!conversationId) return;
-    const key = agentDraftKey(conversationId, agent.id);
+  const submitAgentMessage = useCallback(async (agent: AgentSurfaceProjectionItem): Promise<void> => {
+    if (!conversationId || agent.readOnly || agent.status === "terminated") return;
+    const key = agentDraftKey(conversationId, agent.agentSurfaceId);
     const message = agentDrafts[key]?.trim() ?? "";
     if (!message || pendingAgentMessages[key]) return;
     const generation = (submitGenerationsRef.current.get(key) ?? 0) + 1;
     submitGenerationsRef.current.set(key, generation);
-    const pendingId = `agent-message:${agent.id}:${generation}`;
+    const pendingId = `agent-message:${agent.agentSurfaceId}:${generation}`;
     setAgentDrafts((current) => withoutKey(current, key));
     setPendingAgentMessages((current) => ({ ...current, [key]: pendingId }));
     clearPendingTimer(key);
@@ -168,11 +168,11 @@ export function useWorkspaceResourceController({
       if (sendAgentMessage) {
         await sendAgentMessage(agent, message);
       } else if (projectId) {
-        const operationToken = operation?.begin(`agent.message.${agent.id}`);
+        const operationToken = operation?.begin(`agent.message.${agent.agentSurfaceId}`);
         try {
           await consumeWorkbenchLiveStream<WorkbenchLiveEvent>(
             `/api/projects/${encodeURIComponent(projectId)}/workbench/topics/${encodeURIComponent(conversationId)}/messages/live`,
-            { mode: "chat", message },
+            { mode: "chat", message, agentSurfaceId: agent.agentSurfaceId },
             (event) => {
               const active = scopeRef.current;
               if (active.projectId === projectId && active.conversationId === conversationId) {
@@ -182,7 +182,7 @@ export function useWorkspaceResourceController({
           );
         } finally {
           try {
-            await calibrateAgentTranscript?.(projectId, conversationId, agent.id);
+            await calibrateAgentTranscript?.(projectId, conversationId, agent.agentSurfaceId);
           } finally {
             if (operationToken) operation?.release(operationToken);
           }
@@ -204,7 +204,7 @@ export function useWorkspaceResourceController({
   const cleanupTransition = useCallback((transition: WorkspaceResourceCleanupTransition) => {
     const keepTab = (tab: WorkspaceResourceTab): boolean => {
       if (transition === "project-changed") return false;
-      if (transition === "graph-scope-changed") return tab.target.kind !== "agent";
+      if (transition === "graph-scope-changed") return true;
       return tab.target.kind === "project-file";
     };
     const retained = tabs.filter(keepTab);

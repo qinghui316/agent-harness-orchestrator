@@ -1,5 +1,5 @@
 export { MainConversationView, BottomStatusBar } from "./workbench/ConversationPanel.js";
-export { AgentRelationGraphPanel } from "./workbench/ConversationPanel.js";
+export { AgentOfficePanel } from "./workbench/ConversationPanel.js";
 export { DecisionInspectorPane } from "./workbench/DecisionPanels.js";
 export { RightToolRailShell, type RightToolRailTab, type RightToolRailView } from "./workbench/DecisionPaneShell.js";
 export { ProjectFilesPanel } from "./workbench/ProjectFilesPanel.js";

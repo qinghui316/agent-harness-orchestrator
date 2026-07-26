@@ -6,7 +6,6 @@ function snapshot(action: Record<string, unknown>) {
     center: { workpad: { nextAction: action } },
     right: {
       confirmationQueue: { primary: null, current: [], otherDemands: [], maintenance: [] },
-      agentWorkspace: { agents: [] },
     },
   };
 }

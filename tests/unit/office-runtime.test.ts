@@ -1,0 +1,375 @@
+import { describe, expect, it, vi } from "vitest";
+import { OfficeAssetLoader } from "../../src/web/src/office/officeAssetLoader.js";
+import { AmbientScheduler } from "../../src/web/src/office/ambientScheduler.js";
+import { ChoreographyEngine } from "../../src/web/src/office/choreographyEngine.js";
+import { OfficeDirector } from "../../src/web/src/office/officeDirector.js";
+import { OfficeCalibrationResolver } from "../../src/web/src/office/officeCalibrationResolver.js";
+import { commitLatestOfficeRender } from "../../src/web/src/office/officeRenderGeneration.js";
+import type { OfficeExperienceSnapshot, OfficeParticipant } from "../../src/web/src/office/officeExperience.js";
+import { applyScarfMask } from "../../src/web/src/office/officeRuntimeAssets.js";
+import { shouldPlayScreen } from "../../src/web/src/office/officePixiComposition.js";
+import { removeOfficeTickerIfCurrent } from "../../src/web/src/office/officeRendererLifecycle.js";
+import { officeRouteFrameAt } from "../../src/web/src/office/officeRouteInterpolation.js";
+
+describe("Office runtime owners", () => {
+  it("deduplicates concurrent asset loads", async () => {
+    const importer = vi.fn(async (key: string) => ({ key }));
+    const loader = new OfficeAssetLoader(importer);
+    const [first, second] = await Promise.all([loader.acquire("idle", "actor-a"), loader.acquire("idle", "actor-b")]);
+    expect(importer).toHaveBeenCalledTimes(1);
+    expect(first.asset).toBe(second.asset);
+    first.release();
+    second.release();
+  });
+
+  it("reference-counts repeated acquisitions from the same actor owner", async () => {
+    const dispose = vi.fn();
+    const loader = new OfficeAssetLoader(async (key: string) => ({ key }), 0, dispose);
+    const first = await loader.acquire("shared", "actor-a", "ambient");
+    const second = await loader.acquire("shared", "actor-a", "ambient");
+    first.release();
+    expect(loader.stats().referenced).toBe(1);
+    expect(dispose).not.toHaveBeenCalled();
+    second.release();
+    expect(loader.stats().referenced).toBe(0);
+    expect(dispose).toHaveBeenCalledOnce();
+  });
+
+  it("semantic animation cancels the actor ambient channel and scope reset aborts work", async () => {
+    const runtime = new ChoreographyEngine();
+    const signals: AbortSignal[] = [];
+    runtime.subscribe((_command, signal) => { signals.push(signal); });
+    const ambient = runtime.run("agent-a", { kind: "playAction", participantId: "agent-a", actionId: "peek", durationMs: 10_000 }, "ambient");
+    await Promise.resolve();
+    const semantic = runtime.run("agent-a", { kind: "playAction", participantId: "agent-a", actionId: "working", durationMs: 10_000 }, "semantic");
+    await Promise.resolve();
+    expect(signals[0]?.aborted).toBe(true);
+    expect(signals[1]?.aborted).toBe(false);
+    runtime.resetScope();
+    expect(signals[1]?.aborted).toBe(true);
+    await Promise.all([ambient, semantic]);
+  });
+
+  it("lets each newer canonical semantic transition replace the prior pose", async () => {
+    const runtime = new ChoreographyEngine();
+    const actions: string[] = [];
+    runtime.subscribe((command) => { if (command.kind === "playAction") actions.push(command.actionId); });
+    for (const actionId of ["standby", "working", "standby", "working", "standby", "working", "standby"] as const) {
+      await runtime.run("agent-a", { kind: "playAction", participantId: "agent-a", actionId }, "semantic");
+    }
+    expect(actions).toEqual(["standby", "working", "standby", "working", "standby", "working", "standby"]);
+  });
+
+  it("destroys unreferenced ambient atlases when the LRU budget is exceeded", async () => {
+    const dispose = vi.fn();
+    const loader = new OfficeAssetLoader(async (key: string) => ({ key }), 1, dispose);
+    const first = await loader.acquire("ambient-a", "actor", "ambient");
+    first.release();
+    const second = await loader.acquire("ambient-b", "actor", "ambient");
+    second.release();
+    expect(dispose).toHaveBeenCalledWith({ key: "ambient-a" });
+    expect(loader.stats().resolved).toBe(1);
+  });
+
+  it("schedules life actions only for idle or completed actors and disables them for reduced motion", async () => {
+    vi.useFakeTimers();
+    const actions: string[] = [];
+    const scheduler = new AmbientScheduler(async ({ participant, action }) => { actions.push(`${participant.participantId}:${action}`); }, undefined, { next: () => 0 });
+    scheduler.sync(snapshotWithStates(["idle", "working", "completed"]), true);
+    await vi.advanceTimersByTimeAsync(8_000);
+    expect(actions).toEqual(["actor-2:peek"]);
+    const count = actions.length;
+    scheduler.sync(snapshotWithStates(["idle", "idle", "idle"]), false);
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(actions).toHaveLength(count);
+    scheduler.dispose();
+    vi.useRealTimers();
+  });
+
+  it("does not restart an in-flight ambient timer after the scheduler is disabled", async () => {
+    vi.useFakeTimers();
+    let finish: (() => void) | undefined;
+    const actions: string[] = [];
+    const scheduler = new AmbientScheduler(async ({ participant, action }) => {
+      actions.push(`${participant.participantId}:${action}`);
+      await new Promise<void>((resolve) => { finish = resolve; });
+    }, undefined, { next: () => 0 });
+    scheduler.sync(snapshotWithStates(["idle", "idle"]), true);
+    await vi.advanceTimersByTimeAsync(8_000);
+    expect(actions).toHaveLength(1);
+    scheduler.sync(snapshotWithStates(["idle", "idle"]), false);
+    finish?.();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(actions).toHaveLength(1);
+    scheduler.dispose();
+    vi.useRealTimers();
+  });
+
+  it("runs at most two ambient stories with at most one mobility route", async () => {
+    vi.useFakeTimers();
+    const running: string[] = [];
+    const finish: Array<() => void> = [];
+    const scheduler = new AmbientScheduler(async ({ participant, action }) => {
+      running.push(`${participant.participantId}:${action}`);
+      await new Promise<void>((resolve) => finish.push(resolve));
+    }, undefined, { next: () => 0 });
+    const snapshot = snapshotWithStates(["idle", "idle", "idle"]);
+    snapshot.participants[0]!.ambientPreferences = [{ action: "coffee", weight: 1 }];
+    snapshot.participants[1]!.ambientPreferences = [{ action: "treadmill", weight: 1 }];
+    snapshot.participants[2]!.ambientPreferences = [{ action: "peek", weight: 1 }];
+    scheduler.sync(snapshot, true);
+    await vi.advanceTimersByTimeAsync(16_000);
+    expect(running).toHaveLength(2);
+    expect(running.filter((entry) => /coffee|treadmill|toilet/.test(entry))).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(running).toHaveLength(2);
+    finish.forEach((resolve) => resolve());
+    scheduler.dispose();
+    vi.useRealTimers();
+  });
+
+  it("uses the same bounded cadence when Main is the only ambient candidate", async () => {
+    vi.useFakeTimers();
+    const actions: string[] = [];
+    const scheduler = new AmbientScheduler(async ({ participant, action }) => { actions.push(`${participant.participantId}:${action}`); }, undefined, { next: () => 0 });
+    scheduler.sync(snapshotWithStates(["idle"]), true);
+    await vi.advanceTimersByTimeAsync(7_999);
+    expect(actions).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(actions).toEqual(["actor-0:peek"]);
+    scheduler.dispose();
+    vi.useRealTimers();
+  });
+
+  it("continues scheduling after an optional ambient action rejects", async () => {
+    vi.useFakeTimers();
+    const run = vi.fn(async () => {
+      if (run.mock.calls.length === 1) throw new Error("optional ambient asset failed");
+    });
+    const scheduler = new AmbientScheduler(run, undefined, { next: () => 0 });
+    scheduler.sync(snapshotWithStates(["idle"]), true);
+
+    await vi.advanceTimersByTimeAsync(8_000);
+    expect(run).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(8_000);
+    expect(run).toHaveBeenCalledTimes(2);
+
+    scheduler.dispose();
+    vi.useRealTimers();
+  });
+
+  it("clamps a route frame before its start to the first point", () => {
+    expect(officeRouteFrameAt([
+      { x: 10, y: 20 },
+      { x: 30, y: 40 },
+      { x: 50, y: 60 },
+    ], -0.25, 1_000)).toEqual({
+      position: { x: 10, y: 20 },
+      progress: 0,
+    });
+  });
+
+  it("does not remove a ticker from an Office application that was already retired", () => {
+    const remove = vi.fn();
+    const app = { ticker: { remove } };
+    const ticker = () => undefined;
+
+    expect(removeOfficeTickerIfCurrent(app, null, ticker, null)).toBe(false);
+    expect(remove).not.toHaveBeenCalled();
+    expect(removeOfficeTickerIfCurrent(app, app, ticker, ticker)).toBe(true);
+    expect(remove).toHaveBeenCalledOnce();
+  });
+
+  it("serializes live Main-to-Child dispatches and cancels a dispatch when its Child disappears", async () => {
+    vi.useFakeTimers();
+    const noAmbientClock = { setTimeout: () => 0, clearTimeout: () => undefined };
+    const engine = new ChoreographyEngine();
+    const actions: Array<{ participantId: string; actionId: string }> = [];
+    engine.subscribe((command) => {
+      if (command.kind === "playAction") actions.push({ participantId: command.participantId, actionId: command.actionId });
+    });
+    const director = new OfficeDirector(engine, undefined, undefined, noAmbientClock, { next: () => 0 });
+    const main = participant("main", "main", "main", "idle");
+    const childOne = participant("child-1", "child", "planning", "queued");
+    const childTwo = participant("child-2", "child", "coder", "queued");
+    director.hydrate(officeSnapshot("scope-1", [main]), false);
+    await Promise.resolve();
+    actions.length = 0;
+    director.sync(officeSnapshot("scope-1", [main, childOne, childTwo]), [
+      { kind: "participant-added", participantId: childOne.participantId, parentParticipantId: main.participantId },
+      { kind: "participant-added", participantId: childTwo.participantId, parentParticipantId: main.participantId },
+    ], false);
+    await Promise.resolve();
+    await vi.runAllTimersAsync();
+    expect(actions.filter((item) => item.actionId === "seated-talk").map((item) => item.participantId)).toEqual(["child-1", "child-2"]);
+
+    actions.length = 0;
+    const childThree = participant("child-3", "child", "auditor", "queued");
+    let notifyDispatchStarted: (() => void) | undefined;
+    const dispatchStarted = new Promise<void>((resolve) => { notifyDispatchStarted = resolve; });
+    const unsubscribe = engine.subscribe((command) => {
+      if (command.kind === "playAction" && command.participantId === "main" && command.actionId === "off-chair") notifyDispatchStarted?.();
+    });
+    director.sync(officeSnapshot("scope-1", [main, childOne, childTwo, childThree]), [
+      { kind: "participant-added", participantId: childThree.participantId, parentParticipantId: main.participantId },
+    ], false);
+    await dispatchStarted;
+    expect(actions.some((item) => item.participantId === "main" && item.actionId === "off-chair")).toBe(true);
+    director.sync(officeSnapshot("scope-1", [main, childOne, childTwo]), [
+      { kind: "participant-removed", participantId: childThree.participantId },
+    ], false);
+    await vi.runAllTimersAsync();
+    expect(actions.some((item) => item.participantId === "child-3" && item.actionId === "seated-talk")).toBe(false);
+    unsubscribe();
+    director.dispose();
+    vi.useRealTimers();
+  });
+
+  it("waits for Main ambient to return before dispatch and restores the latest canonical state", async () => {
+    vi.useFakeTimers();
+    const engine = new ChoreographyEngine();
+    const actions: Array<{ participantId: string; actionId: string }> = [];
+    engine.subscribe((command) => {
+      if (command.kind === "playAction") actions.push({ participantId: command.participantId, actionId: command.actionId });
+    });
+    const director = new OfficeDirector(engine, undefined, undefined, undefined, { next: () => 0 });
+    const main = participant("main", "main", "main", "idle");
+    const child = participant("child-1", "child", "planning", "queued");
+    director.hydrate(officeSnapshot("scope-1", [main]), false);
+    await vi.advanceTimersByTimeAsync(8_000);
+    expect(actions.at(-1)).toEqual({ participantId: "main", actionId: "peek" });
+
+    director.sync(officeSnapshot("scope-1", [main, child]), [
+      { kind: "participant-added", participantId: child.participantId, parentParticipantId: main.participantId },
+    ], false);
+    await Promise.resolve();
+    expect(actions.some((item) => item.participantId === "main" && item.actionId === "off-chair")).toBe(false);
+
+    const workingMain = { ...main, state: "working" as const };
+    director.sync(officeSnapshot("scope-1", [workingMain, child]), [
+      { kind: "state-changed", participantId: main.participantId, from: "idle", to: "working" },
+    ], false);
+    await vi.advanceTimersByTimeAsync(120_000);
+
+    expect(actions.some((item) => item.participantId === "main" && item.actionId === "off-chair")).toBe(true);
+    expect(actions.filter((item) => item.participantId === "main").at(-1)?.actionId).toBe("working");
+    director.dispose();
+    vi.useRealTimers();
+  });
+
+  it("cancels stale choreography and applies the latest state at a changed station", async () => {
+    const engine = new ChoreographyEngine();
+    const commands: Array<{ kind: string; participantId?: string; stationId?: string; profile?: string; routeId?: string; points?: Array<{ x: number; y: number }>; actionId?: string }> = [];
+    engine.subscribe((command) => { commands.push(command); });
+    const director = new OfficeDirector(engine, undefined, undefined, { setTimeout: () => 0, clearTimeout: () => undefined }, { next: () => 0 });
+    const before = participant("child-1", "child", "planning", "idle");
+    director.hydrate(officeSnapshot("scope-1", [participant("main", "main", "main", "idle"), before]), false);
+    await Promise.resolve();
+    commands.length = 0;
+
+    const after = { ...before, stationId: "coder", state: "working" as const };
+    director.sync(officeSnapshot("scope-1", [participant("main", "main", "main", "idle"), after]), [
+      { kind: "station-changed", participantId: after.participantId, fromStationId: "planning", toStationId: "coder" },
+      { kind: "state-changed", participantId: after.participantId, from: "idle", to: "working" },
+    ], false);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const coder = new OfficeCalibrationResolver().stations().find((station) => station.stationId === "coder")!;
+    expect(commands).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "setScreen", stationId: "planning", profile: "off" }),
+      expect.objectContaining({ kind: "followRoute", participantId: "child-1", routeId: "canonical-seat", points: [coder.anchors.seat] }),
+      expect.objectContaining({ kind: "playAction", participantId: "child-1", actionId: "working" }),
+      expect.objectContaining({ kind: "setScreen", stationId: "coder", profile: "orchestration" }),
+    ]));
+    expect(commands.filter((command) => command.kind === "followRoute" && command.participantId === "child-1")).toHaveLength(1);
+    director.dispose();
+  });
+
+  it("commits only the latest detached office render generation", () => {
+    const committed: string[] = [];
+    const discarded: string[] = [];
+    expect(commitLatestOfficeRender(2, 2, "new-scope", (value) => committed.push(value), (value) => discarded.push(value))).toBe(true);
+    expect(commitLatestOfficeRender(1, 2, "old-scope", (value) => committed.push(value), (value) => discarded.push(value))).toBe(false);
+    expect(committed).toEqual(["new-scope"]);
+    expect(discarded).toEqual(["old-scope"]);
+  });
+
+  it("recolors only synchronized scarf-mask pixels", () => {
+    const actor = new Uint8ClampedArray([
+      201, 100, 66, 255,
+      20, 20, 20, 255,
+      245, 238, 214, 255,
+    ]);
+    const before = actor.slice();
+    const mask = new Uint8ClampedArray([
+      255, 255, 255, 255,
+      0, 0, 0, 0,
+      0, 0, 0, 0,
+    ]);
+    applyScarfMask(actor, mask, [2, 140, 255]);
+    expect([...actor.slice(4)]).toEqual([...before.slice(4)]);
+    expect([...actor.slice(0, 3)]).not.toEqual([...before.slice(0, 3)]);
+  });
+
+  it("plays work and entertainment screens only in their truthful states", () => {
+    expect(shouldPlayScreen("working", false, "orchestration")).toBe(true);
+    expect(shouldPlayScreen("idle", false, "orchestration")).toBe(false);
+    expect(shouldPlayScreen("idle", false, "entertainment-1")).toBe(true);
+    expect(shouldPlayScreen("completed", false, "entertainment-2")).toBe(true);
+    expect(shouldPlayScreen("working", false, "entertainment-2")).toBe(false);
+    expect(shouldPlayScreen("idle", true, "entertainment-1")).toBe(false);
+  });
+});
+
+function snapshotWithStates(states: Array<"idle" | "working" | "completed">): OfficeExperienceSnapshot {
+  const stations = new OfficeCalibrationResolver().stations().slice(0, states.length);
+  return {
+    contextId: "scope-1",
+    revision: states.join("-"),
+    lifecycle: "active",
+    diagnostics: [],
+    stations,
+    participants: states.map((state, index) => ({
+      participantId: `actor-${index}`,
+      navigationId: `actor-${index}`,
+      stationId: stations[index]!.stationId,
+      parentParticipantId: index === 0 ? null : "actor-0",
+      kind: index === 0 ? "main" : "child",
+      roleId: index === 0 ? "main" : "worker",
+      label: `Actor ${index}`,
+      createdAt: `2026-07-18T00:00:0${index}Z`,
+      state,
+      scarf: index === 0 ? "main" : "coder",
+      ambientPreferences: [{ action: "peek", weight: 1 }],
+    })),
+  };
+}
+
+function participant(participantId: string, kind: "main" | "child", stationId: string, state: OfficeParticipant["state"]): OfficeParticipant {
+  return {
+    participantId,
+    navigationId: participantId,
+    stationId,
+    parentParticipantId: kind === "main" ? null : "main",
+    kind,
+    roleId: kind === "main" ? "main-agent" : `${stationId}-agent`,
+    label: participantId,
+    createdAt: `2026-07-18T00:00:0${participantId.length}Z`,
+    state,
+    scarf: kind === "main" ? "main" : "coder",
+    ambientPreferences: [{ action: "peek", weight: 1 }],
+  };
+}
+
+function officeSnapshot(contextId: string, participants: OfficeParticipant[]): OfficeExperienceSnapshot {
+  const stationIds = new Set(["main", "planning", "coder", "auditor"]);
+  return {
+    contextId,
+    revision: `${contextId}:${participants.map((item) => item.participantId).join(",")}`,
+    lifecycle: "active",
+    diagnostics: [],
+    stations: new OfficeCalibrationResolver().stations().filter((station) => stationIds.has(station.stationId)),
+    participants,
+  };
+}

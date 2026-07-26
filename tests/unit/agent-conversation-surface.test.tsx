@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { canonicalTranscriptCellsFromThreadItem } from "../../src/workbench/parent-agent-transcript.js";
 import { ResourceWorkspacePanel } from "../../src/web/src/panels/workbench/ResourceWorkspacePanel.js";
 import { AgentTranscriptPane, ParentAgentTranscriptCellView } from "../../src/web/src/panels/workbench/TranscriptReadingSurface.js";
-import type { AgentWorkspaceAgent, AssistantTurnBlock } from "../../src/web/src/types.js";
+import type { AgentSurfaceProjectionItem, AssistantTurnBlock, ParentAgentTranscript } from "../../src/web/src/types.js";
 
 afterEach(cleanup);
 
@@ -31,17 +31,17 @@ describe("Agent conversation surfaces", () => {
     const onClose = vi.fn();
     const onBack = vi.fn();
     render(<ResourceWorkspacePanel
-      workspace={{ selectedAgentId: first.id, agents: [first, second] }}
+      agents={[first, second]}
       agentTranscripts={{
-        [first.id]: first.transcript!,
-        [second.id]: second.transcript!,
+        [first.agentSurfaceId]: first.transcript,
+        [second.agentSurfaceId]: second.transcript,
       }}
       conversationId="conversation-1"
       tabs={[
-        { resourceId: `agent:${first.id}`, target: { kind: "agent", conversationId: "conversation-1", agentSurfaceId: first.id } },
-        { resourceId: `agent:${second.id}`, target: { kind: "agent", conversationId: "conversation-1", agentSurfaceId: second.id } },
+        { resourceId: `agent:${first.agentSurfaceId}`, target: { kind: "agent", conversationId: "conversation-1", agentSurfaceId: first.agentSurfaceId } },
+        { resourceId: `agent:${second.agentSurfaceId}`, target: { kind: "agent", conversationId: "conversation-1", agentSurfaceId: second.agentSurfaceId } },
       ]}
-      selectedResourceId={`agent:${first.id}`}
+      selectedResourceId={`agent:${first.agentSurfaceId}`}
       documents={{}}
       loadingResourceIds={[]}
       resourceErrors={{}}
@@ -61,9 +61,9 @@ describe("Agent conversation surfaces", () => {
     expect(within(tabs).getByRole("tab", { name: /Coder Agent 2/ })).toBeTruthy();
     expect(screen.getByText("Coder one result")).toBeTruthy();
     fireEvent.click(within(tabs).getByRole("tab", { name: /Coder Agent 2/ }));
-    expect(onSelect).toHaveBeenCalledWith(`agent:${second.id}`);
+    expect(onSelect).toHaveBeenCalledWith(`agent:${second.agentSurfaceId}`);
     fireEvent.click(screen.getByRole("button", { name: "关闭 Coder Agent 1" }));
-    expect(onClose).toHaveBeenCalledWith(`agent:${first.id}`);
+    expect(onClose).toHaveBeenCalledWith(`agent:${first.agentSurfaceId}`);
     fireEvent.click(screen.getByRole("button", { name: "返回工具列表" }));
     expect(onBack).toHaveBeenCalledOnce();
   });
@@ -171,27 +171,51 @@ describe("Agent conversation surfaces", () => {
       expanded={false}
       onToggleExpanded={vi.fn()}
       onOpenAgent={onOpenAgent}
+      canOpenAgent={() => true}
     />);
     fireEvent.click(screen.getByRole("button", { name: "Plan Agent · Sagan 正在规划" }));
     expect(onOpenAgent).toHaveBeenCalledWith("agent:codex:thread:thread-plan");
+
+    const onToggleExpanded = vi.fn();
+    rerender(<ParentAgentTranscriptCellView
+      cell={{
+        id: "unknown-child",
+        kind: "process-row",
+        source: "provider-runtime",
+        title: "Provider child activity",
+        text: "Unknown child",
+        detailText: "Diagnostic evidence",
+        activityKind: "agent",
+        targetAgentSurfaceId: "agent:codex:thread:unknown",
+      }}
+      expanded={false}
+      onToggleExpanded={onToggleExpanded}
+      onOpenAgent={onOpenAgent}
+      canOpenAgent={() => false}
+    />);
+    expect(screen.queryByText("打开")).toBeNull();
+    expect(screen.getByText("详情")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Provider child activity/ }));
+    expect(onToggleExpanded).toHaveBeenCalledOnce();
+    expect(onOpenAgent).toHaveBeenCalledTimes(1);
   });
 });
 
-function agent(id: string, providerThreadId: string, label: string, text: string): AgentWorkspaceAgent {
+type TestAgent = AgentSurfaceProjectionItem & { transcript: ParentAgentTranscript };
+
+function agent(id: string, _providerThreadId: string, label: string, text: string): TestAgent {
   return {
-    id,
+    agentSurfaceId: id,
+    kind: "agent",
     roleId: "coder-agent",
-    providerThreadId,
-    runId: `run:${providerThreadId}`,
+    parentAgentSurfaceId: "main-agent",
     label,
     status: "completed",
-    summary: text,
+    createdAt: "2026-07-18T00:00:00Z",
     transcript: {
       title: label,
       items: [],
       cells: [{ id: `${id}:message`, kind: "assistant-message", source: "provider-runtime", text }],
     },
-    evidenceRefs: [],
-    actions: [],
   };
 }

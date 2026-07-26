@@ -90,14 +90,10 @@ describe("provider adapter maintenance verification repair", () => {
       expect(store.conversations.readConversation(setup.project.id, "maintenance:change-1")).toMatchObject({ surfaceKind: "runtime" });
       expect(store.conversations.listConversations(setup.project.id).map((conversation) => conversation.conversationId))
         .not.toContain("maintenance:change-1");
-      expect(store.providerAttempts.listProviderThreads(setup.project.id, "maintenance:change-1")).toEqual([
-        expect.objectContaining({
-          providerId: "codex",
-          providerThreadId: "maintenance-thread",
-          roleId: "memory-maintenance-agent",
-          runId: expect.stringMatching(/^maintenance-/),
-        }),
-      ]);
+      expect(store.providerAttempts.listProviderThreads(setup.project.id, "maintenance:change-1")).toEqual([]);
+      expect(store.providerAttempts.listProviderAttempts(setup.project.id, "maintenance:change-1")).toEqual(expect.arrayContaining([
+        expect.objectContaining({ providerId: "codex", roleId: "memory-maintenance-agent", status: "completed", nativeSessionId: "maintenance-thread" }),
+      ]));
       const terminalRows = store.timeline.listConversationMessages(setup.project.id, "maintenance:change-1");
       expect(terminalRows).toHaveLength(2);
       expect(terminalRows.every((row) => Boolean(row.threadId && row.turnId && row.itemId))).toBe(true);

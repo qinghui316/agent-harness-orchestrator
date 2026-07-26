@@ -12,7 +12,6 @@ import { answerClarification, reanalyzeIntake, runIntakeScan } from "../../src/w
 import { deleteWorkbenchConversation, getWorkbenchSnapshot, getWorkbenchStream, getWorkbenchTopic, listWorkbenchRoles, listWorkbenchTopics } from "../../src/workbench/projections/read-model/implementation.js";
 import { getCanonicalTimelinePage } from "../../src/workbench/canonical-timeline-query.js";
 import { openWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
-import { bindProviderThreadFixture } from "../helpers/provider-thread-fixture.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { createAgentTask } from "../../src/agent-task/manager.js";
 import { alignDecisionInspectorWithConfirmationPrimary, buildDecisionInspector } from "../../src/workbench/projections/read-model/decision-inspector.js";
@@ -216,7 +215,7 @@ describe("workbench read-model projections", () => {
     expect(snapshot.center.selectedTopic?.change).toBeNull();
     expect(snapshot.right.confirmationQueue.primary).toBeNull();
     expect(snapshot.right.confirmationQueue.current).toEqual([]);
-    expect(snapshot.right.agentWorkspace.agents).toEqual([]);
+    expect(snapshot.right).not.toHaveProperty("agentWorkspace");
     expect(existsSync(join(getTempDir(), "harness", "changes", "active", conversation.conversationId))).toBe(false);
   });
 
@@ -526,41 +525,18 @@ describe("workbench read-model projections", () => {
     );
     expect(JSON.stringify(automationInternalSnapshot.right.confirmationQueue)).not.toContain("planning.confirm-execution");
     expect(JSON.stringify(automationInternalSnapshot.right.confirmationQueue)).not.toContain("planning.generate");
-    expect(JSON.stringify(automationInternalSnapshot.right.agentWorkspace)).not.toContain("latest-bundle");
-    expect(JSON.stringify(automationInternalSnapshot.right.agentWorkspace)).not.toContain("stale generated planning bundle");
-    expect(automationInternalSnapshot.right.agentWorkspace.agents.find((agent) => agent.id === "planning-agent")).toBeUndefined();
+    expect(automationInternalSnapshot.right).not.toHaveProperty("agentWorkspace");
 
     snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
 
     expect(JSON.stringify(snapshot.right.confirmationQueue)).not.toContain("planning.confirm-execution");
     expect(JSON.stringify(snapshot.right.confirmationQueue)).not.toContain("planning.generate");
-    expect(JSON.stringify(snapshot.right.agentWorkspace)).not.toContain("latest-bundle");
-    expect(JSON.stringify(snapshot.right.agentWorkspace)).not.toContain("stale generated planning bundle");
-    expect(snapshot.right.agentWorkspace.agents.find((agent) => agent.id === "planning-agent")).toBeUndefined();
+    expect(snapshot.right).not.toHaveProperty("agentWorkspace");
   });
 
-  it("keeps persisted planning-agent output out of the main transcript and restores it in the Agent workspace", async () => {
+  it("keeps persisted planning-agent output out of the Main snapshot transcript", async () => {
     await initHarness(project());
     const topic = await createConversationChangeFixture(project(), { title: "Planning Agent Transcript", body: "Create a reviewable plan." });
-    const memory = await resolveProjectMemory(project());
-    const store = await openWorkbenchDatabase(memory);
-    try {
-      bindProviderThreadFixture(store, {
-        projectId: project().id,
-        conversationId: topic.conversationId,
-        providerId: "codex",
-        providerThreadId: "thread-planning-agent",
-        roleId: "planning-agent",
-        parentThreadId: "thread-main",
-        changeId: topic.changeId,
-        graphScopeId: store.conversations.readConversation(project().id, topic.conversationId)?.currentGraphScopeId ?? null,
-        capabilityProfile: "planner-child-v1",
-        runId: "run-planning-agent",
-        updatedAt: "2026-07-02T10:00:00.000Z",
-      });
-    } finally {
-      store.close();
-    }
     await appendCanonicalTimelineEntry(project(), topic.changeId, {
       type: "assistant.message",
       status: "planning-agent-generated",
@@ -588,11 +564,8 @@ describe("workbench read-model projections", () => {
     });
 
     const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: topic.changeId });
-    const planningAgent = snapshot.right.agentWorkspace.agents.find((agent) => agent.roleId === "planning-agent");
-
     expect(snapshot.center).not.toHaveProperty("parentAgentTranscript");
-    expect(planningAgent).not.toHaveProperty("transcript");
-    expect(planningAgent?.clarifications).toBeUndefined();
+    expect(snapshot.right).not.toHaveProperty("agentWorkspace");
   });
 
   it("projects bound Change execution state through the Conversation shell", async () => {
@@ -622,8 +595,6 @@ describe("workbench read-model projections", () => {
     }
 
     const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: conversation.conversationId });
-    const planningAgent = snapshot.right.agentWorkspace.agents.find((agent) => agent.id === "planning-agent");
-
     expect(snapshot.center.selectedTopic).toMatchObject({
       id: conversation.conversationId,
       kind: "conversation",
@@ -656,10 +627,7 @@ describe("workbench read-model projections", () => {
         if (action.kind !== "none") expect(action.changeId).toBe(topic.changeId);
       }
     }
-    expect(planningAgent).toBeUndefined();
-    expect(JSON.stringify(snapshot.right.agentWorkspace)).not.toContain("planningBundle");
-    expect(JSON.stringify(snapshot.right.agentWorkspace)).not.toContain("planning.confirm-execution");
-    expect(JSON.stringify(snapshot.right.agentWorkspace)).not.toContain("BOUND CHILD PLAN BODY");
+    expect(snapshot.right).not.toHaveProperty("agentWorkspace");
   });
 
   it("prefers persisted assistant blocks over duplicate activity when rebuilding the thread", async () => {
@@ -723,7 +691,7 @@ describe("workbench read-model projections", () => {
     expect(snapshot.center.workpad.intake.pendingClarifications).toHaveLength(0);
     expect(snapshot.center.workpad.nextAction).toMatchObject({ actionType: "intake.reanalyze", enabled: false });
     expect(JSON.stringify(snapshot.right.confirmationQueue)).not.toContain("planning.generate");
-    expect(JSON.stringify(snapshot.right.agentWorkspace)).not.toContain("planning.generate");
+    expect(snapshot.right).not.toHaveProperty("agentWorkspace");
     expect(snapshot.center.thread.items).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "intake-summary", label: "需求分析" }),
       expect.objectContaining({ kind: "clarification", label: "需要确认" }),

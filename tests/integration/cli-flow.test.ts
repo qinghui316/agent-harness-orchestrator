@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createProgram } from "../../src/cli/program.js";
 import { writeChangeIndex } from "../../src/ecl/index.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
+import { defaultProviderRegistry } from "../../src/provider-runtime/default-registry.js";
 import { getSpecTestStatus } from "../../src/spec-test/manager.js";
 import { getSpecTestDriftReport } from "../../src/spec-test/drift.js";
 import { getWorkbenchSnapshot, getWorkbenchStream, listWorkbenchApprovals } from "../../src/workbench/projections/read-model/implementation.js";
@@ -67,6 +68,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  await defaultProviderRegistry.shutdownAll("CLI integration fixture cleanup.");
   delete process.env.AHO_HOME;
   process.env.CODEX_HOME = originalCodexHome;
   if (originalCodexBin === undefined) delete process.env.AHO_CODEX_BIN;
@@ -771,6 +773,7 @@ type FakeCodexMode =
   | "chat-session";
 
 async function installFakeCodex(mode: FakeCodexMode): Promise<void> {
+  await defaultProviderRegistry.shutdownAll(`Switch CLI integration fake Codex to ${mode}.`);
   const binDir = join(tempDir, "bin");
   await mkdir(binDir, { recursive: true });
   const scriptPath = join(binDir, "fake-codex.cjs");

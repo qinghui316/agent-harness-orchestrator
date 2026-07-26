@@ -1,7 +1,9 @@
 import { existsSync } from "node:fs";
+import { execFile } from "node:child_process";
 import { mkdtemp, mkdir, rm, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { auditHarness } from "../../src/harness/audit.js";
 import { ensureProjectRuntime, initHarness } from "../../src/harness/init.js";
@@ -10,6 +12,20 @@ import type { ManagedProject } from "../../src/types/index.js";
 
 let tempDir: string;
 let originalAhoHome: string | undefined;
+const execFileAsync = promisify(execFile);
+
+async function runHarnessEvolve(root: string, command: "check" | "mark-complete" | "status") {
+  return execFileAsync("powershell", [
+    "-NoProfile",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    join(process.cwd(), "scripts", "harness-evolve.ps1"),
+    command,
+    "-HarnessRoot",
+    root,
+  ]);
+}
 
 beforeEach(async () => {
   tempDir = await mkdtemp(join(tmpdir(), "aho-harness-"));
@@ -139,5 +155,46 @@ describe("harness", () => {
     expect(index.parking[0]?.name).toBe("two");
     expect(index.archive[0]?.name).toBe("three");
     expect(JSON.parse(raw)).toMatchObject({ active: [{ name: "one" }] });
+  });
+
+  it("counts only non-Evolution archives in each Harness evolution window", async () => {
+    const archiveRoot = join(tempDir, "harness", "changes", "archive");
+    const evolutionRoot = join(tempDir, "harness", "evolution");
+    await mkdir(archiveRoot, { recursive: true });
+    await mkdir(evolutionRoot, { recursive: true });
+    await writeFile(join(evolutionRoot, "state.json"), JSON.stringify({
+      version: "2.0",
+      archive_threshold: 5,
+      last_completed_candidate_archive_count: 0,
+      last_completed_at: null,
+    }), "utf8");
+
+    for (let index = 1; index <= 5; index += 1) {
+      await mkdir(join(archiveRoot, `2026070${index}-product-${index}`));
+    }
+
+    await runHarnessEvolve(tempDir, "mark-complete");
+    await mkdir(join(archiveRoot, "20260706-auto-evolve-harness-window-v1"));
+
+    const status = await runHarnessEvolve(tempDir, "status");
+    expect(status.stdout).toContain("Candidate archive changes: 5");
+    expect(status.stdout).toContain("Total archive changes: 6");
+    expect(status.stdout).toContain("Last completed candidate archive count: 5");
+
+    const noPending = await runHarnessEvolve(tempDir, "check");
+    expect(noPending.stdout).toContain("No pending evolution. 0 candidate archives");
+    expect(existsSync(join(evolutionRoot, "pending.md"))).toBe(false);
+
+    for (let index = 6; index <= 10; index += 1) {
+      await mkdir(join(archiveRoot, `202607${index}-product-${index}`));
+    }
+
+    await runHarnessEvolve(tempDir, "check");
+    const pending = await readFile(join(evolutionRoot, "pending.md"), "utf8");
+    expect(pending).toContain("Generated because 5 candidate archives");
+    expect(pending).toContain("2026076-product-6");
+    expect(pending).toContain("20260710-product-10");
+    expect(pending).not.toContain("product-5");
+    expect(pending).not.toContain("auto-evolve-harness-window-v1");
   });
 });

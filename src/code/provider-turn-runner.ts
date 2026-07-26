@@ -137,6 +137,7 @@ export async function runProviderCodeTurn(input: {
           attemptId: run.id,
           threadId: realtime.threadId,
           parentThreadId: realtime.parentThreadId,
+          parentAgentSurfaceId: realtime.parentThreadId ? undefined : "main-agent",
           displayName: realtime.displayName,
         }));
       }

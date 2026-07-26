@@ -75,6 +75,7 @@ export function mapProviderThreadRow(row: SqliteRow): StoredProviderThreadLink {
     providerThreadId: String(row.providerThreadId),
     roleId: String(row.roleId),
     parentThreadId: nullableString(row.parentThreadId),
+    parentAgentSurfaceId: nullableString(row.parentAgentSurfaceId),
     changeId: nullableString(row.changeId),
     graphScopeId: nullableString(row.graphScopeId),
     capabilityProfile: nullableString(row.capabilityProfile),
@@ -117,7 +118,7 @@ export function mapProviderAttemptRow(row: SqliteRow): StoredProviderAttempt {
     handoffHash: String(row.handoffHash),
     deliveredThroughCompletedTurn: Number(row.deliveredThroughCompletedTurn),
     worktreeId: nullableString(row.worktreeId),
-    status: status === "queued" || status === "running" || status === "completed" || status === "interrupted" || status === "blocked" ? status : "failed",
+    status: status === "queued" || status === "running" || status === "completed" || status === "interrupted" || status === "blocked" || status === "terminated" ? status : "failed",
     createdAt: String(row.createdAt),
     updatedAt: String(row.updatedAt),
   };

@@ -8,7 +8,7 @@ import {
   type PointerEvent as ReactPointerEvent } from "react";
 import { fetchJson } from "./api.js";
 import { MainConversationView,
-  AgentRelationGraphPanel,
+  AgentOfficePanel,
   RightToolRailShell,
   DecisionInspectorPane,
   BottomStatusBar,
@@ -68,7 +68,8 @@ import { useMainConversationViewport } from "./controllers/useMainConversationVi
 import { useWorkspaceResourceController } from "./controllers/useWorkspaceResourceController.js";
 import { useProviderConfigurationController } from "./controllers/useProviderConfigurationController.js";
 import { useConversationActionController } from "./controllers/useConversationActionController.js";
-import { useAgentGraphController } from "./controllers/useAgentGraphController.js";
+import { useAgentSurfaceController } from "./controllers/useAgentSurfaceController.js";
+import { OfficeLoadingScreen } from "./office/OfficeLoadingScreen.js";
 import {
   useConversationComposerController,
   type ComposerActionRequest,
@@ -156,8 +157,6 @@ export function App(): ReactElement {
   const selectedProjectId = session.selectedProjectId;
   const snapshot = session.snapshot;
   const selectedTopic = session.selectedTopic;
-  const selectedRun = session.selectedRun;
-  const stream = session.stream;
   const expandedProjects = session.expandedProjects;
   const projectSnapshots = session.projectSnapshots;
   const pendingDemandConversation = session.pendingDemandConversation;
@@ -405,11 +404,12 @@ export function App(): ReactElement {
 
   function openChildAgentWorkspace(agentSurfaceId: string): void {
     if (!agentSurfaceId || agentSurfaceId === "main-agent") return;
+    const registered = agentSurfaces.surfaces.some((surface) => surface.kind === "agent" && surface.agentSurfaceId === agentSurfaceId);
+    if (!registered) return;
     const conversationId = activeTopic?.id;
     if (!conversationId || !selectedProjectId) return;
     openWorkspaceResource({ kind: "agent", conversationId, agentSurfaceId });
     void timeline.loadLatest({ projectId: selectedProjectId, conversationId, agentSurfaceId });
-    agentGraph.waitForAgentSurface(agentSurfaceId);
   }
 
   function openWorkspaceResource(target: WorkspaceResourceTarget): void {
@@ -490,7 +490,6 @@ export function App(): ReactElement {
   const composerProviderOptions = providerCapabilities.map((provider) => ({ id: provider.providerId, label: provider.displayName }));
   const isPendingTopic = Boolean(activePendingConversation && !activePendingConversation.canonical);
   const activeWorkpad = activePendingConversation ? emptyWorkpad(activePendingConversation.title) : snapshot.center.workpad ?? emptyWorkpad(activeTopic?.title ?? projectDisplayName(snapshot.project));
-  const activeRun = useMemo(() => snapshot.center.agentLoop.runs.find((run) => run.id === selectedRun) ?? snapshot.center.agentLoop.runs[0], [snapshot, selectedRun]);
   const selectedProjectStatus = useMemo(() => projects.find((item) => item.project?.id === selectedProjectId) ?? null, [projects, selectedProjectId]);
   const selectedProjectHistoryUnavailable = Boolean(selectedProjectStatus?.managed && selectedProjectStatus.memory?.memoryAvailable === false);
   const composer = useConversationComposerController({
@@ -571,39 +570,32 @@ export function App(): ReactElement {
     };
   }, [selectedDecisionContextId, snapshot.right.decisionInspector]);
   const activeConfirmationQueue = snapshot.right.confirmationQueue ?? { primary: null, current: [], otherDemands: [], maintenance: [], history: [] };
-  const activeAgentWorkspace = snapshot.right.agentWorkspace ?? { selectedAgentId: "planning-agent", agents: [] };
-  const agentGraph = useAgentGraphController({
+  const agentSurfaces = useAgentSurfaceController({
     projectId: selectedProjectId,
     conversationId: activeTopic?.id ?? null,
-    graphViewOpen: orchestrationOpen,
-    snapshotGraph: snapshot.center.agentRelationGraph,
-    snapshotWorkspace: activeAgentWorkspace,
-    invalidationToken: projectionVersion,
+    officeViewOpen: orchestrationOpen,
     ports: {
-      updateSessionProjection: ({ graph, workspace }) => session.updateSnapshot((current) => ({
-        ...current,
-        center: { ...current.center, agentRelationGraph: graph },
-        right: { ...current.right, agentWorkspace: workspace },
-      })),
       cleanupResources: workspaceResources.cleanupTransition,
       openAgentSurface: ({ conversationId, agentSurfaceId }) => {
         openWorkspaceResource({ kind: "agent", conversationId, agentSurfaceId });
         if (selectedProjectId) void timeline.loadLatest({ projectId: selectedProjectId, conversationId, agentSurfaceId });
+        if (globalThis.matchMedia?.("(max-width: 720px)").matches) closeOrchestrationOverlay();
       },
-      closeGraphView: closeOrchestrationOverlay,
+      closeOfficeView: closeOrchestrationOverlay,
     },
   });
+  const activeAgentSurfaces = agentSurfaces.surfaces.filter((surface) => surface.kind !== "main-agent");
   const activeAgentTranscripts = useMemo<Record<string, ParentAgentTranscript>>(() => {
     if (!selectedProjectId || !activeTopic?.id) return {};
-    return Object.fromEntries(activeAgentWorkspace.agents.map((agent) => [
-      agent.id,
+    return Object.fromEntries(activeAgentSurfaces.map((agent) => [
+      agent.agentSurfaceId,
       selectCanonicalTimelineTranscript(timeline.state, {
         projectId: selectedProjectId,
         conversationId: activeTopic.id,
-        agentSurfaceId: agent.id,
+        agentSurfaceId: agent.agentSurfaceId,
       }),
     ]));
-  }, [activeAgentWorkspace.agents, activeTopic?.id, selectedProjectId, timeline.state]);
+  }, [activeAgentSurfaces, activeTopic?.id, selectedProjectId, timeline.state]);
   const projectionStream = useWorkbenchProjectionStream(selectedProjectId, {
     timeline: {
       patch: (projectId, envelope) => {
@@ -637,9 +629,11 @@ export function App(): ReactElement {
         session.acceptSnapshot(projectId, next);
       },
     },
-    graph: {
-      invalidate: ({ projectId }) => {
-        if (selectedProjectIdRef.current === projectId) agentGraph.refreshProjection();
+    agentSurfaces: {
+      invalidate: ({ projectId, conversationId, graphScopeId, reason }) => {
+        if (selectedProjectIdRef.current === projectId) {
+          agentSurfaces.invalidate({ conversationId, graphScopeId, reason });
+        }
       },
     },
     error: {
@@ -652,6 +646,7 @@ export function App(): ReactElement {
     onConnected: (projectId) => {
       const conversationId = activeTopic?.id;
       if (!conversationId || isPendingTopic) return;
+      agentSurfaces.invalidate({ conversationId, reason: "snapshot" });
       for (const scope of canonicalTimelineReconnectScopes(projectId, conversationId, workspaceResourceTabs)) {
         void timeline.loadLatest(scope);
       }
@@ -689,8 +684,7 @@ export function App(): ReactElement {
   const pendingConfirmationCount = (activeConfirmationQueue.primary ? 1 : 0)
     + activeConfirmationQueue.otherDemands.length
     + activeConfirmationQueue.maintenance.length;
-  const activeAgentGraph = agentGraph.graph;
-  const selectedAgentGraphNode = agentGraph.selectedNode;
+  const officeSurfaceProjection = agentSurfaces.projection;
   const providerModelLabel = providerModelSettings?.effectiveModel?.modelId
     || providerDiagnostics?.models.effectiveModel?.modelId
     || "默认模型";
@@ -711,8 +705,8 @@ export function App(): ReactElement {
     setRightToolView(tab);
     if (tab === "agent") {
       if (!selectedWorkspaceResourceId && workspaceResourceTabs.length === 0) {
-        const agentId = activeAgentWorkspace.agents.find((agent) => agent.status === "running")?.id
-          ?? activeAgentWorkspace.agents[0]?.id;
+        const agentId = activeAgentSurfaces.find((agent) => agent.status === "running")?.agentSurfaceId
+          ?? activeAgentSurfaces[0]?.agentSurfaceId;
         if (agentId) openChildAgentWorkspace(agentId);
       }
     }
@@ -762,7 +756,7 @@ export function App(): ReactElement {
 
   return (
     <div
-      className={`app-shell ${settingsOpen ? "settings-open" : decisionPaneCollapsed ? "decision-pane-collapsed" : "decision-pane-expanded"} sidebar-expanded`}
+      className={`app-shell ${settingsOpen ? "settings-open" : decisionPaneCollapsed ? "decision-pane-collapsed" : "decision-pane-expanded"} sidebar-expanded${orchestrationOpen ? " orchestration-open" : ""}`}
       style={appShellStyle}
     >
       {!settingsOpen ? (
@@ -872,25 +866,22 @@ export function App(): ReactElement {
               </div>
             </header>
 
-            <section className={`center-grid${orchestrationOpen ? " agent-graph-center-grid" : ""}`}>
+            <section className={`center-grid${orchestrationOpen ? " agent-office-center-grid" : ""}`}>
               {orchestrationOpen ? (
-                <div className="agent-graph-center-view" data-testid="agent-graph-center-view">
-                  {(agentGraph.loadState === "idle" || agentGraph.loadState === "loading") && activeAgentGraph.nodes.length === 0 ? (
-                    <div className="agent-graph-view-state" role="status">正在加载 Agent 关系...</div>
-                  ) : agentGraph.loadState === "error" ? (
-                    <div className="agent-graph-view-state error" role="alert">
-                      <strong>Agent 关系加载失败</strong>
-                      <span>{agentGraph.loadError ?? "请稍后重试。"}</span>
-                      <button type="button" className="outline-button" onClick={agentGraph.reload}>重试</button>
+                <div className="agent-office-center-view" data-testid="agent-office-center-view">
+                  {(agentSurfaces.loadState === "idle" || agentSurfaces.loadState === "loading") && !officeSurfaceProjection ? (
+                    <OfficeLoadingScreen progress={agentSurfaces.loadState === "loading" ? 18 : 8} />
+                  ) : agentSurfaces.loadState === "error" || !officeSurfaceProjection || !selectedProjectId ? (
+                    <div className="agent-office-view-state error" role="alert">
+                      <strong>Agent 办公室加载失败</strong>
+                      <span>{agentSurfaces.loadError ?? "请稍后重试。"}</span>
+                      <button type="button" className="outline-button" onClick={agentSurfaces.reload}>重试</button>
                     </div>
                   ) : (
-                    <AgentRelationGraphPanel
-                      graph={activeAgentGraph}
-                      selectedNode={selectedAgentGraphNode}
-                      activeRun={activeRun}
-                      stream={stream}
-                      onSelectNode={agentGraph.selectNode}
-                      onSelectRun={(runId) => void chooseRun(runId)}
+                    <AgentOfficePanel
+                      projectId={selectedProjectId}
+                      projection={officeSurfaceProjection}
+                      onOpenSurface={(agentSurfaceId) => agentSurfaces.openExactSurface(agentSurfaceId, officeSurfaceProjection.graphScopeId)}
                     />
                   )}
                 </div>
@@ -907,6 +898,7 @@ export function App(): ReactElement {
                     scrollContainerRef={mainViewport.scrollContainerRef}
                     loadingEarlierTranscript={loadingEarlierTranscript}
                     onOpenAgent={openChildAgentWorkspace}
+                    canOpenAgent={(agentSurfaceId) => agentSurfaces.surfaces.some((surface) => surface.kind === "agent" && surface.agentSurfaceId === agentSurfaceId)}
                     onOpenDocument={(document: CanonicalDocumentReference) => {
                       if (!activeTopic?.id) return;
                       openWorkspaceResource({ kind: "document", conversationId: activeTopic.id, documentId: document.documentId });
@@ -971,7 +963,7 @@ export function App(): ReactElement {
         </div>
         {!settingsOpen ? <WorkspaceDockToggleBar
           orchestrationActive={orchestrationOpen}
-          orchestrationNeedsAttention={activeAgentGraph.nodes.some((node) => node.status === "waiting-user")}
+          orchestrationNeedsAttention={agentSurfaces.surfaces.some((surface) => surface.status === "waiting-user")}
           orchestrationDisabled={!activeTopic?.id}
           onToggleOrchestration={toggleOrchestrationOverlay}
           terminalActive={bottomDockKind === "terminal"}
@@ -1007,7 +999,7 @@ export function App(): ReactElement {
         onBackToLauncher={() => setRightToolView("launcher")}
         agentPanel={
           <ResourceWorkspacePanel
-            workspace={activeAgentWorkspace}
+            agents={activeAgentSurfaces}
             agentTranscripts={activeAgentTranscripts}
             conversationId={activeTopic?.id ?? ""}
             tabs={workspaceResourceTabs}
@@ -1096,7 +1088,7 @@ export function App(): ReactElement {
 
 function isOrchestrationTabParam(value: string | null): boolean {
   const normalized = value?.trim().toLowerCase();
-  return normalized === "orchestration" || normalized === "agentgraph" || normalized === "agent-graph";
+  return normalized === "orchestration";
 }
 
 function syncWorkbenchOrchestrationTab(open: boolean): void {

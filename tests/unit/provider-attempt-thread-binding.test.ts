@@ -7,6 +7,7 @@ import { repoLocalMemory } from "../../src/memory/resolver.js";
 import type { ProviderCapabilitySnapshot } from "../../src/provider-runtime/index.js";
 import { bindProviderAttemptThread, finishProviderAttempt, startProviderAttempt } from "../../src/workbench/provider-attempts.js";
 import { openWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
+import { subscribeProjectLiveEvents } from "../../src/workbench/project-live-events.js";
 
 let root: string;
 const projectId = "provider-thread-owner";
@@ -21,20 +22,24 @@ afterEach(async () => {
 });
 
 describe("ProviderAttempt-owned thread binding", () => {
-  it("uses schema 8 and binds idempotently from attempt-owned facts", async () => {
+  it("uses schema 9 and binds an independent worker to explicit Main lineage", async () => {
     const memory = repoLocalMemory(root, projectId);
     await seedConversation(memory);
     await startAttempt(memory, "attempt-1");
+    const invalidations: unknown[] = [];
+    const unsubscribe = subscribeProjectLiveEvents(projectId, (event) => invalidations.push(event));
 
     const first = await bindProviderAttemptThread(memory, {
       attemptId: "attempt-1",
       threadId: "thread-1",
+      parentAgentSurfaceId: "main-agent",
       displayName: "Coder",
     });
     const second = await bindProviderAttemptThread(memory, {
       attemptId: "attempt-1",
       threadId: "thread-1",
     });
+    unsubscribe();
 
     expect(first).toMatchObject({
       projectId,
@@ -43,11 +48,16 @@ describe("ProviderAttempt-owned thread binding", () => {
       providerId: "codex",
       providerThreadId: "thread-1",
       roleId: "coder-agent",
+      parentAgentSurfaceId: "main-agent",
       changeId: "change-1",
       graphScopeId: "graph-1",
       runId: "attempt-1",
     });
     expect(second.displayName).toBe("Coder");
+    expect(invalidations).toEqual([
+      expect.objectContaining({ event: "agent-surfaces.invalidated", data: expect.objectContaining({ reason: "thread-bound" }) }),
+      expect.objectContaining({ event: "agent-surfaces.invalidated", data: expect.objectContaining({ reason: "thread-bound" }) }),
+    ]);
     const store = await openWorkbenchDatabase(memory);
     try {
       expect(store.providerAttempts.listProviderThreads(projectId, "conversation-1")).toHaveLength(1);
@@ -56,9 +66,10 @@ describe("ProviderAttempt-owned thread binding", () => {
       store.close();
     }
     const db = new Database(memory.workbenchDbPath, { readonly: true });
-    expect(db.pragma("user_version", { simple: true })).toBe(8);
+    expect(db.pragma("user_version", { simple: true })).toBe(9);
     expect(db.prepare("PRAGMA table_info(provider_thread_links)").all()).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "attempt_id", notnull: 1 }),
+      expect.objectContaining({ name: "parent_agent_surface_id" }),
     ]));
     db.close();
   });
@@ -66,27 +77,33 @@ describe("ProviderAttempt-owned thread binding", () => {
   it("fails closed when one attempt changes threads or thread lineage changes", async () => {
     const memory = repoLocalMemory(root, projectId);
     await seedConversation(memory);
+    await seedMainThread(memory);
     await startAttempt(memory, "attempt-1");
-    await bindProviderAttemptThread(memory, { attemptId: "attempt-1", threadId: "thread-1", parentThreadId: "parent-1" });
+    await bindProviderAttemptThread(memory, { attemptId: "attempt-1", threadId: "thread-1", parentThreadId: "main-thread" });
 
-    await expect(bindProviderAttemptThread(memory, { attemptId: "attempt-1", threadId: "thread-2", parentThreadId: "parent-1" }))
+    await expect(bindProviderAttemptThread(memory, { attemptId: "attempt-1", threadId: "thread-2", parentThreadId: "main-thread" }))
       .rejects.toThrow("already bound to another thread");
     await startAttempt(memory, "attempt-2");
-    await expect(bindProviderAttemptThread(memory, { attemptId: "attempt-2", threadId: "thread-1", parentThreadId: "parent-2" }))
-      .rejects.toThrow("different lineage");
+    await expect(bindProviderAttemptThread(memory, {
+      attemptId: "attempt-2",
+      threadId: "thread-1",
+      parentThreadId: "main-thread",
+      parentAgentSurfaceId: "agent:codex:thread:not-main",
+    })).rejects.toThrow("conflicts with canonical Agent surface lineage");
   });
 
   it("resumes the same provider thread by transferring ownership to the new attempt", async () => {
     const memory = repoLocalMemory(root, projectId);
     await seedConversation(memory);
+    await seedMainThread(memory);
     await startAttempt(memory, "attempt-1");
-    await bindProviderAttemptThread(memory, { attemptId: "attempt-1", threadId: "thread-1", parentThreadId: "parent-1" });
+    await bindProviderAttemptThread(memory, { attemptId: "attempt-1", threadId: "thread-1", parentThreadId: "main-thread" });
     await startAttempt(memory, "attempt-2");
 
     const resumed = await bindProviderAttemptThread(memory, {
       attemptId: "attempt-2",
       threadId: "thread-1",
-      parentThreadId: "parent-1",
+      parentThreadId: "main-thread",
       displayName: "Resumed coder",
     });
 
@@ -94,8 +111,9 @@ describe("ProviderAttempt-owned thread binding", () => {
     await finishProviderAttempt(memory, "attempt-2", "completed", "thread-1");
     const store = await openWorkbenchDatabase(memory);
     try {
-      expect(store.providerAttempts.listProviderThreads(projectId, "conversation-1")).toHaveLength(1);
-      expect(store.providerAttempts.listProviderThreads(projectId, "conversation-1")[0]?.parentThreadId).toBe("parent-1");
+      const childLinks = store.providerAttempts.listProviderThreads(projectId, "conversation-1").filter((link) => link.roleId !== "main-agent");
+      expect(childLinks).toHaveLength(1);
+      expect(childLinks[0]?.parentAgentSurfaceId).toBe("main-agent");
       expect(store.providerAttempts.listProviderAttempts(projectId, "conversation-1").find((attempt) => attempt.attemptId === "attempt-2")).toMatchObject({
         nativeSessionId: "thread-1",
         status: "completed",
@@ -105,22 +123,84 @@ describe("ProviderAttempt-owned thread binding", () => {
     }
   });
 
+  it("moves accepted Main and Planning thread links with their owning Attempts", async () => {
+    const memory = repoLocalMemory(root, projectId);
+    await seedConversation(memory);
+    await seedMainThread(memory);
+    await startProviderAttempt(memory, {
+      attemptId: "attempt-plan",
+      providerId: "codex",
+      capabilitySnapshot: capabilities,
+      operationProfile: "planning",
+      roleId: "planning-agent",
+      handoffHash: "handoff-plan",
+      conversationId: "conversation-1",
+      changeId: "change-1",
+      graphScopeId: "graph-1",
+    });
+    await bindProviderAttemptThread(memory, {
+      attemptId: "attempt-plan",
+      threadId: "thread-plan",
+      parentThreadId: "main-thread",
+    });
+
+    const store = await openWorkbenchDatabase(memory);
+    try {
+      store.unitOfWork.moveConversationRunToGraphScope(
+        projectId,
+        "conversation-1",
+        "run-plan",
+        "thread-plan",
+        "graph-2",
+        "2026-07-25T00:00:00.000Z",
+      );
+      expect(store.providerAttempts.listProviderThreads(projectId, "conversation-1")).toEqual(expect.arrayContaining([
+        expect.objectContaining({ providerThreadId: "main-thread", graphScopeId: "graph-2" }),
+        expect.objectContaining({ providerThreadId: "thread-plan", graphScopeId: "graph-2" }),
+      ]));
+      expect(store.providerAttempts.readProviderAttempt(projectId, "attempt-main")?.graphScopeId).toBe("graph-2");
+      expect(store.providerAttempts.readProviderAttempt(projectId, "attempt-plan")?.graphScopeId).toBe("graph-2");
+    } finally {
+      store.close();
+    }
+  });
+
   it("uses the terminal native session as a fallback binding", async () => {
     const memory = repoLocalMemory(root, projectId);
     await seedConversation(memory);
+    await seedMainThread(memory);
     await startAttempt(memory, "attempt-terminal");
 
     await finishProviderAttempt(memory, "attempt-terminal", "completed", "thread-terminal", {
-      parentThreadId: "parent-terminal",
+      parentThreadId: "main-thread",
       displayName: "Terminal coder",
     });
 
     const store = await openWorkbenchDatabase(memory);
     try {
-      expect(store.providerAttempts.listProviderThreads(projectId, "conversation-1")).toEqual([
-        expect.objectContaining({ attemptId: "attempt-terminal", providerThreadId: "thread-terminal", parentThreadId: "parent-terminal" }),
+      expect(store.providerAttempts.listProviderThreads(projectId, "conversation-1").filter((link) => link.roleId !== "main-agent")).toEqual([
+        expect.objectContaining({ attemptId: "attempt-terminal", providerThreadId: "thread-terminal", parentAgentSurfaceId: "main-agent" }),
       ]);
-      expect(store.providerAttempts.listProviderAttempts(projectId, "conversation-1")[0]).toMatchObject({ status: "completed", nativeSessionId: "thread-terminal" });
+      expect(store.providerAttempts.listProviderAttempts(projectId, "conversation-1").find((attempt) => attempt.attemptId === "attempt-terminal"))
+        .toMatchObject({ status: "completed", nativeSessionId: "thread-terminal" });
+    } finally {
+      store.close();
+    }
+  });
+
+  it("fails closed when a terminal non-Main thread has no exact parent lineage", async () => {
+    const memory = repoLocalMemory(root, projectId);
+    await seedConversation(memory);
+    await seedMainThread(memory);
+    await startAttempt(memory, "attempt-orphan-terminal");
+
+    await expect(finishProviderAttempt(memory, "attempt-orphan-terminal", "completed", "thread-orphan"))
+      .rejects.toThrow("Top-level model worker requires explicit main-agent parent lineage");
+
+    const store = await openWorkbenchDatabase(memory);
+    try {
+      expect(store.providerAttempts.listProviderThreads(projectId, "conversation-1").some((link) => link.providerThreadId === "thread-orphan")).toBe(false);
+      expect(store.providerAttempts.readProviderAttempt(projectId, "attempt-orphan-terminal")?.status).toBe("running");
     } finally {
       store.close();
     }
@@ -192,5 +272,25 @@ async function startAttempt(memory: ReturnType<typeof repoLocalMemory>, attemptI
     conversationId: "conversation-1",
     changeId: "change-1",
     graphScopeId: "graph-1",
+  });
+}
+
+async function seedMainThread(memory: ReturnType<typeof repoLocalMemory>): Promise<void> {
+  await startProviderAttempt(memory, {
+    attemptId: "attempt-main",
+    providerId: "codex",
+    capabilitySnapshot: capabilities,
+    operationProfile: "main",
+    roleId: "main-agent",
+    handoffHash: "handoff-main",
+    conversationId: "conversation-1",
+    changeId: "change-1",
+    graphScopeId: "graph-1",
+  });
+  await bindProviderAttemptThread(memory, {
+    attemptId: "attempt-main",
+    threadId: "main-thread",
+    parentThreadId: null,
+    parentAgentSurfaceId: null,
   });
 }

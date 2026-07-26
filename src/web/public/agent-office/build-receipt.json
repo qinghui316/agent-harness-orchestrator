@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 3,
+  "manifestAssetFamily": "aho-agent-office-full-frame",
+  "characterActions": 13,
+  "characterFrames": 773,
+  "props": 10,
+  "shadows": 4,
+  "propsAtlases": {
+    "1x": {
+      "imageSha256": "2f7b2d20b9279ce026e6dadf23906ec50ed20a43a8bea0376eae44efdf08cd0b",
+      "metadataSha256": "67d78dfc36903a9beafdad2c0ccc12ccaa0941f9b22f17452d26574ae5e0a31f"
+    },
+    "2x": {
+      "imageSha256": "6574b0d1b7574dc856c4e3c8b87c1b2c6c5cf219b1b4366e05f480a299187909",
+      "metadataSha256": "ee22c065b27149c6b9b9ee874339a6a307d109bc55b26804710dfef4e32a6771"
+    }
+  },
+  "screens": [
+    {
+      "id": "orchestration",
+      "frames": 145
+    },
+    {
+      "id": "entertainment-1",
+      "frames": 102
+    },
+    {
+      "id": "entertainment-2",
+      "frames": 102
+    }
+  ],
+  "effects": [
+    {
+      "id": "coffee-cup",
+      "frames": 25
+    }
+  ]
+}

@@ -6,6 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { bindProviderThreadFixture } from "../helpers/provider-thread-fixture.js";
 
 const appServerTurn = vi.hoisted(() => vi.fn());
+const appServerChildTurn = vi.hoisted(() => vi.fn());
+const appServerChildClose = vi.hoisted(() => vi.fn());
+const appServerChildAvailable = vi.hoisted(() => vi.fn());
 const appServerAnswer = vi.hoisted(() => vi.fn());
 const getActiveAppServerTurn = vi.hoisted(() => vi.fn());
 vi.mock("../../src/codex/app-server.js", async (importOriginal) => {
@@ -21,6 +24,9 @@ vi.mock("../../src/codex/app-server.js", async (importOriginal) => {
       errors: [],
     })),
     runCodexAppServerTurn: appServerTurn,
+    runCodexAppServerChildTurn: appServerChildTurn,
+    runCodexAppServerChildClose: appServerChildClose,
+    isCodexAppServerChildAvailable: appServerChildAvailable,
     getActiveCodexAppServerTurn: getActiveAppServerTurn,
   };
 });
@@ -43,7 +49,7 @@ import { resumeNativeGoalAfterAction, runWorkbenchWorkflowAction } from "../../s
 import { buildConversationInteractionQueue } from "../../src/workbench/conversation-interactions.js";
 import { getWorkbenchSnapshot } from "../../src/workbench/projections/read-model/implementation.js";
 import { getCanonicalTimelinePage } from "../../src/workbench/canonical-timeline-query.js";
-import { getWorkbenchAgentRelationGraphProjection } from "../../src/workbench/projections/read-model/implementation.js";
+import { getAgentSurfaceProjection } from "../../src/workbench/agent-surface-projection.js";
 import { readLatestWorkflowGraphPlan } from "../../src/workflow-artifacts/manager.js";
 import { openWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import { planDocumentContentHash } from "../../src/workbench/plan-documents.js";
@@ -57,6 +63,10 @@ beforeEach(async () => {
   originalAhoHome = process.env.AHO_HOME;
   process.env.AHO_HOME = join(root, ".aho-home");
   appServerTurn.mockReset();
+  appServerChildTurn.mockReset();
+  appServerChildClose.mockReset();
+  appServerChildAvailable.mockReset();
+  appServerChildAvailable.mockReturnValue(true);
   appServerAnswer.mockReset();
   getActiveAppServerTurn.mockReset();
   getActiveAppServerTurn.mockImplementation((runId: string) => ({
@@ -87,6 +97,240 @@ afterEach(async () => {
 });
 
 describe("Workbench provider planning flow", () => {
+  it("routes exact Child feedback through the dedicated continuation capability and Child Timeline only", async () => {
+    const conversation = await createWorkbenchConversation(project(), { title: "Exact Child feedback", body: "Prepare a plan." }, undefined, { runMainAgent: false });
+    const memory = await resolveProjectMemory(project());
+    const store = await openWorkbenchDatabase(memory);
+    const graphScopeId = store.conversations.readConversation(project().id, conversation.conversationId)!.currentGraphScopeId!;
+    try {
+      bindProviderThreadFixture(store, {
+        projectId: project().id, conversationId: conversation.conversationId, providerId: "codex",
+        providerThreadId: "thread-main-feedback", roleId: "main-agent", parentThreadId: null,
+        changeId: null, graphScopeId, capabilityProfile: "main", updatedAt: "2026-07-25T00:00:00.000Z",
+      });
+      bindProviderThreadFixture(store, {
+        projectId: project().id, conversationId: conversation.conversationId, providerId: "codex",
+        providerThreadId: "thread-child-feedback", roleId: "planning-agent", parentThreadId: "thread-main-feedback",
+        changeId: null, graphScopeId, capabilityProfile: "planning", displayName: "Mendel", updatedAt: "2026-07-25T00:00:01.000Z",
+      });
+    } finally {
+      store.close();
+    }
+    const childSurfaceId = agentThreadSurfaceId("codex", "thread-child-feedback");
+    appServerChildTurn.mockImplementationOnce(async (options) => {
+      expect(options.parentThreadId).toBe("thread-main-feedback");
+      expect(options.targetThreadId).toBe("thread-child-feedback");
+      expect(options.prompt).toBe("Read the third line.");
+      for (const event of normalizeCodexAppServerNotification("item/agentMessage/delta", { itemId: "message-feedback", delta: "Third line read." }, {
+        projectId: project().id, conversationId: options.conversationId, runId: options.runId,
+        threadId: "thread-child-feedback", turnId: "turn-feedback", itemId: "message-feedback", roleId: "planning-agent", displayName: "Mendel",
+      })) options.onRealtimeEvent?.(event);
+      return {
+        status: "completed", threadId: "thread-main-feedback", turnId: "turn-parent-feedback",
+        lastMessageItemId: null, lastMessage: "AHO_CHILD_FOLLOWUP_COMPLETE",
+        childThreads: [{
+          parentThreadId: "thread-main-feedback", threadId: "thread-child-feedback",
+          roleHint: "planning-agent",
+          status: "completed", displayName: "Mendel", finalText: "Third line read.", changedFiles: [],
+          snapshot: { thread: { turns: [{ id: "turn-feedback" }] } },
+        }],
+        changedFiles: [], host: { hostId: "host-1", generation: 1, pid: 101, cwd: root },
+      };
+    });
+
+    await postConversationMessage(project(), conversation.conversationId, { mode: "chat", message: "Read the third line.", agentSurfaceId: childSurfaceId });
+
+    const messages = await listConversationMessages(project(), conversation.conversationId);
+    expect(messages.filter((message) => message.text === "Read the third line.")).toEqual([
+      expect.objectContaining({ agentSurfaceId: childSurfaceId, threadId: "thread-child-feedback", agentRoleId: "planning-agent" }),
+    ]);
+    expect(messages.filter((message) => message.blocks?.some((block) => block.text === "Third line read."))).toEqual([
+      expect.objectContaining({ agentSurfaceId: childSurfaceId, threadId: "thread-child-feedback", agentRoleId: "planning-agent" }),
+    ]);
+    expect(messages.filter((message) => message.agentSurfaceId === "main-agent" && /third line/i.test(JSON.stringify(message)))).toEqual([]);
+    expect((await getAgentSurfaceProjection({ project: project(), path: root }, conversation.conversationId)).surfaces).toEqual(expect.arrayContaining([
+      expect.objectContaining({ agentSurfaceId: childSurfaceId, status: "completed" }),
+    ]));
+    expect(appServerTurn).not.toHaveBeenCalled();
+
+  });
+
+  it("lets Main close one exact registered Agent through Provider close without a public terminate path", async () => {
+    const conversation = await createWorkbenchConversation(project(), {
+      title: "Exact Child close",
+      body: "Create a planning Agent.",
+    }, undefined, { runMainAgent: false });
+    const memory = await resolveProjectMemory(project());
+    const store = await openWorkbenchDatabase(memory);
+    const graphScopeId = store.conversations.readConversation(project().id, conversation.conversationId)!.currentGraphScopeId!;
+    try {
+      bindProviderThreadFixture(store, {
+        projectId: project().id, conversationId: conversation.conversationId, providerId: "codex",
+        providerThreadId: "thread-main-close", roleId: "main-agent", parentThreadId: null,
+        changeId: null, graphScopeId, capabilityProfile: "main", updatedAt: "2026-07-25T00:00:00.000Z",
+      });
+      bindProviderThreadFixture(store, {
+        projectId: project().id, conversationId: conversation.conversationId, providerId: "codex",
+        providerThreadId: "thread-child-close", roleId: "planning-agent", parentThreadId: "thread-main-close",
+        changeId: null, graphScopeId, capabilityProfile: "planning", displayName: "Goodall", updatedAt: "2026-07-25T00:00:01.000Z",
+      });
+      store.providerAttempts.writeConversationProviderBinding({
+        projectId: project().id,
+        conversationId: conversation.conversationId,
+        providerId: "codex",
+        nativeSessionId: "thread-main-close",
+        lastDeliveredCompletedTurn: 0,
+        preferredModel: null,
+        lastUsedAt: "2026-07-25T00:00:01.000Z",
+        bindingStatus: "active",
+      });
+    } finally {
+      store.close();
+    }
+    const childSurfaceId = agentThreadSurfaceId("codex", "thread-child-close");
+    appServerChildClose.mockImplementationOnce(async (options) => {
+      expect(options.parentThreadId).toBe("thread-main-close");
+      expect(options.targetThreadId).toBe("thread-child-close");
+      options.onChildLifecycleEvent?.({
+        kind: "closed",
+        activityId: "native-close-test",
+        parentThreadId: "thread-main-close",
+        childThreadId: "thread-child-close",
+        roleHint: "planning-agent",
+      });
+      return {
+        status: "completed", threadId: "thread-main-close", turnId: null,
+        lastMessageItemId: null, lastMessage: "", childThreads: [], changedFiles: [],
+        host: { hostId: "host-1", generation: 1, pid: 101, cwd: root },
+      };
+    });
+    appServerTurn.mockImplementationOnce(async (options) => {
+      const closeTool = options.dynamicTools?.find((tool) => tool.name === "aho_close_agent");
+      expect(closeTool).toMatchObject({
+        inputSchema: expect.objectContaining({
+          properties: { agentSurfaceId: { type: "string" } },
+          required: ["agentSurfaceId"],
+          additionalProperties: false,
+        }),
+      });
+      const closed = await options.onDynamicToolCall?.({
+        requestId: "request-close",
+        threadId: "thread-main-close",
+        turnId: "turn-main-close",
+        callId: "call-close",
+        tool: "aho_close_agent",
+        arguments: { agentSurfaceId: childSurfaceId },
+      });
+      expect(closed).toMatchObject({ success: true });
+      return {
+        status: "completed", threadId: "thread-main-close", turnId: "turn-main-close",
+        lastMessage: "Agent closed.", goal: nativeGoal("active"), childThreads: [], changedFiles: [],
+      };
+    });
+
+    await postConversationMessage(project(), conversation.conversationId, {
+      mode: "chat",
+      message: "Close the current Planning Agent.",
+    });
+
+    expect(appServerChildClose).toHaveBeenCalledTimes(1);
+    expect((await getAgentSurfaceProjection({ project: project(), path: root }, conversation.conversationId)).surfaces).toEqual(expect.arrayContaining([
+      expect.objectContaining({ agentSurfaceId: childSurfaceId, status: "terminated", readOnly: true }),
+    ]));
+    const verified = await openWorkbenchDatabase(memory);
+    try {
+      expect(verified.providerAttempts.listProviderAttempts(project().id, conversation.conversationId)).toEqual(expect.arrayContaining([
+        expect.objectContaining({ roleId: "planning-agent", nativeSessionId: "thread-child-close", status: "terminated" }),
+      ]));
+    } finally {
+      verified.close();
+    }
+  });
+
+  it("rejects Main, stale, and still-running targets before invoking the provider", async () => {
+    const conversation = await createWorkbenchConversation(project(), {
+      title: "Invalid Child feedback",
+      body: "Prepare a plan.",
+    }, undefined, { runMainAgent: false });
+    await expect(postConversationMessage(project(), conversation.conversationId, {
+      mode: "chat", message: "No.", agentSurfaceId: "main-agent",
+    })).rejects.toThrow("cannot target Main Agent");
+    await expect(postConversationMessage(project(), conversation.conversationId, {
+      mode: "chat", message: "No.", agentSurfaceId: "agent:codex:thread:missing",
+    })).rejects.toThrow("stale or does not belong");
+    const memory = await resolveProjectMemory(project());
+    const store = await openWorkbenchDatabase(memory);
+    const graphScopeId = store.conversations.readConversation(project().id, conversation.conversationId)!.currentGraphScopeId!;
+    let runningSurfaceId = "";
+    try {
+      bindProviderThreadFixture(store, {
+        projectId: project().id,
+        conversationId: conversation.conversationId,
+        providerId: "codex",
+        providerThreadId: "thread-main-running-target",
+        roleId: "main-agent",
+        parentThreadId: null,
+        changeId: null,
+        graphScopeId,
+        capabilityProfile: "main",
+        updatedAt: "2026-07-25T00:00:00.000Z",
+      });
+      const child = bindProviderThreadFixture(store, {
+        projectId: project().id,
+        conversationId: conversation.conversationId,
+        providerId: "codex",
+        providerThreadId: "thread-child-running-target",
+        roleId: "planning-agent",
+        parentThreadId: "thread-main-running-target",
+        changeId: null,
+        graphScopeId,
+        capabilityProfile: "planning",
+        updatedAt: "2026-07-25T00:00:01.000Z",
+      });
+      store.providerAttempts.completeProviderAttempt(project().id, child.attemptId, "running", child.providerThreadId, "2026-07-25T00:00:02.000Z");
+      runningSurfaceId = agentThreadSurfaceId("codex", child.providerThreadId);
+    } finally {
+      store.close();
+    }
+    await expect(postConversationMessage(project(), conversation.conversationId, {
+      mode: "chat", message: "Not yet.", agentSurfaceId: runningSurfaceId,
+    })).rejects.toThrow("still running");
+    expect(appServerTurn).not.toHaveBeenCalled();
+  });
+
+  it("rejects a Child from a stale Host generation without inventing a Provider close", async () => {
+    const conversation = await createWorkbenchConversation(project(), {
+      title: "Stale Child Host", body: "Prepare a plan.",
+    }, undefined, { runMainAgent: false });
+    const memory = await resolveProjectMemory(project());
+    const store = await openWorkbenchDatabase(memory);
+    const graphScopeId = store.conversations.readConversation(project().id, conversation.conversationId)!.currentGraphScopeId!;
+    try {
+      bindProviderThreadFixture(store, {
+        projectId: project().id, conversationId: conversation.conversationId, providerId: "codex",
+        providerThreadId: "thread-main-stale", roleId: "main-agent", parentThreadId: null,
+        changeId: null, graphScopeId, capabilityProfile: "main", updatedAt: "2026-07-25T00:00:00.000Z",
+      });
+      bindProviderThreadFixture(store, {
+        projectId: project().id, conversationId: conversation.conversationId, providerId: "codex",
+        providerThreadId: "thread-child-stale", roleId: "planning-agent", parentThreadId: "thread-main-stale",
+        changeId: null, graphScopeId, capabilityProfile: "planning", updatedAt: "2026-07-25T00:00:01.000Z",
+      });
+    } finally {
+      store.close();
+    }
+    appServerChildAvailable.mockReturnValue(false);
+    const childSurfaceId = agentThreadSurfaceId("codex", "thread-child-stale");
+    await expect(postConversationMessage(project(), conversation.conversationId, {
+      mode: "chat", message: "This cannot cross generations.", agentSurfaceId: childSurfaceId,
+    })).rejects.toThrow("stale Provider Host generation");
+    expect(appServerChildTurn).not.toHaveBeenCalled();
+    expect((await getAgentSurfaceProjection({ project: project(), path: root }, conversation.conversationId)).surfaces).toEqual(expect.arrayContaining([
+      expect.objectContaining({ agentSurfaceId: childSurfaceId, status: "completed" }),
+    ]));
+    expect((await listConversationMessages(project(), conversation.conversationId)).some((message) => message.text === "This cannot cross generations.")).toBe(false);
+  });
+
   it("claims only the latest matching resume attempt and terminalizes older queued attempts", async () => {
     const conversation = await createWorkbenchConversation(project(), {
       title: "Resume attempt cleanup",
@@ -150,6 +394,8 @@ describe("Workbench provider planning flow", () => {
       body: "Prepare a plan later.",
     }, undefined, { runMainAgent: false });
     appServerTurn.mockImplementationOnce(async (options) => {
+      emitMainThreadStarted(options, "thread-main-failed", "turn-main-failed");
+      emitPlanningChildStarted(options, "thread-main-failed", "thread-planner-failed", "activity-planner-failed");
       const identity = {
         runId: options.runId,
         threadId: "thread-planner-failed",
@@ -182,33 +428,17 @@ describe("Workbench provider planning flow", () => {
     }
   });
 
-  it("projects a native subAgentActivity target into the server-owned graph before the parent turn completes", async () => {
+  it("projects a registered native Child lifecycle into Agent Surface before the parent turn completes", async () => {
     const conversation = await createWorkbenchConversation(project(), {
       title: "Live child graph",
       body: "Spawn one child later.",
     }, undefined, { runMainAgent: false });
     appServerTurn.mockImplementationOnce(async (options) => {
-      const [started] = normalizeCodexAppServerNotification("item/completed", {
-        item: {
-          id: "call-live-child",
-          type: "subAgentActivity",
-          kind: "started",
-          agentThreadId: "thread-live-child",
-        },
-      }, {
-        projectId: project().id,
-        conversationId: conversation.conversationId,
-        runId: options.runId,
-        threadId: "thread-live-main",
-        turnId: "turn-live-main",
-        roleId: "main-agent",
-        targetThreadId: "thread-live-child",
-        targetAgentDisplayName: "Child Agent",
-      });
-      options.onRealtimeEvent?.(started!);
-      const graph = await getWorkbenchAgentRelationGraphProjection({ project: project(), path: root }, conversation.conversationId);
-      expect(graph.nodes).toEqual(expect.arrayContaining([
-        expect.objectContaining({ id: "agent:codex:thread:thread-live-child", label: "Child Agent", status: "running", parentAgentId: "main-agent" }),
+      emitMainThreadStarted(options, "thread-live-main", "turn-live-main");
+      emitPlanningChildStarted(options, "thread-live-main", "thread-live-child", "call-live-child");
+      const graph = await getAgentSurfaceProjection({ project: project(), path: root }, conversation.conversationId);
+      expect(graph.surfaces).toEqual(expect.arrayContaining([
+        expect.objectContaining({ agentSurfaceId: "agent:codex:thread:thread-live-child", roleId: "planning-agent", status: "running", parentAgentSurfaceId: "main-agent" }),
       ]));
       throw new Error("stop after live child graph assertion");
     });
@@ -468,6 +698,18 @@ describe("Workbench provider planning flow", () => {
         projectId: project().id,
         conversationId: conversation.conversationId,
         providerId: "codex",
+        providerThreadId: "thread-main",
+        roleId: "main-agent",
+        parentThreadId: null,
+        changeId,
+        graphScopeId: initialScope,
+        capabilityProfile: "main-agent-goal-v1",
+        updatedAt: new Date().toISOString(),
+      });
+      bindProviderThreadFixture(store, {
+        projectId: project().id,
+        conversationId: conversation.conversationId,
+        providerId: "codex",
         providerThreadId: "thread-old-child",
         roleId: "planning-agent",
         parentThreadId: "thread-main",
@@ -637,6 +879,8 @@ describe("Workbench provider planning flow", () => {
   it("persists the complete parent message before failing closed when planning has no native Goal", async () => {
     appServerTurn.mockImplementationOnce(async (options) => {
       await writePlannerFiles(options.writableRoots?.[0] ?? "");
+      emitMainThreadStarted(options, "thread-main", "turn-plan-without-goal");
+      emitPlanningChildStarted(options, "thread-main", "thread-planner", "item-spawn-planner");
       const text = "规划子 Agent 已返回完整方案。\n当前还缺少可继续执行的目标状态。";
       emitCanonicalMainText(options, text, "thread-main", "turn-plan-without-goal", "message-no-goal");
       return {
@@ -648,9 +892,9 @@ describe("Workbench provider planning flow", () => {
         goal: null,
         childThreads: [{
           itemId: "item-spawn-planner",
-          tool: "spawn_agent",
           parentThreadId: "thread-main",
           threadId: "thread-planner",
+          roleHint: "planning-agent",
           prompt: `Write the proposal files under ${options.writableRoots?.[0] ?? "planner-proposal"}`,
           status: "completed",
           finalText: plannerPlanText(),
@@ -698,7 +942,9 @@ describe("Workbench provider planning flow", () => {
   it("persists one Main Plan document reference when the provider returns no parent prose", async () => {
     appServerTurn.mockImplementationOnce(async (options) => {
       await writePlannerFiles(options.writableRoots?.[0] ?? "");
-      emitCanonicalPlannerText(options, plannerPlanText(), "thread-main-empty-prose", "thread-planner-empty-prose", "turn-planner-empty-prose", "message-planner-empty-prose");
+      emitMainThreadStarted(options, "thread-main-empty-prose", "turn-main-empty-prose");
+      emitPlanningChildStarted(options, "thread-main-empty-prose", "thread-planner-empty-prose", "item-spawn-empty-prose-planner");
+      emitCanonicalPlannerText(options, plannerPlanText(), "thread-main-empty-prose", "turn-main-empty-prose", "thread-planner-empty-prose", "turn-planner-empty-prose", "message-planner-empty-prose");
       return {
         status: "completed",
         threadId: "thread-main-empty-prose",
@@ -707,9 +953,9 @@ describe("Workbench provider planning flow", () => {
         goal: nativeGoal("active"),
         childThreads: [{
           itemId: "item-spawn-empty-prose-planner",
-          tool: "spawn_agent",
           parentThreadId: "thread-main-empty-prose",
           threadId: "thread-planner-empty-prose",
+          roleHint: "planning-agent",
           status: "completed",
           displayName: "Sagan",
           finalText: plannerPlanText(),
@@ -766,7 +1012,7 @@ describe("Workbench provider planning flow", () => {
           threadId: "thread-planner",
           parentThreadId: "thread-main",
           turnId: "turn-planner",
-          roleId: "child-agent",
+          roleId: "planning-agent",
           displayName: "Newton",
         };
         const childNotifications: Array<[string, Record<string, unknown>]> = [
@@ -778,6 +1024,8 @@ describe("Workbench provider planning flow", () => {
           ["item/agentMessage/delta", { itemId: "message-1", delta: plannerPlanText() }],
           ["turn/completed", { turnId: "turn-planner" }],
         ];
+        emitMainThreadStarted(options, "thread-main", "turn-plan");
+        emitPlanningChildStarted(options, "thread-main", "thread-planner", "item-spawn-planner");
         for (const [method, params] of childNotifications) {
           for (const event of normalizeCodexAppServerNotification(method, params, childIdentity)) options.onRealtimeEvent?.(event);
         }
@@ -787,9 +1035,9 @@ describe("Workbench provider planning flow", () => {
         )?.position;
         options.onChildThreadResult?.({
           itemId: "item-spawn-planner",
-          tool: "spawn_agent",
           parentThreadId: "thread-main",
           threadId: "thread-planner",
+          roleHint: "planning-agent",
           status: "running",
           prompt: "Draft the exact proposal.",
           initialUserItem: { turnId: "turn-planner", itemId: "item-child-input", text: "Draft the exact proposal." },
@@ -813,22 +1061,56 @@ describe("Workbench provider planning flow", () => {
         expect(liveChildProcess[0]).toMatchObject({
           status: "completed",
           turnId: "turn-planner",
-          agentRoleId: "child-agent",
+          agentRoleId: "planning-agent",
         });
         expect(liveChildProcess[0]?.blocks?.map((block) => block.kind)).toEqual(expect.arrayContaining([
           "reasoning-summary", "command", "file-change", "prose",
         ]));
         const liveMemory = await resolveProjectMemory(project());
+        options.onChildThreadResult?.({
+          itemId: "item-spawn-planner",
+          parentThreadId: "thread-main",
+          threadId: "thread-planner",
+          roleHint: "planning-agent",
+          status: "completed",
+          displayName: "Newton",
+          finalText: plannerPlanText(),
+          changedFiles: [],
+          snapshot: {},
+        });
+        options.onChildThreadResult?.({
+          itemId: "item-spawn-planner",
+          parentThreadId: "thread-main",
+          threadId: "thread-planner",
+          roleHint: "planning-agent",
+          status: "completed",
+          displayName: "Newton",
+          finalText: plannerPlanText(),
+          changedFiles: [],
+          snapshot: {},
+        });
         const liveStore = await openWorkbenchDatabase(liveMemory);
         try {
           expect(liveStore.providerAttempts.listProviderAttempts(project().id, options.conversationId ?? "")).toEqual(expect.arrayContaining([
-            expect.objectContaining({ roleId: "child-agent", operationProfile: "main", nativeSessionId: "thread-planner", status: "running" }),
+            expect.objectContaining({ roleId: "planning-agent", operationProfile: "planning", nativeSessionId: "thread-planner", status: "completed" }),
           ]));
         } finally {
           liveStore.close();
         }
+        const liveProjection = await getAgentSurfaceProjection({ project: project(), path: root }, options.conversationId ?? "");
+        expect(liveProjection.surfaces).toEqual(expect.arrayContaining([
+          expect.objectContaining({ agentSurfaceId: agentThreadSurfaceId("codex", "thread-planner"), status: "completed" }),
+        ]));
         expect(options.dynamicTools).toEqual(expect.arrayContaining([
           expect.objectContaining({ name: "aho_finalize_current_change", inputSchema: expect.objectContaining({ additionalProperties: false }) }),
+          expect.objectContaining({
+            name: "aho_close_agent",
+            inputSchema: expect.objectContaining({
+              properties: { agentSurfaceId: { type: "string" } },
+              required: ["agentSurfaceId"],
+              additionalProperties: false,
+            }),
+          }),
         ]));
         emitCanonicalMainText(options, "计划子 Agent 已返回方案。\n我还会把当前限制和验收事实一并说明。", "thread-main", "turn-plan", "message-plan");
         return {
@@ -839,9 +1121,9 @@ describe("Workbench provider planning flow", () => {
           goal: nativeGoal("active"),
           childThreads: [{
             itemId: "item-spawn-planner",
-            tool: "spawn_agent",
             parentThreadId: "thread-main",
             threadId: "thread-planner",
+            roleHint: "planning-agent",
             status: "completed",
             displayName: "Newton",
             finalText: plannerPlanText(),
@@ -914,8 +1196,10 @@ describe("Workbench provider planning flow", () => {
     expect(proposalSnapshot.center.conversationInteractions.items).toEqual([
       expect.objectContaining({ kind: "plan", graphScopeId: plan?.graphScopeId }),
     ]);
-    const plannerWorkspace = proposalSnapshot.right.agentWorkspace.agents.find((agent) => agent.providerThreadId === "thread-planner");
-    expect(plannerWorkspace).not.toHaveProperty("transcript");
+    const plannerSurfaces = await getAgentSurfaceProjection({ project: project(), path: root }, conversation.conversationId);
+    expect(plannerSurfaces.surfaces).toEqual(expect.arrayContaining([
+      expect.objectContaining({ agentSurfaceId: agentThreadSurfaceId("codex", "thread-planner"), roleId: "planning-agent" }),
+    ]));
     const plannerTimeline = await getCanonicalTimelinePage(
       { project: project(), path: root },
       conversation.conversationId,
@@ -932,12 +1216,16 @@ describe("Workbench provider planning flow", () => {
       text: "Draft the exact proposal.",
     });
     const childTimeline = messages.filter((message) => message.agentRoleId === "planning-agent" && message.threadId === "thread-planner");
-    expect(childTimeline).toHaveLength(1);
-    expect(childTimeline[0]).toMatchObject({ parentThreadId: "thread-main", turnId: "turn-planner", artifact: expect.stringContaining("planner-proposal") });
-    expect(childTimeline[0]?.blocks?.map((block) => block.kind)).toEqual(expect.arrayContaining([
+    expect(childTimeline).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "user.message", text: "Draft the exact proposal." }),
+      expect.objectContaining({ type: "assistant.message", artifact: expect.stringContaining("planner-proposal") }),
+    ]));
+    const childProcess = childTimeline.find((message) => message.type === "assistant.message");
+    expect(childProcess).toMatchObject({ parentThreadId: "thread-main", turnId: "turn-planner", artifact: expect.stringContaining("planner-proposal") });
+    expect(childProcess?.blocks?.map((block) => block.kind)).toEqual(expect.arrayContaining([
       "reasoning-summary", "command", "file-change", "prose",
     ]));
-    expect(childTimeline[0]?.activity).toEqual(expect.arrayContaining([
+    expect(childProcess?.activity).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "status", label: "thinking" }),
       expect.objectContaining({ kind: "status", label: "completed" }),
     ]));
@@ -1010,9 +1298,11 @@ describe("Workbench provider planning flow", () => {
       mode: "stepwise",
       status: "active",
     });
+    const durableSurfaces = await getAgentSurfaceProjection({ project: project(), path: root }, conversation.conversationId);
+    expect(durableSurfaces.surfaces).toEqual(expect.arrayContaining([
+      expect.objectContaining({ agentSurfaceId: agentThreadSurfaceId("codex", "thread-planner"), roleId: "planning-agent" }),
+    ]));
     const snapshot = await getWorkbenchSnapshot({ project: project(), path: root }, { topicId: conversation.conversationId });
-    const durablePlanner = snapshot.right.agentWorkspace.agents.find((agent) => agent.providerThreadId === "thread-planner");
-    expect(durablePlanner).not.toHaveProperty("transcript");
     const durablePlannerTimeline = await getCanonicalTimelinePage(
       { project: project(), path: root },
       conversation.conversationId,
@@ -1065,10 +1355,12 @@ function emitCanonicalPlannerText(
   options: { runId: string; conversationId?: string; onRealtimeEvent?: (event: ReturnType<typeof normalizeCodexAppServerNotification>[number]) => void },
   text: string,
   parentThreadId: string,
+  parentTurnId: string,
   threadId: string,
   turnId: string,
   itemId: string,
 ): void {
+  emitMainThreadStarted(options, parentThreadId, parentTurnId);
   for (const event of normalizeCodexAppServerNotification("item/agentMessage/delta", { itemId, delta: text }, {
     projectId: project().id,
     conversationId: options.conversationId,
@@ -1079,6 +1371,42 @@ function emitCanonicalPlannerText(
     itemId,
     roleId: "planning-agent",
   })) options.onRealtimeEvent?.(event);
+}
+
+function emitMainThreadStarted(
+  options: { runId: string; conversationId?: string; onRealtimeEvent?: (event: ReturnType<typeof normalizeCodexAppServerNotification>[number]) => void },
+  threadId: string,
+  turnId: string,
+): void {
+  for (const event of normalizeCodexAppServerNotification("turn/started", { turnId }, {
+    projectId: project().id,
+    conversationId: options.conversationId,
+    runId: options.runId,
+    threadId,
+    turnId,
+    roleId: "main-agent",
+  })) options.onRealtimeEvent?.(event);
+}
+
+function emitPlanningChildStarted(
+  options: { onChildLifecycleEvent?: (event: {
+    kind: "started" | "continued" | "closed";
+    activityId: string;
+    parentThreadId: string;
+    childThreadId: string;
+    roleHint?: string;
+  }) => void },
+  parentThreadId: string,
+  childThreadId: string,
+  activityId: string,
+): void {
+  options.onChildLifecycleEvent?.({
+    kind: "started",
+    activityId,
+    parentThreadId,
+    childThreadId,
+    roleHint: "planning-agent",
+  });
 }
 
 function nativeGoal(status: "active" | "paused" | "blocked" | "complete") {

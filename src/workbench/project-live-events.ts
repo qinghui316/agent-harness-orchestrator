@@ -1,4 +1,5 @@
 import type { WorkbenchLiveEvent } from "./types.js";
+import type { AgentSurfacesInvalidated } from "./agent-surface-contract.js";
 
 type ProjectLiveSubscriber = (event: WorkbenchLiveEvent) => void;
 
@@ -6,6 +7,10 @@ const subscribers = new Map<string, Set<ProjectLiveSubscriber>>();
 
 export function publishProjectLiveEvent(projectId: string, event: WorkbenchLiveEvent): void {
   for (const subscriber of subscribers.get(projectId) ?? []) subscriber(event);
+}
+
+export function publishAgentSurfacesInvalidated(projectId: string, data: AgentSurfacesInvalidated): void {
+  publishProjectLiveEvent(projectId, { event: "agent-surfaces.invalidated", data });
 }
 
 export function subscribeProjectLiveEvents(projectId: string, subscriber: ProjectLiveSubscriber): () => void {

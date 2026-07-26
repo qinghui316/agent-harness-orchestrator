@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../src/web/src/App.js";
 import { emptyWorkbenchSnapshot } from "../../src/web/src/controllers/useProjectConversationSession.js";
@@ -55,6 +55,7 @@ describe("Workbench App owner composition", () => {
     });
     MockEventSource.instances = [];
     vi.stubGlobal("EventSource", MockEventSource);
+    installMatchMedia(false);
   });
 
   afterEach(() => {
@@ -73,19 +74,37 @@ describe("Workbench App owner composition", () => {
     expect(MockEventSource.instances[0]?.url).toBe("/api/projects/repo/workbench/events/live");
   });
 
-  it("keeps the graph as a pure center view and opens a canonical child surface", async () => {
+  it("keeps the office as a pure center view and opens a canonical child surface", async () => {
     installApiFixture(createSnapshot());
     render(<App />);
     await screen.findByText("Canonical Main reply");
 
     fireEvent.click(screen.getByTestId("orchestration-overlay-toggle"));
-    expect(await screen.findByTestId("agent-graph-center-view")).toBeTruthy();
+    expect(await screen.findByTestId("agent-office-center-view")).toBeTruthy();
     expect(screen.queryByPlaceholderText("输入问题或下一步需求")).toBeNull();
 
-    fireEvent.click(await screen.findByTestId("agent-relation-node-planning-agent"));
+    fireEvent.click(await screen.findByTestId("agent-office-planning-agent"));
+    expect(await screen.findByTestId("office-agent-profile-card")).toBeTruthy();
+    expect(screen.getByTestId("agent-office-planning-agent").getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: /打开 Agent 对话/ }));
     expect(await screen.findByTestId("agent-workspace-panel")).toBeTruthy();
     expect(await screen.findByText("Canonical child reply")).toBeTruthy();
-    expect(screen.getByTestId("agent-graph-center-view")).toBeTruthy();
+    expect(screen.getByTestId("agent-office-center-view")).toBeTruthy();
+  });
+
+  it("closes the mobile office after exact Agent navigation so the workspace is visible", async () => {
+    installMatchMedia(true);
+    installApiFixture(createSnapshot());
+    render(<App />);
+    await screen.findByText("Canonical Main reply");
+
+    fireEvent.click(screen.getByTestId("orchestration-overlay-toggle"));
+    fireEvent.click(await screen.findByTestId("agent-office-planning-agent"));
+    fireEvent.click(screen.getByRole("button", { name: /打开 Agent 对话/ }));
+
+    expect(await screen.findByTestId("agent-workspace-panel")).toBeTruthy();
+    expect(await screen.findByText("Canonical child reply")).toBeTruthy();
+    await waitFor(() => expect(screen.queryByTestId("agent-office-center-view")).toBeNull());
   });
 
   it("mounts the active Interaction Dock in the Composer slot only", async () => {
@@ -125,52 +144,8 @@ function createSnapshot(interaction?: ConversationInteraction): Snapshot {
         conversationLifecycle: "active",
       },
       conversationInteractions: { conversationId: topic.id, items: interaction ? [interaction] : [] },
-      agentRelationGraph: {
-        graphScopeId: "scope-1",
-        title: "Agent relation",
-        summary: "Canonical server projection",
-        nodes: [
-          {
-            id: "main-agent",
-            kind: "main-agent",
-            label: "Main Agent",
-            roleId: "main-agent",
-            status: "running",
-            summary: "Main thread",
-            target: { projectId: project.id, conversationId: topic.id, agentSurfaceId: "main-agent" },
-            evidenceRefs: [],
-            attempts: [],
-          },
-          {
-            id: "agent:codex:thread:child-1",
-            kind: "agent",
-            label: "Plan Agent",
-            roleId: "planning-agent",
-            parentAgentId: "main-agent",
-            status: "running",
-            summary: "Planning",
-            target: { projectId: project.id, conversationId: topic.id, agentSurfaceId: "agent:codex:thread:child-1" },
-            evidenceRefs: [],
-            attempts: [],
-          },
-        ],
-        edges: [{ id: "edge-1", from: "main-agent", to: "agent:codex:thread:child-1", kind: "delegates", label: "plans" }],
-      },
     },
-    right: {
-      ...emptyWorkbenchSnapshot.right,
-      agentWorkspace: {
-        selectedAgentId: "agent:codex:thread:child-1",
-        agents: [{
-          id: "agent:codex:thread:child-1",
-          label: "Plan Agent",
-          roleId: "planning-agent",
-          status: "running",
-          summary: "Planning",
-          agentSurfaceId: "agent:codex:thread:child-1",
-        }],
-      },
-    },
+    right: { ...emptyWorkbenchSnapshot.right },
   };
 }
 
@@ -234,7 +209,44 @@ function installApiFixture(snapshot: Snapshot): void {
       }] });
     }
     if (url.includes("/workbench/snapshot")) return json(snapshot);
-    if (url.includes("/workbench/projections/agent-graph/")) return json(snapshot.center.agentRelationGraph);
+    if (url.includes("/workbench/projections/agent-surfaces/")) return json({
+      conversationId: "conv-1",
+      graphScopeId: "scope-1",
+      scopeStatus: "active",
+      projectionHash: "surface-hash-1",
+      surfaces: [
+        {
+          agentSurfaceId: "main-agent",
+          kind: "main-agent",
+          roleId: "main-agent",
+          roleDisplayName: "Main Agent",
+          label: "Main Agent",
+          description: "Coordinates the current conversation.",
+          skills: [],
+          parentAgentSurfaceId: null,
+          graphScopeId: "scope-1",
+          scopeRange: "current",
+          status: "running",
+          readOnly: false,
+          createdAt: "2026-07-17T00:00:00.000Z",
+        },
+        {
+          agentSurfaceId: "agent:codex:thread:child-1",
+          kind: "agent",
+          roleId: "planning-agent",
+          roleDisplayName: "Planning Agent",
+          label: "Plan Agent",
+          description: "Produces the implementation plan.",
+          skills: ["planning"],
+          parentAgentSurfaceId: "main-agent",
+          graphScopeId: "scope-1",
+          scopeRange: "current",
+          status: "running",
+          readOnly: false,
+          createdAt: "2026-07-17T00:00:01.000Z",
+        },
+      ],
+    });
     if (url.includes("/workbench/conversations/") && url.includes("/timeline?")) {
       const parsed = new URL(url, "http://localhost");
       return json(timelinePage(parsed.searchParams.get("agentSurfaceId") ?? "main-agent"));
@@ -251,4 +263,17 @@ function installApiFixture(snapshot: Snapshot): void {
 
 function json(value: unknown): Response {
   return new Response(JSON.stringify(value), { status: 200, headers: { "content-type": "application/json" } });
+}
+
+function installMatchMedia(matches: boolean): void {
+  vi.stubGlobal("matchMedia", vi.fn((query: string) => ({
+    matches,
+    media: query,
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(() => true),
+  })));
 }

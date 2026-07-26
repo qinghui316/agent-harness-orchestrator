@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { createChange } from "../../src/change/manager.js";
 import { initHarness } from "../../src/harness/init.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
-import { getWorkbenchAgentRelationGraphProjection, getWorkbenchSnapshot } from "../../src/workbench/projections/read-model/implementation.js";
+import { getWorkbenchSnapshot } from "../../src/workbench/projections/read-model/implementation.js";
+import { getAgentSurfaceProjection } from "../../src/workbench/agent-surface-projection.js";
 import {
   completeAgentTask,
   createAgentTask,
@@ -53,16 +54,9 @@ describe("workbench AgentTask domain", () => {
       }),
     ]));
     expect(snapshot.center).not.toHaveProperty("parentAgentTranscript");
-    expect(snapshot.center.agentRelationGraph.nodes).toEqual([]);
-    const graph = await getWorkbenchAgentRelationGraphProjection({ project: project(), path: project().path }, "agent-task-demand");
-    expect(graph.nodes).toEqual([
-      expect.objectContaining({
-        id: "main-agent",
-        kind: "main-agent",
-        status: "idle",
-      }),
-    ]);
-    expect(graph.edges).toEqual([]);
+    expect(snapshot.center).not.toHaveProperty("agentRelationGraph");
+    await expect(getAgentSurfaceProjection({ project: project(), path: project().path }, "agent-task-demand"))
+      .rejects.toThrow("conversation was not found");
   });
 
   it("validates delegateTask policy and records queued to running AgentTask lifecycle", async () => {
