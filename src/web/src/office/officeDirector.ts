@@ -2,7 +2,7 @@ import { AmbientScheduler, type AmbientSelection, type OfficeClock, type RandomS
 import { ChoreographyEngine } from "./choreographyEngine.js";
 import { OfficeBehaviorPolicy, stablePhase } from "./officeBehaviorPolicy.js";
 import { OfficeCalibrationResolver } from "./officeCalibrationResolver.js";
-import type { OfficeExperienceSnapshot, OfficeParticipant, OfficeRouteStage, OfficeSemanticEvent, OfficeStation } from "./officeExperience.js";
+import type { OfficeExperienceSnapshot, OfficeParticipant, OfficeResident, OfficeRouteStage, OfficeSemanticEvent, OfficeStation } from "./officeExperience.js";
 import type { OfficeRuntimeVisualCommand } from "./officeVisualContract.js";
 
 export class OfficeDirector {
@@ -33,17 +33,24 @@ export class OfficeDirector {
     this.snapshot = snapshot;
     this.reducedMotion = reducedMotion;
     const contextChanged = priorContext != null && priorContext !== snapshot.contextId;
-    if (contextChanged) this.resetChoreography(previousSnapshot);
+    if (contextChanged) {
+      this.resetChoreography(previousSnapshot);
+      this.restoreScopeOccupancy(previousSnapshot, snapshot);
+    }
     if (reducedMotionChanged) {
       if (reducedMotion) this.resetChoreography(previousSnapshot);
       for (const participant of snapshot.participants) void this.restoreAndApplySemantic(participant);
+      for (const resident of snapshot.residents) void this.restoreResident(resident);
     }
-    if (reducedMotion || snapshot.lifecycle === "terminal") this.ambient.sync(snapshot, false);
+    if (reducedMotion) this.ambient.sync(snapshot, false);
     const movedParticipants = new Set(events.filter((event) => event.kind === "station-changed").map((event) => event.participantId));
 
     for (const event of events) {
       if (event.kind === "scope-reset") {
-        if (!contextChanged) this.resetChoreography(previousSnapshot);
+        if (!contextChanged) {
+          this.resetChoreography(previousSnapshot);
+          this.restoreScopeOccupancy(previousSnapshot, snapshot);
+        }
         continue;
       }
       if (event.kind === "scope-terminal") {
@@ -53,6 +60,24 @@ export class OfficeDirector {
           { kind: "setScreen", stationId: participant.stationId, profile: "off" },
           { kind: "setEffect", participantId: participant.participantId, effect: "none" },
         ] }, "semantic");
+        for (const resident of snapshot.residents) void this.restoreResident(resident);
+        continue;
+      }
+      if (event.kind === "resident-removed") {
+        this.engine.cancelParticipant(event.residentId);
+        const removed = previousSnapshot?.residents.find((candidate) => candidate.residentId === event.residentId);
+        void this.engine.run(event.residentId, { kind: "parallel", commands: [
+          { kind: "hideParticipant", participantId: event.residentId },
+          ...(removed && !this.isStationOccupied(removed.stationId) ? [{ kind: "setScreen" as const, stationId: removed.stationId, profile: "off" as const }] : []),
+          { kind: "setEffect", participantId: event.residentId, effect: "none" },
+        ] }, "semantic");
+        continue;
+      }
+      if (event.kind === "resident-added" || event.kind === "resident-station-changed") {
+        const resident = snapshot.residents.find((candidate) => candidate.residentId === event.residentId);
+        if (!resident) continue;
+        this.engine.cancelParticipant(resident.residentId);
+        void this.restoreResident(resident, event.kind === "resident-station-changed" ? event.fromStationId : undefined);
         continue;
       }
       if (event.kind === "participant-removed") {
@@ -61,8 +86,10 @@ export class OfficeDirector {
           if (main) this.engine.cancelParticipant(main.participantId);
         }
         this.engine.cancelParticipant(event.participantId);
+        const removed = previousSnapshot?.participants.find((candidate) => candidate.participantId === event.participantId);
         void this.engine.run(event.participantId, { kind: "parallel", commands: [
           { kind: "hideParticipant", participantId: event.participantId },
+          ...(removed && !this.isStationOccupied(removed.stationId) ? [{ kind: "setScreen" as const, stationId: removed.stationId, profile: "off" as const }] : []),
           { kind: "setEffect", participantId: event.participantId, effect: "none" },
         ] }, "semantic");
         continue;
@@ -94,6 +121,7 @@ export class OfficeDirector {
       if (event.kind === "participant-added" && participant.kind === "child" && this.isMainParent(event.parentParticipantId)) {
         const contextId = snapshot.contextId;
         const generation = this.dispatchGeneration;
+        void this.restoreAndApplySemantic(participant);
         this.dispatchQueue = this.dispatchQueue
           .catch(() => undefined)
           .then(() => this.runDispatch(participant.participantId, contextId, generation))
@@ -102,14 +130,15 @@ export class OfficeDirector {
         void this.restoreAndApplySemantic(participant, event.kind === "state-changed" && event.to === "completed");
       }
     }
-    this.ambient.sync(snapshot, !reducedMotion && !this.pageHidden && snapshot.lifecycle === "active");
+    this.ambient.sync(snapshot, !reducedMotion && !this.pageHidden);
   }
 
   hydrate(snapshot: OfficeExperienceSnapshot, reducedMotion: boolean): void {
     this.snapshot = snapshot;
     this.reducedMotion = reducedMotion;
     for (const participant of snapshot.participants) void this.applySemantic(participant);
-    this.ambient.sync(snapshot, !reducedMotion && snapshot.lifecycle === "active");
+    for (const resident of snapshot.residents) void this.applyResident(resident);
+    this.ambient.sync(snapshot, !reducedMotion);
   }
 
   visibilityChanged(hidden: boolean): void {
@@ -119,8 +148,11 @@ export class OfficeDirector {
       this.ambient.sync(this.snapshot, false);
       this.resetChoreography(this.snapshot);
     } else {
-      for (const participant of this.snapshot.participants) void this.restoreAndApplySemantic(participant);
-      this.ambient.sync(this.snapshot, !this.reducedMotion && this.snapshot.lifecycle === "active");
+      if (this.snapshot.lifecycle === "active") {
+        for (const participant of this.snapshot.participants) void this.restoreAndApplySemantic(participant);
+      }
+      for (const resident of this.snapshot.residents) void this.restoreResident(resident);
+      this.ambient.sync(this.snapshot, !this.reducedMotion);
     }
   }
 
@@ -134,10 +166,14 @@ export class OfficeDirector {
     await this.engine.run(participant.participantId, this.behavior.semantic(participant, celebrateCompleted), "semantic");
   }
 
+  private async applyResident(resident: OfficeResident): Promise<void> {
+    await this.engine.run(resident.residentId, this.behavior.resident(resident), "semantic");
+  }
+
   private async restoreAndApplySemantic(participant: OfficeParticipant, celebrateCompleted = false, previousStationId?: string): Promise<void> {
     const station = this.currentStation(participant.stationId);
     const commands: OfficeRuntimeVisualCommand[] = [];
-    if (previousStationId && previousStationId !== participant.stationId) {
+    if (previousStationId && previousStationId !== participant.stationId && !this.isStationOccupied(previousStationId)) {
       commands.push({ kind: "setScreen", stationId: previousStationId, profile: "off" });
     }
     commands.push(positionFirstAction(
@@ -149,6 +185,14 @@ export class OfficeDirector {
     await this.engine.run(participant.participantId, { kind: "sequence", commands: [
       ...commands,
     ] }, "semantic");
+  }
+
+  private async restoreResident(resident: OfficeResident, previousStationId?: string): Promise<void> {
+    const station = this.currentStation(resident.stationId);
+    const commands: OfficeRuntimeVisualCommand[] = [];
+    if (previousStationId && previousStationId !== resident.stationId && !this.isStationOccupied(previousStationId)) commands.push({ kind: "setScreen", stationId: previousStationId, profile: "off" });
+    commands.push(positionFirstAction(this.behavior.resident(resident), resident.residentId, "canonical-seat", station.anchors.seat));
+    await this.engine.run(resident.residentId, { kind: "sequence", commands }, "semantic");
   }
 
   private async runDispatch(childId: string, contextId: string, generation: number): Promise<void> {
@@ -177,6 +221,7 @@ export class OfficeDirector {
       this.dispatchingChildId = dispatchChild.participantId;
       const mainCommands: OfficeRuntimeVisualCommand[] = [
         { kind: "playAction", participantId: dispatchMain.participantId, actionId: "off-chair", loop: false, durationMs: this.resolver.action("off-chair").durationMs },
+        { kind: "setScreen", stationId: dispatchMain.stationId, profile: "off" },
         ...route.outbound.map((stage) => stageCommand(dispatchMain.participantId, stage)),
         { kind: "parallel", commands: [
           positionedAction(dispatchMain.participantId, "handoff:standing-talk", "standing-talk", route.standingTalk, this.resolver.action("standing-talk").durationMs),
@@ -204,34 +249,45 @@ export class OfficeDirector {
     }
   }
 
-  private async runAmbient({ participant, action }: AmbientSelection): Promise<void> {
-    const latest = this.snapshot?.participants.find((candidate) => candidate.participantId === participant.participantId);
-    if (!latest || this.dispatchReservations.has(latest.participantId) || latest.participantId === this.dispatchingChildId || (latest.state !== "idle" && latest.state !== "completed") || this.reducedMotion || this.pageHidden) return;
+  private async runAmbient({ actorId, actorKind, action }: AmbientSelection): Promise<void> {
+    const participant = actorKind === "participant" ? this.snapshot?.participants.find((candidate) => candidate.participantId === actorId) : undefined;
+    const resident = actorKind === "resident" ? this.snapshot?.residents.find((candidate) => candidate.residentId === actorId) : undefined;
+    if ((!participant && !resident)
+      || (participant && (this.snapshot?.lifecycle !== "active" || this.dispatchReservations.has(participant.participantId) || participant.participantId === this.dispatchingChildId || (participant.state !== "idle" && participant.state !== "completed")))
+      || this.reducedMotion || this.pageHidden) return;
+    const latestId = participant?.participantId ?? resident!.residentId;
+    const stationId = participant?.stationId ?? resident!.stationId;
     let finishAmbient!: () => void;
     const completion = new Promise<void>((resolve) => { finishAmbient = resolve; });
-    this.activeAmbient.set(latest.participantId, completion);
+    this.activeAmbient.set(latestId, completion);
     let command: OfficeRuntimeVisualCommand;
     if (action === "entertainment-1" || action === "entertainment-2") {
       command = { kind: "sequence", commands: [
         { kind: "parallel", commands: [
-          { kind: "playAction", participantId: latest.participantId, actionId: "working", loop: true, durationMs: 5_000 },
-          { kind: "setScreen", stationId: latest.stationId, profile: action, phase: stablePhase(latest.participantId) },
+          { kind: "playAction", participantId: latestId, actionId: "working", loop: true, durationMs: 5_000 },
+          { kind: "setScreen", stationId, profile: action, phase: stablePhase(latestId) },
         ] },
       ] };
     } else if (action === "peek") {
-      command = { kind: "playAction", participantId: latest.participantId, actionId: "peek", loop: false, durationMs: this.resolver.action("peek").durationMs };
+      command = { kind: "playAction", participantId: latestId, actionId: "peek", loop: false, durationMs: this.resolver.action("peek").durationMs };
     } else if (action === "desk-coffee") {
-      command = { kind: "playAction", participantId: latest.participantId, actionId: "coffee-drink", loop: false, durationMs: this.resolver.action("coffee-drink").durationMs };
+      command = { kind: "playAction", participantId: latestId, actionId: "coffee-drink", loop: false, durationMs: this.resolver.action("coffee-drink").durationMs };
     } else {
-      const stages = this.currentStation(latest.stationId).facilityRoutes[action];
-      command = { kind: "sequence", commands: stages.map((stage) => stageCommand(latest.participantId, stage, action === "coffee" && stage.id === "facility-use")) };
+      const stages = this.currentStation(stationId).facilityRoutes[action];
+      command = { kind: "sequence", commands: [
+        ...stages.slice(0, 1).map((stage) => stageCommand(latestId, stage)),
+        { kind: "setScreen", stationId, profile: "off" },
+        ...stages.slice(1).map((stage) => stageCommand(latestId, stage, action === "coffee" && stage.id === "facility-use")),
+      ] };
     }
     try {
-      await this.engine.run(latest.participantId, command, "ambient");
+      await this.engine.run(latestId, command, "ambient");
     } finally {
-      const current = this.snapshot?.participants.find((candidate) => candidate.participantId === latest.participantId);
-      if (current) await this.restoreAndApplySemantic(current);
-      if (this.activeAmbient.get(latest.participantId) === completion) this.activeAmbient.delete(latest.participantId);
+      const currentParticipant = this.snapshot?.participants.find((candidate) => candidate.participantId === latestId);
+      const currentResident = this.snapshot?.residents.find((candidate) => candidate.residentId === latestId);
+      if (currentParticipant && this.snapshot?.lifecycle === "active") await this.restoreAndApplySemantic(currentParticipant);
+      else if (currentResident) await this.restoreResident(currentResident);
+      if (this.activeAmbient.get(latestId) === completion) this.activeAmbient.delete(latestId);
       finishAmbient();
     }
   }
@@ -247,6 +303,30 @@ export class OfficeDirector {
     return station;
   }
 
+  private isStationOccupied(stationId: string): boolean {
+    return Boolean(
+      this.snapshot?.participants.some((participant) => participant.stationId === stationId)
+      || this.snapshot?.residents.some((resident) => resident.stationId === stationId),
+    );
+  }
+
+  private restoreScopeOccupancy(previousSnapshot: OfficeExperienceSnapshot | null, snapshot: OfficeExperienceSnapshot): void {
+    const currentStations = new Set([
+      ...snapshot.participants.map((participant) => participant.stationId),
+      ...snapshot.residents.map((resident) => resident.stationId),
+    ]);
+    const previousStations = new Set([
+      ...(previousSnapshot?.participants.map((participant) => participant.stationId) ?? []),
+      ...(previousSnapshot?.residents.map((resident) => resident.stationId) ?? []),
+    ]);
+    for (const stationId of previousStations) {
+      if (currentStations.has(stationId)) continue;
+      void this.engine.run(`station:${stationId}`, { kind: "setScreen", stationId, profile: "off" }, "semantic");
+    }
+    for (const participant of snapshot.participants) void this.restoreAndApplySemantic(participant);
+    for (const resident of snapshot.residents) void this.restoreResident(resident);
+  }
+
   private resetChoreography(previousSnapshot: OfficeExperienceSnapshot | null): void {
     this.dispatchGeneration += 1;
     this.dispatchingChildId = null;
@@ -255,6 +335,9 @@ export class OfficeDirector {
     this.engine.resetScope();
     for (const participant of previousSnapshot?.participants ?? []) {
       void this.engine.run(participant.participantId, { kind: "setEffect", participantId: participant.participantId, effect: "none" }, "semantic");
+    }
+    for (const resident of previousSnapshot?.residents ?? []) {
+      void this.engine.run(resident.residentId, { kind: "setEffect", participantId: resident.residentId, effect: "none" }, "semantic");
     }
   }
 }

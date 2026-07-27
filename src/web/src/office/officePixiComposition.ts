@@ -1,8 +1,6 @@
 import type { Container, Text } from "pixi.js";
 import type { OfficeCalibrationDocument } from "./officeCalibrationDocument.js";
-import type { OfficeActorStatus } from "./officeScene.js";
 import { officeActorLabelLocalPosition, type OfficeActorLabelKind } from "./officeActorLabel.js";
-import type { OfficeScreenProfile } from "./officeRuntimeAssets.js";
 
 type PixiModule = typeof import("pixi.js");
 
@@ -32,9 +30,4 @@ export function addOfficeActorLabel(
   label.eventMode = "none";
   actorContainer.addChild(label);
   return label;
-}
-
-export function shouldPlayScreen(status: OfficeActorStatus, reducedMotion: boolean, profile: OfficeScreenProfile): boolean {
-  if (reducedMotion) return false;
-  return profile === "orchestration" ? status === "working" : status === "idle" || status === "completed";
 }

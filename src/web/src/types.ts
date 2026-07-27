@@ -3,6 +3,7 @@ import type { ConversationInteractionQueue, InteractionHistoryRecord } from "../
 import type { AgentSurfacesInvalidated } from "../../workbench/agent-surface-contract.js";
 export type { ConversationInteraction, ConversationInteractionQuestion, ConversationInteractionQueue, ConversationInteractionSettlement, InteractionHistoryRecord } from "../../workbench/conversation-interaction-contract.js";
 export type { AgentSurfaceProjection, AgentSurfaceProjectionItem, AgentSurfaceStatus, AgentSurfacesInvalidated, AgentSurfacesInvalidationReason } from "../../workbench/agent-surface-contract.js";
+export type { AgentCatalogDisplayProjection, AgentCatalogDisplayRole } from "../../workbench/agent-catalog-display-contract.js";
 
 export type AppStatus = { mode: "app" | "project"; directProjectId: string | null };
 export type ProviderDiagnostics = {

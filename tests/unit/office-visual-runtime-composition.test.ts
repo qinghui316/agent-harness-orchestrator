@@ -6,13 +6,27 @@ import { OfficeCalibrationResolver } from "../../src/web/src/office/officeCalibr
 describe("Agent Office visual runtime composition", () => {
   it("loads and freezes one document and injects one exact resolver", async () => {
     const value = JSON.parse(await readFile("src/web/public/agent-office/config/office-calibration.json", "utf8"));
-    const fetcher = vi.fn(async () => new Response(JSON.stringify(value), { status: 200 }));
+    const catalog = { version: "1.0", catalogHash: "hash", roles: [] };
+    const fetcher = vi.fn(async (url: string | URL | Request) => new Response(JSON.stringify(String(url) === OFFICE_CALIBRATION_URL ? value : catalog), { status: 200 }));
     const runtime = await loadAgentOfficeRuntimeComposition("project-1", fetcher as typeof fetch);
-    expect(fetcher).toHaveBeenCalledOnce();
+    expect(fetcher).toHaveBeenCalledTimes(2);
     expect(fetcher).toHaveBeenCalledWith(OFFICE_CALIBRATION_URL, { cache: "no-cache" });
+    expect(fetcher).toHaveBeenCalledWith("/api/projects/project-1/workbench/projections/agent-catalog", { cache: "no-cache" });
     expect(Object.isFrozen(runtime.document)).toBe(true);
     expect(runtime.resolver).toBeInstanceOf(OfficeCalibrationResolver);
     expect(runtime.resolver.calibration).toBe(runtime.document);
+    expect(runtime.catalog).toEqual(catalog);
+  });
+
+  it("degrades to a real-only Office when the optional Catalog display projection fails", async () => {
+    const value = JSON.parse(await readFile("src/web/public/agent-office/config/office-calibration.json", "utf8"));
+    const fetcher = vi.fn(async (url: string | URL | Request) => new Response(
+      String(url) === OFFICE_CALIBRATION_URL ? JSON.stringify(value) : "",
+      { status: String(url) === OFFICE_CALIBRATION_URL ? 200 : 503 },
+    ));
+    const runtime = await loadAgentOfficeRuntimeComposition("project-1", fetcher as typeof fetch);
+    expect(runtime.catalog).toBeNull();
+    expect(runtime.catalogError).toContain("HTTP 503");
   });
 
   it("fails closed for missing, malformed, and old-schema calibration", async () => {

@@ -7,6 +7,7 @@ import type {
   AgentSurfaceProjection,
   AgentSurfaceProjectionItem,
   AgentSurfaceStatus,
+  AgentCatalogDisplayRole,
   ParentAgentTranscript,
   ProjectStatus,
   Snapshot,
@@ -17,6 +18,7 @@ import { HarnessOfficeAdapter } from "../../office/harnessOfficeAdapter.js";
 import { officeAvatarIdForRole } from "../../office/officePresentationRegistry.js";
 import { OfficeLoadingScreen } from "../../office/OfficeLoadingScreen.js";
 import { loadAgentOfficeRuntimeComposition, type AgentOfficeRuntimeComposition } from "../../office/agentOfficeRuntimeComposition.js";
+import { officeResidentRoles } from "../../office/officeResidentPolicy.js";
 
 export function MainConversationView({
   transcript,
@@ -147,16 +149,23 @@ export function AgentOfficePanel({
     setScene(createOfficeScene(result.snapshot, runtime.document, result.events));
   }, [projection, runtime]);
   const [selectedActorId, setSelectedActorId] = useState<string | null>(null);
-  const selectedAgent = projection.surfaces.find((surface) => surface.agentSurfaceId === selectedActorId) ?? null;
+  const selectedActor = scene?.actors.find((actor) => actor.actorId === selectedActorId) ?? null;
+  const selectedAgent = selectedActor && selectedActor.kind !== "resident"
+    ? projection.surfaces.find((surface) => surface.agentSurfaceId === selectedActor.agentSurfaceId) ?? null
+    : null;
+  const selectedResident = selectedActor?.kind === "resident" ? selectedActor : null;
+  const selectedResidentRole = officeResidentRoles(runtime?.catalog ?? null)
+    .find((role) => role.roleId === selectedResident?.roleId) ?? null;
   const menuAgents = currentOfficeAgents(projection);
   const [cardAnchor, setCardAnchor] = useState<{ x: number; y: number } | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const cardScopeRef = useRef(projection.graphScopeId);
   const selectActor = (actorId: string, anchor: { x: number; y: number }) => {
     const surface = projection.surfaces.find((candidate) => candidate.agentSurfaceId === actorId);
-    if (surface) {
+    const resident = scene?.actors.find((candidate) => candidate.kind === "resident" && candidate.actorId === actorId);
+    if (surface || resident) {
       setCardAnchor(anchor);
-      setSelectedActorId(surface.agentSurfaceId);
+      setSelectedActorId(surface?.agentSurfaceId ?? actorId);
     }
   };
   const dismissCard = () => {
@@ -175,6 +184,10 @@ export function AgentOfficePanel({
     setSelectedActorId(null);
     setMenuOpen(false);
   }, [projection.graphScopeId]);
+  useEffect(() => {
+    if (!scene || !selectedActorId || selectedActor) return;
+    dismissCard();
+  }, [scene, selectedActorId, selectedActor]);
   return (
     <div className="agent-office-panel" data-testid="agent-office-panel">
       <div className="agent-office-body">
@@ -230,8 +243,54 @@ export function AgentOfficePanel({
             onOpenSurface={onOpenSurface}
           />
         ) : null}
+        {selectedResidentRole && cardAnchor ? (
+          <OfficeResidentProfileCard role={selectedResidentRole} anchor={cardAnchor} onClose={dismissCard} />
+        ) : null}
       </div>
     </div>
+  );
+}
+
+export function OfficeResidentProfileCard({
+  role,
+  anchor,
+  onClose,
+}: {
+  role: AgentCatalogDisplayRole;
+  anchor: { x: number; y: number };
+  onClose: () => void;
+}): ReactElement {
+  const cardRef = useRef<HTMLElement | null>(null);
+  const [position, setPosition] = useState(() => ({ left: anchor.x + 18, top: anchor.y }));
+  useLayoutEffect(() => {
+    const card = cardRef.current;
+    if (!card) return;
+    const rect = card.getBoundingClientRect();
+    setPosition(clampProfileCardPosition(anchor, { width: rect.width || 264, height: rect.height || 260 }, {
+      width: globalThis.innerWidth,
+      height: globalThis.innerHeight,
+    }));
+  }, [role.roleId, anchor]);
+  return (
+    <aside
+      ref={cardRef}
+      className="office-agent-profile-card office-resident-profile-card"
+      style={{ left: position.left, top: position.top }}
+      aria-label={`${role.displayName} 能力名片`}
+      data-testid="office-resident-profile-card"
+    >
+      <button type="button" className="office-agent-profile-close" aria-label="关闭名片" onClick={onClose}><X size={15} /></button>
+      <div className="office-agent-profile-heading">
+        <img src={`/agent-office/avatars/${officeAvatarIdForRole(role.roleId)}.webp`} alt="" width="96" height="96" />
+        <div>
+          <strong>{role.displayName}</strong>
+          <span>能力目录角色</span>
+          <small>当前未执行任务</small>
+        </div>
+      </div>
+      {role.description ? <p>{role.description}</p> : null}
+      {role.skills.length > 0 ? <div className="office-agent-profile-skills">{role.skills.map((skill) => <span key={skill}>{skill}</span>)}</div> : null}
+    </aside>
   );
 }
 

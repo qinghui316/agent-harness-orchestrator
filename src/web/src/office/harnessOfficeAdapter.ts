@@ -1,14 +1,17 @@
 import type { AgentSurfaceProjection, AgentSurfaceProjectionItem, AgentSurfaceStatus } from "../types.js";
+import type { AgentCatalogDisplayProjection } from "../types.js";
 import type {
   OfficeExperienceSnapshot,
   OfficeParticipant,
+  OfficeResident,
   OfficeParticipantState,
   OfficeSceneSourceAdapter,
   OfficeSemanticEvent,
 } from "./officeExperience.js";
 import { OfficeCalibrationResolver } from "./officeCalibrationResolver.js";
-import { OfficePresencePolicy } from "./officePresencePolicy.js";
+import { OfficeOccupancyPolicy } from "./officeOccupancyPolicy.js";
 import { officePresentationForRole } from "./officePresentationRegistry.js";
+import { officeResidentId, officeResidentRoles } from "./officeResidentPolicy.js";
 
 export class HarnessOfficeAdapter implements OfficeSceneSourceAdapter<AgentSurfaceProjection> {
   private currentSnapshot: OfficeExperienceSnapshot | null = null;
@@ -16,7 +19,9 @@ export class HarnessOfficeAdapter implements OfficeSceneSourceAdapter<AgentSurfa
   constructor(
     private readonly projectId: string,
     private readonly resolver: OfficeCalibrationResolver,
-    private readonly presence = new OfficePresencePolicy(),
+    private readonly catalog: AgentCatalogDisplayProjection | null,
+    private readonly occupancy = new OfficeOccupancyPolicy(),
+    private readonly catalogError: string | null = null,
   ) {}
 
   hydrate(projection: AgentSurfaceProjection): OfficeExperienceSnapshot {
@@ -30,7 +35,7 @@ export class HarnessOfficeAdapter implements OfficeSceneSourceAdapter<AgentSurfa
     events: OfficeSemanticEvent[];
   } {
     if (previous.graphScopeId !== next.graphScopeId) {
-      this.presence.reset();
+      this.occupancy.reset();
       const snapshot = this.snapshot(next);
       this.currentSnapshot = snapshot;
       return { snapshot, events: [{ kind: "scope-reset", previousContextId: previous.graphScopeId }] };
@@ -42,6 +47,8 @@ export class HarnessOfficeAdapter implements OfficeSceneSourceAdapter<AgentSurfa
     const snapshot = this.snapshot(next);
     const before = participantById(previousSnapshot);
     const after = participantById(snapshot);
+    const residentBefore = residentById(previousSnapshot);
+    const residentAfter = residentById(snapshot);
     const events: OfficeSemanticEvent[] = [];
     for (const participant of snapshot.participants) {
       const prior = before.get(participant.participantId);
@@ -59,6 +66,14 @@ export class HarnessOfficeAdapter implements OfficeSceneSourceAdapter<AgentSurfa
     for (const participantId of before.keys()) {
       if (!after.has(participantId)) events.push({ kind: "participant-removed", participantId });
     }
+    for (const resident of snapshot.residents) {
+      const prior = residentBefore.get(resident.residentId);
+      if (!prior) events.push({ kind: "resident-added", residentId: resident.residentId });
+      else if (prior.stationId !== resident.stationId) events.push({ kind: "resident-station-changed", residentId: resident.residentId, fromStationId: prior.stationId, toStationId: resident.stationId });
+    }
+    for (const residentId of residentBefore.keys()) {
+      if (!residentAfter.has(residentId)) events.push({ kind: "resident-removed", residentId });
+    }
     if (previous.scopeStatus !== "terminal" && next.scopeStatus === "terminal") events.push({ kind: "scope-terminal" });
     this.currentSnapshot = snapshot;
     return { snapshot, events };
@@ -74,7 +89,8 @@ export class HarnessOfficeAdapter implements OfficeSceneSourceAdapter<AgentSurfa
     const main = current.find((surface) => surface.kind === "main-agent");
     if (!main) throw new Error("Harness Office requires a canonical current Main surface.");
     const children = current.filter((surface) => surface.kind === "agent");
-    const allocation = this.presence.assign(
+    const residentRoles = officeResidentRoles(this.catalog);
+    const allocation = this.occupancy.assign(
       { projectId: this.projectId, conversationId: projection.conversationId, graphScopeId: projection.graphScopeId },
       stations,
       children.map((surface) => ({
@@ -83,6 +99,7 @@ export class HarnessOfficeAdapter implements OfficeSceneSourceAdapter<AgentSurfa
         state: mapHarnessState(surface.status),
         createdAt: surface.createdAt,
       })),
+      residentRoles.map((role) => ({ residentId: officeResidentId(role.roleId), roleId: role.roleId })),
     );
     const mainStation = stations.find((station) => station.workstationKind === "main");
     if (!mainStation) throw new Error("Harness Office requires a calibrated Main station.");
@@ -91,17 +108,33 @@ export class HarnessOfficeAdapter implements OfficeSceneSourceAdapter<AgentSurfa
       const stationId = allocation.stationByParticipant.get(surface.agentSurfaceId);
       if (stationId) participants.push(participantFromSurface(surface, "child", stationId));
     }
+    const residents = residentRoles.flatMap((role): OfficeResident[] => {
+      const stationId = allocation.stationByResident.get(officeResidentId(role.roleId));
+      if (!stationId) return [];
+      const presentation = officePresentationForRole(role.roleId);
+      return [{
+        residentId: officeResidentId(role.roleId),
+        roleId: role.roleId,
+        label: role.displayName,
+        stationId,
+        scarf: presentation.scarf,
+        ambientPreferences: presentation.ambientPreferences,
+      }];
+    });
     return {
       contextId: projection.graphScopeId,
-      revision: projection.projectionHash,
+      revision: `${projection.projectionHash}:${this.catalog?.catalogHash ?? "catalog-unavailable"}`,
       lifecycle: projection.scopeStatus,
       stations,
       participants,
-      diagnostics: allocation.hiddenParticipantIds.length > 0
-        ? [`Office capacity exceeded; hidden participants: ${allocation.hiddenParticipantIds.join(", ")}`]
-        : [],
+      residents,
+      diagnostics: [
+        ...(allocation.hiddenParticipantIds.length > 0 ? [`Office capacity exceeded; hidden participants: ${allocation.hiddenParticipantIds.join(", ")}`] : []),
+        ...(this.catalogError ? [`Office residents unavailable: ${this.catalogError}`] : []),
+      ],
     };
   }
+
 }
 
 export function mapHarnessState(status: AgentSurfaceStatus): OfficeParticipantState {
@@ -138,4 +171,8 @@ function participantFromSurface(surface: AgentSurfaceProjectionItem, kind: "main
 
 function participantById(snapshot: OfficeExperienceSnapshot): Map<string, OfficeParticipant> {
   return new Map(snapshot.participants.map((participant) => [participant.participantId, participant] as const));
+}
+
+function residentById(snapshot: OfficeExperienceSnapshot): Map<string, OfficeResident> {
+  return new Map(snapshot.residents.map((resident) => [resident.residentId, resident] as const));
 }

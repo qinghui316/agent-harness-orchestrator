@@ -13,6 +13,8 @@ import { officeActionPlaybackRate, type OfficeActionId, type OfficePoint, type O
 
 type PixiModule = typeof import("pixi.js");
 
+export const OFFICE_RESIDENT_CROSSFADE_MS = 160;
+
 export type OfficeActorVisual = {
   actor: OfficeActor;
   actionId: OfficeActionId;
@@ -54,6 +56,7 @@ export async function reconcileOfficeParticipants(
   currentGeneration: () => number,
 ): Promise<void> {
   const prepared: OfficeActorVisual[] = [];
+  const residentReplacement = shouldCrossFadeResidentReplacement(scene.events, reducedMotion);
   try {
     for (const actor of scene.actors) {
       if (visuals.has(actor.actorId)) continue;
@@ -71,6 +74,7 @@ export async function reconcileOfficeParticipants(
       }
       const group = new pixi.Container();
       group.position.set(actor.anchors.seat.x, actor.anchors.seat.y);
+      if (residentReplacement && actor.kind !== "resident") group.alpha = 0;
       const sprite = new pixi.AnimatedSprite(frames);
       applyActionVisual(sprite, handle.asset, actionId, resolver.action(actionId), false, reducedMotion, 0);
       group.addChild(sprite);
@@ -105,11 +109,12 @@ export async function reconcileOfficeParticipants(
 
   commitLatestOfficeRender(generation, currentGeneration(), prepared, (current) => {
     const nextIds = new Set(scene.actors.map((actor) => actor.actorId));
+    const outgoingResidents: OfficeActorVisual[] = [];
     for (const [actorId, visual] of visuals) {
       if (nextIds.has(actorId)) continue;
-      visual.actionHandle.release();
-      visual.group.destroy({ children: true });
       visuals.delete(actorId);
+      if (residentReplacement && visual.actor.kind === "resident") outgoingResidents.push(visual);
+      else destroyVisual(visual);
     }
     for (const actor of scene.actors) {
       const existing = visuals.get(actor.actorId);
@@ -121,7 +126,20 @@ export async function reconcileOfficeParticipants(
       world.personLayer.addChild(visual.group);
       visuals.set(visual.actor.actorId, visual);
     }
+    if (residentReplacement) {
+      const incomingParticipants = current.filter((visual) => visual.actor.kind !== "resident");
+      runResidentCrossFade(outgoingResidents, incomingParticipants, generation, currentGeneration);
+    } else {
+      for (const visual of current) visual.group.alpha = 1;
+      for (const visual of outgoingResidents) destroyVisual(visual);
+    }
   }, destroyPrepared);
+}
+
+export function shouldCrossFadeResidentReplacement(events: OfficeSceneModel["events"], reducedMotion: boolean): boolean {
+  return !reducedMotion
+    && events.some((event) => event.kind === "resident-removed")
+    && events.some((event) => event.kind === "participant-added");
 }
 
 export async function applyOfficeParticipantAction(
@@ -295,8 +313,36 @@ function drawStatusIndicator(graphics: Graphics, status: OfficeActorStatus): voi
 }
 
 function destroyPrepared(actors: OfficeActorVisual[]): void {
-  for (const visual of actors) {
-    visual.actionHandle.release();
-    visual.group.destroy({ children: true });
-  }
+  for (const visual of actors) destroyVisual(visual);
+}
+
+function runResidentCrossFade(
+  outgoing: OfficeActorVisual[],
+  incoming: OfficeActorVisual[],
+  generation: number,
+  currentGeneration: () => number,
+): void {
+  const started = performance.now();
+  const frame = (now: number) => {
+    const progress = Math.min(1, Math.max(0, (now - started) / OFFICE_RESIDENT_CROSSFADE_MS));
+    for (const visual of outgoing) visual.group.alpha = 1 - progress;
+    for (const visual of incoming) visual.group.alpha = progress;
+    if (progress < 1 && generation === currentGeneration()) {
+      scheduleFrame(frame);
+      return;
+    }
+    for (const visual of outgoing) destroyVisual(visual);
+    for (const visual of incoming) visual.group.alpha = 1;
+  };
+  scheduleFrame(frame);
+}
+
+function scheduleFrame(callback: FrameRequestCallback): void {
+  if (typeof globalThis.requestAnimationFrame === "function") globalThis.requestAnimationFrame(callback);
+  else globalThis.setTimeout(() => callback(performance.now()), 16);
+}
+
+function destroyVisual(visual: OfficeActorVisual): void {
+  visual.actionHandle.release();
+  visual.group.destroy({ children: true });
 }

@@ -8,11 +8,9 @@ export type OfficeActorStatus = OfficeParticipantState;
 
 export type OfficeSceneStation = OfficeStation;
 
-export type OfficeActor = {
+type OfficeActorBase = {
   actorId: string;
   seatId: string;
-  agentSurfaceId: string;
-  kind: "main-agent" | "agent";
   roleId: string;
   label: string;
   status: OfficeActorStatus;
@@ -23,6 +21,18 @@ export type OfficeActor = {
   createdAt: string;
   ambientPreferences: OfficeAmbientPreference[];
 };
+
+export type OfficeParticipantActor = OfficeActorBase & {
+  kind: "main-agent" | "agent";
+  agentSurfaceId: string;
+};
+
+export type OfficeResidentActor = OfficeActorBase & {
+  kind: "resident";
+  residentId: string;
+};
+
+export type OfficeActor = OfficeParticipantActor | OfficeResidentActor;
 
 export type OfficeZone = {
   id: "water-coffee" | "fitness" | "toilet";
@@ -54,7 +64,7 @@ export function createOfficeScene(
 ): OfficeSceneModel {
   const stations = snapshot.stations;
   const stationById = new Map(stations.map((station) => [station.stationId, station] as const));
-  const actors = snapshot.participants.map((participant) => {
+  const participantActors: OfficeParticipantActor[] = snapshot.participants.map((participant) => {
     const station = stationById.get(participant.stationId);
     if (!station) throw new Error(`Office participant ${participant.participantId} has no station ${participant.stationId}.`);
     return {
@@ -73,6 +83,25 @@ export function createOfficeScene(
       ambientPreferences: participant.ambientPreferences.map((preference) => ({ ...preference })),
     };
   });
+  const residentActors: OfficeResidentActor[] = snapshot.residents.map((resident) => {
+    const station = stationById.get(resident.stationId);
+    if (!station) throw new Error(`Office resident ${resident.residentId} has no station ${resident.stationId}.`);
+    return {
+      actorId: resident.residentId,
+      residentId: resident.residentId,
+      seatId: station.stationId,
+      kind: "resident",
+      roleId: resident.roleId,
+      label: resident.label,
+      status: "idle",
+      parentActorId: null,
+      workstation: station.origin,
+      anchors: station.anchors,
+      scarf: resident.scarf,
+      createdAt: resident.residentId,
+      ambientPreferences: resident.ambientPreferences.map((preference) => ({ ...preference })),
+    };
+  });
   return {
     experience: snapshot,
     conversationId: snapshot.contextId,
@@ -82,7 +111,7 @@ export function createOfficeScene(
     width: document.world.width,
     height: document.world.height,
     stations,
-    actors,
+    actors: [...participantActors, ...residentActors],
     zones: officeZones(document),
     events,
     diagnostics: snapshot.diagnostics,

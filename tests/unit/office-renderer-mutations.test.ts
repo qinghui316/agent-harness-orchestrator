@@ -2,11 +2,22 @@ import { describe, expect, it, vi } from "vitest";
 import {
   setOfficeStationScreen,
 } from "../../src/web/src/office/PixiOfficeRenderer.js";
-import { applyOfficeParticipantRouteStage, officeActionOverlayGeometry, reconcileOfficeParticipants } from "../../src/web/src/office/OfficeParticipantRenderer.js";
+import { applyOfficeParticipantRouteStage, OFFICE_RESIDENT_CROSSFADE_MS, officeActionOverlayGeometry, reconcileOfficeParticipants, shouldCrossFadeResidentReplacement } from "../../src/web/src/office/OfficeParticipantRenderer.js";
 import type { OfficeSceneModel } from "../../src/web/src/office/officeScene.js";
 import { OFFICE_SCREEN_ANIMATION_SPEED } from "../../src/web/src/office/officeVisualContract.js";
 
 describe("Office renderer async mutations", () => {
+  it("uses an exact short cross-fade only for resident removal plus real arrival", () => {
+    const events = [
+      { kind: "resident-removed" as const, residentId: "resident:memory-maintenance-agent" },
+      { kind: "participant-added" as const, participantId: "agent-1", parentParticipantId: "main-agent" },
+    ];
+    expect(OFFICE_RESIDENT_CROSSFADE_MS).toBe(160);
+    expect(shouldCrossFadeResidentReplacement(events, false)).toBe(true);
+    expect(shouldCrossFadeResidentReplacement(events, true)).toBe(false);
+    expect(shouldCrossFadeResidentReplacement(events.slice(0, 1), false)).toBe(false);
+  });
+
   it("releases a delayed actor asset without committing a stale render generation", async () => {
     const deferred = createDeferred<{ release: () => void }>();
     const lateRelease = vi.fn();
@@ -79,6 +90,25 @@ describe("Office renderer async mutations", () => {
     expect(screen.visible).toBe(true);
     expect(screen.animationSpeed).toBe(OFFICE_SCREEN_ANIMATION_SPEED);
     expect(screen.gotoAndPlay).toHaveBeenCalledWith(0);
+  });
+
+  it("keeps an occupied reduced-motion screen visible on a stable frame", async () => {
+    const handle = screenHandle();
+    const screen = screenSprite();
+    const station = stationVisual(screen, handle, "orchestration");
+
+    await setOfficeStationScreen(
+      { acquireScreen: vi.fn() } as never,
+      station as never,
+      "orchestration",
+      new AbortController().signal,
+      0,
+      true,
+    );
+
+    expect(screen.visible).toBe(true);
+    expect(screen.gotoAndStop).toHaveBeenCalledWith(0);
+    expect(screen.gotoAndPlay).not.toHaveBeenCalled();
   });
 
   it("keeps route position and overlays unchanged until the next action is ready, then commits them together", async () => {

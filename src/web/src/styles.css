@@ -1831,7 +1831,11 @@ input:focus-visible {
 }
 
 .office-agent-profile-heading > div { display: grid; gap: 3px; min-width: 0; }
-.office-agent-profile-heading strong { overflow: hidden; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
+.office-agent-profile-heading strong {
+  font-size: 15px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
 .office-agent-profile-heading span { color: #666b70; font-size: 12px; }
 .office-agent-profile-heading small { display: inline-flex; gap: 6px; align-items: center; color: #555b61; font-size: 12px; }
 

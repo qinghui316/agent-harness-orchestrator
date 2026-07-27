@@ -63,12 +63,22 @@ export type OfficeParticipant = {
   ambientPreferences: OfficeAmbientPreference[];
 };
 
+export type OfficeResident = {
+  residentId: string;
+  roleId: string;
+  label: string;
+  stationId: string;
+  scarf: OfficeScarfId;
+  ambientPreferences: OfficeAmbientPreference[];
+};
+
 export type OfficeExperienceSnapshot = {
   contextId: string;
   revision: string;
   lifecycle: "active" | "terminal";
   stations: OfficeStation[];
   participants: OfficeParticipant[];
+  residents: OfficeResident[];
   diagnostics: string[];
 };
 
@@ -78,6 +88,9 @@ export type OfficeSemanticEvent =
   | { kind: "participant-removed"; participantId: string }
   | { kind: "station-changed"; participantId: string; fromStationId: string; toStationId: string }
   | { kind: "state-changed"; participantId: string; from: OfficeParticipantState; to: OfficeParticipantState }
+  | { kind: "resident-added"; residentId: string }
+  | { kind: "resident-removed"; residentId: string }
+  | { kind: "resident-station-changed"; residentId: string; fromStationId: string; toStationId: string }
   | { kind: "scope-terminal" };
 
 export interface OfficeSceneSourceAdapter<TProjection> {

@@ -1,4 +1,4 @@
-import type { OfficeParticipant } from "./officeExperience.js";
+import type { OfficeParticipant, OfficeResident } from "./officeExperience.js";
 import type { OfficeRuntimeVisualCommand } from "./officeVisualContract.js";
 
 export class OfficeBehaviorPolicy {
@@ -13,10 +13,10 @@ export class OfficeBehaviorPolicy {
         ] };
       case "completed":
         return celebrateCompleted ? { kind: "sequence", commands: [
-          { kind: "setScreen", stationId: participant.stationId, profile: "off" },
+          { kind: "setScreen", stationId: participant.stationId, profile: "orchestration", phase },
           { kind: "playAction", participantId: participant.participantId, actionId: "salute", loop: false, durationMs: 3_167 },
           { kind: "playAction", participantId: participant.participantId, actionId: "standby", loop: false, phase },
-        ] } : staticStandby(participant, "off", "none", phase);
+        ] } : staticStandby(participant, "none", phase);
       case "attention": return staticStatus(participant, "attention");
       case "blocked": return staticStatus(participant, "blocked");
       case "failed": return staticStatus(participant, "failed");
@@ -24,7 +24,7 @@ export class OfficeBehaviorPolicy {
       case "queued":
       case "idle":
       default:
-        return staticStandby(participant, participant.state === "queued" ? "static" : "off", "none", phase);
+        return staticStandby(participant, "none", phase);
     }
   }
 
@@ -34,23 +34,30 @@ export class OfficeBehaviorPolicy {
       : "none";
     return { kind: "setEffect", participantId: participant.participantId, effect };
   }
+
+  resident(resident: OfficeResident): OfficeRuntimeVisualCommand {
+    return { kind: "parallel", commands: [
+      { kind: "playAction", participantId: resident.residentId, actionId: "standby", loop: false, phase: stablePhase(resident.residentId) },
+      { kind: "setScreen", stationId: resident.stationId, profile: "orchestration", phase: stablePhase(resident.residentId) },
+      { kind: "setEffect", participantId: resident.residentId, effect: "none" },
+    ] };
+  }
 }
 
 function staticStandby(
   participant: OfficeParticipant,
-  screen: "off" | "static",
   effect: "none" | "attention" | "blocked" | "failed" | "interrupted",
   phase = 0,
 ): OfficeRuntimeVisualCommand {
   return { kind: "parallel", commands: [
     { kind: "playAction", participantId: participant.participantId, actionId: "standby", loop: false, phase },
-    { kind: "setScreen", stationId: participant.stationId, profile: screen },
+    { kind: "setScreen", stationId: participant.stationId, profile: "orchestration", phase },
     { kind: "setEffect", participantId: participant.participantId, effect },
   ] };
 }
 
 function staticStatus(participant: OfficeParticipant, effect: "attention" | "blocked" | "failed" | "interrupted"): OfficeRuntimeVisualCommand {
-  return staticStandby(participant, "static", effect);
+  return staticStandby(participant, effect, stablePhase(participant.participantId));
 }
 
 export function stablePhase(id: string): number {

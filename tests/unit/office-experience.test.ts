@@ -5,9 +5,9 @@ import { OfficeBehaviorPolicy } from "../../src/web/src/office/officeBehaviorPol
 import { OfficeCalibrationResolver } from "../../src/web/src/office/officeCalibrationResolver.js";
 import { parseOfficeCalibrationJson } from "../../src/web/src/office/officeCalibrationDocument.js";
 import { HarnessOfficeAdapter, mapHarnessState } from "../../src/web/src/office/harnessOfficeAdapter.js";
-import { OfficePresencePolicy } from "../../src/web/src/office/officePresencePolicy.js";
+import { OfficeOccupancyPolicy } from "../../src/web/src/office/officeOccupancyPolicy.js";
 import { OfficeStationAssignmentStore } from "../../src/web/src/office/officeStationAssignmentStore.js";
-import type { AgentSurfaceProjection, AgentSurfaceStatus } from "../../src/web/src/types.js";
+import type { AgentCatalogDisplayProjection, AgentSurfaceProjection, AgentSurfaceStatus } from "../../src/web/src/types.js";
 
 const calibration = parseOfficeCalibrationJson(readFileSync("src/web/public/agent-office/config/office-calibration.json", "utf8"));
 const resolver = new OfficeCalibrationResolver(calibration);
@@ -25,6 +25,54 @@ describe("Office experience boundary", () => {
     ]));
     expect(snapshot.stations).toHaveLength(9);
     expect(snapshot.participants.map((participant) => participant.participantId)).toEqual(["main-agent"]);
+  });
+
+  it("fills an empty current Office with two fixed Catalog-backed residents", () => {
+    const snapshot = adapter(undefined, residentCatalog()).hydrate(projection([]));
+    expect(snapshot.participants.map((participant) => participant.participantId)).toEqual(["main-agent"]);
+    expect(snapshot.residents.map((resident) => resident.residentId)).toEqual([
+      "resident:memory-maintenance-agent",
+      "resident:harness-evolution-agent",
+    ]);
+    expect(snapshot.residents.map((resident) => resident.stationId)).toEqual(["maintenance", "evolution"]);
+    expect(snapshot.residents.every((resident) => !("navigationId" in resident))).toBe(true);
+  });
+
+  it("counts every visible real Child, suppresses duplicate roles, and keeps Memory priority", () => {
+    const unrelated = adapter(undefined, residentCatalog()).hydrate(projection([child("coder-1", "coder-agent", "completed", 1)]));
+    expect(unrelated.residents.map((resident) => resident.roleId)).toEqual(["memory-maintenance-agent"]);
+
+    const sameRole = adapter(undefined, residentCatalog()).hydrate(projection([child("memory-1", "memory-maintenance-agent", "idle", 1)]));
+    expect(sameRole.residents.map((resident) => resident.roleId)).toEqual(["harness-evolution-agent"]);
+
+    const twoReal = adapter(undefined, residentCatalog()).hydrate(projection([
+      child("coder-1", "coder-agent", "idle", 1),
+      child("auditor-1", "auditor-agent", "completed", 2),
+    ]));
+    expect(twoReal.residents).toEqual([]);
+  });
+
+  it("keeps residents in the current terminal Office while omitting missing Catalog roles", () => {
+    const terminal = projection([]);
+    terminal.scopeStatus = "terminal";
+    const catalog = residentCatalog();
+    catalog.roles = catalog.roles.slice(0, 1);
+    expect(adapter(undefined, catalog).hydrate(terminal).residents.map((resident) => resident.roleId)).toEqual(["memory-maintenance-agent"]);
+  });
+
+  it("persists a displaced resident station without automatically returning to its preferred station", () => {
+    const storage = new MemoryStorage();
+    const office = adapter(storage, residentCatalog());
+    const occupied = projection([child("memory-real", "coder-agent", "running", 1)]);
+    const preferredStation = resolver.stations().find((station) => station.preferredRoleId === "memory-maintenance-agent")!.stationId;
+    const key = `aho:agent-office:station-assignments:v1:project-1:conversation-1:scope-1`;
+    storage.setItem(key, JSON.stringify({ version: 1, assignments: { "memory-real": preferredStation } }));
+    const first = office.hydrate(occupied);
+    const fallback = first.residents.find((resident) => resident.roleId === "memory-maintenance-agent")!.stationId;
+    expect(fallback).not.toBe(preferredStation);
+    const afterDeparture = office.reconcile(occupied, projection([])).snapshot;
+    expect(afterDeparture.residents.find((resident) => resident.roleId === "memory-maintenance-agent")?.stationId).toBe(fallback);
+    expect(adapter(storage, residentCatalog()).hydrate(projection([])).residents.find((resident) => resident.roleId === "memory-maintenance-agent")?.stationId).toBe(fallback);
   });
 
   it("keeps role-owned ambient preferences independent of the selected station", () => {
@@ -106,6 +154,24 @@ describe("Office experience boundary", () => {
     ]);
   });
 
+  it("keeps every seated participant and resident screen on regardless of semantic status", () => {
+    const policy = new OfficeBehaviorPolicy();
+    const base = adapter().hydrate(projection([child("child-1", ROLE_IDS[1]!, "running", 1)])).participants[1]!;
+    for (const state of ["working", "queued", "idle", "completed", "attention", "blocked", "failed", "interrupted"] as const) {
+      const command = policy.semantic({ ...base, state });
+      const screen = command.kind === "parallel"
+        ? command.commands.find((candidate) => candidate.kind === "setScreen")
+        : undefined;
+      expect(screen).toMatchObject({ kind: "setScreen", stationId: base.stationId, profile: "orchestration" });
+    }
+
+    const resident = adapter(undefined, residentCatalog()).hydrate(projection([])).residents[0]!;
+    const residentCommand = policy.resident(resident);
+    expect(residentCommand.kind === "parallel"
+      ? residentCommand.commands.find((candidate) => candidate.kind === "setScreen")
+      : undefined).toMatchObject({ stationId: resident.stationId, profile: "orchestration" });
+  });
+
   it("uses station-owned anchors, actor offsets, handoffs, and facility routes", () => {
     const stations = resolver.stations();
     expect(calibration.schemaVersion).toBe(4);
@@ -123,7 +189,7 @@ describe("Office experience boundary", () => {
   });
 
   it("keeps world coordinates out of role presentation and action switching", async () => {
-    const sharedOwners = ["officeExperience.ts", "officePresencePolicy.ts", "officeBehaviorPolicy.ts", "officeCalibrationResolver.ts", "choreographyEngine.ts", "ambientScheduler.ts", "officeDirector.ts", "PixiOfficeRenderer.tsx"];
+    const sharedOwners = ["officeExperience.ts", "officeOccupancyPolicy.ts", "officeBehaviorPolicy.ts", "officeCalibrationResolver.ts", "choreographyEngine.ts", "ambientScheduler.ts", "officeDirector.ts", "PixiOfficeRenderer.tsx"];
     for (const owner of sharedOwners) {
       const source = await readFile(new URL(`../../src/web/src/office/${owner}`, import.meta.url), "utf8");
       expect(source).not.toMatch(/from .*workbench|Provider|from ["']\.\.\/types/);
@@ -136,8 +202,19 @@ describe("Office experience boundary", () => {
 
 const ROLE_IDS = ["planning-agent", "coder-agent", "auditor-agent", "rework-coder", "spec-test-proposer", "spec-test-generator", "memory-maintenance-agent", "harness-evolution-agent"];
 
-function adapter(storage?: Storage): HarnessOfficeAdapter {
-  return new HarnessOfficeAdapter("project-1", resolver, new OfficePresencePolicy(new OfficeStationAssignmentStore(storage ?? null)));
+function adapter(storage?: Storage, catalog: AgentCatalogDisplayProjection | null = null): HarnessOfficeAdapter {
+  return new HarnessOfficeAdapter("project-1", resolver, catalog, new OfficeOccupancyPolicy(new OfficeStationAssignmentStore(storage ?? null)));
+}
+
+function residentCatalog(): AgentCatalogDisplayProjection {
+  return {
+    version: "1.0",
+    catalogHash: "catalog-residents",
+    roles: [
+      { roleId: "memory-maintenance-agent", displayName: "Memory Maintenance Agent", description: "Maintains project memory.", skills: ["aho-harness-engineering"] },
+      { roleId: "harness-evolution-agent", displayName: "Harness Evolution Agent", description: "Evolves the harness.", skills: ["aho-harness-engineering"] },
+    ],
+  };
 }
 
 function projection(children: AgentSurfaceProjection["surfaces"], graphScopeId = "scope-1"): AgentSurfaceProjection {

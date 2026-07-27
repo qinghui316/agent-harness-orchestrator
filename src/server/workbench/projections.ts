@@ -29,6 +29,7 @@ import {
   type WorkbenchProjectInput,
 } from "../../workbench/projections/read-model/implementation.js";
 import { getAgentSurfaceProjection } from "../../workbench/agent-surface-projection.js";
+import { getAgentCatalogDisplayProjection } from "../../workbench/agent-catalog-display-projection.js";
 
 export async function getWorkbenchProjection(input: WorkbenchProjectInput, rest: string, _searchParams = new URLSearchParams()): Promise<unknown> {
   const [kind, encodedChangeId, encodedId, encodedExtraId] = rest.split("/");
@@ -38,6 +39,10 @@ export async function getWorkbenchProjection(input: WorkbenchProjectInput, rest:
   if (kind === "agent-surfaces") {
     if (!changeId) throw badRequest("agent-surfaces projection requires conversationId.");
     return getAgentSurfaceProjection(input, changeId);
+  }
+  if (kind === "agent-catalog") {
+    if (changeId) throw badRequest("agent-catalog projection does not accept an id.");
+    return getAgentCatalogDisplayProjection(input);
   }
   if (kind === "workpad") {
     if (!changeId) throw badRequest("workpad projection requires changeId.");

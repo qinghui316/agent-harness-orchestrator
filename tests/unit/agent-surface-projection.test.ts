@@ -2,10 +2,23 @@ import { describe, expect, it } from "vitest";
 import type { AgentCatalog, AgentCatalogEntry } from "../../src/agent/catalog.js";
 import { getWorkbenchProjection } from "../../src/server/workbench/projections.js";
 import { buildAgentSurfaceProjection } from "../../src/workbench/agent-surface-projection.js";
+import { buildAgentCatalogDisplayProjection } from "../../src/workbench/agent-catalog-display-projection.js";
 import type { StoredProviderAttempt, StoredProviderThreadLink } from "../../src/workbench/persistence/contracts.js";
 import type { WorkbenchProjectInput } from "../../src/workbench/read-model-types.js";
 
 describe("Agent Surface projection", () => {
+  it("projects only sanitized Catalog display metadata", () => {
+    const projection = buildAgentCatalogDisplayProjection(catalog());
+    expect(projection.roles[0]).toEqual({ roleId: "planning-agent", displayName: "Planning Agent", description: "Plans work.", skills: ["planning"] });
+    expect(projection.catalogHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(JSON.stringify(projection)).not.toMatch(/profilePath|writeCapability|allowedInputs|allowedOutputs|requiredGates|blockedSkills|delegatable/);
+  });
+
+  it("rejects ids on the project-level Agent Catalog projection route", async () => {
+    await expect(getWorkbenchProjection({} as WorkbenchProjectInput, "agent-catalog/unexpected"))
+      .rejects.toThrow("does not accept an id");
+  });
+
   it("projects current and historical registered Agents with Catalog presentation metadata", () => {
     const projection = buildAgentSurfaceProjection({
       conversationId: "conversation-1",

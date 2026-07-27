@@ -9,7 +9,6 @@ import { parseOfficeCalibrationJson } from "../../src/web/src/office/officeCalib
 import { commitLatestOfficeRender } from "../../src/web/src/office/officeRenderGeneration.js";
 import type { OfficeExperienceSnapshot, OfficeParticipant } from "../../src/web/src/office/officeExperience.js";
 import { applyScarfMask } from "../../src/web/src/office/officeRuntimeAssets.js";
-import { shouldPlayScreen } from "../../src/web/src/office/officePixiComposition.js";
 import { removeOfficeTickerIfCurrent } from "../../src/web/src/office/officeRendererLifecycle.js";
 import { officeRouteFrameAt } from "../../src/web/src/office/officeRouteInterpolation.js";
 
@@ -78,7 +77,7 @@ describe("Office runtime owners", () => {
   it("schedules life actions only for idle or completed actors and disables them for reduced motion", async () => {
     vi.useFakeTimers();
     const actions: string[] = [];
-    const scheduler = new AmbientScheduler(async ({ participant, action }) => { actions.push(`${participant.participantId}:${action}`); }, undefined, { next: () => 0 });
+    const scheduler = new AmbientScheduler(async ({ actorId, action }) => { actions.push(`${actorId}:${action}`); }, undefined, { next: () => 0 });
     scheduler.sync(snapshotWithStates(["idle", "working", "completed"]), true);
     await vi.advanceTimersByTimeAsync(8_000);
     expect(actions).toEqual(["actor-2:peek"]);
@@ -94,8 +93,8 @@ describe("Office runtime owners", () => {
     vi.useFakeTimers();
     let finish: (() => void) | undefined;
     const actions: string[] = [];
-    const scheduler = new AmbientScheduler(async ({ participant, action }) => {
-      actions.push(`${participant.participantId}:${action}`);
+    const scheduler = new AmbientScheduler(async ({ actorId, action }) => {
+      actions.push(`${actorId}:${action}`);
       await new Promise<void>((resolve) => { finish = resolve; });
     }, undefined, { next: () => 0 });
     scheduler.sync(snapshotWithStates(["idle", "idle"]), true);
@@ -114,8 +113,8 @@ describe("Office runtime owners", () => {
     vi.useFakeTimers();
     const running: string[] = [];
     const finish: Array<() => void> = [];
-    const scheduler = new AmbientScheduler(async ({ participant, action }) => {
-      running.push(`${participant.participantId}:${action}`);
+    const scheduler = new AmbientScheduler(async ({ actorId, action }) => {
+      running.push(`${actorId}:${action}`);
       await new Promise<void>((resolve) => finish.push(resolve));
     }, undefined, { next: () => 0 });
     const snapshot = snapshotWithStates(["idle", "idle", "idle"]);
@@ -136,7 +135,7 @@ describe("Office runtime owners", () => {
   it("uses the same bounded cadence when Main is the only ambient candidate", async () => {
     vi.useFakeTimers();
     const actions: string[] = [];
-    const scheduler = new AmbientScheduler(async ({ participant, action }) => { actions.push(`${participant.participantId}:${action}`); }, undefined, { next: () => 0 });
+    const scheduler = new AmbientScheduler(async ({ actorId, action }) => { actions.push(`${actorId}:${action}`); }, undefined, { next: () => 0 });
     scheduler.sync(snapshotWithStates(["idle"]), true);
     await vi.advanceTimersByTimeAsync(7_999);
     expect(actions).toEqual([]);
@@ -159,6 +158,30 @@ describe("Office runtime owners", () => {
     await vi.advanceTimersByTimeAsync(8_000);
     expect(run).toHaveBeenCalledTimes(2);
 
+    scheduler.dispose();
+    vi.useRealTimers();
+  });
+
+  it("keeps only residents eligible for ambient actions in a terminal current Office", async () => {
+    vi.useFakeTimers();
+    const actions: string[] = [];
+    const scheduler = new AmbientScheduler(async ({ actorId, actorKind }) => { actions.push(`${actorKind}:${actorId}`); }, undefined, { next: () => 0 });
+    const snapshot = snapshotWithStates(["completed"]);
+    snapshot.lifecycle = "terminal";
+    snapshot.residents = [{
+      residentId: "resident:memory-maintenance-agent",
+      roleId: "memory-maintenance-agent",
+      label: "Memory Maintenance Agent",
+      stationId: snapshot.stations[0]!.stationId,
+      scarf: "maintenance",
+      ambientPreferences: [{ action: "peek", weight: 1 }],
+    }];
+    scheduler.sync(snapshot, true);
+    await vi.advanceTimersByTimeAsync(16_000);
+    expect(actions).toEqual([
+      "resident:resident:memory-maintenance-agent",
+      "resident:resident:memory-maintenance-agent",
+    ]);
     scheduler.dispose();
     vi.useRealTimers();
   });
@@ -233,6 +256,65 @@ describe("Office runtime owners", () => {
     vi.useRealTimers();
   });
 
+  it("lights a newly seated Child screen before Main begins its dispatch", async () => {
+    vi.useFakeTimers();
+    const engine = new ChoreographyEngine();
+    const events: string[] = [];
+    engine.subscribe((command) => {
+      if (command.kind === "setScreen") events.push(`screen:${command.stationId}:${command.profile}`);
+      if (command.kind === "playAction") events.push(`action:${command.participantId}:${command.actionId}`);
+    });
+    const director = new OfficeDirector(engine, resolver, undefined, { setTimeout: () => 0, clearTimeout: () => undefined }, { next: () => 0 });
+    const main = participant("main", "main", "main", "idle");
+    const child = participant("child-1", "child", "planning", "queued");
+    director.hydrate(officeSnapshot("scope-1", [main]), false);
+    await Promise.resolve();
+    events.length = 0;
+
+    director.sync(officeSnapshot("scope-1", [main, child]), [
+      { kind: "participant-added", participantId: child.participantId, parentParticipantId: main.participantId },
+    ], false);
+    await vi.advanceTimersByTimeAsync(0);
+
+    const screenIndex = events.indexOf("screen:planning:orchestration");
+    const departureIndex = events.indexOf("action:main:off-chair");
+    expect(screenIndex).toBeGreaterThanOrEqual(0);
+    expect(departureIndex).toBeGreaterThan(screenIndex);
+    director.dispose();
+    vi.useRealTimers();
+  });
+
+  it("does not relight a queued Child station after that Child is removed", async () => {
+    vi.useFakeTimers();
+    const engine = new ChoreographyEngine();
+    const coderProfiles: string[] = [];
+    engine.subscribe((command) => {
+      if (command.kind === "setScreen" && command.stationId === "coder") coderProfiles.push(command.profile);
+    });
+    const director = new OfficeDirector(engine, resolver, undefined, { setTimeout: () => 0, clearTimeout: () => undefined }, { next: () => 0 });
+    const main = participant("main", "main", "main", "idle");
+    const first = participant("child-1", "child", "planning", "queued");
+    const queued = participant("child-2", "child", "coder", "queued");
+    director.hydrate(officeSnapshot("scope-1", [main]), false);
+    director.sync(officeSnapshot("scope-1", [main, first, queued]), [
+      { kind: "participant-added", participantId: first.participantId, parentParticipantId: main.participantId },
+      { kind: "participant-added", participantId: queued.participantId, parentParticipantId: main.participantId },
+    ], false);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(coderProfiles).toContain("orchestration");
+
+    director.sync(officeSnapshot("scope-1", [main, first]), [
+      { kind: "participant-removed", participantId: queued.participantId },
+    ], false);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(coderProfiles.at(-1)).toBe("off");
+    await vi.runAllTimersAsync();
+    expect(coderProfiles.at(-1)).toBe("off");
+
+    director.dispose();
+    vi.useRealTimers();
+  });
+
   it("waits for Main ambient to return before dispatch and restores the latest canonical state", async () => {
     vi.useFakeTimers();
     const engine = new ChoreographyEngine();
@@ -292,6 +374,219 @@ describe("Office runtime owners", () => {
     director.dispose();
   });
 
+  it("turns an occupied screen off only after facility departure and restores it on return", async () => {
+    vi.useFakeTimers();
+    const engine = new ChoreographyEngine();
+    const profiles: string[] = [];
+    engine.subscribe(async (command) => {
+      if (command.kind === "setScreen" && command.stationId === "main") profiles.push(command.profile);
+      if (command.kind === "playRouteStage") {
+        await new Promise<void>((resolve) => globalThis.setTimeout(resolve, command.durationMs));
+      }
+    });
+    const director = new OfficeDirector(engine, resolver, undefined, undefined, { next: () => 0 });
+    const main = participant("main", "main", "main", "idle");
+    main.ambientPreferences = [{ action: "coffee", weight: 1 }];
+    director.hydrate(officeSnapshot("scope-1", [main]), false);
+    await Promise.resolve();
+    expect(profiles).toEqual(["orchestration"]);
+
+    await vi.advanceTimersByTimeAsync(8_000);
+    expect(profiles).toEqual(["orchestration"]);
+    const route = resolver.stations().find((station) => station.stationId === "main")!.facilityRoutes.coffee;
+    await vi.advanceTimersByTimeAsync(route[0]!.durationMs);
+    expect(profiles.at(-1)).toBe("off");
+    await vi.advanceTimersByTimeAsync(route.slice(1).reduce((total, stage) => total + stage.durationMs, 0));
+    expect(profiles.at(-1)).toBe("orchestration");
+
+    director.dispose();
+    vi.useRealTimers();
+  });
+
+  it("restores the occupied default screen after temporary entertainment", async () => {
+    vi.useFakeTimers();
+    const engine = new ChoreographyEngine();
+    const profiles: string[] = [];
+    engine.subscribe((command) => {
+      if (command.kind === "setScreen" && command.stationId === "main") profiles.push(command.profile);
+    });
+    const director = new OfficeDirector(engine, resolver, undefined, undefined, { next: () => 0 });
+    const main = participant("main", "main", "main", "idle");
+    main.ambientPreferences = [{ action: "entertainment-1", weight: 1 }];
+    director.hydrate(officeSnapshot("scope-1", [main]), false);
+    await vi.advanceTimersByTimeAsync(8_000);
+    expect(profiles.at(-1)).toBe("entertainment-1");
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(profiles.at(-1)).toBe("orchestration");
+
+    director.dispose();
+    vi.useRealTimers();
+  });
+
+  it("does not let a removed resident turn off a station occupied by its real replacement", async () => {
+    const engine = new ChoreographyEngine();
+    const screens: Array<{ stationId: string; profile: string }> = [];
+    engine.subscribe((command) => {
+      if (command.kind === "setScreen") screens.push({ stationId: command.stationId, profile: command.profile });
+    });
+    const director = new OfficeDirector(engine, resolver, undefined, { setTimeout: () => 0, clearTimeout: () => undefined }, { next: () => 0 });
+    const main = participant("main", "main", "main", "idle");
+    const previous = officeSnapshot("scope-1", [main]);
+    previous.residents = [{
+      residentId: "resident:memory-maintenance-agent",
+      roleId: "memory-maintenance-agent",
+      label: "Memory Maintenance Agent",
+      stationId: "planning",
+      scarf: "maintenance",
+      ambientPreferences: [{ action: "peek", weight: 1 }],
+    }];
+    director.hydrate(previous, false);
+    await Promise.resolve();
+    screens.length = 0;
+
+    const replacement = participant("child-1", "child", "planning", "idle");
+    director.sync(officeSnapshot("scope-1", [main, replacement]), [
+      { kind: "resident-removed", residentId: previous.residents[0]!.residentId },
+      { kind: "participant-added", participantId: replacement.participantId, parentParticipantId: null },
+    ], false);
+    await Promise.resolve();
+
+    expect(screens).toContainEqual({ stationId: "planning", profile: "orchestration" });
+    expect(screens).not.toContainEqual({ stationId: "planning", profile: "off" });
+    director.dispose();
+  });
+
+  it("does not let a displaced resident turn off the old station after a real Agent takes it", async () => {
+    const engine = new ChoreographyEngine();
+    const screens: Array<{ stationId: string; profile: string }> = [];
+    engine.subscribe((command) => {
+      if (command.kind === "setScreen") screens.push({ stationId: command.stationId, profile: command.profile });
+    });
+    const director = new OfficeDirector(engine, resolver, undefined, { setTimeout: () => 0, clearTimeout: () => undefined }, { next: () => 0 });
+    const main = participant("main", "main", "main", "idle");
+    const previous = officeSnapshot("scope-1", [main]);
+    const resident = {
+      residentId: "resident:memory-maintenance-agent",
+      roleId: "memory-maintenance-agent",
+      label: "Memory Maintenance Agent",
+      stationId: "planning",
+      scarf: "maintenance" as const,
+      ambientPreferences: [{ action: "peek" as const, weight: 1 }],
+    };
+    previous.residents = [resident];
+    director.hydrate(previous, false);
+    await Promise.resolve();
+    screens.length = 0;
+
+    const replacement = participant("child-1", "child", "planning", "idle");
+    const next = officeSnapshot("scope-1", [main, replacement]);
+    next.residents = [{ ...resident, stationId: "coder" }];
+    director.sync(next, [
+      { kind: "participant-added", participantId: replacement.participantId, parentParticipantId: null },
+      { kind: "resident-station-changed", residentId: resident.residentId, fromStationId: "planning", toStationId: "coder" },
+    ], false);
+    await Promise.resolve();
+
+    expect(screens).toContainEqual({ stationId: "planning", profile: "orchestration" });
+    expect(screens).toContainEqual({ stationId: "coder", profile: "orchestration" });
+    expect(screens).not.toContainEqual({ stationId: "planning", profile: "off" });
+    director.dispose();
+  });
+
+  it("clears vacated screens and restores every occupied screen across a scope reset", async () => {
+    const engine = new ChoreographyEngine();
+    const screens: Array<{ stationId: string; profile: string }> = [];
+    engine.subscribe((command) => {
+      if (command.kind === "setScreen") screens.push({ stationId: command.stationId, profile: command.profile });
+    });
+    const director = new OfficeDirector(engine, resolver, undefined, { setTimeout: () => 0, clearTimeout: () => undefined }, { next: () => 0 });
+    const priorMain = participant("main", "main", "main", "idle");
+    const priorChild = participant("child-old", "child", "planning", "idle");
+    director.hydrate(officeSnapshot("scope-old", [priorMain, priorChild]), false);
+    await Promise.resolve();
+    screens.length = 0;
+
+    const nextMain = participant("main", "main", "main", "completed");
+    const nextChild = participant("child-new", "child", "coder", "idle");
+    director.sync(officeSnapshot("scope-new", [nextMain, nextChild]), [
+      { kind: "scope-reset", previousContextId: "scope-old" },
+    ], false);
+    await Promise.resolve();
+
+    expect(screens).toContainEqual({ stationId: "planning", profile: "off" });
+    expect(screens).toContainEqual({ stationId: "main", profile: "orchestration" });
+    expect(screens).toContainEqual({ stationId: "coder", profile: "orchestration" });
+    director.dispose();
+  });
+
+  it("restores an occupied screen when semantic state interrupts a facility departure", async () => {
+    vi.useFakeTimers();
+    const engine = new ChoreographyEngine();
+    const profiles: string[] = [];
+    engine.subscribe(async (command) => {
+      if (command.kind === "setScreen" && command.stationId === "main") profiles.push(command.profile);
+      if (command.kind === "playRouteStage") await new Promise<void>((resolve) => globalThis.setTimeout(resolve, command.durationMs));
+    });
+    const director = new OfficeDirector(engine, resolver, undefined, undefined, { next: () => 0 });
+    const main = participant("main", "main", "main", "idle");
+    main.ambientPreferences = [{ action: "coffee", weight: 1 }];
+    director.hydrate(officeSnapshot("scope-1", [main]), false);
+    await vi.advanceTimersByTimeAsync(8_000 + resolver.stations().find((station) => station.stationId === "main")!.facilityRoutes.coffee[0]!.durationMs);
+    expect(profiles.at(-1)).toBe("off");
+
+    const working = { ...main, state: "working" as const };
+    director.sync(officeSnapshot("scope-1", [working]), [
+      { kind: "state-changed", participantId: main.participantId, from: "idle", to: "working" },
+    ], false);
+    await Promise.resolve();
+    expect(profiles.at(-1)).toBe("orchestration");
+
+    director.dispose();
+    vi.useRealTimers();
+  });
+
+  it("keeps occupied screens requested when reduced motion changes", async () => {
+    const engine = new ChoreographyEngine();
+    const profiles: string[] = [];
+    engine.subscribe((command) => {
+      if (command.kind === "setScreen") profiles.push(command.profile);
+    });
+    const director = new OfficeDirector(engine, resolver, undefined, { setTimeout: () => 0, clearTimeout: () => undefined }, { next: () => 0 });
+    const snapshot = officeSnapshot("scope-1", [participant("main", "main", "main", "idle")]);
+    director.hydrate(snapshot, false);
+    await Promise.resolve();
+    profiles.length = 0;
+
+    director.sync(snapshot, [], true);
+    await Promise.resolve();
+
+    expect(profiles).toContain("orchestration");
+    expect(profiles).not.toContain("off");
+    director.dispose();
+  });
+
+  it("turns off a station after its last occupant is removed", async () => {
+    const engine = new ChoreographyEngine();
+    const screens: Array<{ stationId: string; profile: string }> = [];
+    engine.subscribe((command) => {
+      if (command.kind === "setScreen") screens.push({ stationId: command.stationId, profile: command.profile });
+    });
+    const director = new OfficeDirector(engine, resolver, undefined, { setTimeout: () => 0, clearTimeout: () => undefined }, { next: () => 0 });
+    const main = participant("main", "main", "main", "idle");
+    const child = participant("child-1", "child", "planning", "idle");
+    director.hydrate(officeSnapshot("scope-1", [main, child]), false);
+    await Promise.resolve();
+    screens.length = 0;
+
+    director.sync(officeSnapshot("scope-1", [main]), [
+      { kind: "participant-removed", participantId: child.participantId },
+    ], false);
+    await Promise.resolve();
+
+    expect(screens).toContainEqual({ stationId: "planning", profile: "off" });
+    director.dispose();
+  });
+
   it("commits only the latest detached office render generation", () => {
     const committed: string[] = [];
     const discarded: string[] = [];
@@ -318,14 +613,6 @@ describe("Office runtime owners", () => {
     expect([...actor.slice(0, 3)]).not.toEqual([...before.slice(0, 3)]);
   });
 
-  it("plays work and entertainment screens only in their truthful states", () => {
-    expect(shouldPlayScreen("working", false, "orchestration")).toBe(true);
-    expect(shouldPlayScreen("idle", false, "orchestration")).toBe(false);
-    expect(shouldPlayScreen("idle", false, "entertainment-1")).toBe(true);
-    expect(shouldPlayScreen("completed", false, "entertainment-2")).toBe(true);
-    expect(shouldPlayScreen("working", false, "entertainment-2")).toBe(false);
-    expect(shouldPlayScreen("idle", true, "entertainment-1")).toBe(false);
-  });
 });
 
 function snapshotWithStates(states: Array<"idle" | "working" | "completed">): OfficeExperienceSnapshot {
@@ -336,6 +623,7 @@ function snapshotWithStates(states: Array<"idle" | "working" | "completed">): Of
     lifecycle: "active",
     diagnostics: [],
     stations,
+    residents: [],
     participants: states.map((state, index) => ({
       participantId: `actor-${index}`,
       navigationId: `actor-${index}`,
@@ -376,6 +664,7 @@ function officeSnapshot(contextId: string, participants: OfficeParticipant[]): O
     lifecycle: "active",
     diagnostics: [],
     stations: resolver.stations().filter((station) => stationIds.has(station.stationId)),
+    residents: [],
     participants,
   };
 }

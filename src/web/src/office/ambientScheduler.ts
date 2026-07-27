@@ -1,4 +1,4 @@
-import type { OfficeAmbientAction, OfficeExperienceSnapshot, OfficeParticipant } from "./officeExperience.js";
+import type { OfficeAmbientAction, OfficeExperienceSnapshot } from "./officeExperience.js";
 
 export interface OfficeClock {
   setTimeout(callback: () => void, delayMs: number): unknown;
@@ -9,7 +9,7 @@ export interface RandomSource {
   next(): number;
 }
 
-export type AmbientSelection = { participant: OfficeParticipant; action: OfficeAmbientAction };
+export type AmbientSelection = { actorId: string; actorKind: "participant" | "resident"; action: OfficeAmbientAction };
 
 export class AmbientScheduler {
   private timer: unknown = null;
@@ -27,7 +27,7 @@ export class AmbientScheduler {
 
   sync(snapshot: OfficeExperienceSnapshot, enabled: boolean): void {
     this.snapshot = snapshot;
-    this.enabled = enabled && snapshot.lifecycle === "active";
+    this.enabled = enabled;
     if (!this.enabled) {
       this.cancel();
       return;
@@ -59,13 +59,13 @@ export class AmbientScheduler {
       if (this.active.size === 0) this.schedule();
       return;
     }
-    this.active.set(selection.participant.participantId, selection.action);
-    this.last = { participantId: selection.participant.participantId, action: selection.action };
+    this.active.set(selection.actorId, selection.action);
+    this.last = { participantId: selection.actorId, action: selection.action };
     void this.run(selection)
       .catch(() => undefined)
       .finally(() => {
-        this.active.delete(selection.participant.participantId);
-        if (this.enabled && this.snapshot?.lifecycle === "active" && this.timer == null) this.schedule();
+        this.active.delete(selection.actorId);
+        if (this.enabled && this.timer == null) this.schedule();
       });
     if (this.active.size < 2 && this.enabled) this.schedule();
   }
@@ -74,14 +74,14 @@ export class AmbientScheduler {
     const mobilityActive = [...this.active.values()].some(isMobilityAction);
     const activeFacilities = new Set([...this.active.values()].filter(isMobilityAction));
     const eligible = ambientCandidates(this.snapshot).filter((selection) => (
-      !this.active.has(selection.participant.participantId)
+      !this.active.has(selection.actorId)
       && (!isMobilityAction(selection.action) || (!mobilityActive && !activeFacilities.has(selection.action)))
     ));
     if (eligible.length === 0) return null;
-    const signature = new Set(eligible.map((item) => `${item.participant.participantId}:${item.action}`));
-    this.bag = this.bag.filter((item) => signature.has(`${item.participant.participantId}:${item.action}`));
+    const signature = new Set(eligible.map((item) => `${item.actorId}:${item.action}`));
+    this.bag = this.bag.filter((item) => signature.has(`${item.actorId}:${item.action}`));
     if (this.bag.length === 0) this.bag = shuffle(eligible, this.random);
-    let index = this.bag.findIndex((item) => item.participant.participantId !== this.last?.participantId && item.action !== this.last?.action);
+    let index = this.bag.findIndex((item) => item.actorId !== this.last?.participantId && item.action !== this.last?.action);
     if (index < 0) index = 0;
     return this.bag.splice(index, 1)[0] ?? null;
   }
@@ -99,10 +99,23 @@ export class AmbientScheduler {
 
 function ambientCandidates(snapshot: OfficeExperienceSnapshot | null): AmbientSelection[] {
   if (!snapshot) return [];
-  const participants = snapshot.participants.filter((participant) => participant.state === "idle" || participant.state === "completed");
-  return participants.flatMap((participant) => participant.ambientPreferences.flatMap(({ action, weight }) => (
-    Array.from({ length: Math.max(1, Math.floor(weight)) }, () => ({ participant, action }))
-  )));
+  const participants = snapshot.lifecycle === "active"
+    ? snapshot.participants.filter((participant) => participant.state === "idle" || participant.state === "completed")
+    : [];
+  return [
+    ...participants.flatMap((participant) => weightedSelections(participant.participantId, "participant", participant.ambientPreferences)),
+    ...snapshot.residents.flatMap((resident) => weightedSelections(resident.residentId, "resident", resident.ambientPreferences)),
+  ];
+}
+
+function weightedSelections(
+  actorId: string,
+  actorKind: AmbientSelection["actorKind"],
+  preferences: OfficeExperienceSnapshot["participants"][number]["ambientPreferences"],
+): AmbientSelection[] {
+  return preferences.flatMap(({ action, weight }) => (
+    Array.from({ length: Math.max(1, Math.floor(weight)) }, () => ({ actorId, actorKind, action }))
+  ));
 }
 
 export function isMobilityAction(action: OfficeAmbientAction): boolean {
