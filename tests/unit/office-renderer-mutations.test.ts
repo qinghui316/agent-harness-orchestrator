@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   setOfficeStationScreen,
 } from "../../src/web/src/office/PixiOfficeRenderer.js";
-import { applyOfficeParticipantRouteStage, OFFICE_RESIDENT_CROSSFADE_MS, officeActionOverlayGeometry, reconcileOfficeParticipants, shouldCrossFadeResidentReplacement } from "../../src/web/src/office/OfficeParticipantRenderer.js";
+import { applyOfficeActionVisual, applyOfficeParticipantRouteStage, OFFICE_RESIDENT_CROSSFADE_MS, officeActionOverlayGeometry, reconcileOfficeParticipants, shouldCrossFadeResidentReplacement } from "../../src/web/src/office/OfficeParticipantRenderer.js";
 import type { OfficeSceneModel } from "../../src/web/src/office/officeScene.js";
 import { OFFICE_SCREEN_ANIMATION_SPEED } from "../../src/web/src/office/officeVisualContract.js";
 
@@ -109,6 +109,27 @@ describe("Office renderer async mutations", () => {
     expect(screen.visible).toBe(true);
     expect(screen.gotoAndStop).toHaveBeenCalledWith(0);
     expect(screen.gotoAndPlay).not.toHaveBeenCalled();
+  });
+
+  it("plays looping standby normally and freezes the same command for reduced motion", () => {
+    const atlas = {
+      animation: { fps: 12, loop: true },
+      sheet: { animations: {} },
+      officeProps: {},
+    };
+    const normal = actionSprite();
+    normal.totalFrames = 4;
+    applyOfficeActionVisual(normal as never, atlas as never, "standby", { scale: 1, offset: { x: 0, y: 0 } }, false, false, 0.5, true);
+    expect(normal.loop).toBe(true);
+    expect(normal.gotoAndPlay).toHaveBeenCalledWith(2);
+    expect(normal.gotoAndStop).not.toHaveBeenCalled();
+
+    const reduced = actionSprite();
+    reduced.totalFrames = 4;
+    applyOfficeActionVisual(reduced as never, atlas as never, "standby", { scale: 1, offset: { x: 0, y: 0 } }, false, true, 0.5, true);
+    expect(reduced.loop).toBe(true);
+    expect(reduced.gotoAndStop).toHaveBeenCalledWith(2);
+    expect(reduced.gotoAndPlay).not.toHaveBeenCalled();
   });
 
   it("keeps route position and overlays unchanged until the next action is ready, then commits them together", async () => {

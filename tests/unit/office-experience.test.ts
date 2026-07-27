@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { OfficeBehaviorPolicy } from "../../src/web/src/office/officeBehaviorPolicy.js";
+import { OfficeBehaviorPolicy, standbyScreenProfile } from "../../src/web/src/office/officeBehaviorPolicy.js";
 import { OfficeCalibrationResolver } from "../../src/web/src/office/officeCalibrationResolver.js";
 import { parseOfficeCalibrationJson } from "../../src/web/src/office/officeCalibrationDocument.js";
 import { HarnessOfficeAdapter, mapHarnessState } from "../../src/web/src/office/harnessOfficeAdapter.js";
@@ -154,22 +154,54 @@ describe("Office experience boundary", () => {
     ]);
   });
 
-  it("keeps every seated participant and resident screen on regardless of semantic status", () => {
+  it("loops every seated base action and separates working from standby screens", () => {
     const policy = new OfficeBehaviorPolicy();
     const base = adapter().hydrate(projection([child("child-1", ROLE_IDS[1]!, "running", 1)])).participants[1]!;
-    for (const state of ["working", "queued", "idle", "completed", "attention", "blocked", "failed", "interrupted"] as const) {
+    base.ambientPreferences = [
+      { action: "entertainment-1", weight: 3 },
+      { action: "entertainment-2", weight: 1 },
+    ];
+    for (const state of ["queued", "idle", "completed", "attention", "blocked", "failed", "interrupted"] as const) {
       const command = policy.semantic({ ...base, state });
-      const screen = command.kind === "parallel"
-        ? command.commands.find((candidate) => candidate.kind === "setScreen")
-        : undefined;
-      expect(screen).toMatchObject({ kind: "setScreen", stationId: base.stationId, profile: "orchestration" });
+      expect(command.kind).toBe("parallel");
+      if (command.kind !== "parallel") continue;
+      expect(command.commands).toEqual(expect.arrayContaining([
+        expect.objectContaining({ kind: "playAction", actionId: "standby", loop: true }),
+        expect.objectContaining({ kind: "setScreen", stationId: base.stationId, profile: "entertainment-1" }),
+      ]));
     }
+
+    const working = policy.semantic({ ...base, state: "working" });
+    expect(working.kind === "parallel" ? working.commands : []).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "playAction", actionId: "working", loop: true }),
+      expect.objectContaining({ kind: "setScreen", stationId: base.stationId, profile: "orchestration" }),
+    ]));
+
+    expect(policy.semantic({ ...base, state: "completed" }, true)).toMatchObject({ kind: "sequence", commands: [
+      { kind: "setScreen", profile: "entertainment-1" },
+      { kind: "playAction", actionId: "salute", loop: false },
+      { kind: "playAction", actionId: "standby", loop: true },
+    ] });
 
     const resident = adapter(undefined, residentCatalog()).hydrate(projection([])).residents[0]!;
     const residentCommand = policy.resident(resident);
-    expect(residentCommand.kind === "parallel"
-      ? residentCommand.commands.find((candidate) => candidate.kind === "setScreen")
-      : undefined).toMatchObject({ stationId: resident.stationId, profile: "orchestration" });
+    expect(residentCommand.kind === "parallel" ? residentCommand.commands : []).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "playAction", actionId: "standby", loop: true }),
+      expect.objectContaining({ kind: "setScreen", stationId: resident.stationId, profile: "entertainment-2" }),
+    ]));
+  });
+
+  it("uses weighted entertainment preference and a stable identity fallback", () => {
+    expect(standbyScreenProfile("preferred", [
+      { action: "entertainment-1", weight: 1 },
+      { action: "entertainment-2", weight: 3 },
+    ])).toBe("entertainment-2");
+    expect(standbyScreenProfile("single", [{ action: "entertainment-1", weight: 1 }])).toBe("entertainment-1");
+    const fallback = standbyScreenProfile("stable-actor", [
+      { action: "entertainment-1", weight: 1 },
+      { action: "entertainment-2", weight: 1 },
+    ]);
+    expect(standbyScreenProfile("stable-actor", [])).toBe(fallback);
   });
 
   it("uses station-owned anchors, actor offsets, handoffs, and facility routes", () => {

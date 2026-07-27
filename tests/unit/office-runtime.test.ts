@@ -4,6 +4,7 @@ import { OfficeAssetLoader } from "../../src/web/src/office/officeAssetLoader.js
 import { AmbientScheduler } from "../../src/web/src/office/ambientScheduler.js";
 import { ChoreographyEngine } from "../../src/web/src/office/choreographyEngine.js";
 import { OfficeDirector } from "../../src/web/src/office/officeDirector.js";
+import { standbyScreenProfile } from "../../src/web/src/office/officeBehaviorPolicy.js";
 import { OfficeCalibrationResolver } from "../../src/web/src/office/officeCalibrationResolver.js";
 import { parseOfficeCalibrationJson } from "../../src/web/src/office/officeCalibrationDocument.js";
 import { commitLatestOfficeRender } from "../../src/web/src/office/officeRenderGeneration.js";
@@ -276,7 +277,7 @@ describe("Office runtime owners", () => {
     ], false);
     await vi.advanceTimersByTimeAsync(0);
 
-    const screenIndex = events.indexOf("screen:planning:orchestration");
+    const screenIndex = events.indexOf(`screen:planning:${standbyScreenProfile(child.participantId, child.ambientPreferences)}`);
     const departureIndex = events.indexOf("action:main:off-chair");
     expect(screenIndex).toBeGreaterThanOrEqual(0);
     expect(departureIndex).toBeGreaterThan(screenIndex);
@@ -301,7 +302,7 @@ describe("Office runtime owners", () => {
       { kind: "participant-added", participantId: queued.participantId, parentParticipantId: main.participantId },
     ], false);
     await vi.advanceTimersByTimeAsync(0);
-    expect(coderProfiles).toContain("orchestration");
+    expect(coderProfiles).toContain(standbyScreenProfile(queued.participantId, queued.ambientPreferences));
 
     director.sync(officeSnapshot("scope-1", [main, first]), [
       { kind: "participant-removed", participantId: queued.participantId },
@@ -387,17 +388,18 @@ describe("Office runtime owners", () => {
     const director = new OfficeDirector(engine, resolver, undefined, undefined, { next: () => 0 });
     const main = participant("main", "main", "main", "idle");
     main.ambientPreferences = [{ action: "coffee", weight: 1 }];
+    const standbyProfile = standbyScreenProfile(main.participantId, main.ambientPreferences);
     director.hydrate(officeSnapshot("scope-1", [main]), false);
     await Promise.resolve();
-    expect(profiles).toEqual(["orchestration"]);
+    expect(profiles).toEqual([standbyProfile]);
 
     await vi.advanceTimersByTimeAsync(8_000);
-    expect(profiles).toEqual(["orchestration"]);
+    expect(profiles).toEqual([standbyProfile]);
     const route = resolver.stations().find((station) => station.stationId === "main")!.facilityRoutes.coffee;
     await vi.advanceTimersByTimeAsync(route[0]!.durationMs);
     expect(profiles.at(-1)).toBe("off");
     await vi.advanceTimersByTimeAsync(route.slice(1).reduce((total, stage) => total + stage.durationMs, 0));
-    expect(profiles.at(-1)).toBe("orchestration");
+    expect(profiles.at(-1)).toBe(standbyProfile);
 
     director.dispose();
     vi.useRealTimers();
@@ -417,7 +419,7 @@ describe("Office runtime owners", () => {
     await vi.advanceTimersByTimeAsync(8_000);
     expect(profiles.at(-1)).toBe("entertainment-1");
     await vi.advanceTimersByTimeAsync(5_000);
-    expect(profiles.at(-1)).toBe("orchestration");
+    expect(profiles.at(-1)).toBe(standbyScreenProfile(main.participantId, main.ambientPreferences));
 
     director.dispose();
     vi.useRealTimers();
@@ -451,7 +453,7 @@ describe("Office runtime owners", () => {
     ], false);
     await Promise.resolve();
 
-    expect(screens).toContainEqual({ stationId: "planning", profile: "orchestration" });
+    expect(screens).toContainEqual({ stationId: "planning", profile: standbyScreenProfile(replacement.participantId, replacement.ambientPreferences) });
     expect(screens).not.toContainEqual({ stationId: "planning", profile: "off" });
     director.dispose();
   });
@@ -487,8 +489,8 @@ describe("Office runtime owners", () => {
     ], false);
     await Promise.resolve();
 
-    expect(screens).toContainEqual({ stationId: "planning", profile: "orchestration" });
-    expect(screens).toContainEqual({ stationId: "coder", profile: "orchestration" });
+    expect(screens).toContainEqual({ stationId: "planning", profile: standbyScreenProfile(replacement.participantId, replacement.ambientPreferences) });
+    expect(screens).toContainEqual({ stationId: "coder", profile: standbyScreenProfile(resident.residentId, resident.ambientPreferences) });
     expect(screens).not.toContainEqual({ stationId: "planning", profile: "off" });
     director.dispose();
   });
@@ -514,8 +516,8 @@ describe("Office runtime owners", () => {
     await Promise.resolve();
 
     expect(screens).toContainEqual({ stationId: "planning", profile: "off" });
-    expect(screens).toContainEqual({ stationId: "main", profile: "orchestration" });
-    expect(screens).toContainEqual({ stationId: "coder", profile: "orchestration" });
+    expect(screens).toContainEqual({ stationId: "main", profile: standbyScreenProfile(nextMain.participantId, nextMain.ambientPreferences) });
+    expect(screens).toContainEqual({ stationId: "coder", profile: standbyScreenProfile(nextChild.participantId, nextChild.ambientPreferences) });
     director.dispose();
   });
 
@@ -560,7 +562,7 @@ describe("Office runtime owners", () => {
     director.sync(snapshot, [], true);
     await Promise.resolve();
 
-    expect(profiles).toContain("orchestration");
+    expect(profiles).toContain(standbyScreenProfile(snapshot.participants[0]!.participantId, snapshot.participants[0]!.ambientPreferences));
     expect(profiles).not.toContain("off");
     director.dispose();
   });
