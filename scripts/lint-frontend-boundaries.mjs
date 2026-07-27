@@ -60,6 +60,11 @@ const retiredSymbols = [
   "terminateSelectedAgent",
   'event: "topic.message"',
   'event: "assistant.message"',
+  "officeRuntimeCalibration.generated",
+  "OFFICE_SCENE_CALIBRATION",
+  "/__aho/agent-office-calibration",
+  "calibrationAdjustment",
+  "calibrationOffset",
 ];
 
 for (const file of webFiles) {
@@ -82,6 +87,13 @@ for (const file of webFiles) {
     for (const symbol of appForbiddenDomainAccess) {
       if (content.includes(symbol)) violations.push(`${relativePath}: migrated domain access ${symbol} does not belong in the App shell`);
     }
+  }
+  if (content.includes("texture.trim")) {
+    violations.push(`${relativePath}: Office/product coordinates must not compensate Pixi atlas trim`);
+  }
+  if (content.includes("new OfficeCalibrationResolver(")
+    && relativePath !== "src/web/src/office/agentOfficeRuntimeComposition.ts") {
+    violations.push(`${relativePath}: OfficeCalibrationResolver construction belongs to Agent Office runtime composition`);
   }
 }
 

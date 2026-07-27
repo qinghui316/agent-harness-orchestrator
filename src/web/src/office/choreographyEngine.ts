@@ -1,4 +1,4 @@
-import type { OfficeRuntimeVisualCommand } from "./officeRuntimeCalibration.js";
+import type { OfficeRuntimeVisualCommand } from "./officeVisualContract.js";
 
 export type OfficeCommandChannel = "ambient" | "semantic" | "status";
 export type OfficeCommandListener = (command: Exclude<OfficeRuntimeVisualCommand, { kind: "sequence" | "parallel" }>, signal: AbortSignal) => void | Promise<void>;
@@ -64,7 +64,7 @@ export class ChoreographyEngine {
       return;
     }
     await Promise.all([...this.listeners].map((listener) => Promise.resolve(listener(command, signal))));
-    const durationMs = command.kind === "followRoute" ? undefined : "durationMs" in command ? command.durationMs : undefined;
+    const durationMs = command.kind === "followRoute" || command.kind === "playRouteStage" ? undefined : "durationMs" in command ? command.durationMs : undefined;
     if (durationMs) await abortableDelay(durationMs, signal);
   }
 }

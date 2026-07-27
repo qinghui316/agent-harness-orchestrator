@@ -1,12 +1,9 @@
-#!/usr/bin/env node
-
-/* global Buffer, process */
+/* global Buffer */
 
 import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { basename, join } from "node:path";
 import { promisify } from "node:util";
 import sharp from "sharp";
 
@@ -343,10 +340,4 @@ async function writeKeyframeStrip(frames, indices, outputPath) {
   }).composite(keyframes.map((input, index) => ({ input, left: index * width, top: 0 })))
     .png()
     .toFile(outputPath);
-}
-
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const [propPath, actorRoot, outputRoot, calibrationPath] = process.argv.slice(2).map((value) => resolve(process.cwd(), value));
-  if (!propPath || !actorRoot || !outputRoot || !calibrationPath) throw new Error("Usage: treadmill-facility-proof.mjs <prop-png> <actor-root> <output-root> <calibration-json>");
-  buildTreadmillFacilityProof(propPath, actorRoot, outputRoot, calibrationPath).then((report) => process.stdout.write(`${JSON.stringify(report, null, 2)}\n`));
 }

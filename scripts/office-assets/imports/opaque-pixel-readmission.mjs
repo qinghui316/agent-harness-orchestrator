@@ -2,7 +2,6 @@
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
-import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 
 export async function readmitOpaquePixels(actionId, frameCount, sourceRoot, cutoutRoot, outputRoot, repositoryRoot = process.cwd()) {
@@ -63,19 +62,4 @@ async function readRgba(path) {
   const { data, info } = await sharp(await readFile(path)).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
   if (info.channels !== 4) throw new Error(`Expected RGBA input: ${path}`);
   return { data: Buffer.from(data), info };
-}
-
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const [actionId, frameCountText, sourceRoot, cutoutRoot, outputRoot] = process.argv.slice(2);
-  const frameCount = Number(frameCountText);
-  if (!actionId || !Number.isInteger(frameCount) || frameCount <= 0 || !sourceRoot || !cutoutRoot || !outputRoot) {
-    throw new Error("Usage: node opaque-pixel-readmission.mjs <action-id> <frame-count> <source-root> <cutout-root> <output-root>");
-  }
-  readmitOpaquePixels(actionId, frameCount, resolve(sourceRoot), resolve(cutoutRoot), resolve(outputRoot)).then(
-    (report) => process.stdout.write(`${JSON.stringify(report, null, 2)}\n`),
-    (error) => {
-      process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-      process.exitCode = 1;
-    },
-  );
 }

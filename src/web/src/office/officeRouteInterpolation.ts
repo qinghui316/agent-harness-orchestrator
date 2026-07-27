@@ -1,4 +1,4 @@
-import type { OfficePoint } from "./officeSceneCalibration.js";
+import type { OfficePoint } from "./officeVisualContract.js";
 
 export type OfficeRouteFrame = {
   position: OfficePoint;

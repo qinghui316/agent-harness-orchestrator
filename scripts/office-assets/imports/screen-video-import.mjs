@@ -11,8 +11,8 @@ import {
   packPixiAtlas,
   readCanonicalFullCharacterSequence,
   writeOfficeBuildReceipt,
-} from "./image-pipeline.mjs";
-import { loadOfficeAssetManifest } from "./manifest.mjs";
+} from "../pipeline/image-pipeline.mjs";
+import { loadOfficeAssetManifest } from "../pipeline/manifest.mjs";
 
 const execFileAsync = promisify(execFile);
 const VALIDATION = { alphaThreshold: 8, visibleKeyPixels: 0, transparentNonZeroRgb: 0 };
@@ -108,11 +108,4 @@ export async function importScreenVideo(sourcePath, profileId = "orchestration",
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-if (process.argv[1] && resolve(process.argv[1]).endsWith("screen-video-import.mjs")) {
-  const profileId = process.argv[2];
-  const source = process.argv[3];
-  if (!profileId || !source) throw new Error("Usage: node screen-video-import.mjs <profile-id> <screen-content.mp4>");
-  importScreenVideo(source, profileId).then((report) => process.stdout.write(`${JSON.stringify(report, null, 2)}\n`));
 }

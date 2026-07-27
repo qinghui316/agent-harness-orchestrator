@@ -5,10 +5,9 @@ import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import sharp from "sharp";
-import { cutoutImage } from "./cutout-pipeline.mjs";
+import { cutoutImage } from "../pipeline/cutout-pipeline.mjs";
 
 const execFileAsync = promisify(execFile);
 const CANVAS = { width: 960, height: 960 };
@@ -556,18 +555,4 @@ function median(values) {
   const sorted = [...values].sort((left, right) => left - right);
   const middle = Math.floor(sorted.length / 2);
   return sorted.length % 2 === 0 ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle];
-}
-
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const actionId = process.argv[2];
-  const videoPath = process.argv[3];
-  const outputRoot = process.argv[4];
-  if (!actionId || !videoPath || !outputRoot) throw new Error("Usage: node video-action-proof.mjs <action-id> <video-path> <output-root>");
-  buildVideoActionProof(actionId, resolve(videoPath), resolve(outputRoot)).then(
-    (report) => process.stdout.write(`${JSON.stringify(report, null, 2)}\n`),
-    (error) => {
-      process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-      process.exitCode = 1;
-    },
-  );
 }

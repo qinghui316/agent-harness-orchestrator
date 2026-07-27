@@ -1,12 +1,16 @@
 import { readFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { OfficeBehaviorPolicy } from "../../src/web/src/office/officeBehaviorPolicy.js";
 import { OfficeCalibrationResolver } from "../../src/web/src/office/officeCalibrationResolver.js";
+import { parseOfficeCalibrationJson } from "../../src/web/src/office/officeCalibrationDocument.js";
 import { HarnessOfficeAdapter, mapHarnessState } from "../../src/web/src/office/harnessOfficeAdapter.js";
 import { OfficePresencePolicy } from "../../src/web/src/office/officePresencePolicy.js";
-import { OFFICE_RUNTIME_CALIBRATION } from "../../src/web/src/office/officeRuntimeCalibration.generated.js";
 import { OfficeStationAssignmentStore } from "../../src/web/src/office/officeStationAssignmentStore.js";
 import type { AgentSurfaceProjection, AgentSurfaceStatus } from "../../src/web/src/types.js";
+
+const calibration = parseOfficeCalibrationJson(readFileSync("src/web/public/agent-office/config/office-calibration.json", "utf8"));
+const resolver = new OfficeCalibrationResolver(calibration);
 
 describe("Office experience boundary", () => {
   it("maps every canonical Agent status at the sole adapter boundary", () => {
@@ -103,11 +107,9 @@ describe("Office experience boundary", () => {
   });
 
   it("uses station-owned anchors, actor offsets, handoffs, and facility routes", () => {
-    const resolver = new OfficeCalibrationResolver();
     const stations = resolver.stations();
-    expect(OFFICE_RUNTIME_CALIBRATION.sourceSha256).toBe("69bcb8b954953cc64711ecafb7285e78cff570d08f59b2f23e2583eea5595fb9");
-    expect(OFFICE_RUNTIME_CALIBRATION.normalizedHash).toBe("dbaeb3aa9327785ed4865297b5ed72c37bfefa38b71cb317061991c2370b30a9");
-    expect(OFFICE_RUNTIME_CALIBRATION.actionOffsets.working).toEqual({ x: -7.881743332435346, y: -1.9704132831742616 });
+    expect(calibration.schemaVersion).toBe(4);
+    expect(calibration.actionVisualAlignments.working.offset).toEqual({ x: -7.881743332435346, y: -1.9704132831742616 });
     for (const station of stations) {
       expect(station.anchors.seat).toEqual(resolver.station(station.stationId).actorAnchor);
       expect(Object.keys(station.facilityRoutes)).toEqual(["coffee", "treadmill", "toilet"]);
@@ -135,7 +137,7 @@ describe("Office experience boundary", () => {
 const ROLE_IDS = ["planning-agent", "coder-agent", "auditor-agent", "rework-coder", "spec-test-proposer", "spec-test-generator", "memory-maintenance-agent", "harness-evolution-agent"];
 
 function adapter(storage?: Storage): HarnessOfficeAdapter {
-  return new HarnessOfficeAdapter("project-1", new OfficePresencePolicy(new OfficeStationAssignmentStore(storage ?? null)));
+  return new HarnessOfficeAdapter("project-1", resolver, new OfficePresencePolicy(new OfficeStationAssignmentStore(storage ?? null)));
 }
 
 function projection(children: AgentSurfaceProjection["surfaces"], graphScopeId = "scope-1"): AgentSurfaceProjection {

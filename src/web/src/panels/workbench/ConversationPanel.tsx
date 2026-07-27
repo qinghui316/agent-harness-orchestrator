@@ -1,5 +1,5 @@
-import { ArrowRight, ChevronDown, UsersRound, X } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type RefObject } from "react";
+import { ArrowRight, ChevronDown, RotateCcw, UsersRound, X } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactElement, type RefObject } from "react";
 import { PixiOfficeRenderer } from "../../office/PixiOfficeRenderer.js";
 import { TranscriptCellVirtualList } from "./TranscriptCellVirtualList.js";
 import { ParentAgentTranscriptCellView } from "./TranscriptReadingSurface.js";
@@ -16,6 +16,7 @@ import { createOfficeScene } from "../../office/officeScene.js";
 import { HarnessOfficeAdapter } from "../../office/harnessOfficeAdapter.js";
 import { officeAvatarIdForRole } from "../../office/officePresentationRegistry.js";
 import { OfficeLoadingScreen } from "../../office/OfficeLoadingScreen.js";
+import { loadAgentOfficeRuntimeComposition, type AgentOfficeRuntimeComposition } from "../../office/agentOfficeRuntimeComposition.js";
 
 export function MainConversationView({
   transcript,
@@ -113,17 +114,38 @@ export function AgentOfficePanel({
   projection: AgentSurfaceProjection;
   onOpenSurface: (agentSurfaceId: string) => Promise<"opened" | "stale" | "error">;
 }): ReactElement {
-  const adapter = useMemo(() => new HarnessOfficeAdapter(projectId), [projectId]);
+  const [runtime, setRuntime] = useState<AgentOfficeRuntimeComposition | null>(null);
+  const [runtimeError, setRuntimeError] = useState<string | null>(null);
+  const [runtimeRetry, setRuntimeRetry] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    setRuntime(null);
+    setRuntimeError(null);
+    void loadAgentOfficeRuntimeComposition(projectId).then((next) => {
+      if (!cancelled) setRuntime(next);
+    }).catch((cause: unknown) => {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      console.error("Agent Office calibration is unavailable.", cause);
+      if (!cancelled) setRuntimeError(message);
+    });
+    return () => { cancelled = true; };
+  }, [projectId, runtimeRetry]);
   const previousProjectionRef = useRef<{ adapter: HarnessOfficeAdapter; projection: AgentSurfaceProjection } | null>(null);
   const [scene, setScene] = useState<ReturnType<typeof createOfficeScene> | null>(null);
   useLayoutEffect(() => {
+    if (!runtime) {
+      previousProjectionRef.current = null;
+      setScene(null);
+      return;
+    }
+    const adapter = runtime.adapter;
     const previous = previousProjectionRef.current;
     const result = previous?.adapter === adapter
       ? adapter.reconcile(previous.projection, projection)
       : { snapshot: adapter.hydrate(projection), events: [] };
     previousProjectionRef.current = { adapter, projection };
-    setScene(createOfficeScene(result.snapshot, result.events));
-  }, [adapter, projection]);
+    setScene(createOfficeScene(result.snapshot, runtime.document, result.events));
+  }, [projection, runtime]);
   const [selectedActorId, setSelectedActorId] = useState<string | null>(null);
   const selectedAgent = projection.surfaces.find((surface) => surface.agentSurfaceId === selectedActorId) ?? null;
   const menuAgents = currentOfficeAgents(projection);
@@ -156,8 +178,21 @@ export function AgentOfficePanel({
   return (
     <div className="agent-office-panel" data-testid="agent-office-panel">
       <div className="agent-office-body">
-        {scene ? (
-          <PixiOfficeRenderer scene={scene} selectedActorId={selectedActorId} onSelectActor={selectActor} onViewportInteraction={dismissCard} />
+        {scene && runtime ? (
+          <PixiOfficeRenderer scene={scene} calibration={runtime.document} resolver={runtime.resolver} selectedActorId={selectedActorId} onSelectActor={selectActor} onViewportInteraction={dismissCard} />
+        ) : runtimeError ? (
+          <div className="office-fallback" role="group" aria-label="Agent 办公室配置不可用">
+            <div className="office-fallback-heading">
+              <span>办公室配置不可用</span>
+              <button type="button" onClick={() => setRuntimeRetry((value) => value + 1)}><RotateCcw size={14} />重试</button>
+            </div>
+            <p>{runtimeError}</p>
+            <div className="office-fallback-agent-list">
+              {menuAgents.map((agent) => (
+                <button key={agent.agentSurfaceId} type="button" onClick={() => void onOpenSurface(agent.agentSurfaceId)}>{agent.label}</button>
+              ))}
+            </div>
+          </div>
         ) : <OfficeLoadingScreen progress={40} />}
         <div className="office-active-agent-menu" data-office-control>
           <button

@@ -4,7 +4,6 @@ import { execFile } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join, resolve, sep } from "node:path";
-import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import sharp from "sharp";
 
@@ -161,17 +160,4 @@ async function writeContactSheet(frames, outputPath) {
     left: (index % columns) * cell.width,
     top: Math.floor(index / columns) * cell.height,
   }))).png().toFile(outputPath);
-}
-
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const actionId = process.argv[2];
-  const outputRoot = process.argv[3];
-  if (!actionId || !outputRoot) throw new Error("Usage: node reference-action-export.mjs <action-id> <output-root>");
-  exportReferenceAction(actionId, resolve(outputRoot)).then(
-    (report) => process.stdout.write(`${JSON.stringify(report, null, 2)}\n`),
-    (error) => {
-      process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-      process.exitCode = 1;
-    },
-  );
 }

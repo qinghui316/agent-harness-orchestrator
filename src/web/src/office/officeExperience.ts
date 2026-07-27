@@ -21,7 +21,7 @@ export type OfficeWorkstationAnchors = {
 };
 export type OfficeRouteStage = {
   id: string;
-  actionId: import("./officeSceneCalibration.js").OfficeActionId;
+  actionId: import("./officeVisualContract.js").OfficeActionId;
   points: OfficePoint[];
   durationMs: number;
   flipX: boolean;

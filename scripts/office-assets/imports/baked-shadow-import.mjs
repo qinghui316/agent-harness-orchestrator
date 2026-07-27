@@ -2,15 +2,13 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import sharp from "sharp";
-import { safeAssetPath } from "./image-pipeline.mjs";
+import { safeAssetPath } from "../pipeline/image-pipeline.mjs";
 
 const SOURCE_PADDING_PIXELS = 8;
 
-export async function buildApprovedBakedShadows(manifest, repositoryRoot) {
+export async function importApprovedBakedShadows(manifest, repositoryRoot) {
   const sourceRoot = safeAssetPath(repositoryRoot, manifest.shadowSourceRoot);
   const approvedRoot = safeAssetPath(repositoryRoot, manifest.approvedFrameRoot);
-  const calibrationPath = resolve(repositoryRoot, "design-assets/agent-office/calibration/scene-calibration-v3.json");
-  const calibration = JSON.parse(await readFile(calibrationPath, "utf8"));
   const results = [];
 
   for (const shadow of manifest.shadows) {
@@ -37,21 +35,6 @@ export async function buildApprovedBakedShadows(manifest, repositoryRoot) {
       x: (crop.left - shadow.proof.shift.x) / shadow.proof.outputScale,
       y: (crop.top - shadow.proof.shift.y) / shadow.proof.outputScale,
     };
-    const parentOrigin = shadow.parent === "facility"
-      ? calibration.facilities[shadow.target].origin
-      : { x: 0, y: 0 };
-    const localOffset = {
-      x: worldOffset.x - parentOrigin.x,
-      y: worldOffset.y - parentOrigin.y,
-    };
-    const calibratedShadow = shadow.parent === "facility"
-      ? calibration.facilities[shadow.target].shadow
-      : calibration.workstations[shadow.target].shadow;
-    const calibrationOffset = { x: calibratedShadow.x, y: calibratedShadow.y };
-    const calibrationAdjustment = {
-      x: calibrationOffset.x - localOffset.x,
-      y: calibrationOffset.y - localOffset.y,
-    };
     const alpha = alphaStats(cropped.data, cropped.info.width, cropped.info.height);
     if (alpha.borderMaximum !== 0) throw new Error(`Baked shadow ${shadow.id} is clipped at its transparent border.`);
     if (alpha.levels < 8) throw new Error(`Baked shadow ${shadow.id} lacks a multi-level soft alpha falloff.`);
@@ -66,10 +49,7 @@ export async function buildApprovedBakedShadows(manifest, repositoryRoot) {
       proof: shadow.proof,
       parent: shadow.parent,
       target: shadow.target,
-      parentOrigin,
-      localOffset,
-      calibrationOffset,
-      calibrationAdjustment,
+      worldOffset,
       alpha,
       sha256: createHash("sha256").update(await readFile(outputPath)).digest("hex"),
     });

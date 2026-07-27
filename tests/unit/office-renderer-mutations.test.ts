@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  reconcileOfficeParticipants,
   setOfficeStationScreen,
 } from "../../src/web/src/office/PixiOfficeRenderer.js";
+import { applyOfficeParticipantRouteStage, officeActionOverlayGeometry, reconcileOfficeParticipants } from "../../src/web/src/office/OfficeParticipantRenderer.js";
 import type { OfficeSceneModel } from "../../src/web/src/office/officeScene.js";
+import { OFFICE_SCREEN_ANIMATION_SPEED } from "../../src/web/src/office/officeVisualContract.js";
 
 describe("Office renderer async mutations", () => {
   it("releases a delayed actor asset without committing a stale render generation", async () => {
@@ -17,6 +18,8 @@ describe("Office renderer async mutations", () => {
       { personLayer: { addChild } } as never,
       new Map(),
       sceneWithActor(),
+      {} as never,
+      {} as never,
       false,
       1,
       () => currentGeneration,
@@ -74,7 +77,101 @@ describe("Office renderer async mutations", () => {
     expect(station.screenHandle).toBe(nextHandle);
     expect(station.screenProfile).toBe("entertainment-2");
     expect(screen.visible).toBe(true);
+    expect(screen.animationSpeed).toBe(OFFICE_SCREEN_ANIMATION_SPEED);
     expect(screen.gotoAndPlay).toHaveBeenCalledWith(0);
+  });
+
+  it("keeps route position and overlays unchanged until the next action is ready, then commits them together", async () => {
+    const deferred = createDeferred<ReturnType<typeof actionHandle>>();
+    const previous = actionHandle();
+    const next = actionHandle({
+      visualAnchor: { x: 274.5, y: 206 },
+      firstFrameVisualBounds: {
+        sourceSize: { width: 480, height: 480 },
+        visibleRect: { x: 228.5, y: 94, width: 92.5, height: 112.5 },
+      },
+    });
+    const group = positionedGroup(10, 20);
+    const label = positionedLabel(3, -114, 100, 20);
+    const status = { position: pointTarget(64.5, -124) };
+    const visual = {
+      actor: { actorId: "agent-1", scarf: "main" },
+      actionId: "standby",
+      group,
+      sprite: actionSprite(),
+      label,
+      statusIndicator: status,
+      actionHandle: previous,
+      overlayReference: { centerX: 0, top: -70 },
+      labelBasePosition: { x: 3, y: -114 },
+    };
+    const command = {
+      kind: "playRouteStage" as const,
+      participantId: "agent-1",
+      routeId: "canonical-seat",
+      actionId: "toilet" as const,
+      points: [{ x: -40, y: 511 }],
+      durationMs: 0,
+    };
+    const pending = applyOfficeParticipantRouteStage(
+      { acquireAction: vi.fn(() => deferred.promise) } as never,
+      new Map([["agent-1", visual as never]]),
+      { action: vi.fn(() => ({ scale: 0.965, offset: { x: 260.4, y: 243.6 } })) } as never,
+      command,
+      new AbortController().signal,
+      false,
+    );
+
+    expect({ x: group.x, y: group.y, labelX: label.x, labelY: label.y }).toEqual({ x: 10, y: 20, labelX: 3, labelY: -114 });
+    deferred.resolve(next);
+    await pending;
+
+    expect({ x: group.x, y: group.y }).toEqual({ x: -40, y: 511 });
+    expect(label.x).toBeCloseTo(263.6, 1);
+    expect(label.y).toBeCloseTo(91.5, 1);
+    expect(status.position.x).toBeCloseTo(label.x + 61.5, 1);
+    expect(status.position.y).toBeCloseTo(label.y - 10, 1);
+    expect(previous.release).toHaveBeenCalledOnce();
+    expect(next.release).not.toHaveBeenCalled();
+  });
+
+  it("releases a cancelled route-stage action without moving the actor or its overlays", async () => {
+    const deferred = createDeferred<ReturnType<typeof actionHandle>>();
+    const next = actionHandle();
+    const controller = new AbortController();
+    const group = positionedGroup(10, 20);
+    const label = positionedLabel(3, -114, 100, 20);
+    const visual = {
+      actor: { actorId: "agent-1", scarf: "main" },
+      group,
+      label,
+    };
+    const pending = applyOfficeParticipantRouteStage(
+      { acquireAction: vi.fn(() => deferred.promise) } as never,
+      new Map([["agent-1", visual as never]]),
+      {} as never,
+      { kind: "playRouteStage", participantId: "agent-1", routeId: "walk-out", actionId: "walk-horizontal", points: [{ x: 30, y: 40 }], durationMs: 100 },
+      controller.signal,
+      false,
+    );
+    controller.abort();
+    deferred.resolve(next);
+    await pending;
+
+    expect({ x: group.x, y: group.y, labelX: label.x, labelY: label.y }).toEqual({ x: 10, y: 20, labelX: 3, labelY: -114 });
+    expect(next.release).toHaveBeenCalledOnce();
+  });
+
+  it("derives overlay geometry from the visible action bounds without changing route coordinates", () => {
+    const geometry = officeActionOverlayGeometry({
+      visualAnchor: { x: 274.5, y: 206 },
+      firstFrameVisualBounds: {
+        sourceSize: { width: 480, height: 480 },
+        visibleRect: { x: 228.5, y: 94, width: 92.5, height: 112.5 },
+      },
+    } as never, { scale: 0.965, offset: { x: 260.4, y: 243.6 } }, false);
+    expect(geometry.centerX).toBeCloseTo(260.64125, 5);
+    expect(geometry.top).toBeCloseTo(135.52, 5);
   });
 });
 
@@ -152,4 +249,65 @@ function createDeferred<T>(): { promise: Promise<T>; resolve: (value: T) => void
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((next) => { resolve = next; });
   return { promise, resolve };
+}
+
+function actionHandle(overrides: Record<string, unknown> = {}) {
+  return {
+    asset: {
+      animationId: "action",
+      animation: { fps: 12, loop: false },
+      sheet: { animations: { action: [{}] } },
+      officeProps: {},
+      ...overrides,
+    },
+    release: vi.fn(),
+  };
+}
+
+function pointTarget(x = 0, y = 0) {
+  return {
+    x,
+    y,
+    set(nextX: number, nextY: number) {
+      this.x = nextX;
+      this.y = nextY;
+    },
+  };
+}
+
+function actionSprite() {
+  const position = pointTarget();
+  return {
+    textures: [],
+    texture: { orig: { width: 480, height: 480 } },
+    anchor: { set: vi.fn() },
+    pivot: { set: vi.fn() },
+    position,
+    scale: { set: vi.fn() },
+    totalFrames: 1,
+    animationSpeed: 0,
+    loop: false,
+    gotoAndStop: vi.fn(),
+    gotoAndPlay: vi.fn(),
+  };
+}
+
+function positionedLabel(x: number, y: number, width: number, height: number) {
+  const position = pointTarget(x, y);
+  return {
+    get x() { return position.x; },
+    get y() { return position.y; },
+    width,
+    height,
+    position,
+  };
+}
+
+function positionedGroup(x: number, y: number) {
+  const position = pointTarget(x, y);
+  return {
+    get x() { return position.x; },
+    get y() { return position.y; },
+    position,
+  };
 }

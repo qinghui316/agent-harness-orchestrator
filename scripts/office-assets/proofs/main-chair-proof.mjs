@@ -62,7 +62,3 @@ function countScarfOverlap(actor, chair) {
   }
   return overlap;
 }
-
-if (process.argv[1] && resolve(process.argv[1]).endsWith("main-chair-proof.mjs")) {
-  buildMainChairProof().then((report) => process.stdout.write(`${JSON.stringify(report, null, 2)}\n`));
-}

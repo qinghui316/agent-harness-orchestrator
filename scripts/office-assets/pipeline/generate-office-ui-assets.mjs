@@ -2,18 +2,12 @@ import { execFile } from "node:child_process";
 import { Buffer } from "node:buffer";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
+import process from "node:process";
 import { promisify } from "node:util";
 import sharp from "sharp";
 
 const execFileAsync = promisify(execFile);
-const root = resolve(import.meta.dirname, "..", "..");
-const publicRoot = join(root, "src", "web", "public", "agent-office");
-const runtimeRoot = join(root, "design-assets", "agent-office", "runtime-v3");
-const avatarTargets = [join(publicRoot, "avatars"), join(runtimeRoot, "avatars")];
-const uiTargets = [join(publicRoot, "ui"), join(runtimeRoot, "ui")];
-const temporary = await mkdtemp(join(tmpdir(), "aho-office-ui-"));
-
 const scarfColors = {
   "main-agent": null,
   "planning-agent": [255, 202, 0],
@@ -27,9 +21,15 @@ const scarfColors = {
   default: [111, 119, 130],
 };
 
-try {
+export async function generateOfficeUiAssets(repositoryRoot = process.cwd()) {
+  const publicRoot = join(repositoryRoot, "src", "web", "public", "agent-office");
+  const runtimeRoot = join(repositoryRoot, "design-assets", "agent-office", "runtime-v3");
+  const avatarTargets = [join(publicRoot, "avatars"), join(runtimeRoot, "avatars")];
+  const uiTargets = [join(publicRoot, "ui"), join(runtimeRoot, "ui")];
+  const temporary = await mkdtemp(join(tmpdir(), "aho-office-ui-"));
+  try {
   await Promise.all([...avatarTargets, ...uiTargets].map((directory) => mkdir(directory, { recursive: true })));
-  const standby = await frameCanvas("standby", 0);
+  const standby = await frameCanvas(publicRoot, "standby", 0);
   for (const [roleId, color] of Object.entries(scarfColors)) {
     const pixels = color ? recolorScarf(standby.pixels, standby.mask, color) : Buffer.from(standby.pixels);
     const bounds = alphaBounds(pixels, standby.raw);
@@ -43,7 +43,7 @@ try {
   }
 
   for (let index = 0; index < 8; index += 1) {
-    const frame = await frameCanvas("walk-vertical", index);
+    const frame = await frameCanvas(publicRoot, "walk-vertical", index);
     const bounds = alphaBounds(frame.pixels, frame.raw);
     await sharp(frame.pixels, { raw: frame.raw })
       .extract(bounds)
@@ -62,11 +62,13 @@ try {
   ]);
   const loader = await readFile(loaderPath);
   await Promise.all(uiTargets.map((directory) => writeFile(join(directory, "walk-vertical-loader.webp"), loader)));
-} finally {
-  await rm(temporary, { recursive: true, force: true });
+    return { avatarCount: Object.keys(scarfColors).length, loaderFrameCount: 8 };
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
 }
 
-async function frameCanvas(actionId, index) {
+async function frameCanvas(publicRoot, actionId, index) {
   const actionRoot = join(publicRoot, "actions");
   const metadata = JSON.parse(await readFile(join(actionRoot, `${actionId}@1x.webp.json`), "utf8"));
   const frameName = `${actionId}_${String(index).padStart(4, "0")}.png`;

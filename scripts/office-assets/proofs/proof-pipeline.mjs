@@ -4,14 +4,14 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import sharp from "sharp";
-import { cutoutImage } from "./cutout-pipeline.mjs";
+import { cutoutImage } from "../pipeline/cutout-pipeline.mjs";
 import {
   assertDistinctFrames,
   buildAnchorReport,
   OfficeAssetPipelineError,
   placeExtractedFramesOnCanvas,
   writeContactSheet,
-} from "./image-pipeline.mjs";
+} from "../pipeline/image-pipeline.mjs";
 
 export async function extractProofPhase(input, options) {
   const { repositoryRoot, actionId, phaseId, firstFrame, frameCount, columns = 4, rows = 2 } = options;

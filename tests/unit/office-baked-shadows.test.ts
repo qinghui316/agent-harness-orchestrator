@@ -1,56 +1,23 @@
-import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import sharp from "sharp";
 import { describe, expect, it, vi } from "vitest";
-import { buildApprovedBakedShadows } from "../../scripts/office-assets/baked-shadow-pipeline.mjs";
-import { loadOfficeAssetManifest } from "../../scripts/office-assets/manifest.mjs";
-import { addCalibratedShadow, createCalibratedWorkstationLayers } from "../../src/web/src/office/officePixiComposition.js";
-import { OFFICE_SCENE_CALIBRATION, type OfficeSceneCalibrationV3 } from "../../src/web/src/office/officeSceneCalibration.js";
+import { loadOfficeAssetManifest } from "../../scripts/office-assets/pipeline/manifest.mjs";
+import { parseOfficeCalibrationJson } from "../../src/web/src/office/officeCalibrationDocument.js";
+import { OfficeSpriteFactory } from "../../src/web/src/office/OfficeSpriteFactory.js";
 
 const designRoot = join("design-assets", "agent-office");
 const manifestPath = join(designRoot, "office-assets.manifest.json");
-const calibrationPath = join(designRoot, "calibration", "scene-calibration-v3.json");
+const documentPath = join("src", "web", "public", "agent-office", "config", "office-calibration.json");
 
 describe("Agent Office baked shadows", () => {
-  it("keeps every non-shadow production calibration field unchanged", async () => {
-    const calibration = JSON.parse(await readFile(calibrationPath, "utf8"));
-    expect(hashStable(stripShadow(calibration))).toBe("7309ecdb99351f6c253e7c1bd8e9ea6211bf45082c0b6ca4a750d3b914233fe7");
-  });
-
-  it("keeps proof transforms immutable and records visual calibration separately", async () => {
+  it("keeps proof transforms immutable without owning runtime calibration", async () => {
     const manifest = await loadOfficeAssetManifest(manifestPath);
-    const result = await buildApprovedBakedShadows(manifest, process.cwd());
-    const calibration = JSON.parse(await readFile(calibrationPath, "utf8")) as OfficeSceneCalibrationV3;
-    expect(result.shadows.map((shadow) => ({ id: shadow.id, output2x: shadow.output2x }))).toEqual([
-      { id: "standard-workstation-shadow", output2x: { width: 506, height: 373 } },
-      { id: "main-workstation-shadow", output2x: { width: 636, height: 337 } },
-      { id: "coffee-facility-shadow", output2x: { width: 764, height: 289 } },
-      { id: "treadmill-facility-shadow", output2x: { width: 570, height: 151 } },
+    expect(manifest.shadows.map((shadow: { proof: { shift: { x: number; y: number } } }) => shadow.proof.shift)).toEqual([
+      { x: 126, y: 140 }, { x: 454, y: 187 }, { x: 496, y: 203 }, { x: 459, y: -210 },
     ]);
-    expect(result.shadows.map((shadow) => shadow.proof.shift)).toEqual([
-      { x: 126, y: 140 },
-      { x: 454, y: 187 },
-      { x: 496, y: 203 },
-      { x: 459, y: -210 },
-    ]);
-    const expectedCalibration = [
-      calibration.workstations.standard.shadow,
-      calibration.workstations.main.shadow,
-      calibration.facilities.coffee.shadow,
-      calibration.facilities.treadmill.shadow,
-    ];
-    result.shadows.forEach((shadow, index) => {
-      expect(shadow.calibrationOffset).toEqual({ x: expectedCalibration[index]!.x, y: expectedCalibration[index]!.y });
-      expect(shadow.calibrationOffset.x).toBeCloseTo(shadow.localOffset.x + shadow.calibrationAdjustment.x, 12);
-      expect(shadow.calibrationOffset.y).toBeCloseTo(shadow.localOffset.y + shadow.calibrationAdjustment.y, 12);
-      expect(shadow.alpha.borderMaximum).toBe(0);
-      expect(shadow.alpha.levels).toBeGreaterThan(8);
-    });
-    expect(result.shadows[2]!.calibrationAdjustment.x).toBeCloseTo(23.61831438878187, 12);
-    expect(result.shadows[2]!.calibrationAdjustment.y).toBeCloseTo(0, 12);
-    expect(result.shadows[3]!.calibrationAdjustment.x).toBeCloseTo(-5.940369420711896, 12);
-    expect(result.shadows[3]!.calibrationAdjustment.y).toBeCloseTo(54.366666666666674, 12);
+    const source = await readFile(join("scripts", "office-assets", "imports", "baked-shadow-import.mjs"), "utf8");
+    expect(source).not.toMatch(/scene-calibration|calibrationOffset|calibrationAdjustment/);
   });
 
   it("publishes neutral-black multi-level alpha with corresponding 1x and 2x atlas geometry", async () => {
@@ -58,8 +25,7 @@ describe("Agent Office baked shadows", () => {
     const atlas1x = JSON.parse(await readFile(join(designRoot, "runtime-v3", "props", "office-props@1x.webp.json"), "utf8"));
     const atlas2x = JSON.parse(await readFile(join(designRoot, "runtime-v3", "props", "office-props@2x.webp.json"), "utf8"));
     for (const shadow of manifest.shadows) {
-      const sourcePath = join(designRoot, "approved", shadow.file);
-      const image = await sharp(sourcePath).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+      const image = await sharp(join(designRoot, "approved", shadow.file)).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
       const levels = new Set<number>();
       let nonBlackPixels = 0;
       for (let offset = 0; offset < image.data.length; offset += 4) {
@@ -70,118 +36,74 @@ describe("Agent Office baked shadows", () => {
       expect(levels.size).toBeGreaterThan(8);
       const frame1x = atlas1x.frames[`${shadow.id}.png`];
       const frame2x = atlas2x.frames[`${shadow.id}.png`];
-      expect(frame2x.sourceSize.w).toBe(image.info.width);
-      expect(frame2x.sourceSize.h).toBe(image.info.height);
-      expect(frame1x.sourceSize.w).toBe(Math.round(image.info.width / 2));
-      expect(frame1x.sourceSize.h).toBe(Math.round(image.info.height / 2));
-      expect(Math.abs(frame2x.spriteSourceSize.x / 2 - frame1x.spriteSourceSize.x)).toBeLessThanOrEqual(1);
-      expect(Math.abs(frame2x.spriteSourceSize.y / 2 - frame1x.spriteSourceSize.y)).toBeLessThanOrEqual(1);
+      expect(frame2x.sourceSize).toEqual({ w: image.info.width, h: image.info.height });
+      expect(frame1x.sourceSize).toEqual({ w: Math.round(image.info.width / 2), h: Math.round(image.info.height / 2) });
     }
   });
 
-  it("applies atlas trim compensation without changing the calibrated parent coordinate", () => {
-    const addChild = vi.fn();
-    const sprite = { position: { set: vi.fn() }, scale: { set: vi.fn() }, visible: true, alpha: 1 };
-    const pixi = { Sprite: vi.fn(() => sprite) };
-    const texture = { trim: { x: 7, y: 11 } };
-    const props = {
-      officeProps: { "standard-workstation-shadow": { frame: "standard-workstation-shadow.png", anchors2x: {} } },
-      sheet: { textures: { "standard-workstation-shadow.png": texture } },
-    };
-    const calibration = {
-      resourceId: "standard-workstation-shadow" as const,
-      x: -2.2857142857142856,
-      y: 1.1428571428571428,
-      scaleX: 1,
-      scaleY: 1,
-      alpha: 0.55,
-      layer: "shadow" as const,
-      visible: true,
-    };
-    addCalibratedShadow(pixi as never, { addChild } as never, props as never, calibration);
-    expect(sprite.position.set).toHaveBeenCalledWith(calibration.x - 7, calibration.y - 11);
-    expect(sprite.scale.set).toHaveBeenCalledWith(1, 1);
-    expect(sprite.alpha).toBe(0.55);
-    expect(addChild).toHaveBeenCalledWith(sprite);
+  it("stores every shadow as an ordinary static component at its approved local position", async () => {
+    const document = parseOfficeCalibrationJson(await readFile(documentPath, "utf8"));
+    expect(component(document.stationTemplates.standard.components, "shadow")).toMatchObject({
+      resourceId: "standard-workstation-shadow", alpha: 0.42,
+    });
+    expect(component(document.stationTemplates.main.components, "shadow")).toMatchObject({
+      resourceId: "main-workstation-shadow", alpha: 0.42,
+    });
+    expect(component(document.facilities.coffee.components, "shadow")).toMatchObject({
+      resourceId: "coffee-facility-shadow", alpha: 0.42,
+    });
+    expect(component(document.facilities.treadmill.components, "shadow")).toMatchObject({
+      resourceId: "treadmill-facility-shadow", alpha: 0.42,
+    });
   });
 
-  it("selects each static shadow resource and keeps workstation shadows under reduced motion", () => {
-    const textureById = Object.fromEntries([
-      "standard-workstation-shadow", "main-workstation-shadow", "standard-desk", "main-desk", "standard-monitor",
-    ].map((id) => [id, { id, trim: { x: 0, y: 0 } }]));
-    const containers: Array<{ children: unknown[]; addChild: ReturnType<typeof vi.fn> }> = [];
-    const spriteConstructor = vi.fn((texture: unknown) => ({
-      texture,
-      position: { set: vi.fn() },
-      scale: { set: vi.fn() },
-      visible: true,
-      alpha: 1,
-    }));
-    const animatedSpriteConstructor = vi.fn(() => ({
-      anchor: { set: vi.fn() }, position: { set: vi.fn() }, play: vi.fn(), gotoAndStop: vi.fn(),
-      width: 0, height: 0, animationSpeed: 0, loop: false, alpha: 1, visible: true, mask: null,
-    }));
-    const pixi = {
-      Container: vi.fn(() => {
-        const container = { children: [] as unknown[], addChild: vi.fn((...children: unknown[]) => container.children.push(...children)) };
-        containers.push(container);
-        return container;
-      }),
-      Sprite: spriteConstructor,
-      AnimatedSprite: animatedSpriteConstructor,
-      Graphics: vi.fn(() => ({ roundRect() { return this; }, fill() { return this; }, visible: true })),
-    };
-    const props = {
-      officeProps: Object.fromEntries(Object.keys(textureById).map((id) => [id, { frame: `${id}.png`, anchors2x: {} }])),
-      sheet: { textures: Object.fromEntries(Object.entries(textureById).map(([id, texture]) => [`${id}.png`, texture])) },
-    };
-    const screens = { animationId: "orchestration", animation: { fps: 20 }, sheet: { animations: { orchestration: [{}] } } };
-
-    for (const workstationKind of ["standard", "main"] as const) {
-      const layers = createCalibratedWorkstationLayers(
-        pixi as never,
-        props as never,
-        screens as never,
-        OFFICE_SCENE_CALIBRATION.workstations[workstationKind],
-        "idle",
-        true,
-      );
-      expect(layers.shadow.children).toHaveLength(1);
-      expect((layers.shadow.children[0] as { texture: unknown }).texture).toBe(textureById[`${workstationKind}-workstation-shadow`]);
-      expect(layers.screen.gotoAndStop).toHaveBeenCalledWith(0);
-      expect(layers.screen.play).not.toHaveBeenCalled();
+  it("preserves each proof's furniture-relative shadow placement in the runtime facility container", async () => {
+    const document = parseOfficeCalibrationJson(await readFile(documentPath, "utf8"));
+    const atlas = JSON.parse(await readFile(join(designRoot, "runtime-v3", "props", "office-props@2x.webp.json"), "utf8"));
+    const proof = JSON.parse(await readFile(join(designRoot, "approved", "shadows", "baked-shadow-calibration.json"), "utf8"));
+    const bodyResources = {
+      coffee: "water-coffee",
+      treadmill: "treadmill",
+    } as const;
+    for (const facilityId of ["coffee", "treadmill"] as const) {
+      const facility = document.facilities[facilityId];
+      const body = component(facility.components, "body")!;
+      const shadow = component(facility.components, "shadow")!;
+      const bodyTrim = atlas.frames[`${bodyResources[facilityId]}.png`].spriteSourceSize;
+      const source = proof.shadows.find((candidate: { target: string }) => candidate.target === facilityId);
+      const proofCanvasOrigin = {
+        x: (source.sourceCrop.left - source.proof.shift.x) / source.proof.outputScale - source.parentOrigin.x,
+        y: (source.sourceCrop.top - source.proof.shift.y) / source.proof.outputScale - source.parentOrigin.y,
+      };
+      expect(shadow.localPosition.x).toBeCloseTo(proofCanvasOrigin.x + bodyTrim.x / 2 * body.scale.x, 12);
+      expect(shadow.localPosition.y).toBeCloseTo(proofCanvasOrigin.y + bodyTrim.y / 2 * body.scale.y, 12);
     }
-    expect(OFFICE_SCENE_CALIBRATION.facilities.coffee.shadow?.resourceId).toBe("coffee-facility-shadow");
-    expect(OFFICE_SCENE_CALIBRATION.facilities.treadmill.shadow?.resourceId).toBe("treadmill-facility-shadow");
-    expect(containers.length).toBeGreaterThan(0);
   });
 
-  it("uses one global shadow layer and has no workstation or facility ellipse fallback", async () => {
-    const renderer = await readFile(join("src", "web", "src", "office", "PixiOfficeRenderer.tsx"), "utf8");
-    const composition = await readFile(join("src", "web", "src", "office", "officePixiComposition.ts"), "utf8");
-    const calibrationApp = await readFile(join("src", "web", "src", "office", "calibration", "SceneCalibrationApp.tsx"), "utf8");
-    expect(renderer).toContain("root.addChild(shadowLayer, scenery, workstationLayer, personLayer, chairLayer, effectLayer)");
-    expect(renderer).toContain("shadowLayer.addChild(stationShadow)");
-    expect(renderer).not.toContain(".ellipse(");
-    expect(composition).not.toContain(".ellipse(");
-    expect(calibrationApp).not.toContain(".ellipse(");
+  it("lets Pixi own atlas trim while applying only authored local coordinates", () => {
+    const sprite = { position: { set: vi.fn() }, scale: { set: vi.fn() }, alpha: 1, visible: true };
+    const parent = { addChild: vi.fn() };
+    const texture = { trim: { x: 100, y: 200 } };
+    const factory = new OfficeSpriteFactory(
+      { Sprite: vi.fn(() => sprite) } as never,
+      { officeProps: { shadow: { frame: "shadow.png" } }, sheet: { textures: { "shadow.png": texture } } } as never,
+    );
+    factory.add(parent as never, {
+      componentId: "shadow", resourceId: "shadow", localPosition: { x: -3, y: 61 }, scale: { x: 1, y: 1 }, alpha: 0.42, layer: "shadow", visible: true,
+    });
+    expect(sprite.position.set).toHaveBeenCalledWith(-3, 61);
+    expect(sprite.position.set).not.toHaveBeenCalledWith(-103, -139);
+    expect(sprite.alpha).toBe(0.42);
+  });
+
+  it("has no ellipse, trim compensation, or shadow-specific renderer path", async () => {
+    const files = await Promise.all([
+      "PixiOfficeRenderer.tsx", "OfficeStaticSceneRenderer.ts", "OfficeSpriteFactory.ts",
+    ].map((name) => readFile(join("src", "web", "src", "office", name), "utf8")));
+    expect(files.join("\n")).not.toMatch(/\.ellipse\(|texture\.trim|addCalibratedShadow|calibrationOffset|calibrationAdjustment/);
   });
 });
 
-function stripShadow(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(stripShadow);
-  if (!value || typeof value !== "object") return value;
-  return Object.fromEntries(Object.entries(value).filter(([key]) => key !== "shadow").map(([key, child]) => [key, stripShadow(child)]));
-}
-
-function hashStable(value: unknown): string {
-  return createHash("sha256").update(stableStringify(value)).digest("hex");
-}
-
-function stableStringify(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  if (value && typeof value === "object") {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableStringify((value as Record<string, unknown>)[key])}`).join(",")}}`;
-  }
-  return JSON.stringify(value);
+function component(components: readonly { componentId: string }[], id: string) {
+  return components.find((candidate) => candidate.componentId === id);
 }

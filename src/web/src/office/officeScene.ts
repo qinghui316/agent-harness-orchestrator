@@ -1,8 +1,8 @@
 import type { OfficeAmbientPreference, OfficeExperienceSnapshot, OfficeParticipantState, OfficeScarfId, OfficeSemanticEvent, OfficeStation, OfficeWorkstationAnchors } from "./officeExperience.js";
-import { OFFICE_RUNTIME_CALIBRATION } from "./officeRuntimeCalibration.generated.js";
-import { officeActorScaleForAction, type OfficePoint } from "./officeSceneCalibration.js";
+import type { OfficeCalibrationDocument } from "./officeCalibrationDocument.js";
+import type { OfficePoint } from "./officeVisualContract.js";
 
-export type { OfficePoint } from "./officeSceneCalibration.js";
+export type { OfficePoint } from "./officeVisualContract.js";
 export type OfficeScarf = OfficeScarfId;
 export type OfficeActorStatus = OfficeParticipantState;
 
@@ -33,6 +33,7 @@ export type OfficeZone = {
 };
 
 export type OfficeSceneModel = {
+  experience: OfficeExperienceSnapshot;
   conversationId: string;
   graphScopeId: string;
   projectionHash: string;
@@ -46,11 +47,11 @@ export type OfficeSceneModel = {
   diagnostics: string[];
 };
 
-export const OFFICE_ACTOR_SCALE = officeActorScaleForAction("working", OFFICE_RUNTIME_CALIBRATION);
-export const OFFICE_WORLD_HEIGHT = OFFICE_RUNTIME_CALIBRATION.world.height;
-export const OFFICE_WORKSTATION_GEOMETRY = OFFICE_RUNTIME_CALIBRATION.workstations;
-
-export function createOfficeScene(snapshot: OfficeExperienceSnapshot, events: OfficeSemanticEvent[] = []): OfficeSceneModel {
+export function createOfficeScene(
+  snapshot: OfficeExperienceSnapshot,
+  document: Readonly<OfficeCalibrationDocument>,
+  events: OfficeSemanticEvent[] = [],
+): OfficeSceneModel {
   const stations = snapshot.stations;
   const stationById = new Map(stations.map((station) => [station.stationId, station] as const));
   const actors = snapshot.participants.map((participant) => {
@@ -73,25 +74,45 @@ export function createOfficeScene(snapshot: OfficeExperienceSnapshot, events: Of
     };
   });
   return {
+    experience: snapshot,
     conversationId: snapshot.contextId,
     graphScopeId: snapshot.contextId,
     projectionHash: snapshot.revision,
     scopeStatus: snapshot.lifecycle,
-    width: OFFICE_RUNTIME_CALIBRATION.world.width,
-    height: OFFICE_RUNTIME_CALIBRATION.world.height,
+    width: document.world.width,
+    height: document.world.height,
     stations,
     actors,
-    zones: officeZones(),
+    zones: officeZones(document),
     events,
     diagnostics: snapshot.diagnostics,
   };
 }
 
-function officeZones(): OfficeZone[] {
-  const { coffee, treadmill, toilet } = OFFICE_RUNTIME_CALIBRATION.facilities;
+function officeZones(document: Readonly<OfficeCalibrationDocument>): OfficeZone[] {
+  const { coffee, treadmill, toilet } = document.facilities;
   return [
-    { id: "water-coffee", propId: "water-coffee", origin: coffee.origin, scale: coffee.scale, anchors: coffee.anchors },
-    { id: "fitness", propId: "treadmill", origin: treadmill.origin, scale: treadmill.scale, anchors: treadmill.anchors },
-    { id: "toilet", propId: "toilet-back", origin: toilet.origin, scale: toilet.scale, anchors: toilet.anchors },
+    zone("water-coffee", "water-coffee", coffee),
+    zone("fitness", "treadmill", treadmill),
+    zone("toilet", "toilet-back", toilet),
   ];
+
+  function zone(id: OfficeZone["id"], propId: OfficeZone["propId"], facility: OfficeCalibrationDocument["facilities"][string]): OfficeZone {
+    const body = facility.components.find((component) => component.componentId === "body");
+    if (!body) throw new Error(`Office facility ${id} has no body component.`);
+    return {
+      id,
+      propId,
+      origin: facility.origin,
+      scale: body.scale.x,
+      anchors: {
+        aisleEntry: addPoints(facility.origin, facility.anchors.aisleEntry!),
+        contact: addPoints(facility.origin, facility.anchors.contact!),
+      },
+    };
+  }
+}
+
+function addPoints(left: OfficePoint, right: OfficePoint): OfficePoint {
+  return { x: left.x + right.x, y: left.y + right.y };
 }

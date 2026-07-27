@@ -11,8 +11,8 @@ import {
   readCanonicalFullCharacterSequence,
   writeContactSheet,
   writeOfficeBuildReceipt,
-} from "./image-pipeline.mjs";
-import { loadOfficeAssetManifest } from "./manifest.mjs";
+} from "../pipeline/image-pipeline.mjs";
+import { loadOfficeAssetManifest } from "../pipeline/manifest.mjs";
 
 const execFileAsync = promisify(execFile);
 const VALIDATION = { alphaThreshold: 8, visibleKeyPixels: 0, transparentNonZeroRgb: 0 };
@@ -91,11 +91,4 @@ export async function importEffectVideo(sourcePath, effectId, repositoryRoot = p
   await writeFile(join(proofRoot, "report.json"), `${JSON.stringify(report, null, 2)}\n`, "utf8");
   await writeOfficeBuildReceipt(manifest, repositoryRoot);
   return report;
-}
-
-if (process.argv[1] && resolve(process.argv[1]).endsWith("effect-video-import.mjs")) {
-  const effectId = process.argv[2];
-  const source = process.argv[3];
-  if (!effectId || !source) throw new Error("Usage: node effect-video-import.mjs <effect-id> <transparent-video>");
-  importEffectVideo(source, effectId).then((report) => process.stdout.write(`${JSON.stringify(report, null, 2)}\n`));
 }

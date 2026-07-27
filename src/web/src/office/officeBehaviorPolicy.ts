@@ -1,5 +1,5 @@
 import type { OfficeParticipant } from "./officeExperience.js";
-import type { OfficeRuntimeVisualCommand } from "./officeRuntimeCalibration.js";
+import type { OfficeRuntimeVisualCommand } from "./officeVisualContract.js";
 
 export class OfficeBehaviorPolicy {
   semantic(participant: OfficeParticipant, celebrateCompleted = false): OfficeRuntimeVisualCommand {

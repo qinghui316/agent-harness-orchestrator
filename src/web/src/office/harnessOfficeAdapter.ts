@@ -15,8 +15,8 @@ export class HarnessOfficeAdapter implements OfficeSceneSourceAdapter<AgentSurfa
 
   constructor(
     private readonly projectId: string,
+    private readonly resolver: OfficeCalibrationResolver,
     private readonly presence = new OfficePresencePolicy(),
-    private readonly resolver = new OfficeCalibrationResolver(),
   ) {}
 
   hydrate(projection: AgentSurfaceProjection): OfficeExperienceSnapshot {

@@ -9,7 +9,7 @@ import {
   buildActionPlaybackPlan,
   loadOfficeAssetManifest,
   validateOfficeAssetManifest,
-} from "../../scripts/office-assets/manifest.mjs";
+} from "../../scripts/office-assets/pipeline/manifest.mjs";
 import {
   assertDistinctFrames,
   buildAnchorReport,
@@ -20,9 +20,9 @@ import {
   validateApprovedActionSources,
   writeAnimatedPreview,
   transformPropAnchors,
-} from "../../scripts/office-assets/image-pipeline.mjs";
-import { cutoutStagingMaster } from "../../scripts/office-assets/cutout-pipeline.mjs";
-import { extractGridProofAction, extractProofPhase } from "../../scripts/office-assets/proof-pipeline.mjs";
+} from "../../scripts/office-assets/pipeline/image-pipeline.mjs";
+import { cutoutStagingMaster } from "../../scripts/office-assets/pipeline/cutout-pipeline.mjs";
+import { extractGridProofAction, extractProofPhase } from "../../scripts/office-assets/proofs/proof-pipeline.mjs";
 
 const manifestPath = join("design-assets", "agent-office", "office-assets.manifest.json");
 const temporaryDirectories: string[] = [];

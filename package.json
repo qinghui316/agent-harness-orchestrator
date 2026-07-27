@@ -32,11 +32,11 @@
     "lint:provider-boundaries": "node scripts/lint-provider-boundaries.mjs",
     "lint:frontend-boundaries": "node scripts/lint-frontend-boundaries.mjs",
     "office-assets:cutout": "node scripts/office-assets/office-assets.mjs cutout",
-    "office-assets:prepare-shadows": "node scripts/office-assets/office-assets.mjs prepare-shadows",
     "office-assets:pack": "node scripts/office-assets/office-assets.mjs pack",
-    "office-assets:compile-calibration": "node scripts/office-assets/compile-runtime-calibration.mjs",
-    "office-assets:promote-handoff": "node scripts/office-assets/promote-handoff-actions.mjs",
-    "office-assets:generate-ui": "node scripts/office-assets/generate-office-ui-assets.mjs",
+    "office-assets:promote-handoff": "node scripts/office-assets/office-assets.mjs promote-handoff",
+    "office-assets:generate-ui": "node scripts/office-assets/office-assets.mjs generate-ui",
+    "office-calibration": "tsx scripts/office-calibration.ts",
+    "office-calibration:validate": "tsx scripts/office-calibration.ts validate",
     "clean": "node scripts/clean.mjs"
   },
   "dependencies": {

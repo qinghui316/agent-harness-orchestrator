@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../src/web/src/App.js";
 import { emptyWorkbenchSnapshot } from "../../src/web/src/controllers/useProjectConversationSession.js";
@@ -9,6 +10,8 @@ import type {
   ConversationInteraction,
   Snapshot,
 } from "../../src/web/src/types.js";
+
+const officeCalibration = JSON.parse(readFileSync("src/web/public/agent-office/config/office-calibration.json", "utf8"));
 
 vi.mock("@xterm/xterm", () => ({
   Terminal: class {
@@ -83,10 +86,8 @@ describe("Workbench App owner composition", () => {
     expect(await screen.findByTestId("agent-office-center-view")).toBeTruthy();
     expect(screen.queryByPlaceholderText("输入问题或下一步需求")).toBeNull();
 
-    fireEvent.click(await screen.findByTestId("agent-office-planning-agent"));
-    expect(await screen.findByTestId("office-agent-profile-card")).toBeTruthy();
-    expect(screen.getByTestId("agent-office-planning-agent").getAttribute("aria-pressed")).toBe("true");
-    fireEvent.click(screen.getByRole("button", { name: /打开 Agent 对话/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Agent 列表，共 1 个/ }));
+    fireEvent.click(screen.getByRole("menuitem"));
     expect(await screen.findByTestId("agent-workspace-panel")).toBeTruthy();
     expect(await screen.findByText("Canonical child reply")).toBeTruthy();
     expect(screen.getByTestId("agent-office-center-view")).toBeTruthy();
@@ -99,8 +100,8 @@ describe("Workbench App owner composition", () => {
     await screen.findByText("Canonical Main reply");
 
     fireEvent.click(screen.getByTestId("orchestration-overlay-toggle"));
-    fireEvent.click(await screen.findByTestId("agent-office-planning-agent"));
-    fireEvent.click(screen.getByRole("button", { name: /打开 Agent 对话/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Agent 列表，共 1 个/ }));
+    fireEvent.click(screen.getByRole("menuitem"));
 
     expect(await screen.findByTestId("agent-workspace-panel")).toBeTruthy();
     expect(await screen.findByText("Canonical child reply")).toBeTruthy();
@@ -197,6 +198,7 @@ function timelinePage(agentSurfaceId: string): CanonicalTimelinePage {
 function installApiFixture(snapshot: Snapshot): void {
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
+    if (url === "/agent-office/config/office-calibration.json") return json(officeCalibration);
     if (url === "/api/app/status") return json({ mode: "project", directProjectId: "repo" });
     if (url === "/api/projects") {
       return json({ projects: [{

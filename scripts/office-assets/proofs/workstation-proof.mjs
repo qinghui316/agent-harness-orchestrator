@@ -4,7 +4,6 @@ import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import sharp from "sharp";
 
@@ -143,14 +142,4 @@ async function writeMp4(frames, outputPath, fps) {
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true });
   }
-}
-
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  buildStandardChairProof().then(
-    (report) => process.stdout.write(`${JSON.stringify(report, null, 2)}\n`),
-    (error) => {
-      process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-      process.exitCode = 1;
-    },
-  );
 }

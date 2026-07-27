@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
 /* global process */
 
 import { cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
@@ -8,7 +6,7 @@ import {
   deriveCanonicalResolution,
   packPixiAtlas,
   readCanonicalFullCharacterSequence,
-} from "./image-pipeline.mjs";
+} from "../pipeline/image-pipeline.mjs";
 
 const ACTIONS = [
   {
@@ -103,14 +101,4 @@ export async function buildHandoffCalibrationAssets(repositoryRoot = process.cwd
 
   await writeFile(join(proofRuntimeRoot, "report.json"), `${JSON.stringify(report, null, 2)}\n`, "utf8");
   return report;
-}
-
-if (process.argv[1] && basename(process.argv[1]) === "handoff-calibration-assets.mjs") {
-  buildHandoffCalibrationAssets().then(
-    (report) => process.stdout.write(`${JSON.stringify(report, null, 2)}\n`),
-    (error) => {
-      process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
-      process.exitCode = 1;
-    },
-  );
 }

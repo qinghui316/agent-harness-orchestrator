@@ -3,7 +3,7 @@ import { ChoreographyEngine } from "./choreographyEngine.js";
 import { OfficeBehaviorPolicy, stablePhase } from "./officeBehaviorPolicy.js";
 import { OfficeCalibrationResolver } from "./officeCalibrationResolver.js";
 import type { OfficeExperienceSnapshot, OfficeParticipant, OfficeRouteStage, OfficeSemanticEvent, OfficeStation } from "./officeExperience.js";
-import type { OfficeRuntimeVisualCommand } from "./officeRuntimeCalibration.js";
+import type { OfficeRuntimeVisualCommand } from "./officeVisualContract.js";
 
 export class OfficeDirector {
   private snapshot: OfficeExperienceSnapshot | null = null;
@@ -18,7 +18,7 @@ export class OfficeDirector {
 
   constructor(
     private readonly engine: ChoreographyEngine,
-    private readonly resolver = new OfficeCalibrationResolver(),
+    private readonly resolver: OfficeCalibrationResolver,
     private readonly behavior = new OfficeBehaviorPolicy(),
     clock?: OfficeClock,
     random?: RandomSource,
@@ -140,10 +140,12 @@ export class OfficeDirector {
     if (previousStationId && previousStationId !== participant.stationId) {
       commands.push({ kind: "setScreen", stationId: previousStationId, profile: "off" });
     }
-    commands.push(
-      { kind: "followRoute", participantId: participant.participantId, routeId: "canonical-seat", points: [station.anchors.seat], durationMs: 0 },
+    commands.push(positionFirstAction(
       this.behavior.semantic(participant, celebrateCompleted),
-    );
+      participant.participantId,
+      "canonical-seat",
+      station.anchors.seat,
+    ));
     await this.engine.run(participant.participantId, { kind: "sequence", commands: [
       ...commands,
     ] }, "semantic");
@@ -177,15 +179,10 @@ export class OfficeDirector {
         { kind: "playAction", participantId: dispatchMain.participantId, actionId: "off-chair", loop: false, durationMs: this.resolver.action("off-chair").durationMs },
         ...route.outbound.map((stage) => stageCommand(dispatchMain.participantId, stage)),
         { kind: "parallel", commands: [
-          { kind: "followRoute", participantId: dispatchMain.participantId, routeId: "handoff:standing-talk", points: [route.standingTalk], durationMs: 0 },
-          { kind: "playAction", participantId: dispatchMain.participantId, actionId: "standing-talk", loop: false, durationMs: this.resolver.action("standing-talk").durationMs },
-          { kind: "followRoute", participantId: dispatchChild.participantId, routeId: "handoff:seated-talk", points: [route.seatedTalk], durationMs: 0 },
-          { kind: "playAction", participantId: dispatchChild.participantId, actionId: "seated-talk", loop: false, durationMs: this.resolver.action("seated-talk").durationMs },
+          positionedAction(dispatchMain.participantId, "handoff:standing-talk", "standing-talk", route.standingTalk, this.resolver.action("standing-talk").durationMs),
+          positionedAction(dispatchChild.participantId, "handoff:seated-talk", "seated-talk", route.seatedTalk, this.resolver.action("seated-talk").durationMs),
         ] },
-        { kind: "parallel", commands: [
-          { kind: "followRoute", participantId: dispatchChild.participantId, routeId: "handoff:salute", points: [route.salute], durationMs: 0 },
-          { kind: "playAction", participantId: dispatchChild.participantId, actionId: "salute", loop: false, durationMs: this.resolver.action("salute").durationMs },
-        ] },
+        positionedAction(dispatchChild.participantId, "handoff:salute", "salute", route.salute, this.resolver.action("salute").durationMs),
         ...route.return.map((stage) => stageCommand(dispatchMain.participantId, stage)),
         { kind: "playAction", participantId: dispatchMain.participantId, actionId: "off-chair", reverse: true, loop: false, durationMs: this.resolver.action("off-chair").durationMs },
       ];
@@ -264,11 +261,61 @@ export class OfficeDirector {
 
 function stageCommand(participantId: string, stage: OfficeRouteStage, coffeeEffect = false): OfficeRuntimeVisualCommand {
   const commands: OfficeRuntimeVisualCommand[] = [
-    { kind: "playAction", participantId, actionId: stage.actionId, loop: stage.points.length > 1, reverse: stage.reverse, flipX: stage.flipX, durationMs: stage.durationMs },
+    {
+      kind: "playRouteStage",
+      participantId,
+      routeId: stage.id,
+      actionId: stage.actionId,
+      points: stage.points,
+      durationMs: stage.durationMs,
+      loop: stage.points.length > 1,
+      reverse: stage.reverse,
+      flipX: stage.flipX,
+    },
   ];
-  if (stage.points.length > 0) commands.push({ kind: "followRoute", participantId, routeId: stage.id, points: stage.points, durationMs: stage.durationMs, flipX: stage.flipX });
   if (coffeeEffect) commands.push({ kind: "setEffect", participantId, effect: "coffee-cup", durationMs: stage.durationMs });
-  return { kind: "parallel", commands };
+  return commands.length === 1 ? commands[0]! : { kind: "parallel", commands };
+}
+
+function positionedAction(
+  participantId: string,
+  routeId: string,
+  actionId: Extract<OfficeRuntimeVisualCommand, { kind: "playAction" }>["actionId"],
+  point: { x: number; y: number },
+  durationMs: number,
+  command: Partial<Extract<OfficeRuntimeVisualCommand, { kind: "playAction" }>> = {},
+): Extract<OfficeRuntimeVisualCommand, { kind: "playRouteStage" }> {
+  return {
+    kind: "playRouteStage",
+    participantId,
+    routeId,
+    actionId,
+    points: [point],
+    durationMs,
+    loop: command.loop,
+    reverse: command.reverse,
+    flipX: command.flipX,
+  };
+}
+
+function positionFirstAction(
+  command: OfficeRuntimeVisualCommand,
+  participantId: string,
+  routeId: string,
+  point: { x: number; y: number },
+): OfficeRuntimeVisualCommand {
+  if (command.kind === "playAction" && command.participantId === participantId) {
+    return positionedAction(participantId, routeId, command.actionId, point, command.durationMs ?? 0, command);
+  }
+  if (command.kind !== "sequence" && command.kind !== "parallel") return command;
+  let positioned = false;
+  const commands = command.commands.map((child) => {
+    if (positioned) return child;
+    const next = positionFirstAction(child, participantId, routeId, point);
+    positioned = next !== child;
+    return next;
+  });
+  return positioned ? { ...command, commands } : command;
 }
 
 function isDispatchBlocked(participant: OfficeParticipant): boolean {

@@ -27,11 +27,14 @@ recorded in each `extraction-report.json`.
 3. Original furniture was composited above the shadow at `0.55` proof opacity;
    the selected extraction result is `layered-proof.png`. Production uses `0.42`
    after the user requested a lighter Office presentation.
-4. `scripts/office-assets/baked-shadow-pipeline.mjs` deterministically reverses
-   the proof transform, crops with transparent padding, and emits approved 2x
-   neutral-black alpha sources. It never asks Image 2 to remove furniture.
+4. The explicit `import-shadows` authoring command uses
+   `scripts/office-assets/imports/baked-shadow-import.mjs` to reverse the proof
+   transform, crop with transparent padding, and emit approved 2x neutral-black
+   alpha sources. It never asks Image 2 to remove furniture and is not part of
+   the production pack path.
 
-The proof `shift` values are immutable canvas-composition evidence. Any later
-visual alignment is recorded only in `scene-calibration-v3.json` as a
-shadow-specific `x`/`y` transform; furniture, facility origins, and routes are
-never moved to fit a shadow.
+The proof `shift` values are immutable canvas-composition evidence. Runtime
+placement belongs only to the Office calibration document's ordinary static
+component `localPosition`; the import tool does not read or adjust runtime
+calibration. Furniture, facility origins, and routes are never moved to fit a
+shadow.

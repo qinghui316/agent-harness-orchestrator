@@ -1,9 +1,7 @@
-#!/usr/bin/env node
-
 /* global process */
 
 import { cp, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
-import { basename, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 
 const ACTIONS = [
   { id: "standing-talk", frames: 76, source: "design-assets/agent-office/proof/actions/standing-talk/video19/actors" },
@@ -47,14 +45,4 @@ export async function promoteHandoffActions(repositoryRoot = process.cwd()) {
     writeFile(publicReceiptPath, `${JSON.stringify(receipt, null, 2)}\n`, "utf8"),
   ]);
   return { actions: ACTIONS.map(({ id, frames }) => ({ id, frames })), receipt };
-}
-
-if (process.argv[1] && basename(process.argv[1]) === "promote-handoff-actions.mjs") {
-  promoteHandoffActions().then(
-    (result) => process.stdout.write(`${JSON.stringify(result, null, 2)}\n`),
-    (error) => {
-      process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
-      process.exitCode = 1;
-    },
-  );
 }

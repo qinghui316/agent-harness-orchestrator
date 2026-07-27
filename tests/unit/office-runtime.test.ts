@@ -1,15 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import { OfficeAssetLoader } from "../../src/web/src/office/officeAssetLoader.js";
 import { AmbientScheduler } from "../../src/web/src/office/ambientScheduler.js";
 import { ChoreographyEngine } from "../../src/web/src/office/choreographyEngine.js";
 import { OfficeDirector } from "../../src/web/src/office/officeDirector.js";
 import { OfficeCalibrationResolver } from "../../src/web/src/office/officeCalibrationResolver.js";
+import { parseOfficeCalibrationJson } from "../../src/web/src/office/officeCalibrationDocument.js";
 import { commitLatestOfficeRender } from "../../src/web/src/office/officeRenderGeneration.js";
 import type { OfficeExperienceSnapshot, OfficeParticipant } from "../../src/web/src/office/officeExperience.js";
 import { applyScarfMask } from "../../src/web/src/office/officeRuntimeAssets.js";
 import { shouldPlayScreen } from "../../src/web/src/office/officePixiComposition.js";
 import { removeOfficeTickerIfCurrent } from "../../src/web/src/office/officeRendererLifecycle.js";
 import { officeRouteFrameAt } from "../../src/web/src/office/officeRouteInterpolation.js";
+
+const resolver = new OfficeCalibrationResolver(parseOfficeCalibrationJson(readFileSync("src/web/public/agent-office/config/office-calibration.json", "utf8")));
 
 describe("Office runtime owners", () => {
   it("deduplicates concurrent asset loads", async () => {
@@ -186,10 +190,12 @@ describe("Office runtime owners", () => {
     const noAmbientClock = { setTimeout: () => 0, clearTimeout: () => undefined };
     const engine = new ChoreographyEngine();
     const actions: Array<{ participantId: string; actionId: string }> = [];
+    const positionedRoutes: string[] = [];
     engine.subscribe((command) => {
-      if (command.kind === "playAction") actions.push({ participantId: command.participantId, actionId: command.actionId });
+      if (command.kind === "playAction" || command.kind === "playRouteStage") actions.push({ participantId: command.participantId, actionId: command.actionId });
+      if (command.kind === "playRouteStage") positionedRoutes.push(command.routeId);
     });
-    const director = new OfficeDirector(engine, undefined, undefined, noAmbientClock, { next: () => 0 });
+    const director = new OfficeDirector(engine, resolver, undefined, noAmbientClock, { next: () => 0 });
     const main = participant("main", "main", "main", "idle");
     const childOne = participant("child-1", "child", "planning", "queued");
     const childTwo = participant("child-2", "child", "coder", "queued");
@@ -203,13 +209,14 @@ describe("Office runtime owners", () => {
     await Promise.resolve();
     await vi.runAllTimersAsync();
     expect(actions.filter((item) => item.actionId === "seated-talk").map((item) => item.participantId)).toEqual(["child-1", "child-2"]);
+    expect(positionedRoutes).toEqual(expect.arrayContaining(["handoff:standing-talk", "handoff:seated-talk", "handoff:salute"]));
 
     actions.length = 0;
     const childThree = participant("child-3", "child", "auditor", "queued");
     let notifyDispatchStarted: (() => void) | undefined;
     const dispatchStarted = new Promise<void>((resolve) => { notifyDispatchStarted = resolve; });
     const unsubscribe = engine.subscribe((command) => {
-      if (command.kind === "playAction" && command.participantId === "main" && command.actionId === "off-chair") notifyDispatchStarted?.();
+      if ((command.kind === "playAction" || command.kind === "playRouteStage") && command.participantId === "main" && command.actionId === "off-chair") notifyDispatchStarted?.();
     });
     director.sync(officeSnapshot("scope-1", [main, childOne, childTwo, childThree]), [
       { kind: "participant-added", participantId: childThree.participantId, parentParticipantId: main.participantId },
@@ -231,9 +238,9 @@ describe("Office runtime owners", () => {
     const engine = new ChoreographyEngine();
     const actions: Array<{ participantId: string; actionId: string }> = [];
     engine.subscribe((command) => {
-      if (command.kind === "playAction") actions.push({ participantId: command.participantId, actionId: command.actionId });
+      if (command.kind === "playAction" || command.kind === "playRouteStage") actions.push({ participantId: command.participantId, actionId: command.actionId });
     });
-    const director = new OfficeDirector(engine, undefined, undefined, undefined, { next: () => 0 });
+    const director = new OfficeDirector(engine, resolver, undefined, undefined, { next: () => 0 });
     const main = participant("main", "main", "main", "idle");
     const child = participant("child-1", "child", "planning", "queued");
     director.hydrate(officeSnapshot("scope-1", [main]), false);
@@ -262,7 +269,7 @@ describe("Office runtime owners", () => {
     const engine = new ChoreographyEngine();
     const commands: Array<{ kind: string; participantId?: string; stationId?: string; profile?: string; routeId?: string; points?: Array<{ x: number; y: number }>; actionId?: string }> = [];
     engine.subscribe((command) => { commands.push(command); });
-    const director = new OfficeDirector(engine, undefined, undefined, { setTimeout: () => 0, clearTimeout: () => undefined }, { next: () => 0 });
+    const director = new OfficeDirector(engine, resolver, undefined, { setTimeout: () => 0, clearTimeout: () => undefined }, { next: () => 0 });
     const before = participant("child-1", "child", "planning", "idle");
     director.hydrate(officeSnapshot("scope-1", [participant("main", "main", "main", "idle"), before]), false);
     await Promise.resolve();
@@ -275,14 +282,13 @@ describe("Office runtime owners", () => {
     ], false);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    const coder = new OfficeCalibrationResolver().stations().find((station) => station.stationId === "coder")!;
+    const coder = resolver.stations().find((station) => station.stationId === "coder")!;
     expect(commands).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "setScreen", stationId: "planning", profile: "off" }),
-      expect.objectContaining({ kind: "followRoute", participantId: "child-1", routeId: "canonical-seat", points: [coder.anchors.seat] }),
-      expect.objectContaining({ kind: "playAction", participantId: "child-1", actionId: "working" }),
+      expect.objectContaining({ kind: "playRouteStage", participantId: "child-1", routeId: "canonical-seat", actionId: "working", points: [coder.anchors.seat] }),
       expect.objectContaining({ kind: "setScreen", stationId: "coder", profile: "orchestration" }),
     ]));
-    expect(commands.filter((command) => command.kind === "followRoute" && command.participantId === "child-1")).toHaveLength(1);
+    expect(commands.filter((command) => command.kind === "followRoute" && command.participantId === "child-1")).toHaveLength(0);
     director.dispose();
   });
 
@@ -323,7 +329,7 @@ describe("Office runtime owners", () => {
 });
 
 function snapshotWithStates(states: Array<"idle" | "working" | "completed">): OfficeExperienceSnapshot {
-  const stations = new OfficeCalibrationResolver().stations().slice(0, states.length);
+  const stations = resolver.stations().slice(0, states.length);
   return {
     contextId: "scope-1",
     revision: states.join("-"),
@@ -369,7 +375,7 @@ function officeSnapshot(contextId: string, participants: OfficeParticipant[]): O
     revision: `${contextId}:${participants.map((item) => item.participantId).join(",")}`,
     lifecycle: "active",
     diagnostics: [],
-    stations: new OfficeCalibrationResolver().stations().filter((station) => stationIds.has(station.stationId)),
+    stations: resolver.stations().filter((station) => stationIds.has(station.stationId)),
     participants,
   };
 }

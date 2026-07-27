@@ -2,13 +2,12 @@
 
 import { mkdir, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import {
   buildAnchorReport,
   transformImportedFramesToCanonicalCanvas,
   writeAnimatedPreview,
   writeContactSheet,
-} from "./image-pipeline.mjs";
+} from "../pipeline/image-pipeline.mjs";
 
 export async function registerGridAction(actionId, frameCount, target, repositoryRoot = process.cwd()) {
   const extractedRoot = resolve(repositoryRoot, `design-assets/agent-office/proof/actions/${actionId}/extracted`);
@@ -59,21 +58,4 @@ export async function registerGridAction(actionId, frameCount, target, repositor
   };
   await writeFile(join(outputRoot, "registration-report.json"), `${JSON.stringify(report, null, 2)}\n`, "utf8");
   return report;
-}
-
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const actionId = process.argv[2];
-  const frameCount = Number(process.argv[3]);
-  const targetX = Number(process.argv[4]);
-  const targetY = Number(process.argv[5]);
-  if (!actionId || !Number.isInteger(frameCount) || frameCount < 1 || !Number.isFinite(targetX) || !Number.isFinite(targetY)) {
-    throw new Error("Usage: node grid-action-registration.mjs <action-id> <frame-count> <target-x> <target-y>");
-  }
-  registerGridAction(actionId, frameCount, { x: targetX, y: targetY }).then(
-    (report) => process.stdout.write(`${JSON.stringify(report, null, 2)}\n`),
-    (error) => {
-      process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-      process.exitCode = 1;
-    },
-  );
 }

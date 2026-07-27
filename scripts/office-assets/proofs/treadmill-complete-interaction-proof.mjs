@@ -1,12 +1,7 @@
-#!/usr/bin/env node
-
-/* global process */
-
 import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { basename, join } from "node:path";
 import { promisify } from "node:util";
 import sharp from "sharp";
 
@@ -224,12 +219,4 @@ async function writeKeyframes(frames, indices, outputPath) {
     left: (index % columns) * width,
     top: Math.floor(index / columns) * height,
   }))).png().toFile(outputPath);
-}
-
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const args = process.argv.slice(2).map((value) => resolve(process.cwd(), value));
-  if (args.length !== 5) {
-    throw new Error("Usage: treadmill-complete-interaction-proof.mjs <prop> <treadmill-actors> <leaving-actors> <output> <calibration>");
-  }
-  buildTreadmillCompleteInteractionProof(...args).then((report) => process.stdout.write(`${JSON.stringify(report, null, 2)}\n`));
 }

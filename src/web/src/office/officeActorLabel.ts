@@ -1,4 +1,5 @@
-import type { OfficePoint, WorkstationCalibration } from "./officeSceneCalibration.js";
+import type { OfficeCalibrationDocument } from "./officeCalibrationDocument.js";
+import type { OfficePoint } from "./officeVisualContract.js";
 
 export type OfficeActorLabelKind = "main" | "standard";
 
@@ -12,14 +13,14 @@ const MIN_ACTOR_TOP_CLEARANCE = 24;
 
 export function officeActorLabelLocalPosition(
   kind: OfficeActorLabelKind,
-  label: WorkstationCalibration["label"],
+  label: OfficeCalibrationDocument["stationTemplates"][string]["label"],
   canonicalActionScale: number,
 ): OfficePoint {
   const basis = CANONICAL_FIRST_FRAME_BOUNDS[kind];
   const scaledTop = basis.top * canonicalActionScale;
-  const calibrationDeltaY = label.y - RETIRED_OFFICE_LABEL_ORIGIN.y;
+  const calibrationDeltaY = label.localPosition.y - RETIRED_OFFICE_LABEL_ORIGIN.y;
   return {
-    x: basis.centerX * canonicalActionScale + label.x - RETIRED_OFFICE_LABEL_ORIGIN.x,
+    x: basis.centerX * canonicalActionScale + label.localPosition.x - RETIRED_OFFICE_LABEL_ORIGIN.x,
     y: Math.min(
       scaledTop + basis.referenceTopOffset,
       scaledTop - MIN_ACTOR_TOP_CLEARANCE,
@@ -41,12 +42,12 @@ export function officeActorStatusLocalPosition(
 export function officeActorLabelWorldPosition(
   kind: OfficeActorLabelKind,
   seatOrigin: OfficePoint,
-  workstation: WorkstationCalibration,
+  workstation: OfficeCalibrationDocument["stationTemplates"][string],
   canonicalActionScale: number,
 ): OfficePoint {
   const local = officeActorLabelLocalPosition(kind, workstation.label, canonicalActionScale);
   return {
-    x: seatOrigin.x + workstation.actor.x + local.x,
-    y: seatOrigin.y + workstation.actor.y + local.y,
+    x: seatOrigin.x + workstation.actorAnchor.localPosition.x + local.x,
+    y: seatOrigin.y + workstation.actorAnchor.localPosition.y + local.y,
   };
 }

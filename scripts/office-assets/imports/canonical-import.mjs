@@ -1,4 +1,4 @@
-/* global process, URL */
+/* global URL */
 
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join, normalize, resolve, sep } from "node:path";
@@ -8,12 +8,12 @@ import {
   transformImportedFramesToCanonicalCanvas,
   writeAnimatedPreview,
   writeContactSheet,
-} from "./image-pipeline.mjs";
-import { loadOfficeAssetManifest } from "./manifest.mjs";
-import { buildActionFramePlan } from "./manifest.mjs";
+} from "../pipeline/image-pipeline.mjs";
+import { loadOfficeAssetManifest } from "../pipeline/manifest.mjs";
+import { buildActionFramePlan } from "../pipeline/manifest.mjs";
 
 const scriptDirectory = fileURLToPath(new URL(".", import.meta.url));
-const repositoryRoot = resolve(scriptDirectory, "..", "..");
+const repositoryRoot = resolve(scriptDirectory, "..", "..", "..");
 
 export async function runCanonicalImport(calibrationPath, root = repositoryRoot) {
   const calibration = JSON.parse(await readFile(calibrationPath, "utf8"));
@@ -81,16 +81,4 @@ function resolveInside(root, value) {
   const target = resolve(root, value);
   if (target !== root && !target.startsWith(`${root}${sep}`)) throw new Error("Canonical import path escapes the repository.");
   return target;
-}
-
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const calibrationPath = process.argv[2];
-  if (!calibrationPath) throw new Error("Usage: node canonical-import.mjs <calibration.json>");
-  runCanonicalImport(resolve(process.cwd(), calibrationPath)).then(
-    (report) => process.stdout.write(`${JSON.stringify(report, null, 2)}\n`),
-    (error) => {
-      process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-      process.exitCode = 1;
-    },
-  );
 }

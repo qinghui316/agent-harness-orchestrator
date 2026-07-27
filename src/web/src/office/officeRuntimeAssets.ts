@@ -10,7 +10,7 @@ type AtlasAnimation = {
 };
 
 type AtlasData = {
-  frames: Record<string, unknown>;
+  frames: Record<string, AtlasFrameData>;
   animations?: Record<string, string[]>;
   meta?: {
     animation?: AtlasAnimation;
@@ -18,6 +18,11 @@ type AtlasData = {
     scale?: number;
     officeProps?: Record<string, OfficePropMetadata>;
   };
+};
+
+type AtlasFrameData = {
+  sourceSize?: { w: number; h: number };
+  spriteSourceSize?: { x: number; y: number; w: number; h: number };
 };
 
 export type OfficePropMetadata = {
@@ -31,7 +36,13 @@ export type ParsedOfficeAtlas = {
   animationId?: string;
   animation: AtlasAnimation;
   visualAnchor?: { x: number; y: number };
+  firstFrameVisualBounds?: OfficeAtlasVisualBounds;
   officeProps: Record<string, OfficePropMetadata>;
+};
+
+export type OfficeAtlasVisualBounds = {
+  sourceSize: { width: number; height: number };
+  visibleRect: { x: number; y: number; width: number; height: number };
 };
 
 export type OfficeRuntimeAssetOptions = {
@@ -104,6 +115,8 @@ export class OfficeRuntimeAssets {
     await sheet.parse();
     const animationId = data.animations ? Object.keys(data.animations)[0] : undefined;
     const atlasResolution = data.meta?.scale ?? 1;
+    const firstFrameId = animationId ? data.animations?.[animationId]?.[0] : undefined;
+    const firstFrame = firstFrameId ? data.frames[firstFrameId] : undefined;
     return {
       sheet,
       animationId,
@@ -111,9 +124,26 @@ export class OfficeRuntimeAssets {
       visualAnchor: data.meta?.visualAnchor
         ? { x: data.meta.visualAnchor.x / atlasResolution, y: data.meta.visualAnchor.y / atlasResolution }
         : undefined,
+      firstFrameVisualBounds: parseFirstFrameVisualBounds(firstFrame, atlasResolution),
       officeProps: data.meta?.officeProps ?? {},
     };
   }
+}
+
+function parseFirstFrameVisualBounds(frame: AtlasFrameData | undefined, resolution: number): OfficeAtlasVisualBounds | undefined {
+  if (!frame?.sourceSize || !frame.spriteSourceSize || resolution <= 0) return undefined;
+  return {
+    sourceSize: {
+      width: frame.sourceSize.w / resolution,
+      height: frame.sourceSize.h / resolution,
+    },
+    visibleRect: {
+      x: frame.spriteSourceSize.x / resolution,
+      y: frame.spriteSourceSize.y / resolution,
+      width: frame.spriteSourceSize.w / resolution,
+      height: frame.spriteSourceSize.h / resolution,
+    },
+  };
 }
 
 async function textureFromBlob(pixi: PixiModule, blob: Blob, scarf: OfficeScarf, signal: AbortSignal, scarfMaskBlob?: Blob): Promise<Texture> {

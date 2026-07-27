@@ -29,4 +29,5 @@ harness/changes/*
 !harness/changes/archive/
 harness/changes/archive/*
 reference-projects/
+.local-tools/
 .gitmodules

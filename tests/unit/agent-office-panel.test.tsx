@@ -1,19 +1,24 @@
 // @vitest-environment jsdom
 
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, render, waitFor } from "@testing-library/react";
+import { readFileSync } from "node:fs";
 import { Suspense } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentOfficePanel } from "../../src/web/src/panels/workbench/ConversationPanel.js";
 import { HarnessOfficeAdapter } from "../../src/web/src/office/harnessOfficeAdapter.js";
 import type { AgentSurfaceProjection } from "../../src/web/src/types.js";
 
+const calibration = readFileSync("src/web/public/agent-office/config/office-calibration.json", "utf8");
+
 describe("Agent Office committed projection reconciliation", () => {
   afterEach(() => {
     cleanup();
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
-  it("does not consume projection events from an abandoned render", () => {
+  it("does not consume projection events from an abandoned render", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(calibration, { status: 200, headers: { "content-type": "application/json" } })));
     const first = projection("first");
     const abandoned = projection("abandoned", "running");
     const committed = projection("committed", "completed");
@@ -26,6 +31,8 @@ describe("Agent Office committed projection reconciliation", () => {
       </Suspense>
     );
     const rendered = render(view(first, false));
+    await waitFor(() => expect(HarnessOfficeAdapter.prototype.hydrate).toBeDefined());
+    await waitFor(() => expect(rendered.getByTestId("agent-office")).toBeTruthy());
 
     rendered.rerender(view(abandoned, true));
     rendered.rerender(view(committed, false));
