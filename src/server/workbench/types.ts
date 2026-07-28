@@ -133,12 +133,15 @@ export interface RemoveProjectRequest {
 }
 
 export interface CreateTopicRequest {
-  title?: string;
   body?: string;
   confirm?: boolean;
   contextRefs?: TopicMessageInput["contextRefs"];
   attachmentIds?: string[];
   providerId?: TopicMessageInput["providerId"];
+}
+
+export interface UpdateConversationTitleRequest {
+  title?: string;
 }
 
 export interface TopicMessageRequest {

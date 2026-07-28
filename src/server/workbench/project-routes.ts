@@ -1,5 +1,5 @@
 ﻿import type { IncomingMessage, ServerResponse } from "node:http";
-import { createWorkbenchConversation } from "../../workbench/conversation-service.js";
+import { createWorkbenchConversation, updateWorkbenchConversationTitle } from "../../workbench/conversation-service.js";
 import {
   getWorkbenchSnapshot,
   getWorkbenchStream,
@@ -20,7 +20,7 @@ import { sendWorkbenchActionLive } from "./live-actions.js";
 import { readCreateTopicBody, sendConversationMessageLive, sendCreateTopicLive } from "./topic-messages.js";
 import { executeWorkbenchAction } from "./actions.js";
 import { sendProjectLiveEvents } from "./project-live-events.js";
-import type { IntakeRequest, WorkbenchActionRequest, WorkbenchServerContext } from "./types.js";
+import type { IntakeRequest, UpdateConversationTitleRequest, WorkbenchActionRequest, WorkbenchServerContext } from "./types.js";
 
 export async function handleProjectWorkbenchApi(context: WorkbenchServerContext, input: WorkbenchProjectInput, request: IncomingMessage, response: ServerResponse, rest: string, url: URL): Promise<void> {
   if (request.method === "GET" && rest === "events/live") {
@@ -93,6 +93,19 @@ export async function handleProjectWorkbenchApi(context: WorkbenchServerContext,
       limit: limitRaw === null ? undefined : Number(limitRaw),
       beforeCursor: url.searchParams.get("beforeCursor") ?? undefined,
     }));
+    return;
+  }
+  const topicTitleMatch = rest.match(/^topics\/([^/]+)\/title$/);
+  if (request.method === "POST" && topicTitleMatch?.[1]) {
+    assertRegisteredProject(input);
+    const body = await readJsonBody<UpdateConversationTitleRequest>(request);
+    if (typeof body.title !== "string") {
+      const error = new Error("Conversation title is required.");
+      error.name = "BadRequest";
+      throw error;
+    }
+    const conversation = await updateWorkbenchConversationTitle(input.project, decodeURIComponent(topicTitleMatch[1]), { title: body.title });
+    sendJson(response, 200, { conversation });
     return;
   }
   const interactionSettlementMatch = rest.match(/^conversations\/([^/]+)\/interactions\/([^/]+)\/settle$/);

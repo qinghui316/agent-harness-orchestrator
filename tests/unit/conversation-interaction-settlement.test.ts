@@ -233,7 +233,6 @@ describe("conversation interaction settlement", () => {
 
 async function providerInteraction(status: "pending" | "submitting" = "pending"): Promise<{ conversationId: string; interactionId: string }> {
   const conversation = await createWorkbenchConversation(project(), {
-    title: "Interaction settlement",
     body: "Wait for grouped answers.",
   }, undefined, { runMainAgent: false });
   const memory = await resolveProjectMemory(project());

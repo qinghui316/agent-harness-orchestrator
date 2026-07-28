@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from "react";
+import { useRef, useState, type ReactElement } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -6,6 +6,7 @@ import {
   Folder,
   FolderPlus,
   MoreHorizontal,
+  Pencil,
   Search,
   Settings,
   Trash2,
@@ -40,6 +41,7 @@ export function ProjectConversationSidebar({
   onToggleProject,
   onChooseConversation,
   onHideConversation,
+  onRenameConversation,
   onRemoveProject,
   onRefresh,
   onOpenSettings,
@@ -62,12 +64,24 @@ export function ProjectConversationSidebar({
   onToggleProject: (projectId: string) => Promise<void>;
   onChooseConversation: (projectId: string, conversationId: string) => Promise<void>;
   onHideConversation: (projectId: string, conversationId: string) => Promise<void>;
+  onRenameConversation: (projectId: string, conversationId: string, title: string) => Promise<void>;
   onRemoveProject: (projectId: string) => Promise<void>;
   onRefresh: () => Promise<void>;
   onOpenSettings: () => void;
   onOpenProjectSettings: (projectId: string) => void;
 }): ReactElement {
   const [conversationMenuId, setConversationMenuId] = useState<string | null>(null);
+  const renameInFlightRef = useRef(false);
+  const cancelRenameRef = useRef(false);
+  const [editingConversation, setEditingConversation] = useState<{
+    menuId: string;
+    projectId: string;
+    conversationId: string;
+    originalTitle: string;
+    value: string;
+    saving: boolean;
+    error: string | null;
+  } | null>(null);
   const visibleProjects = projects;
   const normalizedSearch = search.trim().toLowerCase();
   const projectNameCounts = new Map<string, number>();
@@ -79,6 +93,30 @@ export function ProjectConversationSidebar({
     await onRefresh();
     if (projectId) await onOpenProject(projectId);
     onProjectMenuMode("closed");
+  }
+  async function commitConversationRename(): Promise<void> {
+    const editing = editingConversation;
+    if (!editing || editing.saving || renameInFlightRef.current) return;
+    const title = editing.value.replace(/\s+/g, " ").trim();
+    if (title === editing.originalTitle) {
+      setEditingConversation(null);
+      return;
+    }
+    renameInFlightRef.current = true;
+    setEditingConversation({ ...editing, saving: true, error: null });
+    try {
+      await onRenameConversation(editing.projectId, editing.conversationId, title);
+      setEditingConversation(null);
+    } catch (cause) {
+      setEditingConversation({
+        ...editing,
+        value: editing.originalTitle,
+        saving: false,
+        error: cause instanceof Error ? cause.message : String(cause),
+      });
+    } finally {
+      renameInFlightRef.current = false;
+    }
   }
   return (
     <div className="project-conversation-sidebar">
@@ -183,16 +221,45 @@ export function ProjectConversationSidebar({
                     {!memoryReady && !hasConversationSnapshot ? <div className="conversation-placeholder">首次需求时会根据项目情况建立必要工作说明。</div> : null}
                     {filteredConversations.map((conversation) => {
                       const menuId = `${projectId}:${conversation.id}`;
+                      const editing = editingConversation?.menuId === menuId ? editingConversation : null;
                       return (
                         <div className={`conversation-row-wrap ${conversation.selected ? "selected" : ""}`} key={conversation.id}>
-                          <button
+                          {editing ? (
+                            <div className="conversation-row conversation-row-editing">
+                              <input
+                                aria-label={`重命名 ${conversation.title}`}
+                                autoFocus
+                                disabled={editing.saving}
+                                value={editing.value}
+                                onChange={(event) => setEditingConversation({ ...editing, value: event.target.value, error: null })}
+                                onBlur={() => {
+                                  if (cancelRenameRef.current) {
+                                    cancelRenameRef.current = false;
+                                    return;
+                                  }
+                                  void commitConversationRename();
+                                }}
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter") {
+                                    event.preventDefault();
+                                    void commitConversationRename();
+                                  } else if (event.key === "Escape") {
+                                    event.preventDefault();
+                                    cancelRenameRef.current = true;
+                                    setEditingConversation(null);
+                                  }
+                                }}
+                              />
+                              {editing.error ? <small role="alert">{editing.error}</small> : null}
+                            </div>
+                          ) : <button
                             className={`conversation-row ${conversation.selected ? "selected" : ""}`}
                             onClick={() => item.project ? void onChooseConversation(item.project.id, conversation.id) : undefined}
                           >
                             <span>{userFacingText(conversation.title)}</span>
                             <small>{conversation.status}</small>
                             {conversation.waitingDecisionCount > 0 ? <b aria-label={`${conversation.waitingDecisionCount} 个待确认`}>{conversation.waitingDecisionCount}</b> : null}
-                          </button>
+                          </button>}
                           <button
                             className="conversation-more"
                             aria-label={`${conversation.title} 会话菜单`}
@@ -205,6 +272,20 @@ export function ProjectConversationSidebar({
                           </button>
                           {conversationMenuId === menuId ? (
                             <div className="conversation-row-menu" role="menu">
+                              <button className="project-menu-item" role="menuitem" onClick={() => {
+                                setConversationMenuId(null);
+                                if (!item.project) return;
+                                cancelRenameRef.current = false;
+                                setEditingConversation({
+                                  menuId,
+                                  projectId: item.project.id,
+                                  conversationId: conversation.id,
+                                  originalTitle: conversation.title,
+                                  value: conversation.title,
+                                  saving: false,
+                                  error: null,
+                                });
+                              }}><Pencil size={14} />重命名</button>
                               <button className="project-menu-item danger" role="menuitem" onClick={() => {
                                 setConversationMenuId(null);
                                 if (item.project) void onHideConversation(item.project.id, conversation.id);

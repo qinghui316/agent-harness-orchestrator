@@ -22,6 +22,22 @@ afterEach(async () => {
 });
 
 describe("Workbench persistence owners", () => {
+  it("updates a Conversation title only inside the exact project scope", async () => {
+    const database = await openWorkbenchDatabase(repoLocalMemory(root, projectId));
+    try {
+      database.conversations.createConversation(conversation("conversation-1"));
+      const updated = database.conversations.updateConversationTitle(projectId, "conversation-1", "Renamed", "2026-07-28T00:00:00.000Z");
+      const monotonic = database.conversations.updateConversationTitle(projectId, "conversation-1", "Renamed again", "2026-07-28T00:00:00.000Z");
+
+      expect(updated).toMatchObject({ projectId, conversationId: "conversation-1", title: "Renamed" });
+      expect(monotonic.updatedAt).toBe("2026-07-28T00:00:00.001Z");
+      expect(() => database.conversations.updateConversationTitle("other-project", "conversation-1", "Wrong", now)).toThrow("Conversation not found");
+      expect(database.conversations.readConversation(projectId, "conversation-1")?.title).toBe("Renamed again");
+    } finally {
+      database.close();
+    }
+  });
+
   it("rolls back Conversation creation when the initial canonical item fails", async () => {
     const database = await openWorkbenchDatabase(repoLocalMemory(root, projectId));
     try {

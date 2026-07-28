@@ -39,7 +39,6 @@ afterEach(async () => {
 describe("conversation interaction projection", () => {
   it("projects only current-scope pending interactions in canonical order without provider routing identity", async () => {
     const conversation = await createWorkbenchConversation(project(), {
-      title: "Interaction projection",
       body: "Project pending questions.",
     }, undefined, { runMainAgent: false });
     const memory = await resolveProjectMemory(project());
@@ -79,7 +78,6 @@ describe("conversation interaction projection", () => {
 
   it("terminalizes provider, clarification, and Plan interactions with the graph scope", async () => {
     const conversation = await createWorkbenchConversation(project(), {
-      title: "Terminal interaction scope",
       body: "Finish every pending interaction with the objective.",
     }, undefined, { runMainAgent: false });
     const memory = await resolveProjectMemory(project());
@@ -160,7 +158,6 @@ describe("conversation interaction projection", () => {
 
   it("removes terminal provider requests from the active queue and keeps one history record", async () => {
     const conversation = await createWorkbenchConversation(project(), {
-      title: "Terminal interaction",
       body: "Do not leave a stale dock.",
     }, undefined, { runMainAgent: false });
     const memory = await resolveProjectMemory(project());

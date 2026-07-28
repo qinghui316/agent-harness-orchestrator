@@ -12,6 +12,7 @@ export type WorkbenchProjectionRoutePorts = {
   };
   topic: {
     created: (projectId: string, data: Extract<WorkbenchLiveEvent, { event: "topic.created" }>["data"]) => void;
+    updated: (projectId: string, data: Extract<WorkbenchLiveEvent, { event: "topic.updated" }>["data"]) => void;
   };
   interaction: {
     updated: (projectId: string, queue: ConversationInteractionQueue) => void;
@@ -48,6 +49,9 @@ export function routeWorkbenchProjectionEvent(
       return { handled: true, event: event.event };
     case "topic.created":
       ports.topic.created(projectId, event.data);
+      return { handled: true, event: event.event };
+    case "topic.updated":
+      ports.topic.updated(projectId, event.data);
       return { handled: true, event: event.event };
     case "conversation.interactions.updated":
       ports.interaction.updated(projectId, event.data);

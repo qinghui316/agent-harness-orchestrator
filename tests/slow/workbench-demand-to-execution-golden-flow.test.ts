@@ -37,7 +37,6 @@ describe("workbench accepted-graph-to-execution runtime flow", () => {
       await initHarness(project());
 
       const conversation = await createWorkbenchConversation(project(), {
-        title: "Pricing Demand",
         body: "会员订单满 100 元打九折，非会员不打折，需要测试。",
       }, undefined, { runMainAgent: false });
       const memory = await resolveProjectMemory(project());

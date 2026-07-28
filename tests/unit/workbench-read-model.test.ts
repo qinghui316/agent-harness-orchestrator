@@ -176,7 +176,7 @@ describe("workbench read-model projections", () => {
   it("deletes conversation transcript records without deleting the active Harness change", async () => {
     await initHarness(project());
     const change = await createChange(project(), { title: "Keep Harness Change", body: "The Change must survive conversation deletion." });
-    const conversation = await createWorkbenchConversation(project(), { title: "Delete Conversation", body: "This transcript should be deleted." }, undefined, { runMainAgent: false });
+    const conversation = await createWorkbenchConversation(project(), { body: "This transcript should be deleted." }, undefined, { runMainAgent: false });
     const changeDir = join(getTempDir(), "harness", "changes", "active", change.change.id);
     expect(existsSync(changeDir)).toBe(true);
 
@@ -204,7 +204,7 @@ describe("workbench read-model projections", () => {
 
   it("keeps ordinary conversations out of Harness gate projections", async () => {
     await initHarness(project());
-    const conversation = await createWorkbenchConversation(project(), { title: "Ordinary Chat", body: "Just talk to the main Agent." }, undefined, { runMainAgent: false });
+    const conversation = await createWorkbenchConversation(project(), { body: "Just talk to the main Agent." }, undefined, { runMainAgent: false });
 
     const snapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: conversation.conversationId });
 
@@ -570,7 +570,7 @@ describe("workbench read-model projections", () => {
 
   it("projects bound Change execution state through the Conversation shell", async () => {
     await initHarness(project());
-    const conversation = await createWorkbenchConversation(project(), { title: "Bound Conversation", body: "Plan this demand." }, undefined, { runMainAgent: false });
+    const conversation = await createWorkbenchConversation(project(), { body: "Plan this demand." }, undefined, { runMainAgent: false });
     const topic = await createConversationChangeFixture(project(), { title: "Bound Change", body: "Plan this demand." });
     await appendCanonicalTimelineEntry(project(), topic.changeId, {
       type: "assistant.message",

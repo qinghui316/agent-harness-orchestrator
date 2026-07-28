@@ -36,7 +36,7 @@ afterEach(async () => {
 
 describe("workspace resource resolver", () => {
   it("resolves the exact canonical Plan item and stable project-file resource revisions", async () => {
-    const conversation = await createWorkbenchConversation(project(), { title: "Plan", body: "Plan it." }, undefined, { runMainAgent: false });
+    const conversation = await createWorkbenchConversation(project(), { body: "Plan it." }, undefined, { runMainAgent: false });
     const memory = await resolveProjectMemory(project());
     const store = await openWorkbenchDatabase(memory);
     const text = "# Plan\n\nUse the canonical item.";

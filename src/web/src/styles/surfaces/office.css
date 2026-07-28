@@ -1,0 +1,510 @@
+/* Agent office */
+
+.agent-office-center-grid,
+.agent-office-center-view,
+.agent-office-center-view .agent-office-panel,
+.agent-office-center-view .agent-office-body,
+.agent-office-center-view .office-viewport {
+  min-height: 0;
+  height: 100%;
+}
+
+.agent-office-center-grid {
+  grid-template-columns: minmax(0, 1fr);
+  justify-content: stretch;
+}
+
+.agent-office-center-view {
+  overflow: hidden;
+  background: var(--bg-panel);
+}
+
+.agent-office-center-view .agent-office-panel {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.agent-office-view-state {
+  display: grid;
+  place-content: center;
+  gap: 10px;
+  height: 100%;
+  padding: 24px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.agent-office-view-state strong {
+  color: var(--text-strong);
+}
+
+.agent-office-panel {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  min-height: min(720px, calc(100vh - 210px));
+}
+
+.agent-office-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.agent-office-header h2 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 15px;
+}
+
+.agent-office-header p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.agent-office-body {
+  position: relative;
+  display: block;
+  min-height: 0;
+}
+
+.office-viewport {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--office-scene-bg);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.office-viewport.dragging {
+  cursor: grabbing;
+}
+
+.office-canvas-host {
+  position: absolute;
+  inset: 0;
+}
+
+.office-canvas-host canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.office-controls {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 5;
+  display: grid;
+  gap: 6px;
+}
+
+.office-controls button {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+  color: var(--text);
+  box-shadow: var(--shadow-xs);
+  cursor: pointer;
+}
+
+.office-controls button:hover {
+  border-color: var(--selected);
+  color: var(--selected);
+}
+
+.office-active-agent-menu {
+  position: absolute;
+  top: 14px;
+  right: 58px;
+  z-index: 7;
+}
+
+.office-active-agent-trigger {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-panel);
+  color: var(--text);
+  box-shadow: var(--shadow-xs);
+  cursor: pointer;
+}
+
+.office-active-agent-trigger:hover,
+.office-active-agent-trigger[aria-expanded="true"] {
+  border-color: var(--selected);
+}
+
+.office-active-agent-count {
+  display: inline-grid;
+  min-width: 18px;
+  height: 18px;
+  place-items: center;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.office-active-agent-popover {
+  position: absolute;
+  top: 40px;
+  right: 0;
+  display: grid;
+  width: min(280px, calc(100vw - 28px));
+  max-height: min(420px, calc(100vh - 120px));
+  overflow: auto;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  box-shadow: var(--shadow-lg);
+}
+
+.office-active-agent-popover > button {
+  display: grid;
+  grid-template-columns: 9px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  min-height: 46px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.office-active-agent-popover > button:hover,
+.office-active-agent-popover > button:focus-visible { background: var(--bg-subtle); }
+.office-active-agent-popover > button > span { display: grid; gap: 2px; min-width: 0; }
+.office-active-agent-popover > button strong,
+.office-active-agent-popover > button small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.office-active-agent-popover > button strong { font-size: 12px; font-weight: 600; }
+.office-active-agent-popover > button small,
+.office-active-agent-popover > button > span:last-child { color: var(--text-muted); font-size: 11px; }
+.office-active-agent-empty { padding: 14px 12px; color: var(--text-muted); font-size: 12px; text-align: center; }
+
+.office-agent-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+
+.office-agent-hitbox {
+  position: absolute;
+  z-index: 2;
+  display: block;
+  align-items: center;
+  justify-content: center;
+  width: 140px;
+  height: 180px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: transparent;
+  box-shadow: none;
+  cursor: pointer;
+  pointer-events: auto;
+  transform: none;
+}
+
+.office-agent-hitbox:hover,
+.office-agent-hitbox.selected {
+  border-color: transparent;
+  outline: 1px solid var(--border-strong);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+.office-agent-hitbox:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.office-agent-hitbox:not(:focus-visible):not(:hover):not(.selected) {
+  outline: 0;
+}
+
+.office-agent-hitbox i,
+.office-agent-list-status {
+  position: absolute;
+  right: 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+
+.office-agent-list-status.available { background: var(--text-faint); }
+
+.office-agent-hitbox.working i,
+.office-agent-list-status.working { background: var(--selected); }
+.office-agent-hitbox.completed i,
+.office-agent-list-status.completed { background: var(--text-faint); }
+.office-agent-hitbox.attention i,
+.office-agent-list-status.attention,
+.office-agent-hitbox.blocked i,
+.office-agent-list-status.blocked { background: var(--warning); }
+.office-agent-hitbox.failed i,
+.office-agent-list-status.failed { background: var(--danger); }
+
+.office-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  justify-items: center;
+  gap: 20px;
+  padding: 24px;
+  color: var(--text-muted);
+  background: var(--office-loading-bg);
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 160ms ease-out;
+}
+
+.office-loading.complete { opacity: 0; }
+
+.office-loading picture,
+.office-loading img {
+  display: block;
+  width: min(320px, 70vw, 46vh);
+  height: min(320px, 70vw, 46vh);
+  object-fit: contain;
+}
+
+.office-loading progress {
+  width: min(360px, 72vw);
+  height: 10px;
+  border: 0;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--office-loading-track);
+  color: var(--office-loading-fill);
+}
+
+.office-loading progress::-webkit-progress-bar { border-radius: 999px; background: var(--office-loading-track); }
+.office-loading progress::-webkit-progress-value { border-radius: 999px; background: var(--office-loading-fill); }
+.office-loading progress::-moz-progress-bar { background: var(--office-loading-fill); }
+
+.office-fallback {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  overflow: auto;
+  padding: 72px 24px 24px;
+  background: var(--office-scene-bg);
+}
+
+.office-fallback-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 680px;
+  margin: 0 auto 14px;
+  color: var(--text-muted);
+}
+
+.office-fallback-heading button {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 7px 10px;
+  background: var(--bg-panel);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.office-agent-list {
+  display: grid;
+  gap: 8px;
+  max-width: 680px;
+  margin: 0 auto;
+}
+
+.office-agent-list button {
+  position: relative;
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.office-agent-list button[aria-pressed="true"] {
+  border-color: var(--selected);
+}
+
+.office-agent-list-status {
+  position: static;
+}
+
+.office-agent-list button span:last-child {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.office-agent-profile-card {
+  position: fixed;
+  z-index: 42;
+  display: grid;
+  gap: 12px;
+  width: min(264px, calc(100vw - 24px));
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  color: var(--text);
+  box-shadow: var(--shadow-lg);
+  user-select: text;
+}
+
+.office-agent-profile-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.office-agent-profile-close:hover,
+.office-agent-profile-close:focus-visible { background: var(--bg-hover); color: var(--text-strong); }
+
+.office-agent-profile-heading {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding-right: 16px;
+}
+
+.office-agent-profile-heading img {
+  width: 72px;
+  height: 72px;
+  border-radius: 6px;
+  object-fit: contain;
+  background: var(--bg-subtle);
+}
+
+.office-agent-profile-heading > div { display: grid; gap: 3px; min-width: 0; }
+.office-agent-profile-heading strong {
+  font-size: 15px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.office-agent-profile-heading span { color: var(--text-muted); font-size: 12px; }
+.office-agent-profile-heading small { display: inline-flex; gap: 6px; align-items: center; color: var(--text-muted); font-size: 12px; }
+
+.office-profile-status {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+.office-profile-status.running { background: var(--selected); }
+.office-profile-status.completed { background: var(--text-faint); }
+.office-profile-status.waiting-user,
+.office-profile-status.needs-change { background: var(--warning); }
+.office-profile-status.failed { background: var(--danger); }
+
+.office-agent-profile-card > p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.office-agent-profile-skills { display: flex; flex-wrap: wrap; gap: 6px; }
+.office-agent-profile-skills span {
+  padding: 3px 7px;
+  border-radius: 4px;
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.office-agent-profile-open {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+  background: var(--accent);
+  color: var(--bg-panel);
+  cursor: pointer;
+}
+.office-agent-profile-open:hover { background: var(--accent-strong); }
+.office-agent-profile-open:disabled { cursor: wait; opacity: 0.65; }
+.office-agent-profile-unavailable { color: var(--text-muted); font-size: 12px; }
+.office-agent-profile-card .office-agent-profile-error { color: var(--danger); }
+
+.agent-workspace-unavailable {
+  gap: 8px;
+  padding: 28px;
+  text-align: center;
+}
+.agent-workspace-unavailable strong { color: var(--text-strong); font-size: 13px; }
+.agent-workspace-unavailable span { max-width: 34ch; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+.agent-workspace-unavailable .outline-button { margin-top: 4px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .office-agent-hitbox { scroll-behavior: auto; }
+  .office-loading { transition: none; }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

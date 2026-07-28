@@ -19,20 +19,21 @@ import { runProjectScopedMainAgentTurn } from "./main-agent-turn-coordinator.js"
 import { resolveConversationId } from "./conversation-identity.js";
 import { runWorkbenchWorkflowAction } from "./workflow-conversation-bridge.js";
 import type { TopicAttachment, TopicMessageInput, TopicMessageResult, TopicThreadEntry, ValidatedPlanHandoffIntent, WorkbenchLiveSink } from "./types.js";
-import { publishAgentSurfacesInvalidated } from "./project-live-events.js";
+import { publishAgentSurfacesInvalidated, publishProjectLiveEvent } from "./project-live-events.js";
 import { runExactChildAgentTurn } from "./provider-child-turn-coordinator.js";
 
 export async function createWorkbenchConversation(
   project: ManagedProject,
-  input: { title: string; body?: string; contextRefs?: TopicMessageInput["contextRefs"]; attachmentIds?: string[]; providerId?: string },
+  input: { body?: string; contextRefs?: TopicMessageInput["contextRefs"]; attachmentIds?: string[]; providerId?: string },
   live?: WorkbenchLiveSink,
   options: { runMainAgent?: boolean } = {},
 ): Promise<{ conversationId: string; title: string; state: "active" }> {
   const memory = await ensureProjectRuntime(project);
   assertWritableMemory(memory, "Workbench conversation");
   if (!memory.projectId) throw new Error("Project id is required to create a conversation.");
-  const resolved = await resolveTopicFileReferences(project, input.body ?? input.title, input.contextRefs);
+  const resolved = await resolveTopicFileReferences(project, input.body ?? "", input.contextRefs);
   const attachments = await resolveTopicAttachments(project, input.attachmentIds);
+  const title = deriveConversationTitle(resolved.text, attachments.length > 0);
   const body = resolved.text || defaultAttachmentMessage(attachments);
   const now = new Date().toISOString();
   const conversationId = `conv-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
@@ -48,7 +49,7 @@ export async function createWorkbenchConversation(
     storedUserRow = database.unitOfWork.createConversationWithInitialMessage({
       projectId: memory.projectId,
       conversationId,
-      title: input.title,
+      title,
       state: "active",
       boundChangeId: null,
       currentGraphScopeId: graphScopeId,
@@ -72,12 +73,67 @@ export async function createWorkbenchConversation(
   } finally {
     database.close();
   }
-  live?.emit({ event: "topic.created", data: { topic: { id: conversationId, conversationId, title: input.title, state: "active", selectedProviderId } } });
+  live?.emit({ event: "topic.created", data: { topic: { id: conversationId, conversationId, title, state: "active", selectedProviderId } } });
   publishCommittedCanonicalTimelineRow(live, storedUserRow);
   if (options.runMainAgent !== false) {
     await runProjectScopedMainAgentTurn(project, conversationId, body, live, undefined, { graphScopeId });
   }
-  return { conversationId, title: input.title, state: "active" };
+  return { conversationId, title, state: "active" };
+}
+
+export async function updateWorkbenchConversationTitle(
+  project: ManagedProject,
+  conversationId: string,
+  input: { title: string },
+): Promise<{ id: string; title: string; state: string; updatedAt: string; selectedProviderId?: string }> {
+  const memory = await ensureProjectRuntime(project);
+  assertWritableMemory(memory, "Workbench conversation title");
+  if (!memory.projectId) throw new Error("Project id is required to update a conversation title.");
+  const title = normalizeConversationTitle(input.title);
+  const updatedAt = new Date().toISOString();
+  const database = await openWorkbenchDatabase(memory);
+  try {
+    const conversation = database.conversations.updateConversationTitle(memory.projectId, conversationId, title, updatedAt);
+    const projection = {
+      id: conversation.conversationId,
+      title: conversation.title,
+      state: conversation.state,
+      updatedAt: conversation.updatedAt,
+      selectedProviderId: conversation.selectedProviderId,
+    };
+    publishProjectLiveEvent(memory.projectId, { event: "topic.updated", data: { conversation: projection } });
+    return projection;
+  } finally {
+    database.close();
+  }
+}
+
+export function deriveConversationTitle(text: string, hasAttachments = false): string {
+  const normalized = text
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.replace(/^\s*(?:(?:#{1,6}|>|[-+*]|\d+[.)])\s+)+/, "").trim())
+    .find(Boolean)
+    ?.replace(/\s+/g, " ")
+    .trim() ?? "";
+  if (!normalized) {
+    if (hasAttachments) return "附件需求";
+    const error = new Error("Demand conversation text or attachment is required.");
+    error.name = "BadRequest";
+    throw error;
+  }
+  return Array.from(normalized).slice(0, 48).join("");
+}
+
+export function normalizeConversationTitle(value: string): string {
+  const title = value.replace(/\s+/g, " ").trim();
+  const length = Array.from(title).length;
+  if (length < 1 || length > 80) {
+    const error = new Error("Conversation title must contain 1 to 80 characters.");
+    error.name = "BadRequest";
+    throw error;
+  }
+  return title;
 }
 
 export async function postConversationMessage(

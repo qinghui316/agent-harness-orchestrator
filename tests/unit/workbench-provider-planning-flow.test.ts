@@ -98,7 +98,7 @@ afterEach(async () => {
 
 describe("Workbench provider planning flow", () => {
   it("routes exact Child feedback through the dedicated continuation capability and Child Timeline only", async () => {
-    const conversation = await createWorkbenchConversation(project(), { title: "Exact Child feedback", body: "Prepare a plan." }, undefined, { runMainAgent: false });
+    const conversation = await createWorkbenchConversation(project(), { body: "Prepare a plan." }, undefined, { runMainAgent: false });
     const memory = await resolveProjectMemory(project());
     const store = await openWorkbenchDatabase(memory);
     const graphScopeId = store.conversations.readConversation(project().id, conversation.conversationId)!.currentGraphScopeId!;
@@ -157,7 +157,6 @@ describe("Workbench provider planning flow", () => {
 
   it("lets Main close one exact registered Agent through Provider close without a public terminate path", async () => {
     const conversation = await createWorkbenchConversation(project(), {
-      title: "Exact Child close",
       body: "Create a planning Agent.",
     }, undefined, { runMainAgent: false });
     const memory = await resolveProjectMemory(project());
@@ -249,7 +248,6 @@ describe("Workbench provider planning flow", () => {
 
   it("rejects Main, stale, and still-running targets before invoking the provider", async () => {
     const conversation = await createWorkbenchConversation(project(), {
-      title: "Invalid Child feedback",
       body: "Prepare a plan.",
     }, undefined, { runMainAgent: false });
     await expect(postConversationMessage(project(), conversation.conversationId, {
@@ -300,7 +298,7 @@ describe("Workbench provider planning flow", () => {
 
   it("rejects a Child from a stale Host generation without inventing a Provider close", async () => {
     const conversation = await createWorkbenchConversation(project(), {
-      title: "Stale Child Host", body: "Prepare a plan.",
+      body: "Prepare a plan.",
     }, undefined, { runMainAgent: false });
     const memory = await resolveProjectMemory(project());
     const store = await openWorkbenchDatabase(memory);
@@ -333,7 +331,6 @@ describe("Workbench provider planning flow", () => {
 
   it("claims only the latest matching resume attempt and terminalizes older queued attempts", async () => {
     const conversation = await createWorkbenchConversation(project(), {
-      title: "Resume attempt cleanup",
       body: "Continue later.",
     }, undefined, { runMainAgent: false });
     const memory = await resolveProjectMemory(project());
@@ -390,7 +387,6 @@ describe("Workbench provider planning flow", () => {
 
   it("terminalizes a live Planning child attempt when the parent provider turn fails", async () => {
     const conversation = await createWorkbenchConversation(project(), {
-      title: "Planner failure cleanup",
       body: "Prepare a plan later.",
     }, undefined, { runMainAgent: false });
     appServerTurn.mockImplementationOnce(async (options) => {
@@ -430,7 +426,6 @@ describe("Workbench provider planning flow", () => {
 
   it("projects a registered native Child lifecycle into Agent Surface before the parent turn completes", async () => {
     const conversation = await createWorkbenchConversation(project(), {
-      title: "Live child graph",
       body: "Spawn one child later.",
     }, undefined, { runMainAgent: false });
     appServerTurn.mockImplementationOnce(async (options) => {
@@ -449,7 +444,6 @@ describe("Workbench provider planning flow", () => {
 
   it("lets a provider-resolved empty answer win the turn-completion race", async () => {
     const conversation = await createWorkbenchConversation(project(), {
-      title: "Resolved provider question",
       body: "Ask and continue.",
     }, undefined, { runMainAgent: false });
     appServerTurn.mockImplementationOnce(async (options) => {
@@ -495,7 +489,6 @@ describe("Workbench provider planning flow", () => {
 
   it("projects a child provider question onto its exact canonical surface", async () => {
     const conversation = await createWorkbenchConversation(project(), {
-      title: "Child provider question",
       body: "Let the child ask one question.",
     }, undefined, { runMainAgent: false });
     appServerTurn.mockImplementationOnce(async (options) => {
@@ -545,7 +538,6 @@ describe("Workbench provider planning flow", () => {
 
   it("keeps supplemental turns in the same unbound demand scope", async () => {
     const conversation = await createWorkbenchConversation(project(), {
-      title: "Unbound multi-turn demand",
       body: "Start a simple demand.",
     }, undefined, { runMainAgent: false });
     const memory = await resolveProjectMemory(project());
@@ -576,7 +568,6 @@ describe("Workbench provider planning flow", () => {
 
   it("starts a clean graph after a simple native Goal reaches complete", async () => {
     const conversation = await createWorkbenchConversation(project(), {
-      title: "Simple completed demand",
       body: "Create a simple page.",
     }, undefined, { runMainAgent: false });
     const memory = await resolveProjectMemory(project());
@@ -681,7 +672,6 @@ describe("Workbench provider planning flow", () => {
 
   it("keeps one graph scope inside an active Change and starts clean after that Change ends", async () => {
     const conversation = await createWorkbenchConversation(project(), {
-      title: "Scoped graph lifecycle",
       body: "Create the initial demand scope.",
     }, undefined, { runMainAgent: false });
     const memory = await resolveProjectMemory(project());
@@ -797,7 +787,6 @@ describe("Workbench provider planning flow", () => {
     });
 
     const conversation = await createWorkbenchConversation(project(), {
-      title: "空项目首次对话",
       body: "请先判断这个空项目需要哪些说明文件。不要假设固定模板。",
     });
 
@@ -833,7 +822,6 @@ describe("Workbench provider planning flow", () => {
     });
 
     await createWorkbenchConversation(project(), {
-      title: "Partial Harness continuation",
       body: "继续补齐 Harness。",
     });
   });
@@ -909,7 +897,6 @@ describe("Workbench provider planning flow", () => {
     });
 
     const creation = createWorkbenchConversation(project(), {
-      title: "Planner without Goal",
       body: "Create a structured health endpoint change.",
     });
     await expect(creation).rejects.toThrow("requires a native Goal");
@@ -970,7 +957,6 @@ describe("Workbench provider planning flow", () => {
     });
 
     const conversation = await createWorkbenchConversation(project(), {
-      title: "Planner without Main prose",
       body: "Plan a small but structured change.",
     });
     const messages = await listConversationMessages(project(), conversation.conversationId);
@@ -1178,7 +1164,6 @@ describe("Workbench provider planning flow", () => {
       });
 
     const conversation = await createWorkbenchConversation(project(), {
-      title: "Add health endpoint",
       body: "Add GET /healthz returning status ok and add a regression test.",
     });
     const messages = await listConversationMessages(project(), conversation.conversationId);

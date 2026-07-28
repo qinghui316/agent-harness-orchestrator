@@ -19,6 +19,7 @@ describe("WorkbenchProjectionStream owner", () => {
     const ports = createPorts();
     routeWorkbenchProjectionEvent("project-a", timelineEvent("main-agent"), ports);
     routeWorkbenchProjectionEvent("project-a", topicEvent(), ports);
+    routeWorkbenchProjectionEvent("project-a", topicUpdatedEvent(), ports);
     routeWorkbenchProjectionEvent("project-a", interactionEvent(), ports);
     routeWorkbenchProjectionEvent("project-a", surfaceInvalidationEvent(), ports);
     routeWorkbenchProjectionEvent("project-a", snapshotEvent(), ports);
@@ -30,6 +31,7 @@ describe("WorkbenchProjectionStream owner", () => {
 
     expect(ports.timeline.patch).toHaveBeenCalledTimes(1);
     expect(ports.topic.created).toHaveBeenCalledTimes(1);
+    expect(ports.topic.updated).toHaveBeenCalledTimes(1);
     expect(ports.interaction.updated).toHaveBeenCalledTimes(1);
     expect(ports.snapshot.received).toHaveBeenCalledTimes(1);
     expect(ports.error?.received).toHaveBeenCalledTimes(1);
@@ -99,7 +101,7 @@ describe("WorkbenchProjectionStream owner", () => {
 function createPorts(): WorkbenchProjectionRoutePorts {
   return {
     timeline: { patch: vi.fn() },
-    topic: { created: vi.fn() },
+    topic: { created: vi.fn(), updated: vi.fn() },
     interaction: { updated: vi.fn() },
     snapshot: { received: vi.fn() },
     agentSurfaces: { invalidate: vi.fn() },
@@ -132,6 +134,13 @@ function topicEvent(): WorkbenchLiveEvent {
   return {
     event: "topic.created",
     data: { topic: { conversationId: "conversation-a", title: "Demand", state: "active" } },
+  };
+}
+
+function topicUpdatedEvent(): WorkbenchLiveEvent {
+  return {
+    event: "topic.updated",
+    data: { conversation: { id: "conversation-a", title: "Renamed demand", state: "active" } },
   };
 }
 

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 describe("Workbench tool detail viewport contract", () => {
   it("keeps one bounded scroll owner and removes nested pre scrolling", async () => {
-    const css = await readFile("src/web/src/styles.css", "utf8");
+    const css = await readFile("src/web/src/styles/surfaces/conversation.css", "utf8");
     const details = css.match(/\.tool-result-details\s*\{([^}]*)\}/)?.[1] ?? "";
     const pre = css.match(/\.tool-result-details pre\s*\{([^}]*)\}/)?.[1] ?? "";
 
@@ -15,7 +15,7 @@ describe("Workbench tool detail viewport contract", () => {
   });
 
   it("keeps command process titles at one normal weight across statuses", async () => {
-    const css = await readFile("src/web/src/styles.css", "utf8");
+    const css = await readFile("src/web/src/styles/surfaces/conversation.css", "utf8");
     const title = css.match(/\.transcript-activity-row\.activity-command \.transcript-activity-title\s*\{([^}]*)\}/)?.[1] ?? "";
 
     expect(title).toContain("font-weight: 400");

@@ -28,7 +28,6 @@ export interface PreparedComposerInput {
 
 export interface ComposerCreateConversationRequest {
   projectId: string;
-  title: string;
   body: string;
   contextRefs: TopicFileReference[];
   attachmentIds: string[];
@@ -276,7 +275,6 @@ export function useConversationComposerController(
       uploadedDraft = await uploadFilesForProject(effectiveProjectId, attachmentFiles);
       created = await portsRef.current.session.createConversation({
         projectId: effectiveProjectId,
-        title: demandBody.split(/\r?\n/)[0]!.slice(0, 60),
         body: demandBody,
         contextRefs: prepared.contextRefs,
         attachmentIds: [...attachmentIds, ...uploadedDraft.map((attachment) => attachment.id)],

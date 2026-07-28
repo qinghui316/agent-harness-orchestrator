@@ -24,7 +24,7 @@ afterEach(async () => rm(root, { recursive: true, force: true }));
 
 describe("conversation planner-child package acceptance", () => {
   it("rolls back a superseding graph scope when the acceptance commit fails", async () => {
-    const conversation = await createWorkbenchConversation(project(), { title: "Atomic graph acceptance", body: "Plan it." }, undefined, { runMainAgent: false });
+    const conversation = await createWorkbenchConversation(project(), { body: "Plan it." }, undefined, { runMainAgent: false });
     const memory = await resolveProjectMemory(project());
     const store = await openWorkbenchDatabase(memory);
     try {
@@ -55,7 +55,7 @@ describe("conversation planner-child package acceptance", () => {
   });
 
   it("writes same-child revisions as immutable hash-addressed artifacts", async () => {
-    const conversation = await createWorkbenchConversation(project(), { title: "Revise health", body: "Plan health." }, undefined, { runMainAgent: false });
+    const conversation = await createWorkbenchConversation(project(), { body: "Plan health." }, undefined, { runMainAgent: false });
     const memory = await resolveProjectMemory(project());
     const initial = await proposalFor(memory.workbenchRoot, conversation.conversationId, "Initial health behavior.", "run-1", "child-1");
     const revised = await proposalFor(memory.workbenchRoot, conversation.conversationId, "Revised health behavior.", "run-2", "child-1");
@@ -66,14 +66,14 @@ describe("conversation planner-child package acceptance", () => {
   });
 
   it("rejects ambiguous bare AC syntax from authored proposal files", async () => {
-    const conversation = await createWorkbenchConversation(project(), { title: "Invalid", body: "Plan it." }, undefined, { runMainAgent: false });
+    const conversation = await createWorkbenchConversation(project(), { body: "Plan it." }, undefined, { runMainAgent: false });
     const memory = await resolveProjectMemory(project());
     await expect(proposalFor(memory.workbenchRoot, conversation.conversationId, "Expose health.", "run-1", "child-1", "AC-001: Health endpoint responds.\n"))
       .rejects.toThrow("'- AC-001: ...' form");
   });
 
   it("atomically creates accepted Change artifacts and one canonical graph without execution records", async () => {
-    const conversation = await createWorkbenchConversation(project(), { title: "Add a health endpoint", body: "Add GET /health and test it." }, undefined, { runMainAgent: false });
+    const conversation = await createWorkbenchConversation(project(), { body: "Add GET /health and test it." }, undefined, { runMainAgent: false });
     const memory = await resolveProjectMemory(project());
     const proposal = await proposalFor(memory.workbenchRoot, conversation.conversationId, "Return ok.");
     const beforeAcceptance = await openWorkbenchDatabase(memory);
@@ -141,7 +141,7 @@ describe("conversation planner-child package acceptance", () => {
   });
 
   it("accepts a planner proposal from the uniquely matching non-Codex provider lineage", async () => {
-    const conversation = await createWorkbenchConversation(project(), { title: "Provider plan", body: "Plan it with another provider." }, undefined, { runMainAgent: false });
+    const conversation = await createWorkbenchConversation(project(), { body: "Plan it with another provider." }, undefined, { runMainAgent: false });
     const memory = await resolveProjectMemory(project());
     const proposal = await proposalFor(memory.workbenchRoot, conversation.conversationId, "Return ok.", "run-provider", "child-provider", undefined, "test-provider");
 
@@ -152,8 +152,8 @@ describe("conversation planner-child package acceptance", () => {
   });
 
   it("revises the same active Change and rejects forged cross-conversation proposal scope", async () => {
-    const conversation = await createWorkbenchConversation(project(), { title: "Add a health endpoint", body: "Add it." }, undefined, { runMainAgent: false });
-    const other = await createWorkbenchConversation(project(), { title: "Other", body: "Other." }, undefined, { runMainAgent: false });
+    const conversation = await createWorkbenchConversation(project(), { body: "Add it." }, undefined, { runMainAgent: false });
+    const other = await createWorkbenchConversation(project(), { body: "Other." }, undefined, { runMainAgent: false });
     const memory = await resolveProjectMemory(project());
     const first = await proposalFor(memory.workbenchRoot, conversation.conversationId, "Return ok.");
     const accepted = await acceptCurrentConversationPlanningPackage(project(), conversation.conversationId, first.artifact);
@@ -166,7 +166,7 @@ describe("conversation planner-child package acceptance", () => {
   });
 
   it("revokes a superseded execution authorization before replacing accepted artifacts", async () => {
-    const conversation = await createWorkbenchConversation(project(), { title: "Revocable plan", body: "Plan it." }, undefined, { runMainAgent: false });
+    const conversation = await createWorkbenchConversation(project(), { body: "Plan it." }, undefined, { runMainAgent: false });
     const memory = await resolveProjectMemory(project());
     const first = await proposalFor(memory.workbenchRoot, conversation.conversationId, "Return ok.");
     const accepted = await acceptCurrentConversationPlanningPackage(project(), conversation.conversationId, first.artifact);
@@ -194,7 +194,7 @@ describe("conversation planner-child package acceptance", () => {
   });
 
   it("rejects a bound Change id that escapes the active root", async () => {
-    const conversation = await createWorkbenchConversation(project(), { title: "Traversal", body: "Plan it." }, undefined, { runMainAgent: false });
+    const conversation = await createWorkbenchConversation(project(), { body: "Plan it." }, undefined, { runMainAgent: false });
     const memory = await resolveProjectMemory(project());
     const proposal = await proposalFor(memory.workbenchRoot, conversation.conversationId, "Return ok.");
     const store = await openWorkbenchDatabase(memory);
@@ -208,7 +208,7 @@ describe("conversation planner-child package acceptance", () => {
   });
 
   it("creates a new Change when revising after execution evidence exists", async () => {
-    const conversation = await createWorkbenchConversation(project(), { title: "Add a health endpoint", body: "Add it." }, undefined, { runMainAgent: false });
+    const conversation = await createWorkbenchConversation(project(), { body: "Add it." }, undefined, { runMainAgent: false });
     const memory = await resolveProjectMemory(project());
     const first = await proposalFor(memory.workbenchRoot, conversation.conversationId, "Return ok.");
     const accepted = await acceptCurrentConversationPlanningPackage(project(), conversation.conversationId, first.artifact);
@@ -236,7 +236,7 @@ describe("conversation planner-child package acceptance", () => {
   });
 
   it("serializes duplicate concurrent acceptance and returns one Change", async () => {
-    const conversation = await createWorkbenchConversation(project(), { title: "Add a health endpoint", body: "Add it." }, undefined, { runMainAgent: false });
+    const conversation = await createWorkbenchConversation(project(), { body: "Add it." }, undefined, { runMainAgent: false });
     const memory = await resolveProjectMemory(project());
     const proposal = await proposalFor(memory.workbenchRoot, conversation.conversationId, "Return ok.");
 
@@ -251,7 +251,7 @@ describe("conversation planner-child package acceptance", () => {
   });
 
   it("rolls back an uncommitted filesystem swap before accepting the same proposal", async () => {
-    const conversation = await createWorkbenchConversation(project(), { title: "Add a health endpoint", body: "Add it." }, undefined, { runMainAgent: false });
+    const conversation = await createWorkbenchConversation(project(), { body: "Add it." }, undefined, { runMainAgent: false });
     const memory = await resolveProjectMemory(project());
     const proposal = await proposalFor(memory.workbenchRoot, conversation.conversationId, "Return ok.");
     const accepted = await acceptCurrentConversationPlanningPackage(project(), conversation.conversationId, proposal.artifact);
@@ -278,7 +278,7 @@ describe("conversation planner-child package acceptance", () => {
   });
 
   it("keeps a committed filesystem swap and only finishes transaction cleanup", async () => {
-    const conversation = await createWorkbenchConversation(project(), { title: "Add a health endpoint", body: "Add it." }, undefined, { runMainAgent: false });
+    const conversation = await createWorkbenchConversation(project(), { body: "Add it." }, undefined, { runMainAgent: false });
     const memory = await resolveProjectMemory(project());
     const proposal = await proposalFor(memory.workbenchRoot, conversation.conversationId, "Return ok.");
     const accepted = await acceptCurrentConversationPlanningPackage(project(), conversation.conversationId, proposal.artifact);

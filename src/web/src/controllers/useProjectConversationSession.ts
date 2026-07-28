@@ -6,6 +6,7 @@ import type {
   ProjectStatus,
   Snapshot,
   StreamPacket,
+  Topic,
   TopicFileReference,
   WorkbenchLiveEvent,
   Workpad,
@@ -27,12 +28,12 @@ export type PendingDemandConversation = {
   body: string;
   startedAt: string;
   canonical: boolean;
+  updatedAt?: string;
   selectedProviderId?: string;
 };
 
 export type CreateDemandConversationInput = {
   projectId: string;
-  title: string;
   body: string;
   contextRefs: TopicFileReference[];
   attachmentIds: string[];
@@ -65,6 +66,7 @@ export interface ProjectConversationSessionApi {
   loadStream(projectId: string, runId: string): Promise<StreamPacket>;
   removeProject(projectId: string): Promise<void>;
   hideConversation(projectId: string, conversationId: string): Promise<void>;
+  updateConversationTitle(projectId: string, conversationId: string, title: string): Promise<{ conversation: Topic }>;
   registerProject(path: string): Promise<{ project: { id: string }; status?: ProjectStatus }>;
   createDemandConversation(
     input: CreateDemandConversationInput,
@@ -427,7 +429,7 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
       portsRef.current.ui?.restoreView({ orchestrationOpen: false, settingsOpen: false });
       beginPendingDemand({
         projectId: request.projectId,
-        title: request.title,
+        title: "新需求",
         body: request.body,
         selectedProviderId: request.providerId,
       });
@@ -492,6 +494,43 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
       selectedProviderId: input.selectedProviderId ?? pending.selectedProviderId,
     };
   }, []);
+
+  const reconcileConversationTitle = useCallback((projectId: string, conversation: Topic): void => {
+    const patchSnapshot = (current: Snapshot): Snapshot => ({
+      ...current,
+      left: {
+        ...current.left,
+        topics: current.left.topics.map((topic) => topic.id === conversation.id
+          && canApplyConversationVersion(topic, conversation)
+          ? { ...topic, ...conversation }
+          : topic),
+        workpads: current.left.workpads?.map((workpad) => workpad.id === conversation.id
+          && canApplyConversationVersion(workpad, conversation)
+          ? { ...workpad, title: conversation.title, updatedAt: conversation.updatedAt ?? workpad.updatedAt }
+          : workpad),
+      },
+      center: {
+        ...current.center,
+        selectedTopic: current.center.selectedTopic?.id === conversation.id
+          && canApplyConversationVersion(current.center.selectedTopic, conversation)
+          ? { ...current.center.selectedTopic, title: conversation.title, updatedAt: conversation.updatedAt }
+          : current.center.selectedTopic,
+      },
+    });
+    if (stateRef.current.selectedProjectId === projectId) setSnapshot(patchSnapshot);
+    setProjectSnapshots((current) => current[projectId]
+      ? { ...current, [projectId]: patchSnapshot(current[projectId]!) }
+      : current);
+    setPendingDemandConversation((current) => current?.projectId === projectId && current.id === conversation.id
+      && canApplyConversationVersion(current, conversation)
+      ? { ...current, title: conversation.title, updatedAt: conversation.updatedAt }
+      : current);
+  }, []);
+
+  const updateConversationTitle = useCallback(async (projectId: string, conversationId: string, title: string): Promise<void> => {
+    const result = await sessionApi(portsRef.current).updateConversationTitle(projectId, conversationId, title);
+    reconcileConversationTitle(projectId, result.conversation);
+  }, [reconcileConversationTitle]);
 
   const completePendingDemand = useCallback((): void => {
     setPendingDemandConversation(null);
@@ -591,6 +630,8 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     ensureProjectRegistered,
     createDemandConversation,
     acceptCanonicalConversation,
+    reconcileConversationTitle,
+    updateConversationTitle,
     completePendingDemand,
     cancelPendingDemand,
     acceptSnapshot,
@@ -598,6 +639,16 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
     cacheProjectSnapshot,
     upsertProjectStatus,
   };
+}
+
+function canApplyConversationVersion(
+  current: { title: string; updatedAt?: string },
+  incoming: { title: string; updatedAt?: string },
+): boolean {
+  if (!current.updatedAt) return true;
+  if (!incoming.updatedAt) return false;
+  if (incoming.updatedAt > current.updatedAt) return true;
+  return incoming.updatedAt === current.updatedAt && incoming.title === current.title;
 }
 
 const defaultApi: ProjectConversationSessionApi = {
@@ -613,11 +664,14 @@ const defaultApi: ProjectConversationSessionApi = {
   hideConversation: async (projectId, conversationId) => {
     await postJson(`/api/projects/${encodeURIComponent(projectId)}/workbench/topics/${encodeURIComponent(conversationId)}/delete`, { confirm: true });
   },
+  updateConversationTitle: (projectId, conversationId, title) => postJson(
+    `/api/projects/${encodeURIComponent(projectId)}/workbench/topics/${encodeURIComponent(conversationId)}/title`,
+    { title },
+  ),
   registerProject: (path) => postJson("/api/projects", { path, confirm: true }),
   createDemandConversation: (input, onEvent) => consumeWorkbenchLiveStream<WorkbenchLiveEvent>(
     `/api/projects/${encodeURIComponent(input.projectId)}/workbench/topics/live`,
     {
-      title: input.title,
       body: input.body,
       contextRefs: input.contextRefs,
       attachmentIds: input.attachmentIds,

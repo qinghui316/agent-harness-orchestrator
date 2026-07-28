@@ -6,6 +6,20 @@ import { mapConversationRow, nullableString, type SqliteRow } from "../sql-mappe
 export class ConversationRepository {
 constructor(private readonly db: Database.Database) {}
 
+  updateConversationTitle(projectId: string, conversationId: string, title: string, updatedAt: string): StoredConversation {
+    return this.db.transaction(() => {
+      const current = this.readConversation(projectId, conversationId);
+      if (!current) throw new Error(`Conversation not found: ${conversationId}`);
+      const committedAt = nextMonotonicTimestamp(current.updatedAt, updatedAt);
+      const result = this.db.prepare(`
+        UPDATE conversations SET title = ?, updated_at = ?
+        WHERE project_id = ? AND conversation_id = ? AND surface_kind = 'user' AND deleted_at IS NULL
+      `).run(title, committedAt, projectId, conversationId);
+      if (result.changes !== 1) throw new Error(`Conversation not found: ${conversationId}`);
+      return this.readConversation(projectId, conversationId)!;
+    }).immediate();
+  }
+
   markConversationDeleted(projectId: string, conversationId: string, deletedAt: string): void {
     this.db.prepare(`
       UPDATE conversations SET deleted_at = ?, updated_at = ?
@@ -281,4 +295,13 @@ findConversationForChange(projectId: string, changeId: string): StoredConversati
     `).get(projectId, changeId) as SqliteRow | undefined;
     return row ? mapConversationRow(row) : null;
   }
+}
+
+function nextMonotonicTimestamp(current: string, candidate: string): string {
+  const currentTime = Date.parse(current);
+  const candidateTime = Date.parse(candidate);
+  if (!Number.isFinite(currentTime) || !Number.isFinite(candidateTime)) {
+    throw new Error("Conversation title timestamps must be valid ISO dates.");
+  }
+  return new Date(Math.max(candidateTime, currentTime + 1)).toISOString();
 }

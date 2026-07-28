@@ -214,6 +214,7 @@ export interface WorkbenchLiveIdentity {
 
 export type WorkbenchLiveEvent =
   | { event: "topic.created"; data: { topic: { id?: string; conversationId?: string; changeId?: string; title: string; state: "active"; selectedProviderId?: string } } }
+  | { event: "topic.updated"; data: { conversation: { id: string; title: string; state: string; updatedAt?: string; selectedProviderId?: string } } }
   | { event: "timeline.patch"; data: CanonicalTimelineEnvelope }
   | { event: "conversation.interactions.updated"; data: ConversationInteractionQueue }
   | { event: "agent-surfaces.invalidated"; data: AgentSurfacesInvalidated }

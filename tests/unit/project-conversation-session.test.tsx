@@ -136,7 +136,6 @@ describe("Project conversation session owner", () => {
     await act(async () => {
       await result.current.createDemandConversation({
         projectId: "repo-1",
-        title: "New demand",
         body: "Implement it",
         contextRefs: [],
         attachmentIds: [],
@@ -150,6 +149,58 @@ describe("Project conversation session owner", () => {
     expect(result.current.selectedTopic).toBe("conv-created");
     expect(result.current.pendingDemandConversation).toBeNull();
     expect(routed.map((event) => event.event)).toEqual(["topic.created"]);
+  });
+
+  it("reconciles title updates across the selected snapshot and project cache", async () => {
+    const fixture = ownerFixture();
+    const initial = snapshot("repo-1", "conv-1");
+    initial.left.topics = [{ id: "conv-1", title: "Old title", state: "active" }];
+    initial.left.workpads = [{
+      id: "conv-1",
+      title: "Old title",
+      state: "active",
+      runtimeStatus: "active",
+      selected: true,
+      waitingDecisionCount: 0,
+    }];
+    fixture.api.loadSnapshot.mockResolvedValue(initial);
+    fixture.api.updateConversationTitle.mockResolvedValue({
+      conversation: { id: "conv-1", title: "New title", state: "active", updatedAt: "2026-07-28T00:00:00.000Z" },
+    });
+    const { result } = renderHook(() => useProjectConversationSession({ ...fixture.ports, autoLoad: false }));
+    await act(async () => { await result.current.loadApp(); });
+
+    await act(async () => { await result.current.updateConversationTitle("repo-1", "conv-1", " New title "); });
+
+    expect(fixture.api.updateConversationTitle).toHaveBeenCalledWith("repo-1", "conv-1", " New title ");
+    expect(result.current.snapshot.left.topics[0]?.title).toBe("New title");
+    expect(result.current.snapshot.left.workpads?.[0]?.title).toBe("New title");
+    expect(result.current.snapshot.center.selectedTopic?.title).toBe("New title");
+    expect(result.current.projectSnapshots["repo-1"]?.left.topics[0]?.title).toBe("New title");
+
+    act(() => result.current.reconcileConversationTitle("repo-1", {
+      id: "conv-1",
+      title: "Newest title",
+      state: "active",
+      updatedAt: "2026-07-28T00:00:02.000Z",
+    }));
+    act(() => result.current.reconcileConversationTitle("repo-1", {
+      id: "conv-1",
+      title: "Stale title",
+      state: "active",
+      updatedAt: "2026-07-28T00:00:01.000Z",
+    }));
+    act(() => result.current.reconcileConversationTitle("repo-1", {
+      id: "conv-1",
+      title: "Same-version rollback",
+      state: "active",
+      updatedAt: "2026-07-28T00:00:02.000Z",
+    }));
+
+    expect(result.current.snapshot.left.topics[0]?.title).toBe("Newest title");
+    expect(result.current.snapshot.left.workpads?.[0]?.title).toBe("Newest title");
+    expect(result.current.snapshot.center.selectedTopic?.title).toBe("Newest title");
+    expect(result.current.projectSnapshots["repo-1"]?.left.topics[0]?.title).toBe("Newest title");
   });
 
   it("does not let a stale creation request pull the user back after a project switch", async () => {
@@ -170,7 +221,6 @@ describe("Project conversation session owner", () => {
     act(() => {
       creation = result.current.createDemandConversation({
         projectId: "repo-1",
-        title: "Stale",
         body: "Old request",
         contextRefs: [],
         attachmentIds: [],
@@ -253,6 +303,9 @@ function ownerFixture(options: { restore?: WorkbenchRestoreParams } = {}) {
     loadStream: vi.fn(async (_projectId: string, runId: string) => stream(runId)),
     removeProject: vi.fn(async () => undefined),
     hideConversation: vi.fn(async () => undefined),
+    updateConversationTitle: vi.fn(async (_projectId: string, conversationId: string, title: string) => ({
+      conversation: { id: conversationId, title, state: "active" },
+    })),
     registerProject: vi.fn(async () => ({ project: { id: "repo-1" }, status: managedProject("repo-1") })),
     createDemandConversation: vi.fn(async (_input, onEvent: (event: WorkbenchLiveEvent) => void) => {
       onEvent({

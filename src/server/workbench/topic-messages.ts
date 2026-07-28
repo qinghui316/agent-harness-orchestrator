@@ -11,19 +11,21 @@ import type {
   TopicMessageRequest,
 } from "./types.js";
 
-export async function readCreateTopicBody(request: IncomingMessage): Promise<{ title: string; body?: string; contextRefs?: CreateTopicRequest["contextRefs"]; attachmentIds?: string[]; providerId?: string }> {
+export async function readCreateTopicBody(request: IncomingMessage): Promise<{ body?: string; contextRefs?: CreateTopicRequest["contextRefs"]; attachmentIds?: string[]; providerId?: string }> {
   const body = await readJsonBody<CreateTopicRequest>(request);
   if (body.confirm !== true) {
     const error = new Error("Creating a demand conversation requires confirm: true.");
     error.name = "Conflict";
     throw error;
   }
-  if (typeof body.title !== "string" || body.title.trim() === "") {
-    const error = new Error("Demand conversation title is required.");
+  const hasText = typeof body.body === "string" && body.body.trim() !== "";
+  const hasAttachments = Array.isArray(body.attachmentIds) && body.attachmentIds.length > 0;
+  if (!hasText && !hasAttachments) {
+    const error = new Error("Demand conversation text or attachment is required.");
     error.name = "BadRequest";
     throw error;
   }
-  return { title: body.title.trim(), body: body.body, contextRefs: body.contextRefs, attachmentIds: body.attachmentIds, providerId: body.providerId };
+  return { body: body.body, contextRefs: body.contextRefs, attachmentIds: body.attachmentIds, providerId: body.providerId };
 }
 
 export async function readTopicMessageBody(request: IncomingMessage): Promise<TopicMessageRequest> {

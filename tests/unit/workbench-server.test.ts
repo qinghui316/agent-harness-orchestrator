@@ -183,14 +183,13 @@ describe("workbench server", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        title: "Use attachment",
-        body: "Please use the attached context.",
         attachmentIds: [attachmentPayload.attachment.id],
         confirm: true,
       }),
     });
     expect(topicResponse.ok).toBe(true);
-    const topicPayload = await topicResponse.json() as { topic: { id: string; conversationId: string } };
+    const topicPayload = await topicResponse.json() as { topic: { id: string; conversationId: string; title: string } };
+    expect(topicPayload.topic.title).toBe("附件需求");
     const timeline = await getJson<{ entries: Array<{ cells: Array<{ kind: string; attachments?: Array<{ id: string; fileName: string }> }> }> }>(
       `${handle!.url}/api/projects/repo/workbench/conversations/${encodeURIComponent(topicPayload.topic.conversationId ?? topicPayload.topic.id)}/timeline?agentSurfaceId=main-agent&limit=100`,
     );
@@ -205,7 +204,7 @@ describe("workbench server", () => {
     const live = await fetch(`${handle!.url}/api/projects/repo/workbench/topics/live`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: "Live topic", body: "请先判断下一步", confirm: true }),
+      body: JSON.stringify({ body: "请先判断下一步", confirm: true }),
     });
 
     expect(live.ok).toBe(true);
@@ -228,6 +227,31 @@ describe("workbench server", () => {
     expect(prompt).not.toContain("$aho-main-orchestration");
     expect(prompt).not.toContain("$aho-workflow-authoring");
     expect(prompt).not.toContain("planner-proposal");
+  });
+
+  it("derives and updates Conversation titles through the server-owned path", async () => {
+    const created = await fetch(`${handle!.url}/api/projects/repo/workbench/topics`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body: "\n> ## -   Build   a reliable checkout\nMore detail", confirm: true }),
+    });
+    expect(created.ok).toBe(true);
+    const createdBody = await created.json() as { topic: { id: string; title: string } };
+    expect(createdBody.topic.title).toBe("Build a reliable checkout");
+
+    const renamed = await fetch(`${handle!.url}/api/projects/repo/workbench/topics/${encodeURIComponent(createdBody.topic.id)}/title`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "  Checkout\n polish  " }),
+    });
+    expect(renamed.ok).toBe(true);
+    const renamedBody = await renamed.json() as { conversation: { id: string; title: string } };
+    expect(renamedBody.conversation).toMatchObject({ id: createdBody.topic.id, title: "Checkout polish" });
+
+    const snapshot = await getJson<{ left: { topics: Array<{ id: string; title: string }> } }>(
+      `${handle!.url}/api/projects/repo/workbench/snapshot?topic=${encodeURIComponent(createdBody.topic.id)}`,
+    );
+    expect(snapshot.left.topics).toContainEqual(expect.objectContaining({ id: createdBody.topic.id, title: "Checkout polish" }));
   });
 
   it("rejects composer attachment uploads before project preparation", async () => {
@@ -621,7 +645,7 @@ describe("workbench server", () => {
       const projectTopic = await fetch(`${appHandle.url}/api/projects/${addedBody.project.id}/workbench/topics`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "Project scoped topic", body: "Keep route behavior", confirm: true }),
+        body: JSON.stringify({ body: "Keep route behavior", confirm: true }),
       });
       expect(projectTopic.ok).toBe(true);
       const projectTopicBody = await projectTopic.json() as { topic: { id: string; conversationId: string } };
@@ -644,7 +668,7 @@ describe("workbench server", () => {
       const directTopic = await fetch(`${handle!.url}/api/workbench/topics`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "Direct topic", body: "Direct route remains unsupported", confirm: true }),
+        body: JSON.stringify({ body: "Direct route remains unsupported", confirm: true }),
       });
       expect(directTopic.status).toBe(404);
 

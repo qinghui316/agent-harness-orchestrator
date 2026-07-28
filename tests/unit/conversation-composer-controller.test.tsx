@@ -80,7 +80,6 @@ describe("Conversation composer controller", () => {
 
     expect(ports.session.createConversation).toHaveBeenCalledWith({
       projectId: "repo",
-      title: "build feature",
       body: "build feature",
       contextRefs: [fileRef("src/app.ts")],
       attachmentIds: ["existing"],

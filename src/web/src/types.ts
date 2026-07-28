@@ -1610,6 +1610,7 @@ export type CanonicalTimelinePage = {
 };
 export type WorkbenchLiveEvent =
   | { event: "topic.created"; data: { topic: { id?: string; conversationId?: string; changeId?: string; title: string; state: "active"; selectedProviderId?: string } } }
+  | { event: "topic.updated"; data: { conversation: Topic } }
   | { event: "timeline.patch"; data: CanonicalTimelineEnvelope }
   | { event: "conversation.interactions.updated"; data: ConversationInteractionQueue }
   | { event: "agent-surfaces.invalidated"; data: AgentSurfacesInvalidated }

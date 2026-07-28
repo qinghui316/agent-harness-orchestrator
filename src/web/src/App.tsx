@@ -613,6 +613,9 @@ export function App(): ReactElement {
           selectedProviderId: data.topic.selectedProviderId,
         });
       },
+      updated: (projectId, data) => {
+        session.reconcileConversationTitle(projectId, data.conversation);
+      },
     },
     interaction: {
       updated: (projectId, queue) => {
@@ -782,6 +785,7 @@ export function App(): ReactElement {
           onToggleProject={toggleProjectFolder}
           onChooseConversation={chooseConversation}
           onHideConversation={hideConversation}
+          onRenameConversation={session.updateConversationTitle}
           onRemoveProject={removeProject}
           onRefresh={loadApp}
           onOpenSettings={() => openSettings("basic")}

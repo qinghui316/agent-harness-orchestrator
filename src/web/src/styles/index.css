@@ -1,0 +1,16 @@
+@layer tokens, base, primitives, shell, sidebar, conversation, office, workspace, terminal, decision, product, composer, settings, utilities;
+
+@import url("./tokens.css") layer(tokens);
+@import url("./base.css") layer(base);
+@import url("./primitives.css") layer(primitives);
+@import url("./surfaces/shell.css") layer(shell);
+@import url("./surfaces/sidebar.css") layer(sidebar);
+@import url("./surfaces/conversation.css") layer(conversation);
+@import url("./surfaces/office.css") layer(office);
+@import url("./surfaces/workspace.css") layer(workspace);
+@import url("./surfaces/terminal.css") layer(terminal);
+@import url("./surfaces/decision.css") layer(decision);
+@import url("./surfaces/product.css") layer(product);
+@import url("./surfaces/composer.css") layer(composer);
+@import url("./surfaces/settings.css") layer(settings);
+@import url("./utilities.css") layer(utilities);
