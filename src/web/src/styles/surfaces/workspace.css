@@ -126,433 +126,6 @@
   border-bottom: 1px solid var(--border);
 }
 
-.parent-details .workpad {
-  padding: 12px;
-}
-
-.workpad-hero,
-.workpad-section,
-.workpad-next-action {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-panel);
-}
-
-.workpad-hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(210px, 286px);
-  gap: 14px;
-  align-items: stretch;
-  padding: 14px;
-}
-
-.workpad-state {
-  display: inline-flex;
-  align-items: center;
-  min-height: 22px;
-  padding: 2px 8px;
-  border-radius: var(--radius-pill);
-  background: var(--bg-subtle);
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.workpad-state.active {
-  background: var(--success-soft);
-  color: var(--success);
-}
-
-.workpad-state.readonly {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-
-.workpad h2 {
-  margin: 8px 0 5px;
-  color: var(--text-strong);
-  font-size: 18px;
-  line-height: 1.32;
-  letter-spacing: 0;
-}
-
-.workpad h3 {
-  margin: 0;
-  color: var(--text-strong);
-  font-size: 13.5px;
-}
-
-.workpad p {
-  margin: 0;
-  color: var(--text);
-  font-size: 14px;
-  line-height: 1.58;
-}
-
-.workpad-hero > div > p,
-.workpad-section-header span,
-.workpad-evidence span,
-.workpad-task small,
-.workpad-metric span,
-.workpad-next-action span,
-.workpad-next-action p {
-  color: var(--text-muted);
-  font-size: 12.5px;
-}
-
-.workpad-next-action {
-  display: grid;
-  gap: 7px;
-  padding: 12px;
-  background: var(--bg-subtle);
-}
-
-.workpad-next-action strong {
-  color: var(--text-strong);
-  font-size: 14px;
-}
-
-.workpad-section {
-  display: grid;
-  gap: 9px;
-  padding: 13px;
-}
-
-.result-review {
-  border-color: color-mix(in srgb, var(--accent) 24%, var(--border));
-}
-
-.result-diff-stat {
-  max-height: 120px;
-  overflow: auto;
-  margin: 0;
-  padding: 9px 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-subtle);
-  color: var(--text-muted);
-  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
-  font-size: 12px;
-  line-height: 1.45;
-  white-space: pre-wrap;
-}
-
-.workpad-section-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.workpad-goal {
-  color: var(--text-strong) !important;
-  font-weight: 600;
-}
-
-.workpad-background-summary {
-  margin-top: 4px;
-  color: var(--text-muted);
-  font-size: 13px;
-}
-
-.compact-section {
-  padding-block: 10px;
-}
-
-.workpad-links,
-.workpad-evidence-list,
-.workpad-task-list {
-  display: grid;
-  gap: 8px;
-}
-
-.workpad-chip-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.workpad-chip-list span {
-  display: inline-flex;
-  align-items: center;
-  min-height: 22px;
-  padding: 2px 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  background: var(--bg-subtle);
-  color: var(--text-muted);
-  font-size: 12.5px;
-}
-
-.task-queue-panel {
-  display: grid;
-  gap: 8px;
-  padding: 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-panel);
-}
-
-.task-queue-summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.task-queue-summary > div {
-  display: grid;
-  gap: 2px;
-}
-
-.task-queue-summary strong {
-  color: var(--text-strong);
-  font-size: 13.5px;
-}
-
-.task-queue-summary span,
-.task-queue-panel p {
-  color: var(--text-muted);
-  font-size: 12.5px;
-}
-
-.task-queue-items {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.task-queue-item {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  padding: 2px 7px;
-  background: var(--bg-subtle);
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.task-queue-item.running {
-  color: var(--accent);
-}
-
-.task-queue-item.blocked,
-.task-queue-item.failed {
-  color: var(--danger);
-}
-
-.task-queue-item.completed {
-  color: var(--success);
-}
-
-.coding-package-list {
-  display: grid;
-  gap: 8px;
-}
-
-.coding-package-card {
-  display: grid;
-  gap: 9px;
-  padding: 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-subtle);
-}
-
-.coding-package-card.blocked {
-  border-color: var(--danger-border);
-  background: var(--danger-soft);
-}
-
-.coding-package-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.coding-package-header > div {
-  display: grid;
-  gap: 3px;
-  min-width: 0;
-}
-
-.coding-package-header strong,
-.coding-package-grid strong {
-  color: var(--text-strong);
-  font-size: 13.5px;
-}
-
-.coding-package-header span,
-.coding-package-grid p {
-  color: var(--text-muted);
-  font-size: 12.5px;
-}
-
-.coding-package-meta,
-.coding-package-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.coding-package-meta span,
-.coding-package-chips span {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  padding: 2px 7px;
-  background: var(--bg-panel);
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.coding-package-chips span.covered {
-  color: var(--success);
-}
-
-.coding-package-chips span.missing {
-  color: var(--text-faint);
-}
-
-.coding-package-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.coding-package-grid > div {
-  padding: 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-panel);
-}
-
-.workpad-progress-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.workpad-metric,
-.workpad-evidence,
-.workpad-task {
-  display: grid;
-  gap: 4px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-subtle);
-}
-
-.workpad-metric {
-  padding: 10px;
-}
-
-.workpad-metric strong,
-.workpad-task strong,
-.workpad-evidence strong {
-  color: var(--text-strong);
-  font-size: 13.5px;
-}
-
-.workpad-evidence,
-.workpad-task {
-  padding: 9px 10px;
-}
-
-.workpad-task-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.workpad-task-header > div {
-  display: grid;
-  gap: 3px;
-  min-width: 0;
-}
-
-.task-status {
-  flex: 0 0 auto;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  padding: 2px 7px;
-  background: var(--bg-panel);
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.task-status.running {
-  color: var(--accent);
-}
-
-.task-status.blocked {
-  color: var(--danger);
-}
-
-.task-status.checked,
-.task-status.evidence-ready {
-  color: var(--success);
-}
-
-.task-run-summary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-panel);
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.task-run-summary strong {
-  color: var(--text);
-  font-size: 12px;
-}
-
-.task-evidence-list,
-.workpad-task-change-evidence {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.task-evidence-list span,
-.workpad-task-change-evidence span {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  padding: 2px 7px;
-  background: var(--bg-panel);
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.workpad-task-change-evidence {
-  margin-top: 4px;
-  align-items: center;
-}
-
-.task-blockers {
-  margin: 0;
-  padding-left: 18px;
-  color: var(--danger);
-  font-size: 12.5px;
-}
-
-.workpad-task span {
-  color: var(--text);
-  font-size: 13.5px;
-}
-
-.workpad-issue-list {
-  margin: 0;
-  padding-left: 18px;
-  color: var(--text-muted);
-  font-size: 13px;
-  line-height: 1.6;
-}
-
 .timeline {
   display: grid;
   gap: 18px;
@@ -1017,15 +590,6 @@ body.is-resizing-column {
   opacity: 0.45;
 }
 
-.approval-pane-collapsed {
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  overflow: hidden;
-  padding: 12px 6px;
-  background: color-mix(in srgb, var(--bg-panel) 96%, var(--bg-app));
-}
-
 .approval-pane-expanded {
   display: flex;
   flex-direction: column;
@@ -1377,7 +941,8 @@ body.is-resizing-column {
 }
 
 .workspace-dock-toggle,
-.workspace-orchestration-toggle {
+.workspace-orchestration-toggle,
+.workspace-right-rail-toggle {
   position: relative;
   pointer-events: auto;
 }
@@ -1464,6 +1029,50 @@ body.is-resizing-column {
   color: var(--text-muted);
   font-size: 12px;
   line-height: 1.45;
+}
+
+.runtime-diagnostics-context dl {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  border-block: 1px solid var(--border);
+}
+
+.runtime-diagnostics-context dl > div {
+  display: grid;
+  grid-template-columns: minmax(88px, 0.42fr) minmax(0, 1fr);
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 12px;
+}
+
+.runtime-diagnostics-context dl > div:last-child { border-bottom: 0; }
+.runtime-diagnostics-context dt { color: var(--text-muted); }
+.runtime-diagnostics-context dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
+
+.runtime-diagnostics-raw summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.runtime-diagnostics-raw pre {
+  max-height: 320px;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+  color: var(--text);
+  font-size: 11px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .runtime-diagnostics-open-log {

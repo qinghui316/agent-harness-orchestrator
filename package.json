@@ -32,6 +32,7 @@
     "lint:provider-boundaries": "node scripts/lint-provider-boundaries.mjs",
     "lint:frontend-boundaries": "node scripts/lint-frontend-boundaries.mjs",
     "lint:ui-styles": "node scripts/lint-ui-styles.mjs",
+    "lint:ui-language": "node scripts/lint-ui-language.mjs",
     "office-assets:cutout": "node scripts/office-assets/office-assets.mjs cutout",
     "office-assets:pack": "node scripts/office-assets/office-assets.mjs pack",
     "office-assets:promote-handoff": "node scripts/office-assets/office-assets.mjs promote-handoff",

@@ -15,7 +15,7 @@ import {
   ProjectAddForm,
   ProjectCreateForm,
 } from "../panels/ProjectPanels.js";
-import { projectDisplayName, userFacingText, workpadStatusLabel } from "../formatters.js";
+import { projectDisplayName, workpadStatusLabel } from "../formatters.js";
 import type {
   ProjectStatus,
   Snapshot,
@@ -256,7 +256,7 @@ export function ProjectConversationSidebar({
                             className={`conversation-row ${conversation.selected ? "selected" : ""}`}
                             onClick={() => item.project ? void onChooseConversation(item.project.id, conversation.id) : undefined}
                           >
-                            <span>{userFacingText(conversation.title)}</span>
+                            <span>{conversation.title}</span>
                             <small>{conversation.status}</small>
                             {conversation.waitingDecisionCount > 0 ? <b aria-label={`${conversation.waitingDecisionCount} 个待确认`}>{conversation.waitingDecisionCount}</b> : null}
                           </button>}

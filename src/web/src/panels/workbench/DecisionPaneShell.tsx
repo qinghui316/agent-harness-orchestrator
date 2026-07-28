@@ -1,8 +1,11 @@
-import { Activity, Bot, ChevronLeft, FileText, GitBranch, ListChecks, PanelRightClose, PanelRightOpen } from "lucide-react";
-import type { ReactElement, ReactNode, PointerEvent as ReactPointerEvent } from "react";
+import { Activity, Bot, ChevronLeft, FileText, GitBranch, ListChecks, PanelRightClose } from "lucide-react";
+import type { KeyboardEvent as ReactKeyboardEvent, ReactElement, ReactNode, PointerEvent as ReactPointerEvent } from "react";
 
 export type RightToolRailTab = "agent" | "confirm" | "files" | "git" | "diagnostics";
-export type RightToolRailView = "launcher" | RightToolRailTab;
+export type RightToolRailState =
+  | { mode: "closed" }
+  | { mode: "launcher" }
+  | { mode: "tool"; tool: RightToolRailTab };
 
 const toolLabels: Record<RightToolRailTab, string> = {
   agent: "Agent",
@@ -13,11 +16,9 @@ const toolLabels: Record<RightToolRailTab, string> = {
 };
 
 export function RightToolRailShell({
-  collapsed,
-  activeView,
+  state,
   pendingCount,
   hasPrimary,
-  onExpand,
   onCollapse,
   onToolOpen,
   onBackToLauncher,
@@ -26,13 +27,15 @@ export function RightToolRailShell({
   filesPanel,
   gitPanel,
   diagnosticsPanel,
+  resizeMin,
+  resizeMax,
+  resizeValue,
   onResizeStart,
+  onResizeKeyDown,
 }: {
-  collapsed: boolean;
-  activeView: RightToolRailView;
+  state: Exclude<RightToolRailState, { mode: "closed" }>;
   pendingCount: number;
   hasPrimary: boolean;
-  onExpand: () => void;
   onCollapse: () => void;
   onToolOpen: (tab: RightToolRailTab) => void;
   onBackToLauncher: () => void;
@@ -41,27 +44,13 @@ export function RightToolRailShell({
   filesPanel: ReactNode;
   gitPanel: ReactNode;
   diagnosticsPanel: ReactNode;
+  resizeMin: number;
+  resizeMax: number;
+  resizeValue: number;
   onResizeStart?: (event: ReactPointerEvent) => void;
+  onResizeKeyDown: (event: ReactKeyboardEvent) => void;
 }): ReactElement {
-  if (collapsed) {
-    const label = pendingCount > 0 ? `展开右侧面板，${pendingCount} 个待确认` : "展开右侧面板";
-    return (
-      <aside className="approval-pane approval-pane-collapsed" data-testid="decision-pane-shell" aria-label="右侧工具面板">
-        <button
-          type="button"
-          className={`top-tool-button decision-pane-rail${hasPrimary ? " has-primary" : ""}`}
-          data-testid="decision-pane-toggle"
-          aria-label={label}
-          aria-expanded="false"
-          onClick={onExpand}
-        >
-          <PanelRightOpen size={18} aria-hidden="true" />
-          {pendingCount > 0 ? <span className="decision-pane-badge">{pendingCount}</span> : null}
-        </button>
-      </aside>
-    );
-  }
-
+  const activeView = state.mode === "launcher" ? "launcher" : state.tool;
   const panelTitle = activeView === "launcher" ? "工具" : toolLabels[activeView];
   const panelContent =
     activeView === "launcher" ? (
@@ -83,9 +72,15 @@ export function RightToolRailShell({
       <div
         className="shell-resize-grip right-rail-resizer"
         role="separator"
+        tabIndex={0}
         aria-orientation="vertical"
         aria-label="调整右侧工具栏宽度"
+        aria-valuemin={resizeMin}
+        aria-valuemax={resizeMax}
+        aria-valuenow={resizeValue}
+        aria-valuetext={`${resizeValue} 像素`}
         onPointerDown={onResizeStart}
+        onKeyDown={onResizeKeyDown}
       />
       {activeView !== "agent" ? <div className="decision-pane-toolbar">
         <div className="decision-pane-toolbar-left">

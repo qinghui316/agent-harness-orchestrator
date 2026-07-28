@@ -1,6 +1,6 @@
 import { useState, type ReactElement } from "react";
 import { Check, FileText, X } from "lucide-react";
-import { confirmationKindLabel, decisionKindLabel, formatTime, userFacingText, userStatusLabel } from "../../formatters.js";
+import { confirmationKindLabel, decisionKindLabel, formatTime, userStatusLabel } from "../../formatters.js";
 import type { ConfirmationQueue, ConfirmationQueueItem, DecisionAction, DecisionContext, DecisionInspector } from "../../types.js";
 import { artifactName } from "./RunReplayPanel.js";
 
@@ -56,8 +56,8 @@ export function DecisionInspectorPane({
           </div>
           {confirmationQueue.otherDemands.map((item) => (
             <button className="decision-row" key={item.id} onClick={() => item.changeId ? onSelectContext(`confirm:${item.changeId}`) : undefined}>
-              <strong>{userFacingText(item.whyNeedsConfirmation)}</strong>
-              <span>{confirmationKindLabel(item.kind)} · {userFacingText(item.summary)}</span>
+              <strong>{item.whyNeedsConfirmation}</strong>
+              <span>{confirmationKindLabel(item.kind)} · {item.summary}</span>
             </button>
           ))}
         </section>
@@ -176,31 +176,19 @@ function DecisionContextCard({
         <span>当前需要你决定</span>
         <small>{context.userStatus ? userStatusLabel(context.userStatus) : decisionKindLabel(context.kind)}</small>
       </div>
-      <h3>{userFacingText(context.title)}</h3>
+      <h3>{context.title}</h3>
       <div className="decision-explainer">
         <strong>结果摘要</strong>
-        <p>{userFacingText(context.resultSummary ?? context.summary)}</p>
+        <p>{context.resultSummary ?? context.summary}</p>
       </div>
       <div className="decision-explainer">
         <strong>推荐动作</strong>
-        <p>{userFacingText(context.recommendation ?? "查看证据后选择同意、要求修改或放弃。")}</p>
+        <p>{context.recommendation ?? "查看证据后选择同意、要求修改或放弃。"}</p>
       </div>
       <div className="decision-explainer muted">
         <strong>说明</strong>
-        <p>{userFacingText(context.explanation ?? "内部运行状态只作为证据和恢复信息，不是用户主决策语言。")}</p>
+        <p>{context.explanation ?? "详细运行信息可在诊断工具中查看。"}</p>
       </div>
-      {(context.changeId || context.taskId || context.queueRunId || context.taskRunId || context.runId) ? (
-        <details className="decision-details">
-          <summary>查看运行详情</summary>
-          <dl className="approval-fields">
-            {context.changeId ? <div><dt>当前需求</dt><dd>{context.changeId}</dd></div> : null}
-            {context.taskId ? <div><dt>任务项</dt><dd>{context.taskId}</dd></div> : null}
-            {context.queueRunId ? <div><dt>处理记录</dt><dd>{context.queueRunId}</dd></div> : null}
-            {context.taskRunId ? <div><dt>本次尝试</dt><dd>{context.taskRunId}</dd></div> : null}
-            {context.runId ? <div><dt>运行记录</dt><dd>{context.runId}</dd></div> : null}
-          </dl>
-        </details>
-      ) : null}
       {context.evidenceRefs?.length ? (
         <div className="workpad-links" aria-label="Decision evidence refs">
           {context.evidenceRefs.slice(0, 4).map((artifact) => (
@@ -213,10 +201,10 @@ function DecisionContextCard({
           const disabled = actionBusy || !action.enabled;
           const title = action.disabledReason ?? (actionBusy ? "当前已有动作正在执行。" : undefined);
           if (action.kind === "feedback") {
-            return <button key={action.id} className="outline-button" disabled={disabled} title={title} onClick={() => setFeedbackActionId(action.id)}><FileText size={15} />{userFacingText(action.label)}</button>;
+            return <button key={action.id} className="outline-button" disabled={disabled} title={title} onClick={() => setFeedbackActionId(action.id)}><FileText size={15} />{action.label}</button>;
           }
           if (action.kind === "evidence") {
-            return <button key={action.id} className="outline-button" disabled={disabled} title={title} onClick={() => void executeAction(action)}><FileText size={15} />{userFacingText(action.label)}</button>;
+            return <button key={action.id} className="outline-button" disabled={disabled} title={title} onClick={() => void executeAction(action)}><FileText size={15} />{action.label}</button>;
           }
           if (action.kind !== "approval" && action.kind !== "workflow-action" && action.kind !== "abandon") return null;
           return confirming === action.id ? (
@@ -225,14 +213,14 @@ function DecisionContextCard({
               <button className="outline-button" disabled={actionBusy} onClick={() => onConfirmingChange(null)}><X size={15} />取消</button>
             </span>
           ) : (
-            <button key={action.id} className="primary-button" disabled={disabled} title={title} onClick={() => action.requiresConfirmation ? onConfirmingChange(action.id) : void executeAction(action)}><Check size={15} />{userFacingText(action.label)}</button>
+            <button key={action.id} className="primary-button" disabled={disabled} title={title} onClick={() => action.requiresConfirmation ? onConfirmingChange(action.id) : void executeAction(action)}><Check size={15} />{action.label}</button>
           );
         })}
       </div>
       {feedbackAction ? (
         <div className="decision-feedback" data-testid="decision-feedback-editor">
           <label>
-            <span>{userFacingText(context.rework?.label ?? feedbackAction.label)}</span>
+            <span>{context.rework?.label ?? feedbackAction.label}</span>
             <textarea
               value={feedback}
               onChange={(event) => setFeedback(event.target.value)}
@@ -262,11 +250,17 @@ function DecisionContextHistory({ contexts, onSelectContext }: { contexts: Decis
         <summary>查看历史决策</summary>
         {contexts.map((context) => (
           <button className="decision-row" key={context.id} onClick={() => onSelectContext(context.id)}>
-            <strong>{userFacingText(context.title)}</strong>
-            <span>{decisionKindLabel(context.kind)} · {context.timestamp ? formatTime(context.timestamp) : userFacingText(context.severity)}</span>
+            <strong>{context.title}</strong>
+            <span>{decisionKindLabel(context.kind)} · {context.timestamp ? formatTime(context.timestamp) : decisionSeverityLabel(context.severity)}</span>
           </button>
         ))}
       </details>
     </section>
   );
+}
+
+function decisionSeverityLabel(severity: DecisionContext["severity"]): string {
+  if (severity === "blocking") return "需要处理";
+  if (severity === "warning") return "请留意";
+  return "信息";
 }

@@ -117,6 +117,32 @@ describe("Workbench App owner composition", () => {
     expect(screen.getAllByText("Safe mode")).toHaveLength(1);
     expect(screen.queryByPlaceholderText("输入问题或下一步需求")).toBeNull();
   });
+
+  it("owns the complete rail toggle cycle and keyboard column resizing", async () => {
+    installApiFixture(createSnapshot());
+    const view = render(<App />);
+    await screen.findByText("Canonical Main reply");
+    const shell = view.container.querySelector(".app-shell") as HTMLElement;
+    const leftSeparator = screen.getByRole("separator", { name: "调整左侧项目栏宽度" });
+    expect(leftSeparator.getAttribute("tabindex")).toBe("0");
+    expect(leftSeparator.getAttribute("aria-valuenow")).toBe("280");
+    fireEvent.keyDown(leftSeparator, { key: "ArrowRight" });
+    expect(shell.style.getPropertyValue("--left-sidebar-width")).toBe("296px");
+    fireEvent.keyDown(leftSeparator, { key: "Home" });
+    expect(shell.style.getPropertyValue("--left-sidebar-width")).toBe("220px");
+
+    fireEvent.click(screen.getByRole("button", { name: "打开右侧工具" }));
+    expect(screen.getByTestId("right-tool-launcher")).toBeTruthy();
+    const rightSeparator = screen.getByRole("separator", { name: "调整右侧工具栏宽度" });
+    expect(rightSeparator.getAttribute("aria-valuemin")).toBe("280");
+    expect(rightSeparator.getAttribute("aria-valuemax")).toBe("560");
+    fireEvent.keyDown(rightSeparator, { key: "ArrowLeft" });
+    expect(shell.style.getPropertyValue("--right-rail-width")).toBe("336px");
+    fireEvent.click(screen.getByTestId("right-tool-launcher-diagnostics"));
+    expect(screen.queryByTestId("right-tool-launcher")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "关闭右侧工具" }));
+    expect(screen.queryByTestId("decision-pane-shell")).toBeNull();
+  });
 });
 
 function createSnapshot(interaction?: ConversationInteraction): Snapshot {

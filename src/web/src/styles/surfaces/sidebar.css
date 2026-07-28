@@ -513,7 +513,7 @@
   justify-content: space-between;
   gap: 16px;
   min-height: 48px;
-  padding: 7px 20px;
+  padding: 7px 164px 7px 20px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-panel);
 }
@@ -522,6 +522,7 @@
   display: grid;
   gap: 2px;
   min-width: 0;
+  max-width: 100%;
 }
 
 .thread-title-block strong {
@@ -571,6 +572,7 @@
 .center-grid {
   display: grid;
   grid-template-columns: minmax(0, 860px);
+  grid-template-rows: minmax(0, 1fr) auto;
   justify-content: center;
   flex: 1;
   min-height: 0;
@@ -592,10 +594,6 @@
   min-height: 0;
   overflow: auto;
   padding: 20px 0 12px;
-}
-
-.workpad-scroll {
-  padding-bottom: 18px;
 }
 
 @media (max-width: 1220px) {

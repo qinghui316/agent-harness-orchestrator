@@ -1,12 +1,12 @@
-export { MainConversationView, BottomStatusBar } from "./workbench/ConversationPanel.js";
+export { MainConversationView } from "./workbench/ConversationPanel.js";
 export { AgentOfficePanel } from "./workbench/ConversationPanel.js";
 export { DecisionInspectorPane } from "./workbench/DecisionPanels.js";
-export { RightToolRailShell, type RightToolRailTab, type RightToolRailView } from "./workbench/DecisionPaneShell.js";
+export { RightToolRailShell, type RightToolRailState, type RightToolRailTab } from "./workbench/DecisionPaneShell.js";
 export { ProjectFilesPanel } from "./workbench/ProjectFilesPanel.js";
 export { ProjectGitPanel } from "./workbench/ProjectGitPanel.js";
 export { GitDiffViewer } from "./workbench/GitDiffViewer.js";
 export { RuntimeDiagnosticsRailPanel } from "./workbench/RuntimeDiagnosticsDock.js";
 export { RuntimeActivityLogPanel } from "./workbench/RuntimeActivityLogPanel.js";
 export { ResourceWorkspacePanel } from "./workbench/ResourceWorkspacePanel.js";
-export { TerminalDock, WorkspaceDockToggleBar, type TerminalTab } from "./workbench/TerminalDock.js";
-export { WorkpadView } from "./workbench/WorkpadPanel.js";
+export { TerminalDock, type TerminalTab } from "./workbench/TerminalDock.js";
+export { WorkspaceDockToggleBar } from "./workbench/WorkspaceDockToggleBar.js";

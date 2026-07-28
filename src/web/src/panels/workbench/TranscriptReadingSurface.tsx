@@ -116,7 +116,7 @@ function TranscriptMessageProse({ cell, expanded, onToggleExpanded, className }:
 }): ReactElement {
   const title = cleanTranscriptTitle(cell.title);
   const folded = isLongTranscriptCell(cell) && !expanded;
-  const text = normalizeProviderTranscriptText(cleanTranscriptText(transcriptCellDisplayText(cell, expanded)));
+  const text = transcriptCellDisplayText(cell, expanded);
   return (
     <div className={`parent-agent-prose transcript-message-prose ${className} ${cell.isError ? "danger" : ""}`}>
       {title ? <strong className="transcript-message-title">{title}</strong> : null}
@@ -325,7 +325,7 @@ function normalizeProviderTranscriptText(value: string): string {
 }
 
 export function TranscriptMarkdownLite({ text, idPrefix, compact = false }: { text: string; idPrefix: string; compact?: boolean }): ReactElement {
-  const blocks = text.split(/\n{2,}/).map((block) => block.trim()).filter(Boolean);
+  const blocks = splitMarkdownBlocks(text);
   return (
     <>
       {blocks.map((block, index) => renderMarkdownBlock(block, `${idPrefix}:block:${index}`, compact))}
@@ -372,10 +372,9 @@ function renderMarkdownBlock(block: string, keyPrefix: string, compact: boolean)
       </div>
     );
   }
-  if (/^```/.test(block)) {
-    const fence = /^```([^\n`]*)\n?([\s\S]*?)\n?```$/.exec(block);
-    const language = fence?.[1]?.trim();
-    const code = fence?.[2] ?? block.replace(/^```[^\n`]*\n?/i, "").replace(/\n?```$/, "");
+  const fence = parseFencedCodeBlock(block);
+  if (fence) {
+    const { language, code } = fence;
     return (
       <div key={keyPrefix} className="markdown-lite-code-block">
         {language ? <span className="markdown-lite-code-label">{language}</span> : null}
@@ -387,6 +386,42 @@ function renderMarkdownBlock(block: string, keyPrefix: string, compact: boolean)
     return <strong key={keyPrefix} className="markdown-lite-heading">{(lines[0] ?? "").replace(/:$/, "")}</strong>;
   }
   return <p key={keyPrefix}>{renderInlineMarkdown(block, keyPrefix)}</p>;
+}
+
+function splitMarkdownBlocks(text: string): string[] {
+  const blocks: string[] = [];
+  const openingFence = /^```[^\r\n]*(?:\r\n|\n|\r|$)/gm;
+  let cursor = 0;
+  let opening: RegExpExecArray | null;
+  while ((opening = openingFence.exec(text)) !== null) {
+    pushProseBlocks(blocks, text.slice(cursor, opening.index));
+    const closingFence = /^```[ \t]*(?:\r\n|\n|\r|$)/gm;
+    closingFence.lastIndex = openingFence.lastIndex;
+    const closing = closingFence.exec(text);
+    const end = closing ? closing.index + closing[0].length : text.length;
+    blocks.push(text.slice(opening.index, end));
+    cursor = end;
+    openingFence.lastIndex = end;
+  }
+  pushProseBlocks(blocks, text.slice(cursor));
+  return blocks;
+}
+
+function pushProseBlocks(blocks: string[], value: string): void {
+  for (const block of value.split(/(?:\r\n|\n|\r){2,}/)) {
+    if (block.trim()) blocks.push(block.trim());
+  }
+}
+
+function parseFencedCodeBlock(block: string): { language: string; code: string } | null {
+  const opening = /^```([^\r\n`]*)[ \t]*(?:\r\n|\n|\r|$)/.exec(block);
+  if (!opening) return null;
+  const rest = block.slice(opening[0].length);
+  const closing = /(?:\r\n|\n|\r)```[ \t]*(?:\r\n|\n|\r)?$/.exec(rest);
+  return {
+    language: opening[1]?.trim() ?? "",
+    code: closing ? rest.slice(0, closing.index) : rest,
+  };
 }
 
 function renderInlineMarkdown(text: string, keyPrefix: string): ReactNode[] {

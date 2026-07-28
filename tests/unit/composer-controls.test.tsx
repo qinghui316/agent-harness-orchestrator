@@ -19,14 +19,14 @@ describe("Composer controls", () => {
       modelLabel="默认模型"
       providerOptions={[{ id: "alpha", label: "Alpha" }, { id: "beta", label: "Beta" }]}
     />);
-    const select = screen.getByLabelText("选择 Agent provider") as HTMLSelectElement;
+    const select = screen.getByLabelText("选择 AI 服务") as HTMLSelectElement;
     expect(select.value).toBe("");
-    expect(screen.getByRole("option", { name: "选择 Agent" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "选择 AI 服务" })).toBeTruthy();
   });
 
   it("does not render optional controls without their capabilities", () => {
     render(<ComposerControls providerDisplayName="Codex" modelLabel="default" />);
-    expect(screen.queryByLabelText("选择 Agent provider")).toBeNull();
+    expect(screen.queryByLabelText("选择 AI 服务")).toBeNull();
     expect(screen.queryByRole("button", { name: /模型设置/ })).toBeNull();
   });
 });

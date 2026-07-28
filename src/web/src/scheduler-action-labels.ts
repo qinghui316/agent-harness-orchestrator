@@ -25,5 +25,5 @@ export function schedulerUserFacingActionLabel(actionType: string | undefined): 
   }
   if (actionType === "planning.scheduler.run.complete") return "完成执行记录";
   if (actionType === "planning.scheduler.run.close-blocked") return "标记无法继续";
-  return "继续当前 scheduler 阶段";
+  return "继续当前执行阶段";
 }

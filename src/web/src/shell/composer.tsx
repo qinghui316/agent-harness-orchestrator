@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactElement } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { Send, X } from "lucide-react";
 import type { SkillListItem, TopicAttachment, TopicFileReference, WorkpadRuntimeStatus } from "../types.js";
 import { ComposerAttachButton, ComposerAttachmentList, filesFromDrop, hasFileDrag, imageFilesFromPaste } from "./ComposerAttachments.js";
@@ -24,11 +24,9 @@ export function TopicComposer({
   onRemoveAttachment,
   onToggleSkill,
   onSelectedFileRefsChange,
-  busy: _busy,
   disabledReason,
   onSend,
   onStopAndContinue,
-  onNewWorkpad: _onNewWorkpad,
   actionRunning,
   currentWorkpadStatus,
   providerOptions,
@@ -50,12 +48,9 @@ export function TopicComposer({
   onRemoveAttachment?: (id: string) => void | Promise<void>;
   onToggleSkill?: (skillId: string) => void | Promise<void>;
   onSelectedFileRefsChange?: (refs: TopicFileReference[]) => void;
-  onOpenSkillsSettings?: () => void;
-  busy: boolean;
   disabledReason?: string;
   onSend: () => Promise<void>;
   onStopAndContinue?: () => Promise<void>;
-  onNewWorkpad?: () => Promise<void>;
   actionRunning: string | null;
   currentWorkpadStatus?: WorkpadRuntimeStatus;
   providerOptions?: Array<{ id: string; label: string }>;
@@ -63,6 +58,7 @@ export function TopicComposer({
   onSelectProvider?: (providerId: string) => void;
 }): ReactElement {
   const [dragOver, setDragOver] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [openContextKind, setOpenContextKind] = useState<ComposerContextKind | null>(null);
   const runningConversation = Boolean(actionRunning) || currentWorkpadStatus === "running";
   const canStop = runningConversation && Boolean(onStopAndContinue) && !value.trim();
@@ -77,6 +73,24 @@ export function TopicComposer({
   const sendDisabled = Boolean(disabledReason) || (!canSend && !canStop);
   const buttonTitle = canStop ? "停止当前执行" : runningConversation ? "发送给当前执行" : "发送";
   const buttonIcon = canStop ? <X size={16} /> : <Send size={16} />;
+  useLayoutEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    resizeComposerTextarea(textarea);
+  }, [value]);
+  useLayoutEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea || typeof ResizeObserver === "undefined") return;
+    let observedWidth = textarea.getBoundingClientRect().width;
+    const observer = new ResizeObserver(([entry]) => {
+      const nextWidth = entry?.contentRect.width ?? textarea.getBoundingClientRect().width;
+      if (nextWidth === observedWidth) return;
+      observedWidth = nextWidth;
+      resizeComposerTextarea(textarea);
+    });
+    observer.observe(textarea);
+    return () => observer.disconnect();
+  }, []);
   function submit(): void {
     if (canStop) void onStopAndContinue?.();
     else void onSend();
@@ -151,6 +165,8 @@ export function TopicComposer({
       />
       <ComposerAttachmentList attachments={attachments ?? []} onRemove={onRemoveAttachment ?? (() => undefined)} />
       <textarea
+        ref={textareaRef}
+        rows={1}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         onPaste={(event) => {
@@ -164,4 +180,11 @@ export function TopicComposer({
       />
     </ComposerFrame>
   );
+}
+
+function resizeComposerTextarea(textarea: HTMLTextAreaElement): void {
+  textarea.style.height = "auto";
+  const contentHeight = textarea.scrollHeight;
+  textarea.style.height = `${Math.min(160, Math.max(44, contentHeight))}px`;
+  textarea.style.overflowY = contentHeight > 160 ? "auto" : "hidden";
 }

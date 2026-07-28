@@ -162,6 +162,51 @@ describe("canonical parent agent transcript cells", () => {
     expect(cells.map((cell) => cell.text)).toEqual(["Same visible reply", "Same visible reply"]);
   });
 
+  it("preserves technical terms in canonical Agent messages", () => {
+    const text = "planning_agent runs `npm test` in C:\\repo and reports ProviderAttempt unchanged.";
+    const cells = renderThreadItems([{
+      id: "assistant-technical-message",
+      kind: "assistant-turn",
+      label: "AI",
+      blocks: [{
+        id: "technical-message",
+        ...providerBlockIdentity("technical-message"),
+        sequence: 1,
+        kind: "prose",
+        source: "provider",
+        text,
+      }],
+    }]);
+    expect(cells[0]?.text).toBe(text);
+  });
+
+  it("preserves canonical user and Agent message whitespace without presentation rewriting", () => {
+    const userText = "\n  用户保留的首行\n\n最后一行  \n";
+    const agentText = "\n  ProviderAttempt 与 `npm test` 保持原样。\n\n结束  \n";
+    const userCells = renderThreadItems([{
+      id: "user-whitespace",
+      kind: "user-message",
+      label: "用户消息",
+      body: userText,
+    }]);
+    const agentCells = renderThreadItems([{
+      id: "assistant-whitespace",
+      kind: "assistant-turn",
+      label: "AI",
+      blocks: [{
+        id: "assistant-whitespace-block",
+        ...providerBlockIdentity("assistant-whitespace-block"),
+        sequence: 1,
+        kind: "prose",
+        source: "provider",
+        text: agentText,
+      }],
+    }]);
+
+    expect(userCells[0]?.text).toBe(userText);
+    expect(agentCells[0]?.text).toBe(agentText);
+  });
+
   it("keeps canonical cell identity stable across repeated rendering", () => {
     const threadItems: ThreadItem[] = [{
       id: "assistant-refresh",

@@ -699,9 +699,12 @@ describe("workbench task runtime domain", () => {
       queueRunId: "queue-blocked-1",
       taskId: "T-001",
       taskRunId: "taskrun-blocked-1",
-      title: "任务暂停：T-001",
+      title: "任务暂停",
+      resultSummary: "本地顺序执行暂停在当前任务，详细原因可在诊断工具中查看。",
       userStatus: "needs-rework",
     });
+    expect(snapshot.right.decisionInspector.primary?.title).not.toContain("T-001");
+    expect(snapshot.right.decisionInspector.primary?.resultSummary).not.toContain("Audit blocked");
     expect(snapshot.right.decisionInspector.primary?.actions).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "feedback", label: "要求修改" }),
       expect.objectContaining({ kind: "evidence", label: "查看证据" }),

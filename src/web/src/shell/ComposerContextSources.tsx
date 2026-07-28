@@ -204,8 +204,8 @@ function fallbackSkill(skillId: string): SkillListItem {
 
 function sourceKindLabel(kind: SkillListItem["sourceKind"]): string {
   if (kind === "system-aho") return "AHO 内置";
-  if (kind === "provider-native") return "Provider 原生 Skill";
-  return "自定义 Skill";
+  if (kind === "provider-native") return "服务原生技能";
+  return "自定义技能";
 }
 
 function contextKindAriaLabel(kind: ComposerContextKind): string {

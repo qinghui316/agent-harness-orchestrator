@@ -8,12 +8,22 @@
 
 .topic-composer {
   position: relative;
-  width: min(100%, 820px);
+  box-sizing: border-box;
+  width: min(calc(100% - 40px), 820px);
   margin: 0 auto 12px;
-  padding: 10px;
+  gap: 6px;
+  padding: 8px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--bg-panel);
+}
+
+.topic-composer > :is(.skill-mention-surface, .file-mention-surface):empty {
+  display: none;
+}
+
+.topic-composer .composer-control-strip {
+  min-height: 34px;
 }
 
 .conversation-interaction-dock {
@@ -749,9 +759,10 @@
 
 .topic-composer textarea,
 .empty-composer textarea {
+  box-sizing: border-box;
   width: 100%;
-  min-height: 66px;
-  max-height: 180px;
+  min-height: 44px;
+  max-height: 160px;
   padding: 8px 10px;
   border: 0;
   border-radius: var(--radius-md);
@@ -759,7 +770,7 @@
   color: var(--text);
   font-size: 14.5px;
   line-height: 1.5;
-  resize: vertical;
+  resize: none;
 }
 
 .empty-composer textarea {
@@ -773,31 +784,6 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-}
-
-.workpad-route-switch {
-  display: inline-flex;
-  gap: 4px;
-  padding: 3px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  background: var(--bg-subtle);
-}
-
-.workpad-route-switch button {
-  min-height: 26px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-}
-
-.workpad-route-switch button.active {
-  background: var(--bg-panel);
-  color: var(--text-strong);
-  box-shadow: var(--shadow-soft);
 }
 
 .mode-switch {

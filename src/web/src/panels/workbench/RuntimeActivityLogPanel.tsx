@@ -29,7 +29,7 @@ export function RuntimeActivityLogPanel({
   const isRail = variant === "rail";
 
   return (
-    <section className={`runtime-activity-log ${isRail ? "runtime-activity-log-rail" : ""}`} data-testid="runtime-activity-log">
+    <section className={`runtime-activity-log ${isRail ? "runtime-activity-log-rail" : ""}`} data-testid="runtime-activity-log" data-diagnostic-raw-evidence>
       <header className="runtime-activity-log-header">
         <div>
           <p className="eyebrow">{isRail ? "只读" : "只读观察"}</p>

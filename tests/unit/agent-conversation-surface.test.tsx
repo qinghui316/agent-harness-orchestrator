@@ -135,6 +135,25 @@ describe("Agent conversation surfaces", () => {
     vi.restoreAllMocks();
   });
 
+  it("keeps fenced code with internal blank lines as one canonical code block", () => {
+    const code = "const first = 1;\n\nconst second = 2;";
+    render(<ParentAgentTranscriptCellView
+      cell={{
+        id: "assistant-fenced-code",
+        kind: "assistant-message",
+        source: "provider-runtime",
+        text: `前文\n\n\`\`\`ts\n${code}\n\`\`\`\n\n后文`,
+      }}
+      expanded={false}
+      onToggleExpanded={vi.fn()}
+    />);
+
+    const codeBlock = document.querySelector("pre.markdown-lite-code");
+    expect(codeBlock?.textContent).toBe(code);
+    expect(screen.getByText("前文")).toBeTruthy();
+    expect(screen.getByText("后文")).toBeTruthy();
+  });
+
   it("keeps failed command emphasis deterministic and opens child lifecycle rows by canonical target", () => {
     const onOpenAgent = vi.fn();
     const { rerender } = render(<ParentAgentTranscriptCellView

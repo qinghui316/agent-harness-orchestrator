@@ -10,22 +10,7 @@ export function workflowActionLabel(actionType: string | undefined): string {
 
   const schedulerLabel = schedulerUserFacingActionLabel(actionType);
   if (schedulerLabel) return schedulerLabel;
-  if (actionType === "planning.scheduler.worker.start-first") return "开始第一个任务";
-  if (actionType === "planning.scheduler.worker.start-next") return "开始下一个任务";
-  if (actionType === "planning.scheduler.worker.reconcile-result") return "检查第一个 worker 结果";
-  if (actionType === "planning.scheduler.worker.validate-first") return "验证第一个 worker 结果";
-  if (actionType === "planning.scheduler.worker.audit-first") return "审计第一个 worker 结果";
-  if (actionType === "planning.scheduler.worker.rework-plan.compile") return "生成第一个 worker rework 计划";
-  if (actionType === "planning.scheduler.worker.rework-start-first") return "开始当前任务修复";
-  if (actionType === "planning.scheduler.worker.rework-reconcile-result") return "检查第一个 worker rework 结果";
-  if (actionType === "planning.scheduler.worker.rework-validate-first") return "验证第一个 worker rework 结果";
-  if (actionType === "planning.scheduler.worker.rework-audit-first") return "审计第一个 worker rework 结果";
-  if (actionType === "planning.scheduler.integration-candidate.compile") return "生成 scheduler integration 候选";
-  if (actionType === "planning.scheduler.integration-check.run") return "运行 scheduler IntegrationCheck";
-  if (actionType === "planning.scheduler.integration-outcome.reconcile") return "记录 scheduler integration 结果";
-  if (actionType === "planning.scheduler.run.complete") return "记录 SchedulerRun 完成状态";
-  if (actionType === "planning.scheduler.run.close-blocked") return "结束本次 scheduler run";
-  if (actionType === "workflow.run.start") return "确认启动 TaskQueue";
+  if (actionType === "workflow.run.start") return "确认开始执行";
   if (actionType === "none") return "无后续动作";
   if (actionType === "orchestrator.evaluate") return "检查处理状态";
   if (actionType === "orchestrator.pump") return "继续处理需求";
@@ -76,9 +61,9 @@ export function workflowActionLabel(actionType: string | undefined): string {
   if (actionType === "post-merge.sync-local.run") return "同步本地项目";
   if (actionType === "post-merge.cleanup-branch.prepare") return "检查远端分支";
   if (actionType === "post-merge.cleanup-branch.run") return "清理远端 PR 分支";
-  if (actionType === "code.run") return "Code workflow";
-  if (actionType === "task.run.start") return "Task workflow";
-  if (actionType === "task.run.retry") return "Retry task";
-  if (actionType === "chat.ask") return "Chat";
-  return actionType ?? "Workflow";
+  if (actionType === "code.run") return "开始实现";
+  if (actionType === "task.run.start") return "开始任务";
+  if (actionType === "task.run.retry") return "重试任务";
+  if (actionType === "chat.ask") return "询问 AI";
+  return "继续";
 }

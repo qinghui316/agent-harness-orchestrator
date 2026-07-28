@@ -68,7 +68,7 @@ export function canonicalTranscriptCellsFromThreadItem(
 ): ParentAgentTranscriptCell[] {
   const agentRoleId = options.forceAgentRoleId ?? item.agentRoleId;
   if (item.kind === "user-message") {
-    const text = cleanPrimaryText(item.body ?? item.label);
+    const text = canonicalMessageText(item.body ?? item.label);
     return text
       ? [{
           id: `cell:user:${item.id}`,
@@ -225,7 +225,9 @@ function transcriptCellFromAssistantBlock(
   const source: ParentAgentTranscriptBlockSource =
     block.source === "provider" ? "provider-runtime" : block.source === "workflow" ? "workflow-evidence" : "aho-orchestration";
   const rawText = block.text ?? block.preview ?? "";
-  const text = isGeneratedRunContext(rawText) ? "" : cleanPrimaryText(rawText);
+  const text = isGeneratedRunContext(rawText)
+    ? ""
+    : block.kind === "prose" ? canonicalMessageText(rawText) : cleanPrimaryText(rawText);
   const itemId = item.id;
   const timestamp = item.timestamp;
 
@@ -470,4 +472,9 @@ function canonicalTurnIdentity(identity: CanonicalTurnIdentity): string {
 
 function cleanPrimaryText(value: string | undefined): string {
   return (value ?? "").trim();
+}
+
+function canonicalMessageText(value: string | undefined): string {
+  const text = value ?? "";
+  return text.trim() ? text : "";
 }

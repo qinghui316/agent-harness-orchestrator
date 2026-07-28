@@ -103,74 +103,13 @@ export function sourceLabel(source: string): string {
   if (source === "thread") return "对话";
   if (source === "task") return "任务";
   if (source === "queue") return "本地顺序执行";
-  return userFacingText(source);
-}
-
-export function userFacingText(value: string): string {
-  return value
-    .replace(/确认当前方案并启动 coder-agent、validator、auditor 角色流水线。/gi, "确认当前方案，并启动实现、验证和审查流程。")
-    .replace(/\bTask queue started\b/gi, "本地顺序执行已开始")
-    .replace(/\bTask runs reconciled\b/gi, "任务状态已同步")
-    .replace(/\bTask workflow started\b/gi, "任务执行已开始")
-    .replace(/\bCoder run confirmed\b/gi, "代码执行已确认")
-    .replace(/\bRefresh execution status\b/gi, "继续处理")
-    .replace(/\bWorkpad\b/g, "需求")
-    .replace(/\bChange\b/g, "需求")
-    .replace(/刷新执行状态/g, "继续处理")
-    .replace(/重试此任务/g, "重试")
-    .replace(/\bDirty worktree blocks close:/gi, "未清理的工作区会阻止完成：")
-    .replace(/\bLatest Audit blocked close:/gi, "最新审查未通过，会阻止完成：")
-    .replace(/\bReview status is pending\./gi, "Review 还未完成。")
-    .replace(/\bAC-([0-9]+) has no linked test evidence\./gi, "AC-$1 还没有关联测试证据。")
-    .replace(/\bActive change has AHO-managed worktree:/gi, "当前需求有 AHO 管理的工作区：")
-    .replace(/Running Workpad proposals, diffs, stdout\/stderr, JSONL, and process metadata are not project stable facts\./g, "进行中的需求草案、diff、原始输出、JSONL 和进程信息不会进入项目稳定记忆。")
-    .replace(/Memory consolidation candidates and conflict review are future human-gated workflows\./g, "记忆合并候选和冲突复核由后台 Agent 与 Runtime 自动处理；过期或不安全的变更会保持阻塞。")
-    .replace(/\bAudit blocked\.?/gi, "审查未通过，需要修改或补证据。")
-    .replace(/\bAudit failed\.?/gi, "审查未通过。")
-    .replace(/\bAudit approved-with-notes\b/gi, "审查带备注通过")
-    .replace(/\bAudit approved\b/gi, "审查通过")
-    .replace(/\bValidation failed\.?/gi, "验证未通过。")
-    .replace(/\bValidation passed\b/gi, "验证已通过")
-    .replace(/\bCoder completed\b/gi, "代码执行已完成")
-    .replace(/\bcoder-agent\b/gi, "实现 agent")
-    .replace(/\bvalidator\b/gi, "验证")
-    .replace(/\bauditor-agent\b/gi, "审查")
-    .replace(/\bauditor\b/gi, "审查")
-    .replace(/角色流水线/g, "实现、验证和审查流程")
-    .replace(/AHO-owned worktree/gi, "隔离工作区")
-    .replace(/\bTask queue\b/gi, "本地顺序执行")
-    .replace(/\bGenerate Spec\b/gi, "生成需求说明")
-    .replace(/\bGenerate Plan\b/gi, "生成执行方案")
-    .replace(/\bGenerate Tasks\b/gi, "生成任务")
-    .replace(/生成 Spec/g, "生成需求说明")
-    .replace(/生成 Plan/g, "生成执行方案")
-    .replace(/生成 Tasks/g, "生成任务")
-    .replace(/\bAccept spec proposal\b/gi, "接受需求说明")
-    .replace(/\bAccept plan proposal\b/gi, "接受执行方案")
-    .replace(/\bAccept audit proposal\b/gi, "接受审查证据")
-    .replace(/接受 Spec/g, "接受需求说明")
-    .replace(/接受 Plan/g, "接受执行方案")
-    .replace(/\bPlan\/Tasks proposal\b/gi, "执行计划")
-    .replace(/\bPlan\/Tasks acceptance\b/gi, "执行方案确认")
-    .replace(/\bSpec proposal\b/gi, "需求说明草案")
-    .replace(/\bSpec\b/g, "需求说明")
-    .replace(/\bPlan\b/g, "执行方案")
-    .replace(/\bTasks\b/g, "任务")
-    .replace(/\bqueue\b/gi, "本地顺序执行")
-    .replace(/\bblocked\b/gi, "需要修改或补证据")
-    .replace(/\bfailed\b/gi, "未通过")
-    .replace(/\brunning\b/gi, "处理中")
-    .replace(/\bqueued\b/gi, "稍后处理")
-    .replace(/\bwaiting-decision\b/gi, "等你确认")
-    .replace(/\bblocking\b/gi, "需处理")
-    .replace(/\bstdout\/stderr, JSONL\b/gi, "原始输出和 JSONL")
-    .replace(/\band process metadata are not project stable facts\./gi, "和进程信息不会进入项目稳定记忆。");
+  return "其他";
 }
 
 export function stateLabel(state: string): string {
   if (state === "active") return "进行中";
   if (state === "archive") return "已归档";
-  return state;
+  return "未知状态";
 }
 
 export function runtimeLabel(runtime: string): string {
@@ -181,7 +120,7 @@ export function runtimeLabel(runtime: string): string {
   if (runtime === "orchestrator" || runtime === "orchestrator.plan") return "AI 计划";
   if (runtime === "code.run") return "代码工作流";
   if (runtime === "chat.ask") return "AI 回复";
-  return runtime;
+  return "AI 任务";
 }
 
 export function humanStatus(status: string): string {
@@ -209,7 +148,7 @@ export function humanStatus(status: string): string {
   if (status === "confirmed") return "已确认";
   if (status === "needs-user-input") return "需要用户补充";
   if (status === "stopped") return "已停止";
-  return status;
+  return "状态更新";
 }
 
 export function resultReviewStatusLabel(status: NonNullable<Workpad["resultReview"]>["status"]): string {
@@ -242,7 +181,7 @@ export function eventLabel(type: string): string {
   if (type === "diff.collected") return "收集 diff";
   if (type === "run.completed") return "运行完成";
   if (type === "run.failed") return "运行失败";
-  return type;
+  return "运行事件";
 }
 
 export function formatUsage(usage: Record<string, unknown>): string {
@@ -301,5 +240,5 @@ export function confirmationKindLabel(kind: string): string {
   if (kind === "request-changes") return "要求修改";
   if (kind === "discard-result") return "放弃结果";
   if (kind === "maintenance") return "维护建议";
-  return userFacingText(kind);
+  return "其他确认";
 }

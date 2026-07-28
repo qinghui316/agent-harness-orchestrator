@@ -289,8 +289,8 @@ function userDecisionStateForDecisionContext(context: WorkbenchDecisionContext):
 }
 
 function userDecisionTitle(context: WorkbenchDecisionContext): string {
-  if (context.kind === "queue-blocker") return context.taskId ? `任务暂停：${context.taskId}` : "任务暂停";
-  if (context.kind === "task-blocker") return context.taskId ? `需要修改或补证据：${context.taskId}` : "需要修改或补证据";
+  if (context.kind === "queue-blocker") return "任务暂停";
+  if (context.kind === "task-blocker") return "需要修改或补证据";
   if (context.kind === "validation-failed") return "验证未通过";
   if (context.kind === "audit-blocked") return "审查未通过，需要修改或补证据";
   if (context.kind === "spec-proposal") return "确认需求说明";
@@ -308,8 +308,8 @@ function userDecisionTitle(context: WorkbenchDecisionContext): string {
 }
 
 function userResultSummary(context: WorkbenchDecisionContext): string {
-  if (context.kind === "queue-blocker") return context.summary || "本地顺序执行暂停在当前任务。";
-  if (context.kind === "task-blocker") return context.summary || "当前任务还没有形成可接受结果。";
+  if (context.kind === "queue-blocker") return "本地顺序执行暂停在当前任务，详细原因可在诊断工具中查看。";
+  if (context.kind === "task-blocker") return "当前任务还没有形成可接受结果，详细原因可在诊断工具中查看。";
   if (context.kind === "validation-failed") return context.summary || "机械验证没有通过。";
   if (context.kind === "audit-blocked") return context.summary || "审查认为当前结果还不能安全接受。";
   if (context.kind === "spec-proposal") return context.summary || "AI 提出了 Spec 草案。";

@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactElement,
   type PointerEvent as ReactPointerEvent } from "react";
 import { fetchJson } from "./api.js";
@@ -11,7 +12,6 @@ import { MainConversationView,
   AgentOfficePanel,
   RightToolRailShell,
   DecisionInspectorPane,
-  BottomStatusBar,
   ProjectFilesPanel,
   ProjectGitPanel,
   RuntimeDiagnosticsRailPanel,
@@ -19,7 +19,7 @@ import { MainConversationView,
   TerminalDock,
   WorkspaceDockToggleBar,
   type RightToolRailTab,
-  type RightToolRailView,
+  type RightToolRailState,
   type TerminalTab,
 } from "./panels/WorkbenchPanels.js";
 import {
@@ -82,6 +82,7 @@ const LEFT_SIDEBAR_MAX_WIDTH = 420;
 const RIGHT_RAIL_DEFAULT_WIDTH = 320;
 const RIGHT_RAIL_MIN_WIDTH = 280;
 const RIGHT_RAIL_MAX_WIDTH = 560;
+const SHELL_COLUMN_KEYBOARD_STEP = 16;
 type BottomDockKind = "terminal" | null;
 
 function clampNumber(value: number, min: number, max: number): number {
@@ -118,8 +119,7 @@ export function App(): ReactElement {
   const [runtimeDiagnosticsLoading, setRuntimeDiagnosticsLoading] = useState(false);
   const [runtimeActivityLog, setRuntimeActivityLog] = useState<RuntimeActivityLogSnapshot | null>(null);
   const [runtimeActivityLogLoading, setRuntimeActivityLogLoading] = useState(false);
-  const [decisionPaneCollapsed, setDecisionPaneCollapsed] = useState(true);
-  const [rightToolView, setRightToolView] = useState<RightToolRailView>("launcher");
+  const [rightToolRailState, setRightToolRailState] = useState<RightToolRailState>({ mode: "closed" });
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(LEFT_SIDEBAR_DEFAULT_WIDTH);
   const [rightToolRailWidth, setRightToolRailWidth] = useState(RIGHT_RAIL_DEFAULT_WIDTH);
   const [projectionVersion, setProjectionVersion] = useState(0);
@@ -163,7 +163,7 @@ export function App(): ReactElement {
 
   const appShellStyle = !settingsOpen ? ({
     "--left-sidebar-width": `${leftSidebarWidth}px`,
-    "--right-rail-width": decisionPaneCollapsed ? "48px" : `${rightToolRailWidth}px`,
+    "--right-rail-width": `${rightToolRailWidth}px`,
   } as CSSProperties) : undefined;
 
   function beginShellColumnResize(event: ReactPointerEvent, side: "left" | "right"): void {
@@ -306,6 +306,22 @@ export function App(): ReactElement {
     return session.refresh(projectId, topic);
   }
 
+  function resizeShellColumnWithKeyboard(event: ReactKeyboardEvent, side: "left" | "right"): void {
+    const isHorizontalArrow = event.key === "ArrowLeft" || event.key === "ArrowRight";
+    if (!isHorizontalArrow && event.key !== "Home" && event.key !== "End") return;
+    event.preventDefault();
+    const min = side === "left" ? LEFT_SIDEBAR_MIN_WIDTH : RIGHT_RAIL_MIN_WIDTH;
+    const max = side === "left" ? LEFT_SIDEBAR_MAX_WIDTH : RIGHT_RAIL_MAX_WIDTH;
+    const setWidth = side === "left" ? setLeftSidebarWidth : setRightToolRailWidth;
+    setWidth((current) => {
+      if (event.key === "Home") return min;
+      if (event.key === "End") return max;
+      const direction = event.key === "ArrowRight" ? 1 : -1;
+      const sideDirection = side === "left" ? direction : -direction;
+      return clampNumber(current + sideDirection * SHELL_COLUMN_KEYBOARD_STEP, min, max);
+    });
+  }
+
   async function openProject(projectId: string): Promise<void> {
     await session.openProject(projectId);
   }
@@ -414,8 +430,7 @@ export function App(): ReactElement {
 
   function openWorkspaceResource(target: WorkspaceResourceTarget): void {
     workspaceResources.openResource(target);
-    setRightToolView("agent");
-    setDecisionPaneCollapsed(false);
+    setRightToolRailState({ mode: "tool", tool: "agent" });
   }
 
   function selectWorkspaceResource(resourceId: string): void {
@@ -699,13 +714,12 @@ export function App(): ReactElement {
     composer.setFileRefs([...composerFileRefs, ...refs]);
   }
 
-  function expandRightToolRail(): void {
-    setRightToolView("launcher");
-    setDecisionPaneCollapsed(false);
+  function toggleRightToolRail(): void {
+    setRightToolRailState((current) => current.mode === "closed" ? { mode: "launcher" } : { mode: "closed" });
   }
 
   function openRightToolPanel(tab: RightToolRailTab): void {
-    setRightToolView(tab);
+    setRightToolRailState({ mode: "tool", tool: tab });
     if (tab === "agent") {
       if (!selectedWorkspaceResourceId && workspaceResourceTabs.length === 0) {
         const agentId = activeAgentSurfaces.find((agent) => agent.status === "running")?.agentSurfaceId
@@ -741,15 +755,15 @@ export function App(): ReactElement {
     setRuntimeActivityLog(null);
   }, [activeTopic?.id, isPendingTopic]);
 
+  useEffect(() => {
+    setRightToolRailState({ mode: "closed" });
+  }, [selectedProjectId, activeTopic?.id]);
+
   async function loadEarlierTranscriptPage(): Promise<void> {
     if (!activeTimelineScope || loadingEarlierTranscript) return;
     const cursor = activeTranscript.paging?.nextBeforeCursor;
     if (!cursor || activeTranscript.paging?.hasMoreBefore === false) return;
     await timeline.loadEarlier(activeTimelineScope, cursor);
-  }
-
-  async function createTopicFromComposer(): Promise<void> {
-    await composer.createConversation();
   }
 
   useEffect(() => {
@@ -759,7 +773,7 @@ export function App(): ReactElement {
 
   return (
     <div
-      className={`app-shell ${settingsOpen ? "settings-open" : decisionPaneCollapsed ? "decision-pane-collapsed" : "decision-pane-expanded"} sidebar-expanded${orchestrationOpen ? " orchestration-open" : ""}`}
+      className={`app-shell ${settingsOpen ? "settings-open" : rightToolRailState.mode === "closed" ? "right-rail-closed" : "right-rail-open"} sidebar-expanded${orchestrationOpen ? " orchestration-open" : ""}`}
       style={appShellStyle}
     >
       {!settingsOpen ? (
@@ -801,7 +815,13 @@ export function App(): ReactElement {
             role="separator"
             aria-orientation="vertical"
             aria-label="调整左侧项目栏宽度"
+            tabIndex={0}
+            aria-valuemin={LEFT_SIDEBAR_MIN_WIDTH}
+            aria-valuemax={LEFT_SIDEBAR_MAX_WIDTH}
+            aria-valuenow={leftSidebarWidth}
+            aria-valuetext={`${leftSidebarWidth} 像素`}
             onPointerDown={(event) => beginShellColumnResize(event, "left")}
+            onKeyDown={(event) => resizeShellColumnWithKeyboard(event, "left")}
           />
         </aside>
       ) : null}
@@ -852,7 +872,6 @@ export function App(): ReactElement {
             skills={skillItems}
             activeSkillIds={selectedComposerSkillIds}
             onToggleSkill={toggleComposerSkill}
-            onOpenSkillsSettings={() => openSettings("skills")}
             onOpenProject={openProject}
             onRefresh={loadApp}
             resetToken={homeComposerResetToken}
@@ -860,7 +879,7 @@ export function App(): ReactElement {
         ) : (
           <>
             <header className="thread-header">
-              <div className="thread-title-block">
+              <div className="thread-title-block" title={activeTopic.title}>
                 <strong>{activeTopic.title}</strong>
                 <span>
                   {activeTopicIsConversation
@@ -947,14 +966,11 @@ export function App(): ReactElement {
                   onRemoveAttachment={removeComposerAttachment}
                   onSelectedFileRefsChange={setComposerFileRefs}
                   onToggleSkill={toggleComposerSkill}
-                  onOpenSkillsSettings={() => openSettings("skills")}
-                  busy={actionRunning !== null || activeTopic.state !== "active"}
                   disabledReason={activeTopic.state !== "active"
                     ? "已完成或稍后处理的需求对话为只读。"
                     : undefined}
                   onSend={sendTopicMessage}
                   onStopAndContinue={stopAndContinueCurrentRun}
-                  onNewWorkpad={createTopicFromComposer}
                   actionRunning={actionRunning}
                   currentWorkpadStatus={activeWorkpad.conversationLifecycle === "running" || activeWorkpad.runControlState?.canStop ? "running" : currentWorkpadSummary(snapshot, activeTopic)?.runtimeStatus}
                   providerOptions={composerProviderOptions}
@@ -973,6 +989,9 @@ export function App(): ReactElement {
           terminalActive={bottomDockKind === "terminal"}
           terminalDisabled={!selectedProjectId}
           onToggleTerminal={toggleTerminalDock}
+          rightRailOpen={rightToolRailState.mode !== "closed"}
+          rightRailPendingCount={pendingConfirmationCount}
+          onToggleRightRail={toggleRightToolRail}
         /> : null}
         {!settingsOpen ? <TerminalDock
           projectId={selectedProjectId}
@@ -992,15 +1011,13 @@ export function App(): ReactElement {
         /> : null}
       </main>
 
-      {!settingsOpen ? <RightToolRailShell
-        collapsed={decisionPaneCollapsed}
-        activeView={rightToolView}
+      {!settingsOpen && rightToolRailState.mode !== "closed" ? <RightToolRailShell
+        state={rightToolRailState}
         pendingCount={pendingConfirmationCount}
         hasPrimary={Boolean(activeConfirmationQueue.primary)}
-        onExpand={expandRightToolRail}
-        onCollapse={() => setDecisionPaneCollapsed(true)}
+        onCollapse={() => setRightToolRailState({ mode: "closed" })}
         onToolOpen={openRightToolPanel}
-        onBackToLauncher={() => setRightToolView("launcher")}
+        onBackToLauncher={() => setRightToolRailState({ mode: "launcher" })}
         agentPanel={
           <ResourceWorkspacePanel
             agents={activeAgentSurfaces}
@@ -1013,7 +1030,7 @@ export function App(): ReactElement {
             resourceErrors={workspaceResourceErrors}
             onSelectResource={selectWorkspaceResource}
             onCloseResource={closeWorkspaceResource}
-            onBack={() => setRightToolView("launcher")}
+            onBack={() => setRightToolRailState({ mode: "launcher" })}
             agentDrafts={workspaceResources.agentDrafts}
             pendingAgentMessages={workspaceResources.pendingAgentMessages}
             onAgentDraftChange={workspaceResources.setAgentDraft}
@@ -1071,9 +1088,21 @@ export function App(): ReactElement {
             runtimeLog={runtimeActivityLog}
             runtimeLogLoading={runtimeActivityLogLoading}
             onRefreshRuntimeLog={() => void loadRuntimeActivityLog()}
+            workspace={{
+              projectPath: snapshot.left.repo?.path ?? selectedProjectStatus?.path ?? "-",
+              ready: Boolean(snapshot.memory.harnessReady ?? selectedProjectStatus?.memory?.harnessReady),
+              currentTitle: activeTopic?.title ?? "无",
+              currentKind: activeTopic?.kind === "conversation" ? "当前对话" : "当前需求",
+              issueCount: snapshot.warnings.length + (activeTopic?.closeGate?.blockingIssues.length ?? 0),
+            }}
+            workpad={activeWorkpad}
           />
         }
+        resizeMin={RIGHT_RAIL_MIN_WIDTH}
+        resizeMax={RIGHT_RAIL_MAX_WIDTH}
+        resizeValue={rightToolRailWidth}
         onResizeStart={(event) => beginShellColumnResize(event, "right")}
+        onResizeKeyDown={(event) => resizeShellColumnWithKeyboard(event, "right")}
       /> : null}
 
       <ProviderModelPicker
@@ -1085,7 +1114,6 @@ export function App(): ReactElement {
         onRefresh={() => providerConfiguration.reload()}
         onSelect={(selectedModel) => updateProviderModelSettings({ selectedModel })}
       />
-      {activeTopic && !settingsOpen ? <BottomStatusBar snapshot={snapshot} project={selectedProjectStatus} topic={activeTopic} /> : null}
     </div>
   );
 }

@@ -3,7 +3,7 @@ import { Bot, File, Paperclip, Sparkles } from "lucide-react";
 import type { ComposerContextKind, ComposerContextSummary } from "./ComposerContextSources.js";
 
 export function ComposerControls({
-  providerDisplayName = "Agent Provider",
+  providerDisplayName = "AI 服务",
   modelLabel,
   onOpenModelSettings,
   enabledSkillCount = 0,
@@ -31,9 +31,9 @@ export function ComposerControls({
       {providerOptions.length > 1 ? (
         <label className="composer-provider-select">
           <Bot size={14} aria-hidden="true" />
-          <span className="sr-only">选择 Agent provider</span>
-          <select value={selectedProviderId ?? ""} onChange={(event) => onSelectProvider?.(event.target.value)} aria-label="选择 Agent provider">
-            {!selectedProviderId ? <option value="" disabled>选择 Agent</option> : null}
+          <span className="sr-only">选择 AI 服务</span>
+          <select value={selectedProviderId ?? ""} onChange={(event) => onSelectProvider?.(event.target.value)} aria-label="选择 AI 服务">
+            {!selectedProviderId ? <option value="" disabled>选择 AI 服务</option> : null}
             {providerOptions.map((provider) => <option key={provider.id} value={provider.id}>{provider.label}</option>)}
           </select>
         </label>

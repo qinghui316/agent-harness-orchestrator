@@ -2,18 +2,14 @@
 
 .app-shell {
   display: grid;
-  grid-template-columns: var(--left-sidebar-width, 280px) minmax(0, 1fr) var(--right-rail-width, 48px);
-  grid-template-rows: minmax(0, 1fr) 32px;
+  grid-template-columns: var(--left-sidebar-width, 280px) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   height: 100vh;
   overflow: hidden;
   background: var(--bg-app);
 }
 
-.app-shell.decision-pane-collapsed {
-  grid-template-columns: var(--left-sidebar-width, 280px) minmax(0, 1fr) 48px;
-}
-
-.app-shell.decision-pane-expanded {
+.app-shell.right-rail-open {
   grid-template-columns: var(--left-sidebar-width, 280px) minmax(0, 1fr) var(--right-rail-width, 320px);
 }
 
@@ -100,34 +96,29 @@
 }
 @media (max-width: 1220px) {
   .app-shell {
-    grid-template-columns: var(--left-sidebar-width, 260px) minmax(0, 1fr) var(--right-rail-width, 48px);
+    grid-template-columns: var(--left-sidebar-width, 260px) minmax(0, 1fr);
   }
 
-  .app-shell.decision-pane-collapsed {
-    grid-template-columns: var(--left-sidebar-width, 260px) minmax(0, 1fr) 48px;
-  }
-
-  .app-shell.decision-pane-expanded {
+  .app-shell.right-rail-open {
     grid-template-columns: var(--left-sidebar-width, 260px) minmax(0, 1fr) var(--right-rail-width, 300px);
   }
 }
 
 @media (max-width: 720px) {
   .app-shell:not(.settings-open) {
-    grid-template-columns: minmax(0, 1fr) 48px;
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr);
   }
 
-  .app-shell:not(.settings-open) > .sidebar,
-  .app-shell:not(.settings-open) > .bottom-status {
+  .app-shell:not(.settings-open) > .sidebar {
     display: none;
   }
 
-  .app-shell.decision-pane-expanded:not(.settings-open):not(.orchestration-open) {
+  .app-shell.right-rail-open:not(.settings-open):not(.orchestration-open) {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .app-shell.decision-pane-expanded:not(.settings-open):not(.orchestration-open) > .workspace {
+  .app-shell.right-rail-open:not(.settings-open):not(.orchestration-open) > .workspace {
     display: none;
   }
 
@@ -140,8 +131,7 @@
   }
 
   .app-shell.orchestration-open > .sidebar,
-  .app-shell.orchestration-open > .approval-pane,
-  .app-shell.orchestration-open > .bottom-status {
+  .app-shell.orchestration-open > .approval-pane {
     display: none;
   }
 }

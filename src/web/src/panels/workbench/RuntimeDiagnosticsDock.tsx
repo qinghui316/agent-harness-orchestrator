@@ -1,6 +1,6 @@
 import { ArrowLeft, Copy, RefreshCcw } from "lucide-react";
 import { useState, type ReactElement } from "react";
-import type { RuntimeActivityItem, RuntimeActivityLogSnapshot, RuntimeDiagnosticItem, RuntimeDiagnosticsSnapshot } from "../../types.js";
+import type { RuntimeActivityItem, RuntimeActivityLogSnapshot, RuntimeDiagnosticItem, RuntimeDiagnosticsSnapshot, Workpad } from "../../types.js";
 import { RuntimeActivityLogPanel } from "./RuntimeActivityLogPanel.js";
 
 export function RuntimeDiagnosticsRailPanel({
@@ -10,6 +10,8 @@ export function RuntimeDiagnosticsRailPanel({
   runtimeLog,
   runtimeLogLoading,
   onRefreshRuntimeLog,
+  workspace,
+  workpad,
 }: {
   snapshot: RuntimeDiagnosticsSnapshot | null;
   loading: boolean;
@@ -17,6 +19,14 @@ export function RuntimeDiagnosticsRailPanel({
   runtimeLog: RuntimeActivityLogSnapshot | null;
   runtimeLogLoading: boolean;
   onRefreshRuntimeLog: () => void;
+  workspace: {
+    projectPath: string;
+    ready: boolean;
+    currentTitle: string;
+    currentKind: string;
+    issueCount: number;
+  };
+  workpad: Workpad;
 }): ReactElement {
   const [view, setView] = useState<"summary" | "log">("summary");
   const copyText = snapshot ? formatDiagnosticsForCopy(snapshot) : "暂无诊断数据。";
@@ -69,11 +79,23 @@ export function RuntimeDiagnosticsRailPanel({
         </div>
       </header>
       <p className="runtime-diagnostics-summary">{loading ? "正在读取运行状态。" : diagnosticsStatusText(snapshot)}</p>
-      <div className="runtime-diagnostics-rail-list" data-testid="runtime-diagnostics-health-list">
+      <section className="runtime-diagnostics-context" aria-label="工作区信息">
+        <dl>
+          <div><dt>项目根目录</dt><dd>{workspace.projectPath}</dd></div>
+          <div><dt>工作区状态</dt><dd>{workspace.ready ? "已准备" : "未准备"}</dd></div>
+          <div><dt>{workspace.currentKind}</dt><dd>{workspace.currentTitle}</dd></div>
+          <div><dt>待处理问题</dt><dd>{workspace.issueCount}</dd></div>
+        </dl>
+      </section>
+      <div className="runtime-diagnostics-rail-list" data-testid="runtime-diagnostics-health-list" data-diagnostic-raw-evidence>
         {loading ? <div className="runtime-diagnostics-empty">正在读取运行状态...</div> : null}
         {!loading && !snapshot ? <div className="runtime-diagnostics-empty">暂无诊断数据。</div> : null}
         {snapshot?.items.map((item) => <RuntimeDiagnosticRow key={item.id} item={item} />)}
       </div>
+      <details className="runtime-diagnostics-raw" data-diagnostic-raw-evidence>
+        <summary>原始需求运行数据</summary>
+        <pre>{JSON.stringify(workpad, null, 2)}</pre>
+      </details>
       <RecentRuntimeEvents
         snapshot={runtimeLog}
         elevated={Boolean(snapshot && snapshot.summary.status !== "ok")}
@@ -86,7 +108,7 @@ export function RuntimeDiagnosticsRailPanel({
 
 function RuntimeDiagnosticRow({ item }: { item: RuntimeDiagnosticItem }): ReactElement {
   return (
-    <article className={`runtime-diagnostic-row ${item.status}`} data-testid="runtime-diagnostic-health-row">
+    <article className={`runtime-diagnostic-row ${item.status}`} data-testid="runtime-diagnostic-health-row" data-diagnostic-raw-evidence>
       <span className={`runtime-diagnostics-status-dot ${item.status}`} aria-hidden="true" />
       <div className="runtime-diagnostic-row-main">
         <strong>{item.title}</strong>
@@ -115,7 +137,7 @@ function RecentRuntimeEvents({
 }): ReactElement {
   const events = (snapshot?.items ?? []).slice(0, 2);
   return (
-    <section className="runtime-diagnostics-recent" data-testid="runtime-diagnostics-recent-events">
+    <section className="runtime-diagnostics-recent" data-testid="runtime-diagnostics-recent-events" data-diagnostic-raw-evidence>
       <header>
         <div>
           <strong>最近问题</strong>
@@ -135,7 +157,7 @@ function RecentRuntimeEvents({
 function RecentRuntimeEventRow({ item, elevated }: { item: RuntimeActivityItem; elevated: boolean }): ReactElement {
   const visualSeverity = elevated ? item.severity : "history";
   return (
-    <article className={`runtime-diagnostics-recent-row ${visualSeverity}`}>
+    <article className={`runtime-diagnostics-recent-row ${visualSeverity}`} data-diagnostic-raw-evidence>
       <span className={`runtime-activity-dot ${elevated ? item.severity : "info"}`} aria-hidden="true" />
       <div>
         <strong>{item.title}</strong>

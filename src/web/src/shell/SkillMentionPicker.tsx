@@ -77,7 +77,7 @@ export function SkillMentionPicker({
 }
 
 function runtimeStatusLabel(status: string, bindingKind?: string): string {
-  if (status === "ready" && bindingKind === "native") return "Provider 原生可用";
+  if (status === "ready" && bindingKind === "native") return "服务原生可用";
   if (status === "ready") return "已同步";
   if (status === "stale") return "需要重新同步";
   return "需要同步";

@@ -1,10 +1,5 @@
 /* Conversation and transcript */
 
-.workpad {
-  display: grid;
-  gap: 12px;
-  padding-bottom: 12px;
-}
 .parent-conversation {
   display: grid;
   gap: 12px;
