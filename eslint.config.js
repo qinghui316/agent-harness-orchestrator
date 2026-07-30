@@ -7,6 +7,8 @@ export default tseslint.config(
       "dist/**",
       "node_modules/**",
       "reference-projects/**",
+      ".agents/**",
+      ".claude/**",
       ".playwright-mcp/**",
       ".tmp/**",
       "coverage/**",
