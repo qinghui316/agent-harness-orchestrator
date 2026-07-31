@@ -7,6 +7,8 @@ Evolution state live in the project Harness.
 <!-- ECL-HARNESS:BEGIN -->
 # agent-harness-orchestrator Agent Route
 
+<!-- ECL-HARNESS-PROJECT-ID: agent-harness-orchestrator-a6ad344cbe4e -->
+
 This repository uses the local `agent-harness-orchestrator-a6ad344cbe4e-harness` Harness Skill. Load that Skill before structured
 development, worktree coordination, Integration, or Harness evolution.
 
@@ -16,7 +18,11 @@ If this is a newly created worktree and the Skill is not discoverable yet, run:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/harness-skill-link.ps1
 ```
 
-Then reload the project Harness and run its Registry preflight before planning or implementation.
+Then reload the project Harness; single-Lane Small Changes use targeted verification, while Structured and multi-Lane repository work publish scope and run Registry preflight. Before removing this secondary worktree, detach its shared Skill links with:
+
+```text
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/harness-skill-link.ps1 -Detach
+```
 
 - Preserve unrelated changes and follow existing project verification.
 - Current Change artifacts and history live in the shared project Harness.
