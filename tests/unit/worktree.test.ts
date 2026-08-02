@@ -1,7 +1,8 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { git } from "../../src/project/git.js";
 import { writeWorktreeIndex } from "../../src/worktree/index.js";
 import {
   getGlobalWorktreeCheckoutRoot,
@@ -17,14 +18,21 @@ import type { ResolvedMemory, WorktreeMetadata } from "../../src/types/index.js"
 
 let tempDir: string;
 let memory: ResolvedMemory;
+let previousAhoHome: string | undefined;
 
 beforeEach(async () => {
   tempDir = await mkdtemp(join(tmpdir(), "aho-worktree-"));
-  memory = repoLocalMemory(tempDir, "repo");
+  previousAhoHome = process.env.AHO_HOME;
+  process.env.AHO_HOME = join(tempDir, "aho-home");
+  const projectRoot = join(tempDir, "project");
+  await mkdir(projectRoot, { recursive: true });
+  memory = repoLocalMemory(projectRoot, "repo");
   await mkdir(memory.worktreeMetadataRoot, { recursive: true });
 });
 
 afterEach(async () => {
+  if (previousAhoHome === undefined) delete process.env.AHO_HOME;
+  else process.env.AHO_HOME = previousAhoHome;
   await rm(tempDir, { recursive: true, force: true });
 });
 
@@ -62,6 +70,37 @@ describe("worktree metadata scope", () => {
 
     expect(statuses.map((item) => item.worktreeId)).toEqual(["wt-valid"]);
     expect(statuses[0]).toMatchObject({ exists: false, dirty: null, headCommit: null });
+  });
+
+  it("preserves a pre-migration checkout when Git still registers it to the canonical project", async () => {
+    await git(memory.projectRoot, ["init"]);
+    await git(memory.projectRoot, ["config", "user.email", "aho-tests@example.invalid"]);
+    await git(memory.projectRoot, ["config", "user.name", "AHO Tests"]);
+    await writeFile(join(memory.projectRoot, "README.md"), "project\n", "utf8");
+    await git(memory.projectRoot, ["add", "README.md"]);
+    await git(memory.projectRoot, ["commit", "-m", "initial"]);
+    const checkoutPath = join(process.env.AHO_HOME!, "worktrees", "legacy-project-id", "checkouts", "wt-migrated");
+    await mkdir(join(checkoutPath, ".."), { recursive: true });
+    await git(memory.projectRoot, ["worktree", "add", "-b", "aho/migrated", checkoutPath, "HEAD"]);
+    await writeMetadata("wt-migrated", validMetadata({ worktreeId: "wt-migrated", checkoutPath }));
+
+    await expect(getWorktreeStatus(memory, "wt-migrated")).resolves.toMatchObject({
+      worktreeId: "wt-migrated",
+      projectId: "repo",
+      exists: true,
+    });
+  });
+
+  it("rejects a checkout path that traverses a link or Junction under the AHO worktree root", async () => {
+    const outside = join(tempDir, "outside-worktrees");
+    const linkedRoot = join(process.env.AHO_HOME!, "worktrees", "legacy-project-id");
+    await mkdir(outside, { recursive: true });
+    await mkdir(join(linkedRoot, ".."), { recursive: true });
+    await symlink(outside, linkedRoot, process.platform === "win32" ? "junction" : "dir");
+    const checkoutPath = join(linkedRoot, "checkouts", "wt-linked");
+    await writeMetadata("wt-linked", validMetadata({ worktreeId: "wt-linked", checkoutPath }));
+
+    await expect(getWorktreeStatus(memory, "wt-linked")).rejects.toThrow(/link or Junction/);
   });
 });
 

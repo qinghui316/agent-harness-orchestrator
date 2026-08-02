@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { lstat, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { parseJsonText, writeJsonFile } from "../fs/json.js";
 import { assertPortableProjectId } from "../project-harness/project-id.js";
 import {
@@ -15,6 +15,7 @@ import {
   renameIdentityMigrationPath,
 } from "./identity-migration-fs.js";
 import {
+  auditJsonLinesProjectIdentity,
   auditStructuredProjectIdentity,
   rewriteStructuredProjectIdentity,
 } from "./identity-migration-json.js";
@@ -204,6 +205,46 @@ export async function recoverProjectIdentityMigration(
   return resultFromJournal(journal);
 }
 
+export async function recoverPendingProjectIdentityMigrations(
+  projectsRootPath: string,
+  resolveDocuments: (
+    journal: Readonly<ProjectIdentityMigrationJournal>,
+  ) => Promise<readonly ProjectIdentityJsonDocument[]> | readonly ProjectIdentityJsonDocument[],
+): Promise<ProjectIdentityMigrationResult[]> {
+  const projectsRoot = resolve(projectsRootPath);
+  if (!existsSync(projectsRoot)) return [];
+  await assertIdentityMigrationPhysicalDirectory(projectsRoot, "runtime projects root");
+  const transactionRoot = join(projectsRoot, ".identity-transactions");
+  if (!existsSync(transactionRoot)) return [];
+  await assertIdentityMigrationPhysicalDirectory(transactionRoot, "identity migration transaction root");
+  const results: ProjectIdentityMigrationResult[] = [];
+  for (const entry of (await readdir(transactionRoot, { withFileTypes: true })).sort((left, right) => left.name.localeCompare(right.name))) {
+    const transactionDirectory = join(transactionRoot, entry.name);
+    const info = await lstat(transactionDirectory);
+    if (!info.isDirectory() || info.isSymbolicLink()) {
+      throw new Error(`Identity migration transaction entry must be a physical directory: ${transactionDirectory}`);
+    }
+    const journalPath = join(transactionDirectory, "journal.json");
+    const journal = await readJournal(journalPath);
+    if (!samePath(dirname(journal.sourceSidecarRoot), projectsRoot)
+      || !samePath(dirname(journal.targetSidecarRoot), projectsRoot)) {
+      throw new Error(`Identity migration journal sidecars are outside the canonical projects root: ${journalPath}`);
+    }
+    if (journal.stage === "completed" || journal.stage === "rolled-back") continue;
+    const jsonDocuments = [...await resolveDocuments(journal)];
+    results.push(await recoverProjectIdentityMigration({
+      journalPath,
+      sourceProjectId: journal.sourceProjectId,
+      targetProjectId: journal.targetProjectId,
+      manifestPath: journal.manifestPath,
+      sourceSidecarRoot: journal.sourceSidecarRoot,
+      targetSidecarRoot: journal.targetSidecarRoot,
+      jsonDocuments,
+    }));
+  }
+  return results;
+}
+
 async function prepareMigration(options: MigrateProjectIdentityOptions): Promise<PreparedMigration> {
   assertPortableProjectId(options.sourceProjectId, "source project id");
   assertPortableProjectId(options.targetProjectId, "target project id");
@@ -244,6 +285,13 @@ async function prepareMigration(options: MigrateProjectIdentityOptions): Promise
     options.transactionId,
   );
   await assertOnlyAllowlistedDatabases(sourceSidecarRoot, sqliteDatabases);
+  await assertNoUnclassifiedSidecarIdentity(
+    sourceSidecarRoot,
+    sqliteDatabases,
+    documents,
+    options.sourceProjectId,
+    options.targetProjectId,
+  );
   const sourceSidecarFingerprint = await hashTree(sourceSidecarRoot);
   await mkdir(transactionRoot, { recursive: true });
   await assertIdentityMigrationPhysicalDirectory(transactionRoot, "identity migration transaction root");
@@ -454,6 +502,33 @@ async function auditAllSidecarJson(
       targetProjectId,
       allowlist.get(resolve(path).toLowerCase()) ?? [],
     );
+  }
+}
+
+async function assertNoUnclassifiedSidecarIdentity(
+  sourceSidecarRoot: string,
+  databases: readonly (ProjectIdentitySqliteDatabase & { relativePath: string })[],
+  documents: readonly ProjectIdentityMigrationDocumentJournal[],
+  sourceProjectId: string,
+  targetProjectId: string,
+): Promise<void> {
+  const databaseFiles = new Set(databases.flatMap(({ relativePath }) => [
+    relativePath.toLowerCase(),
+    `${relativePath}-wal`.toLowerCase(),
+    `${relativePath}-shm`.toLowerCase(),
+  ]));
+  for (const relativePath of await collectFiles(sourceSidecarRoot)) {
+    const normalized = relativePath.replace(/\\/g, "/");
+    if (databaseFiles.has(normalized.toLowerCase()) || normalized.toLowerCase().endsWith(".json")) continue;
+    const path = join(sourceSidecarRoot, normalized);
+    if (normalized.toLowerCase().endsWith(".jsonl")) {
+      await auditJsonLinesProjectIdentity(path, sourceProjectId, targetProjectId);
+      continue;
+    }
+    const content = await readFile(path);
+    if (content.includes(Buffer.from(sourceProjectId)) || content.includes(Buffer.from(targetProjectId))) {
+      throw new Error(`Unclassified runtime sidecar identity literal: ${normalized}`);
+    }
   }
 }
 
@@ -735,6 +810,10 @@ function assertJournalPaths(journal: ProjectIdentityMigrationJournal, suppliedJo
   assertPortableProjectId(journal.targetProjectId, "journal target project id");
   if (!PORTABLE_TRANSACTION_ID.test(journal.transactionId)) throw new Error("Identity migration journal transaction id is invalid.");
   assertExactSiblingPaths(journal.sourceSidecarRoot, journal.targetSidecarRoot);
+  if (basename(resolve(journal.sourceSidecarRoot)) !== journal.sourceProjectId
+    || basename(resolve(journal.targetSidecarRoot)) !== journal.targetProjectId) {
+    throw new Error("Identity migration journal sidecar names do not match its project ids.");
+  }
   const parent = dirname(resolve(journal.sourceSidecarRoot));
   const expectedJournal = join(parent, ".identity-transactions", journal.transactionId, "journal.json");
   const expectedStaged = join(parent, `.${journal.targetProjectId}.${journal.transactionId}.staged`);
@@ -791,12 +870,16 @@ function sameStrings(left: readonly string[], right: readonly string[]): boolean
 
 function assertWithinRoot(root: string, path: string, label: string): void {
   const rel = relative(resolve(root), resolve(path));
-  if (!rel || rel === ".." || rel.startsWith(`..${sep}`)) throw new Error(`${label} is outside its root: ${path}`);
+  if (!rel || isAbsolute(rel) || rel === ".." || rel.startsWith(`..${sep}`)) {
+    throw new Error(`${label} is outside its root: ${path}`);
+  }
 }
 
 function assertOutsideRoot(root: string, path: string, label: string): void {
   const rel = relative(resolve(root), resolve(path));
-  if (!rel || (rel !== ".." && !rel.startsWith(`..${sep}`))) throw new Error(`${label} must be outside ${root}: ${path}`);
+  if (!rel || (!isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`))) {
+    throw new Error(`${label} must be outside ${root}: ${path}`);
+  }
 }
 
 async function hashTree(root: string): Promise<string> {

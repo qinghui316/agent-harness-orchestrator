@@ -11,6 +11,7 @@ import {
   type ProjectIdentityMigrationStage,
 } from "../../src/project-runtime/identity-migration.js";
 import { WORKBENCH_PROJECT_IDENTITY_COLUMNS } from "../../src/project-runtime/identity-migration-sqlite.js";
+import { migrate as migrateWorkbenchSchema } from "../../src/workbench/persistence/schema.js";
 
 const SOURCE_ID = "aho-self";
 const TARGET_ID = "agent-harness-orchestrator-a6ad344cbe4e";
@@ -21,6 +22,27 @@ afterEach(async () => {
 });
 
 describe("staged canonical project identity migration", () => {
+  it("keeps the identity allowlist exactly aligned with the current Workbench schema", () => {
+    const database = new Database(":memory:");
+    try {
+      migrateWorkbenchSchema(database);
+      const tables = database.prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+      ).all() as Array<{ name: string }>;
+      const actual = tables.flatMap(({ name }) => (
+        database.prepare(`PRAGMA table_info('${name.replace(/'/g, "''")}')`).all() as Array<{ name: string }>
+      ).filter((column) => /project_?id/i.test(column.name)).map((column) => `${name}.${column.name}`)).sort();
+      const expected = WORKBENCH_PROJECT_IDENTITY_COLUMNS
+        .map(({ table, column }) => `${table}.${column}`)
+        .sort();
+
+      expect(actual).toEqual(expected);
+      expect(expected).toHaveLength(16);
+    } finally {
+      database.close();
+    }
+  });
+
   it("migrates only allowlisted SQLite and structured JSON identities with count and content parity", async () => {
     const fixture = await createFixture("success");
     const sourceHash = await hashTree(fixture.sourceSidecarRoot);

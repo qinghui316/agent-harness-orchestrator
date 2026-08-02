@@ -9,6 +9,8 @@ import { closeChangeForChange, createChange } from "../../src/change/manager.js"
 import { initHarness } from "../../src/harness/init.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { ProjectRegistryStore } from "../../src/registry/store.js";
+import { resolveProjectRuntimePaths } from "../../src/project-runtime/paths.js";
+import type { ProjectRuntimeCoordinatorPort } from "../../src/project-runtime/coordinator.js";
 import { startLocalCommandRun } from "../../src/run/manager.js";
 import { TerminalRuntime } from "../../src/server/terminal/terminal-runtime.js";
 import { buildNativeFolderDialogCommand, executeWorkbenchAction, recoverWorkbenchProjects, startWorkbenchServer, type WorkbenchServerHandle } from "../../src/server/workbench-server.js";
@@ -52,6 +54,7 @@ describe("workbench server", () => {
     originalCodexBin = process.env.AHO_CODEX_BIN;
     originalAhoHome = process.env.AHO_HOME;
     process.env.CODEX_HOME = join(tempDir, "codex-home");
+    process.env.AHO_HOME = registryRoot;
     process.env.AHO_CODEX_BIN = await createFakeCodexRuntime(tempDir);
     await writeFile(join(staticRoot, "index.html"), "<div>AHO</div>", "utf8");
     await initHarness(project());
@@ -90,6 +93,47 @@ describe("workbench server", () => {
 
     const page = await fetch(`${handle!.url}/`);
     expect(await page.text()).toContain("AHO");
+  });
+
+  it("orders identity reconciliation before project recovery, workers, and listen", async () => {
+    await handle!.close();
+    handle = null;
+    const order: string[] = [];
+    let resolveCount = 0;
+    const coordinator: ProjectRuntimeCoordinatorPort = {
+      async reconcileStartup() {
+        order.push("identity-recovery");
+        return { states: [], migrations: [], recoveries: [] };
+      },
+      async resolve(inputProject) {
+        resolveCount += 1;
+        order.push(resolveCount === 1 ? "project-recovery" : "background-workers");
+        return {
+          state: "onboarding",
+          project: inputProject,
+          projectRoot: inputProject.path,
+          paths: resolveProjectRuntimePaths(inputProject.id, registryRoot),
+          reservedProjectId: inputProject.id,
+        };
+      },
+      async requireReady() {
+        throw new Error("not used");
+      },
+    };
+
+    handle = await startWorkbenchServer({ project: project(), path: tempDir }, {
+      port: 0,
+      staticRoot,
+      projectRuntimeCoordinator: coordinator,
+    });
+    order.push("listen");
+
+    expect(order).toEqual([
+      "identity-recovery",
+      "project-recovery",
+      "background-workers",
+      "listen",
+    ]);
   });
 
   it("serves one canonical Timeline and retires flattened message reads", async () => {
@@ -885,7 +929,9 @@ describe("workbench server", () => {
     await rm(marker.outboxPath as string, { force: true });
     await writeFile(markerPath, `${JSON.stringify({ ...marker, stage: "renamed" }, null, 2)}\n`, "utf8");
 
-    await recoverWorkbenchProjects(store, null);
+    await recoverWorkbenchProjects(store, null, {
+      resolve: async (project) => ({ state: "ready", project, resolution: {} as never }),
+    });
 
     expect(JSON.parse(await readFile(markerPath, "utf8"))).toMatchObject({ stage: "completed" });
     expect(existsSync(join(secondRoot, closed.receiptPath as string))).toBe(true);

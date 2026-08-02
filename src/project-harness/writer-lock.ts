@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { parseJsonText, writeJsonFile } from "../fs/json.js";
 import { assertPhysicalDirectory } from "./path-safety.js";
 
@@ -32,6 +32,10 @@ export interface WriterLockScope {
 }
 
 const DEFAULT_TTL_MS = 5 * 60_000;
+
+export function projectHarnessSharedWriterRoot(sidecarRoot: string): string {
+  return dirname(resolve(sidecarRoot));
+}
 
 export async function withProjectHarnessWriterLock<T>(
   sidecarRoot: string,

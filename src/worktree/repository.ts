@@ -8,7 +8,7 @@ import type { ResolvedMemory, WorktreeMetadata } from "../types/index.js";
 
 export async function readWorktreeMetadata(memory: ResolvedMemory, worktreeId: string): Promise<WorktreeMetadata> {
   const metadata = await readRequiredJsonFile(getWorktreeMetadataPath(memory, worktreeId), worktreeMetadataSchema);
-  assertWorktreeMetadataScope(memory, worktreeId, metadata);
+  await assertWorktreeMetadataScope(memory, worktreeId, metadata);
   return metadata;
 }
 
@@ -34,7 +34,7 @@ export async function listWorktreeMetadata(memory: ResolvedMemory): Promise<Work
 }
 
 export async function writeWorktreeMetadata(memory: ResolvedMemory, metadata: WorktreeMetadata): Promise<void> {
-  assertWorktreeMetadataScope(memory, metadata.worktreeId, metadata);
+  await assertWorktreeMetadataScope(memory, metadata.worktreeId, metadata);
   await writeJsonFile(getWorktreeMetadataPath(memory, metadata.worktreeId), metadata);
 }
 

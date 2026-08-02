@@ -9,7 +9,11 @@ import {
   stageProjectHarnessEvolution,
 } from "../../src/project-harness/evolution.js";
 import { SourceFingerprintSnapshot } from "../../src/project-harness/source-fingerprint.js";
-import { claimProjectHarnessWriterLock, releaseProjectHarnessWriterLock } from "../../src/project-harness/writer-lock.js";
+import {
+  claimProjectHarnessWriterLock,
+  projectHarnessSharedWriterRoot,
+  releaseProjectHarnessWriterLock,
+} from "../../src/project-harness/writer-lock.js";
 
 const cleanup: string[] = [];
 
@@ -161,7 +165,8 @@ describe("project Harness Evolution", () => {
   it("honors the shared writer lock during publication", async () => {
     const fixture = await createFixture();
     const stage = await fixture.stage();
-    const lock = await claimProjectHarnessWriterLock(fixture.sidecarRoot, {
+    const writerRoot = projectHarnessSharedWriterRoot(fixture.sidecarRoot);
+    const lock = await claimProjectHarnessWriterLock(writerRoot, {
       projectId: "sample-a1",
       ownerId: "integration-owner",
       operation: "integration-finalize",
@@ -176,7 +181,7 @@ describe("project Harness Evolution", () => {
         note: "Must wait for Integration.",
       })).rejects.toThrow(/writer lock is already held/);
     } finally {
-      await releaseProjectHarnessWriterLock(fixture.sidecarRoot, lock.token);
+      await releaseProjectHarnessWriterLock(writerRoot, lock.token);
     }
     expect(await readFile(join(fixture.skillRoot, "static.txt"), "utf8")).toBe("current\n");
   });

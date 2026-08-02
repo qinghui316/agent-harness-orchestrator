@@ -12,7 +12,7 @@ import { publishProjectHarnessCandidate } from "./publication.js";
 import { parseEvolutionCandidateJudge, type EvolutionCandidateJudge } from "./reviews.js";
 import type { SourceFingerprintSnapshot } from "./source-fingerprint.js";
 import { canonicalProjectHarnessId } from "./registry.js";
-import { withProjectHarnessWriterLock } from "./writer-lock.js";
+import { projectHarnessSharedWriterRoot, withProjectHarnessWriterLock } from "./writer-lock.js";
 
 export interface ProjectHarnessEvolutionState {
   schema_version: "1.0";
@@ -120,7 +120,7 @@ export async function checkProjectHarnessEvolution(
   ownerId = "evolution-check",
 ): Promise<ProjectHarnessEvolutionState> {
   const manifest = await readProjectHarnessManifest(skillRoot);
-  return withProjectHarnessWriterLock(sidecarRoot, {
+  return withProjectHarnessWriterLock(projectHarnessSharedWriterRoot(sidecarRoot), {
     projectId: manifest.project_id,
     ownerId: canonicalProjectHarnessId(ownerId, "Evolution check owner id"),
     operation: "evolution-publish",
@@ -184,7 +184,7 @@ export async function stageProjectHarnessEvolution(
   if (candidateFingerprint === currentContentFingerprint) {
     throw new Error("Evolution candidate content must differ from the current Harness.");
   }
-  return withProjectHarnessWriterLock(sidecarRoot, {
+  return withProjectHarnessWriterLock(projectHarnessSharedWriterRoot(sidecarRoot), {
     projectId: currentManifest.project_id,
     ownerId,
     operation: "evolution-publish",
@@ -310,7 +310,7 @@ export async function completeProjectHarnessEvolution(
       cleanupPending: false,
     };
   } else {
-    await withProjectHarnessWriterLock(sidecarRoot, {
+    await withProjectHarnessWriterLock(projectHarnessSharedWriterRoot(sidecarRoot), {
       projectId: currentManifest.project_id,
       ownerId: input.ownerId,
       operation: "evolution-publish",

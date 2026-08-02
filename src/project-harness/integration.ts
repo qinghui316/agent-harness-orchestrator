@@ -24,6 +24,7 @@ import {
   assertProjectHarnessWriterLockCurrent,
   claimProjectHarnessWriterLock,
   heartbeatProjectHarnessWriterLock,
+  projectHarnessSharedWriterRoot,
   readProjectHarnessWriterLock,
   releaseProjectHarnessWriterLock,
 } from "./writer-lock.js";
@@ -436,7 +437,7 @@ export async function completeProjectHarnessIntegration(
       phase = "cleanup_complete";
       await input.failureInjection?.("cleanup_complete");
     }
-    await releaseProjectHarnessWriterLock(input.sidecarRoot, lock.token);
+    await releaseProjectHarnessWriterLock(projectHarnessSharedWriterRoot(input.sidecarRoot), lock.token);
     return record;
   } catch (error) {
     const canonicalHead = await resolveCommit(input.projectRoot, "HEAD", git);
@@ -725,10 +726,11 @@ async function assertNoDirectoryLinks(root: string): Promise<void> {
 }
 
 async function claimOrReuseWriterLock(sidecarRoot: string, projectId: string, integrationId: string) {
-  const existing = await readProjectHarnessWriterLock(sidecarRoot);
+  const writerRoot = projectHarnessSharedWriterRoot(sidecarRoot);
+  const existing = await readProjectHarnessWriterLock(writerRoot);
   if (existing) {
     try {
-      await assertProjectHarnessWriterLockCurrent(sidecarRoot, existing.token);
+      await assertProjectHarnessWriterLockCurrent(writerRoot, existing.token);
       if (existing.projectId !== projectId || existing.ownerId !== integrationId || existing.operation !== "integration-finalize") {
         throw new Error(`Project Harness writer lock is already held by ${existing.operation} by ${existing.ownerId}.`);
       }
@@ -737,7 +739,7 @@ async function claimOrReuseWriterLock(sidecarRoot: string, projectId: string, in
       if (!/expired/.test(error instanceof Error ? error.message : String(error))) throw error;
     }
   }
-  return claimProjectHarnessWriterLock(sidecarRoot, {
+  return claimProjectHarnessWriterLock(writerRoot, {
     projectId,
     ownerId: integrationId,
     operation: "integration-finalize",
@@ -745,14 +747,15 @@ async function claimOrReuseWriterLock(sidecarRoot: string, projectId: string, in
 }
 
 async function heartbeatIntegrationWriter(sidecarRoot: string, token: string): Promise<void> {
-  await heartbeatProjectHarnessWriterLock(sidecarRoot, token, WRITER_LOCK_TTL_MS, new Date());
+  await heartbeatProjectHarnessWriterLock(projectHarnessSharedWriterRoot(sidecarRoot), token, WRITER_LOCK_TTL_MS, new Date());
 }
 
 async function releaseOwnedWriterLock(sidecarRoot: string, integrationId: string): Promise<void> {
-  const lock = await readProjectHarnessWriterLock(sidecarRoot);
+  const writerRoot = projectHarnessSharedWriterRoot(sidecarRoot);
+  const lock = await readProjectHarnessWriterLock(writerRoot);
   if (!lock) return;
   if (lock.ownerId !== integrationId || lock.operation !== "integration-finalize") return;
-  await releaseProjectHarnessWriterLock(sidecarRoot, lock.token);
+  await releaseProjectHarnessWriterLock(writerRoot, lock.token);
 }
 
 async function assertIntegrationIdentity(skillRoot: string, projectId: string): Promise<void> {

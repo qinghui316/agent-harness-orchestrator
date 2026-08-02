@@ -85,6 +85,24 @@ export async function auditStructuredProjectIdentity(
   );
 }
 
+export async function auditJsonLinesProjectIdentity(
+  path: string,
+  sourceProjectId: string,
+  targetProjectId: string,
+): Promise<void> {
+  const raw = await readFile(path, "utf8");
+  const lines = raw.split(/\r?\n/).filter((line) => line.trim().length > 0);
+  for (let index = 0; index < lines.length; index += 1) {
+    const location = `${path}#line-${index + 1}`;
+    const parsed = parseJsonText(lines[index]!, location);
+    walkJson(parsed, [], null, ({ key, value, pointer }) => {
+      if (key !== null && isIdentityKey(key) && (value === sourceProjectId || value === targetProjectId)) {
+        throw new Error(`Unclassified JSONL project identity at ${location}${pointer}.`);
+      }
+    });
+  }
+}
+
 function assertNoUnknownStructuredIdentity(
   value: unknown,
   path: string,

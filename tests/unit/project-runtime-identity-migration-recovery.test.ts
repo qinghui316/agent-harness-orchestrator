@@ -5,6 +5,7 @@ import { join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  recoverPendingProjectIdentityMigrations,
   recoverProjectIdentityMigration,
   type RecoverProjectIdentityMigrationOptions,
   type ProjectIdentityMigrationJournal,
@@ -53,6 +54,22 @@ describe("project identity migration Windows rename and recovery", () => {
     expect(await readFile(fixture.registryPath, "utf8")).toContain(`"id": "${SOURCE_ID}"`);
     expect(existsSync(fixture.registryStagedPath)).toBe(false);
     expect((await readJournal(fixture.journalPath)).stage).toBe("rolled-back");
+  });
+
+  it("discovers and recovers a non-terminal journal under the canonical projects root", async () => {
+    const fixture = await createRecoveryFixture("recover-startup-scan", "target-sidecar-published");
+    await rename(fixture.sourceSidecarRoot, fixture.previousSidecarRoot);
+    await rename(fixture.stagedSidecarRoot, fixture.targetSidecarRoot);
+    await writeJournal(fixture.journalPath, fixture.journal);
+
+    const recovered = await recoverPendingProjectIdentityMigrations(
+      join(fixture.sourceSidecarRoot, ".."),
+      () => fixture.recoveryOptions.jsonDocuments,
+    );
+
+    expect(recovered).toEqual([expect.objectContaining({ stage: "rolled-back" })]);
+    expect(existsSync(fixture.sourceSidecarRoot)).toBe(true);
+    expect(existsSync(fixture.targetSidecarRoot)).toBe(false);
   });
 
   it("restores an external document whose rename completed before its journal state was flushed", async () => {
@@ -105,6 +122,21 @@ describe("project identity migration Windows rename and recovery", () => {
 
     expect(await readFile(unrelatedPath, "utf8")).toBe("preserve\n");
     expect(existsSync(fixture.sourceSidecarRoot)).toBe(true);
+  });
+
+  it("rejects sibling sidecar roots whose names do not match the journal identities", async () => {
+    const fixture = await createRecoveryFixture("recover-sidecar-tamper", "target-sidecar-published");
+    const unrelatedSource = join(fixture.sourceSidecarRoot, "..", "unrelated-source");
+    fixture.journal.sourceSidecarRoot = unrelatedSource;
+    await writeJournal(fixture.journalPath, fixture.journal);
+
+    await expect(recoverProjectIdentityMigration({
+      ...fixture.recoveryOptions,
+      sourceSidecarRoot: unrelatedSource,
+    })).rejects.toThrow(/sidecar names do not match its project ids/);
+
+    expect(existsSync(fixture.sourceSidecarRoot)).toBe(true);
+    expect(existsSync(fixture.targetSidecarRoot)).toBe(false);
   });
 
   it("refuses rollback rather than deleting a concurrently changed published document", async () => {

@@ -9,7 +9,7 @@ import {
 } from "./fingerprint.js";
 import { readProjectHarnessManifest } from "./manifest.js";
 import { assertPhysicalDirectory } from "./path-safety.js";
-import { withProjectHarnessWriterLock } from "./writer-lock.js";
+import { projectHarnessSharedWriterRoot, withProjectHarnessWriterLock } from "./writer-lock.js";
 
 export type ProjectHarnessPublicationStage =
   | "prepared"
@@ -68,7 +68,7 @@ export interface RecoverProjectHarnessPublicationOptions {
 export async function publishProjectHarnessCandidate(
   options: PublishProjectHarnessCandidateOptions,
 ): Promise<ProjectHarnessPublicationJournal> {
-  return withProjectHarnessWriterLock(options.sidecarRoot, {
+  return withProjectHarnessWriterLock(projectHarnessSharedWriterRoot(options.sidecarRoot), {
     projectId: options.projectId,
     ownerId: options.ownerId,
     operation: "migrate",
@@ -211,7 +211,7 @@ export async function recoverProjectHarnessPublication(
   const initial = await readProjectHarnessPublicationJournal(options.journalPath);
   assertJournalInsideSidecar(options.sidecarRoot, options.journalPath);
   assertRecoveryBinding(initial, options);
-  return withProjectHarnessWriterLock(options.sidecarRoot, {
+  return withProjectHarnessWriterLock(projectHarnessSharedWriterRoot(options.sidecarRoot), {
     projectId: initial.projectId,
     ownerId: options.ownerId,
     operation: "migrate",

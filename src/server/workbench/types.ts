@@ -5,6 +5,7 @@ import type { WorkbenchApprovalAction, WorkbenchProjectInput } from "../../workb
 import type { TopicMessageInput, WorkbenchWorkflowActionRequest } from "../../workbench/types.js";
 import type { MemoryMode } from "../../types/index.js";
 import type { BackgroundWorkerOptions } from "../../agent-task/background-worker.js";
+import type { ProjectRuntimeCoordinatorPort } from "../../project-runtime/coordinator.js";
 
 export interface WorkbenchServeOptions {
   host?: string;
@@ -15,6 +16,7 @@ export interface WorkbenchServeOptions {
   backgroundWorker?: Omit<BackgroundWorkerOptions, "assignmentFactory"> & {
     assignmentFactory?: BackgroundWorkerOptions["assignmentFactory"];
   };
+  projectRuntimeCoordinator?: ProjectRuntimeCoordinatorPort;
 }
 
 export interface WorkbenchServerHandle {
@@ -27,6 +29,7 @@ export interface WorkbenchServerContext {
   input: WorkbenchProjectInput | null;
   staticRoot: string;
   store: ProjectRegistryStore;
+  projectRuntimeCoordinator: ProjectRuntimeCoordinatorPort;
   terminalRuntime: TerminalRuntime;
 }
 

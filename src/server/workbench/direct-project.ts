@@ -6,7 +6,11 @@ import type { ManagedProject, ProjectStatus } from "../../types/index.js";
 import type { WorkbenchProjectInput } from "../../workbench/read-model-types.js";
 
 export async function restoreDirectProjectInput(input: WorkbenchProjectInput | null, store: ProjectRegistryStore): Promise<WorkbenchProjectInput | null> {
-  if (!input || input.project) return input;
+  if (!input) return input;
+  if (input.project) {
+    const registered = await store.resolveProject(input.project.path);
+    return registered ? { project: registered, path: registered.path } : input;
+  }
   const marker = await readProjectMarker(input.path);
   if (!marker) return input;
 

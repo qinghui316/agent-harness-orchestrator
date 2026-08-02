@@ -24,6 +24,7 @@ import { sendJson, statusForError } from "./workbench/http.js";
 import { defaultStaticRoot, serveStatic } from "./workbench/static.js";
 import { defaultProviderRegistry } from "../provider-runtime/index.js";
 import type { WorkbenchServeOptions, WorkbenchServerContext, WorkbenchServerHandle } from "./workbench/types.js";
+import { ProjectRuntimeCoordinator, type ProjectRuntimeCoordinatorPort } from "../project-runtime/coordinator.js";
 
 export type { WorkbenchServeOptions, WorkbenchServerHandle } from "./workbench/types.js";
 export { executeWorkbenchAction } from "./workbench/actions.js";
@@ -34,14 +35,17 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
   const port = options.port ?? 4317;
   const staticRoot = options.staticRoot ?? defaultStaticRoot();
   const store = options.store ?? new ProjectRegistryStore();
+  const projectRuntimeCoordinator = options.projectRuntimeCoordinator ?? new ProjectRuntimeCoordinator({ store });
   const terminalRuntime = options.terminalRuntime ?? new TerminalRuntime();
+  await projectRuntimeCoordinator.reconcileStartup();
   const restoredInput = await restoreDirectProjectInput(input, store);
-  await recoverWorkbenchProjects(store, restoredInput);
-  const workers = await startProjectBackgroundWorkers(store, restoredInput, options);
+  await recoverWorkbenchProjects(store, restoredInput, projectRuntimeCoordinator);
+  const workers = await startProjectBackgroundWorkers(store, restoredInput, options, projectRuntimeCoordinator);
   const context: WorkbenchServerContext = {
     input: restoredInput,
     staticRoot,
     store,
+    projectRuntimeCoordinator,
     terminalRuntime,
   };
   const server = createServer((request, response) => {
@@ -78,6 +82,7 @@ async function startProjectBackgroundWorkers(
   store: ProjectRegistryStore,
   directInput: WorkbenchProjectInput | null,
   options: WorkbenchServeOptions,
+  projectRuntimeCoordinator: Pick<ProjectRuntimeCoordinatorPort, "resolve">,
 ): Promise<BackgroundWorkerHandle[]> {
   const projects = await store.listProjects();
   if (directInput?.project && !projects.some((project) => project.id === directInput.project?.id || project.path === directInput.project?.path)) {
@@ -85,6 +90,7 @@ async function startProjectBackgroundWorkers(
   }
   const workers: BackgroundWorkerHandle[] = [];
   for (const project of projects) {
+    if ((await projectRuntimeCoordinator.resolve(project)).state === "onboarding") continue;
     const memory = await resolveProjectMemory(project);
     const worker = startBackgroundWorker(memory, project, {
       ...options.backgroundWorker,
@@ -147,12 +153,17 @@ async function resolveMaintenanceVerification(memory: import("../types/index.js"
   }
 }
 
-export async function recoverWorkbenchProjects(store: ProjectRegistryStore, directInput: WorkbenchProjectInput | null): Promise<void> {
+export async function recoverWorkbenchProjects(
+  store: ProjectRegistryStore,
+  directInput: WorkbenchProjectInput | null,
+  projectRuntimeCoordinator: Pick<ProjectRuntimeCoordinatorPort, "resolve"> = new ProjectRuntimeCoordinator({ store }),
+): Promise<void> {
   const projects = await store.listProjects();
   if (directInput?.project && !projects.some((project) => project.id === directInput.project?.id || project.path === directInput.project?.path)) {
     projects.push(directInput.project);
   }
   for (const project of projects) {
+    if ((await projectRuntimeCoordinator.resolve(project)).state === "onboarding") continue;
     await recoverPendingApplyTransactions(project);
     await recoverChangeCloseTransactions(project);
     const memory = await resolveProjectMemory(project);

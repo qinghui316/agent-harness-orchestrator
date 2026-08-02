@@ -12,7 +12,12 @@ import {
   startProjectHarnessIntegration,
 } from "../../src/project-harness/integration.js";
 import { readProjectHarnessBaseline } from "../../src/project-harness/registry.js";
-import { claimProjectHarnessWriterLock, readProjectHarnessWriterLock, releaseProjectHarnessWriterLock } from "../../src/project-harness/writer-lock.js";
+import {
+  claimProjectHarnessWriterLock,
+  projectHarnessSharedWriterRoot,
+  readProjectHarnessWriterLock,
+  releaseProjectHarnessWriterLock,
+} from "../../src/project-harness/writer-lock.js";
 
 const execFileAsync = promisify(execFile);
 const cleanup: string[] = [];
@@ -66,18 +71,18 @@ describe("project Harness Integration", () => {
       landing_phase: "canonical_landed",
       landing_commit: landedHead,
     });
-    expect(await readProjectHarnessWriterLock(fixture.sidecarRoot)).toMatchObject({
+    expect(await readProjectHarnessWriterLock(projectHarnessSharedWriterRoot(fixture.sidecarRoot))).toMatchObject({
       ownerId: "integration-one",
       operation: "integration-finalize",
     });
-    const ownerPath = join(fixture.sidecarRoot, "writer-lock", "owner.json");
+    const ownerPath = join(projectHarnessSharedWriterRoot(fixture.sidecarRoot), "writer-lock", "owner.json");
     const expired = JSON.parse(await readFile(ownerPath, "utf8")) as Record<string, unknown>;
     expired.expiresAt = "2000-01-01T00:00:00.000Z";
     await writeFile(ownerPath, `${JSON.stringify(expired, null, 2)}\n`, "utf8");
 
     const completed = await fixture.complete(recovering!);
     expect(completed).toMatchObject({ status: "integrated", landing_phase: "cleanup_complete" });
-    expect(await readProjectHarnessWriterLock(fixture.sidecarRoot)).toBeNull();
+    expect(await readProjectHarnessWriterLock(projectHarnessSharedWriterRoot(fixture.sidecarRoot))).toBeNull();
     expect(existsSync(join(fixture.sidecarRoot, "integrations", "integration-one", "worktree"))).toBe(false);
     const change = JSON.parse(await readFile(join(fixture.skillRoot, "state", "registry", "changes", "change-one.json"), "utf8")) as {
       integrated_by: string;
@@ -93,7 +98,8 @@ describe("project Harness Integration", () => {
   it("honors the shared writer and aborts only an unlanded candidate", async () => {
     const fixture = await createFixture();
     const record = await fixture.start();
-    const lock = await claimProjectHarnessWriterLock(fixture.sidecarRoot, {
+    const writerRoot = projectHarnessSharedWriterRoot(fixture.sidecarRoot);
+    const lock = await claimProjectHarnessWriterLock(writerRoot, {
       projectId: "sample-a1",
       ownerId: "evolution-owner",
       operation: "evolution-publish",
@@ -101,7 +107,7 @@ describe("project Harness Integration", () => {
     try {
       await expect(fixture.complete(record)).rejects.toThrow(/writer lock is already held/);
     } finally {
-      await releaseProjectHarnessWriterLock(fixture.sidecarRoot, lock.token);
+      await releaseProjectHarnessWriterLock(writerRoot, lock.token);
     }
     await expect(abortProjectHarnessIntegration({
       integrationId: "integration-one",
