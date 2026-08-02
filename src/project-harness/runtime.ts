@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
-import type { ProjectHarnessHandle } from "./contracts.js";
+import type { ProjectHarnessDiscoveryPolicy, ProjectHarnessHandle } from "./contracts.js";
 import { auditProjectHarness, doctorProjectHarness } from "./diagnostics.js";
 import { fingerprintProjectHarnessContent } from "./fingerprint.js";
 import { checkProjectKnowledge, scanProjectKnowledge } from "./knowledge.js";
@@ -108,6 +108,7 @@ export interface CreateProjectHarnessRuntimeOptions {
   projectRoot: string;
   skillRoot: string;
   sidecarRoot: string;
+  discoveryPolicy: ProjectHarnessDiscoveryPolicy;
   change: ProjectHarnessCommandPort;
   registry: ProjectHarnessRegistryPort;
   integration: ProjectHarnessCommandPort;
@@ -177,6 +178,7 @@ export function createProjectHarnessRuntime(
             transactionId: deriveOnboardingTransactionId(projectId, author.attemptId),
             scaffoldRoot: options.onboarding?.scaffoldRoot,
             compiledRuntimeEntry: options.onboarding?.compiledRuntimeEntry,
+            discoveryPolicy: options.discoveryPolicy,
           });
         },
         async publish(reviewerAttemptId) {
@@ -197,6 +199,7 @@ export function createProjectHarnessRuntime(
             projectRoot: options.projectRoot,
             sidecarRoot: options.sidecarRoot,
             reviewerId: reviewer.attemptId,
+            discoveryPolicy: options.discoveryPolicy,
           });
         },
       },
@@ -205,6 +208,7 @@ export function createProjectHarnessRuntime(
           skillRoot: options.skillRoot,
           projectRoot: options.projectRoot,
           expectedProjectId: handle.projectId,
+          discoveryPolicy: options.discoveryPolicy,
         });
         return {
           ok: report.healthy,
@@ -219,6 +223,7 @@ export function createProjectHarnessRuntime(
           skillRoot: options.skillRoot,
           projectRoot: options.projectRoot,
           expectedProjectId: handle.projectId,
+          discoveryPolicy: options.discoveryPolicy,
         });
         return {
           ok: report.healthy,

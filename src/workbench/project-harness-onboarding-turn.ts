@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { defaultProviderRegistry } from "../provider-runtime/default-registry.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 import type { ProviderRegistry } from "../provider-runtime/registry.js";
 import type { ProviderTurnResult } from "../provider-runtime/contracts.js";
 import { createProjectHarnessRuntime, type ProjectHarnessCommandPort } from "../project-harness/runtime.js";
@@ -161,11 +162,21 @@ export async function runProjectHarnessOnboardingTurn(
           return { contentItems: [{ type: "inputText", text: "Only the exact project Harness onboarding tool is available before doctor and audit are healthy." }], success: false };
         }
         publicationAttempt ??= (async () => {
-          const recovered = await recoverProjectHarnessOnboarding(project.id, project.path, state.paths.sidecarRoot);
+          const recovered = await recoverProjectHarnessOnboarding(
+            project.id,
+            project.path,
+            state.paths.sidecarRoot,
+            DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+          );
           if (!recovered || recovered.stage === "rolled-back") {
             await workspace.runtime.project.init.prepare(attemptId);
           }
-          const prepared = await recoverProjectHarnessOnboarding(project.id, project.path, state.paths.sidecarRoot);
+          const prepared = await recoverProjectHarnessOnboarding(
+            project.id,
+            project.path,
+            state.paths.sidecarRoot,
+            DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+          );
           if (!prepared || prepared.stage === "completed") {
             throw new Error("Project Harness onboarding has no reviewable prepared candidate.");
           }
@@ -300,13 +311,19 @@ async function createOnboardingRuntime(
       throw new Error("Daily project Harness commands are unavailable until onboarding completes.");
     },
   };
-  await recoverProjectHarnessOnboarding(project.id, project.path, state.paths.sidecarRoot);
+  await recoverProjectHarnessOnboarding(
+    project.id,
+    project.path,
+    state.paths.sidecarRoot,
+    DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+  );
   const workspace = await ensureProjectHarnessOnboardingWorkspace(project.id, project.path, state.paths.sidecarRoot);
   const runtime = createProjectHarnessRuntime({
     projectId: project.id,
     projectRoot: project.path,
     skillRoot: join(project.path, ".agents", "skills", `${project.id}-harness`),
     sidecarRoot: state.paths.sidecarRoot,
+    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
     change: unavailable,
     registry: { async preflight() { throw new Error("Registry is unavailable until onboarding completes."); } },
     integration: unavailable,

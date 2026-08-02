@@ -9,6 +9,7 @@ import {
   type ProjectHarnessCommandPort,
   type ProjectHarnessRegistryPort,
 } from "../../src/project-harness/runtime.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../src/provider-runtime/project-harness-discovery.js";
 
 const cleanup: string[] = [];
 
@@ -34,6 +35,7 @@ describe("project Harness daily Runtime facade", () => {
       projectRoot: fixture.projectRoot,
       skillRoot: fixture.skillRoot,
       sidecarRoot: fixture.sidecarRoot,
+      discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
       change: { run: commandRun },
       registry: { preflight },
       integration: { run: commandRun },
@@ -65,6 +67,7 @@ describe("project Harness daily Runtime facade", () => {
       projectRoot: fixture.projectRoot,
       skillRoot: fixture.skillRoot,
       sidecarRoot: fixture.sidecarRoot,
+      discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
       change: { run: commandRun },
       registry: { async preflight() { return { status: "continue" }; } },
       integration: { run: commandRun },
@@ -82,6 +85,7 @@ describe("project Harness daily Runtime facade", () => {
       projectRoot: fixture.projectRoot,
       skillRoot: fixture.skillRoot,
       sidecarRoot: fixture.sidecarRoot,
+      discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
       change: { run: commandRun },
       registry: { async preflight() { return { status: "continue" }; } },
       integration: { run: commandRun },
@@ -103,6 +107,7 @@ describe("project Harness daily Runtime facade", () => {
       projectRoot: fixture.projectRoot,
       skillRoot: fixture.skillRoot,
       sidecarRoot: fixture.sidecarRoot,
+      discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
       change: { run: commandRun },
       registry: { async preflight() { return { status: "continue" }; } },
       integration: { run: commandRun },

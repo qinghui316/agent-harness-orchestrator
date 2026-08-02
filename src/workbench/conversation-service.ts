@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { defaultProviderRegistry } from "../provider-runtime/index.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { ensureProjectRuntime } from "../harness/init.js";
 import { readProjectMarker } from "../project/marker.js";
@@ -152,7 +153,9 @@ export async function postConversationMessage(
 ): Promise<TopicMessageResult> {
   const parsed = await normalizeTopicMessageInput(project, input);
   if (!await readProjectMarker(project.path)) {
-    const runtimeState = await resolveProjectRuntimeState(project);
+    const runtimeState = await resolveProjectRuntimeState(project, {
+      discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+    });
     if (runtimeState.state === "onboarding") {
       return postProjectHarnessOnboardingMessage(project, runtimeState, conversationId, parsed, live);
     }
@@ -268,7 +271,9 @@ async function openProjectConversationDatabase(
       runtimeState: null,
     };
   }
-  const runtimeState = await resolveProjectRuntimeState(project);
+  const runtimeState = await resolveProjectRuntimeState(project, {
+    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+  });
   const paths = runtimeState.state === "onboarding" ? runtimeState.paths : runtimeState.resolution.paths;
   return {
     projectId: runtimeState.project.id,

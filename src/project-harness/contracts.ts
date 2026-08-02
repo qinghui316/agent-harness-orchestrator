@@ -29,6 +29,16 @@ export interface ProviderSkillBinding {
   sameTarget: boolean;
 }
 
+export interface ProjectHarnessDiscoveryRoute {
+  providerId: string;
+  relativeRoot: ProjectRelativePath;
+  required: boolean;
+}
+
+export interface ProjectHarnessDiscoveryPolicy {
+  routes: readonly ProjectHarnessDiscoveryRoute[];
+}
+
 export interface ProjectHarnessSkillBinding {
   projectId: string;
   skillName: string;

@@ -2,6 +2,7 @@ import { readFile, realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 import { z } from "zod";
 import { parseJsonText } from "../fs/json.js";
+import type { ProjectHarnessDiscoveryPolicy } from "./contracts.js";
 import { getGitBranch, getGitCommit, isGitRepo } from "../project/git.js";
 import { resolveProjectRuntimePaths } from "../project-runtime/paths.js";
 import { assertRequiredProjectHarnessBindings, discoverProjectHarness } from "./discovery.js";
@@ -106,6 +107,7 @@ export async function runDailyChangeCommand(
   skillRoot: string,
   manifest: ProjectHarnessManifest,
   parsed: ProjectHarnessDailyArguments,
+  discoveryPolicy: ProjectHarnessDiscoveryPolicy,
 ): Promise<unknown> {
   assertOnlyOptions(parsed.options, [
     "project-root", "sidecar-root", "help", "json", "change-id", "input-json", "scope", "paths",
@@ -113,7 +115,7 @@ export async function runDailyChangeCommand(
   ]);
   if (parsed.help) return dailyCommandHelp("change");
   assertChangePositionals(parsed);
-  await assertDailyProjectBinding(skillRoot, manifest, parsed.projectRoot);
+  await assertDailyProjectBinding(skillRoot, manifest, parsed.projectRoot, discoveryPolicy);
   const context = await registryContext(skillRoot, manifest.project_id, parsed.projectRoot);
   const changeId = option(parsed.options, "change-id") ?? parsed.positionals[0];
   if (parsed.action === "new") {
@@ -196,6 +198,7 @@ export async function runDailyIntegrationCommand(
   skillRoot: string,
   manifest: ProjectHarnessManifest,
   parsed: ProjectHarnessDailyArguments,
+  discoveryPolicy: ProjectHarnessDiscoveryPolicy,
 ): Promise<unknown> {
   assertOnlyOptions(parsed.options, [
     "project-root", "sidecar-root", "help", "json", "integration-id", "input-json", "completion-commit",
@@ -203,7 +206,7 @@ export async function runDailyIntegrationCommand(
   ]);
   if (parsed.help) return dailyCommandHelp("integrate");
   assertIntegrationPositionals(parsed);
-  await assertDailyProjectBinding(skillRoot, manifest, parsed.projectRoot);
+  await assertDailyProjectBinding(skillRoot, manifest, parsed.projectRoot, discoveryPolicy);
   const explicitIntegrationId = option(parsed.options, "integration-id");
   const integrationId = explicitIntegrationId ?? parsed.positionals[0];
   if (parsed.action === "start") {
@@ -280,6 +283,7 @@ export async function runDailyEvolutionCommand(
   skillRoot: string,
   manifest: ProjectHarnessManifest,
   parsed: ProjectHarnessDailyArguments,
+  discoveryPolicy: ProjectHarnessDiscoveryPolicy,
 ): Promise<unknown> {
   assertOnlyOptions(parsed.options, [
     "project-root", "sidecar-root", "help", "json", "input-json", "confirm-e1", "proposal-id", "owner",
@@ -287,7 +291,7 @@ export async function runDailyEvolutionCommand(
   ]);
   if (parsed.help) return dailyCommandHelp("evolve");
   assertNoPositionals(parsed, "Evolution");
-  await assertDailyProjectBinding(skillRoot, manifest, parsed.projectRoot);
+  await assertDailyProjectBinding(skillRoot, manifest, parsed.projectRoot, discoveryPolicy);
   if (parsed.action === "check") return checkProjectHarnessEvolution(skillRoot, parsed.sidecarRoot);
   if (parsed.action === "status") return readProjectHarnessEvolutionState(skillRoot);
   if (parsed.action === "stage") {
@@ -373,15 +377,16 @@ export async function assertDailyProjectBinding(
   skillRoot: string,
   manifest: ProjectHarnessManifest,
   projectRoot: string,
+  discoveryPolicy: ProjectHarnessDiscoveryPolicy,
 ): Promise<void> {
-  const discovered = await discoverProjectHarness(projectRoot);
+  const discovered = await discoverProjectHarness(projectRoot, discoveryPolicy);
   if (!discovered) throw new Error("Project Harness discovery is missing; run the project connector first.");
   const expected = normalizePath(await realpath(skillRoot));
   const actual = normalizePath(await realpath(discovered.handle.skillRoot));
   if (actual !== expected || discovered.handle.projectId !== manifest.project_id) {
     throw new Error("Project root is not bound to this physical project Harness Skill.");
   }
-  assertRequiredProjectHarnessBindings(discovered);
+  assertRequiredProjectHarnessBindings(discovered, discoveryPolicy);
 }
 
 function assertChangePositionals(parsed: ProjectHarnessDailyArguments): void {

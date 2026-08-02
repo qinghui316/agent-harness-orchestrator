@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { getAhoHome } from "../fs/path.js";
+import type { ProjectHarnessDiscoveryPolicy } from "../project-harness/contracts.js";
 import { assertRequiredProjectHarnessBindings, discoverProjectHarness } from "../project-harness/discovery.js";
 import { auditProjectHarness, doctorProjectHarness } from "../project-harness/diagnostics.js";
 import {
@@ -56,6 +57,7 @@ export interface ProjectRuntimeStartupResult {
 
 export interface ProjectRuntimeCoordinatorOptions {
   store: ProjectRegistryStore;
+  discoveryPolicy: ProjectHarnessDiscoveryPolicy;
   ahoHome?: string;
   createTransactionId?: () => string;
   initializeSidecar?: typeof initializeProjectRuntimeSidecar;
@@ -72,9 +74,11 @@ export class ProjectRuntimeCoordinator implements ProjectRuntimeCoordinatorPort 
   private readonly ahoHome: string;
   private readonly createTransactionId: () => string;
   private readonly initializeSidecar: typeof initializeProjectRuntimeSidecar;
+  private readonly discoveryPolicy: ProjectHarnessDiscoveryPolicy;
 
   constructor(private readonly options: ProjectRuntimeCoordinatorOptions) {
     this.ahoHome = options.ahoHome ?? dirname(options.store.registryPath);
+    this.discoveryPolicy = options.discoveryPolicy;
     this.createTransactionId = options.createTransactionId ?? (() => `identity-${randomUUID().toLowerCase()}`);
     this.initializeSidecar = options.initializeSidecar ?? initializeProjectRuntimeSidecar;
   }
@@ -90,6 +94,7 @@ export class ProjectRuntimeCoordinator implements ProjectRuntimeCoordinatorPort 
         project.id,
         project.path,
         paths.sidecarRoot,
+        this.discoveryPolicy,
       );
       if (recovered) onboardingRecoveries.push(recovered);
     }
@@ -100,7 +105,7 @@ export class ProjectRuntimeCoordinator implements ProjectRuntimeCoordinatorPort 
     }, async () => {
       const recoveries = await recoverPendingProjectIdentityMigrations(
         projectsRoot,
-        (journal) => buildProjectIdentityRecoveryDocuments(journal, this.options.store),
+        (journal) => buildProjectIdentityRecoveryDocuments(journal, this.options.store, this.discoveryPolicy),
       );
       const migrations: ProjectIdentityMigrationResult[] = [];
       const states: ProjectRuntimeState[] = [];
@@ -115,8 +120,8 @@ export class ProjectRuntimeCoordinator implements ProjectRuntimeCoordinatorPort 
 
   async register(input: { path: string; name?: string }): Promise<ProjectRuntimeState> {
     const projectRoot = await assertPhysicalDirectory(input.path, "project source");
-    const discovery = await discoverProjectHarness(projectRoot);
-    if (discovery) assertRequiredProjectHarnessBindings(discovery);
+    const discovery = await discoverProjectHarness(projectRoot, this.discoveryPolicy);
+    if (discovery) assertRequiredProjectHarnessBindings(discovery, this.discoveryPolicy);
     const registration = await this.options.store.registerProject({
       path: projectRoot,
       name: input.name,
@@ -134,7 +139,10 @@ export class ProjectRuntimeCoordinator implements ProjectRuntimeCoordinatorPort 
   }
 
   async resolve(project: ManagedProject): Promise<ProjectRuntimeState> {
-    return resolveProjectRuntimeState(project, { ahoHome: this.ahoHome });
+    return resolveProjectRuntimeState(project, {
+      ahoHome: this.ahoHome,
+      discoveryPolicy: this.discoveryPolicy,
+    });
   }
 
   async requireReady(project: ManagedProject): Promise<ProjectRuntimeResolution> {
@@ -150,9 +158,9 @@ export class ProjectRuntimeCoordinator implements ProjectRuntimeCoordinatorPort 
     migration: ProjectIdentityMigrationResult | null;
   }> {
     const projectRoot = await assertPhysicalDirectory(project.path, "project source");
-    const discovery = await discoverProjectHarness(projectRoot);
+    const discovery = await discoverProjectHarness(projectRoot, this.discoveryPolicy);
     if (!discovery) return { state: await this.resolve(project), migration: null };
-    assertRequiredProjectHarnessBindings(discovery);
+    assertRequiredProjectHarnessBindings(discovery, this.discoveryPolicy);
     if (discovery.handle.projectId === project.id) {
       return { state: await this.resolve(project), migration: null };
     }
@@ -179,27 +187,32 @@ export class ProjectRuntimeCoordinator implements ProjectRuntimeCoordinatorPort 
 
 export async function resolveProjectRuntimeState(
   project: ManagedProject,
-  options: { ahoHome?: string } = {},
+  options: { ahoHome?: string; discoveryPolicy: ProjectHarnessDiscoveryPolicy },
 ): Promise<ProjectRuntimeState> {
   const ahoHome = options.ahoHome ?? getAhoHome();
   const projectRoot = await assertPhysicalDirectory(project.path, "project source");
-  const discovery = await discoverProjectHarness(projectRoot);
+  const discovery = await discoverProjectHarness(projectRoot, options.discoveryPolicy);
   if (!discovery) {
     const paths = resolveProjectRuntimePaths(project.id, ahoHome);
     await assertProjectRuntimePathSafety(paths);
     return { state: "onboarding", project, projectRoot, paths, reservedProjectId: project.id };
   }
-  const resolution = await resolveProjectRuntime(project, { ahoHome });
+  const resolution = await resolveProjectRuntime(project, {
+    ahoHome,
+    discoveryPolicy: options.discoveryPolicy,
+  });
   const [doctor, audit] = await Promise.all([
     doctorProjectHarness({
       skillRoot: resolution.harness.skillRoot,
       projectRoot,
       expectedProjectId: resolution.harness.projectId,
+      discoveryPolicy: options.discoveryPolicy,
     }),
     auditProjectHarness({
       skillRoot: resolution.harness.skillRoot,
       projectRoot,
       expectedProjectId: resolution.harness.projectId,
+      discoveryPolicy: options.discoveryPolicy,
     }),
   ]);
   if (!doctor.healthy || !audit.healthy) {

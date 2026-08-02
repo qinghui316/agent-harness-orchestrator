@@ -7,6 +7,7 @@ import { discoverProjectHarness } from "../../src/project-harness/discovery.js";
 import { recoverProjectHarnessOnboarding } from "../../src/project-harness/onboarding.js";
 import { ProjectRuntimeCoordinator } from "../../src/project-runtime/coordinator.js";
 import { ProviderRegistry } from "../../src/provider-runtime/registry.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../src/provider-runtime/project-harness-discovery.js";
 import {
   PROVIDER_OPERATION_CAPABILITIES,
   type ProviderCapabilityKey,
@@ -32,7 +33,11 @@ describe("Workbench Skill-native project Harness onboarding", () => {
     const ahoHome = join(root, "aho-home");
     await mkdir(projectRoot);
     const store = new ProjectRegistryStore(ahoHome);
-    const coordinator = new ProjectRuntimeCoordinator({ store, ahoHome });
+    const coordinator = new ProjectRuntimeCoordinator({
+      store,
+      ahoHome,
+      discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+    });
     const registered = await coordinator.register({ path: projectRoot, name: "Sample" });
     expect(registered.state).toBe("onboarding");
     if (registered.state !== "onboarding") throw new Error("Expected onboarding state.");
@@ -85,7 +90,7 @@ describe("Workbench Skill-native project Harness onboarding", () => {
     expect(observed[1]?.writableRoots).toEqual([join(registered.paths.sidecarRoot, "onboarding", "review")]);
     expect(observed[0]?.tools?.map((tool) => tool.name)).toEqual(["aho_prepare_project_harness"]);
 
-    const discovery = await discoverProjectHarness(projectRoot);
+    const discovery = await discoverProjectHarness(projectRoot, DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY);
     expect(discovery?.handle).toMatchObject({ projectId: registered.project.id, skillRevision: 1 });
     expect(discovery?.binding.providers).toEqual(expect.arrayContaining([
       expect.objectContaining({ providerId: "codex", sameTarget: true }),
@@ -121,13 +126,14 @@ describe("Workbench Skill-native project Harness onboarding", () => {
 
     expect(assistant.status).toBe("failed");
     expect(assistant.text).toMatch(/blocked project Harness onboarding/);
-    await expect(discoverProjectHarness(fixture.projectRoot)).resolves.toBeNull();
+    await expect(discoverProjectHarness(fixture.projectRoot, DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY)).resolves.toBeNull();
     expect(existsSync(join(fixture.projectRoot, ".agents", "skills", `${fixture.registered.project.id}-harness`))).toBe(false);
     expect(existsSync(join(fixture.projectRoot, ".claude", "skills", `${fixture.registered.project.id}-harness`))).toBe(false);
     await expect(recoverProjectHarnessOnboarding(
       fixture.registered.project.id,
       fixture.projectRoot,
       fixture.registered.paths.sidecarRoot,
+      DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
     )).resolves.toMatchObject({ stage: "rolled-back" });
 
     const database = await openProjectRuntimeWorkbenchDatabase(fixture.registered.paths);
@@ -161,6 +167,7 @@ describe("Workbench Skill-native project Harness onboarding", () => {
       fixture.registered.project.id,
       fixture.projectRoot,
       fixture.registered.paths.sidecarRoot,
+      DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
     )).resolves.toMatchObject({ stage: "rolled-back" });
 
     const second = await runProjectHarnessOnboardingTurn(
@@ -177,7 +184,7 @@ describe("Workbench Skill-native project Harness onboarding", () => {
     expect(mainRequests).toHaveLength(2);
     expect(mainRequests[0]?.existingSession).toBeNull();
     expect(mainRequests[1]?.existingSession).toEqual({ providerId: "codex", sessionId: "main-session" });
-    await expect(discoverProjectHarness(fixture.projectRoot)).resolves.toMatchObject({
+    await expect(discoverProjectHarness(fixture.projectRoot, DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY)).resolves.toMatchObject({
       handle: { projectId: fixture.registered.project.id, skillRevision: 1 },
     });
 
@@ -307,7 +314,11 @@ async function createFlowFixture() {
   const ahoHome = join(root, "aho-home");
   await mkdir(projectRoot);
   const store = new ProjectRegistryStore(ahoHome);
-  const coordinator = new ProjectRuntimeCoordinator({ store, ahoHome });
+  const coordinator = new ProjectRuntimeCoordinator({
+    store,
+    ahoHome,
+    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+  });
   const registered = await coordinator.register({ path: projectRoot, name: "Sample" });
   if (registered.state !== "onboarding") throw new Error("Expected onboarding state.");
   const conversationId = "conversation-1";

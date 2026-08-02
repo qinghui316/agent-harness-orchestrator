@@ -35,6 +35,7 @@ for (const file of files) {
   const adapterPrivate = relativePath.startsWith("src/codex/")
     || /^src\/provider-runtime\/codex(?:-|\.)/.test(relativePath)
     || relativePath === "src/provider-runtime/default-registry.ts"
+    || relativePath === "src/provider-runtime/project-harness-discovery.ts"
     || relativePath === "src/provider-runtime/index.ts";
 
   if (!adapterPrivate && /(?:from\s+|import\s*\()["'][^"']*(?:\/codex\/|\\codex\\)/.test(text)) {

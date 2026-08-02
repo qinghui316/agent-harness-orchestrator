@@ -15,6 +15,7 @@ import { ProjectRegistryStore } from "../../src/registry/store.js";
 import { git } from "../../src/project/git.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { getWorktreeStatus } from "../../src/worktree/manager.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../src/provider-runtime/project-harness-discovery.js";
 
 const cleanup: string[] = [];
 
@@ -52,7 +53,10 @@ describe("project runtime coordinator", () => {
     await mkdir(projectRoot);
     const store = new ProjectRegistryStore(join(root, "aho-home"));
     const project = await store.addProject(projectRoot, "New Project");
-    const coordinator = new ProjectRuntimeCoordinator({ store });
+    const coordinator = new ProjectRuntimeCoordinator({
+      store,
+      discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+    });
 
     const state = await coordinator.resolve(project);
 
@@ -63,7 +67,7 @@ describe("project runtime coordinator", () => {
 
   it("blocks startup reconciliation when one required provider binding is missing", async () => {
     const fixture = await createLegacyFixture({ includeClaude: false });
-    await expect(fixture.coordinator.reconcileStartup()).rejects.toThrow(/Codex and Claude discovery links/);
+    await expect(fixture.coordinator.reconcileStartup()).rejects.toThrow(/required discovery links/);
     expect(await fixture.store.resolveProject("legacy-a1")).not.toBeNull();
     expect(existsSync(fixture.sourceSidecar)).toBe(true);
   });
@@ -154,7 +158,7 @@ describe("project runtime coordinator", () => {
       sourcePath: join(fixture.root, "unrelated.json"),
     });
 
-    await expect(buildProjectIdentityRecoveryDocuments(journal, fixture.store))
+    await expect(buildProjectIdentityRecoveryDocuments(journal, fixture.store, DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY))
       .rejects.toThrow(/supported Registry, marker, and sidecar descriptor set/);
   });
 
@@ -172,7 +176,7 @@ describe("project runtime coordinator", () => {
       allowedIdentityPaths: ["/projectId"],
     });
 
-    await expect(buildProjectIdentityRecoveryDocuments(journal, fixture.store))
+    await expect(buildProjectIdentityRecoveryDocuments(journal, fixture.store, DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY))
       .rejects.toThrow(/outside the source sidecar/);
   });
 
@@ -183,7 +187,7 @@ describe("project runtime coordinator", () => {
     markerJournal.documents[1]!.stagedPath = `${markerJournal.documents[1]!.sourcePath}.${markerJournal.transactionId}.next`;
     markerJournal.documents[1]!.backupPath = `${markerJournal.documents[1]!.sourcePath}.${markerJournal.transactionId}.previous`;
 
-    await expect(buildProjectIdentityRecoveryDocuments(markerJournal, fixture.store))
+    await expect(buildProjectIdentityRecoveryDocuments(markerJournal, fixture.store, DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY))
       .rejects.toThrow(/marker path is not owned by the Registry project/);
 
     const manifestJournal = recoveryJournal(fixture);
@@ -195,7 +199,7 @@ describe("project runtime coordinator", () => {
       "state",
       "manifest.json",
     );
-    await expect(buildProjectIdentityRecoveryDocuments(manifestJournal, fixture.store))
+    await expect(buildProjectIdentityRecoveryDocuments(manifestJournal, fixture.store, DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY))
       .rejects.toThrow(/manifest is not owned by the discovered project Harness/);
   });
 });
@@ -229,6 +233,7 @@ async function createLegacyFixture(options: { includeClaude?: boolean } = {}) {
   expect(project.id).toBe("legacy-a1");
   const coordinator = new ProjectRuntimeCoordinator({
     store,
+    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
     ahoHome,
     createTransactionId: () => "identity-test-1",
   });

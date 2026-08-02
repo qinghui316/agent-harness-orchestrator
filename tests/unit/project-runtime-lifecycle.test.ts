@@ -8,6 +8,7 @@ import { resolveProjectRuntimePaths } from "../../src/project-runtime/paths.js";
 import { ProjectRegistryStore } from "../../src/registry/store.js";
 import { addExistingProject, createNewProject } from "../../src/server/workbench/project-admin.js";
 import { ProjectRuntimeCoordinator } from "../../src/project-runtime/coordinator.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../src/provider-runtime/project-harness-discovery.js";
 
 const cleanup: string[] = [];
 
@@ -41,7 +42,7 @@ describe("project runtime sidecar lifecycle", () => {
     const existingRoot = join(root, "existing");
     await mkdir(existingRoot, { recursive: true });
     const store = new ProjectRegistryStore(ahoHome);
-    const coordinator = new ProjectRuntimeCoordinator({ store, ahoHome });
+    const coordinator = new ProjectRuntimeCoordinator({ store, ahoHome, discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY });
 
     const existing = await addExistingProject(store, {
       path: existingRoot,
@@ -72,6 +73,7 @@ describe("project runtime sidecar lifecycle", () => {
     const failing = new ProjectRuntimeCoordinator({
       store,
       ahoHome,
+      discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
       async initializeSidecar() {
         throw new Error("sidecar failed");
       },

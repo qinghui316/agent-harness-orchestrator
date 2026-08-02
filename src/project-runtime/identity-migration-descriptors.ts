@@ -7,6 +7,7 @@ import {
   type ProjectHarnessDiscovery,
 } from "../project-harness/discovery.js";
 import type { ManagedProject } from "../types/index.js";
+import type { ProjectHarnessDiscoveryPolicy } from "../project-harness/contracts.js";
 import type { ProjectRegistryStore } from "../registry/store.js";
 import { normalizeForCompare } from "../fs/path.js";
 import { parseJsonText } from "../fs/json.js";
@@ -31,6 +32,7 @@ export interface ProjectIdentityMigrationDescriptorInput {
 export async function buildProjectIdentityRecoveryDocuments(
   journal: Readonly<ProjectIdentityMigrationJournal>,
   store: ProjectRegistryStore,
+  discoveryPolicy: ProjectHarnessDiscoveryPolicy,
 ): Promise<ProjectIdentityJsonDocument[]> {
   const registryDocuments = journal.documents.filter((document) => document.kind === "registry" && document.scope === "external");
   const markerDocuments = journal.documents.filter((document) => document.kind === "local-state" && document.scope === "external");
@@ -49,11 +51,11 @@ export async function buildProjectIdentityRecoveryDocuments(
   if (normalizeForCompare(markerDocument.sourcePath) !== normalizeForCompare(markerPath)) {
     throw new Error("Identity recovery journal marker path is not owned by the Registry project.");
   }
-  const discovery = await discoverProjectHarness(projectRoot);
+  const discovery = await discoverProjectHarness(projectRoot, discoveryPolicy);
   if (!discovery || discovery.handle.projectId !== journal.targetProjectId) {
     throw new Error("Identity recovery cannot bind the journal to the Registry project's canonical Harness.");
   }
-  assertRequiredProjectHarnessBindings(discovery);
+  assertRequiredProjectHarnessBindings(discovery, discoveryPolicy);
   const manifestPath = join(discovery.handle.skillRoot, "state", "manifest.json");
   if (normalizeForCompare(journal.manifestPath) !== normalizeForCompare(manifestPath)) {
     throw new Error("Identity recovery journal manifest is not owned by the discovered project Harness.");

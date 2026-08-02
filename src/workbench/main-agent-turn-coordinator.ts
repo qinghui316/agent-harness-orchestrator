@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { auditHarness } from "../harness/audit.js";
 import { readAgentCatalog } from "../agent/catalog.js";
 import { defaultProviderRegistry, type ProviderTurnResult } from "../provider-runtime/index.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 import { agentThreadSurfaceId } from "../provider-runtime/agent-surface-id.js";
 import { assertWritableMemory } from "../memory/resolver.js";
 import { ensureProjectRuntime } from "../harness/init.js";
@@ -66,7 +67,9 @@ export async function runProjectScopedMainAgentTurn(
   options: { goalResume?: { deliveryKey: string; contextText: string }; graphScopeId?: string } = {},
 ): Promise<TopicThreadEntry> {
   if (!await readProjectMarker(project.path)) {
-    const runtimeState = await resolveProjectRuntimeState(project);
+    const runtimeState = await resolveProjectRuntimeState(project, {
+      discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+    });
     if (runtimeState.state === "onboarding") {
       return runProjectHarnessOnboardingTurn(project, runtimeState, conversationId, userMessage, live);
     }

@@ -153,7 +153,7 @@ describe("project Harness standalone daily commands", () => {
       command: "change",
       skillRoot: fixture.skillRoot,
       args: ["status", "--project-root", fixture.projectRoot],
-    })).rejects.toThrow(/Codex and Claude discovery links/);
+    })).rejects.toThrow(/required discovery links/);
   });
 });
 

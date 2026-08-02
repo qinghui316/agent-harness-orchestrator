@@ -9,6 +9,7 @@ import { restoreDirectProjectInput } from "./workbench/direct-project.js";
 import { sendJson, statusForError } from "./workbench/http.js";
 import { defaultStaticRoot, serveStatic } from "./workbench/static.js";
 import { defaultProviderRegistry } from "../provider-runtime/index.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 import type { WorkbenchServeOptions, WorkbenchServerContext, WorkbenchServerHandle } from "./workbench/types.js";
 import { ProjectRuntimeCoordinator, type ProjectRuntimeCoordinatorPort } from "../project-runtime/coordinator.js";
 
@@ -21,7 +22,10 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
   const port = options.port ?? 4317;
   const staticRoot = options.staticRoot ?? defaultStaticRoot();
   const store = options.store ?? new ProjectRegistryStore();
-  const projectRuntimeCoordinator = options.projectRuntimeCoordinator ?? new ProjectRuntimeCoordinator({ store });
+  const projectRuntimeCoordinator = options.projectRuntimeCoordinator ?? new ProjectRuntimeCoordinator({
+    store,
+    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+  });
   const terminalRuntime = options.terminalRuntime ?? new TerminalRuntime();
   await projectRuntimeCoordinator.reconcileStartup();
   const restoredInput = await restoreDirectProjectInput(input, store);
@@ -62,7 +66,10 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
 export async function recoverWorkbenchProjects(
   store: ProjectRegistryStore,
   directInput: WorkbenchProjectInput | null,
-  projectRuntimeCoordinator: Pick<ProjectRuntimeCoordinatorPort, "resolve"> = new ProjectRuntimeCoordinator({ store }),
+  projectRuntimeCoordinator: Pick<ProjectRuntimeCoordinatorPort, "resolve"> = new ProjectRuntimeCoordinator({
+    store,
+    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+  }),
 ): Promise<void> {
   const projects = await store.listProjects();
   if (directInput?.project && !projects.some((project) => project.id === directInput.project?.id || project.path === directInput.project?.path)) {

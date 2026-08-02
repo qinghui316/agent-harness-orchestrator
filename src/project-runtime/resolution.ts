@@ -1,4 +1,5 @@
 import type { ManagedProject } from "../types/index.js";
+import type { ProjectHarnessDiscoveryPolicy } from "../project-harness/contracts.js";
 import {
   assertRequiredProjectHarnessBindings,
   discoverProjectHarness,
@@ -9,18 +10,19 @@ import { assertProjectRuntimePathSafety, resolveProjectRuntimePaths } from "./pa
 
 export interface ResolveProjectRuntimeOptions {
   ahoHome?: string;
+  discoveryPolicy: ProjectHarnessDiscoveryPolicy;
 }
 
 export async function resolveProjectRuntime(
   project: ManagedProject,
-  options: ResolveProjectRuntimeOptions = {},
+  options: ResolveProjectRuntimeOptions,
 ): Promise<ProjectRuntimeResolution> {
   const projectRoot = await assertPhysicalDirectory(project.path, "project source");
-  const discovered = await discoverProjectHarness(projectRoot);
+  const discovered = await discoverProjectHarness(projectRoot, options.discoveryPolicy);
   if (!discovered) {
     throw new Error("Project Harness discovery is missing; project onboarding must create or bind one physical Skill.");
   }
-  assertRequiredProjectHarnessBindings(discovered);
+  assertRequiredProjectHarnessBindings(discovered, options.discoveryPolicy);
   if (discovered.handle.projectId !== project.id) {
     throw new Error(
       `Registered project id ${project.id} does not match canonical Harness project_id ${discovered.handle.projectId}; controlled identity migration is required.`,

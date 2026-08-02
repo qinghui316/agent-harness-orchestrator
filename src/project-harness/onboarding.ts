@@ -14,6 +14,7 @@ import {
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import { parseJsonText, writeJsonFile } from "../fs/json.js";
+import type { ProjectHarnessDiscoveryPolicy } from "./contracts.js";
 import { loadCompleteAnalysisBundle } from "./analysis-bundle.js";
 import { createProjectHarnessCandidate } from "./creator.js";
 import { auditProjectHarness, doctorProjectHarness } from "./diagnostics.js";
@@ -89,6 +90,7 @@ export interface PrepareProjectHarnessOnboardingOptions {
   scaffoldRoot?: string;
   compiledRuntimeEntry?: string;
   transactionId?: string;
+  discoveryPolicy: ProjectHarnessDiscoveryPolicy;
 }
 
 export interface PublishProjectHarnessOnboardingOptions {
@@ -96,6 +98,7 @@ export interface PublishProjectHarnessOnboardingOptions {
   projectRoot: string;
   sidecarRoot: string;
   reviewerId: string;
+  discoveryPolicy: ProjectHarnessDiscoveryPolicy;
   failureInjection?: (stage: ProjectHarnessOnboardingStage) => Promise<void> | void;
 }
 
@@ -164,7 +167,7 @@ export async function prepareProjectHarnessOnboarding(
     ownerId: options.transactionId ?? `onboard-prepare-${process.pid}`,
     operation: "init",
   }, async () => {
-    if (await discoverProjectHarness(projectRoot)) {
+    if (await discoverProjectHarness(projectRoot, options.discoveryPolicy)) {
       throw new Error("Project Harness onboarding is already complete or discovery is occupied.");
     }
     const prepared = await readExistingPreparedRecord(workspace, options);
@@ -249,7 +252,7 @@ export async function publishProjectHarnessOnboarding(
     assertRecordPaths(record, workspace);
     assertRequestBinding(record, options);
     if (record.stage === "completed") {
-      const result = await completedResult(record);
+      const result = await completedResult(record, options.discoveryPolicy);
       await cleanupCommittedCandidate(record);
       return result;
     }
@@ -270,7 +273,7 @@ export async function publishProjectHarnessOnboarding(
       record = await advanceRecord(workspace.recordPath, record, record.stage, { reviewer_id: options.reviewerId });
       await assertCurrent();
       await revalidatePreparedCandidate(record);
-      result = await publishInitialCandidate(record, workspace.recordPath, options.failureInjection);
+      result = await publishInitialCandidate(record, workspace.recordPath, options.discoveryPolicy, options.failureInjection);
     } catch (error) {
       const persisted = await readOnboardingRecord(workspace.recordPath);
       assertRecordPaths(persisted, workspace);
@@ -289,6 +292,7 @@ export async function recoverProjectHarnessOnboarding(
   projectId: string,
   projectRoot: string,
   sidecarRoot: string,
+  discoveryPolicy: ProjectHarnessDiscoveryPolicy,
 ): Promise<ProjectHarnessOnboardingRecord | null> {
   const workspace = await ensureProjectHarnessOnboardingWorkspace(projectId, projectRoot, sidecarRoot);
   if (!existsSync(workspace.recordPath)) return null;
@@ -296,7 +300,7 @@ export async function recoverProjectHarnessOnboarding(
   assertRecordPaths(record, workspace);
   assertRequestBinding(record, { projectId, projectRoot, sidecarRoot });
   if (record.stage === "completed") {
-    await completedResult(record);
+    await completedResult(record, discoveryPolicy);
     await cleanupCommittedCandidate(record);
     return record;
   }
@@ -318,16 +322,17 @@ export async function recoverProjectHarnessOnboarding(
 async function publishInitialCandidate(
   initial: ProjectHarnessOnboardingRecord,
   recordPath: string,
+  discoveryPolicy: ProjectHarnessDiscoveryPolicy,
   failureInjection?: PublishProjectHarnessOnboardingOptions["failureInjection"],
 ): Promise<ProjectHarnessOnboardingResult> {
   let record = initial;
-  await assertNoLinkedPathAncestors(dirname(record.skill_root), "Codex project Skill root");
+  await assertNoLinkedPathAncestors(dirname(record.skill_root), "primary project Skill root");
   await assertNoLinkedPathAncestors(dirname(record.claude_link), "Claude project Skill root");
   await mkdir(dirname(record.skill_root), { recursive: true });
   await mkdir(dirname(record.claude_link), { recursive: true });
-  await assertNoLinkedPathAncestors(dirname(record.skill_root), "Codex project Skill root");
+  await assertNoLinkedPathAncestors(dirname(record.skill_root), "primary project Skill root");
   await assertNoLinkedPathAncestors(dirname(record.claude_link), "Claude project Skill root");
-  await assertPhysicalDirectory(dirname(record.skill_root), "Codex project Skill root");
+  await assertPhysicalDirectory(dirname(record.skill_root), "primary project Skill root");
   await assertPhysicalDirectory(dirname(record.claude_link), "Claude project Skill root");
   assertExactSibling(dirname(record.skill_root), record.staged_root);
 
@@ -359,21 +364,23 @@ async function publishInitialCandidate(
     throw new Error(`Project Harness onboarding reached an invalid pre-commit stage: ${record.stage}.`);
   }
   await assertOwnedClaudeLink(record);
-  const discovery = await discoverProjectHarness(record.project_root);
+  const discovery = await discoverProjectHarness(record.project_root, discoveryPolicy);
   if (!discovery || discovery.handle.projectId !== record.project_id) {
     throw new Error("Published project Harness cannot be rediscovered with its canonical identity.");
   }
-  assertRequiredProjectHarnessBindings(discovery);
+  assertRequiredProjectHarnessBindings(discovery, discoveryPolicy);
   const [doctor, audit] = await Promise.all([
     doctorProjectHarness({
       skillRoot: record.skill_root,
       projectRoot: record.project_root,
       expectedProjectId: record.project_id,
+      discoveryPolicy,
     }),
     auditProjectHarness({
       skillRoot: record.skill_root,
       projectRoot: record.project_root,
       expectedProjectId: record.project_id,
+      discoveryPolicy,
     }),
   ]);
   if (!doctor.healthy || !audit.healthy) {
@@ -383,12 +390,15 @@ async function publishInitialCandidate(
   return { record, discovery, doctor, audit };
 }
 
-async function completedResult(record: ProjectHarnessOnboardingRecord): Promise<ProjectHarnessOnboardingResult> {
-  const discovery = await discoverProjectHarness(record.project_root);
+async function completedResult(
+  record: ProjectHarnessOnboardingRecord,
+  discoveryPolicy: ProjectHarnessDiscoveryPolicy,
+): Promise<ProjectHarnessOnboardingResult> {
+  const discovery = await discoverProjectHarness(record.project_root, discoveryPolicy);
   if (!discovery || discovery.handle.projectId !== record.project_id) {
     throw new Error("Completed project Harness onboarding is no longer discoverable.");
   }
-  assertRequiredProjectHarnessBindings(discovery);
+  assertRequiredProjectHarnessBindings(discovery, discoveryPolicy);
   if (await fingerprintProjectHarnessContent(discovery.handle.skillRoot) !== record.candidate_content_fingerprint) {
     throw new Error("Completed project Harness static content no longer matches its reviewed candidate.");
   }
@@ -397,11 +407,13 @@ async function completedResult(record: ProjectHarnessOnboardingRecord): Promise<
       skillRoot: discovery.handle.skillRoot,
       projectRoot: record.project_root,
       expectedProjectId: record.project_id,
+      discoveryPolicy,
     }),
     auditProjectHarness({
       skillRoot: discovery.handle.skillRoot,
       projectRoot: record.project_root,
       expectedProjectId: record.project_id,
+      discoveryPolicy,
     }),
   ]);
   if (!doctor.healthy || !audit.healthy) throw new Error("Completed project Harness onboarding is unhealthy.");

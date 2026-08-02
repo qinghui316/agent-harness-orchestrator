@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { resolveProjectRuntime } from "../../src/project-runtime/resolution.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../src/provider-runtime/project-harness-discovery.js";
 import type { ManagedProject } from "../../src/types/index.js";
 
 const cleanup: string[] = [];
@@ -14,7 +15,7 @@ afterEach(async () => {
 describe("project runtime resolution", () => {
   it("resolves one canonical Harness, both provider bindings, and sidecar-only runtime paths", async () => {
     const fixture = await createFixture();
-    const resolved = await resolveProjectRuntime(fixture.project, { ahoHome: fixture.ahoHome });
+    const resolved = await resolveProjectRuntime(fixture.project, runtimeOptions(fixture.ahoHome));
 
     expect(resolved.harness).toMatchObject({ projectId: "sample-a1", skillName: "sample-a1-harness" });
     expect(resolved.binding.providers).toEqual([
@@ -28,13 +29,13 @@ describe("project runtime resolution", () => {
 
   it("fails closed when one provider link is missing", async () => {
     const fixture = await createFixture({ includeClaude: false });
-    await expect(resolveProjectRuntime(fixture.project, { ahoHome: fixture.ahoHome }))
-      .rejects.toThrow(/Codex and Claude discovery links/);
+    await expect(resolveProjectRuntime(fixture.project, runtimeOptions(fixture.ahoHome)))
+      .rejects.toThrow(/required discovery links/);
   });
 
   it("requires controlled migration when registry and Harness identities differ", async () => {
     const fixture = await createFixture();
-    await expect(resolveProjectRuntime({ ...fixture.project, id: "legacy-id" }, { ahoHome: fixture.ahoHome }))
+    await expect(resolveProjectRuntime({ ...fixture.project, id: "legacy-id" }, runtimeOptions(fixture.ahoHome)))
       .rejects.toThrow(/controlled identity migration/);
   });
 
@@ -50,10 +51,14 @@ describe("project runtime resolution", () => {
       process.platform === "win32" ? "junction" : "dir",
     );
 
-    await expect(resolveProjectRuntime(fixture.project, { ahoHome: fixture.ahoHome }))
+    await expect(resolveProjectRuntime(fixture.project, runtimeOptions(fixture.ahoHome)))
       .rejects.toThrow(/link, Junction/);
   });
 });
+
+function runtimeOptions(ahoHome: string) {
+  return { ahoHome, discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY };
+}
 
 async function createFixture(options: { includeClaude?: boolean } = {}) {
   const root = await mkdtemp(join(tmpdir(), "aho-runtime-resolution-"));

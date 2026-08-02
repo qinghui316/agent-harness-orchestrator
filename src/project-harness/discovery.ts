@@ -3,16 +3,18 @@ import { readdir, realpath } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import type {
   ProjectHarnessHandle,
+  ProjectHarnessDiscoveryPolicy,
   ProjectHarnessSkillBinding,
   ProviderSkillBinding,
   ProviderSkillInput,
 } from "./contracts.js";
+import { projectRelativePath } from "./contracts.js";
 import { fingerprintProjectHarnessContent } from "./fingerprint.js";
 import { readProjectHarnessManifest } from "./manifest.js";
 import { assertPhysicalDirectory } from "./path-safety.js";
 
 interface DiscoveredPath {
-  providerId: "codex" | "claude";
+  providerId: string;
   discoveryPath: string;
   targetPath: string;
 }
@@ -23,24 +25,32 @@ export interface ProjectHarnessDiscovery {
   providerInput: ProviderSkillInput;
 }
 
-export function assertRequiredProjectHarnessBindings(discovery: ProjectHarnessDiscovery): void {
-  const requiredProviders = ["codex", "claude"];
+export function assertRequiredProjectHarnessBindings(
+  discovery: ProjectHarnessDiscovery,
+  policy: ProjectHarnessDiscoveryPolicy,
+): void {
+  const requiredProviders = policy.routes.filter((route) => route.required).map((route) => route.providerId);
   const invalidProviders = requiredProviders.filter((providerId) => {
     const binding = discovery.binding.providers.find((candidate) => candidate.providerId === providerId);
     return binding?.status !== "ready" || binding.sameTarget !== true;
   });
   if (invalidProviders.length > 0) {
     throw new Error(
-      `Project Harness requires Codex and Claude discovery links to be ready and target the same physical Skill: ${invalidProviders.join(", ")}.`,
+      `Project Harness required discovery links must be ready and target the same physical Skill: ${invalidProviders.join(", ")}.`,
     );
   }
 }
 
-export async function discoverProjectHarness(projectRoot: string): Promise<ProjectHarnessDiscovery | null> {
-  const candidates = [
-    ...await discoverProviderPaths(projectRoot, "codex", join(".agents", "skills")),
-    ...await discoverProviderPaths(projectRoot, "claude", join(".claude", "skills")),
-  ];
+export async function discoverProjectHarness(
+  projectRoot: string,
+  policy: ProjectHarnessDiscoveryPolicy,
+): Promise<ProjectHarnessDiscovery | null> {
+  assertDiscoveryPolicy(policy);
+  const candidates = (await Promise.all(policy.routes.map((route) => discoverProviderPaths(
+    projectRoot,
+    route.providerId,
+    route.relativeRoot,
+  )))).flat();
   if (candidates.length === 0) return null;
 
   const targets = new Map<string, DiscoveredPath[]>();
@@ -74,7 +84,7 @@ export async function discoverProjectHarness(projectRoot: string): Promise<Proje
     skillRoot,
     contentFingerprint,
   };
-  const providers = providerBindings(projectRoot, manifest.skill_name, skillRoot, group);
+  const providers = providerBindings(projectRoot, manifest.skill_name, skillRoot, group, policy);
   return {
     handle,
     binding: {
@@ -117,11 +127,10 @@ function providerBindings(
   skillName: string,
   skillRoot: string,
   discovered: DiscoveredPath[],
+  policy: ProjectHarnessDiscoveryPolicy,
 ): ProviderSkillBinding[] {
-  return ([
-    ["codex", join(projectRoot, ".agents", "skills", skillName)],
-    ["claude", join(projectRoot, ".claude", "skills", skillName)],
-  ] as const).map(([providerId, discoveryPath]) => {
+  return policy.routes.map(({ providerId, relativeRoot }) => {
+    const discoveryPath = join(projectRoot, relativeRoot, skillName);
     const item = discovered.find((candidate) => candidate.providerId === providerId);
     return {
       providerId,
@@ -130,6 +139,17 @@ function providerBindings(
       sameTarget: Boolean(item && normalizeForIdentity(item.targetPath) === normalizeForIdentity(skillRoot)),
     };
   });
+}
+
+function assertDiscoveryPolicy(policy: ProjectHarnessDiscoveryPolicy): void {
+  if (policy.routes.length === 0) throw new Error("Project Harness discovery policy requires at least one route.");
+  const ids = new Set<string>();
+  for (const route of policy.routes) {
+    if (!route.providerId.trim()) throw new Error("Project Harness discovery route requires providerId.");
+    if (ids.has(route.providerId)) throw new Error(`Duplicate project Harness discovery provider: ${route.providerId}.`);
+    projectRelativePath(route.relativeRoot);
+    ids.add(route.providerId);
+  }
 }
 
 function normalizeForIdentity(path: string): string {

@@ -11,6 +11,7 @@ import {
   recoverProjectHarnessOnboarding,
 } from "../../src/project-harness/onboarding.js";
 import { createProjectHarnessRuntime } from "../../src/project-harness/runtime.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../src/provider-runtime/project-harness-discovery.js";
 import { getProjectHarnessSkillScaffoldRoot } from "../../src/template-source/paths.js";
 
 const cleanup: string[] = [];
@@ -34,6 +35,7 @@ describe("project Harness greenfield onboarding", () => {
       projectId: fixture.projectId,
       projectRoot: fixture.projectRoot,
       sidecarRoot: fixture.sidecarRoot,
+      discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
       reviewerId: "auditor-attempt-1",
     });
 
@@ -62,6 +64,7 @@ describe("project Harness greenfield onboarding", () => {
       projectId: fixture.projectId,
       projectRoot: fixture.projectRoot,
       sidecarRoot: fixture.sidecarRoot,
+      discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
       reviewerId: "auditor-attempt-1",
     })).rejects.toThrow(/identities do not match/);
     await expect(readFile(join(fixture.projectRoot, ".agents", "skills", `${fixture.projectId}-harness`), "utf8"))
@@ -125,6 +128,7 @@ describe("project Harness greenfield onboarding", () => {
       projectRoot: fixture.projectRoot,
       skillRoot: join(fixture.projectRoot, ".agents", "skills", `${fixture.projectId}-harness`),
       sidecarRoot: fixture.sidecarRoot,
+      discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
       change: commands,
       registry: { async preflight() { return { status: "unused" }; } },
       integration: commands,
@@ -191,6 +195,7 @@ describe("project Harness greenfield onboarding", () => {
       projectId: fixture.projectId,
       projectRoot: fixture.projectRoot,
       sidecarRoot: fixture.sidecarRoot,
+      discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
       reviewerId: "auditor-attempt-1",
     })).rejects.toThrow(/rolled back: Project Harness candidate no longer matches its reviewed fingerprint/);
     await expect(readFile(join(fixture.projectRoot, ".agents", "skills", `${fixture.projectId}-harness`, "SKILL.md"), "utf8"))
@@ -212,6 +217,7 @@ describe("project Harness greenfield onboarding", () => {
         projectId: fixture.projectId,
         projectRoot: fixture.projectRoot,
         sidecarRoot: fixture.sidecarRoot,
+        discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
         reviewerId: "auditor-attempt-1",
         failureInjection(current) {
           if (current === stage) throw new Error(`injected ${stage}`);
@@ -240,6 +246,7 @@ describe("project Harness greenfield onboarding", () => {
       projectId: fixture.projectId,
       projectRoot: fixture.projectRoot,
       sidecarRoot: fixture.sidecarRoot,
+      discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
       reviewerId: "auditor-attempt-1",
       failureInjection(stage) {
         if (stage === "completed") throw new Error("injected post-commit crash");
@@ -257,6 +264,7 @@ describe("project Harness greenfield onboarding", () => {
       fixture.projectId,
       fixture.projectRoot,
       fixture.sidecarRoot,
+      DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
     );
     expect(recovered?.stage).toBe("completed");
     await expect(readFile(join(skillRoot, "SKILL.md"), "utf8")).resolves.toContain("sample-a1-harness");
@@ -276,6 +284,7 @@ describe("project Harness greenfield onboarding", () => {
       projectId: fixture.projectId,
       projectRoot: fixture.projectRoot,
       sidecarRoot: fixture.sidecarRoot,
+      discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
       reviewerId: "auditor-attempt-1",
       async failureInjection(stage) {
         if (stage !== "claude-linked") return;
@@ -307,6 +316,7 @@ describe("project Harness greenfield onboarding", () => {
       projectId: fixture.projectId,
       projectRoot: fixture.projectRoot,
       sidecarRoot: fixture.sidecarRoot,
+      discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
       reviewerId: "auditor-attempt-1",
     });
     const runtimeRoot = join(result.discovery.handle.skillRoot, "scripts", "project-harness-runtime");
@@ -370,6 +380,7 @@ describe("project Harness greenfield onboarding", () => {
       fixture.projectId,
       fixture.projectRoot,
       fixture.sidecarRoot,
+      DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
     );
     expect(recovered?.stage).toBe("rolled-back");
     await expect(readFile(prepared.staged_root, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
@@ -401,6 +412,7 @@ describe("project Harness greenfield onboarding", () => {
       fixture.projectId,
       fixture.projectRoot,
       fixture.sidecarRoot,
+      DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
     )).rejects.toThrow(/request does not match the Runtime-owned transaction/);
 
     await writeJson(fixture.workspace.recordPath, {
@@ -411,6 +423,7 @@ describe("project Harness greenfield onboarding", () => {
       fixture.projectId,
       fixture.projectRoot,
       fixture.sidecarRoot,
+      DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
     )).rejects.toThrow(/paths do not match Runtime ownership/);
   });
 });
@@ -438,6 +451,7 @@ async function createFixture() {
       sidecarRoot,
       scaffoldRoot: getProjectHarnessSkillScaffoldRoot(),
       compiledRuntimeEntry,
+      discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
     },
   };
 }

@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import { resolveExistingDirectory } from "../../fs/path.js";
 import { initHarness } from "../../harness/init.js";
 import { ProjectRuntimeCoordinator, type ProjectRuntimeCoordinatorPort } from "../../project-runtime/coordinator.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../provider-runtime/project-harness-discovery.js";
 import { getProjectStatus } from "../../project/status.js";
 import type { ProjectRegistryStore } from "../../registry/store.js";
 import type { ManagedProject, MemoryMode } from "../../types/index.js";
@@ -20,7 +21,10 @@ export async function listProjectStatuses(store: ProjectRegistryStore, directInp
 export async function addExistingProject(
   store: ProjectRegistryStore,
   body: AddExistingProjectRequest,
-  projectRuntimeCoordinator: Pick<ProjectRuntimeCoordinatorPort, "register"> = new ProjectRuntimeCoordinator({ store }),
+  projectRuntimeCoordinator: Pick<ProjectRuntimeCoordinatorPort, "register"> = new ProjectRuntimeCoordinator({
+    store,
+    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+  }),
 ): Promise<{ project: ManagedProject; status: unknown }> {
   assertConfirmed(body.confirm);
   if (typeof body.path !== "string" || body.path.trim() === "") {
@@ -37,7 +41,10 @@ export async function addExistingProject(
 export async function createNewProject(
   store: ProjectRegistryStore,
   body: CreateNewProjectRequest,
-  projectRuntimeCoordinator: Pick<ProjectRuntimeCoordinatorPort, "register"> = new ProjectRuntimeCoordinator({ store }),
+  projectRuntimeCoordinator: Pick<ProjectRuntimeCoordinatorPort, "register"> = new ProjectRuntimeCoordinator({
+    store,
+    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+  }),
 ): Promise<{ project: ManagedProject; status: unknown; createdPath: string }> {
   assertConfirmed(body.confirm);
   if (typeof body.parentPath !== "string" || body.parentPath.trim() === "") {

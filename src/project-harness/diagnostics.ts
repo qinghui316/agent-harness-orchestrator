@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { lstat, readFile, readdir } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
 import { parseJsonText } from "../fs/json.js";
+import type { ProjectHarnessDiscoveryPolicy } from "./contracts.js";
 import { discoverProjectHarness } from "./discovery.js";
 import { fingerprintProjectHarnessContent } from "./fingerprint.js";
 import { readProjectHarnessManifest } from "./manifest.js";
@@ -72,6 +73,7 @@ export interface ProjectHarnessDiagnosticOptions {
   skillRoot: string;
   projectRoot?: string;
   expectedProjectId?: string;
+  discoveryPolicy?: ProjectHarnessDiscoveryPolicy;
 }
 
 export async function doctorProjectHarness(
@@ -120,7 +122,8 @@ export async function doctorProjectHarness(
   const providerBindings: ProjectHarnessDiagnosticResult["providerBindings"] = [];
   if (options.projectRoot) {
     try {
-      const discovery = await discoverProjectHarness(options.projectRoot);
+      if (!options.discoveryPolicy) throw new Error("Project Harness diagnostics require a provider discovery policy.");
+      const discovery = await discoverProjectHarness(options.projectRoot, options.discoveryPolicy);
       if (!discovery) {
         findings.push(finding("missing_discovery_links", "error", null, "Project has no discoverable project Harness Skill."));
       } else {
