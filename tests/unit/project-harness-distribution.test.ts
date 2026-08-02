@@ -129,6 +129,19 @@ describe("project Harness Runtime distribution", () => {
     })).rejects.toThrow(/must not traverse a link or Junction/);
   });
 
+  it.each([
+    "const name = 'external-runtime'; export const value = import(name);\n",
+    "export const value = import(`external-runtime`);\n",
+    "const name = 'external-runtime'; export const value = require(name);\n",
+  ])("rejects computed module loading in a supposedly self-contained Runtime", async (source) => {
+    const fixture = await createFixture();
+    await writeFile(fixture.entry, source, "utf8");
+    await expect(installProjectHarnessRuntimeDistribution({
+      skillRoot: fixture.skillRoot,
+      compiledRuntimeEntry: fixture.entry,
+    })).rejects.toThrow(/computed module loading/);
+  });
+
   it("rejects creator commands before loading the daily Runtime entry", async () => {
     const fixture = await createFixture();
     const marker = join(fixture.root, "entry-loaded.txt");

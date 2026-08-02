@@ -152,6 +152,12 @@ function assertSelfContainedModule(source: string): void {
     if (specifier.startsWith("node:")) continue;
     throw new Error(`Compiled project Harness Runtime must be self-contained; external import found: ${specifier}`);
   }
+  for (const match of source.matchAll(/\b(import|require)\s*\(([^)]*)\)/g)) {
+    const expression = match[2].trim();
+    if (/^["']node:[^"']+["']$/.test(expression)) continue;
+    if (/^["'][^"']+["']$/.test(expression)) continue;
+    throw new Error(`Compiled project Harness Runtime must not use computed module loading: ${expression}`);
+  }
 }
 
 function normalizeForIdentity(path: string): string {

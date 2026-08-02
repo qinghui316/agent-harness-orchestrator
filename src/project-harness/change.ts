@@ -178,6 +178,7 @@ export interface PreflightProjectHarnessChangeInput {
 
 export interface CloseProjectHarnessChangeInput extends PreflightProjectHarnessChangeInput {
   status: ProjectHarnessTerminalChangeStatus;
+  completionCommit?: string | null;
   validation?: readonly string[];
   validationPassed?: boolean;
   now?: () => string;
@@ -297,6 +298,9 @@ export async function publishProjectHarnessChange(
   context: ProjectHarnessRegistryContext,
   input: PublishProjectHarnessChangeInput,
 ): Promise<ProjectHarnessChangeRecord> {
+  if (input.status !== undefined && input.status !== "planning" && input.status !== "active") {
+    throw new Error(`Invalid mutable Change status: ${String(input.status)}.`);
+  }
   const record = await loadProjectHarnessChange(context.skillRoot, input.changeId, true);
   assertLaneOwner(context, record);
   assertMutableChange(record);
@@ -394,6 +398,10 @@ export async function closeProjectHarnessChange(
   context: ProjectHarnessRegistryContext,
   input: CloseProjectHarnessChangeInput,
 ): Promise<{ status: "closed" | "already_closed"; change: ProjectHarnessChangeRecord; preflight: ProjectHarnessChangePreflightResult | null }> {
+  if (!TERMINAL_STATUSES.has(input.status)) throw new Error(`Invalid terminal Change status: ${String(input.status)}.`);
+  if (input.validationPassed !== undefined && typeof input.validationPassed !== "boolean") {
+    throw new Error("Change validationPassed must be boolean.");
+  }
   const record = await loadProjectHarnessChange(context.skillRoot, input.changeId, true);
   assertLaneOwner(context, record);
   if (TERMINAL_STATUSES.has(record.status)) {
@@ -403,7 +411,13 @@ export async function closeProjectHarnessChange(
   const preflight = context.mode === "multi_lane" ? await preflightProjectHarnessChange(context, input) : null;
   if (preflight?.action === "replan") throw new Error("Multi-Lane Change cannot close until scoped preflight can continue.");
   if (input.validation) record.validation = [...input.validation];
-  if (input.validationPassed) record.validation_passed = true;
+  if (input.validationPassed === true) record.validation_passed = true;
+  if (input.completionCommit !== undefined) {
+    if (input.completionCommit !== null && !/^[a-f0-9]{40,64}$/i.test(input.completionCommit)) {
+      throw new Error("Change completion commit must be a Git commit hash.");
+    }
+    record.completion_commit = input.completionCommit?.toLowerCase() ?? null;
+  }
   const source = await changeEvidencePath(context.skillRoot, "active", record.change_id, false);
   const destination = await changeEvidencePath(context.skillRoot, "archive", record.change_id, true);
   if (!existsSync(source)) throw new Error("Active Change evidence is missing.");

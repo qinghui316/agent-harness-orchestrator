@@ -161,7 +161,7 @@ export async function writeProjectHarnessBaseline(
 
 export async function readBoundProjectHarnessRecords<T extends Record<string, unknown>>(
   skillRoot: string,
-  collection: "changes" | "contracts" | "lanes" | "baseline-events",
+  collection: "changes" | "contracts" | "lanes" | "baseline-events" | "integrations",
   idField: keyof T & string,
 ): Promise<T[]> {
   const root = await registryRoot(skillRoot, false);
@@ -189,7 +189,7 @@ export async function readBoundProjectHarnessRecords<T extends Record<string, un
 
 export async function createExclusiveRegistryRecord(
   skillRoot: string,
-  collection: "changes" | "contracts",
+  collection: "changes" | "contracts" | "integrations",
   id: string,
   value: unknown,
 ): Promise<string> {

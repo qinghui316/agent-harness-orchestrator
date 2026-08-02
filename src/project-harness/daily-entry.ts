@@ -6,18 +6,24 @@ import { auditProjectHarness, doctorProjectHarness } from "./diagnostics.js";
 import type {
   ProjectHarnessDailyRuntimeInvocation,
 } from "./distribution.js";
-
-interface DailyCommandArguments {
-  action: string | null;
-  projectRoot: string;
-}
+import {
+  assertDailyProjectBinding,
+  parseProjectHarnessDailyArguments,
+  runDailyChangeCommand,
+  runDailyEvolutionCommand,
+  runDailyIntegrationCommand,
+} from "./daily-commands.js";
 
 export async function runProjectHarnessDailyCommand(
   invocation: ProjectHarnessDailyRuntimeInvocation,
 ): Promise<unknown> {
-  const parsed = parseDailyArguments(invocation.args);
   const skillRoot = resolve(invocation.skillRoot);
   const manifest = await readProjectHarnessManifest(skillRoot);
+  const parsed = parseProjectHarnessDailyArguments(invocation.args, manifest.project_id);
+
+  if (parsed.help && ["doctor", "audit", "knowledge"].includes(invocation.command)) {
+    return { command: invocation.command, actions: invocation.command === "knowledge" ? ["scan", "check"] : [] };
+  }
 
   if (invocation.command === "doctor") {
     return doctorProjectHarness({
@@ -34,6 +40,7 @@ export async function runProjectHarnessDailyCommand(
     });
   }
   if (invocation.command === "knowledge") {
+    await assertDailyProjectBinding(skillRoot, manifest, parsed.projectRoot);
     const context = {
       projectId: manifest.project_id,
       projectRoot: parsed.projectRoot,
@@ -43,8 +50,11 @@ export async function runProjectHarnessDailyCommand(
     if (parsed.action === "check") return checkProjectKnowledge(context);
     throw new Error("Knowledge command requires scan or check.");
   }
+  if (invocation.command === "change") return runDailyChangeCommand(skillRoot, manifest, parsed);
+  if (invocation.command === "integrate") return runDailyIntegrationCommand(skillRoot, manifest, parsed);
+  if (invocation.command === "evolve") return runDailyEvolutionCommand(skillRoot, manifest, parsed);
 
-  throw new Error(`Daily Runtime command is not wired: ${invocation.command}.`);
+  throw new Error(`Unsupported daily Runtime command: ${invocation.command}.`);
 }
 
 export async function describeProjectHarnessDailyRuntime(skillRoot: string): Promise<{
@@ -58,23 +68,4 @@ export async function describeProjectHarnessDailyRuntime(skillRoot: string): Pro
     revision: manifest.skill_revision,
     contentFingerprint: await fingerprintProjectHarnessContent(skillRoot),
   };
-}
-
-function parseDailyArguments(args: readonly string[]): DailyCommandArguments {
-  let action: string | null = null;
-  let projectRoot: string | null = null;
-  for (let index = 0; index < args.length; index += 1) {
-    const value = args[index];
-    if (value === "--project-root") {
-      const next = args[index + 1];
-      if (!next) throw new Error("--project-root requires a path.");
-      projectRoot = resolve(next);
-      index += 1;
-      continue;
-    }
-    if (value.startsWith("--")) continue;
-    if (action === null) action = value;
-  }
-  if (!projectRoot) throw new Error("Daily Runtime requires --project-root <path>.");
-  return { action, projectRoot };
 }
