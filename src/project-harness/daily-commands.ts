@@ -4,7 +4,7 @@ import { z } from "zod";
 import { parseJsonText } from "../fs/json.js";
 import { getGitBranch, getGitCommit, isGitRepo } from "../project/git.js";
 import { resolveProjectRuntimePaths } from "../project-runtime/paths.js";
-import { discoverProjectHarness } from "./discovery.js";
+import { assertRequiredProjectHarnessBindings, discoverProjectHarness } from "./discovery.js";
 import {
   closeProjectHarnessChange,
   createProjectHarnessChange,
@@ -379,16 +379,7 @@ export async function assertDailyProjectBinding(
   if (actual !== expected || discovered.handle.projectId !== manifest.project_id) {
     throw new Error("Project root is not bound to this physical project Harness Skill.");
   }
-  const requiredProviders = ["codex", "claude"];
-  const invalidProviders = requiredProviders.filter((providerId) => {
-    const binding = discovered.binding.providers.find((candidate) => candidate.providerId === providerId);
-    return binding?.status !== "ready" || binding.sameTarget !== true;
-  });
-  if (invalidProviders.length > 0) {
-    throw new Error(
-      `Project Harness requires Codex and Claude discovery links to be ready and target the same physical Skill: ${invalidProviders.join(", ")}.`,
-    );
-  }
+  assertRequiredProjectHarnessBindings(discovered);
 }
 
 function assertChangePositionals(parsed: ProjectHarnessDailyArguments): void {

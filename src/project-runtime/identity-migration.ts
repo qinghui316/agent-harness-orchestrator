@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { lstat, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { parseJsonText, writeJsonFile } from "../fs/json.js";
+import { assertPortableProjectId } from "../project-harness/project-id.js";
 import {
   assertExactSiblingPaths,
   assertIdentityMigrationPhysicalDirectory,
@@ -125,7 +126,6 @@ interface PreparedMigration {
   sqliteDatabases: Array<ProjectIdentitySqliteDatabase & { relativePath: string }>;
 }
 
-const PORTABLE_PROJECT_ID = /^[a-z0-9][a-z0-9-]{0,127}$/;
 const PORTABLE_TRANSACTION_ID = /^[a-z0-9][a-z0-9-]{0,127}$/;
 
 export async function migrateProjectIdentity(
@@ -205,8 +205,8 @@ export async function recoverProjectIdentityMigration(
 }
 
 async function prepareMigration(options: MigrateProjectIdentityOptions): Promise<PreparedMigration> {
-  assertPortableId(options.sourceProjectId, "source project id");
-  assertPortableId(options.targetProjectId, "target project id");
+  assertPortableProjectId(options.sourceProjectId, "source project id");
+  assertPortableProjectId(options.targetProjectId, "target project id");
   if (options.sourceProjectId === options.targetProjectId) throw new Error("Source and target project ids must differ.");
   if (!PORTABLE_TRANSACTION_ID.test(options.transactionId)) {
     throw new Error(`Identity migration transaction id is not portable: ${options.transactionId}`);
@@ -693,8 +693,8 @@ async function assertJournalMatchesRecoveryOptions(
   options: RecoverProjectIdentityMigrationOptions,
 ): Promise<void> {
   assertJournalPaths(journal, options.journalPath);
-  assertPortableId(options.sourceProjectId, "expected source project id");
-  assertPortableId(options.targetProjectId, "expected target project id");
+  assertPortableProjectId(options.sourceProjectId, "expected source project id");
+  assertPortableProjectId(options.targetProjectId, "expected target project id");
   if (journal.sourceProjectId !== options.sourceProjectId || journal.targetProjectId !== options.targetProjectId) {
     throw new Error("Identity migration journal project ids do not match the expected recovery identity.");
   }
@@ -731,8 +731,8 @@ async function assertJournalMatchesRecoveryOptions(
 }
 
 function assertJournalPaths(journal: ProjectIdentityMigrationJournal, suppliedJournalPath: string): void {
-  assertPortableId(journal.sourceProjectId, "journal source project id");
-  assertPortableId(journal.targetProjectId, "journal target project id");
+  assertPortableProjectId(journal.sourceProjectId, "journal source project id");
+  assertPortableProjectId(journal.targetProjectId, "journal target project id");
   if (!PORTABLE_TRANSACTION_ID.test(journal.transactionId)) throw new Error("Identity migration journal transaction id is invalid.");
   assertExactSiblingPaths(journal.sourceSidecarRoot, journal.targetSidecarRoot);
   const parent = dirname(resolve(journal.sourceSidecarRoot));
@@ -836,10 +836,6 @@ function isSha256(value: unknown): value is string {
 
 function assertAbsent(path: string, label: string): void {
   if (existsSync(path)) throw new Error(`${label} already exists: ${path}`);
-}
-
-function assertPortableId(value: string, label: string): void {
-  if (!PORTABLE_PROJECT_ID.test(value)) throw new Error(`${label} is not portable: ${value}`);
 }
 
 async function inject(

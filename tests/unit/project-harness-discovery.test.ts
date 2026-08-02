@@ -48,6 +48,14 @@ describe("project Harness discovery", () => {
     cleanup.push(project);
     await expect(discoverProjectHarness(project)).resolves.toBeNull();
   });
+
+  it("rejects a non-portable manifest project_id before it reaches product path resolution", async () => {
+    const project = await mkdtemp(join(tmpdir(), "aho-project-unsafe-id-"));
+    cleanup.push(project);
+    await createSkill(join(project, ".agents", "skills", "sample-a1-harness"), "sample-a1-harness", "../escape");
+
+    await expect(discoverProjectHarness(project)).rejects.toThrow(/portable project id/);
+  });
 });
 
 async function createSkill(root: string, skillName: string, projectId: string): Promise<void> {

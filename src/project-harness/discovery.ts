@@ -23,6 +23,19 @@ export interface ProjectHarnessDiscovery {
   providerInput: ProviderSkillInput;
 }
 
+export function assertRequiredProjectHarnessBindings(discovery: ProjectHarnessDiscovery): void {
+  const requiredProviders = ["codex", "claude"];
+  const invalidProviders = requiredProviders.filter((providerId) => {
+    const binding = discovery.binding.providers.find((candidate) => candidate.providerId === providerId);
+    return binding?.status !== "ready" || binding.sameTarget !== true;
+  });
+  if (invalidProviders.length > 0) {
+    throw new Error(
+      `Project Harness requires Codex and Claude discovery links to be ready and target the same physical Skill: ${invalidProviders.join(", ")}.`,
+    );
+  }
+}
+
 export async function discoverProjectHarness(projectRoot: string): Promise<ProjectHarnessDiscovery | null> {
   const candidates = [
     ...await discoverProviderPaths(projectRoot, "codex", join(".agents", "skills")),

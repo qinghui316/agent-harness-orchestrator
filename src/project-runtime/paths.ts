@@ -1,5 +1,7 @@
-import { join, resolve } from "node:path";
+import { lstat } from "node:fs/promises";
+import { join, parse, relative, resolve, sep } from "node:path";
 import { getAhoHome } from "../fs/path.js";
+import { assertPortableProjectId } from "../project-harness/project-id.js";
 
 export interface ProjectRuntimePaths {
   projectId: string;
@@ -10,12 +12,13 @@ export interface ProjectRuntimePaths {
   logsRoot: string;
   transcriptsRoot: string;
   worktreeMetadataRoot: string;
+  worktreeIndexPath: string;
   cacheRoot: string;
   transactionStagingRoot: string;
 }
 
 export function resolveProjectRuntimePaths(projectId: string, ahoHome = getAhoHome()): ProjectRuntimePaths {
-  assertProjectId(projectId);
+  assertPortableProjectId(projectId);
   const sidecarRoot = join(resolve(ahoHome), "projects", projectId);
   return {
     projectId,
@@ -26,13 +29,26 @@ export function resolveProjectRuntimePaths(projectId: string, ahoHome = getAhoHo
     logsRoot: join(sidecarRoot, "logs"),
     transcriptsRoot: join(sidecarRoot, "transcripts"),
     worktreeMetadataRoot: join(sidecarRoot, "worktrees", "metadata"),
+    worktreeIndexPath: join(sidecarRoot, "worktrees", "index.json"),
     cacheRoot: join(sidecarRoot, "cache"),
     transactionStagingRoot: join(sidecarRoot, "transactions"),
   };
 }
 
-function assertProjectId(projectId: string): void {
-  if (!/^[a-z0-9][a-z0-9-]{0,127}$/.test(projectId)) {
-    throw new Error(`Project id is not a portable sidecar key: ${projectId}`);
+export async function assertProjectRuntimePathSafety(paths: ProjectRuntimePaths): Promise<void> {
+  const target = resolve(paths.sidecarRoot);
+  const root = parse(target).root;
+  let current = root;
+  for (const segment of relative(root, target).split(sep).filter(Boolean)) {
+    current = join(current, segment);
+    try {
+      const info = await lstat(current);
+      if (!info.isDirectory() || info.isSymbolicLink()) {
+        throw new Error(`Runtime sidecar path traverses a link, Junction, or non-directory: ${current}`);
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw error;
+    }
   }
 }

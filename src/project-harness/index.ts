@@ -6,6 +6,7 @@ export * from "./fingerprint.js";
 export * from "./knowledge.js";
 export * from "./manifest.js";
 export * from "./path-safety.js";
+export * from "./project-id.js";
 export * from "./publication.js";
 export * from "./reviews.js";
 export * from "./runtime.js";

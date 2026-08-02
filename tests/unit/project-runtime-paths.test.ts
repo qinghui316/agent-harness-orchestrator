@@ -11,6 +11,7 @@ describe("project runtime sidecar paths", () => {
       expect(isAbsolute(value), name).toBe(true);
       expect(value.startsWith(paths.sidecarRoot), name).toBe(true);
     }
+    expect(paths.worktreeIndexPath).toBe(join(paths.sidecarRoot, "worktrees", "index.json"));
   });
 
   it.each(["aho-self/other", "../aho-self", "AHO", "", "project_id"])(

@@ -2,10 +2,11 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { parseJsonText } from "../fs/json.js";
+import { isPortableProjectId } from "./project-id.js";
 
 const ProjectHarnessManifestSchema = z.object({
   schema_version: z.literal("2.0"),
-  project_id: z.string().min(1),
+  project_id: z.string().refine(isPortableProjectId, "project_id must be a portable project id"),
   project_name: z.string().min(1),
   skill_name: z.string().min(1),
   skill_revision: z.number().int().nonnegative(),
