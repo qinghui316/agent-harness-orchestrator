@@ -235,7 +235,14 @@ async function discoverChangeEvidence(
   const result = new Map<string, ChangeEvidenceIdentity>();
   for (const bucket of ["active", "parking", "archive"] as const) {
     const root = join(skillRoot, "state", "changes", bucket);
-    for (const entry of await readdir(root, { withFileTypes: true })) {
+    let entries;
+    try {
+      entries = await readdir(root, { withFileTypes: true });
+    } catch (error) {
+      findings.push(finding("invalid_state_directory", "error", `state/changes/${bucket}`, message(error)));
+      continue;
+    }
+    for (const entry of entries) {
       if (!entry.isDirectory() || entry.isSymbolicLink()) {
         findings.push(finding("invalid_change_entry", "error", `state/changes/${bucket}/${entry.name}`, "Change evidence must be a physical directory."));
         continue;
@@ -261,7 +268,14 @@ async function validateIdentityDirectory(
 ): Promise<Map<string, Record<string, unknown>>> {
   const result = new Map<string, Record<string, unknown>>();
   const root = join(skillRoot, relativeRoot);
-  for (const entry of await readdir(root, { withFileTypes: true })) {
+  let entries;
+  try {
+    entries = await readdir(root, { withFileTypes: true });
+  } catch (error) {
+    findings.push(finding("invalid_state_directory", "error", relativeRoot, message(error)));
+    return result;
+  }
+  for (const entry of entries) {
     if (!entry.isFile() || extname(entry.name) !== ".json") continue;
     const id = basename(entry.name, ".json");
     try {

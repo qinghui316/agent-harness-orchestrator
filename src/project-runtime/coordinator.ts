@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { assertRequiredProjectHarnessBindings, discoverProjectHarness } from "../project-harness/discovery.js";
+import { auditProjectHarness, doctorProjectHarness } from "../project-harness/diagnostics.js";
 import {
   recoverProjectHarnessOnboarding,
   type ProjectHarnessOnboardingRecord,
@@ -21,6 +22,7 @@ import {
 } from "./identity-migration.js";
 import type { ProjectRuntimeResolution } from "./context.js";
 import { assertProjectRuntimePathSafety, resolveProjectRuntimePaths, type ProjectRuntimePaths } from "./paths.js";
+import { initializeProjectRuntimeSidecar } from "./lifecycle.js";
 import { resolveProjectRuntime } from "./resolution.js";
 
 export type ProjectRuntimeState =
@@ -35,6 +37,13 @@ export type ProjectRuntimeState =
     state: "ready";
     project: ManagedProject;
     resolution: ProjectRuntimeResolution;
+  }
+  | {
+    state: "repair-required";
+    project: ManagedProject;
+    resolution: ProjectRuntimeResolution;
+    doctor: Awaited<ReturnType<typeof doctorProjectHarness>>;
+    audit: Awaited<ReturnType<typeof auditProjectHarness>>;
   };
 
 export interface ProjectRuntimeStartupResult {
@@ -48,10 +57,12 @@ export interface ProjectRuntimeCoordinatorOptions {
   store: ProjectRegistryStore;
   ahoHome?: string;
   createTransactionId?: () => string;
+  initializeSidecar?: typeof initializeProjectRuntimeSidecar;
 }
 
 export interface ProjectRuntimeCoordinatorPort {
   reconcileStartup(): Promise<ProjectRuntimeStartupResult>;
+  register(input: { path: string; name?: string }): Promise<ProjectRuntimeState>;
   resolve(project: ManagedProject): Promise<ProjectRuntimeState>;
   requireReady(project: ManagedProject): Promise<ProjectRuntimeResolution>;
 }
@@ -59,10 +70,12 @@ export interface ProjectRuntimeCoordinatorPort {
 export class ProjectRuntimeCoordinator implements ProjectRuntimeCoordinatorPort {
   private readonly ahoHome: string;
   private readonly createTransactionId: () => string;
+  private readonly initializeSidecar: typeof initializeProjectRuntimeSidecar;
 
   constructor(private readonly options: ProjectRuntimeCoordinatorOptions) {
     this.ahoHome = options.ahoHome ?? dirname(options.store.registryPath);
     this.createTransactionId = options.createTransactionId ?? (() => `identity-${randomUUID().toLowerCase()}`);
+    this.initializeSidecar = options.initializeSidecar ?? initializeProjectRuntimeSidecar;
   }
 
   async reconcileStartup(): Promise<ProjectRuntimeStartupResult> {
@@ -99,6 +112,26 @@ export class ProjectRuntimeCoordinator implements ProjectRuntimeCoordinatorPort 
     });
   }
 
+  async register(input: { path: string; name?: string }): Promise<ProjectRuntimeState> {
+    const projectRoot = await assertPhysicalDirectory(input.path, "project source");
+    const discovery = await discoverProjectHarness(projectRoot);
+    if (discovery) assertRequiredProjectHarnessBindings(discovery);
+    const registration = await this.options.store.registerProject({
+      path: projectRoot,
+      name: input.name,
+      projectId: discovery?.handle.projectId,
+    });
+    try {
+      const state = await this.resolve(registration.project);
+      const paths = state.state === "onboarding" ? state.paths : state.resolution.paths;
+      await this.initializeSidecar(paths);
+      return state;
+    } catch (error) {
+      if (registration.created) await this.options.store.removeProject(registration.project.id).catch(() => undefined);
+      throw error;
+    }
+  }
+
   async resolve(project: ManagedProject): Promise<ProjectRuntimeState> {
     const projectRoot = await assertPhysicalDirectory(project.path, "project source");
     const discovery = await discoverProjectHarness(projectRoot);
@@ -107,7 +140,23 @@ export class ProjectRuntimeCoordinator implements ProjectRuntimeCoordinatorPort 
       await assertProjectRuntimePathSafety(paths);
       return { state: "onboarding", project, projectRoot, paths, reservedProjectId: project.id };
     }
-    return { state: "ready", project, resolution: await resolveProjectRuntime(project, { ahoHome: this.ahoHome }) };
+    const resolution = await resolveProjectRuntime(project, { ahoHome: this.ahoHome });
+    const [doctor, audit] = await Promise.all([
+      doctorProjectHarness({
+        skillRoot: resolution.harness.skillRoot,
+        projectRoot,
+        expectedProjectId: resolution.harness.projectId,
+      }),
+      auditProjectHarness({
+        skillRoot: resolution.harness.skillRoot,
+        projectRoot,
+        expectedProjectId: resolution.harness.projectId,
+      }),
+    ]);
+    if (!doctor.healthy || !audit.healthy) {
+      return { state: "repair-required", project, resolution, doctor, audit };
+    }
+    return { state: "ready", project, resolution };
   }
 
   async requireReady(project: ManagedProject): Promise<ProjectRuntimeResolution> {

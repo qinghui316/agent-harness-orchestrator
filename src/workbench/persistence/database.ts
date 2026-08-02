@@ -1,7 +1,6 @@
 import Database from "better-sqlite3";
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
-import type { ResolvedMemory } from "../../types/index.js";
 import { acquireWorkbenchRuntimeMutationLock, type WorkbenchRuntimeMutationLock } from "../schema-rebuild-gate.js";
 import { ConversationRepository } from "./repositories/conversation-repository.js";
 import { DecisionRepository } from "./repositories/decision-repository.js";
@@ -45,11 +44,11 @@ export class WorkbenchDatabase {
   }
 
   static async open(
-    memory: ResolvedMemory,
+    paths: { workbenchDbPath: string },
     resetGuard: WorkbenchResetGuard,
   ): Promise<WorkbenchDatabase> {
-    await mkdir(dirname(memory.workbenchDbPath), { recursive: true });
-    const connection = new Database(memory.workbenchDbPath);
+    await mkdir(dirname(paths.workbenchDbPath), { recursive: true });
+    const connection = new Database(paths.workbenchDbPath);
     connection.pragma("journal_mode = WAL");
     connection.pragma("foreign_keys = ON");
     const currentVersion = Number(connection.pragma("user_version", { simple: true }) ?? 0);
@@ -59,8 +58,8 @@ export class WorkbenchDatabase {
     let rebuildLock: WorkbenchRuntimeMutationLock | null = null;
     if (rebuildingExistingRuntime) {
       try {
-        rebuildLock = await acquireWorkbenchRuntimeMutationLock(memory, "重建 Workbench 会话数据库");
-        await resetGuard.assertSafe(connection, memory);
+        rebuildLock = await acquireWorkbenchRuntimeMutationLock(paths, "重建 Workbench 会话数据库");
+        await resetGuard.assertSafe(connection);
         beginExclusiveSchemaRebuild(connection);
         rebuildTransaction = true;
         assertRuntimeDatabaseResetSafe(connection);

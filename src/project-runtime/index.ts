@@ -3,6 +3,7 @@ export * from "./context.js";
 export * from "./identity-migration-descriptors.js";
 export * from "./identity-migration.js";
 export * from "./identity-migration-sqlite.js";
+export * from "./lifecycle.js";
 export * from "./paths.js";
 export * from "./removal.js";
 export * from "./resolution.js";

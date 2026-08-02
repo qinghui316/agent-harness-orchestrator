@@ -30,7 +30,7 @@ describe("project runtime coordinator", () => {
     expect(result.migrations).toHaveLength(1);
     expect(result.recoveries).toEqual([]);
     expect(result.states).toEqual([
-      expect.objectContaining({ state: "ready", project: expect.objectContaining({ id: "canonical-a1" }) }),
+      expect.objectContaining({ state: "repair-required", project: expect.objectContaining({ id: "canonical-a1" }) }),
     ]);
     expect(await fixture.store.resolveProject("legacy-a1")).toBeNull();
     expect(await fixture.store.resolveProject("canonical-a1")).toMatchObject({ path: fixture.projectRoot });

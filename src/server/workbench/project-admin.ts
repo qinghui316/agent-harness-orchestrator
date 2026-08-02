@@ -3,7 +3,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { join, resolve } from "node:path";
 import { resolveExistingDirectory } from "../../fs/path.js";
-import { ensureProjectRuntime, initHarness } from "../../harness/init.js";
+import { initHarness } from "../../harness/init.js";
+import { ProjectRuntimeCoordinator, type ProjectRuntimeCoordinatorPort } from "../../project-runtime/coordinator.js";
 import { getProjectStatus } from "../../project/status.js";
 import type { ProjectRegistryStore } from "../../registry/store.js";
 import type { ManagedProject, MemoryMode } from "../../types/index.js";
@@ -16,7 +17,11 @@ export async function listProjectStatuses(store: ProjectRegistryStore, directInp
   return listProjectStatusesWithDirect(store, directInput);
 }
 
-export async function addExistingProject(store: ProjectRegistryStore, body: AddExistingProjectRequest): Promise<{ project: ManagedProject; status: unknown }> {
+export async function addExistingProject(
+  store: ProjectRegistryStore,
+  body: AddExistingProjectRequest,
+  projectRuntimeCoordinator: Pick<ProjectRuntimeCoordinatorPort, "register"> = new ProjectRuntimeCoordinator({ store }),
+): Promise<{ project: ManagedProject; status: unknown }> {
   assertConfirmed(body.confirm);
   if (typeof body.path !== "string" || body.path.trim() === "") {
     const error = new Error("Project path is required.");
@@ -24,12 +29,16 @@ export async function addExistingProject(store: ProjectRegistryStore, body: AddE
     throw error;
   }
   const path = await resolveExistingDirectory(body.path);
-  const project = await store.addProject(path, body.name);
-  await ensureProjectRuntime(project);
+  const state = await projectRuntimeCoordinator.register({ path, name: body.name });
+  const project = state.project;
   return { project, status: await getProjectStatus(project, project.path) };
 }
 
-export async function createNewProject(store: ProjectRegistryStore, body: CreateNewProjectRequest): Promise<{ project: ManagedProject; status: unknown; createdPath: string }> {
+export async function createNewProject(
+  store: ProjectRegistryStore,
+  body: CreateNewProjectRequest,
+  projectRuntimeCoordinator: Pick<ProjectRuntimeCoordinatorPort, "register"> = new ProjectRuntimeCoordinator({ store }),
+): Promise<{ project: ManagedProject; status: unknown; createdPath: string }> {
   assertConfirmed(body.confirm);
   if (typeof body.parentPath !== "string" || body.parentPath.trim() === "") {
     const error = new Error("Parent path is required.");
@@ -55,8 +64,8 @@ export async function createNewProject(store: ProjectRegistryStore, body: Create
     await runGit(projectPath, ["add", "."]);
     await runGit(projectPath, ["-c", "user.name=AHO", "-c", "user.email=aho@example.local", "commit", "-m", "Initial commit"]);
   }
-  const project = await store.addProject(projectPath, name);
-  await ensureProjectRuntime(project);
+  const state = await projectRuntimeCoordinator.register({ path: projectPath, name });
+  const project = state.project;
   return { project, createdPath: projectPath, status: await getProjectStatus(project, project.path) };
 }
 

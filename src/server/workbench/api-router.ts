@@ -67,11 +67,11 @@ export async function handleApi(context: WorkbenchServerContext, request: Incomi
     return;
   }
   if (request.method === "POST" && url.pathname === "/api/projects") {
-    sendJson(response, 200, await addExistingProject(context.store, await readJsonBody<AddExistingProjectRequest>(request)));
+    sendJson(response, 200, await addExistingProject(context.store, await readJsonBody<AddExistingProjectRequest>(request), context.projectRuntimeCoordinator));
     return;
   }
   if (request.method === "POST" && url.pathname === "/api/projects/new") {
-    sendJson(response, 200, await createNewProject(context.store, await readJsonBody<CreateNewProjectRequest>(request)));
+    sendJson(response, 200, await createNewProject(context.store, await readJsonBody<CreateNewProjectRequest>(request), context.projectRuntimeCoordinator));
     return;
   }
   const projectRemoveMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/remove$/);

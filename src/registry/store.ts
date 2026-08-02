@@ -71,6 +71,51 @@ export class ProjectRegistryStore {
     return project;
   }
 
+  async registerProject(input: {
+    path: string;
+    name?: string;
+    projectId?: string;
+  }): Promise<{ project: ManagedProject; created: boolean }> {
+    const registry = await this.load();
+    const comparable = normalizeForCompare(input.path);
+    const existing = registry.projects.find((project) => normalizeForCompare(project.path) === comparable);
+    if (existing) {
+      if (input.projectId && existing.id !== input.projectId) {
+        const error = new Error(
+          `Registered project id ${existing.id} does not match canonical Harness project_id ${input.projectId}; controlled identity migration is required.`,
+        );
+        error.name = "Conflict";
+        throw error;
+      }
+      existing.lastSeenAt = new Date().toISOString();
+      await this.save(registry);
+      return { project: existing, created: false };
+    }
+
+    const displayName = input.name?.trim() || defaultProjectName(input.path) || "project";
+    const requestedId = input.projectId?.trim() || slugify(displayName);
+    const ids = new Set(registry.projects.map((project) => project.id));
+    const id = input.projectId
+      ? requestedId
+      : ids.has(requestedId) ? `${requestedId}-${shortHash(input.path)}` : requestedId;
+    if (ids.has(id)) {
+      const error = new Error(`Project id is already registered for a different path: ${id}`);
+      error.name = "Conflict";
+      throw error;
+    }
+    const now = new Date().toISOString();
+    const project: ManagedProject = {
+      id,
+      name: displayName,
+      path: input.path,
+      addedAt: now,
+      lastSeenAt: now,
+    };
+    registry.projects.push(project);
+    await this.save(registry);
+    return { project, created: true };
+  }
+
   async listProjects(): Promise<ManagedProject[]> {
     return (await this.load()).projects;
   }

@@ -1,16 +1,19 @@
 import { mkdir, open, readFile, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { ResolvedMemory } from "../types/index.js";
+
+export interface WorkbenchRuntimeMutationPaths {
+  workbenchDbPath: string;
+}
 
 export interface WorkbenchRuntimeMutationLock {
   release(): Promise<void>;
 }
 
 export async function acquireWorkbenchRuntimeMutationLock(
-  memory: ResolvedMemory,
+  paths: WorkbenchRuntimeMutationPaths,
   action: string,
 ): Promise<WorkbenchRuntimeMutationLock> {
-  const path = join(dirname(memory.workbenchDbPath), "runtime-mutation.lock");
+  const path = join(dirname(paths.workbenchDbPath), "runtime-mutation.lock");
   await mkdir(dirname(path), { recursive: true });
   let handle;
   for (let attempt = 0; attempt < 2; attempt += 1) {

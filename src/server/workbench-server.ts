@@ -90,7 +90,7 @@ async function startProjectBackgroundWorkers(
   }
   const workers: BackgroundWorkerHandle[] = [];
   for (const project of projects) {
-    if ((await projectRuntimeCoordinator.resolve(project)).state === "onboarding") continue;
+    if ((await projectRuntimeCoordinator.resolve(project)).state !== "ready") continue;
     const memory = await resolveProjectMemory(project);
     const worker = startBackgroundWorker(memory, project, {
       ...options.backgroundWorker,
@@ -163,7 +163,7 @@ export async function recoverWorkbenchProjects(
     projects.push(directInput.project);
   }
   for (const project of projects) {
-    if ((await projectRuntimeCoordinator.resolve(project)).state === "onboarding") continue;
+    if ((await projectRuntimeCoordinator.resolve(project)).state !== "ready") continue;
     await recoverPendingApplyTransactions(project);
     await recoverChangeCloseTransactions(project);
     const memory = await resolveProjectMemory(project);

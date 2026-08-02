@@ -6,19 +6,24 @@ import type { ResolvedMemory } from "../../types/index.js";
 import type { SqliteRow } from "./sql-mappers.js";
 
 export interface WorkbenchResetGuard {
-  assertSafe(db: Database.Database, memory: ResolvedMemory): Promise<void>;
+  assertSafe(db: Database.Database): Promise<void>;
 }
 
 export class RuntimeWorkbenchResetGuard implements WorkbenchResetGuard {
-  constructor(private readonly providerRegistry?: ProviderRegistry) {}
-  async assertSafe(db: Database.Database, memory: ResolvedMemory): Promise<void> {
+  constructor(
+    private readonly memory?: ResolvedMemory,
+    private readonly providerRegistry?: ProviderRegistry,
+  ) {}
+
+  async assertSafe(db: Database.Database): Promise<void> {
     await assertProviderTurnsStoppedBeforeReset(db, this.providerRegistry);
+    if (!this.memory) return;
     const { listAgentTasks } = await import("../../agent-task/repository.js");
-    const activeTasks = (await listAgentTasks(memory)).filter((task) => task.status === "claimed" || task.status === "running");
+    const activeTasks = (await listAgentTasks(this.memory)).filter((task) => task.status === "claimed" || task.status === "running");
     if (activeTasks.length > 0) {
       throw new Error("Workbench 会话数据库需要重建，但仍有后台 Agent 任务正在运行。请等待任务结束后重试。");
     }
-    await assertWorkflowModelAttemptsStopped(memory);
+    await assertWorkflowModelAttemptsStopped(this.memory);
   }
 }
 
