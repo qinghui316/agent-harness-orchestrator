@@ -756,7 +756,7 @@ describe("Workbench provider planning flow", () => {
     }
   });
 
-  it("lets the first external-local Main turn onboard through native Harness Skill facts", async () => {
+  it("routes the first marker-free Main turn through the isolated Skill-native onboarding workspace", async () => {
     await Promise.all([
       rm(join(root, "AGENTS.md"), { force: true }),
       rm(join(root, "docs"), { recursive: true, force: true }),
@@ -765,16 +765,20 @@ describe("Workbench provider planning flow", () => {
       rm(join(root, ".agent-harness"), { recursive: true, force: true }),
     ]);
     appServerTurn.mockImplementationOnce(async (options) => {
-      const memory = await resolveProjectMemory(project());
       expect(options.prompt).toBe("请先判断这个空项目需要哪些说明文件。不要假设固定模板。");
       expect(options.requiredNativeSkills).toEqual(["aho-main-orchestration", "aho-harness-engineering"]);
       expect(options.skillInputs).toEqual([
         expect.objectContaining({ name: "aho-main-orchestration" }),
         expect.objectContaining({ name: "aho-harness-engineering" }),
       ]);
-      expect(options.writableRoots).toEqual([root, memory.memoryRoot, expect.stringContaining("planner-proposal")]);
+      expect(options.writableRoots).toEqual([expect.stringContaining(join("onboarding", "bundle"))]);
+      expect(options.writableRoots).not.toContain(root);
+      expect(options.dynamicTools?.map((tool) => tool.name)).toEqual(["aho_prepare_project_harness"]);
       expect(options.additionalContext?.["aho.harness-onboarding"]).toMatchObject({ kind: "application" });
-      expect(JSON.parse(options.additionalContext?.["aho.project"]?.value ?? "{}").memoryRoot).toBe(memory.memoryRoot);
+      expect(JSON.parse(options.additionalContext?.["aho.project"]?.value ?? "{}")).toEqual({
+        projectId: project().id,
+        projectRoot: root,
+      });
       return {
         status: "completed",
         threadId: "thread-first-onboarding",

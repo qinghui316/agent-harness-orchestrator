@@ -10,6 +10,8 @@ import { assertWritableMemory } from "../memory/resolver.js";
 import { ensureProjectRuntime } from "../harness/init.js";
 import { writeJsonFile } from "../fs/json.js";
 import { getGitCommit, getGitStatusShort } from "../project/git.js";
+import { readProjectMarker } from "../project/marker.js";
+import { resolveProjectRuntimeState } from "../project-runtime/coordinator.js";
 import { assertChangeFinalizationReady, closeChangeForFinalization } from "../change/manager.js";
 import { getSystemSkillsRoot } from "../template-source/paths.js";
 import { runSchedulerReadySetInitialization } from "../workflow-runtime/scheduler.js";
@@ -44,6 +46,7 @@ import { assembleSharedConversationContext } from "./shared-conversation-context
 import { buildConversationInteractionQueue } from "./conversation-interactions.js";
 import { acceptCurrentConversationPlanningPackage, readPlannerChildProposal } from "./planning/planner-child-proposal.js";
 import { finalizePlanningChild, PLANNING_AGENT_ROLE_ID } from "./planning-child-lifecycle.js";
+import { runProjectHarnessOnboardingTurn } from "./project-harness-onboarding-turn.js";
 import type {
   AssistantTurnBlock,
   ValidatedPlanHandoffIntent,
@@ -62,6 +65,16 @@ export async function runProjectScopedMainAgentTurn(
   planHandoff?: ValidatedPlanHandoffIntent,
   options: { goalResume?: { deliveryKey: string; contextText: string }; graphScopeId?: string } = {},
 ): Promise<TopicThreadEntry> {
+  if (!await readProjectMarker(project.path)) {
+    const runtimeState = await resolveProjectRuntimeState(project);
+    if (runtimeState.state === "onboarding") {
+      return runProjectHarnessOnboardingTurn(project, runtimeState, conversationId, userMessage, live);
+    }
+    if (runtimeState.state === "repair-required") {
+      throw new Error("Project Harness requires repair before planning or source execution.");
+    }
+    throw new Error("Skill-native project runtime consumers are not fully migrated yet; refusing to create legacy Harness state.");
+  }
   const memory = await ensureProjectRuntime(project);
   assertWritableMemory(memory, "Project-scoped chat");
   if (!memory.projectId) throw new Error("Project id is required to run project-scoped chat.");

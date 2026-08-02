@@ -76,6 +76,7 @@ export interface ProjectHarnessOnboardingWorkspace {
   root: string;
   bundleRoot: string;
   candidateRoot: string;
+  reviewRoot: string;
   reviewPath: string;
   recordPath: string;
 }
@@ -120,22 +121,27 @@ export async function ensureProjectHarnessOnboardingWorkspace(
   const root = join(sidecar, "onboarding");
   const bundleRoot = join(root, "bundle");
   const candidateParent = join(root, "candidate");
+  const reviewRoot = join(root, "review");
   await Promise.all([
     mkdir(bundleRoot, { recursive: true }),
     mkdir(candidateParent, { recursive: true }),
+    mkdir(reviewRoot, { recursive: true }),
   ]);
   await Promise.all([
     assertNoLinkedPathAncestors(root, "project Harness onboarding workspace"),
     assertNoLinkedPathAncestors(bundleRoot, "project Harness onboarding bundle"),
     assertNoLinkedPathAncestors(candidateParent, "project Harness onboarding candidate root"),
+    assertNoLinkedPathAncestors(reviewRoot, "project Harness onboarding review root"),
   ]);
   await assertPhysicalDirectory(root, "project Harness onboarding workspace");
   await assertPhysicalDirectory(bundleRoot, "project Harness onboarding bundle");
+  await assertPhysicalDirectory(reviewRoot, "project Harness onboarding review root");
   return {
     root,
     bundleRoot,
     candidateRoot: join(candidateParent, `${projectId}-harness`),
-    reviewPath: join(root, "full-bundle-review.json"),
+    reviewRoot,
+    reviewPath: join(reviewRoot, "full-bundle-review.json"),
     recordPath: join(root, "transaction.json"),
   };
 }
@@ -250,18 +256,18 @@ export async function publishProjectHarnessOnboarding(
     if (record.stage === "rolled-back") {
       record = await advanceRecord(workspace.recordPath, record, "prepared", { reviewer_id: null, error: null });
     }
-    const reviewRaw = parseJsonText(await readFile(workspace.reviewPath, "utf8"), workspace.reviewPath);
-    const review = parseFullBundleReview(reviewRaw, {
-      candidateFingerprint: record.candidate_fingerprint,
-      sourceSnapshotDigest: record.source_snapshot_digest,
-    });
-    if (review.author_id !== record.author_id || review.reviewer_id !== options.reviewerId) {
-      throw new Error("Full bundle review identities do not match the Runtime-owned author and reviewer executions.");
-    }
-    if (review.decision !== "approve") throw new Error("Full bundle review blocked project Harness onboarding.");
-    record = await advanceRecord(workspace.recordPath, record, record.stage, { reviewer_id: options.reviewerId });
     let result: ProjectHarnessOnboardingResult;
     try {
+      const reviewRaw = parseJsonText(await readFile(workspace.reviewPath, "utf8"), workspace.reviewPath);
+      const review = parseFullBundleReview(reviewRaw, {
+        candidateFingerprint: record.candidate_fingerprint,
+        sourceSnapshotDigest: record.source_snapshot_digest,
+      });
+      if (review.author_id !== record.author_id || review.reviewer_id !== options.reviewerId) {
+        throw new Error("Full bundle review identities do not match the Runtime-owned author and reviewer executions.");
+      }
+      if (review.decision !== "approve") throw new Error("Full bundle review blocked project Harness onboarding.");
+      record = await advanceRecord(workspace.recordPath, record, record.stage, { reviewer_id: options.reviewerId });
       await assertCurrent();
       await revalidatePreparedCandidate(record);
       result = await publishInitialCandidate(record, workspace.recordPath, options.failureInjection);

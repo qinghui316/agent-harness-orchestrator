@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { getAhoHome } from "../fs/path.js";
 import { assertRequiredProjectHarnessBindings, discoverProjectHarness } from "../project-harness/discovery.js";
 import { auditProjectHarness, doctorProjectHarness } from "../project-harness/diagnostics.js";
 import {
@@ -133,30 +134,7 @@ export class ProjectRuntimeCoordinator implements ProjectRuntimeCoordinatorPort 
   }
 
   async resolve(project: ManagedProject): Promise<ProjectRuntimeState> {
-    const projectRoot = await assertPhysicalDirectory(project.path, "project source");
-    const discovery = await discoverProjectHarness(projectRoot);
-    if (!discovery) {
-      const paths = resolveProjectRuntimePaths(project.id, this.ahoHome);
-      await assertProjectRuntimePathSafety(paths);
-      return { state: "onboarding", project, projectRoot, paths, reservedProjectId: project.id };
-    }
-    const resolution = await resolveProjectRuntime(project, { ahoHome: this.ahoHome });
-    const [doctor, audit] = await Promise.all([
-      doctorProjectHarness({
-        skillRoot: resolution.harness.skillRoot,
-        projectRoot,
-        expectedProjectId: resolution.harness.projectId,
-      }),
-      auditProjectHarness({
-        skillRoot: resolution.harness.skillRoot,
-        projectRoot,
-        expectedProjectId: resolution.harness.projectId,
-      }),
-    ]);
-    if (!doctor.healthy || !audit.healthy) {
-      return { state: "repair-required", project, resolution, doctor, audit };
-    }
-    return { state: "ready", project, resolution };
+    return resolveProjectRuntimeState(project, { ahoHome: this.ahoHome });
   }
 
   async requireReady(project: ManagedProject): Promise<ProjectRuntimeResolution> {
@@ -197,4 +175,35 @@ export class ProjectRuntimeCoordinator implements ProjectRuntimeCoordinatorPort 
     }
     return { state: await this.resolve(migratedProject), migration };
   }
+}
+
+export async function resolveProjectRuntimeState(
+  project: ManagedProject,
+  options: { ahoHome?: string } = {},
+): Promise<ProjectRuntimeState> {
+  const ahoHome = options.ahoHome ?? getAhoHome();
+  const projectRoot = await assertPhysicalDirectory(project.path, "project source");
+  const discovery = await discoverProjectHarness(projectRoot);
+  if (!discovery) {
+    const paths = resolveProjectRuntimePaths(project.id, ahoHome);
+    await assertProjectRuntimePathSafety(paths);
+    return { state: "onboarding", project, projectRoot, paths, reservedProjectId: project.id };
+  }
+  const resolution = await resolveProjectRuntime(project, { ahoHome });
+  const [doctor, audit] = await Promise.all([
+    doctorProjectHarness({
+      skillRoot: resolution.harness.skillRoot,
+      projectRoot,
+      expectedProjectId: resolution.harness.projectId,
+    }),
+    auditProjectHarness({
+      skillRoot: resolution.harness.skillRoot,
+      projectRoot,
+      expectedProjectId: resolution.harness.projectId,
+    }),
+  ]);
+  if (!doctor.healthy || !audit.healthy) {
+    return { state: "repair-required", project, resolution, doctor, audit };
+  }
+  return { state: "ready", project, resolution };
 }

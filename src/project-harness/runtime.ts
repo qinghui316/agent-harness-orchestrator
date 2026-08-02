@@ -85,7 +85,7 @@ export interface ProjectHarnessRegistryPort {
   }>;
 }
 
-export type ProjectHarnessOnboardingRole = "main-agent" | "auditor";
+export type ProjectHarnessOnboardingRole = "main-agent" | "auditor-agent";
 
 export interface ProjectHarnessOnboardingExecution {
   projectId: string;
@@ -189,7 +189,7 @@ export function createProjectHarnessRuntime(
           const reviewer = await verifyOnboardingExecution(options, {
             projectId,
             attemptId: reviewerAttemptId,
-            requiredRole: "auditor",
+            requiredRole: "auditor-agent",
             artifactPath: workspace.reviewPath,
           });
           return publishProjectHarnessOnboarding({

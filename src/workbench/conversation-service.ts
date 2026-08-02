@@ -4,12 +4,15 @@ import { join } from "node:path";
 import { defaultProviderRegistry } from "../provider-runtime/index.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { ensureProjectRuntime } from "../harness/init.js";
+import { readProjectMarker } from "../project/marker.js";
+import { resolveProjectRuntimeState, type ProjectRuntimeState } from "../project-runtime/coordinator.js";
 import type { ManagedProject } from "../types/index.js";
 import { resolveTopicAttachments } from "./attachments.js";
 import { resolveTopicFileReferences } from "./file-references.js";
 import { validatePlanHandoffIntent } from "./plan-handoff.js";
 import { hasPlanningExecutionEvidence } from "../change/manager.js";
 import { openWorkbenchDatabase } from "./persistence/open-workbench-database.js";
+import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbench-database.js";
 import type { StoredTopicMessage } from "./persistence/contracts.js";
 import { fromStoredThreadMessage } from "./conversation-thread-log.js";
 import { CanonicalTimelineDelivery, publishCommittedCanonicalTimelineRow } from "./canonical-timeline-delivery.js";
@@ -21,6 +24,9 @@ import { runWorkbenchWorkflowAction } from "./workflow-conversation-bridge.js";
 import type { TopicAttachment, TopicMessageInput, TopicMessageResult, TopicThreadEntry, ValidatedPlanHandoffIntent, WorkbenchLiveSink } from "./types.js";
 import { publishAgentSurfacesInvalidated, publishProjectLiveEvent } from "./project-live-events.js";
 import { runExactChildAgentTurn } from "./provider-child-turn-coordinator.js";
+import { runProjectHarnessOnboardingTurn } from "./project-harness-onboarding-turn.js";
+import type { WorkbenchDatabase } from "./persistence/database.js";
+import type { ResolvedMemory } from "../types/index.js";
 
 export async function createWorkbenchConversation(
   project: ManagedProject,
@@ -28,9 +34,8 @@ export async function createWorkbenchConversation(
   live?: WorkbenchLiveSink,
   options: { runMainAgent?: boolean } = {},
 ): Promise<{ conversationId: string; title: string; state: "active" }> {
-  const memory = await ensureProjectRuntime(project);
-  assertWritableMemory(memory, "Workbench conversation");
-  if (!memory.projectId) throw new Error("Project id is required to create a conversation.");
+  const persistence = await openProjectConversationDatabase(project);
+  if (persistence.memory) assertWritableMemory(persistence.memory, "Workbench conversation");
   const resolved = await resolveTopicFileReferences(project, input.body ?? "", input.contextRefs);
   const attachments = await resolveTopicAttachments(project, input.attachmentIds);
   const title = deriveConversationTitle(resolved.text, attachments.length > 0);
@@ -43,11 +48,11 @@ export async function createWorkbenchConversation(
     : project.defaultProviderId
       ? defaultProviderRegistry.get(project.defaultProviderId).id
       : defaultProviderRegistry.requireOnly().id;
-  const database = await openWorkbenchDatabase(memory);
+  const database = persistence.database;
   let storedUserRow: StoredTopicMessage;
   try {
     storedUserRow = database.unitOfWork.createConversationWithInitialMessage({
-      projectId: memory.projectId,
+      projectId: persistence.projectId,
       conversationId,
       title,
       state: "active",
@@ -58,7 +63,7 @@ export async function createWorkbenchConversation(
       createdAt: now,
       updatedAt: now,
       deletedAt: null,
-    }, toCanonicalTimelineMessage(memory.projectId, conversationId, {
+    }, toCanonicalTimelineMessage(persistence.projectId, conversationId, {
       id: `user:${conversationId}:1`,
       type: "user.message",
       timestamp: now,
@@ -76,7 +81,11 @@ export async function createWorkbenchConversation(
   live?.emit({ event: "topic.created", data: { topic: { id: conversationId, conversationId, title, state: "active", selectedProviderId } } });
   publishCommittedCanonicalTimelineRow(live, storedUserRow);
   if (options.runMainAgent !== false) {
-    await runProjectScopedMainAgentTurn(project, conversationId, body, live, undefined, { graphScopeId });
+    if (persistence.runtimeState?.state === "onboarding") {
+      await runProjectHarnessOnboardingTurn(project, persistence.runtimeState, conversationId, body, live);
+    } else {
+      await runProjectScopedMainAgentTurn(project, conversationId, body, live, undefined, { graphScopeId });
+    }
   }
   return { conversationId, title, state: "active" };
 }
@@ -86,14 +95,13 @@ export async function updateWorkbenchConversationTitle(
   conversationId: string,
   input: { title: string },
 ): Promise<{ id: string; title: string; state: string; updatedAt: string; selectedProviderId?: string }> {
-  const memory = await ensureProjectRuntime(project);
-  assertWritableMemory(memory, "Workbench conversation title");
-  if (!memory.projectId) throw new Error("Project id is required to update a conversation title.");
+  const persistence = await openProjectConversationDatabase(project);
+  if (persistence.memory) assertWritableMemory(persistence.memory, "Workbench conversation title");
   const title = normalizeConversationTitle(input.title);
   const updatedAt = new Date().toISOString();
-  const database = await openWorkbenchDatabase(memory);
+  const database = persistence.database;
   try {
-    const conversation = database.conversations.updateConversationTitle(memory.projectId, conversationId, title, updatedAt);
+    const conversation = database.conversations.updateConversationTitle(persistence.projectId, conversationId, title, updatedAt);
     const projection = {
       id: conversation.conversationId,
       title: conversation.title,
@@ -101,7 +109,7 @@ export async function updateWorkbenchConversationTitle(
       updatedAt: conversation.updatedAt,
       selectedProviderId: conversation.selectedProviderId,
     };
-    publishProjectLiveEvent(memory.projectId, { event: "topic.updated", data: { conversation: projection } });
+    publishProjectLiveEvent(persistence.projectId, { event: "topic.updated", data: { conversation: projection } });
     return projection;
   } finally {
     database.close();
@@ -143,6 +151,16 @@ export async function postConversationMessage(
   live?: WorkbenchLiveSink,
 ): Promise<TopicMessageResult> {
   const parsed = await normalizeTopicMessageInput(project, input);
+  if (!await readProjectMarker(project.path)) {
+    const runtimeState = await resolveProjectRuntimeState(project);
+    if (runtimeState.state === "onboarding") {
+      return postProjectHarnessOnboardingMessage(project, runtimeState, conversationId, parsed, live);
+    }
+    if (runtimeState.state === "repair-required") {
+      throw new Error("Project Harness requires repair before planning or source execution.");
+    }
+    throw new Error("Skill-native project runtime consumers are not fully migrated yet; refusing to create legacy Harness state.");
+  }
   const memory = await ensureProjectRuntime(project);
   assertWritableMemory(memory, "Workbench conversation");
   if (!memory.projectId) throw new Error("Project id is required to post a conversation message.");
@@ -220,15 +238,86 @@ export async function postConversationMessage(
 }
 
 export async function listConversationMessages(project: ManagedProject, conversationId: string): Promise<TopicThreadEntry[]> {
-  const memory = await resolveProjectMemory(project);
-  if (!memory.projectId) return [];
-  conversationId = await resolveConversationId(project, conversationId);
-  const database = await openWorkbenchDatabase(memory);
+  const persistence = await openProjectConversationDatabase(project, false);
+  if (!persistence.projectId) return [];
+  if (persistence.memory) conversationId = await resolveConversationId(project, conversationId);
+  const database = persistence.database;
   try {
-    return database.timeline.listConversationMessages(memory.projectId, conversationId).map(fromStoredThreadMessage);
+    return database.timeline.listConversationMessages(persistence.projectId, conversationId).map(fromStoredThreadMessage);
   } finally {
     database.close();
   }
+}
+
+async function openProjectConversationDatabase(
+  project: ManagedProject,
+  initializeLegacy = true,
+): Promise<{
+  projectId: string;
+  database: WorkbenchDatabase;
+  memory: ResolvedMemory | null;
+  runtimeState: ProjectRuntimeState | null;
+}> {
+  if (await readProjectMarker(project.path)) {
+    const memory = initializeLegacy ? await ensureProjectRuntime(project) : await resolveProjectMemory(project);
+    if (!memory.projectId) throw new Error("Project id is required for Workbench conversation storage.");
+    return {
+      projectId: memory.projectId,
+      database: await openWorkbenchDatabase(memory),
+      memory,
+      runtimeState: null,
+    };
+  }
+  const runtimeState = await resolveProjectRuntimeState(project);
+  const paths = runtimeState.state === "onboarding" ? runtimeState.paths : runtimeState.resolution.paths;
+  return {
+    projectId: runtimeState.project.id,
+    database: await openProjectRuntimeWorkbenchDatabase(paths),
+    memory: null,
+    runtimeState,
+  };
+}
+
+async function postProjectHarnessOnboardingMessage(
+  project: ManagedProject,
+  runtimeState: Extract<ProjectRuntimeState, { state: "onboarding" }>,
+  conversationId: string,
+  parsed: Awaited<ReturnType<typeof normalizeTopicMessageInput>>,
+  live?: WorkbenchLiveSink,
+): Promise<TopicMessageResult> {
+  if (parsed.agentSurfaceId || parsed.planHandoffIntent || parsed.providerId) {
+    const error = new Error("Project Harness onboarding accepts Main conversation text and attachments only.");
+    error.name = "Conflict";
+    throw error;
+  }
+  const database = await openProjectRuntimeWorkbenchDatabase(runtimeState.paths);
+  const now = new Date().toISOString();
+  const conversation = database.conversations.readConversation(project.id, conversationId);
+  if (!conversation) {
+    database.close();
+    throw new Error(`Conversation not found: ${conversationId}.`);
+  }
+  const user: TopicThreadEntry = {
+    id: `user:${conversationId}:${Date.now().toString(36)}`,
+    type: "user.message",
+    timestamp: now,
+    conversationId,
+    graphScopeId: conversation.currentGraphScopeId ?? undefined,
+    changeId: "",
+    completedTurnSequence: conversation.completedTurnSequence + 1,
+    text: parsed.message,
+    contextRefs: parsed.contextRefs,
+    attachments: parsed.attachments,
+  };
+  let stored: StoredTopicMessage;
+  try {
+    stored = database.timeline.appendMessage(toCanonicalTimelineMessage(project.id, conversationId, user));
+  } finally {
+    database.close();
+  }
+  publishCommittedCanonicalTimelineRow(live, stored);
+  const assistant = await runProjectHarnessOnboardingTurn(project, runtimeState, conversationId, parsed.message, live);
+  return { user, assistant, run: null, providerSessionId: null, mode: "chat", assistantMessage: assistant.text ?? "" };
 }
 
 async function normalizeTopicMessageInput(project: ManagedProject, input: string | TopicMessageInput): Promise<Required<Pick<TopicMessageInput, "mode" | "message">> & { contextRefs?: TopicMessageInput["contextRefs"]; attachments?: TopicAttachment[]; planHandoffIntent?: TopicMessageInput["planHandoffIntent"]; providerId?: string; providerSwitchIntent: "resume-workflow" | "conversation-only"; agentSurfaceId?: string }> {
