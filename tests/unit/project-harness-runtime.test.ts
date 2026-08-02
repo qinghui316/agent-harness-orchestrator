@@ -94,6 +94,37 @@ describe("project Harness daily Runtime facade", () => {
     await expect(runtime.change.run(fixture.handle, ["status"])).resolves.toMatchObject({ status: "completed" });
     expect(commandRun).toHaveBeenCalledTimes(1);
   });
+
+  it("requires Runtime-owned Agent attempt and artifact verification for onboarding", async () => {
+    const fixture = await createFixture();
+    const commandRun = vi.fn<ProjectHarnessCommandPort["run"]>(async () => ({ status: "completed" }));
+    const common = {
+      projectId: "sample-a1",
+      projectRoot: fixture.projectRoot,
+      skillRoot: fixture.skillRoot,
+      sidecarRoot: fixture.sidecarRoot,
+      change: { run: commandRun },
+      registry: { async preflight() { return { status: "continue" }; } },
+      integration: { run: commandRun },
+      evolution: { run: commandRun },
+    };
+    const unverified = createProjectHarnessRuntime(common);
+    await expect(unverified.project.init.prepare("main-attempt-1"))
+      .rejects.toThrow(/Runtime-owned ProviderAttempt verifier/);
+
+    const mismatched = createProjectHarnessRuntime({
+      ...common,
+      onboarding: {
+        executions: {
+          async verify(input) {
+            return { ...input, roleId: "auditor" };
+          },
+        },
+      },
+    });
+    await expect(mismatched.project.init.prepare("main-attempt-1"))
+      .rejects.toThrow(/does not match the required Agent attempt and artifact/);
+  });
 });
 
 async function createFixture(): Promise<{

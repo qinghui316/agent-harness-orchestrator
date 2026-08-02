@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { assertRequiredProjectHarnessBindings, discoverProjectHarness } from "../project-harness/discovery.js";
+import {
+  recoverProjectHarnessOnboarding,
+  type ProjectHarnessOnboardingRecord,
+} from "../project-harness/onboarding.js";
 import { assertPhysicalDirectory } from "../project-harness/path-safety.js";
 import { withProjectHarnessWriterLock } from "../project-harness/writer-lock.js";
 import type { ProjectRegistryStore } from "../registry/store.js";
@@ -36,6 +41,7 @@ export interface ProjectRuntimeStartupResult {
   states: ProjectRuntimeState[];
   migrations: ProjectIdentityMigrationResult[];
   recoveries: ProjectIdentityMigrationResult[];
+  onboardingRecoveries: ProjectHarnessOnboardingRecord[];
 }
 
 export interface ProjectRuntimeCoordinatorOptions {
@@ -62,6 +68,17 @@ export class ProjectRuntimeCoordinator implements ProjectRuntimeCoordinatorPort 
   async reconcileStartup(): Promise<ProjectRuntimeStartupResult> {
     const projectsRoot = join(this.ahoHome, "projects");
     await assertProjectRuntimePathSafety(resolveProjectRuntimePaths("project-runtime-identities", this.ahoHome));
+    const onboardingRecoveries: ProjectHarnessOnboardingRecord[] = [];
+    for (const project of await this.options.store.listProjects()) {
+      const paths = resolveProjectRuntimePaths(project.id, this.ahoHome);
+      if (!existsSync(join(paths.sidecarRoot, "onboarding", "transaction.json"))) continue;
+      const recovered = await recoverProjectHarnessOnboarding(
+        project.id,
+        project.path,
+        paths.sidecarRoot,
+      );
+      if (recovered) onboardingRecoveries.push(recovered);
+    }
     return withProjectHarnessWriterLock(projectsRoot, {
       projectId: "project-runtime-identities",
       ownerId: `workbench-startup-${process.pid}`,
@@ -78,7 +95,7 @@ export class ProjectRuntimeCoordinator implements ProjectRuntimeCoordinatorPort 
         if (reconciled.migration) migrations.push(reconciled.migration);
         states.push(reconciled.state);
       }
-      return { states, migrations, recoveries };
+      return { states, migrations, recoveries, onboardingRecoveries };
     });
   }
 

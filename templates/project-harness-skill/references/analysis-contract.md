@@ -1,0 +1,118 @@
+# Project Audit And Full Refresh Contract
+
+Use this contract during read-only semantic audit and full migration. Accepted E1 reads it only
+when a complete project rescan is required. Ordinary project Harness documents are edited directly
+inside a Structured Change; they do not use a migration bundle. Agent judgment analyzes project
+semantics; the AHO-bundled TypeScript Creator validates deterministic full-refresh artifacts.
+
+## Evidence Funnel
+
+Read repository prose as candidate context, then verify durable claims against manifests and
+workspaces, CI/task files, entrypoints, imports/interfaces, configuration access, accepted
+contracts, and tests. Select adapters from manifests
+and source evidence. A top-level directory is not a module, an adapter default is not a configured
+command, and search similarity is not an L3 fact.
+
+Never read or persist secret values. Local evidence is a project-relative existing path. External
+evidence may use `https:`, `user:`, `contract:`, or `registry:` identifiers.
+
+## Focused E1 Bundle
+
+During accepted E1, when accumulated evidence changes project documents or Harness behavior without requiring a
+whole-project semantic rescan, create only:
+
+```text
+creation-delta.json             # mode: evolution-focused
+artifacts/                      # only sources named by creation-delta
+```
+
+Focused E1 artifacts may create, replace, merge, or retire Agent-owned Markdown below
+`references/project_wiki/**`, other references, routes, rules, workflows, templates, checks, and
+helpers. Agent-owned Wiki pages declare ECL frontmatter with id, semantic layer, kind, status,
+Owner, modules, evidence, and optional `managed_by: agent`. Retirement declares `validation: retired`.
+Generated catalog/fingerprint baseline, derived rule views, local state, and Runtime remain protected.
+A focused bundle does not run the evidence extractor or a full source-fingerprint scan.
+
+## Four-File Full Refresh Bundle
+
+Create one directory containing:
+
+```text
+project-profile.json
+architecture.json
+audit.json
+creation-delta.json
+artifacts/                    # only sources named by creation-delta
+```
+
+Main writes the four files into the Runtime-owned bundle workspace supplied for the onboarding or
+full-refresh turn. Deterministic extraction may locate evidence, but it cannot certify semantic
+completion, score the audit, or authorize artifacts. Agent judgment reviews implementation
+evidence and writes the final four files; the TypeScript Runtime remains only the schema,
+evidence, fingerprint, and publication gate.
+
+Fixed byte, line, word, item, diagram, or command counts must not reject otherwise valid project
+knowledge. Keep L1 navigable by moving implementation detail into linked L2/L3 pages, not by
+truncating project-level owners, flows, commands, boundaries, or material unknowns.
+
+All files use `schema_version: "1.0"`.
+
+`project-profile.json` declares `analysis_status` as `complete` and
+contains purpose, primary_flows, languages, frameworks, package_managers, source_roots,
+entrypoints, modules, commands, environment, ci, bridges, reference_projects,
+global_boundaries, unknowns,
+and top-level evidence. Complete records require non-empty evidence. Commands use only
+`configured|candidate|executed`. Environment contains services, startup_order, readiness,
+migration/seed, cleanup, variable names/sensitivity, modes, helpers, unknowns, and evidence.
+Each global boundary contains a non-empty `rule` and project evidence. `name` plus an optional
+`description` is accepted for an existing bundle, but evidence without displayable boundary
+semantics is invalid.
+Every flow, environment mode/helper/object startup step, architecture component, dependency cycle,
+interface, and code path must likewise contain the semantic fields used by its Wiki projection;
+evidence-only objects are invalid.
+
+Each module has a stable id, name, responsibility, roots, entrypoints, interfaces, dependencies,
+tests, commands, boundaries, and evidence. Each bridge has a purpose and non-empty mappings from a
+proven term/API/schema/event/config/UI/CLI concept to its implementation owner, with evidence per
+mapping.
+
+Optional `reference_projects` records an isolated project-local checkout, source, inspected commit,
+purpose, applicable problems, inspected files, source modules, license evidence, unknowns, and
+reference-relative evidence. Target modules record accepted relationships in `reference_sources`;
+L3 mappings may cite a reference project while retaining target evidence. Reference source facts
+never populate target modules, commands, environment, CI, or dependencies.
+
+`architecture.json` contains analysis_status, layers, circular_dependencies, key_interfaces,
+code_paths, error_patterns, and evidence. It expresses verified architecture directly and does not
+depend on repository prose documents.
+
+A deterministic draft may contain `document_candidates` for Agent review. Remove that field before
+semantic completion. A complete bundle must not contain `documents` or persist README, `docs/**`,
+or ADR paths in profile, architecture, audit, or creation delta.
+
+`audit.json` uses the dimensions, weights, score range, and overall calculation in
+`references/audit-rubric.json`. Every gap has priority, dimension, issue, fix, and non-empty
+evidence. `knowledge_findings` records Agent-reviewed drift or semantic findings with type,
+decision, owner, projection, repair, and validation. An `entropy_report` with measurable and owned
+`before` and `after` objects is optional when a full semantic audit benefits from it; Runtime does
+not generate entropy findings from prose.
+
+`creation-delta.json` contains mode, decisions, and artifacts. Decisions use
+retain/move/merge/retire/archive-only/create with source, owner, projection, and validation.
+Artifacts require path, create/replace/merge/retire action, owner, validation, and non-empty
+evidence; create/replace/merge also require a bundle-relative source. Retirement is available only
+while publishing a candidate for an existing project Harness, targets an existing physical optional
+artifact, and remains forbidden during init or bootstrap. UTF-8 references and assets are open
+semantic owners; scripts remain limited to checks/helpers and require explicit executable
+authorization. Project Wiki document evidence and Owner must match its frontmatter. Runtime, state,
+required workflows, required rule owners, generated Wiki views, and derived rule views are
+protected.
+
+## Publication Gate
+
+The AHO-bundled Creator validates a full init or migrate bundle directly; a separate project audit
+is optional diagnosis, not a staging prerequisite. Init and migrate bind an independent
+`full-bundle-review` approve/block report to the exact candidate fingerprint and source snapshot.
+Evolution uses the separate scored Judge contract: a candidate must preserve live
+Change/INDEX/Registry state, pass rule/Wiki/stage and project validation, score at least 80, and
+have no hard issue. Unavailable Evolution review is `noop`; there is no E2.

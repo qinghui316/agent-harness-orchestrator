@@ -1,5 +1,5 @@
 import { lstat } from "node:fs/promises";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { isAbsolute, parse, relative, resolve, sep } from "node:path";
 import type { OwnedArtifactRef } from "./contracts.js";
 
 export interface OwnedArtifactRoots {
@@ -15,6 +15,25 @@ export async function assertPhysicalDirectory(path: string, label: string): Prom
     throw new Error(`${label} must be a physical directory: ${absolute}`);
   }
   return absolute;
+}
+
+export async function assertNoLinkedPathAncestors(path: string, label: string): Promise<void> {
+  const target = resolve(path);
+  const parsedRoot = parse(target).root;
+  let current = parsedRoot;
+  for (const segment of relative(parsedRoot, target).split(sep).filter(Boolean)) {
+    current = resolve(current, segment);
+    try {
+      const info = await lstat(current);
+      if (info.isSymbolicLink()) throw new Error(`${label} traverses a link or Junction: ${current}`);
+      if (!info.isDirectory() && normalizePath(current) !== normalizePath(target)) {
+        throw new Error(`${label} traverses a non-directory: ${current}`);
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw error;
+    }
+  }
 }
 
 export async function resolveOwnedArtifactPath(
@@ -72,4 +91,9 @@ async function assertExistingTargetIsPhysical(target: string, label: string): Pr
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
     throw error;
   }
+}
+
+function normalizePath(path: string): string {
+  const value = resolve(path);
+  return process.platform === "win32" ? value.toLowerCase() : value;
 }

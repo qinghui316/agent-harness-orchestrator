@@ -1,8 +1,18 @@
+import { createHash } from "node:crypto";
+import { resolve } from "node:path";
 import type { ProjectHarnessHandle } from "./contracts.js";
 import { auditProjectHarness, doctorProjectHarness } from "./diagnostics.js";
 import { fingerprintProjectHarnessContent } from "./fingerprint.js";
 import { checkProjectKnowledge, scanProjectKnowledge } from "./knowledge.js";
 import { readProjectHarnessManifest } from "./manifest.js";
+import {
+  ensureProjectHarnessOnboardingWorkspace,
+  prepareProjectHarnessOnboarding,
+  publishProjectHarnessOnboarding,
+  type ProjectHarnessOnboardingRecord,
+  type ProjectHarnessOnboardingResult,
+  type ProjectHarnessOnboardingWorkspace,
+} from "./onboarding.js";
 import { createSnapshotFingerprinter, SourceFingerprintSnapshot } from "./source-fingerprint.js";
 
 export interface ProjectHarnessOperationResult {
@@ -14,6 +24,11 @@ export interface ProjectHarnessOperationResult {
 }
 
 export interface ProjectHarnessProjectOperations {
+  init: {
+    workspace(): Promise<ProjectHarnessOnboardingWorkspace>;
+    prepare(authorAttemptId: string): Promise<ProjectHarnessOnboardingRecord>;
+    publish(reviewerAttemptId: string): Promise<ProjectHarnessOnboardingResult>;
+  };
   doctor(handle: ProjectHarnessHandle): Promise<ProjectHarnessOperationResult>;
   audit(handle: ProjectHarnessHandle): Promise<ProjectHarnessOperationResult>;
 }
@@ -70,7 +85,26 @@ export interface ProjectHarnessRegistryPort {
   }>;
 }
 
+export type ProjectHarnessOnboardingRole = "main-agent" | "auditor";
+
+export interface ProjectHarnessOnboardingExecution {
+  projectId: string;
+  attemptId: string;
+  roleId: ProjectHarnessOnboardingRole;
+  artifactPath: string;
+}
+
+export interface ProjectHarnessOnboardingExecutionPort {
+  verify(input: {
+    projectId: string;
+    attemptId: string;
+    requiredRole: ProjectHarnessOnboardingRole;
+    artifactPath: string;
+  }): Promise<ProjectHarnessOnboardingExecution>;
+}
+
 export interface CreateProjectHarnessRuntimeOptions {
+  projectId?: string;
   projectRoot: string;
   skillRoot: string;
   sidecarRoot: string;
@@ -79,6 +113,11 @@ export interface CreateProjectHarnessRuntimeOptions {
   integration: ProjectHarnessCommandPort;
   evolution: ProjectHarnessCommandPort;
   sourceSnapshotFactory?: () => SourceFingerprintSnapshot;
+  onboarding?: {
+    scaffoldRoot?: string;
+    compiledRuntimeEntry?: string;
+    executions?: ProjectHarnessOnboardingExecutionPort;
+  };
 }
 
 export function createProjectHarnessRuntime(
@@ -109,6 +148,58 @@ export function createProjectHarnessRuntime(
   });
   return {
     project: {
+      init: {
+        async workspace() {
+          return ensureProjectHarnessOnboardingWorkspace(
+            requireOnboardingProjectId(options.projectId),
+            options.projectRoot,
+            options.sidecarRoot,
+          );
+        },
+        async prepare(authorAttemptId) {
+          const projectId = requireOnboardingProjectId(options.projectId);
+          const workspace = await ensureProjectHarnessOnboardingWorkspace(
+            projectId,
+            options.projectRoot,
+            options.sidecarRoot,
+          );
+          const author = await verifyOnboardingExecution(options, {
+            projectId,
+            attemptId: authorAttemptId,
+            requiredRole: "main-agent",
+            artifactPath: workspace.bundleRoot,
+          });
+          return prepareProjectHarnessOnboarding({
+            projectId,
+            projectRoot: options.projectRoot,
+            sidecarRoot: options.sidecarRoot,
+            authorId: author.attemptId,
+            transactionId: deriveOnboardingTransactionId(projectId, author.attemptId),
+            scaffoldRoot: options.onboarding?.scaffoldRoot,
+            compiledRuntimeEntry: options.onboarding?.compiledRuntimeEntry,
+          });
+        },
+        async publish(reviewerAttemptId) {
+          const projectId = requireOnboardingProjectId(options.projectId);
+          const workspace = await ensureProjectHarnessOnboardingWorkspace(
+            projectId,
+            options.projectRoot,
+            options.sidecarRoot,
+          );
+          const reviewer = await verifyOnboardingExecution(options, {
+            projectId,
+            attemptId: reviewerAttemptId,
+            requiredRole: "auditor",
+            artifactPath: workspace.reviewPath,
+          });
+          return publishProjectHarnessOnboarding({
+            projectId,
+            projectRoot: options.projectRoot,
+            sidecarRoot: options.sidecarRoot,
+            reviewerId: reviewer.attemptId,
+          });
+        },
+      },
       async doctor(handle) {
         const report = await doctorProjectHarness({
           skillRoot: options.skillRoot,
@@ -197,6 +288,36 @@ export function createProjectHarnessRuntime(
       },
     },
   };
+}
+
+function requireOnboardingProjectId(value: string | undefined): string {
+  if (!value?.trim()) throw new Error("Project Harness init requires the Runtime-bound project id.");
+  return value;
+}
+
+function deriveOnboardingTransactionId(projectId: string, attemptId: string): string {
+  return `onboard-${createHash("sha256").update(`${projectId}\0${attemptId}`).digest("hex").slice(0, 32)}`;
+}
+
+async function verifyOnboardingExecution(
+  options: CreateProjectHarnessRuntimeOptions,
+  expected: Parameters<ProjectHarnessOnboardingExecutionPort["verify"]>[0],
+): Promise<ProjectHarnessOnboardingExecution> {
+  const port = options.onboarding?.executions;
+  if (!port) throw new Error("Project Harness init requires a Runtime-owned ProviderAttempt verifier.");
+  const execution = await port.verify(expected);
+  if (execution.projectId !== expected.projectId
+    || execution.attemptId !== expected.attemptId
+    || execution.roleId !== expected.requiredRole
+    || normalizeRuntimePath(execution.artifactPath) !== normalizeRuntimePath(expected.artifactPath)) {
+    throw new Error("Project Harness onboarding execution evidence does not match the required Agent attempt and artifact.");
+  }
+  return execution;
+}
+
+function normalizeRuntimePath(path: string): string {
+  const value = resolve(path);
+  return process.platform === "win32" ? value.toLowerCase() : value;
 }
 
 async function assertCurrentHandle(handle: ProjectHarnessHandle, skillRoot: string): Promise<void> {

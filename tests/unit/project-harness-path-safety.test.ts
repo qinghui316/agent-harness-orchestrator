@@ -3,7 +3,11 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
 import { projectSkillArtifact } from "../../src/project-harness/contracts.js";
-import { resolveOwnedArtifactPath, resolveWithinPhysicalRoot } from "../../src/project-harness/path-safety.js";
+import {
+  assertNoLinkedPathAncestors,
+  resolveOwnedArtifactPath,
+  resolveWithinPhysicalRoot,
+} from "../../src/project-harness/path-safety.js";
 
 const cleanup: string[] = [];
 
@@ -49,5 +53,17 @@ describe("project Harness path safety", () => {
 
     await expect(resolveWithinPhysicalRoot(root, "state", "project-skill"))
       .rejects.toThrow(/target is a link or Junction/);
+  });
+
+  it("rejects a link or Junction anywhere in an absolute path ancestor chain", async () => {
+    const base = await mkdtemp(join(tmpdir(), "aho-absolute-link-"));
+    cleanup.push(base);
+    const target = join(base, "target");
+    const linked = join(base, "linked");
+    await mkdir(join(target, "nested"), { recursive: true });
+    await symlink(target, linked, process.platform === "win32" ? "junction" : "dir");
+
+    await expect(assertNoLinkedPathAncestors(join(linked, "nested"), "runtime-owned path"))
+      .rejects.toThrow(/traverses a link or Junction/);
   });
 });

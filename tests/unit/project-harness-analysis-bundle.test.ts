@@ -26,6 +26,7 @@ describe("complete project Harness analysis bundle", () => {
       operation: "migrate",
     });
     expect(first.artifactPaths).toEqual(["references/guides/runtime.md"]);
+    expect(first.sourcePaths).toEqual(["package.json", "src/index.ts", "tests/app.test.ts"]);
     expect(first.contentFingerprint).toMatch(/^[a-f0-9]{64}$/);
     expect(second.contentFingerprint).toBe(first.contentFingerprint);
   });
@@ -80,6 +81,26 @@ describe("complete project Harness analysis bundle", () => {
     delta.artifacts[0].path = "references/workflows/close.md";
     await writeJson(join(fixture.bundle, "creation-delta.json"), delta);
     await expect(loadFixture(fixture)).rejects.toThrow(/required project Harness owner/);
+
+    delta.artifacts[0].path = "scripts/harness_runtime/project.py";
+    await writeJson(join(fixture.bundle, "creation-delta.json"), delta);
+    await expect(loadFixture(fixture)).resolves.toMatchObject({
+      artifactPaths: ["scripts/harness_runtime/project.py"],
+    });
+
+    delta.artifacts[0].path = "references/project_wiki/index.json";
+    await writeJson(join(fixture.bundle, "creation-delta.json"), delta);
+    await expect(loadFixture(fixture)).resolves.toMatchObject({
+      artifactPaths: ["references/project_wiki/index.json"],
+    });
+
+    delta.artifacts[0].path = "scripts/project-harness-runtime/runtime.mjs";
+    await writeJson(join(fixture.bundle, "creation-delta.json"), delta);
+    await expect(loadFixture(fixture)).rejects.toThrow(/required project Harness owner/);
+
+    delta.artifacts[0].path = "unowned.txt";
+    await writeJson(join(fixture.bundle, "creation-delta.json"), delta);
+    await expect(loadFixture(fixture)).rejects.toThrow(/unsupported project Harness path/);
   });
 
   it("requires executable authorization and rejects a linked artifact source path", async () => {

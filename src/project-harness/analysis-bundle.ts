@@ -37,12 +37,11 @@ const REQUIRED_WORKFLOWS = new Set([
 const PROTECTED_ARTIFACTS = new Set([
   "state/manifest.json",
   "references/project_wiki/.ecl-baselines.json",
-  "references/project_wiki/index.json",
   "references/project_wiki/catalog.md",
   "references/rules/critical.md",
   "references/audit-rubric.json",
 ]);
-const PROTECTED_PREFIXES = ["state/", "scripts/harness_runtime/", "references/rules/by-stage/"];
+const PROTECTED_PREFIXES = ["state/", "scripts/project-harness-runtime/", "references/rules/by-stage/"];
 const TEXT_SUFFIXES = new Set([".md", ".json", ".yaml", ".yml", ".py", ".ps1", ".sh", ".mjs"]);
 const TRUSTED_EVIDENCE_PREFIXES = ["http://", "https://", "user:", "contract:", "registry:"];
 const SECRET_FIELD = /(?:password|secret|token|api[_-]?key|private[_-]?key)/i;
@@ -54,11 +53,12 @@ const EvidenceRecordSchema = z.object({
 const ProfileSchema = z.object({
   schema_version: z.literal("1.0"),
   analysis_status: z.literal("complete"),
+  project_state: z.enum(["existing", "empty"]).default("existing"),
   project_id: z.string().trim().min(1).optional(),
   project_name: z.string().trim().min(1),
   purpose: EvidenceRecordSchema.extend({ summary: z.string().trim().min(1) }),
   primary_flows: z.array(z.unknown()),
-  languages: z.array(EvidenceRecordSchema).min(1),
+  languages: z.array(EvidenceRecordSchema),
   frameworks: z.array(z.unknown()),
   package_managers: z.array(z.unknown()),
   source_roots: z.array(z.unknown()),
@@ -122,6 +122,7 @@ export interface CompleteAnalysisBundle {
   creationDelta: z.infer<typeof CreationDeltaSchema>;
   contentFingerprint: string;
   artifactPaths: string[];
+  sourcePaths: string[];
 }
 
 export async function loadCompleteAnalysisBundle(
@@ -170,6 +171,7 @@ export async function loadCompleteAnalysisBundle(
     options.allowExecutableArtifacts ?? false,
     rawFiles,
   );
+  const sourcePaths = collectSourcePaths(projectProfile, architecture, audit, creationDelta);
   return {
     root: bundleRoot,
     projectProfile,
@@ -178,6 +180,7 @@ export async function loadCompleteAnalysisBundle(
     creationDelta,
     contentFingerprint: fingerprintBundle(rawFiles),
     artifactPaths,
+    sourcePaths,
   };
 }
 
@@ -185,8 +188,12 @@ function validateProfileCompleteness(profile: z.infer<typeof ProfileSchema>): vo
   if ("documents" in profile || "document_candidates" in profile) {
     throw new Error("A complete project profile must express project knowledge directly.");
   }
-  if (profile.source_roots.length + profile.entrypoints.length + profile.modules.length === 0) {
+  if (profile.project_state === "existing"
+    && profile.source_roots.length + profile.entrypoints.length + profile.modules.length === 0) {
     throw new Error("A complete project profile requires implementation structure.");
+  }
+  if (profile.project_state === "existing" && profile.languages.length === 0) {
+    throw new Error("An existing project profile requires at least one evidenced language.");
   }
   if (profile.primary_flows.length + profile.commands.length + profile.ci.length + profile.global_boundaries.length === 0) {
     throw new Error("A complete project profile requires a workflow, command, CI, or boundary fact.");
@@ -199,6 +206,30 @@ function validateProfileCompleteness(profile: z.infer<typeof ProfileSchema>): vo
   validateEvidenceBackedRecords(profile.commands, "commands", false);
   validateEvidenceBackedRecords(profile.ci, "ci", false);
   validateEvidenceBackedRecords(profile.global_boundaries, "global_boundaries", false);
+}
+
+function collectSourcePaths(...values: unknown[]): string[] {
+  const sources = new Set<string>();
+  for (const value of values) {
+    walk(value, (key, nested) => {
+      if (key !== "evidence" || !Array.isArray(nested)) return;
+      for (const item of nested) {
+        if (typeof item !== "string" || TRUSTED_EVIDENCE_PREFIXES.some((prefix) => item.startsWith(prefix))) continue;
+        sources.add(normalizePortablePath(item, "analysis evidence"));
+      }
+    });
+  }
+  const creationDelta = values.at(-1);
+  if (creationDelta && typeof creationDelta === "object" && "decisions" in creationDelta
+    && Array.isArray((creationDelta as { decisions?: unknown }).decisions)) {
+    for (const decision of (creationDelta as { decisions: unknown[] }).decisions) {
+      if (!decision || typeof decision !== "object" || !("source" in decision)) continue;
+      const source = (decision as { source?: unknown }).source;
+      if (typeof source !== "string" || TRUSTED_EVIDENCE_PREFIXES.some((prefix) => source.startsWith(prefix))) continue;
+      sources.add(normalizePortablePath(source, "creation decision source"));
+    }
+  }
+  return [...sources].sort((left, right) => left.localeCompare(right));
 }
 
 function validateEvidenceBackedRecords(values: unknown[], label: string, allowEmpty = true): void {
@@ -272,6 +303,7 @@ async function validateCreationDelta(
       validation: z.string().trim().min(1),
     }).passthrough().parse(decision);
     if (!DECISION_ACTIONS.has(value.action)) throw new Error(`Invalid migration decision action: ${value.action}`);
+    await validateEvidenceValues([value.source], projectRoot, "creation decision source", true);
   }
   const paths = new Set<string>();
   for (const artifact of delta.artifacts) {
@@ -288,20 +320,21 @@ async function validateCreationDelta(
     if (paths.has(target)) throw new Error(`Creation delta contains duplicate artifact target: ${target}`);
     paths.add(target);
     if (!ARTIFACT_ACTIONS.has(value.action)) throw new Error(`Unsupported creation-delta action: ${value.action}`);
+    if (operation === "init" && value.action === "merge") {
+      throw new Error(`Project init cannot merge an artifact; provide a complete create or replace artifact: ${target}`);
+    }
     if (value.action === "retain" || value.action === "archive-only") continue;
     if (!value.owner || !value.validation || !value.evidence?.length) {
       throw new Error(`Artifact ${target} requires owner, validation, and evidence.`);
     }
     await validateEvidenceValues(value.evidence, projectRoot, `artifact ${target}`, true);
-    assertAllowedArtifactTarget(target);
     if (value.action === "retire") {
       if (operation === "init") throw new Error("Artifact retirement is not allowed during project init.");
-      if (target === "SKILL.md" || target === "references/rules/red_lines.yaml" || REQUIRED_WORKFLOWS.has(target)) {
-        throw new Error(`A publication candidate cannot retire a required project Harness owner: ${target}`);
-      }
+      assertRetirableArtifactTarget(target);
       if (value.validation !== "retired") throw new Error(`Retired artifact ${target} must declare validation: retired.`);
       continue;
     }
+    assertAllowedArtifactTarget(target);
     if (!value.source) throw new Error(`Artifact ${target} requires a bundle source.`);
     const source = normalizePortablePath(value.source, "artifact source");
     if (!source.startsWith("artifacts/")) throw new Error(`Artifact source must be below artifacts/: ${source}`);
@@ -399,6 +432,20 @@ function assertAllowedArtifactTarget(path: string): void {
   }
   if (!TEXT_SUFFIXES.has(suffix)) throw new Error(`Unsupported project Harness artifact: ${path}`);
   throw new Error(`Creation delta cannot write an unsupported project Harness path: ${path}`);
+}
+
+function assertRetirableArtifactTarget(path: string): void {
+  if (path === "SKILL.md"
+    || path === "references/rules/red_lines.yaml"
+    || REQUIRED_WORKFLOWS.has(path)
+    || PROTECTED_ARTIFACTS.has(path)
+    || PROTECTED_PREFIXES.some((prefix) => path.startsWith(prefix))) {
+    throw new Error(`A publication candidate cannot retire a required project Harness owner: ${path}`);
+  }
+  if (!["references/", "assets/", "scripts/checks/", "scripts/helpers/", "scripts/harness_runtime/"]
+    .some((prefix) => path.startsWith(prefix))) {
+    throw new Error(`A publication candidate cannot retire an unsupported project Harness path: ${path}`);
+  }
 }
 
 function normalizePortablePath(value: string, label: string): string {
