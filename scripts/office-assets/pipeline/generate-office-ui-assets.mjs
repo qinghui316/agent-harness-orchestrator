@@ -16,7 +16,6 @@ const scarfColors = {
   "rework-coder": [229, 20, 0],
   "spec-test-proposer": [0, 188, 207],
   "spec-test-generator": [47, 125, 104],
-  "memory-maintenance-agent": [139, 111, 71],
   "harness-evolution-agent": [102, 37, 255],
   default: [111, 119, 130],
 };

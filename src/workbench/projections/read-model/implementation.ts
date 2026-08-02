@@ -13,7 +13,6 @@ import { buildConfirmationQueue, emptyConfirmationQueue } from "./confirmation-q
 import { listWorkbenchDecisions } from "./decision-store.js";
 import { alignDecisionInspectorWithConfirmationPrimary, buildDecisionInspector, emptyDecisionInspector } from "./decision-inspector.js";
 import { buildApprovalInbox } from "./approval-inbox.js";
-import { buildMaintenanceSummary } from "./maintenance-summary.js";
 import { shellWorkbenchWorkpad } from "./workbench-shell.js";
 import { listWorkbenchRoles } from "./roles.js";
 import { buildHarnessGaps, buildRepoSummary, resolveWorkbenchMemory } from "./support.js";
@@ -22,7 +21,6 @@ import { buildDiagnosticWorkpad, buildMultiWorkpadSummaries, buildWorkbenchWorkp
 import type { LandingQueueSnapshot, ResolvedMemory } from "../../../types/index.js";
 import type {
   WorkbenchApprovalItem,
-  WorkbenchMaintenanceSummary,
   WorkbenchProjectInput,
   WorkbenchSnapshot,
   WorkbenchStreamPacket,
@@ -57,7 +55,6 @@ export type {
   WorkbenchDecisionInspector,
   WorkbenchDecisionItem,
   WorkbenchFailureClassification,
-  WorkbenchMaintenanceSummary,
   WorkbenchPendingFeedback,
   WorkbenchProjectInput,
   WorkbenchResultReview,
@@ -307,12 +304,6 @@ export async function getWorkbenchEvidenceProjection(input: WorkbenchProjectInpu
     changeId,
     evidence: workpad.evidence,
   };
-}
-
-export async function getWorkbenchMaintenanceProjection(input: WorkbenchProjectInput): Promise<WorkbenchMaintenanceSummary | null> {
-  const memory = await resolveWorkbenchMemory(input);
-  if (!memory.supported) return null;
-  return buildMaintenanceSummary(memory);
 }
 
 export async function getWorkbenchLandingQueueProjection(input: WorkbenchProjectInput): Promise<LandingQueueSnapshot | null> {

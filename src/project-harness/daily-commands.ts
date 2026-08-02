@@ -150,7 +150,7 @@ export async function runDailyChangeCommand(
   if (parsed.action === "close") {
     const fileInput = await optionalInputJson<Partial<CloseProjectHarnessChangeInput>>(parsed.options);
     const snapshot = new SourceFingerprintSnapshot({ projectRoot: parsed.projectRoot });
-    return closeProjectHarnessChange(context, {
+    const close = await closeProjectHarnessChange(context, {
       ...fileInput,
       changeId: requireValue(changeId ?? fileInput.changeId, "--change-id or input changeId"),
       status: parseRequiredEnum(
@@ -163,6 +163,8 @@ export async function runDailyChangeCommand(
       validationPassed: booleanOption(parsed.options, "validation-passed") ?? fileInput.validationPassed,
       sourceSnapshot: { fingerprintSources: (paths) => snapshot.fingerprints(paths) },
     });
+    const evolution = await checkProjectHarnessEvolution(skillRoot, parsed.sidecarRoot, "change-close");
+    return { ...close, evolution };
   }
   if (parsed.action === "status") {
     return changeId

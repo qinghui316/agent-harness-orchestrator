@@ -214,47 +214,6 @@ export async function getEnabledSkillContext(project: ManagedProject, changeId?:
   }
 }
 
-export async function getRuntimeAssignedHarnessSkillContext(
-  project: ManagedProject,
-  assignment: import("../agent-task/harness-engineering-contract.js").HarnessEngineeringAssignment,
-): Promise<EnabledSkillContext> {
-  const { parseHarnessEngineeringAssignment } = await import("../agent-task/harness-engineering-contract.js");
-  const parsed = parseHarnessEngineeringAssignment(assignment);
-  const memory = await resolveProjectMemory(project);
-  const store = await openWorkbenchDatabase(memory);
-  try {
-    await refreshSkillIndex(memory, project, store);
-    const skill = store.skills.listSkills(project.id).find((item) => item.skillId === "aho-harness-engineering");
-    const sourceKind = skill ? normalizeSourceKind(skill.sourceKind) : null;
-    const valid = skill && sourceKind === "system-aho";
-    return {
-      records: valid ? [{
-        id: skill.skillId,
-        sourceKind,
-        contentHash: skill.sourceHash,
-        compatibility: skillCompatibility(),
-        providerBindings: [],
-      }] : [],
-      warnings: valid ? [] : ["Runtime-assigned Harness Skill is missing from bundled AHO system Skills."],
-      promptSection: [
-      "# Harness Engineering Task Packet",
-      "",
-      `Mode: ${parsed.mode}`,
-      `Task: ${parsed.taskId}`,
-      `Evidence: ${parsed.evidenceRefs.join(", ")}`,
-      `Project root: ${parsed.projectRoot}`,
-      `Memory root: ${parsed.memoryRoot}`,
-      ...(parsed.sourceWindow ? [`Fixed window: ${parsed.sourceWindow.hash}`] : []),
-      ...(parsed.requiredVerification.length > 0
-        ? [`Required verification: ${parsed.requiredVerification.map((item) => item.command.join(" ")).join("; ")}`]
-        : []),
-      ].join("\n"),
-    };
-  } finally {
-    store.close();
-  }
-}
-
 export async function hashSkillDirectory(path: string): Promise<string> {
   const hash = createHash("sha256");
   const files = await listSkillPackageFiles(path);

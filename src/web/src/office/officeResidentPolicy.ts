@@ -1,6 +1,6 @@
 import type { AgentCatalogDisplayProjection, AgentCatalogDisplayRole } from "../types.js";
 
-export const OFFICE_RESIDENT_ROLE_IDS = ["memory-maintenance-agent", "harness-evolution-agent"] as const;
+export const OFFICE_RESIDENT_ROLE_IDS = ["harness-evolution-agent"] as const;
 
 export function officeResidentId(roleId: string): string {
   return `resident:${roleId}`;

@@ -1,17 +1,13 @@
 # Verification And Handoff
 
-Use verification already defined by the project or assigned by Runtime. Select
-checks that prove the changed boundary: document links and structure, generated
-indexes, encoding, Harness lifecycle consistency, and product checks when the
-documentation change affects them.
+Before calling the assigned tool, parse and re-read all bundle artifacts, verify every referenced
+artifact exists, and confirm project id, current/target status, Owners, source evidence, and retirement
+actions agree across the four files.
 
-Re-read every changed current artifact. Confirm current state and next action
-agree, history remains discoverable without duplication, generated artifacts
-used their existing owner, failures are attributed correctly, and the final
-summary matches filesystem state.
+Runtime publication success requires the exact candidate and source snapshot reviewed by an
+independent Agent, healthy doctor and audit results, safe provider bindings, and a committed atomic
+transaction. Do not substitute a successful Agent turn, a written review file, or a staged candidate
+for publication success.
 
-For `onboard`, verify the Runtime's core readiness components are present in
-their supplied project/memory roots, run the applicable ECL/encoding or project
-checks that now exist, and re-read the entry map and short handoff. Do not call
-onboarding complete while core readiness remains partial. Do not create a page
-startup command or dependency solely for this verification.
+Return the Runtime result, unresolved semantic unknowns, and any source drift. Never claim a revision,
+fingerprint, doctor result, or audit result that the Runtime tool did not return.

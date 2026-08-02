@@ -374,7 +374,7 @@ describe("provider-neutral runtime contract", () => {
     await createAgentTask(memory, {
       conversationId: "conversation-background",
       changeId: "change-background",
-      roleId: "memory-maintenance-agent",
+      roleId: "harness-evolution-agent",
       kind: "background",
       summary: "维护项目记忆",
       initialStatus: "running",
@@ -471,7 +471,7 @@ describe("provider-neutral runtime contract", () => {
     const task = await createAgentTask(memory, {
       conversationId: "conversation-race",
       changeId: "change-race",
-      roleId: "memory-maintenance-agent",
+      roleId: "harness-evolution-agent",
       kind: "background",
       summary: "等待领取",
     });

@@ -95,7 +95,7 @@ describe("workbench server", () => {
     expect(await page.text()).toContain("AHO");
   });
 
-  it("orders identity reconciliation before project recovery, workers, and listen", async () => {
+  it("orders identity reconciliation before project recovery and listen", async () => {
     await handle!.close();
     handle = null;
     const order: string[] = [];
@@ -107,7 +107,7 @@ describe("workbench server", () => {
       },
       async resolve(inputProject) {
         resolveCount += 1;
-        order.push(resolveCount === 1 ? "project-recovery" : "background-workers");
+        order.push("project-recovery");
         return {
           state: "onboarding",
           project: inputProject,
@@ -131,9 +131,9 @@ describe("workbench server", () => {
     expect(order).toEqual([
       "identity-recovery",
       "project-recovery",
-      "background-workers",
       "listen",
     ]);
+    expect(resolveCount).toBe(1);
   });
 
   it("serves one canonical Timeline and retires flattened message reads", async () => {
@@ -701,7 +701,9 @@ describe("workbench server", () => {
       expect(projectTimeline.entries.flatMap((entry) => entry.cells)).toEqual(expect.arrayContaining([
         expect.objectContaining({ kind: "user-message", text: "Keep route behavior" }),
       ]));
-      await appendCanonicalTimelineEntry({ ...project(), id: addedBody.project.id, name: "Server Repo" }, "server-topic", {
+      const activityProject = { ...project(), id: addedBody.project.id, name: "Server Repo" };
+      const activityScope = await createConversationChangeFixture(activityProject, { title: "Runtime activity fixture" });
+      await appendCanonicalTimelineEntry(activityProject, activityScope.changeId, {
         type: "workflow.completed",
         actionRunId: "action-private-path",
         actionType: "code.run",
@@ -926,7 +928,6 @@ describe("workbench server", () => {
     const markerPath = join(secondRoot, "harness", "changes", ".close-transactions", "recover-registered.json");
     const marker = JSON.parse(await readFile(markerPath, "utf8")) as Record<string, unknown>;
     await rm(join(secondRoot, closed.receiptPath as string), { force: true });
-    await rm(marker.outboxPath as string, { force: true });
     await writeFile(markerPath, `${JSON.stringify({ ...marker, stage: "renamed" }, null, 2)}\n`, "utf8");
 
     await recoverWorkbenchProjects(store, null, {
@@ -935,7 +936,7 @@ describe("workbench server", () => {
 
     expect(JSON.parse(await readFile(markerPath, "utf8"))).toMatchObject({ stage: "completed" });
     expect(existsSync(join(secondRoot, closed.receiptPath as string))).toBe(true);
-    expect(existsSync(marker.outboxPath as string)).toBe(true);
+    expect(marker).not.toHaveProperty("outboxPath");
     await rm(secondRoot, { recursive: true, force: true });
   });
 });

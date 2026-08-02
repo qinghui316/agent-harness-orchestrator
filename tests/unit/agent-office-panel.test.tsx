@@ -51,7 +51,6 @@ describe("Agent Office committed projection reconciliation", () => {
       version: "1.0",
       catalogHash: "catalog-hash",
       roles: [
-        { roleId: "memory-maintenance-agent", displayName: "Memory Maintenance Agent", description: "Maintains canonical project memory.", skills: ["aho-harness-engineering"] },
         { roleId: "harness-evolution-agent", displayName: "Harness Evolution Agent", description: "Evolves the project harness.", skills: ["aho-harness-engineering"] },
       ],
     };
@@ -64,10 +63,10 @@ describe("Agent Office committed projection reconciliation", () => {
     const rendered = render(<AgentOfficePanel projectId="project-1" projection={emptyProjection} onOpenSurface={openSurface} />);
 
     const fallback = await rendered.findByRole("group", { name: "Agent 办公室列表" });
-    const resident = within(fallback).getByTestId("agent-office-memory-maintenance-agent");
+    const resident = within(fallback).getByTestId("agent-office-harness-evolution-agent");
     fireEvent.click(resident);
     const card = await rendered.findByTestId("office-resident-profile-card");
-    expect(card.textContent).toContain("Memory Maintenance Agent");
+    expect(card.textContent).toContain("Harness Evolution Agent");
     expect(card.textContent).toContain("当前未执行任务");
     expect(card.textContent).toContain("aho-harness-engineering");
     expect(card.textContent).not.toContain("打开 Agent 对话");
@@ -79,7 +78,7 @@ describe("Agent Office committed projection reconciliation", () => {
     expect(rendered.getByText("暂无 Agent")).toBeTruthy();
     expect(openSurface).not.toHaveBeenCalled();
 
-    rendered.rerender(<AgentOfficePanel projectId="project-1" projection={projectionWithMemoryAgent()} onOpenSurface={openSurface} />);
+    rendered.rerender(<AgentOfficePanel projectId="project-1" projection={projectionWithEvolutionAgent()} onOpenSurface={openSurface} />);
     await waitFor(() => expect(rendered.queryByTestId("office-resident-profile-card")).toBeNull());
   });
 });
@@ -113,17 +112,17 @@ function projection(hash: string, status: "idle" | "running" | "completed" = "id
   };
 }
 
-function projectionWithMemoryAgent(): AgentSurfaceProjection {
-  const base = projection("memory-real");
+function projectionWithEvolutionAgent(): AgentSurfaceProjection {
+  const base = projection("evolution-real");
   return {
     ...base,
     surfaces: [...base.surfaces, {
-      agentSurfaceId: "agent:codex:thread:memory-real",
+      agentSurfaceId: "agent:codex:thread:evolution-real",
       kind: "agent",
-      roleId: "memory-maintenance-agent",
-      roleDisplayName: "Memory Maintenance Agent",
-      label: "Memory Maintenance Agent",
-      description: "Maintains canonical project memory.",
+      roleId: "harness-evolution-agent",
+      roleDisplayName: "Harness Evolution Agent",
+      label: "Harness Evolution Agent",
+      description: "Builds an isolated Harness candidate.",
       skills: ["aho-harness-engineering"],
       parentAgentSurfaceId: "main-agent",
       graphScopeId: "scope-1",

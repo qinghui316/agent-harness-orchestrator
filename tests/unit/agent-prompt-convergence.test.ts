@@ -41,7 +41,9 @@ describe("native Agent prompt convergence", () => {
     expect(skill).toContain("Delegate implementation to the accepted Workflow node");
     expect(skill).toContain("semantic review\n   to the existing Auditor Agent");
     expect(skill).toContain("deterministic validation as a Runtime\n   operation, not an Agent role");
-    expect(skill).toContain("complete the AHO core readiness contract first");
+    expect(skill).toContain("Load the required project Harness Skill on every ready project turn");
+    expect(skill).toContain("call `aho_prepare_project_harness`");
+    expect(skill).toContain("Do not write project source, the candidate, review report");
     expect(skill).toContain("complete a simple request directly");
     expect(skill).toContain("use a real Planning child for complex work");
     expect(skill).toContain("ensure this provider thread has a native Goal");

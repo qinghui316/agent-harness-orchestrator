@@ -354,7 +354,6 @@ describe("workbench apply and integration slow flows", () => {
       const closeMarkerPath = join(memory.changesRoot, ".close-transactions", `${topic.changeId}.json`);
       const closeMarker = JSON.parse(await readFile(closeMarkerPath, "utf8")) as Record<string, unknown>;
       await rm(join(memory.memoryRoot, closed.receiptPath as string), { force: true });
-      await rm(closeMarker.outboxPath as string, { force: true });
       await writeFile(closeMarkerPath, `${JSON.stringify({ ...closeMarker, stage: "renamed" }, null, 2)}\n`, "utf8");
       await recoverChangeCloseTransactions(project());
       expect(await readTransitionExecution(memory, finalizeClaim.operationId)).toMatchObject({

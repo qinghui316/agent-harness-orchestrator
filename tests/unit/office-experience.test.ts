@@ -29,23 +29,20 @@ describe("Office experience boundary", () => {
     expect(snapshot.participants.map((participant) => participant.participantId)).toEqual(["main-agent"]);
   });
 
-  it("fills an empty current Office with two fixed Catalog-backed residents", () => {
+  it("fills an empty current Office with the Catalog-backed Evolution resident", () => {
     const snapshot = adapter(undefined, residentCatalog()).hydrate(projection([]));
     expect(snapshot.participants.map((participant) => participant.participantId)).toEqual(["main-agent"]);
-    expect(snapshot.residents.map((resident) => resident.residentId)).toEqual([
-      "resident:memory-maintenance-agent",
-      "resident:harness-evolution-agent",
-    ]);
-    expect(snapshot.residents.map((resident) => resident.stationId)).toEqual(["maintenance", "evolution"]);
+    expect(snapshot.residents.map((resident) => resident.residentId)).toEqual(["resident:harness-evolution-agent"]);
+    expect(snapshot.residents.map((resident) => resident.stationId)).toEqual(["evolution"]);
     expect(snapshot.residents.every((resident) => !("navigationId" in resident))).toBe(true);
   });
 
-  it("counts every visible real Child, suppresses duplicate roles, and keeps Memory priority", () => {
+  it("suppresses the Evolution resident when a real Evolution Agent is visible", () => {
     const unrelated = adapter(undefined, residentCatalog()).hydrate(projection([child("coder-1", "coder-agent", "completed", 1)]));
-    expect(unrelated.residents.map((resident) => resident.roleId)).toEqual(["memory-maintenance-agent"]);
+    expect(unrelated.residents.map((resident) => resident.roleId)).toEqual(["harness-evolution-agent"]);
 
-    const sameRole = adapter(undefined, residentCatalog()).hydrate(projection([child("memory-1", "memory-maintenance-agent", "idle", 1)]));
-    expect(sameRole.residents.map((resident) => resident.roleId)).toEqual(["harness-evolution-agent"]);
+    const sameRole = adapter(undefined, residentCatalog()).hydrate(projection([child("evolution-1", "harness-evolution-agent", "idle", 1)]));
+    expect(sameRole.residents).toEqual([]);
 
     const twoReal = adapter(undefined, residentCatalog()).hydrate(projection([
       child("coder-1", "coder-agent", "idle", 1),
@@ -59,22 +56,22 @@ describe("Office experience boundary", () => {
     terminal.scopeStatus = "terminal";
     const catalog = residentCatalog();
     catalog.roles = catalog.roles.slice(0, 1);
-    expect(adapter(undefined, catalog).hydrate(terminal).residents.map((resident) => resident.roleId)).toEqual(["memory-maintenance-agent"]);
+    expect(adapter(undefined, catalog).hydrate(terminal).residents.map((resident) => resident.roleId)).toEqual(["harness-evolution-agent"]);
   });
 
   it("persists a displaced resident station without automatically returning to its preferred station", () => {
     const storage = new MemoryStorage();
     const office = adapter(storage, residentCatalog());
-    const occupied = projection([child("memory-real", "coder-agent", "running", 1)]);
-    const preferredStation = resolver.stations().find((station) => station.preferredRoleId === "memory-maintenance-agent")!.stationId;
+    const occupied = projection([child("evolution-station-occupant", "coder-agent", "running", 1)]);
+    const preferredStation = resolver.stations().find((station) => station.preferredRoleId === "harness-evolution-agent")!.stationId;
     const key = `aho:agent-office:station-assignments:v1:project-1:conversation-1:scope-1`;
-    storage.setItem(key, JSON.stringify({ version: 1, assignments: { "memory-real": preferredStation } }));
+    storage.setItem(key, JSON.stringify({ version: 1, assignments: { "evolution-station-occupant": preferredStation } }));
     const first = office.hydrate(occupied);
-    const fallback = first.residents.find((resident) => resident.roleId === "memory-maintenance-agent")!.stationId;
+    const fallback = first.residents.find((resident) => resident.roleId === "harness-evolution-agent")!.stationId;
     expect(fallback).not.toBe(preferredStation);
     const afterDeparture = office.reconcile(occupied, projection([])).snapshot;
-    expect(afterDeparture.residents.find((resident) => resident.roleId === "memory-maintenance-agent")?.stationId).toBe(fallback);
-    expect(adapter(storage, residentCatalog()).hydrate(projection([])).residents.find((resident) => resident.roleId === "memory-maintenance-agent")?.stationId).toBe(fallback);
+    expect(afterDeparture.residents.find((resident) => resident.roleId === "harness-evolution-agent")?.stationId).toBe(fallback);
+    expect(adapter(storage, residentCatalog()).hydrate(projection([])).residents.find((resident) => resident.roleId === "harness-evolution-agent")?.stationId).toBe(fallback);
   });
 
   it("keeps role-owned screen, desk, and facility preferences independent of the selected station", () => {
@@ -145,7 +142,10 @@ describe("Office experience boundary", () => {
 
   it("yields a completed station to active overflow without moving active occupants", () => {
     const office = adapter();
-    const firstChildren = ROLE_IDS.map((roleId, index) => child(`agent-${index}`, roleId, index === 0 ? "completed" : "running", index));
+    const firstChildren = [
+      ...ROLE_IDS.map((roleId, index) => child(`agent-${index}`, roleId, index === 0 ? "completed" : "running", index)),
+      child("agent-default", "custom-existing-role", "running", ROLE_IDS.length),
+    ];
     const first = projection(firstChildren);
     const firstSnapshot = office.hydrate(first);
     const stationByActive = new Map(firstSnapshot.participants.map((participant) => [participant.participantId, participant.stationId]));
@@ -222,7 +222,7 @@ describe("Office experience boundary", () => {
     const residentCommand = compiler.behavior(residentActor, policy.resolve(residentActor));
     expect(residentCommand.kind === "parallel" ? residentCommand.commands : []).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "playAction", actionId: "working", loop: true }),
-      expect.objectContaining({ kind: "setScreen", stationId: resident.stationId, profile: "entertainment-2" }),
+      expect.objectContaining({ kind: "setScreen", stationId: resident.stationId, profile: "entertainment-1" }),
     ]));
   });
 
@@ -292,7 +292,7 @@ describe("Office experience boundary", () => {
   });
 });
 
-const ROLE_IDS = ["planning-agent", "coder-agent", "auditor-agent", "rework-coder", "spec-test-proposer", "spec-test-generator", "memory-maintenance-agent", "harness-evolution-agent"];
+const ROLE_IDS = ["planning-agent", "coder-agent", "auditor-agent", "rework-coder", "spec-test-proposer", "spec-test-generator", "harness-evolution-agent"];
 
 function adapter(storage?: Storage, catalog: AgentCatalogDisplayProjection | null = null): TestOfficeAdapter {
   return new TestOfficeAdapter(storage, catalog);
@@ -325,7 +325,6 @@ function residentCatalog(): AgentCatalogDisplayProjection {
     version: "1.0",
     catalogHash: "catalog-residents",
     roles: [
-      { roleId: "memory-maintenance-agent", displayName: "Memory Maintenance Agent", description: "Maintains project memory.", skills: ["aho-harness-engineering"] },
       { roleId: "harness-evolution-agent", displayName: "Harness Evolution Agent", description: "Evolves the harness.", skills: ["aho-harness-engineering"] },
     ],
   };

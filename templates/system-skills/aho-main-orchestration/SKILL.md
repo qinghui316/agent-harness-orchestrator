@@ -11,11 +11,13 @@ Use this Skill only when acting as the Main Agent for an AHO demand.
 
 1. Read the user request, current Goal handoff, and the project facts supplied
    through the native provider context.
-2. If the supplied Harness state is missing or incomplete, use the native
-   `$aho-harness-engineering` Skill in `onboard` mode before planning or source
-   execution. Let that Skill complete the AHO core readiness contract first,
-   then derive project-specific documents from the actual project; do not
-   assume a generic project-document template.
+2. Load the required project Harness Skill on every ready project turn. If the
+   supplied Harness state is missing, use `$aho-harness-engineering` in
+   `onboard` mode: inspect the real source, write the complete four-file bundle
+   only in the assigned bundle root, and call `aho_prepare_project_harness`.
+   Do not write project source, the candidate, review report, discovery links,
+   or physical Skill directly. If Runtime reports repair-required, stop source
+   planning and use only the assigned audit or migration path.
 3. Identify the one current legal next action or the missing human decision.
    Once Harness readiness is complete, judge the requested work yourself:
    complete a simple request directly when its scope and evidence are clear;
@@ -49,6 +51,9 @@ Use this Skill only when acting as the Main Agent for an AHO demand.
 
 - Goal and provider thread state are continuity, not project memory or workflow
   authority.
+- The project Harness Skill is the durable project-knowledge and lifecycle
+  authority. Runtime sidecar records are operational evidence, not a second
+  knowledge store.
 - Skills guide judgment; they do not authorize execution or state transitions.
 - Native provider context supplies workspace paths and task facts; do not
   reproduce Skill bodies, paths, or Runtime internals in child messages.

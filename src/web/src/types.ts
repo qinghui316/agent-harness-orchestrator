@@ -703,14 +703,6 @@ export type Workpad = {
     applyReadiness: { ready: boolean; kind?: string; label: string; message?: string; blockingIssues: string[]; warnings: string[] };
     evidence: Array<{ id: string; label: string; source: string; status?: string; artifact?: string; timestamp?: string }>;
   };
-  maintenance?: {
-    ledgerCount: number;
-    closeoutCount?: number;
-    latest?: { id: string; eventType: string; changeId?: string; summary: string; severity: string; createdAt: string };
-    status: "idle" | "queued" | "running" | "blocked" | "completed";
-    activeTask?: { id: string; roleId: string; status: string; updatedAt: string };
-    note: string;
-  };
   runControlState?: { canStop: boolean; stopActionType?: ThreadStreamAction["actionType"]; pendingFeedbackCount: number; explanation: string };
   intake: {
     goal: string;

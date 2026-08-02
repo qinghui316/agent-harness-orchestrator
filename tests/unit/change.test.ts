@@ -193,7 +193,7 @@ describe("change manager", () => {
     });
   });
 
-  it("returns one close receipt on duplicate close and recovers post-rename side effects", async () => {
+  it("returns one close receipt on duplicate close and recovers post-rename side effects without a maintenance outbox", async () => {
     await initHarness(project(tempDir));
     await createChange(project(tempDir), { title: "Recover Close" });
     await writeFile(join(tempDir, "harness", "changes", "active", "recover-close", "reviews", "review.md"), "Status: approved\n", "utf8");
@@ -204,12 +204,11 @@ describe("change manager", () => {
     expect(closed.receiptPath).toBe(`${closed.archivePath}/close-receipt.json`);
 
     await rm(join(tempDir, closed.receiptPath as string), { force: true });
-    await rm(marker.outboxPath as string, { force: true });
     const recovered = await closeChangeForChange(project(tempDir), "recover-close");
 
     expect(recovered.transactionId).toBe(closed.transactionId);
     expect(JSON.parse(await readFile(markerPath, "utf8"))).toMatchObject({ stage: "completed" });
-    expect(JSON.parse(await readFile(marker.outboxPath as string, "utf8"))).toMatchObject({ type: "change.closed", changeId: "recover-close" });
+    expect(marker).not.toHaveProperty("outboxPath");
   });
 
   it.each(["expired", "revoked"] as const)("does not write Change metadata from prepared close when authority is %s", async (mode) => {
@@ -313,7 +312,6 @@ async function prepareAuthorizedCloseRecovery(mode: "expired" | "revoked" | "res
   const archivePath = join(memory.memoryRoot, archiveRelativePath);
   const marker = {
     version: "1.0", id: `close-${mode}`, projectId: memory.projectId, changeId, activePath, archivePath, archiveRelativePath,
-    outboxPath: join(memory.harnessRoot, "outbox", "change-close", `close-${mode}.json`),
     receiptPath: `${archiveRelativePath}/close-receipt.json`, closeTimestamp: now.toISOString(), stage: "prepared", error: null,
     finalization: {
       requestId: `finalize-${hash}`, authorizationId: authorization.id, authorizationEpoch: authorization.epoch,

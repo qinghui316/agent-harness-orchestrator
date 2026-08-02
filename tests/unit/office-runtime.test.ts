@@ -447,18 +447,18 @@ describe("Office runtime owners", () => {
     const snapshot = snapshotWithStates(["completed"]);
     snapshot.lifecycle = "terminal";
     snapshot.residents = [{
-      residentId: "resident:memory-maintenance-agent",
-      roleId: "memory-maintenance-agent",
-      label: "Memory Maintenance Agent",
+      residentId: "resident:harness-evolution-agent",
+      roleId: "harness-evolution-agent",
+      label: "Harness Evolution Agent",
       stationId: snapshot.stations[0]!.stationId,
-      scarf: "maintenance",
+      scarf: "evolution",
       presentationPreferences: preferences(),
     }];
     scheduler.sync(snapshot, true);
     await vi.advanceTimersByTimeAsync(16_000);
     expect(actions).toEqual([
-      "resident:resident:memory-maintenance-agent",
-      "resident:resident:memory-maintenance-agent",
+      "resident:resident:harness-evolution-agent",
+      "resident:resident:harness-evolution-agent",
     ]);
     scheduler.dispose();
     vi.useRealTimers();
@@ -983,11 +983,11 @@ describe("Office runtime owners", () => {
     const main = participant("main", "main", "main", "idle");
     const previous = officeSnapshot("scope-1", [main]);
     previous.residents = [{
-      residentId: "resident:memory-maintenance-agent",
-      roleId: "memory-maintenance-agent",
-      label: "Memory Maintenance Agent",
+      residentId: "resident:harness-evolution-agent",
+      roleId: "harness-evolution-agent",
+      label: "Harness Evolution Agent",
       stationId: "planning",
-      scarf: "maintenance",
+      scarf: "evolution",
       presentationPreferences: preferences(),
     }];
     director.hydrate(previous, false);
@@ -1016,11 +1016,11 @@ describe("Office runtime owners", () => {
     const main = participant("main", "main", "main", "idle");
     const previous = officeSnapshot("scope-1", [main]);
     const resident = {
-      residentId: "resident:memory-maintenance-agent",
-      roleId: "memory-maintenance-agent",
-      label: "Memory Maintenance Agent",
+      residentId: "resident:harness-evolution-agent",
+      roleId: "harness-evolution-agent",
+      label: "Harness Evolution Agent",
       stationId: "planning",
-      scarf: "maintenance" as const,
+      scarf: "evolution" as const,
       presentationPreferences: preferences(),
     };
     previous.residents = [resident];
@@ -1302,10 +1302,10 @@ function participant(participantId: string, kind: "main" | "child", stationId: s
 function resident(residentId: string, stationId: string): OfficeExperienceSnapshot["residents"][number] {
   return {
     residentId,
-    roleId: "memory-maintenance-agent",
-    label: "Memory Maintenance Agent",
+    roleId: "harness-evolution-agent",
+    label: "Harness Evolution Agent",
     stationId,
-    scarf: "maintenance",
+    scarf: "evolution",
     presentationPreferences: preferences(),
   };
 }

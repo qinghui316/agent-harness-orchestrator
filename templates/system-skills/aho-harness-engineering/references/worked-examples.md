@@ -1,27 +1,25 @@
 # Worked Examples
 
-## External Memory, Project Entry
+## Empty Project
 
-The terminal Change proves a new validation command. The memory root owns
-detailed development guidance, while the source project owns a short Agent
-entry. Update the existing development owner and navigation only if the command
-changes future work. Do not move both roots into one invented layout.
+The user supplies purpose, stack, and acceptance in conversation. Record those explicit facts in the
+complete bundle, mark unimplemented architecture honestly, and request revision-1 publication. Do not
+generate business code, a generic application template, or invented commands.
 
-## Existing Layout With Different Names
+## Existing Source Without A Harness
 
-A project uses a contributor guide, architecture decisions, and a generated
-change ledger rather than common Harness names. Detect those roles, update the
-responsible artifact, and invoke the existing generator. Do not create duplicate
-conventional files merely because examples use them.
+Inspect manifests, source boundaries, tests, and accepted interfaces. Build current L1/L2 knowledge
+and only justified L3 maps. Main writes the bundle; the independent Auditor reviews the exact
+candidate; Runtime publishes one Skill and SameTarget bindings.
 
-## Closeout No-op
+## Blocked Review
 
-A Change fixes an isolated typo and its archive already records the result.
-Current handoff and rules remain accurate. Classify it Archive-only, make no
-file change, run any assigned check, and complete as no-op.
+The Auditor finds an unsupported current claim. Return the blocked result. No physical Skill or link
+is published. On the next turn, revise the bundle from current evidence and let Runtime prepare a new
+candidate; do not edit the prior candidate or review.
 
 ## Evolution Compression
 
-Three Changes repeat one ownership mistake while two current documents overlap.
-Propose one enforceable owner rule, merge duplicate guidance, retire stale text,
-keep incidents in archives, obtain the score, then edit and verify actual owners.
+Repeated Changes prove one ownership mistake while two current pages overlap. Update the isolated
+candidate to consolidate the Owner, bind the source snapshot, obtain the independent Evolution Judge,
+then request atomic publication. A rejected candidate never reaches the canonical Skill.

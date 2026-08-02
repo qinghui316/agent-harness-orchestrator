@@ -360,7 +360,7 @@ export const OFFICE_SCENE_CALIBRATION: OfficeSceneCalibrationV3 = {
       { slotId: "rework", label: "Rework Coder", roleId: "rework-coder", workstationKind: "standard", origin: { x: 740, y: 365 }, actorOffset: { x: 0, y: 0 }, visible: true, actionId: "standby" },
       { slotId: "spec-proposer", label: "Spec Test Proposer", roleId: "spec-test-proposer", workstationKind: "standard", origin: { x: 740, y: 650 }, actorOffset: { x: 0, y: 0 }, visible: true, actionId: "standby" },
       { slotId: "spec-generator", label: "Spec Test Generator", roleId: "spec-test-generator", workstationKind: "standard", origin: { x: 990, y: 80 }, actorOffset: { x: 0, y: 0 }, visible: true, actionId: "standby" },
-      { slotId: "maintenance", label: "Memory Maintenance", roleId: "memory-maintenance-agent", workstationKind: "standard", origin: { x: 990, y: 365 }, actorOffset: { x: 0, y: 0 }, visible: true, actionId: "standby" },
+      { slotId: "standard-8", label: "Standard Workstation", roleId: "default", workstationKind: "standard", origin: { x: 990, y: 365 }, actorOffset: { x: 0, y: 0 }, visible: true, actionId: "standby" },
       { slotId: "evolution", label: "Harness Evolution", roleId: "harness-evolution-agent", workstationKind: "standard", origin: { x: 990, y: 650 }, actorOffset: { x: 0, y: 0 }, visible: true, actionId: "standby" },
     ],
   },

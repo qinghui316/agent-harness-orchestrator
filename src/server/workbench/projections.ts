@@ -1,7 +1,6 @@
 import {
   getWorkbenchEvidenceProjection,
   getWorkbenchLandingQueueProjection,
-  getWorkbenchMaintenanceProjection,
   getWorkbenchWorkflowGraphPlanProjection,
   getWorkbenchSchedulerContractProjection,
   getWorkbenchSchedulerDispatchDryRunProjection,
@@ -173,7 +172,6 @@ export async function getWorkbenchProjection(input: WorkbenchProjectInput, rest:
     if (!id) throw badRequest("workflow-run projection requires id.");
     return getWorkbenchWorkflowRunProjection(input, changeId, id);
   }
-  if (kind === "maintenance") return getWorkbenchMaintenanceProjection(input);
   if (kind === "landing-queue") return getWorkbenchLandingQueueProjection(input);
   throw badRequest(`Unknown Workbench projection: ${kind ?? ""}`);
 }

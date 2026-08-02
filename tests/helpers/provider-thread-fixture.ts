@@ -53,7 +53,6 @@ function operationProfile(roleId: string): ProviderOperationProfile {
   if (roleId === "planning-agent") return "planning";
   if (roleId === "coder-agent" || roleId === "rework-coder" || roleId === "integration-fix-agent" || roleId === "spec-test-generator") return "coder";
   if (roleId === "auditor-agent" || roleId === "spec-test-proposer") return "auditor";
-  if (roleId === "memory-maintenance-agent") return "maintenance";
   if (roleId === "harness-evolution-agent") return "evolution";
   if (roleId === "evolution-scorer") return "evolution-scorer";
   return "main";

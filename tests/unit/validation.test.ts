@@ -341,7 +341,7 @@ describe("validation", () => {
   });
 
   it("bundles agent role contracts with required sections", async () => {
-    for (const name of ["auditor-agent", "coder-agent", "memory-maintenance-agent", "harness-evolution-agent"]) {
+    for (const name of ["auditor-agent", "coder-agent", "harness-evolution-agent"]) {
       const content = await readFile(join(process.cwd(), "templates", "agent-profiles", `${name}.md`), "utf8");
       for (const section of [
         "## Role",
@@ -356,6 +356,8 @@ describe("validation", () => {
         expect(content).toContain(section);
       }
     }
+    await expect(readFile(join(process.cwd(), "templates", "agent-profiles", "memory-maintenance-agent.md"), "utf8"))
+      .rejects.toMatchObject({ code: "ENOENT" });
   });
 });
 

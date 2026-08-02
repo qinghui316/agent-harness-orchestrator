@@ -19,7 +19,7 @@ import { listWorktreesForChange } from "../worktree/manager.js";
 import type { ChangeAbandonResult, ChangeCloseResult } from "./types.js";
 import type { ResolvedMemory } from "../types/index.js";
 
-type ChangeCloseStage = "prepared" | "metadata-written" | "renamed" | "outbox-written" | "transition-receipt-written" | "index-rebuilt" | "completed";
+type ChangeCloseStage = "prepared" | "metadata-written" | "renamed" | "transition-receipt-written" | "index-rebuilt" | "completed";
 
 interface FinalizeRequest {
   version: "1.0";
@@ -45,11 +45,8 @@ interface ChangeCloseTransaction {
   activePath: string;
   archivePath: string;
   archiveRelativePath: string;
-  outboxPath: string;
   receiptPath: string;
   closeTimestamp: string;
-  closeSequence: number;
-  advancesMaintenanceSequence: boolean;
   stage: ChangeCloseStage;
   error: string | null;
   finalization: {
@@ -219,7 +216,7 @@ async function closeChangeFromStatus(memory: ResolvedMemory, status: ChangeStatu
   const activePath = join(memory.memoryRoot, active.path);
   const archiveRelativePath = await getArchiveRelativePath(memory, change.id);
   const archivePath = join(memory.memoryRoot, archiveRelativePath);
-  const transaction = await buildCloseTransaction(memory, change.id, activePath, archivePath, archiveRelativePath, finalization, change.maintenanceSequenceEligible !== false, lease);
+  const transaction = buildCloseTransaction(memory, change.id, activePath, archivePath, archiveRelativePath, finalization);
   await lease.assertCurrent();
   await mkdir(dirname(closeTransactionPath(memory, change.id)), { recursive: true });
   await lease.assertCurrent();
@@ -231,17 +228,11 @@ async function recoverCloseTransaction(memory: ResolvedMemory, initial: ChangeCl
   let transaction = initial;
   const markerPath = closeTransactionPath(memory, transaction.changeId);
   try {
-    if (!Number.isSafeInteger(transaction.closeSequence)
-      || (transaction.advancesMaintenanceSequence !== false && transaction.closeSequence < 1)) {
-      transaction = { ...transaction, closeSequence: await nextCloseSequence(memory, transaction.id, lease) };
-      await lease.assertCurrent();
-      await writeJsonFile(markerPath, transaction);
-    }
     if (transaction.stage === "completed") {
-      if (!existsSync(join(transaction.archivePath, "close-receipt.json")) || !existsSync(transaction.outboxPath)) {
+      if (!existsSync(join(transaction.archivePath, "close-receipt.json"))) {
         transaction = { ...transaction, stage: "renamed" };
       } else if (transaction.finalization && !await hasMatchingTransitionCompletionReceipt(memory, transaction)) {
-        transaction = { ...transaction, stage: "outbox-written" };
+        transaction = { ...transaction, stage: "transition-receipt-written" };
       }
     }
     if (transaction.stage === "prepared") {
@@ -273,25 +264,13 @@ async function recoverCloseTransaction(memory: ResolvedMemory, initial: ChangeCl
       await writeJsonFile(join(transaction.archivePath, "close-receipt.json"), {
         version: "1.0", transactionId: transaction.id, changeId: transaction.changeId,
         archivePath: transaction.archiveRelativePath, closedAt: transaction.closeTimestamp,
-        closeSequence: transaction.closeSequence,
         finalization: transaction.finalization,
       });
-      await lease.assertCurrent();
-      await writeJsonFile(transaction.outboxPath, {
-        version: "1.0", id: `change-close:${transaction.id}`, type: "change.closed",
-        projectId: transaction.projectId, changeId: transaction.changeId,
-        archivePath: transaction.archiveRelativePath, receiptPath: transaction.receiptPath,
-        occurredAt: transaction.closeTimestamp, closeSequence: transaction.closeSequence,
-        advancesMaintenanceSequence: transaction.advancesMaintenanceSequence,
-      });
       if (archived.id !== transaction.changeId) throw new Error("Archived Change identity does not match close transaction.");
-      transaction = await advanceCloseTransaction(markerPath, transaction, "outbox-written", lease);
-    }
-    let index;
-    if (transaction.stage === "outbox-written") {
       if (transaction.finalization) await ensureTransitionCompletionReceipt(memory, transaction, lease);
       transaction = await advanceCloseTransaction(markerPath, transaction, "transition-receipt-written", lease);
     }
+    let index;
     if (transaction.stage === "transition-receipt-written") {
       await lease.assertCurrent();
       index = await writeChangeIndex(memory);
@@ -355,15 +334,13 @@ async function assertPersistedFinalizationCurrent(memory: ResolvedMemory, transa
   });
 }
 
-async function buildCloseTransaction(memory: ResolvedMemory, changeId: string, activePath: string, archivePath: string, archiveRelativePath: string, finalization: PersistedChangeFinalization | null, advancesMaintenanceSequence: boolean, lease: ProjectWriteLeaseScope): Promise<ChangeCloseTransaction> {
+function buildCloseTransaction(memory: ResolvedMemory, changeId: string, activePath: string, archivePath: string, archiveRelativePath: string, finalization: PersistedChangeFinalization | null): ChangeCloseTransaction {
   const id = `close-${createHash("sha256").update(`${memory.projectId ?? "local"}:${changeId}:${archiveRelativePath}`).digest("hex")}`;
   const closeTimestamp = new Date().toISOString();
   const receiptPath = `${archiveRelativePath}/close-receipt.json`;
   return {
     version: "1.0", id, projectId: memory.projectId, changeId, activePath, archivePath, archiveRelativePath,
-    outboxPath: join(memory.harnessRoot, "outbox", "change-close", `${id}.json`), receiptPath,
-    closeTimestamp, closeSequence: advancesMaintenanceSequence ? await nextCloseSequence(memory, id, lease) : 0,
-    advancesMaintenanceSequence, stage: "prepared", error: null,
+    receiptPath, closeTimestamp, stage: "prepared", error: null,
     finalization: finalization ? {
       requestId: finalization.requestId,
       authorizationId: finalization.authorizationId,
@@ -377,30 +354,6 @@ async function buildCloseTransaction(memory: ResolvedMemory, changeId: string, a
       fencingToken: finalization.fencingToken,
     } : null,
   };
-}
-
-async function nextCloseSequence(memory: ResolvedMemory, transactionId: string, lease: ProjectWriteLeaseScope): Promise<number> {
-  const root = join(memory.changesRoot, ".close-transactions");
-  if (!existsSync(root)) return 1;
-  const candidates: Array<{ path: string; transaction: Partial<ChangeCloseTransaction> }> = [];
-  for (const name of (await readdir(root)).filter((item) => item.endsWith(".json")).sort()) {
-    const path = join(root, name);
-    candidates.push({ path, transaction: JSON.parse(await readFile(path, "utf8")) as Partial<ChangeCloseTransaction> });
-  }
-  const existing = candidates.find((candidate) => candidate.transaction.id === transactionId)?.transaction.closeSequence;
-  if (Number.isSafeInteger(existing)) return existing as number;
-  let maximum = candidates.reduce((value, candidate) => Number.isSafeInteger(candidate.transaction.closeSequence)
-    ? Math.max(value, candidate.transaction.closeSequence as number) : value, 0);
-  for (const candidate of candidates
-    .filter((item) => !Number.isSafeInteger(item.transaction.closeSequence))
-    .sort((left, right) => String(left.transaction.closeTimestamp).localeCompare(String(right.transaction.closeTimestamp))
-      || String(left.transaction.id).localeCompare(String(right.transaction.id)))) {
-    candidate.transaction.closeSequence = ++maximum;
-    await lease.assertCurrent();
-    await writeJsonFile(candidate.path, candidate.transaction);
-    if (candidate.transaction.id === transactionId) return maximum;
-  }
-  return maximum + 1;
 }
 
 function closeTransactionPath(memory: ResolvedMemory, changeId: string): string {

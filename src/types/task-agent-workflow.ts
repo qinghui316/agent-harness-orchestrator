@@ -2,7 +2,7 @@ export type TaskRunStatus = "queued" | "claimed" | "running" | "interrupted" | "
 
 export type AgentTaskKind = "foreground" | "background";
 export type AgentTaskStatus = "queued" | "claimed" | "running" | "completed" | "blocked" | "failed" | "needs-user-input" | "cancelled";
-export type AgentTaskCreatedBy = "main-agent-policy" | "maintenance-policy" | "system";
+export type AgentTaskCreatedBy = "main-agent-policy" | "system";
 export type AgentTaskFailureDisposition = "retryable" | "terminal";
 
 export interface AgentTaskLease {

@@ -8,7 +8,6 @@ const OPERATION_PROFILE_BY_ROLE: Readonly<Record<string, ProviderOperationProfil
   "rework-coder": "coder",
   "spec-test-proposer": "auditor",
   "spec-test-generator": "coder",
-  "memory-maintenance-agent": "maintenance",
   "harness-evolution-agent": "evolution",
 };
 

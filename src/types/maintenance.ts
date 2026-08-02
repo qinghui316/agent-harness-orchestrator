@@ -80,65 +80,6 @@ export interface DemandWorkerReconcileResult {
   decisions: MainOrchestratorDecision[];
 }
 
-export type MaintenanceLedgerEventType =
-  | "archive"
-  | "apply"
-  | "remote-landing"
-  | "failure"
-  | "user-feedback"
-  | "doc-drift"
-  | "reference-drift"
-  | "harness-evolution"
-  | "change-closeout";
-
-export interface MaintenanceLedgerEntry {
-  version: "1.0";
-  id: string;
-  projectId: string | null;
-  changeId?: string;
-  eventType: MaintenanceLedgerEventType;
-  summary: string;
-  artifactRefs: string[];
-  createdAt: string;
-}
-
-export interface DemandMemoryCloseout {
-  version: "1.0";
-  id: string;
-  changeId: string;
-  title: string;
-  terminalKind: "archived" | "applied" | "remote-handoff" | "merged";
-  goal: string;
-  finalResult: string;
-  userDecision: string;
-  changedFiles: string[];
-  affectedModules: string[];
-  evidenceRefs: string[];
-  reusableLessonCandidates: ReusableLessonCandidate[];
-  docsDriftCandidates: DocsDriftCandidate[];
-  memoryBoundaryNotes: string[];
-  createdAt: string;
-}
-
-export interface ReusableLessonCandidate {
-  id: string;
-  fingerprint: string;
-  summary: string;
-  evidenceRefs: string[];
-  status: "candidate" | "superseded";
-  supersededBy?: string;
-}
-
-export interface DocsDriftCandidate {
-  id: string;
-  fingerprint: string;
-  document: string;
-  summary: string;
-  evidenceRefs: string[];
-  status: "candidate" | "superseded";
-  supersededBy?: string;
-}
-
 export interface RoleScopedContextProjection {
   version: "1.0";
   roleId: string;

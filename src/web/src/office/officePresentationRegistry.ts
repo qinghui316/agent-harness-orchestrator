@@ -38,7 +38,6 @@ const PRESENTATIONS: Readonly<Record<string, OfficeRolePresentationDefinition>> 
   "rework-coder": { scarf: "rework", preferredScreens: ["game-2"], preferredFacilities: ["treadmill"], avatarId: "rework-coder" },
   "spec-test-proposer": { scarf: "spec-test-proposer", preferredScreens: ["game-1"], preferredFacilities: ["coffee"], avatarId: "spec-test-proposer" },
   "spec-test-generator": { scarf: "spec-test-generator", preferredScreens: ["game-2"], preferredFacilities: ["coffee"], avatarId: "spec-test-generator" },
-  "memory-maintenance-agent": { scarf: "maintenance", preferredScreens: ["game-2"], preferredFacilities: ["coffee", "toilet"], avatarId: "memory-maintenance-agent" },
   "harness-evolution-agent": { scarf: "evolution", preferredScreens: ["game-1"], preferredFacilities: ["treadmill", "toilet"], avatarId: "harness-evolution-agent" },
 };
 

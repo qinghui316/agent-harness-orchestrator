@@ -354,9 +354,9 @@
         "visible": true
       },
       {
-        "stationId": "maintenance",
-        "label": "Memory Maintenance",
-        "preferredRoleId": "memory-maintenance-agent",
+        "stationId": "standard-8",
+        "label": "Standard Workstation",
+        "preferredRoleId": "default",
         "stationTemplateId": "standard",
         "origin": {
           "x": 990,
@@ -3468,7 +3468,7 @@
         }
       ]
     },
-    "maintenance": {
+    "standard-8": {
       "coffee": [
         {
           "id": "off-chair-out",
@@ -5343,9 +5343,9 @@
           }
         ]
       },
-      "maintenance": {
+      "standard-8": {
         "sourceStationId": "main",
-        "targetStationId": "maintenance",
+        "targetStationId": "standard-8",
         "outbound": [
           {
             "id": "source-leaving-out",
@@ -6817,9 +6817,9 @@
           }
         ]
       },
-      "maintenance": {
+      "standard-8": {
         "sourceStationId": "planning",
-        "targetStationId": "maintenance",
+        "targetStationId": "standard-8",
         "outbound": [
           {
             "id": "source-leaving-out",
@@ -8291,9 +8291,9 @@
           }
         ]
       },
-      "maintenance": {
+      "standard-8": {
         "sourceStationId": "coder",
-        "targetStationId": "maintenance",
+        "targetStationId": "standard-8",
         "outbound": [
           {
             "id": "source-leaving-out",
@@ -9765,9 +9765,9 @@
           }
         ]
       },
-      "maintenance": {
+      "standard-8": {
         "sourceStationId": "auditor",
-        "targetStationId": "maintenance",
+        "targetStationId": "standard-8",
         "outbound": [
           {
             "id": "source-leaving-out",
@@ -11239,9 +11239,9 @@
           }
         ]
       },
-      "maintenance": {
+      "standard-8": {
         "sourceStationId": "rework",
-        "targetStationId": "maintenance",
+        "targetStationId": "standard-8",
         "outbound": [
           {
             "id": "source-leaving-out",
@@ -12713,9 +12713,9 @@
           }
         ]
       },
-      "maintenance": {
+      "standard-8": {
         "sourceStationId": "spec-proposer",
-        "targetStationId": "maintenance",
+        "targetStationId": "standard-8",
         "outbound": [
           {
             "id": "source-leaving-out",
@@ -14187,9 +14187,9 @@
           }
         ]
       },
-      "maintenance": {
+      "standard-8": {
         "sourceStationId": "spec-generator",
-        "targetStationId": "maintenance",
+        "targetStationId": "standard-8",
         "outbound": [
           {
             "id": "source-leaving-out",
@@ -14556,9 +14556,9 @@
         ]
       }
     },
-    "maintenance": {
+    "standard-8": {
       "main": {
-        "sourceStationId": "maintenance",
+        "sourceStationId": "standard-8",
         "targetStationId": "main",
         "outbound": [
           {
@@ -14742,7 +14742,7 @@
         ]
       },
       "planning": {
-        "sourceStationId": "maintenance",
+        "sourceStationId": "standard-8",
         "targetStationId": "planning",
         "outbound": [
           {
@@ -14926,7 +14926,7 @@
         ]
       },
       "coder": {
-        "sourceStationId": "maintenance",
+        "sourceStationId": "standard-8",
         "targetStationId": "coder",
         "outbound": [
           {
@@ -15110,7 +15110,7 @@
         ]
       },
       "auditor": {
-        "sourceStationId": "maintenance",
+        "sourceStationId": "standard-8",
         "targetStationId": "auditor",
         "outbound": [
           {
@@ -15294,7 +15294,7 @@
         ]
       },
       "rework": {
-        "sourceStationId": "maintenance",
+        "sourceStationId": "standard-8",
         "targetStationId": "rework",
         "outbound": [
           {
@@ -15478,7 +15478,7 @@
         ]
       },
       "spec-proposer": {
-        "sourceStationId": "maintenance",
+        "sourceStationId": "standard-8",
         "targetStationId": "spec-proposer",
         "outbound": [
           {
@@ -15662,7 +15662,7 @@
         ]
       },
       "spec-generator": {
-        "sourceStationId": "maintenance",
+        "sourceStationId": "standard-8",
         "targetStationId": "spec-generator",
         "outbound": [
           {
@@ -15846,7 +15846,7 @@
         ]
       },
       "evolution": {
-        "sourceStationId": "maintenance",
+        "sourceStationId": "standard-8",
         "targetStationId": "evolution",
         "outbound": [
           {
@@ -17319,9 +17319,9 @@
           }
         ]
       },
-      "maintenance": {
+      "standard-8": {
         "sourceStationId": "evolution",
-        "targetStationId": "maintenance",
+        "targetStationId": "standard-8",
         "outbound": [
           {
             "id": "source-leaving-out",

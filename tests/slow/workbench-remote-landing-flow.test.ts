@@ -6,7 +6,6 @@ import { initHarness } from "../../src/harness/init.js";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { collectWorktreeDiff } from "../../src/audit/diff.js";
-import { listDemandMemoryCloseouts, recordDemandMemoryCloseout } from "../../src/agent-task/manager.js";
 import { createWorktree } from "../../src/worktree/manager.js";
 import { cleanupRemoteBranchAfterMerge, preparePostMergeHandoff, syncLocalAfterMerge } from "../../src/post-merge/manager.js";
 import { mergeNextLandingQueueCandidate, prepareLandingQueue } from "../../src/landing-queue/manager.js";
@@ -283,13 +282,6 @@ describe("workbench remote landing slow flow", () => {
 
         const applyAction = await applyActionAfterAuditAcceptance("remote-landing-demand");
         await executeWorkbenchAction({ project: project(), path: getTempDir() }, { action: applyAction, confirm: true });
-        await recordDemandMemoryCloseout(memory, {
-          changeId: "remote-landing-demand",
-          title: "Remote landing demand applied locally",
-          terminalKind: "applied",
-          finalResult: "Local apply completed before remote landing.",
-          userDecision: "applied",
-        });
         const landingPrepared = await executeWorkbenchAction({ project: project(), path: getTempDir() }, {
           ...await landingPrepareActionAfterApply("remote-landing-demand"),
           confirm: true,
@@ -349,11 +341,6 @@ describe("workbench remote landing slow flow", () => {
         });
         const ghState = JSON.parse(await readFile(fakeGh.stateFile, "utf8"));
         expect(ghState.merged).toBe(true);
-        const closeouts = await listDemandMemoryCloseouts(memory);
-        expect(closeouts).toEqual(expect.arrayContaining([
-          expect.objectContaining({ changeId: "remote-landing-demand", terminalKind: "applied" }),
-          expect.objectContaining({ changeId: "remote-landing-demand", terminalKind: "merged" }),
-        ]));
         const mergedResult = (merged.result as { result: { result: { id: string } } }).result.result;
         const postMergeSnapshot = await getWorkbenchSnapshot({ project: project(), path: getTempDir() }, { topicId: "remote-landing-demand" });
         expect(postMergeSnapshot.right.confirmationQueue.primary).toMatchObject({

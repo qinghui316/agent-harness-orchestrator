@@ -41,6 +41,37 @@ describe("project Harness standalone daily commands", () => {
     })).resolves.toMatchObject({ pending: false, threshold: 5 });
   });
 
+  it("refreshes the durable Evolution window from completed Change records without a maintenance AgentTask", async () => {
+    const fixture = await createFixture();
+    for (let index = 1; index <= 5; index += 1) {
+      const changeId = `daily-close-${index}`;
+      await runProjectHarnessDailyCommand({
+        command: "change",
+        skillRoot: fixture.skillRoot,
+        args: ["new", changeId, "--project-root", fixture.projectRoot],
+      });
+      const closed = await runProjectHarnessDailyCommand({
+        command: "change",
+        skillRoot: fixture.skillRoot,
+        args: [
+          "close", changeId, "--project-root", fixture.projectRoot,
+          "--status", "completed", "--validation", "targeted", "--validation-passed",
+        ],
+      }) as { status: string; evolution: { pending: boolean; pending_change_ids: string[] } };
+      expect(closed.status).toBe("closed");
+      expect(closed.evolution.pending).toBe(index === 5);
+    }
+
+    await expect(runProjectHarnessDailyCommand({
+      command: "evolve",
+      skillRoot: fixture.skillRoot,
+      args: ["status", "--project-root", fixture.projectRoot],
+    })).resolves.toMatchObject({
+      pending: true,
+      pending_change_ids: ["daily-close-1", "daily-close-2", "daily-close-3", "daily-close-4", "daily-close-5"],
+    });
+  });
+
   it("rejects ambiguous options and creator-only commands", async () => {
     const fixture = await createFixture();
     await expect(runProjectHarnessDailyCommand({
@@ -163,7 +194,7 @@ async function createFixture(options: { includeClaudeLink?: boolean } = {}) {
     writeFile(join(skillRoot, "assets", "templates", "summary.md"), "# {{CHANGE_ID}}\n\nSummary.\n", "utf8"),
     writeFile(join(skillRoot, "assets", "templates", "spec.md"), "# Spec\n\n- AC-001: verified\n", "utf8"),
     writeFile(join(skillRoot, "assets", "templates", "plan.md"), "# Plan\n\n- Approved: yes\n", "utf8"),
-    writeFile(join(skillRoot, "assets", "templates", "tasks.md"), "# Tasks\n\n- [x] T001 Verify\n  - owner: test\n  - path: src/test.ts\n  - validation: passed\n", "utf8"),
+    writeFile(join(skillRoot, "assets", "templates", "tasks.md"), "# Tasks\n\n- [x] T001 [AC-001] Verify\n  - owner: test\n  - path: src/test.ts\n  - validation: passed\n", "utf8"),
     writeFile(join(skillRoot, "assets", "templates", "review.md"), "# Review\n\n- Approved: yes\n", "utf8"),
   ]);
   return { root, projectRoot, skillRoot, sidecarRoot };

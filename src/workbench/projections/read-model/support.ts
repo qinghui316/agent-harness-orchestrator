@@ -89,7 +89,7 @@ export function buildRepoSummary(status: Awaited<ReturnType<typeof getProjectSta
 
 export function humanConfirmationForRole(id: string): string {
   if (id === "coder-agent" || id === "rework-coder" || id === "spec-test-generator") return "Validation and audit evidence govern source landing.";
-  if (id === "memory-maintenance-agent" || id === "harness-evolution-agent") return "Background project-document maintenance requires no user confirmation.";
+  if (id === "harness-evolution-agent") return "Harness Evolution requires an explicit owner and candidate-bound Judge.";
   if (id === "auditor-agent") return "Audit verdict is consumed by the Workflow Runtime.";
   return "The owning Runtime validates any canonical state transition.";
 }

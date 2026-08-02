@@ -102,8 +102,7 @@ const defaultCatalog: AgentCatalog = {
     role("rework-coder", "Rework Coder", "Repairs a failed implementation attempt from validation or audit evidence within the same bounded workflow.", "worktree-write", ["failed-validation", "audit-findings", "worktree"], ["repair-diff", "rework-notes", "self-test-summary"], ["validation", "audit", "human-apply"], false),
     role("spec-test-proposer", "Spec-Test Proposer", "Finds existing source-root evidence candidates.", "read-only", ["ac-map", "spec-tests", "validation"], ["spec-test-proposal"], ["spec-test-proposal-accept"]),
     role("spec-test-generator", "Spec-Test Generator", "Generates passing test-only proposals in worktrees.", "worktree-write", ["missing-ac", "worktree"], ["test-diff", "implementation-notes"], ["validation", "audit", "human-apply"]),
-    { ...role("memory-maintenance-agent", "Memory Maintenance Agent", "Directly maintains canonical project Markdown after one completed Change.", "canonical-doc-write", ["assigned-closeout", "project-docs"], ["canonical-markdown", "maintenance-summary"]), allowedSkills: ["aho-harness-engineering"] },
-    { ...role("harness-evolution-agent", "Harness Evolution Agent", "Proposes and applies evidence-backed project-document evolution for one fixed five-Change window.", "canonical-doc-write", ["assigned-window", "project-docs"], ["evolution-proposal", "canonical-markdown"]), allowedSkills: ["aho-harness-engineering"] },
+    { ...role("harness-evolution-agent", "Harness Evolution Agent", "Builds an isolated project Harness candidate for one explicitly owned Evolution window.", "proposal-write", ["assigned-window", "project-harness"], ["evolution-candidate", "judge-request"]), allowedSkills: ["aho-harness-engineering"] },
   ],
 };
 
@@ -181,7 +180,7 @@ export async function resolveAgentRole(memory: ResolvedMemory, roleIdInput: stri
 export function validateRolePromptContract(roleId: string, markdown: string): void {
   const requiredRoles = new Set([
     "planning-agent", "coder-agent", "auditor-agent", "rework-coder",
-    "memory-maintenance-agent", "harness-evolution-agent",
+    "harness-evolution-agent",
   ]);
   if (!requiredRoles.has(roleId)) return;
   const missingFrontmatter = ["roleId:", "description:", "writeCapability:"].filter((marker) => !markdown.includes(marker));

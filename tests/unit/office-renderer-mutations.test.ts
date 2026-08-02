@@ -9,7 +9,7 @@ import { OFFICE_SCREEN_ANIMATION_SPEED } from "../../src/web/src/office/officeVi
 describe("Office renderer async mutations", () => {
   it("uses an exact short cross-fade only for resident removal plus real arrival", () => {
     const events = [
-      { kind: "resident-removed" as const, residentId: "resident:memory-maintenance-agent" },
+      { kind: "resident-removed" as const, residentId: "resident:harness-evolution-agent" },
       { kind: "participant-added" as const, participantId: "agent-1", parentParticipantId: "main-agent" },
     ];
     expect(OFFICE_RESIDENT_CROSSFADE_MS).toBe(160);

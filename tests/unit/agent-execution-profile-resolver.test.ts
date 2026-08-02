@@ -14,7 +14,6 @@ const catalog: AgentCatalog = {
     entry("rework-coder"),
     entry("spec-test-proposer"),
     entry("spec-test-generator"),
-    entry("memory-maintenance-agent"),
     entry("harness-evolution-agent"),
     entry("custom-agent"),
   ],
@@ -28,7 +27,6 @@ describe("AgentExecutionProfileResolver", () => {
     ["rework-coder", "coder"],
     ["spec-test-proposer", "auditor"],
     ["spec-test-generator", "coder"],
-    ["memory-maintenance-agent", "maintenance"],
     ["harness-evolution-agent", "evolution"],
   ] as const)("maps registered role %s to %s", (roleId, profile) => {
     expect(registeredAgentOperationProfile(catalog, roleId)).toBe(profile);

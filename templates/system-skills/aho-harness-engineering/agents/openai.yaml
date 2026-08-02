@@ -1,6 +1,5 @@
 display_name: AHO Harness Engineering
-short_description: Reconcile an assigned project Harness from evidence.
+short_description: Build and review atomic project Harness candidates from evidence.
 default_prompt: >-
-  Use the AHO task facts and matching mode. Detect the project's actual Harness,
-  compute the evidence-backed delta, edit directly when justified, verify it, and
-  require native scoring before Evolution edits.
+  Use the assigned AHO Harness mode and roots, derive the evidence-backed semantic
+  bundle or isolated candidate, and call only the Runtime-provided publication tool.

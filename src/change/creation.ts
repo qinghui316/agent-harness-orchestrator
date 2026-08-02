@@ -14,15 +14,15 @@ import { normalizeInitialContent, renderTemplate } from "./templates.js";
 import { readChangeContents } from "./repository.js";
 import type { ChangeCreateResult } from "./types.js";
 
-export async function createChange(project: ManagedProject, options: { title: string; body?: string; maintenanceSequenceEligible?: boolean }): Promise<ChangeCreateResult> {
+export async function createChange(project: ManagedProject, options: { title: string; body?: string }): Promise<ChangeCreateResult> {
   return createChangeInDirectory(project, options, "active", true);
 }
 
-export async function createConcurrentChange(project: ManagedProject, options: { title: string; body?: string; maintenanceSequenceEligible?: boolean }): Promise<ChangeCreateResult> {
+export async function createConcurrentChange(project: ManagedProject, options: { title: string; body?: string }): Promise<ChangeCreateResult> {
   return createChangeInDirectory(project, options, "active", false);
 }
 
-async function createChangeInDirectory(project: ManagedProject, options: { title: string; body?: string; maintenanceSequenceEligible?: boolean }, directory: "active" | "parking", requireNoActive: boolean): Promise<ChangeCreateResult> {
+async function createChangeInDirectory(project: ManagedProject, options: { title: string; body?: string }, directory: "active" | "parking", requireNoActive: boolean): Promise<ChangeCreateResult> {
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "Change creation");
   const activeChanges = await getActiveChanges(memory);
@@ -53,7 +53,6 @@ async function createChangeInDirectory(project: ManagedProject, options: { title
     updatedAt: now,
     closedAt: null,
     archivePath: null,
-    maintenanceSequenceEligible: options.maintenanceSequenceEligible ?? true,
   };
   await writeJsonFile(join(changePath, "change.json"), change);
   await createEmptySpecTests(changePath, id);

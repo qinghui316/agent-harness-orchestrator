@@ -15,36 +15,33 @@ async function readSkillFiles(): Promise<string> {
 }
 
 describe("AHO Harness engineering Skill", () => {
-  it("is the only Harness Skill and preserves the four Runtime-assigned modes", async () => {
+  it("is the only Harness Skill and exposes only the supported candidate modes", async () => {
     expect(existsSync(join(root, "aho-harness-onboarding"))).toBe(false);
     const skill = await readFile(join(skillRoot, "SKILL.md"), "utf8");
     expect(skill).toContain("name: aho-harness-engineering");
-    for (const mode of ["onboard", "audit", "maintain-assigned-closeout", "evolve-assigned-window"]) {
+    for (const mode of ["onboard", "migrate", "audit", "evolve-candidate"]) {
       expect(skill).toContain(mode);
     }
-    expect(skill).toContain("Unified ECL Method");
-    expect(skill).toMatch(/ready core\s+Harness/);
-    expect(skill).toContain("auditHarness");
-    expect(skill).toContain("Do not stop after creating only an entry guide");
-    expect(skill).toContain("Do not infer another mode");
-    expect(skill).toMatch(/Do not\s+invent/);
+    expect(skill).not.toContain("maintain-assigned-closeout");
+    expect(skill).not.toContain("evolve-assigned-window");
+    expect(skill).not.toContain("auditHarness");
+    expect(skill).toContain("complete semantic bundle");
+    expect(skill).toContain("Do not infer a different mode");
+    expect(skill).toContain("single Runtime-provided");
   });
 
-  it("teaches ECL delta analysis, direct edits, and scored Evolution", async () => {
+  it("teaches semantic deltas, isolated candidates, and atomic publication", async () => {
     const content = await readSkillFiles();
-    for (const method of ["Create", "Update", "Already Good", "Promote", "Retain", "Merge", "Retire", "Archive-only"]) {
+    for (const method of ["Promote", "Retain", "Merge", "Retire", "Archive-only"]) {
       expect(content).toContain(method);
     }
-    expect(content).toContain("directly edit the responsible project/memory files");
-    expect(content).toContain("scorer child");
+    expect(content).toContain("project-profile.json");
+    expect(content).toContain("creation-delta.json");
+    expect(content).toContain("independent Evolution Judge");
     expect(content).toContain("score of at least 80");
-    expect(content).toContain("create or claim");
-    expect(content).toContain("widen an assigned Evolution window");
-    expect(content).toContain("close Changes");
-    expect(content).toContain("Core readiness");
-    expect(content).toContain("Project guidance");
-    expect(content).toContain("Optional capability");
-    expect(content).toContain("Verification and handoff");
+    expect(content).toMatch(/Never\s+edit\s+the canonical project Skill directly/);
+    expect(content).toMatch(/full-bundle review is not an Evolution/i);
+    expect(content).toContain("Verification And Handoff");
   });
 
   it("removes the legacy Agent-authored patch teaching", async () => {
@@ -55,18 +52,18 @@ describe("AHO Harness engineering Skill", () => {
     expect(content).not.toMatch(/```json/);
   });
 
-  it("uses cross-layout examples instead of a global Harness file schema", async () => {
+  it("uses transaction examples instead of legacy layout modes", async () => {
     const examples = await readFile(join(skillRoot, "references", "worked-examples.md"), "utf8");
     for (const heading of [
-      "External Memory, Project Entry",
-      "Existing Layout With Different Names",
-      "Closeout No-op",
+      "Empty Project",
+      "Existing Source Without A Harness",
+      "Blocked Review",
       "Evolution Compression",
     ]) {
       expect(examples).toContain(`## ${heading}`);
     }
     const content = await readSkillFiles();
-    expect(content).not.toMatch(/writable namespace|allowedTargets|path allowlist|path blacklist/i);
+    expect(content).not.toMatch(/external-local|repo-local|memory root|memory-root|allowedTargets/i);
   });
 
   it("passes the Skill Creator validator", () => {

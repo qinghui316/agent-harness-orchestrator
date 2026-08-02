@@ -241,8 +241,9 @@ describe("workbench read-model projections", () => {
     expect(snapshot.center).not.toHaveProperty("parentAgentTranscript");
     expect(JSON.stringify(snapshot.right)).not.toContain("change.close");
     expect(snapshot.roles.map((item) => item.id)).toEqual(expect.arrayContaining([
-      "coder-agent", "auditor-agent", "memory-maintenance-agent", "harness-evolution-agent",
+      "coder-agent", "auditor-agent", "harness-evolution-agent",
     ]));
+    expect(snapshot.roles.map((item) => item.id)).not.toContain("memory-maintenance-agent");
     expect(snapshot.roles.map((item) => item.id)).not.toEqual(expect.arrayContaining(["coder", "auditor", "validator", "evolution-scorer"]));
     expect(snapshot.harnessGaps.map((item) => item.id)).toEqual(expect.arrayContaining(["roleCatalog", "sessionModel", "subagentSpec"]));
   });
@@ -755,10 +756,11 @@ describe("workbench read-model projections", () => {
   it("summarizes bundled role profiles without enabling scheduling", async () => {
     const roles = await listWorkbenchRoles();
     const coder = roles.find((item) => item.id === "coder-agent");
-    const maintenance = roles.find((item) => item.id === "memory-maintenance-agent");
+    const evolution = roles.find((item) => item.id === "harness-evolution-agent");
 
     expect(coder).toMatchObject({ writeCapability: "worktree-write", preferredRuntime: "codex" });
-    expect(maintenance).toMatchObject({ writeCapability: "canonical-doc-write", preferredRuntime: "codex" });
+    expect(evolution).toMatchObject({ writeCapability: "proposal-write", preferredRuntime: "codex" });
+    expect(roles.find((item) => item.id === "memory-maintenance-agent")).toBeUndefined();
     expect(roles.find((item) => item.id === "validator")).toBeUndefined();
     expect(roles.every((item) => item.sections.length > 0)).toBe(true);
   });

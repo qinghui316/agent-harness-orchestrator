@@ -1,6 +1,4 @@
-import { recordDemandMemoryCloseout, recordMaintenanceLedgerEntry } from "../../agent-task/manager.js";
 import { abandonChangeForChange } from "../../change/manager.js";
-import { resolveProjectMemory } from "../../memory/resolver.js";
 import type { ManagedProject } from "../../types/index.js";
 import { resumeNativeGoalAfterAction, runWorkbenchWorkflowAction } from "../../workbench/workflow-conversation-bridge.js";
 import { postConversationMessage } from "../../workbench/conversation-service.js";
@@ -35,41 +33,6 @@ export async function executeWorkbenchAction(input: WorkbenchProjectInput, body:
   return executeApprovalOrFeedbackAction(input as WorkbenchProjectInput & { project: ManagedProject }, body);
 }
 
-export async function recordPostDecisionMaintenance(
-  project: ManagedProject,
-  changeId: string,
-  eventType: "archive" | "apply" | "failure" | "user-feedback" | "doc-drift" | "reference-drift" | "harness-evolution",
-  summary: string,
-  artifactRefs: string[],
-): Promise<void> {
-  try {
-    const memory = await resolveProjectMemory(project);
-    if (eventType === "archive" || eventType === "apply") {
-      await recordDemandMemoryCloseout(memory, {
-        changeId,
-        title: changeId,
-        terminalKind: eventType === "archive" ? "archived" : "applied",
-        finalResult: summary,
-        userDecision: eventType,
-        evidenceRefs: artifactRefs,
-        reusableLessonCandidates: [{
-          summary: "Terminal demand evidence is available for future maintenance review.",
-          evidenceRefs: artifactRefs,
-        }],
-      });
-    } else {
-      await recordMaintenanceLedgerEntry(memory, {
-        eventType,
-        changeId,
-        summary,
-        artifactRefs,
-      });
-    }
-  } catch {
-    // Maintenance suggestions are advisory; action results must not depend on them.
-  }
-}
-
 async function executeAbandonAction(input: WorkbenchProjectInput & { project: ManagedProject }, body: WorkbenchActionRequest): Promise<{ result: unknown; snapshot: unknown }> {
   if (body.confirm !== true) {
     const error = new Error("Abandoning a demand conversation requires confirm: true.");
@@ -98,7 +61,6 @@ async function executeAbandonAction(input: WorkbenchProjectInput & { project: Ma
     throw error;
   }
   const result = await abandonChangeForChange(input.project, changeId, body.abandon?.reason ?? body.feedback);
-  await recordPostDecisionMaintenance(input.project, changeId ?? result.change.id, "user-feedback", "Demand conversation was abandoned by the user.", [result.archivePath]);
   return { result, snapshot: await getWorkbenchSnapshot(input) };
 }
 
@@ -188,9 +150,6 @@ async function executeApprovalOrFeedbackAction(input: WorkbenchProjectInput & { 
       feedback: body.feedback.trim(),
       payload: { action, feedback: body.feedback.trim(), context: body.feedbackContext ?? {}, route },
     });
-    if (feedbackChangeId) {
-      await recordPostDecisionMaintenance(input.project, feedbackChangeId, "user-feedback", body.feedback.trim(), []);
-    }
     if (route.workflowRequest) {
       const routed = await runWorkbenchWorkflowAction(
         input.project,

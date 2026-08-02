@@ -46,23 +46,6 @@ export interface AgentTaskWriterIdentity {
   fencingToken: number;
 }
 
-export async function claimNextMaintenanceAgentTask(
-  memory: ResolvedMemory,
-  input: AgentTaskLeaseInput = {},
-): Promise<AgentTask | null> {
-  const existing = (await listAgentTasks(memory))
-    .some((task) => task.kind === "background" && task.createdBy === "maintenance-policy"
-      && (task.status === "queued" || task.status === "claimed" || task.status === "running"));
-  if (!existing) return null;
-  return withTaskMutex(memory, "__maintenance-queue__", async () => {
-    const tasks = (await listAgentTasks(memory))
-      .filter((task) => task.kind === "background" && task.createdBy === "maintenance-policy");
-    if (tasks.some((task) => task.status === "running" || task.status === "claimed")) return null;
-    const next = tasks.find((task) => task.status === "queued");
-    return next ? await claimAgentTask(memory, next, input) : null;
-  });
-}
-
 export interface CompleteAgentTaskInput {
   status: AgentTaskStatus;
   summary: string;
@@ -109,7 +92,7 @@ async function createAgentTaskUnlocked(memory: ResolvedMemory, input: CreateAgen
     inputArtifacts: input.inputArtifacts ?? [],
     outputArtifacts: [],
     ...(input.parentTaskId ? { parentTaskId: input.parentTaskId } : {}),
-    createdBy: input.createdBy ?? (input.kind === "background" ? "maintenance-policy" : "main-agent-policy"),
+    createdBy: input.createdBy ?? "main-agent-policy",
     summary: input.summary,
     createdAt: now,
     updatedAt: now,

@@ -63,7 +63,6 @@ import {
 import type { ClarificationRequest } from "../../intake.js";
 import { isConcreteChangeFile } from "./thread-stream.js";
 import { buildAgentTaskSummaries } from "./agent-task-summary.js";
-import { buildMaintenanceSummary } from "./maintenance-summary.js";
 import { latestByTimestamp, sortByTimestampDesc } from "./projection-summary.js";
 import {
   buildResultReview,
@@ -210,7 +209,6 @@ export async function buildWorkbenchWorkpad(input: {
       },
       background: buildWorkpadBackground(workpads, undefined),
       memoryIsolation: buildWorkpadMemoryIsolation(memory, null, workpads),
-      maintenance: await buildMaintenanceSummary(memory),
     };
   }
 
@@ -253,7 +251,6 @@ export async function buildWorkbenchWorkpad(input: {
       },
       background: buildWorkpadBackground(workpads, selectedTopic.id),
       memoryIsolation: buildWorkpadMemoryIsolation(memory, null, workpads),
-      maintenance: await buildMaintenanceSummary(memory),
     };
   }
 
@@ -325,7 +322,6 @@ export async function buildWorkbenchWorkpad(input: {
   const rolePipeline = buildRolePipelineSummary(workflowTopic, agentTasks);
   const mainAgentExecution = rolePipeline;
   const resultReview = await buildResultReview(project, memory, workflowTopic);
-  const maintenance = await buildMaintenanceSummary(memory);
   const runningRun = selectedTopic.runs.find((run) => run.status === "created" || run.status === "running");
   const activeAgentTask = agentTasks.find((task) => isActiveAgentTaskStatus(task.status));
   const selectedWorkpadSummary = workpads.find((item) => item.id === conversationId || item.id === selectedTopic.name);
@@ -383,7 +379,6 @@ export async function buildWorkbenchWorkpad(input: {
     workflowRun: workflowRun ?? undefined,
     mainAgentExecution,
     resultReview,
-    maintenance,
     runControlState: {
       canStop: Boolean(runningRun || activeAgentTask),
       stopActionType: runningRun || activeAgentTask ? "conversation.interrupt" : undefined,

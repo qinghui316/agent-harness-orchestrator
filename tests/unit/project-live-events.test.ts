@@ -4,7 +4,7 @@ import { publishAgentSurfacesInvalidated, publishProjectLiveEvent, subscribeProj
 import type { WorkbenchLiveEvent } from "../../src/workbench/types.js";
 
 describe("project live Agent events", () => {
-  it("fans out background events by project without persisting a second event truth", () => {
+  it("fans out Agent events by project without persisting a second event truth", () => {
     const repoA = vi.fn();
     const repoB = vi.fn();
     const unsubscribeA = subscribeProjectLiveEvents("repo-a", repoA);
@@ -13,10 +13,10 @@ describe("project live Agent events", () => {
       event: "assistant.delta" as const,
       data: {
         projectId: "repo-a",
-        runId: "maintenance-run-1",
-        threadId: "maintenance-thread-1",
-        agentRoleId: "memory-maintenance-agent",
-        delta: "正在更新项目说明",
+        runId: "evolution-run-1",
+        threadId: "evolution-thread-1",
+        agentRoleId: "harness-evolution-agent",
+        delta: "正在准备隔离候选",
       },
     };
 

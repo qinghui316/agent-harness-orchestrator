@@ -719,7 +719,6 @@ export interface WorkbenchWorkpad {
   workflowRun?: WorkflowRunSummary;
   mainAgentExecution?: WorkbenchMainAgentExecutionSummary;
   resultReview?: WorkbenchResultReview;
-  maintenance?: WorkbenchMaintenanceSummary;
   runControlState?: WorkbenchRunControlState;
   intake: WorkpadIntakeSummary;
   progress: WorkpadProgress;
@@ -759,27 +758,6 @@ export interface WorkbenchAgentTaskSummary {
   boundaryViolations: string[];
   createdAt: string;
   completedAt?: string;
-}
-
-export interface WorkbenchMaintenanceSummary {
-  ledgerCount: number;
-  closeoutCount: number;
-  latest?: {
-    id: string;
-    eventType: string;
-    changeId?: string;
-    summary: string;
-    severity: string;
-    createdAt: string;
-  };
-  status: "idle" | "queued" | "running" | "blocked" | "completed";
-  activeTask?: {
-    id: string;
-    roleId: string;
-    status: string;
-    updatedAt: string;
-  };
-  note: string;
 }
 
 export interface WorkbenchRolePipelineSummary {

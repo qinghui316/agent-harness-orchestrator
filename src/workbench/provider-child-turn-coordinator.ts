@@ -19,7 +19,7 @@ import type { ProviderChildLifecycleEvent } from "../provider-runtime/index.js";
 import type { TopicMessageResult, TopicThreadEntry, WorkbenchLiveSink } from "./types.js";
 
 const OPERATION_PROFILES = new Set<ProviderOperationProfile>([
-  "main", "planning", "coder", "auditor", "maintenance", "evolution", "evolution-scorer",
+  "main", "planning", "coder", "auditor", "evolution", "evolution-scorer",
 ]);
 
 interface ExactChildTarget {

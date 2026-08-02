@@ -1,6 +1,5 @@
 export type { MainAgentDecision } from "./decisions.js";
 export type { AgentTaskLeaseInput, AgentTaskWriterIdentity, CreateAgentTaskInput, CompleteAgentTaskInput } from "./repository.js";
-export type { RecordDemandMemoryCloseoutInput } from "./closeouts.js";
 
 export { recordMainAgentDecision } from "./decisions.js";
 export {
@@ -12,32 +11,6 @@ export {
   heartbeatAgentTask,
   listAgentTasks,
   readAgentTaskResult,
-  recoverExpiredAgentTasks,
   startAgentTask,
 } from "./repository.js";
-export {
-  listMaintenanceLedgerEntries,
-  recordMaintenanceLedgerEntry,
-} from "./ledger.js";
-export {
-  listDemandMemoryCloseouts,
-  recordDemandMemoryCloseout,
-} from "./closeouts.js";
-export { dispatchChangeCloseOutbox } from "./close-outbox-dispatcher.js";
-export type { CloseOutboxDispatchResult } from "./close-outbox-dispatcher.js";
-export { runMaintenanceProviderAssignment } from "./maintenance-provider-runner.js";
-export type {
-  MaintenanceProviderExecutionRequest,
-  MaintenanceProviderExecutionResult,
-  MaintenanceProviderExecutor,
-  MaintenanceProviderRunEvidence,
-  RunMaintenanceProviderAssignmentInput,
-} from "./maintenance-provider-runner.js";
-export { createMaintenanceProviderExecutor, runMaintenanceAssignment } from "./maintenance-provider-executor.js";
-export { NonRetryableBackgroundWorkerError, startBackgroundWorker } from "./background-worker.js";
-export type {
-  BackgroundAssignmentRunResult,
-  BackgroundWorkerHandle,
-  BackgroundWorkerOptions,
-} from "./background-worker.js";
 export { buildRoleScopedContextProjection } from "./role-context.js";

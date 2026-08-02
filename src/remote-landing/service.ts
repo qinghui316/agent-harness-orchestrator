@@ -4,7 +4,6 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { promisify } from "node:util";
-import { recordDemandMemoryCloseout, recordMaintenanceLedgerEntry } from "../agent-task/manager.js";
 import { readRequiredJsonFile, writeJsonFile } from "../fs/json.js";
 import { readLandingPackage } from "../landing/manager.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
@@ -166,29 +165,6 @@ export async function mergeRemoteLanding(project: ManagedProject, landingPackage
     };
     const completedAttempt: RemoteLandingAttempt = { ...attempt, status: "merged", finishedAt, artifactRefs: [...attempt.artifactRefs, ...result.artifactRefs] };
     await writeResultArtifacts(memory, directory, completedAttempt, result, "远端 PR 已合并。本地项目不会自动同步；如需本地更新，请手动 pull 或在后续阶段处理同步。");
-    await recordMaintenanceLedgerEntry(memory, {
-      eventType: "remote-landing",
-      changeId: landing.target.changeIds[0],
-      summary: `Remote PR merged: ${readiness.prUrl}`,
-      artifactRefs: [displayArtifactPath(memory, join(directory, "remote-landing-result.json")), ...result.artifactRefs],
-    });
-    for (const changeId of landing.target.changeIds) {
-      await recordDemandMemoryCloseout(memory, {
-        changeId,
-        title: `Remote merge completed for ${changeId}`,
-        terminalKind: "merged",
-        goal: `Remote PR landing for ${changeId}`,
-        finalResult: `Remote PR merged with squash. Local source was not automatically synchronized.`,
-        userDecision: "merged",
-        changedFiles: landing.changedFiles,
-        evidenceRefs: [displayArtifactPath(memory, join(directory, "remote-landing-result.json")), readiness.summaryArtifact, ...landing.artifactRefs],
-        memoryBoundaryNotes: [
-          "Remote merge success is the stable remote-code boundary.",
-          "Closeout, ledger, candidates, generated indexes, and generated cache may be written automatically.",
-          "A background Maintenance Agent updates project Markdown directly; local source synchronization remains a separate operation.",
-        ],
-      });
-    }
     return { readiness, attempt: completedAttempt, result };
   } catch (cause) {
     const finishedAt = new Date().toISOString();
@@ -210,12 +186,6 @@ export async function mergeRemoteLanding(project: ManagedProject, landingPackage
     };
     const failedAttempt: RemoteLandingAttempt = { ...attempt, status: "failed", finishedAt, artifactRefs: [...attempt.artifactRefs, ...result.artifactRefs] };
     await writeResultArtifacts(memory, directory, failedAttempt, result, `远端合并失败：${failureReason}`);
-    await recordMaintenanceLedgerEntry(memory, {
-      eventType: "failure",
-      changeId: landing.target.changeIds[0],
-      summary: `Remote PR merge failed: ${failureReason}`,
-      artifactRefs: [displayArtifactPath(memory, join(directory, "remote-landing-result.json")), ...result.artifactRefs],
-    });
     return { readiness, attempt: failedAttempt, result };
   }
 }

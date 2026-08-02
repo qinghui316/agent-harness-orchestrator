@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { bindCodexEnabledSkills, bindCodexSkillCatalog, getCodexBridgeStatus, installCodexBridge, listNativeCodexSkills, syncCodexBridge } from "../../src/codex/bridge.js";
 import { listAgentRoles, showAgentRole, syncAgentCatalog } from "../../src/agent/catalog.js";
 import { writeProjectMarker } from "../../src/project/marker.js";
-import { addSkillRoot, getEnabledSkillContext, getRuntimeAssignedHarnessSkillContext, importSkill, listSkills, setSkillEnabled } from "../../src/skill/catalog.js";
+import { addSkillRoot, getEnabledSkillContext, importSkill, listSkills, setSkillEnabled } from "../../src/skill/catalog.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import type { ManagedProject } from "../../src/types/index.js";
 
@@ -183,36 +183,10 @@ describe("AHO skill source and Codex bridge", () => {
       .toEqual([expect.objectContaining({ providerId: "codex", status: "ready" })]);
   });
 
-  it("records native runtime-assigned Skill input without injecting its body", async () => {
+  it("does not persist the bundled Harness Creator as an ordinary project Skill selection", async () => {
     const repo = project();
     await mkdir(repo.path, { recursive: true });
     await writeProjectMarker(repo, "external-local");
-
-    const context = await getRuntimeAssignedHarnessSkillContext(repo, {
-      mode: "maintain-assigned-closeout",
-      taskId: "maintenance-1",
-      projectRoot: repo.path,
-      memoryRoot: "C:/memory",
-      evidenceRefs: ["change://terminal"],
-      requiredVerification: [],
-    });
-    expect(context.records).toEqual([expect.objectContaining({
-      id: "aho-harness-engineering",
-      sourceKind: "system-aho",
-      contentHash: expect.any(String),
-      compatibility: { requiredCapabilities: ["skill.native-load"] },
-      providerBindings: [],
-    })]);
-    expect(context.promptSection).toContain("Harness Engineering Task Packet");
-    expect(context.promptSection).not.toContain("references/project-and-harness-detection.md");
-    expect(context.promptSection).toContain("Harness Engineering Task Packet");
-    expect(context.promptSection).toContain("Mode: maintain-assigned-closeout");
-    expect(context.promptSection).toContain("Memory root: C:/memory");
-    expect(context.promptSection).not.toContain("SKILL.md");
-    expect(context.promptSection).not.toContain('"mode"');
-    expect(context.promptSection).toContain("Task: maintenance-1");
-    expect(context.promptSection).toContain("Evidence: change://terminal");
-    expect(context.promptSection).not.toContain("Fixed window:");
 
     const persistent = await getEnabledSkillContext(repo, "change-a");
     expect(persistent.records).toHaveLength(0);

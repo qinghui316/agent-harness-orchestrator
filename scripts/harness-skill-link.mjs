@@ -5,6 +5,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import process from "node:process";
 
 const skillName = "agent-harness-orchestrator-a6ad344cbe4e-harness";
 const projectId = "agent-harness-orchestrator-a6ad344cbe4e";

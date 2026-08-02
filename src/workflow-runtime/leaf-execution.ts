@@ -1,5 +1,5 @@
 import { startAuditRun } from "../audit/manager.js";
-import { completeAgentTask, recordMaintenanceLedgerEntry } from "../agent-task/manager.js";
+import { completeAgentTask } from "../agent-task/manager.js";
 import { recordPostRunBoundaryAudit, boundaryAuditArtifactRef } from "../agent-task/boundary-audit.js";
 import { dispatchForegroundRoleTask } from "../agent-task/role-dispatcher.js";
 import {
@@ -152,12 +152,6 @@ export async function runCoderLeafStage(input: {
       requiresUserInputReason: message,
     });
     emitDelegatedRoleReturn(input.live, input.changeId, input.roleId, "failed", "coder-agent 在创建 code run 前失败，任务已关闭为 failed。", coderDispatch.policyAuditRef);
-    await recordMaintenanceLedgerEntry(input.memory, {
-      eventType: "failure",
-      changeId: input.changeId,
-      summary: `Coder task failed before code run artifacts were created: ${message}`,
-      artifactRefs: [coderDispatch.policyAuditRef],
-    });
     return { leaf: "coder", roleId: input.roleId, status: "failed", error: message, stoppedAt: "code", orchestration };
   }
 
@@ -253,12 +247,6 @@ export async function runCoderLeafStage(input: {
       requiresUserInputReason: "Implementation failed before official validation could run.",
     });
     emitDelegatedRoleReturn(input.live, input.changeId, input.roleId, "failed", "coder-agent 没有产出可验证的 worktree 结果。", code.run.artifacts.directory);
-    await recordMaintenanceLedgerEntry(input.memory, {
-      eventType: "failure",
-      changeId: input.changeId,
-      summary: "Coder task failed before validation.",
-      artifactRefs: [code.run.artifacts.directory],
-    });
     return { leaf: "coder", roleId: input.roleId, status: "failed", code, stoppedAt: "code", orchestration };
   }
 
@@ -332,12 +320,6 @@ export async function runValidatorLeafStage(input: {
       requiresUserInputReason: message,
     });
     emitDelegatedRoleReturn(input.live, input.changeId, "validator", "failed", "validator failed before validation artifacts were completed.", validatorDispatch.policyAuditRef);
-    await recordMaintenanceLedgerEntry(input.memory, {
-      eventType: "failure",
-      changeId: input.changeId,
-      summary: `Validation failed before artifacts were completed: ${message}`,
-      artifactRefs: [validatorDispatch.policyAuditRef],
-    });
     return { leaf: "validator", roleId: "validator", status: "failed", stoppedAt: "validation", error: message, orchestration };
   }
 
@@ -373,12 +355,6 @@ export async function runValidatorLeafStage(input: {
       requiresUserInputReason: "Validation failed; bounded automatic rework may be attempted.",
     });
     emitDelegatedRoleReturn(input.live, input.changeId, "validator", "failed", "validator 返回验证失败结果。", validation.run.artifacts.validation);
-    await recordMaintenanceLedgerEntry(input.memory, {
-      eventType: "failure",
-      changeId: input.changeId,
-      summary: "Validation failed for a foreground workflow runtime leaf attempt.",
-      artifactRefs: compactArtifactRefs(validation.run.artifacts.validation, validation.run.artifacts.stderr),
-    });
     return { leaf: "validator", roleId: "validator", status: "failed", validation, stoppedAt: "validation", orchestration };
   }
 
@@ -453,12 +429,6 @@ export async function runAuditorLeafStage(input: {
       requiresUserInputReason: message,
     });
     emitDelegatedRoleReturn(input.live, input.changeId, "auditor-agent", "failed", "auditor-agent failed before audit artifacts were completed.", auditorDispatch.policyAuditRef);
-    await recordMaintenanceLedgerEntry(input.memory, {
-      eventType: "failure",
-      changeId: input.changeId,
-      summary: `Audit failed before artifacts were completed: ${message}`,
-      artifactRefs: [auditorDispatch.policyAuditRef],
-    });
     return { leaf: "auditor", roleId: "auditor-agent", status: "failed", stoppedAt: "audit", error: message, orchestration };
   }
 
@@ -504,14 +474,6 @@ export async function runAuditorLeafStage(input: {
       : "auditor-agent 返回需要修改或补证据的结果。",
     audit.audit.artifacts.auditMarkdown,
   );
-  if (!auditAccepted) {
-    await recordMaintenanceLedgerEntry(input.memory, {
-      eventType: "failure",
-      changeId: input.changeId,
-      summary: "Audit did not accept foreground workflow runtime leaf evidence.",
-      artifactRefs: compactArtifactRefs(audit.audit.artifacts.auditMarkdown),
-    });
-  }
   return { leaf: "auditor", roleId: "auditor-agent", status: auditAccepted ? "completed" : "failed", audit, stoppedAt: auditAccepted ? undefined : "audit", orchestration };
 }
 

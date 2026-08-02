@@ -153,9 +153,9 @@ describe("CLI flow", () => {
     expect(approvals.every((item) => !item.action?.mutates || item.action.requiresConfirmation)).toBe(true);
     expect(snapshot.harnessGaps.map((item) => item.id)).toEqual(expect.arrayContaining(["workspaceIndex", "subagentSpec"]));
     expect(snapshot.roles.map((item) => item.id)).toEqual(expect.arrayContaining([
-      "planning-agent", "coder-agent", "auditor-agent", "memory-maintenance-agent",
-      "harness-evolution-agent",
+      "planning-agent", "coder-agent", "auditor-agent", "harness-evolution-agent",
     ]));
+    expect(snapshot.roles.map((item) => item.id)).not.toContain("memory-maintenance-agent");
     expect(snapshot.roles.map((item) => item.id)).not.toContain("evolution-scorer");
     expect(snapshot.roles.map((item) => item.id)).not.toContain("validator");
   });

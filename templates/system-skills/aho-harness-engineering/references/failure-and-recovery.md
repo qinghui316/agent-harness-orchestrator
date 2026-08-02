@@ -1,12 +1,13 @@
 # Failure And Recovery
 
-On retry or interruption, read current files before deciding what remains. Do
-not assume the previous turn's planned or partial edits still describe reality.
+On retry, use the Runtime-owned transaction record and current source. Do not infer progress from a
+candidate directory, review file, provider message, or previous turn summary.
 
-Block when the assigned project, roots, or window are inconsistent, evidence is
-unavailable or irreconcilable, or the delta would weaken an established safety
-or ownership boundary.
+Block when identity, discovery links, project root, source snapshot, candidate fingerprint, reviewer
+identity, or transaction ownership no longer matches. Do not repair a failure by writing the physical
+Skill, deleting another path, bypassing doctor/audit, widening an Evolution window, or creating a
+second project id.
 
-Do not repair failures by widening an Evolution window, creating another task,
-changing Runtime state, or reverting unrelated edits. Leave already-written
-project content visible; the current task or a later Agent can reconcile drift.
+Prepared or rolled-back evidence remains in the sidecar for a later exact retry. Runtime alone removes
+owned staging, restores dynamic state, or commits publication. Business source and unrelated user
+changes remain untouched.
