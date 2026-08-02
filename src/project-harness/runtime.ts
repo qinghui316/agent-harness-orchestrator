@@ -1,6 +1,6 @@
 import type { ProjectHarnessHandle } from "./contracts.js";
 import { auditProjectHarness, doctorProjectHarness } from "./diagnostics.js";
-import { fingerprintProjectHarness } from "./fingerprint.js";
+import { fingerprintProjectHarnessContent } from "./fingerprint.js";
 import { checkProjectKnowledge, scanProjectKnowledge } from "./knowledge.js";
 import { readProjectHarnessManifest } from "./manifest.js";
 import { createSnapshotFingerprinter, SourceFingerprintSnapshot } from "./source-fingerprint.js";
@@ -206,7 +206,7 @@ async function assertCurrentHandle(handle: ProjectHarnessHandle, skillRoot: stri
     || manifest.skill_revision !== handle.skillRevision) {
     throw new Error("Project Harness handle identity or revision is stale.");
   }
-  if (await fingerprintProjectHarness(skillRoot) !== handle.contentFingerprint) {
+  if (await fingerprintProjectHarnessContent(skillRoot) !== handle.contentFingerprint) {
     throw new Error("Project Harness handle content fingerprint is stale.");
   }
 }

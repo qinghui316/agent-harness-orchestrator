@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProjectHarnessHandle } from "../../src/project-harness/contracts.js";
-import { fingerprintProjectHarness } from "../../src/project-harness/fingerprint.js";
+import { fingerprintProjectHarnessContent } from "../../src/project-harness/fingerprint.js";
 import {
   createProjectHarnessRuntime,
   type ProjectHarnessCommandPort,
@@ -74,6 +74,26 @@ describe("project Harness daily Runtime facade", () => {
     await expect(runtime.change.run(fixture.handle, ["status"])).rejects.toThrow(/fingerprint is stale/);
     expect(commandRun).not.toHaveBeenCalled();
   });
+
+  it("keeps the handle valid when only dynamic lifecycle state changes", async () => {
+    const fixture = await createFixture();
+    const commandRun = vi.fn<ProjectHarnessCommandPort["run"]>(async () => ({ status: "completed" }));
+    const runtime = createProjectHarnessRuntime({
+      projectRoot: fixture.projectRoot,
+      skillRoot: fixture.skillRoot,
+      sidecarRoot: fixture.sidecarRoot,
+      change: { run: commandRun },
+      registry: { async preflight() { return { status: "continue" }; } },
+      integration: { run: commandRun },
+      evolution: { run: commandRun },
+    });
+    const changeRoot = join(fixture.skillRoot, "state", "changes", "active", "change-1");
+    await mkdir(changeRoot, { recursive: true });
+    await writeFile(join(changeRoot, "summary.md"), "# Dynamic evidence\n", "utf8");
+
+    await expect(runtime.change.run(fixture.handle, ["status"])).resolves.toMatchObject({ status: "completed" });
+    expect(commandRun).toHaveBeenCalledTimes(1);
+  });
 });
 
 async function createFixture(): Promise<{
@@ -112,7 +132,7 @@ async function createFixture(): Promise<{
       skillName: "sample-a1-harness",
       skillRevision: 27,
       skillRoot,
-      contentFingerprint: await fingerprintProjectHarness(skillRoot),
+      contentFingerprint: await fingerprintProjectHarnessContent(skillRoot),
     },
   };
 }

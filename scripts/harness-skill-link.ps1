@@ -91,6 +91,19 @@ $links = [ordered]@{
     claude = Join-Path $root ".claude/skills/$SkillName"
 }
 
+Assert-PhysicalAncestors $primary $canonical
+$canonicalItem = Get-Item -LiteralPath $canonical -Force -ErrorAction SilentlyContinue
+if ($canonicalItem -and $canonicalItem.LinkType) {
+    throw "canonical project Harness must be physical: $canonical"
+}
+if (-not $canonicalItem -or -not (Test-Path -LiteralPath (Join-Path $canonical "SKILL.md") -PathType Leaf)) {
+    throw "canonical project Harness is missing: $canonical"
+}
+$manifest = Get-Content -Raw -Encoding UTF8 (Join-Path $canonical "state/manifest.json") | ConvertFrom-Json
+if ($manifest.project_id -ne $ProjectId -or $manifest.skill_name -ne $SkillName) {
+    throw "canonical project Harness manifest does not match this Git project"
+}
+
 if ($Detach) {
     if ([System.IO.Path]::GetFullPath($root).TrimEnd('\', '/') -ieq
         [System.IO.Path]::GetFullPath($primary).TrimEnd('\', '/')) {
@@ -98,6 +111,7 @@ if ($Detach) {
     }
     $result = [ordered]@{}
     foreach ($entry in $links.GetEnumerator()) {
+        Assert-PhysicalAncestors $root $entry.Value
         $item = Get-Item -LiteralPath $entry.Value -Force -ErrorAction SilentlyContinue
         if (-not $item) {
             $result[$entry.Key] = [ordered]@{ path = $entry.Value; status = "missing" }
@@ -134,18 +148,6 @@ if ($Detach) {
     [ordered]@{ ok = $true; action = "detached"; skill = $canonical; links = $result } |
         ConvertTo-Json -Depth 5
     exit 0
-}
-
-$canonicalItem = Get-Item -LiteralPath $canonical -Force -ErrorAction SilentlyContinue
-if ($canonicalItem -and $canonicalItem.LinkType) {
-    throw "canonical project Harness must be physical: $canonical"
-}
-if (-not $canonicalItem -or -not (Test-Path -LiteralPath (Join-Path $canonical "SKILL.md") -PathType Leaf)) {
-    throw "canonical project Harness is missing: $canonical"
-}
-$manifest = Get-Content -Raw -Encoding UTF8 (Join-Path $canonical "state/manifest.json") | ConvertFrom-Json
-if ($manifest.project_id -ne $ProjectId -or $manifest.skill_name -ne $SkillName) {
-    throw "canonical project Harness manifest does not match this Git project"
 }
 
 $result = [ordered]@{}

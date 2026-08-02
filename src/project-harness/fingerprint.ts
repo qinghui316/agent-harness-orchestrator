@@ -15,6 +15,15 @@ export const PROJECT_HARNESS_DYNAMIC_PATHS = [
   "state/migration",
 ] as const;
 
+export async function fingerprintProjectHarnessContent(
+  skillRoot: string,
+  options: ProjectHarnessFingerprintOptions = {},
+): Promise<string> {
+  return fingerprintProjectHarness(skillRoot, {
+    exclude: [...PROJECT_HARNESS_DYNAMIC_PATHS, ...(options.exclude ?? [])],
+  });
+}
+
 export async function fingerprintProjectHarness(
   skillRoot: string,
   options: ProjectHarnessFingerprintOptions = {},

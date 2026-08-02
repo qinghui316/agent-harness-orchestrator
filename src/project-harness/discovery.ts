@@ -7,7 +7,7 @@ import type {
   ProviderSkillBinding,
   ProviderSkillInput,
 } from "./contracts.js";
-import { fingerprintProjectHarness } from "./fingerprint.js";
+import { fingerprintProjectHarnessContent } from "./fingerprint.js";
 import { readProjectHarnessManifest } from "./manifest.js";
 import { assertPhysicalDirectory } from "./path-safety.js";
 
@@ -53,7 +53,7 @@ export async function discoverProjectHarness(projectRoot: string): Promise<Proje
     }
   }
 
-  const contentFingerprint = await fingerprintProjectHarness(skillRoot);
+  const contentFingerprint = await fingerprintProjectHarnessContent(skillRoot);
   const handle: ProjectHarnessHandle = {
     projectId: manifest.project_id,
     skillName: manifest.skill_name,

@@ -3,7 +3,7 @@ import { lstat, readFile, readdir } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
 import { parseJsonText } from "../fs/json.js";
 import { discoverProjectHarness } from "./discovery.js";
-import { fingerprintProjectHarness } from "./fingerprint.js";
+import { fingerprintProjectHarnessContent } from "./fingerprint.js";
 import { readProjectHarnessManifest } from "./manifest.js";
 import { assertPhysicalDirectory, resolveWithinPhysicalRoot } from "./path-safety.js";
 
@@ -111,7 +111,7 @@ export async function doctorProjectHarness(
 
   let contentFingerprint: string | null = null;
   try {
-    contentFingerprint = await fingerprintProjectHarness(skillRoot);
+    contentFingerprint = await fingerprintProjectHarnessContent(skillRoot);
   } catch (error) {
     findings.push(finding("non_physical_content", "error", null, message(error)));
   }
