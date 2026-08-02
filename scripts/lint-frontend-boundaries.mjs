@@ -18,6 +18,15 @@ const timelineProtocolOwners = new Set([
 const projectionStreamOwner = "src/web/src/workbenchProjectionStream.ts";
 const workspaceResourceOwner = "src/web/src/controllers/useWorkspaceResourceController.ts";
 const appShellOwner = "src/web/src/App.tsx";
+const officeSourceAdapterOwner = "src/web/src/office/agentSurfaceOfficeSourceAdapter.ts";
+const officeActivityCompilerOwner = "src/web/src/office/officeActivityCompiler.ts";
+const officeVisualContractOwner = "src/web/src/office/officeVisualContract.ts";
+const officeVisualCommandOwners = new Set([
+  officeActivityCompilerOwner,
+  officeVisualContractOwner,
+  "src/web/src/office/OfficeParticipantRenderer.ts",
+  "src/web/src/office/PixiOfficeRenderer.tsx",
+]);
 const appForbiddenDomainAccess = [
   "consumeWorkbenchLiveStream",
   "postJson",
@@ -65,6 +74,20 @@ const retiredSymbols = [
   "/__aho/agent-office-calibration",
   "calibrationAdjustment",
   "calibrationOffset",
+  "HarnessOfficeAdapter",
+  "harnessOfficeAdapter",
+  "mapHarnessState",
+  "staticStandby",
+  "standbyScreenProfile",
+  "OfficeAmbientActivityId",
+  "OfficeAmbientPreference",
+  "ambientPreferences",
+  "mobilityActive",
+  "visit-coffee",
+  "use-treadmill",
+  "use-toilet",
+  "play-game-1",
+  "play-game-2",
 ];
 
 for (const file of webFiles) {
@@ -95,6 +118,38 @@ for (const file of webFiles) {
     && relativePath !== "src/web/src/office/agentOfficeRuntimeComposition.ts") {
     violations.push(`${relativePath}: OfficeCalibrationResolver construction belongs to Agent Office runtime composition`);
   }
+  if (relativePath.startsWith("src/web/src/office/")
+    && relativePath !== officeSourceAdapterOwner
+    && /\b(?:AgentSurfaceProjection|AgentSurfaceStatus)\b/.test(content)) {
+    violations.push(`${relativePath}: Agent Surface contracts belong behind AgentSurfaceOfficeSourceAdapter`);
+  }
+  if (relativePath.startsWith("src/web/src/office/")
+    && !officeVisualCommandOwners.has(relativePath)
+    && /kind:\s*["'](?:playAction|playRouteStage|followRoute|setScreen|setEffect|showParticipant|hideParticipant)["']/.test(content)) {
+    violations.push(`${relativePath}: low-level Office visual commands must be constructed by OfficeActivityCompiler`);
+  }
+  if (/actionId:\s*["']standby["'][\s\S]{0,160}?loop:\s*true/.test(content)
+    || /loop:\s*true[\s\S]{0,160}?actionId:\s*["']standby["']/.test(content)) {
+    violations.push(`${relativePath}: standby is only the one-shot look-around material and must never loop`);
+  }
+  if (relativePath === "src/web/src/office/officePresentationRegistry.ts"
+    && /\b(?:OfficeActionId|actionId|officeVisualContract)\b/.test(content)) {
+    violations.push(`${relativePath}: role presentation may contain semantic activities, not material action ids`);
+  }
+  if (["src/web/src/office/OfficeParticipantRenderer.ts", "src/web/src/office/PixiOfficeRenderer.tsx"].includes(relativePath)
+    && /\b(?:OfficePresentationPreferences|presentationPreferences)\b/.test(content)) {
+    violations.push(`${relativePath}: renderers must not receive role scheduling preferences`);
+  }
+  if ([
+    "src/web/src/office/ambientScheduler.ts",
+    "src/web/src/office/officeActivityCompiler.ts",
+    "src/web/src/office/officeBehaviorPolicy.ts",
+    "src/web/src/office/officeDirector.ts",
+    "src/web/src/office/officeOccupancyPolicy.ts",
+    "src/web/src/office/officePresentationRegistry.ts",
+  ].includes(relativePath) && /\b(?:Codex|Claude)\b/i.test(content)) {
+    violations.push(`${relativePath}: Office behavior and occupancy must treat actor ids as provider-opaque`);
+  }
 }
 
 try {
@@ -109,6 +164,13 @@ for (const file of sourceFiles) {
   const content = await readFile(file, "utf8");
   for (const symbol of retiredSymbols) {
     if (content.includes(symbol)) violations.push(`${relativePath}: retired Timeline symbol ${symbol}`);
+  }
+}
+
+const calibrationContract = await readFile(resolve(root, "scripts/office-calibration-v3.ts"), "utf8");
+for (const retiredStage of ["standby-start", "standby-end"]) {
+  if (calibrationContract.includes(retiredStage)) {
+    violations.push(`scripts/office-calibration-v3.ts: retired Office route stage ${retiredStage}`);
   }
 }
 

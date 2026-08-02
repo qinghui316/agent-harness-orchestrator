@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { Suspense } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentOfficePanel } from "../../src/web/src/panels/workbench/ConversationPanel.js";
-import { HarnessOfficeAdapter } from "../../src/web/src/office/harnessOfficeAdapter.js";
+import { OfficeExperienceComposer } from "../../src/web/src/office/officeExperienceComposer.js";
 import type { AgentSurfaceProjection } from "../../src/web/src/types.js";
 
 const calibration = readFileSync("src/web/public/agent-office/config/office-calibration.json", "utf8");
@@ -22,7 +22,7 @@ describe("Agent Office committed projection reconciliation", () => {
     const first = projection("first");
     const abandoned = projection("abandoned", "running");
     const committed = projection("committed", "completed");
-    const reconcile = vi.spyOn(HarnessOfficeAdapter.prototype, "reconcile");
+    const reconcile = vi.spyOn(OfficeExperienceComposer.prototype, "reconcile");
     const never = new Promise<void>(() => undefined);
     const view = (value: AgentSurfaceProjection, blocked: boolean) => (
       <Suspense fallback={<div>Suspended</div>}>
@@ -31,14 +31,19 @@ describe("Agent Office committed projection reconciliation", () => {
       </Suspense>
     );
     const rendered = render(view(first, false));
-    await waitFor(() => expect(HarnessOfficeAdapter.prototype.hydrate).toBeDefined());
+    await waitFor(() => expect(OfficeExperienceComposer.prototype.hydrate).toBeDefined());
     await waitFor(() => expect(rendered.getByTestId("agent-office")).toBeTruthy());
 
     rendered.rerender(view(abandoned, true));
     rendered.rerender(view(committed, false));
 
-    expect(reconcile).toHaveBeenLastCalledWith(first, committed);
-    expect(reconcile.mock.calls.some(([previous, next]) => previous === first && next === abandoned)).toBe(false);
+    expect(reconcile).toHaveBeenLastCalledWith(
+      expect.objectContaining({ revision: first.projectionHash }),
+      expect.objectContaining({ revision: committed.projectionHash }),
+    );
+    expect(reconcile.mock.calls.some(([previous, next]) => (
+      previous.revision === first.projectionHash && next.revision === abandoned.projectionHash
+    ))).toBe(false);
   });
 
   it("opens a resident-only capability card without adding residents to the active Agent menu", async () => {

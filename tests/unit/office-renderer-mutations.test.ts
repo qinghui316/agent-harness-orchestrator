@@ -111,7 +111,47 @@ describe("Office renderer async mutations", () => {
     expect(screen.gotoAndPlay).not.toHaveBeenCalled();
   });
 
-  it("plays looping standby normally and freezes the same command for reduced motion", () => {
+  it("does not restart an already playing screen when its profile is unchanged", async () => {
+    const handle = screenHandle();
+    const screen = screenSprite();
+    const station = stationVisual(screen, handle, "entertainment-1");
+    const assets = { acquireScreen: vi.fn() };
+
+    await setOfficeStationScreen(
+      assets as never,
+      station as never,
+      "entertainment-1",
+      new AbortController().signal,
+      0.75,
+      false,
+    );
+
+    expect(assets.acquireScreen).not.toHaveBeenCalled();
+    expect(screen.gotoAndPlay).not.toHaveBeenCalled();
+    expect(screen.gotoAndStop).not.toHaveBeenCalled();
+    expect(screen.play).not.toHaveBeenCalled();
+  });
+
+  it("resumes an unchanged visible screen without resetting its phase", async () => {
+    const handle = screenHandle();
+    const screen = screenSprite();
+    screen.playing = false;
+    const station = stationVisual(screen, handle, "orchestration");
+
+    await setOfficeStationScreen(
+      { acquireScreen: vi.fn() } as never,
+      station as never,
+      "orchestration",
+      new AbortController().signal,
+      0.75,
+      false,
+    );
+
+    expect(screen.play).toHaveBeenCalledOnce();
+    expect(screen.gotoAndPlay).not.toHaveBeenCalled();
+  });
+
+  it("plays looping working normally and freezes the same command for reduced motion", () => {
     const atlas = {
       animation: { fps: 12, loop: true },
       sheet: { animations: {} },
@@ -119,14 +159,14 @@ describe("Office renderer async mutations", () => {
     };
     const normal = actionSprite();
     normal.totalFrames = 4;
-    applyOfficeActionVisual(normal as never, atlas as never, "standby", { scale: 1, offset: { x: 0, y: 0 } }, false, false, 0.5, true);
+    applyOfficeActionVisual(normal as never, atlas as never, "working", { scale: 1, offset: { x: 0, y: 0 } }, false, false, 0.5, true);
     expect(normal.loop).toBe(true);
     expect(normal.gotoAndPlay).toHaveBeenCalledWith(2);
     expect(normal.gotoAndStop).not.toHaveBeenCalled();
 
     const reduced = actionSprite();
     reduced.totalFrames = 4;
-    applyOfficeActionVisual(reduced as never, atlas as never, "standby", { scale: 1, offset: { x: 0, y: 0 } }, false, true, 0.5, true);
+    applyOfficeActionVisual(reduced as never, atlas as never, "working", { scale: 1, offset: { x: 0, y: 0 } }, false, true, 0.5, true);
     expect(reduced.loop).toBe(true);
     expect(reduced.gotoAndStop).toHaveBeenCalledWith(2);
     expect(reduced.gotoAndPlay).not.toHaveBeenCalled();
@@ -147,7 +187,7 @@ describe("Office renderer async mutations", () => {
     const status = { position: pointTarget(64.5, -124) };
     const visual = {
       actor: { actorId: "agent-1", scarf: "main" },
-      actionId: "standby",
+      actionId: "working",
       group,
       sprite: actionSprite(),
       label,
@@ -158,7 +198,7 @@ describe("Office renderer async mutations", () => {
     };
     const command = {
       kind: "playRouteStage" as const,
-      participantId: "agent-1",
+      actorId: "agent-1",
       routeId: "canonical-seat",
       actionId: "toilet" as const,
       points: [{ x: -40, y: 511 }],
@@ -201,7 +241,7 @@ describe("Office renderer async mutations", () => {
       { acquireAction: vi.fn(() => deferred.promise) } as never,
       new Map([["agent-1", visual as never]]),
       {} as never,
-      { kind: "playRouteStage", participantId: "agent-1", routeId: "walk-out", actionId: "walk-horizontal", points: [{ x: 30, y: 40 }], durationMs: 100 },
+      { kind: "playRouteStage", actorId: "agent-1", routeId: "walk-out", actionId: "walk-horizontal", points: [{ x: 30, y: 40 }], durationMs: 100 },
       controller.signal,
       false,
     );
@@ -241,7 +281,7 @@ function sceneWithActor(): OfficeSceneModel {
     actors: [{
       actorId: "agent-1",
       seatId: "planning",
-      agentSurfaceId: "agent-1",
+      navigationId: "agent-1",
       kind: "agent",
       roleId: "planning-agent",
       label: "Planning Agent",
@@ -255,7 +295,6 @@ function sceneWithActor(): OfficeSceneModel {
       },
       scarf: "blue",
       createdAt: "2026-07-25T00:00:00.000Z",
-      ambientPreferences: [],
     }],
   };
 }
@@ -274,12 +313,14 @@ function screenHandle() {
 function screenSprite() {
   return {
     visible: true,
+    playing: true,
     textures: ["old-frame"],
     totalFrames: 1,
     animationSpeed: 0,
     width: 0,
     height: 0,
     stop: vi.fn(),
+    play: vi.fn(),
     gotoAndStop: vi.fn(),
     gotoAndPlay: vi.fn(),
   };

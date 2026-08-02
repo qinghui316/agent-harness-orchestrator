@@ -232,20 +232,9 @@
   transform: none;
 }
 
-.office-agent-hitbox:hover,
-.office-agent-hitbox.selected {
-  border-color: transparent;
-  outline: 1px solid var(--border-strong);
-  outline-offset: 2px;
-  box-shadow: none;
-}
 .office-agent-hitbox:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
-}
-
-.office-agent-hitbox:not(:focus-visible):not(:hover):not(.selected) {
-  outline: 0;
 }
 
 .office-agent-hitbox i,

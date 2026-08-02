@@ -11,7 +11,8 @@ import type {
   ParentAgentTranscript,
 } from "../../types.js";
 import { createOfficeScene } from "../../office/officeScene.js";
-import { HarnessOfficeAdapter } from "../../office/harnessOfficeAdapter.js";
+import type { OfficeActorSourceSnapshot } from "../../office/officeExperience.js";
+import type { OfficeExperienceComposer } from "../../office/officeExperienceComposer.js";
 import { officeAvatarIdForRole } from "../../office/officePresentationRegistry.js";
 import { OfficeLoadingScreen } from "../../office/OfficeLoadingScreen.js";
 import { loadAgentOfficeRuntimeComposition, type AgentOfficeRuntimeComposition } from "../../office/agentOfficeRuntimeComposition.js";
@@ -129,7 +130,7 @@ export function AgentOfficePanel({
     });
     return () => { cancelled = true; };
   }, [projectId, runtimeRetry]);
-  const previousProjectionRef = useRef<{ adapter: HarnessOfficeAdapter; projection: AgentSurfaceProjection } | null>(null);
+  const previousProjectionRef = useRef<{ experience: OfficeExperienceComposer; source: OfficeActorSourceSnapshot } | null>(null);
   const [scene, setScene] = useState<ReturnType<typeof createOfficeScene> | null>(null);
   useLayoutEffect(() => {
     if (!runtime) {
@@ -137,18 +138,19 @@ export function AgentOfficePanel({
       setScene(null);
       return;
     }
-    const adapter = runtime.adapter;
+    const source = runtime.sourceAdapter.project(projection);
+    const experience = runtime.experience;
     const previous = previousProjectionRef.current;
-    const result = previous?.adapter === adapter
-      ? adapter.reconcile(previous.projection, projection)
-      : { snapshot: adapter.hydrate(projection), events: [] };
-    previousProjectionRef.current = { adapter, projection };
+    const result = previous?.experience === experience
+      ? experience.reconcile(previous.source, source)
+      : { snapshot: experience.hydrate(source), events: [] };
+    previousProjectionRef.current = { experience, source };
     setScene(createOfficeScene(result.snapshot, runtime.document, result.events));
   }, [projection, runtime]);
   const [selectedActorId, setSelectedActorId] = useState<string | null>(null);
   const selectedActor = scene?.actors.find((actor) => actor.actorId === selectedActorId) ?? null;
   const selectedAgent = selectedActor && selectedActor.kind !== "resident"
-    ? projection.surfaces.find((surface) => surface.agentSurfaceId === selectedActor.agentSurfaceId) ?? null
+    ? projection.surfaces.find((surface) => surface.agentSurfaceId === selectedActor.navigationId) ?? null
     : null;
   const selectedResident = selectedActor?.kind === "resident" ? selectedActor : null;
   const selectedResidentRole = officeResidentRoles(runtime?.catalog ?? null)
@@ -158,11 +160,13 @@ export function AgentOfficePanel({
   const [menuOpen, setMenuOpen] = useState(false);
   const cardScopeRef = useRef(projection.graphScopeId);
   const selectActor = (actorId: string, anchor: { x: number; y: number }) => {
-    const surface = projection.surfaces.find((candidate) => candidate.agentSurfaceId === actorId);
-    const resident = scene?.actors.find((candidate) => candidate.kind === "resident" && candidate.actorId === actorId);
-    if (surface || resident) {
+    const actor = scene?.actors.find((candidate) => candidate.actorId === actorId);
+    const surface = actor && actor.kind !== "resident" && actor.navigationId
+      ? projection.surfaces.find((candidate) => candidate.agentSurfaceId === actor.navigationId)
+      : null;
+    if (surface || actor?.kind === "resident") {
       setCardAnchor(anchor);
-      setSelectedActorId(surface?.agentSurfaceId ?? actorId);
+      setSelectedActorId(actorId);
     }
   };
   const dismissCard = () => {
@@ -189,7 +193,7 @@ export function AgentOfficePanel({
     <div className="agent-office-panel" data-testid="agent-office-panel">
       <div className="agent-office-body">
         {scene && runtime ? (
-          <PixiOfficeRenderer scene={scene} calibration={runtime.document} resolver={runtime.resolver} selectedActorId={selectedActorId} onSelectActor={selectActor} onViewportInteraction={dismissCard} />
+          <PixiOfficeRenderer scene={scene} calibration={runtime.document} resolver={runtime.resolver} behavior={runtime.behavior} ambient={runtime.ambient} activities={runtime.activities} selectedActorId={selectedActorId} onSelectActor={selectActor} onViewportInteraction={dismissCard} />
         ) : runtimeError ? (
           <div className="office-fallback" role="group" aria-label="Agent 办公室配置不可用">
             <div className="office-fallback-heading">

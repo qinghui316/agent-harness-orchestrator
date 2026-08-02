@@ -49,7 +49,6 @@ export type OfficeTransitionId = (typeof OFFICE_TRANSITION_IDS)[number];
 export type OfficeTransitionDirection = { fromFlipX: boolean; toFlipX: boolean; fromReverse: boolean; toReverse: boolean };
 
 export const OFFICE_ROUTE_STAGE_IDS = [
-  "standby-start",
   "off-chair-out",
   "leaving-out",
   "walk-out",
@@ -58,7 +57,6 @@ export const OFFICE_ROUTE_STAGE_IDS = [
   "walk-return",
   "leaving-return",
   "off-chair-return",
-  "standby-end",
 ] as const;
 
 export type OfficeRouteStageId = (typeof OFFICE_ROUTE_STAGE_IDS)[number];

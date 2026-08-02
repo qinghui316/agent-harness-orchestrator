@@ -70,7 +70,10 @@ export class OfficeOccupancyPolicy {
     return {
       stationByParticipant: new Map([...next].filter(([id]) => visibleParticipantIds.has(id))),
       stationByResident: new Map([...next].filter(([id]) => residentIds.has(id))),
-      hiddenParticipantIds: participants.filter((candidate) => !visibleParticipantIds.has(candidate.participantId)).map((candidate) => candidate.participantId),
+      hiddenParticipantIds: [...participants]
+        .sort(stableParticipantOrder)
+        .filter((candidate) => !visibleParticipantIds.has(candidate.participantId))
+        .map((candidate) => candidate.participantId),
     };
   }
 
@@ -107,13 +110,21 @@ function chooseVisibleParticipants(
   capacity: number,
   assignments: ReadonlyMap<string, string>,
 ): OfficeOccupancyParticipantCandidate[] {
-  if (candidates.length <= capacity) return [...candidates];
-  return [...candidates].sort((left, right) => {
+  const ordered = [...candidates].sort(stableParticipantOrder);
+  if (ordered.length <= capacity) return ordered;
+  return ordered.sort((left, right) => {
     const state = visibilityPriority(right.state) - visibilityPriority(left.state);
     if (state !== 0) return state;
     const stable = Number(assignments.has(right.participantId)) - Number(assignments.has(left.participantId));
-    return stable || left.createdAt.localeCompare(right.createdAt) || left.participantId.localeCompare(right.participantId);
+    return stable || stableParticipantOrder(left, right);
   }).slice(0, capacity);
+}
+
+function stableParticipantOrder(
+  left: OfficeOccupancyParticipantCandidate,
+  right: OfficeOccupancyParticipantCandidate,
+): number {
+  return left.createdAt.localeCompare(right.createdAt) || left.participantId.localeCompare(right.participantId);
 }
 
 function visibilityPriority(state: OfficeParticipantState): number {

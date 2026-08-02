@@ -1,10 +1,12 @@
 import { readFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { OfficeBehaviorPolicy, standbyScreenProfile } from "../../src/web/src/office/officeBehaviorPolicy.js";
+import { OfficeBehaviorPolicy, leisureScreen, participantBehaviorActor, residentBehaviorActor } from "../../src/web/src/office/officeBehaviorPolicy.js";
+import { OfficeActivityCompiler } from "../../src/web/src/office/officeActivityCompiler.js";
 import { OfficeCalibrationResolver } from "../../src/web/src/office/officeCalibrationResolver.js";
 import { parseOfficeCalibrationJson } from "../../src/web/src/office/officeCalibrationDocument.js";
-import { HarnessOfficeAdapter, mapHarnessState } from "../../src/web/src/office/harnessOfficeAdapter.js";
+import { AgentSurfaceOfficeSourceAdapter, mapAgentSurfaceState } from "../../src/web/src/office/agentSurfaceOfficeSourceAdapter.js";
+import { OfficeExperienceComposer } from "../../src/web/src/office/officeExperienceComposer.js";
 import { OfficeOccupancyPolicy } from "../../src/web/src/office/officeOccupancyPolicy.js";
 import { OfficeStationAssignmentStore } from "../../src/web/src/office/officeStationAssignmentStore.js";
 import type { AgentCatalogDisplayProjection, AgentSurfaceProjection, AgentSurfaceStatus } from "../../src/web/src/types.js";
@@ -14,7 +16,7 @@ const resolver = new OfficeCalibrationResolver(calibration);
 
 describe("Office experience boundary", () => {
   it("maps every canonical Agent status at the sole adapter boundary", () => {
-    expect(["idle", "queued", "running", "waiting-user", "needs-change", "failed", "completed", "interrupted", "terminated"].map((status) => mapHarnessState(status as AgentSurfaceStatus)))
+    expect(["idle", "queued", "running", "waiting-user", "needs-change", "failed", "completed", "interrupted", "terminated"].map((status) => mapAgentSurfaceState(status as AgentSurfaceStatus)))
       .toEqual(["idle", "queued", "working", "attention", "blocked", "failed", "completed", "interrupted", "idle"]);
   });
 
@@ -75,15 +77,25 @@ describe("Office experience boundary", () => {
     expect(adapter(storage, residentCatalog()).hydrate(projection([])).residents.find((resident) => resident.roleId === "memory-maintenance-agent")?.stationId).toBe(fallback);
   });
 
-  it("keeps role-owned ambient preferences independent of the selected station", () => {
+  it("keeps role-owned screen, desk, and facility preferences independent of the selected station", () => {
     const snapshot = adapter().hydrate(projection([child("child-1", "coder-agent", "completed", 1)]));
     const coder = snapshot.participants.find((participant) => participant.participantId === "child-1")!;
-    expect(coder.ambientPreferences.map((preference) => preference.action)).toEqual([
-      "peek", "desk-coffee", "entertainment-1", "entertainment-2", "coffee", "treadmill", "toilet",
+    expect(coder.presentationPreferences.screens).toEqual([{ id: "game-1", weight: 3 }, { id: "game-2", weight: 1 }]);
+    expect(coder.presentationPreferences.desk.map((preference) => preference.id)).toEqual(["peek", "drink-at-desk"]);
+    expect(coder.presentationPreferences.facilities).toEqual([
+      { id: "coffee", weight: 1 },
+      { id: "treadmill", weight: 3 },
+      { id: "toilet", weight: 1 },
     ]);
-    expect(coder.ambientPreferences.find((preference) => preference.action === "entertainment-1")?.weight).toBe(3);
-    expect(coder.ambientPreferences.find((preference) => preference.action === "treadmill")?.weight).toBe(3);
-    expect(coder.ambientPreferences.find((preference) => preference.action === "toilet")?.weight).toBe(1);
+  });
+
+  it("gives unknown roles equal positive access to every facility", () => {
+    const snapshot = adapter().hydrate(projection([child("custom-1", "custom-role", "idle", 1)]));
+    expect(snapshot.participants.find((participant) => participant.participantId === "custom-1")?.presentationPreferences.facilities).toEqual([
+      { id: "coffee", weight: 1 },
+      { id: "treadmill", weight: 1 },
+      { id: "toilet", weight: 1 },
+    ]);
   });
 
   it("gives one duplicate role its preferred station and keeps the other on roster fallback", () => {
@@ -116,6 +128,21 @@ describe("Office experience boundary", () => {
     expect(assignment.get("planning-1")).toBe("planning");
   });
 
+  it("assigns the same stations for reordered opaque provider-neutral actor ids", () => {
+    const children = [
+      child("agent:codex:thread:z", "planning-agent", "running", 2),
+      child("agent:claude:session:a", "planning-agent", "running", 1),
+      child("ordinary-agent-7", "custom-role", "idle", 3),
+    ];
+    const forward = adapter().hydrate(projection(children));
+    const reverse = adapter().hydrate(projection([...children].reverse()));
+    expect(forward.participants.map((participant) => participant.participantId))
+      .toEqual(reverse.participants.map((participant) => participant.participantId));
+    expect(new Map(forward.participants.map((participant) => [participant.participantId, participant.stationId])))
+      .toEqual(new Map(reverse.participants.map((participant) => [participant.participantId, participant.stationId])));
+    expect(forward.participants.find((participant) => participant.participantId === "agent:claude:session:a")?.stationId).toBe("planning");
+  });
+
   it("yields a completed station to active overflow without moving active occupants", () => {
     const office = adapter();
     const firstChildren = ROLE_IDS.map((roleId, index) => child(`agent-${index}`, roleId, index === 0 ? "completed" : "running", index));
@@ -145,8 +172,10 @@ describe("Office experience boundary", () => {
 
   it("binds semantic states without letting role choice affect coordinates", () => {
     const policy = new OfficeBehaviorPolicy();
+    const compiler = new OfficeActivityCompiler(resolver);
     const participant = adapter().hydrate(projection([child("child-1", ROLE_IDS[1]!, "running", 1)])).participants[1]!;
-    const command = policy.semantic(participant);
+    const actor = participantBehaviorActor(participant);
+    const command = compiler.behavior(actor, policy.resolve(actor));
     expect(command).toMatchObject({ kind: "parallel" });
     expect(command.kind === "parallel" ? command.commands.slice(0, 2) : []).toMatchObject([
       { kind: "playAction", actionId: "working" },
@@ -154,54 +183,85 @@ describe("Office experience boundary", () => {
     ]);
   });
 
-  it("loops every seated base action and separates working from standby screens", () => {
+  it("loops one computer-use base action and separates work from game screens", () => {
     const policy = new OfficeBehaviorPolicy();
+    const compiler = new OfficeActivityCompiler(resolver);
     const base = adapter().hydrate(projection([child("child-1", ROLE_IDS[1]!, "running", 1)])).participants[1]!;
-    base.ambientPreferences = [
-      { action: "entertainment-1", weight: 3 },
-      { action: "entertainment-2", weight: 1 },
+    base.presentationPreferences.screens = [
+      { id: "game-1", weight: 3 },
+      { id: "game-2", weight: 1 },
     ];
     for (const state of ["queued", "idle", "completed", "attention", "blocked", "failed", "interrupted"] as const) {
-      const command = policy.semantic({ ...base, state });
+      const actor = participantBehaviorActor({ ...base, state });
+      const command = compiler.behavior(actor, policy.resolve(actor));
       expect(command.kind).toBe("parallel");
       if (command.kind !== "parallel") continue;
       expect(command.commands).toEqual(expect.arrayContaining([
-        expect.objectContaining({ kind: "playAction", actionId: "standby", loop: true }),
+        expect.objectContaining({ kind: "playAction", actionId: "working", loop: true }),
         expect.objectContaining({ kind: "setScreen", stationId: base.stationId, profile: "entertainment-1" }),
       ]));
     }
 
-    const working = policy.semantic({ ...base, state: "working" });
+    const workingActor = participantBehaviorActor({ ...base, state: "working" });
+    const working = compiler.behavior(workingActor, policy.resolve(workingActor));
     expect(working.kind === "parallel" ? working.commands : []).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "playAction", actionId: "working", loop: true }),
       expect.objectContaining({ kind: "setScreen", stationId: base.stationId, profile: "orchestration" }),
     ]));
 
-    expect(policy.semantic({ ...base, state: "completed" }, true)).toMatchObject({ kind: "sequence", commands: [
+    const completedActor = participantBehaviorActor({ ...base, state: "completed" });
+    expect(compiler.behavior(completedActor, policy.resolve(completedActor, true))).toMatchObject({ kind: "sequence", commands: [
       { kind: "setScreen", profile: "entertainment-1" },
+      { kind: "setEffect", effect: "none" },
       { kind: "playAction", actionId: "salute", loop: false },
-      { kind: "playAction", actionId: "standby", loop: true },
+      { kind: "playAction", actionId: "working", loop: true },
     ] });
 
     const resident = adapter(undefined, residentCatalog()).hydrate(projection([])).residents[0]!;
-    const residentCommand = policy.resident(resident);
+    const residentActor = residentBehaviorActor(resident);
+    const residentCommand = compiler.behavior(residentActor, policy.resolve(residentActor));
     expect(residentCommand.kind === "parallel" ? residentCommand.commands : []).toEqual(expect.arrayContaining([
-      expect.objectContaining({ kind: "playAction", actionId: "standby", loop: true }),
+      expect.objectContaining({ kind: "playAction", actionId: "working", loop: true }),
       expect.objectContaining({ kind: "setScreen", stationId: resident.stationId, profile: "entertainment-2" }),
     ]));
   });
 
   it("uses weighted entertainment preference and a stable identity fallback", () => {
-    expect(standbyScreenProfile("preferred", [
-      { action: "entertainment-1", weight: 1 },
-      { action: "entertainment-2", weight: 3 },
-    ])).toBe("entertainment-2");
-    expect(standbyScreenProfile("single", [{ action: "entertainment-1", weight: 1 }])).toBe("entertainment-1");
-    const fallback = standbyScreenProfile("stable-actor", [
-      { action: "entertainment-1", weight: 1 },
-      { action: "entertainment-2", weight: 1 },
+    expect(leisureScreen("preferred", [
+      { id: "game-1", weight: 1 },
+      { id: "game-2", weight: 3 },
+    ])).toBe("game-2");
+    expect(leisureScreen("single", [{ id: "game-1", weight: 1 }])).toBe("game-1");
+    const fallback = leisureScreen("stable-actor", [
+      { id: "game-1", weight: 1 },
+      { id: "game-2", weight: 1 },
     ]);
-    expect(standbyScreenProfile("stable-actor", [])).toBe(fallback);
+    expect(leisureScreen("stable-actor", [])).toBe(fallback);
+  });
+
+  it("compiles every ambient intent through one semantic-to-material owner", () => {
+    const compiler = new OfficeActivityCompiler(resolver);
+    const station = resolver.stations().find((candidate) => candidate.stationId === "coder")!;
+
+    expect(compiler.ambient("actor-1", station, { kind: "look-around" })).toMatchObject({
+      kind: "playAction",
+      actorId: "actor-1",
+      actionId: "standby",
+      loop: false,
+    });
+    expect(compiler.ambient("actor-1", station, { kind: "desk", activity: "peek" })).toMatchObject({ kind: "playAction", actionId: "peek", loop: false });
+    expect(compiler.ambient("actor-1", station, { kind: "desk", activity: "drink-at-desk" })).toMatchObject({ kind: "playAction", actionId: "coffee-drink", loop: false });
+    for (const facilityId of ["coffee", "treadmill", "toilet"] as const) {
+      const command = compiler.ambient("actor-1", station, { kind: "facility", facilityId });
+      expect(command).toMatchObject({ kind: "sequence" });
+      expect(command.kind === "sequence" ? command.commands : []).toEqual(expect.arrayContaining([
+        expect.objectContaining({ kind: "setScreen", stationId: station.stationId, profile: "off" }),
+        expect.objectContaining({ kind: "playRouteStage", actorId: "actor-1" }),
+      ]));
+    }
+    expect(() => compiler.ambient("actor-1", station, { kind: "future" } as never)).toThrow(
+      "Unsupported Office ambient intent: [object Object]",
+    );
   });
 
   it("uses station-owned anchors, actor offsets, handoffs, and facility routes", () => {
@@ -234,8 +294,30 @@ describe("Office experience boundary", () => {
 
 const ROLE_IDS = ["planning-agent", "coder-agent", "auditor-agent", "rework-coder", "spec-test-proposer", "spec-test-generator", "memory-maintenance-agent", "harness-evolution-agent"];
 
-function adapter(storage?: Storage, catalog: AgentCatalogDisplayProjection | null = null): HarnessOfficeAdapter {
-  return new HarnessOfficeAdapter("project-1", resolver, catalog, new OfficeOccupancyPolicy(new OfficeStationAssignmentStore(storage ?? null)));
+function adapter(storage?: Storage, catalog: AgentCatalogDisplayProjection | null = null): TestOfficeAdapter {
+  return new TestOfficeAdapter(storage, catalog);
+}
+
+class TestOfficeAdapter {
+  private readonly source = new AgentSurfaceOfficeSourceAdapter();
+  private readonly experience: OfficeExperienceComposer;
+
+  constructor(storage?: Storage, catalog: AgentCatalogDisplayProjection | null = null) {
+    this.experience = new OfficeExperienceComposer(
+      "project-1",
+      resolver,
+      catalog,
+      new OfficeOccupancyPolicy(new OfficeStationAssignmentStore(storage ?? null)),
+    );
+  }
+
+  hydrate(projection: AgentSurfaceProjection) {
+    return this.experience.hydrate(this.source.project(projection));
+  }
+
+  reconcile(previous: AgentSurfaceProjection, next: AgentSurfaceProjection) {
+    return this.experience.reconcile(this.source.project(previous), this.source.project(next));
+  }
 }
 
 function residentCatalog(): AgentCatalogDisplayProjection {

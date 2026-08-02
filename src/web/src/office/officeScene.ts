@@ -1,4 +1,4 @@
-import type { OfficeAmbientPreference, OfficeExperienceSnapshot, OfficeParticipantState, OfficeScarfId, OfficeSemanticEvent, OfficeStation, OfficeWorkstationAnchors } from "./officeExperience.js";
+import type { OfficeExperienceSnapshot, OfficeParticipantState, OfficeScarfId, OfficeSemanticEvent, OfficeStation, OfficeWorkstationAnchors } from "./officeExperience.js";
 import type { OfficeCalibrationDocument } from "./officeCalibrationDocument.js";
 import type { OfficePoint } from "./officeVisualContract.js";
 
@@ -19,12 +19,11 @@ type OfficeActorBase = {
   anchors: OfficeWorkstationAnchors;
   scarf: OfficeScarf;
   createdAt: string;
-  ambientPreferences: OfficeAmbientPreference[];
 };
 
 export type OfficeParticipantActor = OfficeActorBase & {
   kind: "main-agent" | "agent";
-  agentSurfaceId: string;
+  navigationId: string | null;
 };
 
 export type OfficeResidentActor = OfficeActorBase & {
@@ -70,7 +69,7 @@ export function createOfficeScene(
     return {
       actorId: participant.participantId,
       seatId: station.stationId,
-      agentSurfaceId: participant.navigationId,
+      navigationId: participant.navigationId,
       kind: participant.kind === "main" ? "main-agent" as const : "agent" as const,
       roleId: participant.roleId,
       label: participant.label,
@@ -80,7 +79,6 @@ export function createOfficeScene(
       anchors: station.anchors,
       scarf: participant.scarf,
       createdAt: participant.createdAt,
-      ambientPreferences: participant.ambientPreferences.map((preference) => ({ ...preference })),
     };
   });
   const residentActors: OfficeResidentActor[] = snapshot.residents.map((resident) => {
@@ -99,7 +97,6 @@ export function createOfficeScene(
       anchors: station.anchors,
       scarf: resident.scarf,
       createdAt: resident.residentId,
-      ambientPreferences: resident.ambientPreferences.map((preference) => ({ ...preference })),
     };
   });
   return {

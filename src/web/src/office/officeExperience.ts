@@ -8,8 +8,19 @@ export type OfficeParticipantState =
   | "completed"
   | "interrupted";
 
-export type OfficeAmbientAction = "peek" | "desk-coffee" | "entertainment-1" | "entertainment-2" | "coffee" | "treadmill" | "toilet";
-export type OfficeAmbientPreference = { action: OfficeAmbientAction; weight: number };
+export type OfficeWeightedPreference<T extends string> = { id: T; weight: number };
+export type OfficeDeskActivityId = "peek" | "drink-at-desk";
+export type OfficeFacilityId = "coffee" | "treadmill" | "toilet";
+export type OfficeLeisureScreenId = "game-1" | "game-2";
+export type OfficePresentationPreferences = {
+  screens: OfficeWeightedPreference<OfficeLeisureScreenId>[];
+  desk: OfficeWeightedPreference<OfficeDeskActivityId>[];
+  facilities: OfficeWeightedPreference<OfficeFacilityId>[];
+};
+export type OfficeAmbientIntent =
+  | { kind: "look-around" }
+  | { kind: "desk"; activity: OfficeDeskActivityId }
+  | { kind: "facility"; facilityId: OfficeFacilityId };
 export type OfficeScarfId = "main" | "planning" | "coder" | "auditor" | "rework" | "spec-test-proposer" | "spec-test-generator" | "maintenance" | "evolution" | "default";
 
 export type OfficePoint = { x: number; y: number };
@@ -51,7 +62,7 @@ export type OfficeStation = {
 
 export type OfficeParticipant = {
   participantId: string;
-  navigationId: string;
+  navigationId: string | null;
   stationId: string;
   kind: "main" | "child";
   label: string;
@@ -60,7 +71,7 @@ export type OfficeParticipant = {
   state: OfficeParticipantState;
   createdAt: string;
   scarf: OfficeScarfId;
-  ambientPreferences: OfficeAmbientPreference[];
+  presentationPreferences: OfficePresentationPreferences;
 };
 
 export type OfficeResident = {
@@ -69,7 +80,7 @@ export type OfficeResident = {
   label: string;
   stationId: string;
   scarf: OfficeScarfId;
-  ambientPreferences: OfficeAmbientPreference[];
+  presentationPreferences: OfficePresentationPreferences;
 };
 
 export type OfficeExperienceSnapshot = {
@@ -80,6 +91,25 @@ export type OfficeExperienceSnapshot = {
   participants: OfficeParticipant[];
   residents: OfficeResident[];
   diagnostics: string[];
+};
+
+export type OfficeActorSourceItem = {
+  actorId: string;
+  actorKind: "primary" | "worker";
+  navigationId: string | null;
+  roleId: string;
+  label: string;
+  parentActorId: string | null;
+  state: OfficeParticipantState;
+  createdAt: string;
+};
+
+export type OfficeActorSourceSnapshot = {
+  conversationId: string;
+  contextId: string;
+  revision: string;
+  lifecycle: "active" | "terminal";
+  actors: OfficeActorSourceItem[];
 };
 
 export type OfficeSemanticEvent =
@@ -93,7 +123,6 @@ export type OfficeSemanticEvent =
   | { kind: "resident-station-changed"; residentId: string; fromStationId: string; toStationId: string }
   | { kind: "scope-terminal" };
 
-export interface OfficeSceneSourceAdapter<TProjection> {
-  hydrate(projection: TProjection): OfficeExperienceSnapshot;
-  reconcile(previous: TProjection, next: TProjection): { snapshot: OfficeExperienceSnapshot; events: OfficeSemanticEvent[] };
+export interface OfficeActorSourceAdapter<TProjection> {
+  project(projection: TProjection): OfficeActorSourceSnapshot;
 }

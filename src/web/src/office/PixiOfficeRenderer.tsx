@@ -3,6 +3,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as
 import type { Application, Container } from "pixi.js";
 import { ChoreographyEngine } from "./choreographyEngine.js";
 import { OfficeDirector } from "./officeDirector.js";
+import type { OfficeActivityCompiler } from "./officeActivityCompiler.js";
+import type { OfficeBehaviorPolicy } from "./officeBehaviorPolicy.js";
+import type { OfficeAmbientPolicy } from "./officeAmbientPolicy.js";
 import type { OfficeCalibrationDocument } from "./officeCalibrationDocument.js";
 import type { OfficeCalibrationResolver } from "./officeCalibrationResolver.js";
 import { OfficeRuntimeAssets, type OfficeScreenProfile, type ParsedOfficeAtlas } from "./officeRuntimeAssets.js";
@@ -19,10 +22,13 @@ type Camera = { x: number; y: number; zoom: number };
 type RendererState = "loading" | "ready" | "fallback";
 type LoaderVisual = { container: Container; handle: OfficeAtlasHandle<ParsedOfficeAtlas> };
 
-export function PixiOfficeRenderer({ scene, calibration, resolver, selectedActorId, onSelectActor, onViewportInteraction }: {
+export function PixiOfficeRenderer({ scene, calibration, resolver, behavior, ambient, activities, selectedActorId, onSelectActor, onViewportInteraction }: {
   scene: OfficeSceneModel;
   calibration: Readonly<OfficeCalibrationDocument>;
   resolver: OfficeCalibrationResolver;
+  behavior: OfficeBehaviorPolicy;
+  ambient: OfficeAmbientPolicy;
+  activities: OfficeActivityCompiler;
   selectedActorId: string | null;
   onSelectActor: (actorId: string, anchor: { x: number; y: number }) => void;
   onViewportInteraction?: () => void;
@@ -36,7 +42,7 @@ export function PixiOfficeRenderer({ scene, calibration, resolver, selectedActor
   const actorsRef = useRef(new Map<string, OfficeActorVisual>());
   const assetsRef = useRef<OfficeRuntimeAssets | null>(null);
   const engineRef = useRef(new ChoreographyEngine());
-  const directorRef = useRef(new OfficeDirector(engineRef.current, resolver));
+  const directorRef = useRef(new OfficeDirector(engineRef.current, resolver, behavior, activities, undefined, undefined, ambient));
   const hydratedContextRef = useRef<string | null>(null);
   const generationRef = useRef(0);
   const tickerRef = useRef<((ticker: { lastTime: number }) => void) | null>(null);
@@ -134,10 +140,10 @@ export function PixiOfficeRenderer({ scene, calibration, resolver, selectedActor
     if (!pixi || !assets || !world) return;
     if (command.kind === "playAction") return applyOfficeParticipantAction(assets, actorsRef.current, resolver, command, signal, reducedMotionRef.current);
     if (command.kind === "playRouteStage") return applyOfficeParticipantRouteStage(assets, actorsRef.current, resolver, command, signal, reducedMotionRef.current);
-    if (command.kind === "followRoute") return followOfficeParticipantRoute(actorsRef.current.get(command.participantId)?.group, command.points, command.durationMs, signal, reducedMotionRef.current);
+    if (command.kind === "followRoute") return followOfficeParticipantRoute(actorsRef.current.get(command.actorId)?.group, command.points, command.durationMs, signal, reducedMotionRef.current);
     if (command.kind === "setScreen") return setOfficeStationScreen(assets, world.stations.get(command.stationId), command.profile, signal, command.phase, reducedMotionRef.current);
-    if (command.kind === "setEffect") return setActorEffect(command.participantId, actorsRef.current.get(command.participantId), world, command.effect, reducedMotionRef.current);
-    const visual = actorsRef.current.get(command.participantId);
+    if (command.kind === "setEffect") return setActorEffect(command.actorId, actorsRef.current.get(command.actorId), world, command.effect, reducedMotionRef.current);
+    const visual = actorsRef.current.get(command.actorId);
     if (visual) visual.group.visible = command.kind === "showParticipant";
   }), []);
 
@@ -235,6 +241,7 @@ export function PixiOfficeRenderer({ scene, calibration, resolver, selectedActor
   useEffect(() => {
     const onVisibility = () => directorRef.current.visibilityChanged(document.hidden);
     document.addEventListener("visibilitychange", onVisibility);
+    onVisibility();
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, []);
   useEffect(() => () => directorRef.current.dispose(), []);
@@ -297,7 +304,7 @@ export function PixiOfficeRenderer({ scene, calibration, resolver, selectedActor
       <div className="office-fallback-heading"><span>动画画布暂不可用</span><button type="button" onClick={() => setRetryVersion((value) => value + 1)}><RotateCcw size={14} />重试</button></div>
       <OfficeAgentList actors={scene.actors} selectedActorId={selectedActorId} onSelectActor={onSelectActor} />
     </div> : <div className="office-agent-overlay" style={{ width: scene.width, height: scene.height, transform: overlayTransform }}>
-      {scene.actors.map((actor) => <button key={actor.actorId} type="button" className={`office-agent-hitbox ${actor.status}${selectedActorId === actor.actorId ? " selected" : ""}`} style={{ left: actor.anchors.seat.x - 68, top: actor.anchors.seat.y - 170 }} aria-label={`${actor.label}，${statusLabel(actor.status)}`} aria-pressed={selectedActorId === actor.actorId} onClick={(event) => { const rect = event.currentTarget.getBoundingClientRect(); onSelectActor(actor.actorId, { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }); }} data-office-actor={actor.actorId} data-testid={actor.kind === "main-agent" ? "agent-office-main-agent" : `agent-office-${actor.roleId}`}><span className="sr-only">{actor.label}</span></button>)}
+      {scene.actors.map((actor) => <button key={actor.actorId} type="button" className={`office-agent-hitbox ${actor.status}`} style={{ left: actor.anchors.seat.x - 68, top: actor.anchors.seat.y - 170 }} aria-label={`${actor.label}，${statusLabel(actor.status)}`} aria-pressed={selectedActorId === actor.actorId} onClick={(event) => { const rect = event.currentTarget.getBoundingClientRect(); onSelectActor(actor.actorId, { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }); }} data-office-actor={actor.actorId} data-testid={actor.kind === "main-agent" ? "agent-office-main-agent" : `agent-office-${actor.roleId}`}><span className="sr-only">{actor.label}</span></button>)}
     </div>}
   </div>;
 }
@@ -326,7 +333,9 @@ export async function setOfficeStationScreen(assets: OfficeRuntimeAssets, statio
   if (signal.aborted) return;
   if (profile === "off") { station.screen.visible = false; station.screen.stop(); return; }
   const requested: OfficeScreenProfile = profile === "static" ? "orchestration" : profile;
-  if (requested !== station.screenProfile) {
+  const sameProfile = requested === station.screenProfile;
+  const wasVisible = station.screen.visible;
+  if (!sameProfile) {
     const handle = await assets.acquireScreen(requested, `station:${station.station.stationId}:screen`, requested === "orchestration" ? "semantic" : "ambient");
     if (signal.aborted) return handle.release();
     const frames = handle.asset.animationId ? handle.asset.sheet.animations[handle.asset.animationId] ?? [] : [];
@@ -341,16 +350,22 @@ export async function setOfficeStationScreen(assets: OfficeRuntimeAssets, statio
   }
   station.screen.visible = true;
   const frame = Math.min(station.screen.totalFrames - 1, Math.floor(phase * station.screen.totalFrames));
-  if (reducedMotion || profile === "static") station.screen.gotoAndStop(frame); else station.screen.gotoAndPlay(frame);
+  if (reducedMotion || profile === "static") {
+    station.screen.gotoAndStop(frame);
+  } else if (!sameProfile || !wasVisible) {
+    station.screen.gotoAndPlay(frame);
+  } else if (!station.screen.playing) {
+    station.screen.play();
+  }
 }
 
-function setActorEffect(participantId: string, visual: OfficeActorVisual | undefined, world: OfficeStaticWorld, effect: string, reducedMotion: boolean): void {
+function setActorEffect(actorId: string, visual: OfficeActorVisual | undefined, world: OfficeStaticWorld, effect: string, reducedMotion: boolean): void {
   if (visual) visual.statusIndicator.visible = effect !== "none" && effect !== "coffee-cup";
   if (effect === "coffee-cup") {
-    world.coffeeEffectOwner = participantId;
+    world.coffeeEffectOwner = actorId;
     world.coffeeEffect.visible = true;
     if (!reducedMotion) world.coffeeEffect.gotoAndPlay(0); else world.coffeeEffect.gotoAndStop(0);
-  } else if (world.coffeeEffectOwner === participantId) {
+  } else if (world.coffeeEffectOwner === actorId) {
     world.coffeeEffectOwner = null;
     world.coffeeEffect.visible = false;
     world.coffeeEffect.stop();

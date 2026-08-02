@@ -40,7 +40,7 @@ describe("Agent Office visual runtime composition", () => {
 
   it("has no default Resolver owner outside the runtime composition", async () => {
     const owners = await Promise.all([
-      "harnessOfficeAdapter.ts", "officeDirector.ts", "officeScene.ts", "OfficeStaticSceneRenderer.ts", "OfficeParticipantRenderer.ts",
+      "agentSurfaceOfficeSourceAdapter.ts", "officeExperienceComposer.ts", "officeDirector.ts", "officeScene.ts", "OfficeStaticSceneRenderer.ts", "OfficeParticipantRenderer.ts",
     ].map((name) => readFile(`src/web/src/office/${name}`, "utf8")));
     expect(owners.join("\n")).not.toMatch(/new OfficeCalibrationResolver\s*\(/);
   });
@@ -54,5 +54,21 @@ describe("Agent Office visual runtime composition", () => {
     expect(runtimeRenderer).toContain("station.screen.animationSpeed = OFFICE_SCREEN_ANIMATION_SPEED");
     expect(staticRenderer).not.toMatch(/screen\.animationSpeed\s*=\s*Math\.max/);
     expect(runtimeRenderer).not.toMatch(/station\.screen\.animationSpeed\s*=\s*Math\.max/);
+  });
+
+  it("keeps pointer hit targets visually transparent while preserving keyboard focus and selection semantics", async () => {
+    const [styles, renderer] = await Promise.all([
+      readFile("src/web/src/styles/surfaces/office.css", "utf8"),
+      readFile("src/web/src/office/PixiOfficeRenderer.tsx", "utf8"),
+    ]);
+
+    expect(styles).not.toContain(".office-agent-hitbox:hover");
+    expect(styles).not.toContain(".office-agent-hitbox.selected");
+    expect(styles).not.toContain(".office-agent-hitbox:not(:focus-visible)");
+    expect(styles).toMatch(/\.office-agent-hitbox:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--focus\)/s);
+    expect(renderer).not.toContain(' ? " selected" : ""');
+    expect(renderer).toContain('type="button" className={`office-agent-hitbox ${actor.status}`}');
+    expect(renderer).toContain("aria-pressed={selectedActorId === actor.actorId}");
+    expect(renderer).toContain("onClick={(event) =>");
   });
 });

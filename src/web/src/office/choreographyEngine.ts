@@ -13,30 +13,31 @@ export class ChoreographyEngine {
     return () => this.listeners.delete(listener);
   }
 
-  async run(participantId: string, command: OfficeRuntimeVisualCommand, channel: OfficeCommandChannel): Promise<void> {
-    const participantChannels = this.channels.get(participantId) ?? new Map();
+  async run(actorId: string, command: OfficeRuntimeVisualCommand, channel: OfficeCommandChannel): Promise<boolean> {
+    const actorChannels = this.channels.get(actorId) ?? new Map();
     if (channel === "ambient") {
-      if (participantChannels.has("semantic")) return;
+      if (actorChannels.has("semantic")) return false;
     } else if (channel === "semantic") {
-      participantChannels.get("ambient")?.abort();
+      actorChannels.get("ambient")?.abort();
     }
-    participantChannels.get(channel)?.abort();
+    actorChannels.get(channel)?.abort();
     const controller = new AbortController();
     this.scope.signal.addEventListener("abort", () => controller.abort(), { once: true });
-    participantChannels.set(channel, controller);
-    this.channels.set(participantId, participantChannels);
+    actorChannels.set(channel, controller);
+    this.channels.set(actorId, actorChannels);
     await this.execute(command, controller.signal);
-    if (participantChannels.get(channel) === controller) participantChannels.delete(channel);
+    if (actorChannels.get(channel) === controller) actorChannels.delete(channel);
+    return true;
   }
 
-  cancelParticipant(participantId: string): void {
-    for (const controller of this.channels.get(participantId)?.values() ?? []) controller.abort();
-    this.channels.delete(participantId);
+  cancelActor(actorId: string): void {
+    for (const controller of this.channels.get(actorId)?.values() ?? []) controller.abort();
+    this.channels.delete(actorId);
   }
 
-  cancelAmbient(participantId: string): void {
-    this.channels.get(participantId)?.get("ambient")?.abort();
-    this.channels.get(participantId)?.delete("ambient");
+  cancelAmbient(actorId: string): void {
+    this.channels.get(actorId)?.get("ambient")?.abort();
+    this.channels.get(actorId)?.delete("ambient");
   }
 
   resetScope(): void {

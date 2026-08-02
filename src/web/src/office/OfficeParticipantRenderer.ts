@@ -60,8 +60,8 @@ export async function reconcileOfficeParticipants(
   try {
     for (const actor of scene.actors) {
       if (visuals.has(actor.actorId)) continue;
-      const actionId = actor.status === "working" ? "working" : "standby";
-      const handle = await assets.acquireAction(actionId, actor.scarf, `actor:${actor.actorId}`, actor.status === "working" ? "semantic" : "bootstrap");
+      const actionId = "working";
+      const handle = await assets.acquireAction(actionId, actor.scarf, `actor:${actor.actorId}`, "bootstrap");
       if (generation !== currentGeneration()) {
         handle.release();
         destroyPrepared(prepared);
@@ -76,7 +76,7 @@ export async function reconcileOfficeParticipants(
       group.position.set(actor.anchors.seat.x, actor.anchors.seat.y);
       if (residentReplacement && actor.kind !== "resident") group.alpha = 0;
       const sprite = new pixi.AnimatedSprite(frames);
-      applyActionVisual(sprite, handle.asset, actionId, resolver.action(actionId), false, reducedMotion, 0);
+      applyActionVisual(sprite, handle.asset, actionId, resolver.action(actionId), false, reducedMotion, 0, true);
       group.addChild(sprite);
       const station = scene.stations.find((candidate) => candidate.stationId === actor.seatId);
       if (!station) throw new Error(`Office actor ${actor.actorId} has no station ${actor.seatId}.`);
@@ -150,7 +150,7 @@ export async function applyOfficeParticipantAction(
   signal: AbortSignal,
   reducedMotion: boolean,
 ): Promise<void> {
-  const visual = visuals.get(command.participantId);
+  const visual = visuals.get(command.actorId);
   if (!visual) return;
   const handle = await assets.acquireAction(command.actionId, visual.actor.scarf, `runtime:${visual.actor.actorId}`, "semantic");
   if (signal.aborted) return handle.release();
@@ -167,7 +167,7 @@ export async function applyOfficeParticipantRouteStage(
   signal: AbortSignal,
   reducedMotion: boolean,
 ): Promise<void> {
-  const visual = visuals.get(command.participantId);
+  const visual = visuals.get(command.actorId);
   if (!visual) return;
   const handle = await assets.acquireAction(command.actionId, visual.actor.scarf, `runtime:${visual.actor.actorId}`, "semantic");
   if (signal.aborted) return handle.release();

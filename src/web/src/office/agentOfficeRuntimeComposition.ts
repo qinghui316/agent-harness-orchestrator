@@ -1,15 +1,23 @@
-import { HarnessOfficeAdapter } from "./harnessOfficeAdapter.js";
+import { AgentSurfaceOfficeSourceAdapter } from "./agentSurfaceOfficeSourceAdapter.js";
 import { parseOfficeCalibrationDocument, type OfficeCalibrationDocument } from "./officeCalibrationDocument.js";
 import { OfficeCalibrationResolver } from "./officeCalibrationResolver.js";
 import { loadAgentCatalogDisplayProjection } from "./agentCatalogDisplayClient.js";
 import type { AgentCatalogDisplayProjection } from "../types.js";
+import { OfficeExperienceComposer } from "./officeExperienceComposer.js";
+import { OfficeActivityCompiler } from "./officeActivityCompiler.js";
+import { OfficeBehaviorPolicy } from "./officeBehaviorPolicy.js";
+import { OfficeAmbientPolicy } from "./officeAmbientPolicy.js";
 
 export const OFFICE_CALIBRATION_URL = "/agent-office/config/office-calibration.json";
 
 export type AgentOfficeRuntimeComposition = {
   document: Readonly<OfficeCalibrationDocument>;
   resolver: OfficeCalibrationResolver;
-  adapter: HarnessOfficeAdapter;
+  sourceAdapter: AgentSurfaceOfficeSourceAdapter;
+  experience: OfficeExperienceComposer;
+  behavior: OfficeBehaviorPolicy;
+  ambient: OfficeAmbientPolicy;
+  activities: OfficeActivityCompiler;
   catalog: AgentCatalogDisplayProjection | null;
   catalogError: string | null;
 };
@@ -29,7 +37,11 @@ export async function loadAgentOfficeRuntimeComposition(
   return {
     document,
     resolver,
-    adapter: new HarnessOfficeAdapter(projectId, resolver, catalogResult.catalog, undefined, catalogResult.error),
+    sourceAdapter: new AgentSurfaceOfficeSourceAdapter(),
+    experience: new OfficeExperienceComposer(projectId, resolver, catalogResult.catalog, undefined, catalogResult.error),
+    behavior: new OfficeBehaviorPolicy(),
+    ambient: new OfficeAmbientPolicy(),
+    activities: new OfficeActivityCompiler(resolver),
     catalog: catalogResult.catalog,
     catalogError: catalogResult.error,
   };

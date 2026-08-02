@@ -37,8 +37,8 @@ export const OFFICE_ACTION_FRAME_COUNTS: Record<OfficeActionId, number> = {
 
 export type OfficeFacilityRoute = "coffee" | "treadmill" | "toilet";
 export type OfficeRouteStageId =
-  | "standby-start" | "off-chair-out" | "leaving-out" | "walk-out" | "facility-use"
-  | "facility-reverse" | "walk-return" | "leaving-return" | "off-chair-return" | "standby-end";
+  | "off-chair-out" | "leaving-out" | "walk-out" | "facility-use"
+  | "facility-reverse" | "walk-return" | "leaving-return" | "off-chair-return";
 export type OfficeMovingRouteStageId = "leaving-out" | "walk-out" | "walk-return" | "leaving-return";
 export type OfficeHandoffMovingStageId =
   | "source-leaving-out" | "walk-source-corridor" | "walk-target-row" | "walk-target-approach"
@@ -51,12 +51,12 @@ export function officeActionPlaybackRate(actionId: string): number {
 export const OFFICE_SCREEN_ANIMATION_SPEED = 0.35;
 
 export type OfficeRuntimeVisualCommand =
-  | { kind: "playAction"; participantId: string; actionId: OfficeActionId; loop?: boolean; reverse?: boolean; flipX?: boolean; phase?: number; durationMs?: number }
-  | { kind: "playRouteStage"; participantId: string; routeId: string; actionId: OfficeActionId; points: OfficePoint[]; durationMs: number; loop?: boolean; reverse?: boolean; flipX?: boolean }
-  | { kind: "followRoute"; participantId: string; routeId: string; points: OfficePoint[]; durationMs: number; flipX?: boolean }
+  | { kind: "playAction"; actorId: string; actionId: OfficeActionId; loop?: boolean; reverse?: boolean; flipX?: boolean; phase?: number; durationMs?: number }
+  | { kind: "playRouteStage"; actorId: string; routeId: string; actionId: OfficeActionId; points: OfficePoint[]; durationMs: number; loop?: boolean; reverse?: boolean; flipX?: boolean }
+  | { kind: "followRoute"; actorId: string; routeId: string; points: OfficePoint[]; durationMs: number; flipX?: boolean }
   | { kind: "setScreen"; stationId: string; profile: "off" | "static" | "orchestration" | "entertainment-1" | "entertainment-2"; phase?: number }
-  | { kind: "setEffect"; participantId: string; effect: "none" | "attention" | "blocked" | "failed" | "interrupted" | "coffee-cup"; durationMs?: number }
-  | { kind: "showParticipant"; participantId: string }
-  | { kind: "hideParticipant"; participantId: string }
+  | { kind: "setEffect"; actorId: string; effect: "none" | "attention" | "blocked" | "failed" | "interrupted" | "coffee-cup"; durationMs?: number }
+  | { kind: "showParticipant"; actorId: string }
+  | { kind: "hideParticipant"; actorId: string }
   | { kind: "sequence"; commands: OfficeRuntimeVisualCommand[] }
   | { kind: "parallel"; commands: OfficeRuntimeVisualCommand[] };

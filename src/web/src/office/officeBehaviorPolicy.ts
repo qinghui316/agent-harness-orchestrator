@@ -1,65 +1,51 @@
-import type { OfficeAmbientPreference, OfficeParticipant, OfficeResident } from "./officeExperience.js";
-import type { OfficeRuntimeVisualCommand } from "./officeVisualContract.js";
+import type { OfficeLeisureScreenId, OfficeParticipant, OfficeParticipantState, OfficeResident, OfficeWeightedPreference } from "./officeExperience.js";
 
-type StandbyScreenProfile = "entertainment-1" | "entertainment-2";
+export type OfficeBehaviorEffect = "none" | "attention" | "blocked" | "failed" | "interrupted";
+export type OfficeSeatedBehaviorIntent = {
+  posture: "computer-use";
+  screen: "work" | "game-1" | "game-2";
+  effect: OfficeBehaviorEffect;
+};
+export type OfficeBehaviorIntent =
+  | { kind: "seated"; seated: OfficeSeatedBehaviorIntent }
+  | { kind: "completed-celebration"; seated: OfficeSeatedBehaviorIntent };
+
+export type OfficeBehaviorActor = {
+  actorId: string;
+  stationId: string;
+  state: OfficeParticipantState;
+  screens: readonly OfficeWeightedPreference<OfficeLeisureScreenId>[];
+};
 
 export class OfficeBehaviorPolicy {
-  semantic(participant: OfficeParticipant, celebrateCompleted = false): OfficeRuntimeVisualCommand {
-    const phase = stablePhase(participant.participantId);
-    switch (participant.state) {
-      case "working":
-        return { kind: "parallel", commands: [
-          { kind: "playAction", participantId: participant.participantId, actionId: "working", loop: true, phase },
-          { kind: "setScreen", stationId: participant.stationId, profile: "orchestration", phase },
-          { kind: "setEffect", participantId: participant.participantId, effect: "none" },
-        ] };
-      case "completed":
-        return celebrateCompleted ? { kind: "sequence", commands: [
-          { kind: "setScreen", stationId: participant.stationId, profile: standbyScreenProfile(participant.participantId, participant.ambientPreferences), phase },
-          { kind: "playAction", participantId: participant.participantId, actionId: "salute", loop: false, durationMs: 3_167 },
-          { kind: "playAction", participantId: participant.participantId, actionId: "standby", loop: true, phase },
-        ] } : staticStandby(participant, "none", phase);
-      case "attention": return staticStatus(participant, "attention");
-      case "blocked": return staticStatus(participant, "blocked");
-      case "failed": return staticStatus(participant, "failed");
-      case "interrupted": return staticStatus(participant, "interrupted");
-      case "queued":
-      case "idle":
-      default:
-        return staticStandby(participant, "none", phase);
-    }
-  }
-
-  status(participant: OfficeParticipant): OfficeRuntimeVisualCommand {
-    const effect = participant.state === "attention" || participant.state === "blocked" || participant.state === "failed" || participant.state === "interrupted"
-      ? participant.state
-      : "none";
-    return { kind: "setEffect", participantId: participant.participantId, effect };
-  }
-
-  resident(resident: OfficeResident): OfficeRuntimeVisualCommand {
-    return { kind: "parallel", commands: [
-      { kind: "playAction", participantId: resident.residentId, actionId: "standby", loop: true, phase: stablePhase(resident.residentId) },
-      { kind: "setScreen", stationId: resident.stationId, profile: standbyScreenProfile(resident.residentId, resident.ambientPreferences), phase: stablePhase(resident.residentId) },
-      { kind: "setEffect", participantId: resident.residentId, effect: "none" },
-    ] };
+  resolve(actor: OfficeBehaviorActor, celebrateCompleted = false): OfficeBehaviorIntent {
+    const seated: OfficeSeatedBehaviorIntent = {
+      posture: "computer-use",
+      screen: actor.state === "working" ? "work" : leisureScreen(actor.actorId, actor.screens),
+      effect: stateEffect(actor.state),
+    };
+    return actor.state === "completed" && celebrateCompleted
+      ? { kind: "completed-celebration", seated }
+      : { kind: "seated", seated };
   }
 }
 
-function staticStandby(
-  participant: OfficeParticipant,
-  effect: "none" | "attention" | "blocked" | "failed" | "interrupted",
-  phase = 0,
-): OfficeRuntimeVisualCommand {
-  return { kind: "parallel", commands: [
-    { kind: "playAction", participantId: participant.participantId, actionId: "standby", loop: true, phase },
-    { kind: "setScreen", stationId: participant.stationId, profile: standbyScreenProfile(participant.participantId, participant.ambientPreferences), phase },
-    { kind: "setEffect", participantId: participant.participantId, effect },
-  ] };
+export function participantBehaviorActor(participant: OfficeParticipant): OfficeBehaviorActor {
+  return {
+    actorId: participant.participantId,
+    stationId: participant.stationId,
+    state: participant.state,
+    screens: participant.presentationPreferences.screens,
+  };
 }
 
-function staticStatus(participant: OfficeParticipant, effect: "attention" | "blocked" | "failed" | "interrupted"): OfficeRuntimeVisualCommand {
-  return staticStandby(participant, effect, stablePhase(participant.participantId));
+export function residentBehaviorActor(resident: OfficeResident): OfficeBehaviorActor {
+  return {
+    actorId: resident.residentId,
+    stationId: resident.stationId,
+    state: "idle",
+    screens: resident.presentationPreferences.screens,
+  };
 }
 
 export function stablePhase(id: string): number {
@@ -68,12 +54,19 @@ export function stablePhase(id: string): number {
   return (hash >>> 0) / 0xffffffff;
 }
 
-export function standbyScreenProfile(id: string, preferences: readonly OfficeAmbientPreference[]): StandbyScreenProfile {
-  const candidates = preferences
-    .filter((preference): preference is OfficeAmbientPreference & { action: StandbyScreenProfile } => (
-      preference.action === "entertainment-1" || preference.action === "entertainment-2"
-    ))
-    .sort((left, right) => right.weight - left.weight);
-  if (candidates.length === 1 || (candidates[0]?.weight ?? 0) > (candidates[1]?.weight ?? 0)) return candidates[0]!.action;
-  return stablePhase(id) < 0.5 ? "entertainment-1" : "entertainment-2";
+export function leisureScreen(
+  actorId: string,
+  preferences: readonly OfficeWeightedPreference<OfficeLeisureScreenId>[],
+): "game-1" | "game-2" {
+  const candidates = [...preferences].sort((left, right) => right.weight - left.weight);
+  if (candidates.length === 1 || (candidates[0]?.weight ?? 0) > (candidates[1]?.weight ?? 0)) {
+    return candidates[0]!.id;
+  }
+  return stablePhase(actorId) < 0.5 ? "game-1" : "game-2";
+}
+
+function stateEffect(state: OfficeParticipantState): OfficeBehaviorEffect {
+  return state === "attention" || state === "blocked" || state === "failed" || state === "interrupted"
+    ? state
+    : "none";
 }
