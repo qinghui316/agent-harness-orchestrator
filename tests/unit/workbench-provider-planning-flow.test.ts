@@ -86,7 +86,7 @@ import { runProjectScopedMainAgentTurn } from "../../src/workbench/main-agent-tu
 import { resumeNativeGoalAfterAction, runWorkbenchWorkflowAction } from "../../src/workbench/workflow-conversation-bridge.js";
 import { buildConversationInteractionQueue } from "../../src/workbench/conversation-interactions.js";
 import { getWorkbenchSnapshot } from "../../src/workbench/projections/read-model/implementation.js";
-import { listWorkflowRuns, writeWorkflowRun } from "../../src/workflow-run/manager.js";
+import { listWorkflowRuns } from "../../src/workflow-run/manager.js";
 import { getCanonicalTimelinePage } from "../../src/workbench/canonical-timeline-query.js";
 import { getAgentSurfaceProjection } from "../../src/workbench/agent-surface-projection.js";
 import { readLatestWorkflowGraphPlanAt } from "../../src/workflow-artifacts/manager.js";
@@ -1536,39 +1536,6 @@ describe("Workbench provider planning flow", () => {
     expect(continued.status).toBe("completed");
     expect(continueDeliveryKey).toBe(`conversation-continue:${continued.actionRunId}`);
     expect(appServerTurn).toHaveBeenCalledTimes(3);
-    const workflowRunId = "workflow-run-post-planning-boundary";
-    const now = new Date().toISOString();
-    await writeWorkflowRun(runtimePaths, {
-      version: "1.0",
-      id: workflowRunId,
-      changeId,
-      status: "created",
-      source: "workflow-graph",
-      workflowGraphPlanId: authoredGraph.id,
-      items: [],
-      recoveryKey: {
-        version: "1.0",
-        changeId,
-        workflowGraphPlanId: authoredGraph.id,
-        acceptedArtifactHashes: authoredGraph.sourceArtifactHashes,
-        workflowGraphPlanHash: "workflow-graph-hash",
-        sourceHash: "source-hash",
-        policyHash: "policy-hash",
-        capabilityHash: "capability-hash",
-        createdAt: now,
-      },
-      artifactRefs: [],
-      createdAt: now,
-      updatedAt: now,
-      startedAt: null,
-      finishedAt: null,
-    });
-    await expect(getWorkbenchSnapshot(
-      { project: project(), path: root },
-      { topicId: conversation.conversationId },
-    )).rejects.toThrow(
-      `Skill-native planning snapshot stops before WorkflowRun projection; run ${workflowRunId}`,
-    );
   });
 
   it("publishes no Registry contract when Main explicitly accepts the current plan without one", async () => {

@@ -15,10 +15,12 @@ import {
   listTaskRuns,
   markTaskRunStarted,
   retryTaskRun,
+  retryTaskRunFromRuntime,
   startTaskRun,
 } from "../task-run/manager.js";
 import type {
   ManagedProject,
+  ChangeStatus,
   ResolvedMemory,
   RunMetadata,
   StageResumeVerdict,
@@ -42,7 +44,11 @@ import {
   type WorkflowRuntimeCoderLeafResult,
   type WorkflowRuntimeValidatorLeafResult,
   type ValidationLeafRun,
+  type WorkflowLeafExecutionServices,
+  type WorkflowRoleRuntimePort,
 } from "./leaf-execution.js";
+import type { ProjectExecutionRuntimePort } from "../project-runtime/execution-ports.js";
+import type { AgentTaskPathPort } from "../agent-task/paths.js";
 import {
   appendWorkflowRuntimeEvidenceEvent,
   createWorkflowRuntimeEvidenceRunId,
@@ -94,6 +100,13 @@ export interface RuntimeTaskRunStageOptions {
   initialDecision?: DelegateDecision<"coder-agent" | "rework-coder">;
   onRetryTaskRunStarted?: (started: RuntimeStartedTaskRun) => Promise<void>;
   existingWorktreeId?: string;
+  skillNative?: SkillNativeTaskRunStageContext;
+}
+
+export interface SkillNativeTaskRunStageContext {
+  runtime: ProjectExecutionRuntimePort;
+  changeStatus: ChangeStatus;
+  leafServices: WorkflowLeafExecutionServices;
 }
 
 export type RuntimeTaskRunWorkflowResult = RuntimeTaskRunAttemptWorkflowResult & {
@@ -146,12 +159,13 @@ export async function runStartedTaskRunStage(input: RuntimeTaskRunStageOptions):
     loopRunId,
     orchestrationState: initial.workflow.orchestration,
     onRetryTaskRunStarted: input.onRetryTaskRunStarted,
+    skillNative: input.skillNative,
   });
   if (rework) {
-    if (ownsLoopFinalization) await finishLoopForTaskRun(input.project, loopRunId, rework.taskRun, rework.workflow);
+    if (ownsLoopFinalization) await finishLoopForTaskRun(input.project, loopRunId, rework.taskRun, rework.workflow, input.skillNative?.runtime);
     return { ...rework, autoRework: { previousTaskRun: initial.taskRun, result: rework } };
   }
-  if (ownsLoopFinalization) await finishLoopForTaskRun(input.project, loopRunId, initial.taskRun, initial.workflow);
+  if (ownsLoopFinalization) await finishLoopForTaskRun(input.project, loopRunId, initial.taskRun, initial.workflow, input.skillNative?.runtime);
   return initial;
 }
 
@@ -245,7 +259,7 @@ async function runOneStartedTaskRunAttempt(input: RuntimeTaskRunStageOptions & {
   initialDecision: DelegateDecision<"coder-agent" | "rework-coder">;
   existingWorktreeId?: string;
 }): Promise<RuntimeTaskRunStageResult> {
-  const memory = await resolveProjectMemory(input.project);
+  const memory: WorkflowRoleRuntimePort = input.skillNative?.runtime ?? await resolveProjectMemory(input.project);
   const { run: loopRun, created } = await ensureWorkflowRuntimeEvidenceRun(memory, {
     runtimeRunId: input.loopRunId,
     changeId: input.started.taskRun.changeId,
@@ -288,6 +302,7 @@ async function runOneStartedTaskRunAttempt(input: RuntimeTaskRunStageOptions & {
     orchestration: input.orchestrationState,
     initialDecision: input.initialDecision,
     existingWorktreeId: input.existingWorktreeId,
+    services: input.skillNative?.leafServices,
   });
   const taskRun = await finishTaskRunFromWorkflowResult(memory, input.started.taskRun.id, workflow, {
     changeId: input.started.taskRun.changeId,
@@ -298,7 +313,7 @@ async function runOneStartedTaskRunAttempt(input: RuntimeTaskRunStageOptions & {
 
 async function runTaskRunAttempt(input: {
   project: ManagedProject;
-  memory: ResolvedMemory;
+  memory: WorkflowRoleRuntimePort;
   changeId: string;
   taskRun: TaskRun;
   prompt?: string;
@@ -310,6 +325,7 @@ async function runTaskRunAttempt(input: {
   orchestration: WorkflowRuntimeExecutionState;
   initialDecision: DelegateDecision<"coder-agent" | "rework-coder">;
   existingWorktreeId?: string;
+  services?: WorkflowLeafExecutionServices;
 }): Promise<RuntimeTaskRunWorkflowResult> {
   let orchestration = input.orchestration;
   const codeResult = await runCodeLeaf(input, input.initialRole, input.initialDecision, orchestration, 0);
@@ -396,6 +412,7 @@ async function runCodeLeaf(
       decision,
       executionGate: input.executionGate,
       existingWorktreeId: input.existingWorktreeId,
+      services: input.services,
     })
     : await runCoderLeafStage({
       project: input.project,
@@ -410,6 +427,7 @@ async function runCodeLeaf(
       decision,
       executionGate: input.executionGate,
       existingWorktreeId: input.existingWorktreeId,
+      services: input.services,
     });
   await appendLeafCompleted(input.memory, input.loopRun, stepIndex, roleId, result.status === "interrupted" ? "failed" : result.status, result.stoppedAt, compactArtifactRefs(result.code?.run.artifacts.directory, result.code?.run.artifacts.implementation));
   return result;
@@ -431,6 +449,7 @@ async function runValidationLeaf(
     orchestration,
     decision,
     code,
+    services: input.services,
   });
   await appendLeafCompleted(input.memory, input.loopRun, stepIndex, "validator", result.status, result.stoppedAt, compactArtifactRefs(result.validation?.run.artifacts.validation, result.validation?.run.artifacts.stdout, result.validation?.run.artifacts.stderr));
   return result;
@@ -454,6 +473,7 @@ async function runAuditLeaf(
     decision,
     code,
     validation,
+    services: input.services,
   });
   await appendLeafCompleted(input.memory, input.loopRun, stepIndex, "auditor-agent", result.status, result.stoppedAt, compactArtifactRefs(result.audit?.audit.artifacts.audit, result.audit?.audit.artifacts.auditMarkdown, result.audit?.audit.artifacts.lastMessage));
   return result;
@@ -469,6 +489,7 @@ async function maybeRunTaskRunRework(input: {
   loopRunId: string;
   orchestrationState: WorkflowRuntimeExecutionState;
   onRetryTaskRunStarted?: (started: RuntimeStartedTaskRun) => Promise<void>;
+  skillNative?: SkillNativeTaskRunStageContext;
 }): Promise<RuntimeTaskRunStageResult | null> {
   if (!shouldRunRework(input.previousTaskRun, input.workflow)) return null;
   emitAssistantEvent(input.live, {
@@ -478,11 +499,14 @@ async function maybeRunTaskRunRework(input: {
     title: "正在根据验证/审查结果自动修改",
     summary: "Validation or audit failed; AHO is handing the evidence back to rework-coder once.",
   });
-  const retry = await retryTaskRun(input.project, {
+  const retryOptions = {
     changeId: input.previousTaskRun.changeId,
     taskRunId: input.previousTaskRun.id,
     roleId: "rework-coder",
-  });
+  };
+  const retry = input.skillNative
+    ? await retryTaskRunFromRuntime(input.skillNative.runtime, input.skillNative.changeStatus, retryOptions)
+    : await retryTaskRun(input.project, retryOptions);
   const retryStarted: RuntimeStartedTaskRun = { taskRun: retry.taskRun, lease: retry.lease };
   await input.onRetryTaskRunStarted?.(retryStarted);
   return runOneStartedTaskRunAttempt({
@@ -496,6 +520,7 @@ async function maybeRunTaskRunRework(input: {
     initialRole: "rework-coder",
     orchestrationState: input.orchestrationState,
     initialDecision: reworkDecision(reworkInputArtifacts(input.workflow), input.workflow.stoppedAt === "audit" ? "audit" : "validation"),
+    skillNative: input.skillNative,
   });
 }
 
@@ -606,8 +631,14 @@ function auditRunFromEvidence(runs: RunMetadata[], audit: AuditResult): AuditLea
   return { run, audit } as AuditLeafRun;
 }
 
-async function finishLoopForTaskRun(project: ManagedProject, loopRunId: string, taskRun: TaskRun, workflow: RuntimeTaskRunWorkflowResult): Promise<void> {
-  const memory = await resolveProjectMemory(project);
+async function finishLoopForTaskRun(
+  project: ManagedProject,
+  loopRunId: string,
+  taskRun: TaskRun,
+  workflow: RuntimeTaskRunWorkflowResult,
+  runtime?: ProjectExecutionRuntimePort,
+): Promise<void> {
+  const memory = runtime ?? await resolveProjectMemory(project);
   const { run } = await ensureWorkflowRuntimeEvidenceRun(memory, {
     runtimeRunId: loopRunId,
     changeId: taskRun.changeId,
@@ -622,7 +653,7 @@ async function finishLoopForTaskRun(project: ManagedProject, loopRunId: string, 
 }
 
 async function appendLeafStarted(
-  memory: ResolvedMemory,
+  memory: AgentTaskPathPort,
   loopRun: WorkflowRuntimeEvidenceRun,
   stepIndex: number,
   roleId: WorkflowRuntimeRole,
@@ -642,7 +673,7 @@ async function appendLeafStarted(
 }
 
 async function appendLeafCompleted(
-  memory: ResolvedMemory,
+  memory: AgentTaskPathPort,
   loopRun: WorkflowRuntimeEvidenceRun,
   stepIndex: number,
   roleId: WorkflowRuntimeRole,

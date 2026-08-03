@@ -1,5 +1,5 @@
 import type { AgentTask } from "../types/index.js";
-import type { ResolvedMemory } from "../types/index.js";
+import type { AgentTaskStorePort } from "./paths.js";
 import { recordMainAgentDecision } from "./decisions.js";
 import { claimAgentTask, createAgentTask, startAgentTask } from "./repository.js";
 import { buildDelegateTaskDecisionInput, type AgentTaskRequest, validateDelegateTaskPolicy } from "./delegate-task.js";
@@ -11,7 +11,7 @@ export interface RoleDispatchResult {
   policyAuditRef: string;
 }
 
-export async function dispatchForegroundRoleTask(memory: ResolvedMemory, request: AgentTaskRequest): Promise<RoleDispatchResult> {
+export async function dispatchForegroundRoleTask(memory: AgentTaskStorePort, request: AgentTaskRequest): Promise<RoleDispatchResult> {
   const policy = await validateDelegateTaskPolicy(memory, request);
   const toolDecision = evaluateToolPolicy({
     actionType: "delegateTask",

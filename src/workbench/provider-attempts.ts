@@ -1,6 +1,5 @@
 import type { ProviderCapabilitySnapshot, ProviderModelRef, ProviderOperationProfile } from "../provider-runtime/index.js";
-import type { ResolvedMemory } from "../types/index.js";
-import { openWorkbenchDatabase } from "./persistence/open-workbench-database.js";
+import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbench-database.js";
 import { type StoredProviderAttempt, type StoredProviderThreadLink } from "./persistence/contracts.js";
 import { publishAgentSurfacesInvalidated } from "./project-live-events.js";
 
@@ -28,18 +27,23 @@ export interface BindProviderAttemptThreadInput {
   runId?: string | null;
 }
 
-export async function bindProviderAttemptThread(memory: ResolvedMemory, input: BindProviderAttemptThreadInput): Promise<StoredProviderThreadLink | null> {
-  if (!memory.projectId) throw new Error("Project id is required to bind a provider attempt thread.");
-  const store = await openWorkbenchDatabase(memory);
+interface ProviderAttemptStorePort {
+  projectId: string | null;
+  workbenchDbPath: string;
+}
+
+export async function bindProviderAttemptThread(memory: ProviderAttemptStorePort, input: BindProviderAttemptThreadInput): Promise<StoredProviderThreadLink | null> {
+  const projectId = requireProjectId(memory);
+  const store = await openProjectRuntimeWorkbenchDatabase({ projectId, workbenchDbPath: memory.workbenchDbPath });
   try {
-    const attempt = store.providerAttempts.readProviderAttempt(memory.projectId, input.attemptId);
+    const attempt = store.providerAttempts.readProviderAttempt(projectId, input.attemptId);
     if (!attempt) throw new Error(`Provider attempt not found: ${input.attemptId}`);
     if (!attempt.conversationId || !attempt.graphScopeId) return null;
-    const bound = store.providerAttempts.bindProviderAttemptThread(memory.projectId, {
+    const bound = store.providerAttempts.bindProviderAttemptThread(projectId, {
       ...input,
       parentThreadId: input.parentThreadId ?? null,
     }, new Date().toISOString());
-    publishAgentSurfacesInvalidated(memory.projectId, {
+    publishAgentSurfacesInvalidated(projectId, {
       conversationId: attempt.conversationId,
       graphScopeId: attempt.graphScopeId,
       reason: "thread-bound",
@@ -50,18 +54,18 @@ export async function bindProviderAttemptThread(memory: ResolvedMemory, input: B
   }
 }
 
-export async function startProviderAttempt(memory: ResolvedMemory, input: StartProviderAttemptInput): Promise<StoredProviderAttempt> {
-  if (!memory.projectId) throw new Error("Project id is required to record a provider attempt.");
-  const store = await openWorkbenchDatabase(memory);
+export async function startProviderAttempt(memory: ProviderAttemptStorePort, input: StartProviderAttemptInput): Promise<StoredProviderAttempt> {
+  const projectId = requireProjectId(memory);
+  const store = await openProjectRuntimeWorkbenchDatabase({ projectId, workbenchDbPath: memory.workbenchDbPath });
   try {
     const conversation = input.conversationId
-      ? store.conversations.readConversation(memory.projectId, input.conversationId)
+      ? store.conversations.readConversation(projectId, input.conversationId)
       : input.changeId
-        ? store.conversations.findConversationForChange(memory.projectId, input.changeId)
+        ? store.conversations.findConversationForChange(projectId, input.changeId)
         : null;
     const now = new Date().toISOString();
     const attempt: StoredProviderAttempt = {
-      projectId: memory.projectId,
+      projectId,
       conversationId: conversation?.conversationId ?? input.conversationId ?? null,
       attemptId: input.attemptId,
       graphScopeId: input.graphScopeId ?? conversation?.currentGraphScopeId ?? null,
@@ -81,7 +85,7 @@ export async function startProviderAttempt(memory: ResolvedMemory, input: StartP
       updatedAt: now,
     };
     store.providerAttempts.createProviderAttempt(attempt);
-    if (attempt.conversationId) publishAgentSurfacesInvalidated(memory.projectId, {
+    if (attempt.conversationId) publishAgentSurfacesInvalidated(projectId, {
       conversationId: attempt.conversationId,
       graphScopeId: attempt.graphScopeId ?? undefined,
       reason: "attempt-updated",
@@ -92,21 +96,47 @@ export async function startProviderAttempt(memory: ResolvedMemory, input: StartP
   }
 }
 
+export async function resolveCurrentMainAgentProviderThread(
+  memory: ProviderAttemptStorePort,
+  changeId: string,
+  providerId: string,
+): Promise<StoredProviderThreadLink> {
+  const projectId = requireProjectId(memory);
+  const store = await openProjectRuntimeWorkbenchDatabase({ projectId, workbenchDbPath: memory.workbenchDbPath });
+  try {
+    const conversation = store.conversations.findConversationForChange(projectId, changeId);
+    if (!conversation?.currentGraphScopeId) {
+      throw new Error(`Change ${changeId} has no active Conversation graph scope.`);
+    }
+    const mainThreads = store.providerAttempts.listProviderThreads(projectId, conversation.conversationId)
+      .filter((thread) => thread.providerId === providerId
+        && thread.roleId === "main-agent"
+        && thread.graphScopeId === conversation.currentGraphScopeId);
+    const current = mainThreads.at(-1);
+    if (!current) {
+      throw new Error(`Change ${changeId} has no Main Agent provider thread in the current graph scope.`);
+    }
+    return current;
+  } finally {
+    store.close();
+  }
+}
+
 export async function finishProviderAttempt(
-  memory: ResolvedMemory,
+  memory: ProviderAttemptStorePort,
   attemptId: string,
   status: "completed" | "interrupted" | "failed" | "blocked" | "terminated",
   nativeSessionId: string | null,
   thread?: { parentThreadId?: string | null; parentAgentSurfaceId?: string | null; displayName?: string | null },
 ): Promise<void> {
-  if (!memory.projectId) throw new Error("Project id is required to finish a provider attempt.");
-  const store = await openWorkbenchDatabase(memory);
+  const projectId = requireProjectId(memory);
+  const store = await openProjectRuntimeWorkbenchDatabase({ projectId, workbenchDbPath: memory.workbenchDbPath });
   try {
     const now = new Date().toISOString();
-    const attempt = store.providerAttempts.readProviderAttempt(memory.projectId, attemptId);
+    const attempt = store.providerAttempts.readProviderAttempt(projectId, attemptId);
     if (!attempt) throw new Error(`Provider attempt not found: ${attemptId}`);
     if (nativeSessionId && attempt.conversationId && attempt.graphScopeId) {
-      store.providerAttempts.bindProviderAttemptThread(memory.projectId, {
+      store.providerAttempts.bindProviderAttemptThread(projectId, {
         attemptId,
         threadId: nativeSessionId,
         parentThreadId: thread?.parentThreadId,
@@ -114,8 +144,8 @@ export async function finishProviderAttempt(
         displayName: thread?.displayName,
       }, now);
     }
-    store.providerAttempts.completeProviderAttempt(memory.projectId, attemptId, status, nativeSessionId, now);
-    if (attempt.conversationId) publishAgentSurfacesInvalidated(memory.projectId, {
+    store.providerAttempts.completeProviderAttempt(projectId, attemptId, status, nativeSessionId, now);
+    if (attempt.conversationId) publishAgentSurfacesInvalidated(projectId, {
       conversationId: attempt.conversationId,
       graphScopeId: attempt.graphScopeId ?? undefined,
       reason: status === "interrupted" ? "provider-interrupted" : status === "terminated" ? "provider-terminated" : "attempt-updated",
@@ -123,4 +153,9 @@ export async function finishProviderAttempt(
   } finally {
     store.close();
   }
+}
+
+function requireProjectId(memory: ProviderAttemptStorePort): string {
+  if (!memory.projectId) throw new Error("Project id is required to persist provider attempt evidence.");
+  return memory.projectId;
 }

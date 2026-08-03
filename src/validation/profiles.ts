@@ -39,6 +39,10 @@ export async function resolveValidationProfile(memory: ResolvedMemory, profileNa
   return await readPackageFallbackProfile(memory, profileName);
 }
 
+export async function resolveSkillNativeValidationProfile(projectRoot: string, profileName = "default"): Promise<ValidationProfile> {
+  return readPackageFallbackProfile({ projectRoot }, profileName);
+}
+
 async function readConfiguredProfile(memory: ResolvedMemory, profileName: string): Promise<ValidationProfile | null> {
   const path = join(memory.harnessRoot, "harness", "config", "environment.json");
   if (!existsSync(path)) return null;
@@ -55,7 +59,7 @@ async function readConfiguredProfile(memory: ResolvedMemory, profileName: string
   };
 }
 
-async function readPackageFallbackProfile(memory: ResolvedMemory, profileName: string): Promise<ValidationProfile> {
+async function readPackageFallbackProfile(memory: Pick<ResolvedMemory, "projectRoot">, profileName: string): Promise<ValidationProfile> {
   if (profileName !== "default") {
     throw new Error(`Validation profile '${profileName}' was not found in harness/config/environment.json.`);
   }

@@ -10,9 +10,11 @@ import {
 } from "./execution-contract.js";
 import type { AgentTaskRequest } from "../agent-task/delegate-task.js";
 import { startCodeRun, type CodeExecutionGateOptions } from "../code/manager.js";
-import type { AgentTask, ManagedProject, ResolvedMemory } from "../types/index.js";
+import type { AgentTask, ManagedProject } from "../types/index.js";
 import { startValidationRun } from "../validation/manager.js";
 import { compactArtifactRefs } from "./kernel/runtime-guards.js";
+import type { AgentTaskStorePort } from "../agent-task/paths.js";
+import type { ProjectRunsPathPort } from "../project-runtime/paths.js";
 import {
   emitAssistantEvent,
   emitAuditAssistantEvent,
@@ -27,6 +29,20 @@ export type ValidationLeafRun = Awaited<ReturnType<typeof startValidationRun>>;
 export type AuditLeafRun = Awaited<ReturnType<typeof startAuditRun>>;
 
 export type WorkflowRuntimeLeafStoppedAt = "boundary" | "code" | "validation" | "audit";
+
+export type WorkflowRoleRuntimePort = ProjectRunsPathPort & AgentTaskStorePort;
+
+export interface WorkflowLeafExecutionServices {
+  startCode: typeof startCodeRun;
+  startValidation: typeof startValidationRun;
+  startAudit: typeof startAuditRun;
+}
+
+const defaultLeafServices: WorkflowLeafExecutionServices = {
+  startCode: startCodeRun,
+  startValidation: startValidationRun,
+  startAudit: startAuditRun,
+};
 
 export interface WorkflowRuntimeCoderLeafResult {
   leaf: "coder";
@@ -60,7 +76,7 @@ export interface WorkflowRuntimeAuditorLeafResult {
 }
 
 async function createDelegatedForegroundTask(
-  memory: ResolvedMemory,
+  memory: WorkflowRoleRuntimePort,
   request: AgentTaskRequest,
   live: WorkflowRuntimeLiveSink | undefined,
 ): Promise<{ task: AgentTask; policyAuditRef: string }> {
@@ -86,7 +102,7 @@ async function createDelegatedForegroundTask(
 
 export async function runCoderLeafStage(input: {
   project: ManagedProject;
-  memory: ResolvedMemory;
+  memory: WorkflowRoleRuntimePort;
   changeId: string;
   prompt?: string;
   live?: WorkflowRuntimeLiveSink;
@@ -97,6 +113,7 @@ export async function runCoderLeafStage(input: {
   decision?: Extract<WorkflowRuntimeDecision, { kind: "delegate-role" }>;
   executionGate?: CodeExecutionGateOptions;
   existingWorktreeId?: string;
+  services?: WorkflowLeafExecutionServices;
 }): Promise<WorkflowRuntimeCoderLeafResult> {
   const coderInputArtifacts = input.decision?.inputArtifacts.length ? input.decision.inputArtifacts : input.taskRunId ? [input.taskRunId] : [];
   const coderDispatch = await createDelegatedForegroundTask(input.memory, {
@@ -114,7 +131,7 @@ export async function runCoderLeafStage(input: {
   let code: CodeLeafRun;
   let orchestration = input.orchestration;
   try {
-    code = await startCodeRun(input.project, {
+    code = await (input.services ?? defaultLeafServices).startCode(input.project, {
       changeId: input.changeId,
       roleId: input.roleId,
       prompt: input.prompt,
@@ -276,12 +293,13 @@ export async function runReworkCoderLeafStage(input: Omit<Parameters<typeof runC
 
 export async function runValidatorLeafStage(input: {
   project: ManagedProject;
-  memory: ResolvedMemory;
+  memory: WorkflowRoleRuntimePort;
   changeId: string;
   live?: WorkflowRuntimeLiveSink;
   orchestration: WorkflowRuntimeExecutionState;
   decision: Extract<WorkflowRuntimeDecision, { kind: "delegate-role" }> & { roleId: "validator" };
   code: CodeLeafRun;
+  services?: WorkflowLeafExecutionServices;
 }): Promise<WorkflowRuntimeValidatorLeafResult> {
   let orchestration = input.orchestration;
   const validatorDispatch = await createDelegatedForegroundTask(input.memory, {
@@ -299,7 +317,7 @@ export async function runValidatorLeafStage(input: {
   emitAssistantEvent(input.live, { runId: input.code.run.id, kind: "status", phase: "running", title: "Validation running", summary: "AHO started validation for the coder worktree." });
   let validation: ValidationLeafRun;
   try {
-    validation = await startValidationRun(input.project, { changeId: input.changeId, worktree: input.code.run.worktree!.worktreeId });
+    validation = await (input.services ?? defaultLeafServices).startValidation(input.project, { changeId: input.changeId, worktree: input.code.run.worktree!.worktreeId });
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : String(cause);
     orchestration = recordWorkflowRuntimeExecutionStep(orchestration, {
@@ -380,13 +398,14 @@ export async function runValidatorLeafStage(input: {
 
 export async function runAuditorLeafStage(input: {
   project: ManagedProject;
-  memory: ResolvedMemory;
+  memory: WorkflowRoleRuntimePort;
   changeId: string;
   live?: WorkflowRuntimeLiveSink;
   orchestration: WorkflowRuntimeExecutionState;
   decision: Extract<WorkflowRuntimeDecision, { kind: "delegate-role" }> & { roleId: "auditor-agent" };
   code: CodeLeafRun;
   validation: ValidationLeafRun;
+  services?: WorkflowLeafExecutionServices;
 }): Promise<WorkflowRuntimeAuditorLeafResult> {
   let orchestration = input.orchestration;
   const auditorDispatch = await createDelegatedForegroundTask(input.memory, {
@@ -404,7 +423,7 @@ export async function runAuditorLeafStage(input: {
   emitAssistantEvent(input.live, { runId: input.code.run.id, kind: "status", phase: "running", title: "Audit running", summary: "AHO started audit after validation passed." });
   let audit: AuditLeafRun;
   try {
-    audit = await startAuditRun(input.project, {
+    audit = await (input.services ?? defaultLeafServices).startAudit(input.project, {
       changeId: input.changeId,
       worktreeId: input.code.run.worktree!.worktreeId,
       prompt: "This audit was automatically started after the user confirmed the Coder run and validation passed for the same worktree.",

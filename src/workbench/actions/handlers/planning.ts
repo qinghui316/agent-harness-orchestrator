@@ -1,7 +1,10 @@
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../../provider-runtime/project-harness-discovery.js";
 import { resolveProjectRuntimeState } from "../../../project-runtime/coordinator.js";
+import {
+  projectExecutionRuntimePort,
+  projectHarnessExecutionPort,
+} from "../../../project-runtime/execution-ports.js";
+import { withSkillNativeWorkflowStart } from "../../../project-runtime/workflow-start.js";
 import {
   renderSchedulerIntegrationCheckHandoffMarkdown,
   renderSchedulerIntegrationCandidateMarkdown,
@@ -20,7 +23,9 @@ import {
   type SchedulerRuntimeWorkerStart,
 } from "../../../scheduler-runtime/manager.js";
 import type { ManagedProject } from "../../../types/index.js";
-import { runTaskQueueSequentialWorkflow } from "../../../workflow-runtime/taskqueue.js";
+import { initializeSkillNativeSequentialWorkflow } from "../../../workflow-runtime/skill-native-initialization.js";
+import { initializeSkillNativeReadySetWorkflow } from "../../../workflow-runtime/skill-native-ready-set.js";
+import { runSkillNativeSequentialExecution } from "../../../workflow-runtime/skill-native-sequential.js";
 import {
   runSchedulerIntegrationCandidateCompile,
   runSchedulerIntegrationCheck,
@@ -56,7 +61,6 @@ import { recordWorkbenchDecision } from "../../decisions.js";
 import { emitAssistantEvent } from "../../live-events.js";
 import { appendCanonicalTimelineEntry } from "../../canonical-timeline-command.js";
 import { resolveProjectHarnessTopic, resolveTopic } from "../../topic-resolver.js";
-import { readExecutionAuthorization } from "../../../workflow-runtime/execution-authorization.js";
 import type {
   WorkbenchLiveSink,
   WorkbenchWorkflowActionRequest,
@@ -1126,27 +1130,51 @@ export async function startAcceptedSequentialWorkflow(
 ): Promise<unknown> {
   const { resolution, topic } = await resolvePlanningTopicRuntime(project, changeId);
   if (!request.workflowGraphPlanId) throw new Error("workflow.run.start requires workflowGraphPlanId.");
+  if (!request.graphScopeId) throw new Error("workflow.run.start requires graphScopeId.");
   const authoredGraph = await readLatestWorkflowGraphPlanAt(topic.evidenceRoot, changeId);
-  if (authoredGraph.id !== request.workflowGraphPlanId || authoredGraph.authoringContractVersion !== "1.0" || authoredGraph.graphMode !== "sequential-v1" || authoredGraph.status !== "compiled" || authoredGraph.changeId !== changeId) {
+  if (authoredGraph.id !== request.workflowGraphPlanId || authoredGraph.authoringContractVersion !== "1.0" || authoredGraph.status !== "compiled" || authoredGraph.changeId !== changeId) {
     throw new Error("workflow.run.start authored graph target is stale.");
   }
+  const runtime = projectExecutionRuntimePort(project, resolution);
+  if (authoredGraph.graphMode === "ready-set-v1") {
+    const started = await withSkillNativeWorkflowStart(project, resolution, {
+      changeId,
+      graphScopeId: request.graphScopeId,
+      workflowGraphPlanId: authoredGraph.id,
+    }, initializeSkillNativeReadySetWorkflow);
+    await appendCanonicalTimelineEntry(project, changeId, {
+      type: "assistant.message",
+      status: "scheduler-started",
+      text: `WorkflowGraphPlan ${authoredGraph.id} confirmed for ready-set Scheduler execution.`,
+      artifact: started.schedulerRun.artifact,
+    }, live);
+    return started;
+  }
+  const started = await withSkillNativeWorkflowStart(project, resolution, {
+    changeId,
+    graphScopeId: request.graphScopeId,
+    workflowGraphPlanId: authoredGraph.id,
+  }, async (gate) => {
+    const harness = await projectHarnessExecutionPort(project, gate.evidenceRoot, gate.evidence);
+    const initialization = await initializeSkillNativeSequentialWorkflow(gate);
+    return {
+      ...initialization,
+      value: { initialized: initialization.value, harness },
+    };
+  });
   await appendCanonicalTimelineEntry(project, changeId, {
     type: "assistant.message",
-    status: "taskqueue-starting",
+    status: "taskqueue-started",
     text: `WorkflowGraphPlan ${authoredGraph.id} confirmed for scoped sequential execution.`,
     artifact: authoredGraph.artifact,
   }, live);
-  let executionMode: "stepwise" | "scoped-auto" | undefined;
-  try {
-    const intentPath = join(topic.evidenceRoot, "planning", "execution-authorization-intent.json");
-    const intent = JSON.parse(await readFile(intentPath, "utf8")) as { status?: unknown; authorizationId?: unknown };
-    if (intent.status === "issued" && typeof intent.authorizationId === "string") {
-      executionMode = (await readExecutionAuthorization(resolution.paths, intent.authorizationId)).mode;
-    }
-  } catch {
-    executionMode = undefined;
-  }
-  return runTaskQueueSequentialWorkflow({ project, changeId, live, workflowGraphPlanId: authoredGraph.id, executionMode });
+  return runSkillNativeSequentialExecution({
+    project,
+    runtime,
+    harness: started.harness,
+    initialized: started.initialized,
+    live,
+  });
 }
 
 async function resolvePlanningTopicRuntime(project: ManagedProject, changeId: string) {

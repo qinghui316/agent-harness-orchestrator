@@ -1,12 +1,17 @@
 import { mkdir, writeFile } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { dirname, join } from "node:path";
 import { getChangeStatus } from "../change/status.js";
 import { resolveRunnableChangeTarget } from "../change/target.js";
 import { buildRoleContextArtifact, buildRoleContextPacket, contextSourceRef } from "../context/packets.js";
-import { buildAgentSystemPrompt, buildRunAgentRecord, resolveAgentRole } from "../agent/catalog.js";
+import { buildAgentSystemPrompt, buildRunAgentRecord, resolveAgentRole, resolveBundledAgentRole, type AgentRole } from "../agent/catalog.js";
 import { writeJsonFile } from "../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { resolveProjectHarnessAgentInput } from "../project-harness/agent-input.js";
+import {
+  projectRunArtifactReference,
+  type ProjectExecutionRuntimePort,
+  type ProjectHarnessExecutionPort,
+} from "../project-runtime/execution-ports.js";
 import { defaultProviderRegistry, type ProviderRealtimeEvent, type ProviderTurnResult } from "../provider-runtime/index.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 import { getWorktreeMetadataPath } from "../worktree/paths.js";
@@ -16,11 +21,16 @@ import { runtimeContinuityPaths, type RuntimeContinuityPaths } from "../runtime-
 import { appendExternalExecutionCompleted, appendExternalExecutionFailed, appendExternalExecutionRequested, appendPermissionProfileAttached } from "../runtime-continuity/events.js";
 import { appendAgentEventEnvelope, createRuntimeContinuityArtifacts, markRuntimeContinuityStatus, type RuntimeContinuityWorkspaceDescriptor } from "../runtime-continuity/repository.js";
 import type { RuntimeContinuityArtifacts } from "../runtime-continuity/types.js";
-import type { AuditResult, AuditStatus, AuditSummary, ManagedProject, ResolvedMemory, RunMetadata, RunStatus } from "../types/index.js";
+import type { AuditResult, AuditStatus, AuditSummary, ChangeStatus, ManagedProject, RunMetadata, RunStatus } from "../types/index.js";
 import { appendRunEvent } from "../run/events.js";
 import { buildRunId } from "../run/run-id.js";
-import { openWorkbenchDatabase } from "../workbench/persistence/open-workbench-database.js";
-import { bindProviderAttemptThread, finishProviderAttempt, startProviderAttempt } from "../workbench/provider-attempts.js";
+import { openProjectRuntimeWorkbenchDatabase } from "../workbench/persistence/open-workbench-database.js";
+import {
+  bindProviderAttemptThread,
+  finishProviderAttempt,
+  resolveCurrentMainAgentProviderThread,
+  startProviderAttempt,
+} from "../workbench/provider-attempts.js";
 import { collectWorktreeDiff } from "./diff.js";
 import { listAuditResults, readAuditResult, summarizeAudit } from "./repository.js";
 import { parseAuditMessage } from "./parser.js";
@@ -57,12 +67,44 @@ async function startAuditRunActivity(project: ManagedProject, options: AuditRunO
   const changeStatus = target.status;
   const changeId = target.changeId;
   const role = await resolveAgentRole(memory, "auditor-agent");
+  const runtime = legacyAuditRuntimePort(project, memory);
+  return startPreparedAuditRun(project, runtime, changeStatus, changeId, role, projectHarnessInput, false, options);
+}
+
+export function startSkillNativeAuditRun(
+  project: ManagedProject,
+  runtime: ProjectExecutionRuntimePort,
+  harness: ProjectHarnessExecutionPort,
+  options: AuditRunOptions = {},
+): Promise<AuditRunResult> {
+  return defaultProjectRuntimeActivityRegistry.run(project.id, async () => {
+    const changeId = options.changeId?.trim();
+    if (!changeId || changeId !== harness.changeStatus.change?.id) {
+      throw new Error("Skill-native Audit run requires the exact accepted Change id.");
+    }
+    const projectHarnessInput = await resolveProjectHarnessAgentInput(project, DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY);
+    const role = await resolveBundledAgentRole("auditor-agent");
+    return startPreparedAuditRun(project, runtime, harness.changeStatus, changeId, role, projectHarnessInput, true, options);
+  });
+}
+
+async function startPreparedAuditRun(
+  project: ManagedProject,
+  memory: ProjectExecutionRuntimePort,
+  changeStatus: ChangeStatus,
+  changeId: string,
+  role: AgentRole,
+  projectHarnessInput: Awaited<ReturnType<typeof resolveProjectHarnessAgentInput>>,
+  requireMainAgentLineage: boolean,
+  options: AuditRunOptions,
+): Promise<AuditRunResult> {
 
   const runId = buildRunId(changeId, ["auditor", options.worktreeId ?? "no-worktree", options.validationId ?? "latest-validation", options.prompt ?? ""]);
   const directory = join(memory.runsRoot, runId);
-  const relativeDir = displayArtifactPath(memory, directory);
+  const artifactReference = projectRunArtifactReference(memory, directory);
+  const relativeDir = artifactReference.directory;
   const artifacts = {
-    base: memory.artifactBase,
+    base: artifactReference.base,
     directory: relativeDir,
     context: `${relativeDir}/context.md`,
     contextPacket: `${relativeDir}/context-packet.json`,
@@ -211,6 +253,9 @@ async function startAuditRunActivity(project: ManagedProject, options: AuditRunO
   await appendAuditContinuityWrite(paths, continuity, appendPermissionProfileAttached(paths, continuity, { source: "audit" }));
 
   const providerId = await selectedProviderForAudit(memory, project, changeId);
+  const mainThread = requireMainAgentLineage
+    ? await resolveCurrentMainAgentProviderThread(memory, changeId, providerId)
+    : null;
   let provider;
   let capabilitySnapshot;
   try {
@@ -322,17 +367,17 @@ async function startAuditRunActivity(project: ManagedProject, options: AuditRunO
         lastMessage: paths.lastMessage,
         session: paths.providerSession,
       },
-      runtimeWorkspaceRoots: [...new Set([cwd, memory.memoryRoot])],
+      runtimeWorkspaceRoots: [...new Set([cwd, dirname(projectHarnessInput.providerSkillInput.path)])],
       writableRoots: [],
       model: capabilitySnapshot.effectiveModel ? { providerId, modelId: capabilitySnapshot.effectiveModel } : null,
       onRealtimeEvent: (event) => {
         if (!boundThreadIds.has(event.threadId)) {
           boundThreadIds.add(event.threadId);
           continuityWrites.push(bindProviderAttemptThread(memory, {
-            attemptId: runId,
-            threadId: event.threadId,
-            parentThreadId: event.parentThreadId,
-            parentAgentSurfaceId: event.parentThreadId ? undefined : "main-agent",
+          attemptId: runId,
+          threadId: event.threadId,
+          parentThreadId: mainThread?.providerThreadId ?? event.parentThreadId,
+          parentAgentSurfaceId: mainThread ? "main-agent" : event.parentThreadId ? undefined : "main-agent",
             displayName: event.displayName,
           }).then(() => undefined));
         }
@@ -374,7 +419,16 @@ async function startAuditRunActivity(project: ManagedProject, options: AuditRunO
     error: providerResult.error,
   }, "Readonly provider audit exited.");
   const providerSucceeded = providerResult.status === "completed";
-  await finishProviderAttempt(memory, runId, providerSucceeded ? "completed" : providerResult.status === "interrupted" ? "interrupted" : "failed", providerResult.session?.sessionId ?? null);
+  await finishProviderAttempt(
+    memory,
+    runId,
+    providerSucceeded ? "completed" : providerResult.status === "interrupted" ? "interrupted" : "failed",
+    providerResult.session?.sessionId ?? null,
+    mainThread ? {
+      parentThreadId: mainThread.providerThreadId,
+      parentAgentSurfaceId: "main-agent",
+    } : undefined,
+  );
   await appendAuditContinuityWrite(paths, continuity, (providerSucceeded
     ? appendExternalExecutionCompleted(paths, continuity, {
       requestId: `${runId}:provider-readonly`,
@@ -467,11 +521,6 @@ async function writeAudit(
   };
   await writeJsonFile(path, audit);
   return audit;
-}
-
-function displayArtifactPath(memory: ResolvedMemory, absolutePath: string): string {
-  const base = memory.artifactBase === "memory-root" ? memory.memoryRoot : memory.projectRoot;
-  return relative(base, absolutePath).replace(/\\/g, "/");
 }
 
 function runtimeWorkspaceForAudit(projectPath: string, worktree: { checkoutPath: string; worktreeId: string } | undefined): RuntimeContinuityWorkspaceDescriptor {
@@ -570,8 +619,8 @@ async function ensureProviderAuditMessage(path: string, result: ProviderTurnResu
   return fallback;
 }
 
-async function selectedProviderForAudit(memory: ResolvedMemory, project: ManagedProject, changeId: string): Promise<string> {
-  const store = await openWorkbenchDatabase(memory);
+async function selectedProviderForAudit(memory: ProjectExecutionRuntimePort, project: ManagedProject, changeId: string): Promise<string> {
+  const store = await openProjectRuntimeWorkbenchDatabase(memory);
   try {
     const selected = store.conversations.findConversationForChange(project.id, changeId)?.selectedProviderId;
     if (selected) return selected;
@@ -579,4 +628,22 @@ async function selectedProviderForAudit(memory: ResolvedMemory, project: Managed
     store.close();
   }
   return project.defaultProviderId ? defaultProviderRegistry.get(project.defaultProviderId).id : defaultProviderRegistry.requireOnly().id;
+}
+
+function legacyAuditRuntimePort(
+  project: ManagedProject,
+  memory: Awaited<ReturnType<typeof resolveProjectMemory>>,
+): ProjectExecutionRuntimePort {
+  if (!memory.projectId) throw new Error("Audit run requires a canonical project id.");
+  return {
+    projectId: memory.projectId,
+    projectRoot: project.path,
+    runsRoot: memory.runsRoot,
+    runArtifactRoot: memory.artifactBase === "memory-root" ? memory.memoryRoot : memory.projectRoot,
+    runArtifactBase: memory.artifactBase,
+    workbenchRoot: memory.workbenchRoot,
+    workbenchDbPath: memory.workbenchDbPath,
+    worktreeMetadataRoot: memory.worktreeMetadataRoot,
+    worktreeIndexPath: memory.worktreeIndexPath,
+  };
 }

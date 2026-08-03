@@ -3,22 +3,38 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { slugify } from "../fs/path.js";
 import { getGitBranch, getGitCommit, git, hasGitCommits, isGitDirty } from "../project/git.js";
-import { withProjectWriteLease } from "../project/project-write-lease.js";
+import {
+  projectWriteLeasePath,
+  withProjectWriteLeaseAtPath,
+} from "../project/project-write-lease.js";
 import { buildWorktreeId } from "./ids.js";
 import { getGlobalWorktreeCheckoutRoot, getWorktreeMetadataPath } from "./paths.js";
 import { writeWorktreeIndex } from "./index.js";
 import { writeWorktreeMetadata } from "./repository.js";
 import { getWorktreeStatus } from "./status.js";
-import type { ManagedProject, ResolvedMemory, WorktreeMetadata } from "../types/index.js";
+import type { ManagedProject, WorktreeMetadata } from "../types/index.js";
+import type { WorktreeCreationPort, WorktreeIndexPort } from "./paths.js";
 import type { WorktreeCreateOptions, WorktreeCreateResult } from "./types.js";
 
 export async function createWorktree(
   project: ManagedProject,
-  memory: ResolvedMemory,
+  memory: WorktreeIndexPort,
   changeId: string,
   options: WorktreeCreateOptions = {},
 ): Promise<WorktreeCreateResult> {
-  return withProjectWriteLease(project.path, {}, async (lease) => {
+  return createWorktreeWithRuntimePort(project, {
+    ...memory,
+    projectWriteLeasePath: projectWriteLeasePath(project.path),
+  }, changeId, options);
+}
+
+export async function createWorktreeWithRuntimePort(
+  project: ManagedProject,
+  memory: WorktreeCreationPort,
+  changeId: string,
+  options: WorktreeCreateOptions = {},
+): Promise<WorktreeCreateResult> {
+  return withProjectWriteLeaseAtPath(memory.projectWriteLeasePath, {}, async (lease) => {
     await lease.assertCurrent();
     return createWorktreeWithLease(project, memory, changeId, options);
   });
@@ -26,7 +42,7 @@ export async function createWorktree(
 
 async function createWorktreeWithLease(
   project: ManagedProject,
-  memory: ResolvedMemory,
+  memory: WorktreeIndexPort,
   changeId: string,
   options: WorktreeCreateOptions,
 ): Promise<WorktreeCreateResult> {

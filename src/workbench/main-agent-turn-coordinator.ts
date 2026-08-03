@@ -10,7 +10,12 @@ import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/pr
 import { agentThreadSurfaceId } from "../provider-runtime/agent-surface-id.js";
 import { writeJsonFile } from "../fs/json.js";
 import { getGitCommit, getGitStatusShort } from "../project/git.js";
+import { hashWorkflowGraphPlan } from "../workflow-artifacts/hashes.js";
 import { resolveWithinPhysicalRoot } from "../project-harness/path-safety.js";
+import {
+  projectHarnessPlanningStartManifestHash,
+  readProjectHarnessPlanningGate,
+} from "../project-harness/planning-gate-query.js";
 import {
   parseMainPlanningAcceptanceEvidence,
   type MainPlanningAcceptanceEvidence,
@@ -1045,19 +1050,38 @@ async function issueAcceptedPlanningAuthorization(
       proposalHash: accepted.proposalHash,
       graphId: accepted.workflowGraphPlan.id,
       authorizationId: null,
+      projectHarnessContentFingerprint: null,
+      startManifestHash: null,
       reason: "Execution authorization requires a Git source commit.",
       updatedAt: new Date().toISOString(),
     });
     return null;
   }
   const sourceStatus = await getGitStatusShort(project.path);
-  const graphHash = hashJson(accepted.workflowGraphPlan);
+  const graphHash = hashWorkflowGraphPlan(accepted.workflowGraphPlan);
   const artifactManifestHash = hashJson(accepted.workflowGraphPlan.sourceArtifactHashes);
+  const gateEvidence = await readProjectHarnessPlanningGate({
+    projectId: resolution.harness.projectId,
+    projectRoot: resolution.projectRoot,
+    skillRoot: resolution.harness.skillRoot,
+    conversationId,
+    graphScopeId: accepted.graphScopeId,
+    changeId: accepted.changeId,
+  });
+  const startManifestHash = projectHarnessPlanningStartManifestHash(
+    gateEvidence,
+    resolution.harness.contentFingerprint,
+  );
   const targets = accepted.workflowGraphPlan.nodes.map((node) => ({
     transition: "workflow.node.execute",
     targetId: node.id,
     manifestHash: hashJson({ graphHash, node }),
   }));
+  targets.unshift({
+    transition: "workflow.run.start",
+    targetId: accepted.workflowGraphPlan.id,
+    manifestHash: startManifestHash,
+  });
   targets.push({
     transition: "change.finalize",
     targetId: accepted.changeId,
@@ -1112,6 +1136,8 @@ async function issueAcceptedPlanningAuthorization(
         proposalHash: accepted.proposalHash,
         graphId: accepted.workflowGraphPlan.id,
         authorizationId: authorization.id,
+        projectHarnessContentFingerprint: resolution.harness.contentFingerprint,
+        startManifestHash,
         reason: null,
         updatedAt: new Date().toISOString(),
       });

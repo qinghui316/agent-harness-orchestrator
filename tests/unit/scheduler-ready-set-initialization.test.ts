@@ -1,40 +1,14 @@
-﻿import { existsSync } from "node:fs";
-import { writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
-import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
-import { initHarness } from "../../src/harness/init.js";
-import { resolveProjectMemory } from "../../src/memory/resolver.js";
-import { listRuns } from "../../src/run/manager.js";
-import { listTaskQueues } from "../../src/task-queue/manager.js";
-import { listTaskRuns, listWorkerLeases } from "../../src/task-run/manager.js";
-import { listWorktreeMetadata } from "../../src/worktree/manager.js";
-import {
-  compileWorkflowGraphPlan,
-  hashArtifactRefs,
-  writeWorkflowGraphPlan,
-  type WorkflowAuthoringPlan,
-} from "../../src/workflow-artifacts/manager.js";
-import { readLatestSchedulerCurrentTransitionView } from "../../src/workflow-runtime/scheduler-current-transition-view.js";
-import { runSchedulerReadySetInitialization } from "../../src/workflow-runtime/scheduler.js";
-import { getTempDir, project, writeAcceptedSpecAndTasks } from "./workbench/fixtures.js";
+import { describe, expect, it } from "vitest";
+import type { SchedulerRuntimeClaimReservation } from "../../src/scheduler-runtime/types.js";
+import { compileWorkflowGraphPlan, type WorkflowAuthoringPlan } from "../../src/workflow-artifacts/manager.js";
+import { resolveSchedulerCurrentTransition } from "../../src/workflow-actions/scheduler-current-transition.js";
+import { compileSchedulerReadySetPlanningBundle } from "../../src/workflow-scheduler/planning-bundle.js";
 
-let tempDir: string;
-
-beforeEach(() => {
-  tempDir = getTempDir();
-});
 describe("authored ready-set Scheduler initialization", () => {
-  it("materializes the current start-first evidence without legacy planning authority or execution records", async () => {
-    await initHarness(project());
-    const topic = await createConversationChangeFixture(project(), {
-      title: "Authored ready-set runtime",
-      body: "Accept a fixed ready-set graph and initialize Scheduler evidence.",
-    });
-    await writeAcceptedSpecAndTasks(topic.changeId);
-    const memory = await resolveProjectMemory(project());
-    const changePath = join("harness", "changes", "active", topic.changeId);
-    const planRef = join(changePath, "plan.md").replaceAll("\\", "/");
+  it("compiles the accepted Scheduler lineage and selects start-first without execution records", () => {
+    const changeId = "ready-set-change";
+    const changeRoot = `state/changes/active/${changeId}`;
+    const planRef = `${changeRoot}/plan.md`;
     const plan: WorkflowAuthoringPlan = {
       version: "1.0",
       mode: "ready-set-v1",
@@ -48,52 +22,35 @@ describe("authored ready-set Scheduler initialization", () => {
         sourceScopes: ["src/feature.ts"],
       }],
     };
-    await writeFile(join(tempDir, planRef), [
-      "# Plan",
-      "",
-      "## Workflow",
-      "",
-      "```json",
-      JSON.stringify(plan, null, 2),
-      "```",
-      "",
-    ].join("\n"), "utf8");
     const graphId = "authored-ready-set-graph";
-    const graphBase = `${changePath.replaceAll("\\", "/")}/planning/workflow-graphs/${graphId}`;
+    const graphBase = `${changeRoot}/planning/workflow-graphs/${graphId}`;
     const graph = compileWorkflowGraphPlan(plan, {
       id: graphId,
-      changeId: topic.changeId,
+      changeId,
       planArtifactRef: planRef,
       taskIds: ["T-001"],
       acIds: ["AC-001"],
-      sourceArtifactHashes: await hashArtifactRefs(memory, [planRef]),
+      sourceArtifactHashes: { [planRef]: "a".repeat(64) },
       artifactRefs: [planRef],
       artifact: `${graphBase}.json`,
       markdownArtifact: `${graphBase}.md`,
       createdAt: "2026-07-10T00:00:00.000Z",
     });
     if (graph.graphMode !== "ready-set-v1") throw new Error("Expected ready-set graph fixture.");
-    await writeWorkflowGraphPlan(memory, changePath, graph);
 
-    expect(existsSync(join(memory.memoryRoot, changePath, "planning", "decomposition-plan.json"))).toBe(false);
-    expect(existsSync(join(memory.memoryRoot, changePath, "planning", "decomposition-readiness.json"))).toBe(false);
-
-    const initialized = await runSchedulerReadySetInitialization(memory, changePath, graph);
-
-    expect(initialized).toMatchObject({
-      executionStarted: false,
+    const bundle = compileSchedulerReadySetPlanningBundle(
+      graph,
+      changeRoot,
+      "2026-07-10T00:00:01.000Z",
+    );
+    expect(bundle).toMatchObject({
       contract: { id: graph.schedulerContractId },
       dryRun: { id: graph.schedulerDispatchDryRunId, schedulerContractId: graph.schedulerContractId },
       workerPlan: { id: graph.schedulerWorkerPlanId, schedulerDispatchDryRunId: graph.schedulerDispatchDryRunId },
       claimReconcilePlan: { id: graph.schedulerClaimReconcilePlanId, schedulerWorkerPlanId: graph.schedulerWorkerPlanId },
-      launchPreflight: { status: "checked" },
-      schedulerRun: { status: "prepared", claimIntentCount: 1 },
-      runtimeState: { status: "initialized", blockedCount: 0 },
-      reconcileSnapshot: { status: "generated", blockedCount: 0 },
-      claimReservation: { status: "reserved", reservedCount: 1 },
+      launchPreflight: { status: "checked", workflowGraphPlanId: graph.id },
     });
-    expect(initialized.claimReservation.launchConfirmed).toBeUndefined();
-    expect(initialized.workerPlan.plannedStages.map((stage) => ({
+    expect(bundle.workerPlan.plannedStages.map((stage) => ({
       stage: stage.stage,
       adapterFamily: stage.adapterFamily,
       expectedEventTypes: stage.eventSourceExpectation.expectedEventTypes,
@@ -119,32 +76,61 @@ describe("authored ready-set Scheduler initialization", () => {
         expectedEventTypes: ["permission.profile.attached", "external-execution.requested", "provider.started", "provider.exited", "external-execution.completed"],
       },
     ]);
-    expect(initialized.claimReconcilePlan.claimIntents[0]).toMatchObject({
-      claimIntentId: graph.nodes[0].claimIntentId,
-      nodeId: graph.nodes[0].schedulerNodeId,
-    });
 
-    const transition = await readLatestSchedulerCurrentTransitionView(
-      memory,
-      changePath,
-      initialized.schedulerRun.id,
-      "planning.scheduler.worker.start-first",
-    );
-    expect(transition.transition).toMatchObject({
+    const claim = bundle.claimReconcilePlan.claimIntents[0];
+    const reservation: SchedulerRuntimeClaimReservation = {
+      version: "1.0",
+      id: "reservation-1",
+      changeId,
+      schedulerRunId: "scheduler-run-1",
+      schedulerMode: "parallel-readiness-v1",
+      status: "reserved",
+      schedulerRuntimeStateId: "runtime-state-1",
+      schedulerReconcileSnapshotId: "snapshot-1",
+      schedulerContractId: bundle.contract.id,
+      schedulerDispatchDryRunId: bundle.dryRun.id,
+      schedulerWorkerPlanId: bundle.workerPlan.id,
+      schedulerClaimReconcilePlanId: bundle.claimReconcilePlan.id,
+      schedulerLaunchPreflightId: bundle.launchPreflight.id,
+      reservationIntents: [{
+        reservationIntentId: "reservation-intent-1",
+        claimIntentId: claim.claimIntentId,
+        plannedWorkerKey: claim.plannedWorkerKey,
+        nodeId: claim.nodeId,
+        unitId: claim.unitId,
+        waveIndex: claim.waveIndex,
+        status: "reserved",
+        plannedSlotDemand: claim.plannedSlotDemand,
+        sourceScopes: claim.sourceScopes,
+        blockedReasons: [],
+      }],
+      waves: [{
+        waveIndex: 0,
+        reservationIntentIds: ["reservation-intent-1"],
+        reservedCount: 1,
+        blockedCount: 0,
+        plannedSlotDemand: 1,
+        status: "reserved",
+        blockedReasons: [],
+      }],
+      sourceLocks: [],
+      reservedCount: 1,
+      blockedCount: 0,
+      sourceLockCount: 0,
+      sourceArtifactHashes: graph.sourceArtifactHashes,
+      artifactRefs: [],
+      artifact: "runs/scheduler-runs/ready-set-change/scheduler-run-1/reservation.json",
+      markdownArtifact: "runs/scheduler-runs/ready-set-change/scheduler-run-1/reservation.md",
+      createdAt: "2026-07-10T00:00:02.000Z",
+    };
+    expect(resolveSchedulerCurrentTransition({
+      graph,
+      reservation,
+      workerPaths: [],
+    })).toMatchObject({
       kind: "start-first-worker",
-      reservationIntent: { claimIntentId: graph.nodes[0].claimIntentId },
+      actionType: "planning.scheduler.worker.start-first",
+      reservationIntent: { claimIntentId: claim.claimIntentId },
     });
-    const runPaths = { runsRoot: memory.runsRoot };
-    expect(await listTaskQueues(runPaths, topic.changeId)).toEqual([]);
-    expect(await listTaskRuns(runPaths, topic.changeId)).toEqual([]);
-    expect(await listWorkerLeases(runPaths, topic.changeId)).toEqual([]);
-    expect(await listWorktreeMetadata(memory)).toEqual([]);
-    expect(await listRuns(runPaths)).toEqual([]);
-
-    const retried = await runSchedulerReadySetInitialization(memory, changePath, graph);
-    expect(retried.schedulerRun.id).toBe(initialized.schedulerRun.id);
-    expect(retried.runtimeState.id).toBe(initialized.runtimeState.id);
-    expect(retried.reconcileSnapshot.id).toBe(initialized.reconcileSnapshot.id);
-    expect(retried.claimReservation.id).toBe(initialized.claimReservation.id);
   });
 });

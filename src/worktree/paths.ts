@@ -12,6 +12,10 @@ export type WorktreeMetadataPort = ProjectWorktreeMetadataPathPort & {
 
 export type WorktreeIndexPort = WorktreeMetadataPort & ProjectWorktreeIndexPathPort;
 
+export type WorktreeCreationPort = WorktreeIndexPort & {
+  projectWriteLeasePath: string;
+};
+
 export function getGlobalWorktreeCheckoutRoot(projectId: string): string {
   return join(getAhoHome(), "worktrees", projectId, "checkouts");
 }

@@ -5,19 +5,24 @@ import { collectWorktreeDiff } from "../audit/diff.js";
 import { writeJsonFile } from "../fs/json.js";
 import { defaultProviderRegistry } from "../provider-runtime/index.js";
 import type { ProviderSkillInput } from "../project-harness/contracts.js";
+import type { ProjectExecutionRuntimePort } from "../project-runtime/execution-ports.js";
 import { agentThreadSurfaceId } from "../provider-runtime/agent-surface-id.js";
 import { appendExternalExecutionCompleted, appendExternalExecutionFailed, appendExternalExecutionRequested, appendPermissionProfileAttached } from "../runtime-continuity/events.js";
 import { appendAgentEventEnvelope, createRuntimeContinuityArtifacts, markRuntimeContinuityStatus } from "../runtime-continuity/repository.js";
 import { appendRunEvent } from "../run/manager.js";
-import type { ManagedProject, ResolvedMemory, RunMetadata, RunStatus, RunWorktreeInfo } from "../types/index.js";
+import type { ManagedProject, RunMetadata, RunStatus, RunWorktreeInfo } from "../types/index.js";
 import { getSortedSourceStatus, renderImplementationSummary } from "./artifacts.js";
 import { emitCodeLiveCallbackError, emitCodeLiveRunStarted, emitCodeLiveStatus } from "./live-events.js";
 import { finishRun, type CodeRunPaths } from "./run-session.js";
 import type { CodeRunLiveCallbacks, CodeRunResult } from "./types.js";
-import { openWorkbenchDatabase } from "../workbench/persistence/open-workbench-database.js";
+import { openProjectRuntimeWorkbenchDatabase } from "../workbench/persistence/open-workbench-database.js";
 import { type StoredConversation } from "../workbench/persistence/contracts.js";
 import { assembleSharedConversationContext } from "../workbench/shared-conversation-context.js";
-import { bindProviderAttemptThread, finishProviderAttempt } from "../workbench/provider-attempts.js";
+import {
+  bindProviderAttemptThread,
+  finishProviderAttempt,
+  resolveCurrentMainAgentProviderThread,
+} from "../workbench/provider-attempts.js";
 import { defaultProjectRuntimeActivityRegistry } from "../project-runtime/activity.js";
 import { resolveProjectRuntimeState } from "../project-runtime/coordinator.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
@@ -30,7 +35,7 @@ export function runProviderCodeTurn(
 
 async function runProviderCodeTurnActivity(input: {
   project: ManagedProject;
-  memory: ResolvedMemory;
+  memory: ProjectExecutionRuntimePort;
   run: RunMetadata;
   paths: CodeRunPaths;
   changeId: string;
@@ -39,6 +44,7 @@ async function runProviderCodeTurnActivity(input: {
   prompt: string;
   sourceBefore: string[];
   projectHarnessSkillInput: ProviderSkillInput;
+  requireMainAgentLineage: boolean;
   createdWarnings: string[];
   live?: CodeRunLiveCallbacks;
 }): Promise<CodeRunResult> {
@@ -50,6 +56,9 @@ async function runProviderCodeTurnActivity(input: {
   }
   const conversation = await conversationForChange(input.memory, input.changeId);
   const providerId = conversation.selectedProviderId;
+  const mainThread = input.requireMainAgentLineage
+    ? await resolveCurrentMainAgentProviderThread(input.memory, input.changeId, providerId)
+    : null;
   const provider = await defaultProviderRegistry.require(providerId, "coder", input.project, input.project.path);
   const capabilitySnapshot = await provider.capabilitySnapshot(input.project, input.project.path);
   const model = capabilitySnapshot.effectiveModel ? { providerId, modelId: capabilitySnapshot.effectiveModel } : null;
@@ -59,7 +68,7 @@ async function runProviderCodeTurnActivity(input: {
     providerId,
     currentUserMessage: input.prompt,
   });
-  const attemptStore = await openWorkbenchDatabase(input.memory);
+  const attemptStore = await openProjectRuntimeWorkbenchDatabase(input.memory);
   try {
     attemptStore.providerAttempts.createProviderAttempt({
       projectId: input.project.id,
@@ -158,8 +167,8 @@ async function runProviderCodeTurnActivity(input: {
         recordContinuity(bindProviderAttemptThread(input.memory, {
           attemptId: run.id,
           threadId: realtime.threadId,
-          parentThreadId: realtime.parentThreadId,
-          parentAgentSurfaceId: realtime.parentThreadId ? undefined : "main-agent",
+          parentThreadId: mainThread?.providerThreadId ?? realtime.parentThreadId,
+          parentAgentSurfaceId: mainThread ? "main-agent" : realtime.parentThreadId ? undefined : "main-agent",
           displayName: realtime.displayName,
         }));
       }
@@ -198,6 +207,10 @@ async function runProviderCodeTurnActivity(input: {
     input.run.id,
     providerResult.status,
     providerResult.session?.sessionId ?? null,
+    mainThread ? {
+      parentThreadId: mainThread.providerThreadId,
+      parentAgentSurfaceId: "main-agent",
+    } : undefined,
   );
   recordContinuity((providerResult.status === "completed"
     ? appendExternalExecutionCompleted(input.paths, continuity, {
@@ -256,9 +269,8 @@ async function runProviderCodeTurnActivity(input: {
   return { run, warnings };
 }
 
-async function conversationForChange(memory: ResolvedMemory, changeId: string): Promise<StoredConversation> {
-  if (!memory.projectId) throw new Error("Project id is required to resolve the Coder provider.");
-  const store = await openWorkbenchDatabase(memory);
+async function conversationForChange(memory: ProjectExecutionRuntimePort, changeId: string): Promise<StoredConversation> {
+  const store = await openProjectRuntimeWorkbenchDatabase(memory);
   try {
     const conversation = store.conversations.findConversationForChange(memory.projectId, changeId);
     if (!conversation) throw new Error(`Change ${changeId} is not bound to a Shared Conversation.`);

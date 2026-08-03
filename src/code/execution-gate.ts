@@ -3,8 +3,68 @@ import { findSchedulerRuntimeWorkerReworkStartForPlan, findSchedulerRuntimeWorke
 import { listTaskQueueItems } from "../task-queue/manager.js";
 import { readTaskRun } from "../task-run/repository.js";
 import type { ChangeStatus, ResolvedMemory } from "../types/index.js";
+import type { WorkflowGraphPlan } from "../types/index.js";
+import type { ProjectExecutionRuntimePort } from "../project-runtime/execution-ports.js";
 import { readWorkflowGraphPlan } from "../workflow-artifacts/manager.js";
 import type { CodeExecutionGateVerdict, CodeRunOptions } from "./types.js";
+
+export async function assertSkillNativeCodeExecutionGate(
+  runtime: ProjectExecutionRuntimePort,
+  changeStatus: ChangeStatus,
+  graph: WorkflowGraphPlan,
+  changeId: string,
+  options: CodeRunOptions,
+  roleId: string,
+): Promise<CodeExecutionGateVerdict> {
+  const mode = options.executionGate?.mode ?? (roleId === "rework-coder" ? "rework" : null);
+  if (!mode) throw new Error("Code execution requires an explicit Workflow Runtime execution gate.");
+  if (mode === "rework") {
+    return { allowed: true, mode, changeId, taskRunId: options.taskRunId, taskIds: options.taskIds, reason: "Rework code execution remains scoped to existing result review evidence." };
+  }
+  if (mode !== "workflow-graph") {
+    throw new Error(`Skill-native sequential execution does not accept code gate mode: ${mode}.`);
+  }
+  if (changeStatus.change?.id !== changeId || changeStatus.acMap?.changeId !== changeId) {
+    throw new Error("TaskQueue code execution accepted Change evidence is stale.");
+  }
+  const workflowGraphPlanId = options.executionGate?.workflowGraphPlanId;
+  if (!workflowGraphPlanId || graph.id !== workflowGraphPlanId
+    || graph.graphMode !== "sequential-v1"
+    || graph.changeId !== changeId
+    || graph.authoringContractVersion !== "1.0"
+    || graph.status !== "compiled") {
+    throw new Error("TaskQueue code execution graph target is stale.");
+  }
+  const taskIds = options.taskIds ?? [];
+  const graphTasks = new Set(graph.nodes.map((node) => node.taskId.toUpperCase()));
+  for (const taskId of taskIds) {
+    if (!graphTasks.has(taskId.toUpperCase())) throw new Error(`TaskQueue code execution task is not in WorkflowGraphPlan: ${taskId}.`);
+  }
+  const queueItems = await listTaskQueueItems(runtime, changeId);
+  if (options.taskRunId) {
+    const matchingItem = queueItems.find((item) => item.taskRunId === options.taskRunId);
+    if (!matchingItem || matchingItem.workflowGraphPlanId !== workflowGraphPlanId) {
+      throw new Error("TaskQueue code execution taskRun is not scoped to the WorkflowGraphPlan.");
+    }
+    if (options.existingWorktreeId) {
+      const taskRun = await readTaskRun(runtime, changeId, options.taskRunId);
+      if (taskRun.status !== "running" || taskRun.worktreeId !== options.existingWorktreeId) {
+        throw new Error("TaskQueue code resume worktree does not match the reclaimed TaskRun.");
+      }
+    }
+  } else if (graph.nodes.length !== 1) {
+    throw new Error("Direct code execution requires a single-node authored WorkflowGraphPlan.");
+  }
+  return {
+    allowed: true,
+    mode,
+    changeId,
+    workflowGraphPlanId,
+    taskRunId: options.taskRunId,
+    taskIds: options.taskIds,
+    reason: "Compiled WorkflowGraphPlan authorizes task-scoped code execution.",
+  };
+}
 
 export async function assertCodeExecutionGate(
   memory: ResolvedMemory,

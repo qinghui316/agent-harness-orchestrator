@@ -5,13 +5,13 @@ import { writeJsonFile } from "../fs/json.js";
 import type {
   BoundaryViolation,
   PostRunBoundaryAudit,
-  ResolvedMemory,
   RuntimeEnforcementMode,
   ToolEventAuditEntry,
   ToolPolicyDecision,
   WorkerPermissionProfile,
 } from "../types/index.js";
 import { workerPermissionProfileForRole } from "./tool-policy.js";
+import type { AgentTaskPathPort } from "./paths.js";
 
 export interface BoundaryAuditInput {
   changeId: string;
@@ -25,7 +25,7 @@ export interface BoundaryAuditInput {
 }
 
 export async function recordToolEventAuditEntry(
-  memory: ResolvedMemory,
+  memory: AgentTaskPathPort,
   input: {
     changeId?: string;
     conversationId?: string;
@@ -56,10 +56,10 @@ export async function recordToolEventAuditEntry(
   await mkdir(root, { recursive: true });
   const jsonl = join(root, "tool-events.jsonl");
   await appendFile(jsonl, `${JSON.stringify(entry)}\n`, "utf8");
-  return displayMemoryPath(memory, jsonl);
+  return relative(memory.workbenchRoot, jsonl).replace(/\\/g, "/");
 }
 
-export async function recordPostRunBoundaryAudit(memory: ResolvedMemory, input: BoundaryAuditInput): Promise<PostRunBoundaryAudit> {
+export async function recordPostRunBoundaryAudit(memory: AgentTaskPathPort, input: BoundaryAuditInput): Promise<PostRunBoundaryAudit> {
   const profile = workerPermissionProfileForRole(input.roleId);
   const violations = findBoundaryViolations(profile, input);
   const audit: PostRunBoundaryAudit = {
@@ -82,7 +82,7 @@ export async function recordPostRunBoundaryAudit(memory: ResolvedMemory, input: 
   return audit;
 }
 
-export function boundaryAuditArtifactRef(memory: ResolvedMemory, audit: PostRunBoundaryAudit): string {
+export function boundaryAuditArtifactRef(memory: AgentTaskPathPort, audit: PostRunBoundaryAudit): string {
   return displayMemoryPath(memory, join(boundaryAuditRoot(memory, audit.changeId), `${audit.id}.json`));
 }
 
@@ -117,7 +117,7 @@ export function findBoundaryViolations(profile: WorkerPermissionProfile, input: 
   return violations;
 }
 
-export async function readLatestBoundaryAuditForTask(memory: ResolvedMemory, changeId: string, taskId: string): Promise<PostRunBoundaryAudit | null> {
+export async function readLatestBoundaryAuditForTask(memory: AgentTaskPathPort, changeId: string, taskId: string): Promise<PostRunBoundaryAudit | null> {
   const root = boundaryAuditRoot(memory, changeId);
   if (!existsSync(root)) return null;
   const { readdir } = await import("node:fs/promises");
@@ -147,17 +147,16 @@ function renderBoundaryAuditMarkdown(audit: PostRunBoundaryAudit): string {
   ].join("\n");
 }
 
-function toolAuditRoot(memory: ResolvedMemory): string {
+function toolAuditRoot(memory: AgentTaskPathPort): string {
   return join(memory.workbenchRoot, "agent-tasks", "audit");
 }
 
-function boundaryAuditRoot(memory: ResolvedMemory, changeId: string): string {
+function boundaryAuditRoot(memory: AgentTaskPathPort, changeId: string): string {
   return join(memory.workbenchRoot, "agent-tasks", "boundary-audits", changeId);
 }
 
-function displayMemoryPath(memory: ResolvedMemory, absolutePath: string): string {
-  const rel = relative(memory.memoryRoot, absolutePath).replace(/\\/g, "/");
-  return rel.startsWith("..") ? absolutePath : rel;
+function displayMemoryPath(memory: AgentTaskPathPort, absolutePath: string): string {
+  return relative(memory.workbenchRoot, absolutePath).replace(/\\/g, "/");
 }
 
 function normalizePath(value: string): string {

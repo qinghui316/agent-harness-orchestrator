@@ -16,12 +16,18 @@ describe("Workbench action revalidation", () => {
       kind: "workflow-action",
       actionType: "workflow.run.start",
       changeId: "change-1",
+      graphScopeId: "graph-scope-1",
       workflowGraphPlanId: "graph-1",
       enabled: true,
     }));
     await expect(assertCurrentWorkflowAction(
       { project: null, path: "project" },
-      { actionType: "workflow.run.start", changeId: "change-1", workflowGraphPlanId: "graph-1" },
+      {
+        actionType: "workflow.run.start",
+        changeId: "change-1",
+        graphScopeId: "graph-scope-1",
+        workflowGraphPlanId: "graph-1",
+      },
       { getWorkbenchSnapshot },
     )).resolves.toBeUndefined();
   });
@@ -37,6 +43,25 @@ describe("Workbench action revalidation", () => {
     await expect(assertCurrentWorkflowAction(
       { project: null, path: "project" },
       { actionType: "workflow.run.start", changeId: "change-1", workflowGraphPlanId: "graph-1" },
+      { getWorkbenchSnapshot },
+    )).rejects.toThrow("stale or no longer available");
+  });
+
+  it.each([
+    [{ graphScopeId: "graph-scope-2", workflowGraphPlanId: "graph-1" }, "graph scope"],
+    [{ graphScopeId: "graph-scope-1", workflowGraphPlanId: "graph-2" }, "graph id"],
+  ])("rejects a stale workflow start %s", async (staleScope) => {
+    const getWorkbenchSnapshot = vi.fn(async () => snapshot({
+      kind: "workflow-action",
+      actionType: "workflow.run.start",
+      changeId: "change-1",
+      graphScopeId: "graph-scope-1",
+      workflowGraphPlanId: "graph-1",
+      enabled: true,
+    }));
+    await expect(assertCurrentWorkflowAction(
+      { project: null, path: "project" },
+      { actionType: "workflow.run.start", changeId: "change-1", ...staleScope },
       { getWorkbenchSnapshot },
     )).rejects.toThrow("stale or no longer available");
   });

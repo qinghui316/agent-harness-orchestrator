@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { dirname, join, relative } from "node:path";
+import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { getChangeStatus } from "../change/status.js";
 import { resolveRunnableChangeTarget } from "../change/target.js";
@@ -9,6 +9,11 @@ import { writeJsonFile } from "../fs/json.js";
 import { slugify } from "../fs/path.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
 import { resolveProjectHarnessAgentInput } from "../project-harness/agent-input.js";
+import {
+  projectRunArtifactReference,
+  type ProjectExecutionRuntimePort,
+  type ProjectHarnessExecutionPort,
+} from "../project-runtime/execution-ports.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 import { workerPermissionProfileForRole } from "../agent-task/tool-policy.js";
 import { runtimeContinuityPaths, type RuntimeContinuityPaths } from "../runtime-continuity/paths.js";
@@ -21,7 +26,6 @@ import { getWorktreeMetadataPath } from "../worktree/paths.js";
 import { getWorktreeStatus } from "../worktree/status.js";
 import type {
   ManagedProject,
-  ResolvedMemory,
   RunMetadata,
   RunStatus,
   RunWorktreeInfo,
@@ -36,7 +40,7 @@ import { executeProcessStreaming } from "../run/process.js";
 import { collectWorktreeDiff } from "../audit/diff.js";
 import { gitRaw, gitText } from "../project/git.js";
 import { listValidationResults, readValidationResult, summarizeValidation } from "./repository.js";
-import { resolveValidationProfile } from "./profiles.js";
+import { resolveSkillNativeValidationProfile, resolveValidationProfile, type ValidationProfile } from "./profiles.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -65,8 +69,37 @@ export async function startValidationRun(project: ManagedProject, options: Valid
   const target = await resolveRunnableChangeTarget(project, { changeId: options.changeId });
   const changeStatus = target.status;
   const changeId = target.changeId;
-
   const profile = await resolveValidationProfile(memory, profileName);
+  const runtime = legacyValidationRuntimePort(project, memory);
+  return startPreparedValidationRun(project, runtime, changeStatus, changeId, profileName, profile, projectHarnessInput.identity, options);
+}
+
+export async function startSkillNativeValidationRun(
+  project: ManagedProject,
+  runtime: ProjectExecutionRuntimePort,
+  harness: ProjectHarnessExecutionPort,
+  options: ValidationRunOptions = {},
+): Promise<ValidationRunResult> {
+  const changeId = options.changeId?.trim();
+  if (!changeId || changeId !== harness.changeStatus.change?.id) {
+    throw new Error("Skill-native Validation run requires the exact accepted Change id.");
+  }
+  const profileName = options.profile ?? "default";
+  const projectHarnessInput = await resolveProjectHarnessAgentInput(project, DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY);
+  const profile = await resolveSkillNativeValidationProfile(project.path, profileName);
+  return startPreparedValidationRun(project, runtime, harness.changeStatus, changeId, profileName, profile, projectHarnessInput.identity, options);
+}
+
+async function startPreparedValidationRun(
+  project: ManagedProject,
+  memory: ProjectExecutionRuntimePort,
+  changeStatus: Parameters<typeof buildRoleContextPacket>[0]["changeStatus"],
+  changeId: string,
+  profileName: string,
+  profile: ValidationProfile,
+  projectHarnessIdentity: Awaited<ReturnType<typeof resolveProjectHarnessAgentInput>>["identity"],
+  options: ValidationRunOptions,
+): Promise<ValidationRunResult> {
   const worktreeMode = options.worktree === true ? "new-worktree" : typeof options.worktree === "string" ? options.worktree : "direct";
   const runId = buildRunId(changeId, ["validator", profileName, worktreeMode, ...profile.commands.flatMap((item) => item.command)]);
   let cwd = project.path;
@@ -103,10 +136,11 @@ export async function startValidationRun(project: ManagedProject, options: Valid
   }
 
   const directory = join(memory.runsRoot, runId);
-  const relativeDir = displayArtifactPath(memory, directory);
+  const artifactReference = projectRunArtifactReference(memory, directory);
+  const relativeDir = artifactReference.directory;
   const commandsDir = join(directory, "commands");
   const artifacts = {
-    base: memory.artifactBase,
+    base: artifactReference.base,
     directory: relativeDir,
     context: `${relativeDir}/context.md`,
     contextPacket: `${relativeDir}/context-packet.json`,
@@ -134,7 +168,7 @@ export async function startValidationRun(project: ManagedProject, options: Valid
     goal: `Run validation profile ${profileName} for the current Change target.`,
     runId,
     worktree,
-    projectHarness: projectHarnessInput.identity,
+    projectHarness: projectHarnessIdentity,
     writableRoots: [],
     sandboxPolicy: "read-only",
     allowedCommands: profile.commands.map((command) => command.command.join(" ")),
@@ -361,6 +395,24 @@ export async function startValidationRun(project: ManagedProject, options: Valid
   return { run, validation };
 }
 
+function legacyValidationRuntimePort(
+  project: ManagedProject,
+  memory: Awaited<ReturnType<typeof resolveProjectMemory>>,
+): ProjectExecutionRuntimePort {
+  if (!memory.projectId) throw new Error("Validation run requires a canonical project id.");
+  return {
+    projectId: memory.projectId,
+    projectRoot: project.path,
+    runsRoot: memory.runsRoot,
+    runArtifactRoot: memory.artifactBase === "memory-root" ? memory.memoryRoot : memory.projectRoot,
+    runArtifactBase: memory.artifactBase,
+    workbenchRoot: memory.workbenchRoot,
+    workbenchDbPath: memory.workbenchDbPath,
+    worktreeMetadataRoot: memory.worktreeMetadataRoot,
+    worktreeIndexPath: memory.worktreeIndexPath,
+  };
+}
+
 export async function getValidationStatus(project: ManagedProject): Promise<ValidationStatusResult> {
   const memory = await resolveProjectMemory(project);
   const changeStatus = await getChangeStatus(project);
@@ -383,11 +435,6 @@ export async function listValidationSummaries(project: ManagedProject): Promise<
 export async function showValidation(project: ManagedProject, validationId: string): Promise<ValidationResult> {
   const memory = await resolveProjectMemory(project);
   return await readValidationResult(memory, validationId);
-}
-
-function displayArtifactPath(memory: ResolvedMemory, absolutePath: string): string {
-  const base = memory.artifactBase === "memory-root" ? memory.memoryRoot : memory.projectRoot;
-  return relative(base, absolutePath).replace(/\\/g, "/");
 }
 
 async function appendStderr(path: string, content: string): Promise<void> {

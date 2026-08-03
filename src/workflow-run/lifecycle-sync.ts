@@ -1,6 +1,6 @@
 import { shortHash } from "../fs/path.js";
 import type { ProjectRunsPathPort } from "../project-runtime/paths.js";
-import type { ManagedProject, ResolvedMemory, TaskQueueItem, TaskQueueRun, TaskQueueWorkflowRun, WorkflowRun, WorkflowRunEventType, WorkflowRunItem, WorkflowRunStatus } from "../types/index.js";
+import type { ManagedProject, ResolvedMemory, TaskQueueItem, TaskQueueRun, TaskQueueWorkflowRun, WorkflowGraphRecoveryKey, WorkflowRun, WorkflowRunEventType, WorkflowRunItem, WorkflowRunStatus } from "../types/index.js";
 import { appendWorkflowRunEvent } from "./events.js";
 import { assertWorkflowRunQueueScope } from "./guards.js";
 import { readWorkflowRun, updateWorkflowRun, writeWorkflowRun } from "./repository.js";
@@ -10,9 +10,22 @@ import type { WorkflowGraphPlan } from "../types/index.js";
 
 export async function createWorkflowRunForGraph(memory: ResolvedMemory, project: ManagedProject, changePath: string, graph: WorkflowGraphPlan): Promise<WorkflowRun> {
   if (graph.graphMode !== "sequential-v1") throw new Error("Queue-backed WorkflowRun requires a sequential-v1 graph.");
-  const now = new Date().toISOString();
+  const run = buildWorkflowRunForGraph(
+    graph,
+    await buildWorkflowGraphRecoveryKey(memory, project, changePath, graph),
+  );
+  await persistWorkflowRunForGraph(memory, project.id, run);
+  return run;
+}
+
+export function buildWorkflowRunForGraph(
+  graph: WorkflowGraphPlan,
+  recoveryKey: WorkflowGraphRecoveryKey,
+  now = new Date().toISOString(),
+): TaskQueueWorkflowRun {
+  if (graph.graphMode !== "sequential-v1") throw new Error("Queue-backed WorkflowRun requires a sequential-v1 graph.");
   const workflowRunId = `workflow-${now.replace(/[-:.TZ]/g, "").slice(0, 14)}-${shortHash(`${graph.changeId}:${graph.id}:${now}`).slice(0, 8)}`;
-  const run: WorkflowRun = {
+  return {
     version: "1.0",
     id: workflowRunId,
     changeId: graph.changeId,
@@ -20,15 +33,24 @@ export async function createWorkflowRunForGraph(memory: ResolvedMemory, project:
     source: "workflow-graph",
     workflowGraphPlanId: graph.id,
     items: graph.nodes.slice().sort((a, b) => a.order - b.order).map((node) => ({ taskId: node.taskId, status: "queued", order: node.order, updatedAt: now })),
-    recoveryKey: await buildWorkflowGraphRecoveryKey(memory, project, changePath, graph),
+    recoveryKey,
     artifactRefs: unique([graph.artifact, graph.markdownArtifact, ...graph.artifactRefs]),
     createdAt: now,
     updatedAt: now,
     startedAt: null,
     finishedAt: null,
   };
+}
+
+export async function persistWorkflowRunForGraph(
+  memory: ProjectRunsPathPort,
+  projectId: string,
+  run: TaskQueueWorkflowRun,
+): Promise<TaskQueueWorkflowRun> {
   await writeWorkflowRun(memory, run);
-  await appendWorkflowRunEvent(memory, run, "workflow.created", { data: { projectId: project.id, workflowGraphPlanId: graph.id } });
+  await appendWorkflowRunEvent(memory, run, "workflow.created", {
+    data: { projectId, workflowGraphPlanId: run.workflowGraphPlanId },
+  });
   return run;
 }
 

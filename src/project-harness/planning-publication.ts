@@ -15,6 +15,10 @@ import {
   writeWorkflowGraphPlanAt,
 } from "../workflow-artifacts/manager.js";
 import {
+  compileSchedulerReadySetPlanningBundle,
+  writeSchedulerReadySetPlanningBundleAt,
+} from "../workflow-scheduler/planning-bundle.js";
+import {
   createProjectHarnessChange,
   initializeProjectHarnessChangeEvidence,
   listProjectHarnessChanges,
@@ -531,6 +535,8 @@ async function writeAcceptedPlanningEvidence(
     proposalHash: input.proposal.hash,
     graphId,
     authorizationId: null,
+    projectHarnessContentFingerprint: null,
+    startManifestHash: null,
     reason: null,
     updatedAt: now,
   });
@@ -563,6 +569,13 @@ async function writeAcceptedPlanningEvidence(
     createdAt: now,
   });
   await writeWorkflowGraphPlanAt(stagingPath, changeId, graph);
+  if (graph.graphMode === "ready-set-v1") {
+    const bundle = compileSchedulerReadySetPlanningBundle(graph, changeRelativePath, now);
+    if (bundle.launchPreflight.status !== "checked") {
+      throw new Error(`Accepted ready-set planning is blocked: ${bundle.launchPreflight.blockedReasons.join("; ")}`);
+    }
+    await writeSchedulerReadySetPlanningBundleAt(stagingPath, bundle);
+  }
   return graph;
 }
 

@@ -1,5 +1,8 @@
 ﻿import { recordToolEventAuditEntry } from "../../agent-task/boundary-audit.js";
 import { evaluateToolPolicy, highImpactActions } from "../../agent-task/tool-policy.js";
+import { readProjectHarnessPlanningGate } from "../../project-harness/planning-gate-query.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../provider-runtime/project-harness-discovery.js";
+import { resolveProjectRuntimeState } from "../../project-runtime/coordinator.js";
 import { getChangeStatusForChange } from "../../change/manager.js";
 import { resolveProjectMemory } from "../../memory/resolver.js";
 import { latestLandingQueueSnapshot } from "../../landing-queue/manager.js";
@@ -7,7 +10,6 @@ import { listTaskQueues } from "../../task-queue/manager.js";
 import { listTaskRuns } from "../../task-run/manager.js";
 import type { ManagedProject, ResolvedMemory } from "../../types/index.js";
 import { assertKnownTaskIds, requireSingleTaskId, requireTaskRunId } from "../../workflow-runtime/code-workflow.js";
-import { readLatestWorkflowGraphPlan } from "../../workflow-artifacts/manager.js";
 import {
   assertWorkflowActionRequiredTargets,
   workflowActionScopePayload as buildWorkflowActionScopePayload,
@@ -54,8 +56,43 @@ export function assertWorkflowActionScope(request: WorkbenchWorkflowActionReques
 
 export async function auditHighImpactWorkflowAction(project: ManagedProject, conversationId: string, changeId: string, request: WorkbenchWorkflowActionRequest, live?: WorkbenchLiveSink): Promise<void> {
   if (!HIGH_IMPACT_WORKBENCH_ACTIONS.has(request.actionType)) return;
+  if (request.actionType === "workflow.run.start") {
+    const state = await resolveProjectRuntimeState(project, {
+      discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+    });
+    if (state.state !== "ready") {
+      throw new Error(`Project Harness is not ready for workflow.run.start: ${state.state}.`);
+    }
+    if (!request.workflowGraphPlanId) throw new Error("workflow.run.start requires workflowGraphPlanId.");
+    if (!request.graphScopeId) throw new Error("workflow.run.start requires graphScopeId.");
+    const evidence = await readProjectHarnessPlanningGate({
+      projectId: state.resolution.harness.projectId,
+      projectRoot: state.resolution.projectRoot,
+      skillRoot: state.resolution.harness.skillRoot,
+      conversationId,
+      graphScopeId: request.graphScopeId,
+      changeId,
+    });
+    if (evidence.graph.id !== request.workflowGraphPlanId
+      || evidence.graph.authoringContractVersion !== "1.0"
+      || evidence.graph.status !== "compiled") {
+      throw new Error("workflow.run.start authored graph target is stale.");
+    }
+    await recordHighImpactToolAudit(state.resolution.paths, conversationId, changeId, request, live);
+    return;
+  }
   const memory = await resolveProjectMemory(project);
   await assertCurrentHighImpactWorkflowTarget(memory, changeId, request);
+  await recordHighImpactToolAudit(memory, conversationId, changeId, request, live);
+}
+
+async function recordHighImpactToolAudit(
+  memory: Parameters<typeof recordToolEventAuditEntry>[0],
+  conversationId: string,
+  changeId: string,
+  request: WorkbenchWorkflowActionRequest,
+  live?: WorkbenchLiveSink,
+): Promise<void> {
   const targetId = workflowActionTargetId(request, changeId);
   const scope = workflowActionScopePayload(request, changeId);
   const decision = evaluateToolPolicy({
@@ -89,14 +126,6 @@ export async function auditHighImpactWorkflowAction(project: ManagedProject, con
 }
 
 async function assertCurrentHighImpactWorkflowTarget(memory: ResolvedMemory, changeId: string, request: WorkbenchWorkflowActionRequest): Promise<void> {
-  if (request.actionType === "workflow.run.start") {
-    const target = await requireActiveChangeTarget(memory, changeId, "workflow.run.start");
-    if (!request.workflowGraphPlanId) throw new Error("workflow.run.start requires workflowGraphPlanId.");
-    const graph = await readLatestWorkflowGraphPlan(memory, target.path);
-    if (graph.authoringContractVersion !== "1.0" || graph.graphMode !== "sequential-v1" || graph.id !== request.workflowGraphPlanId || graph.status !== "compiled") {
-      throw new Error("workflow.run.start authored graph target is stale.");
-    }
-  }
   if (request.actionType === "code.run") {
     await requireActiveChangeTarget(memory, changeId, "code.run");
     if (request.taskIds?.length) {

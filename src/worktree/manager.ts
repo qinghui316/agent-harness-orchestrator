@@ -1,4 +1,4 @@
-export { createWorktree } from "./creation.js";
+export { createWorktree, createWorktreeWithRuntimePort } from "./creation.js";
 export { prepareWorktreeDependencyBridge, WorktreeDependencyBridgeError } from "./dependencies.js";
 export { getGlobalWorktreeCheckoutRoot, getWorktreeMetadataPath } from "./paths.js";
 export { listWorktreeMetadata } from "./repository.js";

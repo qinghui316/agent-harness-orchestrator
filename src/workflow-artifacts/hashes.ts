@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
-import type { ResolvedMemory } from "../types/index.js";
+import type { ResolvedMemory, WorkflowGraphPlan } from "../types/index.js";
 import { resolveArtifactRef } from "./artifact-refs.js";
 
 export async function hashArtifactRefs(memory: ResolvedMemory, refs: string[]): Promise<Record<string, string>> {
@@ -28,4 +28,23 @@ export async function hashFile(path: string): Promise<string> {
 
 export function hashText(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+export function hashWorkflowGraphPlan(graph: WorkflowGraphPlan): string {
+  return hashText(stableJson(graph));
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableJson(item === undefined ? null : item)).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .filter((key) => record[key] !== undefined)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
 }

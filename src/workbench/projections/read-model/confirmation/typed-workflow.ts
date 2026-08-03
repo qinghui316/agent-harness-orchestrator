@@ -197,7 +197,9 @@ function sequentialWorkflowPlanToConfirmationItems(
   },
 ): WorkbenchConfirmationQueueItem[] {
   const { conversationId, changeId, graphScopeId, authoredGraph } = input;
-  if (authoredGraph.authoringContractVersion === "1.0" && authoredGraph.graphMode === "sequential-v1") {
+  if (authoredGraph.authoringContractVersion === "1.0"
+    && (authoredGraph.graphMode === "sequential-v1" || authoredGraph.graphMode === "ready-set-v1")) {
+    const readySet = authoredGraph.graphMode === "ready-set-v1";
     return [{
       id: `confirm:workflow-start:${changeId}:${authoredGraph.id}`,
       kind: "planning-confirm",
@@ -205,9 +207,15 @@ function sequentialWorkflowPlanToConfirmationItems(
       conversationId,
       changeId,
       graphScopeId,
-      summary: `已准备好按顺序处理 ${authoredGraph.nodeCount} 项任务。`,
-      whyNeedsConfirmation: "确认后开始按顺序处理这些事项。",
-      confirmEffect: "系统会逐项处理并返回结果；不会自动提交或合并代码。",
+      summary: readySet
+        ? `已准备好按 ${authoredGraph.waveCount ?? 0} 个波次处理 ${authoredGraph.nodeCount} 项任务。`
+        : `已准备好按顺序处理 ${authoredGraph.nodeCount} 项任务。`,
+      whyNeedsConfirmation: readySet
+        ? "确认后初始化 Scheduler 运行态并准备第一个明确的 worker。"
+        : "确认后开始按顺序处理这些事项。",
+      confirmEffect: readySet
+        ? "系统只创建 Scheduler 运行证据并显示下一项 worker 操作；不会自动开始整波或应用代码。"
+        : "系统会逐项处理并返回结果；不会自动提交或合并代码。",
       riskSummary: "每项结果都会经过检查，后续需要你决定是否落地。",
       evidenceRefs: evidenceRefs(authoredGraph.artifact),
       actions: [{

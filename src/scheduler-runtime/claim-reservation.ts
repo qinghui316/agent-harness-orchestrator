@@ -2,6 +2,7 @@ import { shortHash } from "../fs/path.js";
 import type { ResolvedMemory } from "../types/index.js";
 import { hashArtifactRefs } from "../workflow-artifacts/hashes.js";
 import { readSchedulerRun } from "../workflow-scheduler/repository.js";
+import type { SchedulerRun } from "../workflow-scheduler/types.js";
 import { assertSchedulerRuntimeLineage } from "./guards.js";
 import {
   appendSchedulerRuntimeEvent,
@@ -17,8 +18,14 @@ import type {
   SchedulerRuntimeClaimReservation,
   SchedulerRuntimeClaimReservationIntent,
   SchedulerRuntimeSourceLockReservation,
+  SchedulerRuntimeState,
   SchedulerRuntimeWaveReservation,
 } from "./types.js";
+
+export interface SchedulerClaimReservationRefs {
+  artifact: string;
+  markdownArtifact: string;
+}
 
 export async function reserveSchedulerRuntimeClaims(
   memory: ResolvedMemory,
@@ -56,65 +63,9 @@ export async function reserveSchedulerRuntimeClaims(
 
   const now = new Date().toISOString();
   const id = `scheduler-claim-reservation-${now.replace(/[-:.TZ]/g, "").slice(0, 14)}-${shortHash(`${run.id}:${snapshot.id}:${now}`).slice(0, 8)}`;
-  const currentWave = selectCurrentWave(snapshot);
-  const reservationIntents = snapshot.claimIntents
-    .filter((claim) => claim.waveIndex === currentWave.waveIndex)
-    .map((claim): SchedulerRuntimeClaimReservationIntent => ({
-      reservationIntentId: `reservation-intent-${shortHash(`${id}:${claim.claimIntentId}`).slice(0, 12)}`,
-      claimIntentId: claim.claimIntentId,
-      plannedWorkerKey: claim.plannedWorkerKey,
-      nodeId: claim.nodeId,
-      unitId: claim.unitId,
-      waveIndex: claim.waveIndex,
-      status: claim.status === "blocked" ? "blocked" : "reserved",
-      plannedSlotDemand: claim.plannedSlotDemand,
-      sourceScopes: claim.sourceScopes,
-      blockedReasons: claim.blockedReasons,
-    }));
-  assertNoSameWaveSourceLockConflict(reservationIntents);
-  const reservedCount = reservationIntents.filter((intent) => intent.status === "reserved").length;
-  const blockedCount = reservationIntents.filter((intent) => intent.status === "blocked").length;
-  const sourceLocks = buildSourceLocks(reservationIntents);
-  const waveReservation: SchedulerRuntimeWaveReservation = {
-    waveIndex: currentWave.waveIndex,
-    reservationIntentIds: reservationIntents.map((intent) => intent.reservationIntentId),
-    reservedCount,
-    blockedCount,
-    plannedSlotDemand: reservationIntents.reduce((total, intent) => total + (intent.status === "reserved" ? intent.plannedSlotDemand : 0), 0),
-    status: blockedCount > 0 || reservedCount === 0 ? "blocked" : "reserved",
-    blockedReasons: currentWave.blockedReasons,
-  };
   const refs = schedulerClaimReservationArtifactRefs(memory, changePath, run.id, id);
-  const supersedesReservationId = state.lastClaimReservationSnapshotId && state.lastClaimReservationSnapshotId !== snapshot.id
-    ? state.lastClaimReservationId
-    : undefined;
-  const reservation: SchedulerRuntimeClaimReservation = {
-    version: "1.0",
-    id,
-    changeId: run.changeId,
-    schedulerRunId: run.id,
-    schedulerMode: run.schedulerMode,
-    status: waveReservation.status === "reserved" ? "reserved" : "blocked",
-    schedulerRuntimeStateId: state.id,
-    schedulerReconcileSnapshotId: snapshot.id,
-    schedulerContractId: run.schedulerContractId,
-    schedulerDispatchDryRunId: run.schedulerDispatchDryRunId,
-    schedulerWorkerPlanId: run.schedulerWorkerPlanId,
-    schedulerClaimReconcilePlanId: run.schedulerClaimReconcilePlanId,
-    schedulerLaunchPreflightId: run.schedulerLaunchPreflightId,
-    reservationIntents,
-    waves: [waveReservation],
-    sourceLocks,
-    reservedCount,
-    blockedCount,
-    sourceLockCount: sourceLocks.length,
-    supersedesReservationId,
-    sourceArtifactHashes: run.sourceArtifactHashes,
-    artifactRefs: [refs.artifact, refs.markdownArtifact, state.artifact, snapshot.artifact],
-    artifact: refs.artifact,
-    markdownArtifact: refs.markdownArtifact,
-    createdAt: now,
-  };
+  const reservation = buildSchedulerRuntimeClaimReservation(run, state, snapshot, refs, id, now);
+  const supersedesReservationId = reservation.supersedesReservationId;
   await writeSchedulerRuntimeClaimReservation(memory, changePath, reservation);
   await writeSchedulerRuntimeState(memory, changePath, {
     ...state,
@@ -148,6 +99,75 @@ export async function reserveSchedulerRuntimeClaims(
     },
   });
   return reservation;
+}
+
+export function buildSchedulerRuntimeClaimReservation(
+  run: SchedulerRun,
+  state: SchedulerRuntimeState,
+  snapshot: SchedulerReconcileSnapshot,
+  refs: SchedulerClaimReservationRefs,
+  id: string,
+  now: string,
+): SchedulerRuntimeClaimReservation {
+  validateSnapshotScope(run.id, run.changeId, state.id, snapshot);
+  const currentWave = selectCurrentWave(snapshot);
+  const reservationIntents = snapshot.claimIntents
+    .filter((claim) => claim.waveIndex === currentWave.waveIndex)
+    .map((claim): SchedulerRuntimeClaimReservationIntent => ({
+      reservationIntentId: `reservation-intent-${shortHash(`${id}:${claim.claimIntentId}`).slice(0, 12)}`,
+      claimIntentId: claim.claimIntentId,
+      plannedWorkerKey: claim.plannedWorkerKey,
+      nodeId: claim.nodeId,
+      unitId: claim.unitId,
+      waveIndex: claim.waveIndex,
+      status: claim.status === "blocked" ? "blocked" : "reserved",
+      plannedSlotDemand: claim.plannedSlotDemand,
+      sourceScopes: claim.sourceScopes,
+      blockedReasons: claim.blockedReasons,
+    }));
+  assertNoSameWaveSourceLockConflict(reservationIntents);
+  const reservedCount = reservationIntents.filter((intent) => intent.status === "reserved").length;
+  const blockedCount = reservationIntents.filter((intent) => intent.status === "blocked").length;
+  const sourceLocks = buildSourceLocks(reservationIntents);
+  const waveReservation: SchedulerRuntimeWaveReservation = {
+    waveIndex: currentWave.waveIndex,
+    reservationIntentIds: reservationIntents.map((intent) => intent.reservationIntentId),
+    reservedCount,
+    blockedCount,
+    plannedSlotDemand: reservationIntents.reduce((total, intent) => total + (intent.status === "reserved" ? intent.plannedSlotDemand : 0), 0),
+    status: blockedCount > 0 || reservedCount === 0 ? "blocked" : "reserved",
+    blockedReasons: currentWave.blockedReasons,
+  };
+  const supersedesReservationId = state.lastClaimReservationSnapshotId && state.lastClaimReservationSnapshotId !== snapshot.id
+    ? state.lastClaimReservationId
+    : undefined;
+  return {
+    version: "1.0",
+    id,
+    changeId: run.changeId,
+    schedulerRunId: run.id,
+    schedulerMode: run.schedulerMode,
+    status: waveReservation.status === "reserved" ? "reserved" : "blocked",
+    schedulerRuntimeStateId: state.id,
+    schedulerReconcileSnapshotId: snapshot.id,
+    schedulerContractId: run.schedulerContractId,
+    schedulerDispatchDryRunId: run.schedulerDispatchDryRunId,
+    schedulerWorkerPlanId: run.schedulerWorkerPlanId,
+    schedulerClaimReconcilePlanId: run.schedulerClaimReconcilePlanId,
+    schedulerLaunchPreflightId: run.schedulerLaunchPreflightId,
+    reservationIntents,
+    waves: [waveReservation],
+    sourceLocks,
+    reservedCount,
+    blockedCount,
+    sourceLockCount: sourceLocks.length,
+    supersedesReservationId,
+    sourceArtifactHashes: run.sourceArtifactHashes,
+    artifactRefs: [refs.artifact, refs.markdownArtifact, state.artifact, snapshot.artifact],
+    artifact: refs.artifact,
+    markdownArtifact: refs.markdownArtifact,
+    createdAt: now,
+  };
 }
 
 function validateSnapshotScope(schedulerRunId: string, changeId: string, stateId: string, snapshot: SchedulerReconcileSnapshot): void {

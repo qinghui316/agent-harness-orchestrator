@@ -50,18 +50,26 @@ export async function withProjectWriteLease<T>(
   options: ProjectWriteLeaseScopeOptions,
   action: (scope: ProjectWriteLeaseScope) => Promise<T>,
 ): Promise<T> {
-  return withNamedLease(projectPath, "project_write_lease", options, action);
+  return withProjectWriteLeaseAtPath(projectWriteLeasePath(projectPath), options, action);
 }
 
-async function withNamedLease<T>(
-  projectPath: string,
+export async function withProjectWriteLeaseAtPath<T>(
+  databasePath: string,
+  options: ProjectWriteLeaseScopeOptions,
+  action: (scope: ProjectWriteLeaseScope) => Promise<T>,
+): Promise<T> {
+  return withNamedLeaseAtPath(databasePath, "project_write_lease", options, action);
+}
+
+async function withNamedLeaseAtPath<T>(
+  databasePath: string,
   table: LeaseTable,
   options: ProjectWriteLeaseScopeOptions,
   action: (scope: ProjectWriteLeaseScope) => Promise<T>,
 ): Promise<T> {
   const holderId = options.holderId?.trim() || `project-write-${randomUUID()}`;
   const ttlMs = options.ttlMs ?? DEFAULT_LEASE_TTL_MS;
-  const lease = await claimNamedLease(projectPath, table, { holderId, ttlMs });
+  const lease = await claimNamedLeaseAtPath(databasePath, table, { holderId, ttlMs });
   if (!lease) throw new Error("Project write lease is already held by another operation.");
   const identity = { holderId: lease.holderId, fencingToken: lease.fencingToken };
   const leaseController = new AbortController();
@@ -71,7 +79,7 @@ async function withNamedLease<T>(
     heartbeatInFlight = heartbeatInFlight.then(async () => {
       if (heartbeatError === undefined) {
         try {
-          await heartbeatNamedLease(projectPath, table, identity, ttlMs);
+          await heartbeatNamedLeaseAtPath(databasePath, table, identity, ttlMs);
         } catch (error) {
           heartbeatError = error;
           leaseController.abort(error);
@@ -87,15 +95,15 @@ async function withNamedLease<T>(
       lease,
       signal: leaseController.signal,
       assertCurrent: async () => {
-        try { return await assertNamedLeaseCurrent(projectPath, table, identity); }
+        try { return await assertNamedLeaseCurrentAtPath(databasePath, table, identity); }
         catch (error) { leaseController.abort(error); throw error; }
       },
       heartbeat: async () => {
-        try { return await heartbeatNamedLease(projectPath, table, identity, ttlMs); }
+        try { return await heartbeatNamedLeaseAtPath(databasePath, table, identity, ttlMs); }
         catch (error) { leaseController.abort(error); throw error; }
       },
     });
-    await assertNamedLeaseCurrent(projectPath, table, identity);
+    await assertNamedLeaseCurrentAtPath(databasePath, table, identity);
   } catch (error) {
     actionError = error;
   }
@@ -103,7 +111,7 @@ async function withNamedLease<T>(
   await heartbeatInFlight;
   if (actionError === undefined && heartbeatError !== undefined) actionError = heartbeatError;
   try {
-    await releaseNamedLease(projectPath, table, identity);
+    await releaseNamedLeaseAtPath(databasePath, table, identity);
   } catch (releaseError) {
     if (actionError === undefined) throw releaseError;
   }
@@ -120,8 +128,12 @@ export async function claimProjectWriteLease(
 }
 
 async function claimNamedLease(projectPath: string, table: LeaseTable, claim: ProjectWriteLeaseClaim, now = new Date()): Promise<ProjectWriteLease | null> {
+  return claimNamedLeaseAtPath(projectWriteLeasePath(projectPath), table, claim, now);
+}
+
+async function claimNamedLeaseAtPath(databasePath: string, table: LeaseTable, claim: ProjectWriteLeaseClaim, now = new Date()): Promise<ProjectWriteLease | null> {
   assertClaim(claim);
-  return withDatabase(projectPath, (database) => database.transaction(() => {
+  return withDatabaseAtPath(databasePath, (database) => database.transaction(() => {
     const row = readRow(database, table);
     if (row.holderId && row.expiresAt && Date.parse(row.expiresAt) > now.getTime()) return null;
     const fencingToken = row.lastFencingToken + 1;
@@ -149,8 +161,12 @@ export async function heartbeatProjectWriteLease(
 }
 
 async function heartbeatNamedLease(projectPath: string, table: LeaseTable, identity: ProjectWriteLeaseIdentity, ttlMs: number, now = new Date()): Promise<ProjectWriteLease> {
+  return heartbeatNamedLeaseAtPath(projectWriteLeasePath(projectPath), table, identity, ttlMs, now);
+}
+
+async function heartbeatNamedLeaseAtPath(databasePath: string, table: LeaseTable, identity: ProjectWriteLeaseIdentity, ttlMs: number, now = new Date()): Promise<ProjectWriteLease> {
   assertTtl(ttlMs);
-  return withDatabase(projectPath, (database) => database.transaction(() => {
+  return withDatabaseAtPath(databasePath, (database) => database.transaction(() => {
     const current = requireCurrentLease(readRow(database, table), identity, now);
     const renewed = {
       ...current,
@@ -171,7 +187,11 @@ export async function assertProjectWriteLeaseCurrent(
 }
 
 async function assertNamedLeaseCurrent(projectPath: string, table: LeaseTable, identity: ProjectWriteLeaseIdentity, now = new Date()): Promise<ProjectWriteLease> {
-  return withDatabase(projectPath, (database) => requireCurrentLease(readRow(database, table), identity, now));
+  return assertNamedLeaseCurrentAtPath(projectWriteLeasePath(projectPath), table, identity, now);
+}
+
+async function assertNamedLeaseCurrentAtPath(databasePath: string, table: LeaseTable, identity: ProjectWriteLeaseIdentity, now = new Date()): Promise<ProjectWriteLease> {
+  return withDatabaseAtPath(databasePath, (database) => requireCurrentLease(readRow(database, table), identity, now));
 }
 
 export async function releaseProjectWriteLease(
@@ -183,7 +203,11 @@ export async function releaseProjectWriteLease(
 }
 
 async function releaseNamedLease(projectPath: string, table: LeaseTable, identity: ProjectWriteLeaseIdentity, now = new Date()): Promise<void> {
-  withDatabase(projectPath, (database) => database.transaction(() => {
+  return releaseNamedLeaseAtPath(projectWriteLeasePath(projectPath), table, identity, now);
+}
+
+async function releaseNamedLeaseAtPath(databasePath: string, table: LeaseTable, identity: ProjectWriteLeaseIdentity, now = new Date()): Promise<void> {
+  withDatabaseAtPath(databasePath, (database) => database.transaction(() => {
     const current = requireCurrentLease(readRow(database, table), identity, now);
     database.prepare(`
       UPDATE ${table}
@@ -195,7 +219,10 @@ async function releaseNamedLease(projectPath: string, table: LeaseTable, identit
 }
 
 function withDatabase<T>(projectPath: string, action: (database: Database.Database) => T): T {
-  const path = projectWriteLeasePath(projectPath);
+  return withDatabaseAtPath(projectWriteLeasePath(projectPath), action);
+}
+
+function withDatabaseAtPath<T>(path: string, action: (database: Database.Database) => T): T {
   mkdirSync(dirname(path), { recursive: true });
   const database = new Database(path);
   try {

@@ -1,20 +1,22 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { resolveRunnableChangeTarget } from "../change/target.js";
-import { buildAgentSystemPrompt, buildRunAgentRecord, resolveAgentRole } from "../agent/catalog.js";
+import { buildAgentSystemPrompt, buildRunAgentRecord, resolveAgentRole, resolveBundledAgentRole, type AgentRole } from "../agent/catalog.js";
 import { writeJsonFile } from "../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
+import { projectWriteLeasePath } from "../project/project-write-lease.js";
 import { resolveProjectHarnessAgentInput } from "../project-harness/agent-input.js";
+import type { ProjectCodeExecutionRuntimePort, ProjectHarnessExecutionPort } from "../project-runtime/execution-ports.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 import { appendRunEvent, buildRunId } from "../run/manager.js";
-import type { ManagedProject, RunMetadata, RunWorktreeInfo } from "../types/index.js";
-import { createWorktree, getWorktreeMetadataPath } from "../worktree/manager.js";
+import type { ChangeStatus, ManagedProject, RunMetadata, RunWorktreeInfo } from "../types/index.js";
+import { createWorktreeWithRuntimePort, getWorktreeMetadataPath } from "../worktree/manager.js";
 import { prepareWorktreeDependencyBridge } from "../worktree/dependencies.js";
 import { readWorktreeMetadata } from "../worktree/repository.js";
 import { composeCoderPrompt } from "./prompt.js";
 import { getSortedSourceStatus, writeEmptyCodeArtifacts } from "./artifacts.js";
 import { runProviderCodeTurn } from "./provider-turn-runner.js";
 import { buildCodeRoleContextArtifact } from "./context.js";
-import { assertCodeExecutionGate } from "./execution-gate.js";
+import { assertCodeExecutionGate, assertSkillNativeCodeExecutionGate } from "./execution-gate.js";
 import { emitCodeLiveStatus } from "./live-events.js";
 import { createCodeRunSession } from "./run-session.js";
 import { normalizeAndValidateTasks } from "./runtime-guards.js";
@@ -39,11 +41,53 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
   const target = await resolveRunnableChangeTarget(project, { changeId: options.changeId });
   const changeStatus = target.status;
   const changeId = target.changeId;
-
   const selectedTasks = normalizeAndValidateTasks(changeStatus, options.taskIds ?? []);
   const roleId = options.roleId ?? "coder-agent";
   const executionGate = await assertCodeExecutionGate(memory, changeStatus, changeId, options, roleId);
   const role = await resolveAgentRole(memory, roleId);
+  const runtime = legacyCodeRuntimePort(project, memory);
+  return startPreparedCodeRun(project, runtime, changeStatus, changeId, selectedTasks, roleId, role, executionGate, projectHarnessInput.identity, projectHarnessInput.providerSkillInput, false, options);
+}
+
+export async function startSkillNativeCodeRun(
+  project: ManagedProject,
+  runtime: ProjectCodeExecutionRuntimePort,
+  harness: ProjectHarnessExecutionPort,
+  options: CodeRunOptions = {},
+): Promise<CodeRunResult> {
+  const changeId = options.changeId?.trim();
+  if (!changeId || changeId !== harness.changeStatus.change?.id) {
+    throw new Error("Skill-native Code run requires the exact accepted Change id.");
+  }
+  const projectHarnessInput = await resolveProjectHarnessAgentInput(project, DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY);
+  const selectedTasks = normalizeAndValidateTasks(harness.changeStatus, options.taskIds ?? []);
+  const roleId = options.roleId ?? "coder-agent";
+  const executionGate = await assertSkillNativeCodeExecutionGate(
+    runtime,
+    harness.changeStatus,
+    harness.planning.graph,
+    changeId,
+    options,
+    roleId,
+  );
+  const role = await resolveBundledAgentRole(roleId);
+  return startPreparedCodeRun(project, runtime, harness.changeStatus, changeId, selectedTasks, roleId, role, executionGate, projectHarnessInput.identity, projectHarnessInput.providerSkillInput, true, options);
+}
+
+async function startPreparedCodeRun(
+  project: ManagedProject,
+  memory: ProjectCodeExecutionRuntimePort,
+  changeStatus: ChangeStatus,
+  changeId: string,
+  selectedTasks: string[],
+  roleId: string,
+  role: AgentRole,
+  executionGate: Awaited<ReturnType<typeof assertCodeExecutionGate>>,
+  projectHarnessIdentity: Awaited<ReturnType<typeof resolveProjectHarnessAgentInput>>["identity"],
+  projectHarnessSkillInput: Awaited<ReturnType<typeof resolveProjectHarnessAgentInput>>["providerSkillInput"],
+  requireMainAgentLineage: boolean,
+  options: CodeRunOptions,
+): Promise<CodeRunResult> {
   const extraPrompt = options.prompt || options.promptFile
     ? await readPromptInput({ prompt: options.prompt, promptFile: options.promptFile })
     : undefined;
@@ -56,7 +100,7 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
   if (existingWorktree && existingWorktree.status !== "active") {
     throw new Error(`Code run existing worktree is not active: ${existingWorktree.status}.`);
   }
-  const created = existingWorktree ? null : await createWorktree(project, memory, changeId, { runId });
+  const created = existingWorktree ? null : await createWorktreeWithRuntimePort(project, memory, changeId, { runId });
   const worktreeMetadata = existingWorktree ?? created?.metadata;
   if (!worktreeMetadata) throw new Error("Code run could not resolve worktree metadata.");
   const worktree: RunWorktreeInfo = {
@@ -80,7 +124,7 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
     extraPrompt,
     contextPacketRef: `${session.relativeDir}/context-packet.json`,
     createdAt: now,
-    projectHarness: projectHarnessInput.identity,
+    projectHarness: projectHarnessIdentity,
   });
   const run: RunMetadata = {
     version: "1.0",
@@ -175,10 +219,27 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
       worktree,
       prompt,
       sourceBefore,
-      projectHarnessSkillInput: projectHarnessInput.providerSkillInput,
+      projectHarnessSkillInput,
+      requireMainAgentLineage,
       createdWarnings: created?.warnings ?? [],
       live: options.live,
   });
+}
+
+function legacyCodeRuntimePort(project: ManagedProject, memory: Awaited<ReturnType<typeof resolveProjectMemory>>): ProjectCodeExecutionRuntimePort {
+  if (!memory.projectId) throw new Error("Code run requires a canonical project id.");
+  return {
+    projectId: memory.projectId,
+    projectRoot: project.path,
+    runsRoot: memory.runsRoot,
+    runArtifactRoot: memory.artifactBase === "memory-root" ? memory.memoryRoot : memory.projectRoot,
+    runArtifactBase: memory.artifactBase,
+    workbenchRoot: memory.workbenchRoot,
+    workbenchDbPath: memory.workbenchDbPath,
+    worktreeMetadataRoot: memory.worktreeMetadataRoot,
+    worktreeIndexPath: memory.worktreeIndexPath,
+    projectWriteLeasePath: projectWriteLeasePath(project.path),
+  };
 }
 
 async function readPromptInput(input: { prompt?: string; promptFile?: string }): Promise<string> {

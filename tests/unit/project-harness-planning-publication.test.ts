@@ -70,6 +70,47 @@ describe("project Harness planning publication", () => {
       subject: "health-endpoint",
       owner_module: "health-service",
     });
+    expect(existsSync(join(fixture.active(accepted.changeId), "planning", "scheduler-contract.json"))).toBe(false);
+  });
+
+  it("publishes accepted ready-set Scheduler planning evidence inside the same Change transaction", async () => {
+    const fixture = await createFixture();
+    const accepted = await publish(
+      fixture,
+      proposal("Return ok in a ready set.", "proposal-ready-set", null, "ready-set-v1"),
+      commitFixture().ports,
+    );
+    expect(accepted.workflowGraphPlan.graphMode).toBe("ready-set-v1");
+    const planningRoot = join(fixture.active(accepted.changeId), "planning");
+    const [contract, dryRun, workerPlan, claimPlan, preflight] = await Promise.all([
+      readJson(join(planningRoot, "scheduler-contract.json")),
+      readJson(join(planningRoot, "scheduler-dispatch-dry-run.json")),
+      readJson(join(planningRoot, "scheduler-worker-session-plan.json")),
+      readJson(join(planningRoot, "scheduler-claim-reconcile-plan.json")),
+      readJson(join(planningRoot, "scheduler-launch-preflight.json")),
+    ]);
+    if (accepted.workflowGraphPlan.graphMode !== "ready-set-v1") throw new Error("Expected ready-set graph.");
+    expect(contract).toMatchObject({
+      id: accepted.workflowGraphPlan.schedulerContractId,
+      workflowGraphPlanId: accepted.workflowGraphPlan.id,
+    });
+    expect(dryRun).toMatchObject({
+      id: accepted.workflowGraphPlan.schedulerDispatchDryRunId,
+      schedulerContractId: contract.id,
+    });
+    expect(workerPlan).toMatchObject({
+      id: accepted.workflowGraphPlan.schedulerWorkerPlanId,
+      schedulerDispatchDryRunId: dryRun.id,
+    });
+    expect(claimPlan).toMatchObject({
+      id: accepted.workflowGraphPlan.schedulerClaimReconcilePlanId,
+      schedulerWorkerPlanId: workerPlan.id,
+    });
+    expect(preflight).toMatchObject({
+      status: "checked",
+      workflowGraphPlanId: accepted.workflowGraphPlan.id,
+      schedulerClaimReconcilePlanId: claimPlan.id,
+    });
   });
 
   it("keeps the executed Change active and publishes the revision on a new graph Lane", async () => {
@@ -690,6 +731,7 @@ function proposal(
   behavior: string,
   proposalId: string,
   boundChangeId: string | null = null,
+  mode: "sequential-v1" | "ready-set-v1" = "sequential-v1",
 ): ValidatedPlanningPackageInput {
   const specMd = "# Spec\n\n## Acceptance Criteria\n\n- AC-001: Health endpoint responds successfully.\n";
   const planMd = [
@@ -703,7 +745,7 @@ function proposal(
     "```json",
     JSON.stringify({
       version: "1.0",
-      mode: "sequential-v1",
+      mode,
       nodes: [{
         id: "health",
         title: "Health endpoint",
@@ -742,6 +784,10 @@ function proposal(
     },
     acceptance: mainAcceptance(hash, currentGraphScopeId),
   };
+}
+
+async function readJson(path: string): Promise<Record<string, unknown>> {
+  return JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
 }
 
 function requiredContract(): NonNullable<MainPlanningAcceptanceEvidence["contract"]> {

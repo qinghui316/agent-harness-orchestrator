@@ -1,6 +1,7 @@
 ﻿import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { writeJsonFile } from "../fs/json.js";
+import { projectRunArtifactReference, type ProjectRunArtifactReferencePort } from "../project-runtime/execution-ports.js";
 import { runtimeContinuityPaths } from "../runtime-continuity/paths.js";
 import type { ResolvedMemory, RunMetadata, RunStatus } from "../types/index.js";
 import { displayArtifactPath } from "./artifacts.js";
@@ -34,11 +35,17 @@ export interface CodeRunPaths {
   agentEvents: string;
 }
 
-export async function createCodeRunSession(memory: ResolvedMemory, runId: string): Promise<CodeRunSession> {
+export async function createCodeRunSession(
+  memory: ResolvedMemory | (ProjectRunArtifactReferencePort & { runsRoot: string }),
+  runId: string,
+): Promise<CodeRunSession> {
   const directory = join(memory.runsRoot, runId);
-  const relativeDir = displayArtifactPath(memory, directory);
+  const artifactReference = "runArtifactRoot" in memory
+    ? projectRunArtifactReference(memory, directory)
+    : { base: memory.artifactBase, directory: displayArtifactPath(memory, directory) };
+  const relativeDir = artifactReference.directory;
   const artifacts = {
-    base: memory.artifactBase,
+    base: artifactReference.base,
     directory: relativeDir,
     context: `${relativeDir}/context.md`,
     contextPacket: `${relativeDir}/context-packet.json`,

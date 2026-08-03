@@ -1,9 +1,15 @@
 import { applyResultToProject, applyWorktree, discardWorktree } from "../../apply/manager.js";
-import { acceptAudit } from "../../audit/manager.js";
+import { acceptAudit, acceptSkillNativeAudit } from "../../audit/manager.js";
 import { applyIntegrationCheck, discardIntegrationCheck } from "../../integration-check/manager.js";
 import { acceptSpecTestProposal } from "../../spec-test/proposal.js";
 import type { ManagedProject } from "../../types/index.js";
 import type { WorkbenchApprovalAction } from "../read-model-types.js";
+import { resolveProjectRuntimeState } from "../../project-runtime/coordinator.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../provider-runtime/project-harness-discovery.js";
+import { projectExecutionRuntimePort } from "../../project-runtime/execution-ports.js";
+import { resolveProjectHarnessChangeEvidenceRoot } from "../../project-harness/change.js";
+import { projectHarnessSharedWriterRoot } from "../../project-harness/writer-lock.js";
+import { readAuditResult } from "../../audit/repository.js";
 
 export interface WorkbenchApprovalOptions {
   commit?: boolean;
@@ -28,7 +34,7 @@ export async function runAllowlistedAction(project: ManagedProject, action: Work
       return acceptSpecTestProposal(project, args[3], { allExisting: true });
     case "audit.accept":
       assertArgs(action, "audit", ["accept"], 3);
-      return acceptAudit(project, args[2]);
+      return acceptAuditForWorkbenchProject(project, args[2]);
     case "result.apply":
       assertArgs(action, "result", ["apply"], 3);
       return applyResultToProject(project, scopedWorktreeArgOrThrow(action), { commit: options?.commit === true, message: options?.message, userConfirmed: true });
@@ -47,6 +53,27 @@ export async function runAllowlistedAction(project: ManagedProject, action: Work
     default:
       throw new Error("Unsupported Workbench action.");
   }
+}
+
+async function acceptAuditForWorkbenchProject(project: ManagedProject, auditId: string) {
+  const state = await resolveProjectRuntimeState(project, {
+    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+  });
+  if (state.state !== "ready") return acceptAudit(project, auditId);
+  const runtime = projectExecutionRuntimePort(project, state.resolution);
+  const audit = await readAuditResult(runtime, auditId);
+  const evidenceRoot = await resolveProjectHarnessChangeEvidenceRoot(
+    state.resolution.harness.skillRoot,
+    "active",
+    audit.changeId,
+  );
+  return acceptSkillNativeAudit({
+    project,
+    runtime,
+    evidenceRoot,
+    writerRoot: projectHarnessSharedWriterRoot(state.resolution.paths.sidecarRoot),
+    auditId,
+  });
 }
 
 export function inferTargetIdFromAction(action: WorkbenchApprovalAction, _result: unknown): string | null {

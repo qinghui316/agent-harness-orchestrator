@@ -7,7 +7,9 @@ import { getChangeStatusForChange } from "../change/manager.js";
 import { getGitCommit, isGitDirtyIgnoringAhoMemory } from "../project/git.js";
 import { listValidationResults } from "../validation/artifacts.js";
 import { getWorktreeStatus } from "../worktree/manager.js";
-import type { AuditResult, ManagedProject, ResolvedMemory, ValidationResult } from "../types/index.js";
+import type { AuditResult, ChangeStatus, ManagedProject, ResolvedMemory, ValidationResult } from "../types/index.js";
+import type { ProjectExecutionRuntimePort, ProjectHarnessExecutionPort } from "../project-runtime/execution-ports.js";
+import type { WorktreeDiffPort } from "../audit/diff.js";
 import type { ApplyReadinessClassification, WorktreeGateState } from "./types.js";
 
 export function canAutoAcceptAuditForApply(gate: WorktreeGateState): boolean {
@@ -54,6 +56,31 @@ export async function evaluateApplyGate(project: ManagedProject, memory: Resolve
   const changeId = worktree.changeId;
   const status = await getChangeStatusForChange(project, changeId);
   if (!status.change) throw new Error(`Cannot evaluate apply gate: demand conversation is not active: ${changeId}.`);
+  const activeChangePath = status.activeChanges.find((item) => item.name === changeId)?.path;
+  return evaluateApplyGateForStatus(project, memory, status, activeChangePath ? join(memory.memoryRoot, activeChangePath) : null, worktreeId);
+}
+
+export async function evaluateSkillNativeApplyGate(
+  project: ManagedProject,
+  runtime: ProjectExecutionRuntimePort,
+  harness: ProjectHarnessExecutionPort,
+  worktreeId: string,
+): Promise<WorktreeGateState> {
+  return evaluateApplyGateForStatus(project, runtime, harness.changeStatus, harness.evidenceRoot, worktreeId);
+}
+
+async function evaluateApplyGateForStatus(
+  project: ManagedProject,
+  memory: WorktreeDiffPort,
+  status: ChangeStatus,
+  evidenceRoot: string | null,
+  worktreeId: string,
+): Promise<WorktreeGateState> {
+  const worktree = await getWorktreeStatus(memory, worktreeId);
+  const changeId = worktree.changeId;
+  if (!status.change || status.change.id !== changeId) {
+    throw new Error(`Cannot evaluate apply gate: demand conversation is not active: ${changeId}.`);
+  }
   const diff = await collectWorktreeDiff(memory, worktreeId, changeId);
   const sourceHead = await getGitCommit(project.path);
   const warnings: string[] = [];
@@ -79,7 +106,7 @@ export async function evaluateApplyGate(project: ManagedProject, memory: Resolve
     blockingIssues.push(`Latest matching audit is not approved: ${audit.id} (${audit.status}).`);
   }
 
-  const reviewAuditId = await readAcceptedReviewAuditId(memory, status.activeChanges.find((item) => item.name === changeId)?.path);
+  const reviewAuditId = await readAcceptedReviewAuditId(evidenceRoot);
   if (!reviewAuditId) {
     blockingIssues.push("reviews/review.md does not reference an accepted Audit ID.");
   } else if (audit && reviewAuditId !== audit.id) {
@@ -103,17 +130,17 @@ export async function evaluateApplyGate(project: ManagedProject, memory: Resolve
   };
 }
 
-async function findLatestValidation(memory: ResolvedMemory, changeId: string, worktreeId: string, diffHash: string): Promise<ValidationResult | null> {
+async function findLatestValidation(memory: WorktreeDiffPort, changeId: string, worktreeId: string, diffHash: string): Promise<ValidationResult | null> {
   return (await listValidationResults(memory, changeId)).find((item) => item.worktreeId === worktreeId && item.worktreeDiffHash === diffHash) ?? null;
 }
 
-async function findLatestAudit(memory: ResolvedMemory, changeId: string, worktreeId: string, diffHash: string): Promise<AuditResult | null> {
+async function findLatestAudit(memory: WorktreeDiffPort, changeId: string, worktreeId: string, diffHash: string): Promise<AuditResult | null> {
   return (await listAuditResults(memory, changeId)).find((item) => item.worktreeId === worktreeId && item.worktreeDiffHash === diffHash) ?? null;
 }
 
-async function readAcceptedReviewAuditId(memory: ResolvedMemory, activeChangePath: string | undefined): Promise<string | null> {
-  if (!activeChangePath) return null;
-  const reviewPath = join(memory.memoryRoot, activeChangePath, "reviews", "review.md");
+async function readAcceptedReviewAuditId(evidenceRoot: string | null): Promise<string | null> {
+  if (!evidenceRoot) return null;
+  const reviewPath = join(evidenceRoot, "reviews", "review.md");
   if (!existsSync(reviewPath)) return null;
   const content = await readFile(reviewPath, "utf8");
   const match = /^\s*-?\s*Audit ID:\s*(\S+)\s*$/im.exec(content);

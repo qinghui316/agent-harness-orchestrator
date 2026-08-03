@@ -4,7 +4,7 @@ import { bindWorkflowRunToQueue } from "../workflow-run/manager.js";
 import type { ManagedProject, TaskQueueItem, TaskQueueRun, WorkflowRun } from "../types/index.js";
 import { writeTaskQueueItem, writeTaskQueueRun } from "./repository.js";
 
-interface CreateTaskQueueInput {
+export interface CreateTaskQueueInput {
   project: ManagedProject;
   memory: ProjectRunsPathPort;
   changeId: string;
@@ -15,7 +15,15 @@ interface CreateTaskQueueInput {
 }
 
 export async function createTaskQueueRunFromGraph(input: CreateTaskQueueInput): Promise<{ queue: TaskQueueRun; items: TaskQueueItem[] }> {
-  const now = new Date().toISOString();
+  const created = buildTaskQueueRunFromGraph(input);
+  await persistTaskQueueRunFromGraph(input.memory, input.workflow, created);
+  return created;
+}
+
+export function buildTaskQueueRunFromGraph(
+  input: Omit<CreateTaskQueueInput, "memory">,
+  now = new Date().toISOString(),
+): { queue: TaskQueueRun; items: TaskQueueItem[] } {
   const queueId = `queue-${now.replace(/[-:.TZ]/g, "").slice(0, 14)}-${shortHash(`${input.changeId}:${now}`)}`;
   const doneTasks = new Set(input.acceptedTasks.filter((task) => task.done).map((task) => task.id.toUpperCase()));
   const items: TaskQueueItem[] = input.graphItems.slice().sort((a, b) => a.order - b.order).map((task, index) => ({
@@ -50,8 +58,15 @@ export async function createTaskQueueRunFromGraph(input: CreateTaskQueueInput): 
     totalCount: items.filter((item) => item.status !== "skipped").length,
     completedCount: 0,
   };
-  await writeTaskQueueRun(input.memory, queue);
-  await Promise.all(items.map((item) => writeTaskQueueItem(input.memory, item)));
-  await bindWorkflowRunToQueue(input.memory, input.workflow, queue, items);
   return { queue, items };
+}
+
+export async function persistTaskQueueRunFromGraph(
+  memory: ProjectRunsPathPort,
+  workflow: WorkflowRun,
+  created: { queue: TaskQueueRun; items: TaskQueueItem[] },
+): Promise<void> {
+  await writeTaskQueueRun(memory, created.queue);
+  await Promise.all(created.items.map((item) => writeTaskQueueItem(memory, item)));
+  await bindWorkflowRunToQueue(memory, workflow, created.queue, created.items);
 }

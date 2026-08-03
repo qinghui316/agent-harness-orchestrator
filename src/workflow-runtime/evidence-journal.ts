@@ -2,10 +2,10 @@ import { existsSync } from "node:fs";
 import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { agentTaskRoot } from "../agent-task/paths.js";
+import type { AgentTaskPathPort } from "../agent-task/paths.js";
 import type { WorkflowRuntimeDecision, WorkflowRuntimeRole } from "./execution-contract.js";
 import { writeJsonFile } from "../fs/json.js";
 import { shortHash, slugify } from "../fs/path.js";
-import type { ResolvedMemory } from "../types/index.js";
 
 export type WorkflowRuntimeEvidenceEntrypoint =
   | "task-run"
@@ -162,7 +162,7 @@ export function createWorkflowRuntimeEvidenceRunId(changeId: string): string {
 }
 
 export async function ensureWorkflowRuntimeEvidenceRun(
-  memory: ResolvedMemory,
+  memory: AgentTaskPathPort,
   input: EnsureWorkflowRuntimeEvidenceRunInput,
 ): Promise<{ run: WorkflowRuntimeEvidenceRun; created: boolean }> {
   const runtimeRunId = input.runtimeRunId ?? createWorkflowRuntimeEvidenceRunId(input.changeId);
@@ -196,7 +196,7 @@ export async function ensureWorkflowRuntimeEvidenceRun(
 }
 
 export async function appendWorkflowRuntimeEvidenceEvent(
-  memory: ResolvedMemory,
+  memory: AgentTaskPathPort,
   run: WorkflowRuntimeEvidenceRun,
   input: WorkflowRuntimeEvidenceEventInput,
 ): Promise<WorkflowRuntimeEvidenceEvent> {
@@ -221,7 +221,7 @@ export async function appendWorkflowRuntimeEvidenceEvent(
 }
 
 export async function recordWorkflowRuntimeDecisionEvidence(
-  memory: ResolvedMemory,
+  memory: AgentTaskPathPort,
   run: WorkflowRuntimeEvidenceRun,
   input: RecordWorkflowRuntimeDecisionEvidenceInput,
 ): Promise<WorkflowRuntimeDecisionEvidence> {
@@ -260,7 +260,7 @@ export async function recordWorkflowRuntimeDecisionEvidence(
 }
 
 export async function finishWorkflowRuntimeEvidenceRun(
-  memory: ResolvedMemory,
+  memory: AgentTaskPathPort,
   run: WorkflowRuntimeEvidenceRun,
   input: {
     status: Exclude<WorkflowRuntimeEvidenceRunStatus, "running">;
@@ -291,7 +291,7 @@ export async function finishWorkflowRuntimeEvidenceRun(
   return finished;
 }
 
-export async function readWorkflowRuntimeEvidenceRun(memory: ResolvedMemory, runtimeRunId: string): Promise<WorkflowRuntimeEvidenceRun | null> {
+export async function readWorkflowRuntimeEvidenceRun(memory: AgentTaskPathPort, runtimeRunId: string): Promise<WorkflowRuntimeEvidenceRun | null> {
   const path = workflowRuntimeEvidenceRunPath(memory, runtimeRunId);
   try {
     if (!existsSync(path)) return null;
@@ -302,7 +302,7 @@ export async function readWorkflowRuntimeEvidenceRun(memory: ResolvedMemory, run
   }
 }
 
-export async function readWorkflowRuntimeEvidenceEvents(memory: ResolvedMemory, runtimeRunId: string): Promise<WorkflowRuntimeEvidenceEvent[]> {
+export async function readWorkflowRuntimeEvidenceEvents(memory: AgentTaskPathPort, runtimeRunId: string): Promise<WorkflowRuntimeEvidenceEvent[]> {
   const path = workflowRuntimeEvidenceEventsPath(memory, runtimeRunId);
   try {
     if (!existsSync(path)) return [];
@@ -319,7 +319,7 @@ export async function readWorkflowRuntimeEvidenceEvents(memory: ResolvedMemory, 
   }
 }
 
-export async function readWorkflowRuntimeDecisionEvidence(memory: ResolvedMemory, runtimeRunId: string): Promise<WorkflowRuntimeDecisionEvidence[]> {
+export async function readWorkflowRuntimeDecisionEvidence(memory: AgentTaskPathPort, runtimeRunId: string): Promise<WorkflowRuntimeDecisionEvidence[]> {
   const path = workflowRuntimeDecisionEvidencePath(memory, runtimeRunId);
   try {
     if (!existsSync(path)) return [];
@@ -336,23 +336,23 @@ export async function readWorkflowRuntimeDecisionEvidence(memory: ResolvedMemory
   }
 }
 
-function workflowRuntimeEvidenceRoot(memory: ResolvedMemory): string {
+function workflowRuntimeEvidenceRoot(memory: AgentTaskPathPort): string {
   return join(agentTaskRoot(memory), "workflow-runtime-runs");
 }
 
-function workflowRuntimeEvidenceRunRoot(memory: ResolvedMemory, runtimeRunId: string): string {
+function workflowRuntimeEvidenceRunRoot(memory: AgentTaskPathPort, runtimeRunId: string): string {
   return join(workflowRuntimeEvidenceRoot(memory), runtimeRunId);
 }
 
-export function workflowRuntimeEvidenceRunPath(memory: ResolvedMemory, runtimeRunId: string): string {
+export function workflowRuntimeEvidenceRunPath(memory: AgentTaskPathPort, runtimeRunId: string): string {
   return join(workflowRuntimeEvidenceRunRoot(memory, runtimeRunId), "runtime.json");
 }
 
-export function workflowRuntimeEvidenceEventsPath(memory: ResolvedMemory, runtimeRunId: string): string {
+export function workflowRuntimeEvidenceEventsPath(memory: AgentTaskPathPort, runtimeRunId: string): string {
   return join(workflowRuntimeEvidenceRunRoot(memory, runtimeRunId), "events.jsonl");
 }
 
-export function workflowRuntimeDecisionEvidencePath(memory: ResolvedMemory, runtimeRunId: string): string {
+export function workflowRuntimeDecisionEvidencePath(memory: AgentTaskPathPort, runtimeRunId: string): string {
   return join(workflowRuntimeEvidenceRunRoot(memory, runtimeRunId), "decisions.jsonl");
 }
 
