@@ -1,18 +1,18 @@
 import { agentThreadSurfaceId } from "../provider-runtime/agent-surface-id.js";
 import type { ProviderUserInputRequest } from "../provider-runtime/index.js";
-import type { ResolvedMemory } from "../types/index.js";
-import { openWorkbenchDatabase } from "./persistence/open-workbench-database.js";
+import type { ProjectWorkbenchPathPort } from "../project-runtime/paths.js";
+import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbench-database.js";
 import type { CanonicalTimelineEnvelope } from "./canonical-timeline-contract.js";
 import { CanonicalTimelineDelivery, type CanonicalTimelinePublisher } from "./canonical-timeline-delivery.js";
 import { toCanonicalTimelineMessage } from "./canonical-timeline-message.js";
 import type { TopicThreadEntry, WorkbenchProviderUserInputRequest } from "./types.js";
 
 export async function persistProviderUserInputRequest(
-  memory: ResolvedMemory,
+  runtime: ProjectWorkbenchPathPort,
   request: WorkbenchProviderUserInputRequest,
   publisher?: CanonicalTimelinePublisher,
 ): Promise<CanonicalTimelineEnvelope> {
-  if (!memory.projectId || !request.conversationId) throw new Error("Provider user input requires a project conversation.");
+  if (!request.conversationId) throw new Error("Provider user input requires a project conversation.");
   const agentSurfaceId = request.agentRoleId && request.agentRoleId !== "main-agent"
     ? request.threadId?.trim()
       ? agentThreadSurfaceId(request.providerId, request.threadId)
@@ -36,9 +36,9 @@ export async function persistProviderUserInputRequest(
     status: request.status,
     providerUserInput: request,
   };
-  const database = await openWorkbenchDatabase(memory);
+  const database = await openProjectRuntimeWorkbenchDatabase(runtime);
   try {
-    return new CanonicalTimelineDelivery(database, publisher).append(toCanonicalTimelineMessage(memory.projectId, request.conversationId, entry));
+    return new CanonicalTimelineDelivery(database, publisher).append(toCanonicalTimelineMessage(runtime.projectId, request.conversationId, entry));
   } finally {
     database.close();
   }

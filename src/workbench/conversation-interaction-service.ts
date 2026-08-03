@@ -1,11 +1,13 @@
 import { defaultProviderRegistry } from "../provider-runtime/index.js";
-import { resolveProjectMemory } from "../memory/resolver.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
+import { resolveProjectRuntimeState } from "../project-runtime/coordinator.js";
+import type { ProjectRuntimeResolution } from "../project-runtime/context.js";
 import type { ManagedProject } from "../types/index.js";
 import { answerClarification, skipClarification, type ClarificationAnswer } from "./intake.js";
 import { postConversationMessage } from "./conversation-service.js";
 import { planHandoffUserMessage } from "./plan-handoff.js";
 import { resolveConversationInteraction } from "./conversation-interactions.js";
-import { openWorkbenchDatabase } from "./persistence/open-workbench-database.js";
+import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbench-database.js";
 import { CanonicalTimelineDelivery } from "./canonical-timeline-delivery.js";
 import type { ConversationInteractionQuestion, ConversationInteractionSettlement } from "./conversation-interaction-contract.js";
 import type { PlanHandoffIntentKind, WorkbenchLiveSink } from "./types.js";
@@ -20,9 +22,8 @@ export async function settleConversationInteraction(
   settlement: ConversationInteractionSettlement,
   live?: WorkbenchLiveSink,
 ): Promise<unknown> {
-  const memory = await resolveProjectMemory(project);
-  if (!memory.projectId) throw new Error("Project id is required to settle a conversation interaction.");
-  const resolved = await resolveConversationInteraction(memory, conversationId, interactionId);
+  const runtime = await requireReadyProjectRuntime(project);
+  const resolved = await resolveConversationInteraction(runtime.paths, conversationId, interactionId);
   if (resolved.kind === "provider-input") {
     return settleProviderInput(project, conversationId, interactionId, resolved, settlement, live);
   }
@@ -185,14 +186,14 @@ async function transitionProviderRequest(
   settlement?: { publicAnswers?: Record<string, string | string[]>; skippedQuestionIds?: string[]; disposition?: "answered" | "skipped" },
   live?: WorkbenchLiveSink,
 ): Promise<void> {
-  const memory = await resolveProjectMemory(project);
-  if (!memory.projectId) throw new Error("Project id is required to persist an interaction settlement.");
-  const store = await openWorkbenchDatabase(memory);
+  const runtime = await requireReadyProjectRuntime(project);
+  const projectId = runtime.harness.projectId;
+  const store = await openProjectRuntimeWorkbenchDatabase(runtime.paths);
   try {
-    const transition = store.interactions.transitionProviderUserInputRequest(memory.projectId, conversationId, requestKey, expectedStatus, nextStatus, settlement, new Date().toISOString());
+    const transition = store.interactions.transitionProviderUserInputRequest(projectId, conversationId, requestKey, expectedStatus, nextStatus, settlement, new Date().toISOString());
     new CanonicalTimelineDelivery(store, live).publishCommitted(transition.row);
-    const graphScopeId = store.conversations.readConversation(memory.projectId, conversationId)?.currentGraphScopeId;
-    publishAgentSurfacesInvalidated(memory.projectId, {
+    const graphScopeId = store.conversations.readConversation(projectId, conversationId)?.currentGraphScopeId;
+    publishAgentSurfacesInvalidated(projectId, {
       conversationId,
       graphScopeId: graphScopeId ?? undefined,
       reason: "interaction-updated",
@@ -200,6 +201,16 @@ async function transitionProviderRequest(
   } finally {
     store.close();
   }
+}
+
+async function requireReadyProjectRuntime(project: ManagedProject): Promise<ProjectRuntimeResolution> {
+  const state = await resolveProjectRuntimeState(project, {
+    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+  });
+  if (state.state !== "ready") {
+    throw new Error(`Project Harness is not ready for conversation interaction settlement: ${state.state}.`);
+  }
+  return state.resolution;
 }
 
 function badRequest(message: string): Error {

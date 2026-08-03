@@ -2,8 +2,12 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, rmdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { gitTextWithEnv, gitRawWithEnv } from "../project/git.js";
+import type { ProjectRunsPathPort } from "../project-runtime/paths.js";
+import type { WorktreeIndexPort } from "../worktree/paths.js";
 import { getWorktreeStatus } from "../worktree/status.js";
-import type { ResolvedMemory, WorktreeStatus } from "../types/index.js";
+import type { WorktreeStatus } from "../types/index.js";
+
+export type WorktreeDiffPort = ProjectRunsPathPort & WorktreeIndexPort;
 
 export interface WorktreeDiffResult {
   worktree: WorktreeStatus;
@@ -14,7 +18,7 @@ export interface WorktreeDiffResult {
   expectedTree: string;
 }
 
-export async function collectWorktreeDiff(memory: ResolvedMemory, worktreeId: string, expectedChangeId: string): Promise<WorktreeDiffResult> {
+export async function collectWorktreeDiff(memory: WorktreeDiffPort, worktreeId: string, expectedChangeId: string): Promise<WorktreeDiffResult> {
   const worktree = await getWorktreeStatus(memory, worktreeId);
   if (worktree.changeId !== expectedChangeId) {
     throw new Error(`Worktree ${worktreeId} belongs to change ${worktree.changeId}, not ${expectedChangeId}.`);

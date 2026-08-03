@@ -6,6 +6,10 @@ import { parseJsonText, writeJsonFile } from "../fs/json.js";
 import { resolveProjectMemory } from "../memory/resolver.js";
 import { getMemoryStatus } from "../memory/status.js";
 import { getProjectStatus } from "../project/status.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
+import { resolveProjectRuntimeState } from "../project-runtime/coordinator.js";
+import type { ProjectRuntimeResolution } from "../project-runtime/context.js";
+import type { ProjectWorkbenchPathPort } from "../project-runtime/paths.js";
 import { appendRunEvent, buildRunId, displayArtifactPath } from "../run/manager.js";
 import { listRuns } from "../run/manager.js";
 import { listAuditResults, summarizeAudit } from "../audit/artifacts.js";
@@ -171,12 +175,15 @@ export async function runIntakeScan(project: ManagedProject, changeId: string, p
 }
 
 export async function reanalyzeIntake(project: ManagedProject, changeId: string, message: string): Promise<{ iteration: WorkbenchIntakeIteration; clarification: ClarificationRequest | null }> {
-  const memory = await resolveProjectMemory(project);
+  const [memory, runtime] = await Promise.all([
+    resolveProjectMemory(project),
+    requireReadyProjectRuntime(project),
+  ]);
   assertActiveTopic(memory, changeId);
-  const state = await readIntakeState(memory, changeId);
+  const state = await readIntakeState(runtime.paths, changeId);
   const now = new Date().toISOString();
   const constraints = mergeConstraints(state.latestIteration?.confirmedConstraints ?? [], extractConstraints(message));
-  const goal = firstUserGoal(await readConversationThread(memory, `harness/changes/active/${changeId}`), message);
+  const goal = firstUserGoal(await readConversationThread(runtime.paths, changeId), message);
   const related = state.latestScan?.candidateFiles.slice(0, 5) ?? [];
   const openQuestions = buildOpenQuestions(message, constraints, state.latestScan);
   const assumptions = buildAssumptions(state.latestScan);
@@ -204,9 +211,12 @@ export async function reanalyzeIntake(project: ManagedProject, changeId: string,
 }
 
 export async function answerClarification(project: ManagedProject, changeId: string, clarificationId: string, answers: ClarificationAnswer[]): Promise<{ clarification: ClarificationRequest; iteration: WorkbenchIntakeIteration }> {
-  const memory = await resolveProjectMemory(project);
+  const [memory, runtime] = await Promise.all([
+    resolveProjectMemory(project),
+    requireReadyProjectRuntime(project),
+  ]);
   assertActiveTopic(memory, changeId);
-  const state = await readIntakeState(memory, changeId);
+  const state = await readIntakeState(runtime.paths, changeId);
   const existing = state.clarifications.find((item) => item.id === clarificationId);
   if (!existing) throw new Error(`Clarification not found: ${clarificationId}`);
   if (existing.status !== "pending") throw new Error(`Clarification is not pending: ${clarificationId}`);
@@ -222,9 +232,12 @@ export async function answerClarification(project: ManagedProject, changeId: str
 }
 
 export async function skipClarification(project: ManagedProject, changeId: string, clarificationId: string): Promise<{ clarification: ClarificationRequest }> {
-  const memory = await resolveProjectMemory(project);
+  const [memory, runtime] = await Promise.all([
+    resolveProjectMemory(project),
+    requireReadyProjectRuntime(project),
+  ]);
   assertActiveTopic(memory, changeId);
-  const state = await readIntakeState(memory, changeId);
+  const state = await readIntakeState(runtime.paths, changeId);
   const existing = state.clarifications.find((item) => item.id === clarificationId);
   if (!existing) throw new Error(`Clarification not found: ${clarificationId}`);
   const skipped: ClarificationRequest = { ...existing, status: "skipped", answeredAt: new Date().toISOString() };
@@ -236,15 +249,8 @@ export async function skipClarification(project: ManagedProject, changeId: strin
   return { clarification: skipped };
 }
 
-export async function readIntakeState(memory: ResolvedMemory, changeId: string): Promise<IntakeState> {
-  const entries = await readConversationThread(memory, `harness/changes/active/${changeId}`).catch(async () => {
-    const allRoots = ["active", "archive"];
-    for (const root of allRoots) {
-      const path = `harness/changes/${root}/${changeId}`;
-      if (existsSync(join(memory.memoryRoot, path))) return readConversationThread(memory, path);
-    }
-    return [] as TopicThreadEntry[];
-  });
+export async function readIntakeState(runtime: ProjectWorkbenchPathPort, changeId: string): Promise<IntakeState> {
+  const entries = await readConversationThread(runtime, changeId);
   let latestScan: WorkbenchIntakeScan | undefined;
   let latestIteration: WorkbenchIntakeIteration | undefined;
   const clarifications = new Map<string, ClarificationRequest>();
@@ -256,6 +262,16 @@ export async function readIntakeState(memory: ResolvedMemory, changeId: string):
     if (isClarificationRequest(clarification)) clarifications.set(clarification.id, clarification);
   }
   return { latestScan, latestIteration, clarifications: [...clarifications.values()] };
+}
+
+async function requireReadyProjectRuntime(project: ManagedProject): Promise<ProjectRuntimeResolution> {
+  const state = await resolveProjectRuntimeState(project, {
+    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+  });
+  if (state.state !== "ready") {
+    throw new Error(`Project Harness is not ready for Workbench intake: ${state.state}.`);
+  }
+  return state.resolution;
 }
 
 async function buildIntakeScan(project: ManagedProject, memory: ResolvedMemory, changeId: string, runId: string, prompt: string): Promise<WorkbenchIntakeScan> {

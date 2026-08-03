@@ -1,7 +1,8 @@
-import { assertWritableMemory } from "../memory/resolver.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
+import { resolveProjectRuntimeState } from "../project-runtime/coordinator.js";
 import type { ManagedProject } from "../types/index.js";
-import { resolveTopic } from "./topic-resolver.js";
-import { openWorkbenchDatabase } from "./persistence/open-workbench-database.js";
+import { resolveProjectHarnessTopic } from "./topic-resolver.js";
+import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbench-database.js";
 import type { CanonicalTimelineEnvelope } from "./canonical-timeline-contract.js";
 import { CanonicalTimelineDelivery } from "./canonical-timeline-delivery.js";
 import { toCanonicalTimelineMessage } from "./canonical-timeline-message.js";
@@ -17,15 +18,16 @@ export async function openCanonicalTimelineWriter(
   changeId: string,
   live?: WorkbenchLiveSink,
 ): Promise<CanonicalTimelineWriter> {
-  const { memory } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "Topic thread update");
-  const database = await openWorkbenchDatabase(memory);
-  const conversation = database.conversations.findConversationForChange(project.id, changeId);
+  const state = await requireReadyRuntime(project);
+  await resolveProjectHarnessTopic(state.resolution, changeId);
+  const database = await openProjectRuntimeWorkbenchDatabase(state.resolution.paths);
+  const projectId = state.resolution.harness.projectId;
+  const conversation = database.conversations.findConversationForChange(projectId, changeId);
   if (!conversation) {
     database.close();
     throw new Error(`Change ${changeId} is not bound to a Demand Conversation.`);
   }
-  const graphScopeId = database.conversations.findGraphScopeForChange(project.id, changeId) ?? undefined;
+  const graphScopeId = database.conversations.findGraphScopeForChange(projectId, changeId) ?? undefined;
   const delivery = new CanonicalTimelineDelivery(database, live);
   return {
     upsert(entry) {
@@ -35,7 +37,7 @@ export async function openCanonicalTimelineWriter(
         changeId,
         graphScopeId: entry.graphScopeId ?? graphScopeId,
       };
-      return delivery.upsert(toCanonicalTimelineMessage(project.id, conversation.conversationId, canonical));
+      return delivery.upsert(toCanonicalTimelineMessage(projectId, conversation.conversationId, canonical));
     },
     close: () => database.close(),
   };
@@ -47,10 +49,11 @@ export async function appendCanonicalTimelineEntry(
   input: Omit<TopicThreadEntry, "id" | "timestamp" | "changeId">,
   live?: WorkbenchLiveSink,
 ): Promise<CanonicalTimelineEnvelope> {
-  const { memory } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "Topic thread update");
-  const database = await openWorkbenchDatabase(memory);
-  const conversation = database.conversations.findConversationForChange(project.id, changeId);
+  const state = await requireReadyRuntime(project);
+  await resolveProjectHarnessTopic(state.resolution, changeId);
+  const database = await openProjectRuntimeWorkbenchDatabase(state.resolution.paths);
+  const projectId = state.resolution.harness.projectId;
+  const conversation = database.conversations.findConversationForChange(projectId, changeId);
   if (!conversation) {
     database.close();
     throw new Error(`Change ${changeId} is not bound to a Demand Conversation.`);
@@ -60,12 +63,20 @@ export async function appendCanonicalTimelineEntry(
     timestamp: new Date().toISOString(),
     conversationId: conversation.conversationId,
     changeId,
-    graphScopeId: database.conversations.findGraphScopeForChange(project.id, changeId) ?? undefined,
+    graphScopeId: database.conversations.findGraphScopeForChange(projectId, changeId) ?? undefined,
     ...input,
   };
   try {
-    return new CanonicalTimelineDelivery(database, live).append(toCanonicalTimelineMessage(project.id, conversation.conversationId, entry));
+    return new CanonicalTimelineDelivery(database, live).append(toCanonicalTimelineMessage(projectId, conversation.conversationId, entry));
   } finally {
     database.close();
   }
+}
+
+async function requireReadyRuntime(project: ManagedProject) {
+  const state = await resolveProjectRuntimeState(project, {
+    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+  });
+  if (state.state !== "ready") throw new Error(`Project Harness is not ready for Timeline writes: ${state.state}.`);
+  return state;
 }

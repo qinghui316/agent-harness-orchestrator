@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
+import { resolveProjectRuntimeState } from "../project-runtime/coordinator.js";
+import type { ProjectRuntimeResolution } from "../project-runtime/context.js";
+import type { ProjectWorkbenchPathPort } from "../project-runtime/paths.js";
 import { listRuns } from "../run/manager.js";
-import type { ManagedProject, ResolvedMemory, RunMetadata } from "../types/index.js";
+import type { ManagedProject, RunMetadata } from "../types/index.js";
 import { buildMainAgentExecutionContext } from "./main-agent-context.js";
 import { runWorkbenchWorkflowActionService } from "./actions/service.js";
 import { artifactForActionResult, extractRunId, labelForAction, summarizeActionResult, workflowFailureMessage } from "./actions/results.js";
@@ -11,10 +13,10 @@ import { dispatchWorkbenchWorkflowAction } from "./actions/dispatcher.js";
 import { buildWorkbenchActionHandlers } from "./actions/handlers/index.js";
 import { recordWorkbenchDecision } from "./decisions.js";
 import { createAssistantTranscriptCapture } from "./live-transcript.js";
-import { getSingleActiveChangeId, resolveTopic } from "./topic-resolver.js";
+import { getSingleActiveChangeId, resolveProjectHarnessTopic } from "./topic-resolver.js";
 import { openCanonicalTimelineWriter } from "./canonical-timeline-command.js";
 import { collectAllConversationThreadEntries, readConversationThread as readThreadLog } from "./conversation-thread-log.js";
-import { openWorkbenchDatabase } from "./persistence/open-workbench-database.js";
+import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbench-database.js";
 import { resolveConversationId } from "./conversation-identity.js";
 import type { TopicMessageResult, TopicThreadEntry, ValidatedPlanHandoffIntent, WorkbenchLiveSink, WorkbenchWorkflowActionRequest, WorkbenchWorkflowActionResult, WorkbenchWorkflowActionType } from "./types.js";
 
@@ -42,12 +44,13 @@ const PROJECT_SCOPED_WORKFLOW_ACTIONS = new Set<WorkbenchWorkflowActionType>([
 ]);
 
 export async function listTopicMessages(project: ManagedProject, changeId: string): Promise<TopicThreadEntry[]> {
-  const { memory, changePath } = await resolveTopic(project, changeId);
-  return readThreadLog(memory, changePath);
+  const resolution = await requireReadyProjectRuntime(project);
+  await resolveProjectHarnessTopic(resolution, changeId);
+  return readThreadLog(resolution.paths, changeId);
 }
 
-export async function readConversationThread(memory: ResolvedMemory, changePath: string): Promise<TopicThreadEntry[]> {
-  return readThreadLog(memory, changePath);
+export async function readConversationThread(runtime: ProjectWorkbenchPathPort, changeId: string): Promise<TopicThreadEntry[]> {
+  return readThreadLog(runtime, changeId);
 }
 
 export async function runWorkbenchWorkflowAction(
@@ -95,22 +98,33 @@ export async function resumeNativeGoalAfterAction(input: {
   status: "completed" | "failed";
   result: unknown;
 }, ports: WorkflowConversationPorts): Promise<void> {
-  const { memory, changePath } = await resolveTopic(input.project, input.changeId);
+  const resolution = await requireReadyProjectRuntime(input.project);
+  await resolveProjectHarnessTopic(resolution, input.changeId);
   const conversationId = await resolveConversationId(input.project, input.changeId);
-  if (!memory.projectId) return;
-  const database = await openWorkbenchDatabase(memory);
+  const projectId = resolution.harness.projectId;
+  const database = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
+  let graphScopeId: string | null = null;
   try {
-    const conversation = database.conversations.readConversation(memory.projectId, conversationId);
-    const link = conversation ? database.providerAttempts.readProviderThread(memory.projectId, conversationId, conversation.selectedProviderId, "main-agent") : null;
-    const attempt = link ? database.providerAttempts.readProviderAttempt(memory.projectId, link.attemptId) : null;
+    const conversation = database.conversations.readConversation(projectId, conversationId);
+    const link = conversation ? database.providerAttempts.readProviderThread(projectId, conversationId, conversation.selectedProviderId, "main-agent") : null;
+    const attempt = link ? database.providerAttempts.readProviderAttempt(projectId, link.attemptId) : null;
     if (!link || attempt?.operationProfile !== "main" || attempt.roleId !== "main-agent") return;
+    graphScopeId = conversation?.currentGraphScopeId ?? null;
   } finally {
     database.close();
   }
-  const entries = await readThreadLog(memory, changePath);
+  if (!graphScopeId) throw new Error("Native Goal continuation requires the current Conversation graph scope.");
+  const entries = await readThreadLog(resolution.paths, input.changeId);
   const actionStartedIndex = entries.findIndex((entry) => entry.actionRunId === input.actionRunId && entry.type === "workflow.started");
   if (actionStartedIndex >= 0 && entries.slice(actionStartedIndex + 1).some((entry) => entry.actionType === "conversation.interrupt" && entry.type === "workflow.started")) return;
-  const context = await buildMainAgentExecutionContext(input.project, memory, input.changeId, `Workflow action ${input.actionType} ${input.status}.`);
+  const context = await buildMainAgentExecutionContext(
+    input.project,
+    resolution,
+    conversationId,
+    graphScopeId,
+    input.changeId,
+    `Workflow action ${input.actionType} ${input.status}.`,
+  );
   const evidenceHash = createHash("sha256").update(stableJson(input.result)).digest("hex");
   await requireContinueMainAgentTurn(ports)(
     input.project,
@@ -135,21 +149,20 @@ export async function resumeNativeGoalAfterAction(input: {
 }
 
 export async function getWorkbenchActionEvents(project: ManagedProject, actionRunId: string): Promise<TopicThreadEntry[]> {
-  const memory = await import("../memory/resolver.js").then(({ resolveProjectMemory }) => resolveProjectMemory(project));
-  if (!existsSync(join(memory.changesRoot, "active"))) return [];
-  return (await collectAllConversationThreadEntries(memory)).filter((entry) => entry.actionRunId === actionRunId);
+  const resolution = await requireReadyProjectRuntime(project);
+  return (await collectAllConversationThreadEntries(resolution.paths)).filter((entry) => entry.actionRunId === actionRunId);
 }
 
 async function findRunningRunForChange(project: ManagedProject, changeId: string): Promise<RunMetadata | null> {
-  const { resolveProjectMemory } = await import("../memory/resolver.js");
-  const memory = await resolveProjectMemory(project);
-  const runs = await listRuns(memory).catch(() => []);
+  const resolution = await requireReadyProjectRuntime(project);
+  const runs = await listRuns(resolution.paths).catch(() => []);
   return runs.find((run) => run.changeId === changeId && (run.status === "created" || run.status === "running")) ?? null;
 }
 
 async function readWorkflowActionThreadEntries(project: ManagedProject, changeId: string): Promise<TopicThreadEntry[]> {
-  const { memory, changePath } = await resolveTopic(project, changeId);
-  return readThreadLog(memory, changePath);
+  const resolution = await requireReadyProjectRuntime(project);
+  await resolveProjectHarnessTopic(resolution, changeId);
+  return readThreadLog(resolution.paths, changeId);
 }
 
 async function resolveWorkflowActionChangeId(project: ManagedProject, request: WorkbenchWorkflowActionRequest): Promise<string> {
@@ -203,6 +216,16 @@ function requireContinueMainAgentTurn(ports: WorkflowConversationPorts): NonNull
   return ports.continueMainAgentTurn ?? (async () => {
     throw new Error("Workflow action requires the Main Agent continuation port.");
   });
+}
+
+async function requireReadyProjectRuntime(project: ManagedProject): Promise<ProjectRuntimeResolution> {
+  const state = await resolveProjectRuntimeState(project, {
+    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+  });
+  if (state.state !== "ready") {
+    throw new Error(`Project Harness is not ready for Workflow action: ${state.state}.`);
+  }
+  return state.resolution;
 }
 
 function stableJson(value: unknown): string {

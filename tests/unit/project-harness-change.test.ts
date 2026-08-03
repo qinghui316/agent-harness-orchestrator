@@ -103,6 +103,42 @@ describe("project Harness Change", () => {
     expect((await readProjectHarnessLane(second))?.repository_lane_id).toBe("lane-single");
   });
 
+  it("detects contract conflicts across non-Git conversation Lanes", async () => {
+    const fixture = await createFixture();
+    const first = { ...fixture.context("unused"), mode: "single_lane" as const, branch: null };
+    first.lane = projectHarnessConversationLane("conversation-a", "graph-a");
+    const second = { ...fixture.context("unused"), mode: "single_lane" as const, branch: null };
+    second.lane = projectHarnessConversationLane("conversation-b", "graph-b");
+    await createProjectHarnessChange(first, { changeId: "non-git-contract-a" });
+    await publishProjectHarnessChange(first, {
+      changeId: "non-git-contract-a",
+      status: "active",
+      paths: ["src/first.ts"],
+      contract: contract("shared-planning-publication", "first-owner"),
+    });
+    await createProjectHarnessChange(second, { changeId: "non-git-contract-b" });
+    await publishProjectHarnessChange(second, {
+      changeId: "non-git-contract-b",
+      status: "active",
+      paths: ["src/second.ts"],
+      contract: contract("shared-planning-publication", "second-owner"),
+    });
+
+    const result = await preflightProjectHarnessChange(second, {
+      changeId: "non-git-contract-b",
+      sourceSnapshot: emptySnapshot,
+    });
+
+    expect(result.conflicts).toEqual([
+      expect.objectContaining({
+        type: "contract",
+        other_change_id: "non-git-contract-a",
+        relationship: "same_subject",
+      }),
+    ]);
+    expect(result.action).toBe("replan");
+  });
+
   it("accepts multiline task evidence and rejects the retired Plan approved review field", async () => {
     const fixture = await createFixture();
     const context = fixture.context("lane-evidence");
@@ -448,4 +484,19 @@ async function writeTemplates(skillRoot: string): Promise<void> {
     ].join("\n"), "utf8"),
     writeFile(join(root, "review.md"), "# Review\n\n- Approved: yes\n", "utf8"),
   ]);
+}
+
+function contract(subject: string, ownerModule: string) {
+  return {
+    kind: "module_boundary" as const,
+    subject,
+    operation: "publish accepted planning evidence",
+    owner_module: ownerModule,
+    affected_paths: [],
+    consumers: ["workbench-planning"],
+    depends_on: [],
+    depends_on_changes: [],
+    compatibility: "single implementation",
+    status: "active" as const,
+  };
 }

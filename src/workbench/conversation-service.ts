@@ -1,18 +1,13 @@
-import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
 import { defaultProviderRegistry } from "../provider-runtime/index.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
-import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
-import { ensureProjectRuntime } from "../harness/init.js";
-import { readProjectMarker } from "../project/marker.js";
+import { readProjectHarnessChangeContext } from "../project-harness/change.js";
 import { resolveProjectRuntimeState, type ProjectRuntimeState } from "../project-runtime/coordinator.js";
 import type { ManagedProject } from "../types/index.js";
 import { resolveTopicAttachments } from "./attachments.js";
 import { resolveTopicFileReferences } from "./file-references.js";
 import { validatePlanHandoffIntent } from "./plan-handoff.js";
-import { hasPlanningExecutionEvidence } from "../change/manager.js";
-import { openWorkbenchDatabase } from "./persistence/open-workbench-database.js";
+import { hasPlanningExecutionEvidence } from "../project-runtime/planning-publication.js";
 import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbench-database.js";
 import type { StoredTopicMessage } from "./persistence/contracts.js";
 import { fromStoredThreadMessage } from "./conversation-thread-log.js";
@@ -27,7 +22,7 @@ import { publishAgentSurfacesInvalidated, publishProjectLiveEvent } from "./proj
 import { runExactChildAgentTurn } from "./provider-child-turn-coordinator.js";
 import { runProjectHarnessOnboardingTurn } from "./project-harness-onboarding-turn.js";
 import type { WorkbenchDatabase } from "./persistence/database.js";
-import type { ResolvedMemory } from "../types/index.js";
+import { createConversationGraphScopeId } from "./conversation-graph-scope.js";
 
 export async function createWorkbenchConversation(
   project: ManagedProject,
@@ -36,14 +31,13 @@ export async function createWorkbenchConversation(
   options: { runMainAgent?: boolean } = {},
 ): Promise<{ conversationId: string; title: string; state: "active" }> {
   const persistence = await openProjectConversationDatabase(project);
-  if (persistence.memory) assertWritableMemory(persistence.memory, "Workbench conversation");
   const resolved = await resolveTopicFileReferences(project, input.body ?? "", input.contextRefs);
   const attachments = await resolveTopicAttachments(project, input.attachmentIds);
   const title = deriveConversationTitle(resolved.text, attachments.length > 0);
   const body = resolved.text || defaultAttachmentMessage(attachments);
   const now = new Date().toISOString();
   const conversationId = `conv-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
-  const graphScopeId = createGraphScopeId(conversationId);
+  const graphScopeId = createConversationGraphScopeId(conversationId);
   const selectedProviderId = input.providerId
     ? defaultProviderRegistry.get(input.providerId).id
     : project.defaultProviderId
@@ -97,7 +91,6 @@ export async function updateWorkbenchConversationTitle(
   input: { title: string },
 ): Promise<{ id: string; title: string; state: string; updatedAt: string; selectedProviderId?: string }> {
   const persistence = await openProjectConversationDatabase(project);
-  if (persistence.memory) assertWritableMemory(persistence.memory, "Workbench conversation title");
   const title = normalizeConversationTitle(input.title);
   const updatedAt = new Date().toISOString();
   const database = persistence.database;
@@ -152,21 +145,17 @@ export async function postConversationMessage(
   live?: WorkbenchLiveSink,
 ): Promise<TopicMessageResult> {
   const parsed = await normalizeTopicMessageInput(project, input);
-  if (!await readProjectMarker(project.path)) {
-    const runtimeState = await resolveProjectRuntimeState(project, {
-      discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
-    });
-    if (runtimeState.state === "onboarding") {
-      return postProjectHarnessOnboardingMessage(project, runtimeState, conversationId, parsed, live);
-    }
-    if (runtimeState.state === "repair-required") {
-      throw new Error("Project Harness requires repair before planning or source execution.");
-    }
-    throw new Error("Skill-native project runtime consumers are not fully migrated yet; refusing to create legacy Harness state.");
+  const runtimeState = await resolveProjectRuntimeState(project, {
+    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+  });
+  if (runtimeState.state === "onboarding") {
+    return postProjectHarnessOnboardingMessage(project, runtimeState, conversationId, parsed, live);
   }
-  const memory = await ensureProjectRuntime(project);
-  assertWritableMemory(memory, "Workbench conversation");
-  if (!memory.projectId) throw new Error("Project id is required to post a conversation message.");
+  if (runtimeState.state === "repair-required") {
+    throw new Error("Project Harness requires repair before planning or source execution.");
+  }
+  const resolution = runtimeState.resolution;
+  const projectId = resolution.harness.projectId;
   conversationId = await resolveConversationId(project, conversationId);
   if (parsed.agentSurfaceId) {
     if (parsed.contextRefs?.length || parsed.attachments?.length || parsed.planHandoffIntent || parsed.providerId) {
@@ -177,7 +166,7 @@ export async function postConversationMessage(
     return runExactChildAgentTurn({ project, conversationId, agentSurfaceId: parsed.agentSurfaceId, message: parsed.message, live });
   }
   let providerSwitch: ProviderSwitchResult | null = null;
-  if (parsed.providerId) providerSwitch = await switchConversationProviderAtSafePoint({ project, memory, conversationId, targetProviderId: parsed.providerId });
+  if (parsed.providerId) providerSwitch = await switchConversationProviderAtSafePoint({ project, resolution, conversationId, targetProviderId: parsed.providerId });
   const now = new Date().toISOString();
   let user: TopicThreadEntry = {
     id: `user:${conversationId}:${Date.now().toString(36)}`,
@@ -191,45 +180,55 @@ export async function postConversationMessage(
   };
   let planHandoff: ValidatedPlanHandoffIntent | undefined;
   let storedUser: TopicThreadEntry = user;
-  const database = await openWorkbenchDatabase(memory);
+  const database = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
   try {
     const delivery = new CanonicalTimelineDelivery(database, live);
-    const conversation = database.conversations.readConversation(memory.projectId, conversationId);
+    const conversation = database.conversations.readConversation(projectId, conversationId);
     if (!conversation) throw new Error(`Conversation not found: ${conversationId}.`);
     planHandoff = validatePlanHandoffIntent(
-      database.timeline.listConversationMessages(memory.projectId, conversationId).map(fromStoredThreadMessage),
+      database.timeline.listConversationMessages(projectId, conversationId).map(fromStoredThreadMessage),
       parsed.planHandoffIntent,
     );
     const supersedingExecutedChange = Boolean(planHandoff?.kind === "revise-plan"
       && conversation.boundChangeId
-      && await hasPlanningExecutionEvidence(memory, conversation.boundChangeId));
+      && await hasPlanningExecutionEvidence({
+        projectId,
+        projectRoot: resolution.projectRoot,
+        runsRoot: resolution.paths.runsRoot,
+        workbenchRoot: resolution.paths.workbenchRoot,
+        worktreeMetadataRoot: resolution.paths.worktreeMetadataRoot,
+      }, conversation.boundChangeId));
     const completedBoundChange = Boolean(!planHandoff && conversation.boundChangeId
-      && !existsSync(join(memory.changesRoot, "active", conversation.boundChangeId)));
+      && await readProjectHarnessChangeContext(
+        resolution.harness.skillRoot,
+        conversation.boundChangeId,
+        false,
+      ).then((context) => context.evidence_state !== "active").catch(() => true));
     const terminalGraphScope = Boolean(conversation.currentGraphScopeId
-      && database.conversations.isConversationGraphScopeTerminal(memory.projectId, conversation.currentGraphScopeId));
+      && database.conversations.isConversationGraphScopeTerminal(projectId, conversation.currentGraphScopeId));
     const graphScopeId = !completedBoundChange && !supersedingExecutedChange && !terminalGraphScope && conversation.currentGraphScopeId
       ? conversation.currentGraphScopeId
-      : createGraphScopeId(conversationId);
+      : createConversationGraphScopeId(conversationId);
     if (graphScopeId !== conversation.currentGraphScopeId) {
-      delivery.publishCommittedMany(database.unitOfWork.startConversationGraphScope(memory.projectId, conversationId, graphScopeId, now));
-      publishAgentSurfacesInvalidated(memory.projectId, { conversationId, graphScopeId, reason: "scope-changed" });
+      delivery.publishCommittedMany(database.unitOfWork.startConversationGraphScope(projectId, conversationId, graphScopeId, now));
+      publishAgentSurfacesInvalidated(projectId, { conversationId, graphScopeId, reason: "scope-changed" });
     }
     user = { ...user, graphScopeId, completedTurnSequence: conversation.completedTurnSequence + 1 };
     storedUser = { ...user, planHandoff };
-    delivery.append(toCanonicalTimelineMessage(memory.projectId, conversationId, storedUser));
+    delivery.append(toCanonicalTimelineMessage(projectId, conversationId, storedUser));
     const proposalStatus = planHandoff?.kind === "revise-plan"
       ? "revision-requested"
       : planHandoff?.kind === "skip-plan" ? "skipped" : null;
     if (proposalStatus && planHandoff) {
-      delivery.publishCommitted(database.interactions.updatePlanningMessageStatus(memory.projectId, conversationId, planHandoff.sourceArtifact, proposalStatus));
-      publishAgentSurfacesInvalidated(memory.projectId, { conversationId, graphScopeId, reason: "interaction-updated" });
+      delivery.publishCommitted(database.interactions.updatePlanningMessageStatus(projectId, conversationId, planHandoff.sourceArtifact, proposalStatus));
+      publishAgentSurfacesInvalidated(projectId, { conversationId, graphScopeId, reason: "interaction-updated" });
     }
   } finally {
     database.close();
   }
   const assistant = await runProjectScopedMainAgentTurn(project, conversationId, parsed.message, live, planHandoff, { graphScopeId: storedUser.graphScopeId });
   if (providerSwitch && parsed.providerSwitchIntent === "resume-workflow") {
-    const request = await resolveProviderSwitchWorkflowResumeRequest({ project, memory, conversationId, switchResult: providerSwitch });
+    const request = await resolveProviderSwitchWorkflowResumeRequest({ project, resolution, conversationId, switchResult: providerSwitch });
     if (request) {
       await runWorkbenchWorkflowAction(project, request, live, {
         postConversationMessage,
@@ -241,9 +240,9 @@ export async function postConversationMessage(
 }
 
 export async function listConversationMessages(project: ManagedProject, conversationId: string): Promise<TopicThreadEntry[]> {
-  const persistence = await openProjectConversationDatabase(project, false);
+  const persistence = await openProjectConversationDatabase(project);
   if (!persistence.projectId) return [];
-  if (persistence.memory) conversationId = await resolveConversationId(project, conversationId);
+  if (persistence.runtimeState.state === "ready") conversationId = await resolveConversationId(project, conversationId);
   const database = persistence.database;
   try {
     return database.timeline.listConversationMessages(persistence.projectId, conversationId).map(fromStoredThreadMessage);
@@ -254,31 +253,18 @@ export async function listConversationMessages(project: ManagedProject, conversa
 
 async function openProjectConversationDatabase(
   project: ManagedProject,
-  initializeLegacy = true,
 ): Promise<{
   projectId: string;
   database: WorkbenchDatabase;
-  memory: ResolvedMemory | null;
-  runtimeState: ProjectRuntimeState | null;
+  runtimeState: ProjectRuntimeState;
 }> {
-  if (await readProjectMarker(project.path)) {
-    const memory = initializeLegacy ? await ensureProjectRuntime(project) : await resolveProjectMemory(project);
-    if (!memory.projectId) throw new Error("Project id is required for Workbench conversation storage.");
-    return {
-      projectId: memory.projectId,
-      database: await openWorkbenchDatabase(memory),
-      memory,
-      runtimeState: null,
-    };
-  }
   const runtimeState = await resolveProjectRuntimeState(project, {
     discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
   });
   const paths = runtimeState.state === "onboarding" ? runtimeState.paths : runtimeState.resolution.paths;
   return {
-    projectId: runtimeState.project.id,
+    projectId: paths.projectId,
     database: await openProjectRuntimeWorkbenchDatabase(paths),
-    memory: null,
     runtimeState,
   };
 }
@@ -343,10 +329,6 @@ async function normalizeTopicMessageInput(project: ManagedProject, input: string
     providerSwitchIntent: typeof input === "string" ? "conversation-only" : input.providerSwitchIntent ?? (input.providerId ? "resume-workflow" : "conversation-only"),
     agentSurfaceId: typeof input === "string" ? undefined : input.agentSurfaceId?.trim() || undefined,
   };
-}
-
-function createGraphScopeId(conversationId: string): string {
-  return `graph:${conversationId}:${Date.now().toString(36)}:${randomUUID().slice(0, 8)}`;
 }
 
 function defaultAttachmentMessage(attachments: TopicAttachment[]): string {

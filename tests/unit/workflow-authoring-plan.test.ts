@@ -6,7 +6,7 @@ import {
   type AuthoredWorkflowGraphCompileOptions,
   type WorkflowAuthoringPlan,
 } from "../../src/workflow-artifacts/manager.js";
-import { validatePlanningProposalArtifacts } from "../../src/change/manager.js";
+import { validatePlanningProposalArtifacts } from "../../src/project-harness/planning-publication.js";
 
 const references = {
   taskIds: ["T-001"],

@@ -18,6 +18,10 @@ export interface ProjectRuntimePaths {
 }
 
 export type ProjectRunsPathPort = Pick<ProjectRuntimePaths, "runsRoot">;
+export type ProjectWorkbenchPathPort = Pick<
+  ProjectRuntimePaths,
+  "projectId" | "workbenchDbPath" | "workbenchRoot"
+>;
 export type ProjectWorktreeMetadataPathPort = Pick<ProjectRuntimePaths, "worktreeMetadataRoot">;
 export type ProjectWorktreeIndexPathPort = Pick<ProjectRuntimePaths, "worktreeIndexPath">;
 

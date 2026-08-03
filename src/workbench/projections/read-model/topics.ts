@@ -14,9 +14,10 @@ import { listTaskRuns, listWorkerLeases } from "../../../task-run/manager.js";
 import { listValidationResults } from "../../../validation/artifacts.js";
 import { summarizeValidation } from "../../../validation/artifacts.js";
 import { listWorktreesForChange } from "../../../worktree/manager.js";
+import type { ProjectWorkbenchPathPort } from "../../../project-runtime/paths.js";
 import type { AcMap, ChangeIndexItem, ManagedProject, ResolvedMemory } from "../../../types/index.js";
 import type { WorkbenchTopicDetail, WorkbenchTopicState, WorkbenchTopicSummary } from "../../read-model-types.js";
-import { openWorkbenchDatabase } from "../../persistence/open-workbench-database.js";
+import { openProjectRuntimeWorkbenchDatabase } from "../../persistence/open-workbench-database.js";
 import { type StoredConversation } from "../../persistence/contracts.js";
 import { fromStoredThreadMessage, readRecentConversationThread } from "../../conversation-thread-log.js";
 import { buildThreadStream, buildThreadStreamFromMessages } from "./thread-stream.js";
@@ -54,9 +55,14 @@ export async function listWorkbenchTopicsFromMemory(memory: ResolvedMemory, opti
 
 async function listConversationTopics(memory: ResolvedMemory, options: ListWorkbenchTopicsOptions): Promise<WorkbenchTopicSummary[]> {
   if (!memory.projectId) return [];
-  const store = await openWorkbenchDatabase(memory);
+  const runtime: ProjectWorkbenchPathPort = {
+    projectId: memory.projectId,
+    workbenchDbPath: memory.workbenchDbPath,
+    workbenchRoot: memory.workbenchRoot,
+  };
+  const store = await openProjectRuntimeWorkbenchDatabase(runtime);
   try {
-    return store.conversations.listConversations(memory.projectId, options).map(conversationSummaryFromStore);
+    return store.conversations.listConversations(runtime.projectId, options).map(conversationSummaryFromStore);
   } finally {
     store.close();
   }
@@ -123,21 +129,28 @@ export async function selectTopicDetail(
     ? topics.find((item) => item.id === topicId || item.name === topicId || item.boundChangeId === topicId)
     : topics.find((item) => item.state === "active") ?? topics[0];
   if (!topic) return null;
+  const runtime: ProjectWorkbenchPathPort | null = memory.projectId
+    ? {
+        projectId: memory.projectId,
+        workbenchDbPath: memory.workbenchDbPath,
+        workbenchRoot: memory.workbenchRoot,
+      }
+    : null;
 
   if (topic.kind === "conversation") {
     const threadMode = options.threadMode ?? "full";
-    const messages = threadMode === "none" || !memory.projectId
+    const messages = threadMode === "none" || !runtime
       ? []
-      : await readConversationMessages(memory, topic.id, options.threadLimit ?? 100);
-    let threadItems = await buildThreadStreamFromMessages(memory, topic, messages, { includeChangeState: false });
+      : await readConversationMessages(runtime, topic.id, options.threadLimit ?? 100);
+    let threadItems = await buildThreadStreamFromMessages(topic, messages, { includeChangeState: false });
     if (topic.boundChangeId) {
       const boundTopic = await findChangeTopic(memory, topic.boundChangeId);
       const boundDetail = boundTopic
         ? await selectTopicDetail(project, memory, [boundTopic], boundTopic.id, { threadMode: "none" })
         : null;
-      if (boundDetail) {
+      if (boundDetail && runtime) {
         threadItems = await buildThreadStream(
-          memory,
+          runtime,
           topic,
           boundDetail.runs,
           boundDetail.validations,
@@ -202,10 +215,14 @@ export async function selectTopicDetail(
   const threadItems = threadMode === "none"
     ? []
     : threadMode === "latest"
-      ? await readRecentConversationThread(memory, topic.path, options.threadLimit ?? 100)
-        .then((entries) => buildThreadStreamFromMessages(memory, topic, entries, { includeChangeState: true }))
-        .catch(() => [])
-      : await buildThreadStream(memory, topic, runs, validations, audits, decisions);
+      ? runtime
+        ? await readRecentConversationThread(runtime, topic.id, options.threadLimit ?? 100)
+          .then((entries) => buildThreadStreamFromMessages(topic, entries, { includeChangeState: true }))
+          .catch(() => [])
+        : []
+      : runtime
+        ? await buildThreadStream(runtime, topic, runs, validations, audits, decisions)
+        : await buildThreadStreamFromMessages(topic, [], { includeChangeState: true });
   return {
     ...topic,
     change,
@@ -239,11 +256,10 @@ async function findChangeTopic(memory: ResolvedMemory, changeId: string): Promis
   return null;
 }
 
-async function readConversationMessages(memory: ResolvedMemory, conversationId: string, limit: number): Promise<import("../../types.js").TopicThreadEntry[]> {
-  if (!memory.projectId) return [];
-  const store = await openWorkbenchDatabase(memory);
+async function readConversationMessages(runtime: ProjectWorkbenchPathPort, conversationId: string, limit: number): Promise<import("../../types.js").TopicThreadEntry[]> {
+  const store = await openProjectRuntimeWorkbenchDatabase(runtime);
   try {
-    return store.timeline.listRecentSemanticMessages(memory.projectId, conversationId, Math.max(1, Math.min(500, limit))).map(fromStoredThreadMessage);
+    return store.timeline.listRecentSemanticMessages(runtime.projectId, conversationId, Math.max(1, Math.min(500, limit))).map(fromStoredThreadMessage);
   } finally {
     store.close();
   }

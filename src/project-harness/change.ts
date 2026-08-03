@@ -17,9 +17,11 @@ import {
   readBoundProjectHarnessRecords,
   readProjectHarnessBaseline,
   registryClaimsOverlap,
+  restoreProjectHarnessLane,
   withRegistryClaimLock,
   type GitAncestryProbe,
   type ProjectHarnessBaselineRelation,
+  type ProjectHarnessLaneRecord,
   type ProjectHarnessRegistryContext,
 } from "./registry.js";
 
@@ -154,6 +156,7 @@ export interface ProjectHarnessChangePreflightResult {
 export interface CreateProjectHarnessChangeInput {
   changeId: string;
   scope?: string;
+  claimToken?: string;
   now?: () => string;
   failureInjection?: (stage: "record-claimed" | "evidence-created" | "lane-claimed") => void | Promise<void>;
 }
@@ -259,7 +262,8 @@ export async function createProjectHarnessChange(
     const root = await changesRoot(context.skillRoot, true);
     const evidenceRoot = await resolveWithinPhysicalRoot(root, `active/${changeId}`, "active Change evidence");
     if (existsSync(evidenceRoot)) throw new Error(`Active Change evidence already exists: ${changeId}.`);
-    const claimToken = randomBytes(16).toString("hex");
+    const claimToken = input.claimToken ?? randomBytes(16).toString("hex");
+    if (!/^[a-f0-9]{32}$/i.test(claimToken)) throw new Error("Change claim token must be 32 hexadecimal characters.");
     const createdAt = now();
     const record: ProjectHarnessChangeRecord = {
       schema_version: "1.0",
@@ -358,7 +362,7 @@ export async function preflightProjectHarnessChange(
       (other.status === "completed" ? historicalOverlaps : conflicts).push(finding);
     }
   }
-  if (context.mode === "multi_lane" && currentContract) {
+  if (isConcurrentLaneContext(context) && currentContract) {
     for (const otherContract of await listProjectHarnessContracts(context.skillRoot)) {
       if (otherContract.change_id === current.change_id || ["retired", "integrated"].includes(otherContract.status)) continue;
       const other = await loadProjectHarnessChange(context.skillRoot, otherContract.change_id, false);
@@ -584,6 +588,66 @@ export async function readProjectHarnessChangeEvidence(
     files,
     content_fingerprint: fingerprint.digest("hex"),
   };
+}
+
+export async function resolveProjectHarnessChangeEvidenceRoot(
+  skillRoot: string,
+  state: "active" | "parking" | "archive",
+  changeId: string,
+): Promise<string> {
+  return changeEvidencePath(skillRoot, state, changeId, false);
+}
+
+export async function initializeProjectHarnessChangeEvidence(
+  skillRoot: string,
+  targetRoot: string,
+  changeId: string,
+): Promise<void> {
+  const parent = await assertPhysicalDirectory(dirname(targetRoot), "Change evidence staging parent");
+  const target = await resolveWithinPhysicalRoot(parent, relative(parent, targetRoot), "Change evidence staging root");
+  if (existsSync(target)) throw new Error(`Change evidence staging root already exists: ${target}`);
+  await mkdir(target);
+  await copyChangeTemplates(skillRoot, target, canonicalProjectHarnessId(changeId, "Change id"));
+}
+
+export async function rollbackUncommittedProjectHarnessChange(
+  context: ProjectHarnessRegistryContext,
+  changeId: string,
+  claimToken: string,
+  laneSnapshot?: ProjectHarnessLaneRecord | null,
+): Promise<void> {
+  const identifier = canonicalProjectHarnessId(changeId, "Change id");
+  const laneId = projectHarnessLaneId(context);
+  await withRegistryClaimLock(context.skillRoot, laneId, async () => {
+    const record = await loadProjectHarnessChange(context.skillRoot, identifier, true);
+    assertLaneOwner(context, record);
+    if (record.claim_token !== claimToken) throw new Error("Refusing to roll back a Change owned by another claim token.");
+    if (!isActiveChange(record) || record.integrated_by) {
+      throw new Error("Only an uncommitted active Change claim may be rolled back.");
+    }
+    const evidence = await changeEvidencePath(context.skillRoot, "active", identifier, false);
+    if (existsSync(evidence)) await removeOwnedEvidence(evidence, dirname(evidence));
+    await removeClaimedRecord(await changeRecordPath(context.skillRoot, identifier, false), claimToken);
+    const lane = await safeReadLane(context);
+    if (lane?.active_change_id === identifier) await ensureProjectHarnessLane(context, null);
+    if (laneSnapshot !== undefined) await restoreProjectHarnessLane(context, laneSnapshot);
+    await rebuildProjectHarnessChangeIndex(context.skillRoot);
+  });
+}
+
+export async function restoreMutableProjectHarnessChangeRecord(
+  context: ProjectHarnessRegistryContext,
+  snapshot: ProjectHarnessChangeRecord,
+): Promise<void> {
+  const current = await loadProjectHarnessChange(context.skillRoot, snapshot.change_id, true);
+  assertLaneOwner(context, current);
+  if (current.claim_token !== snapshot.claim_token || snapshot.lane_id !== current.lane_id) {
+    throw new Error("Refusing to restore a Change record outside its original claim and Lane.");
+  }
+  assertMutableChange(current);
+  await writeProjectHarnessChange(context.skillRoot, changeRecordSchema.parse(snapshot));
+  await ensureProjectHarnessLane(context, snapshot.change_id);
+  await rebuildProjectHarnessChangeIndex(context.skillRoot);
 }
 
 export async function listProjectHarnessChanges(skillRoot: string): Promise<ProjectHarnessChangeRecord[]> {

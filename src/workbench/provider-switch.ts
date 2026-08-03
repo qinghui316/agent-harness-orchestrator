@@ -7,11 +7,12 @@ import { reconcileTaskQueues } from "../task-queue/reconcile.js";
 import { isActiveTaskRunStatus } from "../task-run/guards.js";
 import { listTaskRuns, listWorkerLeases } from "../task-run/repository.js";
 import { reconcileTaskRuns } from "../task-run/reconcile.js";
-import type { ManagedProject, ResolvedMemory } from "../types/index.js";
+import type { ManagedProject } from "../types/index.js";
+import type { ProjectRuntimeResolution } from "../project-runtime/context.js";
 import type { WorkbenchWorkflowActionRequest } from "./types.js";
 import { reconcileDemandWorkersForRuntime } from "../workflow-runtime/demand-worker.js";
 import { assembleSharedConversationContext, type HandoffSnapshot } from "./shared-conversation-context.js";
-import { openWorkbenchDatabase } from "./persistence/open-workbench-database.js";
+import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbench-database.js";
 import { publishAgentSurfacesInvalidated } from "./project-live-events.js";
 import { type StoredConversation, type StoredProviderAttempt, type StoredProviderResumePoint } from "./persistence/contracts.js";
 
@@ -31,17 +32,16 @@ export interface ProviderSwitchResult {
 
 export async function resolveProviderSwitchWorkflowResumeRequest(input: {
   project: ManagedProject;
-  memory: ResolvedMemory;
+  resolution: ProjectRuntimeResolution;
   conversationId: string;
   switchResult: ProviderSwitchResult;
 }): Promise<WorkbenchWorkflowActionRequest | null> {
-  if (input.switchResult.resumePointId === "unchanged" || !input.memory.projectId) return null;
-  const current = await readSwitchState(input.memory, input.conversationId);
+  if (input.switchResult.resumePointId === "unchanged") return null;
+  const current = await readSwitchState(input.resolution, input.conversationId);
   if (current.conversation.selectedProviderId !== input.switchResult.selectedProviderId) return null;
   if (current.resumePoint?.resumePointId !== input.switchResult.resumePointId) return null;
   const handoff = await assembleSharedConversationContext({
-    project: input.project,
-    memory: input.memory,
+    resolution: input.resolution,
     conversationId: input.conversationId,
     providerId: input.switchResult.selectedProviderId,
     currentUserMessage: "",
@@ -75,14 +75,14 @@ export function workflowResumeRequestFromHandoff(snapshot: HandoffSnapshot): Wor
 
 export async function switchConversationProviderAtSafePoint(input: {
   project: ManagedProject;
-  memory: ResolvedMemory;
+  resolution: ProjectRuntimeResolution;
   conversationId: string;
   targetProviderId: string;
   registry?: ProviderRegistry;
 }): Promise<ProviderSwitchResult> {
-  if (!input.memory.projectId) throw new Error("Project id is required to switch provider.");
+  const projectId = input.resolution.harness.projectId;
   const registry = input.registry ?? defaultProviderRegistry;
-  const initial = await readSwitchState(input.memory, input.conversationId);
+  const initial = await readSwitchState(input.resolution, input.conversationId);
   if (initial.conversation.selectedProviderId === input.targetProviderId) {
     const latest = initial.resumePoint;
     return {
@@ -98,13 +98,12 @@ export async function switchConversationProviderAtSafePoint(input: {
   }
 
   assertNoPendingProviderInput(initial.messages);
-  const activeTasks = (await listAgentTasks(input.memory, initial.conversation.boundChangeId ?? undefined))
+  const activeTasks = (await listAgentTasks(input.resolution.paths, initial.conversation.boundChangeId ?? undefined))
     .filter((task) => task.kind === "background" && (task.status === "claimed" || task.status === "running"));
   if (activeTasks.length > 0) throw new Error("当前后台 Agent 任务仍在运行，完成后才能切换 provider。");
 
   const preflightHandoff = await assembleSharedConversationContext({
-    project: input.project,
-    memory: input.memory,
+    resolution: input.resolution,
     conversationId: input.conversationId,
     providerId: input.targetProviderId,
     currentUserMessage: "验证目标 provider 能否接管当前 Workflow。",
@@ -120,17 +119,16 @@ export async function switchConversationProviderAtSafePoint(input: {
   const activeTurns = registry.findActiveTurns(scopeIds);
   await Promise.all(activeTurns.map((turn) => turn.interrupt("用户正在安全暂停 Workflow 并切换 Agent provider。")));
   await waitForProviderTurnsToStop(registry, scopeIds);
-  await fenceStoppedProviderAttempts(registry, input.memory, input.conversationId, scopeIds);
+  await fenceStoppedProviderAttempts(registry, input.resolution, input.conversationId, scopeIds);
 
   if (initial.conversation.boundChangeId) {
-    await waitForWorkflowWritersToSettle(input.project, input.memory, initial.conversation.boundChangeId);
+    await waitForWorkflowWritersToSettle(input.project, input.resolution, initial.conversation.boundChangeId);
     await reconcileDemandWorkersForRuntime(input.project);
-    await assertNoActiveWorkflowWriter(input.memory, initial.conversation.boundChangeId);
+    await assertNoActiveWorkflowWriter(input.resolution, initial.conversation.boundChangeId);
   }
 
   const handoff = await assembleSharedConversationContext({
-    project: input.project,
-    memory: input.memory,
+    resolution: input.resolution,
     conversationId: input.conversationId,
     providerId: input.targetProviderId,
     currentUserMessage: "从已安全暂停并完成对账的 Workflow 状态继续。",
@@ -158,10 +156,10 @@ export async function switchConversationProviderAtSafePoint(input: {
     ? preflight.snapshot
     : postReconcile.snapshot;
 
-  const store = await openWorkbenchDatabase(input.memory);
+  const store = await openProjectRuntimeWorkbenchDatabase(input.resolution.paths);
   try {
     const point = {
-      projectId: input.memory.projectId,
+      projectId,
       conversationId: input.conversationId,
       resumePointId,
       graphScopeId: initial.conversation.currentGraphScopeId,
@@ -172,9 +170,9 @@ export async function switchConversationProviderAtSafePoint(input: {
       snapshotHash,
       createdAt: switchedAt,
     };
-    const existingBinding = store.providerAttempts.readConversationProviderBinding(input.memory.projectId, input.conversationId, input.targetProviderId);
+    const existingBinding = store.providerAttempts.readConversationProviderBinding(projectId, input.conversationId, input.targetProviderId);
     store.unitOfWork.commitConversationProviderSwitch(point, existingBinding ?? {
-      projectId: input.memory.projectId,
+      projectId,
       conversationId: input.conversationId,
       providerId: input.targetProviderId,
       nativeSessionId: null,
@@ -183,7 +181,7 @@ export async function switchConversationProviderAtSafePoint(input: {
       lastUsedAt: null,
       bindingStatus: "ready",
     }, initial.conversation.selectedProviderId, {
-      projectId: input.memory.projectId,
+      projectId,
       conversationId: input.conversationId,
       attemptId: resumeAttemptId,
       graphScopeId: initial.conversation.currentGraphScopeId,
@@ -202,7 +200,7 @@ export async function switchConversationProviderAtSafePoint(input: {
       createdAt: switchedAt,
       updatedAt: switchedAt,
     });
-    publishAgentSurfacesInvalidated(input.memory.projectId, {
+    publishAgentSurfacesInvalidated(projectId, {
       conversationId: input.conversationId,
       graphScopeId: initial.conversation.currentGraphScopeId ?? undefined,
       reason: "attempt-updated",
@@ -231,34 +229,34 @@ export function requiredProfilesForResume(snapshot: HandoffSnapshot): ProviderOp
   return [...profiles];
 }
 
-async function waitForWorkflowWritersToSettle(project: ManagedProject, memory: ResolvedMemory, changeId: string): Promise<void> {
+async function waitForWorkflowWritersToSettle(project: ManagedProject, resolution: ProjectRuntimeResolution, changeId: string): Promise<void> {
   const deadline = Date.now() + PROVIDER_STOP_TIMEOUT_MS;
   while (Date.now() < deadline) {
     await reconcileTaskRuns(project, { changeId });
     await reconcileTaskQueues(project, { changeId });
-    const [taskRuns, leases] = await Promise.all([listTaskRuns(memory, changeId), listWorkerLeases(memory, changeId)]);
+    const [taskRuns, leases] = await Promise.all([listTaskRuns(resolution.paths, changeId), listWorkerLeases(resolution.paths, changeId)]);
     if (!taskRuns.some((run) => isActiveTaskRunStatus(run.status)) && !leases.some((lease) => lease.status === "claimed")) return;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   throw new Error("Workflow 模型任务未能在限定时间内停止并释放写入租约，未执行 provider 切换。");
 }
 
-async function readSwitchState(memory: ResolvedMemory, conversationId: string): Promise<{
+async function readSwitchState(resolution: ProjectRuntimeResolution, conversationId: string): Promise<{
   conversation: StoredConversation;
   attempts: StoredProviderAttempt[];
   messages: Array<{ rawJson: string }>;
   resumePoint: StoredProviderResumePoint | null;
 }> {
-  if (!memory.projectId) throw new Error("Project id is required to read provider switch state.");
-  const store = await openWorkbenchDatabase(memory);
+  const projectId = resolution.harness.projectId;
+  const store = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
   try {
-    const conversation = store.conversations.readConversation(memory.projectId, conversationId);
+    const conversation = store.conversations.readConversation(projectId, conversationId);
     if (!conversation) throw new Error(`Conversation not found: ${conversationId}.`);
     return {
       conversation,
-      attempts: store.providerAttempts.listProviderAttempts(memory.projectId, conversationId),
-      messages: store.timeline.listConversationMessages(memory.projectId, conversationId),
-      resumePoint: store.providerAttempts.readLatestProviderResumePoint(memory.projectId, conversationId),
+      attempts: store.providerAttempts.listProviderAttempts(projectId, conversationId),
+      messages: store.timeline.listConversationMessages(projectId, conversationId),
+      resumePoint: store.providerAttempts.readLatestProviderResumePoint(projectId, conversationId),
     };
   } finally {
     store.close();
@@ -296,30 +294,30 @@ async function waitForProviderTurnsToStop(registry: ProviderRegistry, scopeIds: 
   throw new Error("Agent provider 未能在限定时间内停止并完成对账，未执行 provider 切换。");
 }
 
-async function fenceStoppedProviderAttempts(registry: ProviderRegistry, memory: ResolvedMemory, conversationId: string, scopeIds: Set<string>): Promise<void> {
-  if (!memory.projectId) throw new Error("Project id is required to fence provider attempts.");
+async function fenceStoppedProviderAttempts(registry: ProviderRegistry, resolution: ProjectRuntimeResolution, conversationId: string, scopeIds: Set<string>): Promise<void> {
+  const projectId = resolution.harness.projectId;
   if (registry.findActiveTurns(scopeIds).length > 0) {
     throw new Error("Agent provider turn 仍在运行，不能 fencing 旧 attempt。");
   }
-  const store = await openWorkbenchDatabase(memory);
+  const store = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
   try {
     let changed = false;
-    for (const attempt of store.providerAttempts.listProviderAttempts(memory.projectId, conversationId)) {
+    for (const attempt of store.providerAttempts.listProviderAttempts(projectId, conversationId)) {
       if (!ACTIVE_ATTEMPT_STATUSES.has(attempt.status)) continue;
-      store.providerAttempts.completeProviderAttempt(memory.projectId, attempt.attemptId, "interrupted", attempt.nativeSessionId, new Date().toISOString());
+      store.providerAttempts.completeProviderAttempt(projectId, attempt.attemptId, "interrupted", attempt.nativeSessionId, new Date().toISOString());
       changed = true;
     }
     if (changed) {
-      const graphScopeId = store.conversations.readConversation(memory.projectId, conversationId)?.currentGraphScopeId;
-      publishAgentSurfacesInvalidated(memory.projectId, { conversationId, graphScopeId: graphScopeId ?? undefined, reason: "provider-interrupted" });
+      const graphScopeId = store.conversations.readConversation(projectId, conversationId)?.currentGraphScopeId;
+      publishAgentSurfacesInvalidated(projectId, { conversationId, graphScopeId: graphScopeId ?? undefined, reason: "provider-interrupted" });
     }
   } finally {
     store.close();
   }
 }
 
-async function assertNoActiveWorkflowWriter(memory: ResolvedMemory, changeId: string): Promise<void> {
-  const [taskRuns, leases] = await Promise.all([listTaskRuns(memory, changeId), listWorkerLeases(memory, changeId)]);
+async function assertNoActiveWorkflowWriter(resolution: ProjectRuntimeResolution, changeId: string): Promise<void> {
+  const [taskRuns, leases] = await Promise.all([listTaskRuns(resolution.paths, changeId), listWorkerLeases(resolution.paths, changeId)]);
   const activeRuns = taskRuns.filter((run) => isActiveTaskRunStatus(run.status));
   const activeLeases = leases.filter((lease) => lease.status === "claimed");
   if (activeRuns.length > 0 || activeLeases.length > 0) {

@@ -1,16 +1,17 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { getChangeStatusForChange } from "../change/manager.js";
-import type { ManagedProject, ResolvedMemory } from "../types/index.js";
+import { parseAcceptanceCriteria, parseTasks } from "../ecl/anchors.js";
+import { readProjectHarnessChangeContext } from "../project-harness/change.js";
+import type { ProjectRuntimeResolution } from "../project-runtime/context.js";
 import { listWorkflowRuns } from "../workflow-run/repository.js";
 import { listTaskQueues, listTaskQueueItems } from "../task-queue/repository.js";
 import { listTaskRuns } from "../task-run/repository.js";
 import { listValidationResults } from "../validation/repository.js";
 import { listAuditResults } from "../audit/repository.js";
 import { collectWorktreeDiff } from "../audit/diff.js";
-import { readLatestWorkflowGraphPlan } from "../workflow-artifacts/manager.js";
-import { openWorkbenchDatabase } from "./persistence/open-workbench-database.js";
+import { readLatestWorkflowGraphPlanAt } from "../workflow-artifacts/workflow-graph-plan.js";
+import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbench-database.js";
 import { type StoredConversation } from "./persistence/contracts.js";
 import { fromStoredThreadMessage } from "./conversation-thread-log.js";
 
@@ -77,26 +78,25 @@ export interface AssembledHandoff {
 }
 
 export async function assembleSharedConversationContext(input: {
-  project: ManagedProject;
-  memory: ResolvedMemory;
+  resolution: ProjectRuntimeResolution;
   conversationId: string;
   providerId: string;
   currentUserMessage: string;
 }): Promise<AssembledHandoff> {
-  if (!input.memory.projectId) throw new Error("Project id is required to assemble Shared Conversation context.");
-  const store = await openWorkbenchDatabase(input.memory);
+  const projectId = input.resolution.harness.projectId;
+  const store = await openProjectRuntimeWorkbenchDatabase(input.resolution.paths);
   let conversation: StoredConversation;
   let deliveredAfterCompletedTurn = 0;
   let recentRows;
   let pendingConfirmations: HandoffSnapshot["pendingConfirmations"] = [];
   let resumePoint: HandoffSnapshot["resumePoint"] = null;
   try {
-    const stored = store.conversations.readConversation(input.memory.projectId, input.conversationId);
+    const stored = store.conversations.readConversation(projectId, input.conversationId);
     if (!stored) throw new Error(`Conversation not found: ${input.conversationId}.`);
     conversation = stored;
-    deliveredAfterCompletedTurn = store.providerAttempts.readConversationProviderBinding(input.memory.projectId, input.conversationId, input.providerId)?.lastDeliveredCompletedTurn ?? 0;
-    recentRows = store.timeline.listRecentSemanticMessages(input.memory.projectId, input.conversationId, 256);
-    pendingConfirmations = store.decisions.listDecisions(input.memory.projectId, stored.boundChangeId ?? undefined)
+    deliveredAfterCompletedTurn = store.providerAttempts.readConversationProviderBinding(projectId, input.conversationId, input.providerId)?.lastDeliveredCompletedTurn ?? 0;
+    recentRows = store.timeline.listRecentSemanticMessages(projectId, input.conversationId, 256);
+    pendingConfirmations = store.decisions.listDecisions(projectId, stored.boundChangeId ?? undefined)
       .filter((decision) => decision.status === "pending" || decision.status === "requested-changes")
       .map((decision) => ({
         id: decision.id,
@@ -106,7 +106,7 @@ export async function assembleSharedConversationContext(input: {
         targetId: decision.targetId,
         artifact: decision.artifact,
       }));
-    const storedResumePoint = store.providerAttempts.readLatestProviderResumePoint(input.memory.projectId, input.conversationId);
+    const storedResumePoint = store.providerAttempts.readLatestProviderResumePoint(projectId, input.conversationId);
     if (storedResumePoint) {
       resumePoint = {
         id: storedResumePoint.resumePointId,
@@ -128,15 +128,14 @@ export async function assembleSharedConversationContext(input: {
   const pendingUserInput = entries
     .flatMap((entry) => entry.providerUserInput ? [{ requestKey: entry.providerUserInput.requestKey, status: entry.providerUserInput.status }] : [])
     .filter((request) => request.status !== "submitted");
-  const change = conversation.boundChangeId
-    ? await buildChangeSnapshot(input.project, input.memory, conversation.boundChangeId)
+  const changeContext = conversation.boundChangeId
+    ? await readProjectHarnessChangeContext(input.resolution.harness.skillRoot, conversation.boundChangeId, true)
     : null;
-  const workflow = conversation.boundChangeId
-    ? await buildWorkflowSnapshot(input.memory, conversation.boundChangeId)
-    : null;
+  const change = changeContext ? await buildChangeSnapshot(input.resolution, changeContext) : null;
+  const workflow = changeContext ? await buildWorkflowSnapshot(input.resolution, changeContext) : null;
   const snapshot: HandoffSnapshot = {
     version: "1.0",
-    projectId: input.memory.projectId,
+    projectId,
     conversationId: input.conversationId,
     graphScopeId: conversation.currentGraphScopeId,
     providerId: input.providerId,
@@ -159,19 +158,23 @@ export async function assembleSharedConversationContext(input: {
   };
 }
 
-async function buildWorkflowSnapshot(memory: ResolvedMemory, changeId: string): Promise<HandoffSnapshot["workflow"]> {
-  const changePath = `harness/changes/active/${changeId}`;
+async function buildWorkflowSnapshot(
+  resolution: ProjectRuntimeResolution,
+  context: Awaited<ReturnType<typeof readProjectHarnessChangeContext>>,
+): Promise<HandoffSnapshot["workflow"]> {
+  const changeId = context.change.change_id;
+  const evidenceRoot = join(resolution.harness.skillRoot, ...context.evidence_path.split("/"));
   const [workflows, queues, taskRuns, validations, audits, graph] = await Promise.all([
-    listWorkflowRuns(memory, changeId),
-    listTaskQueues(memory, changeId),
-    listTaskRuns(memory, changeId),
-    listValidationResults(memory, changeId),
-    listAuditResults(memory, changeId),
-    readLatestWorkflowGraphPlan(memory, changePath).catch(() => null),
+    listWorkflowRuns(resolution.paths, changeId),
+    listTaskQueues(resolution.paths, changeId),
+    listTaskRuns(resolution.paths, changeId),
+    listValidationResults(resolution.paths, changeId),
+    listAuditResults(resolution.paths, changeId),
+    readLatestWorkflowGraphPlanAt(evidenceRoot, changeId).catch(() => null),
   ]);
   const workflow = workflows[0] ?? null;
   const queue = queues[0] ?? null;
-  const items = queue ? await listTaskQueueItems(memory, changeId, queue.id) : [];
+  const items = queue ? await listTaskQueueItems(resolution.paths, changeId, queue.id) : [];
   const resumableItem = items.find((item) => item.status === "running")
     ?? items.find((item) => item.status === "blocked" || item.status === "failed")
     ?? items.find((item) => item.status === "queued")
@@ -190,7 +193,13 @@ async function buildWorkflowSnapshot(memory: ResolvedMemory, changeId: string): 
   let activeWorktree: NonNullable<HandoffSnapshot["workflow"]>["activeWorktree"] = null;
   if (resumableTaskRun?.worktreeId) {
     try {
-      const diff = await collectWorktreeDiff(memory, resumableTaskRun.worktreeId, changeId);
+      const diff = await collectWorktreeDiff({
+        projectId: resolution.harness.projectId,
+        projectRoot: resolution.projectRoot,
+        runsRoot: resolution.paths.runsRoot,
+        worktreeMetadataRoot: resolution.paths.worktreeMetadataRoot,
+        worktreeIndexPath: resolution.paths.worktreeIndexPath,
+      }, resumableTaskRun.worktreeId, changeId);
       activeWorktree = {
         id: diff.worktree.worktreeId,
         checkoutPath: diff.worktree.checkoutPath,
@@ -199,9 +208,9 @@ async function buildWorkflowSnapshot(memory: ResolvedMemory, changeId: string): 
         expectedTree: diff.expectedTree,
         changedPaths: diff.changedPaths,
         evidenceRefs: [
-          ...(resumableTaskRun.runId ? [`${memory.artifactBase}/runs/${resumableTaskRun.runId}`] : []),
-          ...(scopedValidation ? [`${memory.artifactBase}/runs/${scopedValidation.id}`] : []),
-          ...(scopedAudit ? [`${memory.artifactBase}/runs/${scopedAudit.id}`] : []),
+          ...(resumableTaskRun.runId ? [`runs/${resumableTaskRun.runId}`] : []),
+          ...(scopedValidation ? [`runs/${scopedValidation.id}`] : []),
+          ...(scopedAudit ? [`runs/${scopedAudit.id}`] : []),
         ],
       };
     } catch (error) {
@@ -295,23 +304,33 @@ function boundedTaskRuns<T extends { id: string }>(taskRuns: T[], resumableTaskR
   return [...selected.values()];
 }
 
-async function buildChangeSnapshot(project: ManagedProject, memory: ResolvedMemory, changeId: string): Promise<HandoffSnapshot["change"]> {
-  const status = await getChangeStatusForChange(project, changeId);
+async function buildChangeSnapshot(
+  resolution: ProjectRuntimeResolution,
+  context: Awaited<ReturnType<typeof readProjectHarnessChangeContext>>,
+): Promise<HandoffSnapshot["change"]> {
+  const changeId = context.change.change_id;
   const relativeRefs = ["spec.md", "plan.md", "tasks.md"];
-  const artifactRefs = relativeRefs.map((name) => `${memory.artifactBase}/changes/active/${changeId}/${name}`);
+  const artifactRefs = relativeRefs.map((name) => `${context.evidence_path}/${name}`);
   const artifactHashes: Record<string, string> = {};
   await Promise.all(relativeRefs.map(async (name, index) => {
-    const content = await readFile(join(memory.changesRoot, "active", changeId, name)).catch(() => null);
+    const content = await readFile(join(
+      resolution.harness.skillRoot,
+      ...context.evidence_path.split("/"),
+      name,
+    )).catch(() => null);
     if (content) artifactHashes[artifactRefs[index]!] = createHash("sha256").update(content).digest("hex");
   }));
+  const criteria = parseAcceptanceCriteria(context.documents["spec.md"] ?? "").criteria;
+  const tasks = parseTasks(context.documents["tasks.md"] ?? "").tasks;
   return {
     id: changeId,
-    active: status.activeChanges.some((change) => change.name === changeId),
-    state: status.change ? "active" : "archived-or-missing",
+    active: context.evidence_state === "active"
+      && (context.change.status === "planning" || context.change.status === "active"),
+    state: context.evidence_state,
     artifactRefs,
     artifactHashes,
-    acceptanceCriteria: status.acMap?.acceptanceCriteria.map((criterion) => ({ id: criterion.id, text: criterion.text })) ?? [],
-    tasks: status.acMap?.tasks.map((task) => ({ id: task.id, text: task.text, acIds: task.acIds, done: task.done })) ?? [],
+    acceptanceCriteria: criteria.map((criterion) => ({ id: criterion.id, text: criterion.text })),
+    tasks: tasks.map((task) => ({ id: task.id, text: task.text, acIds: task.acIds, done: task.done })),
   };
 }
 

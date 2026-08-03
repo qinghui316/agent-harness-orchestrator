@@ -98,6 +98,33 @@ const defaultCatalog: AgentCatalog = {
   ],
 };
 
+export function readBundledAgentCatalog(): AgentCatalog {
+  const catalog = normalizeCatalog(catalogSchema.parse(defaultCatalog));
+  validateUniqueRoles(catalog);
+  return catalog;
+}
+
+export async function resolveBundledAgentRole(roleIdInput: string): Promise<AgentRole> {
+  const roleId = normalizeRoleId(roleIdInput);
+  const catalog = readBundledAgentCatalog();
+  const entry = catalog.agents.find((item) => item.roleId === roleId);
+  if (!entry) throw new Error(`Unknown bundled agent role: ${roleId}`);
+  const sourcePath = bundledAgentPath(entry.roleId);
+  if (!existsSync(sourcePath)) throw new Error(`Bundled agent role ${roleId} profile is missing: ${sourcePath}`);
+  const markdown = await readFile(sourcePath, "utf8");
+  validateRolePromptContract(entry.roleId, markdown);
+  return {
+    ...entry,
+    source: "bundled",
+    sourcePath,
+    contentHash: hashText(markdown),
+    catalogVersion: catalog.version,
+    catalogHash: hashText(JSON.stringify(catalog)),
+    compatibility: roleCompatibility(entry),
+    markdown,
+  };
+}
+
 export async function listAgentRoles(project: ManagedProject): Promise<AgentRole[]> {
   const memory = await resolveProjectMemory(project);
   const catalog = await readAgentCatalog(memory);

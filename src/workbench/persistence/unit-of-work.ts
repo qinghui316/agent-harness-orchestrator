@@ -114,8 +114,13 @@ export class WorkbenchUnitOfWork {
     acceptanceId?: string,
     proposalHash?: string,
     scopeTransition?: { graphScopeId: string; runId?: string; plannerThreadId?: string },
+    expectedCurrentGraphScopeId?: string,
   ): StoredTopicMessage[] {
     return this.db.transaction(() => {
+      const currentGraphScopeId = this.conversations.readConversation(projectId, conversationId)?.currentGraphScopeId;
+      if (expectedCurrentGraphScopeId !== undefined && currentGraphScopeId !== expectedCurrentGraphScopeId) {
+        throw new Error("Planning acceptance no longer matches the current conversation graph scope.");
+      }
       let timelineRows: StoredTopicMessage[] = [];
       if (scopeTransition) {
         if (!scopeTransition.runId || !scopeTransition.plannerThreadId) {

@@ -1,6 +1,7 @@
 import type { WorkbenchProjectInput } from "./read-model-types.js";
-import { resolveWorkbenchMemory } from "./projections/read-model/support.js";
-import { openWorkbenchDatabase } from "./persistence/open-workbench-database.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
+import { resolveProjectRuntimeState } from "../project-runtime/coordinator.js";
+import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbench-database.js";
 import type { CanonicalTimelineCursor, CanonicalTimelinePage, CanonicalTimelineScope } from "./canonical-timeline-contract.js";
 import { projectCanonicalTimelineEnvelope } from "./canonical-timeline-projector.js";
 
@@ -14,11 +15,14 @@ export async function getCanonicalTimelinePage(
   agentSurfaceId: string,
   options: { limit?: number; beforeCursor?: string } = {},
 ): Promise<CanonicalTimelinePage> {
-  const memory = await resolveWorkbenchMemory(input);
-  if (!memory.supported || !memory.projectId) throw notFound(`Conversation not found: ${conversationId}.`);
-  const scope = { projectId: memory.projectId, conversationId, agentSurfaceId };
+  if (!input.project) throw notFound(`Conversation not found: ${conversationId}.`);
+  const state = await resolveProjectRuntimeState(input.project, {
+    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+  });
+  if (state.state !== "ready") throw notFound(`Conversation not found: ${conversationId}.`);
+  const scope = { projectId: state.resolution.harness.projectId, conversationId, agentSurfaceId };
   const limit = normalizePageLimit(options.limit);
-  const database = await openWorkbenchDatabase(memory);
+  const database = await openProjectRuntimeWorkbenchDatabase(state.resolution.paths);
   try {
     const cursor = options.beforeCursor ? decodeCanonicalTimelineCursor(options.beforeCursor, scope) : undefined;
     const snapshot = database.timeline.readTimelineSurfacePageSnapshot(scope.projectId, conversationId, agentSurfaceId, {

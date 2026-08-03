@@ -6,6 +6,7 @@ import { normalizeMainAgentExecutionAction } from "../../../workflow-actions/mai
 import type { AssistantTurnActivity, AssistantTurnBlock, TopicThreadEntry } from "../../types.js";
 import type { ClarificationRequest, WorkbenchIntakeIteration, WorkbenchIntakeScan } from "../../intake.js";
 import type { AuditSummary, ResolvedMemory, RunEvent, RunMetadata, ValidationSummary } from "../../../types/index.js";
+import type { ProjectRunsPathPort, ProjectWorkbenchPathPort } from "../../../project-runtime/paths.js";
 import type {
   ThreadStreamEvidence,
   ThreadStreamItem,
@@ -19,7 +20,7 @@ interface ThreadStreamDraft extends ThreadStreamItem {
 }
 
 export async function buildThreadStream(
-  memory: ResolvedMemory,
+  runtime: ProjectWorkbenchPathPort,
   topic: WorkbenchTopicSummary,
   runs: RunMetadata[],
   validations: unknown[],
@@ -27,7 +28,7 @@ export async function buildThreadStream(
   decisions: WorkbenchDecisionItem[],
   options: { messages?: TopicThreadEntry[]; includeChangeState?: boolean } = {},
 ): Promise<ThreadStreamItem[]> {
-  const messages = options.messages ?? await readConversationThread(memory, topic.path).catch(() => []);
+  const messages = options.messages ?? await readConversationThread(runtime, topic.id).catch(() => []);
   const { items, runAnchors } = buildThreadStreamMessageDrafts(topic, messages, options.includeChangeState ?? true);
   for (const run of runs) {
     if (!runAnchors.has(run.id)) runAnchors.set(run.id, timestampSortKey(run.finishedAt ?? run.startedAt, 3000));
@@ -89,7 +90,6 @@ export async function buildThreadStream(
 }
 
 export async function buildThreadStreamFromMessages(
-  memory: ResolvedMemory,
   topic: WorkbenchTopicSummary,
   messages: TopicThreadEntry[],
   options: { includeChangeState?: boolean } = {},
@@ -632,8 +632,8 @@ function uniqueThreadItemsById(items: ThreadStreamDraft[]): ThreadStreamDraft[] 
   return result;
 }
 
-export async function readRunEvents(memory: ResolvedMemory, run: RunMetadata): Promise<WorkbenchThreadEvent[]> {
-  const eventsPath = join(memory.runsRoot, run.id, "events.jsonl");
+export async function readRunEvents(runtime: ProjectRunsPathPort, run: RunMetadata): Promise<WorkbenchThreadEvent[]> {
+  const eventsPath = join(runtime.runsRoot, run.id, "events.jsonl");
   if (!existsSync(eventsPath)) return [];
   const content = await readFile(eventsPath, "utf8");
   return content

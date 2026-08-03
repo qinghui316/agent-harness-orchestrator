@@ -2,11 +2,15 @@ import { existsSync } from "node:fs";
 import { latestLandingQueueSnapshot } from "../../../landing-queue/manager.js";
 import { getMemoryStatus } from "../../../memory/status.js";
 import { getProjectStatus } from "../../../project/status.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../../provider-runtime/project-harness-discovery.js";
+import { resolveProjectRuntimeState } from "../../../project-runtime/coordinator.js";
+import type { ProjectRuntimeResolution } from "../../../project-runtime/context.js";
+import type { ProjectWorkbenchPathPort } from "../../../project-runtime/paths.js";
 import { readRun } from "../../../run/manager.js";
 import { providerInteractionHistory } from "../../parent-agent-transcript.js";
 import { buildConversationInteractionQueue } from "../../conversation-interactions.js";
 import { deleteConversation, hideConversation } from "../../conversation-lifecycle.js";
-import { openWorkbenchDatabase } from "../../persistence/open-workbench-database.js";
+import { openProjectRuntimeWorkbenchDatabase } from "../../persistence/open-workbench-database.js";
 import { summarizeRunArtifacts } from "../artifact-preview.js";
 import { readRunEvents } from "./thread-stream.js";
 import { buildConfirmationQueue, emptyConfirmationQueue } from "./confirmation-queue.js";
@@ -18,7 +22,7 @@ import { listWorkbenchRoles } from "./roles.js";
 import { buildHarnessGaps, buildRepoSummary, resolveWorkbenchMemory } from "./support.js";
 import { listWorkbenchTopicsFromMemory, selectTopicDetail } from "./topics.js";
 import { buildDiagnosticWorkpad, buildMultiWorkpadSummaries, buildWorkbenchWorkpad } from "./workpad.js";
-import type { LandingQueueSnapshot, ResolvedMemory } from "../../../types/index.js";
+import type { LandingQueueSnapshot, ManagedProject, ResolvedMemory } from "../../../types/index.js";
 import type {
   WorkbenchApprovalItem,
   WorkbenchProjectInput,
@@ -163,6 +167,16 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
     };
   }
 
+  const runtime: ProjectWorkbenchPathPort | null = input.project
+    ? (await requireReadyProjectRuntime(input.project)).paths
+    : memory.projectId
+      ? {
+          projectId: memory.projectId,
+          workbenchDbPath: memory.workbenchDbPath,
+          workbenchRoot: memory.workbenchRoot,
+        }
+      : null;
+
   const visibleTopics = await listWorkbenchTopicsFromMemory(memory);
   const allTopics = await listWorkbenchTopicsFromMemory(memory, { includeDeleted: true });
   const workflowTopics = workflowScopedTopics(allTopics);
@@ -183,8 +197,10 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
     warnings,
     gaps,
   });
-  const graphContext = selectedTopic ? await resolveAgentGraphContext(memory, selectedTopic, options.topicId) : null;
-  const conversationInteractions = await buildConversationInteractionQueue(memory, selectedTopic?.id, graphContext?.graphScopeId);
+  const graphContext = selectedTopic && runtime ? await resolveAgentGraphContext(runtime, selectedTopic, options.topicId) : null;
+  const conversationInteractions = runtime
+    ? await buildConversationInteractionQueue(runtime, selectedTopic?.id, graphContext?.graphScopeId)
+    : { conversationId: selectedTopic?.id, graphScopeId: graphContext?.graphScopeId, items: [] };
   const decisionInspector = buildDecisionInspector({
     selectedTopic: executionScopedTopic(selectedTopic),
     workpad,
@@ -262,21 +278,20 @@ function publicThreadItem(item: import("../../read-model-types.js").ThreadStream
 }
 
 async function resolveAgentGraphContext(
-  memory: ResolvedMemory,
+  runtime: ProjectWorkbenchPathPort,
   selectedTopic: WorkbenchTopicDetail,
   requestedId?: string,
 ): Promise<{ graphScopeId: string; changeId?: string } | null> {
-  if (!memory.projectId) return null;
-  const store = await openWorkbenchDatabase(memory);
+  const store = await openProjectRuntimeWorkbenchDatabase(runtime);
   try {
-    const conversation = store.conversations.readConversation(memory.projectId, selectedTopic.id)
-      ?? store.conversations.findConversationForChange(memory.projectId, requestedId ?? selectedTopic.id);
+    const conversation = store.conversations.readConversation(runtime.projectId, selectedTopic.id)
+      ?? store.conversations.findConversationForChange(runtime.projectId, requestedId ?? selectedTopic.id);
     if (!conversation) return null;
     const requestedChangeId = requestedId && requestedId !== conversation.conversationId
       ? requestedId
       : undefined;
     const graphScopeId = requestedChangeId
-      ? store.conversations.findGraphScopeForChange(memory.projectId, requestedChangeId)
+      ? store.conversations.findGraphScopeForChange(runtime.projectId, requestedChangeId)
       : conversation.currentGraphScopeId;
     if (!graphScopeId) return null;
     const changeId = requestedChangeId
@@ -285,6 +300,16 @@ async function resolveAgentGraphContext(
   } finally {
     store.close();
   }
+}
+
+async function requireReadyProjectRuntime(project: ManagedProject): Promise<ProjectRuntimeResolution> {
+  const state = await resolveProjectRuntimeState(project, {
+    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+  });
+  if (state.state !== "ready") {
+    throw new Error(`Project Harness is not ready for Workbench read models: ${state.state}.`);
+  }
+  return state.resolution;
 }
 
 export async function getWorkbenchWorkpadProjection(input: WorkbenchProjectInput, changeId: string): Promise<WorkbenchWorkpad> {
@@ -377,7 +402,7 @@ export async function getWorkbenchStream(input: WorkbenchProjectInput, runId: st
     throw new Error("Durable memory is unavailable; cannot replay run stream.");
   }
   const run = await readRun(memory, runId);
-  const events = await readRunEvents(memory, run);
+  const events = await readRunEvents({ runsRoot: memory.runsRoot }, run);
   const { artifacts, diagnostics, warnings } = await summarizeRunArtifacts(memory, run);
   return {
     run,

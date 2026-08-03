@@ -1,4 +1,7 @@
-﻿import { assertWritableMemory } from "../../../memory/resolver.js";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../../provider-runtime/project-harness-discovery.js";
+import { resolveProjectRuntimeState } from "../../../project-runtime/coordinator.js";
 import {
   renderSchedulerIntegrationCheckHandoffMarkdown,
   renderSchedulerIntegrationCandidateMarkdown,
@@ -48,14 +51,11 @@ import {
   type SchedulerWorkerReworkValidationResult,
   type SchedulerWorkerValidationResult,
 } from "../../../workflow-runtime/scheduler.js";
-import {
-  readLatestWorkflowGraphPlan,
-  readWorkflowGraphPlan,
-} from "../../../workflow-artifacts/manager.js";
+import { readLatestWorkflowGraphPlanAt } from "../../../workflow-artifacts/manager.js";
 import { recordWorkbenchDecision } from "../../decisions.js";
 import { emitAssistantEvent } from "../../live-events.js";
 import { appendCanonicalTimelineEntry } from "../../canonical-timeline-command.js";
-import { resolveTopic } from "../../topic-resolver.js";
+import { resolveProjectHarnessTopic, resolveTopic } from "../../topic-resolver.js";
 import { readExecutionAuthorization } from "../../../workflow-runtime/execution-authorization.js";
 import type {
   WorkbenchLiveSink,
@@ -68,8 +68,7 @@ export async function startPlanningSchedulerFirstWorker(
   request: WorkbenchWorkflowActionRequest,
   live: WorkbenchLiveSink | undefined,
 ): Promise<{ workerStart: SchedulerRuntimeWorkerStart; taskRun: unknown; lease: unknown; code: unknown; executionStarted: true }> {
-  const { memory } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "Scheduler first worker start");
+  await resolveTopic(project, changeId);
   if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.start-first requires schedulerRunId.");
   if (!request.schedulerClaimReservationId) throw new Error("planning.scheduler.worker.start-first requires schedulerClaimReservationId.");
   if (!request.reservationIntentId) throw new Error("planning.scheduler.worker.start-first requires reservationIntentId.");
@@ -130,8 +129,7 @@ export async function startPlanningSchedulerNextWorker(
   request: WorkbenchWorkflowActionRequest,
   live: WorkbenchLiveSink | undefined,
 ): Promise<{ workerStart: SchedulerRuntimeWorkerStart; taskRun: unknown; lease: unknown; code: unknown; executionStarted: true }> {
-  const { memory } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "Scheduler next worker start");
+  await resolveTopic(project, changeId);
   if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.start-next requires schedulerRunId.");
   if (!request.schedulerClaimReservationId) throw new Error("planning.scheduler.worker.start-next requires schedulerClaimReservationId.");
   if (!request.reservationIntentId) throw new Error("planning.scheduler.worker.start-next requires reservationIntentId.");
@@ -192,8 +190,7 @@ export async function reconcilePlanningSchedulerFirstWorkerResult(
   request: WorkbenchWorkflowActionRequest,
   live: WorkbenchLiveSink | undefined,
 ): Promise<SchedulerWorkerResultReconcileResult> {
-  const { memory } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "Scheduler current worker result reconcile");
+  await resolveTopic(project, changeId);
   if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.reconcile-result requires schedulerRunId.");
   if (!request.schedulerWorkerStartId) throw new Error("planning.scheduler.worker.reconcile-result requires schedulerWorkerStartId.");
   const result = await runSchedulerWorkerResultReconcile(project, {
@@ -296,8 +293,7 @@ export async function validatePlanningSchedulerFirstWorker(
   request: WorkbenchWorkflowActionRequest,
   live: WorkbenchLiveSink | undefined,
 ): Promise<SchedulerWorkerValidationResult> {
-  const { memory } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "Scheduler current worker validation");
+  await resolveTopic(project, changeId);
   if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.validate-first requires schedulerRunId.");
   if (!request.schedulerWorkerResultId) throw new Error("planning.scheduler.worker.validate-first requires schedulerWorkerResultId.");
   const result = await runSchedulerWorkerValidation(project, {
@@ -361,8 +357,7 @@ export async function auditPlanningSchedulerFirstWorker(
   request: WorkbenchWorkflowActionRequest,
   live: WorkbenchLiveSink | undefined,
 ): Promise<SchedulerWorkerAuditResult> {
-  const { memory } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "Scheduler current worker audit");
+  await resolveTopic(project, changeId);
   if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.audit-first requires schedulerRunId.");
   if (!request.schedulerWorkerValidationId) throw new Error("planning.scheduler.worker.audit-first requires schedulerWorkerValidationId.");
   const result = await runSchedulerWorkerAudit(project, {
@@ -429,8 +424,7 @@ export async function compilePlanningSchedulerFirstWorkerReworkPlan(
   request: WorkbenchWorkflowActionRequest,
   live: WorkbenchLiveSink | undefined,
 ): Promise<SchedulerWorkerReworkPlanResult> {
-  const { memory } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "Scheduler current worker rework plan");
+  await resolveTopic(project, changeId);
   if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.rework-plan.compile requires schedulerRunId.");
   if (!request.schedulerWorkerValidationId) throw new Error("planning.scheduler.worker.rework-plan.compile requires schedulerWorkerValidationId.");
   const result = await runSchedulerWorkerReworkPlanCompile(project, {
@@ -496,8 +490,7 @@ export async function startPlanningSchedulerFirstWorkerRework(
   request: WorkbenchWorkflowActionRequest,
   live: WorkbenchLiveSink | undefined,
 ): Promise<SchedulerFirstWorkerReworkStartResult> {
-  const { memory } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "Scheduler current worker rework start");
+  await resolveTopic(project, changeId);
   if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.rework-start-first requires schedulerRunId.");
   if (!request.schedulerWorkerReworkPlanId) throw new Error("planning.scheduler.worker.rework-start-first requires schedulerWorkerReworkPlanId.");
   const result = await runSchedulerWorkerReworkStart(project, {
@@ -579,8 +572,7 @@ export async function reconcilePlanningSchedulerFirstWorkerReworkResult(
   request: WorkbenchWorkflowActionRequest,
   live: WorkbenchLiveSink | undefined,
 ): Promise<SchedulerWorkerReworkResultReconcileResult> {
-  const { memory } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "Scheduler current worker rework result reconcile");
+  await resolveTopic(project, changeId);
   if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.rework-reconcile-result requires schedulerRunId.");
   if (!request.schedulerWorkerReworkStartId) throw new Error("planning.scheduler.worker.rework-reconcile-result requires schedulerWorkerReworkStartId.");
   const result = await runSchedulerWorkerReworkResultReconcile(project, {
@@ -690,8 +682,7 @@ export async function validatePlanningSchedulerFirstWorkerRework(
   request: WorkbenchWorkflowActionRequest,
   live: WorkbenchLiveSink | undefined,
 ): Promise<SchedulerWorkerReworkValidationResult> {
-  const { memory } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "Scheduler current worker rework validation");
+  await resolveTopic(project, changeId);
   if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.rework-validate-first requires schedulerRunId.");
   if (!request.schedulerWorkerReworkResultId) throw new Error("planning.scheduler.worker.rework-validate-first requires schedulerWorkerReworkResultId.");
   const result = await runSchedulerWorkerReworkValidation(project, {
@@ -764,8 +755,7 @@ export async function auditPlanningSchedulerFirstWorkerRework(
   request: WorkbenchWorkflowActionRequest,
   live: WorkbenchLiveSink | undefined,
 ): Promise<SchedulerWorkerReworkAuditResult> {
-  const { memory } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "Scheduler current worker rework audit");
+  await resolveTopic(project, changeId);
   if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.rework-audit-first requires schedulerRunId.");
   if (!request.schedulerWorkerReworkValidationId) throw new Error("planning.scheduler.worker.rework-audit-first requires schedulerWorkerReworkValidationId.");
   const result = await runSchedulerWorkerReworkAudit(project, {
@@ -842,8 +832,7 @@ export async function compilePlanningSchedulerIntegrationCandidate(
   request: WorkbenchWorkflowActionRequest,
   live: WorkbenchLiveSink | undefined,
 ): Promise<SchedulerIntegrationCandidateResult> {
-  const { memory } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "Scheduler integration candidate");
+  await resolveTopic(project, changeId);
   if (!request.schedulerRunId) throw new Error("planning.scheduler.integration-candidate.compile requires schedulerRunId.");
   const result = await runSchedulerIntegrationCandidateCompile(project, {
     changeId,
@@ -897,8 +886,7 @@ export async function runPlanningSchedulerIntegrationCheckHandoff(
   request: WorkbenchWorkflowActionRequest,
   live: WorkbenchLiveSink | undefined,
 ): Promise<SchedulerIntegrationCheckHandoffResult> {
-  const { memory } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "Scheduler IntegrationCheck handoff");
+  await resolveTopic(project, changeId);
   if (!request.schedulerRunId) throw new Error("planning.scheduler.integration-check.run requires schedulerRunId.");
   if (!request.schedulerIntegrationCandidateId) throw new Error("planning.scheduler.integration-check.run requires schedulerIntegrationCandidateId.");
   const result = await runSchedulerIntegrationCheck(project, {
@@ -955,8 +943,7 @@ export async function reconcilePlanningSchedulerIntegrationOutcome(
   request: WorkbenchWorkflowActionRequest,
   live: WorkbenchLiveSink | undefined,
 ): Promise<SchedulerIntegrationOutcomeResult> {
-  const { memory } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "Scheduler integration outcome");
+  await resolveTopic(project, changeId);
   if (!request.schedulerRunId) throw new Error("planning.scheduler.integration-outcome.reconcile requires schedulerRunId.");
   if (!request.schedulerIntegrationCheckHandoffId) throw new Error("planning.scheduler.integration-outcome.reconcile requires schedulerIntegrationCheckHandoffId.");
   const result = await runSchedulerIntegrationOutcomeReconcile(project, {
@@ -1018,8 +1005,7 @@ export async function completePlanningSchedulerRun(
   request: WorkbenchWorkflowActionRequest,
   live: WorkbenchLiveSink | undefined,
 ): Promise<SchedulerRunCompletionResult> {
-  const { memory } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "SchedulerRun completion");
+  await resolveTopic(project, changeId);
   if (!request.schedulerRunId) throw new Error("planning.scheduler.run.complete requires schedulerRunId.");
   if (!request.schedulerIntegrationOutcomeId) throw new Error("planning.scheduler.run.complete requires schedulerIntegrationOutcomeId.");
   const result = await runSchedulerRunComplete(project, {
@@ -1077,8 +1063,7 @@ export async function closeBlockedPlanningSchedulerRun(
   request: WorkbenchWorkflowActionRequest,
   live: WorkbenchLiveSink | undefined,
 ): Promise<SchedulerRunBlockedCloseoutResult> {
-  const { memory } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "SchedulerRun blocked closeout");
+  await resolveTopic(project, changeId);
   if (!request.schedulerRunId) throw new Error("planning.scheduler.run.close-blocked requires schedulerRunId.");
   if (!request.schedulerClaimReservationId) throw new Error("planning.scheduler.run.close-blocked requires schedulerClaimReservationId.");
   if (!request.schedulerIntegrationCandidateId) throw new Error("planning.scheduler.run.close-blocked requires schedulerIntegrationCandidateId.");
@@ -1139,12 +1124,10 @@ export async function startAcceptedSequentialWorkflow(
   request: WorkbenchWorkflowActionRequest,
   live: WorkbenchLiveSink | undefined,
 ): Promise<unknown> {
-  const { memory, changePath } = await resolveTopic(project, changeId);
-  assertWritableMemory(memory, "accepted workflow start");
+  const { resolution, topic } = await resolvePlanningTopicRuntime(project, changeId);
   if (!request.workflowGraphPlanId) throw new Error("workflow.run.start requires workflowGraphPlanId.");
-  const authoredGraph = await readWorkflowGraphPlan(memory, changePath, request.workflowGraphPlanId);
-  const latestGraph = await readLatestWorkflowGraphPlan(memory, changePath);
-  if (authoredGraph.authoringContractVersion !== "1.0" || authoredGraph.graphMode !== "sequential-v1" || authoredGraph.status !== "compiled" || authoredGraph.changeId !== changeId || latestGraph.id !== authoredGraph.id) {
+  const authoredGraph = await readLatestWorkflowGraphPlanAt(topic.evidenceRoot, changeId);
+  if (authoredGraph.id !== request.workflowGraphPlanId || authoredGraph.authoringContractVersion !== "1.0" || authoredGraph.graphMode !== "sequential-v1" || authoredGraph.status !== "compiled" || authoredGraph.changeId !== changeId) {
     throw new Error("workflow.run.start authored graph target is stale.");
   }
   await appendCanonicalTimelineEntry(project, changeId, {
@@ -1155,15 +1138,24 @@ export async function startAcceptedSequentialWorkflow(
   }, live);
   let executionMode: "stepwise" | "scoped-auto" | undefined;
   try {
-    const intentPath = join(memory.changesRoot, "active", changeId, "planning", "execution-authorization-intent.json");
+    const intentPath = join(topic.evidenceRoot, "planning", "execution-authorization-intent.json");
     const intent = JSON.parse(await readFile(intentPath, "utf8")) as { status?: unknown; authorizationId?: unknown };
     if (intent.status === "issued" && typeof intent.authorizationId === "string") {
-      executionMode = (await readExecutionAuthorization(memory, intent.authorizationId)).mode;
+      executionMode = (await readExecutionAuthorization(resolution.paths, intent.authorizationId)).mode;
     }
   } catch {
     executionMode = undefined;
   }
   return runTaskQueueSequentialWorkflow({ project, changeId, live, workflowGraphPlanId: authoredGraph.id, executionMode });
 }
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+
+async function resolvePlanningTopicRuntime(project: ManagedProject, changeId: string) {
+  const state = await resolveProjectRuntimeState(project, {
+    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+  });
+  if (state.state !== "ready") {
+    throw new Error(`Project Harness is not ready for planning action: ${state.state}.`);
+  }
+  const topic = await resolveProjectHarnessTopic(state.resolution, changeId);
+  return { resolution: state.resolution, topic };
+}

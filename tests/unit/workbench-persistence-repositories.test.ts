@@ -196,6 +196,38 @@ describe("Workbench persistence owners", () => {
     }
   });
 
+  it("rejects a Planning commit whose expected graph scope is stale", async () => {
+    const database = await openWorkbenchDatabase(repoLocalMemory(root, projectId));
+    try {
+      database.conversations.createConversation(conversation("conversation-1"));
+      database.unitOfWork.startConversationGraphScope(
+        projectId,
+        "conversation-1",
+        "graph-2",
+        "2026-07-17T00:00:01.000Z",
+      );
+
+      expect(() => database.unitOfWork.acceptConversationChangeBinding(
+        projectId,
+        "conversation-1",
+        "stale-change",
+        "2026-07-17T00:00:02.000Z",
+        "stale-acceptance",
+        "proposal-hash",
+        undefined,
+        "graph-1",
+      )).toThrow(/no longer matches the current conversation graph scope/);
+
+      expect(database.conversations.readConversation(projectId, "conversation-1")).toMatchObject({
+        boundChangeId: null,
+        currentGraphScopeId: "graph-2",
+      });
+      expect(database.conversations.hasPlanningAcceptanceCommit("stale-acceptance")).toBe(false);
+    } finally {
+      database.close();
+    }
+  });
+
   it("runs external reset guards outside the exclusive SQLite transaction", async () => {
     const memory = repoLocalMemory(root, projectId);
     const initial = await openWorkbenchDatabase(memory);

@@ -10,8 +10,8 @@ import { collectAllConversationThreadEntries } from "../../workbench/conversatio
 import { resolveProjectInputWithDirect } from "./direct-project.js";
 import { getRuntimeDiagnostics } from "./runtime-diagnostics.js";
 import type { WorkbenchServerContext } from "./types.js";
-import type { ManagedProject, ResolvedMemory, RunMetadata } from "../../types/index.js";
-import { resolveProjectMemory } from "../../memory/resolver.js";
+import type { ManagedProject, RunMetadata } from "../../types/index.js";
+import type { ProjectRuntimeResolution } from "../../project-runtime/context.js";
 
 export type RuntimeActivitySeverity = "info" | "ok" | "warning" | "error";
 export type RuntimeActivityType =
@@ -71,16 +71,16 @@ export async function getRuntimeActivityLog(
   }
   const limit = normalizeLimit(options.limit);
   const topicId = options.topicId?.trim() || null;
-  const memory = await resolveProjectMemory(input.project);
+  const runtime = await context.projectRuntimeCoordinator.requireReady(input.project);
   const items: RuntimeActivityItem[] = [];
 
   await Promise.all([
     appendProviderItems(items, input.project, input.path),
     appendDiagnosticsItems(items, context, projectId),
-    appendRunItems(items, memory, topicId),
-    appendValidationItems(items, memory, topicId),
-    appendAuditItems(items, memory, topicId),
-    appendMessageContextItems(items, memory, topicId),
+    appendRunItems(items, runtime, topicId),
+    appendValidationItems(items, runtime, topicId),
+    appendAuditItems(items, runtime, topicId),
+    appendMessageContextItems(items, runtime, topicId),
   ]);
 
   const sorted = items
@@ -157,8 +157,8 @@ async function appendDiagnosticsItems(items: RuntimeActivityItem[], context: Wor
   }
 }
 
-async function appendRunItems(items: RuntimeActivityItem[], memory: ResolvedMemory, topicId: string | null): Promise<void> {
-  const runs = (await listRuns(memory)).filter((run) => !topicId || run.changeId === topicId);
+async function appendRunItems(items: RuntimeActivityItem[], runtime: ProjectRuntimeResolution, topicId: string | null): Promise<void> {
+  const runs = (await listRuns(runtime.paths)).filter((run) => !topicId || run.changeId === topicId);
   for (const run of runs.slice(0, 80)) {
     items.push({
       id: `run:${run.id}`,
@@ -174,14 +174,14 @@ async function appendRunItems(items: RuntimeActivityItem[], memory: ResolvedMemo
       ],
       details: runDetails(run),
     });
-    for (const event of await readRunEventSummaries(memory, run)) {
+    for (const event of await readRunEventSummaries(runtime, run)) {
       items.push(event);
     }
   }
 }
 
-async function appendValidationItems(items: RuntimeActivityItem[], memory: ResolvedMemory, topicId: string | null): Promise<void> {
-  const validations = await listValidationResults(memory, topicId ?? undefined);
+async function appendValidationItems(items: RuntimeActivityItem[], runtime: ProjectRuntimeResolution, topicId: string | null): Promise<void> {
+  const validations = await listValidationResults(runtime.paths, topicId ?? undefined);
   for (const validation of validations.slice(0, 40).map(summarizeValidation)) {
     items.push({
       id: `validation:${validation.id}`,
@@ -200,8 +200,8 @@ async function appendValidationItems(items: RuntimeActivityItem[], memory: Resol
   }
 }
 
-async function appendAuditItems(items: RuntimeActivityItem[], memory: ResolvedMemory, topicId: string | null): Promise<void> {
-  const audits = await listAuditResults(memory, topicId ?? undefined);
+async function appendAuditItems(items: RuntimeActivityItem[], runtime: ProjectRuntimeResolution, topicId: string | null): Promise<void> {
+  const audits = await listAuditResults(runtime.paths, topicId ?? undefined);
   for (const audit of audits.slice(0, 40).map(summarizeAudit)) {
     items.push({
       id: `audit:${audit.id}`,
@@ -220,8 +220,8 @@ async function appendAuditItems(items: RuntimeActivityItem[], memory: ResolvedMe
   }
 }
 
-async function appendMessageContextItems(items: RuntimeActivityItem[], memory: ResolvedMemory, topicId: string | null): Promise<void> {
-  const entries = (await collectAllConversationThreadEntries(memory)).filter((entry) => !topicId || entry.changeId === topicId);
+async function appendMessageContextItems(items: RuntimeActivityItem[], runtime: ProjectRuntimeResolution, topicId: string | null): Promise<void> {
+  const entries = (await collectAllConversationThreadEntries(runtime.paths)).filter((entry) => !topicId || entry.changeId === topicId);
   for (const entry of entries.slice(-200)) {
     if (entry.error) {
       items.push({
@@ -257,8 +257,8 @@ async function appendMessageContextItems(items: RuntimeActivityItem[], memory: R
   }
 }
 
-async function readRunEventSummaries(memory: ResolvedMemory, run: RunMetadata): Promise<RuntimeActivityItem[]> {
-  const path = artifactPath(memory, run.artifacts.events, run.artifacts.base ?? "project-root");
+async function readRunEventSummaries(runtime: ProjectRuntimeResolution, run: RunMetadata): Promise<RuntimeActivityItem[]> {
+  const path = artifactPath(runtime, run.artifacts.events, run.artifacts.base ?? "project-root");
   if (!path || !existsSync(path)) return [];
   const content = await readFile(path, "utf8").catch(() => "");
   if (!content.trim()) return [];
@@ -286,10 +286,10 @@ async function readRunEventSummaries(memory: ResolvedMemory, run: RunMetadata): 
   return items;
 }
 
-function artifactPath(memory: ResolvedMemory, relativePath: string | undefined, base: "project-root" | "memory-root"): string | null {
+function artifactPath(runtime: ProjectRuntimeResolution, relativePath: string | undefined, base: "project-root" | "memory-root"): string | null {
   if (!relativePath) return null;
-  if (base === "memory-root") return join(memory.memoryRoot, relativePath);
-  return join(memory.projectRoot, relativePath);
+  if (base === "memory-root") return join(runtime.paths.sidecarRoot, relativePath);
+  return join(runtime.projectRoot, relativePath);
 }
 
 function artifactRefs(run: RunMetadata): RuntimeActivityRef[] {

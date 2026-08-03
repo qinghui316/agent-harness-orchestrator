@@ -1,26 +1,37 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { isAbsolute, relative, resolve } from "node:path";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import {
-  acceptPlanningPackage,
   type AcceptedPlanningPackage,
   type PlanningAcceptanceCommitPort,
   type ValidatedPlanningPackageInput,
   validatePlanningProposalArtifacts,
-} from "../../change/manager.js";
+} from "../../project-harness/planning-publication.js";
 import { writeJsonFile } from "../../fs/json.js";
 import { readRequiredJsonFile } from "../../fs/json.js";
-import { resolveProjectMemory } from "../../memory/resolver.js";
+import { resolveProjectRuntimeState } from "../../project-runtime/coordinator.js";
+import { publishProjectRuntimePlanningPackage } from "../../project-runtime/planning-publication.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../provider-runtime/project-harness-discovery.js";
+import type { ProjectHarnessDiscoveryPolicy } from "../../project-harness/contracts.js";
 import type { ManagedProject } from "../../types/index.js";
-import { openWorkbenchDatabase } from "../persistence/open-workbench-database.js";
+import {
+  openProjectRuntimeWorkbenchDatabase,
+} from "../persistence/open-workbench-database.js";
 import { publishAgentSurfacesInvalidated } from "../project-live-events.js";
 import type { StoredTopicMessage } from "../persistence/contracts.js";
+import type { WorkbenchDatabase } from "../persistence/database.js";
+import { createConversationGraphScopeId } from "../conversation-graph-scope.js";
 
 export interface AcceptedConversationPlanningPackage extends AcceptedPlanningPackage {
   timelineRows: StoredTopicMessage[];
+}
+
+export interface AcceptConversationPlanningPackageOptions {
+  ahoHome?: string;
+  discoveryPolicy?: ProjectHarnessDiscoveryPolicy;
 }
 
 const plannerChildOutputSchema = z.object({
@@ -144,6 +155,7 @@ export async function acceptCurrentConversationPlanningPackage(
   project: ManagedProject,
   conversationId: string,
   proposalArtifact: string,
+  options: AcceptConversationPlanningPackageOptions = {},
 ): Promise<AcceptedConversationPlanningPackage> {
   const key = `${project.path}:${project.id}:${conversationId}`;
   const previous = planningAcceptanceLocks.get(key) ?? Promise.resolve();
@@ -153,7 +165,7 @@ export async function acceptCurrentConversationPlanningPackage(
   planningAcceptanceLocks.set(key, queued);
   await previous;
   try {
-    return await acceptCurrentConversationPlanningPackageUnlocked(project, conversationId, proposalArtifact);
+    return await acceptCurrentConversationPlanningPackageUnlocked(project, conversationId, proposalArtifact, options);
   } finally {
     release();
     if (planningAcceptanceLocks.get(key) === queued) planningAcceptanceLocks.delete(key);
@@ -164,54 +176,92 @@ async function acceptCurrentConversationPlanningPackageUnlocked(
   project: ManagedProject,
   conversationId: string,
   proposalArtifact: string,
+  options: AcceptConversationPlanningPackageOptions,
 ): Promise<AcceptedConversationPlanningPackage> {
-  const memory = await resolveProjectMemory(project);
-  if (!memory.projectId) throw new Error("Project id is required to accept a conversation planning package.");
-  const input = await validateCurrentConversationPlanningPackage(memory, conversationId, proposalArtifact);
-  const store = await openWorkbenchDatabase(memory);
+  return acceptCurrentProjectHarnessPlanningPackage(project, conversationId, proposalArtifact, options);
+}
+
+async function acceptCurrentProjectHarnessPlanningPackage(
+  project: ManagedProject,
+  conversationId: string,
+  proposalArtifact: string,
+  options: AcceptConversationPlanningPackageOptions,
+): Promise<AcceptedConversationPlanningPackage> {
+  const runtimeState = await resolveProjectRuntimeState(project, {
+    ahoHome: options.ahoHome,
+    discoveryPolicy: options.discoveryPolicy ?? DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+  });
+  if (runtimeState.state === "onboarding") {
+    throw new Error("Project Harness onboarding must complete before accepting a planning package.");
+  }
+  if (runtimeState.state === "repair-required") {
+    throw new Error("Project Harness requires repair before accepting a planning package.");
+  }
+  const resolution = runtimeState.resolution;
+  const store = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
   let timelineRows: StoredTopicMessage[] = [];
   try {
-    const commitPort: PlanningAcceptanceCommitPort = {
-      hasCommit: (transactionId) => store.conversations.hasPlanningAcceptanceCommit(transactionId),
-      commit: (commit) => {
-        const scopeTransition = commit.newGraphScopeRequired
-          ? {
-              graphScopeId: `graph:${conversationId}:${Date.now().toString(36)}:${randomUUID().slice(0, 8)}`,
-              runId: commit.proposalRunId,
-              plannerThreadId: commit.plannerThreadId,
-            }
-          : undefined;
-        timelineRows = store.unitOfWork.acceptConversationChangeBinding(
-          commit.projectId,
-          commit.conversationId,
-          commit.changeId,
-          commit.acceptedAt,
-          commit.transactionId,
-          commit.proposalHash,
-          scopeTransition,
-        );
-        if (scopeTransition) publishAgentSurfacesInvalidated(commit.projectId, {
-          conversationId: commit.conversationId,
-          graphScopeId: scopeTransition.graphScopeId,
-          reason: "scope-changed",
-        });
-      },
-      deleteCommit: (transactionId) => store.conversations.deletePlanningAcceptanceCommit(transactionId),
-    };
-    return { ...await acceptPlanningPackage(project, input, commitPort), timelineRows };
+    const input = await validateCurrentConversationPlanningPackage(
+      { projectId: resolution.harness.projectId, workbenchRoot: resolution.paths.workbenchRoot },
+      store,
+      conversationId,
+      proposalArtifact,
+    );
+    const commit = planningAcceptanceCommitPort(store, (rows) => { timelineRows = rows; });
+    const result = await publishProjectRuntimePlanningPackage(
+      resolution,
+      input,
+      commit,
+      createConversationGraphScopeId,
+    );
+    return { ...result, timelineRows };
   } finally {
     store.close();
   }
 }
 
+function planningAcceptanceCommitPort(
+  store: WorkbenchDatabase,
+  onTimelineRows: (rows: StoredTopicMessage[]) => void,
+): PlanningAcceptanceCommitPort {
+  return {
+    hasCommit: (transactionId) => store.conversations.hasPlanningAcceptanceCommit(transactionId),
+    commit: (commit) => {
+      const scopeTransition = commit.graphScopeId !== commit.previousGraphScopeId
+        ? {
+            graphScopeId: commit.graphScopeId,
+            runId: commit.proposalRunId,
+            plannerThreadId: commit.plannerThreadId,
+          }
+        : undefined;
+      onTimelineRows(store.unitOfWork.acceptConversationChangeBinding(
+        commit.projectId,
+        commit.conversationId,
+        commit.changeId,
+        commit.acceptedAt,
+        commit.transactionId,
+        commit.proposalHash,
+        scopeTransition,
+        commit.previousGraphScopeId,
+      ));
+      if (scopeTransition) publishAgentSurfacesInvalidated(commit.projectId, {
+        conversationId: commit.conversationId,
+        graphScopeId: scopeTransition.graphScopeId,
+        reason: "scope-changed",
+      });
+    },
+    deleteCommit: (transactionId) => store.conversations.deletePlanningAcceptanceCommit(transactionId),
+  };
+}
+
 async function validateCurrentConversationPlanningPackage(
-  memory: Awaited<ReturnType<typeof resolveProjectMemory>>,
+  runtime: { projectId: string; workbenchRoot: string },
+  store: WorkbenchDatabase,
   conversationId: string,
   proposalArtifact: string,
 ): Promise<ValidatedPlanningPackageInput> {
-  if (!memory.projectId) throw new Error("Project id is required to validate a conversation planning package.");
-  const projectId = memory.projectId;
-  const proposalRoot = resolve(memory.workbenchRoot, "conversations", conversationId, "runs");
+  const projectId = runtime.projectId;
+  const proposalRoot = resolve(runtime.workbenchRoot, "conversations", conversationId, "runs");
   const proposalPath = resolve(proposalArtifact);
   const proposalScope = relative(proposalRoot, proposalPath);
   if (!proposalScope || proposalScope.startsWith("..") || isAbsolute(proposalScope)) {
@@ -222,19 +272,19 @@ async function validateCurrentConversationPlanningPackage(
   if (resolve(proposal.artifact) !== proposalPath || resolve(proposalPath, "..") !== expectedDirectory) {
     throw new Error("Planner proposal artifact does not match its declared run and path.");
   }
-  if (proposal.projectId !== memory.projectId || proposal.conversationId !== conversationId) {
+  if (proposal.projectId !== projectId || proposal.conversationId !== conversationId) {
     throw new Error("Planner proposal is not scoped to the selected conversation.");
   }
   if (proposal.status !== "proposed" || proposal.openQuestions.length > 0) {
     throw new Error("Only a complete proposed planner result with no open questions can be accepted.");
   }
 
-  const store = await openWorkbenchDatabase(memory);
-  try {
-    const conversation = store.conversations.readConversation(projectId, conversationId);
+  const conversation = store.conversations.readConversation(projectId, conversationId);
     if (!conversation) throw new Error(`Conversation not found: ${conversationId}.`);
+    if (!conversation.currentGraphScopeId) throw new Error("Conversation planning requires a current graph scope.");
+    const currentGraphScopeId = conversation.currentGraphScopeId;
     const scopedThreads = store.providerAttempts.listProviderThreads(projectId, conversationId)
-      .filter((link) => link.graphScopeId === conversation.currentGraphScopeId);
+      .filter((link) => link.graphScopeId === currentGraphScopeId);
     const lineage = scopedThreads
       .filter((link) => link.providerThreadId === proposal.childThreadId && link.roleId === "planning-agent")
       .flatMap((childThread) => {
@@ -251,10 +301,11 @@ async function validateCurrentConversationPlanningPackage(
       .filter((message) => storedAgentRoleId(message.rawJson) === "planning-agent" && Boolean(message.artifact))
       .at(-1)?.artifact;
     if (latestProposalArtifact !== proposal.artifact) throw new Error("Planner proposal is stale or superseded.");
-    return {
+  return {
       conversationId,
       conversationTitle: conversation.title,
       boundChangeId: conversation.boundChangeId,
+      currentGraphScopeId,
       proposal: {
         id: proposal.id,
         hash: proposal.hash,
@@ -265,10 +316,7 @@ async function validateCurrentConversationPlanningPackage(
         runId: proposal.runId,
         childThreadId: proposal.childThreadId,
       },
-    };
-  } finally {
-    store.close();
-  }
+  };
 }
 
 function proposalHash(input: {

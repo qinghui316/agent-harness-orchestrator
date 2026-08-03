@@ -11,6 +11,7 @@ import {
   recoverProjectHarnessPublication,
   type ProjectHarnessPublicationJournal,
 } from "../../src/project-harness/publication.js";
+import { migratePreservedProjectHarnessLaneState } from "../../src/project-harness/registry.js";
 
 const cleanup: string[] = [];
 
@@ -139,6 +140,38 @@ describe("project Harness atomic publication", () => {
 
     expect(await readFile(join(fixture.current, "static.txt"), "utf8")).toBe("current\n");
     expect(await readFile(baseline, "utf8")).toBe("current-state\n");
+  });
+
+  it("keeps legacy Lane state unchanged when a candidate-only schema migration fails", async () => {
+    const fixture = await createFixture();
+    const laneRoot = join(fixture.current, "state", "registry", "lanes");
+    const lanePath = join(laneRoot, "lane-current.json");
+    await mkdir(laneRoot, { recursive: true });
+    await writeFile(lanePath, `${JSON.stringify({
+      schema_version: "1.0",
+      lane_id: "lane-current",
+      branch: "main",
+      head_commit: "a".repeat(40),
+      active_change_id: "active-change",
+      status: "active",
+      updated_at: "2026-08-03T00:00:00.000Z",
+    }, null, 2)}\n`, "utf8");
+    fixture.options.expectedCurrentFingerprint = await fingerprintProjectHarness(fixture.current);
+
+    await expect(publishProjectHarnessCandidate({
+      ...fixture.options,
+      transactionId: "lane-schema-rollback",
+      commitEffectPaths: ["state/registry/lanes"],
+      commitEffect: migratePreservedProjectHarnessLaneState,
+      failureInjection(stage) {
+        if (stage === "candidate-staged") throw new Error("injected after Lane migration");
+      },
+    })).rejects.toThrow(/injected after Lane migration/);
+
+    expect(JSON.parse(await readFile(lanePath, "utf8"))).toMatchObject({
+      schema_version: "1.0",
+      active_change_id: "active-change",
+    });
   });
 
   it("rejects unsafe preserved paths before creating a transaction", async () => {

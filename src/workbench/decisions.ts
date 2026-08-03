@@ -1,6 +1,7 @@
-import { resolveProjectMemory } from "../memory/resolver.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
+import { resolveProjectRuntimeState } from "../project-runtime/coordinator.js";
 import type { ManagedProject } from "../types/index.js";
-import { openWorkbenchDatabase } from "./persistence/open-workbench-database.js";
+import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbench-database.js";
 import { type StoredDecisionRecord } from "./persistence/contracts.js";
 
 export async function recordWorkbenchDecision(project: ManagedProject, input: {
@@ -18,13 +19,17 @@ export async function recordWorkbenchDecision(project: ManagedProject, input: {
   payload: unknown;
   completedAt?: string | null;
 }): Promise<void> {
-  const memory = await resolveProjectMemory(project);
+  const state = await resolveProjectRuntimeState(project, {
+    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+  });
+  if (state.state !== "ready") throw new Error(`Project Harness is not ready for Workbench decisions: ${state.state}.`);
+  const { paths } = state.resolution;
   const now = new Date().toISOString();
-  const store = await openWorkbenchDatabase(memory);
+  const store = await openProjectRuntimeWorkbenchDatabase(paths);
   try {
     store.decisions.upsertDecision({
       id: input.id,
-      projectId: memory.projectId ?? "unregistered",
+      projectId: paths.projectId,
       changeId: input.changeId,
       decisionType: input.decisionType,
       status: input.status,

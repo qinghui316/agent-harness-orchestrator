@@ -1,35 +1,28 @@
 ﻿import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
-import { auditHarness } from "../harness/audit.js";
-import { readAgentCatalog } from "../agent/catalog.js";
+import { readBundledAgentCatalog } from "../agent/catalog.js";
 import { defaultProviderRegistry, type ProviderTurnResult } from "../provider-runtime/index.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 import { agentThreadSurfaceId } from "../provider-runtime/agent-surface-id.js";
-import { assertWritableMemory } from "../memory/resolver.js";
-import { ensureProjectRuntime } from "../harness/init.js";
 import { writeJsonFile } from "../fs/json.js";
 import { getGitCommit, getGitStatusShort } from "../project/git.js";
-import { resolveProjectHarnessAgentInput } from "../project-harness/agent-input.js";
-import { readProjectMarker } from "../project/marker.js";
+import { resolveWithinPhysicalRoot } from "../project-harness/path-safety.js";
+import { withProjectHarnessWriterLock } from "../project-harness/writer-lock.js";
 import { resolveProjectRuntimeState } from "../project-runtime/coordinator.js";
-import { assertChangeFinalizationReady, closeChangeForFinalization } from "../change/manager.js";
+import type { ProjectRuntimeResolution } from "../project-runtime/context.js";
 import { getSystemSkillsRoot } from "../template-source/paths.js";
 import { hashNativeSkillPackageContent } from "../skill/content-hash.js";
-import { runSchedulerReadySetInitialization } from "../workflow-runtime/scheduler.js";
 import {
-  claimTransitionExecution,
   issueLocalExecutionAuthorization,
-  markTransitionExecutionStarted,
-  readExecutionAuthorization,
+  revokeLocalExecutionAuthorization,
 } from "../workflow-runtime/execution-authorization.js";
-import type { LocalExecutionAuthorization, ManagedProject, ResolvedMemory } from "../types/index.js";
+import type { LocalExecutionAuthorization, ManagedProject } from "../types/index.js";
 import { buildMainAgentExecutionContext } from "./main-agent-context.js";
 import { childTranscriptCapturesForThread, createAssistantTranscriptCapture } from "./live-transcript.js";
 import { forwardProviderRealtimeEvent } from "./provider-live-events.js";
-import { resolveTopic } from "./topic-resolver.js";
-import { openWorkbenchDatabase } from "./persistence/open-workbench-database.js";
+import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbench-database.js";
 import { publishAgentSurfacesInvalidated } from "./project-live-events.js";
 import type { WorkbenchDatabase } from "./persistence/database.js";
 import { type StoredTopicMessage } from "./persistence/contracts.js";
@@ -44,7 +37,6 @@ import {
 import { ProviderChildLifecycleOwner } from "./provider-child-lifecycle-owner.js";
 import { listClosableChildAgents, runExactChildAgentClose } from "./provider-child-turn-coordinator.js";
 import { persistProviderUserInputRequest, providerUserInputRequestKey } from "./provider-input-lifecycle.js";
-import { runWorkbenchWorkflowAction as runWorkflowConversationAction } from "./workflow-conversation-bridge.js";
 import { assembleSharedConversationContext } from "./shared-conversation-context.js";
 import { buildConversationInteractionQueue } from "./conversation-interactions.js";
 import { acceptCurrentConversationPlanningPackage, readPlannerChildProposal } from "./planning/planner-child-proposal.js";
@@ -87,26 +79,21 @@ async function runProjectScopedMainAgentTurnActivity(
   planHandoff: ValidatedPlanHandoffIntent | undefined,
   options: { goalResume?: { deliveryKey: string; contextText: string }; graphScopeId?: string },
 ): Promise<TopicThreadEntry> {
-  if (!await readProjectMarker(project.path)) {
-    const runtimeState = await resolveProjectRuntimeState(project, {
-      discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
-    });
-    if (runtimeState.state === "onboarding") {
-      return runProjectHarnessOnboardingTurn(project, runtimeState, conversationId, userMessage, live);
-    }
-    if (runtimeState.state === "repair-required") {
-      throw new Error("Project Harness requires repair before planning or source execution.");
-    }
-    throw new Error("Skill-native project runtime consumers are not fully migrated yet; refusing to create legacy Harness state.");
+  const runtimeState = await resolveProjectRuntimeState(project, {
+    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+  });
+  if (runtimeState.state === "onboarding") {
+    return runProjectHarnessOnboardingTurn(project, runtimeState, conversationId, userMessage, live);
   }
-  const projectHarnessInput = await resolveProjectHarnessAgentInput(project, DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY);
-  const memory = await ensureProjectRuntime(project);
-  assertWritableMemory(memory, "Project-scoped chat");
-  if (!memory.projectId) throw new Error("Project id is required to run project-scoped chat.");
-  const agentCatalog = await readAgentCatalog(memory);
-  const graphScopeId = options.graphScopeId ?? await currentConversationGraphScope(memory, conversationId);
+  if (runtimeState.state === "repair-required") {
+    throw new Error("Project Harness requires repair before planning or source execution.");
+  }
+  const resolution = runtimeState.resolution;
+  const projectId = resolution.harness.projectId;
+  const agentCatalog = readBundledAgentCatalog();
+  const graphScopeId = options.graphScopeId ?? await currentConversationGraphScope(resolution, conversationId);
   const runId = buildProjectConversationRunId(conversationId);
-  const directory = join(memory.workbenchRoot, "conversations", conversationId, "runs", runId);
+  const directory = join(resolution.paths.workbenchRoot, "conversations", conversationId, "runs", runId);
   let mainTimelineId = `assistant:${conversationId}:pending:${runId}:main`;
   let canonicalStore: WorkbenchDatabase | null = null;
   let canonicalDelivery: CanonicalTimelineDelivery | null = null;
@@ -139,7 +126,7 @@ async function runProjectScopedMainAgentTurnActivity(
     if (!canonicalDelivery) return true;
     try {
       const writes = buildCaptureWrites({
-        projectId: memory.projectId!,
+        projectId,
         conversationId,
         graphScopeId,
         runId,
@@ -157,37 +144,29 @@ async function runProjectScopedMainAgentTurnActivity(
     }
   });
   const emitInteractionUpdate = async (sink: WorkbenchLiveSink | undefined = capture.sink): Promise<void> => {
-    sink?.emit({ event: "conversation.interactions.updated", data: await buildConversationInteractionQueue(memory, conversationId, graphScopeId) });
-    publishAgentSurfacesInvalidated(memory.projectId!, { conversationId, graphScopeId, reason: "interaction-updated" });
+    sink?.emit({ event: "conversation.interactions.updated", data: await buildConversationInteractionQueue(resolution.paths, conversationId, graphScopeId) });
+    publishAgentSurfacesInvalidated(projectId, { conversationId, graphScopeId, reason: "interaction-updated" });
   };
   const proposalDirectory = join(directory, "planner-proposal");
   await mkdir(proposalDirectory, { recursive: true });
   const mainOrchestrationSkillPath = join(getSystemSkillsRoot(), "aho-main-orchestration", "SKILL.md");
-  const harnessEngineeringSkillPath = join(getSystemSkillsRoot(), "aho-harness-engineering", "SKILL.md");
   if (!existsSync(mainOrchestrationSkillPath)) throw new Error("原生 Main Skill 不可用：未找到 aho-main-orchestration。");
-  const harnessAudit = await auditHarness(project.path);
-  const onboarding = harnessAudit.readiness !== "ready";
-  if (onboarding && !existsSync(harnessEngineeringSkillPath)) throw new Error("原生 Harness Skill 不可用：未找到 aho-harness-engineering。");
   const mainOrchestrationSkillHash = await hashNativeSkillPackageContent(dirname(mainOrchestrationSkillPath));
-  const harnessEngineeringSkillHash = onboarding
-    ? await hashNativeSkillPackageContent(dirname(harnessEngineeringSkillPath))
-    : null;
   const prompt = buildProjectScopedMainAgentPrompt(userMessage);
   const additionalContext: Record<string, { kind: "untrusted" | "application"; value: string }> = {
     "aho.project": {
       kind: "application",
-      value: JSON.stringify({ projectRoot: project.path, memoryRoot: memory.memoryRoot, memoryMode: memory.mode }),
+      value: JSON.stringify({
+        projectRoot: resolution.projectRoot,
+        projectId,
+        projectHarnessSkill: resolution.harness.skillName,
+        projectHarnessRevision: resolution.harness.skillRevision,
+      }),
     },
     "aho.proposal-workspace": {
       kind: "application",
       value: JSON.stringify({ path: proposalDirectory, files: ["spec.md", "plan.md", "tasks.md", "notes.md"] }),
     },
-    ...(onboarding ? {
-      "aho.harness-onboarding": {
-        kind: "application" as const,
-        value: JSON.stringify({ mode: "onboard", harnessReadiness: harnessAudit.readiness }),
-      },
-    } : {}),
     ...(planHandoff ? {
       "aho.plan-handoff": {
         kind: "application" as const,
@@ -217,16 +196,16 @@ async function runProjectScopedMainAgentTurnActivity(
   let acceptedPlanMarker: TopicThreadEntry | null = null;
   let planDocumentCreated = false;
   let acceptedPlanning: Awaited<ReturnType<typeof acceptCurrentConversationPlanningPackage>> | null = null;
-  const sessionStore = await openWorkbenchDatabase(memory);
+  const sessionStore = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
   try {
-    const conversation = sessionStore.conversations.readConversation(memory.projectId, conversationId);
+    const conversation = sessionStore.conversations.readConversation(projectId, conversationId);
     if (!conversation) throw new Error(`Conversation not found: ${conversationId}.`);
     providerId = conversation.selectedProviderId;
     completedTurnSequence = conversation.completedTurnSequence;
     boundChangeId = conversation?.boundChangeId ?? null;
-    const binding = sessionStore.providerAttempts.readConversationProviderBinding(memory.projectId, conversationId, providerId);
+    const binding = sessionStore.providerAttempts.readConversationProviderBinding(projectId, conversationId, providerId);
     mainSessionId = binding?.nativeSessionId ?? null;
-    const resumePoint = sessionStore.providerAttempts.readLatestProviderResumePoint(memory.projectId, conversationId);
+    const resumePoint = sessionStore.providerAttempts.readLatestProviderResumePoint(projectId, conversationId);
     expectedResumeAttemptId = resumePoint
       && resumePoint.targetProviderId === providerId
       && resumePoint.graphScopeId === graphScopeId
@@ -250,15 +229,14 @@ async function runProjectScopedMainAgentTurnActivity(
     };
   }
   const handoff = await assembleSharedConversationContext({
-    project,
-    memory,
+    resolution,
     conversationId,
     providerId: providerId!,
     currentUserMessage: userMessage,
   });
   Object.assign(additionalContext, handoff.context);
   mainTimelineId = `assistant:${conversationId}:${providerId}:${runId}:main`;
-  const providerAttempts = await readProviderAttempts(memory, conversationId);
+  const providerAttempts = await readProviderAttempts(resolution, conversationId);
   const queuedResumeAttempt = attemptStoreCandidate(
     providerAttempts,
     providerId!,
@@ -273,10 +251,10 @@ async function runProjectScopedMainAgentTurnActivity(
   const provider = resolvedProvider.descriptor;
   const capabilitySnapshot = resolvedProvider.snapshot;
   const attemptStartedAt = new Date().toISOString();
-  const attemptStore = await openWorkbenchDatabase(memory);
+  const attemptStore = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
   try {
     const attemptRecord = {
-      projectId: memory.projectId,
+      projectId,
       conversationId,
       attemptId,
       graphScopeId,
@@ -301,10 +279,10 @@ async function runProjectScopedMainAgentTurnActivity(
       && candidate.providerId === providerId
       && candidate.roleId === "main-agent"
       && candidate.operationProfile === "main")) {
-      attemptStore.providerAttempts.completeProviderAttempt(memory.projectId, stale.attemptId, "interrupted", stale.nativeSessionId, attemptStartedAt);
+      attemptStore.providerAttempts.completeProviderAttempt(projectId, stale.attemptId, "interrupted", stale.nativeSessionId, attemptStartedAt);
     }
     if (queuedResumeAttempt) {
-      attemptStore.providerAttempts.startQueuedProviderAttempt(memory.projectId, attemptId, {
+      attemptStore.providerAttempts.startQueuedProviderAttempt(projectId, attemptId, {
         capabilitySnapshot,
         handoffHash: handoff.hash,
         deliveredThroughCompletedTurn: completedTurnSequence,
@@ -317,25 +295,25 @@ async function runProjectScopedMainAgentTurnActivity(
   } finally {
     attemptStore.close();
   }
-  publishAgentSurfacesInvalidated(memory.projectId, { conversationId, graphScopeId, reason: "attempt-updated" });
-  canonicalStore = await openWorkbenchDatabase(memory);
+  publishAgentSurfacesInvalidated(projectId, { conversationId, graphScopeId, reason: "attempt-updated" });
+  canonicalStore = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
   canonicalDelivery = new CanonicalTimelineDelivery(canonicalStore, live);
   if (mainSessionId) {
-    canonicalStore.providerAttempts.bindProviderAttemptThread(memory.projectId, {
+    canonicalStore.providerAttempts.bindProviderAttemptThread(projectId, {
       attemptId,
       threadId: mainSessionId,
       parentThreadId: null,
       parentAgentSurfaceId: null,
       runId,
     }, attemptStartedAt);
-    publishAgentSurfacesInvalidated(memory.projectId, { conversationId, graphScopeId, reason: "thread-bound" });
+    publishAgentSurfacesInvalidated(projectId, { conversationId, graphScopeId, reason: "thread-bound" });
   }
   let liveMainThreadId: string | null = mainSessionId;
   const childLifecycleOwner = new ProviderChildLifecycleOwner({
     database: canonicalStore,
     delivery: canonicalDelivery,
     catalog: agentCatalog,
-    projectId: memory.projectId,
+    projectId,
     conversationId,
     graphScopeId,
     changeId: boundChangeId,
@@ -346,12 +324,12 @@ async function runProjectScopedMainAgentTurnActivity(
     model: capabilitySnapshot.effectiveModel ? { providerId, modelId: capabilitySnapshot.effectiveModel } : null,
     parentHandoffHash: handoff.hash,
     deliveredThroughCompletedTurn: completedTurnSequence,
-    onInvalidated: () => publishAgentSurfacesInvalidated(memory.projectId!, { conversationId, graphScopeId, reason: "attempt-updated" }),
+    onInvalidated: () => publishAgentSurfacesInvalidated(projectId, { conversationId, graphScopeId, reason: "attempt-updated" }),
   });
   const commitFailedProviderTurn = (database: WorkbenchDatabase, nativeSessionId: string | null): void => {
     const failedAt = new Date().toISOString();
     const timelineMessages = buildCaptureWrites({
-      projectId: memory.projectId!,
+      projectId,
       conversationId,
       graphScopeId,
       runId,
@@ -368,7 +346,7 @@ async function runProjectScopedMainAgentTurnActivity(
       return { ...message, status: terminalStatus, rawJson: JSON.stringify({ ...raw, status: terminalStatus }) };
     });
     const terminal = database.unitOfWork.commitProviderTurnTerminal({
-      projectId: memory.projectId!,
+      projectId,
       conversationId,
       runId,
       mainAttemptId: attemptId,
@@ -378,7 +356,7 @@ async function runProjectScopedMainAgentTurnActivity(
       expectedCompletedTurnSequence: completedTurnSequence,
       advanceCompletedTurn: false,
       binding: {
-        projectId: memory.projectId!,
+        projectId,
         conversationId,
         providerId,
         nativeSessionId: nativeSessionId ?? mainSessionId,
@@ -389,7 +367,7 @@ async function runProjectScopedMainAgentTurnActivity(
       updatedAt: failedAt,
       timelineMessages,
     });
-    publishAgentSurfacesInvalidated(memory.projectId!, { conversationId, graphScopeId, reason: "attempt-updated" });
+    publishAgentSurfacesInvalidated(projectId, { conversationId, graphScopeId, reason: "attempt-updated" });
     terminalCommittedRows.push(...terminal.timelineRows);
     terminalCommittedRows.push(...terminal.interactionRows);
   };
@@ -407,13 +385,13 @@ async function runProjectScopedMainAgentTurnActivity(
     cwd: project.path,
     prompt,
     sandboxPolicy: "workspace-write",
-    writableRoots: onboarding ? [project.path, memory.memoryRoot, proposalDirectory] : [proposalDirectory],
-    runtimeWorkspaceRoots: [project.path, memory.memoryRoot, proposalDirectory],
+    writableRoots: [proposalDirectory],
+    runtimeWorkspaceRoots: [resolution.projectRoot, proposalDirectory],
     additionalContext,
     nativeSkillRoots: [getSystemSkillsRoot()],
-    requiredNativeSkills: ["aho-main-orchestration", ...(onboarding ? ["aho-harness-engineering"] : [])],
+    requiredNativeSkills: ["aho-main-orchestration"],
     skillInputs: [
-      projectHarnessInput.providerSkillInput,
+      resolution.providerInput,
       {
         id: "aho-main-orchestration",
         path: mainOrchestrationSkillPath,
@@ -421,13 +399,6 @@ async function runProjectScopedMainAgentTurnActivity(
         source: "aho-system",
         required: true,
       },
-      ...(onboarding ? [{
-        id: "aho-harness-engineering",
-        path: harnessEngineeringSkillPath,
-        contentHash: harnessEngineeringSkillHash!,
-        source: "aho-system" as const,
-        required: true,
-      }] : []),
     ],
     existingSession: mainSessionId ? { providerId: providerId!, sessionId: mainSessionId } : null,
     objectiveSession: true,
@@ -441,11 +412,6 @@ async function runProjectScopedMainAgentTurnActivity(
       {
         name: "aho_accept_current_plan",
         description: "Accept the exact current user-confirmed planner-child proposal into Change artifacts and a WorkflowGraphPlan. This never starts execution.",
-        inputSchema: { type: "object", properties: {}, additionalProperties: false },
-      },
-      {
-        name: "aho_finalize_current_change",
-        description: "Declare the current authorized Change complete. AHO revalidates terminal evidence and closes it; this tool accepts no target or authority arguments.",
         inputSchema: { type: "object", properties: {}, additionalProperties: false },
       },
       {
@@ -495,9 +461,9 @@ async function runProjectScopedMainAgentTurnActivity(
         canonicalDelivery?.publishCommittedMany(accepted.timelineRows);
         acceptedPlanning = accepted;
         boundChangeId = accepted.changeId;
-        const acceptedStore = await openWorkbenchDatabase(memory);
+        const acceptedStore = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
         try {
-          const row = acceptedStore.interactions.updatePlanningMessageStatus(memory.projectId!, conversationId, planHandoff.sourceArtifact, "accepted");
+          const row = acceptedStore.interactions.updatePlanningMessageStatus(projectId, conversationId, planHandoff.sourceArtifact, "accepted");
           new CanonicalTimelineDelivery(acceptedStore, capture.sink).publishCommitted(row);
         } finally {
           acceptedStore.close();
@@ -506,10 +472,6 @@ async function runProjectScopedMainAgentTurnActivity(
           ...projectScopedPlanningStatusMessage(conversationId, graphScopeId, runId, `Accepted proposal ${accepted.proposalId}.`, acceptedProposal.childThreadId, providerId!),
           status: "accepted",
         };
-        if (accepted.workflowGraphPlan.graphMode === "ready-set-v1") {
-          const acceptedTopic = await resolveTopic(project, accepted.changeId);
-          await runSchedulerReadySetInitialization(acceptedTopic.memory, acceptedTopic.changePath, accepted.workflowGraphPlan);
-        }
         return {
           contentItems: [{
             type: "inputText",
@@ -518,51 +480,18 @@ async function runProjectScopedMainAgentTurnActivity(
           success: true,
         };
       }
-      if (call.tool === "aho_finalize_current_change") {
-        if (!boundChangeId) {
-          return { contentItems: [{ type: "inputText", text: "No active Change is bound to this Main Agent conversation." }], success: false };
-        }
-        await assertChangeFinalizationReady(memory, boundChangeId);
-        const finalizeRequest = await createFinalizeRequest(memory, {
-          changeId: boundChangeId,
-          conversationId,
-          providerThreadId: call.threadId,
-          turnId: call.turnId,
-        });
-        const authorization = await readExecutionAuthorization(memory, finalizeRequest.authorizationId);
-        const claim = await claimTransitionExecution(memory, {
-          authorizationId: authorization.id,
-          authorizationEpoch: finalizeRequest.authorizationEpoch,
-          transition: "change.finalize",
-          targetId: finalizeRequest.changeId,
-          manifestHash: finalizeRequest.manifestHash,
-          snapshot: authorizationSnapshot(authorization),
-          claimedBy: "change-finalization",
-          claimTtlMs: 10 * 60_000,
-        });
-        await markTransitionExecutionStarted(memory, claim.operationId, claim.claimToken, claim.fencingToken);
-        const closed = await closeChangeForFinalization(project, {
-          changeId: finalizeRequest.changeId,
-          requestId: finalizeRequest.id,
-          authorizationId: finalizeRequest.authorizationId,
-          authorizationEpoch: finalizeRequest.authorizationEpoch,
-          conversationId: finalizeRequest.conversationId,
-          providerThreadId: finalizeRequest.providerThreadId,
-          goalIdentityHash: finalizeRequest.goalIdentityHash,
-          operationId: claim.operationId,
-          claimToken: claim.claimToken,
-          fencingToken: claim.fencingToken,
-        });
-        return {
-          contentItems: [{ type: "inputText", text: `Change closed durably. Close receipt: ${closed.receiptPath ?? closed.archivePath}. The native Goal may now be completed.` }],
-          success: true,
-        };
-      }
       if (call.tool !== "aho_goal_yield") {
         return { contentItems: [{ type: "inputText", text: "The requested AHO conversation tool is not available in this turn." }], success: false };
       }
       const context = boundChangeId
-        ? await buildMainAgentExecutionContext(project, memory, boundChangeId, "Native Goal yielded for the current gate.")
+        ? await buildMainAgentExecutionContext(
+          project,
+          resolution,
+          conversationId,
+          graphScopeId,
+          boundChangeId,
+          "Native Goal yielded for the current gate.",
+        )
         : "No accepted Change or executable workflow gate exists yet. Wait for plan review or further user input.";
       return { contentItems: [{ type: "inputText", text: context }], success: true, yieldAfterResponse: true };
     },
@@ -574,7 +503,7 @@ async function runProjectScopedMainAgentTurnActivity(
     },
     onRealtimeEvent: (event) => {
       if (event.roleId === "main-agent" && !event.parentThreadId && event.threadId && liveMainThreadId !== event.threadId) {
-        canonicalStore!.providerAttempts.bindProviderAttemptThread(memory.projectId!, {
+        canonicalStore!.providerAttempts.bindProviderAttemptThread(projectId, {
           attemptId,
           threadId: event.threadId,
           parentThreadId: null,
@@ -583,7 +512,7 @@ async function runProjectScopedMainAgentTurnActivity(
           runId,
         }, new Date().toISOString());
         liveMainThreadId = event.threadId;
-        publishAgentSurfacesInvalidated(memory.projectId!, { conversationId, graphScopeId, reason: "thread-bound" });
+        publishAgentSurfacesInvalidated(projectId, { conversationId, graphScopeId, reason: "thread-bound" });
       }
       const registeredChild = event.parentThreadId
         ? childLifecycleOwner.registeredForThread(event.threadId)
@@ -634,7 +563,7 @@ async function runProjectScopedMainAgentTurnActivity(
         ...(request.expiresAt ? { expiresAt: request.expiresAt } : {}),
         status: "pending" as const,
       };
-      const persistence = persistProviderUserInputRequest(memory, record, (envelope) => publishCanonicalTimelineEnvelope(live, envelope));
+      const persistence = persistProviderUserInputRequest(resolution.paths, record, (envelope) => publishCanonicalTimelineEnvelope(live, envelope));
       persistedProviderInputRequests.set(request.requestId, persistence);
       void persistence
         .then(async () => {
@@ -644,19 +573,19 @@ async function runProjectScopedMainAgentTurnActivity(
           capture.sink.emit({ event: "error", data: { runId, graphScopeId, message: cause instanceof Error ? cause.message : String(cause) } });
         });
     },
-    onUserInputResolved: (resolution) => {
-      const persistence = persistedProviderInputRequests.get(resolution.requestId);
+    onUserInputResolved: (providerResolution) => {
+      const persistence = persistedProviderInputRequests.get(providerResolution.requestId);
       const resolutionWork = (async () => {
         if (persistence) await persistence;
-        const requestKey = providerInputRequestKeys.get(resolution.requestId);
+        const requestKey = providerInputRequestKeys.get(providerResolution.requestId);
         if (!requestKey) return;
-        const resolutionStore = await openWorkbenchDatabase(memory);
+        const resolutionStore = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
         let row: StoredTopicMessage | null = null;
         try {
-          const current = resolutionStore.interactions.readProviderUserInputRequest(memory.projectId!, conversationId, requestKey);
+          const current = resolutionStore.interactions.readProviderUserInputRequest(projectId, conversationId, requestKey);
           if (!current || current.status !== "pending") return;
           const transition = resolutionStore.interactions.transitionProviderUserInputRequest(
-            memory.projectId!,
+            projectId,
             conversationId,
             requestKey,
             "pending",
@@ -687,7 +616,7 @@ async function runProjectScopedMainAgentTurnActivity(
     canonicalStore = null;
     canonicalDelivery = null;
     await flushProviderInputLifecycle();
-    const failedAttemptStore = await openWorkbenchDatabase(memory);
+    const failedAttemptStore = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
     try {
       commitFailedProviderTurn(failedAttemptStore, null);
     } finally {
@@ -703,7 +632,7 @@ async function runProjectScopedMainAgentTurnActivity(
     canonicalStore = null;
     canonicalDelivery = null;
     await flushProviderInputLifecycle();
-    const failedAttemptStore = await openWorkbenchDatabase(memory);
+    const failedAttemptStore = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
     try {
       commitFailedProviderTurn(failedAttemptStore, result.session?.sessionId ?? null);
     } finally {
@@ -724,9 +653,8 @@ async function runProjectScopedMainAgentTurnActivity(
   if (postRunInvariantError) {
     capture.sink.emit({ event: "error", data: { runId, message: postRunInvariantError.message } });
   }
-  let issuedAuthorization: LocalExecutionAuthorization | null = null;
   if (acceptedPlanning && !postRunInvariantError) {
-    issuedAuthorization = await issueAcceptedPlanningAuthorization(project, memory, conversationId, result, acceptedPlanning, planHandoff);
+    await issueAcceptedPlanningAuthorization(project, resolution, conversationId, result, acceptedPlanning, planHandoff);
   }
   const rawParentText = capture.text.trim()
     || stripProjectScopedPromptEcho(result.lastMessage, userMessage).trim()
@@ -770,14 +698,14 @@ async function runProjectScopedMainAgentTurnActivity(
   if (!canonicalStore) throw new Error("Canonical conversation store closed before turn completion.");
   const store = canonicalStore;
   try {
-    if (result.session) store.providerAttempts.bindProviderAttemptThread(memory.projectId, {
+    if (result.session) store.providerAttempts.bindProviderAttemptThread(projectId, {
       attemptId,
       threadId: result.session.sessionId,
       parentThreadId: null,
       parentAgentSurfaceId: null,
       runId,
     }, new Date().toISOString());
-    if (result.session) publishAgentSurfacesInvalidated(memory.projectId, { conversationId, graphScopeId, reason: "thread-bound" });
+    if (result.session) publishAgentSurfacesInvalidated(projectId, { conversationId, graphScopeId, reason: "thread-bound" });
     for (const child of result.childThreads) {
       const registeredChild = childLifecycleOwner.onResult(child);
       if (!registeredChild) continue;
@@ -818,7 +746,7 @@ async function runProjectScopedMainAgentTurnActivity(
       try {
         const planning = await finalizePlanningChild({
           directory,
-          projectId: memory.projectId,
+          projectId,
           conversationId,
           runId,
           providerId: providerId!,
@@ -858,7 +786,7 @@ async function runProjectScopedMainAgentTurnActivity(
       }
     }
     const terminalTimelineMessages = buildCaptureWrites({
-      projectId: memory.projectId,
+      projectId,
       conversationId,
       graphScopeId,
       runId,
@@ -868,16 +796,16 @@ async function runProjectScopedMainAgentTurnActivity(
       mainSessionId: result.session?.sessionId ?? mainSessionId,
       snapshot: capture,
     });
-    if (acceptedPlanMarker) terminalTimelineMessages.push(toCanonicalTimelineMessage(memory.projectId, conversationId, acceptedPlanMarker, completedTurnSequence + 1));
-    if (planReferenceMarker) terminalTimelineMessages.push(toCanonicalTimelineMessage(memory.projectId, conversationId, planReferenceMarker, completedTurnSequence + 1));
+    if (acceptedPlanMarker) terminalTimelineMessages.push(toCanonicalTimelineMessage(projectId, conversationId, acceptedPlanMarker, completedTurnSequence + 1));
+    if (planReferenceMarker) terminalTimelineMessages.push(toCanonicalTimelineMessage(projectId, conversationId, planReferenceMarker, completedTurnSequence + 1));
     if (assistant && capture.mainCaptures.size === 0) {
-      terminalTimelineMessages.push(toCanonicalTimelineMessage(memory.projectId, conversationId, assistant, completedTurnSequence + 1));
+      terminalTimelineMessages.push(toCanonicalTimelineMessage(projectId, conversationId, assistant, completedTurnSequence + 1));
     }
     await flushProviderInputLifecycle();
     const terminalAt = new Date().toISOString();
     const uniqueTerminalMessages = [...new Map(terminalTimelineMessages.map((message) => [message.id, message])).values()];
     const terminalCommit = store.unitOfWork.commitProviderTurnTerminal({
-      projectId: memory.projectId,
+      projectId,
       conversationId,
       runId,
       mainAttemptId: attemptId,
@@ -887,7 +815,7 @@ async function runProjectScopedMainAgentTurnActivity(
       expectedCompletedTurnSequence: completedTurnSequence,
       advanceCompletedTurn: result.status === "completed",
       binding: {
-        projectId: memory.projectId,
+        projectId,
         conversationId,
         providerId,
         nativeSessionId: result.session?.sessionId ?? mainSessionId,
@@ -898,7 +826,7 @@ async function runProjectScopedMainAgentTurnActivity(
       updatedAt: terminalAt,
       timelineMessages: uniqueTerminalMessages,
     });
-    publishAgentSurfacesInvalidated(memory.projectId, { conversationId, graphScopeId, reason: "attempt-updated" });
+    publishAgentSurfacesInvalidated(projectId, { conversationId, graphScopeId, reason: "attempt-updated" });
     terminalCommittedRows.push(...terminalCommit.timelineRows);
     terminalCommittedRows.push(...terminalCommit.interactionRows);
     completedTurnSequence = terminalCommit.completedTurnSequence;
@@ -924,27 +852,17 @@ async function runProjectScopedMainAgentTurnActivity(
     await emitInteractionUpdate(live);
   }
   if (postRunInvariantError) throw postRunInvariantError;
-  const autoAcceptedPlanning = acceptedPlanning as Awaited<ReturnType<typeof acceptCurrentConversationPlanningPackage>> | null;
-  if (autoAcceptedPlanning
-    && issuedAuthorization?.mode === "scoped-auto"
-    && autoAcceptedPlanning.workflowGraphPlan.graphMode === "sequential-v1") {
-    await runWorkflowConversationAction(project, {
-      actionType: "workflow.run.start",
-      changeId: autoAcceptedPlanning.changeId,
-      workflowGraphPlanId: autoAcceptedPlanning.workflowGraphPlan.id,
-    }, live, { continueMainAgentTurn: runProjectScopedMainAgentTurn });
-  }
   if (result.objective?.status === "complete") {
-    const terminalStore = await openWorkbenchDatabase(memory);
+    const terminalStore = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
     let terminalizedInteractionCount = 0;
     try {
       const rows = terminalStore.unitOfWork.terminalizeConversationGraphScope(
-        memory.projectId,
+        projectId,
         conversationId,
         graphScopeId,
         new Date().toISOString(),
       );
-      publishAgentSurfacesInvalidated(memory.projectId!, { conversationId, graphScopeId, reason: "scope-changed" });
+      publishAgentSurfacesInvalidated(projectId, { conversationId, graphScopeId, reason: "scope-changed" });
       terminalizedInteractionCount = rows.length;
       new CanonicalTimelineDelivery(terminalStore, live).publishCommittedMany(rows);
     } finally {
@@ -997,11 +915,10 @@ function projectScopedPlanningStatusMessage(conversationId: string, graphScopeId
   };
 }
 
-async function readProviderAttempts(memory: ResolvedMemory, conversationId: string) {
-  if (!memory.projectId) return [];
-  const store = await openWorkbenchDatabase(memory);
+async function readProviderAttempts(resolution: ProjectRuntimeResolution, conversationId: string) {
+  const store = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
   try {
-    return store.providerAttempts.listProviderAttempts(memory.projectId, conversationId);
+    return store.providerAttempts.listProviderAttempts(resolution.harness.projectId, conversationId);
   } finally {
     store.close();
   }
@@ -1042,11 +959,10 @@ function buildProjectConversationRunId(conversationId: string): string {
   return `chat-${conversationId}-${Date.now().toString(36)}`;
 }
 
-async function currentConversationGraphScope(memory: ResolvedMemory, conversationId: string): Promise<string> {
-  if (!memory.projectId) throw new Error("Project id is required to resolve graph scope.");
-  const store = await openWorkbenchDatabase(memory);
+async function currentConversationGraphScope(resolution: ProjectRuntimeResolution, conversationId: string): Promise<string> {
+  const store = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
   try {
-    const graphScopeId = store.conversations.readConversation(memory.projectId, conversationId)?.currentGraphScopeId;
+    const graphScopeId = store.conversations.readConversation(resolution.harness.projectId, conversationId)?.currentGraphScopeId;
     if (!graphScopeId) throw new Error("The current conversation has no Agent graph scope.");
     return graphScopeId;
   } finally {
@@ -1054,61 +970,9 @@ async function currentConversationGraphScope(memory: ResolvedMemory, conversatio
   }
 }
 
-async function createFinalizeRequest(
-  memory: ResolvedMemory,
-  input: { changeId: string; conversationId: string; providerThreadId: string; turnId: string },
-) {
-  const intentPath = join(memory.changesRoot, "active", input.changeId, "planning", "execution-authorization-intent.json");
-  const intent = JSON.parse(await readFile(intentPath, "utf8")) as { status?: unknown; authorizationId?: unknown };
-  if (intent.status !== "issued" || typeof intent.authorizationId !== "string") {
-    throw new Error("Current Change has no issued local execution authorization.");
-  }
-  const authorization = await readExecutionAuthorization(memory, intent.authorizationId);
-  const finalizeTarget = authorization.targets.find((target) => target.transition === "change.finalize" && target.targetId === input.changeId);
-  if (authorization.status !== "active"
-    || authorization.changeId !== input.changeId
-    || authorization.conversationId !== input.conversationId
-    || authorization.providerThreadId !== input.providerThreadId
-    || !finalizeTarget) {
-    throw new Error("FinalizeRequest is outside the current execution authorization scope.");
-  }
-  const id = `finalize-${createHash("sha256").update(`${authorization.id}:${authorization.epoch}:${input.turnId}`).digest("hex")}`;
-  const artifact = join(memory.changesRoot, "active", input.changeId, "finalization", "requests", `${id}.json`);
-  const request = {
-    version: "1.0" as const,
-    id,
-    changeId: input.changeId,
-    conversationId: input.conversationId,
-    providerThreadId: input.providerThreadId,
-    turnId: input.turnId,
-    authorizationId: authorization.id,
-    authorizationEpoch: authorization.epoch,
-    manifestHash: finalizeTarget.manifestHash,
-    goalIdentityHash: authorization.goalIdentityHash,
-    status: "requested" as const,
-    createdAt: new Date().toISOString(),
-    artifact,
-  };
-  await writeJsonFile(artifact, request);
-  return request;
-}
-
-function authorizationSnapshot(authorization: Awaited<ReturnType<typeof readExecutionAuthorization>>) {
-  return {
-    acceptedPlanHash: authorization.acceptedPlanHash,
-    graphHash: authorization.graphHash,
-    artifactManifestHash: authorization.artifactManifestHash,
-    sourceHead: authorization.sourceHead,
-    sourceStateHash: authorization.sourceStateHash,
-    permissionProfileHash: authorization.permissionProfileHash,
-    providerScopeHash: authorization.providerScopeHash,
-    policyHash: authorization.policyHash,
-  };
-}
-
 async function issueAcceptedPlanningAuthorization(
   project: ManagedProject,
-  memory: ResolvedMemory,
+  resolution: ProjectRuntimeResolution,
   conversationId: string,
   result: ProviderTurnResult,
   accepted: Awaited<ReturnType<typeof acceptCurrentConversationPlanningPackage>>,
@@ -1117,8 +981,14 @@ async function issueAcceptedPlanningAuthorization(
   if (!result.session || !result.objective || handoff?.kind !== "execute-plan") {
     throw new Error("Accepted planning authorization requires the current Main thread, native Goal, and execute intent.");
   }
+  const session = result.session;
+  const objective = result.objective;
   const sourceHead = await getGitCommit(project.path);
-  const intentPath = join(memory.memoryRoot, accepted.authorizationIntentArtifact);
+  const intentPath = await resolveWithinPhysicalRoot(
+    resolution.harness.skillRoot,
+    accepted.authorizationIntentArtifact,
+    "planning authorization intent",
+  );
   if (!sourceHead) {
     await writeJsonFile(intentPath, {
       version: "1.0",
@@ -1148,12 +1018,17 @@ async function issueAcceptedPlanningAuthorization(
     manifestHash: hashJson({ graphHash, changeId: accepted.changeId, kind: "finalize" }),
   });
   const now = new Date();
-  const authorization = await issueLocalExecutionAuthorization(memory, {
-    projectId: memory.projectId,
+  return withProjectHarnessWriterLock(resolution.paths.sidecarRoot, {
+    projectId: resolution.harness.projectId,
+    ownerId: `planning-authorization-${conversationId}`,
+    operation: "change-publish",
+  }, async () => {
+    const authorization = await issueLocalExecutionAuthorization(resolution.paths, {
+    projectId: resolution.harness.projectId,
     changeId: accepted.changeId,
     conversationId,
-    providerThreadId: result.session.sessionId,
-    goalIdentityHash: hashJson({ objective: result.objective.objective, createdAt: result.objective.createdAt }),
+    providerThreadId: session.sessionId,
+    goalIdentityHash: hashJson({ objective: objective.objective, createdAt: objective.createdAt }),
     mode: handoff.executionMode ?? "scoped-auto",
     acceptedPlanId: accepted.proposalId,
     acceptedPlanHash: accepted.proposalHash,
@@ -1162,7 +1037,7 @@ async function issueAcceptedPlanningAuthorization(
     artifactManifestHash,
     sourceHead,
     sourceStateHash: hashJson(sourceStatus),
-    providerScopeHash: hashJson({ projectId: project.id, conversationId, providerId: result.providerId, sessionId: result.session.sessionId }),
+    providerScopeHash: hashJson({ projectId: project.id, conversationId, providerId: result.providerId, sessionId: session.sessionId }),
     permissionProfileHash: hashJson({ approvalPolicy: "never", sandbox: "runtime-owned-scoped-write", network: false }),
     policyHash: hashJson("local-execution-authorization-policy-v1"),
     targets,
@@ -1179,20 +1054,30 @@ async function issueAcceptedPlanningAuthorization(
     },
     issuedAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    });
+    try {
+      await writeJsonFile(intentPath, {
+        version: "1.0",
+        status: "issued",
+        changeId: accepted.changeId,
+        conversationId,
+        proposalId: accepted.proposalId,
+        proposalHash: accepted.proposalHash,
+        graphId: accepted.workflowGraphPlan.id,
+        authorizationId: authorization.id,
+        reason: null,
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      await revokeLocalExecutionAuthorization(
+        resolution.paths,
+        authorization.id,
+        "Project Harness authorization intent publication failed.",
+      ).catch(() => undefined);
+      throw error;
+    }
+    return authorization;
   });
-  await writeJsonFile(intentPath, {
-    version: "1.0",
-    status: "issued",
-    changeId: accepted.changeId,
-    conversationId,
-    proposalId: accepted.proposalId,
-    proposalHash: accepted.proposalHash,
-    graphId: accepted.workflowGraphPlan.id,
-    authorizationId: authorization.id,
-    reason: null,
-    updatedAt: new Date().toISOString(),
-  });
-  return authorization;
 }
 
 function hashJson(value: unknown): string {

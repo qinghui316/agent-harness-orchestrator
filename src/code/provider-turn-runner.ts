@@ -19,6 +19,8 @@ import { type StoredConversation } from "../workbench/persistence/contracts.js";
 import { assembleSharedConversationContext } from "../workbench/shared-conversation-context.js";
 import { bindProviderAttemptThread, finishProviderAttempt } from "../workbench/provider-attempts.js";
 import { defaultProjectRuntimeActivityRegistry } from "../project-runtime/activity.js";
+import { resolveProjectRuntimeState } from "../project-runtime/coordinator.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 
 export function runProviderCodeTurn(
   input: Parameters<typeof runProviderCodeTurnActivity>[0],
@@ -40,14 +42,19 @@ async function runProviderCodeTurnActivity(input: {
   createdWarnings: string[];
   live?: CodeRunLiveCallbacks;
 }): Promise<CodeRunResult> {
+  const runtimeState = await resolveProjectRuntimeState(input.project, {
+    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+  });
+  if (runtimeState.state !== "ready") {
+    throw new Error(`Project Harness is not ready for Coder execution: ${runtimeState.state}.`);
+  }
   const conversation = await conversationForChange(input.memory, input.changeId);
   const providerId = conversation.selectedProviderId;
   const provider = await defaultProviderRegistry.require(providerId, "coder", input.project, input.project.path);
   const capabilitySnapshot = await provider.capabilitySnapshot(input.project, input.project.path);
   const model = capabilitySnapshot.effectiveModel ? { providerId, modelId: capabilitySnapshot.effectiveModel } : null;
   const handoff = await assembleSharedConversationContext({
-    project: input.project,
-    memory: input.memory,
+    resolution: runtimeState.resolution,
     conversationId: conversation.conversationId,
     providerId,
     currentUserMessage: input.prompt,

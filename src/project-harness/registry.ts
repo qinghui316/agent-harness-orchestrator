@@ -4,7 +4,7 @@ import { mkdir, open, readFile, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { parseJsonText, writeJsonFile } from "../fs/json.js";
-import { git, isGitRepo } from "../project/git.js";
+import { getGitBranch, getGitCommit, git, isGitRepo } from "../project/git.js";
 import { assertPhysicalDirectory, resolveWithinPhysicalRoot } from "./path-safety.js";
 
 export type ProjectHarnessRepositoryMode = "single_lane" | "multi_lane";
@@ -24,6 +24,20 @@ export interface ProjectHarnessRegistryContext {
   branch: string | null;
   headCommit: string | null;
   lane?: ProjectHarnessLaneIdentity;
+}
+
+export async function resolveProjectHarnessRegistryContext(input: {
+  projectId: string;
+  projectRoot: string;
+  skillRoot: string;
+}): Promise<ProjectHarnessRegistryContext> {
+  const repository = await isGitRepo(input.projectRoot);
+  return {
+    ...input,
+    mode: repository ? "multi_lane" : "single_lane",
+    branch: repository ? await getGitBranch(input.projectRoot) : null,
+    headCommit: repository ? await getGitCommit(input.projectRoot) : null,
+  };
 }
 
 export type ProjectHarnessLaneIdentity =
@@ -77,6 +91,20 @@ const laneSchema = z.object({
   if (!logical && (value.conversation_id !== null || value.graph_scope_id !== null)) {
     context.addIssue({ code: "custom", message: "Repository Lane must not carry conversation identity." });
   }
+  if ((value.active_change_id === null) !== (value.status === "idle")) {
+    context.addIssue({ code: "custom", message: "Lane status must match active_change_id." });
+  }
+});
+
+const legacyRepositoryLaneSchema = z.object({
+  schema_version: z.literal("1.0"),
+  lane_id: z.string().min(1),
+  branch: z.string().nullable(),
+  head_commit: z.string().nullable(),
+  active_change_id: z.string().nullable(),
+  status: z.enum(["active", "idle"]),
+  updated_at: z.string().min(1),
+}).strict().superRefine((value, context) => {
   if ((value.active_change_id === null) !== (value.status === "idle")) {
     context.addIssue({ code: "custom", message: "Lane status must match active_change_id." });
   }
@@ -203,6 +231,86 @@ export async function readProjectHarnessLane(
   const value = laneSchema.parse(parseJsonText(await readFile(path, "utf8"), path));
   if (value.lane_id !== laneId) throw new Error(`Lane record id does not match its filename: ${laneId}.json`);
   return value;
+}
+
+export async function restoreProjectHarnessLane(
+  context: ProjectHarnessRegistryContext,
+  snapshot: ProjectHarnessLaneRecord | null,
+): Promise<void> {
+  const laneId = projectHarnessLaneId(context);
+  const root = await registryRoot(context.skillRoot, true);
+  const path = await resolveWithinPhysicalRoot(root, `lanes/${laneId}.json`, "project Harness Lane");
+  const current = existsSync(path)
+    ? laneSchema.parse(parseJsonText(await readFile(path, "utf8"), path))
+    : null;
+  if (current && current.lane_id !== laneId) {
+    throw new Error("Refusing to restore a Lane whose current record has another identity.");
+  }
+  if (snapshot === null) {
+    if (current?.active_change_id) {
+      throw new Error("Refusing to remove a Lane that still owns an active Change.");
+    }
+    await rm(path, { force: true });
+    return;
+  }
+  const restored = laneSchema.parse(snapshot);
+  if (restored.lane_id !== laneId) {
+    throw new Error("Refusing to restore a Lane snapshot with another identity.");
+  }
+  await writeJsonFile(path, restored);
+}
+
+export async function migratePreservedProjectHarnessLaneState(skillRoot: string): Promise<{
+  migrated: string[];
+  current: string[];
+}> {
+  const registry = await registryRoot(skillRoot, false);
+  if (!existsSync(registry)) return { migrated: [], current: [] };
+  const root = await resolveWithinPhysicalRoot(registry, "lanes", "project Harness Lanes");
+  if (!existsSync(root)) return { migrated: [], current: [] };
+  await assertPhysicalDirectory(root, "project Harness Lanes");
+  const migrated: string[] = [];
+  const current: string[] = [];
+  for (const entry of (await readdir(root, { withFileTypes: true })).sort((left, right) => left.name.localeCompare(right.name))) {
+    if (entry.isSymbolicLink() || !entry.isFile() || !entry.name.endsWith(".json")) {
+      throw new Error(`Project Harness Lane migration found an unsupported entry: ${entry.name}.`);
+    }
+    const path = await resolveWithinPhysicalRoot(root, entry.name, "project Harness Lane");
+    const raw = parseJsonText(await readFile(path, "utf8"), path);
+    if (typeof raw !== "object" || raw === null || !("schema_version" in raw)) {
+      throw new Error(`Project Harness Lane has no supported schema: ${entry.name}.`);
+    }
+    if (raw.schema_version === "2.0") {
+      const value = laneSchema.parse(raw);
+      assertLaneFilename(entry.name, value.lane_id);
+      current.push(value.lane_id);
+      continue;
+    }
+    const legacy = legacyRepositoryLaneSchema.parse(raw);
+    assertLaneFilename(entry.name, legacy.lane_id);
+    const value: ProjectHarnessLaneRecord = {
+      schema_version: "2.0",
+      lane_id: legacy.lane_id,
+      kind: "repository",
+      repository_lane_id: legacy.lane_id,
+      branch: legacy.branch,
+      head_commit: legacy.head_commit,
+      conversation_id: null,
+      graph_scope_id: null,
+      active_change_id: legacy.active_change_id,
+      status: legacy.status,
+      updated_at: legacy.updated_at,
+    };
+    await writeJsonFile(path, laneSchema.parse(value));
+    migrated.push(value.lane_id);
+  }
+  return { migrated, current };
+}
+
+function assertLaneFilename(filename: string, laneId: string): void {
+  if (filename !== `${laneId}.json`) {
+    throw new Error(`Lane record id does not match its filename: ${filename}.`);
+  }
 }
 
 export async function readProjectHarnessBaseline(skillRoot: string): Promise<ProjectHarnessBaselineRecord | null> {

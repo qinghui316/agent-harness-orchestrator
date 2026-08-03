@@ -3,7 +3,6 @@ import { resolve } from "node:path";
 import { z } from "zod";
 import { parseJsonText } from "../fs/json.js";
 import type { ProjectHarnessDiscoveryPolicy } from "./contracts.js";
-import { getGitBranch, getGitCommit, isGitRepo } from "../project/git.js";
 import { resolveProjectRuntimePaths } from "../project-runtime/paths.js";
 import { assertRequiredProjectHarnessBindings, discoverProjectHarness } from "./discovery.js";
 import {
@@ -33,7 +32,7 @@ import {
 } from "./integration.js";
 import { reindexProjectKnowledge } from "./knowledge.js";
 import type { ProjectHarnessManifest } from "./manifest.js";
-import type { ProjectHarnessRegistryContext } from "./registry.js";
+import { resolveProjectHarnessRegistryContext, type ProjectHarnessRegistryContext } from "./registry.js";
 import {
   checkProjectHarnessEvolution,
   completeProjectHarnessEvolution,
@@ -321,15 +320,11 @@ async function registryContext(
   projectId: string,
   projectRoot: string,
 ): Promise<ProjectHarnessRegistryContext> {
-  const repository = await isGitRepo(projectRoot);
-  return {
+  return resolveProjectHarnessRegistryContext({
     projectId,
     projectRoot,
     skillRoot,
-    mode: repository ? "multi_lane" : "single_lane",
-    branch: repository ? await getGitBranch(projectRoot) : null,
-    headCommit: repository ? await getGitCommit(projectRoot) : null,
-  };
+  });
 }
 
 async function inputJson<T>(values: ReadonlyMap<string, readonly string[]>): Promise<T> {

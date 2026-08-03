@@ -1,7 +1,5 @@
-﻿import { join } from "node:path";
-import { canonicalThreadChangeIdForPath, readChangeMetadataFile } from "../change/metadata.js";
-import type { ResolvedMemory } from "../types/index.js";
-import { openWorkbenchDatabase } from "./persistence/open-workbench-database.js";
+import type { ProjectWorkbenchPathPort } from "../project-runtime/paths.js";
+import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbench-database.js";
 import { type StoredTopicMessage } from "./persistence/contracts.js";
 import type {
   AssistantTurnActivity,
@@ -14,52 +12,51 @@ import type {
   WorkbenchAssistantEvent,
 } from "./types.js";
 
-export async function readConversationThread(memory: ResolvedMemory, changePath: string): Promise<TopicThreadEntry[]> {
-  const changeId = await readCanonicalThreadChangeId(memory, changePath);
-  const projectId = memory.projectId ?? "unregistered";
-  const store = await openWorkbenchDatabase(memory);
+export async function readConversationThread(
+  runtime: ProjectWorkbenchPathPort,
+  changeId: string,
+): Promise<TopicThreadEntry[]> {
+  const store = await openProjectRuntimeWorkbenchDatabase(runtime);
   try {
-    const conversation = store.conversations.readConversation(projectId, changeId) ?? store.conversations.findConversationForChange(projectId, changeId);
+    const conversation = store.conversations.readConversation(runtime.projectId, changeId)
+      ?? store.conversations.findConversationForChange(runtime.projectId, changeId);
     if (!conversation) return [];
-    return store.timeline.listConversationMessages(projectId, conversation.conversationId).map(fromStoredThreadMessage);
+    return store.timeline.listConversationMessages(runtime.projectId, conversation.conversationId).map(fromStoredThreadMessage);
   } finally {
     store.close();
   }
 }
 
 export async function readRecentConversationThread(
-  memory: ResolvedMemory,
-  changePath: string,
+  runtime: ProjectWorkbenchPathPort,
+  changeId: string,
   limit = 100,
 ): Promise<TopicThreadEntry[]> {
-  const changeId = await readCanonicalThreadChangeId(memory, changePath);
-  const projectId = memory.projectId ?? "unregistered";
   const boundedLimit = Math.max(1, Math.min(500, Math.trunc(limit)));
-  const store = await openWorkbenchDatabase(memory);
+  const store = await openProjectRuntimeWorkbenchDatabase(runtime);
   try {
-    const conversation = store.conversations.readConversation(projectId, changeId) ?? store.conversations.findConversationForChange(projectId, changeId);
+    const conversation = store.conversations.readConversation(runtime.projectId, changeId)
+      ?? store.conversations.findConversationForChange(runtime.projectId, changeId);
     if (!conversation) return [];
-    return store.timeline.listRecentSemanticMessages(projectId, conversation.conversationId, boundedLimit).map(fromStoredThreadMessage);
+    return store.timeline.listRecentSemanticMessages(
+      runtime.projectId,
+      conversation.conversationId,
+      boundedLimit,
+    ).map(fromStoredThreadMessage);
   } finally {
     store.close();
   }
 }
 
-export async function collectAllConversationThreadEntries(memory: ResolvedMemory): Promise<TopicThreadEntry[]> {
-  if (!memory.projectId) return [];
-  const store = await openWorkbenchDatabase(memory);
+export async function collectAllConversationThreadEntries(
+  runtime: ProjectWorkbenchPathPort,
+): Promise<TopicThreadEntry[]> {
+  const store = await openProjectRuntimeWorkbenchDatabase(runtime);
   try {
-    return store.timeline.listAllMessages(memory.projectId).map(fromStoredThreadMessage);
+    return store.timeline.listAllMessages(runtime.projectId).map(fromStoredThreadMessage);
   } finally {
     store.close();
   }
-}
-
-async function readCanonicalThreadChangeId(memory: ResolvedMemory, changePath: string): Promise<string> {
-  const fallback = changePath.split(/[\\/]/).at(-1) ?? "";
-  const metadata = await readChangeMetadataFile(join(memory.memoryRoot, changePath)).catch(() => null);
-  if (metadata) return canonicalThreadChangeIdForPath(memory, changePath, metadata);
-  return fallback;
 }
 
 export function fromStoredThreadMessage(row: StoredTopicMessage): TopicThreadEntry {
@@ -159,29 +156,21 @@ function isAssistantTurnBlock(value: unknown): value is AssistantTurnBlock {
 
 function isAssistantTurnBlockKind(value: unknown): value is AssistantTurnBlockKind {
   return typeof value === "string" && [
-    "prose",
-    "status",
-    "command-group",
-    "command",
-    "tool-result",
-    "file-change",
-    "reasoning-summary",
-    "workflow-evidence",
-    "usage",
-    "error",
+    "prose", "status", "command-group", "command", "tool-result", "file-change",
+    "reasoning-summary", "workflow-evidence", "usage", "error",
   ].includes(value);
 }
 
 function isTopicFileReference(value: unknown): value is TopicFileReference {
-  if (!isRecord(value)) return false;
-  return typeof value.relativePath === "string"
+  return isRecord(value)
+    && typeof value.relativePath === "string"
     && typeof value.name === "string"
     && (value.kind === "file" || value.kind === "directory");
 }
 
 function isTopicAttachment(value: unknown): value is TopicAttachment {
-  if (!isRecord(value)) return false;
-  return typeof value.id === "string"
+  return isRecord(value)
+    && typeof value.id === "string"
     && typeof value.fileName === "string"
     && typeof value.mediaType === "string"
     && (value.kind === "image" || value.kind === "text" || value.kind === "unsupported")
@@ -190,14 +179,18 @@ function isTopicAttachment(value: unknown): value is TopicAttachment {
     && value.source === "composer"
     && typeof value.createdAt === "string"
     && typeof value.storagePath === "string"
-    && (value.runtimeMode === "provider-image-input" || value.runtimeMode === "bounded-text-preview" || value.runtimeMode === "metadata-only");
+    && (value.runtimeMode === "provider-image-input"
+      || value.runtimeMode === "bounded-text-preview"
+      || value.runtimeMode === "metadata-only");
 }
 
 function isWorkbenchAssistantEvent(value: unknown): value is WorkbenchAssistantEvent {
   return isRecord(value) && typeof value.runId === "string" && typeof value.kind === "string";
 }
 
-function isWorkbenchProviderUserInputRequest(value: unknown): value is import("./types.js").WorkbenchProviderUserInputRequest {
+function isWorkbenchProviderUserInputRequest(
+  value: unknown,
+): value is import("./types.js").WorkbenchProviderUserInputRequest {
   return isRecord(value)
     && typeof value.providerId === "string"
     && typeof value.attemptId === "string"

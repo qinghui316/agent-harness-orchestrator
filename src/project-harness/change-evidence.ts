@@ -15,7 +15,7 @@ export interface ProjectHarnessChangeEvidenceValidation {
   issues: string[];
 }
 
-const TASK = /^- \[(?<done>[ xX])]\s+(?<task>T\d{3,})\b(?<body>.*)$/;
+const TASK = /^- \[(?<done>[ xX])]\s+(?<task>T-?\d{3,})\b(?<body>.*)$/;
 const ACCEPTANCE = /\bAC-\d{3,}\b/gi;
 const ACCEPTANCE_DEFINITION = /^\s*[-*]\s*(?<id>AC-\d{3,})\s*:\s*(?<value>.*)$/gim;
 

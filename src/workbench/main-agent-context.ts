@@ -1,11 +1,11 @@
-﻿import { getChangeStatusForChange } from "../change/manager.js";
-import { buildContextProjection } from "../run/manager.js";
-import type { ManagedProject, ResolvedMemory } from "../types/index.js";
+import { listProjectHarnessChanges } from "../project-harness/change.js";
+import type { ProjectRuntimeResolution } from "../project-runtime/context.js";
+import type { ManagedProject } from "../types/index.js";
 import { renderTopicAttachmentsForPrompt } from "./attachments.js";
+import { buildConversationInteractionQueue } from "./conversation-interactions.js";
 import { renderTopicFileReferencesForPrompt } from "./file-references.js";
-import { getWorkbenchSnapshot } from "./projections/read-model/implementation.js";
 import type { TopicAttachment, TopicFileReference } from "./types.js";
-import { resolveTopic } from "./topic-resolver.js";
+import { resolveProjectHarnessTopic } from "./topic-resolver.js";
 import { readConversationThread as readThreadLog } from "./conversation-thread-log.js";
 
 export interface MainAgentContextResult {
@@ -14,72 +14,66 @@ export interface MainAgentContextResult {
 
 export async function buildMainAgentExecutionContext(
   project: ManagedProject,
-  memory: ResolvedMemory,
+  resolution: ProjectRuntimeResolution,
+  conversationId: string,
+  graphScopeId: string,
   changeId: string,
   reason: string,
 ): Promise<string> {
-  const [chat, snapshot] = await Promise.all([
-    buildChatContext(project, memory, changeId, reason),
-    getWorkbenchSnapshot({ project, path: project.path }, { topicId: changeId }),
-  ]);
-  const workpad = snapshot.center.workpad;
-  const primary = snapshot.right.confirmationQueue.primary;
+  const chat = await buildChatContext(project, resolution, changeId, reason);
+  const interactions = await buildConversationInteractionQueue(
+    resolution.paths,
+    conversationId,
+    graphScopeId,
+  );
   return [
     chat.context,
     "",
     "## Canonical Execution Checkpoint",
     "",
     `- Change: ${changeId}`,
-    `- User status: ${workpad.userStatus}`,
-    `- Current action: ${workpad.nextAction.actionType ?? "none"}`,
-    `- Current action enabled: ${workpad.nextAction.enabled ? "yes" : "no"}`,
-    `- Human confirmation pending: ${primary ? "yes" : "no"}`,
-    primary ? `- Confirmation summary: ${primary.summary}` : "- Confirmation summary: none",
+    `- Pending human interactions: ${interactions.items.length}`,
+    "- Automatic runtime action: none",
     "",
-    "This checkpoint is read-only. Do not infer permission from it and do not execute the action yourself.",
+    "This checkpoint is read-only. Do not infer permission from it and do not execute an action yourself.",
   ].join("\n");
 }
 
 export async function buildChatContext(
   project: ManagedProject,
-  memory: ResolvedMemory,
+  resolution: ProjectRuntimeResolution,
   changeId: string,
   userMessage: string,
 ): Promise<MainAgentContextResult> {
-  const { changePath } = await resolveTopic(project, changeId);
-  return buildContext(project, memory, changePath, changeId, userMessage);
-}
-
-async function buildContext(
-  project: ManagedProject,
-  memory: ResolvedMemory,
-  changePath: string,
-  changeId: string,
-  userMessage: string,
-): Promise<MainAgentContextResult> {
-  const status = await getChangeStatusForChange(project, changeId);
-  const recentMessages = (await readThreadLog(memory, changePath)).slice(-12);
+  const topic = await resolveProjectHarnessTopic(resolution, changeId);
+  const [changes, recentMessages] = await Promise.all([
+    listProjectHarnessChanges(resolution.harness.skillRoot),
+    readThreadLog(resolution.paths, changeId).then((messages) => messages.slice(-12)),
+  ]);
   const referencedFiles = topicFileReferencesFromRecentMessages(recentMessages);
   const attachments = topicAttachmentsFromRecentMessages(recentMessages);
   const attachmentContext = await renderTopicAttachmentsForPrompt(project, attachments);
+  const activeChanges = changes
+    .filter((change) => change.status === "planning" || change.status === "active")
+    .map((change) => change.change_id);
   return {
     context: [
       "# AHO Conversation Context",
       "",
       "You are answering inside the AHO Workbench conversation.",
-      "Use accepted Harness artifacts and current evidence as source of truth. Provider thread memory is runtime continuity, not project memory or execution authority.",
+      "Use accepted project Harness artifacts and current evidence as source of truth. Provider thread memory is runtime continuity, not project knowledge or execution authority.",
       "Do not mutate files, execute a workflow action, or claim approval from this read-only context.",
       "",
-      buildContextProjection(status),
+      "## Current Change",
+      "",
+      `- Change ID: ${changeId}`,
+      `- Change status: ${topic.change.status}`,
+      `- Evidence state: ${topic.evidenceState}`,
+      `- Active Changes: ${activeChanges.join(", ") || "none"}`,
       ...(referencedFiles.length > 0 ? ["", ...renderTopicFileReferencesForPrompt(referencedFiles)] : []),
       ...(attachmentContext.length > 0 ? ["", ...attachmentContext] : []),
       "",
-      "## Current Topic",
-      "",
-      `- Change ID: ${changeId}`,
-      `- Active Changes: ${status.activeChanges.map((item) => item.name).join(", ") || "none"}`,
-      "",
-      "## Recent Topic Messages",
+      "## Recent Conversation Messages",
       "",
       ...recentMessages.map((entry) => `- ${entry.type}: ${entry.text ?? entry.actionType ?? entry.status ?? ""}`),
       "",
@@ -115,4 +109,3 @@ function topicAttachmentsFromRecentMessages(messages: Awaited<ReturnType<typeof 
   }
   return attachments;
 }
-

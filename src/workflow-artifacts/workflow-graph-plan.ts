@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { readRequiredJsonFile, writeJsonFile } from "../fs/json.js";
 import type { ReadySetWorkflowGraphPlan, ResolvedMemory, SequentialWorkflowGraphPlan, WorkflowGraphPlan } from "../types/index.js";
 import { assertWorkflowArtifactScope } from "./guards.js";
-import { latestWorkflowGraphPlanPath, planningDir, workflowGraphPlanPath, workflowGraphsDir } from "./paths.js";
+import { latestWorkflowGraphPlanPath, workflowGraphPlanPath } from "./paths.js";
 import { renderWorkflowGraphPlanMarkdown } from "./rendering.js";
 import { workflowAuthoringPlanSchema, workflowGraphPlanSchema } from "./schemas.js";
 import type { AuthoredWorkflowGraphCompileOptions, WorkflowAuthoringPlan } from "./types.js";
@@ -154,13 +154,31 @@ export function isReadySetWorkflowGraphPlan(graph: WorkflowGraphPlan): graph is 
 
 export async function writeWorkflowGraphPlan(memory: ResolvedMemory, changePath: string, graph: WorkflowGraphPlan): Promise<void> {
   await assertWorkflowArtifactScope(memory, changePath, graph, "WorkflowGraphPlan");
-  const dir = workflowGraphsDir(memory, changePath);
-  const latestDir = planningDir(memory, changePath);
+  await writeWorkflowGraphPlanAt(join(memory.memoryRoot, changePath), graph.changeId, graph);
+}
+
+export async function writeWorkflowGraphPlanAt(
+  changeRoot: string,
+  expectedChangeId: string,
+  graph: WorkflowGraphPlan,
+): Promise<void> {
+  assertWorkflowGraphChangeId(expectedChangeId, graph, "WorkflowGraphPlan");
+  const latestDir = join(changeRoot, "planning");
+  const dir = join(latestDir, "workflow-graphs");
   await mkdir(dir, { recursive: true });
   await writeJsonFile(join(dir, `${graph.id}.json`), graph);
   await writeFile(join(dir, `${graph.id}.md`), renderWorkflowGraphPlanMarkdown(graph), "utf8");
   await writeJsonFile(join(latestDir, "workflow-graph-plan.json"), graph);
   await writeFile(join(latestDir, "workflow-graph-plan.md"), renderWorkflowGraphPlanMarkdown(graph), "utf8");
+}
+
+export async function readLatestWorkflowGraphPlanAt(
+  changeRoot: string,
+  expectedChangeId: string,
+): Promise<WorkflowGraphPlan> {
+  const graph = await readRequiredJsonFile(join(changeRoot, "planning", "workflow-graph-plan.json"), workflowGraphPlanSchema);
+  assertWorkflowGraphChangeId(expectedChangeId, graph, "WorkflowGraphPlan");
+  return graph;
 }
 
 export async function readLatestWorkflowGraphPlan(memory: ResolvedMemory, changePath: string): Promise<WorkflowGraphPlan> {
@@ -173,4 +191,14 @@ export async function readWorkflowGraphPlan(memory: ResolvedMemory, changePath: 
   const graph = await readRequiredJsonFile(workflowGraphPlanPath(memory, changePath, workflowGraphPlanId), workflowGraphPlanSchema);
   await assertWorkflowArtifactScope(memory, changePath, graph, "WorkflowGraphPlan");
   return graph;
+}
+
+function assertWorkflowGraphChangeId(
+  expectedChangeId: string,
+  graph: WorkflowGraphPlan,
+  label: string,
+): void {
+  if (graph.changeId !== expectedChangeId) {
+    throw new Error(`${label} is not scoped to the selected Change: expected ${expectedChangeId}, got ${graph.changeId}.`);
+  }
 }

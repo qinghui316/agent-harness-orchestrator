@@ -1,13 +1,14 @@
 import { createHash } from "node:crypto";
-import { readAgentCatalog, type AgentCatalog } from "../agent/catalog.js";
+import { readBundledAgentCatalog, type AgentCatalog } from "../agent/catalog.js";
 import { agentThreadSurfaceId } from "../provider-runtime/agent-surface-id.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
+import { resolveProjectRuntimeState } from "../project-runtime/coordinator.js";
 import { resolveRegisteredAgentExecutionProfile } from "./agent-execution-profile-resolver.js";
 import { canonicalPlanDocumentFromEntry } from "./plan-documents.js";
 import { fromStoredThreadMessage } from "./conversation-thread-log.js";
 import type { StoredProviderAttempt, StoredProviderThreadLink, StoredTopicMessage } from "./persistence/contracts.js";
-import { openWorkbenchDatabase } from "./persistence/open-workbench-database.js";
+import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbench-database.js";
 import type { WorkbenchProjectInput } from "./read-model-types.js";
-import { resolveWorkbenchMemory } from "./projections/read-model/support.js";
 import type { AgentSurfaceProjection, AgentSurfaceProjectionItem, AgentSurfaceStatus } from "./agent-surface-contract.js";
 
 const TERMINAL_PLAN_STATUSES = new Set(["accepted", "revision-requested", "skipped", "superseded", "planner-proposal-invalid"]);
@@ -16,21 +17,25 @@ export async function getAgentSurfaceProjection(
   input: WorkbenchProjectInput,
   conversationId: string,
 ): Promise<AgentSurfaceProjection> {
-  const memory = await resolveWorkbenchMemory(input);
-  if (!memory.supported || !memory.projectId) throw notFound("Agent surfaces are unavailable for this project.");
-  const catalog = await readAgentCatalog(memory);
-  const store = await openWorkbenchDatabase(memory);
+  if (!input.project) throw notFound("Agent surfaces are unavailable for this project.");
+  const state = await resolveProjectRuntimeState(input.project, {
+    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+  });
+  if (state.state !== "ready") throw notFound("Agent surfaces are unavailable for this project.");
+  const { paths } = state.resolution;
+  const catalog = readBundledAgentCatalog();
+  const store = await openProjectRuntimeWorkbenchDatabase(paths);
   try {
     return store.transaction(() => {
-      const conversation = store.conversations.readConversation(memory.projectId!, conversationId);
+      const conversation = store.conversations.readConversation(paths.projectId, conversationId);
       if (!conversation) throw notFound("Agent surface conversation was not found.");
       const graphScopeId = conversation.currentGraphScopeId ?? "";
-      const scopeStatus = graphScopeId && store.conversations.isConversationGraphScopeTerminal(memory.projectId!, graphScopeId)
+      const scopeStatus = graphScopeId && store.conversations.isConversationGraphScopeTerminal(paths.projectId, graphScopeId)
         ? "terminal" as const
         : "active" as const;
-      const links = store.providerAttempts.listProviderThreads(memory.projectId!, conversationId);
-      const attempts = store.providerAttempts.listProviderAttempts(memory.projectId!, conversationId);
-      const messages = store.timeline.listConversationMessages(memory.projectId!, conversationId);
+      const links = store.providerAttempts.listProviderThreads(paths.projectId, conversationId);
+      const attempts = store.providerAttempts.listProviderAttempts(paths.projectId, conversationId);
+      const messages = store.timeline.listConversationMessages(paths.projectId, conversationId);
       return buildAgentSurfaceProjection({
         conversationId,
         graphScopeId,

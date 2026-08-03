@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
-import type { ResolvedMemory } from "../types/index.js";
+import type { ProjectWorkbenchPathPort } from "../project-runtime/paths.js";
 import { agentThreadSurfaceId } from "../provider-runtime/agent-surface-id.js";
 import { readPlannerChildProposal, type PlannerChildProposal } from "./planning/planner-child-proposal.js";
 import { canonicalPlanDocumentFromEntry, canonicalPlanDocumentText } from "./plan-documents.js";
 import { fromStoredThreadMessage } from "./conversation-thread-log.js";
-import { openWorkbenchDatabase } from "./persistence/open-workbench-database.js";
+import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbench-database.js";
 import type { ClarificationRequest } from "./intake.js";
 import type { CanonicalPlanDocument, TopicThreadEntry, WorkbenchProviderUserInputRequest } from "./types.js";
 import type {
@@ -21,44 +21,43 @@ export type ResolvedConversationInteraction =
 const TERMINAL_PLAN_STATUSES = new Set(["accepted", "revision-requested", "skipped", "superseded", "planner-proposal-invalid"]);
 
 export async function buildConversationInteractionQueue(
-  memory: ResolvedMemory,
+  runtime: ProjectWorkbenchPathPort,
   conversationId: string | undefined,
   graphScopeId: string | undefined,
 ): Promise<ConversationInteractionQueue> {
-  if (!memory.projectId || !conversationId || !graphScopeId) return { conversationId, graphScopeId, items: [] };
-  const resolved = await resolveConversationInteractions(memory, conversationId, graphScopeId);
+  if (!conversationId || !graphScopeId) return { conversationId, graphScopeId, items: [] };
+  const resolved = await resolveConversationInteractions(runtime, conversationId, graphScopeId);
   return { conversationId, graphScopeId, items: resolved.map((item) => item.public) };
 }
 
 export async function resolveConversationInteraction(
-  memory: ResolvedMemory,
+  runtime: ProjectWorkbenchPathPort,
   conversationId: string,
   interactionId: string,
 ): Promise<ResolvedConversationInteraction> {
-  if (!memory.projectId) throw notFound("Conversation interaction is unavailable.");
-  const store = await openWorkbenchDatabase(memory);
+  const store = await openProjectRuntimeWorkbenchDatabase(runtime);
   let graphScopeId: string | null;
   try {
-    const conversation = store.conversations.readConversation(memory.projectId, conversationId);
+    const conversation = store.conversations.readConversation(runtime.projectId, conversationId);
     if (!conversation) throw notFound("Conversation interaction is unavailable.");
     graphScopeId = conversation.currentGraphScopeId;
   } finally {
     store.close();
   }
   if (!graphScopeId) throw staleInteraction();
-  const match = (await resolveConversationInteractions(memory, conversationId, graphScopeId))
+  const match = (await resolveConversationInteractions(runtime, conversationId, graphScopeId))
     .find((item) => item.public.interactionId === interactionId);
   if (!match) throw staleInteraction();
   return match;
 }
 
 export async function buildConversationInteractionAttention(
-  memory: ResolvedMemory,
+  runtime: ProjectWorkbenchPathPort,
   conversationId: string | undefined,
   graphScopeId: string | undefined,
 ): Promise<{ mainNeedsInput: boolean; agentSurfaceIds: Set<string> }> {
-  if (!memory.projectId || !conversationId || !graphScopeId) return { mainNeedsInput: false, agentSurfaceIds: new Set() };
-  const interactions = await resolveConversationInteractions(memory, conversationId, graphScopeId);
+  if (!conversationId || !graphScopeId) return { mainNeedsInput: false, agentSurfaceIds: new Set() };
+  const interactions = await resolveConversationInteractions(runtime, conversationId, graphScopeId);
   const agentSurfaceIds = new Set<string>();
   let mainNeedsInput = false;
   for (const interaction of interactions) {
@@ -74,17 +73,17 @@ export async function buildConversationInteractionAttention(
 }
 
 async function resolveConversationInteractions(
-  memory: ResolvedMemory,
+  runtime: ProjectWorkbenchPathPort,
   conversationId: string,
   graphScopeId: string,
 ): Promise<ResolvedConversationInteraction[]> {
-  const database = await openWorkbenchDatabase(memory);
+  const database = await openProjectRuntimeWorkbenchDatabase(runtime);
   try {
-    if (database.conversations.isConversationGraphScopeTerminal(memory.projectId!, graphScopeId)) return [];
+    if (database.conversations.isConversationGraphScopeTerminal(runtime.projectId, graphScopeId)) return [];
   } finally {
     database.close();
   }
-  const entries = await readEntries(memory, conversationId);
+  const entries = await readEntries(runtime, conversationId);
   const currentEntries = entries.filter((entry) => entry.graphScopeId === graphScopeId);
   const latestClarification = new Map<string, TopicThreadEntry>();
   for (const entry of currentEntries) {
@@ -188,10 +187,10 @@ function clarificationOf(entry: TopicThreadEntry): ClarificationRequest | null {
     : null;
 }
 
-async function readEntries(memory: ResolvedMemory, conversationId: string): Promise<TopicThreadEntry[]> {
-  const store = await openWorkbenchDatabase(memory);
+async function readEntries(runtime: ProjectWorkbenchPathPort, conversationId: string): Promise<TopicThreadEntry[]> {
+  const store = await openProjectRuntimeWorkbenchDatabase(runtime);
   try {
-    return store.timeline.listConversationMessages(memory.projectId!, conversationId).map(fromStoredThreadMessage);
+    return store.timeline.listConversationMessages(runtime.projectId, conversationId).map(fromStoredThreadMessage);
   } finally {
     store.close();
   }
