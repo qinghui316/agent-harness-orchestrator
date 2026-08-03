@@ -90,7 +90,19 @@ export function workerPermissionProfileForRole(roleId: string): WorkerPermission
       mayDelegate: true,
     };
   }
-  if (roleId === "coder-agent" || roleId === "rework-coder") {
+  if (roleId === "planning-agent") {
+    return {
+      version: "1.0",
+      roleId,
+      allowedReadRoots: ["project-harness", "source-root", "selected-evidence"],
+      allowedWriteRoots: ["proposal-workspace"],
+      deniedPaths: SECURE_DENIED_PATHS,
+      allowedCommands: ["git status", "git diff"],
+      sandboxPolicy: "workspace-write",
+      mayDelegate: false,
+    };
+  }
+  if (["coder-agent", "rework-coder", "integration-fix-agent", "spec-test-generator"].includes(roleId)) {
     return {
       version: "1.0",
       roleId,
@@ -102,7 +114,7 @@ export function workerPermissionProfileForRole(roleId: string): WorkerPermission
       mayDelegate: false,
     };
   }
-  if (roleId === "validator" || roleId === "auditor-agent" || roleId === "merge-reviewer-agent") {
+  if (["validator", "auditor-agent", "merge-reviewer-agent", "spec-test-proposer", "evolution-scorer"].includes(roleId)) {
     return {
       version: "1.0",
       roleId,

@@ -56,6 +56,37 @@ describe("run metadata schema", () => {
     expect(parsed.enabledSkills?.[0]?.source).toBe("aho-system");
   });
 
+  it("keeps preserved v1 context packet references readable while new runs write v2", () => {
+    const parsed = runMetadataSchema.parse({
+      version: "1.0",
+      id: "run-historical-context",
+      changeId: "change-historical-context",
+      projectPath: "E:/repo",
+      runtime: "validator",
+      command: ["validator", "default"],
+      status: "completed",
+      exitCode: 0,
+      signal: null,
+      startedAt: "2026-07-02T00:00:00.000Z",
+      finishedAt: "2026-07-02T00:00:01.000Z",
+      artifacts: {
+        directory: "runs/run-historical-context",
+        context: "runs/run-historical-context/context.md",
+        contextPacket: "runs/run-historical-context/context-packet.json",
+        events: "runs/run-historical-context/events.jsonl",
+        stdout: "runs/run-historical-context/stdout.log",
+        stderr: "runs/run-historical-context/stderr.log",
+      },
+      contextPacket: {
+        ref: "runs/run-historical-context/context-packet.json",
+        hash: "a".repeat(64),
+        format: "role-context-packet@1.0",
+      },
+    });
+
+    expect(parsed.contextPacket?.format).toBe("role-context-packet@1.0");
+  });
+
   it("accepts provider-backed integration repairs and rejects the retired Codex mode", () => {
     const record = {
       version: "1.0",

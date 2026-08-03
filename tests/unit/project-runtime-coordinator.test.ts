@@ -40,7 +40,8 @@ describe("project runtime coordinator", () => {
     expect(JSON.parse(await readFile(fixture.markerPath, "utf8"))).toMatchObject({ id: "canonical-a1" });
     const database = new Database(join(fixture.targetSidecar, "workbench", "workbench.sqlite"), { readonly: true });
     try {
-      expect(database.prepare("SELECT project_id FROM skills").all()).toEqual([{ project_id: "canonical-a1" }]);
+      expect(database.pragma("user_version", { simple: true })).toBe(10);
+      expect(database.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'skills'").get()).toBeUndefined();
     } finally {
       database.close();
     }

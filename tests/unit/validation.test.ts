@@ -2,7 +2,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createChange, createConcurrentChange, getChangeStatus } from "../../src/change/manager.js";
 import { writeJsonFile } from "../../src/fs/json.js";
 import { initHarness } from "../../src/harness/init.js";
@@ -14,6 +14,16 @@ import { startValidationRun } from "../../src/validation/manager.js";
 import { listValidationResults, readValidationResult } from "../../src/validation/artifacts.js";
 import { createWorktree } from "../../src/worktree/creation.js";
 import type { ManagedProject, ValidationResult } from "../../src/types/index.js";
+
+const projectHarnessAgentInput = vi.hoisted(() => ({
+  identity: { projectId: "repo", skillName: "repo-harness", skillRevision: 27, contentFingerprint: "a".repeat(64) },
+  providerSkillInput: { id: "repo-harness", path: "C:/skills/repo-harness/SKILL.md", contentHash: "b".repeat(64), source: "project-harness" as const, required: true },
+}));
+
+vi.mock("../../src/project-harness/agent-input.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../../src/project-harness/agent-input.js")>(),
+  resolveProjectHarnessAgentInput: vi.fn(async () => projectHarnessAgentInput),
+}));
 
 let tempDir: string;
 
@@ -121,7 +131,7 @@ describe("validation", () => {
     expect(existsSync(join(runDir, "validation.json"))).toBe(true);
     expect(existsSync(join(runDir, "context-packet.json"))).toBe(true);
     expect(result.run.artifacts.contextPacket).toBe(`${result.run.artifacts.directory}/context-packet.json`);
-    expect(result.run.contextPacket?.format).toBe("role-context-packet@1.0");
+    expect(result.run.contextPacket?.format).toBe("role-context-packet@2.0");
     expect(await readFile(join(runDir, "context.md"), "utf8")).toContain("Role Context Packet");
     expect(await readFile(join(runDir, "context-packet.json"), "utf8")).toContain("\"roleId\": \"validator\"");
     expect(await readFile(join(runDir, "commands", "001-pass.stdout.log"), "utf8")).toContain("pass");

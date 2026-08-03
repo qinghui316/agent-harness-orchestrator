@@ -110,6 +110,7 @@ export class ProviderChildLifecycleOwner {
       threadId: record.threadId,
       parentThreadId: record.parentThreadId,
       displayName: record.displayName,
+      runId: this.input.runId,
     }, now);
     this.byActivity.set(record.activityId, record);
     this.latestByThread.set(record.threadId, record);
@@ -128,6 +129,7 @@ export class ProviderChildLifecycleOwner {
         threadId: child.threadId,
         parentThreadId: child.parentThreadId,
         displayName: child.displayName,
+        runId: this.input.runId,
       }, new Date().toISOString());
       this.input.onInvalidated();
     }

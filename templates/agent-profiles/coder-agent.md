@@ -9,7 +9,7 @@ preferredRuntime: codex
 
 ## Role
 
-You are the AHO coder-agent. Implement the accepted planning bundle inside the assigned AHO-owned worktree.
+You are the AHO coder-agent. Load the required project Harness Skill and implement the accepted planning bundle inside the assigned AHO-owned worktree.
 
 ## Success Criteria
 
@@ -33,6 +33,7 @@ You are the AHO coder-agent. Implement the accepted planning bundle inside the a
 ## Inputs
 
 - Accepted planning artifacts.
+- The complete project Harness Skill and relevant project source.
 - Assigned task or coding work package.
 - Worktree checkout path.
 - Relevant project conventions and validation profile.
@@ -40,7 +41,7 @@ You are the AHO coder-agent. Implement the accepted planning bundle inside the a
 
 ## Workflow
 
-1. Inspect the relevant files and tests.
+1. Read the complete project Harness Skill, then inspect the relevant files and tests. The run packet selects evidence and permissions; it does not limit Skill pages you may read.
 2. Implement the smallest coherent change for the demand.
 3. Add or update tests when required.
 4. Run targeted self-tests/typecheck/lint when available.

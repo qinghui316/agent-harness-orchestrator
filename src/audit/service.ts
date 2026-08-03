@@ -6,7 +6,9 @@ import { buildRoleContextArtifact, buildRoleContextPacket, contextSourceRef } fr
 import { buildAgentSystemPrompt, buildRunAgentRecord, resolveAgentRole } from "../agent/catalog.js";
 import { writeJsonFile } from "../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
+import { resolveProjectHarnessAgentInput } from "../project-harness/agent-input.js";
 import { defaultProviderRegistry, type ProviderRealtimeEvent, type ProviderTurnResult } from "../provider-runtime/index.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 import { getWorktreeMetadataPath } from "../worktree/paths.js";
 import { getLatestValidationSummary, readValidationResult, summarizeValidation } from "../validation/repository.js";
 import { workerPermissionProfileForRole } from "../agent-task/tool-policy.js";
@@ -43,6 +45,7 @@ export interface AuditStatusResult {
 }
 
 export async function startAuditRun(project: ManagedProject, options: AuditRunOptions = {}): Promise<AuditRunResult> {
+  const projectHarnessInput = await resolveProjectHarnessAgentInput(project, DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY);
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "Audit run");
   const target = await resolveRunnableChangeTarget(project, { changeId: options.changeId });
@@ -137,6 +140,9 @@ export async function startAuditRun(project: ManagedProject, options: AuditRunOp
     changeStatus,
     goal: "Audit the current Change implementation against accepted AC, validation evidence, and diff evidence.",
     runId,
+    projectHarness: projectHarnessInput.identity,
+    writableRoots: [],
+    sandboxPolicy: "read-only",
     worktree: diffResult ? {
       worktreeId: diffResult.worktree.worktreeId,
       branchName: diffResult.worktree.branchName,
@@ -249,7 +255,12 @@ export async function startAuditRun(project: ManagedProject, options: AuditRunOp
     return { run, audit };
   }
 
-  run = { ...run, command: ["provider", "turn.start"], status: "running" };
+  run = {
+    ...run,
+    command: ["provider", "turn.start"],
+    status: "running",
+    enabledSkills: [{ ...projectHarnessInput.providerSkillInput, providerId }],
+  };
   await writeJsonFile(paths.run, run);
   continuity = await markRuntimeContinuityStatus(paths, continuity, "running");
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "audit.started", runId, data: { cwd, command: run.command } });
@@ -298,6 +309,7 @@ export async function startAuditRun(project: ManagedProject, options: AuditRunOp
       attemptId: runId,
       cwd,
       prompt,
+      skillInputs: [projectHarnessInput.providerSkillInput],
       sandboxPolicy: "read-only",
       paths: {
         events: paths.providerEvents,

@@ -20,6 +20,15 @@ import { createConversationChangeFixture } from "../helpers/conversation-change-
 
 const providerRequire = vi.hoisted(() => vi.fn());
 const providerList = vi.hoisted(() => vi.fn());
+const projectHarnessAgentInput = vi.hoisted(() => ({
+  identity: { projectId: "repo", skillName: "repo-harness", skillRevision: 27, contentFingerprint: "a".repeat(64) },
+  providerSkillInput: { id: "repo-harness", path: "C:/skills/repo-harness/SKILL.md", contentHash: "b".repeat(64), source: "project-harness" as const, required: true },
+}));
+
+vi.mock("../../src/project-harness/agent-input.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../../src/project-harness/agent-input.js")>(),
+  resolveProjectHarnessAgentInput: vi.fn(async () => projectHarnessAgentInput),
+}));
 
 vi.mock("../../src/provider-runtime/index.js", async (importOriginal) => ({
   ...await importOriginal<typeof import("../../src/provider-runtime/index.js")>(),
@@ -369,11 +378,18 @@ describe("spec-test provider execution", () => {
       providerId: "test-provider",
       operationProfile: "auditor",
       roleId: "spec-test-proposer",
+      skillInputs: [expect.objectContaining({ id: "repo-harness", source: "project-harness", required: true })],
       sandboxPolicy: "read-only",
       writableRoots: [],
       outputSchema: expect.objectContaining({ type: "object" }),
     }));
-    expect(result.run).toMatchObject({ status: "completed", command: ["provider", "turn.start"] });
+    expect(result.run).toMatchObject({
+      status: "completed",
+      command: ["provider", "turn.start"],
+      contextPacket: { format: "role-context-packet@2.0" },
+      enabledSkills: [expect.objectContaining({ id: "repo-harness", source: "project-harness", required: true })],
+    });
+    expect(await readFile(join(tempDir, result.run.artifacts.contextPacket!), "utf8")).toContain('"projectHarness"');
     expect(result.proposal).toMatchObject({ status: "proposed", evidence: [expect.objectContaining({ refId: "ev-001" })] });
     expect(result.run.artifacts.providerEvents).toContain("provider-events.jsonl");
     expect(result.run.artifacts.providerSession).toContain("provider-session.json");
@@ -409,10 +425,17 @@ describe("spec-test provider execution", () => {
       providerId: "test-provider",
       operationProfile: "coder",
       roleId: "spec-test-generator",
+      skillInputs: [expect.objectContaining({ id: "repo-harness", source: "project-harness", required: true })],
       sandboxPolicy: "workspace-write",
       writableRoots: [expect.stringContaining("worktrees")],
     }));
-    expect(result.run).toMatchObject({ status: "completed", command: ["provider", "turn.start"] });
+    expect(result.run).toMatchObject({
+      status: "completed",
+      command: ["provider", "turn.start"],
+      contextPacket: { format: "role-context-packet@2.0" },
+      enabledSkills: [expect.objectContaining({ id: "repo-harness", source: "project-harness", required: true })],
+    });
+    expect(await readFile(join(tempDir, result.run.artifacts.contextPacket!), "utf8")).toContain('"projectHarness"');
     expect(result.warnings).not.toEqual(expect.arrayContaining([expect.stringContaining("non-test changes")]));
     expect(result.run?.artifacts.providerEvents).toContain("provider-events.jsonl");
     expect(result.run?.artifacts.providerSession).toContain("provider-session.json");

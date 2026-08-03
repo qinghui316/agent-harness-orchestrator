@@ -11,6 +11,6 @@ export {
   heartbeatAgentTask,
   listAgentTasks,
   readAgentTaskResult,
+  recoverExpiredAgentTasks,
   startAgentTask,
 } from "./repository.js";
-export { buildRoleScopedContextProjection } from "./role-context.js";

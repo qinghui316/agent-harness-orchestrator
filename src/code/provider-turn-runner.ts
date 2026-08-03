@@ -4,6 +4,7 @@ import { workerPermissionProfileForRole } from "../agent-task/tool-policy.js";
 import { collectWorktreeDiff } from "../audit/diff.js";
 import { writeJsonFile } from "../fs/json.js";
 import { defaultProviderRegistry } from "../provider-runtime/index.js";
+import type { ProviderSkillInput } from "../project-harness/contracts.js";
 import { agentThreadSurfaceId } from "../provider-runtime/agent-surface-id.js";
 import { appendExternalExecutionCompleted, appendExternalExecutionFailed, appendExternalExecutionRequested, appendPermissionProfileAttached } from "../runtime-continuity/events.js";
 import { appendAgentEventEnvelope, createRuntimeContinuityArtifacts, markRuntimeContinuityStatus } from "../runtime-continuity/repository.js";
@@ -28,6 +29,7 @@ export async function runProviderCodeTurn(input: {
   worktree: RunWorktreeInfo;
   prompt: string;
   sourceBefore: string[];
+  projectHarnessSkillInput: ProviderSkillInput;
   createdWarnings: string[];
   live?: CodeRunLiveCallbacks;
 }): Promise<CodeRunResult> {
@@ -68,7 +70,12 @@ export async function runProviderCodeTurn(input: {
   } finally {
     attemptStore.close();
   }
-  let run: RunMetadata = { ...input.run, command: ["provider", "turn.start"], status: "running" };
+  let run: RunMetadata = {
+    ...input.run,
+    command: ["provider", "turn.start"],
+    status: "running",
+    enabledSkills: [{ ...input.projectHarnessSkillInput, providerId }],
+  };
   await writeRunAndStartedEvents(input.paths, run, input.worktree, input.live);
   let continuity = await createRuntimeContinuityArtifacts(input.paths, {
     projectId: input.project.id,
@@ -123,6 +130,7 @@ export async function runProviderCodeTurn(input: {
     runId: run.id,
     cwd: input.worktree.checkoutPath,
     prompt: input.prompt,
+    skillInputs: [input.projectHarnessSkillInput],
     sandboxPolicy: "workspace-write",
     paths: {
       events: input.paths.providerEvents,

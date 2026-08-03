@@ -83,7 +83,7 @@ export interface RunArtifactPaths {
 export interface RunContextPacketRef {
   ref: string;
   hash: string;
-  format: "role-context-packet@1.0";
+  format: "role-context-packet@1.0" | "role-context-packet@2.0";
 }
 
 export type ValidationStatus = "passed" | "failed";

@@ -4,11 +4,14 @@ import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
 import { collectWorktreeDiff } from "../../audit/diff.js";
 import { resolveRunnableChangeTarget } from "../../change/target.js";
+import { buildRoleContextArtifact, buildRoleContextPacket, contextSourceRef } from "../../context/packets.js";
 import { writeJsonFile } from "../../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../../memory/resolver.js";
+import { resolveProjectHarnessAgentInput } from "../../project-harness/agent-input.js";
 import type { ProviderTurnResult } from "../../provider-runtime/index.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../provider-runtime/project-harness-discovery.js";
 import { getGitStatusShortIgnoringAhoMemory } from "../../project/git.js";
-import { appendRunEvent, buildContextProjection, buildRunId } from "../../run/manager.js";
+import { appendRunEvent, buildRunId } from "../../run/manager.js";
 import { finishProviderAttempt, startProviderAttempt } from "../../workbench/provider-attempts.js";
 import { getTemplateRoot } from "../../template-source/paths.js";
 import { getLatestValidationSummary } from "../../validation/artifacts.js";
@@ -61,6 +64,7 @@ export async function startSpecTestGenerationRun(project: ManagedProject, option
       warnings: ["No Acceptance Criteria without linked evidence were found."],
     };
   }
+  const projectHarnessInput = await resolveProjectHarnessAgentInput(project, DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY);
 
   const extraPrompt = options.prompt?.trim() || undefined;
   const runId = buildRunId(changeId, ["spec-test-generator", ...selectedAcs, extraPrompt ?? ""]);
@@ -81,6 +85,7 @@ export async function startSpecTestGenerationRun(project: ManagedProject, option
     base: memory.artifactBase,
     directory: relativeDir,
     context: `${relativeDir}/context.md`,
+    contextPacket: `${relativeDir}/context-packet.json`,
     events: `${relativeDir}/events.jsonl`,
     stdout: `${relativeDir}/stdout.log`,
     stderr: `${relativeDir}/stderr.log`,
@@ -95,6 +100,7 @@ export async function startSpecTestGenerationRun(project: ManagedProject, option
   const paths = {
     run: join(directory, "run.json"),
     context: join(directory, "context.md"),
+    contextPacket: join(directory, "context-packet.json"),
     events: join(directory, "events.jsonl"),
     stdout: join(directory, "stdout.log"),
     stderr: join(directory, "stderr.log"),
@@ -109,6 +115,28 @@ export async function startSpecTestGenerationRun(project: ManagedProject, option
 
   await mkdir(directory, { recursive: true });
   const now = new Date().toISOString();
+  const latestValidation = await getLatestValidationSummary(memory, changeId);
+  const contextArtifact = buildRoleContextArtifact(buildRoleContextPacket({
+    roleId: "spec-test-generator",
+    changeStatus,
+    goal: `Generate test-only evidence for ${selectedAcs.join(", ")}.`,
+    runId,
+    taskIds: selectedAcs,
+    worktree,
+    projectHarness: projectHarnessInput.identity,
+    writableRoots: [worktree.checkoutPath],
+    sandboxPolicy: "workspace-write",
+    evidenceSummary: [
+      `Selected Acceptance Criteria: ${selectedAcs.join(", ")}.`,
+      latestValidation ? `Latest validation selected: ${latestValidation.status} (${latestValidation.id}).` : "No validation run recorded for this Change.",
+    ],
+    evidenceRefs: [
+      contextSourceRef("spec-test-status", "spec-tests.json", "inline", "Current deterministic spec-test mapping status."),
+      contextSourceRef("worktree-metadata", worktree.metadataPath, "inline", "Assigned test-only worktree and write boundary."),
+      ...(latestValidation ? [contextSourceRef("latest-validation", latestValidation.id, "inline", "Latest validation summary before test generation.")] : []),
+    ],
+    createdAt: now,
+  }), artifacts.contextPacket);
   let run: RunMetadata = {
     version: "1.0",
     id: runId,
@@ -125,16 +153,16 @@ export async function startSpecTestGenerationRun(project: ManagedProject, option
     finishedAt: null,
     artifacts,
     worktree,
+    contextPacket: contextArtifact.ref,
   };
   await writeJsonFile(paths.run, run);
   await appendRunEvent(paths.events, { timestamp: now, type: "run.created", runId, data: { changeId, runtime: "spec-test-generator", worktree, selectedAcs } });
   await appendRunEvent(paths.events, { timestamp: now, type: "worktree.created", runId, data: { worktreeId: worktree.worktreeId, checkoutPath: worktree.checkoutPath } });
 
-  const context = buildContextProjection(changeStatus);
+  const context = contextArtifact.markdown;
+  await writeJsonFile(paths.contextPacket, contextArtifact.packet);
   await writeFile(paths.context, context, "utf8");
-  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "context.prepared", runId, data: { path: artifacts.context } });
-
-  const latestValidation = await getLatestValidationSummary(memory, changeId);
+  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "context.prepared", runId, data: { path: artifacts.context, contextPacket: artifacts.contextPacket, contextPacketHash: contextArtifact.hash } });
   const prompt = await composeSpecTestGeneratorPrompt({
     context,
     changeStatus,
@@ -164,7 +192,12 @@ export async function startSpecTestGenerationRun(project: ManagedProject, option
 
   const providerId = provider.id;
   const capabilitySnapshot = await provider.capabilitySnapshot(project, worktree.checkoutPath);
-  run = { ...run, command: ["provider", "turn.start"], status: "running" };
+  run = {
+    ...run,
+    command: ["provider", "turn.start"],
+    status: "running",
+    enabledSkills: [{ ...projectHarnessInput.providerSkillInput, providerId }],
+  };
   await writeJsonFile(paths.run, run);
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "spec-test.generation.started", runId, data: { cwd: worktree.checkoutPath, command: run.command, selectedAcs } });
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "provider.started", runId, data: { cwd: worktree.checkoutPath, providerId, capabilitySnapshot } });
@@ -194,6 +227,7 @@ export async function startSpecTestGenerationRun(project: ManagedProject, option
       attemptId: runId,
       cwd: worktree.checkoutPath,
       prompt,
+      skillInputs: [projectHarnessInput.providerSkillInput],
       sandboxPolicy: "workspace-write",
       paths: {
         events: paths.providerEvents,

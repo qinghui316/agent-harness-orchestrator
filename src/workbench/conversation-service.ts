@@ -314,13 +314,12 @@ async function postProjectHarnessOnboardingMessage(
     contextRefs: parsed.contextRefs,
     attachments: parsed.attachments,
   };
-  let stored: StoredTopicMessage;
   try {
-    stored = database.timeline.appendMessage(toCanonicalTimelineMessage(project.id, conversationId, user));
+    new CanonicalTimelineDelivery(database, live)
+      .append(toCanonicalTimelineMessage(project.id, conversationId, user));
   } finally {
     database.close();
   }
-  publishCommittedCanonicalTimelineRow(live, stored);
   const assistant = await runProjectHarnessOnboardingTurn(project, runtimeState, conversationId, parsed.message, live);
   return { user, assistant, run: null, providerSessionId: null, mode: "chat", assistantMessage: assistant.text ?? "" };
 }

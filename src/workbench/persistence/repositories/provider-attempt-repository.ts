@@ -183,6 +183,7 @@ bindProviderAttemptThread(
       parentThreadId?: string | null;
       parentAgentSurfaceId?: string | null;
       displayName?: string | null;
+      runId?: string | null;
     },
     updatedAt: string,
   ): StoredProviderThreadLink {
@@ -276,7 +277,7 @@ bindProviderAttemptThread(
         graphScopeId,
         String(attemptRow.operationProfile),
         input.displayName ?? null,
-        input.attemptId,
+        input.runId ?? input.attemptId,
         updatedAt,
       );
       this.db.prepare(`

@@ -14,6 +14,15 @@ import type { AuditResult, ManagedProject } from "../../src/types/index.js";
 import type { ValidationResult } from "../../src/types/index.js";
 
 const providerRequire = vi.hoisted(() => vi.fn());
+const projectHarnessAgentInput = vi.hoisted(() => ({
+  identity: { projectId: "repo", skillName: "repo-harness", skillRevision: 27, contentFingerprint: "a".repeat(64) },
+  providerSkillInput: { id: "repo-harness", path: "C:/skills/repo-harness/SKILL.md", contentHash: "b".repeat(64), source: "project-harness" as const, required: true },
+}));
+
+vi.mock("../../src/project-harness/agent-input.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../../src/project-harness/agent-input.js")>(),
+  resolveProjectHarnessAgentInput: vi.fn(async () => projectHarnessAgentInput),
+}));
 
 vi.mock("../../src/provider-runtime/index.js", async (importOriginal) => ({
   ...await importOriginal<typeof import("../../src/provider-runtime/index.js")>(),
@@ -220,6 +229,7 @@ describe("audit close gate", () => {
       operationProfile: "auditor",
       roleId: "auditor-agent",
       cwd: tempDir,
+      skillInputs: [expect.objectContaining({ id: "repo-harness", source: "project-harness", required: true })],
       sandboxPolicy: "read-only",
       writableRoots: [],
     }));

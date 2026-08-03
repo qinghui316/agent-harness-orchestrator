@@ -137,6 +137,8 @@ export async function runCodexChildTurn(request: ProviderChildTurnRequest): Prom
     onChildThreadResult: request.onChildThreadResult ? (child) => request.onChildThreadResult?.(mapChild(child)) : undefined,
     onError: request.onError,
     model: request.model?.modelId,
+    skillInputs: request.skillInputs?.map((skill) => ({ name: skill.id, path: skill.path })),
+    requiredNativeSkills: request.skillInputs?.filter((skill) => skill.required).map((skill) => skill.id),
     runtimeWorkspaceRoots: request.runtimeWorkspaceRoots,
     additionalContext: request.additionalContext,
     writableRoots: request.writableRoots,

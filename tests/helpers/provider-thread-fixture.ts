@@ -44,6 +44,7 @@ export function bindProviderThreadFixture(store: WorkbenchDatabase, link: Provid
     parentAgentSurfaceId: link.parentAgentSurfaceId
       ?? (link.parentThreadId ? undefined : link.roleId === "main-agent" ? null : "main-agent"),
     displayName: link.displayName,
+    runId: link.runId,
   }, now);
   store.providerAttempts.completeProviderAttempt(link.projectId, attemptId, "completed", link.providerThreadId, now);
   return bound;

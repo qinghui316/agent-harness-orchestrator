@@ -1,12 +1,21 @@
 import { createHash, randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { readAgentCatalog } from "../agent/catalog.js";
 import { assertWritableMemory } from "../memory/resolver.js";
+import { resolveProjectHarnessAgentInput } from "../project-harness/agent-input.js";
+import { assertPhysicalDirectory, resolveWithinPhysicalRoot } from "../project-harness/path-safety.js";
 import { defaultProviderRegistry, type ProviderOperationProfile } from "../provider-runtime/index.js";
+import type { ProviderSkillInput } from "../project-harness/contracts.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 import { agentThreadSurfaceId } from "../provider-runtime/agent-surface-id.js";
 import { ensureProjectRuntime } from "../harness/init.js";
 import type { ManagedProject } from "../types/index.js";
+import type { ResolvedMemory } from "../types/index.js";
+import { hashNativeSkillPackageContent } from "../skill/content-hash.js";
+import { getSystemSkillsRoot } from "../template-source/paths.js";
+import { getWorktreeStatus } from "../worktree/status.js";
 import { CanonicalTimelineDelivery } from "./canonical-timeline-delivery.js";
 import { toCanonicalTimelineMessage } from "./canonical-timeline-message.js";
 import { createAssistantTranscriptCapture } from "./live-transcript.js";
@@ -34,7 +43,17 @@ interface ExactChildTarget {
   previousAttemptId: string;
   previousHandoffHash: string;
   deliveredThroughCompletedTurn: number;
+  sourceRunId: string | null;
+  worktreeId: string | null;
   model: import("../provider-runtime/index.js").ProviderModelRef | null;
+}
+
+interface ChildContinuationExecution {
+  cwd: string;
+  sandboxPolicy: "read-only" | "workspace-write";
+  writableRoots: string[];
+  runtimeWorkspaceRoots: string[];
+  skillInputs: ProviderSkillInput[];
 }
 
 export interface ClosableChildAgent {
@@ -149,6 +168,7 @@ export async function runExactChildAgentTurn(input: {
   message: string;
   live?: WorkbenchLiveSink;
 }): Promise<TopicMessageResult> {
+  const projectHarnessInput = await resolveProjectHarnessAgentInput(input.project, DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY);
   const memory = await ensureProjectRuntime(input.project);
   assertWritableMemory(memory, "Child Agent feedback");
   if (!memory.projectId) throw new Error("Project id is required to send Child Agent feedback.");
@@ -176,6 +196,13 @@ export async function runExactChildAgentTurn(input: {
     input.project,
     input.project.path,
   );
+  const execution = await resolveChildContinuationExecution({
+    memory,
+    projectRoot: input.project.path,
+    conversationId: input.conversationId,
+    target,
+    projectHarnessSkillInput: projectHarnessInput.providerSkillInput,
+  });
   const runId = `agent-feedback-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
   const attemptId = `attempt-${randomUUID()}`;
   const directory = join(memory.workbenchRoot, "conversations", input.conversationId, "runs", runId);
@@ -243,7 +270,7 @@ export async function runExactChildAgentTurn(input: {
         message: input.message,
       })).digest("hex"),
       deliveredThroughCompletedTurn: target.deliveredThroughCompletedTurn,
-      worktreeId: null,
+      worktreeId: target.worktreeId,
       status: "running",
       createdAt: now,
       updatedAt: now,
@@ -252,6 +279,7 @@ export async function runExactChildAgentTurn(input: {
       attemptId,
       threadId: target.threadId,
       parentThreadId: target.parentThreadId,
+      runId: target.sourceRunId,
     }, now);
     delivery.append(toCanonicalTimelineMessage(memory.projectId, input.conversationId, user));
     publishAgentSurfacesInvalidated(memory.projectId, { conversationId: input.conversationId, graphScopeId: target.graphScopeId, reason: "attempt-updated" });
@@ -279,9 +307,12 @@ export async function runExactChildAgentTurn(input: {
       runtimeScopeId: `${input.conversationId}:${input.agentSurfaceId}:${runId}`,
       roleId: target.roleId,
       runId,
-      cwd: input.project.path,
+      cwd: execution.cwd,
       prompt: input.message,
-      sandboxPolicy: "read-only",
+      skillInputs: execution.skillInputs,
+      sandboxPolicy: execution.sandboxPolicy,
+      writableRoots: execution.writableRoots,
+      runtimeWorkspaceRoots: execution.runtimeWorkspaceRoots,
       paths: {
         events: join(directory, "provider-events.jsonl"),
         stderr: join(directory, "app-server-stderr.log"),
@@ -430,11 +461,74 @@ async function resolveExactChildTarget(input: {
       previousAttemptId: attempt.attemptId,
       previousHandoffHash: attempt.handoffHash,
       deliveredThroughCompletedTurn: conversation.completedTurnSequence,
+      sourceRunId: link.runId ?? null,
+      worktreeId: attempt.worktreeId,
       model: attempt.model,
     };
   } finally {
     store.close();
   }
+}
+
+async function resolveChildContinuationExecution(input: {
+  memory: ResolvedMemory;
+  projectRoot: string;
+  conversationId: string;
+  target: ExactChildTarget;
+  projectHarnessSkillInput: ProviderSkillInput;
+}): Promise<ChildContinuationExecution> {
+  if (input.target.operationProfile === "planning") {
+    if (!input.target.sourceRunId) throw conflict("The Planning Agent proposal workspace is no longer identifiable.");
+    const proposalRoot = await resolveWithinPhysicalRoot(
+      input.memory.workbenchRoot,
+      join("conversations", input.conversationId, "runs", input.target.sourceRunId, "planner-proposal"),
+      "Planning Agent proposal workspace",
+    );
+    await assertPhysicalDirectory(proposalRoot, "Planning Agent proposal workspace");
+    const workflowSkillPath = join(getSystemSkillsRoot(), "aho-workflow-authoring", "SKILL.md");
+    if (!existsSync(workflowSkillPath)) throw conflict("Workflow Authoring Skill is unavailable for Planning Agent feedback.");
+    return {
+      cwd: input.projectRoot,
+      sandboxPolicy: "workspace-write",
+      writableRoots: [proposalRoot],
+      runtimeWorkspaceRoots: [input.projectRoot, proposalRoot],
+      skillInputs: [
+        input.projectHarnessSkillInput,
+        {
+          id: "aho-workflow-authoring",
+          path: workflowSkillPath,
+          contentHash: await hashNativeSkillPackageContent(dirname(workflowSkillPath)),
+          source: "aho-system",
+          required: true,
+        },
+      ],
+    };
+  }
+  if (input.target.operationProfile === "coder") {
+    if (!input.target.worktreeId) throw conflict("The selected Child Agent has no assigned worktree for writable feedback.");
+    const worktree = await getWorktreeStatus(input.memory, input.target.worktreeId);
+    if (!worktree.exists) throw conflict("The selected Child Agent worktree no longer exists.");
+    if (input.target.changeId && worktree.changeId !== input.target.changeId) {
+      throw conflict("The selected Child Agent worktree no longer belongs to the active Change.");
+    }
+    return {
+      cwd: worktree.checkoutPath,
+      sandboxPolicy: "workspace-write",
+      writableRoots: [worktree.checkoutPath],
+      runtimeWorkspaceRoots: [worktree.checkoutPath],
+      skillInputs: [input.projectHarnessSkillInput],
+    };
+  }
+  if (input.target.operationProfile === "auditor" || input.target.operationProfile === "evolution-scorer") {
+    return {
+      cwd: input.projectRoot,
+      sandboxPolicy: "read-only",
+      writableRoots: [],
+      runtimeWorkspaceRoots: [input.projectRoot],
+      skillInputs: [input.projectHarnessSkillInput],
+    };
+  }
+  throw conflict(`The selected Child Agent execution workspace cannot be safely resumed: ${input.target.operationProfile}.`);
 }
 
 function importStoredEntry(write: ReturnType<typeof toCanonicalTimelineMessage>): TopicThreadEntry {

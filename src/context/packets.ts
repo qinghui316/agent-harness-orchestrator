@@ -3,9 +3,9 @@ import type {
   ChangeStatus,
   RunContextPacketRef,
   RunWorktreeInfo,
-  WorkerPermissionProfile,
 } from "../types/index.js";
 import { workerPermissionProfileForRole } from "../agent-task/tool-policy.js";
+import type { ProjectHarnessAgentIdentity } from "../project-harness/agent-input.js";
 
 export type ContextSourceInlineMode = "inline" | "ref";
 
@@ -34,8 +34,16 @@ export interface EvidenceContextPacket {
   refs: ContextSourceRef[];
 }
 
+export interface RoleToolPermissions {
+  sandboxPolicy: "read-only" | "workspace-write";
+  writableRoots: string[];
+  deniedPaths: string[];
+  allowedCommands: string[];
+  mayDelegate: boolean;
+}
+
 export interface RoleContextPacket {
-  version: "1.0";
+  version: "2.0";
   kind: "role-context-packet";
   roleId: string;
   changeId: string;
@@ -43,13 +51,11 @@ export interface RoleContextPacket {
   runId?: string;
   taskIds: string[];
   tokenBudget: number;
-  permissionProfile: WorkerPermissionProfile;
+  projectHarness: ProjectHarnessAgentIdentity;
+  permissions: RoleToolPermissions;
   change: ChangeContextPacket;
   evidence: EvidenceContextPacket;
   worktree?: RunWorktreeInfo;
-  includedSources: ContextSourceRef[];
-  evidenceRefs: ContextSourceRef[];
-  excludedSources: string[];
   createdAt: string;
 }
 
@@ -61,6 +67,10 @@ export interface RoleContextPacketInput {
   taskIds?: string[];
   tokenBudget?: number;
   worktree?: RunWorktreeInfo;
+  projectHarness: ProjectHarnessAgentIdentity;
+  writableRoots: string[];
+  sandboxPolicy: "read-only" | "workspace-write";
+  allowedCommands?: string[];
   evidenceSummary?: string[];
   evidenceRefs?: ContextSourceRef[];
   createdAt?: string;
@@ -75,17 +85,6 @@ export interface RoleContextArtifact {
 
 const DEFAULT_TOKEN_BUDGET = 8000;
 
-const ORDINARY_WORKER_EXCLUSIONS = [
-  "full parent transcript",
-  "full archive history",
-  "maintenance hot/warm/cold ledger",
-  "raw stdout/stderr/jsonl unless explicitly selected",
-  "unrelated active changes",
-  "delegateTask manifest for worker roles",
-  "full Harness directory",
-  "Workbench snapshot as context source",
-];
-
 export function buildRoleContextPacket(input: RoleContextPacketInput): RoleContextPacket {
   const change = input.changeStatus.change;
   const changeId = change?.id ?? input.changeStatus.acMap?.changeId ?? "unknown";
@@ -93,7 +92,6 @@ export function buildRoleContextPacket(input: RoleContextPacketInput): RoleConte
   const roleId = input.roleId.trim() || "unknown-role";
   const permissionProfile = workerPermissionProfileForRole(roleId);
   const changeContext = buildChangeContext(input.changeStatus);
-  const includedSources = buildIncludedSources(changeId, roleId, taskIds, input.worktree);
   const evidenceRefs = input.evidenceRefs ?? [];
   const evidence = {
     summary: input.evidenceSummary?.filter((item) => item.trim().length > 0) ?? [],
@@ -101,7 +99,7 @@ export function buildRoleContextPacket(input: RoleContextPacketInput): RoleConte
   };
 
   return {
-    version: "1.0",
+    version: "2.0",
     kind: "role-context-packet",
     roleId,
     changeId,
@@ -109,13 +107,17 @@ export function buildRoleContextPacket(input: RoleContextPacketInput): RoleConte
     ...(input.runId ? { runId: input.runId } : {}),
     taskIds,
     tokenBudget: input.tokenBudget ?? DEFAULT_TOKEN_BUDGET,
-    permissionProfile,
+    projectHarness: input.projectHarness,
+    permissions: {
+      sandboxPolicy: input.sandboxPolicy,
+      writableRoots: [...new Set(input.writableRoots)],
+      deniedPaths: permissionProfile.deniedPaths,
+      allowedCommands: input.allowedCommands ?? permissionProfile.allowedCommands,
+      mayDelegate: permissionProfile.mayDelegate,
+    },
     change: changeContext,
     evidence,
     ...(input.worktree ? { worktree: input.worktree } : {}),
-    includedSources,
-    evidenceRefs,
-    excludedSources: exclusionsForRole(roleId),
     createdAt: input.createdAt ?? new Date().toISOString(),
   };
 }
@@ -126,7 +128,7 @@ export function buildRoleContextArtifact(packet: RoleContextPacket, ref: string)
     packet,
     markdown: renderRoleContextPacket(packet),
     hash,
-    ref: { ref, hash, format: "role-context-packet@1.0" },
+    ref: { ref, hash, format: "role-context-packet@2.0" },
   };
 }
 
@@ -148,10 +150,14 @@ export function renderRoleContextPacket(packet: RoleContextPacket): string {
     packet.runId ? `- Run ID: ${packet.runId}` : "- Run ID: none",
     `- Goal: ${packet.goal}`,
     `- Token Budget: ${packet.tokenBudget}`,
-    `- May Delegate: ${packet.permissionProfile.mayDelegate}`,
-    `- Sandbox Policy: ${packet.permissionProfile.sandboxPolicy}`,
-    `- Allowed Read Roots: ${packet.permissionProfile.allowedReadRoots.join(", ") || "none"}`,
-    `- Allowed Write Roots: ${packet.permissionProfile.allowedWriteRoots.join(", ") || "none"}`,
+    `- Project Harness ID: ${packet.projectHarness.projectId}`,
+    `- Project Harness Skill: ${packet.projectHarness.skillName}`,
+    `- Project Harness Revision: ${packet.projectHarness.skillRevision}`,
+    `- Project Harness Fingerprint: ${packet.projectHarness.contentFingerprint}`,
+    `- May Delegate: ${packet.permissions.mayDelegate}`,
+    `- Sandbox Policy: ${packet.permissions.sandboxPolicy}`,
+    `- Writable Roots: ${packet.permissions.writableRoots.join(", ") || "none"}`,
+    `- Allowed Commands: ${packet.permissions.allowedCommands.join(", ") || "none"}`,
     "",
     "## Change Context",
     "",
@@ -191,15 +197,9 @@ export function renderRoleContextPacket(packet: RoleContextPacket): string {
     "",
     "## Evidence Refs",
     "",
-    ...(packet.evidenceRefs.length ? packet.evidenceRefs.map(formatSourceRef) : ["- No role-specific evidence refs were selected."]),
+    ...(packet.evidence.refs.length ? packet.evidence.refs.map(formatSourceRef) : ["- No role-specific evidence refs were selected."]),
     "",
-    "## Included Sources",
-    "",
-    ...(packet.includedSources.length ? packet.includedSources.map(formatSourceRef) : ["- No included source refs were selected."]),
-    "",
-    "## Excluded Sources",
-    "",
-    ...packet.excludedSources.map((source) => `- ${source}`),
+    "The packet selects evidence and execution permissions only. It does not limit which project Harness Skill pages the Agent may read.",
     "",
   ].join("\n");
 }
@@ -221,34 +221,6 @@ function buildChangeContext(status: ChangeStatus): ChangeContextPacket {
     closeGateBlockingIssues: status.closeGate.blockingIssues,
     closeGateWarnings: status.closeGate.warnings,
   };
-}
-
-function buildIncludedSources(changeId: string, roleId: string, taskIds: string[], worktree?: RunWorktreeInfo): ContextSourceRef[] {
-  const sources: ContextSourceRef[] = [
-    contextSourceRef("agents-routing", "AGENTS.md", "ref", "Route map and project conventions; not expanded as full Harness context by this packet."),
-    contextSourceRef("change-spec", `harness/changes/active/${changeId}/spec.md`, "inline", "Current accepted demand semantics."),
-    contextSourceRef("change-plan", `harness/changes/active/${changeId}/plan.md`, "inline", "Current accepted implementation plan."),
-    contextSourceRef("change-tasks", `harness/changes/active/${changeId}/tasks.md`, "inline", "Current task and AC mapping."),
-  ];
-  if (taskIds.length > 0) {
-    sources.push(contextSourceRef("selected-task-scope", taskIds.join(", "), "inline", `Selected task scope for ${roleId}.`));
-  }
-  if (worktree) {
-    sources.push(contextSourceRef("worktree", worktree.worktreeId, "inline", "Assigned role worktree boundary."));
-  }
-  return sources;
-}
-
-function exclusionsForRole(roleId: string): string[] {
-  if (/maintenance|documentation|evolution|architecture/i.test(roleId)) {
-    return [
-      "source root mutation",
-      "direct canonical project Markdown maintenance by the assigned documentation Agent",
-      "apply/merge/close/archive without explicit confirmation",
-      "delegateTask manifest unless explicitly granted by a future AgentSpec",
-    ];
-  }
-  return ORDINARY_WORKER_EXCLUSIONS;
 }
 
 function formatSourceRef(source: ContextSourceRef): string {

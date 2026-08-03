@@ -25,6 +25,7 @@ export interface BindProviderAttemptThreadInput {
   parentThreadId?: string | null;
   parentAgentSurfaceId?: string | null;
   displayName?: string | null;
+  runId?: string | null;
 }
 
 export async function bindProviderAttemptThread(memory: ResolvedMemory, input: BindProviderAttemptThreadInput): Promise<StoredProviderThreadLink | null> {

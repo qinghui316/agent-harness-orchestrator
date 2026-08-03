@@ -79,13 +79,3 @@ export interface DemandWorkerReconcileResult {
   attempts: DemandWorkerAttempt[];
   decisions: MainOrchestratorDecision[];
 }
-
-export interface RoleScopedContextProjection {
-  version: "1.0";
-  roleId: string;
-  allowedMemoryTier: "current-demand" | "compact-stable" | "maintenance-hot-warm-cold";
-  includesMaintenanceWindow: boolean;
-  includedSources: string[];
-  excludedSources: string[];
-  createdAt: string;
-}

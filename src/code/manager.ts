@@ -3,6 +3,8 @@ import { resolveRunnableChangeTarget } from "../change/target.js";
 import { buildAgentSystemPrompt, buildRunAgentRecord, resolveAgentRole } from "../agent/catalog.js";
 import { writeJsonFile } from "../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
+import { resolveProjectHarnessAgentInput } from "../project-harness/agent-input.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 import { appendRunEvent, buildRunId } from "../run/manager.js";
 import type { ManagedProject, RunMetadata, RunWorktreeInfo } from "../types/index.js";
 import { createWorktree, getWorktreeMetadataPath } from "../worktree/manager.js";
@@ -31,6 +33,7 @@ export type {
 export { getCodeStatus, listCodeRuns, showCodeRun };
 
 export async function startCodeRun(project: ManagedProject, options: CodeRunOptions = {}): Promise<CodeRunResult> {
+  const projectHarnessInput = await resolveProjectHarnessAgentInput(project, DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY);
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "Code run");
   const target = await resolveRunnableChangeTarget(project, { changeId: options.changeId });
@@ -77,6 +80,7 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
     extraPrompt,
     contextPacketRef: `${session.relativeDir}/context-packet.json`,
     createdAt: now,
+    projectHarness: projectHarnessInput.identity,
   });
   const run: RunMetadata = {
     version: "1.0",
@@ -171,6 +175,7 @@ export async function startCodeRun(project: ManagedProject, options: CodeRunOpti
       worktree,
       prompt,
       sourceBefore,
+      projectHarnessSkillInput: projectHarnessInput.providerSkillInput,
       createdWarnings: created?.warnings ?? [],
       live: options.live,
   });

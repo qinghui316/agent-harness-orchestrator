@@ -8,6 +8,8 @@ import { buildRoleContextArtifact, buildRoleContextPacket, contextSourceRef } fr
 import { writeJsonFile } from "../fs/json.js";
 import { slugify } from "../fs/path.js";
 import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
+import { resolveProjectHarnessAgentInput } from "../project-harness/agent-input.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 import { workerPermissionProfileForRole } from "../agent-task/tool-policy.js";
 import { runtimeContinuityPaths, type RuntimeContinuityPaths } from "../runtime-continuity/paths.js";
 import { appendExternalExecutionCompleted, appendExternalExecutionFailed, appendExternalExecutionRequested, appendPermissionProfileAttached } from "../runtime-continuity/events.js";
@@ -57,6 +59,7 @@ export interface ValidationStatusResult {
 
 export async function startValidationRun(project: ManagedProject, options: ValidationRunOptions = {}): Promise<ValidationRunResult> {
   const profileName = options.profile ?? "default";
+  const projectHarnessInput = await resolveProjectHarnessAgentInput(project, DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY);
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "Validation run");
   const target = await resolveRunnableChangeTarget(project, { changeId: options.changeId });
@@ -131,6 +134,10 @@ export async function startValidationRun(project: ManagedProject, options: Valid
     goal: `Run validation profile ${profileName} for the current Change target.`,
     runId,
     worktree,
+    projectHarness: projectHarnessInput.identity,
+    writableRoots: [],
+    sandboxPolicy: "read-only",
+    allowedCommands: profile.commands.map((command) => command.command.join(" ")),
     evidenceSummary: [
       `Validation profile: ${profileName}.`,
       `Execution mode: ${options.worktree ? "worktree" : "direct"}.`,

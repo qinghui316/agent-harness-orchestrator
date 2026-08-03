@@ -2,13 +2,17 @@
 import { Buffer } from "node:buffer";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
+import { getChangeStatusForChange } from "../change/status.js";
 import { getSortedSourceStatus, renderImplementationSummary, writeEmptyCodeArtifacts } from "../code/artifacts.js";
 import { createCodeRunSession, finishRun } from "../code/run-session.js";
+import { buildRoleContextArtifact, buildRoleContextPacket, contextSourceRef } from "../context/packets.js";
 import { writeJsonFile } from "../fs/json.js";
 import { resolveProjectMemory } from "../memory/resolver.js";
+import { resolveProjectHarnessAgentInput } from "../project-harness/agent-input.js";
 import { git, gitText } from "../project/git.js";
 import { withProjectWriteLease } from "../project/project-write-lease.js";
 import { defaultProviderRegistry } from "../provider-runtime/index.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 import { appendRunEvent } from "../run/manager.js";
 import { getGlobalWorktreeCheckoutRoot } from "../worktree/manager.js";
 import { prepareWorktreeDependencyBridge } from "../worktree/dependencies.js";
@@ -125,9 +129,31 @@ export async function runIntegrationFixAttempt(
 async function runProviderIntegrationRepair(input: IntegrationFixRepairRunnerInput): Promise<IntegrationFixRepairRunnerResult> {
   const runId = `${input.attemptId}-provider`;
   const session = await createCodeRunSession(input.memory, runId);
+  const projectHarnessInput = await resolveProjectHarnessAgentInput(input.project, DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY);
+  const changeStatus = await getChangeStatusForChange(input.project, input.changeId);
+  if (changeStatus.change?.id !== input.changeId) {
+    throw new Error(`IntegrationFix expected active Change ${input.changeId}, found ${changeStatus.change?.id ?? "none"}.`);
+  }
   const sourceBefore = await getSortedSourceStatus(input.project.path);
   const prompt = await buildIntegrationFixPrompt(input);
   const now = new Date().toISOString();
+  const contextArtifact = buildRoleContextArtifact(buildRoleContextPacket({
+    roleId: "integration-fix-agent",
+    changeStatus,
+    goal: `Repair IntegrationCheck ${input.checkId} in the isolated integration checkout.`,
+    runId,
+    projectHarness: projectHarnessInput.identity,
+    writableRoots: [input.checkoutPath],
+    sandboxPolicy: "workspace-write",
+    evidenceSummary: [
+      `IntegrationCheck: ${input.checkId}.`,
+      `Repair reason: ${input.reason}.`,
+    ],
+    evidenceRefs: [
+      contextSourceRef("integration-input-patch", input.inputPatchPath, "ref", "Exact aggregate patch selected for bounded repair."),
+    ],
+    createdAt: now,
+  }), session.artifacts.contextPacket!);
   const run: RunMetadata = {
     version: "1.0",
     id: runId,
@@ -143,10 +169,12 @@ async function runProviderIntegrationRepair(input: IntegrationFixRepairRunnerInp
     startedAt: now,
     finishedAt: null,
     artifacts: session.artifacts,
+    contextPacket: contextArtifact.ref,
     promptStack: ["integration-check", "integration-fix", "provider-repair"],
   };
   await writeJsonFile(session.paths.run, run);
-  await writeFile(session.paths.context, buildIntegrationFixContext(input), "utf8");
+  await writeJsonFile(session.paths.contextPacket, contextArtifact.packet);
+  await writeFile(session.paths.context, `${contextArtifact.markdown}\n${buildIntegrationFixContext(input)}`, "utf8");
   await writeFile(session.paths.prompt, prompt, "utf8");
   await appendRunEvent(session.paths.events, { timestamp: now, type: "run.created", runId, data: { checkId: input.checkId, attemptId: input.attemptId, runtime: "provider-code", executionMode: "worktree" } });
   await appendRunEvent(session.paths.events, { timestamp: now, type: "context.prepared", runId, data: { path: session.artifacts.context } });
@@ -183,7 +211,12 @@ async function runProviderIntegrationRepair(input: IntegrationFixRepairRunnerInp
   const providerId = await selectedProviderForIntegrationFix(input.memory, input.project, input.changeId);
   const provider = await defaultProviderRegistry.require(providerId, "coder", input.project, input.checkoutPath);
   const capabilities = await provider.capabilitySnapshot(input.project, input.checkoutPath);
-  let running: RunMetadata = { ...run, command: ["provider", "turn.start"], status: "running" };
+  let running: RunMetadata = {
+    ...run,
+    command: ["provider", "turn.start"],
+    status: "running",
+    enabledSkills: [{ ...projectHarnessInput.providerSkillInput, providerId }],
+  };
   await writeJsonFile(session.paths.run, running);
   await appendRunEvent(session.paths.events, { timestamp: new Date().toISOString(), type: "coder.started", runId, data: { cwd: input.checkoutPath, command: running.command } });
   await appendRunEvent(session.paths.events, { timestamp: new Date().toISOString(), type: "provider.started", runId, data: { cwd: input.checkoutPath, providerId, capabilities } });
@@ -210,11 +243,15 @@ async function runProviderIntegrationRepair(input: IntegrationFixRepairRunnerInp
     attemptId: runId,
     cwd: input.checkoutPath,
     prompt,
+    skillInputs: [projectHarnessInput.providerSkillInput],
     sandboxPolicy: "workspace-write",
     paths: { events: session.paths.providerEvents, stderr: session.paths.stderr, lastMessage: session.paths.lastMessage, session: session.paths.providerSession },
     runtimeWorkspaceRoots: [input.checkoutPath, input.memory.memoryRoot],
     writableRoots: [input.checkoutPath],
     model: capabilities.effectiveModel ? { providerId, modelId: capabilities.effectiveModel } : null,
+    additionalContext: {
+      "aho.role-context": { kind: "application", value: contextArtifact.markdown },
+    },
     });
   } catch (error) {
     await finishProviderAttempt(input.memory, runId, "failed", null);

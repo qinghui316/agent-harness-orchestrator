@@ -4,10 +4,13 @@ import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { z } from "zod";
 import { collectWorktreeDiff } from "../../audit/diff.js";
+import { buildRoleContextArtifact, buildRoleContextPacket, contextSourceRef } from "../../context/packets.js";
 import { readRequiredJsonFile, writeJsonFile } from "../../fs/json.js";
 import { assertWritableMemory, resolveProjectMemory } from "../../memory/resolver.js";
+import { resolveProjectHarnessAgentInput } from "../../project-harness/agent-input.js";
 import type { ProviderTurnResult } from "../../provider-runtime/index.js";
-import { appendRunEvent, buildContextProjection, buildRunId } from "../../run/manager.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../provider-runtime/project-harness-discovery.js";
+import { appendRunEvent, buildRunId } from "../../run/manager.js";
 import { finishProviderAttempt, startProviderAttempt } from "../../workbench/provider-attempts.js";
 import { getTemplateRoot } from "../../template-source/paths.js";
 import { getLatestValidationSummary } from "../../validation/artifacts.js";
@@ -126,6 +129,7 @@ export interface SpecTestProposalAcceptResult {
 }
 
 export async function startSpecTestProposalRun(project: ManagedProject, options: SpecTestProposeOptions = {}): Promise<SpecTestProposalRunResult> {
+  const projectHarnessInput = await resolveProjectHarnessAgentInput(project, DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY);
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "Spec-test proposal run");
   const target = await resolveRunnableChangeTarget(project, { changeId: options.changeId });
@@ -139,6 +143,7 @@ export async function startSpecTestProposalRun(project: ManagedProject, options:
     base: memory.artifactBase,
     directory: relativeDir,
     context: `${relativeDir}/context.md`,
+    contextPacket: `${relativeDir}/context-packet.json`,
     events: `${relativeDir}/events.jsonl`,
     stdout: `${relativeDir}/stdout.log`,
     stderr: `${relativeDir}/stderr.log`,
@@ -152,6 +157,7 @@ export async function startSpecTestProposalRun(project: ManagedProject, options:
   const paths = {
     run: join(directory, "run.json"),
     context: join(directory, "context.md"),
+    contextPacket: join(directory, "context-packet.json"),
     events: join(directory, "events.jsonl"),
     stdout: join(directory, "stdout.log"),
     stderr: join(directory, "stderr.log"),
@@ -165,6 +171,29 @@ export async function startSpecTestProposalRun(project: ManagedProject, options:
 
   await mkdir(directory, { recursive: true });
   const now = new Date().toISOString();
+  const specTestStatus = await getSpecTestStatus(project, { changeId, worktreeId: options.worktreeId });
+  const latestValidation = await getLatestValidationSummary(memory, changeId, options.worktreeId ? { worktreeId: options.worktreeId } : {});
+  const worktreeDiff = options.worktreeId ? await collectWorktreeDiff(memory, options.worktreeId, changeId) : null;
+  const contextArtifact = buildRoleContextArtifact(buildRoleContextPacket({
+    roleId: "spec-test-proposer",
+    changeStatus,
+    goal: "Propose existing test evidence for the selected Acceptance Criteria without changing project state.",
+    runId,
+    projectHarness: projectHarnessInput.identity,
+    writableRoots: [],
+    sandboxPolicy: "read-only",
+    evidenceSummary: [
+      `Spec-test mapping status contains ${specTestStatus.acceptanceCriteria.length} Acceptance Criteria.`,
+      latestValidation ? `Latest validation selected: ${latestValidation.status} (${latestValidation.id}).` : "No validation run recorded for this Change.",
+      worktreeDiff ? `Optional worktree diff selected: ${worktreeDiff.diffHash}.` : "No optional worktree evidence selected.",
+    ],
+    evidenceRefs: [
+      contextSourceRef("spec-test-status", "spec-tests.json", "inline", "Current deterministic spec-test mapping status."),
+      ...(latestValidation ? [contextSourceRef("latest-validation", latestValidation.id, "inline", "Latest relevant validation summary.")] : []),
+      ...(worktreeDiff ? [contextSourceRef("worktree-diff", worktreeDiff.worktree.worktreeId, "ref", "Optional worktree evidence is supplied separately in the prompt.")] : []),
+    ],
+    createdAt: now,
+  }), artifacts.contextPacket);
   let run: RunMetadata = {
     version: "1.0",
     id: runId,
@@ -180,17 +209,15 @@ export async function startSpecTestProposalRun(project: ManagedProject, options:
     startedAt: now,
     finishedAt: null,
     artifacts,
+    contextPacket: contextArtifact.ref,
   };
   await writeJsonFile(paths.run, run);
   await appendRunEvent(paths.events, { timestamp: now, type: "run.created", runId, data: { changeId, runtime: "spec-test-proposer", worktreeId: options.worktreeId } });
 
-  const context = buildContextProjection(changeStatus);
+  const context = contextArtifact.markdown;
+  await writeJsonFile(paths.contextPacket, contextArtifact.packet);
   await writeFile(paths.context, context, "utf8");
-  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "context.prepared", runId, data: { path: artifacts.context } });
-
-  const specTestStatus = await getSpecTestStatus(project, { changeId, worktreeId: options.worktreeId });
-  const latestValidation = await getLatestValidationSummary(memory, changeId, options.worktreeId ? { worktreeId: options.worktreeId } : {});
-  const worktreeDiff = options.worktreeId ? await collectWorktreeDiff(memory, options.worktreeId, changeId) : null;
+  await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "context.prepared", runId, data: { path: artifacts.context, contextPacket: artifacts.contextPacket, contextPacketHash: contextArtifact.hash } });
   const prompt = await composeSpecTestProposalPrompt({
     memory,
     context,
@@ -233,7 +260,12 @@ export async function startSpecTestProposalRun(project: ManagedProject, options:
 
   const providerId = provider.id;
   const capabilitySnapshot = await provider.capabilitySnapshot(project, project.path);
-  run = { ...run, command: ["provider", "turn.start"], status: "running" };
+  run = {
+    ...run,
+    command: ["provider", "turn.start"],
+    status: "running",
+    enabledSkills: [{ ...projectHarnessInput.providerSkillInput, providerId }],
+  };
   await writeJsonFile(paths.run, run);
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "spec-test.proposal.started", runId, data: { cwd: project.path, command: run.command } });
   await appendRunEvent(paths.events, { timestamp: new Date().toISOString(), type: "provider.started", runId, data: { cwd: project.path, providerId, capabilitySnapshot } });
@@ -263,6 +295,7 @@ export async function startSpecTestProposalRun(project: ManagedProject, options:
       attemptId: runId,
       cwd: project.path,
       prompt,
+      skillInputs: [projectHarnessInput.providerSkillInput],
       sandboxPolicy: "read-only",
       paths: {
         events: paths.providerEvents,

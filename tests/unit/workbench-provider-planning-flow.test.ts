@@ -11,6 +11,16 @@ const appServerChildClose = vi.hoisted(() => vi.fn());
 const appServerChildAvailable = vi.hoisted(() => vi.fn());
 const appServerAnswer = vi.hoisted(() => vi.fn());
 const getActiveAppServerTurn = vi.hoisted(() => vi.fn());
+const projectHarnessAgentInput = vi.hoisted(() => ({
+  identity: { projectId: "repo", skillName: "repo-harness", skillRevision: 27, contentFingerprint: "a".repeat(64) },
+  providerSkillInput: { id: "repo-harness", path: "C:/skills/repo-harness/SKILL.md", contentHash: "b".repeat(64), source: "project-harness" as const, required: true },
+}));
+
+vi.mock("../../src/project-harness/agent-input.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../../src/project-harness/agent-input.js")>(),
+  resolveProjectHarnessAgentInput: vi.fn(async () => projectHarnessAgentInput),
+}));
+
 vi.mock("../../src/codex/app-server.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/codex/app-server.js")>();
   return {
@@ -33,6 +43,23 @@ vi.mock("../../src/codex/app-server.js", async (importOriginal) => {
 
 vi.mock("../../src/codex/capabilities.js", () => ({
   detectCodexCapabilities: vi.fn(async () => readyCodexCapabilities()),
+}));
+
+vi.mock("../../src/codex/native-skills.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../../src/codex/native-skills.js")>(),
+  listCodexNativeSkills: vi.fn(async () => ({
+    providerId: "codex",
+    projectPath: root,
+    skills: [{
+      name: "repo-harness",
+      description: "Test project Harness.",
+      path: "C:/skills/repo-harness/SKILL.md",
+      scope: "repo",
+      enabled: true,
+      contentHash: "b".repeat(64),
+    }],
+    errors: [],
+  })),
 }));
 
 import { initHarness } from "../../src/harness/init.js";
@@ -100,6 +127,9 @@ describe("Workbench provider planning flow", () => {
   it("routes exact Child feedback through the dedicated continuation capability and Child Timeline only", async () => {
     const conversation = await createWorkbenchConversation(project(), { body: "Prepare a plan." }, undefined, { runMainAgent: false });
     const memory = await resolveProjectMemory(project());
+    const planningRunId = "planning-feedback-source";
+    const proposalRoot = join(memory.workbenchRoot, "conversations", conversation.conversationId, "runs", planningRunId, "planner-proposal");
+    await mkdir(proposalRoot, { recursive: true });
     const store = await openWorkbenchDatabase(memory);
     const graphScopeId = store.conversations.readConversation(project().id, conversation.conversationId)!.currentGraphScopeId!;
     try {
@@ -111,7 +141,8 @@ describe("Workbench provider planning flow", () => {
       bindProviderThreadFixture(store, {
         projectId: project().id, conversationId: conversation.conversationId, providerId: "codex",
         providerThreadId: "thread-child-feedback", roleId: "planning-agent", parentThreadId: "thread-main-feedback",
-        changeId: null, graphScopeId, capabilityProfile: "planning", displayName: "Mendel", updatedAt: "2026-07-25T00:00:01.000Z",
+        changeId: null, graphScopeId, capabilityProfile: "planning", displayName: "Mendel", runId: planningRunId,
+        updatedAt: "2026-07-25T00:00:01.000Z",
       });
     } finally {
       store.close();
@@ -121,6 +152,13 @@ describe("Workbench provider planning flow", () => {
       expect(options.parentThreadId).toBe("thread-main-feedback");
       expect(options.targetThreadId).toBe("thread-child-feedback");
       expect(options.prompt).toBe("Read the third line.");
+      expect(options.sandboxPolicy).toBe("workspace-write");
+      expect(options.writableRoots).toEqual([proposalRoot]);
+      expect(options.skillInputs).toEqual([
+        expect.objectContaining({ name: "repo-harness", path: "C:/skills/repo-harness/SKILL.md" }),
+        expect.objectContaining({ name: "aho-workflow-authoring", path: expect.stringContaining("aho-workflow-authoring") }),
+      ]);
+      expect(options.requiredNativeSkills).toEqual(["repo-harness", "aho-workflow-authoring"]);
       for (const event of normalizeCodexAppServerNotification("item/agentMessage/delta", { itemId: "message-feedback", delta: "Third line read." }, {
         projectId: project().id, conversationId: options.conversationId, runId: options.runId,
         threadId: "thread-child-feedback", turnId: "turn-feedback", itemId: "message-feedback", roleId: "planning-agent", displayName: "Mendel",
@@ -153,6 +191,35 @@ describe("Workbench provider planning flow", () => {
     ]));
     expect(appServerTurn).not.toHaveBeenCalled();
 
+  });
+
+  it("fails closed when the Planning Agent proposal workspace can no longer be proven", async () => {
+    const conversation = await createWorkbenchConversation(project(), { body: "Prepare a plan." }, undefined, { runMainAgent: false });
+    const memory = await resolveProjectMemory(project());
+    const store = await openWorkbenchDatabase(memory);
+    const graphScopeId = store.conversations.readConversation(project().id, conversation.conversationId)!.currentGraphScopeId!;
+    try {
+      bindProviderThreadFixture(store, {
+        projectId: project().id, conversationId: conversation.conversationId, providerId: "codex",
+        providerThreadId: "thread-main-missing-workspace", roleId: "main-agent", parentThreadId: null,
+        changeId: null, graphScopeId, capabilityProfile: "main", updatedAt: "2026-07-25T00:00:00.000Z",
+      });
+      bindProviderThreadFixture(store, {
+        projectId: project().id, conversationId: conversation.conversationId, providerId: "codex",
+        providerThreadId: "thread-planning-missing-workspace", roleId: "planning-agent", parentThreadId: "thread-main-missing-workspace",
+        changeId: null, graphScopeId, capabilityProfile: "planning", displayName: "Mendel", runId: "missing-planning-run",
+        updatedAt: "2026-07-25T00:00:01.000Z",
+      });
+    } finally {
+      store.close();
+    }
+
+    await expect(postConversationMessage(project(), conversation.conversationId, {
+      mode: "chat",
+      message: "Revise the proposal.",
+      agentSurfaceId: agentThreadSurfaceId("codex", "thread-planning-missing-workspace"),
+    })).rejects.toThrow();
+    expect(appServerChildTurn).not.toHaveBeenCalled();
   });
 
   it("lets Main close one exact registered Agent through Provider close without a public terminate path", async () => {
@@ -809,8 +876,12 @@ describe("Workbench provider planning flow", () => {
       rm(join(root, "scripts"), { recursive: true, force: true }),
     ]);
     appServerTurn.mockImplementationOnce(async (options) => {
-      expect(options.requiredNativeSkills).toEqual(["aho-main-orchestration", "aho-harness-engineering"]);
+      expect(options.requiredNativeSkills).toEqual([
+        "aho-main-orchestration",
+        "aho-harness-engineering",
+      ]);
       expect(options.skillInputs).toEqual([
+        expect.objectContaining({ name: "repo-harness" }),
         expect.objectContaining({ name: "aho-main-orchestration" }),
         expect.objectContaining({ name: "aho-harness-engineering" }),
       ]);
@@ -988,6 +1059,7 @@ describe("Workbench provider planning flow", () => {
     appServerTurn
       .mockImplementationOnce(async (options) => {
         expect(options.skillInputs).toEqual([
+          expect.objectContaining({ name: "repo-harness", path: "C:/skills/repo-harness/SKILL.md" }),
           expect.objectContaining({ name: "aho-main-orchestration", path: expect.stringContaining("aho-main-orchestration") }),
         ]);
         expect(options.nativeSkillRoots).toEqual([expect.stringContaining("system-skills")]);

@@ -1,4 +1,5 @@
 export * from "./analysis-bundle.js";
+export * from "./agent-input.js";
 export * from "./contracts.js";
 export * from "./diagnostics.js";
 export * from "./discovery.js";

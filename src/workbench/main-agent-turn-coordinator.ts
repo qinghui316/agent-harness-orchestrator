@@ -11,6 +11,7 @@ import { assertWritableMemory } from "../memory/resolver.js";
 import { ensureProjectRuntime } from "../harness/init.js";
 import { writeJsonFile } from "../fs/json.js";
 import { getGitCommit, getGitStatusShort } from "../project/git.js";
+import { resolveProjectHarnessAgentInput } from "../project-harness/agent-input.js";
 import { readProjectMarker } from "../project/marker.js";
 import { resolveProjectRuntimeState } from "../project-runtime/coordinator.js";
 import { assertChangeFinalizationReady, closeChangeForFinalization } from "../change/manager.js";
@@ -79,6 +80,7 @@ export async function runProjectScopedMainAgentTurn(
     }
     throw new Error("Skill-native project runtime consumers are not fully migrated yet; refusing to create legacy Harness state.");
   }
+  const projectHarnessInput = await resolveProjectHarnessAgentInput(project, DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY);
   const memory = await ensureProjectRuntime(project);
   assertWritableMemory(memory, "Project-scoped chat");
   if (!memory.projectId) throw new Error("Project id is required to run project-scoped chat.");
@@ -305,6 +307,7 @@ export async function runProjectScopedMainAgentTurn(
       threadId: mainSessionId,
       parentThreadId: null,
       parentAgentSurfaceId: null,
+      runId,
     }, attemptStartedAt);
     publishAgentSurfacesInvalidated(memory.projectId, { conversationId, graphScopeId, reason: "thread-bound" });
   }
@@ -391,6 +394,7 @@ export async function runProjectScopedMainAgentTurn(
     nativeSkillRoots: [getSystemSkillsRoot()],
     requiredNativeSkills: ["aho-main-orchestration", ...(onboarding ? ["aho-harness-engineering"] : [])],
     skillInputs: [
+      projectHarnessInput.providerSkillInput,
       {
         id: "aho-main-orchestration",
         path: mainOrchestrationSkillPath,
@@ -557,6 +561,7 @@ export async function runProjectScopedMainAgentTurn(
           parentThreadId: null,
           parentAgentSurfaceId: null,
           displayName: event.displayName,
+          runId,
         }, new Date().toISOString());
         liveMainThreadId = event.threadId;
         publishAgentSurfacesInvalidated(memory.projectId!, { conversationId, graphScopeId, reason: "thread-bound" });
@@ -751,6 +756,7 @@ export async function runProjectScopedMainAgentTurn(
       threadId: result.session.sessionId,
       parentThreadId: null,
       parentAgentSurfaceId: null,
+      runId,
     }, new Date().toISOString());
     if (result.session) publishAgentSurfacesInvalidated(memory.projectId, { conversationId, graphScopeId, reason: "thread-bound" });
     for (const child of result.childThreads) {

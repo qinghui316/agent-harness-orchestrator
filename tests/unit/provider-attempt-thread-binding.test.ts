@@ -22,7 +22,7 @@ afterEach(async () => {
 });
 
 describe("ProviderAttempt-owned thread binding", () => {
-  it("uses schema 9 and binds an independent worker to explicit Main lineage", async () => {
+  it("uses the current schema and binds an independent worker to explicit Main lineage", async () => {
     const memory = repoLocalMemory(root, projectId);
     await seedConversation(memory);
     await startAttempt(memory, "attempt-1");
@@ -66,7 +66,7 @@ describe("ProviderAttempt-owned thread binding", () => {
       store.close();
     }
     const db = new Database(memory.workbenchDbPath, { readonly: true });
-    expect(db.pragma("user_version", { simple: true })).toBe(9);
+    expect(db.pragma("user_version", { simple: true })).toBe(10);
     expect(db.prepare("PRAGMA table_info(provider_thread_links)").all()).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "attempt_id", notnull: 1 }),
       expect.objectContaining({ name: "parent_agent_surface_id" }),

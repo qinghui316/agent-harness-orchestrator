@@ -1,4 +1,5 @@
 import { buildRoleContextArtifact, buildRoleContextPacket, contextSourceRef, type RoleContextArtifact } from "../context/packets.js";
+import type { ProjectHarnessAgentIdentity } from "../project-harness/agent-input.js";
 import type { ChangeStatus, RunWorktreeInfo } from "../types/index.js";
 
 export function buildCodeRoleContextArtifact(input: {
@@ -11,6 +12,7 @@ export function buildCodeRoleContextArtifact(input: {
   extraPrompt?: string;
   contextPacketRef: string;
   createdAt: string;
+  projectHarness: ProjectHarnessAgentIdentity;
 }): RoleContextArtifact {
   return buildRoleContextArtifact(buildRoleContextPacket({
     roleId: input.roleId,
@@ -19,6 +21,9 @@ export function buildCodeRoleContextArtifact(input: {
     runId: input.runId,
     taskIds: input.taskIds,
     worktree: input.worktree,
+    projectHarness: input.projectHarness,
+    writableRoots: [input.worktree.checkoutPath],
+    sandboxPolicy: "workspace-write",
     evidenceSummary: [
       input.roleId === "rework-coder" ? "Rework run: use selected validation, audit, or human feedback evidence from the current Change." : "Coder run: implement the accepted Change in the assigned worktree.",
       input.changeStatus.latestValidation ? `Latest validation before run: ${input.changeStatus.latestValidation.status} (${input.changeStatus.latestValidation.id}).` : "No prior validation summary selected.",

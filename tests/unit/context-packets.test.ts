@@ -11,6 +11,9 @@ describe("role context packets", () => {
       runId: "run-1",
       taskIds: ["T-001"],
       worktree: worktreeFixture(),
+      projectHarness: harnessIdentity(),
+      writableRoots: ["E:/repo/.agent-harness/worktrees/wt-1"],
+      sandboxPolicy: "workspace-write",
       evidenceRefs: [
         contextSourceRef("task-run", "task-run-1", "ref", "TaskRun evidence."),
       ],
@@ -18,14 +21,14 @@ describe("role context packets", () => {
     });
 
     expect(packet.changeId).toBe("packet-change");
-    expect(packet.permissionProfile.mayDelegate).toBe(false);
-    expect(packet.permissionProfile.allowedWriteRoots).toContain("aho-owned-worktree");
+    expect(packet.version).toBe("2.0");
+    expect(packet.permissions.mayDelegate).toBe(false);
+    expect(packet.permissions.writableRoots).toEqual(["E:/repo/.agent-harness/worktrees/wt-1"]);
+    expect(packet.projectHarness).toEqual(harnessIdentity());
     expect(packet.change.acceptanceCriteria).toEqual([{ id: "AC-001", text: "Packet context is scoped." }]);
     expect(packet.change.tasks[0]).toMatchObject({ id: "T-001", done: false, acIds: ["AC-001"] });
-    expect(packet.includedSources.some((source) => source.kind === "selected-task-scope")).toBe(true);
-    expect(packet.excludedSources).toContain("full parent transcript");
-    expect(packet.excludedSources).toContain("maintenance hot/warm/cold ledger");
-    expect(packet.excludedSources).toContain("delegateTask manifest for worker roles");
+    expect(packet).not.toHaveProperty("includedSources");
+    expect(packet).not.toHaveProperty("excludedSources");
   });
 
   it("builds an auditor packet with validation and diff refs without inlining full raw logs", () => {
@@ -33,6 +36,9 @@ describe("role context packets", () => {
       roleId: "auditor-agent",
       changeStatus: statusFixture(),
       goal: "Audit validated evidence.",
+      projectHarness: harnessIdentity(),
+      writableRoots: [],
+      sandboxPolicy: "read-only",
       evidenceSummary: ["Latest validation selected: passed (validation-1)."],
       evidenceRefs: [
         contextSourceRef("latest-validation", "validation-1", "inline", "Validation summary."),
@@ -42,28 +48,38 @@ describe("role context packets", () => {
     });
     const markdown = renderRoleContextPacket(packet);
 
-    expect(packet.permissionProfile.allowedWriteRoots).toContain("audit-artifacts");
-    expect(packet.evidenceRefs.map((ref) => ref.kind)).toEqual(["latest-validation", "worktree-diff"]);
+    expect(packet.permissions.writableRoots).toEqual([]);
+    expect(packet.evidence.refs.map((ref) => ref.kind)).toEqual(["latest-validation", "worktree-diff"]);
     expect(markdown).toContain("Latest validation selected");
     expect(markdown).toContain("worktree-diff");
-    expect(packet.excludedSources).toContain("raw stdout/stderr/jsonl unless explicitly selected");
-    expect(packet.excludedSources).toContain("full Harness directory");
+    expect(markdown).toContain("does not limit which project Harness Skill pages");
   });
 
-  it("keeps maintenance roles separate from ordinary worker source-write context", () => {
+  it("records exact permissions without creating a maintenance memory tier", () => {
     const packet = buildRoleContextPacket({
       roleId: "documentation-agent",
       changeStatus: statusFixture(),
       goal: "Review documentation drift.",
+      projectHarness: harnessIdentity(),
+      writableRoots: ["E:/candidate"],
+      sandboxPolicy: "workspace-write",
       createdAt: "2026-05-31T00:00:00.000Z",
     });
 
-    expect(packet.permissionProfile.allowedReadRoots).toContain("assigned-memory");
-    expect(packet.permissionProfile.allowedWriteRoots).toContain("assigned-project-harness");
-    expect(packet.permissionProfile.allowedWriteRoots).not.toContain("aho-owned-worktree");
-    expect(packet.excludedSources).toContain("source root mutation");
+    expect(packet.permissions.writableRoots).toEqual(["E:/candidate"]);
+    expect(packet.permissions.sandboxPolicy).toBe("workspace-write");
+    expect(JSON.stringify(packet)).not.toContain("maintenance-hot-warm-cold");
   });
 });
+
+function harnessIdentity() {
+  return {
+    projectId: "repo",
+    skillName: "repo-harness",
+    skillRevision: 27,
+    contentFingerprint: "a".repeat(64),
+  };
+}
 
 function statusFixture(): ChangeStatus {
   return {

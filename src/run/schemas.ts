@@ -89,7 +89,7 @@ export const runMetadataSchema = z.object({
   contextPacket: z.object({
     ref: z.string(),
     hash: z.string(),
-    format: z.literal("role-context-packet@1.0"),
+    format: z.enum(["role-context-packet@1.0", "role-context-packet@2.0"]),
   }).optional(),
   executionGate: z.object({
     allowed: z.boolean(),
