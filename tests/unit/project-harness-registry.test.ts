@@ -7,6 +7,8 @@ import {
   canonicalProjectHarnessId,
   classifyProjectHarnessBaselineRelation,
   normalizeRegistryClaim,
+  projectHarnessConversationLane,
+  projectHarnessLaneId,
   readBoundProjectHarnessRecords,
   readProjectHarnessBaseline,
   readProjectHarnessLane,
@@ -32,6 +34,34 @@ describe("project Harness Registry", () => {
     expect(() => normalizeRegistryClaim("C:\\outside.ts")).toThrow(/project-relative/);
     expect(registryClaimsOverlap("src/project-harness", "src/project-harness/change.ts")).toBe(true);
     expect(registryClaimsOverlap("src/project", "src/project-harness")).toBe(false);
+  });
+
+  it("derives graph-scope Lane identity without parsing provider or actor names", async () => {
+    const fixture = await createFixture();
+    const first = {
+      ...fixture.context,
+      lane: projectHarnessConversationLane("conversation-1", "graph:conversation-1:one"),
+    };
+    const reordered = {
+      ...fixture.context,
+      lane: projectHarnessConversationLane("conversation-1", "graph:conversation-1:one"),
+    };
+    const nextScope = {
+      ...fixture.context,
+      lane: projectHarnessConversationLane("conversation-1", "graph:conversation-1:two"),
+    };
+
+    expect(projectHarnessLaneId(reordered)).toBe(projectHarnessLaneId(first));
+    expect(projectHarnessLaneId(nextScope)).not.toBe(projectHarnessLaneId(first));
+    expect(projectHarnessLaneId({
+      ...fixture.context,
+      lane: projectHarnessConversationLane("conversation:a", "graph-b"),
+    })).not.toBe(projectHarnessLaneId({
+      ...fixture.context,
+      lane: projectHarnessConversationLane("conversation", "a:graph-b"),
+    }));
+    expect(projectHarnessLaneId(first)).toMatch(/^lane-[a-f0-9]{10}$/);
+    expect(() => projectHarnessConversationLane("conversation/escape", "graph-1")).toThrow(/path separators/);
   });
 
   it("keeps empty Registry reads non-mutating", async () => {
@@ -65,6 +95,32 @@ describe("project Harness Registry", () => {
 
     await expect(readBoundProjectHarnessRecords(fixture.skillRoot, "changes", "change_id"))
       .rejects.toThrow(/does not match its filename/);
+  });
+
+  it("rejects a malformed Lane kind instead of inferring missing graph identity", async () => {
+    const fixture = await createFixture();
+    const context = {
+      ...fixture.context,
+      lane: projectHarnessConversationLane("conversation-1", "graph-1"),
+    };
+    const laneId = projectHarnessLaneId(context);
+    const directory = join(fixture.skillRoot, "state", "registry", "lanes");
+    await mkdir(directory, { recursive: true });
+    await writeFile(join(directory, `${laneId}.json`), JSON.stringify({
+      schema_version: "2.0",
+      lane_id: laneId,
+      kind: "conversation",
+      repository_lane_id: projectHarnessLaneId(fixture.context),
+      branch: fixture.context.branch,
+      head_commit: fixture.context.headCommit,
+      conversation_id: null,
+      graph_scope_id: null,
+      active_change_id: null,
+      status: "idle",
+      updated_at: "2026-08-03T00:00:00.000Z",
+    }), "utf8");
+
+    await expect(readProjectHarnessLane(context)).rejects.toThrow(/Conversation Lane requires/);
   });
 
   it.each([

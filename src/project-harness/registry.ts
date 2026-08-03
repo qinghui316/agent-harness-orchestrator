@@ -23,13 +23,22 @@ export interface ProjectHarnessRegistryContext {
   mode: ProjectHarnessRepositoryMode;
   branch: string | null;
   headCommit: string | null;
+  lane?: ProjectHarnessLaneIdentity;
 }
 
+export type ProjectHarnessLaneIdentity =
+  | { kind: "repository" }
+  | { kind: "conversation"; conversationId: string; graphScopeId: string };
+
 export interface ProjectHarnessLaneRecord {
-  schema_version: "1.0";
+  schema_version: "2.0";
   lane_id: string;
+  kind: "repository" | "conversation";
+  repository_lane_id: string;
   branch: string | null;
   head_commit: string | null;
+  conversation_id: string | null;
+  graph_scope_id: string | null;
   active_change_id: string | null;
   status: "active" | "idle";
   updated_at: string;
@@ -49,14 +58,29 @@ export interface GitAncestryProbe {
 }
 
 const laneSchema = z.object({
-  schema_version: z.literal("1.0"),
+  schema_version: z.literal("2.0"),
   lane_id: z.string().min(1),
+  kind: z.enum(["repository", "conversation"]),
+  repository_lane_id: z.string().min(1),
   branch: z.string().nullable(),
   head_commit: z.string().nullable(),
+  conversation_id: z.string().min(1).nullable(),
+  graph_scope_id: z.string().min(1).nullable(),
   active_change_id: z.string().nullable(),
   status: z.enum(["active", "idle"]),
   updated_at: z.string().min(1),
-}).strict();
+}).strict().superRefine((value, context) => {
+  const logical = value.kind === "conversation";
+  if (logical && (!value.conversation_id || !value.graph_scope_id)) {
+    context.addIssue({ code: "custom", message: "Conversation Lane requires conversation_id and graph_scope_id." });
+  }
+  if (!logical && (value.conversation_id !== null || value.graph_scope_id !== null)) {
+    context.addIssue({ code: "custom", message: "Repository Lane must not carry conversation identity." });
+  }
+  if ((value.active_change_id === null) !== (value.status === "idle")) {
+    context.addIssue({ code: "custom", message: "Lane status must match active_change_id." });
+  }
+});
 
 const baselineSchema = z.object({
   schema_version: z.literal("1.0"),
@@ -100,9 +124,27 @@ export function registryClaimsOverlap(left: string, right: string): boolean {
 
 export function projectHarnessLaneId(context: ProjectHarnessRegistryContext): string {
   canonicalProjectHarnessId(context.projectId, "Project id");
-  if (context.mode === "single_lane") return "lane-single";
-  if (!context.branch) throw new Error("Structured Change work requires a named Git branch.");
-  return `lane-${createHash("sha256").update(`${context.projectId}:${context.branch}`).digest("hex").slice(0, 10)}`;
+  if (context.lane?.kind === "conversation") {
+    const conversationId = validatedLogicalLanePart(context.lane.conversationId, "Conversation id");
+    const graphScopeId = validatedLogicalLanePart(context.lane.graphScopeId, "Graph scope id");
+    const repositoryLaneId = projectHarnessRepositoryLaneId(context, true);
+    return `lane-${createHash("sha256")
+      .update(JSON.stringify([context.projectId, repositoryLaneId, "conversation", conversationId, graphScopeId]))
+      .digest("hex")
+      .slice(0, 10)}`;
+  }
+  return projectHarnessRepositoryLaneId(context, false);
+}
+
+export function projectHarnessConversationLane(
+  conversationId: string,
+  graphScopeId: string,
+): ProjectHarnessLaneIdentity {
+  return {
+    kind: "conversation",
+    conversationId: validatedLogicalLanePart(conversationId, "Conversation id"),
+    graphScopeId: validatedLogicalLanePart(graphScopeId, "Graph scope id"),
+  };
 }
 
 export async function ensureProjectHarnessLane(
@@ -117,16 +159,37 @@ export async function ensureProjectHarnessLane(
   const resolvedActive = activeChangeId === undefined ? current?.active_change_id ?? null : activeChangeId;
   if (resolvedActive) canonicalProjectHarnessId(resolvedActive, "Active Change id");
   const value: ProjectHarnessLaneRecord = {
-    schema_version: "1.0",
+    schema_version: "2.0",
     lane_id: laneId,
+    kind: context.lane?.kind === "conversation" ? "conversation" : "repository",
+    repository_lane_id: projectHarnessRepositoryLaneId(context, context.lane?.kind === "conversation"),
     branch: context.branch,
     head_commit: context.headCommit,
+    conversation_id: context.lane?.kind === "conversation" ? context.lane.conversationId : null,
+    graph_scope_id: context.lane?.kind === "conversation" ? context.lane.graphScopeId : null,
     active_change_id: resolvedActive,
     status: resolvedActive ? "active" : "idle",
     updated_at: new Date().toISOString(),
   };
   await writeJsonFile(path, value);
   return value;
+}
+
+function projectHarnessRepositoryLaneId(
+  context: ProjectHarnessRegistryContext,
+  allowBranchlessLogicalLane: boolean,
+): string {
+  if (context.mode === "single_lane" || (allowBranchlessLogicalLane && !context.branch)) return "lane-single";
+  if (!context.branch) throw new Error("Structured Change work requires a named Git branch.");
+  return `lane-${createHash("sha256").update(`${context.projectId}:${context.branch}`).digest("hex").slice(0, 10)}`;
+}
+
+function validatedLogicalLanePart(value: string, label: string): string {
+  const normalized = value.trim();
+  if (!normalized || normalized.includes("\0") || normalized.includes("/") || normalized.includes("\\")) {
+    throw new Error(`${label} must be a non-empty opaque identifier without path separators.`);
+  }
+  return normalized;
 }
 
 export async function readProjectHarnessLane(

@@ -12,12 +12,14 @@ import {
   preflightProjectHarnessChange,
   publishProjectHarnessChange,
   readProjectHarnessChangeContext,
+  readProjectHarnessChangeEvidence,
   resumeProjectHarnessChange,
   searchProjectHarnessChanges,
   type SourceFingerprintSnapshot,
 } from "../../src/project-harness/change.js";
 import { validateProjectHarnessChangeEvidence } from "../../src/project-harness/change-evidence.js";
 import {
+  projectHarnessConversationLane,
   readProjectHarnessLane,
   writeProjectHarnessBaseline,
   type GitAncestryProbe,
@@ -62,6 +64,45 @@ describe("project Harness Change", () => {
     expect((await readProjectHarnessLane(context))?.active_change_id).toMatch(/^(first|second)-change$/);
   });
 
+  it("owns concurrent Changes by explicit conversation graph scope instead of branch order", async () => {
+    const fixture = await createFixture();
+    const first = fixture.context("shared-branch");
+    first.lane = projectHarnessConversationLane("conversation-a", "graph-a");
+    const second = fixture.context("shared-branch");
+    second.lane = projectHarnessConversationLane("conversation-a", "graph-b");
+
+    await createProjectHarnessChange(first, { changeId: "graph-change-a" });
+    await createProjectHarnessChange(second, { changeId: "graph-change-b" });
+
+    expect((await readProjectHarnessLane(first))?.active_change_id).toBe("graph-change-a");
+    expect(await readProjectHarnessLane(second)).toMatchObject({
+      kind: "conversation",
+      repository_lane_id: expect.stringMatching(/^lane-[a-f0-9]{10}$/),
+      branch: "shared-branch",
+      conversation_id: "conversation-a",
+      graph_scope_id: "graph-b",
+      active_change_id: "graph-change-b",
+    });
+    await expect(createProjectHarnessChange(second, { changeId: "same-graph-rejected" }))
+      .rejects.toThrow(/Lane already has an active Change/);
+  });
+
+  it("keeps explicit graph-scope Lanes concurrent for a non-Git project", async () => {
+    const fixture = await createFixture();
+    const first = { ...fixture.context("unused"), mode: "single_lane" as const, branch: null };
+    first.lane = projectHarnessConversationLane("conversation-a", "graph-a");
+    const second = { ...fixture.context("unused"), mode: "single_lane" as const, branch: null };
+    second.lane = projectHarnessConversationLane("conversation-b", "graph-b");
+
+    await createProjectHarnessChange(first, { changeId: "non-git-a" });
+    await createProjectHarnessChange(second, { changeId: "non-git-b" });
+
+    expect((await listProjectHarnessChanges(fixture.skillRoot)).map((change) => change.change_id))
+      .toEqual(["non-git-a", "non-git-b"]);
+    expect((await readProjectHarnessLane(first))?.repository_lane_id).toBe("lane-single");
+    expect((await readProjectHarnessLane(second))?.repository_lane_id).toBe("lane-single");
+  });
+
   it("accepts multiline task evidence and rejects the retired Plan approved review field", async () => {
     const fixture = await createFixture();
     const context = fixture.context("lane-evidence");
@@ -73,6 +114,34 @@ describe("project Harness Change", () => {
     const result = await validateProjectHarnessChangeEvidence(evidenceRoot);
     expect(result.valid).toBe(false);
     expect(result.issues).toContain("reviews/review.md does not approve the plan");
+  });
+
+  it("returns a deterministic typed evidence fingerprint for every physical Change file", async () => {
+    const fixture = await createFixture();
+    const context = fixture.context("lane-evidence-fingerprint");
+    await createProjectHarnessChange(context, { changeId: "fingerprinted-change" });
+
+    const first = await readProjectHarnessChangeEvidence(fixture.skillRoot, "fingerprinted-change");
+    const second = await readProjectHarnessChangeEvidence(fixture.skillRoot, "fingerprinted-change");
+    expect(second).toEqual(first);
+    expect(first).toMatchObject({
+      evidence_state: "active",
+      evidence_path: "state/changes/active/fingerprinted-change",
+      content_fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    expect(first.files.map((file) => file.path)).toEqual([
+      "plan.md",
+      "reviews/review.md",
+      "spec.md",
+      "summary.md",
+      "tasks.md",
+    ]);
+
+    await writeFile(join(fixture.evidence("active", "fingerprinted-change"), "summary.md"), "changed\n", "utf8");
+    const changed = await readProjectHarnessChangeEvidence(fixture.skillRoot, "fingerprinted-change");
+    expect(changed.content_fingerprint).not.toBe(first.content_fingerprint);
+    expect(changed.files.find((file) => file.path === "summary.md")?.sha256)
+      .not.toBe(first.files.find((file) => file.path === "summary.md")?.sha256);
   });
 
   it("serializes concurrent resume claims onto the destination Lane", async () => {

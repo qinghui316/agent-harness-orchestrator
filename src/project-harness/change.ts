@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { lstat, mkdir, readFile, readdir, rename, rm } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
@@ -97,6 +97,20 @@ export interface ProjectHarnessChangeIndex {
   schema_version: "1.0";
   changes: ProjectHarnessChangeIndexEntry[];
   generated_at: string;
+}
+
+export interface ProjectHarnessChangeEvidenceFile {
+  path: string;
+  sha256: string;
+  size: number;
+}
+
+export interface ProjectHarnessChangeEvidenceSnapshot {
+  change: ProjectHarnessChangeRecord;
+  evidence_state: "active" | "parking" | "archive";
+  evidence_path: string;
+  files: ProjectHarnessChangeEvidenceFile[];
+  content_fingerprint: string;
 }
 
 export interface SourceFingerprintSnapshot {
@@ -235,7 +249,7 @@ export async function createProjectHarnessChange(
   const now = input.now ?? (() => new Date().toISOString());
   return withRegistryClaimLock(context.skillRoot, laneId, async () => {
     const existing = await listProjectHarnessChanges(context.skillRoot);
-    if (context.mode === "single_lane" && existing.some(isActiveChange)) {
+    if (!isConcurrentLaneContext(context) && existing.some(isActiveChange)) {
       throw new Error("Single-Lane mode already has an active Change.");
     }
     if (existing.some((record) => record.lane_id === laneId && isActiveChange(record))) {
@@ -364,7 +378,7 @@ export async function preflightProjectHarnessChange(
     }
   }
   const baseline = await readProjectHarnessBaseline(context.skillRoot);
-  const relation = context.mode === "multi_lane"
+  const relation = isConcurrentLaneContext(context)
     ? await classifyProjectHarnessBaselineRelation(
       context.projectRoot,
       current.base_commit,
@@ -408,7 +422,7 @@ export async function closeProjectHarnessChange(
     if (record.status === input.status) return { status: "already_closed", change: record, preflight: null };
     throw new Error(`Change is already terminal: ${record.status}.`);
   }
-  const preflight = context.mode === "multi_lane" ? await preflightProjectHarnessChange(context, input) : null;
+  const preflight = isConcurrentLaneContext(context) ? await preflightProjectHarnessChange(context, input) : null;
   if (preflight?.action === "replan") throw new Error("Multi-Lane Change cannot close until scoped preflight can continue.");
   if (input.validation) record.validation = [...input.validation];
   if (input.validationPassed === true) record.validation_passed = true;
@@ -543,6 +557,32 @@ export async function readProjectHarnessChangeContext(
     evidence_state: located.state,
     evidence_path: `state/changes/${located.state}/${record.change_id}`,
     documents,
+  };
+}
+
+export async function readProjectHarnessChangeEvidence(
+  skillRoot: string,
+  changeId: string,
+): Promise<ProjectHarnessChangeEvidenceSnapshot> {
+  const change = await loadProjectHarnessChange(skillRoot, changeId, true);
+  const located = await locateChangeEvidence(skillRoot, change.change_id);
+  if (!located) throw new Error("Change evidence is missing.");
+  const files = await fingerprintEvidenceFiles(located.path);
+  const fingerprint = createHash("sha256");
+  for (const file of files) {
+    fingerprint.update(file.path, "utf8");
+    fingerprint.update("\0", "utf8");
+    fingerprint.update(file.sha256, "ascii");
+    fingerprint.update("\0", "utf8");
+    fingerprint.update(String(file.size), "ascii");
+    fingerprint.update("\0", "utf8");
+  }
+  return {
+    change,
+    evidence_state: located.state,
+    evidence_path: `state/changes/${located.state}/${change.change_id}`,
+    files,
+    content_fingerprint: fingerprint.digest("hex"),
   };
 }
 
@@ -777,6 +817,31 @@ async function assertEvidenceTreePhysical(root: string): Promise<void> {
   }
 }
 
+async function fingerprintEvidenceFiles(
+  root: string,
+  current = root,
+): Promise<ProjectHarnessChangeEvidenceFile[]> {
+  await assertPhysicalDirectory(current, "Change evidence");
+  const files: ProjectHarnessChangeEvidenceFile[] = [];
+  for (const entry of (await readdir(current, { withFileTypes: true })).sort((left, right) => left.name.localeCompare(right.name))) {
+    const path = join(current, entry.name);
+    const info = await lstat(path);
+    if (info.isSymbolicLink()) throw new Error(`Change evidence contains a link or Junction: ${path}.`);
+    if (info.isDirectory()) {
+      files.push(...await fingerprintEvidenceFiles(root, path));
+      continue;
+    }
+    if (!info.isFile()) throw new Error(`Change evidence contains an unsupported filesystem entry: ${path}.`);
+    const content = await readFile(path);
+    files.push({
+      path: relative(root, path).replace(/\\/g, "/"),
+      sha256: createHash("sha256").update(content).digest("hex"),
+      size: content.byteLength,
+    });
+  }
+  return files.sort((left, right) => left.path.localeCompare(right.path));
+}
+
 async function removeOwnedEvidence(path: string, ownerRoot: string): Promise<void> {
   const normalized = await resolveWithinPhysicalRoot(ownerRoot, relative(ownerRoot, path), "owned Change evidence");
   if (normalized !== resolve(path)) throw new Error("Refusing to clean Change evidence outside its claim owner.");
@@ -858,6 +923,10 @@ function assertMutableChange(record: ProjectHarnessChangeRecord): void {
 
 function isActiveChange(record: ProjectHarnessChangeRecord): boolean {
   return record.status === "planning" || record.status === "active" || record.status === "claiming";
+}
+
+function isConcurrentLaneContext(context: ProjectHarnessRegistryContext): boolean {
+  return context.mode === "multi_lane" || context.lane?.kind === "conversation";
 }
 
 function sortedUnique(values: readonly string[]): string[] {
