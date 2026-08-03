@@ -67,10 +67,12 @@ import {
   createProjectHarnessChange,
   listProjectHarnessChanges,
   loadProjectHarnessContract,
+  publishProjectHarnessChange,
   rollbackUncommittedProjectHarnessChange,
 } from "../../src/project-harness/change.js";
 import {
   projectHarnessConversationLane,
+  readProjectHarnessLane,
   resolveProjectHarnessRegistryContext,
 } from "../../src/project-harness/registry.js";
 import { resolveProjectRuntimePaths, type ProjectRuntimePaths } from "../../src/project-runtime/paths.js";
@@ -1275,6 +1277,32 @@ describe("Workbench provider planning flow", () => {
         });
         expect(missingContract).toMatchObject({ success: false });
         expect(await listProjectHarnessChanges(skillRoot)).toEqual([]);
+        const invalidContract = await options.onDynamicToolCall?.({
+          requestId: "request-invalid-contract",
+          threadId: "thread-main",
+          turnId: "turn-accept",
+          callId: "call-invalid-contract",
+          tool: "aho_accept_current_plan",
+          arguments: {
+            ...arguments_,
+            contract: { ...healthEndpointContract(), kind: "unknown" },
+          },
+        });
+        expect(invalidContract).toMatchObject({ success: false });
+        expect(await listProjectHarnessChanges(skillRoot)).toEqual([]);
+        const unsafeContract = await options.onDynamicToolCall?.({
+          requestId: "request-unsafe-contract",
+          threadId: "thread-main",
+          turnId: "turn-accept",
+          callId: "call-unsafe-contract",
+          tool: "aho_accept_current_plan",
+          arguments: {
+            ...arguments_,
+            contract: { ...healthEndpointContract(), affected_paths: ["C:\\outside\\health.ts"] },
+          },
+        });
+        expect(unsafeContract).toMatchObject({ success: false });
+        expect(await listProjectHarnessChanges(skillRoot)).toEqual([]);
         const childAttempt = await options.onDynamicToolCall?.({
           requestId: "request-child-accept",
           threadId: "thread-planner",
@@ -1542,7 +1570,195 @@ describe("Workbench provider planning flow", () => {
       `Skill-native planning snapshot stops before WorkflowRun projection; run ${workflowRunId}`,
     );
   });
+
+  it("publishes no Registry contract when Main explicitly accepts the current plan without one", async () => {
+    const { conversation, plan } = await createSimplePlannerProposal();
+    appServerTurn.mockImplementationOnce(async (options) => {
+      const result = await options.onDynamicToolCall?.({
+        requestId: "request-no-contract",
+        threadId: "thread-main",
+        turnId: "turn-accept-no-contract",
+        callId: "call-no-contract",
+        tool: "aho_accept_current_plan",
+        arguments: {
+          ...mainAcceptanceArguments(options),
+          contractRequired: false,
+          contract: null,
+          validation: ["Main Agent verified that this proposal does not change a Registry contract boundary."],
+        },
+      });
+      expect(result).toMatchObject({ success: true });
+      emitCanonicalMainText(options, "Plan accepted without a Registry contract.", "thread-main", "turn-accept-no-contract", "message-accept-no-contract");
+      return {
+        status: "completed",
+        threadId: "thread-main",
+        turnId: "turn-accept-no-contract",
+        lastMessage: "Plan accepted without a Registry contract.",
+        goal: nativeGoal("paused"),
+        childThreads: [],
+      };
+    });
+
+    await postConversationMessage(project(), conversation.conversationId, {
+      mode: "chat",
+      message: "执行当前计划",
+      planHandoffIntent: planHandoffIntent(plan),
+    });
+
+    const store = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
+    let changeId = "";
+    try {
+      changeId = store.conversations.readConversation(project().id, conversation.conversationId)?.boundChangeId ?? "";
+    } finally {
+      store.close();
+    }
+    expect(changeId).not.toBe("");
+    await expect(loadProjectHarnessContract(skillRoot, changeId)).resolves.toBeNull();
+    expect(await listProjectHarnessChanges(skillRoot)).toEqual([
+      expect.objectContaining({ change_id: changeId, contract_required: false, contract_path: null }),
+    ]);
+    expect(await listWorkflowRuns(runtimePaths, changeId)).toEqual([]);
+  });
+
+  it("rolls back Main acceptance when scoped preflight finds a Registry conflict", async () => {
+    const seedContext = await resolveProjectHarnessRegistryContext({
+      projectId: project().id,
+      projectRoot: root,
+      skillRoot,
+    });
+    seedContext.lane = projectHarnessConversationLane("seed-conversation", "graph:seed-conversation:initial");
+    await createProjectHarnessChange(seedContext, { changeId: "existing-health-owner" });
+    await publishProjectHarnessChange(seedContext, {
+      changeId: "existing-health-owner",
+      scope: "Existing health owner",
+      paths: ["existing-owner/**"],
+      status: "active",
+      validation: ["Existing accepted Registry owner."],
+      contract: {
+        ...healthEndpointContract(),
+        operation: "maintain-existing-health-endpoint",
+        affected_paths: ["existing-owner/**"],
+      },
+    });
+
+    const { conversation, plan } = await createSimplePlannerProposal();
+    let rejected = false;
+    appServerTurn.mockImplementationOnce(async (options) => {
+      try {
+        await options.onDynamicToolCall?.({
+          requestId: "request-conflicting-contract",
+          threadId: "thread-main",
+          turnId: "turn-conflicting-contract",
+          callId: "call-conflicting-contract",
+          tool: "aho_accept_current_plan",
+          arguments: mainAcceptanceArguments(options),
+        });
+      } catch (error) {
+        rejected = true;
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toContain("preflight requires replanning");
+        expect((error as Error).message).toContain('"type":"contract"');
+        expect((error as Error).message).toContain('"other_change_id":"existing-health-owner"');
+        expect((error as Error).message).toContain('"subject":"health-endpoint"');
+      }
+      emitCanonicalMainText(options, "Plan acceptance was blocked by Registry preflight.", "thread-main", "turn-conflicting-contract", "message-conflicting-contract");
+      return {
+        status: "completed",
+        threadId: "thread-main",
+        turnId: "turn-conflicting-contract",
+        lastMessage: "Plan acceptance was blocked by Registry preflight.",
+        goal: nativeGoal("paused"),
+        childThreads: [],
+      };
+    });
+
+    await postConversationMessage(project(), conversation.conversationId, {
+      mode: "chat",
+      message: "执行当前计划",
+      planHandoffIntent: planHandoffIntent(plan),
+    });
+
+    expect(rejected).toBe(true);
+    expect(await listProjectHarnessChanges(skillRoot)).toEqual([
+      expect.objectContaining({ change_id: "existing-health-owner", status: "active" }),
+    ]);
+    const store = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
+    let graphScopeId = "";
+    try {
+      const current = store.conversations.readConversation(project().id, conversation.conversationId);
+      expect(current?.boundChangeId).toBeNull();
+      graphScopeId = current?.currentGraphScopeId ?? "";
+    } finally {
+      store.close();
+    }
+    const currentLaneContext = await resolveProjectHarnessRegistryContext({
+      projectId: project().id,
+      projectRoot: root,
+      skillRoot,
+    });
+    currentLaneContext.lane = projectHarnessConversationLane(conversation.conversationId, graphScopeId);
+    await expect(readProjectHarnessLane(currentLaneContext)).resolves.toBeNull();
+    expect(existsSync(join(runtimePaths.runsRoot, "execution-authorization"))).toBe(false);
+  });
 });
+
+async function createSimplePlannerProposal() {
+  appServerTurn.mockImplementationOnce(async (options) => {
+    await writePlannerFiles(options.writableRoots?.[0] ?? "");
+    emitMainThreadStarted(options, "thread-main", "turn-plan");
+    emitPlanningChildStarted(options, "thread-main", "thread-planner", "item-spawn-planner");
+    emitCanonicalPlannerText(
+      options,
+      plannerPlanText(),
+      "thread-main",
+      "turn-plan",
+      "thread-planner",
+      "turn-planner",
+      "message-planner",
+    );
+    return {
+      status: "completed",
+      threadId: "thread-main",
+      turnId: "turn-plan",
+      lastMessage: "Planning proposal is ready.",
+      goal: nativeGoal("active"),
+      childThreads: [{
+        itemId: "item-spawn-planner",
+        parentThreadId: "thread-main",
+        threadId: "thread-planner",
+        roleHint: "planning-agent",
+        status: "completed",
+        displayName: "Newton",
+        finalText: plannerPlanText(),
+        changedFiles: [],
+        snapshot: {},
+      }],
+    };
+  });
+  const conversation = await createWorkbenchConversation(project(), {
+    body: "Add GET /healthz returning status ok and add a regression test.",
+  });
+  const messages = await listConversationMessages(project(), conversation.conversationId);
+  const plan = messages.find((message) =>
+    message.agentRoleId === "planning-agent" && message.document?.documentKind === "plan");
+  if (!plan?.document?.proposalArtifact || !plan.document.proposalHash) {
+    throw new Error("Simple planner fixture did not produce an exact proposal artifact.");
+  }
+  return { conversation, plan };
+}
+
+function planHandoffIntent(plan: Awaited<ReturnType<typeof listConversationMessages>>[number]) {
+  return {
+    kind: "execute-plan" as const,
+    sourceRunId: plan.runId ?? "",
+    sourceAgentRoleId: "planning-agent" as const,
+    sourceArtifact: plan.document?.proposalArtifact,
+    sourceDocumentId: plan.document?.documentId,
+    sourceCanonicalItemId: plan.document?.sourceCanonicalItemId,
+    sourceProposalHash: plan.document?.proposalHash,
+    executionMode: "stepwise" as const,
+  };
+}
 
 async function createSkillNativeConversationChange(
   changeId: string,
