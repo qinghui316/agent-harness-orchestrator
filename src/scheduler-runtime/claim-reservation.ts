@@ -1,6 +1,5 @@
 import { shortHash } from "../fs/path.js";
-import type { ResolvedMemory } from "../types/index.js";
-import { hashArtifactRefs } from "../workflow-artifacts/hashes.js";
+import { hashSchedulerArtifactRefs, type SchedulerArtifactStore } from "./artifact-store.js";
 import { readSchedulerRun } from "../workflow-scheduler/repository.js";
 import type { SchedulerRun } from "../workflow-scheduler/types.js";
 import { assertSchedulerRuntimeLineage } from "./guards.js";
@@ -28,7 +27,7 @@ export interface SchedulerClaimReservationRefs {
 }
 
 export async function reserveSchedulerRuntimeClaims(
-  memory: ResolvedMemory,
+  memory: SchedulerArtifactStore,
   changePath: string,
   schedulerRunId: string,
   schedulerReconcileSnapshotId: string,
@@ -176,8 +175,8 @@ function validateSnapshotScope(schedulerRunId: string, changeId: string, stateId
   }
 }
 
-async function assertSourceHashes(memory: ResolvedMemory, runHashes: Record<string, string>, stateHashes: Record<string, string>, snapshotHashes: Record<string, string>): Promise<void> {
-  const expectedHashes = await hashArtifactRefs(memory, Object.keys(runHashes));
+async function assertSourceHashes(memory: SchedulerArtifactStore, runHashes: Record<string, string>, stateHashes: Record<string, string>, snapshotHashes: Record<string, string>): Promise<void> {
+  const expectedHashes = await hashSchedulerArtifactRefs(memory, Object.keys(runHashes));
   for (const [artifact, hash] of Object.entries(expectedHashes)) {
     if (runHashes[artifact] !== hash || stateHashes[artifact] !== hash || snapshotHashes[artifact] !== hash) {
       throw new Error(`Scheduler claim reservation source artifact hash mismatch: ${artifact}.`);

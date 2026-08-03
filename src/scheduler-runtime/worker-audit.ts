@@ -1,11 +1,10 @@
 import { shortHash } from "../fs/path.js";
-import { resolveRunnableChangeTarget } from "../change/target.js";
-import { resolveProjectMemory } from "../memory/resolver.js";
 import { readAuditResult } from "../audit/repository.js";
-import { startAuditRun } from "../audit/service.js";
+import { startSkillNativeAuditRun } from "../audit/service.js";
 import { readRun } from "../run/repository.js";
 import { listWorkerLeases, readTaskRun, writeTaskRun } from "../task-run/repository.js";
-import type { AuditResult, AuditStatus, ManagedProject, ResolvedMemory, RunMetadata, TaskRun, ValidationResult, WorkerLease, WorktreeMetadata } from "../types/index.js";
+import type { AuditResult, AuditStatus, ManagedProject, RunMetadata, TaskRun, ValidationResult, WorkerLease, WorktreeMetadata } from "../types/index.js";
+import type { ProjectRunsPathPort } from "../project-runtime/paths.js";
 import { readValidationResult } from "../validation/repository.js";
 import { readWorktreeMetadata } from "../worktree/repository.js";
 import { schedulerWorkerAuditEventType } from "./event-policy.js";
@@ -23,6 +22,7 @@ import {
 } from "./repository.js";
 import type { SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "./types.js";
 import { buildSchedulerWorkerScopeContext, composeSchedulerWorkerAuditScopePrompt, resolveSchedulerWorkerReservationIntent } from "./worker-scope.js";
+import { resolveSchedulerReadySetExecutionScope, type SchedulerReadySetExecutionPort } from "./execution-port.js";
 
 export interface SchedulerWorkerAuditInput {
   changeId: string;
@@ -47,11 +47,9 @@ export interface SchedulerWorkerAuditResult {
   executionStarted: boolean;
 }
 
-export async function auditSchedulerFirstWorker(project: ManagedProject, input: SchedulerWorkerAuditInput): Promise<SchedulerWorkerAuditResult> {
-  const memory = await resolveProjectMemory(project);
-  const target = await resolveRunnableChangeTarget(project, { changeId: input.changeId, allowLegacyActiveFallback: false });
-  const changePath = target.status.activeChanges.find((item) => item.name === input.changeId)?.path;
-  if (!changePath) throw new Error(`Scheduler worker audit cannot resolve active Change path for ${input.changeId}.`);
+export async function auditSchedulerFirstWorker(project: ManagedProject, input: SchedulerWorkerAuditInput, port: SchedulerReadySetExecutionPort): Promise<SchedulerWorkerAuditResult> {
+  const scope = await resolveSchedulerReadySetExecutionScope(project, input.changeId, "Scheduler worker audit", port);
+  const { artifacts: memory, runtime, changePath } = scope;
   const { run } = await readSchedulerRuntimeLineage(memory, changePath, input.schedulerRunId);
   if (run.changeId !== input.changeId) throw new Error("planning.scheduler.worker.audit-first SchedulerRun change scope mismatch.");
   const runtimeState = await readSchedulerRuntimeState(memory, changePath, run.id);
@@ -66,28 +64,28 @@ export async function auditSchedulerFirstWorker(project: ManagedProject, input: 
   const reservation = await readSchedulerRuntimeClaimReservation(memory, changePath, run.id, workerValidation.schedulerClaimReservationId);
   assertLatestSchedulerRuntimeClaimReservation(reservation, runtimeState, "planning.scheduler.worker.audit-first");
   const intent = resolveSchedulerWorkerReservationIntent(reservation, workerValidation, "planning.scheduler.worker.audit-first");
-  const scopeContext = buildSchedulerWorkerScopeContext(target.status, reservation, intent, workerValidation.taskId);
+  const scopeContext = buildSchedulerWorkerScopeContext(scope.changeStatus, reservation, intent, workerValidation.taskId);
   const workerResult = await readSchedulerRuntimeWorkerResult(memory, changePath, run.id, workerValidation.schedulerWorkerResultId);
   assertWorkerResultMatchesValidation(workerResult, workerValidation);
   const workerStart = await readSchedulerRuntimeWorkerStart(memory, changePath, run.id, workerValidation.schedulerWorkerStartId);
   assertWorkerStartMatchesValidation(workerStart, workerValidation);
   const existing = await findSchedulerRuntimeWorkerAuditForValidation(memory, changePath, run.id, workerValidation.id);
-  const taskRun = await readTaskRun(memory, input.changeId, workerValidation.taskRunId);
+  const taskRun = await readTaskRun(runtime, input.changeId, workerValidation.taskRunId);
   assertTaskRunMatchesWorkerValidation(taskRun, workerValidation, { requireEvidenceReady: !existing });
-  const lease = await readWorkerLeaseForTaskRun(memory, taskRun);
+  const lease = await readWorkerLeaseForTaskRun(runtime, taskRun);
   assertLeaseMatchesWorkerValidation(lease, workerValidation);
-  const codeRun = await readRun(memory, workerValidation.codeRunId);
+  const codeRun = await readRun(runtime, workerValidation.codeRunId);
   assertCodeRunMatchesWorkerValidation(codeRun, workerValidation);
-  const validationRun = await readRun(memory, workerValidation.validationRunId);
+  const validationRun = await readRun(runtime, workerValidation.validationRunId);
   assertValidationRunMatchesWorkerValidation(validationRun, workerValidation);
-  const validationResult = await readValidationResult(memory, workerValidation.validationRunId, { changeId: input.changeId });
+  const validationResult = await readValidationResult(runtime, workerValidation.validationRunId, { changeId: input.changeId });
   assertValidationResultMatchesWorkerValidation(validationResult, workerValidation);
-  const worktree = await readWorktreeMetadata(memory, workerValidation.worktreeId);
+  const worktree = await readWorktreeMetadata(runtime, workerValidation.worktreeId);
   assertWorktreeMatchesWorkerValidation(worktree, workerValidation);
 
   if (existing) {
-    const auditRun = await readRun(memory, existing.auditRunId);
-    const auditResult = await readAuditResult(memory, existing.auditRunId, { changeId: input.changeId });
+    const auditRun = await readRun(runtime, existing.auditRunId);
+    const auditResult = await readAuditResult(runtime, existing.auditRunId, { changeId: input.changeId });
     assertAuditRunMatchesWorkerAudit(auditRun, existing);
     assertAuditResultMatchesWorkerAudit(auditResult, existing);
     return {
@@ -108,12 +106,13 @@ export async function auditSchedulerFirstWorker(project: ManagedProject, input: 
     };
   }
 
-  const audit = await startAuditRun(project, {
+  const auditInput = {
     changeId: input.changeId,
     worktreeId: workerValidation.worktreeId,
     validationId: workerValidation.validationRunId,
     prompt: composeSchedulerWorkerAuditScopePrompt(scopeContext),
-  });
+  };
+  const audit = await startSkillNativeAuditRun(project, scope.skillNative.runtime, scope.skillNative.harness, auditInput);
   if (audit.audit.changeId !== input.changeId || audit.audit.worktreeId !== workerValidation.worktreeId || audit.audit.validationId !== workerValidation.validationRunId) {
     throw new Error("planning.scheduler.worker.audit-first audit result scope mismatch.");
   }
@@ -122,7 +121,7 @@ export async function auditSchedulerFirstWorker(project: ManagedProject, input: 
   }
   const now = new Date().toISOString();
   const nextTaskRun = taskRunForAudit(taskRun, audit.audit.status, now);
-  const writtenTaskRun = await writeTaskRun(memory, nextTaskRun);
+  const writtenTaskRun = await writeTaskRun(runtime, nextTaskRun);
   const auditId = buildWorkerAuditId(workerValidation.id);
   const refs = schedulerWorkerAuditArtifactRefs(memory, changePath, run.id, auditId);
   const schedulerAudit: SchedulerRuntimeWorkerAudit = {
@@ -327,7 +326,7 @@ function assertAuditResultMatchesWorkerAudit(result: AuditResult, audit: Schedul
   }
 }
 
-async function readWorkerLeaseForTaskRun(memory: ResolvedMemory, taskRun: TaskRun): Promise<WorkerLease> {
+async function readWorkerLeaseForTaskRun(memory: ProjectRunsPathPort, taskRun: TaskRun): Promise<WorkerLease> {
   const leases = await listWorkerLeases(memory, taskRun.changeId);
   const lease = leases.find((item) => item.id === taskRun.leaseId);
   if (!lease) throw new Error(`WorkerLease not found for TaskRun ${taskRun.id}.`);

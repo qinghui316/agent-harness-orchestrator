@@ -400,7 +400,7 @@ describe("workbench Skill-native demand-to-execution golden flow", () => {
     await expectNoExecutionResidue(prepared.changeId);
   }, SLOW_FLOW_TIMEOUT_MS);
 
-  it("initializes accepted ready-set execution without exposing an unmigrated worker action", async () => {
+  it("initializes accepted ready-set execution and exposes only the exact first worker confirmation", async () => {
     const prepared = await prepareAcceptedExecution(executionRoleTurn, "ready-set-v1");
     const planningRoot = join(prepared.evidenceRoot, "planning");
     for (const name of [
@@ -442,11 +442,22 @@ describe("workbench Skill-native demand-to-execution golden flow", () => {
       { topicId: prepared.conversation.conversationId },
     );
     expect(snapshot.center.workpad.nextAction).toMatchObject({
-      kind: "read-only",
-      id: `scheduler-initialized:${schedulerRun.id}`,
-      enabled: false,
+      kind: "workflow-action",
+      actionType: "planning.scheduler.worker.start-first",
+      schedulerRunId: schedulerRun.id,
+      schedulerClaimReservationId: initialized.claimReservation.id,
+      enabled: true,
     });
-    expect(snapshot.right.confirmationQueue.current).toEqual([]);
+    expect(snapshot.right.confirmationQueue.current).toHaveLength(1);
+    expect(snapshot.right.confirmationQueue.current[0]?.actions).toEqual([
+      expect.objectContaining({
+        actionType: "planning.scheduler.worker.start-first",
+        schedulerRunId: schedulerRun.id,
+        schedulerClaimReservationId: initialized.claimReservation.id,
+        graphScopeId: prepared.graphScopeId,
+        enabled: true,
+      }),
+    ]);
     await expect(executeWorkbenchAction(
       { project: managedProject(), path: getTempDir() },
       { ...prepared.runAction, confirm: true },

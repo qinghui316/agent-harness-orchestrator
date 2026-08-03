@@ -1,6 +1,5 @@
-import { resolveRunnableChangeTarget } from "../change/target.js";
 import { createHash } from "node:crypto";
-import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
+import type { SchedulerReadySetExecutionPort } from "../scheduler-runtime/execution-port.js";
 import {
   compileSchedulerIntegrationCandidate,
   type SchedulerIntegrationCandidateInput,
@@ -92,88 +91,95 @@ export type SchedulerReadySetCurrentStepResult =
 export function runSchedulerReadySetCurrentStep(
   project: ManagedProject,
   step: { actionType: "planning.scheduler.worker.start-first"; input: SchedulerFirstWorkerStartInput },
+  port: SchedulerReadySetExecutionPort,
 ): Promise<SchedulerFirstWorkerStartResult>;
-export function runSchedulerReadySetCurrentStep(project: ManagedProject, step: { actionType: "planning.scheduler.worker.reconcile-result"; input: SchedulerWorkerResultReconcileInput }): Promise<SchedulerWorkerResultReconcileResult>;
-export function runSchedulerReadySetCurrentStep(project: ManagedProject, step: { actionType: "planning.scheduler.worker.validate-first"; input: SchedulerWorkerValidationInput }): Promise<SchedulerWorkerValidationResult>;
-export function runSchedulerReadySetCurrentStep(project: ManagedProject, step: { actionType: "planning.scheduler.worker.audit-first"; input: SchedulerWorkerAuditInput }): Promise<SchedulerWorkerAuditResult>;
-export function runSchedulerReadySetCurrentStep(project: ManagedProject, step: { actionType: "planning.scheduler.worker.rework-plan.compile"; input: SchedulerWorkerReworkPlanInput }): Promise<SchedulerWorkerReworkPlanResult>;
-export function runSchedulerReadySetCurrentStep(project: ManagedProject, step: { actionType: "planning.scheduler.worker.rework-start-first"; input: SchedulerFirstWorkerReworkStartInput }): Promise<SchedulerFirstWorkerReworkStartResult>;
-export function runSchedulerReadySetCurrentStep(project: ManagedProject, step: { actionType: "planning.scheduler.worker.rework-reconcile-result"; input: SchedulerWorkerReworkResultReconcileInput }): Promise<SchedulerWorkerReworkResultReconcileResult>;
-export function runSchedulerReadySetCurrentStep(project: ManagedProject, step: { actionType: "planning.scheduler.worker.rework-validate-first"; input: SchedulerWorkerReworkValidationInput }): Promise<SchedulerWorkerReworkValidationResult>;
-export function runSchedulerReadySetCurrentStep(project: ManagedProject, step: { actionType: "planning.scheduler.worker.rework-audit-first"; input: SchedulerWorkerReworkAuditInput }): Promise<SchedulerWorkerReworkAuditResult>;
+export function runSchedulerReadySetCurrentStep(project: ManagedProject, step: { actionType: "planning.scheduler.worker.reconcile-result"; input: SchedulerWorkerResultReconcileInput }, port: SchedulerReadySetExecutionPort): Promise<SchedulerWorkerResultReconcileResult>;
+export function runSchedulerReadySetCurrentStep(project: ManagedProject, step: { actionType: "planning.scheduler.worker.validate-first"; input: SchedulerWorkerValidationInput }, port: SchedulerReadySetExecutionPort): Promise<SchedulerWorkerValidationResult>;
+export function runSchedulerReadySetCurrentStep(project: ManagedProject, step: { actionType: "planning.scheduler.worker.audit-first"; input: SchedulerWorkerAuditInput }, port: SchedulerReadySetExecutionPort): Promise<SchedulerWorkerAuditResult>;
+export function runSchedulerReadySetCurrentStep(project: ManagedProject, step: { actionType: "planning.scheduler.worker.rework-plan.compile"; input: SchedulerWorkerReworkPlanInput }, port: SchedulerReadySetExecutionPort): Promise<SchedulerWorkerReworkPlanResult>;
+export function runSchedulerReadySetCurrentStep(project: ManagedProject, step: { actionType: "planning.scheduler.worker.rework-start-first"; input: SchedulerFirstWorkerReworkStartInput }, port: SchedulerReadySetExecutionPort): Promise<SchedulerFirstWorkerReworkStartResult>;
+export function runSchedulerReadySetCurrentStep(project: ManagedProject, step: { actionType: "planning.scheduler.worker.rework-reconcile-result"; input: SchedulerWorkerReworkResultReconcileInput }, port: SchedulerReadySetExecutionPort): Promise<SchedulerWorkerReworkResultReconcileResult>;
+export function runSchedulerReadySetCurrentStep(project: ManagedProject, step: { actionType: "planning.scheduler.worker.rework-validate-first"; input: SchedulerWorkerReworkValidationInput }, port: SchedulerReadySetExecutionPort): Promise<SchedulerWorkerReworkValidationResult>;
+export function runSchedulerReadySetCurrentStep(project: ManagedProject, step: { actionType: "planning.scheduler.worker.rework-audit-first"; input: SchedulerWorkerReworkAuditInput }, port: SchedulerReadySetExecutionPort): Promise<SchedulerWorkerReworkAuditResult>;
 export function runSchedulerReadySetCurrentStep(
   project: ManagedProject,
   step: { actionType: "planning.scheduler.worker.start-next"; input: SchedulerNextWorkerStartInput },
+  port: SchedulerReadySetExecutionPort,
 ): Promise<SchedulerFirstWorkerStartResult>;
 export function runSchedulerReadySetCurrentStep(
   project: ManagedProject,
   step: { actionType: "planning.scheduler.integration-candidate.compile"; input: SchedulerIntegrationCandidateInput },
+  port: SchedulerReadySetExecutionPort,
 ): Promise<SchedulerIntegrationCandidateResult>;
 export function runSchedulerReadySetCurrentStep(
   project: ManagedProject,
   step: { actionType: "planning.scheduler.integration-check.run"; input: SchedulerIntegrationCheckHandoffInput },
+  port: SchedulerReadySetExecutionPort,
 ): Promise<SchedulerIntegrationCheckHandoffResult>;
-export function runSchedulerReadySetCurrentStep(project: ManagedProject, step: { actionType: "planning.scheduler.integration-outcome.reconcile"; input: SchedulerIntegrationOutcomeInput }): Promise<SchedulerIntegrationOutcomeResult>;
+export function runSchedulerReadySetCurrentStep(project: ManagedProject, step: { actionType: "planning.scheduler.integration-outcome.reconcile"; input: SchedulerIntegrationOutcomeInput }, port: SchedulerReadySetExecutionPort): Promise<SchedulerIntegrationOutcomeResult>;
 export function runSchedulerReadySetCurrentStep(
   project: ManagedProject,
   step: { actionType: "planning.scheduler.run.complete"; input: SchedulerRunCompletionInput },
+  port: SchedulerReadySetExecutionPort,
 ): Promise<SchedulerRunCompletionResult>;
 export function runSchedulerReadySetCurrentStep(
   project: ManagedProject,
   step: { actionType: "planning.scheduler.run.close-blocked"; input: SchedulerRunBlockedCloseoutInput },
+  port: SchedulerReadySetExecutionPort,
 ): Promise<SchedulerRunBlockedCloseoutResult>;
 export async function runSchedulerReadySetCurrentStep(
   project: ManagedProject,
   step: SchedulerReadySetCurrentStep,
+  port: SchedulerReadySetExecutionPort,
 ): Promise<SchedulerReadySetCurrentStepResult> {
   switch (step.actionType) {
     case "planning.scheduler.worker.start-first": {
-      const exactTarget = await resolveSchedulerReadySetCurrentWorkerExactTarget(project, step.input, step.actionType);
-      return startSchedulerCoderWorkerForReadySetTarget(project, step.input, exactTarget, step.actionType);
+      const exactTarget = await resolveSchedulerReadySetCurrentWorkerExactTarget(project, step.input, step.actionType, port);
+      return startSchedulerCoderWorkerForReadySetTarget(project, step.input, exactTarget, step.actionType, port);
     }
     case "planning.scheduler.worker.start-next": {
-      const exactTarget = await resolveSchedulerReadySetCurrentWorkerExactTarget(project, step.input, step.actionType);
-      return startSchedulerCoderWorkerForReadySetTarget(project, step.input, exactTarget, step.actionType);
+      const exactTarget = await resolveSchedulerReadySetCurrentWorkerExactTarget(project, step.input, step.actionType, port);
+      return startSchedulerCoderWorkerForReadySetTarget(project, step.input, exactTarget, step.actionType, port);
     }
     case "planning.scheduler.worker.reconcile-result":
-      await assertSchedulerReadySetCurrentRequest(project, step.input, step.actionType);
-      return reconcileSchedulerFirstWorkerResult(project, step.input);
+      await assertSchedulerReadySetCurrentRequest(project, step.input, step.actionType, port);
+      return reconcileSchedulerFirstWorkerResult(project, step.input, port);
     case "planning.scheduler.worker.validate-first":
-      await assertSchedulerReadySetCurrentRequest(project, step.input, step.actionType);
-      return validateSchedulerFirstWorker(project, step.input);
+      await assertSchedulerReadySetCurrentRequest(project, step.input, step.actionType, port);
+      return validateSchedulerFirstWorker(project, step.input, port);
     case "planning.scheduler.worker.audit-first":
-      await assertSchedulerReadySetCurrentRequest(project, step.input, step.actionType);
-      return auditSchedulerFirstWorker(project, step.input);
+      await assertSchedulerReadySetCurrentRequest(project, step.input, step.actionType, port);
+      return auditSchedulerFirstWorker(project, step.input, port);
     case "planning.scheduler.worker.rework-plan.compile":
-      await assertSchedulerReadySetCurrentRequest(project, step.input, step.actionType);
-      return compileSchedulerFirstWorkerReworkPlan(project, step.input);
+      await assertSchedulerReadySetCurrentRequest(project, step.input, step.actionType, port);
+      return compileSchedulerFirstWorkerReworkPlan(project, step.input, port);
     case "planning.scheduler.worker.rework-start-first":
-      await assertSchedulerReadySetCurrentRequest(project, step.input, step.actionType);
-      return startFirstSchedulerWorkerRework(project, step.input);
+      await assertSchedulerReadySetCurrentRequest(project, step.input, step.actionType, port);
+      return startFirstSchedulerWorkerRework(project, step.input, port);
     case "planning.scheduler.worker.rework-reconcile-result":
-      await assertSchedulerReadySetCurrentRequest(project, step.input, step.actionType);
-      return reconcileSchedulerFirstWorkerReworkResult(project, step.input);
+      await assertSchedulerReadySetCurrentRequest(project, step.input, step.actionType, port);
+      return reconcileSchedulerFirstWorkerReworkResult(project, step.input, port);
     case "planning.scheduler.worker.rework-validate-first":
-      await assertSchedulerReadySetCurrentRequest(project, step.input, step.actionType);
-      return validateSchedulerFirstWorkerRework(project, step.input);
+      await assertSchedulerReadySetCurrentRequest(project, step.input, step.actionType, port);
+      return validateSchedulerFirstWorkerRework(project, step.input, port);
     case "planning.scheduler.worker.rework-audit-first":
-      await assertSchedulerReadySetCurrentRequest(project, step.input, step.actionType);
-      return auditSchedulerFirstWorkerRework(project, step.input);
+      await assertSchedulerReadySetCurrentRequest(project, step.input, step.actionType, port);
+      return auditSchedulerFirstWorkerRework(project, step.input, port);
     case "planning.scheduler.integration-candidate.compile":
-      await assertSchedulerReadySetCurrentStep(project, step.input, step.actionType);
-      return compileSchedulerIntegrationCandidate(project, step.input);
+      await assertSchedulerReadySetCurrentStep(project, step.input, step.actionType, port);
+      return compileSchedulerIntegrationCandidate(project, step.input, port);
     case "planning.scheduler.integration-check.run":
-      await assertSchedulerReadySetCurrentRequest(project, step.input, step.actionType);
-      return runSchedulerIntegrationCheckHandoff(project, step.input);
+      await assertSchedulerReadySetCurrentRequest(project, step.input, step.actionType, port);
+      return runSchedulerIntegrationCheckHandoff(project, step.input, port);
     case "planning.scheduler.integration-outcome.reconcile":
-      await assertSchedulerReadySetCurrentRequest(project, step.input, step.actionType);
-      return reconcileSchedulerIntegrationOutcome(project, step.input);
+      await assertSchedulerReadySetCurrentRequest(project, step.input, step.actionType, port);
+      return reconcileSchedulerIntegrationOutcome(project, step.input, port);
     case "planning.scheduler.run.complete":
-      await assertSchedulerReadySetCurrentRequest(project, step.input, step.actionType);
-      return completeSchedulerRunFromIntegrationOutcome(project, step.input);
+      await assertSchedulerReadySetCurrentRequest(project, step.input, step.actionType, port);
+      return completeSchedulerRunFromIntegrationOutcome(project, step.input, port);
     case "planning.scheduler.run.close-blocked":
-      await assertSchedulerReadySetCurrentRequest(project, step.input, step.actionType);
-      return closeSchedulerRunBlockedOrExhausted(project, step.input);
+      await assertSchedulerReadySetCurrentRequest(project, step.input, step.actionType, port);
+      return closeSchedulerRunBlockedOrExhausted(project, step.input, port);
   }
 }
 
@@ -181,8 +187,9 @@ async function assertSchedulerReadySetCurrentRequest(
   project: ManagedProject,
   input: { changeId: string; schedulerRunId: string; schedulerClaimReservationId?: string },
   actionType: SchedulerCurrentTransitionActionType,
+  port: SchedulerReadySetExecutionPort,
 ): Promise<SchedulerCurrentTransitionView> {
-  const view = await readSchedulerReadySetCurrentStepView(project, input, actionType);
+  const view = await readSchedulerReadySetCurrentStepView(project, input, actionType, port);
   assertSchedulerCurrentTransitionRequest(view, actionType, input);
   return view;
 }
@@ -191,8 +198,9 @@ export async function assertSchedulerReadySetCurrentStep(
   project: ManagedProject,
   input: { changeId: string; schedulerRunId: string; schedulerClaimReservationId?: string },
   actionType: SchedulerCurrentTransitionActionType,
+  port: SchedulerReadySetExecutionPort,
 ): Promise<SchedulerCurrentTransitionView> {
-  const view = await readSchedulerReadySetCurrentStepView(project, input, actionType);
+  const view = await readSchedulerReadySetCurrentStepView(project, input, actionType, port);
   assertSchedulerCurrentTransitionAction(view, actionType);
   return view;
 }
@@ -201,8 +209,9 @@ async function resolveSchedulerReadySetCurrentWorkerExactTarget(
   project: ManagedProject,
   input: SchedulerFirstWorkerStartInput,
   actionType: SchedulerReadySetWorkerStartAction,
+  port: SchedulerReadySetExecutionPort,
 ): Promise<SchedulerWorkerStartExactTarget> {
-  const view = await readSchedulerReadySetCurrentStepView(project, input, actionType);
+  const view = await readSchedulerReadySetCurrentStepView(project, input, actionType, port);
   return resolveSchedulerReadySetWorkerStartTarget({
     view,
     actionType,
@@ -215,13 +224,16 @@ async function readSchedulerReadySetCurrentStepView(
   project: ManagedProject,
   input: { changeId: string; schedulerRunId: string; schedulerClaimReservationId?: string },
   actionType: SchedulerCurrentTransitionActionType,
+  port: SchedulerReadySetExecutionPort,
 ): Promise<SchedulerCurrentTransitionView> {
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, schedulerReadySetActionLabel(actionType));
-  const target = await resolveRunnableChangeTarget(project, { changeId: input.changeId, allowLegacyActiveFallback: false });
-  const changePath = target.status.activeChanges.find((item) => item.name === input.changeId)?.path;
-  if (!changePath) throw new Error(`${actionType} cannot resolve active Change path for ${input.changeId}.`);
-  const view = await readLatestSchedulerCurrentTransitionView(memory, changePath, input.schedulerRunId, actionType);
+  if (project.id !== port.runtime.projectId || port.harness.planning.change.change_id !== input.changeId) {
+    throw new Error(`${actionType} Skill-native Scheduler scope mismatch.`);
+  }
+  const changePath = port.harness.changeStatus.activeChanges.find((item) => item.name === input.changeId)?.path;
+  if (!changePath) throw new Error(`${actionType} cannot resolve active Project Harness Change path.`);
+  const graph = port.harness.planning.graph;
+  if (graph.graphMode !== "ready-set-v1") throw new Error(`${actionType} requires accepted ready-set-v1 graph evidence.`);
+  const view = await readLatestSchedulerCurrentTransitionView(port.artifacts, port.runtime, graph, changePath, input.schedulerRunId, actionType);
   if (view.run.changeId !== input.changeId || view.runtimeState.changeId !== input.changeId || view.reservation.changeId !== input.changeId) {
     throw new Error(`${actionType} Scheduler scope mismatch.`);
   }
@@ -327,30 +339,4 @@ function coderStageForNode(
   const coderStages = graphNode.stageRefs.filter((stage) => stage.stage === "coder" && stage.status === "planned");
   if (coderStages.length !== 1) throw new Error(`${actionType} requires exactly one planned coder stage in ready-set graph node.`);
   return coderStages[0];
-}
-
-function schedulerReadySetActionLabel(actionType: SchedulerCurrentTransitionActionType): string {
-  switch (actionType) {
-    case "planning.scheduler.worker.start-first":
-      return "Scheduler first worker start";
-    case "planning.scheduler.worker.start-next":
-      return "Scheduler next worker start";
-    case "planning.scheduler.worker.reconcile-result": return "Scheduler worker result reconcile";
-    case "planning.scheduler.worker.validate-first": return "Scheduler worker validation";
-    case "planning.scheduler.worker.audit-first": return "Scheduler worker audit";
-    case "planning.scheduler.worker.rework-plan.compile": return "Scheduler worker rework plan";
-    case "planning.scheduler.worker.rework-start-first": return "Scheduler worker rework start";
-    case "planning.scheduler.worker.rework-reconcile-result": return "Scheduler worker rework result reconcile";
-    case "planning.scheduler.worker.rework-validate-first": return "Scheduler worker rework validation";
-    case "planning.scheduler.worker.rework-audit-first": return "Scheduler worker rework audit";
-    case "planning.scheduler.integration-candidate.compile":
-      return "Scheduler integration candidate compile";
-    case "planning.scheduler.integration-check.run":
-      return "Scheduler IntegrationCheck run";
-    case "planning.scheduler.integration-outcome.reconcile": return "Scheduler integration outcome reconcile";
-    case "planning.scheduler.run.complete":
-      return "Scheduler run complete";
-    case "planning.scheduler.run.close-blocked":
-      return "Scheduler blocked run close";
-  }
 }

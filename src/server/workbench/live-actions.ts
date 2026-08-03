@@ -39,6 +39,7 @@ export async function sendWorkbenchActionLive(input: WorkbenchProjectInput & { p
         feedback: body.feedback,
         proposalId: body.proposalId,
         workflowGraphPlanId: body.workflowGraphPlanId,
+        finalizationRequestId: body.finalizationRequestId,
         schedulerContractId: body.schedulerContractId,
         schedulerDispatchDryRunId: body.schedulerDispatchDryRunId,
         schedulerWorkerPlanId: body.schedulerWorkerPlanId,

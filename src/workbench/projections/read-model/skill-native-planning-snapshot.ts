@@ -6,6 +6,8 @@ import { listAuditResults, summarizeAudit } from "../../../audit/repository.js";
 import { getProjectStatus } from "../../../project/status.js";
 import { readProjectHarnessPlanningGate } from "../../../project-harness/planning-gate-query.js";
 import { projectExecutionRuntimePort, projectHarnessExecutionPort } from "../../../project-runtime/execution-ports.js";
+import { skillNativeSchedulerExecutionPort } from "../../../scheduler-runtime/execution-port.js";
+import { listPendingSkillNativeProjectHarnessChangeFinalizations } from "../../../project-runtime/change-finalization.js";
 import type { ProjectRuntimeResolution } from "../../../project-runtime/context.js";
 import { listRuns } from "../../../run/repository.js";
 import { listTaskQueueItems, listTaskQueues } from "../../../task-queue/repository.js";
@@ -15,11 +17,8 @@ import { listWorktreesForChange } from "../../../worktree/status.js";
 import { listWorkflowRuns } from "../../../workflow-run/manager.js";
 import { summarizeWorkflowRun } from "../../../workflow-run/summary.js";
 import { readExecutionAuthorization } from "../../../workflow-runtime/execution-authorization.js";
-import {
-  listSkillNativeSchedulerRuns,
-  readSkillNativeReadySetInitialization,
-  type SkillNativeReadySetInitialization,
-} from "../../../workflow-runtime/skill-native-ready-set.js";
+import { readLatestSchedulerCurrentTransitionView } from "../../../workflow-runtime/scheduler-current-transition-view.js";
+import { listSkillNativeSchedulerRuns } from "../../../workflow-runtime/skill-native-ready-set.js";
 import type { AuditResult, ManagedProject, ValidationResult, WorkflowGraphPlan, WorkflowRun } from "../../../types/index.js";
 import { buildConversationInteractionQueue } from "../../conversation-interactions.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../persistence/open-workbench-database.js";
@@ -36,8 +35,15 @@ import type {
   WorkbenchWorkpadSummary,
 } from "../../read-model-types.js";
 import type { WorkbenchWorkflowGraphPlanSummary } from "../../workflow-projection.js";
-import { buildTypedWorkflowNextAction } from "../../workflow-projection.js";
+import {
+  buildSchedulerCurrentTransitionProjection,
+  buildTypedWorkflowNextAction,
+  type WorkbenchSchedulerCurrentTransitionProjection,
+} from "../../workflow-projection.js";
+import { integrationCheckQueueItem } from "./confirmation/integration.js";
 import { sequentialWorkflowToConfirmationItems } from "./confirmation/typed-workflow.js";
+import { schedulerNextActionToConfirmationItems } from "./confirmation/typed-workflow.js";
+import { changeFinalizationToConfirmationItems } from "./confirmation/change-finalization.js";
 import { decisionContextToConfirmationItems } from "./confirmation/decision-context.js";
 import { emptyDecisionInspector } from "./decision-inspector.js";
 import { buildHarnessGaps, buildRepoSummary } from "./support.js";
@@ -66,7 +72,8 @@ export async function tryBuildSkillNativePlanningSnapshot(input: {
   const warnings: string[] = [];
   let graph: WorkflowGraphPlan | null = null;
   let planningEvidence: Awaited<ReturnType<typeof readProjectHarnessPlanningGate>> | null = null;
-  let schedulerInitialization: SkillNativeReadySetInitialization | null = null;
+  let schedulerProjection: WorkbenchSchedulerCurrentTransitionProjection | null = null;
+  let schedulerIntegrationBarrier: WorkbenchConfirmationQueue["current"][number] | null = null;
   let gateReady = false;
   if (!selected.boundChangeId || !selected.currentGraphScopeId) {
     warnings.push("Planning gate requires an exact Change and current Conversation graph scope.");
@@ -101,12 +108,47 @@ export async function tryBuildSkillNativePlanningSnapshot(input: {
   }
 
   if (existingSchedulerRun && graph?.graphMode === "ready-set-v1" && selected.boundChangeId) {
-    schedulerInitialization = await readSkillNativeReadySetInitialization(
-      input.resolution.paths,
-      selected.boundChangeId,
-      existingSchedulerRun.id,
-      graph,
-    );
+    try {
+      const runtime = projectExecutionRuntimePort(input.project, input.resolution);
+      const evidenceRoot = join(
+        input.resolution.harness.skillRoot,
+        "state",
+        "changes",
+        "active",
+        selected.boundChangeId,
+      );
+      const harness = await projectHarnessExecutionPort(input.project, evidenceRoot, planningEvidence!);
+      const execution = skillNativeSchedulerExecutionPort({
+        runtime,
+        harness,
+        skillRoot: input.resolution.harness.skillRoot,
+        sidecarRoot: input.resolution.paths.sidecarRoot,
+        schedulerRunId: existingSchedulerRun.id,
+      });
+      const changePath = harness.changeStatus.activeChanges.find((item) => item.name === selected.boundChangeId)?.path;
+      if (!changePath) throw new Error("Skill-native Scheduler projection cannot resolve the active Change path.");
+      const view = await readLatestSchedulerCurrentTransitionView(
+        execution.artifacts,
+        execution.runtime,
+        graph,
+        changePath,
+        existingSchedulerRun.id,
+        "Workbench ready-set projection",
+      );
+      schedulerProjection = buildSchedulerCurrentTransitionProjection({
+        topic: conversationTopic(selected),
+        workflowGraphPlan: workflowGraphSummary(graph),
+        view,
+      });
+      if (view.currentIntegrationCheck?.status === "passed") {
+        schedulerIntegrationBarrier = {
+          ...integrationCheckQueueItem(input.project, view.currentIntegrationCheck, selected.boundChangeId),
+          conversationId: selected.conversationId,
+        };
+      }
+    } catch (error) {
+      warnings.push(error instanceof Error ? error.message : String(error));
+    }
     gateReady = false;
   }
 
@@ -126,26 +168,33 @@ export async function tryBuildSkillNativePlanningSnapshot(input: {
 
   const graphSummary = graph ? workflowGraphSummary(graph) : undefined;
   const baseWorkpad = planningWorkpad(input.project, topic, graphSummary, gateReady, warnings, gaps);
-  const workpad = schedulerInitialization && graph?.graphMode === "ready-set-v1" && graphSummary
+  const workpad = schedulerProjection && graph?.graphMode === "ready-set-v1" && graphSummary
     ? {
         ...baseWorkpad,
-        userStatus: "processing" as const,
-        userStatusLabel: "处理中",
-        nextAction: {
-          id: `scheduler-initialized:${schedulerInitialization.schedulerRun.id}`,
-          label: "Scheduler 已初始化",
-          description: "当前 ready-set 计划已完成受控启动和 sidecar 状态初始化。",
-          kind: "read-only" as const,
-          enabled: false,
-          requiresConfirmation: false,
-          disabledReason: "当前状态只提供只读的 Scheduler 初始化证据。",
-        },
+        ...schedulerProjection,
+        userStatus: "waiting-confirmation" as const,
+        userStatusLabel: "等待确认",
+        nextAction: schedulerIntegrationBarrier
+          ? {
+              id: `apply-check:${schedulerIntegrationBarrier.applyCheckId}`,
+              label: "处理 IntegrationCheck 结果",
+              description: schedulerIntegrationBarrier.summary,
+              kind: "approval" as const,
+              approvalId: schedulerIntegrationBarrier.applyCheckId,
+              enabled: true,
+              requiresConfirmation: true,
+            }
+          : schedulerProjection.nextAction,
       }
     : baseWorkpad;
   const gateItems = gateReady ? sequentialWorkflowToConfirmationItems(input.project, topic, workpad) : [];
+  const schedulerItems = schedulerProjection && !schedulerIntegrationBarrier
+    ? schedulerNextActionToConfirmationItems(input.project, topic, workpad)
+    : [];
+  const currentItems = schedulerIntegrationBarrier ? [schedulerIntegrationBarrier] : schedulerItems.length ? schedulerItems : gateItems;
   const confirmationQueue: WorkbenchConfirmationQueue = {
-    primary: gateItems[0] ?? null,
-    current: gateItems,
+    primary: currentItems[0] ?? null,
+    current: currentItems,
     otherDemands: [],
     maintenance: [],
     history: [],
@@ -161,7 +210,7 @@ export async function tryBuildSkillNativePlanningSnapshot(input: {
     conversationLifecycle: item.state === "active" ? "active" : "archived-readonly",
     linkedFromChangeId: item.boundChangeId ?? undefined,
     selected: item.id === topic.id,
-    waitingDecisionCount: item.id === topic.id && gateReady ? 1 : 0,
+    waitingDecisionCount: item.id === topic.id && currentItems.length ? 1 : 0,
     updatedAt: item.updatedAt,
   }));
   const [projectStatus, roles, conversationInteractions] = await Promise.all([
@@ -223,7 +272,7 @@ async function buildSkillNativeExecutionSnapshot(input: {
     input.selected.boundChangeId,
   );
   const harness = await projectHarnessExecutionPort(input.project, evidenceRoot, input.planningEvidence);
-  const [runs, taskQueues, taskQueueItems, taskRuns, workerLeases, worktrees, validations, audits] = await Promise.all([
+  const [runs, taskQueues, taskQueueItems, taskRuns, workerLeases, worktrees, validations, audits, finalizationRequests] = await Promise.all([
     listRuns(runtime).then((items) => items.filter((item) => item.changeId === input.selected.boundChangeId)),
     listTaskQueues(runtime, input.selected.boundChangeId),
     listTaskQueueItems(runtime, input.selected.boundChangeId),
@@ -232,6 +281,7 @@ async function buildSkillNativeExecutionSnapshot(input: {
     listWorktreesForChange(runtime, input.selected.boundChangeId),
     listValidationResults(runtime, input.selected.boundChangeId),
     listAuditResults(runtime, input.selected.boundChangeId),
+    listPendingSkillNativeProjectHarnessChangeFinalizations(input.resolution, input.selected.boundChangeId),
   ]);
   const topic: WorkbenchTopicDetail = {
     ...conversationTopic(input.selected),
@@ -312,7 +362,10 @@ async function buildSkillNativeExecutionSnapshot(input: {
         },
   };
   const decision = resultDecisionContext(input.project, topic, resultReview);
-  const current = decisionContextToConfirmationItems(decision, true, topic.id);
+  const finalizationItems = changeFinalizationToConfirmationItems(input.project, finalizationRequests);
+  const current = finalizationItems.length
+    ? finalizationItems
+    : decisionContextToConfirmationItems(decision, true, topic.id);
   const confirmationQueue: WorkbenchConfirmationQueue = {
     primary: current[0] ?? null,
     current,

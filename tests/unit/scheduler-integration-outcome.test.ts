@@ -94,16 +94,6 @@ const mocks = vi.hoisted(() => {
   };
 });
 
-vi.mock("../../src/memory/resolver.js", () => ({
-  resolveProjectMemory: vi.fn(async () => ({ projectId: "project-1", root: "memory-root", supported: true })),
-}));
-
-vi.mock("../../src/change/target.js", () => ({
-  resolveRunnableChangeTarget: vi.fn(async () => ({
-    status: { activeChanges: [{ name: "change-1", path: "change-path" }] },
-  })),
-}));
-
 vi.mock("../../src/scheduler-runtime/guards.js", () => ({
   readSchedulerRuntimeLineage: vi.fn(async () => ({
     run: { id: "scheduler-run-1", changeId: "change-1" },
@@ -137,6 +127,23 @@ vi.mock("../../src/worktree/manager.js", () => ({
   getWorktreeStatus: mocks.getWorktreeStatus,
 }));
 
+const executionPort = {
+  artifacts: {
+    changeEvidenceRoot: "skill-root/state/changes/active/change-1",
+    planningRoot: "skill-root/state/changes/active/change-1/planning",
+    runtimeRoot: "sidecar-root/scheduler-runs/change-1",
+    artifactRoots: ["skill-root", "sidecar-root"],
+  },
+  runtime: { projectId: "project-1" },
+  harness: {
+    planning: { change: { change_id: "change-1" } },
+    changeStatus: {
+      change: { id: "change-1" },
+      activeChanges: [{ name: "change-1", path: "state/changes/active/change-1" }],
+    },
+  },
+} as never;
+
 describe("Scheduler integration outcome reconciliation", () => {
   beforeEach(() => {
     mocks.writeSchedulerIntegrationOutcome.mockReset();
@@ -163,7 +170,7 @@ describe("Scheduler integration outcome reconciliation", () => {
       changeId: "change-1",
       schedulerRunId: "scheduler-run-1",
       schedulerIntegrationCheckHandoffId: "handoff-1",
-    });
+    }, executionPort);
 
     expect(result.status).toBe("waiting-for-apply");
     expect(result.outcome).toBeNull();
@@ -189,14 +196,14 @@ describe("Scheduler integration outcome reconciliation", () => {
       changeId: "change-1",
       schedulerRunId: "scheduler-run-1",
       schedulerIntegrationCheckHandoffId: "handoff-1",
-    });
+    }, executionPort);
 
     expect(result.status).toBe("reconciled");
     expect(result.outcome?.status).toBe("applied");
     expect(mocks.writeSchedulerIntegrationOutcome).toHaveBeenCalledTimes(1);
     expect(mocks.appendSchedulerRuntimeEvent).toHaveBeenCalledWith(
-      { projectId: "project-1", root: "memory-root", supported: true },
-      "change-path",
+      executionPort.artifacts,
+      "state/changes/active/change-1",
       { id: "scheduler-run-1", changeId: "change-1" },
       "scheduler-runtime.integration-outcome-recorded",
       expect.objectContaining({
@@ -228,7 +235,7 @@ describe("Scheduler integration outcome reconciliation", () => {
       changeId: "change-1",
       schedulerRunId: "scheduler-run-1",
       schedulerIntegrationCheckHandoffId: "handoff-1",
-    })).rejects.toThrow(/discarded target already has applied evidence/);
+    }, executionPort)).rejects.toThrow(/discarded target already has applied evidence/);
     expect(mocks.writeSchedulerIntegrationOutcome).not.toHaveBeenCalled();
   });
 
@@ -240,7 +247,7 @@ describe("Scheduler integration outcome reconciliation", () => {
       changeId: "change-1",
       schedulerRunId: "scheduler-run-1",
       schedulerIntegrationCheckHandoffId: "handoff-1",
-    });
+    }, executionPort);
 
     expect(result.status).toBe("reconciled");
     expect(result.outcome?.status).toBe("discarded");
@@ -257,7 +264,7 @@ describe("Scheduler integration outcome reconciliation", () => {
       changeId: "change-1",
       schedulerRunId: "scheduler-run-1",
       schedulerIntegrationCheckHandoffId: "handoff-1",
-    })).rejects.toThrow(/SchedulerIntegrationCandidate target is stale/);
+    }, executionPort)).rejects.toThrow(/SchedulerIntegrationCandidate target is stale/);
     expect(mocks.writeSchedulerIntegrationOutcome).not.toHaveBeenCalled();
   });
 
@@ -275,7 +282,7 @@ describe("Scheduler integration outcome reconciliation", () => {
       changeId: "change-1",
       schedulerRunId: "scheduler-run-1",
       schedulerIntegrationCheckHandoffId: "handoff-1",
-    })).rejects.toThrow(/candidate diff hash mismatch/);
+    }, executionPort)).rejects.toThrow(/candidate diff hash mismatch/);
     expect(mocks.writeSchedulerIntegrationOutcome).not.toHaveBeenCalled();
   });
 });

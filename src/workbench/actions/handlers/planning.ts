@@ -23,6 +23,7 @@ import {
   type SchedulerRuntimeWorkerStart,
 } from "../../../scheduler-runtime/manager.js";
 import type { ManagedProject } from "../../../types/index.js";
+import type { SchedulerReadySetExecutionPort } from "../../../scheduler-runtime/execution-port.js";
 import { initializeSkillNativeSequentialWorkflow } from "../../../workflow-runtime/skill-native-initialization.js";
 import { initializeSkillNativeReadySetWorkflow } from "../../../workflow-runtime/skill-native-ready-set.js";
 import { runSkillNativeSequentialExecution } from "../../../workflow-runtime/skill-native-sequential.js";
@@ -71,6 +72,7 @@ export async function startPlanningSchedulerFirstWorker(
   changeId: string,
   request: WorkbenchWorkflowActionRequest,
   live: WorkbenchLiveSink | undefined,
+  port: SchedulerReadySetExecutionPort,
 ): Promise<{ workerStart: SchedulerRuntimeWorkerStart; taskRun: unknown; lease: unknown; code: unknown; executionStarted: true }> {
   await resolveTopic(project, changeId);
   if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.start-first requires schedulerRunId.");
@@ -83,7 +85,7 @@ export async function startPlanningSchedulerFirstWorker(
     schedulerClaimReservationId: request.schedulerClaimReservationId,
     reservationIntentId: request.reservationIntentId,
     claimIntentId: request.claimIntentId,
-  });
+  }, port);
   await appendCanonicalTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: "scheduler-first-worker-started",
@@ -132,6 +134,7 @@ export async function startPlanningSchedulerNextWorker(
   changeId: string,
   request: WorkbenchWorkflowActionRequest,
   live: WorkbenchLiveSink | undefined,
+  port: SchedulerReadySetExecutionPort,
 ): Promise<{ workerStart: SchedulerRuntimeWorkerStart; taskRun: unknown; lease: unknown; code: unknown; executionStarted: true }> {
   await resolveTopic(project, changeId);
   if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.start-next requires schedulerRunId.");
@@ -144,7 +147,7 @@ export async function startPlanningSchedulerNextWorker(
     schedulerClaimReservationId: request.schedulerClaimReservationId,
     reservationIntentId: request.reservationIntentId,
     claimIntentId: request.claimIntentId,
-  });
+  }, port);
   await appendCanonicalTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: "scheduler-next-worker-started",
@@ -193,6 +196,7 @@ export async function reconcilePlanningSchedulerFirstWorkerResult(
   changeId: string,
   request: WorkbenchWorkflowActionRequest,
   live: WorkbenchLiveSink | undefined,
+  port: SchedulerReadySetExecutionPort,
 ): Promise<SchedulerWorkerResultReconcileResult> {
   await resolveTopic(project, changeId);
   if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.reconcile-result requires schedulerRunId.");
@@ -201,7 +205,7 @@ export async function reconcilePlanningSchedulerFirstWorkerResult(
     changeId,
     schedulerRunId: request.schedulerRunId,
     schedulerWorkerStartId: request.schedulerWorkerStartId,
-  });
+  }, port);
   if (result.status === "running") {
     await appendCanonicalTimelineEntry(project, changeId, {
       type: "assistant.message",
@@ -296,6 +300,7 @@ export async function validatePlanningSchedulerFirstWorker(
   changeId: string,
   request: WorkbenchWorkflowActionRequest,
   live: WorkbenchLiveSink | undefined,
+  port: SchedulerReadySetExecutionPort,
 ): Promise<SchedulerWorkerValidationResult> {
   await resolveTopic(project, changeId);
   if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.validate-first requires schedulerRunId.");
@@ -304,7 +309,7 @@ export async function validatePlanningSchedulerFirstWorker(
     changeId,
     schedulerRunId: request.schedulerRunId,
     schedulerWorkerResultId: request.schedulerWorkerResultId,
-  });
+  }, port);
   await appendCanonicalTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: result.schedulerValidation.status === "passed" ? "scheduler-first-worker-validation-passed" : "scheduler-first-worker-validation-failed",
@@ -360,6 +365,7 @@ export async function auditPlanningSchedulerFirstWorker(
   changeId: string,
   request: WorkbenchWorkflowActionRequest,
   live: WorkbenchLiveSink | undefined,
+  port: SchedulerReadySetExecutionPort,
 ): Promise<SchedulerWorkerAuditResult> {
   await resolveTopic(project, changeId);
   if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.audit-first requires schedulerRunId.");
@@ -368,7 +374,7 @@ export async function auditPlanningSchedulerFirstWorker(
     changeId,
     schedulerRunId: request.schedulerRunId,
     schedulerWorkerValidationId: request.schedulerWorkerValidationId,
-  });
+  }, port);
   const approved = result.schedulerAudit.status === "approved" || result.schedulerAudit.status === "approved-with-notes";
   await appendCanonicalTimelineEntry(project, changeId, {
     type: "assistant.message",
@@ -427,6 +433,7 @@ export async function compilePlanningSchedulerFirstWorkerReworkPlan(
   changeId: string,
   request: WorkbenchWorkflowActionRequest,
   live: WorkbenchLiveSink | undefined,
+  port: SchedulerReadySetExecutionPort,
 ): Promise<SchedulerWorkerReworkPlanResult> {
   await resolveTopic(project, changeId);
   if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.rework-plan.compile requires schedulerRunId.");
@@ -436,7 +443,7 @@ export async function compilePlanningSchedulerFirstWorkerReworkPlan(
     schedulerRunId: request.schedulerRunId,
     schedulerWorkerValidationId: request.schedulerWorkerValidationId,
     ...(request.schedulerWorkerAuditId ? { schedulerWorkerAuditId: request.schedulerWorkerAuditId } : {}),
-  });
+  }, port);
   await appendCanonicalTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: "scheduler-first-worker-rework-plan-compiled",
@@ -493,6 +500,7 @@ export async function startPlanningSchedulerFirstWorkerRework(
   changeId: string,
   request: WorkbenchWorkflowActionRequest,
   live: WorkbenchLiveSink | undefined,
+  port: SchedulerReadySetExecutionPort,
 ): Promise<SchedulerFirstWorkerReworkStartResult> {
   await resolveTopic(project, changeId);
   if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.rework-start-first requires schedulerRunId.");
@@ -517,7 +525,7 @@ export async function startPlanningSchedulerFirstWorkerRework(
         summary: run.worktree ? `Reusing worktree ${run.worktree.worktreeId}.` : undefined,
       }),
     } : undefined,
-  });
+  }, port);
   await appendCanonicalTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: "scheduler-first-worker-rework-started",
@@ -575,6 +583,7 @@ export async function reconcilePlanningSchedulerFirstWorkerReworkResult(
   changeId: string,
   request: WorkbenchWorkflowActionRequest,
   live: WorkbenchLiveSink | undefined,
+  port: SchedulerReadySetExecutionPort,
 ): Promise<SchedulerWorkerReworkResultReconcileResult> {
   await resolveTopic(project, changeId);
   if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.rework-reconcile-result requires schedulerRunId.");
@@ -583,7 +592,7 @@ export async function reconcilePlanningSchedulerFirstWorkerReworkResult(
     changeId,
     schedulerRunId: request.schedulerRunId,
     schedulerWorkerReworkStartId: request.schedulerWorkerReworkStartId,
-  });
+  }, port);
   if (result.status === "running") {
     emitAssistantEvent(live, {
       runId: result.reworkStart.id,
@@ -685,6 +694,7 @@ export async function validatePlanningSchedulerFirstWorkerRework(
   changeId: string,
   request: WorkbenchWorkflowActionRequest,
   live: WorkbenchLiveSink | undefined,
+  port: SchedulerReadySetExecutionPort,
 ): Promise<SchedulerWorkerReworkValidationResult> {
   await resolveTopic(project, changeId);
   if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.rework-validate-first requires schedulerRunId.");
@@ -693,7 +703,7 @@ export async function validatePlanningSchedulerFirstWorkerRework(
     changeId,
     schedulerRunId: request.schedulerRunId,
     schedulerWorkerReworkResultId: request.schedulerWorkerReworkResultId,
-  });
+  }, port);
   await appendCanonicalTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: result.schedulerReworkValidation.status === "passed" ? "scheduler-first-worker-rework-validation-passed" : "scheduler-first-worker-rework-validation-failed",
@@ -758,6 +768,7 @@ export async function auditPlanningSchedulerFirstWorkerRework(
   changeId: string,
   request: WorkbenchWorkflowActionRequest,
   live: WorkbenchLiveSink | undefined,
+  port: SchedulerReadySetExecutionPort,
 ): Promise<SchedulerWorkerReworkAuditResult> {
   await resolveTopic(project, changeId);
   if (!request.schedulerRunId) throw new Error("planning.scheduler.worker.rework-audit-first requires schedulerRunId.");
@@ -766,7 +777,7 @@ export async function auditPlanningSchedulerFirstWorkerRework(
     changeId,
     schedulerRunId: request.schedulerRunId,
     schedulerWorkerReworkValidationId: request.schedulerWorkerReworkValidationId,
-  });
+  }, port);
   const approved = result.schedulerReworkAudit.status === "approved" || result.schedulerReworkAudit.status === "approved-with-notes";
   await appendCanonicalTimelineEntry(project, changeId, {
     type: "assistant.message",
@@ -835,13 +846,14 @@ export async function compilePlanningSchedulerIntegrationCandidate(
   changeId: string,
   request: WorkbenchWorkflowActionRequest,
   live: WorkbenchLiveSink | undefined,
+  port: SchedulerReadySetExecutionPort,
 ): Promise<SchedulerIntegrationCandidateResult> {
   await resolveTopic(project, changeId);
   if (!request.schedulerRunId) throw new Error("planning.scheduler.integration-candidate.compile requires schedulerRunId.");
   const result = await runSchedulerIntegrationCandidateCompile(project, {
     changeId,
     schedulerRunId: request.schedulerRunId,
-  });
+  }, port);
   await appendCanonicalTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: "scheduler-integration-candidate-compiled",
@@ -889,6 +901,7 @@ export async function runPlanningSchedulerIntegrationCheckHandoff(
   changeId: string,
   request: WorkbenchWorkflowActionRequest,
   live: WorkbenchLiveSink | undefined,
+  port: SchedulerReadySetExecutionPort,
 ): Promise<SchedulerIntegrationCheckHandoffResult> {
   await resolveTopic(project, changeId);
   if (!request.schedulerRunId) throw new Error("planning.scheduler.integration-check.run requires schedulerRunId.");
@@ -897,7 +910,7 @@ export async function runPlanningSchedulerIntegrationCheckHandoff(
     changeId,
     schedulerRunId: request.schedulerRunId,
     schedulerIntegrationCandidateId: request.schedulerIntegrationCandidateId,
-  });
+  }, port);
   await appendCanonicalTimelineEntry(project, changeId, {
     type: "assistant.message",
     status: "scheduler-integration-check-handoff-completed",
@@ -946,6 +959,7 @@ export async function reconcilePlanningSchedulerIntegrationOutcome(
   changeId: string,
   request: WorkbenchWorkflowActionRequest,
   live: WorkbenchLiveSink | undefined,
+  port: SchedulerReadySetExecutionPort,
 ): Promise<SchedulerIntegrationOutcomeResult> {
   await resolveTopic(project, changeId);
   if (!request.schedulerRunId) throw new Error("planning.scheduler.integration-outcome.reconcile requires schedulerRunId.");
@@ -954,7 +968,7 @@ export async function reconcilePlanningSchedulerIntegrationOutcome(
     changeId,
     schedulerRunId: request.schedulerRunId,
     schedulerIntegrationCheckHandoffId: request.schedulerIntegrationCheckHandoffId,
-  });
+  }, port);
   const title = result.outcome ? "Scheduler integration outcome recorded" : "Scheduler IntegrationCheck waiting for apply/discard";
   const text = result.outcome
     ? renderSchedulerIntegrationOutcomeMarkdown(result.outcome)
@@ -1008,6 +1022,7 @@ export async function completePlanningSchedulerRun(
   changeId: string,
   request: WorkbenchWorkflowActionRequest,
   live: WorkbenchLiveSink | undefined,
+  port: SchedulerReadySetExecutionPort,
 ): Promise<SchedulerRunCompletionResult> {
   await resolveTopic(project, changeId);
   if (!request.schedulerRunId) throw new Error("planning.scheduler.run.complete requires schedulerRunId.");
@@ -1016,7 +1031,7 @@ export async function completePlanningSchedulerRun(
     changeId,
     schedulerRunId: request.schedulerRunId,
     schedulerIntegrationOutcomeId: request.schedulerIntegrationOutcomeId,
-  });
+  }, port);
   const text = renderSchedulerRunCompletionMarkdown(result.completion);
   emitAssistantEvent(live, {
     runId: result.completion.integrationCheckId,
@@ -1066,6 +1081,7 @@ export async function closeBlockedPlanningSchedulerRun(
   changeId: string,
   request: WorkbenchWorkflowActionRequest,
   live: WorkbenchLiveSink | undefined,
+  port: SchedulerReadySetExecutionPort,
 ): Promise<SchedulerRunBlockedCloseoutResult> {
   await resolveTopic(project, changeId);
   if (!request.schedulerRunId) throw new Error("planning.scheduler.run.close-blocked requires schedulerRunId.");
@@ -1076,7 +1092,7 @@ export async function closeBlockedPlanningSchedulerRun(
     schedulerRunId: request.schedulerRunId,
     schedulerClaimReservationId: request.schedulerClaimReservationId,
     schedulerIntegrationCandidateId: request.schedulerIntegrationCandidateId,
-  });
+  }, port);
   const text = renderSchedulerRunBlockedCloseoutMarkdown(result.closeout);
   emitAssistantEvent(live, {
     runId: result.closeout.schedulerRunId,

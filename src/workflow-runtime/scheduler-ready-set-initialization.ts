@@ -38,6 +38,8 @@ import type {
   SchedulerRun,
   SchedulerWorkerSessionPlan,
 } from "../workflow-scheduler/types.js";
+import { createSchedulerArtifactStore } from "../scheduler-runtime/artifact-store.js";
+import { join } from "node:path";
 
 export interface SchedulerReadySetInitializationResult {
   contract: SchedulerContract;
@@ -58,7 +60,12 @@ export async function initializeSchedulerReadySetFromGraph(
   graph: ReadySetWorkflowGraphPlan,
 ): Promise<SchedulerReadySetInitializationResult> {
   await validateCurrentAuthoredGraph(memory, changePath, graph);
-  const existingRun = await readLatestSchedulerRun(memory, changePath).catch(() => null);
+  const artifacts = createSchedulerArtifactStore({
+    changeId: graph.changeId,
+    changeEvidenceRoot: join(memory.memoryRoot, changePath),
+    artifactRoots: [memory.memoryRoot, memory.projectRoot],
+  });
+  const existingRun = await readLatestSchedulerRun(artifacts, changePath).catch(() => null);
   let contract: SchedulerContract;
   let dryRun: SchedulerDispatchDryRun;
   let workerPlan: SchedulerWorkerSessionPlan;
@@ -68,11 +75,11 @@ export async function initializeSchedulerReadySetFromGraph(
 
   if (existingRun?.workflowGraphPlanId === graph.id) {
     [contract, dryRun, workerPlan, claimReconcilePlan, launchPreflight] = await Promise.all([
-      readLatestSchedulerContract(memory, changePath),
-      readLatestSchedulerDispatchDryRun(memory, changePath),
-      readLatestSchedulerWorkerSessionPlan(memory, changePath),
-      readLatestSchedulerClaimReconcilePlan(memory, changePath),
-      readLatestSchedulerLaunchPreflight(memory, changePath),
+      readLatestSchedulerContract(artifacts, changePath),
+      readLatestSchedulerDispatchDryRun(artifacts, changePath),
+      readLatestSchedulerWorkerSessionPlan(artifacts, changePath),
+      readLatestSchedulerClaimReconcilePlan(artifacts, changePath),
+      readLatestSchedulerLaunchPreflight(artifacts, changePath),
     ]);
     schedulerRun = existingRun;
     assertInitializationLineage(graph, contract, dryRun, workerPlan, claimReconcilePlan, launchPreflight, schedulerRun);
@@ -85,29 +92,29 @@ export async function initializeSchedulerReadySetFromGraph(
       now,
     );
     contract = bundle.contract;
-    await writeSchedulerContract(memory, changePath, contract);
+    await writeSchedulerContract(artifacts, changePath, contract);
     dryRun = bundle.dryRun;
-    await writeSchedulerDispatchDryRun(memory, changePath, dryRun);
+    await writeSchedulerDispatchDryRun(artifacts, changePath, dryRun);
     workerPlan = bundle.workerPlan;
-    await writeSchedulerWorkerSessionPlan(memory, changePath, workerPlan);
+    await writeSchedulerWorkerSessionPlan(artifacts, changePath, workerPlan);
     claimReconcilePlan = bundle.claimReconcilePlan;
-    await writeSchedulerClaimReconcilePlan(memory, changePath, claimReconcilePlan);
+    await writeSchedulerClaimReconcilePlan(artifacts, changePath, claimReconcilePlan);
     launchPreflight = bundle.launchPreflight;
-    await writeSchedulerLaunchPreflight(memory, changePath, launchPreflight);
+    await writeSchedulerLaunchPreflight(artifacts, changePath, launchPreflight);
     if (launchPreflight.status !== "checked") {
       throw new Error(`Authored ready-set WorkflowGraphPlan launch preflight is blocked: ${launchPreflight.blockedReasons.join("; ")}`);
     }
-    schedulerRun = await prepareSchedulerRun(memory, changePath, launchPreflight, claimReconcilePlan, workerPlan, dryRun, contract);
+    schedulerRun = await prepareSchedulerRun(artifacts, changePath, launchPreflight, claimReconcilePlan, workerPlan, dryRun, contract);
   }
 
-  let runtimeState = await readSchedulerRuntimeStateProjection(memory, changePath, schedulerRun.id)
-    ?? await initializeSchedulerRuntime(memory, changePath, schedulerRun.id);
+  let runtimeState = await readSchedulerRuntimeStateProjection(artifacts, changePath, schedulerRun.id)
+    ?? await initializeSchedulerRuntime(artifacts, changePath, schedulerRun.id);
   let reconcileSnapshot = runtimeState.lastReconcileSnapshotId
-    ? await readSchedulerReconcileSnapshotProjection(memory, changePath, schedulerRun.id, runtimeState.lastReconcileSnapshotId)
+    ? await readSchedulerReconcileSnapshotProjection(artifacts, changePath, schedulerRun.id, runtimeState.lastReconcileSnapshotId)
     : null;
-  if (!reconcileSnapshot) reconcileSnapshot = await reconcileSchedulerRuntime(memory, changePath, schedulerRun.id);
-  const claimReservation = await reserveSchedulerRuntimeClaims(memory, changePath, schedulerRun.id, reconcileSnapshot.id);
-  runtimeState = await readSchedulerRuntimeState(memory, changePath, schedulerRun.id);
+  if (!reconcileSnapshot) reconcileSnapshot = await reconcileSchedulerRuntime(artifacts, changePath, schedulerRun.id);
+  const claimReservation = await reserveSchedulerRuntimeClaims(artifacts, changePath, schedulerRun.id, reconcileSnapshot.id);
+  runtimeState = await readSchedulerRuntimeState(artifacts, changePath, schedulerRun.id);
 
   return {
     contract,

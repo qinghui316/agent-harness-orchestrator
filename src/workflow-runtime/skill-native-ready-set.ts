@@ -67,7 +67,7 @@ export async function initializeSkillNativeReadySetWorkflow(
     };
     return {
       value: initialized,
-      evidenceRefs: runtimeEvidenceRefs(gate.changeId, schedulerRunId, initialized),
+      evidenceRefs: runtimeEvidenceRefs(initialized),
       rollback,
     };
   } catch (error) {
@@ -101,11 +101,22 @@ export async function readSkillNativeReadySetInitialization(
   graph: ReadySetWorkflowGraphPlan,
 ): Promise<SkillNativeReadySetInitialization> {
   const root = schedulerRunRoot(runs, changeId, schedulerRunId);
-  const [schedulerRun, runtimeState, reconcileSnapshot, claimReservation] = await Promise.all([
+  const [schedulerRun, runtimeState] = await Promise.all([
     readFile(join(root, "scheduler-run.json"), "utf8").then((value) => schedulerRunSchema.parse(JSON.parse(value))),
     readFile(join(root, "scheduler-runtime-state.json"), "utf8").then((value) => schedulerRuntimeStateSchema.parse(JSON.parse(value))),
-    readFile(join(root, "scheduler-reconcile-snapshot.json"), "utf8").then((value) => schedulerReconcileSnapshotSchema.parse(JSON.parse(value))),
-    readFile(join(root, "scheduler-claim-reservation.json"), "utf8").then((value) => schedulerRuntimeClaimReservationSchema.parse(JSON.parse(value))),
+  ]);
+  if (!runtimeState.lastReconcileSnapshotId || !runtimeState.lastClaimReservationId) {
+    throw new Error("Skill-native Scheduler initialization is missing current snapshot or reservation identity.");
+  }
+  const [reconcileSnapshot, claimReservation] = await Promise.all([
+    readFile(
+      join(root, "scheduler-reconcile-snapshots", `${runtimeState.lastReconcileSnapshotId}.json`),
+      "utf8",
+    ).then((value) => schedulerReconcileSnapshotSchema.parse(JSON.parse(value))),
+    readFile(
+      join(root, "scheduler-runtime-claim-reservations", `${runtimeState.lastClaimReservationId}.json`),
+      "utf8",
+    ).then((value) => schedulerRuntimeClaimReservationSchema.parse(JSON.parse(value))),
   ]);
   if (schedulerRun.changeId !== changeId
     || schedulerRun.id !== schedulerRunId
@@ -147,7 +158,9 @@ function buildInitialization(
   now: string,
 ): SkillNativeReadySetInitialization {
   const planning = gate.evidence.schedulerPlanning!;
-  const runRefs = runtimeRefs(gate.changeId, schedulerRunId);
+  const snapshotId = `scheduler-reconcile-${shortHash(`${schedulerRunId}:initial`).slice(0, 16)}`;
+  const reservationId = `scheduler-claim-reservation-${shortHash(`${schedulerRunId}:${snapshotId}`).slice(0, 16)}`;
+  const runRefs = runtimeRefs(gate.changeId, schedulerRunId, snapshotId, reservationId);
   const schedulerRun: SchedulerRun = {
     version: "1.0",
     id: schedulerRunId,
@@ -175,8 +188,6 @@ function buildInitialization(
     createdAt: now,
     updatedAt: now,
   };
-  const snapshotId = `scheduler-reconcile-${shortHash(`${schedulerRunId}:initial`).slice(0, 16)}`;
-  const reservationId = `scheduler-claim-reservation-${shortHash(`${schedulerRunId}:${snapshotId}`).slice(0, 16)}`;
   const baseRuntimeState = buildSchedulerRuntimeState(schedulerRun, planning.claimReconcilePlan, {
     artifact: runRefs.state,
     eventsArtifact: runRefs.events,
@@ -211,17 +222,20 @@ function buildInitialization(
 
 async function persistInitialization(root: string, initialized: SkillNativeReadySetInitialization): Promise<void> {
   const events = schedulerEvents(initialized);
+  const snapshotsRoot = join(root, "scheduler-reconcile-snapshots");
+  const reservationsRoot = join(root, "scheduler-runtime-claim-reservations");
+  await Promise.all([mkdir(snapshotsRoot, { recursive: true }), mkdir(reservationsRoot, { recursive: true })]);
   await Promise.all([
     writeJsonFile(join(root, "scheduler-run.json"), initialized.schedulerRun),
     writeFile(join(root, "scheduler-run.md"), renderSchedulerRunMarkdown(initialized.schedulerRun), "utf8"),
     writeJsonFile(join(root, "scheduler-runtime-state.json"), initialized.runtimeState),
     writeFile(join(root, "scheduler-runtime-state.md"), renderSchedulerRuntimeStateMarkdown(initialized.runtimeState), "utf8"),
-    writeJsonFile(join(root, "scheduler-reconcile-snapshot.json"), initialized.reconcileSnapshot),
-    writeFile(join(root, "scheduler-reconcile-snapshot.md"), renderSchedulerReconcileSnapshotMarkdown(initialized.reconcileSnapshot), "utf8"),
-    writeJsonFile(join(root, "scheduler-claim-reservation.json"), initialized.claimReservation),
-    writeFile(join(root, "scheduler-claim-reservation.md"), renderSchedulerRuntimeClaimReservationMarkdown(initialized.claimReservation), "utf8"),
+    writeJsonFile(join(snapshotsRoot, `${initialized.reconcileSnapshot.id}.json`), initialized.reconcileSnapshot),
+    writeFile(join(snapshotsRoot, `${initialized.reconcileSnapshot.id}.md`), renderSchedulerReconcileSnapshotMarkdown(initialized.reconcileSnapshot), "utf8"),
+    writeJsonFile(join(reservationsRoot, `${initialized.claimReservation.id}.json`), initialized.claimReservation),
+    writeFile(join(reservationsRoot, `${initialized.claimReservation.id}.md`), renderSchedulerRuntimeClaimReservationMarkdown(initialized.claimReservation), "utf8"),
   ]);
-  await appendFile(join(root, "scheduler-events.jsonl"), `${events.map((event) => JSON.stringify(event)).join("\n")}\n`, "utf8");
+  await appendFile(join(root, "scheduler-runtime-events.jsonl"), `${events.map((event) => JSON.stringify(event)).join("\n")}\n`, "utf8");
 }
 
 function schedulerEvents(initialized: SkillNativeReadySetInitialization): SchedulerRuntimeEvent[] {
@@ -257,32 +271,34 @@ function schedulerRunRoot(runs: ProjectRunsPathPort, changeId: string, scheduler
   return join(schedulerRunsChangeRoot(runs, changeId), schedulerRunId);
 }
 
-function runtimeRefs(changeId: string, schedulerRunId: string) {
+function runtimeRefs(
+  changeId: string,
+  schedulerRunId: string,
+  snapshotId: string,
+  reservationId: string,
+) {
   const root = `runs/scheduler-runs/${changeId}/${schedulerRunId}`;
   return {
     run: `${root}/scheduler-run.json`,
     runMarkdown: `${root}/scheduler-run.md`,
     state: `${root}/scheduler-runtime-state.json`,
-    events: `${root}/scheduler-events.jsonl`,
-    snapshot: `${root}/scheduler-reconcile-snapshot.json`,
-    snapshotMarkdown: `${root}/scheduler-reconcile-snapshot.md`,
-    reservation: `${root}/scheduler-claim-reservation.json`,
-    reservationMarkdown: `${root}/scheduler-claim-reservation.md`,
+    events: `${root}/scheduler-runtime-events.jsonl`,
+    snapshot: `${root}/scheduler-reconcile-snapshots/${snapshotId}.json`,
+    snapshotMarkdown: `${root}/scheduler-reconcile-snapshots/${snapshotId}.md`,
+    reservation: `${root}/scheduler-runtime-claim-reservations/${reservationId}.json`,
+    reservationMarkdown: `${root}/scheduler-runtime-claim-reservations/${reservationId}.md`,
   };
 }
 
 function runtimeEvidenceRefs(
-  changeId: string,
-  schedulerRunId: string,
   initialized: SkillNativeReadySetInitialization,
 ): string[] {
-  const refs = runtimeRefs(changeId, schedulerRunId);
   return [
     initialized.schedulerRun.artifact,
     initialized.runtimeState.artifact,
     initialized.reconcileSnapshot.artifact,
     initialized.claimReservation.artifact,
-    refs.events,
+    initialized.runtimeState.eventsArtifact,
   ];
 }
 

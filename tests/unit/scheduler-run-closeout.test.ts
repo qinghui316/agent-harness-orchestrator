@@ -107,16 +107,6 @@ const mocks = vi.hoisted(() => {
   };
 });
 
-vi.mock("../../src/memory/resolver.js", () => ({
-  resolveProjectMemory: vi.fn(async () => ({ projectId: "project-1", root: "memory-root", supported: true })),
-}));
-
-vi.mock("../../src/change/target.js", () => ({
-  resolveRunnableChangeTarget: vi.fn(async () => ({
-    status: { activeChanges: [{ name: "change-1", path: "change-path" }] },
-  })),
-}));
-
 vi.mock("../../src/workflow-scheduler/repository.js", () => ({
   readSchedulerRun: mocks.readSchedulerRun,
 }));
@@ -171,6 +161,23 @@ vi.mock("../../src/scheduler-runtime/repository.js", () => ({
   writeSchedulerRunBlockedCloseout: mocks.writeSchedulerRunBlockedCloseout,
 }));
 
+const executionPort = {
+  artifacts: {
+    changeEvidenceRoot: "skill-root/state/changes/active/change-1",
+    planningRoot: "skill-root/state/changes/active/change-1/planning",
+    runtimeRoot: "sidecar-root/scheduler-runs/change-1",
+    artifactRoots: ["skill-root", "sidecar-root"],
+  },
+  runtime: { projectId: "project-1" },
+  harness: {
+    planning: { change: { change_id: "change-1" } },
+    changeStatus: {
+      change: { id: "change-1" },
+      activeChanges: [{ name: "change-1", path: "state/changes/active/change-1" }],
+    },
+  },
+} as never;
+
 describe("SchedulerRun blocked closeout", () => {
   beforeEach(() => {
     mocks.appendSchedulerRuntimeEvent.mockReset();
@@ -207,7 +214,7 @@ describe("SchedulerRun blocked closeout", () => {
       schedulerRunId: "scheduler-run-1",
       schedulerClaimReservationId: "reservation-1",
       schedulerIntegrationCandidateId: "candidate-1",
-    });
+    }, executionPort);
 
     expect(result.schedulerRunStatus).toBe("completed");
     expect(result.sourceMutated).toBe(false);
@@ -216,8 +223,8 @@ describe("SchedulerRun blocked closeout", () => {
     expect(mocks.writeSchedulerRunBlockedCloseout).toHaveBeenCalledTimes(1);
     expect(mocks.completeSchedulerRun).toHaveBeenCalledTimes(1);
     expect(mocks.appendSchedulerRuntimeEvent).toHaveBeenCalledWith(
-      { projectId: "project-1", root: "memory-root", supported: true },
-      "change-path",
+      executionPort.artifacts,
+      "state/changes/active/change-1",
       expect.objectContaining({ id: "scheduler-run-1", status: "completed" }),
       "scheduler-runtime.run-closeout-recorded",
       expect.objectContaining({
@@ -243,7 +250,7 @@ describe("SchedulerRun blocked closeout", () => {
       schedulerRunId: "scheduler-run-1",
       schedulerClaimReservationId: "reservation-1",
       schedulerIntegrationCandidateId: "candidate-1",
-    })).rejects.toThrow(/enough ready targets/);
+    }, executionPort)).rejects.toThrow(/enough ready targets/);
     expect(mocks.writeSchedulerRunBlockedCloseout).not.toHaveBeenCalled();
     expect(mocks.completeSchedulerRun).not.toHaveBeenCalled();
   });
@@ -257,7 +264,7 @@ describe("SchedulerRun blocked closeout", () => {
       schedulerRunId: "scheduler-run-1",
       schedulerClaimReservationId: "reservation-1",
       schedulerIntegrationCandidateId: "candidate-1",
-    })).rejects.toThrow(/legal next scheduler worker/);
+    }, executionPort)).rejects.toThrow(/legal next scheduler worker/);
     expect(mocks.writeSchedulerRunBlockedCloseout).not.toHaveBeenCalled();
   });
 
@@ -270,7 +277,7 @@ describe("SchedulerRun blocked closeout", () => {
       schedulerRunId: "scheduler-run-1",
       schedulerClaimReservationId: "reservation-1",
       schedulerIntegrationCandidateId: "candidate-1",
-    })).rejects.toThrow(/malformed handoff/);
+    }, executionPort)).rejects.toThrow(/malformed handoff/);
     expect(mocks.writeSchedulerRunBlockedCloseout).not.toHaveBeenCalled();
   });
 
@@ -283,7 +290,7 @@ describe("SchedulerRun blocked closeout", () => {
       schedulerRunId: "scheduler-run-1",
       schedulerClaimReservationId: "reservation-1",
       schedulerIntegrationCandidateId: "candidate-1",
-    })).rejects.toThrow(/ready target count mismatch/);
+    }, executionPort)).rejects.toThrow(/ready target count mismatch/);
     expect(mocks.writeSchedulerRunBlockedCloseout).not.toHaveBeenCalled();
   });
 
@@ -310,7 +317,7 @@ describe("SchedulerRun blocked closeout", () => {
       schedulerRunId: "scheduler-run-1",
       schedulerClaimReservationId: "reservation-1",
       schedulerIntegrationCandidateId: "candidate-1",
-    });
+    }, executionPort);
 
     expect(result.closeout).toBe(existingCloseout);
     expect(mocks.writeSchedulerRunBlockedCloseout).not.toHaveBeenCalled();

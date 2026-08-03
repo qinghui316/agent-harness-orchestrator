@@ -1,10 +1,13 @@
-﻿import { startAuditRun } from "../../../audit/manager.js";
+import { startAuditRun } from "../../../audit/manager.js";
 import { runIntegrationCheck } from "../../../integration-check/manager.js";
 import { reconcileTaskRuns } from "../../../task-run/manager.js";
 import { reconcileWorkflowTaskQueue, runTaskQueueSequentialWorkflow } from "../../../workflow-runtime/taskqueue.js";
 import { runDefaultCodeChangeWorkflow, runSourceRefreshReworkWorkflow, runTaskRunStageAction, runTopLevelRoleChainWorkflow, sourceRefreshReworkPrompt } from "../../../workflow-runtime/code-workflow.js";
 import { startValidationRun } from "../../../validation/manager.js";
 import { getSpecTestDriftReport } from "../../../spec-test/drift.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../../provider-runtime/project-harness-discovery.js";
+import { resolveProjectRuntimeState } from "../../../project-runtime/coordinator.js";
+import { finalizeSkillNativeProjectHarnessChange } from "../../../project-runtime/change-finalization.js";
 import type { ManagedProject, RunMetadata } from "../../../types/index.js";
 import { enqueueDemandWorkerForAction, evaluateDemandOrchestrator, pumpDemandWorkersForAction, reconcileDemandWorkersForAction, releaseDemandWorkerForAction, startNextDemandWorkerForAction } from "../../demand-workers/orchestration.js";
 import { startAcceptedSequentialWorkflow } from "./planning.js";
@@ -37,6 +40,15 @@ export function buildWorkbenchActionHandlers(deps: WorkbenchActionHandlerDeps): 
   },
   ...buildSchedulerActionHandlers(),
   "workflow.run.start": async (project, changeId, request, live) => startAcceptedSequentialWorkflow(project, changeId, request, live),
+  "harness-change.close": async (project, changeId, request) => {
+    if (!request.finalizationRequestId) throw new Error("harness-change.close requires finalizationRequestId.");
+    const state = await resolveProjectRuntimeState(project, { discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY });
+    if (state.state !== "ready") throw new Error(`Project Harness is not ready for Change finalization: ${state.state}.`);
+    return finalizeSkillNativeProjectHarnessChange(project, state.resolution, {
+      changeId,
+      finalizationRequestId: request.finalizationRequestId,
+    });
+  },
   "orchestrator.evaluate": async (project, changeId) => evaluateDemandOrchestrator(project, changeId),
   "orchestrator.pump": async (project, changeId, request, live) => pumpDemandWorkersForAction(project, request.prompt, live, changeId),
   "demand.worker.enqueue": async (project, changeId) => enqueueDemandWorkerForAction(project, changeId),

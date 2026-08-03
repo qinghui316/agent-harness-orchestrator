@@ -10,13 +10,25 @@ import {
   readSchedulerRuntimeState,
 } from "../scheduler-runtime/repository.js";
 import { readIntegrationCheck } from "../integration-check/repository.js";
+import type { IntegrationCheckRecord } from "../integration-check/types.js";
 import { schedulerIntegrationCandidateNeedsRefresh } from "../scheduler-runtime/worker-path.js";
 import { readSchedulerWorkerPathReadModelsForReservation, type SchedulerWorkerPathReadModel } from "../scheduler-runtime/worker-path-read-model.js";
-import { readLatestWorkflowGraphPlan } from "../workflow-artifacts/manager.js";
 import { resolveSchedulerCurrentTransition, schedulerCurrentTransitionWorkerTargetKey, type SchedulerCurrentTransition } from "../workflow-actions/scheduler-current-transition.js";
-import type { ReadySetWorkflowGraphPlan, ResolvedMemory } from "../types/index.js";
+import type { ReadySetWorkflowGraphPlan } from "../types/index.js";
+import type { ProjectExecutionRuntimePort } from "../project-runtime/execution-ports.js";
+import type { SchedulerArtifactStore } from "../scheduler-runtime/artifact-store.js";
 import type { SchedulerRun } from "../workflow-scheduler/manager.js";
-import type { SchedulerIntegrationCandidate, SchedulerRuntimeClaimReservation, SchedulerRuntimeState } from "../scheduler-runtime/manager.js";
+import { readSchedulerRunJournal } from "../workflow-scheduler/repository.js";
+import type {
+  SchedulerIntegrationCandidate,
+  SchedulerIntegrationCheckHandoff,
+  SchedulerIntegrationOutcome,
+  SchedulerReconcileSnapshot,
+  SchedulerRunBlockedCloseout,
+  SchedulerRunCompletion,
+  SchedulerRuntimeClaimReservation,
+  SchedulerRuntimeState,
+} from "../scheduler-runtime/manager.js";
 
 export type SchedulerCurrentTransitionActionType =
   | "planning.scheduler.worker.start-first"
@@ -44,12 +56,19 @@ export interface SchedulerCurrentTransitionExistingEvidence {
 
 export interface SchedulerCurrentTransitionView {
   run: SchedulerRun;
+  runJournalEventCount: number;
   runtimeState: SchedulerRuntimeState;
+  reconcileSnapshot: SchedulerReconcileSnapshot;
   reservation: SchedulerRuntimeClaimReservation;
   graph: ReadySetWorkflowGraphPlan;
   workerPaths: SchedulerWorkerPathReadModel[];
   integrationCandidate: SchedulerIntegrationCandidate | null;
   integrationCandidateNeedsRefresh: boolean;
+  integrationCheckHandoff: SchedulerIntegrationCheckHandoff | null;
+  currentIntegrationCheck: IntegrationCheckRecord | null;
+  integrationOutcome: SchedulerIntegrationOutcome | null;
+  runCompletion: SchedulerRunCompletion | null;
+  runBlockedCloseout: SchedulerRunBlockedCloseout | null;
   integrationCheckHandoffExists: boolean;
   integrationOutcomeExists: boolean;
   runCompletionExists: boolean;
@@ -58,7 +77,9 @@ export interface SchedulerCurrentTransitionView {
 }
 
 export async function readLatestSchedulerCurrentTransitionView(
-  memory: ResolvedMemory,
+  memory: SchedulerArtifactStore,
+  runtime: ProjectExecutionRuntimePort,
+  graph: ReadySetWorkflowGraphPlan,
   changePath: string,
   schedulerRunId: string,
   actionType: string,
@@ -72,19 +93,34 @@ export async function readLatestSchedulerCurrentTransitionView(
   const snapshot = await readSchedulerReconcileSnapshot(memory, changePath, run.id, runtimeState.lastReconcileSnapshotId);
   const reservation = await readSchedulerRuntimeClaimReservation(memory, changePath, run.id, runtimeState.lastClaimReservationId);
   assertLatestSchedulerRuntimeClaimReservationForSnapshot(reservation, runtimeState, snapshot, actionType, { requiredStatus: "reserved" });
-  return readSchedulerCurrentTransitionView(memory, changePath, run, runtimeState, reservation, actionType, existingEvidence);
+  return readSchedulerCurrentTransitionView(
+    memory,
+    runtime,
+    graph,
+    changePath,
+    run,
+    runtimeState,
+    snapshot,
+    reservation,
+    actionType,
+    existingEvidence,
+  );
 }
 
 export async function readSchedulerCurrentTransitionView(
-  memory: ResolvedMemory,
+  memory: SchedulerArtifactStore,
+  runtime: ProjectExecutionRuntimePort,
+  graph: ReadySetWorkflowGraphPlan,
   changePath: string,
   run: SchedulerRun,
   runtimeState: SchedulerRuntimeState,
+  reconcileSnapshot: SchedulerReconcileSnapshot,
   reservation: SchedulerRuntimeClaimReservation,
   actionType: string,
   existingEvidence: SchedulerCurrentTransitionExistingEvidence = {},
 ): Promise<SchedulerCurrentTransitionView> {
-  const graph = await readLatestReadySetGraph(memory, changePath, run, runtimeState, reservation, actionType);
+  assertLatestReadySetGraph(graph, run, runtimeState, reservation, actionType);
+  const runJournalEventCount = (await readSchedulerRunJournal(memory, changePath, run.id)).length;
   const workerPaths = await readSchedulerWorkerPathReadModelsForReservation(memory, changePath, run.id, reservation);
   const integrationCandidate = await readLatestSchedulerIntegrationCandidateProjection(memory, changePath, run.id);
   const integrationCandidateNeedsRefresh = integrationCandidate
@@ -97,24 +133,31 @@ export async function readSchedulerCurrentTransitionView(
     : true;
   const integrationCheckHandoff = await readLatestSchedulerIntegrationCheckHandoffProjection(memory, changePath, run.id);
   const currentIntegrationCheck = integrationCheckHandoff
-    ? await readIntegrationCheck(memory, integrationCheckHandoff.integrationCheckId).catch(() => null)
+    ? await readIntegrationCheck(runtime, integrationCheckHandoff.integrationCheckId).catch(() => null)
     : null;
   const integrationCheckHandoffExists = existingEvidence.integrationCheckHandoffExists ?? Boolean(integrationCheckHandoff);
   const integrationOutcome = await readLatestSchedulerIntegrationOutcomeProjection(memory, changePath, run.id);
   const integrationOutcomeExists = existingEvidence.integrationOutcomeExists ?? Boolean(integrationOutcome);
-  const runCompletionExists = existingEvidence.runCompletionExists
-    ?? Boolean(await readLatestSchedulerRunCompletionProjection(memory, changePath, run.id));
-  const runBlockedCloseoutExists = existingEvidence.runBlockedCloseoutExists
-    ?? Boolean(await readLatestSchedulerRunBlockedCloseoutProjection(memory, changePath, run.id));
+  const runCompletion = await readLatestSchedulerRunCompletionProjection(memory, changePath, run.id);
+  const runCompletionExists = existingEvidence.runCompletionExists ?? Boolean(runCompletion);
+  const runBlockedCloseout = await readLatestSchedulerRunBlockedCloseoutProjection(memory, changePath, run.id);
+  const runBlockedCloseoutExists = existingEvidence.runBlockedCloseoutExists ?? Boolean(runBlockedCloseout);
 
   return {
     run,
+    runJournalEventCount,
     runtimeState,
+    reconcileSnapshot,
     reservation,
     graph,
     workerPaths,
     integrationCandidate,
     integrationCandidateNeedsRefresh,
+    integrationCheckHandoff,
+    currentIntegrationCheck,
+    integrationOutcome,
+    runCompletion,
+    runBlockedCloseout,
     integrationCheckHandoffExists,
     integrationOutcomeExists,
     runCompletionExists,
@@ -179,15 +222,13 @@ export function assertSchedulerCurrentTransitionRequest(
   }
 }
 
-async function readLatestReadySetGraph(
-  memory: ResolvedMemory,
-  changePath: string,
+function assertLatestReadySetGraph(
+  graph: ReadySetWorkflowGraphPlan,
   run: SchedulerRun,
   runtimeState: SchedulerRuntimeState,
   reservation: SchedulerRuntimeClaimReservation,
   actionType: string,
-): Promise<ReadySetWorkflowGraphPlan> {
-  const graph = await readLatestWorkflowGraphPlan(memory, changePath);
+): void {
   if (graph.graphMode !== "ready-set-v1") {
     throw new Error(`${actionType} requires latest ready-set WorkflowGraphPlan.`);
   }
@@ -214,7 +255,6 @@ async function readLatestReadySetGraph(
     throw new Error(`${actionType} ready-set WorkflowGraphPlan runtime lineage mismatch.`);
   }
   assertHashesMatch(graph.sourceArtifactHashes, run.sourceArtifactHashes, actionType, "ready-set WorkflowGraphPlan");
-  return graph;
 }
 
 function assertHashesMatch(left: Record<string, string>, right: Record<string, string>, actionType: string, label: string): void {

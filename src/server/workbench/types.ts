@@ -43,6 +43,7 @@ export interface WorkbenchActionRequest {
   prompt?: string;
   proposalId?: string;
   workflowGraphPlanId?: string;
+  finalizationRequestId?: string;
   schedulerContractId?: string;
   schedulerDispatchDryRunId?: string;
   schedulerWorkerPlanId?: string;

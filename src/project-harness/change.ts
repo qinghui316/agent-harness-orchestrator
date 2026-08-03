@@ -16,6 +16,7 @@ import {
   projectHarnessLaneId,
   readBoundProjectHarnessRecords,
   readProjectHarnessBaseline,
+  readProjectHarnessLane,
   registryClaimsOverlap,
   restoreProjectHarnessLane,
   withRegistryClaimLock,
@@ -220,6 +221,7 @@ export interface CloseProjectHarnessChangeInput extends PreflightProjectHarnessC
   validation?: readonly string[];
   validationPassed?: boolean;
   now?: () => string;
+  failureInjection?: (stage: "evidence-moved" | "record-written" | "lane-cleared") => void | Promise<void>;
 }
 
 const TERMINAL_STATUSES = new Set<ProjectHarnessChangeStatus>(["completed", "blocked", "abandoned"]);
@@ -474,15 +476,39 @@ export async function closeProjectHarnessChange(
     }
   }
   if (existsSync(destination)) throw new Error(`Archive Change evidence already exists: ${record.change_id}.`);
-  await rename(source, destination);
-  record.status = input.status;
-  record.evidence_complete = evidence.valid;
-  record.evidence_paths = [`state/changes/archive/${record.change_id}`];
-  record.updated_at = (input.now ?? (() => new Date().toISOString()))();
-  await writeProjectHarnessChange(context.skillRoot, record);
-  await ensureProjectHarnessLane(context, null);
-  await rebuildProjectHarnessChangeIndex(context.skillRoot);
-  return { status: "closed", change: record, preflight };
+  const recordBefore = structuredClone(record);
+  const laneBefore = await readProjectHarnessLane(context);
+  const indexPath = join(context.skillRoot, "state", "changes", "INDEX.json");
+  const indexBefore = existsSync(indexPath) ? await readFile(indexPath, "utf8") : null;
+  let evidenceMoved = false;
+  try {
+    await rename(source, destination);
+    evidenceMoved = true;
+    await input.failureInjection?.("evidence-moved");
+    record.status = input.status;
+    record.evidence_complete = evidence.valid;
+    record.evidence_paths = [`state/changes/archive/${record.change_id}`];
+    record.updated_at = (input.now ?? (() => new Date().toISOString()))();
+    await writeProjectHarnessChange(context.skillRoot, record);
+    await input.failureInjection?.("record-written");
+    await ensureProjectHarnessLane(context, null);
+    await input.failureInjection?.("lane-cleared");
+    await rebuildProjectHarnessChangeIndex(context.skillRoot);
+    return { status: "closed", change: record, preflight };
+  } catch (error) {
+    try {
+      if (evidenceMoved && existsSync(destination) && !existsSync(source)) {
+        await rename(destination, source);
+      }
+      await writeProjectHarnessChange(context.skillRoot, recordBefore);
+      await restoreProjectHarnessLane(context, laneBefore);
+      if (indexBefore === null) await rebuildProjectHarnessChangeIndex(context.skillRoot);
+      else await atomicWriteFile(indexPath, indexBefore);
+    } catch (rollbackError) {
+      throw new AggregateError([error, rollbackError], "Project Harness Change close failed and rollback could not restore the prior state.");
+    }
+    throw error;
+  }
 }
 
 export async function parkProjectHarnessChange(

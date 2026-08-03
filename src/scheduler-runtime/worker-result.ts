@@ -1,10 +1,9 @@
 import { shortHash } from "../fs/path.js";
-import { resolveProjectMemory } from "../memory/resolver.js";
-import { resolveRunnableChangeTarget } from "../change/target.js";
 import { readRun } from "../run/repository.js";
 import { releaseTaskRunLease } from "../task-run/lease-service.js";
 import { listWorkerLeases, readTaskRun, writeTaskRun } from "../task-run/repository.js";
-import type { ManagedProject, ResolvedMemory, RunMetadata, TaskRun, WorkerLease, WorktreeMetadata } from "../types/index.js";
+import type { ManagedProject, RunMetadata, TaskRun, WorkerLease, WorktreeMetadata } from "../types/index.js";
+import type { ProjectRunsPathPort } from "../project-runtime/paths.js";
 import { readWorktreeMetadata } from "../worktree/repository.js";
 import { schedulerWorkerResultEventType } from "./event-policy.js";
 import { assertLatestSchedulerRuntimeClaimReservation, readSchedulerRuntimeLineage } from "./guards.js";
@@ -18,6 +17,7 @@ import {
   writeSchedulerRuntimeWorkerResult,
 } from "./repository.js";
 import type { SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerStart } from "./types.js";
+import { resolveSchedulerReadySetExecutionScope, type SchedulerReadySetExecutionPort } from "./execution-port.js";
 
 export interface SchedulerWorkerResultReconcileInput {
   changeId: string;
@@ -45,11 +45,9 @@ export type SchedulerWorkerResultReconcileResult =
     executionStarted: false;
   };
 
-export async function reconcileSchedulerFirstWorkerResult(project: ManagedProject, input: SchedulerWorkerResultReconcileInput): Promise<SchedulerWorkerResultReconcileResult> {
-  const memory = await resolveProjectMemory(project);
-  const target = await resolveRunnableChangeTarget(project, { changeId: input.changeId, allowLegacyActiveFallback: false });
-  const changePath = target.status.activeChanges.find((item) => item.name === input.changeId)?.path;
-  if (!changePath) throw new Error(`Scheduler worker result reconcile cannot resolve active Change path for ${input.changeId}.`);
+export async function reconcileSchedulerFirstWorkerResult(project: ManagedProject, input: SchedulerWorkerResultReconcileInput, port: SchedulerReadySetExecutionPort): Promise<SchedulerWorkerResultReconcileResult> {
+  const scope = await resolveSchedulerReadySetExecutionScope(project, input.changeId, "Scheduler worker result reconcile", port);
+  const { artifacts: memory, runtime, changePath } = scope;
   const { run } = await readSchedulerRuntimeLineage(memory, changePath, input.schedulerRunId);
   if (run.changeId !== input.changeId) throw new Error("planning.scheduler.worker.reconcile-result SchedulerRun change scope mismatch.");
   const runtimeState = await readSchedulerRuntimeState(memory, changePath, run.id);
@@ -62,19 +60,19 @@ export async function reconcileSchedulerFirstWorkerResult(project: ManagedProjec
   assertLatestSchedulerRuntimeClaimReservation(reservation, runtimeState, "planning.scheduler.worker.reconcile-result");
   const existing = await findSchedulerRuntimeWorkerResultForStart(memory, changePath, run.id, workerStart.id);
   if (existing) {
-    const taskRun = await readTaskRun(memory, input.changeId, existing.taskRunId);
-    const lease = await readWorkerLeaseForTaskRun(memory, taskRun);
-    const codeRun = existing.runId ? await readRun(memory, existing.runId) : null;
+    const taskRun = await readTaskRun(runtime, input.changeId, existing.taskRunId);
+    const lease = await readWorkerLeaseForTaskRun(runtime, taskRun);
+    const codeRun = existing.runId ? await readRun(runtime, existing.runId) : null;
     return { status: "terminal", workerStart, taskRun, lease, codeRun, result: existing, executionStarted: false };
   }
-  const taskRun = await readTaskRun(memory, input.changeId, workerStart.taskRunId);
+  const taskRun = await readTaskRun(runtime, input.changeId, workerStart.taskRunId);
   assertTaskRunMatchesWorkerStart(taskRun, workerStart);
-  const lease = await readWorkerLeaseForTaskRun(memory, taskRun);
+  const lease = await readWorkerLeaseForTaskRun(runtime, taskRun);
   assertLeaseMatchesWorkerStart(lease, workerStart);
-  const codeRun = workerStart.runId ? await readRun(memory, workerStart.runId) : null;
+  const codeRun = workerStart.runId ? await readRun(runtime, workerStart.runId) : null;
   if (codeRun) assertCodeRunMatchesWorkerStart(codeRun, workerStart);
   if (workerStart.worktreeId) {
-    const worktree = await readWorktreeMetadata(memory, workerStart.worktreeId);
+    const worktree = await readWorktreeMetadata(runtime, workerStart.worktreeId);
     assertWorktreeMatchesWorkerStart(worktree, workerStart);
   }
   if (workerStart.status === "started" && (!codeRun || codeRun.status === "created" || codeRun.status === "running")) {
@@ -92,9 +90,9 @@ export async function reconcileSchedulerFirstWorkerResult(project: ManagedProjec
     finishedAt: now,
     updatedAt: now,
   };
-  const writtenTaskRun = await writeTaskRun(memory, nextTaskRun);
-  await releaseTaskRunLease(memory, writtenTaskRun, now);
-  const releasedLease = await readWorkerLeaseForTaskRun(memory, writtenTaskRun);
+  const writtenTaskRun = await writeTaskRun(runtime, nextTaskRun);
+  await releaseTaskRunLease(runtime, writtenTaskRun, now);
+  const releasedLease = await readWorkerLeaseForTaskRun(runtime, writtenTaskRun);
   const resultId = buildWorkerResultId(workerStart.id);
   const refs = schedulerWorkerResultArtifactRefs(memory, changePath, run.id, resultId);
   const result: SchedulerRuntimeWorkerResult = {
@@ -216,7 +214,7 @@ function assertWorktreeMatchesWorkerStart(worktree: WorktreeMetadata, workerStar
   }
 }
 
-async function readWorkerLeaseForTaskRun(memory: ResolvedMemory, taskRun: TaskRun): Promise<WorkerLease> {
+async function readWorkerLeaseForTaskRun(memory: ProjectRunsPathPort, taskRun: TaskRun): Promise<WorkerLease> {
   const leases = await listWorkerLeases(memory, taskRun.changeId);
   const lease = leases.find((item) => item.id === taskRun.leaseId);
   if (!lease) throw new Error(`WorkerLease not found for TaskRun ${taskRun.id}.`);

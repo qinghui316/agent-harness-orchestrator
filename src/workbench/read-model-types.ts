@@ -132,6 +132,7 @@ export interface ThreadStreamAction {
   requiresConfirmation: boolean;
   disabledReason?: string;
   workflowGraphPlanId?: string;
+  finalizationRequestId?: string;
   schedulerContractId?: string;
   schedulerDispatchDryRunId?: string;
   schedulerWorkerPlanId?: string;
@@ -281,6 +282,7 @@ export interface WorkbenchDecisionAction {
   };
   actionType?: ThreadStreamAction["actionType"];
   workflowGraphPlanId?: string;
+  finalizationRequestId?: string;
   schedulerContractId?: string;
   schedulerDispatchDryRunId?: string;
   schedulerWorkerPlanId?: string;
@@ -361,6 +363,7 @@ export interface WorkbenchDecisionInspector {
 }
 
 export type WorkbenchConfirmationQueueItemKind =
+  | "change-finalization"
   | "planning-confirm"
   | "single-result-apply"
   | "integration-check"
@@ -382,6 +385,7 @@ export interface WorkbenchConfirmationQueueItem {
   conversationId?: string;
   changeId?: string;
   graphScopeId?: string;
+  finalizationRequestId?: string;
   resultId?: string;
   runId?: string;
   worktreeId?: string;

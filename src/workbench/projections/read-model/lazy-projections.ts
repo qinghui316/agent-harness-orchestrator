@@ -1,3 +1,14 @@
+import { join } from "node:path";
+import { resolveProjectHarnessChangeEvidenceRoot } from "../../../project-harness/change.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../../provider-runtime/project-harness-discovery.js";
+import { resolveProjectRuntimeState } from "../../../project-runtime/coordinator.js";
+import { skillNativeSchedulerRunArtifactPaths, type SchedulerArtifactStore } from "../../../scheduler-runtime/artifact-store.js";
+import {
+  readSchedulerRuntimeWorkerReworkPlanProjection,
+  readSchedulerRuntimeWorkerReworkResultProjection,
+  readSchedulerRuntimeWorkerReworkStartProjection,
+  readSchedulerRuntimeWorkerReworkValidationProjection,
+} from "../../../scheduler-runtime/repository.js";
 import type { WorkflowGraphPlan } from "../../../workflow-artifacts/manager.js";
 import type { SchedulerClaimReconcilePlan, SchedulerContract, SchedulerDispatchDryRun, SchedulerLaunchPreflight, SchedulerRun, SchedulerWorkerSessionPlan } from "../../../workflow-scheduler/manager.js";
 import type { SchedulerIntegrationCandidate, SchedulerIntegrationCheckHandoff, SchedulerIntegrationOutcome, SchedulerRunBlockedCloseout, SchedulerRunCompletion, SchedulerReconcileSnapshot, SchedulerRuntimeClaimReservation, SchedulerRuntimeState, SchedulerRuntimeWorkerAudit, SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkAudit, SchedulerRuntimeWorkerReworkResult, SchedulerRuntimeWorkerReworkValidation, SchedulerRuntimeWorkerReworkStart, SchedulerRuntimeWorkerValidation } from "../../../scheduler-runtime/manager.js";
@@ -13,11 +24,7 @@ import {
   getSchedulerClaimReconcilePlanProjectionForPath,
   getSchedulerClaimReservationProjectionForPath,
   getSchedulerWorkerAuditProjectionForPath,
-  getSchedulerWorkerReworkPlanProjectionForPath,
   getSchedulerWorkerReworkAuditProjectionForPath,
-  getSchedulerWorkerReworkResultProjectionForPath,
-  getSchedulerWorkerReworkValidationProjectionForPath,
-  getSchedulerWorkerReworkStartProjectionForPath,
   getSchedulerWorkerValidationProjectionForPath,
   getSchedulerIntegrationCheckHandoffProjectionForPath,
   getSchedulerIntegrationOutcomeProjectionForPath,
@@ -151,42 +158,60 @@ export async function getWorkbenchSchedulerWorkerAuditProjection(input: Workbenc
 
 export async function getWorkbenchSchedulerWorkerReworkPlanProjection(input: WorkbenchProjectInput, changeId: string, schedulerRunId?: string, reworkPlanId?: string): Promise<SchedulerRuntimeWorkerReworkPlan | null> {
   if (!schedulerRunId || !reworkPlanId) return null;
-  const memory = await resolveWorkbenchMemory(input);
-  if (!memory.supported) return null;
-  const topics = await listWorkbenchTopicsFromMemory(memory);
-  const changePath = findWorkbenchTopicPath(topics, changeId);
-  if (!changePath) return null;
-  return getSchedulerWorkerReworkPlanProjectionForPath(memory, changePath, schedulerRunId, reworkPlanId);
+  const artifacts = await resolveSkillNativeSchedulerProjectionStore(input, changeId, schedulerRunId);
+  return artifacts
+    ? readSchedulerRuntimeWorkerReworkPlanProjection(artifacts, "", schedulerRunId, reworkPlanId)
+    : null;
 }
 
 export async function getWorkbenchSchedulerWorkerReworkStartProjection(input: WorkbenchProjectInput, changeId: string, schedulerRunId?: string, reworkStartId?: string): Promise<SchedulerRuntimeWorkerReworkStart | null> {
   if (!schedulerRunId || !reworkStartId) return null;
-  const memory = await resolveWorkbenchMemory(input);
-  if (!memory.supported) return null;
-  const topics = await listWorkbenchTopicsFromMemory(memory);
-  const changePath = findWorkbenchTopicPath(topics, changeId);
-  if (!changePath) return null;
-  return getSchedulerWorkerReworkStartProjectionForPath(memory, changePath, schedulerRunId, reworkStartId);
+  const artifacts = await resolveSkillNativeSchedulerProjectionStore(input, changeId, schedulerRunId);
+  return artifacts
+    ? readSchedulerRuntimeWorkerReworkStartProjection(artifacts, "", schedulerRunId, reworkStartId)
+    : null;
 }
 
 export async function getWorkbenchSchedulerWorkerReworkResultProjection(input: WorkbenchProjectInput, changeId: string, schedulerRunId?: string, reworkResultId?: string): Promise<SchedulerRuntimeWorkerReworkResult | null> {
   if (!schedulerRunId || !reworkResultId) return null;
-  const memory = await resolveWorkbenchMemory(input);
-  if (!memory.supported) return null;
-  const topics = await listWorkbenchTopicsFromMemory(memory);
-  const changePath = findWorkbenchTopicPath(topics, changeId);
-  if (!changePath) return null;
-  return getSchedulerWorkerReworkResultProjectionForPath(memory, changePath, schedulerRunId, reworkResultId);
+  const artifacts = await resolveSkillNativeSchedulerProjectionStore(input, changeId, schedulerRunId);
+  return artifacts
+    ? readSchedulerRuntimeWorkerReworkResultProjection(artifacts, "", schedulerRunId, reworkResultId)
+    : null;
 }
 
 export async function getWorkbenchSchedulerWorkerReworkValidationProjection(input: WorkbenchProjectInput, changeId: string, schedulerRunId?: string, reworkValidationId?: string): Promise<SchedulerRuntimeWorkerReworkValidation | null> {
   if (!schedulerRunId || !reworkValidationId) return null;
-  const memory = await resolveWorkbenchMemory(input);
-  if (!memory.supported) return null;
-  const topics = await listWorkbenchTopicsFromMemory(memory);
-  const changePath = findWorkbenchTopicPath(topics, changeId);
-  if (!changePath) return null;
-  return getSchedulerWorkerReworkValidationProjectionForPath(memory, changePath, schedulerRunId, reworkValidationId);
+  const artifacts = await resolveSkillNativeSchedulerProjectionStore(input, changeId, schedulerRunId);
+  return artifacts
+    ? readSchedulerRuntimeWorkerReworkValidationProjection(artifacts, "", schedulerRunId, reworkValidationId)
+    : null;
+}
+
+async function resolveSkillNativeSchedulerProjectionStore(
+  input: WorkbenchProjectInput,
+  changeId: string,
+  schedulerRunId: string,
+): Promise<SchedulerArtifactStore | null> {
+  if (!input.project) return null;
+  const state = await resolveProjectRuntimeState(input.project, {
+    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+  });
+  if (state.state !== "ready") return null;
+  const evidenceRoot = await resolveProjectHarnessChangeEvidenceRoot(
+    state.resolution.harness.skillRoot,
+    "active",
+    changeId,
+  );
+  const runtimeRoot = join(state.resolution.paths.runsRoot, "scheduler-runs", changeId);
+  return {
+    changeId,
+    changeEvidenceRoot: evidenceRoot,
+    planningRoot: join(evidenceRoot, "planning"),
+    runtimeRoot,
+    artifactRoots: [state.resolution.harness.skillRoot, state.resolution.paths.sidecarRoot],
+    runArtifacts: skillNativeSchedulerRunArtifactPaths(runtimeRoot, schedulerRunId),
+  };
 }
 
 export async function getWorkbenchSchedulerWorkerReworkAuditProjection(input: WorkbenchProjectInput, changeId: string, schedulerRunId?: string, reworkAuditId?: string): Promise<SchedulerRuntimeWorkerReworkAudit | null> {

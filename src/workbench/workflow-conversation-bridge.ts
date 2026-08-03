@@ -181,7 +181,7 @@ async function executeWorkflowAction(
   assertWorkflowActionScope(request);
   const conversationId = await resolveConversationId(project, changeId);
   await auditHighImpactWorkflowAction(project, conversationId, changeId, request, live);
-  return dispatchWorkbenchWorkflowAction(handlers, project, changeId, request, live);
+  return dispatchWorkbenchWorkflowAction(handlers, project, changeId, request, live, conversationId);
 }
 
 function buildWorkflowActionHandlers(ports: WorkflowConversationPorts): ReturnType<typeof buildWorkbenchActionHandlers> {

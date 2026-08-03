@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { basename, join } from "node:path";
 import type { ResolvedMemory } from "../types/index.js";
-import { displayArtifactPath } from "./paths.js";
+import type { ProjectRunArtifactReferencePort } from "../project-runtime/execution-ports.js";
+import { displayArtifactPath, displaySkillNativeArtifactPath } from "./paths.js";
 import type { IntegrationArtifact, IntegrationCheckRecord } from "./types.js";
 
 export function contentHash(content: string): string {
@@ -18,6 +19,22 @@ export function integrationArtifact(
   return {
     kind,
     path: displayArtifactPath(memory, absolutePath),
+    hash: contentHash(content),
+    createdAt: new Date().toISOString(),
+    source,
+  };
+}
+
+export function skillNativeIntegrationArtifact(
+  runtime: ProjectRunArtifactReferencePort,
+  absolutePath: string,
+  content: string,
+  kind: IntegrationArtifact["kind"],
+  source: IntegrationArtifact["source"],
+): IntegrationArtifact {
+  return {
+    kind,
+    path: displaySkillNativeArtifactPath(runtime, absolutePath),
     hash: contentHash(content),
     createdAt: new Date().toISOString(),
     source,

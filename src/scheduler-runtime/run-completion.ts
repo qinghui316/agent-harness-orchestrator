@@ -1,9 +1,7 @@
 import { shortHash } from "../fs/path.js";
 import { readIntegrationCheck } from "../integration-check/repository.js";
 import type { IntegrationCheckRecord } from "../integration-check/types.js";
-import { resolveProjectMemory } from "../memory/resolver.js";
 import type { ManagedProject } from "../types/index.js";
-import { resolveRunnableChangeTarget } from "../change/target.js";
 import { completeSchedulerRun } from "../workflow-scheduler/scheduler-run.js";
 import { readSchedulerRun } from "../workflow-scheduler/repository.js";
 import { readSchedulerRuntimeLineage } from "./guards.js";
@@ -25,6 +23,11 @@ import type {
   SchedulerRunCompletion,
   SchedulerRuntimeState,
 } from "./types.js";
+import {
+  resolveSchedulerReadySetExecutionScope,
+  type SchedulerReadySetExecutionPort,
+} from "./execution-port.js";
+import type { SchedulerArtifactStore } from "./artifact-store.js";
 
 export interface SchedulerRunCompletionInput {
   changeId: string;
@@ -38,21 +41,18 @@ export interface SchedulerRunCompletionResult {
   sourceMutated: false;
 }
 
-export async function completeSchedulerRunFromIntegrationOutcome(project: ManagedProject, input: SchedulerRunCompletionInput): Promise<SchedulerRunCompletionResult> {
-  const memory = await resolveProjectMemory(project);
-  const target = await resolveRunnableChangeTarget(project, { changeId: input.changeId, allowLegacyActiveFallback: false });
-  const changePath = target.status.activeChanges.find((item) => item.name === input.changeId)?.path;
-  if (!changePath) throw new Error(`planning.scheduler.run.complete cannot resolve active Change path for ${input.changeId}.`);
+export async function completeSchedulerRunFromIntegrationOutcome(project: ManagedProject, input: SchedulerRunCompletionInput, port: SchedulerReadySetExecutionPort): Promise<SchedulerRunCompletionResult> {
+  const { artifacts, runtime, changePath } = await resolveSchedulerReadySetExecutionScope(project, input.changeId, "Scheduler run completion", port);
 
-  const existingRun = await readSchedulerRun(memory, changePath, input.schedulerRunId);
+  const existingRun = await readSchedulerRun(artifacts, changePath, input.schedulerRunId);
   if (existingRun.changeId !== input.changeId) throw new Error("planning.scheduler.run.complete SchedulerRun change scope mismatch.");
-  const latestOutcome = await readLatestSchedulerIntegrationOutcomeProjection(memory, changePath, existingRun.id);
+  const latestOutcome = await readLatestSchedulerIntegrationOutcomeProjection(artifacts, changePath, existingRun.id);
   if (!latestOutcome || latestOutcome.id !== input.schedulerIntegrationOutcomeId) {
     throw new Error("planning.scheduler.run.complete requires the latest SchedulerIntegrationOutcome.");
   }
-  const existingCompletion = await findSchedulerRunCompletionForOutcome(memory, changePath, existingRun.id, input.schedulerIntegrationOutcomeId);
+  const existingCompletion = await findSchedulerRunCompletionForOutcome(artifacts, changePath, existingRun.id, input.schedulerIntegrationOutcomeId);
   if (existingCompletion) {
-    const completedRun = await completeSchedulerRun(memory, changePath, existingRun, {
+    const completedRun = await completeSchedulerRun(artifacts, changePath, existingRun, {
       summary: `SchedulerRun already has terminal completion evidence ${existingCompletion.id}.`,
       artifactRefs: existingCompletion.artifactRefs,
       payload: completionPayload(existingCompletion),
@@ -61,29 +61,29 @@ export async function completeSchedulerRunFromIntegrationOutcome(project: Manage
     return { completion: existingCompletion, schedulerRunStatus: "completed", sourceMutated: false };
   }
 
-  const { run } = await readSchedulerRuntimeLineage(memory, changePath, input.schedulerRunId);
+  const { run } = await readSchedulerRuntimeLineage(artifacts, changePath, input.schedulerRunId);
   if (run.changeId !== input.changeId) throw new Error("planning.scheduler.run.complete SchedulerRun change scope mismatch.");
-  const runtimeState = await readSchedulerRuntimeState(memory, changePath, run.id);
+  const runtimeState = await readSchedulerRuntimeState(artifacts, changePath, run.id);
   assertRuntimeState(runtimeState, input.changeId, run.id);
 
-  const outcome = await readSchedulerIntegrationOutcome(memory, changePath, run.id, input.schedulerIntegrationOutcomeId);
+  const outcome = await readSchedulerIntegrationOutcome(artifacts, changePath, run.id, input.schedulerIntegrationOutcomeId);
   assertOutcomeMatchesRuntime(outcome, runtimeState);
-  const latestHandoff = await readLatestSchedulerIntegrationCheckHandoffProjection(memory, changePath, run.id);
+  const latestHandoff = await readLatestSchedulerIntegrationCheckHandoffProjection(artifacts, changePath, run.id);
   assertHandoffMatchesOutcome(latestHandoff, outcome, runtimeState);
-  const latestCandidate = await readLatestSchedulerIntegrationCandidateProjection(memory, changePath, run.id);
+  const latestCandidate = await readLatestSchedulerIntegrationCandidateProjection(artifacts, changePath, run.id);
   assertCandidateMatchesOutcome(latestCandidate, outcome, runtimeState);
-  const check = await readIntegrationCheck(memory, outcome.integrationCheckId);
+  const check = await readIntegrationCheck(runtime, outcome.integrationCheckId);
   assertIntegrationCheckMatchesOutcome(check, outcome);
 
-  const completion = buildCompletion(memory, changePath, runtimeState, outcome);
-  await writeSchedulerRunCompletion(memory, changePath, completion);
-  const completedRun = await completeSchedulerRun(memory, changePath, run, {
+  const completion = buildCompletion(artifacts, changePath, runtimeState, outcome);
+  await writeSchedulerRunCompletion(artifacts, changePath, completion);
+  const completedRun = await completeSchedulerRun(artifacts, changePath, run, {
     summary: `SchedulerRun completed from scheduler integration outcome ${outcome.status}.`,
     artifactRefs: completion.artifactRefs,
     payload: completionPayload(completion),
   });
   if (completedRun.status !== "completed") throw new Error("planning.scheduler.run.complete failed to complete SchedulerRun.");
-  await appendSchedulerRuntimeEvent(memory, changePath, completedRun, "scheduler-runtime.run-completed", {
+  await appendSchedulerRuntimeEvent(artifacts, changePath, completedRun, "scheduler-runtime.run-completed", {
     status: runtimeState.status,
     summary: `SchedulerRun completed as ${completion.status}.`,
     artifactRefs: completion.artifactRefs,
@@ -93,7 +93,7 @@ export async function completeSchedulerRunFromIntegrationOutcome(project: Manage
 }
 
 function buildCompletion(
-  memory: Awaited<ReturnType<typeof resolveProjectMemory>>,
+  memory: SchedulerArtifactStore,
   changePath: string,
   runtimeState: SchedulerRuntimeState,
   outcome: SchedulerIntegrationOutcome,

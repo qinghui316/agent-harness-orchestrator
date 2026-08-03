@@ -5,9 +5,10 @@ import { writeJsonFile } from "../fs/json.js";
 import { gitText } from "../project/git.js";
 import { executeProcessStreaming } from "../run/process.js";
 import type { ResolvedMemory } from "../types/index.js";
-import { resolveValidationProfile } from "../validation/profiles.js";
+import type { ProjectExecutionRuntimePort } from "../project-runtime/execution-ports.js";
+import { resolveSkillNativeValidationProfile, resolveValidationProfile, type ValidationProfile } from "../validation/profiles.js";
 import { prepareWorktreeDependencyBridge } from "../worktree/dependencies.js";
-import { displayArtifactPath } from "./paths.js";
+import { displayArtifactPath, displaySkillNativeArtifactPath } from "./paths.js";
 import type { AggregateValidationResult, AggregateValidationStatus } from "./types.js";
 
 export async function runAggregateValidation(
@@ -16,6 +17,33 @@ export async function runAggregateValidation(
   checkId: string,
   checkoutPath: string,
   shouldRun: boolean,
+): Promise<AggregateValidationResult> {
+  return runAggregateValidationCore(memory, directory, checkId, checkoutPath, shouldRun, {
+    artifactRef: (path) => displayArtifactPath(memory, path),
+    resolveProfile: () => resolveOptionalAggregateProfile(memory),
+  });
+}
+
+export async function runSkillNativeAggregateValidation(
+  runtime: ProjectExecutionRuntimePort,
+  directory: string,
+  checkId: string,
+  checkoutPath: string,
+  shouldRun: boolean,
+): Promise<AggregateValidationResult> {
+  return runAggregateValidationCore(runtime, directory, checkId, checkoutPath, shouldRun, {
+    artifactRef: (path) => displaySkillNativeArtifactPath(runtime, path),
+    resolveProfile: () => resolveOptionalSkillNativeAggregateProfile(runtime.projectRoot),
+  });
+}
+
+async function runAggregateValidationCore(
+  memory: Pick<ProjectExecutionRuntimePort, "projectRoot">,
+  directory: string,
+  checkId: string,
+  checkoutPath: string,
+  shouldRun: boolean,
+  ports: { artifactRef(path: string): string; resolveProfile(): Promise<ValidationProfile | null> },
 ): Promise<AggregateValidationResult> {
   const id = `aggregate-validation-${checkId}`;
   let status: AggregateValidationStatus = "passed";
@@ -34,7 +62,7 @@ export async function runAggregateValidation(
   } else {
     try {
       stdout = await gitText(checkoutPath, ["diff", "--check"]);
-      const profile = await resolveOptionalAggregateProfile(memory);
+      const profile = await ports.resolveProfile();
       if (profile) {
         command = ["aggregate-validation-profile", profile.name, ...profile.commands.map((item) => item.name)];
         const bridge = await prepareWorktreeDependencyBridge({ sourceRoot: memory.projectRoot, checkoutPath });
@@ -56,7 +84,7 @@ export async function runAggregateValidation(
       stderr = cause instanceof Error ? cause.message : String(cause);
     }
   }
-  const artifactRef = displayArtifactPath(memory, join(directory, "aggregate-validation.json"));
+  const artifactRef = ports.artifactRef(join(directory, "aggregate-validation.json"));
   const result: AggregateValidationResult = {
     id,
     status,
@@ -70,6 +98,16 @@ export async function runAggregateValidation(
   await writeJsonFile(join(directory, "aggregate-validation.json"), result);
   await writeFile(join(directory, "aggregate-validation.md"), renderAggregateValidation(result), "utf8");
   return result;
+}
+
+async function resolveOptionalSkillNativeAggregateProfile(projectRoot: string): Promise<ValidationProfile | null> {
+  try {
+    return await resolveSkillNativeValidationProfile(projectRoot);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("package.json was not found for fallback detection") || message.includes("package.json has none of")) return null;
+    throw error;
+  }
 }
 
 async function resolveOptionalAggregateProfile(memory: ResolvedMemory): Promise<Awaited<ReturnType<typeof resolveValidationProfile>> | null> {

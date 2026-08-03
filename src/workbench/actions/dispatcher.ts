@@ -6,6 +6,7 @@ export type WorkbenchActionHandler = (
   changeId: string,
   request: WorkbenchWorkflowActionRequest,
   live?: WorkbenchLiveSink,
+  conversationId?: string,
 ) => Promise<unknown>;
 
 export type WorkbenchActionHandlerMap = Record<WorkbenchWorkflowActionType, WorkbenchActionHandler>;
@@ -16,10 +17,11 @@ export function dispatchWorkbenchWorkflowAction(
   changeId: string,
   request: WorkbenchWorkflowActionRequest,
   live?: WorkbenchLiveSink,
+  conversationId?: string,
 ): Promise<unknown> {
   const handler = handlers[request.actionType];
   if (!handler) return assertNever(request.actionType as never);
-  return handler(project, changeId, request, live);
+  return handler(project, changeId, request, live, conversationId);
 }
 
 function assertNever(value: never): never {

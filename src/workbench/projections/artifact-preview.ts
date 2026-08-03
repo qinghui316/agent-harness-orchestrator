@@ -1,15 +1,18 @@
-﻿import { existsSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { open, readFile, stat } from "node:fs/promises";
 import { relative, resolve } from "node:path";
-import type { ResolvedMemory, RunMetadata } from "../../types/index.js";
+import type { RunMetadata } from "../../types/index.js";
 import type { WorkbenchArtifactPreview } from "../artifact-types.js";
 export type { WorkbenchArtifactPreview } from "../artifact-types.js";
 
-export async function summarizeRunArtifacts(memory: ResolvedMemory, run: RunMetadata): Promise<{ artifacts: WorkbenchArtifactPreview[]; diagnostics: string[]; warnings: string[] }> {
+export async function summarizeRunArtifacts(
+  roots: { projectRoot: string; runArtifactRoot: string },
+  run: RunMetadata,
+): Promise<{ artifacts: WorkbenchArtifactPreview[]; diagnostics: string[]; warnings: string[] }> {
   const diagnostics: string[] = [];
   const warnings: string[] = [];
   const artifacts: WorkbenchArtifactPreview[] = [];
-  const baseRoot = run.artifacts.base === "memory-root" ? memory.memoryRoot : memory.projectRoot;
+  const baseRoot = run.artifacts.base === "memory-root" ? roots.runArtifactRoot : roots.projectRoot;
   const runDirectory = resolve(baseRoot, run.artifacts.directory);
   const known = Object.entries(run.artifacts)
     .filter(([key, value]) => key !== "base" && key !== "directory" && typeof value === "string") as Array<[string, string]>;

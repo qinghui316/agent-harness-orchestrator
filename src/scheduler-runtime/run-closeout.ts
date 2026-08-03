@@ -1,7 +1,5 @@
 import { shortHash } from "../fs/path.js";
-import { resolveProjectMemory } from "../memory/resolver.js";
 import type { ManagedProject } from "../types/index.js";
-import { resolveRunnableChangeTarget } from "../change/target.js";
 import { completeSchedulerRun } from "../workflow-scheduler/scheduler-run.js";
 import { readSchedulerRun } from "../workflow-scheduler/repository.js";
 import { assertLatestSchedulerRuntimeClaimReservation, readSchedulerRuntimeLineage } from "./guards.js";
@@ -27,6 +25,11 @@ import type {
   SchedulerRuntimeClaimReservation,
   SchedulerRuntimeState,
 } from "./types.js";
+import {
+  resolveSchedulerReadySetExecutionScope,
+  type SchedulerReadySetExecutionPort,
+} from "./execution-port.js";
+import type { SchedulerArtifactStore } from "./artifact-store.js";
 
 export interface SchedulerRunBlockedCloseoutInput {
   changeId: string;
@@ -48,19 +51,16 @@ interface WorkerPathInspection {
   pendingReasons: string[];
 }
 
-export async function closeSchedulerRunBlockedOrExhausted(project: ManagedProject, input: SchedulerRunBlockedCloseoutInput): Promise<SchedulerRunBlockedCloseoutResult> {
+export async function closeSchedulerRunBlockedOrExhausted(project: ManagedProject, input: SchedulerRunBlockedCloseoutInput, port: SchedulerReadySetExecutionPort): Promise<SchedulerRunBlockedCloseoutResult> {
   if ((input as { reason?: SchedulerRunBlockedCloseoutReason }).reason === "user-stopped") {
     throw new Error("planning.scheduler.run.close-blocked does not support user-stopped closeout.");
   }
-  const memory = await resolveProjectMemory(project);
-  const target = await resolveRunnableChangeTarget(project, { changeId: input.changeId, allowLegacyActiveFallback: false });
-  const changePath = target.status.activeChanges.find((item) => item.name === input.changeId)?.path;
-  if (!changePath) throw new Error(`planning.scheduler.run.close-blocked cannot resolve active Change path for ${input.changeId}.`);
+  const { artifacts, changePath } = await resolveSchedulerReadySetExecutionScope(project, input.changeId, "Scheduler blocked closeout", port);
 
-  const existingRun = await readSchedulerRun(memory, changePath, input.schedulerRunId);
+  const existingRun = await readSchedulerRun(artifacts, changePath, input.schedulerRunId);
   if (existingRun.changeId !== input.changeId) throw new Error("planning.scheduler.run.close-blocked SchedulerRun change scope mismatch.");
 
-  const existingCloseout = await findSchedulerRunBlockedCloseoutForCandidateStrict(memory, changePath, existingRun.id, input.schedulerIntegrationCandidateId);
+  const existingCloseout = await findSchedulerRunBlockedCloseoutForCandidateStrict(artifacts, changePath, existingRun.id, input.schedulerIntegrationCandidateId);
   if (existingRun.status === "completed" && existingCloseout) {
     return { closeout: existingCloseout, schedulerRunStatus: "completed", sourceMutated: false, executionStarted: false };
   }
@@ -69,21 +69,21 @@ export async function closeSchedulerRunBlockedOrExhausted(project: ManagedProjec
     throw new Error("planning.scheduler.run.close-blocked requires a prepared SchedulerRun without terminal closeout evidence.");
   }
 
-  const { run } = await readSchedulerRuntimeLineage(memory, changePath, input.schedulerRunId);
+  const { run } = await readSchedulerRuntimeLineage(artifacts, changePath, input.schedulerRunId);
   if (run.changeId !== input.changeId) throw new Error("planning.scheduler.run.close-blocked SchedulerRun change scope mismatch.");
-  const runtimeState = await readSchedulerRuntimeState(memory, changePath, run.id);
+  const runtimeState = await readSchedulerRuntimeState(artifacts, changePath, run.id);
   assertRuntimeState(runtimeState, input.changeId, run.id);
   if (!runtimeState.lastClaimReservationId || !runtimeState.lastClaimReservationSnapshotId) {
     throw new Error("planning.scheduler.run.close-blocked requires latest claim reservation evidence.");
   }
-  const reservation = await readSchedulerRuntimeClaimReservation(memory, changePath, run.id, input.schedulerClaimReservationId);
+  const reservation = await readSchedulerRuntimeClaimReservation(artifacts, changePath, run.id, input.schedulerClaimReservationId);
   assertLatestSchedulerRuntimeClaimReservation(reservation, runtimeState, "planning.scheduler.run.close-blocked");
   if (reservation.schedulerRuntimeStateId !== runtimeState.id) {
     throw new Error("planning.scheduler.run.close-blocked SchedulerRuntimeClaimReservation target is stale.");
   }
   assertHashesMatch(reservation.sourceArtifactHashes, runtimeState.sourceArtifactHashes, "claim reservation");
 
-  const latestCandidate = await readLatestSchedulerIntegrationCandidateStrict(memory, changePath, run.id);
+  const latestCandidate = await readLatestSchedulerIntegrationCandidateStrict(artifacts, changePath, run.id);
   if (!latestCandidate || latestCandidate.id !== input.schedulerIntegrationCandidateId) {
     throw new Error("planning.scheduler.run.close-blocked requires the latest SchedulerIntegrationCandidate.");
   }
@@ -95,21 +95,21 @@ export async function closeSchedulerRunBlockedOrExhausted(project: ManagedProjec
   if (latestCandidate.readyCount >= 2) {
     throw new Error("planning.scheduler.run.close-blocked is not allowed when SchedulerIntegrationCandidate has enough ready targets for IntegrationCheck.");
   }
-  if (await readLatestSchedulerIntegrationCheckHandoffStrict(memory, changePath, run.id)) {
+  if (await readLatestSchedulerIntegrationCheckHandoffStrict(artifacts, changePath, run.id)) {
     throw new Error("planning.scheduler.run.close-blocked is not allowed after SchedulerIntegrationCheck handoff exists.");
   }
-  if (await readLatestSchedulerIntegrationOutcomeStrict(memory, changePath, run.id)) {
+  if (await readLatestSchedulerIntegrationOutcomeStrict(artifacts, changePath, run.id)) {
     throw new Error("planning.scheduler.run.close-blocked is not allowed after SchedulerIntegrationOutcome exists.");
   }
-  if (await readLatestSchedulerRunCompletionStrict(memory, changePath, run.id)) {
+  if (await readLatestSchedulerRunCompletionStrict(artifacts, changePath, run.id)) {
     throw new Error("planning.scheduler.run.close-blocked is not allowed after SchedulerRunCompletion exists.");
   }
-  const latestCloseout = await readLatestSchedulerRunBlockedCloseoutStrict(memory, changePath, run.id);
+  const latestCloseout = await readLatestSchedulerRunBlockedCloseoutStrict(artifacts, changePath, run.id);
   if (latestCloseout && latestCloseout.id !== existingCloseout?.id) {
     throw new Error("planning.scheduler.run.close-blocked latest SchedulerRunBlockedCloseout target is stale.");
   }
 
-  const paths = await readSchedulerWorkerPathReadModels(memory, changePath, run.id, { schedulerClaimReservationId: reservation.id });
+  const paths = await readSchedulerWorkerPathReadModels(artifacts, changePath, run.id, { schedulerClaimReservationId: reservation.id });
   const inspection: WorkerPathInspection = {
     paths,
     pendingReasons: paths.map((path) => path.pendingReason).filter((reason): reason is string => Boolean(reason)),
@@ -126,7 +126,7 @@ export async function closeSchedulerRunBlockedOrExhausted(project: ManagedProjec
   }
 
   if (existingCloseout) {
-    const completedRun = await completeSchedulerRun(memory, changePath, run, {
+    const completedRun = await completeSchedulerRun(artifacts, changePath, run, {
       summary: `SchedulerRun already has blocked/exhausted closeout evidence ${existingCloseout.id}.`,
       artifactRefs: existingCloseout.artifactRefs,
       payload: closeoutPayload(existingCloseout),
@@ -135,15 +135,15 @@ export async function closeSchedulerRunBlockedOrExhausted(project: ManagedProjec
     return { closeout: existingCloseout, schedulerRunStatus: "completed", sourceMutated: false, executionStarted: false };
   }
 
-  const closeout = buildCloseout(memory, changePath, runtimeState, reservation, latestCandidate, inspection, input.reason ?? classifyCloseoutReason(latestCandidate, inspection));
-  await writeSchedulerRunBlockedCloseout(memory, changePath, closeout);
-  const completedRun = await completeSchedulerRun(memory, changePath, run, {
+  const closeout = buildCloseout(artifacts, changePath, runtimeState, reservation, latestCandidate, inspection, input.reason ?? classifyCloseoutReason(latestCandidate, inspection));
+  await writeSchedulerRunBlockedCloseout(artifacts, changePath, closeout);
+  const completedRun = await completeSchedulerRun(artifacts, changePath, run, {
     summary: `SchedulerRun closed as ${closeout.status}: ${closeout.closeoutReason}`,
     artifactRefs: closeout.artifactRefs,
     payload: closeoutPayload(closeout),
   });
   if (completedRun.status !== "completed") throw new Error("planning.scheduler.run.close-blocked failed to complete SchedulerRun.");
-  await appendSchedulerRuntimeEvent(memory, changePath, completedRun, "scheduler-runtime.run-closeout-recorded", {
+  await appendSchedulerRuntimeEvent(artifacts, changePath, completedRun, "scheduler-runtime.run-closeout-recorded", {
     status: runtimeState.status,
     summary: `SchedulerRun closeout recorded as ${closeout.status}.`,
     artifactRefs: closeout.artifactRefs,
@@ -153,7 +153,7 @@ export async function closeSchedulerRunBlockedOrExhausted(project: ManagedProjec
 }
 
 function buildCloseout(
-  memory: Awaited<ReturnType<typeof resolveProjectMemory>>,
+  memory: SchedulerArtifactStore,
   changePath: string,
   runtimeState: SchedulerRuntimeState,
   reservation: SchedulerRuntimeClaimReservation,

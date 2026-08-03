@@ -1,11 +1,8 @@
-import { canApplyResultFromGate, classifyApplyReadiness } from "../apply/gate.js";
-import { previewWorktreeApply } from "../apply/preview.js";
-import { resolveRunnableChangeTarget } from "../change/target.js";
+import { canApplyResultFromGate, classifyApplyReadiness, evaluateSkillNativeApplyGate } from "../apply/gate.js";
 import { shortHash } from "../fs/path.js";
-import { runIntegrationCheck } from "../integration-check/service.js";
+import { runSkillNativeIntegrationCheck } from "../integration-check/service.js";
 import { readIntegrationCheck } from "../integration-check/repository.js";
 import type { IntegrationCheckRecord } from "../integration-check/types.js";
-import { resolveProjectMemory } from "../memory/resolver.js";
 import type { ManagedProject } from "../types/index.js";
 import { assertLatestSchedulerRuntimeClaimReservation, readSchedulerRuntimeLineage } from "./guards.js";
 import {
@@ -26,6 +23,10 @@ import type {
   SchedulerRuntimeClaimReservation,
   SchedulerRuntimeState,
 } from "./types.js";
+import {
+  resolveSchedulerReadySetExecutionScope,
+  type SchedulerReadySetExecutionPort,
+} from "./execution-port.js";
 
 export interface SchedulerIntegrationCheckHandoffInput {
   changeId: string;
@@ -39,40 +40,48 @@ export interface SchedulerIntegrationCheckHandoffResult {
   executionStarted: false;
 }
 
-export async function runSchedulerIntegrationCheckHandoff(project: ManagedProject, input: SchedulerIntegrationCheckHandoffInput): Promise<SchedulerIntegrationCheckHandoffResult> {
-  const memory = await resolveProjectMemory(project);
-  const target = await resolveRunnableChangeTarget(project, { changeId: input.changeId, allowLegacyActiveFallback: false });
-  const changePath = target.status.activeChanges.find((item) => item.name === input.changeId)?.path;
-  if (!changePath) throw new Error(`Scheduler IntegrationCheck handoff cannot resolve active Change path for ${input.changeId}.`);
-  const { run } = await readSchedulerRuntimeLineage(memory, changePath, input.schedulerRunId);
+export async function runSchedulerIntegrationCheckHandoff(project: ManagedProject, input: SchedulerIntegrationCheckHandoffInput, port: SchedulerReadySetExecutionPort): Promise<SchedulerIntegrationCheckHandoffResult> {
+  const { artifacts, runtime, changePath } = await resolveSchedulerReadySetExecutionScope(project, input.changeId, "Scheduler IntegrationCheck handoff", port);
+  const { run } = await readSchedulerRuntimeLineage(artifacts, changePath, input.schedulerRunId);
   if (run.changeId !== input.changeId) throw new Error("planning.scheduler.integration-check.run SchedulerRun change scope mismatch.");
-  const runtimeState = await readSchedulerRuntimeState(memory, changePath, run.id);
+  const runtimeState = await readSchedulerRuntimeState(artifacts, changePath, run.id);
   assertRuntimeState(runtimeState, input.changeId, run.id);
   if (!runtimeState.lastClaimReservationId || !runtimeState.lastClaimReservationSnapshotId) {
     throw new Error("planning.scheduler.integration-check.run requires latest SchedulerRuntimeClaimReservation.");
   }
-  const reservation = await readSchedulerRuntimeClaimReservation(memory, changePath, run.id, runtimeState.lastClaimReservationId);
+  const reservation = await readSchedulerRuntimeClaimReservation(artifacts, changePath, run.id, runtimeState.lastClaimReservationId);
   assertReservationMatchesRuntime(reservation, runtimeState);
-  const latestCandidate = await readLatestSchedulerIntegrationCandidateProjection(memory, changePath, run.id);
+  const latestCandidate = await readLatestSchedulerIntegrationCandidateProjection(artifacts, changePath, run.id);
   if (!latestCandidate || latestCandidate.id !== input.schedulerIntegrationCandidateId) {
     throw new Error("planning.scheduler.integration-check.run requires the latest SchedulerIntegrationCandidate.");
   }
-  const candidate = await readSchedulerIntegrationCandidate(memory, changePath, run.id, input.schedulerIntegrationCandidateId);
+  const candidate = await readSchedulerIntegrationCandidate(artifacts, changePath, run.id, input.schedulerIntegrationCandidateId);
   assertCandidateReady(candidate, runtimeState, reservation);
   const readyWorktreeIds = candidate.readyTargets.map((item) => item.worktreeId);
   assertUniqueWorktreeIds(readyWorktreeIds);
 
-  const existing = await findSchedulerIntegrationCheckHandoffForCandidate(memory, changePath, run.id, candidate.id, readyWorktreeIds);
+  const existing = await findSchedulerIntegrationCheckHandoffForCandidate(artifacts, changePath, run.id, candidate.id, readyWorktreeIds);
   if (existing) {
-    const check = await readIntegrationCheck(memory, existing.integrationCheckId).catch(() => null);
+    const check = await readIntegrationCheck(runtime, existing.integrationCheckId).catch(() => null);
     return { handoff: existing, integrationCheck: check, executionStarted: false };
   }
 
-  const readyTargets = await revalidateReadyTargets(project, candidate.readyTargets);
-  const integrationResult = await runIntegrationCheck(project, readyWorktreeIds, input.changeId);
+  const readyTargets = await revalidateReadyTargets(project, port, candidate.readyTargets);
+  const integrationResult = await runSkillNativeIntegrationCheck(
+    project,
+    runtime,
+    readyTargets.map((target) => ({
+      changeId: input.changeId,
+      worktreeId: target.worktreeId,
+      diffHash: target.worktreeDiffHash,
+      diffStat: target.diffStat,
+      sourceHead: target.sourceHead,
+    })),
+    input.changeId,
+  );
   const resultTargetWorktreeIds = integrationResult.check.resultTargets.map((item) => item.worktreeId);
   const handoffId = buildSchedulerIntegrationCheckHandoffId(run.id, candidate.id, readyWorktreeIds);
-  const refs = schedulerIntegrationCheckHandoffArtifactRefs(memory, changePath, run.id, handoffId);
+  const refs = schedulerIntegrationCheckHandoffArtifactRefs(artifacts, changePath, run.id, handoffId);
   const now = new Date().toISOString();
   const handoff: SchedulerIntegrationCheckHandoff = {
     version: "1.0",
@@ -102,8 +111,8 @@ export async function runSchedulerIntegrationCheckHandoff(project: ManagedProjec
     createdAt: now,
     updatedAt: now,
   };
-  await writeSchedulerIntegrationCheckHandoff(memory, changePath, handoff);
-  await appendSchedulerRuntimeEvent(memory, changePath, run, "scheduler-runtime.integration-check-handoff-completed", {
+  await writeSchedulerIntegrationCheckHandoff(artifacts, changePath, handoff);
+  await appendSchedulerRuntimeEvent(artifacts, changePath, run, "scheduler-runtime.integration-check-handoff-completed", {
     status: runtimeState.status,
     summary: `Scheduler IntegrationCheck handoff completed for ${readyWorktreeIds.length} ready target(s).`,
     artifactRefs: handoff.artifactRefs,
@@ -120,31 +129,31 @@ export async function runSchedulerIntegrationCheckHandoff(project: ManagedProjec
   return { handoff, integrationCheck: integrationResult.check, executionStarted: false };
 }
 
-async function revalidateReadyTargets(project: ManagedProject, readyTargets: SchedulerIntegrationCandidateReadyTarget[]): Promise<SchedulerIntegrationCheckHandoffTarget[]> {
+async function revalidateReadyTargets(project: ManagedProject, port: SchedulerReadySetExecutionPort, readyTargets: SchedulerIntegrationCandidateReadyTarget[]): Promise<SchedulerIntegrationCheckHandoffTarget[]> {
   const revalidated: SchedulerIntegrationCheckHandoffTarget[] = [];
   for (const target of readyTargets) {
-    const preview = await previewWorktreeApply(project, target.worktreeId);
-    const readiness = classifyApplyReadiness(preview.gate);
-    if (!canApplyResultFromGate(preview.gate) || readiness.kind !== "ready") {
+    const gate = await evaluateSkillNativeApplyGate(project, port.runtime, port.harness, target.worktreeId);
+    const readiness = classifyApplyReadiness(gate);
+    if (!canApplyResultFromGate(gate) || readiness.kind !== "ready") {
       throw new Error(`planning.scheduler.integration-check.run ready target is no longer apply-ready: ${target.worktreeId}. ${readiness.message}`);
     }
-    if (preview.gate.diffHash !== target.worktreeDiffHash) {
+    if (gate.diffHash !== target.worktreeDiffHash) {
       throw new Error(`planning.scheduler.integration-check.run worktree diff hash drifted: ${target.worktreeId}.`);
     }
-    if ((preview.gate.sourceHead ?? null) !== (target.sourceHead ?? null)) {
+    if ((gate.sourceHead ?? null) !== (target.sourceHead ?? null)) {
       throw new Error(`planning.scheduler.integration-check.run source HEAD drifted for worktree: ${target.worktreeId}.`);
     }
-    if (preview.gate.validation?.id !== target.validationRunId) {
+    if (gate.validation?.id !== target.validationRunId) {
       throw new Error(`planning.scheduler.integration-check.run validation evidence drifted for worktree: ${target.worktreeId}.`);
     }
-    if (preview.gate.audit?.id !== target.auditRunId) {
+    if (gate.audit?.id !== target.auditRunId) {
       throw new Error(`planning.scheduler.integration-check.run audit evidence drifted for worktree: ${target.worktreeId}.`);
     }
     revalidated.push({
       worktreeId: target.worktreeId,
-      worktreeDiffHash: preview.gate.diffHash,
-      diffStat: preview.gate.diffStat,
-      sourceHead: preview.gate.sourceHead,
+      worktreeDiffHash: gate.diffHash,
+      diffStat: gate.diffStat,
+      sourceHead: gate.sourceHead,
       validationRunId: target.validationRunId,
       auditRunId: target.auditRunId,
     });

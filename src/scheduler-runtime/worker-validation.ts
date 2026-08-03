@@ -1,11 +1,10 @@
 import { shortHash } from "../fs/path.js";
-import { resolveProjectMemory } from "../memory/resolver.js";
-import { resolveRunnableChangeTarget } from "../change/target.js";
 import { readRun } from "../run/repository.js";
 import { listWorkerLeases, readTaskRun, writeTaskRun } from "../task-run/repository.js";
-import type { ManagedProject, ResolvedMemory, RunMetadata, TaskRun, ValidationResult, WorkerLease, WorktreeMetadata } from "../types/index.js";
+import type { ManagedProject, RunMetadata, TaskRun, ValidationResult, WorkerLease, WorktreeMetadata } from "../types/index.js";
+import type { ProjectRunsPathPort } from "../project-runtime/paths.js";
 import { readValidationResult } from "../validation/repository.js";
-import { startValidationRun } from "../validation/service.js";
+import { startSkillNativeValidationRun } from "../validation/service.js";
 import { readWorktreeMetadata } from "../worktree/repository.js";
 import { schedulerWorkerValidationEventType } from "./event-policy.js";
 import { assertLatestSchedulerRuntimeClaimReservation, readSchedulerRuntimeLineage } from "./guards.js";
@@ -20,6 +19,7 @@ import {
   writeSchedulerRuntimeWorkerValidation,
 } from "./repository.js";
 import type { SchedulerRuntimeWorkerResult, SchedulerRuntimeWorkerStart, SchedulerRuntimeWorkerValidation } from "./types.js";
+import { resolveSchedulerReadySetExecutionScope, type SchedulerReadySetExecutionPort } from "./execution-port.js";
 
 export interface SchedulerWorkerValidationInput {
   changeId: string;
@@ -41,11 +41,9 @@ export interface SchedulerWorkerValidationResult {
   executionStarted: boolean;
 }
 
-export async function validateSchedulerFirstWorker(project: ManagedProject, input: SchedulerWorkerValidationInput): Promise<SchedulerWorkerValidationResult> {
-  const memory = await resolveProjectMemory(project);
-  const target = await resolveRunnableChangeTarget(project, { changeId: input.changeId, allowLegacyActiveFallback: false });
-  const changePath = target.status.activeChanges.find((item) => item.name === input.changeId)?.path;
-  if (!changePath) throw new Error(`Scheduler worker validation cannot resolve active Change path for ${input.changeId}.`);
+export async function validateSchedulerFirstWorker(project: ManagedProject, input: SchedulerWorkerValidationInput, port: SchedulerReadySetExecutionPort): Promise<SchedulerWorkerValidationResult> {
+  const scope = await resolveSchedulerReadySetExecutionScope(project, input.changeId, "Scheduler worker validation", port);
+  const { artifacts: memory, runtime, changePath } = scope;
   const { run } = await readSchedulerRuntimeLineage(memory, changePath, input.schedulerRunId);
   if (run.changeId !== input.changeId) throw new Error("planning.scheduler.worker.validate-first SchedulerRun change scope mismatch.");
   const runtimeState = await readSchedulerRuntimeState(memory, changePath, run.id);
@@ -65,18 +63,18 @@ export async function validateSchedulerFirstWorker(project: ManagedProject, inpu
   const workerStart = await readSchedulerRuntimeWorkerStart(memory, changePath, run.id, workerResult.schedulerWorkerStartId);
   assertWorkerStartMatchesResult(workerStart, workerResult);
   const existing = await findSchedulerRuntimeWorkerValidationForResult(memory, changePath, run.id, workerResult.id);
-  const taskRun = await readTaskRun(memory, input.changeId, workerResult.taskRunId);
+  const taskRun = await readTaskRun(runtime, input.changeId, workerResult.taskRunId);
   assertTaskRunMatchesWorkerResult(taskRun, workerResult, { requireEvidenceReady: !existing });
-  const lease = await readWorkerLeaseForTaskRun(memory, taskRun);
+  const lease = await readWorkerLeaseForTaskRun(runtime, taskRun);
   assertLeaseMatchesWorkerResult(lease, workerResult);
-  const codeRun = await readRun(memory, workerResult.runId);
+  const codeRun = await readRun(runtime, workerResult.runId);
   assertCodeRunMatchesWorkerResult(codeRun, workerResult);
-  const worktree = await readWorktreeMetadata(memory, workerResult.worktreeId);
+  const worktree = await readWorktreeMetadata(runtime, workerResult.worktreeId);
   assertWorktreeMatchesWorkerResult(worktree, workerResult);
 
   if (existing) {
-    const validationRun = await readRun(memory, existing.validationRunId);
-    const validationResult = await readValidationResult(memory, existing.validationRunId, { changeId: input.changeId });
+    const validationRun = await readRun(runtime, existing.validationRunId);
+    const validationResult = await readValidationResult(runtime, existing.validationRunId, { changeId: input.changeId });
     return {
       status: existing.status,
       workerStart,
@@ -92,7 +90,8 @@ export async function validateSchedulerFirstWorker(project: ManagedProject, inpu
     };
   }
 
-  const validation = await startValidationRun(project, { changeId: input.changeId, worktree: workerResult.worktreeId });
+  const validationInput = { changeId: input.changeId, worktree: workerResult.worktreeId };
+  const validation = await startSkillNativeValidationRun(project, scope.skillNative.runtime, scope.skillNative.harness, validationInput);
   if (validation.validation.worktreeId !== workerResult.worktreeId || validation.validation.changeId !== input.changeId) {
     throw new Error("planning.scheduler.worker.validate-first validation result scope mismatch.");
   }
@@ -116,7 +115,7 @@ export async function validateSchedulerFirstWorker(project: ManagedProject, inpu
       failureReason: undefined,
       updatedAt: now,
     };
-  const writtenTaskRun = await writeTaskRun(memory, nextTaskRun);
+  const writtenTaskRun = await writeTaskRun(runtime, nextTaskRun);
   const validationId = buildWorkerValidationId(workerResult.id);
   const refs = schedulerWorkerValidationArtifactRefs(memory, changePath, run.id, validationId);
   const schedulerValidation: SchedulerRuntimeWorkerValidation = {
@@ -272,7 +271,7 @@ function assertWorktreeMatchesWorkerResult(worktree: WorktreeMetadata, result: S
   }
 }
 
-async function readWorkerLeaseForTaskRun(memory: ResolvedMemory, taskRun: TaskRun): Promise<WorkerLease> {
+async function readWorkerLeaseForTaskRun(memory: ProjectRunsPathPort, taskRun: TaskRun): Promise<WorkerLease> {
   const leases = await listWorkerLeases(memory, taskRun.changeId);
   const lease = leases.find((item) => item.id === taskRun.leaseId);
   if (!lease) throw new Error(`WorkerLease not found for TaskRun ${taskRun.id}.`);

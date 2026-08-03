@@ -1,8 +1,10 @@
 import { mkdir } from "node:fs/promises";
 import { shortHash } from "../fs/path.js";
-import type { ResolvedMemory } from "../types/index.js";
-import { assertWorkflowArtifactScope } from "../workflow-artifacts/guards.js";
-import { hashArtifactRefs } from "../workflow-artifacts/hashes.js";
+import {
+  assertSchedulerWorkflowArtifactScope,
+  hashSchedulerArtifactRefs,
+  type SchedulerArtifactStore,
+} from "../scheduler-runtime/artifact-store.js";
 import { unique } from "../workflow-artifacts/utils.js";
 import { assertLatestSchedulerArtifact } from "./guards.js";
 import { schedulerLaunchPreflightsDir } from "./paths.js";
@@ -26,17 +28,17 @@ import type {
 } from "./types.js";
 
 export async function compileSchedulerLaunchPreflight(
-  memory: ResolvedMemory,
+  memory: SchedulerArtifactStore,
   changePath: string,
   claimPlan: SchedulerClaimReconcilePlan,
   workerPlan: SchedulerWorkerSessionPlan,
   dryRun: SchedulerDispatchDryRun,
   contract: SchedulerContract,
 ): Promise<SchedulerLaunchPreflight> {
-  await assertWorkflowArtifactScope(memory, changePath, claimPlan, "SchedulerLaunchPreflight claim/reconcile plan");
-  await assertWorkflowArtifactScope(memory, changePath, workerPlan, "SchedulerLaunchPreflight worker plan");
-  await assertWorkflowArtifactScope(memory, changePath, dryRun, "SchedulerLaunchPreflight dry-run");
-  await assertWorkflowArtifactScope(memory, changePath, contract, "SchedulerLaunchPreflight contract");
+  await assertSchedulerWorkflowArtifactScope(memory, changePath, claimPlan, "SchedulerLaunchPreflight claim/reconcile plan");
+  await assertSchedulerWorkflowArtifactScope(memory, changePath, workerPlan, "SchedulerLaunchPreflight worker plan");
+  await assertSchedulerWorkflowArtifactScope(memory, changePath, dryRun, "SchedulerLaunchPreflight dry-run");
+  await assertSchedulerWorkflowArtifactScope(memory, changePath, contract, "SchedulerLaunchPreflight contract");
   await validateLaunchPreflightInput(memory, changePath, claimPlan, workerPlan, dryRun, contract);
 
   const now = new Date().toISOString();
@@ -83,7 +85,7 @@ export async function compileSchedulerLaunchPreflight(
       description: "Future parallel executor must require explicit human confirmation before creating runtime records.",
     },
     blockedReasons,
-    sourceArtifactHashes: await hashArtifactRefs(memory, sourceRefs),
+    sourceArtifactHashes: await hashSchedulerArtifactRefs(memory, sourceRefs),
     artifactRefs: unique([claimPlan.artifact, claimPlan.markdownArtifact, refs.artifact, refs.markdownArtifact, ...sourceRefs].filter((ref): ref is string => Boolean(ref))),
     artifact: refs.artifact,
     markdownArtifact: refs.markdownArtifact,
@@ -95,7 +97,7 @@ export async function compileSchedulerLaunchPreflight(
 }
 
 async function validateLaunchPreflightInput(
-  memory: ResolvedMemory,
+  memory: SchedulerArtifactStore,
   changePath: string,
   claimPlan: SchedulerClaimReconcilePlan,
   workerPlan: SchedulerWorkerSessionPlan,
@@ -134,7 +136,7 @@ async function validateLaunchPreflightInput(
   const latestContract = await readLatestSchedulerContract(memory, changePath);
   assertLatestSchedulerArtifact(latestContract, contract, "SchedulerLaunchPreflight", "SchedulerContract");
 
-  const expectedHashes = await hashArtifactRefs(memory, Object.keys(claimPlan.sourceArtifactHashes));
+  const expectedHashes = await hashSchedulerArtifactRefs(memory, Object.keys(claimPlan.sourceArtifactHashes));
   for (const [artifact, hash] of Object.entries(expectedHashes)) {
     if (claimPlan.sourceArtifactHashes[artifact] !== hash) {
       throw new Error(`SchedulerLaunchPreflight source artifact hash mismatch: ${artifact}.`);

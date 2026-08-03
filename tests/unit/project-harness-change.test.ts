@@ -400,6 +400,36 @@ describe("project Harness Change", () => {
     expect(index.changes).toEqual([expect.objectContaining({ change_id: "close-change" })]);
     expect(existsSync(join(fixture.skillRoot, "state", "maintenance"))).toBe(false);
   });
+
+  it("restores active evidence, Registry record, Lane, and INDEX when close publication fails", async () => {
+    const fixture = await createFixture();
+    const context = fixture.context("lane-close-rollback");
+    await createProjectHarnessChange(context, { changeId: "close-rollback" });
+    await publishProjectHarnessChange(context, {
+      changeId: "close-rollback",
+      status: "active",
+      paths: ["src/project-harness/change.ts"],
+      validation: ["targeted tests passed"],
+    });
+    const indexBefore = await readFile(join(fixture.skillRoot, "state", "changes", "INDEX.json"), "utf8");
+
+    await expect(closeProjectHarnessChange(context, {
+      changeId: "close-rollback",
+      status: "completed",
+      validationPassed: true,
+      sourceSnapshot: emptySnapshot,
+      gitProbe: equalGitProbe,
+      failureInjection(stage) {
+        if (stage === "lane-cleared") throw new Error("injected close failure");
+      },
+    })).rejects.toThrow("injected close failure");
+
+    expect(existsSync(fixture.evidence("active", "close-rollback"))).toBe(true);
+    expect(existsSync(fixture.evidence("archive", "close-rollback"))).toBe(false);
+    expect((await readProjectHarnessChangeContext(fixture.skillRoot, "close-rollback", true)).change.status).toBe("active");
+    expect((await readProjectHarnessLane(context))?.active_change_id).toBe("close-rollback");
+    expect(await readFile(join(fixture.skillRoot, "state", "changes", "INDEX.json"), "utf8")).toBe(indexBefore);
+  });
 });
 
 async function createFixture(): Promise<{

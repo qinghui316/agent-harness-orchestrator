@@ -1,6 +1,8 @@
-import type { ResolvedMemory } from "../types/index.js";
-import { assertChangePathScope } from "../workflow-artifacts/guards.js";
-import { hashArtifactRefs } from "../workflow-artifacts/hashes.js";
+import {
+  assertSchedulerChangeScope,
+  hashSchedulerArtifactRefs,
+  type SchedulerArtifactStore,
+} from "./artifact-store.js";
 import {
   readLatestSchedulerClaimReconcilePlan,
   readLatestSchedulerContract,
@@ -27,7 +29,7 @@ export interface SchedulerRuntimeLineage {
   contract: SchedulerContract;
 }
 
-export async function readSchedulerRuntimeLineage(memory: ResolvedMemory, changePath: string, schedulerRunId: string): Promise<SchedulerRuntimeLineage> {
+export async function readSchedulerRuntimeLineage(memory: SchedulerArtifactStore, changePath: string, schedulerRunId: string): Promise<SchedulerRuntimeLineage> {
   const run = await readSchedulerRun(memory, changePath, schedulerRunId);
   await assertSchedulerRuntimeLineage(memory, changePath, run);
   const launchPreflight = await readSchedulerLaunchPreflight(memory, changePath, run.schedulerLaunchPreflightId);
@@ -39,8 +41,8 @@ export async function readSchedulerRuntimeLineage(memory: ResolvedMemory, change
   return { run, launchPreflight, claimPlan, workerPlan, dryRun, contract };
 }
 
-export async function assertSchedulerRuntimeLineage(memory: ResolvedMemory, changePath: string, run: SchedulerRun): Promise<void> {
-  await assertChangePathScope(memory, changePath, run.changeId, `SchedulerRun ${run.id}`);
+export async function assertSchedulerRuntimeLineage(memory: SchedulerArtifactStore, changePath: string, run: SchedulerRun): Promise<void> {
+  await assertSchedulerChangeScope(memory, changePath, run.changeId, `SchedulerRun ${run.id}`);
   if (run.status !== "prepared") throw new Error("Scheduler runtime requires a prepared SchedulerRun.");
   const latestRun = await readLatestSchedulerRun(memory, changePath);
   if (latestRun.id !== run.id) throw new Error("Scheduler runtime requires the latest SchedulerRun.");
@@ -54,7 +56,7 @@ export async function assertSchedulerRuntimeLineage(memory: ResolvedMemory, chan
   if (latestDryRun.id !== run.schedulerDispatchDryRunId) throw new Error("Scheduler runtime SchedulerDispatchDryRun lineage is stale.");
   const latestContract = await readLatestSchedulerContract(memory, changePath);
   if (latestContract.id !== run.schedulerContractId) throw new Error("Scheduler runtime SchedulerContract lineage is stale.");
-  const expectedHashes = await hashArtifactRefs(memory, Object.keys(run.sourceArtifactHashes));
+  const expectedHashes = await hashSchedulerArtifactRefs(memory, Object.keys(run.sourceArtifactHashes));
   for (const [artifact, hash] of Object.entries(expectedHashes)) {
     if (run.sourceArtifactHashes[artifact] !== hash) {
       throw new Error(`Scheduler runtime source artifact hash mismatch: ${artifact}.`);

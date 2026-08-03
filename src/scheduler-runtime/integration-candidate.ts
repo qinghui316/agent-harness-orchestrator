@@ -1,8 +1,5 @@
 import { shortHash } from "../fs/path.js";
-import { canApplyResultFromGate, classifyApplyReadiness } from "../apply/gate.js";
-import { previewWorktreeApply } from "../apply/preview.js";
-import { resolveRunnableChangeTarget } from "../change/target.js";
-import { resolveProjectMemory } from "../memory/resolver.js";
+import { canApplyResultFromGate, classifyApplyReadiness, evaluateSkillNativeApplyGate } from "../apply/gate.js";
 import { readRun } from "../run/repository.js";
 import { listWorkerLeases, readTaskRun } from "../task-run/repository.js";
 import type { ManagedProject, RunMetadata, TaskRun, WorkerLease, WorktreeMetadata } from "../types/index.js";
@@ -26,6 +23,11 @@ import type {
   SchedulerRuntimeWorkerAudit,
   SchedulerRuntimeWorkerReworkAudit,
 } from "./types.js";
+import {
+  resolveSchedulerReadySetExecutionScope,
+  type SchedulerReadySetExecutionPort,
+} from "./execution-port.js";
+import type { ProjectExecutionRuntimePort } from "../project-runtime/execution-ports.js";
 
 export interface SchedulerIntegrationCandidateInput {
   changeId: string;
@@ -44,26 +46,24 @@ type ApprovedOutput =
   | { kind: "worker"; audit: SchedulerRuntimeWorkerAudit }
   | { kind: "rework"; audit: SchedulerRuntimeWorkerReworkAudit };
 
-export async function compileSchedulerIntegrationCandidate(project: ManagedProject, input: SchedulerIntegrationCandidateInput): Promise<SchedulerIntegrationCandidateResult> {
-  const memory = await resolveProjectMemory(project);
-  const target = await resolveRunnableChangeTarget(project, { changeId: input.changeId, allowLegacyActiveFallback: false });
-  const changePath = target.status.activeChanges.find((item) => item.name === input.changeId)?.path;
-  if (!changePath) throw new Error(`Scheduler integration candidate cannot resolve active Change path for ${input.changeId}.`);
-  const { run } = await readSchedulerRuntimeLineage(memory, changePath, input.schedulerRunId);
+export async function compileSchedulerIntegrationCandidate(project: ManagedProject, input: SchedulerIntegrationCandidateInput, port: SchedulerReadySetExecutionPort): Promise<SchedulerIntegrationCandidateResult> {
+  const scope = await resolveSchedulerReadySetExecutionScope(project, input.changeId, "Scheduler integration candidate", port);
+  const { artifacts, changePath } = scope;
+  const { run } = await readSchedulerRuntimeLineage(artifacts, changePath, input.schedulerRunId);
   if (run.changeId !== input.changeId) throw new Error("planning.scheduler.integration-candidate.compile SchedulerRun change scope mismatch.");
-  const runtimeState = await readSchedulerRuntimeState(memory, changePath, run.id);
+  const runtimeState = await readSchedulerRuntimeState(artifacts, changePath, run.id);
   assertRuntimeState(runtimeState, run.changeId, run.id);
   if (!runtimeState.lastClaimReservationId || !runtimeState.lastClaimReservationSnapshotId) {
     throw new Error("planning.scheduler.integration-candidate.compile requires latest SchedulerRuntimeClaimReservation.");
   }
-  const reservation = await readSchedulerRuntimeClaimReservation(memory, changePath, run.id, runtimeState.lastClaimReservationId);
+  const reservation = await readSchedulerRuntimeClaimReservation(artifacts, changePath, run.id, runtimeState.lastClaimReservationId);
   assertLatestSchedulerRuntimeClaimReservation(reservation, runtimeState, "planning.scheduler.integration-candidate.compile");
 
-  const existing = await readLatestSchedulerIntegrationCandidateProjection(memory, changePath, run.id);
+  const existing = await readLatestSchedulerIntegrationCandidateProjection(artifacts, changePath, run.id);
   const outputs: SchedulerIntegrationCandidateOutput[] = [];
   const approvedByClaim = new Map<string, { original: SchedulerRuntimeWorkerAudit[]; rework: SchedulerRuntimeWorkerReworkAudit[] }>();
-  const workerAudits = await listSchedulerRuntimeWorkerAudits(memory, changePath, run.id);
-  const reworkAudits = await listSchedulerRuntimeWorkerReworkAudits(memory, changePath, run.id);
+  const workerAudits = await listSchedulerRuntimeWorkerAudits(artifacts, changePath, run.id);
+  const reworkAudits = await listSchedulerRuntimeWorkerReworkAudits(artifacts, changePath, run.id);
 
   for (const audit of workerAudits) {
     assertAuditMatchesRuntime(audit, runtimeState);
@@ -114,7 +114,7 @@ export async function compileSchedulerIntegrationCandidate(project: ManagedProje
     }
     const approved: ApprovedOutput | undefined = group.original[0] ? { kind: "worker", audit: group.original[0] } : group.rework[0] ? { kind: "rework", audit: group.rework[0] } : undefined;
     if (!approved) continue;
-    outputs.push(await outputFromApprovedAudit(project, memory, approved));
+    outputs.push(await outputFromApprovedAudit(project, port, approved));
   }
 
   const readyTargets = outputs
@@ -128,7 +128,7 @@ export async function compileSchedulerIntegrationCandidate(project: ManagedProje
       auditRunId: output.auditRunId as string,
     }));
   const candidateId = buildIntegrationCandidateId(run.id, reservation.id);
-  const refs = schedulerIntegrationCandidateArtifactRefs(memory, changePath, run.id, candidateId);
+  const refs = schedulerIntegrationCandidateArtifactRefs(artifacts, changePath, run.id, candidateId);
   const now = new Date().toISOString();
   const readyCount = readyTargets.length;
   const blockedCount = outputs.filter((output) => output.status === "blocked").length;
@@ -160,8 +160,8 @@ export async function compileSchedulerIntegrationCandidate(project: ManagedProje
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   };
-  await writeSchedulerIntegrationCandidate(memory, changePath, candidate);
-  await appendSchedulerRuntimeEvent(memory, changePath, run, "scheduler-runtime.integration-candidate-compiled", {
+  await writeSchedulerIntegrationCandidate(artifacts, changePath, candidate);
+  await appendSchedulerRuntimeEvent(artifacts, changePath, run, "scheduler-runtime.integration-candidate-compiled", {
     status: runtimeState.status,
     summary: `Scheduler integration candidate ${candidate.status} with ${candidate.readyCount} ready target(s) and ${candidate.blockedCount} blocked output(s).`,
     artifactRefs: candidate.artifactRefs,
@@ -184,18 +184,18 @@ export async function compileSchedulerIntegrationCandidate(project: ManagedProje
   };
 }
 
-async function outputFromApprovedAudit(project: ManagedProject, memory: Awaited<ReturnType<typeof resolveProjectMemory>>, approved: ApprovedOutput): Promise<SchedulerIntegrationCandidateOutput> {
+async function outputFromApprovedAudit(project: ManagedProject, port: SchedulerReadySetExecutionPort, approved: ApprovedOutput): Promise<SchedulerIntegrationCandidateOutput> {
   if (approved.kind === "worker") {
-    await assertWorkerAuditEvidence(memory, approved.audit);
-    return outputWithApplyReadiness(project, {
+    await assertWorkerAuditEvidence(port.runtime, approved.audit);
+    return outputWithApplyReadiness(project, port, {
       output: baseOutputFromWorkerAudit(approved.audit),
       worktreeId: approved.audit.worktreeId,
       validationRunId: approved.audit.validationRunId,
       auditRunId: approved.audit.auditRunId,
     });
   }
-  await assertReworkAuditEvidence(memory, approved.audit);
-  return outputWithApplyReadiness(project, {
+  await assertReworkAuditEvidence(port.runtime, approved.audit);
+  return outputWithApplyReadiness(project, port, {
     output: baseOutputFromReworkAudit(approved.audit),
     worktreeId: approved.audit.worktreeId,
     validationRunId: approved.audit.validationRunId,
@@ -203,20 +203,20 @@ async function outputFromApprovedAudit(project: ManagedProject, memory: Awaited<
   });
 }
 
-async function outputWithApplyReadiness(project: ManagedProject, input: { output: SchedulerIntegrationCandidateOutput; worktreeId: string; validationRunId: string; auditRunId: string }): Promise<SchedulerIntegrationCandidateOutput> {
+async function outputWithApplyReadiness(project: ManagedProject, port: SchedulerReadySetExecutionPort, input: { output: SchedulerIntegrationCandidateOutput; worktreeId: string; validationRunId: string; auditRunId: string }): Promise<SchedulerIntegrationCandidateOutput> {
   try {
-    const preview = await previewWorktreeApply(project, input.worktreeId);
-    const readiness = classifyApplyReadiness(preview.gate);
-    const ready = canApplyResultFromGate(preview.gate) && readiness.kind === "ready";
+    const gate = await evaluateSkillNativeApplyGate(project, port.runtime, port.harness, input.worktreeId);
+    const readiness = classifyApplyReadiness(gate);
+    const ready = canApplyResultFromGate(gate) && readiness.kind === "ready";
     return {
       ...input.output,
       status: ready ? "ready" : "blocked",
-      blockingReasons: ready ? [] : [...preview.gate.blockingIssues, readiness.message],
+      blockingReasons: ready ? [] : [...gate.blockingIssues, readiness.message],
       readinessKind: readiness.kind,
       readinessMessage: readiness.message,
-      worktreeDiffHash: preview.gate.diffHash,
-      diffStat: preview.gate.diffStat,
-      sourceHead: preview.gate.sourceHead,
+      worktreeDiffHash: gate.diffHash,
+      diffStat: gate.diffStat,
+      sourceHead: gate.sourceHead,
       validationRunId: input.validationRunId,
       auditRunId: input.auditRunId,
     };
@@ -231,7 +231,7 @@ async function outputWithApplyReadiness(project: ManagedProject, input: { output
   }
 }
 
-async function assertWorkerAuditEvidence(memory: Awaited<ReturnType<typeof resolveProjectMemory>>, audit: SchedulerRuntimeWorkerAudit): Promise<void> {
+async function assertWorkerAuditEvidence(memory: ProjectExecutionRuntimePort, audit: SchedulerRuntimeWorkerAudit): Promise<void> {
   const taskRun = await readTaskRun(memory, audit.changeId, audit.taskRunId);
   assertTaskRun(taskRun, audit, "coder");
   const lease = await readWorkerLease(memory, taskRun, audit.workerLeaseId);
@@ -246,7 +246,7 @@ async function assertWorkerAuditEvidence(memory: Awaited<ReturnType<typeof resol
   assertWorktree(worktree, audit.changeId, audit.worktreeId);
 }
 
-async function assertReworkAuditEvidence(memory: Awaited<ReturnType<typeof resolveProjectMemory>>, audit: SchedulerRuntimeWorkerReworkAudit): Promise<void> {
+async function assertReworkAuditEvidence(memory: ProjectExecutionRuntimePort, audit: SchedulerRuntimeWorkerReworkAudit): Promise<void> {
   const taskRun = await readTaskRun(memory, audit.changeId, audit.reworkTaskRunId);
   assertTaskRun(taskRun, audit, "rework-coder");
   const lease = await readWorkerLease(memory, taskRun, audit.reworkWorkerLeaseId);
@@ -348,7 +348,7 @@ function assertReworkAuditMatchesRuntime(audit: SchedulerRuntimeWorkerReworkAudi
   assertHashesMatch(audit.sourceArtifactHashes, runtimeState.sourceArtifactHashes, "rework audit");
 }
 
-async function readWorkerLease(memory: Awaited<ReturnType<typeof resolveProjectMemory>>, taskRun: TaskRun, leaseId: string): Promise<WorkerLease> {
+async function readWorkerLease(memory: ProjectExecutionRuntimePort, taskRun: TaskRun, leaseId: string): Promise<WorkerLease> {
   const lease = (await listWorkerLeases(memory, taskRun.changeId)).find((item) => item.id === leaseId);
   if (!lease) throw new Error(`WorkerLease not found: ${leaseId}.`);
   return lease;

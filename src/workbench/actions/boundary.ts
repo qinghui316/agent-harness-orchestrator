@@ -1,4 +1,4 @@
-﻿import { recordToolEventAuditEntry } from "../../agent-task/boundary-audit.js";
+import { recordToolEventAuditEntry } from "../../agent-task/boundary-audit.js";
 import { evaluateToolPolicy, highImpactActions } from "../../agent-task/tool-policy.js";
 import { readProjectHarnessPlanningGate } from "../../project-harness/planning-gate-query.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../provider-runtime/project-harness-discovery.js";
@@ -56,12 +56,23 @@ export function assertWorkflowActionScope(request: WorkbenchWorkflowActionReques
 
 export async function auditHighImpactWorkflowAction(project: ManagedProject, conversationId: string, changeId: string, request: WorkbenchWorkflowActionRequest, live?: WorkbenchLiveSink): Promise<void> {
   if (!HIGH_IMPACT_WORKBENCH_ACTIONS.has(request.actionType)) return;
-  if (request.actionType === "workflow.run.start") {
+  if (request.actionType === "workflow.run.start"
+    || request.actionType === "harness-change.close"
+    || request.actionType.startsWith("planning.scheduler.")) {
     const state = await resolveProjectRuntimeState(project, {
       discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
     });
     if (state.state !== "ready") {
-      throw new Error(`Project Harness is not ready for workflow.run.start: ${state.state}.`);
+      throw new Error(`Project Harness is not ready for ${request.actionType}: ${state.state}.`);
+    }
+    if (request.actionType === "harness-change.close") {
+      if (!request.finalizationRequestId) throw new Error("harness-change.close requires finalizationRequestId.");
+      await recordHighImpactToolAudit(state.resolution.paths, conversationId, changeId, request, live);
+      return;
+    }
+    if (request.actionType.startsWith("planning.scheduler.")) {
+      await recordHighImpactToolAudit(state.resolution.paths, conversationId, changeId, request, live);
+      return;
     }
     if (!request.workflowGraphPlanId) throw new Error("workflow.run.start requires workflowGraphPlanId.");
     if (!request.graphScopeId) throw new Error("workflow.run.start requires graphScopeId.");

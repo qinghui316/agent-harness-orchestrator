@@ -1,4 +1,5 @@
 export * from "./coordinator.js";
+export * from "./change-finalization.js";
 export * from "./context.js";
 export * from "./identity-migration-descriptors.js";
 export * from "./identity-migration.js";

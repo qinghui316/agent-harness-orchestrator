@@ -1,4 +1,4 @@
-﻿import type { ReadySetWorkflowGraphPlan, ResolvedMemory, WorkflowRunSummary } from "../types/index.js";
+import type { ReadySetWorkflowGraphPlan, ResolvedMemory, WorkflowRunSummary } from "../types/index.js";
 import {
   readSchedulerReconcileSnapshotProjection,
   readSchedulerReconcileSnapshotByIdProjection,
@@ -50,7 +50,10 @@ import {
   type SchedulerRuntimeWorkerValidation,
 } from "../scheduler-runtime/manager.js";
 import { readIntegrationCheck } from "../integration-check/manager.js";
+import { createSchedulerArtifactStore } from "../scheduler-runtime/artifact-store.js";
+import { basename, join } from "node:path";
 import type { SchedulerCurrentTransition } from "../workflow-actions/scheduler-current-transition.js";
+import type { SchedulerCurrentTransitionView } from "../workflow-runtime/scheduler-current-transition-view.js";
 import type { WorkbenchThreadActionType } from "../workflow-actions/registry.js";
 import {
   readLatestWorkflowGraphPlan,
@@ -78,6 +81,14 @@ import {
   type SchedulerDispatchDryRun,
   type SchedulerContract,
 } from "../workflow-scheduler/manager.js";
+
+function workbenchSchedulerArtifactStore(memory: ResolvedMemory, changePath: string) {
+  return createSchedulerArtifactStore({
+    changeId: basename(changePath),
+    changeEvidenceRoot: join(memory.memoryRoot, changePath),
+    artifactRoots: [memory.memoryRoot, memory.projectRoot],
+  });
+}
 
 export interface WorkbenchWorkflowGraphPlanSummary {
   id: string;
@@ -737,6 +748,186 @@ export interface TypedWorkflowProjectionReadiness {
   tasksReady: boolean;
 }
 
+export interface WorkbenchSchedulerCurrentTransitionProjection {
+  schedulerRun: WorkbenchSchedulerRunSummary;
+  schedulerRuntime: WorkbenchSchedulerRuntimeSummary;
+  schedulerReconcileSnapshot: WorkbenchSchedulerReconcileSnapshotSummary;
+  schedulerClaimReservation: WorkbenchSchedulerClaimReservationSummary;
+  schedulerWorkerStart?: WorkbenchSchedulerWorkerStartSummary;
+  schedulerWorkerResult?: WorkbenchSchedulerWorkerResultSummary;
+  schedulerWorkerValidation?: WorkbenchSchedulerWorkerValidationSummary;
+  schedulerWorkerAudit?: WorkbenchSchedulerWorkerAuditSummary;
+  schedulerWorkerReworkPlan?: WorkbenchSchedulerWorkerReworkPlanSummary;
+  schedulerWorkerReworkStart?: WorkbenchSchedulerWorkerReworkStartSummary;
+  schedulerWorkerReworkResult?: WorkbenchSchedulerWorkerReworkResultSummary;
+  schedulerWorkerReworkValidation?: WorkbenchSchedulerWorkerReworkValidationSummary;
+  schedulerWorkerReworkAudit?: WorkbenchSchedulerWorkerReworkAuditSummary;
+  schedulerWorkerPaths: WorkbenchSchedulerWorkerPathSummary[];
+  schedulerIntegrationCandidate?: WorkbenchSchedulerIntegrationCandidateSummary;
+  schedulerIntegrationCheckHandoff?: WorkbenchSchedulerIntegrationCheckHandoffSummary;
+  schedulerIntegrationOutcome?: WorkbenchSchedulerIntegrationOutcomeSummary;
+  schedulerRunCompletion?: WorkbenchSchedulerRunCompletionSummary;
+  schedulerRunBlockedCloseout?: WorkbenchSchedulerRunBlockedCloseoutSummary;
+  nextAction: WorkbenchTypedWorkflowNextAction;
+}
+
+export function buildSchedulerCurrentTransitionProjection(input: {
+  topic: TypedWorkflowProjectionTopic;
+  workflowGraphPlan: WorkbenchWorkflowGraphPlanSummary;
+  view: SchedulerCurrentTransitionView;
+}): WorkbenchSchedulerCurrentTransitionProjection {
+  const { view } = input;
+  const schedulerRun: WorkbenchSchedulerRunSummary = {
+    id: view.run.id,
+    changeId: view.run.changeId,
+    status: view.run.status,
+    schedulerMode: view.run.schedulerMode,
+    schedulerContractId: view.run.schedulerContractId,
+    schedulerDispatchDryRunId: view.run.schedulerDispatchDryRunId,
+    schedulerWorkerPlanId: view.run.schedulerWorkerPlanId,
+    schedulerClaimReconcilePlanId: view.run.schedulerClaimReconcilePlanId,
+    schedulerLaunchPreflightId: view.run.schedulerLaunchPreflightId,
+    claimIntentCount: view.run.claimIntentCount,
+    plannedSlotDemand: view.run.plannedSlotDemand,
+    maxPlannedWaveWidth: view.run.maxPlannedWaveWidth,
+    blockedCount: view.run.blockedCount,
+    humanConfirmed: view.run.humanConfirmed,
+    futureToolPolicyGateRequired: view.run.futureToolPolicyGateRequired,
+    futureHumanGateRequired: view.run.futureHumanGateRequired,
+    journalEventCount: view.runJournalEventCount,
+    artifact: view.run.artifact,
+    markdownArtifact: view.run.markdownArtifact,
+    journalArtifact: view.run.journalArtifact,
+    updatedAt: view.run.updatedAt,
+  };
+  const schedulerRuntime: WorkbenchSchedulerRuntimeSummary = {
+    id: view.runtimeState.id,
+    changeId: view.runtimeState.changeId,
+    schedulerRunId: view.runtimeState.schedulerRunId,
+    status: view.runtimeState.status,
+    schedulerMode: view.runtimeState.schedulerMode,
+    claimIntentCount: view.runtimeState.claimIntents.length,
+    waveCount: view.runtimeState.waves.length,
+    plannedSlotDemand: view.runtimeState.plannedSlotDemand,
+    maxPlannedWaveWidth: view.runtimeState.maxPlannedWaveWidth,
+    blockedCount: view.runtimeState.blockedCount,
+    lastReconcileSnapshotId: view.runtimeState.lastReconcileSnapshotId,
+    lastClaimReservationId: view.runtimeState.lastClaimReservationId,
+    lastClaimReservationSnapshotId: view.runtimeState.lastClaimReservationSnapshotId,
+    artifact: view.runtimeState.artifact,
+    eventsArtifact: view.runtimeState.eventsArtifact,
+    updatedAt: view.runtimeState.updatedAt,
+  };
+  const schedulerReconcileSnapshot: WorkbenchSchedulerReconcileSnapshotSummary = {
+    id: view.reconcileSnapshot.id,
+    changeId: view.reconcileSnapshot.changeId,
+    schedulerRunId: view.reconcileSnapshot.schedulerRunId,
+    status: view.reconcileSnapshot.status,
+    schedulerMode: view.reconcileSnapshot.schedulerMode,
+    claimIntentCount: view.reconcileSnapshot.claimIntents.length,
+    waveCount: view.reconcileSnapshot.waves.length,
+    plannedSlotDemand: view.reconcileSnapshot.plannedSlotDemand,
+    maxPlannedWaveWidth: view.reconcileSnapshot.maxPlannedWaveWidth,
+    blockedCount: view.reconcileSnapshot.blockedCount,
+    warningCount: view.reconcileSnapshot.warningCount,
+    artifact: view.reconcileSnapshot.artifact,
+    markdownArtifact: view.reconcileSnapshot.markdownArtifact,
+    updatedAt: view.reconcileSnapshot.createdAt,
+  };
+  const schedulerClaimReservation: WorkbenchSchedulerClaimReservationSummary = {
+    id: view.reservation.id,
+    changeId: view.reservation.changeId,
+    schedulerRunId: view.reservation.schedulerRunId,
+    schedulerReconcileSnapshotId: view.reservation.schedulerReconcileSnapshotId,
+    status: view.reservation.status,
+    schedulerMode: view.reservation.schedulerMode,
+    reservedCount: view.reservation.reservedCount,
+    blockedCount: view.reservation.blockedCount,
+    sourceLockCount: view.reservation.sourceLockCount,
+    waveIndex: view.reservation.waves[0]?.waveIndex ?? 0,
+    reservationIntents: view.reservation.reservationIntents.map((intent) => ({
+      reservationIntentId: intent.reservationIntentId,
+      claimIntentId: intent.claimIntentId,
+      plannedWorkerKey: intent.plannedWorkerKey,
+      nodeId: intent.nodeId,
+      unitId: intent.unitId,
+      waveIndex: intent.waveIndex,
+      status: intent.status,
+    })),
+    launchConfirmed: view.reservation.launchConfirmed,
+    supersedesReservationId: view.reservation.supersedesReservationId,
+    artifact: view.reservation.artifact,
+    markdownArtifact: view.reservation.markdownArtifact,
+    updatedAt: view.reservation.createdAt,
+  };
+  const schedulerWorkerPaths = view.workerPaths.map((path): WorkbenchSchedulerWorkerPathSummary => ({
+    start: summarizeSchedulerWorkerStart(path.start),
+    ...(path.result ? { result: summarizeSchedulerWorkerResult(path.result) } : {}),
+    ...(path.validation ? { validation: summarizeSchedulerWorkerValidation(path.validation) } : {}),
+    ...(path.audit ? { audit: summarizeSchedulerWorkerAudit(path.audit) } : {}),
+    ...(path.reworkPlan ? { reworkPlan: summarizeSchedulerWorkerReworkPlan(path.reworkPlan) } : {}),
+    ...(path.reworkStart ? { reworkStart: summarizeSchedulerWorkerReworkStart(path.reworkStart) } : {}),
+    ...(path.reworkResult ? { reworkResult: summarizeSchedulerWorkerReworkResult(path.reworkResult) } : {}),
+    ...(path.reworkValidation ? { reworkValidation: summarizeSchedulerWorkerReworkValidation(path.reworkValidation) } : {}),
+    ...(path.reworkAudit ? { reworkAudit: summarizeSchedulerWorkerReworkAudit(path.reworkAudit) } : {}),
+    status: path.status,
+    terminal: path.terminal,
+  }));
+  const workerTargetStartId = view.transition.kind === "worker-step"
+    ? view.transition.worker.schedulerWorkerStartId
+    : undefined;
+  const currentWorkerPath = schedulerWorkerPaths.find((path) => path.start.id === workerTargetStartId)
+    ?? schedulerWorkerPaths.at(-1);
+  const schedulerIntegrationCandidate = view.integrationCandidate
+    ? summarizeSchedulerIntegrationCandidate(view.integrationCandidate)
+    : undefined;
+  const schedulerIntegrationCheckHandoff = view.integrationCheckHandoff
+    ? summarizeSchedulerIntegrationCheckHandoff(view.integrationCheckHandoff, view.currentIntegrationCheck?.status)
+    : undefined;
+  const schedulerIntegrationOutcome = view.integrationOutcome
+    ? summarizeSchedulerIntegrationOutcome(view.integrationOutcome)
+    : undefined;
+  const schedulerRunCompletion = view.runCompletion
+    ? summarizeSchedulerRunCompletion(view.runCompletion)
+    : undefined;
+  const schedulerRunBlockedCloseout = view.runBlockedCloseout
+    ? summarizeSchedulerRunBlockedCloseout(view.runBlockedCloseout)
+    : undefined;
+  const projection = {
+    schedulerRun,
+    schedulerRuntime,
+    schedulerReconcileSnapshot,
+    schedulerClaimReservation,
+    schedulerWorkerStart: currentWorkerPath?.start,
+    schedulerWorkerResult: currentWorkerPath?.result,
+    schedulerWorkerValidation: currentWorkerPath?.validation,
+    schedulerWorkerAudit: currentWorkerPath?.audit,
+    schedulerWorkerReworkPlan: currentWorkerPath?.reworkPlan,
+    schedulerWorkerReworkStart: currentWorkerPath?.reworkStart,
+    schedulerWorkerReworkResult: currentWorkerPath?.reworkResult,
+    schedulerWorkerReworkValidation: currentWorkerPath?.reworkValidation,
+    schedulerWorkerReworkAudit: currentWorkerPath?.reworkAudit,
+    schedulerWorkerPaths,
+    schedulerIntegrationCandidate,
+    schedulerIntegrationCheckHandoff,
+    schedulerIntegrationOutcome,
+    schedulerRunCompletion,
+    schedulerRunBlockedCloseout,
+  };
+  return {
+    ...projection,
+    nextAction: buildTypedWorkflowNextAction({
+      topic: input.topic,
+      readiness: { specReady: true, planReady: true, tasksReady: true },
+      workflowGraphPlan: input.workflowGraphPlan,
+      schedulerReadySetGraph: view.graph,
+      schedulerTransition: view.transition,
+      schedulerIntegrationCandidateNeedsRefresh: view.integrationCandidateNeedsRefresh,
+      ...projection,
+    }),
+  };
+}
+
 export interface TypedWorkflowProjectionIntake {
   pendingClarifications: unknown[];
   openQuestions: unknown[];
@@ -764,7 +955,7 @@ export async function readLatestWorkflowGraphPlanSummary(memory: ResolvedMemory,
 }
 
 export async function readLatestSchedulerContractSummary(memory: ResolvedMemory, changePath: string): Promise<WorkbenchSchedulerContractSummary | null> {
-  const contract = await readLatestSchedulerContract(memory, changePath).catch(() => null);
+  const contract = await readLatestSchedulerContract(workbenchSchedulerArtifactStore(memory, changePath), changePath).catch(() => null);
   if (!contract) return null;
   return {
     id: contract.id,
@@ -783,7 +974,7 @@ export async function readLatestSchedulerContractSummary(memory: ResolvedMemory,
 }
 
 export async function readLatestSchedulerDispatchDryRunSummary(memory: ResolvedMemory, changePath: string): Promise<WorkbenchSchedulerDispatchDryRunSummary | null> {
-  const dryRun = await readLatestSchedulerDispatchDryRun(memory, changePath).catch(() => null);
+  const dryRun = await readLatestSchedulerDispatchDryRun(workbenchSchedulerArtifactStore(memory, changePath), changePath).catch(() => null);
   if (!dryRun) return null;
   return {
     id: dryRun.id,
@@ -803,7 +994,7 @@ export async function readLatestSchedulerDispatchDryRunSummary(memory: ResolvedM
 }
 
 export async function readLatestSchedulerWorkerSessionPlanSummary(memory: ResolvedMemory, changePath: string): Promise<WorkbenchSchedulerWorkerSessionPlanSummary | null> {
-  const plan = await readLatestSchedulerWorkerSessionPlan(memory, changePath).catch(() => null);
+  const plan = await readLatestSchedulerWorkerSessionPlan(workbenchSchedulerArtifactStore(memory, changePath), changePath).catch(() => null);
   if (!plan) return null;
   return {
     id: plan.id,
@@ -824,7 +1015,7 @@ export async function readLatestSchedulerWorkerSessionPlanSummary(memory: Resolv
 }
 
 export async function readLatestSchedulerClaimReconcilePlanSummary(memory: ResolvedMemory, changePath: string): Promise<WorkbenchSchedulerClaimReconcilePlanSummary | null> {
-  const plan = await readLatestSchedulerClaimReconcilePlan(memory, changePath).catch(() => null);
+  const plan = await readLatestSchedulerClaimReconcilePlan(workbenchSchedulerArtifactStore(memory, changePath), changePath).catch(() => null);
   if (!plan) return null;
   return {
     id: plan.id,
@@ -847,7 +1038,7 @@ export async function readLatestSchedulerClaimReconcilePlanSummary(memory: Resol
 }
 
 export async function readLatestSchedulerLaunchPreflightSummary(memory: ResolvedMemory, changePath: string): Promise<WorkbenchSchedulerLaunchPreflightSummary | null> {
-  const preflight = await readLatestSchedulerLaunchPreflight(memory, changePath).catch(() => null);
+  const preflight = await readLatestSchedulerLaunchPreflight(workbenchSchedulerArtifactStore(memory, changePath), changePath).catch(() => null);
   if (!preflight) return null;
   return {
     id: preflight.id,
@@ -871,9 +1062,9 @@ export async function readLatestSchedulerLaunchPreflightSummary(memory: Resolved
 }
 
 export async function readLatestSchedulerRunSummary(memory: ResolvedMemory, changePath: string): Promise<WorkbenchSchedulerRunSummary | null> {
-  const run = await readLatestSchedulerRun(memory, changePath).catch(() => null);
+  const run = await readLatestSchedulerRun(workbenchSchedulerArtifactStore(memory, changePath), changePath).catch(() => null);
   if (!run) return null;
-  const journal = await readSchedulerRunJournal(memory, changePath, run.id).catch(() => []);
+  const journal = await readSchedulerRunJournal(workbenchSchedulerArtifactStore(memory, changePath), changePath, run.id).catch(() => []);
   return {
     id: run.id,
     changeId: run.changeId,
@@ -901,7 +1092,7 @@ export async function readLatestSchedulerRunSummary(memory: ResolvedMemory, chan
 
 export async function readSchedulerRuntimeSummary(memory: ResolvedMemory, changePath: string, schedulerRunId?: string): Promise<WorkbenchSchedulerRuntimeSummary | null> {
   if (!schedulerRunId) return null;
-  const state = await readSchedulerRuntimeStateProjection(memory, changePath, schedulerRunId);
+  const state = await readSchedulerRuntimeStateProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId);
   if (!state) return null;
   return {
     id: state.id,
@@ -925,7 +1116,7 @@ export async function readSchedulerRuntimeSummary(memory: ResolvedMemory, change
 
 export async function readSchedulerClaimReservationSummary(memory: ResolvedMemory, changePath: string, schedulerRunId?: string, reservationId?: string): Promise<WorkbenchSchedulerClaimReservationSummary | null> {
   if (!schedulerRunId || !reservationId) return null;
-  const reservation = await readSchedulerRuntimeClaimReservationProjection(memory, changePath, schedulerRunId, reservationId);
+  const reservation = await readSchedulerRuntimeClaimReservationProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, reservationId);
   if (!reservation) return null;
   return {
     id: reservation.id,
@@ -961,7 +1152,7 @@ export async function readLatestSchedulerWorkerStartSummary(
   schedulerClaimReservationId?: string,
 ): Promise<WorkbenchSchedulerWorkerStartSummary | null> {
   if (!schedulerRunId) return null;
-  const starts = await listSchedulerRuntimeWorkerStarts(memory, changePath, schedulerRunId).catch(() => []);
+  const starts = await listSchedulerRuntimeWorkerStarts(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId).catch(() => []);
   const scoped = schedulerClaimReservationId ? starts.filter((start) => start.schedulerClaimReservationId === schedulerClaimReservationId) : starts;
   const start = [...scoped].sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""))[0];
   return start ? summarizeSchedulerWorkerStart(start) : null;
@@ -974,7 +1165,7 @@ export async function readSchedulerWorkerPathSummaries(
   schedulerClaimReservationId?: string,
 ): Promise<WorkbenchSchedulerWorkerPathSummary[]> {
   if (!schedulerRunId) return [];
-  const paths = await readSchedulerWorkerPathReadModels(memory, changePath, schedulerRunId, { schedulerClaimReservationId }).catch(() => []);
+  const paths = await readSchedulerWorkerPathReadModels(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, { schedulerClaimReservationId }).catch(() => []);
   return paths.map((path) => {
     return {
       start: summarizeSchedulerWorkerStart(path.start),
@@ -999,7 +1190,7 @@ export async function readSchedulerWorkerResultSummary(
   workerStartId?: string,
 ): Promise<WorkbenchSchedulerWorkerResultSummary | null> {
   if (!schedulerRunId || !workerStartId) return null;
-  const result = await findSchedulerRuntimeWorkerResultForStart(memory, changePath, schedulerRunId, workerStartId).catch(() => null);
+  const result = await findSchedulerRuntimeWorkerResultForStart(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, workerStartId).catch(() => null);
   return result ? summarizeSchedulerWorkerResult(result) : null;
 }
 
@@ -1010,7 +1201,7 @@ export async function readSchedulerWorkerValidationSummary(
   workerResultId?: string,
 ): Promise<WorkbenchSchedulerWorkerValidationSummary | null> {
   if (!schedulerRunId || !workerResultId) return null;
-  const validation = await findSchedulerRuntimeWorkerValidationForResult(memory, changePath, schedulerRunId, workerResultId).catch(() => null);
+  const validation = await findSchedulerRuntimeWorkerValidationForResult(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, workerResultId).catch(() => null);
   return validation ? summarizeSchedulerWorkerValidation(validation) : null;
 }
 
@@ -1021,7 +1212,7 @@ export async function readSchedulerWorkerAuditSummary(
   workerValidationId?: string,
 ): Promise<WorkbenchSchedulerWorkerAuditSummary | null> {
   if (!schedulerRunId || !workerValidationId) return null;
-  const audit = await findSchedulerRuntimeWorkerAuditForValidation(memory, changePath, schedulerRunId, workerValidationId).catch(() => null);
+  const audit = await findSchedulerRuntimeWorkerAuditForValidation(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, workerValidationId).catch(() => null);
   return audit ? summarizeSchedulerWorkerAudit(audit) : null;
 }
 
@@ -1033,7 +1224,7 @@ export async function readSchedulerWorkerReworkPlanSummary(
   workerAuditId?: string,
 ): Promise<WorkbenchSchedulerWorkerReworkPlanSummary | null> {
   if (!schedulerRunId || !workerValidationId) return null;
-  const plan = await findSchedulerRuntimeWorkerReworkPlanForBlockingEvidence(memory, changePath, schedulerRunId, {
+  const plan = await findSchedulerRuntimeWorkerReworkPlanForBlockingEvidence(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, {
     workerValidationId,
     workerAuditId,
   }).catch(() => null);
@@ -1047,7 +1238,7 @@ export async function readSchedulerWorkerReworkStartSummary(
   reworkPlanId?: string,
 ): Promise<WorkbenchSchedulerWorkerReworkStartSummary | null> {
   if (!schedulerRunId || !reworkPlanId) return null;
-  const start = await findSchedulerRuntimeWorkerReworkStartForPlan(memory, changePath, schedulerRunId, reworkPlanId).catch(() => null);
+  const start = await findSchedulerRuntimeWorkerReworkStartForPlan(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, reworkPlanId).catch(() => null);
   return start ? summarizeSchedulerWorkerReworkStart(start) : null;
 }
 
@@ -1058,7 +1249,7 @@ export async function readSchedulerWorkerReworkResultSummary(
   reworkStartId?: string,
 ): Promise<WorkbenchSchedulerWorkerReworkResultSummary | null> {
   if (!schedulerRunId || !reworkStartId) return null;
-  const result = await findSchedulerRuntimeWorkerReworkResultForStart(memory, changePath, schedulerRunId, reworkStartId).catch(() => null);
+  const result = await findSchedulerRuntimeWorkerReworkResultForStart(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, reworkStartId).catch(() => null);
   return result ? summarizeSchedulerWorkerReworkResult(result) : null;
 }
 
@@ -1069,7 +1260,7 @@ export async function readSchedulerWorkerReworkValidationSummary(
   reworkResultId?: string,
 ): Promise<WorkbenchSchedulerWorkerReworkValidationSummary | null> {
   if (!schedulerRunId || !reworkResultId) return null;
-  const validation = await findSchedulerRuntimeWorkerReworkValidationForResult(memory, changePath, schedulerRunId, reworkResultId).catch(() => null);
+  const validation = await findSchedulerRuntimeWorkerReworkValidationForResult(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, reworkResultId).catch(() => null);
   return validation ? summarizeSchedulerWorkerReworkValidation(validation) : null;
 }
 
@@ -1080,7 +1271,7 @@ export async function readSchedulerWorkerReworkAuditSummary(
   reworkValidationId?: string,
 ): Promise<WorkbenchSchedulerWorkerReworkAuditSummary | null> {
   if (!schedulerRunId || !reworkValidationId) return null;
-  const audit = await findSchedulerRuntimeWorkerReworkAuditForValidation(memory, changePath, schedulerRunId, reworkValidationId).catch(() => null);
+  const audit = await findSchedulerRuntimeWorkerReworkAuditForValidation(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, reworkValidationId).catch(() => null);
   return audit ? summarizeSchedulerWorkerReworkAudit(audit) : null;
 }
 
@@ -1091,7 +1282,7 @@ export async function readLatestSchedulerIntegrationCandidateSummary(
   schedulerClaimReservationId?: string,
 ): Promise<WorkbenchSchedulerIntegrationCandidateSummary | null> {
   if (!schedulerRunId) return null;
-  const candidate = await readLatestSchedulerIntegrationCandidateProjection(memory, changePath, schedulerRunId).catch(() => null);
+  const candidate = await readLatestSchedulerIntegrationCandidateProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId).catch(() => null);
   if (!candidate) return null;
   if (schedulerClaimReservationId && candidate.schedulerClaimReservationId !== schedulerClaimReservationId) return null;
   return summarizeSchedulerIntegrationCandidate(candidate);
@@ -1104,7 +1295,7 @@ export async function readLatestSchedulerIntegrationCheckHandoffSummary(
   schedulerIntegrationCandidateId?: string,
 ): Promise<WorkbenchSchedulerIntegrationCheckHandoffSummary | null> {
   if (!schedulerRunId || !schedulerIntegrationCandidateId) return null;
-  const handoff = await readLatestSchedulerIntegrationCheckHandoffProjection(memory, changePath, schedulerRunId).catch(() => null);
+  const handoff = await readLatestSchedulerIntegrationCheckHandoffProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId).catch(() => null);
   if (!handoff) return null;
   if (handoff.schedulerIntegrationCandidateId !== schedulerIntegrationCandidateId) return null;
   const check = await readIntegrationCheck(memory, handoff.integrationCheckId).catch(() => null);
@@ -1118,7 +1309,7 @@ export async function readLatestSchedulerIntegrationOutcomeSummary(
   schedulerIntegrationCheckHandoffId?: string,
 ): Promise<WorkbenchSchedulerIntegrationOutcomeSummary | null> {
   if (!schedulerRunId || !schedulerIntegrationCheckHandoffId) return null;
-  const outcome = await readLatestSchedulerIntegrationOutcomeProjection(memory, changePath, schedulerRunId).catch(() => null);
+  const outcome = await readLatestSchedulerIntegrationOutcomeProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId).catch(() => null);
   if (!outcome) return null;
   if (outcome.schedulerIntegrationCheckHandoffId !== schedulerIntegrationCheckHandoffId) return null;
   return summarizeSchedulerIntegrationOutcome(outcome);
@@ -1131,7 +1322,7 @@ export async function readLatestSchedulerRunCompletionSummary(
   schedulerIntegrationOutcomeId?: string,
 ): Promise<WorkbenchSchedulerRunCompletionSummary | null> {
   if (!schedulerRunId || !schedulerIntegrationOutcomeId) return null;
-  const completion = await readLatestSchedulerRunCompletionProjection(memory, changePath, schedulerRunId).catch(() => null);
+  const completion = await readLatestSchedulerRunCompletionProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId).catch(() => null);
   if (!completion) return null;
   if (completion.schedulerIntegrationOutcomeId !== schedulerIntegrationOutcomeId) return null;
   return summarizeSchedulerRunCompletion(completion);
@@ -1144,7 +1335,7 @@ export async function readLatestSchedulerRunBlockedCloseoutSummary(
   schedulerIntegrationCandidateId?: string,
 ): Promise<WorkbenchSchedulerRunBlockedCloseoutSummary | null> {
   if (!schedulerRunId || !schedulerIntegrationCandidateId) return null;
-  const closeout = await readLatestSchedulerRunBlockedCloseoutProjection(memory, changePath, schedulerRunId).catch(() => null);
+  const closeout = await readLatestSchedulerRunBlockedCloseoutProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId).catch(() => null);
   if (!closeout) return null;
   if (closeout.schedulerIntegrationCandidateId !== schedulerIntegrationCandidateId) return null;
   return summarizeSchedulerRunBlockedCloseout(closeout);
@@ -1551,7 +1742,7 @@ function summarizeSchedulerRunBlockedCloseout(closeout: SchedulerRunBlockedClose
 
 export async function readSchedulerReconcileSnapshotSummary(memory: ResolvedMemory, changePath: string, schedulerRunId?: string, snapshotId?: string): Promise<WorkbenchSchedulerReconcileSnapshotSummary | null> {
   if (!schedulerRunId || !snapshotId) return null;
-  const snapshot = await readSchedulerReconcileSnapshotProjection(memory, changePath, schedulerRunId, snapshotId);
+  const snapshot = await readSchedulerReconcileSnapshotProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, snapshotId);
   if (!snapshot) return null;
   return {
     id: snapshot.id,
@@ -1579,100 +1770,100 @@ export function readWorkflowGraphPlanProjection(memory: ResolvedMemory, changePa
 
 export function readSchedulerContractProjection(memory: ResolvedMemory, changePath: string, schedulerContractId?: string): Promise<SchedulerContract | null> {
   return schedulerContractId
-    ? readSchedulerContract(memory, changePath, schedulerContractId).catch(() => null)
-    : readLatestSchedulerContract(memory, changePath).catch(() => null);
+    ? readSchedulerContract(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerContractId).catch(() => null)
+    : readLatestSchedulerContract(workbenchSchedulerArtifactStore(memory, changePath), changePath).catch(() => null);
 }
 
 export function readSchedulerDispatchDryRunProjection(memory: ResolvedMemory, changePath: string, dryRunId?: string): Promise<SchedulerDispatchDryRun | null> {
   return dryRunId
-    ? readSchedulerDispatchDryRun(memory, changePath, dryRunId).catch(() => null)
-    : readLatestSchedulerDispatchDryRun(memory, changePath).catch(() => null);
+    ? readSchedulerDispatchDryRun(workbenchSchedulerArtifactStore(memory, changePath), changePath, dryRunId).catch(() => null)
+    : readLatestSchedulerDispatchDryRun(workbenchSchedulerArtifactStore(memory, changePath), changePath).catch(() => null);
 }
 
 export function readSchedulerWorkerSessionPlanProjection(memory: ResolvedMemory, changePath: string, workerPlanId?: string): Promise<SchedulerWorkerSessionPlan | null> {
   return workerPlanId
-    ? readSchedulerWorkerSessionPlan(memory, changePath, workerPlanId).catch(() => null)
-    : readLatestSchedulerWorkerSessionPlan(memory, changePath).catch(() => null);
+    ? readSchedulerWorkerSessionPlan(workbenchSchedulerArtifactStore(memory, changePath), changePath, workerPlanId).catch(() => null)
+    : readLatestSchedulerWorkerSessionPlan(workbenchSchedulerArtifactStore(memory, changePath), changePath).catch(() => null);
 }
 
 export function readSchedulerClaimReconcilePlanProjection(memory: ResolvedMemory, changePath: string, claimReconcilePlanId?: string): Promise<SchedulerClaimReconcilePlan | null> {
   return claimReconcilePlanId
-    ? readSchedulerClaimReconcilePlan(memory, changePath, claimReconcilePlanId).catch(() => null)
-    : readLatestSchedulerClaimReconcilePlan(memory, changePath).catch(() => null);
+    ? readSchedulerClaimReconcilePlan(workbenchSchedulerArtifactStore(memory, changePath), changePath, claimReconcilePlanId).catch(() => null)
+    : readLatestSchedulerClaimReconcilePlan(workbenchSchedulerArtifactStore(memory, changePath), changePath).catch(() => null);
 }
 
 export function readSchedulerLaunchPreflightProjection(memory: ResolvedMemory, changePath: string, preflightId?: string): Promise<SchedulerLaunchPreflight | null> {
   return preflightId
-    ? readSchedulerLaunchPreflight(memory, changePath, preflightId).catch(() => null)
-    : readLatestSchedulerLaunchPreflight(memory, changePath).catch(() => null);
+    ? readSchedulerLaunchPreflight(workbenchSchedulerArtifactStore(memory, changePath), changePath, preflightId).catch(() => null)
+    : readLatestSchedulerLaunchPreflight(workbenchSchedulerArtifactStore(memory, changePath), changePath).catch(() => null);
 }
 
 export function readSchedulerRunProjection(memory: ResolvedMemory, changePath: string, schedulerRunId?: string): Promise<SchedulerRun | null> {
   return schedulerRunId
-    ? readSchedulerRun(memory, changePath, schedulerRunId).catch(() => null)
-    : readLatestSchedulerRun(memory, changePath).catch(() => null);
+    ? readSchedulerRun(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId).catch(() => null)
+    : readLatestSchedulerRun(workbenchSchedulerArtifactStore(memory, changePath), changePath).catch(() => null);
 }
 
 export function readSchedulerRuntimeProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string): Promise<SchedulerRuntimeState | null> {
-  return readSchedulerRuntimeStateProjection(memory, changePath, schedulerRunId);
+  return readSchedulerRuntimeStateProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId);
 }
 
 export function readSchedulerReconcileProjection(memory: ResolvedMemory, changePath: string, snapshotId: string, schedulerRunId?: string): Promise<SchedulerReconcileSnapshot | null> {
   return schedulerRunId
-    ? readSchedulerReconcileSnapshotProjection(memory, changePath, schedulerRunId, snapshotId)
-    : readSchedulerReconcileSnapshotByIdProjection(memory, changePath, snapshotId);
+    ? readSchedulerReconcileSnapshotProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, snapshotId)
+    : readSchedulerReconcileSnapshotByIdProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, snapshotId);
 }
 
 export function readSchedulerClaimReservationProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reservationId: string): Promise<SchedulerRuntimeClaimReservation | null> {
-  return readSchedulerRuntimeClaimReservationProjection(memory, changePath, schedulerRunId, reservationId);
+  return readSchedulerRuntimeClaimReservationProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, reservationId);
 }
 
 export function readSchedulerWorkerValidationProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string, validationId: string): Promise<SchedulerRuntimeWorkerValidation | null> {
-  return readSchedulerRuntimeWorkerValidationProjection(memory, changePath, schedulerRunId, validationId);
+  return readSchedulerRuntimeWorkerValidationProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, validationId);
 }
 
 export function readSchedulerWorkerAuditProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string, auditId: string): Promise<SchedulerRuntimeWorkerAudit | null> {
-  return readSchedulerRuntimeWorkerAuditProjection(memory, changePath, schedulerRunId, auditId);
+  return readSchedulerRuntimeWorkerAuditProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, auditId);
 }
 
 export function readSchedulerWorkerReworkPlanProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reworkPlanId: string): Promise<SchedulerRuntimeWorkerReworkPlan | null> {
-  return readSchedulerRuntimeWorkerReworkPlanProjection(memory, changePath, schedulerRunId, reworkPlanId);
+  return readSchedulerRuntimeWorkerReworkPlanProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, reworkPlanId);
 }
 
 export function readSchedulerWorkerReworkStartProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reworkStartId: string): Promise<SchedulerRuntimeWorkerReworkStart | null> {
-  return readSchedulerRuntimeWorkerReworkStartProjection(memory, changePath, schedulerRunId, reworkStartId);
+  return readSchedulerRuntimeWorkerReworkStartProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, reworkStartId);
 }
 
 export function readSchedulerWorkerReworkResultProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reworkResultId: string): Promise<SchedulerRuntimeWorkerReworkResult | null> {
-  return readSchedulerRuntimeWorkerReworkResultProjection(memory, changePath, schedulerRunId, reworkResultId);
+  return readSchedulerRuntimeWorkerReworkResultProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, reworkResultId);
 }
 
 export function readSchedulerWorkerReworkValidationProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reworkValidationId: string): Promise<SchedulerRuntimeWorkerReworkValidation | null> {
-  return readSchedulerRuntimeWorkerReworkValidationProjection(memory, changePath, schedulerRunId, reworkValidationId);
+  return readSchedulerRuntimeWorkerReworkValidationProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, reworkValidationId);
 }
 
 export function readSchedulerWorkerReworkAuditProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string, reworkAuditId: string): Promise<SchedulerRuntimeWorkerReworkAudit | null> {
-  return readSchedulerRuntimeWorkerReworkAuditProjection(memory, changePath, schedulerRunId, reworkAuditId);
+  return readSchedulerRuntimeWorkerReworkAuditProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, reworkAuditId);
 }
 
 export function readSchedulerIntegrationCandidateProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string, candidateId: string): Promise<SchedulerIntegrationCandidate | null> {
-  return readSchedulerIntegrationCandidateArtifactProjection(memory, changePath, schedulerRunId, candidateId);
+  return readSchedulerIntegrationCandidateArtifactProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, candidateId);
 }
 
 export function readSchedulerIntegrationCheckHandoffProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string, handoffId: string): Promise<SchedulerIntegrationCheckHandoff | null> {
-  return readSchedulerIntegrationCheckHandoffArtifactProjection(memory, changePath, schedulerRunId, handoffId);
+  return readSchedulerIntegrationCheckHandoffArtifactProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, handoffId);
 }
 
 export function readSchedulerIntegrationOutcomeProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string, outcomeId: string): Promise<SchedulerIntegrationOutcome | null> {
-  return readSchedulerIntegrationOutcomeArtifactProjection(memory, changePath, schedulerRunId, outcomeId);
+  return readSchedulerIntegrationOutcomeArtifactProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, outcomeId);
 }
 
 export function readSchedulerRunCompletionProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string, completionId: string): Promise<SchedulerRunCompletion | null> {
-  return readSchedulerRunCompletionArtifactProjection(memory, changePath, schedulerRunId, completionId);
+  return readSchedulerRunCompletionArtifactProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, completionId);
 }
 
 export function readSchedulerRunBlockedCloseoutProjection(memory: ResolvedMemory, changePath: string, schedulerRunId: string, closeoutId: string): Promise<SchedulerRunBlockedCloseout | null> {
-  return readSchedulerRunBlockedCloseoutArtifactProjection(memory, changePath, schedulerRunId, closeoutId);
+  return readSchedulerRunBlockedCloseoutArtifactProjection(workbenchSchedulerArtifactStore(memory, changePath), changePath, schedulerRunId, closeoutId);
 }
 
 export function buildTypedWorkflowNextAction(input: {

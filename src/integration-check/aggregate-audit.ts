@@ -3,7 +3,8 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { writeJsonFile } from "../fs/json.js";
 import type { ResolvedMemory } from "../types/index.js";
-import { displayArtifactPath } from "./paths.js";
+import type { ProjectExecutionRuntimePort } from "../project-runtime/execution-ports.js";
+import { displayArtifactPath, displaySkillNativeArtifactPath } from "./paths.js";
 import type { AggregateAuditResult, AggregateAuditStatus } from "./types.js";
 
 export async function runAggregateAudit(
@@ -13,6 +14,28 @@ export async function runAggregateAudit(
   checkoutPath: string,
   validationPassed: boolean,
   blockingIssues: string[],
+): Promise<AggregateAuditResult> {
+  return runAggregateAuditCore(directory, checkId, checkoutPath, validationPassed, blockingIssues, (path) => displayArtifactPath(memory, path));
+}
+
+export async function runSkillNativeAggregateAudit(
+  runtime: ProjectExecutionRuntimePort,
+  directory: string,
+  checkId: string,
+  checkoutPath: string,
+  validationPassed: boolean,
+  blockingIssues: string[],
+): Promise<AggregateAuditResult> {
+  return runAggregateAuditCore(directory, checkId, checkoutPath, validationPassed, blockingIssues, (path) => displaySkillNativeArtifactPath(runtime, path));
+}
+
+async function runAggregateAuditCore(
+  directory: string,
+  checkId: string,
+  checkoutPath: string,
+  validationPassed: boolean,
+  blockingIssues: string[],
+  artifactRef: (path: string) => string,
 ): Promise<AggregateAuditResult> {
   let status: AggregateAuditStatus = "approved";
   const findings: string[] = [];
@@ -34,7 +57,7 @@ export async function runAggregateAudit(
     status,
     summary: status === "approved" ? "Aggregate audit approved the combined result." : "Aggregate audit blocked the combined result.",
     findings,
-    artifactRef: displayArtifactPath(memory, join(directory, "aggregate-audit.json")),
+    artifactRef: artifactRef(join(directory, "aggregate-audit.json")),
     createdAt: new Date().toISOString(),
   };
   await writeJsonFile(join(directory, "aggregate-audit.json"), result);

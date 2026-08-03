@@ -1,5 +1,5 @@
 import { shortHash } from "../fs/path.js";
-import type { ResolvedMemory } from "../types/index.js";
+import type { SchedulerArtifactStore } from "./artifact-store.js";
 import { assertSchedulerRuntimeLineage } from "./guards.js";
 import { schedulerReconcileSnapshotArtifactRefs, appendSchedulerRuntimeEvent, readSchedulerRuntimeState, writeSchedulerReconcileSnapshot, writeSchedulerRuntimeState } from "./repository.js";
 import type { SchedulerReconcileSnapshot, SchedulerRuntimeState } from "./types.js";
@@ -11,7 +11,7 @@ export interface SchedulerReconcileSnapshotRefs {
   markdownArtifact: string;
 }
 
-export async function reconcileSchedulerRuntime(memory: ResolvedMemory, changePath: string, schedulerRunId: string): Promise<SchedulerReconcileSnapshot> {
+export async function reconcileSchedulerRuntime(memory: SchedulerArtifactStore, changePath: string, schedulerRunId: string): Promise<SchedulerReconcileSnapshot> {
   const run = await readSchedulerRun(memory, changePath, schedulerRunId);
   await assertSchedulerRuntimeLineage(memory, changePath, run);
   const state = await readSchedulerRuntimeState(memory, changePath, run.id);

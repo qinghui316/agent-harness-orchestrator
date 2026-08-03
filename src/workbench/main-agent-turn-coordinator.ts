@@ -1,4 +1,4 @@
-﻿import { existsSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
@@ -23,6 +23,7 @@ import {
 import { projectHarnessSharedWriterRoot, withProjectHarnessWriterLock } from "../project-harness/writer-lock.js";
 import { resolveProjectRuntimeState } from "../project-runtime/coordinator.js";
 import type { ProjectRuntimeResolution } from "../project-runtime/context.js";
+import { requestSkillNativeProjectHarnessChangeFinalization } from "../project-runtime/change-finalization.js";
 import { getSystemSkillsRoot } from "../template-source/paths.js";
 import { hashNativeSkillPackageContent } from "../skill/content-hash.js";
 import {
@@ -241,6 +242,16 @@ async function runProjectScopedMainAgentTurnActivity(
       }),
     };
   }
+  if (boundChangeId) {
+    additionalContext["aho.change-finalization"] = {
+      kind: "application",
+      value: JSON.stringify({
+        finalizeTool: "aho_finalize_current_change",
+        changeId: boundChangeId,
+        rule: "Only call aho_finalize_current_change after the user explicitly asks to finish the exact current Change. The tool requests a separate human confirmation, revalidates terminal evidence, and accepts no caller-selected target.",
+      }),
+    };
+  }
   const handoff = await assembleSharedConversationContext({
     resolution,
     conversationId,
@@ -429,6 +440,11 @@ async function runProjectScopedMainAgentTurnActivity(
         inputSchema: mainPlanningAcceptanceToolInputSchema,
       },
       {
+        name: "aho_finalize_current_change",
+        description: "Request human confirmation to close the exact current authorized Change after an explicit user request. This tool never closes the Change directly and accepts no target or authority arguments.",
+        inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      },
+      {
         name: "aho_close_agent",
         description: "Permanently close one currently registered Agent after the user explicitly requests it. Use the exact Agent Surface id supplied by AHO for the current turn; never substitute interrupt_agent.",
         inputSchema: {
@@ -522,6 +538,41 @@ async function runProjectScopedMainAgentTurnActivity(
           contentItems: [{
             type: "inputText",
             text: `Accepted planning package ${accepted.proposalId} for Change ${accepted.changeId}. Compiled WorkflowGraphPlan ${accepted.workflowGraphPlan.id}. No execution leaf was started.`,
+          }],
+          success: true,
+        };
+      }
+      if (call.tool === "aho_finalize_current_change") {
+        if (Object.keys(call.arguments).length > 0) {
+          return toolCallFailure("Change finalization does not accept caller-selected targets or authority.");
+        }
+        if (!boundChangeId) {
+          return toolCallFailure("No active Change is bound to this Main Agent conversation.");
+        }
+        if (!liveMainThreadId || call.threadId !== liveMainThreadId) {
+          return toolCallFailure("Only the exact current Main Agent thread may finalize this Change.");
+        }
+        const policy = evaluateToolPolicy({
+          actionType: "change.finalize",
+          actorRoleId: "main-agent",
+          changeId: boundChangeId,
+          conversationId,
+          targetId: boundChangeId,
+        });
+        if (policy.status !== "allowed") return toolCallFailure(policy.readableMessage);
+        await assertCurrentMainAttempt(resolution, conversationId, graphScopeId, attemptId, liveMainThreadId);
+        const request = await requestSkillNativeProjectHarnessChangeFinalization(project, resolution, {
+          changeId: boundChangeId,
+          conversationId,
+          graphScopeId,
+          mainAttemptId: attemptId,
+          providerThreadId: liveMainThreadId,
+          turnId: call.turnId,
+        });
+        return {
+          contentItems: [{
+            type: "inputText",
+            text: `Change ${request.changeId} finalization request ${request.id} is waiting for explicit human confirmation. The Change remains active.`,
           }],
           success: true,
         };

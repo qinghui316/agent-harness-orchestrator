@@ -3,8 +3,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { initHarness } from "../../src/harness/init.js";
-import { repoLocalMemory, resolveProjectMemory } from "../../src/memory/resolver.js";
+import { repoLocalMemory } from "../../src/memory/resolver.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../src/provider-runtime/project-harness-discovery.js";
+import { resolveProjectRuntime } from "../../src/project-runtime/resolution.js";
 import { agentThreadSurfaceId } from "../../src/provider-runtime/agent-surface-id.js";
 import { decodeCanonicalTimelineCursor, encodeCanonicalTimelineCursor, getCanonicalTimelinePage } from "../../src/workbench/canonical-timeline-query.js";
 import { projectCanonicalTimelineEnvelope } from "../../src/workbench/canonical-timeline-projector.js";
@@ -17,11 +18,13 @@ import type {
   CanonicalTimelineEnvelope as WebTimelineEnvelope,
   CanonicalTimelinePage as WebTimelinePage,
 } from "../../src/web/src/types.js";
-import { openWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
+import { openProjectRuntimeWorkbenchDatabase, openWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import type { WorkbenchDatabase } from "../../src/workbench/persistence/database.js";
 import { type StoredTopicMessageWrite } from "../../src/workbench/persistence/contracts.js";
+import { createReadyProjectHarnessFixture } from "../helpers/project-harness-fixture.js";
 
 let root: string;
+let originalAhoHome: string | undefined;
 const projectId = "timeline-project";
 const conversationId = "conversation-1";
 
@@ -35,9 +38,13 @@ void contractTypeCheck;
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "aho-canonical-timeline-"));
+  originalAhoHome = process.env.AHO_HOME;
+  process.env.AHO_HOME = join(root, ".aho-home");
 });
 
 afterEach(async () => {
+  if (originalAhoHome === undefined) delete process.env.AHO_HOME;
+  else process.env.AHO_HOME = originalAhoHome;
   await rm(root, { recursive: true, force: true });
 });
 
@@ -128,9 +135,17 @@ describe("canonical Timeline server contract", () => {
       addedAt: "2026-07-17T00:00:00.000Z",
       lastSeenAt: "2026-07-17T00:00:00.000Z",
     };
-    await initHarness(project);
-    const memory = await resolveProjectMemory(project);
-    const store = await openWorkbenchDatabase(memory);
+    await createReadyProjectHarnessFixture({
+      projectRoot: root,
+      ahoHome: process.env.AHO_HOME!,
+      projectId,
+      projectName: project.name,
+    });
+    const resolution = await resolveProjectRuntime(project, {
+      ahoHome: process.env.AHO_HOME,
+      discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+    });
+    const store = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
     try {
       seedConversation(store);
       store.timeline.appendMessage(message("child-input", "planning-agent", "thread-child", true));

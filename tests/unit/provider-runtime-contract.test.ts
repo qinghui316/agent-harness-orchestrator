@@ -6,14 +6,18 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { repoLocalMemory } from "../../src/memory/resolver.js";
 import type { ProviderDescriptor, ProviderTurnResult } from "../../src/provider-runtime/contracts.js";
 import { ProviderRegistry } from "../../src/provider-runtime/registry.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../src/provider-runtime/project-harness-discovery.js";
+import { resolveProjectRuntime } from "../../src/project-runtime/resolution.js";
 import { PROVIDER_OPERATION_CAPABILITIES, type ProviderCapabilityKey, type ProviderCapabilitySnapshot } from "../../src/provider-runtime/types.js";
 import type { ManagedProject } from "../../src/types/index.js";
 import { requiredProfilesForResume, switchConversationProviderAtSafePoint, workflowResumeRequestFromHandoff } from "../../src/workbench/provider-switch.js";
 import { assembleSharedConversationContext } from "../../src/workbench/shared-conversation-context.js";
 import { openWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
+import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import { claimAgentTask, createAgentTask } from "../../src/agent-task/manager.js";
 import { acquireWorkbenchRuntimeMutationLock } from "../../src/workbench/schema-rebuild-gate.js";
 import { resolveProjectSkillProvider } from "../../src/server/workbench/api-router.js";
+import { createReadyProjectHarnessFixture } from "../helpers/project-harness-fixture.js";
 
 let root: string;
 
@@ -132,8 +136,18 @@ describe("provider-neutral runtime contract", () => {
     registry.register(alpha);
     registry.register(fakeProvider("beta"));
     const project = managedProject(root);
-    const memory = repoLocalMemory(root, project.id);
-    const store = await openWorkbenchDatabase(memory);
+    const ahoHome = join(root, ".aho-home");
+    await createReadyProjectHarnessFixture({
+      projectRoot: root,
+      ahoHome,
+      projectId: project.id,
+      projectName: project.name,
+    });
+    const resolution = await resolveProjectRuntime(project, {
+      ahoHome,
+      discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+    });
+    const store = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
     try {
       store.conversations.createConversation({
         projectId: project.id,
@@ -184,7 +198,7 @@ describe("provider-neutral runtime contract", () => {
 
     const result = await switchConversationProviderAtSafePoint({
       project,
-      memory,
+      resolution,
       conversationId: "conversation-1",
       targetProviderId: "beta",
       registry,
@@ -192,7 +206,7 @@ describe("provider-neutral runtime contract", () => {
 
     expect(interrupted).toBe(true);
     expect(result).toMatchObject({ previousProviderId: "alpha", selectedProviderId: "beta", graphScopeId: "graph-1" });
-    const verified = await openWorkbenchDatabase(memory);
+    const verified = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
     try {
       expect(verified.conversations.readConversation(project.id, "conversation-1")?.selectedProviderId).toBe("beta");
       expect(verified.providerAttempts.readConversationProviderBinding(project.id, "conversation-1", "beta")).toMatchObject({ nativeSessionId: null, bindingStatus: "ready" });
@@ -222,14 +236,13 @@ describe("provider-neutral runtime contract", () => {
     }
 
     const handoff = await assembleSharedConversationContext({
-      project,
-      memory,
+      resolution,
       conversationId: "conversation-1",
       providerId: "beta",
       currentUserMessage: "继续当前节点",
     });
     expect(handoff.snapshot.resumePoint).toMatchObject({ hash: result.resumePointHash, targetProviderId: "beta" });
-    const claimStore = await openWorkbenchDatabase(memory);
+    const claimStore = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
     try {
       claimStore.providerAttempts.startQueuedProviderAttempt(project.id, result.resumeAttemptId, {
         capabilitySnapshot: await registry.get("beta").capabilitySnapshot(project, project.path),
@@ -279,8 +292,18 @@ describe("provider-neutral runtime contract", () => {
 
   it("delivers only unseen completed canonical turns to each provider binding", async () => {
     const project = managedProject(root);
-    const memory = repoLocalMemory(root, project.id);
-    const store = await openWorkbenchDatabase(memory);
+    const ahoHome = join(root, ".aho-home");
+    await createReadyProjectHarnessFixture({
+      projectRoot: root,
+      ahoHome,
+      projectId: project.id,
+      projectName: project.name,
+    });
+    const resolution = await resolveProjectRuntime(project, {
+      ahoHome,
+      discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+    });
+    const store = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
     const now = new Date().toISOString();
     try {
       store.conversations.createConversation({
@@ -335,14 +358,14 @@ describe("provider-neutral runtime contract", () => {
       store.close();
     }
 
-    const beta = await assembleSharedConversationContext({ project, memory, conversationId: "conversation-sync", providerId: "beta", currentUserMessage: "接管" });
+    const beta = await assembleSharedConversationContext({ resolution, conversationId: "conversation-sync", providerId: "beta", currentUserMessage: "接管" });
     expect(beta.snapshot.recentVisibleConversation.map((entry) => entry.text)).toEqual([
       "第一轮问题",
       "第一轮回答",
       "第二轮问题",
       "第二轮回答",
     ]);
-    const alpha = await assembleSharedConversationContext({ project, memory, conversationId: "conversation-sync", providerId: "alpha", currentUserMessage: "继续" });
+    const alpha = await assembleSharedConversationContext({ resolution, conversationId: "conversation-sync", providerId: "alpha", currentUserMessage: "继续" });
     expect(alpha.snapshot.recentVisibleConversation).toEqual([]);
   });
 

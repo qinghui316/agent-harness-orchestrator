@@ -1,20 +1,16 @@
-﻿import { existsSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { closeChangeForChange, createChange } from "../../src/change/manager.js";
 import { initHarness } from "../../src/harness/init.js";
-import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { ProjectRegistryStore } from "../../src/registry/store.js";
 import { resolveProjectRuntimePaths } from "../../src/project-runtime/paths.js";
-import { initializeProjectRuntimeSidecar } from "../../src/project-runtime/lifecycle.js";
-import type { ProjectRuntimeResolution } from "../../src/project-runtime/context.js";
 import type { ProjectRuntimeCoordinatorPort } from "../../src/project-runtime/coordinator.js";
-import { hashNativeSkillPackageContent } from "../../src/skill/content-hash.js";
-import { startLocalCommandRun } from "../../src/run/manager.js";
+import type { RunMetadata } from "../../src/types/index.js";
 import { TerminalRuntime } from "../../src/server/terminal/terminal-runtime.js";
 import { buildNativeFolderDialogCommand, executeWorkbenchAction, recoverWorkbenchProjects, startWorkbenchServer, type WorkbenchServerHandle } from "../../src/server/workbench-server.js";
 import type { ManagedProject } from "../../src/types/index.js";
@@ -22,6 +18,7 @@ import { appendCanonicalTimelineEntry } from "../../src/workbench/canonical-time
 import { buildProjectScopedMainAgentPrompt } from "../../src/workbench/main-agent-turn-coordinator.js";
 import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
 import { createFakeCodexRuntime } from "../helpers/fake-codex-runtime.js";
+import { createReadyProjectHarnessFixture } from "../helpers/project-harness-fixture.js";
 
 let tempDir: string;
 let staticRoot: string;
@@ -31,6 +28,7 @@ let originalCodexHome: string | undefined;
 let originalCodexBin: string | undefined;
 let originalAhoHome: string | undefined;
 let serverConversationId: string;
+let serverRunId: string;
 const execFileAsync = promisify(execFile);
 
 interface SnapshotResponse {
@@ -60,15 +58,18 @@ describe("workbench server", () => {
     process.env.AHO_HOME = registryRoot;
     process.env.AHO_CODEX_BIN = await createFakeCodexRuntime(tempDir);
     await writeFile(join(staticRoot, "index.html"), "<div>AHO</div>", "utf8");
-    await initHarness(project());
-    const projectRuntimeCoordinator = await createTestProjectRuntimeCoordinator();
+    await createReadyProjectHarnessFixture({
+      projectRoot: tempDir,
+      ahoHome: registryRoot,
+      projectId: project().id,
+      projectName: project().name,
+    });
     const conversation = await createConversationChangeFixture(project(), { title: "Server Topic" });
     serverConversationId = conversation.conversationId;
-    await startLocalCommandRun(project(), [process.execPath, "-e", "console.log('server stream')"]);
+    serverRunId = await writeRuntimeSidecarRun(conversation.changeId);
     handle = await startWorkbenchServer({ project: project(), path: tempDir }, {
       port: 0,
       staticRoot,
-      projectRuntimeCoordinator,
     });
   });
 
@@ -90,10 +91,10 @@ describe("workbench server", () => {
     const snapshot = await getJson<SnapshotResponse>(`${handle!.url}/api/workbench/snapshot`);
     expect(snapshot.left.topics[0]).toMatchObject({ id: serverConversationId, boundChangeId: "server-topic" });
 
-    const topics = await getJson<unknown[]>(`${handle!.url}/api/workbench/topics`);
+    const topics = await getJson<unknown[]>(`${handle!.url}/api/projects/repo/workbench/topics`);
     expect(topics).toHaveLength(1);
 
-    const stream = await getJson<{ events: Array<{ type: string }> }>(`${handle!.url}/api/workbench/stream/${snapshot.center.agentLoop.runs[0].id}`);
+    const stream = await getJson<{ events: Array<{ type: string }> }>(`${handle!.url}/api/workbench/stream/${serverRunId}`);
     expect(stream.events.some((event: { type: string }) => event.type === "run.completed")).toBe(true);
 
     const page = await fetch(`${handle!.url}/`);
@@ -307,8 +308,8 @@ describe("workbench server", () => {
   });
 
   it("rejects composer attachment uploads before project preparation", async () => {
-    const memory = await resolveProjectMemory(project());
-    await rm(memory.markerPath, { force: true });
+    await rm(join(tempDir, ".claude", "skills", "repo-harness"), { recursive: true, force: true });
+    await rm(join(tempDir, ".agents", "skills", "repo-harness"), { recursive: true, force: true });
 
     const attachment = await fetch(`${handle!.url}/api/projects/repo/attachments`, {
       method: "POST",
@@ -558,8 +559,7 @@ describe("workbench server", () => {
     expect(snapshotIndex).toBeGreaterThan(errorIndex);
     expect(doneIndex).toBeGreaterThan(snapshotIndex);
 
-    const snapshot = await getJson<SnapshotResponse>(`${handle!.url}/api/workbench/snapshot`);
-    const replay = await fetch(`${handle!.url}/api/workbench/stream/${snapshot.center.agentLoop.runs[0].id}`);
+    const replay = await fetch(`${handle!.url}/api/workbench/stream/${serverRunId}`);
     const replayBody = await replay.json() as { live: boolean };
     expect(replayBody.live).toBe(false);
   });
@@ -596,6 +596,12 @@ describe("workbench server", () => {
     await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
       actionType: "validate.run",
       changeId: "server-topic",
+    })).rejects.toThrow("confirm");
+
+    await expect(executeWorkbenchAction({ project: project(), path: tempDir }, {
+      actionType: "harness-change.close",
+      changeId: "server-topic",
+      finalizationRequestId: "finalize-request",
     })).rejects.toThrow("confirm");
   });
 
@@ -823,7 +829,7 @@ describe("workbench server", () => {
     }
   });
 
-  it("restores an unregistered direct external-local project from marker and AHO_HOME", async () => {
+  it("serves an unregistered direct Skill-native project from explicit input", async () => {
     const sourceRoot = await mkdtemp(join(tmpdir(), "aho-external-src-"));
     const ahoHome = await mkdtemp(join(tmpdir(), "aho-external-home-"));
     const store = new ProjectRegistryStore(join(registryRoot, "restore-home"));
@@ -835,10 +841,15 @@ describe("workbench server", () => {
       lastSeenAt: "2026-06-25T00:00:00.000Z",
     };
     process.env.AHO_HOME = ahoHome;
-    await initHarness(directProject, { memoryMode: "external-local" });
-    await createChange(directProject, { title: "Restored Topic" });
+    await createReadyProjectHarnessFixture({
+      projectRoot: sourceRoot,
+      ahoHome,
+      projectId: directProject.id,
+      projectName: directProject.name,
+    });
+    await createConversationChangeFixture(directProject, { title: "Restored Topic" });
 
-    const directHandle = await startWorkbenchServer({ project: null, path: sourceRoot }, { port: 0, staticRoot, store });
+    const directHandle = await startWorkbenchServer({ project: directProject, path: sourceRoot }, { port: 0, staticRoot, store });
     try {
       const status = await getJson<{ mode: string; directProjectId: string | null }>(`${directHandle.url}/api/app/status`);
       expect(status).toMatchObject({ mode: "project", directProjectId: "external-repo" });
@@ -846,8 +857,8 @@ describe("workbench server", () => {
       const projects = await getJson<{ projects: Array<{ project: { id: string; name: string } | null; memory: { registered: boolean; memoryMode: string; memoryAvailable: boolean; harnessReady: boolean } }> }>(`${directHandle.url}/api/projects`);
       expect(projects.projects).toHaveLength(1);
       expect(projects.projects[0]).toMatchObject({
-        project: { id: "external-repo", name: basename(sourceRoot) },
-        memory: { registered: false, memoryMode: "external-local", memoryAvailable: true, harnessReady: false },
+        project: { id: "external-repo", name: "External Repo" },
+        memory: { registered: false },
       });
       expect(await store.listProjects()).toHaveLength(0);
 
@@ -860,7 +871,7 @@ describe("workbench server", () => {
       expect(await store.listProjects()).toHaveLength(1);
 
       const snapshot = await getJson<SnapshotResponse>(`${directHandle.url}/api/projects/external-repo/workbench/snapshot`);
-      expect(snapshot.left.topics[0]).toMatchObject({ id: "restored-topic" });
+      expect(snapshot.left.topics[0]).toMatchObject({ id: "conv-restored-topic", boundChangeId: "restored-topic" });
     } finally {
       await new Promise<void>((resolve) => directHandle.server.close(() => resolve()));
       await rm(sourceRoot, { recursive: true, force: true });
@@ -949,53 +960,44 @@ describe("workbench server", () => {
   });
 });
 
-async function createTestProjectRuntimeCoordinator(): Promise<ProjectRuntimeCoordinatorPort> {
-  const paths = resolveProjectRuntimePaths(project().id, registryRoot);
-  await initializeProjectRuntimeSidecar(paths);
-  const skillRoot = join(tempDir, ".agents", "skills", "repo-harness");
-  await mkdir(join(skillRoot, "state"), { recursive: true });
-  await writeFile(join(skillRoot, "SKILL.md"), "---\nname: repo-harness\ndescription: Test project Harness.\n---\n", "utf8");
-  const contentFingerprint = await hashNativeSkillPackageContent(skillRoot);
-  const resolution: ProjectRuntimeResolution = {
-    projectRoot: tempDir,
-    harness: {
-      projectId: project().id,
-      skillName: "repo-harness",
-      skillRevision: 1,
-      skillRoot,
-      contentFingerprint,
-    },
-    binding: {
-      projectId: project().id,
-      skillName: "repo-harness",
-      sourcePath: skillRoot,
-      contentFingerprint,
-      providers: [{ providerId: "codex", discoveryPath: skillRoot, status: "ready", sameTarget: true }],
-    },
-    providerInput: {
-      id: "repo-harness",
-      path: join(skillRoot, "SKILL.md"),
-      contentHash: contentFingerprint,
-      source: "project-harness",
-      required: true,
-    },
-    paths,
-  };
-  const ready = { state: "ready" as const, project: project(), resolution };
-  return {
-    async reconcileStartup() {
-      return { states: [ready], migrations: [], recoveries: [], onboardingRecoveries: [] };
-    },
-    async register() { return ready; },
-    async resolve() { return ready; },
-    async requireReady() { return resolution; },
-  };
-}
-
 async function getJson<T>(url: string): Promise<T> {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`GET ${url} failed (${response.status}): ${await response.text()}`);
   return response.json() as Promise<T>;
+}
+
+async function writeRuntimeSidecarRun(changeId: string): Promise<string> {
+  const runtime = resolveProjectRuntimePaths(project().id, registryRoot);
+  const runId = "run-server-stream";
+  const directory = join(runtime.runsRoot, runId);
+  const now = new Date().toISOString();
+  const run: RunMetadata = {
+    version: "1.0",
+    id: runId,
+    changeId,
+    projectPath: tempDir,
+    runtime: "local-command",
+    executionMode: "direct",
+    proposalOnly: false,
+    command: [process.execPath, "-e", "console.log('server stream')"],
+    status: "completed",
+    exitCode: 0,
+    signal: null,
+    startedAt: now,
+    finishedAt: now,
+    artifacts: {
+      base: "memory-root",
+      directory: `runs/${runId}`,
+      context: `runs/${runId}/context.md`,
+      events: `runs/${runId}/events.jsonl`,
+      stdout: `runs/${runId}/stdout.log`,
+      stderr: `runs/${runId}/stderr.log`,
+    },
+  };
+  await mkdir(directory, { recursive: true });
+  await writeFile(join(directory, "run.json"), `${JSON.stringify(run, null, 2)}\n`, "utf8");
+  await writeFile(join(directory, "events.jsonl"), `${JSON.stringify({ timestamp: now, type: "run.completed", runId })}\n`, "utf8");
+  return runId;
 }
 
 class FakePty {

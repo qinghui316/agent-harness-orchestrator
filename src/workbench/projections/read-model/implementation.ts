@@ -15,6 +15,7 @@ import { summarizeRunArtifacts } from "../artifact-preview.js";
 import { readRunEvents } from "./thread-stream.js";
 import { buildConfirmationQueue, emptyConfirmationQueue } from "./confirmation-queue.js";
 import { listWorkbenchDecisions } from "./decision-store.js";
+import { CurrentProjectConversationUnavailableError } from "./errors.js";
 import { alignDecisionInspectorWithConfirmationPrimary, buildDecisionInspector, emptyDecisionInspector } from "./decision-inspector.js";
 import { buildApprovalInbox } from "./approval-inbox.js";
 import { shellWorkbenchWorkpad } from "./workbench-shell.js";
@@ -142,6 +143,7 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
         topicId: options.topicId,
       });
       if (planningSnapshot) return planningSnapshot;
+      throw new CurrentProjectConversationUnavailableError();
     }
   }
   const memoryStatus = await getMemoryStatus(input.project, input.path);
@@ -375,9 +377,29 @@ async function buildWorkbenchProjectionWorkpad(
 }
 
 export async function listWorkbenchTopics(input: WorkbenchProjectInput): Promise<WorkbenchTopicSummary[]> {
-  const memory = await resolveWorkbenchMemory(input);
-  if (!memory.supported || !existsSync(memory.memoryRoot)) return [];
-  return listWorkbenchTopicsFromMemory(memory);
+  if (!input.project) return [];
+  const runtime = await resolveProjectRuntimeState(input.project, {
+    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+  });
+  if (runtime.state !== "ready") return [];
+  const store = await openProjectRuntimeWorkbenchDatabase(runtime.resolution.paths);
+  try {
+    return store.conversations.listConversations(runtime.resolution.harness.projectId).map((conversation) => ({
+      id: conversation.conversationId,
+      kind: "conversation",
+      name: conversation.conversationId,
+      title: conversation.title,
+      state: conversation.state,
+      path: `runtime-sidecar:conversation/${conversation.conversationId}`,
+      boundChangeId: conversation.boundChangeId,
+      graphScopeId: conversation.currentGraphScopeId ?? undefined,
+      selectedProviderId: conversation.selectedProviderId,
+      createdAt: conversation.createdAt,
+      updatedAt: conversation.updatedAt,
+    }));
+  } finally {
+    store.close();
+  }
 }
 
 export async function hideWorkbenchTopic(input: WorkbenchProjectInput, topicId: string): Promise<{ hidden: true; topicId: string }> {
@@ -411,13 +433,21 @@ export async function getWorkbenchTopic(input: WorkbenchProjectInput, topicId: s
 }
 
 export async function getWorkbenchStream(input: WorkbenchProjectInput, runId: string): Promise<WorkbenchStreamPacket> {
-  const memory = await resolveWorkbenchMemory(input);
-  if (!memory.supported || !existsSync(memory.runsRoot)) {
+  if (!input.project) {
     throw new Error("Durable memory is unavailable; cannot replay run stream.");
   }
-  const run = await readRun(memory, runId);
-  const events = await readRunEvents({ runsRoot: memory.runsRoot }, run);
-  const { artifacts, diagnostics, warnings } = await summarizeRunArtifacts(memory, run);
+  const runtime = await resolveProjectRuntimeState(input.project, {
+    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+  });
+  if (runtime.state !== "ready") {
+    throw new Error("Project Harness is not ready; cannot replay run stream.");
+  }
+  const run = await readRun(runtime.resolution.paths, runId);
+  const events = await readRunEvents(runtime.resolution.paths, run);
+  const { artifacts, diagnostics, warnings } = await summarizeRunArtifacts({
+    projectRoot: runtime.resolution.projectRoot,
+    runArtifactRoot: runtime.resolution.paths.sidecarRoot,
+  }, run);
   return {
     run,
     live: false,

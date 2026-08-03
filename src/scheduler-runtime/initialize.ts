@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import type { ResolvedMemory } from "../types/index.js";
+import type { SchedulerArtifactStore } from "./artifact-store.js";
 import { schedulerRuntimeStatePath } from "./paths.js";
 import { schedulerRuntimeArtifactRefs, appendSchedulerRuntimeEvent, writeSchedulerRuntimeState } from "./repository.js";
 import { readSchedulerRuntimeLineage } from "./guards.js";
@@ -11,7 +11,7 @@ export interface SchedulerRuntimeInitializationRefs {
   eventsArtifact: string;
 }
 
-export async function initializeSchedulerRuntime(memory: ResolvedMemory, changePath: string, schedulerRunId: string): Promise<SchedulerRuntimeState> {
+export async function initializeSchedulerRuntime(memory: SchedulerArtifactStore, changePath: string, schedulerRunId: string): Promise<SchedulerRuntimeState> {
   const { run, claimPlan } = await readSchedulerRuntimeLineage(memory, changePath, schedulerRunId);
   if (existsSync(schedulerRuntimeStatePath(memory, changePath, run.id))) {
     throw new Error("Scheduler runtime state already exists for this SchedulerRun.");

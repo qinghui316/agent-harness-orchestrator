@@ -1,4 +1,4 @@
-import type { ResolvedMemory } from "../types/index.js";
+import type { SchedulerArtifactStore } from "./artifact-store.js";
 import {
   findSchedulerRuntimeWorkerAuditForValidation,
   findSchedulerRuntimeWorkerResultForStart,
@@ -73,7 +73,7 @@ export interface SchedulerWorkerPathReadOptions {
 }
 
 export async function readSchedulerWorkerPathReadModels(
-  memory: ResolvedMemory,
+  memory: SchedulerArtifactStore,
   changePath: string,
   schedulerRunId: string,
   options: SchedulerWorkerPathReadOptions = {},
@@ -89,7 +89,7 @@ export async function readSchedulerWorkerPathReadModels(
 }
 
 export async function readSchedulerWorkerPathReadModelsForReservation(
-  memory: ResolvedMemory,
+  memory: SchedulerArtifactStore,
   changePath: string,
   schedulerRunId: string,
   reservation: { id?: string; reservationIntents: Array<{ reservationIntentId: string }> },
@@ -152,7 +152,7 @@ export function isTerminalSchedulerWorkerPathStatus(status: SchedulerWorkerPathS
 }
 
 async function readSchedulerWorkerPathReadModel(
-  memory: ResolvedMemory,
+  memory: SchedulerArtifactStore,
   changePath: string,
   schedulerRunId: string,
   start: SchedulerRuntimeWorkerStart,

@@ -1,4 +1,4 @@
-﻿import { isMainAgentExecutionAction, normalizeMainAgentExecutionAction } from "../../workflow-actions/main-agent-execution.js";
+import { isMainAgentExecutionAction, normalizeMainAgentExecutionAction } from "../../workflow-actions/main-agent-execution.js";
 
 export function extractRunId(result: unknown): string | undefined {
   if (isRecord(result) && isRecord(result.run) && typeof result.run.id === "string") return result.run.id;
@@ -257,6 +257,7 @@ export function labelForAction(actionType: string): string {
     case "planning.scheduler.run.complete": return "SchedulerRun completion recorded";
     case "planning.scheduler.run.close-blocked": return "SchedulerRun closeout recorded";
     case "workflow.run.start": return "Accepted workflow started";
+    case "harness-change.close": return "Change closed";
     case "orchestrator.evaluate": return "Main orchestrator evaluated";
     case "orchestrator.pump": return "Main orchestrator pumped available demands";
     case "demand.worker.enqueue": return "Demand enqueued";

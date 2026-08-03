@@ -1,9 +1,8 @@
 import { shortHash } from "../fs/path.js";
-import { resolveRunnableChangeTarget } from "../change/target.js";
-import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
-import { startCodeRun, type CodeRunLiveCallbacks, type CodeRunResult } from "../code/manager.js";
+import { startSkillNativeCodeRun, type CodeRunLiveCallbacks, type CodeRunOptions, type CodeRunResult } from "../code/manager.js";
 import { readRun } from "../run/repository.js";
-import { markTaskRunRunning, startTaskRun } from "../task-run/manager.js";
+import { markTaskRunRunning } from "../task-run/manager.js";
+import { startTaskRunFromRuntime } from "../task-run/start-retry.js";
 import { readTaskRun } from "../task-run/repository.js";
 import type { ManagedProject, RunMetadata, TaskRun, WorkerLease, WorktreeMetadata } from "../types/index.js";
 import { readWorktreeMetadata } from "../worktree/repository.js";
@@ -19,6 +18,7 @@ import {
 } from "./repository.js";
 import type { SchedulerRuntimeWorkerReworkPlan, SchedulerRuntimeWorkerReworkStart } from "./types.js";
 import { buildSchedulerWorkerScopeContext, composeSchedulerWorkerReworkScopePrompt, resolveSchedulerWorkerReservationIntent } from "./worker-scope.js";
+import { resolveSchedulerReadySetExecutionScope, type SchedulerReadySetExecutionPort } from "./execution-port.js";
 
 export interface SchedulerFirstWorkerReworkStartInput {
   changeId: string;
@@ -39,12 +39,9 @@ export interface SchedulerFirstWorkerReworkStartResult {
   executionStarted: true;
 }
 
-export async function startFirstSchedulerWorkerRework(project: ManagedProject, input: SchedulerFirstWorkerReworkStartInput): Promise<SchedulerFirstWorkerReworkStartResult> {
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, "Scheduler first worker rework start");
-  const target = await resolveRunnableChangeTarget(project, { changeId: input.changeId, allowLegacyActiveFallback: false });
-  const changePath = target.status.activeChanges.find((item) => item.name === input.changeId)?.path;
-  if (!changePath) throw new Error(`Scheduler first worker rework start cannot resolve active Change path for ${input.changeId}.`);
+export async function startFirstSchedulerWorkerRework(project: ManagedProject, input: SchedulerFirstWorkerReworkStartInput, port: SchedulerReadySetExecutionPort): Promise<SchedulerFirstWorkerReworkStartResult> {
+  const scope = await resolveSchedulerReadySetExecutionScope(project, input.changeId, "Scheduler first worker rework start", port);
+  const { artifacts: memory, runtime, changePath } = scope;
   const { run } = await readSchedulerRuntimeLineage(memory, changePath, input.schedulerRunId);
   if (run.changeId !== input.changeId) throw new Error("planning.scheduler.worker.rework-start-first SchedulerRun change scope mismatch.");
   const runtimeState = await readSchedulerRuntimeState(memory, changePath, run.id);
@@ -59,21 +56,21 @@ export async function startFirstSchedulerWorkerRework(project: ManagedProject, i
   const reservation = await readSchedulerRuntimeClaimReservation(memory, changePath, run.id, reworkPlan.schedulerClaimReservationId);
   assertLatestSchedulerRuntimeClaimReservation(reservation, runtimeState, "planning.scheduler.worker.rework-start-first");
   const intent = resolveSchedulerWorkerReservationIntent(reservation, reworkPlan, "planning.scheduler.worker.rework-start-first");
-  const scopeContext = buildSchedulerWorkerScopeContext(target.status, reservation, intent, reworkPlan.taskId);
+  const scopeContext = buildSchedulerWorkerScopeContext(scope.changeStatus, reservation, intent, reworkPlan.taskId);
   const existing = await findSchedulerRuntimeWorkerReworkStartForPlan(memory, changePath, run.id, reworkPlan.id);
   if (existing) throw new Error("planning.scheduler.worker.rework-start-first rework plan already started.");
-  const originalTaskRun = await readTaskRun(memory, input.changeId, reworkPlan.taskRunId);
+  const originalTaskRun = await readTaskRun(runtime, input.changeId, reworkPlan.taskRunId);
   assertOriginalTaskRunMatchesReworkPlan(originalTaskRun, reworkPlan);
-  const originalCodeRun = await readRun(memory, reworkPlan.targetCodeRunId);
+  const originalCodeRun = await readRun(runtime, reworkPlan.targetCodeRunId);
   assertOriginalCodeRunMatchesReworkPlan(originalCodeRun, reworkPlan);
-  const worktree = await readWorktreeMetadata(memory, reworkPlan.targetWorktreeId);
+  const worktree = await readWorktreeMetadata(runtime, reworkPlan.targetWorktreeId);
   assertWorktreeMatchesReworkPlan(worktree, reworkPlan);
 
-  const started = await startTaskRun(project, { changeId: input.changeId, taskId: reworkPlan.taskId, roleId: "rework-coder" });
+  const started = await startTaskRunFromRuntime(scope.skillNative.runtime, scope.changeStatus, { changeId: input.changeId, taskId: reworkPlan.taskId, roleId: "rework-coder" });
   const reworkStartId = buildReworkStartId(run.id, reworkPlan.id, started.taskRun.id);
   const refs = schedulerWorkerReworkStartArtifactRefs(memory, changePath, run.id, reworkStartId);
   try {
-    const code = await startCodeRun(project, {
+    const codeInput: CodeRunOptions = {
       changeId: input.changeId,
       taskIds: [reworkPlan.taskId],
       taskRunId: started.taskRun.id,
@@ -93,8 +90,15 @@ export async function startFirstSchedulerWorkerRework(project: ManagedProject, i
         nodeId: reworkPlan.nodeId,
         unitId: reworkPlan.unitId,
       },
-    });
-    const reworkTaskRun = await markTaskRunRunning(memory, started.taskRun.id, code.run);
+    };
+    const code = await startSkillNativeCodeRun(
+      project,
+      scope.skillNative.runtime,
+      scope.skillNative.harness,
+      codeInput,
+      memory,
+    );
+    const reworkTaskRun = await markTaskRunRunning(runtime, started.taskRun.id, code.run);
     const reworkStart: SchedulerRuntimeWorkerReworkStart = {
       version: "1.0",
       id: reworkStartId,

@@ -1,15 +1,35 @@
 ﻿import { describe, expect, it } from "vitest";
-import { initHarness } from "../../src/harness/init.js";
+import { join } from "node:path";
+import { afterEach, beforeEach } from "vitest";
 import { appendCanonicalTimelineEntry } from "../../src/workbench/canonical-timeline-command.js";
 import { getWorkbenchSnapshot } from "../../src/workbench/projections/read-model/implementation.js";
 import { getCanonicalTimelinePage } from "../../src/workbench/canonical-timeline-query.js";
 import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
+import { createReadyProjectHarnessFixture } from "../helpers/project-harness-fixture.js";
 import { getTempDir, project } from "./workbench/fixtures.js";
+
+let originalAhoHome: string | undefined;
+
+beforeEach(async () => {
+  originalAhoHome = process.env.AHO_HOME;
+  process.env.AHO_HOME = join(getTempDir(), ".aho-home");
+  const repo = project(getTempDir());
+  await createReadyProjectHarnessFixture({
+    projectRoot: repo.path,
+    ahoHome: process.env.AHO_HOME,
+    projectId: repo.id,
+    projectName: repo.name,
+  });
+});
+
+afterEach(() => {
+  if (originalAhoHome === undefined) delete process.env.AHO_HOME;
+  else process.env.AHO_HOME = originalAhoHome;
+});
 
 describe("incremental canonical Timeline delivery", () => {
   it("returns latest and earlier Timeline pages from the SQLite message store", async () => {
     const repo = project(getTempDir());
-    await initHarness(repo);
     const topic = await createConversationChangeFixture(repo, { title: "Long transcript", body: "message 0" });
     await appendMessages(repo, topic.changeId, 1, 10);
 
@@ -26,7 +46,6 @@ describe("incremental canonical Timeline delivery", () => {
 
   it("fails closed for invalid Timeline cursors", async () => {
     const repo = project(getTempDir());
-    await initHarness(repo);
     const topic = await createConversationChangeFixture(repo, { title: "Long transcript", body: "message 0" });
 
     await expect(getCanonicalTimelinePage({ project: repo, path: repo.path }, topic.conversationId, "main-agent", {
@@ -37,7 +56,6 @@ describe("incremental canonical Timeline delivery", () => {
 
   it("keeps the snapshot transcript-free while Timeline restores the full surface", async () => {
     const repo = project(getTempDir());
-    await initHarness(repo);
     const topic = await createConversationChangeFixture(repo, { title: "Long transcript", body: "message 0" });
     await appendMessages(repo, topic.changeId, 1, 6);
 

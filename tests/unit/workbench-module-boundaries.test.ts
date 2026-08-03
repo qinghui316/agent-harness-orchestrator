@@ -117,7 +117,10 @@ describe("Workbench module boundaries", () => {
 
     expect(conversation).toContain('from "./main-agent-turn-coordinator.js"');
     expect(conversation).toContain('from "./workflow-conversation-bridge.js"');
-    expect(main).toContain('from "./workflow-conversation-bridge.js"');
+    expect(main).not.toContain('from "./workflow-conversation-bridge.js"');
+    expect(conversation).toContain("continueMainAgentTurn: runProjectScopedMainAgentTurn");
+    expect(workflow).toContain("resumeNativeGoalAfterAction");
+    expect(workflow).toContain("requireContinueMainAgentTurn(ports)");
     expect(main).not.toMatch(/childProcessMessage\.attemptId\s*=\s*isPlannerChild/);
     expect(workflow).not.toMatch(/conversation-service|main-agent-turn-coordinator/);
     expect(workflow).toContain('from "./conversation-identity.js"');

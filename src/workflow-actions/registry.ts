@@ -1,4 +1,4 @@
-﻿export const WORKFLOW_ACTION_TYPES = [
+export const WORKFLOW_ACTION_TYPES = [
   "chat.ask",
   "planning.scheduler.worker.start-first",
   "planning.scheduler.worker.start-next",
@@ -16,6 +16,7 @@
   "planning.scheduler.run.complete",
   "planning.scheduler.run.close-blocked",
   "workflow.run.start",
+  "harness-change.close",
   "orchestrator.evaluate",
   "demand.worker.enqueue",
   "demand.worker.claim",
@@ -114,6 +115,7 @@ export const LIVE_WORKFLOW_ACTION_TYPES = [
   "planning.scheduler.run.complete",
   "planning.scheduler.run.close-blocked",
   "workflow.run.start",
+  "harness-change.close",
   "orchestrator.evaluate",
   "orchestrator.pump",
   "demand.worker.enqueue",
@@ -195,6 +197,7 @@ export const HIGH_IMPACT_WORKFLOW_ACTION_TYPES = [
   "planning.scheduler.run.complete",
   "planning.scheduler.run.close-blocked",
   "workflow.run.start",
+  "harness-change.close",
   "code.run",
   "task.run.start",
   "task.run.retry",
@@ -211,7 +214,6 @@ export const HIGH_IMPACT_WORKFLOW_ACTION_TYPES = [
   "remote-landing.merge",
   "post-merge.sync-local.run",
   "post-merge.cleanup-branch.run",
-  "harness-change.close",
   "harness-evolve.apply",
   "harness-evolve.mark-complete",
 ] as const;
@@ -236,6 +238,7 @@ export const REVALIDATED_WORKFLOW_ACTION_TYPES = [
   "planning.scheduler.run.complete",
   "planning.scheduler.run.close-blocked",
   "workflow.run.start",
+  "harness-change.close",
   "code.run",
   "task.queue.start",
   "remote-landing.merge",
@@ -247,6 +250,7 @@ export const WORKFLOW_ACTION_SCOPE_KEYS = [
   "graphScopeId",
   "proposalId",
   "workflowGraphPlanId",
+  "finalizationRequestId",
   "schedulerContractId",
   "schedulerDispatchDryRunId",
   "schedulerWorkerPlanId",
@@ -329,6 +333,9 @@ export function validateWorkflowActionRequiredTargets(request: WorkflowActionSco
   };
 
   switch (actionType) {
+    case "harness-change.close":
+      requireOne("finalizationRequestId", [request.finalizationRequestId]);
+      break;
     case "planning.scheduler.worker.start-first":
       requireOne("schedulerRunId", [request.schedulerRunId]);
       requireOne("schedulerClaimReservationId", [request.schedulerClaimReservationId]);
@@ -522,6 +529,7 @@ export function workflowActionScopePayload(request: WorkflowActionScopeCarrier, 
 }
 
 export function workflowActionTargetId(request: WorkflowActionScopeCarrier, changeId: string, result?: unknown): string {
+  if (request.actionType === "harness-change.close") return request.finalizationRequestId ?? changeId;
   if (request.actionType === "planning.scheduler.worker.reconcile-result") {
     return request.schedulerWorkerResultId
       ?? extractString(result, "result", "id")
@@ -678,6 +686,7 @@ export function workflowActionScopesMatch(left: WorkflowActionScopeCarrier, righ
 export function workflowActionScopesMatchStrict(left: WorkflowActionScopeCarrier, right: WorkflowActionScopeCarrier): boolean {
   return sameStrictOptional(left.graphScopeId, right.graphScopeId)
     && sameStrictOptional(left.workflowGraphPlanId, right.workflowGraphPlanId)
+    && sameStrictOptional(left.finalizationRequestId, right.finalizationRequestId)
     && sameStrictOptional(left.schedulerContractId, right.schedulerContractId)
     && sameStrictOptional(left.schedulerDispatchDryRunId, right.schedulerDispatchDryRunId)
     && sameStrictOptional(left.schedulerWorkerPlanId, right.schedulerWorkerPlanId)
@@ -728,6 +737,7 @@ function sameSchedulerWorkerReworkPlanStrict(left: WorkflowActionScopeCarrier, r
 
 export function workflowActionScopesMatchCompatible(left: WorkflowActionScopeCarrier, right: WorkflowActionScopeCarrier): boolean {
   return sameCompatibleOptional(left.workflowGraphPlanId, right.workflowGraphPlanId)
+    && sameCompatibleOptional(left.finalizationRequestId, right.finalizationRequestId)
     && sameCompatibleOptional(left.schedulerContractId, right.schedulerContractId)
     && sameCompatibleOptional(left.schedulerDispatchDryRunId, right.schedulerDispatchDryRunId)
     && sameCompatibleOptional(left.schedulerWorkerPlanId, right.schedulerWorkerPlanId)

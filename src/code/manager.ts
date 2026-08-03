@@ -6,6 +6,7 @@ import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.j
 import { projectWriteLeasePath } from "../project/project-write-lease.js";
 import { resolveProjectHarnessAgentInput } from "../project-harness/agent-input.js";
 import type { ProjectCodeExecutionRuntimePort, ProjectHarnessExecutionPort } from "../project-runtime/execution-ports.js";
+import type { SchedulerArtifactStore } from "../scheduler-runtime/artifact-store.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 import { appendRunEvent, buildRunId } from "../run/manager.js";
 import type { ChangeStatus, ManagedProject, RunMetadata, RunWorktreeInfo } from "../types/index.js";
@@ -54,6 +55,7 @@ export async function startSkillNativeCodeRun(
   runtime: ProjectCodeExecutionRuntimePort,
   harness: ProjectHarnessExecutionPort,
   options: CodeRunOptions = {},
+  schedulerArtifacts: SchedulerArtifactStore | null = null,
 ): Promise<CodeRunResult> {
   const changeId = options.changeId?.trim();
   if (!changeId || changeId !== harness.changeStatus.change?.id) {
@@ -69,6 +71,7 @@ export async function startSkillNativeCodeRun(
     changeId,
     options,
     roleId,
+    schedulerArtifacts,
   );
   const role = await resolveBundledAgentRole(roleId);
   return startPreparedCodeRun(project, runtime, harness.changeStatus, changeId, selectedTasks, roleId, role, executionGate, projectHarnessInput.identity, projectHarnessInput.providerSkillInput, true, options);

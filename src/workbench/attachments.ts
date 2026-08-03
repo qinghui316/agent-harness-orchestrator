@@ -4,7 +4,8 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, extname, join, relative, resolve } from "node:path";
 import { z } from "zod";
 import { readRequiredJsonFile, writeJsonFile } from "../fs/json.js";
-import { resolveProjectMemory } from "../memory/resolver.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
+import { resolveProjectRuntimeState } from "../project-runtime/coordinator.js";
 import type { ManagedProject } from "../types/index.js";
 
 export type TopicAttachmentKind = "image" | "text" | "unsupported";
@@ -89,15 +90,13 @@ export async function createTopicAttachment(project: ManagedProject, input: Crea
     throw badRequest("Binary files cannot be attached as text context.");
   }
 
-  const memory = await resolveProjectMemory(project);
-  if (!memory.supported || !memory.writable) throw badRequest("Project app data is not writable.");
-  if (!existsSync(memory.markerPath)) throw badRequest("Project must be prepared before attaching files.");
+  const workbenchRoot = await resolveAttachmentWorkbenchRoot(project, "Project must be prepared before attaching files.");
   const hash = createHash("sha256").update(parsed.buffer).digest("hex");
   const now = new Date().toISOString();
   const id = `att-${now.replace(/[-:.TZ]/g, "").slice(0, 14)}-${hash.slice(0, 12)}`;
   const safeName = sanitizeFileName(parsed.fileName);
   const extension = extname(safeName);
-  const directory = join(memory.workbenchRoot, ATTACHMENT_DIR, id);
+  const directory = join(workbenchRoot, ATTACHMENT_DIR, id);
   await mkdir(directory, { recursive: true });
   const dataFile = `content${extension || ".bin"}`;
   const absoluteDataPath = join(directory, dataFile);
@@ -120,24 +119,25 @@ export async function createTopicAttachment(project: ManagedProject, input: Crea
 }
 
 export async function deleteTopicAttachment(project: ManagedProject, attachmentId: string): Promise<{ deleted: true }> {
-  const memory = await resolveProjectMemory(project);
+  const workbenchRoot = await resolveAttachmentWorkbenchRoot(project, "Project app data is not writable.");
   const id = normalizeAttachmentId(attachmentId);
-  await rm(join(memory.workbenchRoot, ATTACHMENT_DIR, id), { recursive: true, force: true });
+  await rm(join(workbenchRoot, ATTACHMENT_DIR, id), { recursive: true, force: true });
   return { deleted: true };
 }
 
 export async function resolveTopicAttachments(project: ManagedProject, attachmentIds: string[] = []): Promise<TopicAttachment[]> {
-  const memory = await resolveProjectMemory(project);
+  if (attachmentIds.length === 0) return [];
+  const workbenchRoot = await resolveAttachmentWorkbenchRoot(project, "Project app data is not writable.");
   const result: TopicAttachment[] = [];
   const seen = new Set<string>();
   for (const rawId of attachmentIds) {
     const id = normalizeAttachmentId(rawId);
     if (seen.has(id)) continue;
     seen.add(id);
-    const metadataPath = join(memory.workbenchRoot, ATTACHMENT_DIR, id, "attachment.json");
+    const metadataPath = join(workbenchRoot, ATTACHMENT_DIR, id, "attachment.json");
     if (!existsSync(metadataPath)) throw badRequest(`Attachment was not found: ${id}`);
     const attachment = await readRequiredJsonFile(metadataPath, AttachmentMetadataSchema);
-    const dataPath = resolveAttachmentAbsolutePath(memory.workbenchRoot, attachment);
+    const dataPath = resolveAttachmentAbsolutePath(workbenchRoot, attachment);
     if (!existsSync(dataPath)) throw badRequest(`Attachment content was not found: ${id}`);
     result.push(attachment);
   }
@@ -146,7 +146,7 @@ export async function resolveTopicAttachments(project: ManagedProject, attachmen
 
 export async function renderTopicAttachmentsForPrompt(project: ManagedProject, attachments: TopicAttachment[] | undefined): Promise<string[]> {
   if (!attachments || attachments.length === 0) return [];
-  const memory = await resolveProjectMemory(project);
+  const workbenchRoot = await resolveAttachmentWorkbenchRoot(project, "Project app data is not writable.");
   const lines = [
     "## User Message Attachments",
     "",
@@ -155,7 +155,7 @@ export async function renderTopicAttachmentsForPrompt(project: ManagedProject, a
   for (const attachment of attachments) {
     lines.push(`- ${attachment.kind}: ${attachment.fileName} (${attachment.mediaType}, ${attachment.size} bytes, sha256:${attachment.hash.slice(0, 16)})`);
     if (attachment.kind === "text") {
-      const preview = await readAttachmentTextPreview(memory.workbenchRoot, attachment).catch((error: unknown) => `Unable to read text preview: ${error instanceof Error ? error.message : String(error)}`);
+      const preview = await readAttachmentTextPreview(workbenchRoot, attachment).catch((error: unknown) => `Unable to read text preview: ${error instanceof Error ? error.message : String(error)}`);
       lines.push("  preview:");
       for (const line of preview.split(/\r?\n/).slice(0, 80)) lines.push(`    ${line}`);
     } else if (attachment.kind === "image") {
@@ -167,11 +167,11 @@ export async function renderTopicAttachmentsForPrompt(project: ManagedProject, a
 
 export async function providerImageInputsForAttachments(project: ManagedProject, attachments: TopicAttachment[] | undefined): Promise<Array<{ path: string; mediaType: string; fileName: string }>> {
   if (!attachments?.length) return [];
-  const memory = await resolveProjectMemory(project);
+  const workbenchRoot = await resolveAttachmentWorkbenchRoot(project, "Project app data is not writable.");
   return attachments
     .filter((attachment) => attachment.kind === "image")
     .map((attachment) => ({
-      path: resolveAttachmentAbsolutePath(memory.workbenchRoot, attachment),
+      path: resolveAttachmentAbsolutePath(workbenchRoot, attachment),
       mediaType: attachment.mediaType,
       fileName: attachment.fileName,
     }));
@@ -254,4 +254,12 @@ function badRequest(message: string): Error {
   const error = new Error(message);
   error.name = "BadRequest";
   return error;
+}
+
+async function resolveAttachmentWorkbenchRoot(project: ManagedProject, unavailableMessage: string): Promise<string> {
+  const runtime = await resolveProjectRuntimeState(project, {
+    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+  });
+  if (runtime.state !== "ready") throw badRequest(unavailableMessage);
+  return runtime.resolution.paths.workbenchRoot;
 }

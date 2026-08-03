@@ -1,7 +1,6 @@
 import { shortHash } from "../fs/path.js";
 import { readIntegrationCheck } from "../integration-check/repository.js";
 import type { IntegrationCheckRecord } from "../integration-check/types.js";
-import { resolveProjectMemory } from "../memory/resolver.js";
 import type { ManagedProject } from "../types/index.js";
 import { getWorktreeStatus } from "../worktree/manager.js";
 import { readSchedulerRuntimeLineage } from "./guards.js";
@@ -22,6 +21,12 @@ import type {
   SchedulerIntegrationOutcomeTarget,
   SchedulerRuntimeState,
 } from "./types.js";
+import {
+  resolveSchedulerReadySetExecutionScope,
+  type SchedulerReadySetExecutionPort,
+} from "./execution-port.js";
+import type { ProjectExecutionRuntimePort } from "../project-runtime/execution-ports.js";
+import type { SchedulerArtifactStore } from "./artifact-store.js";
 
 export interface SchedulerIntegrationOutcomeInput {
   changeId: string;
@@ -45,27 +50,27 @@ const BLOCKED_STATUSES = new Set<IntegrationCheckRecord["status"]>([
   "failed",
 ]);
 
-export async function reconcileSchedulerIntegrationOutcome(project: ManagedProject, input: SchedulerIntegrationOutcomeInput): Promise<SchedulerIntegrationOutcomeResult> {
-  const memory = await resolveProjectMemory(project);
-  const target = await readSchedulerRuntimeLineageForInput(project, input);
-  const { changePath, run } = target;
-  const runtimeState = await readSchedulerRuntimeState(memory, changePath, run.id);
+export async function reconcileSchedulerIntegrationOutcome(project: ManagedProject, input: SchedulerIntegrationOutcomeInput, port: SchedulerReadySetExecutionPort): Promise<SchedulerIntegrationOutcomeResult> {
+  const { artifacts, runtime, changePath } = await resolveSchedulerReadySetExecutionScope(project, input.changeId, "Scheduler integration outcome", port);
+  const { run } = await readSchedulerRuntimeLineage(artifacts, changePath, input.schedulerRunId);
+  if (run.changeId !== input.changeId) throw new Error("planning.scheduler.integration-outcome.reconcile SchedulerRun change scope mismatch.");
+  const runtimeState = await readSchedulerRuntimeState(artifacts, changePath, run.id);
   assertRuntimeState(runtimeState, input.changeId, run.id);
 
-  const latestHandoff = await readLatestSchedulerIntegrationCheckHandoffProjection(memory, changePath, run.id);
+  const latestHandoff = await readLatestSchedulerIntegrationCheckHandoffProjection(artifacts, changePath, run.id);
   if (!latestHandoff || latestHandoff.id !== input.schedulerIntegrationCheckHandoffId) {
     throw new Error("planning.scheduler.integration-outcome.reconcile requires the latest SchedulerIntegrationCheckHandoff.");
   }
-  const handoff = await readSchedulerIntegrationCheckHandoff(memory, changePath, run.id, input.schedulerIntegrationCheckHandoffId);
+  const handoff = await readSchedulerIntegrationCheckHandoff(artifacts, changePath, run.id, input.schedulerIntegrationCheckHandoffId);
   assertHandoffMatchesRuntime(handoff, runtimeState);
-  const latestCandidate = await readLatestSchedulerIntegrationCandidateProjection(memory, changePath, run.id);
+  const latestCandidate = await readLatestSchedulerIntegrationCandidateProjection(artifacts, changePath, run.id);
   assertCandidateMatchesHandoff(latestCandidate, handoff, runtimeState);
 
-  const check = await readIntegrationCheck(memory, handoff.integrationCheckId);
+  const check = await readIntegrationCheck(runtime, handoff.integrationCheckId);
   assertIntegrationCheckMatchesHandoff(check, handoff);
-  const targets = await readOutcomeTargets(memory, handoff, check);
+  const targets = await readOutcomeTargets(runtime, handoff, check);
 
-  const existing = await findSchedulerIntegrationOutcomeForHandoff(memory, changePath, run.id, handoff.id);
+  const existing = await findSchedulerIntegrationOutcomeForHandoff(artifacts, changePath, run.id, handoff.id);
   if (existing) {
     if (existing.integrationCheckStatus !== check.status) {
       throw new Error("planning.scheduler.integration-outcome.reconcile existing outcome conflicts with current IntegrationCheck status.");
@@ -89,9 +94,9 @@ export async function reconcileSchedulerIntegrationOutcome(project: ManagedProje
     };
   }
 
-  const outcome = buildOutcome(memory, changePath, runtimeState, handoff, check, targets);
-  await writeSchedulerIntegrationOutcome(memory, changePath, outcome);
-  await appendSchedulerRuntimeEvent(memory, changePath, run, "scheduler-runtime.integration-outcome-recorded", {
+  const outcome = buildOutcome(artifacts, changePath, runtimeState, handoff, check, targets);
+  await writeSchedulerIntegrationOutcome(artifacts, changePath, outcome);
+  await appendSchedulerRuntimeEvent(artifacts, changePath, run, "scheduler-runtime.integration-outcome-recorded", {
     status: runtimeState.status,
     summary: `Scheduler integration outcome recorded as ${outcome.status}.`,
     artifactRefs: outcome.artifactRefs,
@@ -114,17 +119,6 @@ export async function reconcileSchedulerIntegrationOutcome(project: ManagedProje
     summary: `Scheduler integration outcome recorded as ${outcome.status}.`,
     sourceMutated: false,
   };
-}
-
-async function readSchedulerRuntimeLineageForInput(project: ManagedProject, input: SchedulerIntegrationOutcomeInput) {
-  const memory = await resolveProjectMemory(project);
-  const { resolveRunnableChangeTarget } = await import("../change/target.js");
-  const target = await resolveRunnableChangeTarget(project, { changeId: input.changeId, allowLegacyActiveFallback: false });
-  const changePath = target.status.activeChanges.find((item) => item.name === input.changeId)?.path;
-  if (!changePath) throw new Error(`Scheduler integration outcome cannot resolve active Change path for ${input.changeId}.`);
-  const lineage = await readSchedulerRuntimeLineage(memory, changePath, input.schedulerRunId);
-  if (lineage.run.changeId !== input.changeId) throw new Error("planning.scheduler.integration-outcome.reconcile SchedulerRun change scope mismatch.");
-  return { changePath, ...lineage };
 }
 
 function assertRuntimeState(state: SchedulerRuntimeState, changeId: string, schedulerRunId: string): void {
@@ -197,7 +191,7 @@ function assertIntegrationCheckMatchesHandoff(check: IntegrationCheckRecord, han
   }
 }
 
-async function readOutcomeTargets(memory: Awaited<ReturnType<typeof resolveProjectMemory>>, handoff: SchedulerIntegrationCheckHandoff, check: IntegrationCheckRecord): Promise<SchedulerIntegrationOutcomeTarget[]> {
+async function readOutcomeTargets(memory: ProjectExecutionRuntimePort, handoff: SchedulerIntegrationCheckHandoff, check: IntegrationCheckRecord): Promise<SchedulerIntegrationOutcomeTarget[]> {
   const targets: SchedulerIntegrationOutcomeTarget[] = [];
   for (const target of check.resultTargets) {
     const worktree = await getWorktreeStatus(memory, target.worktreeId);
@@ -224,7 +218,7 @@ async function readOutcomeTargets(memory: Awaited<ReturnType<typeof resolveProje
 }
 
 function buildOutcome(
-  memory: Awaited<ReturnType<typeof resolveProjectMemory>>,
+  memory: SchedulerArtifactStore,
   changePath: string,
   runtimeState: SchedulerRuntimeState,
   handoff: SchedulerIntegrationCheckHandoff,

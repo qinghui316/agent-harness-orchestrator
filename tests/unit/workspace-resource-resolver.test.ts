@@ -2,14 +2,14 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { initHarness } from "../../src/harness/init.js";
-import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { git } from "../../src/project/git.js";
+import { resolveProjectRuntimePaths } from "../../src/project-runtime/paths.js";
 import type { ManagedProject } from "../../src/types/index.js";
 import { createWorkbenchConversation } from "../../src/workbench/conversation-service.js";
 import { planDocumentContentHash } from "../../src/workbench/plan-documents.js";
-import { openWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
+import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import { resolveWorkspaceResource } from "../../src/workbench/workspace-resources.js";
+import { createReadyProjectHarnessFixture } from "../helpers/project-harness-fixture.js";
 
 let root: string;
 let originalAhoHome: string | undefined;
@@ -25,7 +25,12 @@ beforeEach(async () => {
   await writeFile(join(root, "notes.md"), "# Notes\n\nProject document.\n", "utf8");
   await git(root, ["add", "."]);
   await git(root, ["commit", "-m", "fixture"]);
-  await initHarness(project());
+  await createReadyProjectHarnessFixture({
+    projectRoot: root,
+    ahoHome: process.env.AHO_HOME!,
+    projectId: project().id,
+    projectName: project().name,
+  });
 });
 
 afterEach(async () => {
@@ -37,8 +42,8 @@ afterEach(async () => {
 describe("workspace resource resolver", () => {
   it("resolves the exact canonical Plan item and stable project-file resource revisions", async () => {
     const conversation = await createWorkbenchConversation(project(), { body: "Plan it." }, undefined, { runMainAgent: false });
-    const memory = await resolveProjectMemory(project());
-    const store = await openWorkbenchDatabase(memory);
+    const runtimePaths = resolveProjectRuntimePaths(project().id, process.env.AHO_HOME!);
+    const store = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
     const text = "# Plan\n\nUse the canonical item.";
     const sourceMessageId = "message-plan";
     const sourceCanonicalItemId = "prose:codex:attempt:thread:turn:item";

@@ -1,4 +1,5 @@
-import { resolveProjectMemory } from "../memory/resolver.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
+import { resolveProjectRuntimeState } from "../project-runtime/coordinator.js";
 import type { ManagedProject } from "../types/index.js";
 import type { WorkbenchProjectInput } from "./read-model-types.js";
 import type { AgentSurfaceProjectionItem } from "./agent-surface-contract.js";
@@ -6,7 +7,7 @@ import { fromStoredThreadMessage } from "./conversation-thread-log.js";
 import { readProjectTextDocument } from "./file-references.js";
 import { canonicalPlanDocumentFromEntry, canonicalPlanDocumentText } from "./plan-documents.js";
 import { getAgentSurfaceProjection } from "./agent-surface-projection.js";
-import { openWorkbenchDatabase } from "./persistence/open-workbench-database.js";
+import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbench-database.js";
 
 export type WorkspaceResourceTarget =
   | { kind: "agent"; conversationId: string; agentSurfaceId: string }
@@ -66,13 +67,16 @@ export async function resolveWorkspaceResource(
     };
   }
 
-  const memory = await resolveProjectMemory(input.project);
-  if (!memory.projectId) throw notFound("Plan document project is unavailable.");
-  const store = await openWorkbenchDatabase(memory);
+  const runtime = await resolveProjectRuntimeState(input.project, {
+    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+  });
+  if (runtime.state !== "ready") throw notFound("Plan document project is unavailable.");
+  const projectId = runtime.resolution.harness.projectId;
+  const store = await openProjectRuntimeWorkbenchDatabase(runtime.resolution.paths);
   try {
-    const conversation = store.conversations.readConversation(memory.projectId, target.conversationId);
+    const conversation = store.conversations.readConversation(projectId, target.conversationId);
     if (!conversation) throw notFound("Plan document conversation is unavailable.");
-    const entries = store.timeline.listConversationMessages(memory.projectId, target.conversationId).map(fromStoredThreadMessage);
+    const entries = store.timeline.listConversationMessages(projectId, target.conversationId).map(fromStoredThreadMessage);
     const source = entries.find((entry) => canonicalPlanDocumentFromEntry(entry)?.documentId === target.documentId);
     const document = source ? canonicalPlanDocumentFromEntry(source) : null;
     const content = source && document ? canonicalPlanDocumentText(source, document) : null;

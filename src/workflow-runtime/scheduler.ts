@@ -16,6 +16,7 @@ import type { SchedulerWorkerReworkValidationInput } from "../scheduler-runtime/
 import type { SchedulerFirstWorkerReworkStartInput } from "../scheduler-runtime/worker-rework.js";
 import type { SchedulerFirstWorkerStartInput, SchedulerNextWorkerStartInput } from "../scheduler-runtime/worker-start.js";
 import type { ManagedProject } from "../types/index.js";
+import type { SchedulerReadySetExecutionPort } from "../scheduler-runtime/execution-port.js";
 import { runSchedulerReadySetCurrentStep } from "./scheduler-ready-set.js";
 import { initializeSchedulerReadySetFromGraph } from "./scheduler-ready-set-initialization.js";
 
@@ -49,62 +50,62 @@ export function runSchedulerRuntimeReserveClaims(...args: Parameters<typeof rese
   return reserveSchedulerRuntimeClaims(...args);
 }
 
-export async function runSchedulerWorkerStartFirst(project: ManagedProject, input: SchedulerFirstWorkerStartInput) {
-  return runSchedulerReadySetCurrentStep(project, { actionType: "planning.scheduler.worker.start-first", input });
+export async function runSchedulerWorkerStartFirst(project: ManagedProject, input: SchedulerFirstWorkerStartInput, port: SchedulerReadySetExecutionPort) {
+  return runSchedulerReadySetCurrentStep(project, { actionType: "planning.scheduler.worker.start-first", input }, port);
 }
 
-export async function runSchedulerWorkerStartNext(project: ManagedProject, input: SchedulerNextWorkerStartInput) {
-  return runSchedulerReadySetCurrentStep(project, { actionType: "planning.scheduler.worker.start-next", input });
+export async function runSchedulerWorkerStartNext(project: ManagedProject, input: SchedulerNextWorkerStartInput, port: SchedulerReadySetExecutionPort) {
+  return runSchedulerReadySetCurrentStep(project, { actionType: "planning.scheduler.worker.start-next", input }, port);
 }
 
-export function runSchedulerWorkerResultReconcile(project: ManagedProject, input: SchedulerWorkerResultReconcileInput) {
-  return runSchedulerReadySetCurrentStep(project, { actionType: "planning.scheduler.worker.reconcile-result", input });
+export function runSchedulerWorkerResultReconcile(project: ManagedProject, input: SchedulerWorkerResultReconcileInput, port: SchedulerReadySetExecutionPort) {
+  return runSchedulerReadySetCurrentStep(project, { actionType: "planning.scheduler.worker.reconcile-result", input }, port);
 }
 
-export function runSchedulerWorkerValidation(project: ManagedProject, input: SchedulerWorkerValidationInput) {
-  return runSchedulerReadySetCurrentStep(project, { actionType: "planning.scheduler.worker.validate-first", input });
+export function runSchedulerWorkerValidation(project: ManagedProject, input: SchedulerWorkerValidationInput, port: SchedulerReadySetExecutionPort) {
+  return runSchedulerReadySetCurrentStep(project, { actionType: "planning.scheduler.worker.validate-first", input }, port);
 }
 
-export function runSchedulerWorkerAudit(project: ManagedProject, input: SchedulerWorkerAuditInput) {
-  return runSchedulerReadySetCurrentStep(project, { actionType: "planning.scheduler.worker.audit-first", input });
+export function runSchedulerWorkerAudit(project: ManagedProject, input: SchedulerWorkerAuditInput, port: SchedulerReadySetExecutionPort) {
+  return runSchedulerReadySetCurrentStep(project, { actionType: "planning.scheduler.worker.audit-first", input }, port);
 }
 
-export function runSchedulerWorkerReworkPlanCompile(project: ManagedProject, input: SchedulerWorkerReworkPlanInput) {
-  return runSchedulerReadySetCurrentStep(project, { actionType: "planning.scheduler.worker.rework-plan.compile", input });
+export function runSchedulerWorkerReworkPlanCompile(project: ManagedProject, input: SchedulerWorkerReworkPlanInput, port: SchedulerReadySetExecutionPort) {
+  return runSchedulerReadySetCurrentStep(project, { actionType: "planning.scheduler.worker.rework-plan.compile", input }, port);
 }
 
-export function runSchedulerWorkerReworkStart(project: ManagedProject, input: SchedulerFirstWorkerReworkStartInput) {
-  return runSchedulerReadySetCurrentStep(project, { actionType: "planning.scheduler.worker.rework-start-first", input });
+export function runSchedulerWorkerReworkStart(project: ManagedProject, input: SchedulerFirstWorkerReworkStartInput, port: SchedulerReadySetExecutionPort) {
+  return runSchedulerReadySetCurrentStep(project, { actionType: "planning.scheduler.worker.rework-start-first", input }, port);
 }
 
-export function runSchedulerWorkerReworkResultReconcile(project: ManagedProject, input: SchedulerWorkerReworkResultReconcileInput) {
-  return runSchedulerReadySetCurrentStep(project, { actionType: "planning.scheduler.worker.rework-reconcile-result", input });
+export function runSchedulerWorkerReworkResultReconcile(project: ManagedProject, input: SchedulerWorkerReworkResultReconcileInput, port: SchedulerReadySetExecutionPort) {
+  return runSchedulerReadySetCurrentStep(project, { actionType: "planning.scheduler.worker.rework-reconcile-result", input }, port);
 }
 
-export function runSchedulerWorkerReworkValidation(project: ManagedProject, input: SchedulerWorkerReworkValidationInput) {
-  return runSchedulerReadySetCurrentStep(project, { actionType: "planning.scheduler.worker.rework-validate-first", input });
+export function runSchedulerWorkerReworkValidation(project: ManagedProject, input: SchedulerWorkerReworkValidationInput, port: SchedulerReadySetExecutionPort) {
+  return runSchedulerReadySetCurrentStep(project, { actionType: "planning.scheduler.worker.rework-validate-first", input }, port);
 }
 
-export function runSchedulerWorkerReworkAudit(project: ManagedProject, input: SchedulerWorkerReworkAuditInput) {
-  return runSchedulerReadySetCurrentStep(project, { actionType: "planning.scheduler.worker.rework-audit-first", input });
+export function runSchedulerWorkerReworkAudit(project: ManagedProject, input: SchedulerWorkerReworkAuditInput, port: SchedulerReadySetExecutionPort) {
+  return runSchedulerReadySetCurrentStep(project, { actionType: "planning.scheduler.worker.rework-audit-first", input }, port);
 }
 
-export async function runSchedulerIntegrationCandidateCompile(project: ManagedProject, input: SchedulerIntegrationCandidateInput) {
-  return runSchedulerReadySetCurrentStep(project, { actionType: "planning.scheduler.integration-candidate.compile", input });
+export async function runSchedulerIntegrationCandidateCompile(project: ManagedProject, input: SchedulerIntegrationCandidateInput, port: SchedulerReadySetExecutionPort) {
+  return runSchedulerReadySetCurrentStep(project, { actionType: "planning.scheduler.integration-candidate.compile", input }, port);
 }
 
-export async function runSchedulerIntegrationCheck(project: ManagedProject, input: SchedulerIntegrationCheckHandoffInput) {
-  return runSchedulerReadySetCurrentStep(project, { actionType: "planning.scheduler.integration-check.run", input });
+export async function runSchedulerIntegrationCheck(project: ManagedProject, input: SchedulerIntegrationCheckHandoffInput, port: SchedulerReadySetExecutionPort) {
+  return runSchedulerReadySetCurrentStep(project, { actionType: "planning.scheduler.integration-check.run", input }, port);
 }
 
-export function runSchedulerIntegrationOutcomeReconcile(project: ManagedProject, input: SchedulerIntegrationOutcomeInput) {
-  return runSchedulerReadySetCurrentStep(project, { actionType: "planning.scheduler.integration-outcome.reconcile", input });
+export function runSchedulerIntegrationOutcomeReconcile(project: ManagedProject, input: SchedulerIntegrationOutcomeInput, port: SchedulerReadySetExecutionPort) {
+  return runSchedulerReadySetCurrentStep(project, { actionType: "planning.scheduler.integration-outcome.reconcile", input }, port);
 }
 
-export async function runSchedulerRunComplete(project: ManagedProject, input: SchedulerRunCompletionInput) {
-  return runSchedulerReadySetCurrentStep(project, { actionType: "planning.scheduler.run.complete", input });
+export async function runSchedulerRunComplete(project: ManagedProject, input: SchedulerRunCompletionInput, port: SchedulerReadySetExecutionPort) {
+  return runSchedulerReadySetCurrentStep(project, { actionType: "planning.scheduler.run.complete", input }, port);
 }
 
-export async function runSchedulerRunCloseBlocked(project: ManagedProject, input: SchedulerRunBlockedCloseoutInput) {
-  return runSchedulerReadySetCurrentStep(project, { actionType: "planning.scheduler.run.close-blocked", input });
+export async function runSchedulerRunCloseBlocked(project: ManagedProject, input: SchedulerRunBlockedCloseoutInput, port: SchedulerReadySetExecutionPort) {
+  return runSchedulerReadySetCurrentStep(project, { actionType: "planning.scheduler.run.close-blocked", input }, port);
 }

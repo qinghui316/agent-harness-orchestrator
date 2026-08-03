@@ -1,5 +1,6 @@
 import type { ManagedProject } from "../../types/index.js";
 import { revalidatedWorkflowActionSet, workflowActionScopesMatchStrict } from "../../workflow-actions/registry.js";
+import { CurrentProjectConversationUnavailableError } from "../projections/read-model/errors.js";
 import type { WorkbenchWorkflowActionRequest } from "../types.js";
 
 const REVALIDATED_WORKFLOW_ACTION_IDS = revalidatedWorkflowActionSet();
@@ -48,7 +49,15 @@ export async function assertCurrentWorkflowAction(
   deps: CurrentWorkflowActionDeps,
 ): Promise<void> {
   if (!body.actionType || !REVALIDATED_WORKFLOW_ACTION_IDS.has(body.actionType)) return;
-  const snapshot = await deps.getWorkbenchSnapshot(input, { topicId: body.changeId }) as CurrentWorkflowActionSnapshot;
+  let snapshot: CurrentWorkflowActionSnapshot;
+  try {
+    snapshot = await deps.getWorkbenchSnapshot(input, { topicId: body.changeId }) as CurrentWorkflowActionSnapshot;
+  } catch (error) {
+    if (error instanceof CurrentProjectConversationUnavailableError) {
+      throwStaleWorkflowTarget();
+    }
+    throw error;
+  }
   const queue = snapshot.right.confirmationQueue;
   const queueActions = [queue.primary, ...queue.current, ...queue.otherDemands, ...(queue.maintenance ?? [])]
     .filter((item): item is NonNullable<typeof item> => Boolean(item))

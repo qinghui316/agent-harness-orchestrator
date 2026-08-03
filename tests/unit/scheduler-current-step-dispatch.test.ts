@@ -25,6 +25,23 @@ import {
   runSchedulerWorkerValidation,
 } from "../../src/workflow-runtime/scheduler.js";
 
+const executionPort = {
+  artifacts: {
+    changeEvidenceRoot: "skill-root/state/changes/active/change-1",
+    planningRoot: "skill-root/state/changes/active/change-1/planning",
+    runtimeRoot: "sidecar-root/scheduler-runs/change-1",
+    artifactRoots: ["skill-root", "sidecar-root"],
+  },
+  runtime: { projectId: "project-1" },
+  harness: {
+    planning: { change: { change_id: "change-1" } },
+    changeStatus: {
+      change: { id: "change-1" },
+      activeChanges: [{ name: "change-1", path: "state/changes/active/change-1" }],
+    },
+  },
+} as never;
+
 describe("Scheduler current-step facade dispatch", () => {
   beforeEach(() => runCurrentStep.mockReset());
 
@@ -48,9 +65,9 @@ describe("Scheduler current-step facade dispatch", () => {
     const project = {} as ManagedProject;
     const input = { changeId: "change-1", schedulerRunId: "scheduler-run-1", ...target };
 
-    await runAction(project, input as never);
+    await runAction(project, input as never, executionPort);
 
     expect(runCurrentStep).toHaveBeenCalledOnce();
-    expect(runCurrentStep).toHaveBeenCalledWith(project, { actionType, input });
+    expect(runCurrentStep).toHaveBeenCalledWith(project, { actionType, input }, executionPort);
   });
 });

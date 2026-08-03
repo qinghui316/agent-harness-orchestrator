@@ -6,14 +6,16 @@ import { getGitCommit } from "../project/git.js";
 import { getGlobalWorktreeCheckoutRoot } from "../worktree/manager.js";
 import type { ManagedProject } from "../types/index.js";
 import { runAggregateAudit } from "./aggregate-audit.js";
-import { runAggregateValidation } from "./aggregate-validation.js";
-import { integrationArtifact, latestArtifactAbsolutePath, messageFromIssues } from "./artifacts.js";
+import { runSkillNativeAggregateAudit } from "./aggregate-audit.js";
+import { runAggregateValidation, runSkillNativeAggregateValidation } from "./aggregate-validation.js";
+import { integrationArtifact, latestArtifactAbsolutePath, messageFromIssues, skillNativeIntegrationArtifact } from "./artifacts.js";
 import { buildIntegrationCheckId, collectReadyTargets } from "./candidates.js";
 import { runIntegrationFixAttempt, type IntegrationFixRepairRunner } from "./fix-attempts.js";
-import { integrationCheckRoot, displayArtifactPath } from "./paths.js";
-import { prepareIntegrationCheckout } from "./patch-workspace.js";
+import { integrationCheckRoot, displayArtifactPath, displaySkillNativeArtifactPath } from "./paths.js";
+import { prepareIntegrationCheckout, prepareSkillNativeIntegrationCheckout } from "./patch-workspace.js";
 import { appendIntegrationEvent, writeCheckArtifacts } from "./repository.js";
-import type { IntegrationArtifact, IntegrationCheckResult, IntegrationCheckStatus, IntegrationFixAttempt } from "./types.js";
+import type { IntegrationArtifact, IntegrationCheckResult, IntegrationCheckStatus, IntegrationCheckTarget, IntegrationFixAttempt } from "./types.js";
+import type { ProjectCodeExecutionRuntimePort } from "../project-runtime/execution-ports.js";
 
 export interface RunIntegrationCheckOptions {
   repairRunner?: IntegrationFixRepairRunner;
@@ -155,6 +157,108 @@ export async function runIntegrationCheck(project: ManagedProject, worktreeIds?:
     warnings,
   };
   await writeCheckArtifacts(memory, directory, check);
+  await appendIntegrationEvent(directory, id, status === "passed" ? "integration-check.passed" : "integration-check.failed", { status, blockingIssues });
+  return { check, artifactDirectory: directory };
+}
+
+export async function runSkillNativeIntegrationCheck(
+  project: ManagedProject,
+  runtime: ProjectCodeExecutionRuntimePort,
+  targets: IntegrationCheckTarget[],
+  expectedChangeId: string,
+): Promise<IntegrationCheckResult> {
+  if (project.id !== runtime.projectId) throw new Error("Skill-native IntegrationCheck project scope mismatch.");
+  if (targets.length < 2) throw new Error("Integration check requires at least two ready results.");
+  if (new Set(targets.map((target) => target.worktreeId)).size !== targets.length) {
+    throw new Error("Skill-native IntegrationCheck target worktrees must be unique.");
+  }
+  if (targets.some((target) => target.changeId !== expectedChangeId)) {
+    throw new Error("Integration check targets must belong to the requested Change.");
+  }
+
+  const sourceHead = await getGitCommit(project.path);
+  const id = buildIntegrationCheckId(targets);
+  const directory = join(integrationCheckRoot(runtime), id);
+  const checkoutPath = join(getGlobalWorktreeCheckoutRoot(runtime.projectId), "integration", id);
+  const artifactRefs = [
+    "integration-check.json",
+    "summary.md",
+    "combined.patch",
+    "aggregate-validation.json",
+    "aggregate-audit.json",
+  ].map((name) => displaySkillNativeArtifactPath(runtime, join(directory, name)));
+  await mkdir(directory, { recursive: true });
+
+  const targetDiffs = await Promise.all(targets.map(async (target) => {
+    const diff = await collectWorktreeDiff(runtime, target.worktreeId, target.changeId);
+    if (diff.diffHash !== target.diffHash || diff.diffStat !== target.diffStat || (sourceHead ?? null) !== (target.sourceHead ?? null)) {
+      throw new Error(`Skill-native IntegrationCheck target evidence drifted: ${target.worktreeId}.`);
+    }
+    return { target, diff: diff.diff };
+  }));
+  const combinedPatch = targetDiffs.map((item) => item.diff).join("\n");
+  const combinedPatchPath = join(directory, "combined.patch");
+  await writeFile(combinedPatchPath, combinedPatch, "utf8");
+  const artifacts: IntegrationArtifact[] = [skillNativeIntegrationArtifact(runtime, combinedPatchPath, combinedPatch, "combined", "integration-check")];
+  let status: IntegrationCheckStatus = "passed";
+  const blockingIssues: string[] = [];
+  const warnings: string[] = [];
+  const startedAt = new Date().toISOString();
+  let summary = "兼容性检查通过：这些结果可以一起应用。";
+
+  try {
+    await prepareSkillNativeIntegrationCheckout(project, runtime, checkoutPath, combinedPatchPath);
+    for (const item of targetDiffs) {
+      await writeFile(join(directory, `${item.target.worktreeId}.patch`), item.diff, "utf8");
+      await appendIntegrationEvent(directory, id, "integration-check.target-included", { worktreeId: item.target.worktreeId, changeId: item.target.changeId });
+    }
+  } catch (cause) {
+    status = "conflict";
+    const message = cause instanceof Error ? cause.message : String(cause);
+    blockingIssues.push(message);
+    summary = "兼容性检查没有通过，需要修改其中一个结果后重试。";
+    await writeFile(join(directory, "stderr.log"), `${message}\n`, "utf8");
+  }
+
+  const aggregateValidation = await runSkillNativeAggregateValidation(runtime, directory, id, checkoutPath, status === "passed");
+  if (status === "passed" && aggregateValidation.status !== "passed") {
+    status = "validation-failed";
+    blockingIssues.push(aggregateValidation.stderr || aggregateValidation.stdout || "Aggregate validation failed.");
+    summary = "组合验证没有通过，需要修改结果后重试。";
+  }
+  const aggregateAudit = await runSkillNativeAggregateAudit(runtime, directory, id, checkoutPath, status === "passed", blockingIssues);
+  if (status === "passed" && aggregateAudit.status !== "approved") {
+    status = "audit-failed";
+    blockingIssues.push(...aggregateAudit.findings);
+    summary = "组合审查没有通过，需要修改结果后重试。";
+  }
+
+  const latestArtifact = artifacts[0];
+  const check = {
+    version: "1.0" as const,
+    id,
+    projectId: runtime.projectId,
+    status,
+    resultTargets: targets,
+    sourceHead,
+    createdAt: startedAt,
+    finishedAt: new Date().toISOString(),
+    summary,
+    riskSummary: status === "passed"
+      ? "检查只验证这些结果能在当前项目状态上组合应用；最终修改源码仍需要你确认。"
+      : "需要先修改其中一个结果，或放弃本次组合应用。",
+    artifactRefs,
+    artifacts,
+    latestArtifactHash: status === "passed" ? latestArtifact.hash : undefined,
+    latestArtifactRef: status === "passed" ? latestArtifact.path : undefined,
+    aggregateValidation,
+    aggregateAudit,
+    fixAttempts: [],
+    integrationWorktreePath: checkoutPath,
+    blockingIssues,
+    warnings,
+  };
+  await writeCheckArtifacts(runtime, directory, check);
   await appendIntegrationEvent(directory, id, status === "passed" ? "integration-check.passed" : "integration-check.failed", { status, blockingIssues });
   return { check, artifactDirectory: directory };
 }

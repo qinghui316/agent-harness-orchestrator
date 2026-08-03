@@ -1,28 +1,51 @@
-﻿import { createConcurrentChange } from "../../src/change/manager.js";
-import { resolveProjectMemory } from "../../src/memory/resolver.js";
+import { shortHash, slugify } from "../../src/fs/path.js";
+import {
+  createProjectHarnessChange,
+  listProjectHarnessChanges,
+} from "../../src/project-harness/change.js";
+import {
+  projectHarnessConversationLane,
+  resolveProjectHarnessRegistryContext,
+} from "../../src/project-harness/registry.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../src/provider-runtime/project-harness-discovery.js";
+import { resolveProjectRuntimeState } from "../../src/project-runtime/coordinator.js";
 import type { ManagedProject } from "../../src/types/index.js";
 import { appendCanonicalTimelineEntry } from "../../src/workbench/canonical-timeline-command.js";
-import { openWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
+import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 
 export async function createConversationChangeFixture(
   project: ManagedProject,
   input: { title: string; body?: string },
 ): Promise<{ changeId: string; conversationId: string; title: string; state: "active" }> {
   const body = input.body?.trim() || input.title;
-  const result = await createConcurrentChange(project, { title: input.title, body });
-  const memory = await resolveProjectMemory(project);
-  if (!memory.projectId) throw new Error("Conversation fixture requires a registered project id.");
-  const now = new Date().toISOString();
-  const conversationId = `conv-${result.change.id}`;
+  const runtime = await resolveProjectRuntimeState(project, {
+    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+  });
+  if (runtime.state !== "ready") {
+    throw new Error(`Conversation fixture requires a ready project Harness: ${runtime.state}.`);
+  }
+  const changeId = await allocateProjectHarnessChangeId(runtime.resolution.harness.skillRoot, input.title);
+  const conversationId = `conv-${changeId}`;
   const graphScopeId = `graph:${conversationId}`;
-  const store = await openWorkbenchDatabase(memory);
+  const registry = await resolveProjectHarnessRegistryContext({
+    projectId: runtime.resolution.harness.projectId,
+    projectRoot: runtime.resolution.projectRoot,
+    skillRoot: runtime.resolution.harness.skillRoot,
+  });
+  await createProjectHarnessChange({
+    ...registry,
+    lane: projectHarnessConversationLane(conversationId, graphScopeId),
+  }, { changeId, scope: body });
+
+  const now = new Date().toISOString();
+  const store = await openProjectRuntimeWorkbenchDatabase(runtime.resolution.paths);
   try {
     store.conversations.createConversation({
-      projectId: memory.projectId,
+      projectId: runtime.resolution.harness.projectId,
       conversationId,
       title: input.title,
       state: "active",
-      boundChangeId: result.change.id,
+      boundChangeId: changeId,
       currentGraphScopeId: graphScopeId,
       selectedProviderId: "codex",
       completedTurnSequence: 0,
@@ -31,16 +54,29 @@ export async function createConversationChangeFixture(
       deletedAt: null,
     });
     store.unitOfWork.acceptConversationChangeBinding(
-      memory.projectId,
+      runtime.resolution.harness.projectId,
       conversationId,
-      result.change.id,
+      changeId,
       now,
-      `fixture-acceptance:${result.change.id}`,
-      `fixture-proposal:${result.change.id}`,
+      `fixture-acceptance:${changeId}`,
+      `fixture-proposal:${changeId}`,
     );
   } finally {
     store.close();
   }
-  await appendCanonicalTimelineEntry(project, result.change.id, { type: "user.message", text: body });
-  return { changeId: result.change.id, conversationId, title: result.change.title, state: "active" };
+  await appendCanonicalTimelineEntry(project, changeId, { type: "user.message", text: body });
+  return { changeId, conversationId, title: input.title, state: "active" };
+}
+
+async function allocateProjectHarnessChangeId(skillRoot: string, title: string): Promise<string> {
+  const rawSlug = slugify(title);
+  const base = rawSlug === "project" ? `project-${shortHash(title)}` : rawSlug;
+  const occupied = new Set((await listProjectHarnessChanges(skillRoot)).map((change) => change.change_id));
+  let candidate = base;
+  let suffix = 2;
+  while (occupied.has(candidate)) {
+    candidate = `${base}-${suffix}`;
+    suffix += 1;
+  }
+  return candidate;
 }

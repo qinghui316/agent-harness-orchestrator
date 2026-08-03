@@ -1,8 +1,10 @@
 import { mkdir } from "node:fs/promises";
 import { shortHash } from "../fs/path.js";
-import type { ResolvedMemory } from "../types/index.js";
-import { assertWorkflowArtifactScope } from "../workflow-artifacts/guards.js";
-import { hashArtifactRefs } from "../workflow-artifacts/hashes.js";
+import {
+  assertSchedulerWorkflowArtifactScope,
+  hashSchedulerArtifactRefs,
+  type SchedulerArtifactStore,
+} from "../scheduler-runtime/artifact-store.js";
 import { unique } from "../workflow-artifacts/utils.js";
 import { assertLatestSchedulerArtifact } from "./guards.js";
 import { schedulerRunsDir } from "./paths.js";
@@ -32,7 +34,7 @@ export interface CompleteSchedulerRunInput {
 }
 
 export async function prepareSchedulerRun(
-  memory: ResolvedMemory,
+  memory: SchedulerArtifactStore,
   changePath: string,
   launchPreflight: SchedulerLaunchPreflight,
   claimPlan: SchedulerClaimReconcilePlan,
@@ -40,11 +42,11 @@ export async function prepareSchedulerRun(
   dryRun: SchedulerDispatchDryRun,
   contract: SchedulerContract,
 ): Promise<SchedulerRun> {
-  await assertWorkflowArtifactScope(memory, changePath, launchPreflight, "SchedulerRun launch preflight");
-  await assertWorkflowArtifactScope(memory, changePath, claimPlan, "SchedulerRun claim/reconcile plan");
-  await assertWorkflowArtifactScope(memory, changePath, workerPlan, "SchedulerRun worker plan");
-  await assertWorkflowArtifactScope(memory, changePath, dryRun, "SchedulerRun dry-run");
-  await assertWorkflowArtifactScope(memory, changePath, contract, "SchedulerRun contract");
+  await assertSchedulerWorkflowArtifactScope(memory, changePath, launchPreflight, "SchedulerRun launch preflight");
+  await assertSchedulerWorkflowArtifactScope(memory, changePath, claimPlan, "SchedulerRun claim/reconcile plan");
+  await assertSchedulerWorkflowArtifactScope(memory, changePath, workerPlan, "SchedulerRun worker plan");
+  await assertSchedulerWorkflowArtifactScope(memory, changePath, dryRun, "SchedulerRun dry-run");
+  await assertSchedulerWorkflowArtifactScope(memory, changePath, contract, "SchedulerRun contract");
   await validateSchedulerRunInput(memory, changePath, launchPreflight, claimPlan, workerPlan, dryRun, contract);
 
   const now = new Date().toISOString();
@@ -71,7 +73,7 @@ export async function prepareSchedulerRun(
     humanConfirmed: true,
     futureToolPolicyGateRequired: launchPreflight.toolPolicyGateRequirement.status === "required",
     futureHumanGateRequired: launchPreflight.humanGateRequirement.status === "required",
-    sourceArtifactHashes: await hashArtifactRefs(memory, sourceRefs),
+    sourceArtifactHashes: await hashSchedulerArtifactRefs(memory, sourceRefs),
     artifactRefs: unique([launchPreflight.artifact, launchPreflight.markdownArtifact, refs.artifact, refs.markdownArtifact, refs.journalArtifact, ...sourceRefs].filter((ref): ref is string => Boolean(ref))),
     artifact: refs.artifact,
     markdownArtifact: refs.markdownArtifact,
@@ -94,12 +96,12 @@ export async function prepareSchedulerRun(
 }
 
 export async function completeSchedulerRun(
-  memory: ResolvedMemory,
+  memory: SchedulerArtifactStore,
   changePath: string,
   run: SchedulerRun,
   input: CompleteSchedulerRunInput,
 ): Promise<SchedulerRun> {
-  await assertWorkflowArtifactScope(memory, changePath, run, "SchedulerRun completion");
+  await assertSchedulerWorkflowArtifactScope(memory, changePath, run, "SchedulerRun completion");
   if (run.status === "completed") return run;
   if (run.status !== "prepared") {
     throw new Error(`SchedulerRun completion requires prepared status; found ${run.status}.`);
@@ -123,7 +125,7 @@ export async function completeSchedulerRun(
 }
 
 async function validateSchedulerRunInput(
-  memory: ResolvedMemory,
+  memory: SchedulerArtifactStore,
   changePath: string,
   launchPreflight: SchedulerLaunchPreflight,
   claimPlan: SchedulerClaimReconcilePlan,
@@ -166,7 +168,7 @@ async function validateSchedulerRunInput(
   const latestContract = await readLatestSchedulerContract(memory, changePath);
   assertLatestSchedulerArtifact(latestContract, contract, "SchedulerRun", "SchedulerContract");
 
-  const expectedHashes = await hashArtifactRefs(memory, Object.keys(launchPreflight.sourceArtifactHashes));
+  const expectedHashes = await hashSchedulerArtifactRefs(memory, Object.keys(launchPreflight.sourceArtifactHashes));
   for (const [artifact, hash] of Object.entries(expectedHashes)) {
     if (launchPreflight.sourceArtifactHashes[artifact] !== hash) {
       throw new Error(`SchedulerRun source artifact hash mismatch: ${artifact}.`);

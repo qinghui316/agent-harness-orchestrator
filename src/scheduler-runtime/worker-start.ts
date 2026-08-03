@@ -1,8 +1,7 @@
 import { shortHash } from "../fs/path.js";
-import { resolveRunnableChangeTarget } from "../change/target.js";
-import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
-import { startCodeRun, type CodeRunLiveCallbacks, type CodeRunResult } from "../code/manager.js";
-import { markTaskRunRunning, startTaskRun } from "../task-run/manager.js";
+import { startSkillNativeCodeRun, type CodeRunLiveCallbacks, type CodeRunOptions, type CodeRunResult } from "../code/manager.js";
+import { markTaskRunRunning } from "../task-run/manager.js";
+import { startTaskRunFromRuntime } from "../task-run/start-retry.js";
 import type { ManagedProject, ReadySetWorkflowGraphSourceLock, TaskRun, WorkerLease } from "../types/index.js";
 import { readSchedulerRuntimeLineage } from "./guards.js";
 import {
@@ -16,6 +15,10 @@ import {
 } from "./repository.js";
 import type { SchedulerRuntimeClaimReservationIntent, SchedulerRuntimeWorkerStart } from "./types.js";
 import { buildSchedulerWorkerScopeContext, composeSchedulerWorkerCoderScopePrompt } from "./worker-scope.js";
+import {
+  resolveSchedulerReadySetExecutionScope,
+  type SchedulerReadySetExecutionPort,
+} from "./execution-port.js";
 
 export interface SchedulerFirstWorkerStartInput {
   changeId: string;
@@ -58,12 +61,15 @@ export async function startSchedulerCoderWorkerForReadySetTarget(
   input: SchedulerFirstWorkerStartInput,
   exactTarget: SchedulerWorkerStartExactTarget,
   actionType: "planning.scheduler.worker.start-first" | "planning.scheduler.worker.start-next",
+  port: SchedulerReadySetExecutionPort,
 ): Promise<SchedulerFirstWorkerStartResult> {
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, actionType === "planning.scheduler.worker.start-next" ? "Scheduler next worker start" : "Scheduler first worker start");
-  const target = await resolveRunnableChangeTarget(project, { changeId: input.changeId, allowLegacyActiveFallback: false });
-  const changePath = target.status.activeChanges.find((item) => item.name === input.changeId)?.path;
-  if (!changePath) throw new Error(`${actionType} cannot resolve active Change path for ${input.changeId}.`);
+  const scope = await resolveSchedulerReadySetExecutionScope(
+    project,
+    input.changeId,
+    actionType === "planning.scheduler.worker.start-next" ? "Scheduler next worker start" : "Scheduler first worker start",
+    port,
+  );
+  const { artifacts: memory, runtime, changePath } = scope;
   const { run, workerPlan, contract } = await readSchedulerRuntimeLineage(memory, changePath, input.schedulerRunId);
   if (run.changeId !== input.changeId) throw new Error(`${actionType} SchedulerRun change scope mismatch.`);
   const runtimeState = await readSchedulerRuntimeState(memory, changePath, run.id);
@@ -109,12 +115,12 @@ export async function startSchedulerCoderWorkerForReadySetTarget(
     throw new Error(`${actionType} SchedulerContract task scope mismatch.`);
   }
   const taskId = exactTarget.taskId;
-  const scopeContext = buildSchedulerWorkerScopeContext(target.status, reservation, intent, taskId);
-  const started = await startTaskRun(project, { changeId: input.changeId, taskId, roleId: "coder" });
+  const scopeContext = buildSchedulerWorkerScopeContext(scope.changeStatus, reservation, intent, taskId);
+  const started = await startTaskRunFromRuntime(scope.skillNative.runtime, scope.changeStatus, { changeId: input.changeId, taskId, roleId: "coder" });
   const workerStartId = buildWorkerStartId(run.id, intent.reservationIntentId, started.taskRun.id);
   const refs = schedulerWorkerStartArtifactRefs(memory, changePath, run.id, workerStartId);
   try {
-    const code = await startCodeRun(project, {
+    const codeInput: CodeRunOptions = {
       changeId: input.changeId,
       taskIds: [taskId],
       taskRunId: started.taskRun.id,
@@ -130,8 +136,15 @@ export async function startSchedulerCoderWorkerForReadySetTarget(
         nodeId: intent.nodeId,
         unitId: intent.unitId,
       },
-    });
-    const taskRun = await markTaskRunRunning(memory, started.taskRun.id, code.run);
+    };
+    const code = await startSkillNativeCodeRun(
+      project,
+      scope.skillNative.runtime,
+      scope.skillNative.harness,
+      codeInput,
+      memory,
+    );
+    const taskRun = await markTaskRunRunning(runtime, started.taskRun.id, code.run);
     const workerStart: SchedulerRuntimeWorkerStart = {
       version: "1.0",
       id: workerStartId,

@@ -1,4 +1,4 @@
-﻿import { existsSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { listRuns } from "../../../run/manager.js";
 import { listDemandWorkers } from "../../../demand-worker/manager.js";
 import { listTaskQueues } from "../../../task-queue/manager.js";
@@ -6,6 +6,8 @@ import { getLatestWorkflowRun, summarizeWorkflowRun } from "../../../workflow-ru
 import { readLatestWorkflowGraphPlan } from "../../../workflow-artifacts/manager.js";
 import type { SchedulerCurrentTransition } from "../../../workflow-actions/scheduler-current-transition.js";
 import { readLatestSchedulerCurrentTransitionView } from "../../../workflow-runtime/scheduler-current-transition-view.js";
+import { createSchedulerArtifactStore } from "../../../scheduler-runtime/artifact-store.js";
+import { join } from "node:path";
 import type { ReadySetWorkflowGraphPlan } from "../../../types/index.js";
 import {
   buildTypedWorkflowNextAction,
@@ -293,8 +295,29 @@ export async function buildWorkbenchWorkpad(input: {
   const schedulerLaunchConfirmed = workflowGraphPlan?.authoringContractVersion === "1.0"
     && workflowGraphPlan.graphMode === "ready-set-v1";
   const schedulerClaimReservation = schedulerClaimReservationRaw ? { ...schedulerClaimReservationRaw, launchConfirmed: schedulerLaunchConfirmed } : null;
-  const schedulerTransitionView = scopedSchedulerRun && schedulerRuntime?.lastClaimReservationId
-    ? await readLatestSchedulerCurrentTransitionView(memory, selectedTopic.path, scopedSchedulerRun.id, "workbench.workflow-projection").catch(() => null)
+  const schedulerTransitionView = scopedSchedulerRun && schedulerRuntime?.lastClaimReservationId && schedulerReadySetGraph
+    ? await readLatestSchedulerCurrentTransitionView(
+        createSchedulerArtifactStore({
+          changeId,
+          changeEvidenceRoot: join(memory.memoryRoot, selectedTopic.path),
+          artifactRoots: [memory.memoryRoot, memory.projectRoot],
+        }),
+        {
+          projectId: memory.projectId!,
+          projectRoot: memory.projectRoot,
+          runsRoot: memory.runsRoot,
+          runArtifactRoot: memory.memoryRoot,
+          runArtifactBase: memory.artifactBase,
+          workbenchRoot: memory.workbenchRoot,
+          workbenchDbPath: memory.workbenchDbPath,
+          worktreeMetadataRoot: memory.worktreeMetadataRoot,
+          worktreeIndexPath: memory.worktreeIndexPath,
+        },
+        schedulerReadySetGraph,
+        selectedTopic.path,
+        scopedSchedulerRun.id,
+        "workbench.workflow-projection",
+      ).catch(() => null)
     : null;
   const schedulerWorkerPaths = await readSchedulerWorkerPathSummaries(memory, selectedTopic.path, scopedSchedulerRun?.id, schedulerClaimReservation?.id);
   const transitionWorkerStartId = schedulerTransitionView?.transition.kind === "worker-step"

@@ -85,6 +85,7 @@ async function executeWorkflowAction(input: WorkbenchProjectInput & { project: M
     feedback: body.feedback,
     proposalId: body.proposalId,
     workflowGraphPlanId: body.workflowGraphPlanId,
+    finalizationRequestId: body.finalizationRequestId,
     schedulerContractId: body.schedulerContractId,
     schedulerDispatchDryRunId: body.schedulerDispatchDryRunId,
     schedulerWorkerPlanId: body.schedulerWorkerPlanId,
