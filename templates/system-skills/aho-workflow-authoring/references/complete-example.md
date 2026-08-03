@@ -26,26 +26,8 @@ readable; it is not the Runtime input format.
 }
 ````
 
-Also write `registry-contract.json`:
-
-```json
-{
-  "version": "1.0",
-  "required": true,
-  "contract": {
-    "kind": "api",
-    "subject": "health-endpoint",
-    "operation": "add-health-endpoint",
-    "owner_module": "http-service",
-    "affected_paths": ["src/**", "test/**"],
-    "consumers": ["operators"],
-    "depends_on": [],
-    "depends_on_changes": [],
-    "compatibility": "GET / remains unchanged.",
-    "status": "active"
-  },
-  "validation": ["Planner verified the endpoint owner and compatibility boundary against current source."]
-}
-```
-
-The planner child returns the complete `plan.md` after writing all four files.
+The Plan already describes the endpoint interface and compatibility boundary.
+The Main Agent reviews those facts with the project Skill and Registry, then
+submits any required structured Registry contract through the acceptance tool.
+The planner child returns the complete `plan.md` after writing the three
+required files.

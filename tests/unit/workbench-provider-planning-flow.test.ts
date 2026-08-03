@@ -65,6 +65,8 @@ vi.mock("../../src/codex/native-skills.js", async (importOriginal) => ({
 import { normalizeCodexAppServerNotification } from "../../src/codex/app-server-realtime.js";
 import {
   createProjectHarnessChange,
+  listProjectHarnessChanges,
+  loadProjectHarnessContract,
   rollbackUncommittedProjectHarnessChange,
 } from "../../src/project-harness/change.js";
 import {
@@ -1019,7 +1021,6 @@ describe("Workbench provider planning flow", () => {
             join(options.writableRoots?.[0] ?? "", "spec.md"),
             join(options.writableRoots?.[0] ?? "", "plan.md"),
             join(options.writableRoots?.[0] ?? "", "tasks.md"),
-            join(options.writableRoots?.[0] ?? "", "registry-contract.json"),
           ],
           snapshot: {},
         }],
@@ -1079,7 +1080,6 @@ describe("Workbench provider planning flow", () => {
             join(options.writableRoots?.[0] ?? "", "spec.md"),
             join(options.writableRoots?.[0] ?? "", "plan.md"),
             join(options.writableRoots?.[0] ?? "", "tasks.md"),
-            join(options.writableRoots?.[0] ?? "", "registry-contract.json"),
           ],
           snapshot: {},
         }],
@@ -1219,7 +1219,13 @@ describe("Workbench provider planning flow", () => {
         ]));
         expect(options.dynamicTools).toEqual(expect.arrayContaining([
           expect.objectContaining({ name: "aho_goal_yield", inputSchema: expect.objectContaining({ additionalProperties: false }) }),
-          expect.objectContaining({ name: "aho_accept_current_plan", inputSchema: expect.objectContaining({ additionalProperties: false }) }),
+          expect.objectContaining({
+            name: "aho_accept_current_plan",
+            inputSchema: expect.objectContaining({
+              required: ["proposalHash", "graphScopeId", "contractRequired", "contract", "validation"],
+              additionalProperties: false,
+            }),
+          }),
           expect.objectContaining({
             name: "aho_close_agent",
             inputSchema: expect.objectContaining({
@@ -1248,7 +1254,6 @@ describe("Workbench provider planning flow", () => {
               `${options.writableRoots[0]}/spec.md`,
               `${options.writableRoots[0]}/plan.md`,
               `${options.writableRoots[0]}/tasks.md`,
-              `${options.writableRoots[0]}/registry-contract.json`,
             ],
             snapshot: {},
           }],
@@ -1259,13 +1264,34 @@ describe("Workbench provider planning flow", () => {
           deliveryKey: expect.stringMatching(/^plan-handoff:/),
           contextText: expect.stringContaining("执行当前计划"),
         });
+        const arguments_ = mainAcceptanceArguments(options);
+        const missingContract = await options.onDynamicToolCall?.({
+          requestId: "request-missing-contract",
+          threadId: "thread-main",
+          turnId: "turn-accept",
+          callId: "call-missing-contract",
+          tool: "aho_accept_current_plan",
+          arguments: { ...arguments_, contract: null },
+        });
+        expect(missingContract).toMatchObject({ success: false });
+        expect(await listProjectHarnessChanges(skillRoot)).toEqual([]);
+        const childAttempt = await options.onDynamicToolCall?.({
+          requestId: "request-child-accept",
+          threadId: "thread-planner",
+          turnId: "turn-accept",
+          callId: "call-child-accept",
+          tool: "aho_accept_current_plan",
+          arguments: arguments_,
+        });
+        expect(childAttempt).toMatchObject({ success: false });
+        expect(await listProjectHarnessChanges(skillRoot)).toEqual([]);
         const accepted = await options.onDynamicToolCall?.({
           requestId: "request-accept",
           threadId: "thread-main",
           turnId: "turn-accept",
           callId: "call-accept",
           tool: "aho_accept_current_plan",
-          arguments: {},
+          arguments: arguments_,
         });
         expect(accepted).toMatchObject({ success: true });
         emitCanonicalMainText(options, "计划已接受，等待当前执行确认。", "thread-main", "turn-accept", "message-accept");
@@ -1399,6 +1425,22 @@ describe("Workbench provider planning flow", () => {
     expect(authoredGraph).toMatchObject({
       graphMode: "sequential-v1",
       nodes: [expect.objectContaining({ id: "health-endpoint" })],
+    });
+    await expect(loadProjectHarnessContract(skillRoot, changeId)).resolves.toMatchObject({
+      change_id: changeId,
+      ...healthEndpointContract(),
+    });
+    expect(JSON.parse(await readFile(
+      join(evidenceRoot, "planning", "main-acceptance.json"),
+      "utf8",
+    ))).toMatchObject({
+      acceptedBy: "main-agent",
+      projectId: project().id,
+      changeId,
+      conversationId: conversation.conversationId,
+      graphScopeId: currentGraphScopeId,
+      contractRequired: true,
+      contract: healthEndpointContract(),
     });
     const authorizationIntent = JSON.parse(await readFile(
       join(evidenceRoot, "planning", "execution-authorization-intent.json"),
@@ -1704,18 +1746,49 @@ async function writePlannerFiles(directory: string): Promise<void> {
     required: true,
     contract: {
       kind: "api",
-      subject: "health-endpoint",
-      operation: "add-health-endpoint",
-      owner_module: "http-service",
-      affected_paths: ["src/**", "test/**"],
-      consumers: ["operators"],
+      subject: "unauthorized-planner-contract",
+      operation: "must-not-publish",
+      owner_module: "planning-agent",
+      affected_paths: ["../planner-owned"],
+      consumers: [],
       depends_on: [],
       depends_on_changes: [],
-      compatibility: "GET / remains unchanged.",
+      compatibility: "This file must be ignored.",
       status: "active",
     },
-    validation: ["Planning Agent verified the endpoint owner against current source."],
+    validation: ["Unauthorized Planning artifact."],
   }, null, 2)}\n`, "utf8");
+}
+
+function mainAcceptanceArguments(options: {
+  additionalContext?: Record<string, { value: string }>;
+}): Record<string, unknown> {
+  const context = JSON.parse(options.additionalContext?.["aho.plan-handoff"]?.value ?? "{}") as {
+    sourceProposalHash?: string;
+    graphScopeId?: string;
+  };
+  return {
+    proposalHash: context.sourceProposalHash,
+    graphScopeId: context.graphScopeId,
+    contractRequired: true,
+    contract: healthEndpointContract(),
+    validation: ["Main Agent verified the endpoint owner against the project Skill, source, and current Registry."],
+  };
+}
+
+function healthEndpointContract() {
+  return {
+    kind: "api",
+    subject: "health-endpoint",
+    operation: "add-health-endpoint",
+    owner_module: "http-service",
+    affected_paths: ["src/**", "test/**"],
+    consumers: ["operators"],
+    depends_on: [],
+    depends_on_changes: [],
+    compatibility: "GET / remains unchanged.",
+    status: "active",
+  };
 }
 
 function project(): ManagedProject {

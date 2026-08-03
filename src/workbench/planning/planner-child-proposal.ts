@@ -6,10 +6,10 @@ import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import {
   type AcceptedPlanningPackage,
-  type PlanningRegistryContractEvidence,
+  type MainPlanningAcceptanceEvidence,
   type PlanningAcceptanceCommitPort,
   type ValidatedPlanningPackageInput,
-  parsePlanningRegistryContractEvidence,
+  parseMainPlanningAcceptanceEvidence,
   validatePlanningProposalArtifacts,
 } from "../../project-harness/planning-publication.js";
 import { writeJsonFile } from "../../fs/json.js";
@@ -42,8 +42,6 @@ const plannerChildOutputSchema = z.object({
   specMd: z.string().default(""),
   planMd: z.string().default(""),
   tasksMd: z.string().default(""),
-  registryContract: z.unknown().transform((value): PlanningRegistryContractEvidence =>
-    parsePlanningRegistryContractEvidence(value)),
   openQuestions: z.array(z.string()).default([]),
   assumptions: z.array(z.string()).default([]),
   warnings: z.array(z.string()).default([]),
@@ -85,7 +83,6 @@ export async function readPlannerChildProposal(path: string): Promise<PlannerChi
     specMd: proposal.specMd,
     planMd: proposal.planMd,
     tasksMd: proposal.tasksMd,
-    registryContract: proposal.registryContract,
     openQuestions: proposal.openQuestions,
     assumptions: proposal.assumptions,
     warnings: proposal.warnings,
@@ -143,22 +140,11 @@ async function readPlannerProposalFiles(directory: string): Promise<z.infer<type
     return value;
   };
   const notesPath = join(directory, "notes.md");
-  const contractPath = join(directory, "registry-contract.json");
-  if (!existsSync(contractPath)) {
-    throw new Error("Planner child must write registry-contract.json in the run-scoped proposal directory.");
-  }
-  let registryContract: unknown;
-  try {
-    registryContract = JSON.parse(await readFile(contractPath, "utf8"));
-  } catch (error) {
-    throw new Error("Planner child registry-contract.json is not valid JSON.", { cause: error });
-  }
   const output = plannerChildOutputSchema.parse({
     status: "proposed",
     specMd: await required("spec.md"),
     planMd: await required("plan.md"),
     tasksMd: await required("tasks.md"),
-    registryContract,
     notesMd: existsSync(notesPath) ? await readFile(notesPath, "utf8") : "",
     openQuestions: [],
     assumptions: [],
@@ -172,6 +158,7 @@ export async function acceptCurrentConversationPlanningPackage(
   project: ManagedProject,
   conversationId: string,
   proposalArtifact: string,
+  acceptance: MainPlanningAcceptanceEvidence,
   options: AcceptConversationPlanningPackageOptions = {},
 ): Promise<AcceptedConversationPlanningPackage> {
   const key = `${project.path}:${project.id}:${conversationId}`;
@@ -182,7 +169,7 @@ export async function acceptCurrentConversationPlanningPackage(
   planningAcceptanceLocks.set(key, queued);
   await previous;
   try {
-    return await acceptCurrentConversationPlanningPackageUnlocked(project, conversationId, proposalArtifact, options);
+    return await acceptCurrentConversationPlanningPackageUnlocked(project, conversationId, proposalArtifact, acceptance, options);
   } finally {
     release();
     if (planningAcceptanceLocks.get(key) === queued) planningAcceptanceLocks.delete(key);
@@ -193,15 +180,17 @@ async function acceptCurrentConversationPlanningPackageUnlocked(
   project: ManagedProject,
   conversationId: string,
   proposalArtifact: string,
+  acceptance: MainPlanningAcceptanceEvidence,
   options: AcceptConversationPlanningPackageOptions,
 ): Promise<AcceptedConversationPlanningPackage> {
-  return acceptCurrentProjectHarnessPlanningPackage(project, conversationId, proposalArtifact, options);
+  return acceptCurrentProjectHarnessPlanningPackage(project, conversationId, proposalArtifact, acceptance, options);
 }
 
 async function acceptCurrentProjectHarnessPlanningPackage(
   project: ManagedProject,
   conversationId: string,
   proposalArtifact: string,
+  acceptance: MainPlanningAcceptanceEvidence,
   options: AcceptConversationPlanningPackageOptions,
 ): Promise<AcceptedConversationPlanningPackage> {
   const runtimeState = await resolveProjectRuntimeState(project, {
@@ -223,6 +212,7 @@ async function acceptCurrentProjectHarnessPlanningPackage(
       store,
       conversationId,
       proposalArtifact,
+      acceptance,
     );
     const commit = planningAcceptanceCommitPort(
       store,
@@ -287,6 +277,7 @@ async function validateCurrentConversationPlanningPackage(
   store: WorkbenchDatabase,
   conversationId: string,
   proposalArtifact: string,
+  mainAcceptance: MainPlanningAcceptanceEvidence,
 ): Promise<ValidatedPlanningPackageInput> {
   const projectId = runtime.projectId;
   const proposalRoot = resolve(runtime.workbenchRoot, "conversations", conversationId, "runs");
@@ -306,6 +297,7 @@ async function validateCurrentConversationPlanningPackage(
   if (proposal.status !== "proposed" || proposal.openQuestions.length > 0) {
     throw new Error("Only a complete proposed planner result with no open questions can be accepted.");
   }
+  const acceptance = parseMainPlanningAcceptanceEvidence(mainAcceptance);
 
   const conversation = store.conversations.readConversation(projectId, conversationId);
     if (!conversation) throw new Error(`Conversation not found: ${conversationId}.`);
@@ -329,6 +321,9 @@ async function validateCurrentConversationPlanningPackage(
       .filter((message) => storedAgentRoleId(message.rawJson) === "planning-agent" && Boolean(message.artifact))
       .at(-1)?.artifact;
     if (latestProposalArtifact !== proposal.artifact) throw new Error("Planner proposal is stale or superseded.");
+    if (acceptance.proposalHash !== proposal.hash || acceptance.graphScopeId !== currentGraphScopeId) {
+      throw new Error("Main planning acceptance is not bound to the exact current proposal and graph scope.");
+    }
   return {
       conversationId,
       conversationTitle: conversation.title,
@@ -341,10 +336,10 @@ async function validateCurrentConversationPlanningPackage(
         specMd: proposal.specMd,
         planMd: proposal.planMd,
         tasksMd: proposal.tasksMd,
-        registryContract: proposal.registryContract,
         runId: proposal.runId,
         childThreadId: proposal.childThreadId,
       },
+      acceptance,
   };
 }
 

@@ -81,7 +81,7 @@ export function buildMainAgentPlanHandoffPromptContext(handoff: ValidatedPlanHan
     `Requested plan handoff action: ${handoff.kind}.`,
     ...(handoff.kind === "execute-plan" ? [`Requested local execution mode: ${handoff.executionMode ?? DEFAULT_EXECUTION_MODE}.`] : []),
     ...(handoff.kind === "execute-plan" ? [
-      "After reviewing the exact current planner-child proposal, call the no-argument aho_accept_current_plan tool if it is ready. The tool accepts artifacts and compiles a graph but never starts code execution.",
+      "After reviewing the exact current planner-child proposal and current Registry, decide whether a Registry contract is required. If the proposal is ready, call aho_accept_current_plan with the exact proposal hash, graph scope, and your structured contract decision. The tool accepts artifacts and compiles a graph but never starts code execution.",
       "If the proposal is not ready, do not call the tool; explain the issue or delegate a revision.",
     ] : []),
     ...(handoff.feedback ? ["User feedback for revising the plan:", handoff.feedback] : []),

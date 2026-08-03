@@ -177,7 +177,7 @@ describe("workbench Skill-native planning-to-human-gate flow", () => {
           status: "completed",
           displayName: "Newton",
           finalText: plannerPlanText(),
-          changedFiles: ["spec.md", "plan.md", "tasks.md", "registry-contract.json"]
+          changedFiles: ["spec.md", "plan.md", "tasks.md"]
             .map((name) => join(options.writableRoots[0], name)),
           snapshot: {},
         });
@@ -196,7 +196,7 @@ describe("workbench Skill-native planning-to-human-gate flow", () => {
             status: "completed",
             displayName: "Newton",
             finalText: plannerPlanText(),
-            changedFiles: ["spec.md", "plan.md", "tasks.md", "registry-contract.json"]
+            changedFiles: ["spec.md", "plan.md", "tasks.md"]
               .map((name) => join(options.writableRoots[0], name)),
             snapshot: {},
           }],
@@ -209,7 +209,7 @@ describe("workbench Skill-native planning-to-human-gate flow", () => {
           turnId: "turn-accept",
           callId: "call-accept",
           tool: "aho_accept_current_plan",
-          arguments: {},
+          arguments: mainAcceptanceArguments(options),
         });
         expect(result).toMatchObject({ success: true });
         emitCanonicalMainText(options, "Plan accepted; human execution approval is pending.", "thread-main", "turn-accept", "message-main-accept");
@@ -233,6 +233,7 @@ describe("workbench Skill-native planning-to-human-gate flow", () => {
       proposalArtifact: expect.stringContaining("planner-proposal"),
       proposalHash: expect.stringMatching(/^[a-f0-9]{64}$/),
     });
+    expect(existsSync(join(plan?.document?.proposalArtifact ?? "", "..", "registry-contract.json"))).toBe(false);
 
     await postConversationMessage(project(), conversation.conversationId, {
       mode: "chat",
@@ -283,12 +284,32 @@ describe("workbench Skill-native planning-to-human-gate flow", () => {
     });
     expect(contract).toMatchObject({
       change_id: changeId,
+      kind: "api",
       subject: "health-endpoint",
+      operation: "add-health-endpoint",
       owner_module: "http-service",
+      affected_paths: ["src/**", "test/**"],
+      consumers: ["operators"],
+      compatibility: "GET / remains unchanged.",
     });
 
     const evidenceRoot = join(skillRoot, "state", "changes", "active", changeId);
     const graph = await readLatestWorkflowGraphPlanAt(evidenceRoot, changeId);
+    const mainAcceptance = JSON.parse(await readFile(
+      join(evidenceRoot, "planning", "main-acceptance.json"),
+      "utf8",
+    )) as Record<string, unknown>;
+    expect(mainAcceptance).toMatchObject({
+      acceptedBy: "main-agent",
+      projectId: project().id,
+      changeId,
+      conversationId: conversation.conversationId,
+      graphScopeId,
+      proposalHash: plan?.document?.proposalHash,
+      contractRequired: true,
+      contract: healthEndpointContract(),
+      validation: ["Main Agent verified the endpoint owner against the project Skill, source, and current Registry."],
+    });
     const intent = JSON.parse(await readFile(
       join(evidenceRoot, "planning", "execution-authorization-intent.json"),
       "utf8",
@@ -402,23 +423,37 @@ async function writePlannerFiles(directory: string): Promise<void> {
   await writeFile(join(directory, "tasks.md"),
     "# Tasks\n\n- [ ] T-001: Add GET /healthz and its regression test.\n  - Covers: AC-001\n",
     "utf8");
-  await writeFile(join(directory, "registry-contract.json"), `${JSON.stringify({
-    version: "1.0",
-    required: true,
-    contract: {
-      kind: "api",
-      subject: "health-endpoint",
-      operation: "add-health-endpoint",
-      owner_module: "http-service",
-      affected_paths: ["src/**", "test/**"],
-      consumers: ["operators"],
-      depends_on: [],
-      depends_on_changes: [],
-      compatibility: "GET / remains unchanged.",
-      status: "active",
-    },
-    validation: ["Planning Agent verified the endpoint owner against current source."],
-  }, null, 2)}\n`, "utf8");
+}
+
+function mainAcceptanceArguments(options: {
+  additionalContext?: Record<string, { value: string }>;
+}): Record<string, unknown> {
+  const context = JSON.parse(options.additionalContext?.["aho.plan-handoff"]?.value ?? "{}") as {
+    sourceProposalHash?: string;
+    graphScopeId?: string;
+  };
+  return {
+    proposalHash: context.sourceProposalHash,
+    graphScopeId: context.graphScopeId,
+    contractRequired: true,
+    contract: healthEndpointContract(),
+    validation: ["Main Agent verified the endpoint owner against the project Skill, source, and current Registry."],
+  };
+}
+
+function healthEndpointContract() {
+  return {
+    kind: "api",
+    subject: "health-endpoint",
+    operation: "add-health-endpoint",
+    owner_module: "http-service",
+    affected_paths: ["src/**", "test/**"],
+    consumers: ["operators"],
+    depends_on: [],
+    depends_on_changes: [],
+    compatibility: "GET / remains unchanged.",
+    status: "active",
+  };
 }
 
 function plannerPlanText(): string {

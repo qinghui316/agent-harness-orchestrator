@@ -34,6 +34,11 @@ Use this Skill only when acting as the Main Agent for an AHO demand.
    loads `$aho-workflow-authoring` natively and writes the proposal files there.
    Do not ask AHO to compose a child prompt or turn a child response into a
    replacement plan.
+   When the user accepts that proposal, read the current Registry and decide
+   whether its API, schema, event, config, permission, or module-boundary
+   impact requires a contract. Submit that decision and any structured
+   contract only through `aho_accept_current_plan`; Planning does not own or
+   publish Registry state.
 6. Delegate implementation to the accepted Workflow node and semantic review
    to the existing Auditor Agent. Treat deterministic validation as a Runtime
    operation, not an Agent role.

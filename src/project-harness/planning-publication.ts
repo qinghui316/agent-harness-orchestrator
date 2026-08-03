@@ -55,28 +55,34 @@ export interface AcceptedPlanningPackage {
   registryContractValidation: string[];
 }
 
-export interface PlanningRegistryContractEvidence {
+export interface MainPlanningAcceptanceEvidence {
   version: "1.0";
-  required: boolean;
+  proposalHash: string;
+  graphScopeId: string;
+  contractRequired: boolean;
   contract: ProjectHarnessContractInput | null;
   validation: string[];
 }
 
-const planningRegistryContractEvidenceSchema = z.object({
+const mainPlanningAcceptanceEvidenceSchema = z.object({
   version: z.literal("1.0"),
-  required: z.boolean(),
+  proposalHash: z.string().trim().min(1),
+  graphScopeId: z.string().trim().min(1),
+  contractRequired: z.boolean(),
   contract: z.unknown().nullable(),
   validation: z.array(z.string().trim().min(1)).min(1),
 }).strict();
 
-export function parsePlanningRegistryContractEvidence(input: unknown): PlanningRegistryContractEvidence {
-  const parsed = planningRegistryContractEvidenceSchema.parse(input);
-  if (parsed.required !== (parsed.contract !== null)) {
-    throw new Error("Planning Registry contract evidence must include a contract exactly when required is true.");
+export function parseMainPlanningAcceptanceEvidence(input: unknown): MainPlanningAcceptanceEvidence {
+  const parsed = mainPlanningAcceptanceEvidenceSchema.parse(input);
+  if (parsed.contractRequired !== (parsed.contract !== null)) {
+    throw new Error("Main planning acceptance must include a Registry contract exactly when contractRequired is true.");
   }
   return {
     version: parsed.version,
-    required: parsed.required,
+    proposalHash: parsed.proposalHash,
+    graphScopeId: parsed.graphScopeId,
+    contractRequired: parsed.contractRequired,
     contract: parsed.contract === null ? null : parseProjectHarnessContractInput(parsed.contract),
     validation: [...parsed.validation],
   };
@@ -89,7 +95,6 @@ export interface ValidatedPlanningProposal {
   specMd: string;
   planMd: string;
   tasksMd: string;
-  registryContract: PlanningRegistryContractEvidence;
   runId?: string;
   childThreadId?: string;
 }
@@ -100,6 +105,7 @@ export interface ValidatedPlanningPackageInput {
   boundChangeId: string | null;
   currentGraphScopeId: string;
   proposal: ValidatedPlanningProposal;
+  acceptance: MainPlanningAcceptanceEvidence;
 }
 
 export interface ProjectHarnessPlanningPublicationContext {
@@ -226,10 +232,11 @@ export async function acceptProjectHarnessPlanningPackage(
   if (context.registry.projectId.trim() === "" || input.currentGraphScopeId.trim() === "") {
     throw new Error("Planning publication requires project and graph-scope identity.");
   }
-  const proposal: ValidatedPlanningProposal = {
-    ...input.proposal,
-    registryContract: parsePlanningRegistryContractEvidence(input.proposal.registryContract),
-  };
+  const proposal: ValidatedPlanningProposal = { ...input.proposal };
+  const acceptance = parseMainPlanningAcceptanceEvidence(input.acceptance);
+  if (acceptance.proposalHash !== proposal.hash || acceptance.graphScopeId !== input.currentGraphScopeId) {
+    throw new Error("Main planning acceptance is not bound to the exact current proposal and graph scope.");
+  }
   return withProjectHarnessWriterLock(projectHarnessSharedWriterRoot(context.sidecarRoot), {
     projectId: context.registry.projectId,
     ownerId: `planning-${input.conversationId}`,
@@ -273,11 +280,20 @@ export async function acceptProjectHarnessPlanningPackage(
       : null;
     if (existingGraph?.id === graphId) {
       await assertPlanningArtifactsMatch(activePath, proposal);
-      await assertPlanningContractMatch(context.registry.skillRoot, changeId, proposal.registryContract);
+      await assertMainPlanningAcceptanceMatch(activePath, {
+        projectId: context.registry.projectId,
+        changeId,
+        conversationId: input.conversationId,
+        graphScopeId,
+        proposal,
+        acceptance,
+      });
+      await assertPlanningContractMatch(context.registry.skillRoot, changeId, acceptance);
       await assertPlanningPreflightContinue(ports, laneContext, changeId);
       return planningPublicationResult(
         changeId,
         proposal,
+        acceptance,
         existingGraph,
         await loadProjectHarnessContract(context.registry.skillRoot, changeId),
         graphScopeId,
@@ -302,7 +318,10 @@ export async function acceptProjectHarnessPlanningPackage(
     }
     const journalPath = await projectHarnessPlanningJournalPath(context.sidecarRoot, transactionId);
     if (existsSync(journalPath)) throw new Error(`Planning publication journal already exists: ${transactionId}.`);
-    const paths = [...new Set(validated.authored.nodes.flatMap((node) => node.sourceScopes))].sort();
+    const paths = [...new Set([
+      ...validated.authored.nodes.flatMap((node) => node.sourceScopes),
+      ...(acceptance.contract?.affected_paths ?? []),
+    ])].sort();
     const supersededIntent = reusable
       ? await readSupersededAuthorizationIntent(activePath, proposal.hash)
       : null;
@@ -356,7 +375,16 @@ export async function acceptProjectHarnessPlanningPackage(
         }
       }
       await initializeProjectHarnessChangeEvidence(context.registry.skillRoot, stagingPath, changeId);
-      const graph = await writeAcceptedPlanningEvidence(stagingPath, changeId, input, validated, graphId);
+      const graph = await writeAcceptedPlanningEvidence(
+        stagingPath,
+        context.registry.projectId,
+        changeId,
+        graphScopeId,
+        input,
+        acceptance,
+        validated,
+        graphId,
+      );
       await rename(activePath, backupPath);
       try {
         await rename(stagingPath, activePath);
@@ -374,9 +402,9 @@ export async function acceptProjectHarnessPlanningPackage(
         scope: input.conversationTitle,
         paths,
         status: "active",
-        validation: proposal.registryContract.validation,
-        contract: proposal.registryContract.required
-          ? proposal.registryContract.contract
+        validation: acceptance.validation,
+        contract: acceptance.contractRequired
+          ? acceptance.contract
           : null,
       });
       await assertPlanningPreflightContinue(ports, laneContext, changeId);
@@ -405,6 +433,7 @@ export async function acceptProjectHarnessPlanningPackage(
       return planningPublicationResult(
         changeId,
         proposal,
+        acceptance,
         graph,
         await loadProjectHarnessContract(context.registry.skillRoot, changeId),
         graphScopeId,
@@ -423,6 +452,7 @@ export async function acceptProjectHarnessPlanningPackage(
         return planningPublicationResult(
           changeId,
           proposal,
+          acceptance,
           graph,
           await loadProjectHarnessContract(context.registry.skillRoot, changeId),
           graphScopeId,
@@ -448,8 +478,11 @@ function assertTransactionPath(root: string, candidate: string): void {
 
 async function writeAcceptedPlanningEvidence(
   stagingPath: string,
+  projectId: string,
   changeId: string,
+  graphScopeId: string,
   input: ValidatedPlanningPackageInput,
+  acceptance: MainPlanningAcceptanceEvidence,
   validated: ReturnType<typeof validatePlanningProposalArtifacts>,
   graphId: string,
 ): Promise<WorkflowGraphPlan> {
@@ -501,6 +534,14 @@ async function writeAcceptedPlanningEvidence(
     reason: null,
     updatedAt: now,
   });
+  await writeJsonFile(join(stagingPath, "planning", "main-acceptance.json"), mainPlanningAcceptanceRecord({
+    projectId,
+    changeId,
+    conversationId: input.conversationId,
+    graphScopeId,
+    proposal: input.proposal,
+    acceptance,
+  }));
   const changeRelativePath = `state/changes/active/${changeId}`;
   const artifact = `${changeRelativePath}/planning/workflow-graphs/${graphId}.json`;
   const markdownArtifact = `${changeRelativePath}/planning/workflow-graphs/${graphId}.md`;
@@ -624,6 +665,7 @@ async function assertPlanningArtifactsMatch(
 function planningPublicationResult(
   changeId: string,
   proposal: ValidatedPlanningProposal,
+  acceptance: MainPlanningAcceptanceEvidence,
   graph: WorkflowGraphPlan,
   contract: ProjectHarnessContractRecord | null,
   graphScopeId: string,
@@ -636,18 +678,18 @@ function planningPublicationResult(
     authorizationIntentArtifact: `state/changes/active/${changeId}/planning/execution-authorization-intent.json`,
     workflowGraphPlan: graph,
     registryContract: contract,
-    registryContractValidation: [...proposal.registryContract.validation],
+    registryContractValidation: [...acceptance.validation],
   };
 }
 
 async function assertPlanningContractMatch(
   skillRoot: string,
   changeId: string,
-  evidence: PlanningRegistryContractEvidence,
+  evidence: MainPlanningAcceptanceEvidence,
 ): Promise<void> {
   const current = await loadProjectHarnessContract(skillRoot, changeId);
-  if (evidence.required !== Boolean(current)) {
-    throw new Error("Accepted Registry contract drifted after this planner proposal; a fresh revision is required.");
+  if (evidence.contractRequired !== Boolean(current)) {
+    throw new Error("Accepted Registry contract drifted after this Main acceptance; a fresh acceptance is required.");
   }
   if (!current) return;
   const expected = {
@@ -667,7 +709,44 @@ async function assertPlanningContractMatch(
     status: current.status,
   };
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    throw new Error("Accepted Registry contract drifted after this planner proposal; a fresh revision is required.");
+    throw new Error("Accepted Registry contract drifted after this Main acceptance; a fresh acceptance is required.");
+  }
+}
+
+interface MainPlanningAcceptanceRecordInput {
+  projectId: string;
+  changeId: string;
+  conversationId: string;
+  graphScopeId: string;
+  proposal: Pick<ValidatedPlanningProposal, "id" | "hash">;
+  acceptance: MainPlanningAcceptanceEvidence;
+}
+
+function mainPlanningAcceptanceRecord(input: MainPlanningAcceptanceRecordInput): object {
+  return {
+    version: "1.0",
+    acceptedBy: "main-agent",
+    projectId: input.projectId,
+    changeId: input.changeId,
+    conversationId: input.conversationId,
+    graphScopeId: input.graphScopeId,
+    proposalId: input.proposal.id,
+    proposalHash: input.proposal.hash,
+    contractRequired: input.acceptance.contractRequired,
+    contract: input.acceptance.contract,
+    validation: [...input.acceptance.validation],
+  };
+}
+
+async function assertMainPlanningAcceptanceMatch(
+  activePath: string,
+  input: MainPlanningAcceptanceRecordInput,
+): Promise<void> {
+  const path = join(activePath, "planning", "main-acceptance.json");
+  if (!existsSync(path)) throw new Error("Accepted Main planning evidence is missing; a fresh acceptance is required.");
+  const current = JSON.parse(await readFile(path, "utf8")) as unknown;
+  if (JSON.stringify(current) !== JSON.stringify(mainPlanningAcceptanceRecord(input))) {
+    throw new Error("Accepted Main planning evidence drifted; a fresh acceptance is required.");
   }
 }
 

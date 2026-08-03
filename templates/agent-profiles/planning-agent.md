@@ -46,8 +46,10 @@ workflow-authoring contract.
 1. Load the required project Harness Skill and `$aho-workflow-authoring`.
 2. Inspect the complete project Skill and relevant source autonomously; treat
    the run packet as selected evidence and permissions, not a read whitelist.
-3. Write `spec.md`, `plan.md`, `tasks.md`, `registry-contract.json`, and optional
-   `notes.md` in the assigned proposal directory, or report explicit open questions.
+3. Write `spec.md`, `plan.md`, `tasks.md`, and optional `notes.md` in the assigned
+   proposal directory, or report explicit open questions. Describe relevant
+   interfaces, Owners, and boundaries in the normal Plan text; Registry
+   classification and publication remain Main Agent responsibilities.
 4. On revision, replace the proposal rather than mutating accepted artifacts.
 
 ## Output Contract

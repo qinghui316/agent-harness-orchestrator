@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   acceptProjectHarnessPlanningPackage,
+  type MainPlanningAcceptanceEvidence,
   type PlanningAcceptanceCommitPort,
   type ProjectHarnessPlanningPublicationPorts,
   type ValidatedPlanningPackageInput,
@@ -125,10 +126,13 @@ describe("project Harness planning publication", () => {
     const fixture = await createFixture();
     const commits = commitFixture();
     const first = await publish(fixture, proposal("Return ok.", "proposal-a"), commits.ports);
+    const secondBase = proposal("Return healthy.", "proposal-b");
+    const secondGraphScopeId = "graph:conversation-b:initial";
     const secondInput = {
-      ...proposal("Return healthy.", "proposal-b"),
+      ...secondBase,
       conversationId: "conversation-b",
-      currentGraphScopeId: "graph:conversation-b:initial",
+      currentGraphScopeId: secondGraphScopeId,
+      acceptance: mainAcceptance(secondBase.proposal.hash, secondGraphScopeId),
     };
     const second = await publish(fixture, secondInput, commits.ports);
 
@@ -152,9 +156,12 @@ describe("project Harness planning publication", () => {
   it("rejects a bound active Change from another graph Lane before execution branching", async () => {
     const fixture = await createFixture();
     const commits = commitFixture();
+    const foreignBase = proposal("Return foreign ok.", "proposal-foreign");
+    const foreignGraphScopeId = "graph:conversation-a:foreign";
     const foreign = await publish(fixture, {
-      ...proposal("Return foreign ok.", "proposal-foreign"),
-      currentGraphScopeId: "graph:conversation-a:foreign",
+      ...foreignBase,
+      currentGraphScopeId: foreignGraphScopeId,
+      acceptance: mainAcceptance(foreignBase.proposal.hash, foreignGraphScopeId),
     }, commits.ports);
     fixture.executed.add(foreign.changeId);
 
@@ -174,26 +181,79 @@ describe("project Harness planning publication", () => {
     expect(() => validatePlanningProposalArtifacts(input.proposal)).toThrow("'- AC-001: ...' form");
   });
 
-  it("rejects inconsistent structured Registry contract evidence before creating a Change", async () => {
+  it("rejects inconsistent Main-owned Registry contract evidence before creating a Change", async () => {
     const fixture = await createFixture();
     const commits = commitFixture();
+    const source = proposal("Return ok.", "contract-source");
     const cases = [
-      { required: true, contract: null },
-      { required: false, contract: proposal("Return ok.", "contract-source").proposal.registryContract.contract },
+      { contractRequired: true, contract: null },
+      { contractRequired: false, contract: source.acceptance.contract },
     ];
 
-    for (const [index, registryContract] of cases.entries()) {
+    for (const [index, acceptance] of cases.entries()) {
       const input = proposal("Return ok.", `proposal-invalid-contract-${index}`);
-      input.proposal.registryContract = {
-        ...input.proposal.registryContract,
-        ...registryContract,
-      } as typeof input.proposal.registryContract;
+      input.acceptance = {
+        ...input.acceptance,
+        ...acceptance,
+      } as MainPlanningAcceptanceEvidence;
       await expect(publish(fixture, input, commits.ports))
-        .rejects.toThrow("must include a contract exactly when required is true");
+        .rejects.toThrow("must include a Registry contract exactly when contractRequired is true");
     }
 
     expect(await listProjectHarnessChanges(fixture.skillRoot)).toEqual([]);
     expect(await directories(join(fixture.skillRoot, "state", "changes", "active"))).toEqual([]);
+  });
+
+  it("rejects invalid or unsafe Main-owned Registry contracts before creating a Change", async () => {
+    const fixture = await createFixture();
+    const commits = commitFixture();
+    const invalidContracts: unknown[] = [
+      {
+        ...requiredContract(),
+        kind: "unsupported-contract-kind",
+      },
+      {
+        ...requiredContract(),
+        affected_paths: ["C:\\outside\\health.ts"],
+      },
+      {
+        ...requiredContract(),
+        affected_paths: ["../outside/health.ts"],
+      },
+    ];
+
+    for (const [index, contract] of invalidContracts.entries()) {
+      const input = proposal("Return ok.", `proposal-invalid-main-contract-${index}`);
+      input.acceptance = {
+        ...input.acceptance,
+        contract,
+      } as MainPlanningAcceptanceEvidence;
+      await expect(publish(fixture, input, commits.ports)).rejects.toThrow();
+    }
+
+    expect(await listProjectHarnessChanges(fixture.skillRoot)).toEqual([]);
+    expect(await directories(join(fixture.skillRoot, "state", "changes", "active"))).toEqual([]);
+    expect(await readProjectHarnessLane(fixture.lane(fixture.graphScopeId))).toBeNull();
+  });
+
+  it("publishes no empty contract when Main declares that a Registry contract is not required", async () => {
+    const fixture = await createFixture();
+    const commits = commitFixture();
+    const input = proposal("Return ok.", "proposal-no-contract");
+    input.acceptance = mainAcceptance(input.proposal.hash, input.currentGraphScopeId, {
+      contractRequired: false,
+      contract: null,
+      validation: ["Main Agent determined that this proposal does not change a published boundary."],
+    });
+
+    const accepted = await publish(fixture, input, commits.ports);
+
+    expect(accepted.registryContract).toBeNull();
+    await expect(loadProjectHarnessContract(fixture.skillRoot, accepted.changeId)).resolves.toBeNull();
+    expect((await listProjectHarnessChanges(fixture.skillRoot))[0]).toMatchObject({
+      contract_required: false,
+      contract_path: null,
+    });
   });
 
   it("rolls back a second graph publication when its structured Registry contract conflicts", async () => {
@@ -236,6 +296,11 @@ describe("project Harness planning publication", () => {
     expect(await loadProjectHarnessContract(fixture.skillRoot, first.changeId)).toMatchObject({
       subject: "health-endpoint",
     });
+    expect(await readProjectHarnessLane(fixture.lane(fixture.nextGraphScopeId))).toBeNull();
+    expect(await directories(join(fixture.skillRoot, "state", "changes", "active"))).toEqual([first.changeId]);
+    expect(await directories(join(fixture.skillRoot, "state", "changes", ".transactions"))).toEqual([]);
+    expect(JSON.parse(await readFile(join(fixture.skillRoot, "state", "changes", "INDEX.json"), "utf8")))
+      .toMatchObject({ changes: [expect.objectContaining({ change_id: first.changeId })] });
   });
 
   it("restores Change, Lane, INDEX, and evidence when the Workbench commit fails", async () => {
@@ -307,21 +372,12 @@ describe("project Harness planning publication", () => {
     };
 
     const revised = proposal("Return revised.", "proposal-b", accepted.changeId);
-    const revisedContract = {
-      ...revised.proposal.registryContract,
+    revised.acceptance = mainAcceptance(revised.proposal.hash, revised.currentGraphScopeId, {
       contract: {
-        ...revised.proposal.registryContract.contract!,
+        ...requiredContract(),
         owner_module: "revised-health-service",
       },
-    };
-    revised.proposal.registryContract = revisedContract;
-    revised.proposal.hash = createHash("sha256").update(JSON.stringify({
-      proposalId: revised.proposal.id,
-      specMd: revised.proposal.specMd,
-      planMd: revised.proposal.planMd,
-      tasksMd: revised.proposal.tasksMd,
-      registryContract: revisedContract,
-    })).digest("hex");
+    });
 
     await expect(acceptProjectHarnessPlanningPackage({
       registry: fixture.registry,
@@ -411,7 +467,7 @@ describe("Skill-native Workbench planning composition", () => {
       writeFile(join(proposalDirectory, "spec.md"), proposalInput.proposal.specMd, "utf8"),
       writeFile(join(proposalDirectory, "plan.md"), proposalInput.proposal.planMd, "utf8"),
       writeFile(join(proposalDirectory, "tasks.md"), proposalInput.proposal.tasksMd, "utf8"),
-      writeFile(join(proposalDirectory, "registry-contract.json"), `${JSON.stringify(proposalInput.proposal.registryContract, null, 2)}\n`, "utf8"),
+      writeFile(join(proposalDirectory, "registry-contract.json"), `${JSON.stringify({ unauthorized: true }, null, 2)}\n`, "utf8"),
     ]);
     const nativeProposal = await writePlannerChildProposal({
       directory: runDirectory,
@@ -474,11 +530,16 @@ describe("Skill-native Workbench planning composition", () => {
       fixture.project,
       conversationId,
       nativeProposal.artifact,
+      mainAcceptance(nativeProposal.hash, graphScopeId),
       { ahoHome: fixture.ahoHome },
     );
 
     expect(existsSync(join(fixture.project.path, ".agent-harness", "project.json"))).toBe(false);
     expect(existsSync(join(fixture.skillRoot, "state", "changes", "active", accepted.changeId, "spec.md"))).toBe(true);
+    await expect(loadProjectHarnessContract(fixture.skillRoot, accepted.changeId)).resolves.toMatchObject({
+      subject: "health-endpoint",
+      owner_module: "health-service",
+    });
     const committedStore = await openProjectRuntimeWorkbenchDatabase(paths);
     try {
       expect(committedStore.conversations.readConversation(fixture.project.id, conversationId)).toMatchObject({
@@ -662,29 +723,13 @@ function proposal(
     "",
   ].join("\n");
   const tasksMd = "# Tasks\n\n- [ ] T-001: Implement the health endpoint.\n  - Covers: AC-001\n";
-  const registryContract = {
-    version: "1.0" as const,
-    required: true,
-    contract: {
-      kind: "api" as const,
-      subject: "health-endpoint",
-      operation: "update-health-endpoint",
-      owner_module: "health-service",
-      affected_paths: ["src/health.ts", "tests/health.test.ts"],
-      consumers: ["health-client"],
-      depends_on: [],
-      depends_on_changes: [],
-      compatibility: "Existing health consumers remain supported.",
-      status: "active",
-    },
-    validation: ["Planning Agent verified the health boundary against current source."],
-  };
-  const hash = createHash("sha256").update(JSON.stringify({ proposalId, specMd, planMd, tasksMd, registryContract })).digest("hex");
+  const hash = createHash("sha256").update(JSON.stringify({ proposalId, specMd, planMd, tasksMd })).digest("hex");
+  const currentGraphScopeId = "graph:conversation-a:initial";
   return {
     conversationId: "conversation-a",
     conversationTitle: "Health endpoint",
     boundChangeId,
-    currentGraphScopeId: "graph:conversation-a:initial",
+    currentGraphScopeId,
     proposal: {
       id: proposalId,
       hash,
@@ -692,10 +737,41 @@ function proposal(
       specMd,
       planMd,
       tasksMd,
-      registryContract,
       runId: `run-${proposalId}`,
       childThreadId: `planner-${proposalId}`,
     },
+    acceptance: mainAcceptance(hash, currentGraphScopeId),
+  };
+}
+
+function requiredContract(): NonNullable<MainPlanningAcceptanceEvidence["contract"]> {
+  return {
+    kind: "api",
+    subject: "health-endpoint",
+    operation: "update-health-endpoint",
+    owner_module: "health-service",
+    affected_paths: ["src/health.ts", "tests/health.test.ts"],
+    consumers: ["health-client"],
+    depends_on: [],
+    depends_on_changes: [],
+    compatibility: "Existing health consumers remain supported.",
+    status: "active",
+  };
+}
+
+function mainAcceptance(
+  proposalHash: string,
+  graphScopeId: string,
+  overrides: Partial<MainPlanningAcceptanceEvidence> = {},
+): MainPlanningAcceptanceEvidence {
+  return {
+    version: "1.0",
+    proposalHash,
+    graphScopeId,
+    contractRequired: true,
+    contract: requiredContract(),
+    validation: ["Main Agent verified the health boundary against current project evidence."],
+    ...overrides,
   };
 }
 

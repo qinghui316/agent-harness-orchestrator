@@ -2,13 +2,19 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
+import { z } from "zod";
 import { readBundledAgentCatalog } from "../agent/catalog.js";
+import { evaluateToolPolicy } from "../agent-task/tool-policy.js";
 import { defaultProviderRegistry, type ProviderTurnResult } from "../provider-runtime/index.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 import { agentThreadSurfaceId } from "../provider-runtime/agent-surface-id.js";
 import { writeJsonFile } from "../fs/json.js";
 import { getGitCommit, getGitStatusShort } from "../project/git.js";
 import { resolveWithinPhysicalRoot } from "../project-harness/path-safety.js";
+import {
+  parseMainPlanningAcceptanceEvidence,
+  type MainPlanningAcceptanceEvidence,
+} from "../project-harness/planning-publication.js";
 import { projectHarnessSharedWriterRoot, withProjectHarnessWriterLock } from "../project-harness/writer-lock.js";
 import { resolveProjectRuntimeState } from "../project-runtime/coordinator.js";
 import type { ProjectRuntimeResolution } from "../project-runtime/context.js";
@@ -165,7 +171,7 @@ async function runProjectScopedMainAgentTurnActivity(
     },
     "aho.proposal-workspace": {
       kind: "application",
-      value: JSON.stringify({ path: proposalDirectory, files: ["spec.md", "plan.md", "tasks.md", "registry-contract.json", "notes.md"] }),
+      value: JSON.stringify({ path: proposalDirectory, files: ["spec.md", "plan.md", "tasks.md", "notes.md"] }),
     },
     ...(planHandoff ? {
       "aho.plan-handoff": {
@@ -175,6 +181,8 @@ async function runProjectScopedMainAgentTurnActivity(
           executionMode: planHandoff.executionMode,
           sourceRunId: planHandoff.sourceRunId,
           sourceArtifact: planHandoff.sourceArtifact,
+          sourceProposalHash: planHandoff.sourceProposalHash,
+          graphScopeId,
           feedback: planHandoff.feedback ?? null,
           planText: planHandoff.planText,
         }),
@@ -412,8 +420,8 @@ async function runProjectScopedMainAgentTurnActivity(
       },
       {
         name: "aho_accept_current_plan",
-        description: "Accept the exact current user-confirmed planner-child proposal into Change artifacts and a WorkflowGraphPlan. This never starts execution.",
-        inputSchema: { type: "object", properties: {}, additionalProperties: false },
+        description: "Accept the exact current user-confirmed planner-child proposal with Main-owned Registry contract evidence. This never starts execution.",
+        inputSchema: mainPlanningAcceptanceToolInputSchema,
       },
       {
         name: "aho_close_agent",
@@ -453,20 +461,44 @@ async function runProjectScopedMainAgentTurnActivity(
           success: true,
         };
       }
-      if (Object.keys(call.arguments).length > 0) {
-        return { contentItems: [{ type: "inputText", text: "AHO conversation tools do not accept caller-selected targets." }], success: false };
-      }
-      if (call.tool === "aho_accept_current_plan" && planHandoff?.kind === "execute-plan") {
-        await assertCurrentMainAttempt(resolution, conversationId, graphScopeId, attemptId);
+      if (call.tool === "aho_accept_current_plan") {
+        if (planHandoff?.kind !== "execute-plan") {
+          return toolCallFailure("Plan acceptance is available only for the exact current human-approved plan handoff.");
+        }
+        if (!liveMainThreadId || call.threadId !== liveMainThreadId) {
+          return toolCallFailure("Only the exact current Main Agent thread may accept planning evidence.");
+        }
+        const policy = evaluateToolPolicy({
+          actionType: "planning.accept",
+          actorRoleId: "main-agent",
+          conversationId,
+          targetId: planHandoff.sourceProposalHash,
+        });
+        if (policy.status !== "allowed") return toolCallFailure(policy.readableMessage);
+        let mainAcceptance: MainPlanningAcceptanceEvidence;
+        try {
+          mainAcceptance = parseMainPlanningAcceptanceToolInput(call.arguments);
+        } catch (error) {
+          return toolCallFailure(error instanceof Error ? error.message : String(error));
+        }
+        if (mainAcceptance.proposalHash !== planHandoff.sourceProposalHash
+          || mainAcceptance.graphScopeId !== graphScopeId) {
+          return toolCallFailure("Main planning acceptance does not match the exact current proposal and graph scope.");
+        }
+        await assertCurrentMainAttempt(resolution, conversationId, graphScopeId, attemptId, liveMainThreadId);
         const acceptedProposal = await readPlannerChildProposal(planHandoff.sourceArtifact);
+        if (acceptedProposal.hash !== mainAcceptance.proposalHash) {
+          return toolCallFailure("Main planning acceptance does not match the current planner proposal artifact.");
+        }
         const accepted = await acceptCurrentConversationPlanningPackage(
           project,
           conversationId,
           planHandoff.sourceArtifact,
+          mainAcceptance,
           { expectedMainAttemptId: attemptId },
         );
         graphScopeId = accepted.graphScopeId;
-        await assertCurrentMainAttempt(resolution, conversationId, graphScopeId, attemptId);
+        await assertCurrentMainAttempt(resolution, conversationId, graphScopeId, attemptId, liveMainThreadId);
         canonicalDelivery?.publishCommittedMany(accepted.timelineRows);
         acceptedPlanning = accepted;
         boundChangeId = accepted.changeId;
@@ -488,6 +520,9 @@ async function runProjectScopedMainAgentTurnActivity(
           }],
           success: true,
         };
+      }
+      if (Object.keys(call.arguments).length > 0) {
+        return { contentItems: [{ type: "inputText", text: "AHO conversation tools do not accept caller-selected targets." }], success: false };
       }
       if (call.tool !== "aho_goal_yield") {
         return { contentItems: [{ type: "inputText", text: "The requested AHO conversation tool is not available in this turn." }], success: false };
@@ -1123,4 +1158,68 @@ async function assertCurrentMainAttempt(
 
 function hashJson(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+const mainPlanningAcceptanceToolInputSchema = {
+  type: "object",
+  properties: {
+    proposalHash: { type: "string" },
+    graphScopeId: { type: "string" },
+    contractRequired: { type: "boolean" },
+    contract: {
+      anyOf: [
+        { type: "null" },
+        {
+          type: "object",
+          properties: {
+            kind: { type: "string", enum: ["api", "schema", "event", "config", "permission", "module_boundary"] },
+            subject: { type: "string" },
+            operation: { type: "string" },
+            owner_module: { type: "string" },
+            affected_paths: { type: "array", items: { type: "string" } },
+            consumers: { type: "array", items: { type: "string" } },
+            depends_on: { type: "array", items: { type: "string" } },
+            depends_on_changes: { type: "array", items: { type: "string" } },
+            compatibility: { type: "string" },
+            status: { type: "string" },
+          },
+          required: [
+            "kind",
+            "subject",
+            "operation",
+            "owner_module",
+            "affected_paths",
+            "consumers",
+            "depends_on",
+            "depends_on_changes",
+            "compatibility",
+            "status",
+          ],
+          additionalProperties: false,
+        },
+      ],
+    },
+    validation: { type: "array", items: { type: "string" }, minItems: 1 },
+  },
+  required: ["proposalHash", "graphScopeId", "contractRequired", "contract", "validation"],
+  additionalProperties: false,
+} as const;
+
+const mainPlanningAcceptanceToolCallSchema = z.object({
+  proposalHash: z.string().trim().min(1),
+  graphScopeId: z.string().trim().min(1),
+  contractRequired: z.boolean(),
+  contract: z.unknown().nullable(),
+  validation: z.array(z.string().trim().min(1)).min(1),
+}).strict();
+
+function parseMainPlanningAcceptanceToolInput(input: unknown): MainPlanningAcceptanceEvidence {
+  return parseMainPlanningAcceptanceEvidence({
+    version: "1.0",
+    ...mainPlanningAcceptanceToolCallSchema.parse(input),
+  });
+}
+
+function toolCallFailure(message: string) {
+  return { contentItems: [{ type: "inputText" as const, text: message }], success: false };
 }

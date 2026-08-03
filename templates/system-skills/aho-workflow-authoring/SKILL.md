@@ -33,10 +33,11 @@ arbitrary loops, nested workflows, pipelines, or whole-wave dispatch.
 3. Design the smallest coherent task decomposition. Do not split by file count.
 4. Choose a topology from `references/workflow-patterns.md`.
 5. Write concrete node titles and prompts, then map every Task and AC.
-6. Classify API, schema, event, config, permission, and module-boundary impact,
-   then write explicit structured evidence to `registry-contract.json`.
+6. Describe relevant API, schema, event, config, permission, Owner, and
+   module-boundary facts in the normal user-readable Plan when they affect the
+   proposed work. The Main Agent owns Registry contract classification.
 7. Put the user-readable plan before the Workflow JSON appendix.
-8. Validate syntax, references, dependencies, scopes, contract evidence, and coverage before
+8. Validate syntax, references, dependencies, scopes, and coverage before
    returning the complete `plan.md` content as the final assistant response.
    The proposal files remain the Runtime input; the final response is the
    provider-visible representation of that same Plan, not a second proposal.
@@ -76,7 +77,7 @@ domain objective; do not write `implement the accepted task` as a substitute.
 
 ## Result
 
-Write `spec.md`, `plan.md`, `tasks.md`, `registry-contract.json`, and optional `notes.md` directly in the
+Write `spec.md`, `plan.md`, `tasks.md`, and optional `notes.md` directly in the
 Runtime-provided proposal workspace. After writing a complete proposal, return
 the complete contents of `plan.md` as the final assistant response, without a
 summary-only wrapper or a patch JSON object. Do not ask Runtime to reconstruct
@@ -94,7 +95,7 @@ Before returning, verify:
 - Dependencies and ready-set independence are supported by task facts.
 - AC, Task, and Workflow syntax exactly matches the fixed format.
 - Every identifier resolves and every Task/AC is covered.
-- `registry-contract.json` explicitly declares whether a Registry contract is
-  required and never relies on Runtime inference from prose or paths.
+- Relevant interface, Owner, and boundary facts are visible in the normal Plan
+  when they matter; the proposal does not publish or classify Registry state.
 - No proposal text claims execution authority.
 - The final assistant response matches the complete `plan.md` content.

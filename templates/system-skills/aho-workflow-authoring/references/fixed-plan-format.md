@@ -6,7 +6,6 @@ Write these required files directly in the assigned proposal workspace:
 spec.md
 plan.md
 tasks.md
-registry-contract.json
 ```
 
 `notes.md` is optional. Return the complete `plan.md` as the final response;
@@ -112,35 +111,11 @@ Use this exact checkbox and nested list syntax:
 The `- [ ]`, Task id, colon, indentation, nested `- Covers:`, and referenced AC
 ids are required. Keep each Task independently verifiable.
 
-## Registry Contract Evidence
+## Interface And Owner Facts
 
-The Planner, not Runtime, decides whether the proposal changes an API, schema,
-event, config, permission, or module boundary. Write exactly one explicit
-`registry-contract.json`.
-
-For a required contract:
-
-```json
-{
-  "version": "1.0",
-  "required": true,
-  "contract": {
-    "kind": "api",
-    "subject": "health-endpoint",
-    "operation": "add-health-endpoint",
-    "owner_module": "http-service",
-    "affected_paths": ["src/**", "test/**"],
-    "consumers": ["operators"],
-    "depends_on": [],
-    "depends_on_changes": [],
-    "compatibility": "GET / remains unchanged.",
-    "status": "active"
-  },
-  "validation": ["Planner verified the owner and boundary against current source and project evidence."]
-}
-```
-
-For work that needs no Registry contract, write `required: false`,
-`contract: null`, and a concrete validation statement explaining the Agent's
-classification. Runtime validates only this structure, identities, paths, and
-conflicts; it never infers contract meaning from the Markdown.
+When the work affects an API, schema, event, config, permission, or module
+boundary, describe the relevant interface, Owner, consumers, compatibility,
+and source scope in the normal Plan sections. Do not create or publish a
+separate Registry contract artifact. The Main Agent independently reviews the
+proposal, project Skill, current source, and Registry before submitting any
+required structured contract through the formal planning-acceptance tool.
