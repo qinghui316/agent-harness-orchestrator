@@ -1,11 +1,12 @@
 import { shortHash } from "../fs/path.js";
+import type { ProjectRunsPathPort } from "../project-runtime/paths.js";
 import { bindWorkflowRunToQueue } from "../workflow-run/manager.js";
-import type { ManagedProject, ResolvedMemory, TaskQueueItem, TaskQueueRun, WorkflowRun } from "../types/index.js";
+import type { ManagedProject, TaskQueueItem, TaskQueueRun, WorkflowRun } from "../types/index.js";
 import { writeTaskQueueItem, writeTaskQueueRun } from "./repository.js";
 
 interface CreateTaskQueueInput {
   project: ManagedProject;
-  memory: ResolvedMemory;
+  memory: ProjectRunsPathPort;
   changeId: string;
   workflow: WorkflowRun;
   workflowGraphPlanId: string;

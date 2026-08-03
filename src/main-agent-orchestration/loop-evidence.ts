@@ -2,9 +2,8 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import { agentTaskRoot } from "../agent-task/paths.js";
+import { agentTaskRoot, type AgentTaskPathPort } from "../agent-task/paths.js";
 import { readRequiredJsonFile } from "../fs/json.js";
-import type { ResolvedMemory } from "../types/index.js";
 
 export type MainAgentLoopEntrypoint = "top-level" | "task-run" | "task-queue" | "source-refresh-rework" | "feedback-rework";
 
@@ -117,23 +116,23 @@ const mainAgentLoopEventSchema = z.object({
   refs: refsSchema,
 });
 
-export function mainAgentLoopRunsRoot(memory: ResolvedMemory): string {
+export function mainAgentLoopRunsRoot(memory: AgentTaskPathPort): string {
   return join(agentTaskRoot(memory), "main-agent-loop-runs");
 }
 
-export function mainAgentLoopRunRoot(memory: ResolvedMemory, loopRunId: string): string {
+export function mainAgentLoopRunRoot(memory: AgentTaskPathPort, loopRunId: string): string {
   return join(mainAgentLoopRunsRoot(memory), loopRunId);
 }
 
-export function mainAgentLoopRunPath(memory: ResolvedMemory, loopRunId: string): string {
+export function mainAgentLoopRunPath(memory: AgentTaskPathPort, loopRunId: string): string {
   return join(mainAgentLoopRunRoot(memory, loopRunId), "loop.json");
 }
 
-export function mainAgentLoopEventsPath(memory: ResolvedMemory, loopRunId: string): string {
+export function mainAgentLoopEventsPath(memory: AgentTaskPathPort, loopRunId: string): string {
   return join(mainAgentLoopRunRoot(memory, loopRunId), "events.jsonl");
 }
 
-export async function readMainAgentLoopRun(memory: ResolvedMemory, loopRunId: string): Promise<MainAgentLoopRun | null> {
+export async function readMainAgentLoopRun(memory: AgentTaskPathPort, loopRunId: string): Promise<MainAgentLoopRun | null> {
   const path = mainAgentLoopRunPath(memory, loopRunId);
   try {
     if (!existsSync(path)) return null;
@@ -143,7 +142,7 @@ export async function readMainAgentLoopRun(memory: ResolvedMemory, loopRunId: st
   }
 }
 
-export async function readMainAgentLoopEvents(memory: ResolvedMemory, loopRunId: string): Promise<MainAgentLoopEvent[]> {
+export async function readMainAgentLoopEvents(memory: AgentTaskPathPort, loopRunId: string): Promise<MainAgentLoopEvent[]> {
   const path = mainAgentLoopEventsPath(memory, loopRunId);
   try {
     if (!existsSync(path)) return [];

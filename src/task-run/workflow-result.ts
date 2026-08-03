@@ -1,10 +1,11 @@
-import type { ResolvedMemory, TaskRun, TaskRunStatus } from "../types/index.js";
+import type { ProjectRunsPathPort } from "../project-runtime/paths.js";
+import type { TaskRun, TaskRunStatus } from "../types/index.js";
 import { assertTaskRunMatchesScope } from "./guards.js";
 import { releaseTaskRunLease } from "./lease-service.js";
 import { resolveTaskRun, writeTaskRun } from "./repository.js";
 import type { TaskRunScopeOptions, WorkflowResultLink } from "./types.js";
 
-export async function finishTaskRunFromWorkflowResult(memory: ResolvedMemory, taskRunId: string, result: unknown, scope: TaskRunScopeOptions = {}): Promise<TaskRun> {
+export async function finishTaskRunFromWorkflowResult(memory: ProjectRunsPathPort, taskRunId: string, result: unknown, scope: TaskRunScopeOptions = {}): Promise<TaskRun> {
   const taskRun = await resolveTaskRun(memory, taskRunId, scope);
   assertTaskRunMatchesScope(taskRun, scope, "TaskRun finish");
   const outcome = classifyWorkflowResult(result);

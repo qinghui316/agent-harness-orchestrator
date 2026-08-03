@@ -1,8 +1,8 @@
 import { existsSync } from "node:fs";
 import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { decisionSchema } from "./schemas.js";
-import { demandWorkersRoot, mainOrchestratorDecisionLogPath } from "./paths.js";
-import type { MainOrchestratorDecision, MainOrchestratorDecisionAction, ResolvedMemory } from "../types/index.js";
+import { demandWorkersRoot, mainOrchestratorDecisionLogPath, type DemandWorkerStorePort } from "./paths.js";
+import type { MainOrchestratorDecision, MainOrchestratorDecisionAction } from "../types/index.js";
 
 export interface RecordMainOrchestratorDecisionInput {
   changeId: string;
@@ -14,7 +14,7 @@ export interface RecordMainOrchestratorDecisionInput {
   artifactRefs?: string[];
 }
 
-export async function recordMainOrchestratorDecision(memory: ResolvedMemory, input: RecordMainOrchestratorDecisionInput): Promise<MainOrchestratorDecision> {
+export async function recordMainOrchestratorDecision(memory: DemandWorkerStorePort, input: RecordMainOrchestratorDecisionInput): Promise<MainOrchestratorDecision> {
   const decision: MainOrchestratorDecision = {
     version: "1.0",
     id: `orchestrator-decision-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
@@ -34,7 +34,7 @@ export async function recordMainOrchestratorDecision(memory: ResolvedMemory, inp
   return decision;
 }
 
-export async function listMainOrchestratorDecisions(memory: ResolvedMemory): Promise<MainOrchestratorDecision[]> {
+export async function listMainOrchestratorDecisions(memory: DemandWorkerStorePort): Promise<MainOrchestratorDecision[]> {
   const path = mainOrchestratorDecisionLogPath(memory);
   if (!existsSync(path)) return [];
   const text = await readFile(path, "utf8");

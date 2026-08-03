@@ -1,9 +1,10 @@
 import { listAuditResults } from "../audit/artifacts.js";
+import type { ProjectRunsPathPort } from "../project-runtime/paths.js";
 import { listRuns } from "../run/manager.js";
-import type { ResolvedMemory, StageResumeVerdict, TaskRun } from "../types/index.js";
+import type { StageResumeVerdict, TaskRun } from "../types/index.js";
 import { listValidationResults } from "../validation/artifacts.js";
 
-export async function deriveStageResumeVerdict(memory: ResolvedMemory, changeId: string, taskRun: TaskRun): Promise<StageResumeVerdict> {
+export async function deriveStageResumeVerdict(memory: ProjectRunsPathPort, changeId: string, taskRun: TaskRun): Promise<StageResumeVerdict> {
   const runs = await listRuns(memory);
   const coderRun = runs
     .filter((run) => run.taskRunId === taskRun.id && run.changeId === changeId)

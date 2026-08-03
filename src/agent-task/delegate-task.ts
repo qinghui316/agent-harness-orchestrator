@@ -1,7 +1,7 @@
 import type { AgentTaskKind, AgentTaskStatus } from "../types/index.js";
 import type { MainAgentDecision } from "./decisions.js";
 import { listAgentTasks } from "./repository.js";
-import type { ResolvedMemory } from "../types/index.js";
+import type { AgentTaskStorePort } from "./paths.js";
 
 export const DELEGATE_TASK_ALLOWED_ROLES = [
   "coder-agent",
@@ -99,7 +99,7 @@ export function detectDelegateTaskMcpCapability(): DelegateTaskCapability {
   };
 }
 
-export async function validateDelegateTaskPolicy(memory: ResolvedMemory, request: AgentTaskRequest): Promise<DelegateTaskPolicyResult> {
+export async function validateDelegateTaskPolicy(memory: AgentTaskStorePort, request: AgentTaskRequest): Promise<DelegateTaskPolicyResult> {
   const role = request.roleId.trim();
   if (!isAllowedDelegateRole(role)) {
     return reject(request, `Unknown or unavailable role: ${role || "(empty)"}.`, "这个角色当前不能由主 agent 委派。");

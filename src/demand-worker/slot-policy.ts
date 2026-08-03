@@ -1,10 +1,11 @@
-import type { DemandWorkerAttempt, DemandWorkerSlot, DemandWorkerStatus, ResolvedMemory } from "../types/index.js";
+import type { DemandWorkerAttempt, DemandWorkerSlot, DemandWorkerStatus } from "../types/index.js";
+import type { DemandWorkerStorePort } from "./paths.js";
 import { listDemandWorkers } from "./repository.js";
 
 export const DEFAULT_MAX_CONCURRENT_DEMANDS = 2;
 export const MIN_MAX_CONCURRENT_DEMANDS = 1;
 
-export async function getDemandWorkerSlot(memory: ResolvedMemory, maxConcurrentDemands = DEFAULT_MAX_CONCURRENT_DEMANDS): Promise<DemandWorkerSlot> {
+export async function getDemandWorkerSlot(memory: DemandWorkerStorePort, maxConcurrentDemands = DEFAULT_MAX_CONCURRENT_DEMANDS): Promise<DemandWorkerSlot> {
   const normalizedMax = normalizeMaxConcurrentDemands(maxConcurrentDemands);
   const runningCount = (await listDemandWorkers(memory)).filter((worker) => isDemandWorkerRunningStatus(worker.status)).length;
   return {

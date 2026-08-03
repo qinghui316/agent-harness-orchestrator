@@ -1,9 +1,10 @@
-import type { DemandWorker, DemandWorkerAttempt, MainOrchestratorDecision, MainOrchestratorDecisionAction, ResolvedMemory } from "../types/index.js";
+import type { DemandWorker, DemandWorkerAttempt, MainOrchestratorDecision, MainOrchestratorDecisionAction } from "../types/index.js";
+import type { DemandWorkerStorePort } from "./paths.js";
 import type { CompleteDemandWorkerInput } from "./types.js";
 import { recordMainOrchestratorDecision } from "./decisions.js";
 import { getDemandWorkerForChange, writeDemandWorker, writeDemandWorkerAttempt } from "./repository.js";
 
-export async function markDemandWorkerRunning(memory: ResolvedMemory, worker: DemandWorker, attempt: DemandWorkerAttempt): Promise<{ worker: DemandWorker; attempt: DemandWorkerAttempt }> {
+export async function markDemandWorkerRunning(memory: DemandWorkerStorePort, worker: DemandWorker, attempt: DemandWorkerAttempt): Promise<{ worker: DemandWorker; attempt: DemandWorkerAttempt }> {
   const now = new Date().toISOString();
   const runningWorker = await writeDemandWorker(memory, {
     ...worker,
@@ -21,7 +22,7 @@ export async function markDemandWorkerRunning(memory: ResolvedMemory, worker: De
 }
 
 export async function completeDemandWorkerAttempt(
-  memory: ResolvedMemory,
+  memory: DemandWorkerStorePort,
   worker: DemandWorker,
   attempt: DemandWorkerAttempt,
   input: CompleteDemandWorkerInput,
@@ -59,7 +60,7 @@ export async function completeDemandWorkerAttempt(
   return { worker: completedWorker, attempt: completedAttempt, decision };
 }
 
-export async function releaseDemandWorker(memory: ResolvedMemory, changeId: string, reason: string): Promise<DemandWorker | null> {
+export async function releaseDemandWorker(memory: DemandWorkerStorePort, changeId: string, reason: string): Promise<DemandWorker | null> {
   const existing = await getDemandWorkerForChange(memory, changeId);
   if (!existing) return null;
   const now = new Date().toISOString();

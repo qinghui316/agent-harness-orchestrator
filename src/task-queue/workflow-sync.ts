@@ -1,7 +1,8 @@
-import type { ResolvedMemory, TaskQueueRun } from "../types/index.js";
+import type { ProjectRunsPathPort } from "../project-runtime/paths.js";
+import type { TaskQueueRun } from "../types/index.js";
 import { listTaskQueueItems, writeTaskQueueRun } from "./repository.js";
 
-export async function resumePausedTaskQueue(memory: ResolvedMemory, activeQueue: TaskQueueRun): Promise<{
+export async function resumePausedTaskQueue(memory: ProjectRunsPathPort, activeQueue: TaskQueueRun): Promise<{
   queue: TaskQueueRun;
   items: Awaited<ReturnType<typeof listTaskQueueItems>>;
 }> {

@@ -1,6 +1,7 @@
 import { isActiveTaskRunStatus, listTaskRuns } from "../task-run/manager.js";
 import { assertWorkflowResumeAllowed } from "../workflow-run/manager.js";
 import { workflowActionScopesMatchStrict } from "../workflow-actions/registry.js";
+import type { ProjectRunsPathPort } from "../project-runtime/paths.js";
 import type { ManagedProject, ResolvedMemory, TaskQueueRun, TaskQueueWorkflowRun } from "../types/index.js";
 import type { TaskQueueStartOptions } from "./types.js";
 import { listTaskQueues, writeTaskQueueRun } from "./repository.js";
@@ -11,7 +12,7 @@ export interface PausedTaskQueueResumeValidation {
   workflow: TaskQueueWorkflowRun;
 }
 
-export async function validateNoConflictingActiveQueue(memory: ResolvedMemory, changeId: string): Promise<TaskQueueRun | null> {
+export async function validateNoConflictingActiveQueue(memory: ProjectRunsPathPort, changeId: string): Promise<TaskQueueRun | null> {
   const existingQueues = await listTaskQueues(memory, changeId);
   const activeQueue = existingQueues.find((queue) => isActiveQueueStatus(queue.status));
   if (activeQueue && activeQueue.status !== "paused") throw new Error(`Task queue already active: ${activeQueue.id}.`);
@@ -45,7 +46,7 @@ export async function validatePausedTaskQueueResume(
   }
 }
 
-export async function assertNoActiveTaskRun(memory: ResolvedMemory, changeId: string): Promise<void> {
+export async function assertNoActiveTaskRun(memory: ProjectRunsPathPort, changeId: string): Promise<void> {
   const taskRuns = await listTaskRuns(memory, changeId);
   const activeTask = taskRuns.find((run) => isActiveTaskRunStatus(run.status));
   if (activeTask) throw new Error(`Cannot start task queue while TaskRun ${activeTask.id} is active.`);

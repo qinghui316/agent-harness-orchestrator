@@ -1,15 +1,16 @@
-import type { ResolvedMemory, TaskQueueItem, TaskQueueRun, TaskRun } from "../types/index.js";
+import type { ProjectRunsPathPort } from "../project-runtime/paths.js";
+import type { TaskQueueItem, TaskQueueRun, TaskRun } from "../types/index.js";
 import { appendTaskQueueTaskEvent } from "./events.js";
 import { listTaskQueueItems, writeTaskQueueItem, writeTaskQueueRun } from "./repository.js";
 import { itemStatusFromTaskRun, readableItemStopReason } from "./status.js";
 
-export async function getNextQueuedTaskQueueItem(memory: ResolvedMemory, queue: TaskQueueRun): Promise<TaskQueueItem | null> {
+export async function getNextQueuedTaskQueueItem(memory: ProjectRunsPathPort, queue: TaskQueueRun): Promise<TaskQueueItem | null> {
   const items = await listTaskQueueItems(memory, queue.changeId, queue.id);
   if (items.some((item) => item.status === "running")) return null;
   return items.find((item) => item.status === "queued") ?? null;
 }
 
-export async function markTaskQueueRunning(memory: ResolvedMemory, queue: TaskQueueRun, currentTaskId?: string): Promise<TaskQueueRun> {
+export async function markTaskQueueRunning(memory: ProjectRunsPathPort, queue: TaskQueueRun, currentTaskId?: string): Promise<TaskQueueRun> {
   const now = new Date().toISOString();
   return writeTaskQueueRun(memory, {
     ...queue,
@@ -22,7 +23,7 @@ export async function markTaskQueueRunning(memory: ResolvedMemory, queue: TaskQu
   });
 }
 
-export async function markTaskQueueItemRunning(memory: ResolvedMemory, item: TaskQueueItem, taskRun: TaskRun): Promise<TaskQueueItem> {
+export async function markTaskQueueItemRunning(memory: ProjectRunsPathPort, item: TaskQueueItem, taskRun: TaskRun): Promise<TaskQueueItem> {
   const now = new Date().toISOString();
   const written = await writeTaskQueueItem(memory, {
     ...item,
@@ -38,7 +39,7 @@ export async function markTaskQueueItemRunning(memory: ResolvedMemory, item: Tas
   return written;
 }
 
-export async function finishTaskQueueItem(memory: ResolvedMemory, item: TaskQueueItem, taskRun: TaskRun): Promise<TaskQueueItem> {
+export async function finishTaskQueueItem(memory: ProjectRunsPathPort, item: TaskQueueItem, taskRun: TaskRun): Promise<TaskQueueItem> {
   const now = new Date().toISOString();
   const status = itemStatusFromTaskRun(taskRun.status);
   const written = await writeTaskQueueItem(memory, {
@@ -59,7 +60,7 @@ export async function finishTaskQueueItem(memory: ResolvedMemory, item: TaskQueu
 }
 
 export async function requeueTaskQueueItemAfterInterruption(
-  memory: ResolvedMemory,
+  memory: ProjectRunsPathPort,
   item: TaskQueueItem,
   taskRun: TaskRun,
   reason: string,
@@ -78,7 +79,7 @@ export async function requeueTaskQueueItemAfterInterruption(
   return written;
 }
 
-export async function updateTaskQueueAfterItem(memory: ResolvedMemory, queue: TaskQueueRun): Promise<TaskQueueRun> {
+export async function updateTaskQueueAfterItem(memory: ProjectRunsPathPort, queue: TaskQueueRun): Promise<TaskQueueRun> {
   const items = await listTaskQueueItems(memory, queue.changeId, queue.id);
   const completedCount = items.filter((item) => item.status === "completed").length;
   const failed = items.find((item) => item.status === "failed");
@@ -137,7 +138,7 @@ export async function updateTaskQueueAfterItem(memory: ResolvedMemory, queue: Ta
   });
 }
 
-export async function pauseTaskQueue(memory: ResolvedMemory, queue: TaskQueueRun, reason: string): Promise<TaskQueueRun> {
+export async function pauseTaskQueue(memory: ProjectRunsPathPort, queue: TaskQueueRun, reason: string): Promise<TaskQueueRun> {
   const now = new Date().toISOString();
   const items = await listTaskQueueItems(memory, queue.changeId, queue.id);
   const written = await writeTaskQueueRun(memory, {
@@ -151,7 +152,7 @@ export async function pauseTaskQueue(memory: ResolvedMemory, queue: TaskQueueRun
   return written;
 }
 
-export async function failQueuedTaskItem(memory: ResolvedMemory, item: TaskQueueItem, reason: string): Promise<TaskQueueItem> {
+export async function failQueuedTaskItem(memory: ProjectRunsPathPort, item: TaskQueueItem, reason: string): Promise<TaskQueueItem> {
   const now = new Date().toISOString();
   const written = await writeTaskQueueItem(memory, {
     ...item,
@@ -164,7 +165,7 @@ export async function failQueuedTaskItem(memory: ResolvedMemory, item: TaskQueue
   return written;
 }
 
-export async function blockQueuedTaskItem(memory: ResolvedMemory, item: TaskQueueItem, reason: string): Promise<TaskQueueItem> {
+export async function blockQueuedTaskItem(memory: ProjectRunsPathPort, item: TaskQueueItem, reason: string): Promise<TaskQueueItem> {
   const now = new Date().toISOString();
   const written = await writeTaskQueueItem(memory, {
     ...item,

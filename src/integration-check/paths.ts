@@ -1,7 +1,11 @@
 import { join, relative } from "node:path";
 import type { ResolvedMemory } from "../types/index.js";
 
-export function integrationCheckRoot(memory: ResolvedMemory): string {
+export interface IntegrationCheckStorePort {
+  workbenchRoot: string;
+}
+
+export function integrationCheckRoot(memory: IntegrationCheckStorePort): string {
   return join(memory.workbenchRoot, "integration-checks");
 }
 

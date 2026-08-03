@@ -1,4 +1,5 @@
 import { shortHash } from "../fs/path.js";
+import type { ProjectRunsPathPort } from "../project-runtime/paths.js";
 import type { ManagedProject, ResolvedMemory, TaskQueueItem, TaskQueueRun, TaskQueueWorkflowRun, WorkflowRun, WorkflowRunEventType, WorkflowRunItem, WorkflowRunStatus } from "../types/index.js";
 import { appendWorkflowRunEvent } from "./events.js";
 import { assertWorkflowRunQueueScope } from "./guards.js";
@@ -51,7 +52,7 @@ export async function assertWorkflowResumeAllowed(memory: ResolvedMemory, projec
   return run;
 }
 
-export async function bindWorkflowRunToQueue(memory: ResolvedMemory, run: WorkflowRun, queue: TaskQueueRun, items: TaskQueueItem[]): Promise<WorkflowRun> {
+export async function bindWorkflowRunToQueue(memory: ProjectRunsPathPort, run: WorkflowRun, queue: TaskQueueRun, items: TaskQueueItem[]): Promise<WorkflowRun> {
   assertWorkflowRunQueueScope(run, queue);
   const now = new Date().toISOString();
   const next = await updateWorkflowRun(memory, {
@@ -68,7 +69,7 @@ export async function bindWorkflowRunToQueue(memory: ResolvedMemory, run: Workfl
   return next;
 }
 
-export async function syncWorkflowRunFromQueue(memory: ResolvedMemory, run: WorkflowRun, queue: TaskQueueRun, items: TaskQueueItem[], eventType: WorkflowRunEventType = "workflow.reconciled", reason?: string): Promise<WorkflowRun> {
+export async function syncWorkflowRunFromQueue(memory: ProjectRunsPathPort, run: WorkflowRun, queue: TaskQueueRun, items: TaskQueueItem[], eventType: WorkflowRunEventType = "workflow.reconciled", reason?: string): Promise<WorkflowRun> {
   assertWorkflowRunQueueScope(run, queue);
   const status = workflowStatusFromQueue(queue.status);
   const now = new Date().toISOString();

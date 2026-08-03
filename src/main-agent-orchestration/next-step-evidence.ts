@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import type { ResolvedMemory } from "../types/index.js";
+import type { AgentTaskPathPort } from "../agent-task/paths.js";
 import { mainAgentLoopRunRoot, type MainAgentLoopEntrypoint } from "./loop-evidence.js";
 
 type LegacyMainAgentOrchestrationRole = "coder-agent" | "validator" | "auditor-agent" | "rework-coder";
@@ -120,7 +120,7 @@ const mainAgentNextStepEvidenceSchema = z.object({
   refs: refsSchema,
 });
 
-export function mainAgentNextStepDecisionsPath(memory: ResolvedMemory, loopRunId: string): string {
+export function mainAgentNextStepDecisionsPath(memory: AgentTaskPathPort, loopRunId: string): string {
   return join(mainAgentLoopRunRoot(memory, loopRunId), "decisions.jsonl");
 }
 
@@ -129,7 +129,7 @@ export function mainAgentNextStepEvidenceRef(loopRunId: string, evidenceId: stri
 }
 
 export async function readMainAgentNextStepEvidence(
-  memory: ResolvedMemory,
+  memory: AgentTaskPathPort,
   loopRunId: string,
 ): Promise<MainAgentNextStepEvidence[]> {
   const path = mainAgentNextStepDecisionsPath(memory, loopRunId);

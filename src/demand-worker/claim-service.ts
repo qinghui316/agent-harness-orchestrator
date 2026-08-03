@@ -1,5 +1,6 @@
 import { shortHash } from "../fs/path.js";
-import type { DemandWorkerAttempt, ResolvedMemory } from "../types/index.js";
+import type { DemandWorkerAttempt } from "../types/index.js";
+import type { DemandWorkerStorePort } from "./paths.js";
 import type { ClaimAvailableDemandWorkerOptions, ClaimDemandWorkerOptions, EnqueueDemandWorkerInput, EnqueueDemandWorkerResult } from "./types.js";
 import { recordMainOrchestratorDecision } from "./decisions.js";
 import { getDemandWorkerForChange, listDemandWorkerAttempts, listDemandWorkers, writeDemandWorker, writeDemandWorkerAttempt } from "./repository.js";
@@ -11,7 +12,7 @@ export interface ClaimDemandWorkerResult {
   slot: Awaited<ReturnType<typeof getDemandWorkerSlot>>;
 }
 
-export async function enqueueDemandWorker(memory: ResolvedMemory, input: EnqueueDemandWorkerInput): Promise<EnqueueDemandWorkerResult> {
+export async function enqueueDemandWorker(memory: DemandWorkerStorePort, input: EnqueueDemandWorkerInput): Promise<EnqueueDemandWorkerResult> {
   const existing = await getDemandWorkerForChange(memory, input.changeId);
   if (existing && !isDemandWorkerTerminal(existing.status)) {
     return { worker: existing, resumed: true };
@@ -42,7 +43,7 @@ export async function enqueueDemandWorker(memory: ResolvedMemory, input: Enqueue
   return { worker, resumed: false };
 }
 
-export async function claimNextDemandWorker(memory: ResolvedMemory, options: ClaimDemandWorkerOptions = {}): Promise<ClaimDemandWorkerResult | null> {
+export async function claimNextDemandWorker(memory: DemandWorkerStorePort, options: ClaimDemandWorkerOptions = {}): Promise<ClaimDemandWorkerResult | null> {
   const maxConcurrentDemands = normalizeMaxConcurrentDemands(options.maxConcurrentDemands);
   const slot = await getDemandWorkerSlot(memory, maxConcurrentDemands);
   if (!slot.available) return null;
@@ -91,7 +92,7 @@ export async function claimNextDemandWorker(memory: ResolvedMemory, options: Cla
   return { worker, attempt, slot };
 }
 
-export async function claimAvailableDemandWorkers(memory: ResolvedMemory, options: ClaimAvailableDemandWorkerOptions = {}): Promise<ClaimDemandWorkerResult[]> {
+export async function claimAvailableDemandWorkers(memory: DemandWorkerStorePort, options: ClaimAvailableDemandWorkerOptions = {}): Promise<ClaimDemandWorkerResult[]> {
   const claimed: ClaimDemandWorkerResult[] = [];
   const maxConcurrentDemands = normalizeMaxConcurrentDemands(options.maxConcurrentDemands);
   while (true) {

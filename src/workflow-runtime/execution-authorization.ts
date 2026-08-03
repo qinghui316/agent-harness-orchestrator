@@ -1,9 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
+import type { ProjectRunsPathPort } from "../project-runtime/paths.js";
 import type {
   ExecutionAuthorizationSnapshot,
   ExecutionAuthorizationTarget,
   LocalExecutionAuthorization,
-  ResolvedMemory,
   TransitionExecution,
   TransitionExecutionReceipt,
 } from "../types/index.js";
@@ -22,7 +22,7 @@ export const DEFAULT_TRANSITION_CLAIM_TTL_MS = 60_000;
 type IssueAuthorizationInput = Omit<LocalExecutionAuthorization, "version" | "id" | "status" | "epoch" | "revokedAt" | "revocationReason">;
 
 export async function issueLocalExecutionAuthorization(
-  memory: ResolvedMemory,
+  memory: ProjectRunsPathPort,
   input: IssueAuthorizationInput,
 ): Promise<LocalExecutionAuthorization> {
   const id = deterministicAuthorizationId(input);
@@ -47,7 +47,7 @@ export async function issueLocalExecutionAuthorization(
 }
 
 export async function revokeLocalExecutionAuthorization(
-  memory: ResolvedMemory,
+  memory: ProjectRunsPathPort,
   authorizationId: string,
   reason: string,
   now = new Date(),
@@ -72,7 +72,7 @@ export async function revokeLocalExecutionAuthorization(
 }
 
 export async function appendLocalExecutionAuthorizationTargets(
-  memory: ResolvedMemory,
+  memory: ProjectRunsPathPort,
   authorizationId: string,
   expectedEpoch: number,
   snapshot: ExecutionAuthorizationSnapshot,
@@ -102,7 +102,7 @@ export async function appendLocalExecutionAuthorizationTargets(
 }
 
 export async function advanceLocalExecutionAuthorizationSource(
-  memory: ResolvedMemory,
+  memory: ProjectRunsPathPort,
   input: {
     authorizationId: string;
     expectedEpoch: number;
@@ -144,7 +144,7 @@ export async function advanceLocalExecutionAuthorizationSource(
 }
 
 export async function reactivateLocalExecutionAuthorizationAfterRollback(
-  memory: ResolvedMemory,
+  memory: ProjectRunsPathPort,
   authorizationId: string,
   expected: { epoch: number; reason: string },
 ): Promise<LocalExecutionAuthorization> {
@@ -186,7 +186,7 @@ export function deterministicTransitionOperationId(input: {
   }))}`;
 }
 
-export async function claimTransitionExecution(memory: ResolvedMemory, input: {
+export async function claimTransitionExecution(memory: ProjectRunsPathPort, input: {
   authorizationId: string;
   authorizationEpoch: number;
   transition: string;
@@ -235,7 +235,7 @@ export async function claimTransitionExecution(memory: ResolvedMemory, input: {
 }
 
 export async function markTransitionExecutionStarted(
-  memory: ResolvedMemory,
+  memory: ProjectRunsPathPort,
   operationId: string,
   claimToken: string,
   fencingToken: number,
@@ -255,7 +255,7 @@ export async function markTransitionExecutionStarted(
 }
 
 export async function heartbeatTransitionExecution(
-  memory: ResolvedMemory,
+  memory: ProjectRunsPathPort,
   operationId: string,
   claimToken: string,
   fencingToken: number,
@@ -280,7 +280,7 @@ export async function heartbeatTransitionExecution(
   return result;
 }
 
-export async function recordTransitionExecutionTerminal(memory: ResolvedMemory, input: {
+export async function recordTransitionExecutionTerminal(memory: ProjectRunsPathPort, input: {
   operationId: string;
   claimToken: string;
   fencingToken: number;
@@ -323,13 +323,13 @@ export async function recordTransitionExecutionTerminal(memory: ResolvedMemory, 
 }
 
 export async function recoverTransitionExecution(
-  memory: ResolvedMemory,
+  memory: ProjectRunsPathPort,
   operationId: string,
 ): Promise<TransitionExecution> {
   return readTransitionExecution(memory, operationId);
 }
 
-export async function assertTransitionExecutionCurrent(memory: ResolvedMemory, input: {
+export async function assertTransitionExecutionCurrent(memory: ProjectRunsPathPort, input: {
   operationId: string;
   authorizationId: string;
   authorizationEpoch: number;
@@ -357,7 +357,7 @@ export async function assertTransitionExecutionCurrent(memory: ResolvedMemory, i
   });
 }
 
-export async function reserveTransitionExecutionCommitPoint(memory: ResolvedMemory, input: {
+export async function reserveTransitionExecutionCommitPoint(memory: ProjectRunsPathPort, input: {
   operationId: string;
   authorizationId: string;
   authorizationEpoch: number;
@@ -387,7 +387,7 @@ export async function reserveTransitionExecutionCommitPoint(memory: ResolvedMemo
   return reserved;
 }
 
-export async function reconcileCommittedTransitionExecution(memory: ResolvedMemory, input: {
+export async function reconcileCommittedTransitionExecution(memory: ProjectRunsPathPort, input: {
   operationId: string;
   authorizationId: string;
   authorizationEpoch: number;

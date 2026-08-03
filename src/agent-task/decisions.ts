@@ -1,7 +1,7 @@
 import { appendFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import type { AgentTaskKind, ResolvedMemory } from "../types/index.js";
-import { agentTaskRoot } from "./paths.js";
+import type { AgentTaskKind } from "../types/index.js";
+import { agentTaskRoot, type AgentTaskPathPort } from "./paths.js";
 
 export interface MainAgentDecision {
   version: "1.0";
@@ -21,7 +21,7 @@ export interface MainAgentDecision {
   createdAt: string;
 }
 
-export async function recordMainAgentDecision(memory: ResolvedMemory, input: Omit<MainAgentDecision, "version" | "id" | "createdAt">): Promise<MainAgentDecision> {
+export async function recordMainAgentDecision(memory: AgentTaskPathPort, input: Omit<MainAgentDecision, "version" | "id" | "createdAt">): Promise<MainAgentDecision> {
   const decision: MainAgentDecision = {
     version: "1.0",
     id: `decision-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,

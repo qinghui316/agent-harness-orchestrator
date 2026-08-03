@@ -1,9 +1,10 @@
 import { shortHash } from "../fs/path.js";
-import type { ResolvedMemory, TaskRun, WorkerLease } from "../types/index.js";
+import type { ProjectRunsPathPort } from "../project-runtime/paths.js";
+import type { TaskRun, WorkerLease } from "../types/index.js";
 import type { TaskRunStartResult } from "./types.js";
 import { listWorkerLeases, writeTaskRun, writeWorkerLease } from "./repository.js";
 
-export async function createTaskRunWithLease(memory: ResolvedMemory, input: { projectId: string | null; changeId: string; taskId: string; roleId: string; attempt: number }): Promise<TaskRunStartResult> {
+export async function createTaskRunWithLease(memory: ProjectRunsPathPort, input: { projectId: string | null; changeId: string; taskId: string; roleId: string; attempt: number }): Promise<TaskRunStartResult> {
   const now = new Date().toISOString();
   const taskRunId = `taskrun-${now.replace(/[-:.TZ]/g, "").slice(0, 14)}-${input.taskId.toLowerCase()}-${shortHash(`${input.changeId}:${input.taskId}:${input.attempt}:${now}`)}`;
   const leaseId = `lease-${now.replace(/[-:.TZ]/g, "").slice(0, 14)}-${shortHash(taskRunId)}`;
@@ -42,7 +43,7 @@ export async function createTaskRunWithLease(memory: ResolvedMemory, input: { pr
   return { taskRun, lease };
 }
 
-export async function reclaimTaskRunWithLease(memory: ResolvedMemory, taskRun: TaskRun): Promise<TaskRunStartResult> {
+export async function reclaimTaskRunWithLease(memory: ProjectRunsPathPort, taskRun: TaskRun): Promise<TaskRunStartResult> {
   if (taskRun.status !== "interrupted") {
     throw new Error(`TaskRun ${taskRun.id} cannot resume from status ${taskRun.status}.`);
   }
@@ -77,7 +78,7 @@ export async function reclaimTaskRunWithLease(memory: ResolvedMemory, taskRun: T
   return { taskRun: resumed, lease };
 }
 
-export async function releaseTaskRunLease(memory: ResolvedMemory, taskRun: TaskRun, timestamp: string): Promise<void> {
+export async function releaseTaskRunLease(memory: ProjectRunsPathPort, taskRun: TaskRun, timestamp: string): Promise<void> {
   const leases = await listWorkerLeases(memory, taskRun.changeId);
   const lease = leases.find((item) => item.id === taskRun.leaseId);
   if (lease && lease.status === "claimed") {

@@ -2,12 +2,11 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { readRequiredJsonFile, writeJsonFile } from "../fs/json.js";
-import type { ResolvedMemory } from "../types/index.js";
 import { integrationCheckSchema } from "./schemas.js";
-import { integrationCheckRoot } from "./paths.js";
+import { integrationCheckRoot, type IntegrationCheckStorePort } from "./paths.js";
 import type { IntegrationCheckRecord } from "./types.js";
 
-export async function listIntegrationChecks(memory: ResolvedMemory): Promise<IntegrationCheckRecord[]> {
+export async function listIntegrationChecks(memory: IntegrationCheckStorePort): Promise<IntegrationCheckRecord[]> {
   const root = integrationCheckRoot(memory);
   if (!existsSync(root)) return [];
   const entries = await readdir(root, { withFileTypes: true });
@@ -21,11 +20,11 @@ export async function listIntegrationChecks(memory: ResolvedMemory): Promise<Int
   return checks.sort((a, b) => (b.finishedAt ?? b.createdAt).localeCompare(a.finishedAt ?? a.createdAt));
 }
 
-export async function readIntegrationCheck(memory: ResolvedMemory, id: string): Promise<IntegrationCheckRecord> {
+export async function readIntegrationCheck(memory: IntegrationCheckStorePort, id: string): Promise<IntegrationCheckRecord> {
   return readRequiredJsonFile<IntegrationCheckRecord>(join(integrationCheckRoot(memory), id, "integration-check.json"), integrationCheckSchema);
 }
 
-export async function writeCheckArtifacts(memory: ResolvedMemory, directory: string, check: IntegrationCheckRecord): Promise<void> {
+export async function writeCheckArtifacts(memory: IntegrationCheckStorePort, directory: string, check: IntegrationCheckRecord): Promise<void> {
   await mkdir(directory, { recursive: true });
   await writeJsonFile(join(directory, "integration-check.json"), check);
   await writeFile(join(directory, "summary.md"), renderCheckSummary(check), "utf8");
