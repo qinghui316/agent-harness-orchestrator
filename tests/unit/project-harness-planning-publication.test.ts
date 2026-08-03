@@ -13,6 +13,8 @@ import {
 } from "../../src/project-harness/planning-publication.js";
 import {
   listProjectHarnessChanges,
+  loadProjectHarnessContract,
+  preflightProjectHarnessChange,
 } from "../../src/project-harness/change.js";
 import {
   projectHarnessConversationLane,
@@ -62,6 +64,11 @@ describe("project Harness planning publication", () => {
       fixture.graphScopeId,
       fixture.graphScopeId,
     ]);
+    await expect(loadProjectHarnessContract(fixture.skillRoot, accepted.changeId)).resolves.toMatchObject({
+      change_id: accepted.changeId,
+      subject: "health-endpoint",
+      owner_module: "health-service",
+    });
   });
 
   it("keeps the executed Change active and publishes the revision on a new graph Lane", async () => {
@@ -114,6 +121,34 @@ describe("project Harness planning publication", () => {
     });
   });
 
+  it("keeps concurrent Conversations on distinct Change and graph Lane identities", async () => {
+    const fixture = await createFixture();
+    const commits = commitFixture();
+    const first = await publish(fixture, proposal("Return ok.", "proposal-a"), commits.ports);
+    const secondInput = {
+      ...proposal("Return healthy.", "proposal-b"),
+      conversationId: "conversation-b",
+      currentGraphScopeId: "graph:conversation-b:initial",
+    };
+    const second = await publish(fixture, secondInput, commits.ports);
+
+    expect(second.changeId).not.toBe(first.changeId);
+    await expect(readProjectHarnessLane(fixture.lane(fixture.graphScopeId))).resolves.toMatchObject({
+      active_change_id: first.changeId,
+      conversation_id: "conversation-a",
+      graph_scope_id: fixture.graphScopeId,
+    });
+    await expect(readProjectHarnessLane({
+      ...fixture.registry,
+      lane: projectHarnessConversationLane("conversation-b", secondInput.currentGraphScopeId),
+    })).resolves.toMatchObject({
+      active_change_id: second.changeId,
+      conversation_id: "conversation-b",
+      graph_scope_id: secondInput.currentGraphScopeId,
+    });
+    expect(new Set((await listProjectHarnessChanges(fixture.skillRoot)).map((change) => change.lane_id)).size).toBe(2);
+  });
+
   it("rejects a bound active Change from another graph Lane before execution branching", async () => {
     const fixture = await createFixture();
     const commits = commitFixture();
@@ -139,6 +174,70 @@ describe("project Harness planning publication", () => {
     expect(() => validatePlanningProposalArtifacts(input.proposal)).toThrow("'- AC-001: ...' form");
   });
 
+  it("rejects inconsistent structured Registry contract evidence before creating a Change", async () => {
+    const fixture = await createFixture();
+    const commits = commitFixture();
+    const cases = [
+      { required: true, contract: null },
+      { required: false, contract: proposal("Return ok.", "contract-source").proposal.registryContract.contract },
+    ];
+
+    for (const [index, registryContract] of cases.entries()) {
+      const input = proposal("Return ok.", `proposal-invalid-contract-${index}`);
+      input.proposal.registryContract = {
+        ...input.proposal.registryContract,
+        ...registryContract,
+      } as typeof input.proposal.registryContract;
+      await expect(publish(fixture, input, commits.ports))
+        .rejects.toThrow("must include a contract exactly when required is true");
+    }
+
+    expect(await listProjectHarnessChanges(fixture.skillRoot)).toEqual([]);
+    expect(await directories(join(fixture.skillRoot, "state", "changes", "active"))).toEqual([]);
+  });
+
+  it("rolls back a second graph publication when its structured Registry contract conflicts", async () => {
+    const fixture = await createFixture();
+    await mkdir(join(fixture.skillRoot, "state", "registry"), { recursive: true });
+    await writeFile(join(fixture.skillRoot, "state", "registry", "baseline.json"), `${JSON.stringify({
+      schema_version: "1.0",
+      canonical_branch: "main",
+      canonical_commit: fixture.registry.headCommit,
+      updated_at: "2026-08-03T00:00:00.000Z",
+    }, null, 2)}\n`, "utf8");
+    const commits = commitFixture();
+    const ports: ProjectHarnessPlanningPublicationPorts = {
+      executionEvidence: { hasEvidence: async (changeId) => fixture.executed.has(changeId) },
+      authorization: { captureSuperseded: async () => null, async revoke() {}, async restore() {} },
+      preflight: {
+        evaluate: (context, changeId) => preflightProjectHarnessChange(context, {
+          changeId,
+          sourceSnapshot: { fingerprintSources: async () => new Map() },
+        }),
+      },
+      commit: commits.ports,
+      createGraphScopeId: () => fixture.nextGraphScopeId,
+    };
+    const first = await acceptProjectHarnessPlanningPackage({
+      registry: fixture.registry,
+      sidecarRoot: fixture.sidecarRoot,
+    }, proposal("Return ok.", "proposal-a"), ports);
+    fixture.executed.add(first.changeId);
+
+    await expect(acceptProjectHarnessPlanningPackage({
+      registry: fixture.registry,
+      sidecarRoot: fixture.sidecarRoot,
+    }, proposal("Return healthy.", "proposal-b", first.changeId), ports))
+      .rejects.toThrow(/"type":"contract"/);
+
+    const changes = await listProjectHarnessChanges(fixture.skillRoot);
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.change_id).toBe(first.changeId);
+    expect(await loadProjectHarnessContract(fixture.skillRoot, first.changeId)).toMatchObject({
+      subject: "health-endpoint",
+    });
+  });
+
   it("restores Change, Lane, INDEX, and evidence when the Workbench commit fails", async () => {
     const fixture = await createFixture();
     const commits = commitFixture({ fail: true });
@@ -152,6 +251,7 @@ describe("project Harness planning publication", () => {
       .toMatchObject({ changes: [] });
     expect((await directories(join(fixture.skillRoot, "state", "changes", "active")))).toEqual([]);
     expect((await directories(join(fixture.skillRoot, "state", "changes", ".transactions")))).toEqual([]);
+    expect(await loadProjectHarnessContract(fixture.skillRoot, "health-endpoint")).toBeNull();
   });
 
   it("restores a superseded execution authorization when publication rolls back", async () => {
@@ -206,10 +306,27 @@ describe("project Harness planning publication", () => {
       createGraphScopeId: () => fixture.nextGraphScopeId,
     };
 
+    const revised = proposal("Return revised.", "proposal-b", accepted.changeId);
+    const revisedContract = {
+      ...revised.proposal.registryContract,
+      contract: {
+        ...revised.proposal.registryContract.contract!,
+        owner_module: "revised-health-service",
+      },
+    };
+    revised.proposal.registryContract = revisedContract;
+    revised.proposal.hash = createHash("sha256").update(JSON.stringify({
+      proposalId: revised.proposal.id,
+      specMd: revised.proposal.specMd,
+      planMd: revised.proposal.planMd,
+      tasksMd: revised.proposal.tasksMd,
+      registryContract: revisedContract,
+    })).digest("hex");
+
     await expect(acceptProjectHarnessPlanningPackage({
       registry: fixture.registry,
       sidecarRoot: fixture.sidecarRoot,
-    }, proposal("Return revised.", "proposal-b", accepted.changeId), ports))
+    }, revised, ports))
       .rejects.toThrow("injected Workbench failure");
 
     expect(events).toEqual([
@@ -219,6 +336,9 @@ describe("project Harness planning publication", () => {
     ]);
     expect(await readFile(join(fixture.active(accepted.changeId), "plan.md"), "utf8")).toContain("Return ok.");
     expect(await readProjectHarnessLane(fixture.lane(fixture.graphScopeId))).toEqual(originalLane);
+    expect(await loadProjectHarnessContract(fixture.skillRoot, accepted.changeId)).toMatchObject({
+      owner_module: "health-service",
+    });
   });
 
   it("recovers an uncommitted swapped journal before retrying the accepted proposal", async () => {
@@ -291,6 +411,7 @@ describe("Skill-native Workbench planning composition", () => {
       writeFile(join(proposalDirectory, "spec.md"), proposalInput.proposal.specMd, "utf8"),
       writeFile(join(proposalDirectory, "plan.md"), proposalInput.proposal.planMd, "utf8"),
       writeFile(join(proposalDirectory, "tasks.md"), proposalInput.proposal.tasksMd, "utf8"),
+      writeFile(join(proposalDirectory, "registry-contract.json"), `${JSON.stringify(proposalInput.proposal.registryContract, null, 2)}\n`, "utf8"),
     ]);
     const nativeProposal = await writePlannerChildProposal({
       directory: runDirectory,
@@ -541,7 +662,24 @@ function proposal(
     "",
   ].join("\n");
   const tasksMd = "# Tasks\n\n- [ ] T-001: Implement the health endpoint.\n  - Covers: AC-001\n";
-  const hash = createHash("sha256").update(JSON.stringify({ proposalId, specMd, planMd, tasksMd })).digest("hex");
+  const registryContract = {
+    version: "1.0" as const,
+    required: true,
+    contract: {
+      kind: "api" as const,
+      subject: "health-endpoint",
+      operation: "update-health-endpoint",
+      owner_module: "health-service",
+      affected_paths: ["src/health.ts", "tests/health.test.ts"],
+      consumers: ["health-client"],
+      depends_on: [],
+      depends_on_changes: [],
+      compatibility: "Existing health consumers remain supported.",
+      status: "active",
+    },
+    validation: ["Planning Agent verified the health boundary against current source."],
+  };
+  const hash = createHash("sha256").update(JSON.stringify({ proposalId, specMd, planMd, tasksMd, registryContract })).digest("hex");
   return {
     conversationId: "conversation-a",
     conversationTitle: "Health endpoint",
@@ -554,6 +692,7 @@ function proposal(
       specMd,
       planMd,
       tasksMd,
+      registryContract,
       runId: `run-${proposalId}`,
       childThreadId: `planner-${proposalId}`,
     },
@@ -587,7 +726,7 @@ async function writePlanningJournal(
   const root = join(fixture.sidecarRoot, "transactions", "planning");
   await mkdir(root, { recursive: true });
   await writeFile(join(root, `${input.id}.json`), `${JSON.stringify({
-    schema_version: "2.0",
+    schema_version: "3.0",
     id: input.id,
     phase: input.phase,
     project_id: fixture.registry.projectId,
@@ -604,6 +743,7 @@ async function writePlanningJournal(
     backup_path: input.backupPath,
     created_change: false,
     record_before: input.record,
+    contract_before: await loadProjectHarnessContract(fixture.skillRoot, input.changeId),
     lane_before: input.lane,
     scope: "Health endpoint",
     paths: ["src/health.ts", "tests/health.test.ts"],

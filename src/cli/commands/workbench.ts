@@ -43,7 +43,9 @@ export function installWorkbenchCommands(program: Command, context: CliContext):
       else {
         printTable([{
           project: snapshot.project && typeof snapshot.project === "object" && "id" in snapshot.project ? snapshot.project.id : "(unregistered)",
-          memory: snapshot.memory.memoryMode,
+          memory: "memoryMode" in snapshot.memory
+            ? snapshot.memory.memoryMode
+            : snapshot.memory.skillName,
           topics: snapshot.left.topics.length,
           selected: snapshot.center.selectedTopic?.id ?? "",
           approvals: snapshot.right.approvals.length,

@@ -9,7 +9,7 @@ import { agentThreadSurfaceId } from "../provider-runtime/agent-surface-id.js";
 import { writeJsonFile } from "../fs/json.js";
 import { getGitCommit, getGitStatusShort } from "../project/git.js";
 import { resolveWithinPhysicalRoot } from "../project-harness/path-safety.js";
-import { withProjectHarnessWriterLock } from "../project-harness/writer-lock.js";
+import { projectHarnessSharedWriterRoot, withProjectHarnessWriterLock } from "../project-harness/writer-lock.js";
 import { resolveProjectRuntimeState } from "../project-runtime/coordinator.js";
 import type { ProjectRuntimeResolution } from "../project-runtime/context.js";
 import { getSystemSkillsRoot } from "../template-source/paths.js";
@@ -91,7 +91,7 @@ async function runProjectScopedMainAgentTurnActivity(
   const resolution = runtimeState.resolution;
   const projectId = resolution.harness.projectId;
   const agentCatalog = readBundledAgentCatalog();
-  const graphScopeId = options.graphScopeId ?? await currentConversationGraphScope(resolution, conversationId);
+  let graphScopeId = options.graphScopeId ?? await currentConversationGraphScope(resolution, conversationId);
   const runId = buildProjectConversationRunId(conversationId);
   const directory = join(resolution.paths.workbenchRoot, "conversations", conversationId, "runs", runId);
   let mainTimelineId = `assistant:${conversationId}:pending:${runId}:main`;
@@ -165,7 +165,7 @@ async function runProjectScopedMainAgentTurnActivity(
     },
     "aho.proposal-workspace": {
       kind: "application",
-      value: JSON.stringify({ path: proposalDirectory, files: ["spec.md", "plan.md", "tasks.md", "notes.md"] }),
+      value: JSON.stringify({ path: proposalDirectory, files: ["spec.md", "plan.md", "tasks.md", "registry-contract.json", "notes.md"] }),
     },
     ...(planHandoff ? {
       "aho.plan-handoff": {
@@ -350,6 +350,7 @@ async function runProjectScopedMainAgentTurnActivity(
       conversationId,
       runId,
       mainAttemptId: attemptId,
+      expectedGraphScopeId: graphScopeId,
       mainStatus: "failed",
       mainNativeSessionId: nativeSessionId,
       childAttempts: childLifecycleOwner.terminalAttempts("failed"),
@@ -456,8 +457,16 @@ async function runProjectScopedMainAgentTurnActivity(
         return { contentItems: [{ type: "inputText", text: "AHO conversation tools do not accept caller-selected targets." }], success: false };
       }
       if (call.tool === "aho_accept_current_plan" && planHandoff?.kind === "execute-plan") {
+        await assertCurrentMainAttempt(resolution, conversationId, graphScopeId, attemptId);
         const acceptedProposal = await readPlannerChildProposal(planHandoff.sourceArtifact);
-        const accepted = await acceptCurrentConversationPlanningPackage(project, conversationId, planHandoff.sourceArtifact);
+        const accepted = await acceptCurrentConversationPlanningPackage(
+          project,
+          conversationId,
+          planHandoff.sourceArtifact,
+          { expectedMainAttemptId: attemptId },
+        );
+        graphScopeId = accepted.graphScopeId;
+        await assertCurrentMainAttempt(resolution, conversationId, graphScopeId, attemptId);
         canonicalDelivery?.publishCommittedMany(accepted.timelineRows);
         acceptedPlanning = accepted;
         boundChangeId = accepted.changeId;
@@ -654,7 +663,7 @@ async function runProjectScopedMainAgentTurnActivity(
     capture.sink.emit({ event: "error", data: { runId, message: postRunInvariantError.message } });
   }
   if (acceptedPlanning && !postRunInvariantError) {
-    await issueAcceptedPlanningAuthorization(project, resolution, conversationId, result, acceptedPlanning, planHandoff);
+    await issueAcceptedPlanningAuthorization(project, resolution, conversationId, attemptId, result, acceptedPlanning, planHandoff);
   }
   const rawParentText = capture.text.trim()
     || stripProjectScopedPromptEcho(result.lastMessage, userMessage).trim()
@@ -809,6 +818,7 @@ async function runProjectScopedMainAgentTurnActivity(
       conversationId,
       runId,
       mainAttemptId: attemptId,
+      expectedGraphScopeId: graphScopeId,
       mainStatus: result.status,
       mainNativeSessionId: result.session?.sessionId ?? null,
       childAttempts: childLifecycleOwner.terminalAttempts(result.status === "interrupted" ? "interrupted" : "failed"),
@@ -974,6 +984,7 @@ async function issueAcceptedPlanningAuthorization(
   project: ManagedProject,
   resolution: ProjectRuntimeResolution,
   conversationId: string,
+  attemptId: string,
   result: ProviderTurnResult,
   accepted: Awaited<ReturnType<typeof acceptCurrentConversationPlanningPackage>>,
   handoff: ValidatedPlanHandoffIntent | null | undefined,
@@ -1018,11 +1029,12 @@ async function issueAcceptedPlanningAuthorization(
     manifestHash: hashJson({ graphHash, changeId: accepted.changeId, kind: "finalize" }),
   });
   const now = new Date();
-  return withProjectHarnessWriterLock(resolution.paths.sidecarRoot, {
+  return withProjectHarnessWriterLock(projectHarnessSharedWriterRoot(resolution.paths.sidecarRoot), {
     projectId: resolution.harness.projectId,
     ownerId: `planning-authorization-${conversationId}`,
     operation: "change-publish",
   }, async () => {
+    await assertCurrentMainAttempt(resolution, conversationId, accepted.graphScopeId, attemptId, session.sessionId);
     const authorization = await issueLocalExecutionAuthorization(resolution.paths, {
     projectId: resolution.harness.projectId,
     changeId: accepted.changeId,
@@ -1078,6 +1090,35 @@ async function issueAcceptedPlanningAuthorization(
     }
     return authorization;
   });
+}
+
+async function assertCurrentMainAttempt(
+  resolution: ProjectRuntimeResolution,
+  conversationId: string,
+  graphScopeId: string,
+  attemptId: string,
+  expectedThreadId?: string,
+): Promise<void> {
+  const store = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
+  try {
+    const conversation = store.conversations.readConversation(resolution.harness.projectId, conversationId);
+    const attempt = store.providerAttempts.readProviderAttempt(resolution.harness.projectId, attemptId);
+    const thread = store.providerAttempts.listProviderThreads(resolution.harness.projectId, conversationId)
+      .find((candidate) => candidate.attemptId === attemptId && candidate.roleId === "main-agent");
+    if (!conversation
+      || conversation.currentGraphScopeId !== graphScopeId
+      || !attempt
+      || attempt.conversationId !== conversationId
+      || attempt.graphScopeId !== graphScopeId
+      || attempt.status !== "running"
+      || !thread
+      || thread.graphScopeId !== graphScopeId
+      || (expectedThreadId !== undefined && thread.providerThreadId !== expectedThreadId)) {
+      throw new Error("Main Agent callback no longer owns the current conversation graph.");
+    }
+  } finally {
+    store.close();
+  }
 }
 
 function hashJson(value: unknown): string {

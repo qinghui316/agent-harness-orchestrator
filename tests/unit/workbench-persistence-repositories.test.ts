@@ -94,6 +94,7 @@ describe("Workbench persistence owners", () => {
         conversationId: "conversation-1",
         runId: "run-1",
         mainAttemptId: "attempt-1",
+        expectedGraphScopeId: "graph-1",
         mainStatus: "completed",
         mainNativeSessionId: "thread-1",
         childAttempts: [],
@@ -171,13 +172,34 @@ describe("Workbench persistence owners", () => {
           providerUserInput: { requestKey: "request-key", runId: "run-1", status: "pending" },
         }),
       });
+      database.providerAttempts.createProviderAttempt(providerAttempt("attempt-main", "codex"));
+      database.providerAttempts.bindProviderAttemptThread(projectId, {
+        attemptId: "attempt-main",
+        threadId: "thread-main",
+        parentThreadId: null,
+        parentAgentSurfaceId: null,
+      }, now);
+      database.providerAttempts.createProviderAttempt({
+        ...providerAttempt("attempt-plan", "codex"),
+        roleId: "planning-agent",
+        operationProfile: "planning",
+      });
+      database.providerAttempts.bindProviderAttemptThread(projectId, {
+        attemptId: "attempt-plan",
+        threadId: "thread-plan",
+        parentThreadId: "thread-main",
+      }, now);
 
       const rows = database.unitOfWork.moveConversationRunToGraphScope(
         projectId,
         "conversation-1",
         "run-1",
-        "thread-plan",
-        "graph-2",
+        {
+          mainAttemptId: "attempt-main",
+          plannerThreadId: "thread-plan",
+          previousGraphScopeId: "graph-1",
+          graphScopeId: "graph-2",
+        },
         now,
       );
 
@@ -190,6 +212,81 @@ describe("Workbench persistence owners", () => {
       expect(JSON.parse(stored!.rawJson)).toMatchObject({
         graphScopeId: "graph-2",
         providerUserInput: { status: "superseded" },
+      });
+    } finally {
+      database.close();
+    }
+  });
+
+  it("rejects a terminal callback after the Conversation advances to another graph", async () => {
+    const database = await openWorkbenchDatabase(repoLocalMemory(root, projectId));
+    try {
+      database.conversations.createConversation(conversation("conversation-1"));
+      database.providerAttempts.createProviderAttempt({
+        projectId,
+        conversationId: "conversation-1",
+        attemptId: "attempt-graph-a",
+        graphScopeId: "graph-1",
+        changeId: null,
+        agentTaskId: null,
+        roleId: "main-agent",
+        operationProfile: "main",
+        providerId: "codex",
+        nativeSessionId: "thread-graph-a",
+        model: null,
+        capabilitySnapshot: { providerId: "codex", effectiveModel: null } as unknown as ProviderCapabilitySnapshot,
+        handoffHash: "handoff-graph-a",
+        deliveredThroughCompletedTurn: 0,
+        worktreeId: null,
+        status: "running",
+        createdAt: now,
+        updatedAt: now,
+      });
+      database.unitOfWork.startConversationGraphScope(
+        projectId,
+        "conversation-1",
+        "graph-2",
+        "2026-07-17T00:00:01.000Z",
+      );
+      const completedTurnSequence = database.conversations.readConversation(
+        projectId,
+        "conversation-1",
+      )?.completedTurnSequence;
+
+      expect(() => database.unitOfWork.commitProviderTurnTerminal({
+        projectId,
+        conversationId: "conversation-1",
+        runId: "run-graph-a",
+        mainAttemptId: "attempt-graph-a",
+        expectedGraphScopeId: "graph-1",
+        mainStatus: "completed",
+        mainNativeSessionId: "thread-graph-a",
+        childAttempts: [],
+        expectedCompletedTurnSequence: completedTurnSequence ?? 0,
+        advanceCompletedTurn: true,
+        binding: {
+          projectId,
+          conversationId: "conversation-1",
+          providerId: "codex",
+          nativeSessionId: "thread-graph-a",
+          preferredModel: null,
+          lastUsedAt: now,
+          bindingStatus: "ready",
+        },
+        updatedAt: "2026-07-17T00:00:02.000Z",
+        timelineMessages: [{
+          ...message("stale-terminal-row", "conversation-1"),
+          type: "assistant.message",
+          status: "completed",
+        }],
+      })).toThrow("Provider terminal callback no longer owns the current conversation graph");
+
+      expect(database.timeline.readMessage(projectId, "conversation-1", "stale-terminal-row")).toBeNull();
+      expect(database.providerAttempts.readProviderAttempt(projectId, "attempt-graph-a")?.status).toBe("running");
+      expect(database.providerAttempts.readConversationProviderBinding(projectId, "conversation-1", "codex")).toBeNull();
+      expect(database.conversations.readConversation(projectId, "conversation-1")).toMatchObject({
+        currentGraphScopeId: "graph-2",
+        completedTurnSequence,
       });
     } finally {
       database.close();
@@ -223,6 +320,50 @@ describe("Workbench persistence owners", () => {
         currentGraphScopeId: "graph-2",
       });
       expect(database.conversations.hasPlanningAcceptanceCommit("stale-acceptance")).toBe(false);
+    } finally {
+      database.close();
+    }
+  });
+
+  it("rejects a Planning commit after its expected Main attempt becomes terminal", async () => {
+    const database = await openWorkbenchDatabase(repoLocalMemory(root, projectId));
+    try {
+      database.conversations.createConversation(conversation("conversation-1"));
+      database.providerAttempts.createProviderAttempt({
+        projectId,
+        conversationId: "conversation-1",
+        attemptId: "stale-main-attempt",
+        graphScopeId: "graph-1",
+        changeId: null,
+        agentTaskId: null,
+        roleId: "main-agent",
+        operationProfile: "main",
+        providerId: "codex",
+        nativeSessionId: "thread-stale-main",
+        model: null,
+        capabilitySnapshot: { providerId: "codex", effectiveModel: null } as unknown as ProviderCapabilitySnapshot,
+        handoffHash: "handoff-stale-main",
+        deliveredThroughCompletedTurn: 0,
+        worktreeId: null,
+        status: "completed",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      expect(() => database.unitOfWork.acceptConversationChangeBinding(
+        projectId,
+        "conversation-1",
+        "stale-change",
+        "2026-07-17T00:00:02.000Z",
+        "stale-attempt-acceptance",
+        "proposal-hash",
+        undefined,
+        "graph-1",
+        "stale-main-attempt",
+      )).toThrow("Planning acceptance Main attempt no longer owns the current conversation graph");
+
+      expect(database.conversations.readConversation(projectId, "conversation-1")?.boundChangeId).toBeNull();
+      expect(database.conversations.hasPlanningAcceptanceCommit("stale-attempt-acceptance")).toBe(false);
     } finally {
       database.close();
     }

@@ -319,6 +319,7 @@ export interface ValidatedPlanHandoffIntent extends PlanHandoffIntent {
 export interface WorkbenchWorkflowActionRequest {
   actionType: WorkbenchWorkflowActionType;
   changeId?: string;
+  graphScopeId?: string;
   prompt?: string;
   feedback?: string;
   proposalId?: string;

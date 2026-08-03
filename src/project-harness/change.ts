@@ -169,7 +169,7 @@ export interface PublishProjectHarnessChangeInput {
   tags?: readonly string[];
   status?: "planning" | "active";
   validation?: readonly string[];
-  contract?: ProjectHarnessContractInput;
+  contract?: ProjectHarnessContractInput | null;
   now?: () => string;
 }
 
@@ -186,6 +186,27 @@ export type ProjectHarnessContractInput = Pick<
   | "compatibility"
   | "status"
 >;
+
+export function parseProjectHarnessContractInput(input: unknown): ProjectHarnessContractInput {
+  const parsed = contractRecordSchema.omit({
+    schema_version: true,
+    change_id: true,
+    updated_at: true,
+  }).strict().parse(input);
+  const normalized = validateContract("proposal-contract", parsed, new Date(0).toISOString());
+  return {
+    kind: normalized.kind,
+    subject: normalized.subject,
+    operation: normalized.operation,
+    owner_module: normalized.owner_module,
+    affected_paths: normalized.affected_paths,
+    consumers: normalized.consumers,
+    depends_on: normalized.depends_on,
+    depends_on_changes: normalized.depends_on_changes,
+    compatibility: normalized.compatibility,
+    status: normalized.status,
+  };
+}
 
 export interface PreflightProjectHarnessChangeInput {
   changeId: string;
@@ -329,7 +350,12 @@ export async function publishProjectHarnessChange(
   if (input.tags !== undefined) record.tags = sortedUnique(input.tags.map((tag) => canonicalProjectHarnessId(tag, "Tag")));
   if (input.status !== undefined) record.status = input.status;
   if (input.validation !== undefined) record.validation = [...input.validation];
-  if (input.contract) {
+  if (input.contract === null) {
+    const path = await contractRecordPath(context.skillRoot, record.change_id, false);
+    await rm(path, { force: true });
+    record.contract_required = false;
+    record.contract_path = null;
+  } else if (input.contract) {
     const contract = validateContract(record.change_id, input.contract, now());
     const path = await contractRecordPath(context.skillRoot, record.change_id, true);
     await writeJsonFile(path, contract);
@@ -648,6 +674,29 @@ export async function restoreMutableProjectHarnessChangeRecord(
   await writeProjectHarnessChange(context.skillRoot, changeRecordSchema.parse(snapshot));
   await ensureProjectHarnessLane(context, snapshot.change_id);
   await rebuildProjectHarnessChangeIndex(context.skillRoot);
+}
+
+export async function restoreProjectHarnessContract(
+  context: ProjectHarnessRegistryContext,
+  changeId: string,
+  claimToken: string,
+  snapshot: ProjectHarnessContractRecord | null,
+): Promise<void> {
+  const current = await loadProjectHarnessChange(context.skillRoot, changeId, true);
+  assertLaneOwner(context, current);
+  if (current.claim_token !== claimToken) {
+    throw new Error("Refusing to restore a Registry contract outside its original Change claim.");
+  }
+  assertMutableChange(current);
+  const path = await contractRecordPath(context.skillRoot, current.change_id, snapshot !== null);
+  if (snapshot === null) {
+    await rm(path, { force: true });
+    return;
+  }
+  if (snapshot.change_id !== current.change_id) {
+    throw new Error("Refusing to restore a Registry contract for another Change.");
+  }
+  await writeJsonFile(path, contractRecordSchema.parse(snapshot));
 }
 
 export async function listProjectHarnessChanges(skillRoot: string): Promise<ProjectHarnessChangeRecord[]> {

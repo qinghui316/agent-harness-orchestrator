@@ -37,6 +37,7 @@ export class WorkbenchUnitOfWork {
     conversationId: string;
     runId: string;
     mainAttemptId: string;
+    expectedGraphScopeId: string;
     mainStatus: StoredProviderAttempt["status"];
     mainNativeSessionId: string | null;
     childAttempts: Array<{
@@ -51,6 +52,12 @@ export class WorkbenchUnitOfWork {
     timelineMessages?: StoredTopicMessageWrite[];
   }): { timelineRows: StoredTopicMessage[]; interactionRows: StoredTopicMessage[]; completedTurnSequence: number } {
     return this.db.transaction(() => {
+      this.providerAttempts.assertCurrentRunningAttemptGraph(
+        input.projectId,
+        input.conversationId,
+        input.mainAttemptId,
+        input.expectedGraphScopeId,
+      );
       const timelineMessages = input.timelineMessages ?? [];
       if (new Set(timelineMessages.map((message) => message.id)).size !== timelineMessages.length) {
         throw new Error("Provider terminal commit requires one final mutation per canonical message.");
@@ -113,13 +120,32 @@ export class WorkbenchUnitOfWork {
     linkedAt: string,
     acceptanceId?: string,
     proposalHash?: string,
-    scopeTransition?: { graphScopeId: string; runId?: string; plannerThreadId?: string },
+    scopeTransition?: {
+      graphScopeId: string;
+      previousGraphScopeId: string;
+      runId?: string;
+      mainAttemptId: string;
+      plannerThreadId?: string;
+    },
     expectedCurrentGraphScopeId?: string,
+    expectedMainAttemptId?: string,
   ): StoredTopicMessage[] {
     return this.db.transaction(() => {
       const currentGraphScopeId = this.conversations.readConversation(projectId, conversationId)?.currentGraphScopeId;
       if (expectedCurrentGraphScopeId !== undefined && currentGraphScopeId !== expectedCurrentGraphScopeId) {
         throw new Error("Planning acceptance no longer matches the current conversation graph scope.");
+      }
+      if (expectedMainAttemptId !== undefined) {
+        if (!expectedCurrentGraphScopeId) {
+          throw new Error("Planning acceptance Main-attempt fencing requires the expected graph scope.");
+        }
+        this.providerAttempts.assertCurrentRunningAttemptGraph(
+          projectId,
+          conversationId,
+          expectedMainAttemptId,
+          expectedCurrentGraphScopeId,
+          "Planning acceptance Main attempt no longer owns the current conversation graph.",
+        );
       }
       let timelineRows: StoredTopicMessage[] = [];
       if (scopeTransition) {
@@ -130,8 +156,12 @@ export class WorkbenchUnitOfWork {
           projectId,
           conversationId,
           scopeTransition.runId,
-          scopeTransition.plannerThreadId,
-          scopeTransition.graphScopeId,
+          {
+            mainAttemptId: scopeTransition.mainAttemptId,
+            plannerThreadId: scopeTransition.plannerThreadId,
+            previousGraphScopeId: scopeTransition.previousGraphScopeId,
+            graphScopeId: scopeTransition.graphScopeId,
+          },
           linkedAt,
         );
       }
@@ -189,20 +219,23 @@ export class WorkbenchUnitOfWork {
     projectId: string,
     conversationId: string,
     runId: string,
-    plannerThreadId: string,
-    graphScopeId: string,
+    lineage: {
+      mainAttemptId: string;
+      plannerThreadId: string;
+      previousGraphScopeId: string;
+      graphScopeId: string;
+    },
     updatedAt: string,
   ): StoredTopicMessage[] {
     return this.db.transaction(() => {
-      const rows = this.startConversationGraphScope(projectId, conversationId, graphScopeId, updatedAt);
+      const rows = this.startConversationGraphScope(projectId, conversationId, lineage.graphScopeId, updatedAt);
       this.providerAttempts.moveConversationThreadsToGraphScope(
         projectId,
         conversationId,
-        plannerThreadId,
-        graphScopeId,
+        lineage,
         updatedAt,
       );
-      return [...rows, ...this.timeline.moveRunToGraphScope(projectId, conversationId, runId, graphScopeId)];
+      return [...rows, ...this.timeline.moveRunToGraphScope(projectId, conversationId, runId, lineage.graphScopeId)];
     })();
   }
 

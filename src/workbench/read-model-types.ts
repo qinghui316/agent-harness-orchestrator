@@ -61,6 +61,21 @@ export interface WorkbenchProjectInput {
   path: string;
 }
 
+export interface WorkbenchProjectHarnessStatus {
+  kind: "project-skill";
+  registered: true;
+  managed: true;
+  memoryAvailable: true;
+  harnessReady: true;
+  projectId: string;
+  skillName: string;
+  skillRevision: number;
+  contentFingerprint: string;
+  runtimeAvailable: true;
+}
+
+export type WorkbenchRuntimeStatus = MemoryStatus | WorkbenchProjectHarnessStatus;
+
 export interface WorkbenchTopicSummary {
   id: string;
   kind?: "conversation" | "change";
@@ -69,6 +84,7 @@ export interface WorkbenchTopicSummary {
   state: WorkbenchTopicState;
   path: string;
   boundChangeId?: string | null;
+  graphScopeId?: string;
   selectedProviderId?: string;
   createdAt?: string;
   updatedAt?: string;
@@ -256,6 +272,7 @@ export interface WorkbenchDecisionAction {
   enabled: boolean;
   requiresConfirmation: boolean;
   changeId?: string;
+  graphScopeId?: string;
   approvalId?: string;
   action?: WorkbenchApprovalAction;
   options?: {
@@ -364,6 +381,7 @@ export interface WorkbenchConfirmationQueueItem {
   projectId?: string | null;
   conversationId?: string;
   changeId?: string;
+  graphScopeId?: string;
   resultId?: string;
   runId?: string;
   worktreeId?: string;
@@ -902,10 +920,10 @@ export interface WorkbenchTopicDetail extends WorkbenchTopicSummary {
 
 export interface WorkbenchSnapshot {
   project: unknown;
-  memory: MemoryStatus;
+  memory: WorkbenchRuntimeStatus;
   left: {
     project: unknown;
-    memory: MemoryStatus;
+    memory: WorkbenchRuntimeStatus;
     topics: WorkbenchTopicSummary[];
     workpads: WorkbenchWorkpadSummary[];
     repo: {

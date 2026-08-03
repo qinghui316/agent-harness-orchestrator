@@ -6,8 +6,10 @@ import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import {
   type AcceptedPlanningPackage,
+  type PlanningRegistryContractEvidence,
   type PlanningAcceptanceCommitPort,
   type ValidatedPlanningPackageInput,
+  parsePlanningRegistryContractEvidence,
   validatePlanningProposalArtifacts,
 } from "../../project-harness/planning-publication.js";
 import { writeJsonFile } from "../../fs/json.js";
@@ -32,6 +34,7 @@ export interface AcceptedConversationPlanningPackage extends AcceptedPlanningPac
 export interface AcceptConversationPlanningPackageOptions {
   ahoHome?: string;
   discoveryPolicy?: ProjectHarnessDiscoveryPolicy;
+  expectedMainAttemptId?: string;
 }
 
 const plannerChildOutputSchema = z.object({
@@ -39,6 +42,8 @@ const plannerChildOutputSchema = z.object({
   specMd: z.string().default(""),
   planMd: z.string().default(""),
   tasksMd: z.string().default(""),
+  registryContract: z.unknown().transform((value): PlanningRegistryContractEvidence =>
+    parsePlanningRegistryContractEvidence(value)),
   openQuestions: z.array(z.string()).default([]),
   assumptions: z.array(z.string()).default([]),
   warnings: z.array(z.string()).default([]),
@@ -80,6 +85,7 @@ export async function readPlannerChildProposal(path: string): Promise<PlannerChi
     specMd: proposal.specMd,
     planMd: proposal.planMd,
     tasksMd: proposal.tasksMd,
+    registryContract: proposal.registryContract,
     openQuestions: proposal.openQuestions,
     assumptions: proposal.assumptions,
     warnings: proposal.warnings,
@@ -137,11 +143,22 @@ async function readPlannerProposalFiles(directory: string): Promise<z.infer<type
     return value;
   };
   const notesPath = join(directory, "notes.md");
+  const contractPath = join(directory, "registry-contract.json");
+  if (!existsSync(contractPath)) {
+    throw new Error("Planner child must write registry-contract.json in the run-scoped proposal directory.");
+  }
+  let registryContract: unknown;
+  try {
+    registryContract = JSON.parse(await readFile(contractPath, "utf8"));
+  } catch (error) {
+    throw new Error("Planner child registry-contract.json is not valid JSON.", { cause: error });
+  }
   const output = plannerChildOutputSchema.parse({
     status: "proposed",
     specMd: await required("spec.md"),
     planMd: await required("plan.md"),
     tasksMd: await required("tasks.md"),
+    registryContract,
     notesMd: existsSync(notesPath) ? await readFile(notesPath, "utf8") : "",
     openQuestions: [],
     assumptions: [],
@@ -207,7 +224,11 @@ async function acceptCurrentProjectHarnessPlanningPackage(
       conversationId,
       proposalArtifact,
     );
-    const commit = planningAcceptanceCommitPort(store, (rows) => { timelineRows = rows; });
+    const commit = planningAcceptanceCommitPort(
+      store,
+      (rows) => { timelineRows = rows; },
+      options.expectedMainAttemptId,
+    );
     const result = await publishProjectRuntimePlanningPackage(
       resolution,
       input,
@@ -223,14 +244,20 @@ async function acceptCurrentProjectHarnessPlanningPackage(
 function planningAcceptanceCommitPort(
   store: WorkbenchDatabase,
   onTimelineRows: (rows: StoredTopicMessage[]) => void,
+  expectedMainAttemptId?: string,
 ): PlanningAcceptanceCommitPort {
   return {
     hasCommit: (transactionId) => store.conversations.hasPlanningAcceptanceCommit(transactionId),
     commit: (commit) => {
+      if (commit.graphScopeId !== commit.previousGraphScopeId && !expectedMainAttemptId) {
+        throw new Error("A superseding planning acceptance requires the exact accepting Main attempt.");
+      }
       const scopeTransition = commit.graphScopeId !== commit.previousGraphScopeId
         ? {
             graphScopeId: commit.graphScopeId,
+            previousGraphScopeId: commit.previousGraphScopeId,
             runId: commit.proposalRunId,
+            mainAttemptId: expectedMainAttemptId!,
             plannerThreadId: commit.plannerThreadId,
           }
         : undefined;
@@ -243,6 +270,7 @@ function planningAcceptanceCommitPort(
         commit.proposalHash,
         scopeTransition,
         commit.previousGraphScopeId,
+        expectedMainAttemptId,
       ));
       if (scopeTransition) publishAgentSurfacesInvalidated(commit.projectId, {
         conversationId: commit.conversationId,
@@ -313,6 +341,7 @@ async function validateCurrentConversationPlanningPackage(
         specMd: proposal.specMd,
         planMd: proposal.planMd,
         tasksMd: proposal.tasksMd,
+        registryContract: proposal.registryContract,
         runId: proposal.runId,
         childThreadId: proposal.childThreadId,
       },

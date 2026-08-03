@@ -13,7 +13,7 @@ const appServerAnswer = vi.hoisted(() => vi.fn());
 const getActiveAppServerTurn = vi.hoisted(() => vi.fn());
 const projectHarnessAgentInput = vi.hoisted(() => ({
   identity: { projectId: "repo", skillName: "repo-harness", skillRevision: 27, contentFingerprint: "a".repeat(64) },
-  providerSkillInput: { id: "repo-harness", path: "C:/skills/repo-harness/SKILL.md", contentHash: "b".repeat(64), source: "project-harness" as const, required: true },
+  providerSkillInput: { id: "repo-harness", path: "", contentHash: "b".repeat(64), source: "project-harness" as const, required: true },
 }));
 
 vi.mock("../../src/project-harness/agent-input.js", async (importOriginal) => ({
@@ -53,7 +53,7 @@ vi.mock("../../src/codex/native-skills.js", async (importOriginal) => ({
     skills: [{
       name: "repo-harness",
       description: "Test project Harness.",
-      path: "C:/skills/repo-harness/SKILL.md",
+      path: join(root, ".agents", "skills", "repo-harness", "SKILL.md"),
       scope: "repo",
       enabled: true,
       contentHash: "b".repeat(64),
@@ -62,9 +62,16 @@ vi.mock("../../src/codex/native-skills.js", async (importOriginal) => ({
   })),
 }));
 
-import { initHarness } from "../../src/harness/init.js";
 import { normalizeCodexAppServerNotification } from "../../src/codex/app-server-realtime.js";
-import { resolveProjectMemory } from "../../src/memory/resolver.js";
+import {
+  createProjectHarnessChange,
+  rollbackUncommittedProjectHarnessChange,
+} from "../../src/project-harness/change.js";
+import {
+  projectHarnessConversationLane,
+  resolveProjectHarnessRegistryContext,
+} from "../../src/project-harness/registry.js";
+import { resolveProjectRuntimePaths, type ProjectRuntimePaths } from "../../src/project-runtime/paths.js";
 import { defaultProviderRegistry } from "../../src/provider-runtime/index.js";
 import { agentThreadSurfaceId } from "../../src/provider-runtime/agent-surface-id.js";
 import { git } from "../../src/project/git.js";
@@ -75,15 +82,18 @@ import { runProjectScopedMainAgentTurn } from "../../src/workbench/main-agent-tu
 import { resumeNativeGoalAfterAction, runWorkbenchWorkflowAction } from "../../src/workbench/workflow-conversation-bridge.js";
 import { buildConversationInteractionQueue } from "../../src/workbench/conversation-interactions.js";
 import { getWorkbenchSnapshot } from "../../src/workbench/projections/read-model/implementation.js";
+import { listWorkflowRuns, writeWorkflowRun } from "../../src/workflow-run/manager.js";
 import { getCanonicalTimelinePage } from "../../src/workbench/canonical-timeline-query.js";
 import { getAgentSurfaceProjection } from "../../src/workbench/agent-surface-projection.js";
-import { readLatestWorkflowGraphPlan } from "../../src/workflow-artifacts/manager.js";
-import { openWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
+import { readLatestWorkflowGraphPlanAt } from "../../src/workflow-artifacts/manager.js";
+import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import { planDocumentContentHash } from "../../src/workbench/plan-documents.js";
-import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
+import { createReadyProjectHarnessFixture } from "../helpers/project-harness-fixture.js";
 
 let root: string;
 let originalAhoHome: string | undefined;
+let runtimePaths: ProjectRuntimePaths;
+let skillRoot: string;
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "aho-provider-planning-"));
@@ -114,7 +124,16 @@ beforeEach(async () => {
   await writeFile(join(root, "package.json"), "{\"name\":\"provider-planning-fixture\"}\n", "utf8");
   await git(root, ["add", "package.json"]);
   await git(root, ["commit", "-m", "fixture baseline"]);
-  await initHarness(project());
+  const fixture = await createReadyProjectHarnessFixture({
+    projectRoot: root,
+    ahoHome: process.env.AHO_HOME,
+    projectId: project().id,
+    projectName: project().name,
+  });
+  runtimePaths = resolveProjectRuntimePaths(fixture.project.id, fixture.ahoHome);
+  skillRoot = fixture.skillRoot;
+  projectHarnessAgentInput.identity.skillRevision = 1;
+  projectHarnessAgentInput.providerSkillInput.path = join(skillRoot, "SKILL.md");
 });
 
 afterEach(async () => {
@@ -124,13 +143,48 @@ afterEach(async () => {
 });
 
 describe("Workbench provider planning flow", () => {
+  it("does not fall back to a legacy gate when a bound Skill-native Conversation loses its graph", async () => {
+    const conversation = await createWorkbenchConversation(project(), {
+      body: "Prepare a plan.",
+    }, undefined, { runMainAgent: false });
+    const store = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
+    try {
+      const graphScopeId = store.conversations.readConversation(
+        project().id,
+        conversation.conversationId,
+      )?.currentGraphScopeId;
+      if (!graphScopeId) throw new Error("Fixture Conversation has no graph scope.");
+      store.conversations.linkConversationChange(
+        project().id,
+        conversation.conversationId,
+        "bound-stale-change",
+        "2026-08-03T00:00:00.000Z",
+      );
+      store.unitOfWork.terminalizeConversationGraphScope(
+        project().id,
+        conversation.conversationId,
+        graphScopeId,
+        "2026-08-03T00:00:01.000Z",
+      );
+    } finally {
+      store.close();
+    }
+
+    const snapshot = await getWorkbenchSnapshot(
+      { project: project(), path: root },
+      { topicId: conversation.conversationId },
+    );
+    expect(snapshot.memory).toMatchObject({ kind: "project-skill", projectId: project().id });
+    expect(snapshot.right.confirmationQueue.current).toEqual([]);
+    expect(snapshot.warnings.length).toBeGreaterThan(0);
+  });
+
   it("routes exact Child feedback through the dedicated continuation capability and Child Timeline only", async () => {
     const conversation = await createWorkbenchConversation(project(), { body: "Prepare a plan." }, undefined, { runMainAgent: false });
-    const memory = await resolveProjectMemory(project());
     const planningRunId = "planning-feedback-source";
-    const proposalRoot = join(memory.workbenchRoot, "conversations", conversation.conversationId, "runs", planningRunId, "planner-proposal");
+    const proposalRoot = join(runtimePaths.workbenchRoot, "conversations", conversation.conversationId, "runs", planningRunId, "planner-proposal");
     await mkdir(proposalRoot, { recursive: true });
-    const store = await openWorkbenchDatabase(memory);
+    const store = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
     const graphScopeId = store.conversations.readConversation(project().id, conversation.conversationId)!.currentGraphScopeId!;
     try {
       bindProviderThreadFixture(store, {
@@ -155,7 +209,7 @@ describe("Workbench provider planning flow", () => {
       expect(options.sandboxPolicy).toBe("workspace-write");
       expect(options.writableRoots).toEqual([proposalRoot]);
       expect(options.skillInputs).toEqual([
-        expect.objectContaining({ name: "repo-harness", path: "C:/skills/repo-harness/SKILL.md" }),
+        expect.objectContaining({ name: "repo-harness", path: join(skillRoot, "SKILL.md") }),
         expect.objectContaining({ name: "aho-workflow-authoring", path: expect.stringContaining("aho-workflow-authoring") }),
       ]);
       expect(options.requiredNativeSkills).toEqual(["repo-harness", "aho-workflow-authoring"]);
@@ -195,8 +249,7 @@ describe("Workbench provider planning flow", () => {
 
   it("fails closed when the Planning Agent proposal workspace can no longer be proven", async () => {
     const conversation = await createWorkbenchConversation(project(), { body: "Prepare a plan." }, undefined, { runMainAgent: false });
-    const memory = await resolveProjectMemory(project());
-    const store = await openWorkbenchDatabase(memory);
+    const store = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
     const graphScopeId = store.conversations.readConversation(project().id, conversation.conversationId)!.currentGraphScopeId!;
     try {
       bindProviderThreadFixture(store, {
@@ -226,8 +279,7 @@ describe("Workbench provider planning flow", () => {
     const conversation = await createWorkbenchConversation(project(), {
       body: "Create a planning Agent.",
     }, undefined, { runMainAgent: false });
-    const memory = await resolveProjectMemory(project());
-    const store = await openWorkbenchDatabase(memory);
+    const store = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
     const graphScopeId = store.conversations.readConversation(project().id, conversation.conversationId)!.currentGraphScopeId!;
     try {
       bindProviderThreadFixture(store, {
@@ -303,7 +355,7 @@ describe("Workbench provider planning flow", () => {
     expect((await getAgentSurfaceProjection({ project: project(), path: root }, conversation.conversationId)).surfaces).toEqual(expect.arrayContaining([
       expect.objectContaining({ agentSurfaceId: childSurfaceId, status: "terminated", readOnly: true }),
     ]));
-    const verified = await openWorkbenchDatabase(memory);
+    const verified = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
     try {
       expect(verified.providerAttempts.listProviderAttempts(project().id, conversation.conversationId)).toEqual(expect.arrayContaining([
         expect.objectContaining({ roleId: "planning-agent", nativeSessionId: "thread-child-close", status: "terminated" }),
@@ -323,8 +375,7 @@ describe("Workbench provider planning flow", () => {
     await expect(postConversationMessage(project(), conversation.conversationId, {
       mode: "chat", message: "No.", agentSurfaceId: "agent:codex:thread:missing",
     })).rejects.toThrow("stale or does not belong");
-    const memory = await resolveProjectMemory(project());
-    const store = await openWorkbenchDatabase(memory);
+    const store = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
     const graphScopeId = store.conversations.readConversation(project().id, conversation.conversationId)!.currentGraphScopeId!;
     let runningSurfaceId = "";
     try {
@@ -367,8 +418,7 @@ describe("Workbench provider planning flow", () => {
     const conversation = await createWorkbenchConversation(project(), {
       body: "Prepare a plan.",
     }, undefined, { runMainAgent: false });
-    const memory = await resolveProjectMemory(project());
-    const store = await openWorkbenchDatabase(memory);
+    const store = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
     const graphScopeId = store.conversations.readConversation(project().id, conversation.conversationId)!.currentGraphScopeId!;
     try {
       bindProviderThreadFixture(store, {
@@ -400,9 +450,8 @@ describe("Workbench provider planning flow", () => {
     const conversation = await createWorkbenchConversation(project(), {
       body: "Continue later.",
     }, undefined, { runMainAgent: false });
-    const memory = await resolveProjectMemory(project());
     const capabilitySnapshot = await defaultProviderRegistry.get("codex").capabilitySnapshot(project(), root);
-    const store = await openWorkbenchDatabase(memory);
+    const store = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
     const stored = store.conversations.readConversation(project().id, conversation.conversationId)!;
     const baseAttempt = {
       projectId: project().id,
@@ -441,7 +490,7 @@ describe("Workbench provider planning flow", () => {
 
     await postConversationMessage(project(), conversation.conversationId, { mode: "chat", message: "继续。" });
 
-    const verified = await openWorkbenchDatabase(memory);
+    const verified = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
     try {
       expect(verified.providerAttempts.listProviderAttempts(project().id, conversation.conversationId)).toEqual(expect.arrayContaining([
         expect.objectContaining({ attemptId: "attempt-resume-old", status: "interrupted" }),
@@ -477,8 +526,7 @@ describe("Workbench provider planning flow", () => {
       message: "请让 Plan Agent 编写计划。",
     })).rejects.toThrow("provider disconnected");
 
-    const memory = await resolveProjectMemory(project());
-    const store = await openWorkbenchDatabase(memory);
+    const store = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
     try {
       const attempts = store.providerAttempts.listProviderAttempts(project().id, conversation.conversationId);
       expect(attempts).toEqual(expect.arrayContaining([
@@ -547,11 +595,10 @@ describe("Workbench provider planning flow", () => {
       disposition: "skipped",
       skippedQuestionIds: ["choice"],
     });
-    const memory = await resolveProjectMemory(project());
-    const store = await openWorkbenchDatabase(memory);
+    const store = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
     const graphScopeId = store.conversations.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? "";
     store.close();
-    expect((await buildConversationInteractionQueue(memory, conversation.conversationId, graphScopeId)).items).toEqual([]);
+    expect((await buildConversationInteractionQueue(runtimePaths, conversation.conversationId, graphScopeId)).items).toEqual([]);
   });
 
   it("projects a child provider question onto its exact canonical surface", async () => {
@@ -572,7 +619,12 @@ describe("Workbench provider planning flow", () => {
 
       const childSurfaceId = agentThreadSurfaceId("codex", "thread-child-question");
       await vi.waitFor(async () => {
-        const page = await getCanonicalTimelinePage(project(), conversation.conversationId, childSurfaceId, { limit: 100 });
+        const page = await getCanonicalTimelinePage(
+          { project: project(), path: root },
+          conversation.conversationId,
+          childSurfaceId,
+          { limit: 100 },
+        );
         expect(page.entries).toEqual([
           expect.objectContaining({
             agentSurfaceId: childSurfaceId,
@@ -580,11 +632,10 @@ describe("Workbench provider planning flow", () => {
           }),
         ]);
       });
-      const memory = await resolveProjectMemory(project());
-      const store = await openWorkbenchDatabase(memory);
+      const store = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
       const graphScopeId = store.conversations.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? "";
       store.close();
-      expect((await buildConversationInteractionQueue(memory, conversation.conversationId, graphScopeId)).items).toEqual([
+      expect((await buildConversationInteractionQueue(runtimePaths, conversation.conversationId, graphScopeId)).items).toEqual([
         expect.objectContaining({ kind: "provider-input", status: "pending" }),
       ]);
 
@@ -607,8 +658,7 @@ describe("Workbench provider planning flow", () => {
     const conversation = await createWorkbenchConversation(project(), {
       body: "Start a simple demand.",
     }, undefined, { runMainAgent: false });
-    const memory = await resolveProjectMemory(project());
-    const initialStore = await openWorkbenchDatabase(memory);
+    const initialStore = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
     const initialScope = initialStore.conversations.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId;
     initialStore.close();
     appServerTurn.mockResolvedValue({
@@ -622,7 +672,7 @@ describe("Workbench provider planning flow", () => {
     await postConversationMessage(project(), conversation.conversationId, "补充第一个细节。");
     await postConversationMessage(project(), conversation.conversationId, "再补充第二个细节。");
 
-    const finalStore = await openWorkbenchDatabase(memory);
+    const finalStore = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
     try {
       expect(finalStore.conversations.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId).toBe(initialScope);
       expect(finalStore.timeline.listConversationMessages(project().id, conversation.conversationId)
@@ -637,8 +687,7 @@ describe("Workbench provider planning flow", () => {
     const conversation = await createWorkbenchConversation(project(), {
       body: "Create a simple page.",
     }, undefined, { runMainAgent: false });
-    const memory = await resolveProjectMemory(project());
-    const initialStore = await openWorkbenchDatabase(memory);
+    const initialStore = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
     const initialScope = initialStore.conversations.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId;
     initialStore.close();
     appServerTurn
@@ -662,7 +711,7 @@ describe("Workbench provider planning flow", () => {
     await postConversationMessage(project(), conversation.conversationId, "完成这个简单需求。");
     await postConversationMessage(project(), conversation.conversationId, "这是一个新的顶层需求。");
 
-    const finalStore = await openWorkbenchDatabase(memory);
+    const finalStore = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
     try {
       expect(finalStore.conversations.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId).not.toBe(initialScope);
     } finally {
@@ -671,7 +720,7 @@ describe("Workbench provider planning flow", () => {
   });
 
   it("does not mark a proposal accepted when Main declines the acceptance tool", async () => {
-    const topic = await createConversationChangeFixture(project(), { title: "Declined plan", body: "Plan this work." });
+    const topic = await createSkillNativeConversationChange("declined-plan", "Declined plan", "Plan this work.");
     const sourceCanonicalItemId = "prose:codex:attempt-declined:thread-plan:turn-plan:item-plan";
     const planText = "# Plan\n\nA proposal that Main still needs to inspect.";
     const document = {
@@ -741,11 +790,10 @@ describe("Workbench provider planning flow", () => {
     const conversation = await createWorkbenchConversation(project(), {
       body: "Create the initial demand scope.",
     }, undefined, { runMainAgent: false });
-    const memory = await resolveProjectMemory(project());
     const changeId = "scope-lifecycle-change";
-    await mkdir(join(memory.changesRoot, "active", changeId), { recursive: true });
+    const changeClaim = await bindSkillNativeChange(conversation.conversationId, changeId);
 
-    const store = await openWorkbenchDatabase(memory);
+    const store = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
     let initialScope: string;
     try {
       initialScope = store.conversations.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? "";
@@ -796,7 +844,7 @@ describe("Workbench provider planning flow", () => {
       });
 
     await postConversationMessage(project(), conversation.conversationId, "继续当前 Change 的同一项工作。");
-    const sameChangeStore = await openWorkbenchDatabase(memory);
+    const sameChangeStore = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
     try {
       expect(sameChangeStore.conversations.readConversation(project().id, conversation.conversationId)).toMatchObject({
         boundChangeId: changeId,
@@ -806,9 +854,13 @@ describe("Workbench provider planning flow", () => {
       sameChangeStore.close();
     }
 
-    await rm(join(memory.changesRoot, "active", changeId), { recursive: true, force: true });
+    await rollbackUncommittedProjectHarnessChange(
+      changeClaim.context,
+      changeId,
+      changeClaim.claimToken,
+    );
     await postConversationMessage(project(), conversation.conversationId, "这是下一个独立的顶层需求。");
-    const nextDemandStore = await openWorkbenchDatabase(memory);
+    const nextDemandStore = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
     try {
       const next = nextDemandStore.conversations.readConversation(project().id, conversation.conversationId);
       expect(next?.boundChangeId).toBeNull();
@@ -830,6 +882,8 @@ describe("Workbench provider planning flow", () => {
       rm(join(root, "harness"), { recursive: true, force: true }),
       rm(join(root, "scripts"), { recursive: true, force: true }),
       rm(join(root, ".agent-harness"), { recursive: true, force: true }),
+      rm(join(root, ".claude", "skills", "repo-harness"), { recursive: true, force: true }),
+      rm(join(root, ".agents", "skills", "repo-harness"), { recursive: true, force: true }),
     ]);
     appServerTurn.mockImplementationOnce(async (options) => {
       expect(options.prompt).toBe("请先判断这个空项目需要哪些说明文件。不要假设固定模板。");
@@ -868,22 +922,19 @@ describe("Workbench provider planning flow", () => {
     expect(conversation.state).toBe("active");
   });
 
-  it("keeps loading the native Harness Skill while a repo-local Harness is partial", async () => {
+  it("ignores a partial legacy repo-local Harness while loading the native Harness Skill", async () => {
     await Promise.all([
       rm(join(root, "AGENTS.md"), { force: true }),
       rm(join(root, "docs"), { recursive: true, force: true }),
-      rm(join(root, "harness"), { recursive: true, force: true }),
       rm(join(root, "scripts"), { recursive: true, force: true }),
     ]);
+    await mkdir(join(root, "harness"), { recursive: true });
+    await writeFile(join(root, "harness", "partial.txt"), "legacy partial content without a marker\n", "utf8");
     appServerTurn.mockImplementationOnce(async (options) => {
-      expect(options.requiredNativeSkills).toEqual([
-        "aho-main-orchestration",
-        "aho-harness-engineering",
-      ]);
+      expect(options.requiredNativeSkills).toEqual(["aho-main-orchestration"]);
       expect(options.skillInputs).toEqual([
         expect.objectContaining({ name: "repo-harness" }),
         expect.objectContaining({ name: "aho-main-orchestration" }),
-        expect.objectContaining({ name: "aho-harness-engineering" }),
       ]);
       return {
         status: "completed",
@@ -902,9 +953,12 @@ describe("Workbench provider planning flow", () => {
   });
 
   it("resumes the bound native Goal from committed post-apply evidence", async () => {
-    const conversation = await createConversationChangeFixture(project(), { title: "Post apply continuity", body: "Apply and finalize." });
-    const memory = await resolveProjectMemory(project());
-    const store = await openWorkbenchDatabase(memory);
+    const conversation = await createSkillNativeConversationChange(
+      "post-apply-continuity",
+      "Post apply continuity",
+      "Apply and finalize.",
+    );
+    const store = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
     const changeId = conversation.changeId;
     const graphScopeId = store.conversations.readConversation(project().id, conversation.conversationId)?.currentGraphScopeId ?? null;
     bindProviderThreadFixture(store, {
@@ -965,6 +1019,7 @@ describe("Workbench provider planning flow", () => {
             join(options.writableRoots?.[0] ?? "", "spec.md"),
             join(options.writableRoots?.[0] ?? "", "plan.md"),
             join(options.writableRoots?.[0] ?? "", "tasks.md"),
+            join(options.writableRoots?.[0] ?? "", "registry-contract.json"),
           ],
           snapshot: {},
         }],
@@ -977,8 +1032,7 @@ describe("Workbench provider planning flow", () => {
     await expect(creation).rejects.toThrow("requires a native Goal");
 
     await creation.catch(() => undefined);
-    const memory = await resolveProjectMemory(project());
-    const store = await openWorkbenchDatabase(memory);
+    const store = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
     let conversationId = "";
     try {
       const conversations = store.conversations.listConversations(project().id);
@@ -1025,6 +1079,7 @@ describe("Workbench provider planning flow", () => {
             join(options.writableRoots?.[0] ?? "", "spec.md"),
             join(options.writableRoots?.[0] ?? "", "plan.md"),
             join(options.writableRoots?.[0] ?? "", "tasks.md"),
+            join(options.writableRoots?.[0] ?? "", "registry-contract.json"),
           ],
           snapshot: {},
         }],
@@ -1059,7 +1114,7 @@ describe("Workbench provider planning flow", () => {
     appServerTurn
       .mockImplementationOnce(async (options) => {
         expect(options.skillInputs).toEqual([
-          expect.objectContaining({ name: "repo-harness", path: "C:/skills/repo-harness/SKILL.md" }),
+          expect.objectContaining({ name: "repo-harness", path: join(skillRoot, "SKILL.md") }),
           expect.objectContaining({ name: "aho-main-orchestration", path: expect.stringContaining("aho-main-orchestration") }),
         ]);
         expect(options.nativeSkillRoots).toEqual([expect.stringContaining("system-skills")]);
@@ -1128,7 +1183,6 @@ describe("Workbench provider planning flow", () => {
         expect(liveChildProcess[0]?.blocks?.map((block) => block.kind)).toEqual(expect.arrayContaining([
           "reasoning-summary", "command", "file-change", "prose",
         ]));
-        const liveMemory = await resolveProjectMemory(project());
         options.onChildThreadResult?.({
           itemId: "item-spawn-planner",
           parentThreadId: "thread-main",
@@ -1151,7 +1205,7 @@ describe("Workbench provider planning flow", () => {
           changedFiles: [],
           snapshot: {},
         });
-        const liveStore = await openWorkbenchDatabase(liveMemory);
+        const liveStore = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
         try {
           expect(liveStore.providerAttempts.listProviderAttempts(project().id, options.conversationId ?? "")).toEqual(expect.arrayContaining([
             expect.objectContaining({ roleId: "planning-agent", operationProfile: "planning", nativeSessionId: "thread-planner", status: "completed" }),
@@ -1164,7 +1218,8 @@ describe("Workbench provider planning flow", () => {
           expect.objectContaining({ agentSurfaceId: agentThreadSurfaceId("codex", "thread-planner"), status: "completed" }),
         ]));
         expect(options.dynamicTools).toEqual(expect.arrayContaining([
-          expect.objectContaining({ name: "aho_finalize_current_change", inputSchema: expect.objectContaining({ additionalProperties: false }) }),
+          expect.objectContaining({ name: "aho_goal_yield", inputSchema: expect.objectContaining({ additionalProperties: false }) }),
+          expect.objectContaining({ name: "aho_accept_current_plan", inputSchema: expect.objectContaining({ additionalProperties: false }) }),
           expect.objectContaining({
             name: "aho_close_agent",
             inputSchema: expect.objectContaining({
@@ -1193,6 +1248,7 @@ describe("Workbench provider planning flow", () => {
               `${options.writableRoots[0]}/spec.md`,
               `${options.writableRoots[0]}/plan.md`,
               `${options.writableRoots[0]}/tasks.md`,
+              `${options.writableRoots[0]}/registry-contract.json`,
             ],
             snapshot: {},
           }],
@@ -1253,8 +1309,11 @@ describe("Workbench provider planning flow", () => {
     expect(plan).toMatchObject({ runId: expect.any(String), agentRoleId: "planning-agent" });
     expect(plan?.graphScopeId).toBeTruthy();
     expect(plan?.document).toMatchObject({ proposalHash: expect.stringMatching(/^[a-f0-9]{64}$/), sourceCanonicalItemId: expect.stringContaining(":message-1") });
-    const proposalSnapshot = await getWorkbenchSnapshot({ project: project(), path: root }, { topicId: conversation.conversationId });
-    expect(proposalSnapshot.center.conversationInteractions.items).toEqual([
+    expect((await buildConversationInteractionQueue(
+      runtimePaths,
+      conversation.conversationId,
+      plan?.graphScopeId,
+    )).items).toEqual([
       expect.objectContaining({ kind: "plan", graphScopeId: plan?.graphScopeId }),
     ]);
     const plannerSurfaces = await getAgentSurfaceProjection({ project: project(), path: root }, conversation.conversationId);
@@ -1309,13 +1368,14 @@ describe("Workbench provider planning flow", () => {
       .filter((message) => message.agentRoleId === "planning-agent")
       .at(-1)).toMatchObject({ status: "accepted", artifact: undefined, threadId: "thread-planner" });
 
-    const memory = await resolveProjectMemory(project());
-    const store = await openWorkbenchDatabase(memory);
+    const store = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
     let changeId: string;
+    let currentGraphScopeId: string;
     try {
       const stored = store.conversations.readConversation(project().id, conversation.conversationId);
       expect(stored?.boundChangeId).toBeTruthy();
       changeId = stored?.boundChangeId ?? "";
+      currentGraphScopeId = stored?.currentGraphScopeId ?? "";
       expect(store.providerAttempts.listProviderThreads(project().id, conversation.conversationId)).toEqual(expect.arrayContaining([
         expect.objectContaining({ roleId: "main-agent", providerThreadId: "thread-main" }),
         expect.objectContaining({ roleId: "planning-agent", providerThreadId: "thread-planner", parentThreadId: "thread-main", displayName: "Newton" }),
@@ -1334,13 +1394,14 @@ describe("Workbench provider planning flow", () => {
     } finally {
       store.close();
     }
-    const changePath = `harness/changes/active/${changeId}`;
-    expect(await readLatestWorkflowGraphPlan(memory, changePath)).toMatchObject({
+    const evidenceRoot = join(skillRoot, "state", "changes", "active", changeId);
+    const authoredGraph = await readLatestWorkflowGraphPlanAt(evidenceRoot, changeId);
+    expect(authoredGraph).toMatchObject({
       graphMode: "sequential-v1",
       nodes: [expect.objectContaining({ id: "health-endpoint" })],
     });
     const authorizationIntent = JSON.parse(await readFile(
-      join(memory.memoryRoot, changePath, "planning", "execution-authorization-intent.json"),
+      join(evidenceRoot, "planning", "execution-authorization-intent.json"),
       "utf8",
     ));
     expect(authorizationIntent).toMatchObject({
@@ -1351,7 +1412,7 @@ describe("Workbench provider planning flow", () => {
       authorizationId: expect.stringMatching(/^auth-/),
     });
     expect(JSON.parse(await readFile(
-      join(memory.runsRoot, "execution-authorization", "authorizations", `${authorizationIntent.authorizationId}.json`),
+      join(runtimePaths.runsRoot, "execution-authorization", "authorizations", `${authorizationIntent.authorizationId}.json`),
       "utf8",
     ))).toMatchObject({
       id: authorizationIntent.authorizationId,
@@ -1363,7 +1424,6 @@ describe("Workbench provider planning flow", () => {
     expect(durableSurfaces.surfaces).toEqual(expect.arrayContaining([
       expect.objectContaining({ agentSurfaceId: agentThreadSurfaceId("codex", "thread-planner"), roleId: "planning-agent" }),
     ]));
-    const snapshot = await getWorkbenchSnapshot({ project: project(), path: root }, { topicId: conversation.conversationId });
     const durablePlannerTimeline = await getCanonicalTimelinePage(
       { project: project(), path: root },
       conversation.conversationId,
@@ -1376,9 +1436,24 @@ describe("Workbench provider planning flow", () => {
     expect(durablePlannerCells.filter((cell) => `${cell.title ?? ""}\n${cell.text}\n${cell.detailText ?? ""}`.includes("正在检查需求边界"))).toHaveLength(1);
     expect(durablePlannerCells.filter((cell) => `${cell.text}\n${cell.detailText ?? ""}`.includes("Add the route and regression coverage."))).toHaveLength(1);
     expect(durablePlannerCells.filter((cell) => cell.evidenceRefs?.some((ref) => ref.label === "Plan proposal"))).toHaveLength(1);
-    expect(snapshot.right.confirmationQueue.primary?.actions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ actionType: "workflow.run.start", changeId }),
-    ]));
+    const snapshot = await getWorkbenchSnapshot(
+      { project: project(), path: root },
+      { topicId: conversation.conversationId },
+    );
+    expect(snapshot.memory).toMatchObject({ kind: "project-skill", projectId: project().id });
+    expect(snapshot.right.confirmationQueue.current).toHaveLength(1);
+    expect(snapshot.right.confirmationQueue.primary).toMatchObject({
+      conversationId: conversation.conversationId,
+      changeId,
+      graphScopeId: currentGraphScopeId,
+      actions: [expect.objectContaining({
+        actionType: "workflow.run.start",
+        changeId,
+        graphScopeId: currentGraphScopeId,
+        workflowGraphPlanId: authoredGraph.id,
+      })],
+    });
+    expect(await listWorkflowRuns(runtimePaths, changeId)).toEqual([]);
     const continued = await runWorkbenchWorkflowAction(project(), {
       actionType: "conversation.continue",
       changeId,
@@ -1391,8 +1466,95 @@ describe("Workbench provider planning flow", () => {
     expect(continued.status).toBe("completed");
     expect(continueDeliveryKey).toBe(`conversation-continue:${continued.actionRunId}`);
     expect(appServerTurn).toHaveBeenCalledTimes(3);
+    const workflowRunId = "workflow-run-post-planning-boundary";
+    const now = new Date().toISOString();
+    await writeWorkflowRun(runtimePaths, {
+      version: "1.0",
+      id: workflowRunId,
+      changeId,
+      status: "created",
+      source: "workflow-graph",
+      workflowGraphPlanId: authoredGraph.id,
+      items: [],
+      recoveryKey: {
+        version: "1.0",
+        changeId,
+        workflowGraphPlanId: authoredGraph.id,
+        acceptedArtifactHashes: authoredGraph.sourceArtifactHashes,
+        workflowGraphPlanHash: "workflow-graph-hash",
+        sourceHash: "source-hash",
+        policyHash: "policy-hash",
+        capabilityHash: "capability-hash",
+        createdAt: now,
+      },
+      artifactRefs: [],
+      createdAt: now,
+      updatedAt: now,
+      startedAt: null,
+      finishedAt: null,
+    });
+    await expect(getWorkbenchSnapshot(
+      { project: project(), path: root },
+      { topicId: conversation.conversationId },
+    )).rejects.toThrow(
+      `Skill-native planning snapshot stops before WorkflowRun projection; run ${workflowRunId}`,
+    );
   });
 });
+
+async function createSkillNativeConversationChange(
+  changeId: string,
+  title: string,
+  body: string,
+): Promise<{ changeId: string; conversationId: string; title: string; state: "active" }> {
+  const conversation = await createWorkbenchConversation(project(), { body }, undefined, { runMainAgent: false });
+  await bindSkillNativeChange(conversation.conversationId, changeId);
+  return {
+    changeId,
+    conversationId: conversation.conversationId,
+    title,
+    state: "active",
+  };
+}
+
+async function bindSkillNativeChange(conversationId: string, changeId: string): Promise<{
+  context: Awaited<ReturnType<typeof resolveProjectHarnessRegistryContext>>;
+  claimToken: string;
+}> {
+  const store = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
+  let graphScopeId: string;
+  try {
+    graphScopeId = store.conversations.readConversation(project().id, conversationId)?.currentGraphScopeId ?? "";
+  } finally {
+    store.close();
+  }
+  if (!graphScopeId) throw new Error(`Conversation has no graph scope: ${conversationId}.`);
+  const context = await resolveProjectHarnessRegistryContext({
+    projectId: project().id,
+    projectRoot: root,
+    skillRoot,
+  });
+  context.lane = projectHarnessConversationLane(conversationId, graphScopeId);
+  const change = await createProjectHarnessChange(context, { changeId });
+
+  const boundStore = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
+  try {
+    const now = new Date().toISOString();
+    boundStore.unitOfWork.acceptConversationChangeBinding(
+      project().id,
+      conversationId,
+      changeId,
+      now,
+      `fixture-acceptance:${changeId}`,
+      `fixture-proposal:${changeId}`,
+      undefined,
+      graphScopeId,
+    );
+  } finally {
+    boundStore.close();
+  }
+  return { context, claimToken: change.claim_token };
+}
 
 function emitCanonicalMainText(
   options: { runId: string; conversationId?: string; onRealtimeEvent?: (event: ReturnType<typeof normalizeCodexAppServerNotification>[number]) => void },
@@ -1537,6 +1699,23 @@ async function writePlannerFiles(directory: string): Promise<void> {
   await writeFile(join(directory, "spec.md"), proposal.specMd, "utf8");
   await writeFile(join(directory, "plan.md"), proposal.planMd, "utf8");
   await writeFile(join(directory, "tasks.md"), proposal.tasksMd, "utf8");
+  await writeFile(join(directory, "registry-contract.json"), `${JSON.stringify({
+    version: "1.0",
+    required: true,
+    contract: {
+      kind: "api",
+      subject: "health-endpoint",
+      operation: "add-health-endpoint",
+      owner_module: "http-service",
+      affected_paths: ["src/**", "test/**"],
+      consumers: ["operators"],
+      depends_on: [],
+      depends_on_changes: [],
+      compatibility: "GET / remains unchanged.",
+      status: "active",
+    },
+    validation: ["Planning Agent verified the endpoint owner against current source."],
+  }, null, 2)}\n`, "utf8");
 }
 
 function project(): ManagedProject {

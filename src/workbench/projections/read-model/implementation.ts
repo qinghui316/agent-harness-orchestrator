@@ -18,6 +18,7 @@ import { listWorkbenchDecisions } from "./decision-store.js";
 import { alignDecisionInspectorWithConfirmationPrimary, buildDecisionInspector, emptyDecisionInspector } from "./decision-inspector.js";
 import { buildApprovalInbox } from "./approval-inbox.js";
 import { shellWorkbenchWorkpad } from "./workbench-shell.js";
+import { tryBuildSkillNativePlanningSnapshot } from "./skill-native-planning-snapshot.js";
 import { listWorkbenchRoles } from "./roles.js";
 import { buildHarnessGaps, buildRepoSummary, resolveWorkbenchMemory } from "./support.js";
 import { listWorkbenchTopicsFromMemory, selectTopicDetail } from "./topics.js";
@@ -130,6 +131,19 @@ export async function getWorkbenchSnapshot(input: WorkbenchProjectInput, options
   ignoreActiveWorkflowActions?: boolean;
   ignoreActiveWorkflowActionTypes?: string[];
 } = {}): Promise<WorkbenchSnapshot> {
+  if (input.project) {
+    const runtimeState = await resolveProjectRuntimeState(input.project, {
+      discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+    });
+    if (runtimeState.state === "ready") {
+      const planningSnapshot = await tryBuildSkillNativePlanningSnapshot({
+        project: input.project,
+        resolution: runtimeState.resolution,
+        topicId: options.topicId,
+      });
+      if (planningSnapshot) return planningSnapshot;
+    }
+  }
   const memoryStatus = await getMemoryStatus(input.project, input.path);
   const projectStatus = await getProjectStatus(input.project, input.path);
   const memory = await resolveWorkbenchMemory(input);

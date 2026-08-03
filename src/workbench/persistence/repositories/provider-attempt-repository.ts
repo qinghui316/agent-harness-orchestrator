@@ -23,31 +23,94 @@ constructor(private readonly db: Database.Database) {}
   moveConversationThreadsToGraphScope(
     projectId: string,
     conversationId: string,
-    plannerThreadId: string,
-    graphScopeId: string,
+    input: {
+      mainAttemptId: string;
+      plannerThreadId: string;
+      previousGraphScopeId: string;
+      graphScopeId: string;
+    },
     updatedAt: string,
   ): void {
-    this.db.prepare(`
+    if (input.previousGraphScopeId === input.graphScopeId) {
+      throw new Error("Provider lineage graph transition requires distinct graph scopes.");
+    }
+    const mainLineage = this.db.prepare(`
+      SELECT attempts.attempt_id AS attemptId
+      FROM provider_attempts attempts
+      JOIN provider_thread_links links
+        ON links.project_id = attempts.project_id AND links.attempt_id = attempts.attempt_id
+      WHERE attempts.project_id = ? AND attempts.conversation_id = ?
+        AND attempts.attempt_id = ? AND attempts.role_id = 'main-agent'
+        AND attempts.graph_scope_id = ?
+        AND links.conversation_id = attempts.conversation_id
+        AND links.role_id = 'main-agent' AND links.graph_scope_id = ?
+    `).all(
+      projectId,
+      conversationId,
+      input.mainAttemptId,
+      input.previousGraphScopeId,
+      input.previousGraphScopeId,
+    ) as SqliteRow[];
+    if (mainLineage.length !== 1) {
+      throw new Error("Planning graph transition requires the exact accepting Main attempt lineage.");
+    }
+    const plannerLineage = this.db.prepare(`
+      SELECT attempts.attempt_id AS attemptId
+      FROM provider_thread_links links
+      JOIN provider_attempts attempts
+        ON attempts.project_id = links.project_id AND attempts.attempt_id = links.attempt_id
+      WHERE links.project_id = ? AND links.conversation_id = ?
+        AND links.provider_thread_id = ? AND links.role_id = 'planning-agent'
+        AND links.graph_scope_id = ?
+        AND attempts.conversation_id = links.conversation_id
+        AND attempts.role_id = 'planning-agent' AND attempts.graph_scope_id = ?
+    `).all(
+      projectId,
+      conversationId,
+      input.plannerThreadId,
+      input.previousGraphScopeId,
+      input.previousGraphScopeId,
+    ) as SqliteRow[];
+    if (plannerLineage.length !== 1) {
+      throw new Error("Planning graph transition requires the exact Planning thread lineage.");
+    }
+    const plannerAttemptId = String(plannerLineage[0]!.attemptId);
+    const moveAttempt = this.db.prepare(`
       UPDATE provider_attempts SET graph_scope_id = ?, updated_at = ?
-      WHERE project_id = ? AND conversation_id = ? AND attempt_id IN (
-        SELECT attempt_id FROM provider_thread_links
-        WHERE project_id = ? AND conversation_id = ?
-          AND (role_id = 'main-agent' OR provider_thread_id = ?)
-      )
-    `).run(
-      graphScopeId,
-      updatedAt,
-      projectId,
-      conversationId,
-      projectId,
-      conversationId,
-      plannerThreadId,
-    );
-    this.db.prepare(`
+      WHERE project_id = ? AND conversation_id = ? AND attempt_id = ?
+        AND graph_scope_id = ? AND role_id = ?
+    `);
+    const moveLink = this.db.prepare(`
       UPDATE provider_thread_links SET graph_scope_id = ?, updated_at = ?
-      WHERE project_id = ? AND conversation_id = ?
-        AND (role_id = 'main-agent' OR provider_thread_id = ?)
-    `).run(graphScopeId, updatedAt, projectId, conversationId, plannerThreadId);
+      WHERE project_id = ? AND conversation_id = ? AND attempt_id = ?
+        AND graph_scope_id = ? AND role_id = ?
+    `);
+    for (const lineage of [
+      { attemptId: input.mainAttemptId, roleId: "main-agent" },
+      { attemptId: plannerAttemptId, roleId: "planning-agent" },
+    ]) {
+      const attemptResult = moveAttempt.run(
+        input.graphScopeId,
+        updatedAt,
+        projectId,
+        conversationId,
+        lineage.attemptId,
+        input.previousGraphScopeId,
+        lineage.roleId,
+      );
+      const linkResult = moveLink.run(
+        input.graphScopeId,
+        updatedAt,
+        projectId,
+        conversationId,
+        lineage.attemptId,
+        input.previousGraphScopeId,
+        lineage.roleId,
+      );
+      if (attemptResult.changes !== 1 || linkResult.changes !== 1) {
+        throw new Error(`Planning graph transition lost ${lineage.roleId} lineage ownership.`);
+      }
+    }
   }
 
 readProviderThread(projectId: string, conversationId: string, providerId: ProviderId, roleId: string): StoredProviderThreadLink | null {
@@ -162,7 +225,7 @@ completeProviderAttempt(projectId: string, attemptId: string, status: StoredProv
     if (result.changes !== 1) throw new Error(`Provider attempt not found: ${attemptId}`);
   }
 
-readProviderAttempt(projectId: string, attemptId: string): StoredProviderAttempt | null {
+  readProviderAttempt(projectId: string, attemptId: string): StoredProviderAttempt | null {
     const row = this.db.prepare(`
       SELECT project_id AS projectId, conversation_id AS conversationId, attempt_id AS attemptId,
         graph_scope_id AS graphScopeId, provider_id AS providerId, native_session_id AS nativeSessionId,
@@ -173,6 +236,32 @@ readProviderAttempt(projectId: string, attemptId: string): StoredProviderAttempt
       FROM provider_attempts WHERE project_id = ? AND attempt_id = ?
     `).get(projectId, attemptId) as SqliteRow | undefined;
     return row ? mapProviderAttemptRow(row) : null;
+  }
+
+  assertCurrentRunningAttemptGraph(
+    projectId: string,
+    conversationId: string,
+    attemptId: string,
+    graphScopeId: string,
+    failureMessage = "Provider terminal callback no longer owns the current conversation graph.",
+  ): void {
+    const lineage = this.db.prepare(`
+      SELECT conversations.current_graph_scope_id AS currentGraphScopeId,
+        attempts.graph_scope_id AS attemptGraphScopeId, attempts.status AS attemptStatus
+      FROM conversations
+      JOIN provider_attempts attempts
+        ON attempts.project_id = conversations.project_id
+        AND attempts.conversation_id = conversations.conversation_id
+        AND attempts.attempt_id = ?
+      WHERE conversations.project_id = ? AND conversations.conversation_id = ?
+        AND conversations.deleted_at IS NULL
+    `).get(attemptId, projectId, conversationId) as SqliteRow | undefined;
+    if (!lineage
+      || nullableString(lineage.currentGraphScopeId) !== graphScopeId
+      || nullableString(lineage.attemptGraphScopeId) !== graphScopeId
+      || String(lineage.attemptStatus) !== "running") {
+      throw new Error(failureMessage);
+    }
   }
 
 bindProviderAttemptThread(
@@ -191,7 +280,7 @@ bindProviderAttemptThread(
       const attemptRow = this.db.prepare(`
         SELECT project_id AS projectId, conversation_id AS conversationId, attempt_id AS attemptId,
           graph_scope_id AS graphScopeId, provider_id AS providerId, native_session_id AS nativeSessionId,
-          change_id AS changeId, role_id AS roleId, operation_profile AS operationProfile
+          change_id AS changeId, role_id AS roleId, operation_profile AS operationProfile, status
         FROM provider_attempts
         WHERE project_id = ? AND attempt_id = ?
       `).get(projectId, input.attemptId) as SqliteRow | undefined;
@@ -199,6 +288,10 @@ bindProviderAttemptThread(
 
       const conversationId = nullableString(attemptRow.conversationId);
       if (!conversationId) throw new Error(`Provider attempt cannot bind a thread without a conversation: ${input.attemptId}`);
+      const attemptStatus = String(attemptRow.status);
+      if (attemptStatus !== "queued" && attemptStatus !== "running") {
+        throw new Error(`Provider attempt cannot bind a thread after it is terminal: ${input.attemptId}`);
+      }
       const nativeSessionId = nullableString(attemptRow.nativeSessionId);
       if (nativeSessionId && nativeSessionId !== input.threadId) {
         throw new Error(`Provider attempt is already bound to another thread: ${input.attemptId}`);
@@ -215,12 +308,25 @@ bindProviderAttemptThread(
 
       const providerId = String(attemptRow.providerId);
       const roleId = String(attemptRow.roleId);
+      const graphScopeId = nullableString(attemptRow.graphScopeId);
+      const conversation = this.db.prepare(`
+        SELECT current_graph_scope_id AS currentGraphScopeId, deleted_at AS deletedAt
+        FROM conversations WHERE project_id = ? AND conversation_id = ?
+      `).get(projectId, conversationId) as SqliteRow | undefined;
+      if (!conversation || nullableString(conversation.deletedAt)
+        || !graphScopeId
+        || nullableString(conversation.currentGraphScopeId) !== graphScopeId) {
+        throw new Error(`Provider attempt no longer belongs to the current conversation graph: ${input.attemptId}`);
+      }
       const existingThread = this.db.prepare(`
-        SELECT conversation_id AS conversationId, attempt_id AS attemptId, provider_id AS providerId,
-          role_id AS roleId, parent_thread_id AS parentThreadId,
-          parent_agent_surface_id AS parentAgentSurfaceId, graph_scope_id AS graphScopeId
-        FROM provider_thread_links
-        WHERE project_id = ? AND provider_id = ? AND provider_thread_id = ?
+        SELECT links.conversation_id AS conversationId, links.attempt_id AS attemptId, links.provider_id AS providerId,
+          links.role_id AS roleId, links.parent_thread_id AS parentThreadId,
+          links.parent_agent_surface_id AS parentAgentSurfaceId, links.graph_scope_id AS graphScopeId,
+          attempts.status AS attemptStatus
+        FROM provider_thread_links links
+        JOIN provider_attempts attempts
+          ON attempts.project_id = links.project_id AND attempts.attempt_id = links.attempt_id
+        WHERE links.project_id = ? AND links.provider_id = ? AND links.provider_thread_id = ?
       `).get(projectId, providerId, input.threadId) as SqliteRow | undefined;
       const parentThreadId = input.parentThreadId === undefined && existingThread
         ? nullableString(existingThread.parentThreadId)
@@ -228,7 +334,6 @@ bindProviderAttemptThread(
       const requestedParentAgentSurfaceId = input.parentAgentSurfaceId === undefined && existingThread
         ? nullableString(existingThread.parentAgentSurfaceId)
         : input.parentAgentSurfaceId;
-      const graphScopeId = nullableString(attemptRow.graphScopeId);
       const parentAgentSurfaceId = resolveParentAgentSurfaceId({
         db: this.db,
         projectId,
@@ -248,6 +353,12 @@ bindProviderAttemptThread(
         || (roleId !== "main-agent" && nullableString(existingThread.graphScopeId) !== graphScopeId)
       )) {
         throw new Error(`Provider thread cannot resume with different lineage: ${input.threadId}`);
+      }
+      if (existingThread
+        && String(existingThread.attemptId) !== input.attemptId
+        && nullableString(existingThread.graphScopeId) === graphScopeId
+        && ["queued", "running"].includes(String(existingThread.attemptStatus))) {
+        throw new Error(`Provider thread is owned by another active attempt in the current graph: ${input.threadId}`);
       }
 
       this.db.prepare(`

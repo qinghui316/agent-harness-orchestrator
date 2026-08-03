@@ -244,6 +244,7 @@ export const REVALIDATED_WORKFLOW_ACTION_TYPES = [
 ] as const satisfies readonly WorkflowActionType[];
 
 export const WORKFLOW_ACTION_SCOPE_KEYS = [
+  "graphScopeId",
   "proposalId",
   "workflowGraphPlanId",
   "schedulerContractId",
@@ -475,6 +476,7 @@ export function workflowActionScopePayload(request: WorkflowActionScopeCarrier, 
   const useReworkAudit = request.actionType === "planning.scheduler.worker.rework-audit-first";
   return {
     changeId,
+    graphScopeId: request.graphScopeId,
     proposalId: request.proposalId,
     workflowGraphPlanId: request.workflowGraphPlanId ?? extractString(result, "graph", "id"),
     schedulerContractId: request.schedulerContractId ?? extractString(result, "contract", "id") ?? extractString(result, "dryRun", "schedulerContractId") ?? extractString(result, "workerPlan", "schedulerContractId") ?? extractString(result, "claimReconcilePlan", "schedulerContractId") ?? extractString(result, "launchPreflight", "schedulerContractId") ?? extractString(result, "schedulerRun", "schedulerContractId") ?? extractString(result, "runtimeState", "schedulerContractId") ?? extractString(result, "reconcileSnapshot", "schedulerContractId") ?? extractString(result, "claimReservation", "schedulerContractId") ?? extractString(result, "reworkPlan", "schedulerContractId") ?? extractString(result, "result", "schedulerContractId") ?? extractString(result, "schedulerReworkValidation", "schedulerContractId") ?? extractString(result, "schedulerReworkAudit", "schedulerContractId") ?? extractString(result, "candidate", "schedulerContractId") ?? extractString(result, "handoff", "schedulerContractId") ?? extractString(result, "outcome", "schedulerContractId") ?? extractString(result, "completion", "schedulerContractId") ?? extractString(result, "closeout", "schedulerContractId"),
@@ -674,7 +676,8 @@ export function workflowActionScopesMatch(left: WorkflowActionScopeCarrier, righ
 }
 
 export function workflowActionScopesMatchStrict(left: WorkflowActionScopeCarrier, right: WorkflowActionScopeCarrier): boolean {
-  return sameStrictOptional(left.workflowGraphPlanId, right.workflowGraphPlanId)
+  return sameStrictOptional(left.graphScopeId, right.graphScopeId)
+    && sameStrictOptional(left.workflowGraphPlanId, right.workflowGraphPlanId)
     && sameStrictOptional(left.schedulerContractId, right.schedulerContractId)
     && sameStrictOptional(left.schedulerDispatchDryRunId, right.schedulerDispatchDryRunId)
     && sameStrictOptional(left.schedulerWorkerPlanId, right.schedulerWorkerPlanId)

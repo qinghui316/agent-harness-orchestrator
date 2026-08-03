@@ -9,7 +9,11 @@ topology. The task facts must determine every proposal.
 Add `GET /healthz` returning HTTP 200 and `{"status":"ok"}`. Add one
 regression test and preserve `GET /`.
 
-## Proposal Envelope
+## Proposal Files
+
+Write the following content to `spec.md`, `plan.md`, and `tasks.md` using the
+fixed format. This compact envelope is shown only to keep the Markdown example
+readable; it is not the Runtime input format.
 
 ````json
 {
@@ -22,5 +26,26 @@ regression test and preserve `GET /`.
 }
 ````
 
-The surrounding fence is documentation only. A planner child returns the JSON
-object itself without a Markdown fence.
+Also write `registry-contract.json`:
+
+```json
+{
+  "version": "1.0",
+  "required": true,
+  "contract": {
+    "kind": "api",
+    "subject": "health-endpoint",
+    "operation": "add-health-endpoint",
+    "owner_module": "http-service",
+    "affected_paths": ["src/**", "test/**"],
+    "consumers": ["operators"],
+    "depends_on": [],
+    "depends_on_changes": [],
+    "compatibility": "GET / remains unchanged.",
+    "status": "active"
+  },
+  "validation": ["Planner verified the endpoint owner and compatibility boundary against current source."]
+}
+```
+
+The planner child returns the complete `plan.md` after writing all four files.

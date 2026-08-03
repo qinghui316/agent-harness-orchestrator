@@ -80,6 +80,7 @@ async function executeWorkflowAction(input: WorkbenchProjectInput & { project: M
   const result = await runWorkbenchWorkflowAction(input.project, {
     actionType,
     changeId: body.changeId,
+    graphScopeId: body.graphScopeId,
     prompt: body.prompt,
     feedback: body.feedback,
     proposalId: body.proposalId,

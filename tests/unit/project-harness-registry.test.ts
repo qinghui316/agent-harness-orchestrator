@@ -1,12 +1,11 @@
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   canonicalProjectHarnessId,
   classifyProjectHarnessBaselineRelation,
-  migratePreservedProjectHarnessLaneState,
   normalizeRegistryClaim,
   projectHarnessConversationLane,
   projectHarnessLaneId,
@@ -122,46 +121,6 @@ describe("project Harness Registry", () => {
     }), "utf8");
 
     await expect(readProjectHarnessLane(context)).rejects.toThrow(/Conversation Lane requires/);
-  });
-
-  it("explicitly migrates preserved repository Lanes before a publication commits", async () => {
-    const fixture = await createFixture();
-    const laneId = projectHarnessLaneId(fixture.context);
-    const directory = join(fixture.skillRoot, "state", "registry", "lanes");
-    await mkdir(directory, { recursive: true });
-    const path = join(directory, `${laneId}.json`);
-    await writeFile(path, `${JSON.stringify({
-      schema_version: "1.0",
-      lane_id: laneId,
-      branch: fixture.context.branch,
-      head_commit: fixture.context.headCommit,
-      active_change_id: "active-change",
-      status: "active",
-      updated_at: "2026-08-03T00:00:00.000Z",
-    }, null, 2)}\n`, "utf8");
-
-    await expect(migratePreservedProjectHarnessLaneState(fixture.skillRoot)).resolves.toEqual({
-      migrated: [laneId],
-      current: [],
-    });
-
-    expect(JSON.parse(await readFile(path, "utf8"))).toEqual({
-      schema_version: "2.0",
-      lane_id: laneId,
-      kind: "repository",
-      repository_lane_id: laneId,
-      branch: fixture.context.branch,
-      head_commit: fixture.context.headCommit,
-      conversation_id: null,
-      graph_scope_id: null,
-      active_change_id: "active-change",
-      status: "active",
-      updated_at: "2026-08-03T00:00:00.000Z",
-    });
-    await expect(readProjectHarnessLane(fixture.context)).resolves.toMatchObject({
-      schema_version: "2.0",
-      active_change_id: "active-change",
-    });
   });
 
   it.each([

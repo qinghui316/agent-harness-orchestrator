@@ -98,6 +98,7 @@ describe("ProviderAttempt-owned thread binding", () => {
     await seedMainThread(memory);
     await startAttempt(memory, "attempt-1");
     await bindProviderAttemptThread(memory, { attemptId: "attempt-1", threadId: "thread-1", parentThreadId: "main-thread" });
+    await finishProviderAttempt(memory, "attempt-1", "completed", "thread-1");
     await startAttempt(memory, "attempt-2");
 
     const resumed = await bindProviderAttemptThread(memory, {
@@ -123,9 +124,71 @@ describe("ProviderAttempt-owned thread binding", () => {
     }
   });
 
+  it("lets the current graph take over a Main thread and rejects a late callback from the old graph", async () => {
+    const memory = repoLocalMemory(root, projectId);
+    await seedConversation(memory);
+    await seedMainThread(memory);
+    const db = new Database(memory.workbenchDbPath);
+    db.prepare("UPDATE conversations SET current_graph_scope_id = ? WHERE project_id = ? AND conversation_id = ?")
+      .run("graph-2", projectId, "conversation-1");
+    db.close();
+    await startProviderAttempt(memory, {
+      attemptId: "attempt-main-2",
+      providerId: "codex",
+      capabilitySnapshot: capabilities,
+      operationProfile: "main",
+      roleId: "main-agent",
+      handoffHash: "handoff-main-2",
+      conversationId: "conversation-1",
+      changeId: "change-2",
+      graphScopeId: "graph-2",
+    });
+
+    await expect(bindProviderAttemptThread(memory, {
+      attemptId: "attempt-main-2",
+      threadId: "main-thread",
+      parentThreadId: null,
+      parentAgentSurfaceId: null,
+    })).resolves.toMatchObject({ attemptId: "attempt-main-2", graphScopeId: "graph-2" });
+    await expect(bindProviderAttemptThread(memory, {
+      attemptId: "attempt-main",
+      threadId: "main-thread",
+      parentThreadId: null,
+      parentAgentSurfaceId: null,
+    })).rejects.toThrow(/no longer belongs to the current conversation graph/);
+
+    const store = await openWorkbenchDatabase(memory);
+    try {
+      expect(store.providerAttempts.listProviderThreads(projectId, "conversation-1"))
+        .toEqual(expect.arrayContaining([
+          expect.objectContaining({ providerThreadId: "main-thread", attemptId: "attempt-main-2", graphScopeId: "graph-2" }),
+        ]));
+    } finally {
+      store.close();
+    }
+  });
+
   it("moves accepted Main and Planning thread links with their owning Attempts", async () => {
     const memory = repoLocalMemory(root, projectId);
     await seedConversation(memory);
+    await startProviderAttempt(memory, {
+      attemptId: "attempt-main-historical",
+      providerId: "codex",
+      capabilitySnapshot: capabilities,
+      operationProfile: "main",
+      roleId: "main-agent",
+      handoffHash: "handoff-main-historical",
+      conversationId: "conversation-1",
+      changeId: "change-historical",
+      graphScopeId: "graph-1",
+    });
+    await bindProviderAttemptThread(memory, {
+      attemptId: "attempt-main-historical",
+      threadId: "main-thread-historical",
+      parentThreadId: null,
+      parentAgentSurfaceId: null,
+    });
+    await finishProviderAttempt(memory, "attempt-main-historical", "completed", "main-thread-historical");
     await seedMainThread(memory);
     await startProviderAttempt(memory, {
       attemptId: "attempt-plan",
@@ -143,6 +206,42 @@ describe("ProviderAttempt-owned thread binding", () => {
       threadId: "thread-plan",
       parentThreadId: "main-thread",
     });
+    const otherStore = await openWorkbenchDatabase(memory);
+    try {
+      const now = new Date().toISOString();
+      otherStore.conversations.createConversation({
+        projectId,
+        conversationId: "conversation-2",
+        title: "Unrelated conversation",
+        state: "active",
+        boundChangeId: "change-other",
+        currentGraphScopeId: "graph-1",
+        selectedProviderId: "codex",
+        completedTurnSequence: 0,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      });
+    } finally {
+      otherStore.close();
+    }
+    await startProviderAttempt(memory, {
+      attemptId: "attempt-main-other",
+      providerId: "codex",
+      capabilitySnapshot: capabilities,
+      operationProfile: "main",
+      roleId: "main-agent",
+      handoffHash: "handoff-main-other",
+      conversationId: "conversation-2",
+      changeId: "change-other",
+      graphScopeId: "graph-1",
+    });
+    await bindProviderAttemptThread(memory, {
+      attemptId: "attempt-main-other",
+      threadId: "main-thread-other",
+      parentThreadId: null,
+      parentAgentSurfaceId: null,
+    });
 
     const store = await openWorkbenchDatabase(memory);
     try {
@@ -150,8 +249,12 @@ describe("ProviderAttempt-owned thread binding", () => {
         projectId,
         "conversation-1",
         "run-plan",
-        "thread-plan",
-        "graph-2",
+        {
+          mainAttemptId: "attempt-main",
+          plannerThreadId: "thread-plan",
+          previousGraphScopeId: "graph-1",
+          graphScopeId: "graph-2",
+        },
         "2026-07-25T00:00:00.000Z",
       );
       expect(store.providerAttempts.listProviderThreads(projectId, "conversation-1")).toEqual(expect.arrayContaining([
@@ -160,6 +263,14 @@ describe("ProviderAttempt-owned thread binding", () => {
       ]));
       expect(store.providerAttempts.readProviderAttempt(projectId, "attempt-main")?.graphScopeId).toBe("graph-2");
       expect(store.providerAttempts.readProviderAttempt(projectId, "attempt-plan")?.graphScopeId).toBe("graph-2");
+      expect(store.providerAttempts.readProviderAttempt(projectId, "attempt-main-historical")?.graphScopeId).toBe("graph-1");
+      expect(store.providerAttempts.listProviderThreads(projectId, "conversation-1")).toEqual(expect.arrayContaining([
+        expect.objectContaining({ attemptId: "attempt-main-historical", graphScopeId: "graph-1" }),
+      ]));
+      expect(store.providerAttempts.readProviderAttempt(projectId, "attempt-main-other")?.graphScopeId).toBe("graph-1");
+      expect(store.providerAttempts.listProviderThreads(projectId, "conversation-2")).toEqual([
+        expect.objectContaining({ attemptId: "attempt-main-other", graphScopeId: "graph-1" }),
+      ]);
     } finally {
       store.close();
     }

@@ -292,6 +292,7 @@ async function runProjectHarnessOnboardingTurnActivity(
       conversationId,
       runId,
       mainAttemptId: attemptId,
+      expectedGraphScopeId: conversation.currentGraphScopeId!,
       mainStatus: terminalStatus,
       mainNativeSessionId: result.session?.sessionId ?? null,
       childAttempts: [],

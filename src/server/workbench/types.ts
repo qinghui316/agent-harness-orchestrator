@@ -39,6 +39,7 @@ export interface WorkbenchActionRequest {
   action?: WorkbenchApprovalAction;
   actionType?: WorkbenchWorkflowActionRequest["actionType"];
   changeId?: string;
+  graphScopeId?: string;
   prompt?: string;
   proposalId?: string;
   workflowGraphPlanId?: string;

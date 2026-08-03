@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { mkdir, readFile, readdir, rename, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
+import { z } from "zod";
 import { buildAcMap, parseAcceptanceCriteria, parseTasks } from "../ecl/anchors.js";
 import { atomicWriteFile, writeJsonFile } from "../fs/json.js";
 import { shortHash, slugify } from "../fs/path.js";
@@ -18,11 +19,16 @@ import {
   initializeProjectHarnessChangeEvidence,
   listProjectHarnessChanges,
   loadProjectHarnessChange,
+  loadProjectHarnessContract,
+  parseProjectHarnessContractInput,
   type ProjectHarnessChangePreflightResult,
+  type ProjectHarnessContractInput,
+  type ProjectHarnessContractRecord,
   publishProjectHarnessChange,
   rebuildProjectHarnessChangeIndex,
   resolveProjectHarnessChangeEvidenceRoot,
   restoreMutableProjectHarnessChangeRecord,
+  restoreProjectHarnessContract,
   rollbackUncommittedProjectHarnessChange,
   type ProjectHarnessChangeRecord,
 } from "./change.js";
@@ -42,8 +48,38 @@ export interface AcceptedPlanningPackage {
   changeId: string;
   proposalId: string;
   proposalHash: string;
+  graphScopeId: string;
   authorizationIntentArtifact: string;
   workflowGraphPlan: WorkflowGraphPlan;
+  registryContract: ProjectHarnessContractRecord | null;
+  registryContractValidation: string[];
+}
+
+export interface PlanningRegistryContractEvidence {
+  version: "1.0";
+  required: boolean;
+  contract: ProjectHarnessContractInput | null;
+  validation: string[];
+}
+
+const planningRegistryContractEvidenceSchema = z.object({
+  version: z.literal("1.0"),
+  required: z.boolean(),
+  contract: z.unknown().nullable(),
+  validation: z.array(z.string().trim().min(1)).min(1),
+}).strict();
+
+export function parsePlanningRegistryContractEvidence(input: unknown): PlanningRegistryContractEvidence {
+  const parsed = planningRegistryContractEvidenceSchema.parse(input);
+  if (parsed.required !== (parsed.contract !== null)) {
+    throw new Error("Planning Registry contract evidence must include a contract exactly when required is true.");
+  }
+  return {
+    version: parsed.version,
+    required: parsed.required,
+    contract: parsed.contract === null ? null : parseProjectHarnessContractInput(parsed.contract),
+    validation: [...parsed.validation],
+  };
 }
 
 export interface ValidatedPlanningProposal {
@@ -53,6 +89,7 @@ export interface ValidatedPlanningProposal {
   specMd: string;
   planMd: string;
   tasksMd: string;
+  registryContract: PlanningRegistryContractEvidence;
   runId?: string;
   childThreadId?: string;
 }
@@ -113,7 +150,7 @@ export interface ProjectHarnessPlanningPublicationPorts {
 }
 
 interface ProjectHarnessPlanningPublicationTransaction {
-  schema_version: "2.0";
+  schema_version: "3.0";
   id: string;
   phase: "prepared" | "swapped" | "committed";
   project_id: string;
@@ -130,6 +167,7 @@ interface ProjectHarnessPlanningPublicationTransaction {
   backup_path: string;
   created_change: boolean;
   record_before: ProjectHarnessChangeRecord | null;
+  contract_before: ProjectHarnessContractRecord | null;
   lane_before: ProjectHarnessLaneRecord | null;
   scope: string;
   paths: string[];
@@ -188,13 +226,17 @@ export async function acceptProjectHarnessPlanningPackage(
   if (context.registry.projectId.trim() === "" || input.currentGraphScopeId.trim() === "") {
     throw new Error("Planning publication requires project and graph-scope identity.");
   }
+  const proposal: ValidatedPlanningProposal = {
+    ...input.proposal,
+    registryContract: parsePlanningRegistryContractEvidence(input.proposal.registryContract),
+  };
   return withProjectHarnessWriterLock(projectHarnessSharedWriterRoot(context.sidecarRoot), {
     projectId: context.registry.projectId,
     ownerId: `planning-${input.conversationId}`,
     operation: "change-publish",
   }, async ({ assertCurrent }) => {
     await recoverProjectHarnessPlanningPublications(context, ports);
-    const validated = validatePlanningProposalArtifacts(input.proposal);
+    const validated = validatePlanningProposalArtifacts(proposal);
     const existing = input.boundChangeId
       ? await loadProjectHarnessChange(context.registry.skillRoot, input.boundChangeId, false)
       : null;
@@ -225,18 +267,25 @@ export async function acceptProjectHarnessPlanningPackage(
       "active",
       changeId,
     );
-    const graphId = `workflow-graph-${input.proposal.hash.slice(0, 16)}`;
+    const graphId = `workflow-graph-${proposal.hash.slice(0, 16)}`;
     const existingGraph = reusable && existsSync(activePath)
       ? await readLatestWorkflowGraphPlanAt(activePath, changeId).catch(() => null)
       : null;
     if (existingGraph?.id === graphId) {
-      await assertPlanningArtifactsMatch(activePath, input.proposal);
+      await assertPlanningArtifactsMatch(activePath, proposal);
+      await assertPlanningContractMatch(context.registry.skillRoot, changeId, proposal.registryContract);
       await assertPlanningPreflightContinue(ports, laneContext, changeId);
-      return planningPublicationResult(changeId, input.proposal, existingGraph);
+      return planningPublicationResult(
+        changeId,
+        proposal,
+        existingGraph,
+        await loadProjectHarnessContract(context.registry.skillRoot, changeId),
+        graphScopeId,
+      );
     }
 
     const claimToken = reusable?.claim_token ?? randomBytes(16).toString("hex");
-    const transactionId = `${changeId}-${input.proposal.hash.slice(0, 16)}`;
+    const transactionId = `${changeId}-${proposal.hash.slice(0, 16)}`;
     const physicalTransactions = await projectHarnessPlanningPhysicalTransactionsRoot(context.registry.skillRoot);
     const stagingPath = await resolveWithinPhysicalRoot(
       physicalTransactions,
@@ -255,7 +304,7 @@ export async function acceptProjectHarnessPlanningPackage(
     if (existsSync(journalPath)) throw new Error(`Planning publication journal already exists: ${transactionId}.`);
     const paths = [...new Set(validated.authored.nodes.flatMap((node) => node.sourceScopes))].sort();
     const supersededIntent = reusable
-      ? await readSupersededAuthorizationIntent(activePath, input.proposal.hash)
+      ? await readSupersededAuthorizationIntent(activePath, proposal.hash)
       : null;
     const supersededAuthorization = supersededIntent
       ? await ports.authorization.captureSuperseded({
@@ -268,7 +317,7 @@ export async function acceptProjectHarnessPlanningPackage(
       })
       : null;
     let transaction: ProjectHarnessPlanningPublicationTransaction = {
-      schema_version: "2.0",
+      schema_version: "3.0",
       id: transactionId,
       phase: "prepared",
       project_id: context.registry.projectId,
@@ -285,6 +334,9 @@ export async function acceptProjectHarnessPlanningPackage(
       backup_path: backupPath,
       created_change: reusable === null,
       record_before: reusable ? structuredClone(reusable) : null,
+      contract_before: reusable
+        ? structuredClone(await loadProjectHarnessContract(context.registry.skillRoot, changeId))
+        : null,
       lane_before: laneBefore ? structuredClone(laneBefore) : null,
       scope: input.conversationTitle,
       paths,
@@ -322,6 +374,10 @@ export async function acceptProjectHarnessPlanningPackage(
         scope: input.conversationTitle,
         paths,
         status: "active",
+        validation: proposal.registryContract.validation,
+        contract: proposal.registryContract.required
+          ? proposal.registryContract.contract
+          : null,
       });
       await assertPlanningPreflightContinue(ports, laneContext, changeId);
       await assertCurrent();
@@ -331,11 +387,11 @@ export async function acceptProjectHarnessPlanningPackage(
         changeId,
         acceptedAt: new Date().toISOString(),
         transactionId,
-        proposalHash: input.proposal.hash,
+        proposalHash: proposal.hash,
         graphScopeId,
         previousGraphScopeId: input.currentGraphScopeId,
-        proposalRunId: input.proposal.runId,
-        plannerThreadId: input.proposal.childThreadId,
+        proposalRunId: proposal.runId,
+        plannerThreadId: proposal.childThreadId,
       });
       transaction = { ...transaction, phase: "committed" };
       await writeJsonFile(journalPath, transaction);
@@ -346,7 +402,13 @@ export async function acceptProjectHarnessPlanningPackage(
       } catch {
         // The project Skill and Workbench binding already committed; recovery may remove the projection marker later.
       }
-      return planningPublicationResult(changeId, input.proposal, graph);
+      return planningPublicationResult(
+        changeId,
+        proposal,
+        graph,
+        await loadProjectHarnessContract(context.registry.skillRoot, changeId),
+        graphScopeId,
+      );
     } catch (error) {
       if (ports.commit.hasCommit(transactionId)) {
         await rm(stagingPath, { recursive: true, force: true });
@@ -358,7 +420,13 @@ export async function acceptProjectHarnessPlanningPackage(
           // A stale acceptance marker is harmless once the exact committed publication is authoritative.
         }
         const graph = await readLatestWorkflowGraphPlanAt(activePath, changeId);
-        return planningPublicationResult(changeId, input.proposal, graph);
+        return planningPublicationResult(
+          changeId,
+          proposal,
+          graph,
+          await loadProjectHarnessContract(context.registry.skillRoot, changeId),
+          graphScopeId,
+        );
       }
       await rollbackProjectHarnessPlanningPublication(context, transaction, ports);
       await rm(journalPath, { force: true });
@@ -557,14 +625,50 @@ function planningPublicationResult(
   changeId: string,
   proposal: ValidatedPlanningProposal,
   graph: WorkflowGraphPlan,
+  contract: ProjectHarnessContractRecord | null,
+  graphScopeId: string,
 ): AcceptedPlanningPackage {
   return {
     changeId,
     proposalId: proposal.id,
     proposalHash: proposal.hash,
+    graphScopeId,
     authorizationIntentArtifact: `state/changes/active/${changeId}/planning/execution-authorization-intent.json`,
     workflowGraphPlan: graph,
+    registryContract: contract,
+    registryContractValidation: [...proposal.registryContract.validation],
   };
+}
+
+async function assertPlanningContractMatch(
+  skillRoot: string,
+  changeId: string,
+  evidence: PlanningRegistryContractEvidence,
+): Promise<void> {
+  const current = await loadProjectHarnessContract(skillRoot, changeId);
+  if (evidence.required !== Boolean(current)) {
+    throw new Error("Accepted Registry contract drifted after this planner proposal; a fresh revision is required.");
+  }
+  if (!current) return;
+  const expected = {
+    ...evidence.contract,
+    affected_paths: evidence.contract?.affected_paths ?? [],
+  };
+  const actual = {
+    kind: current.kind,
+    subject: current.subject,
+    operation: current.operation,
+    owner_module: current.owner_module,
+    affected_paths: current.affected_paths,
+    consumers: current.consumers,
+    depends_on: current.depends_on,
+    depends_on_changes: current.depends_on_changes,
+    compatibility: current.compatibility,
+    status: current.status,
+  };
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    throw new Error("Accepted Registry contract drifted after this planner proposal; a fresh revision is required.");
+  }
 }
 
 function planningLaneContext(
@@ -663,6 +767,12 @@ async function rollbackProjectHarnessPlanningPublication(
       supersessionReason(transaction.id),
     );
   }
+  await restoreProjectHarnessContract(
+    laneContext,
+    transaction.change_id,
+    transaction.claim_token,
+    transaction.contract_before,
+  );
   if (transaction.created_change) {
     const current = await loadProjectHarnessChange(context.registry.skillRoot, transaction.change_id, false);
     if (current) {
@@ -685,7 +795,7 @@ async function assertProjectHarnessPlanningTransaction(
   transaction: ProjectHarnessPlanningPublicationTransaction,
   filename: string,
 ): Promise<void> {
-  if (transaction.schema_version !== "2.0"
+  if (transaction.schema_version !== "3.0"
     || transaction.project_id !== context.registry.projectId
     || filename !== `${transaction.id}.json`
     || canonicalProjectHarnessId(transaction.id, "Planning transaction id") !== transaction.id
@@ -699,6 +809,7 @@ async function assertProjectHarnessPlanningTransaction(
     || !transaction.graph_scope_id
     || typeof transaction.created_change !== "boolean"
     || (transaction.record_before !== null && typeof transaction.record_before !== "object")
+    || (transaction.contract_before !== null && typeof transaction.contract_before !== "object")
     || (transaction.lane_before !== null && typeof transaction.lane_before !== "object")
     || (transaction.superseded_authorization !== null
       && typeof transaction.superseded_authorization !== "object")
@@ -722,6 +833,8 @@ async function assertProjectHarnessPlanningTransaction(
     || (transaction.record_before !== null
       && (transaction.record_before.change_id !== transaction.change_id
         || transaction.record_before.lane_id !== transaction.lane_id))
+    || (transaction.contract_before !== null
+      && transaction.contract_before.change_id !== transaction.change_id)
     || (transaction.lane_before !== null && transaction.lane_before.lane_id !== transaction.lane_id)
     || (transaction.superseded_authorization !== null
       && (transaction.superseded_authorization.projectId !== transaction.project_id

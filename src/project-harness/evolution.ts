@@ -9,7 +9,6 @@ import { fingerprintProjectHarness, fingerprintProjectHarnessContent } from "./f
 import { readProjectHarnessManifest } from "./manifest.js";
 import { assertPhysicalDirectory, resolveWithinPhysicalRoot } from "./path-safety.js";
 import { publishProjectHarnessCandidate } from "./publication.js";
-import { migratePreservedProjectHarnessLaneState } from "./registry.js";
 import { parseEvolutionCandidateJudge, type EvolutionCandidateJudge } from "./reviews.js";
 import type { SourceFingerprintSnapshot } from "./source-fingerprint.js";
 import { canonicalProjectHarnessId } from "./registry.js";
@@ -295,10 +294,8 @@ export async function completeProjectHarnessEvolution(
         "state/evolution/state.json",
         `state/evolution/staging/${stage.proposal_id}.json`,
         "state/registry/locks/evolution-owner",
-        "state/registry/lanes",
       ],
       async commitEffect(publishedRoot) {
-        await migratePreservedProjectHarnessLaneState(publishedRoot);
         await writeEvolutionTerminalState(publishedRoot, stage, input, judge);
       },
     });

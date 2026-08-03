@@ -1,5 +1,10 @@
 ﻿import type { ManagedProject } from "../../../../types/index.js";
-import type { WorkbenchConfirmationQueueItem, WorkbenchTopicDetail, WorkbenchWorkpad } from "../../../read-model-types.js";
+import type {
+  WorkbenchConfirmationQueueItem,
+  WorkbenchTopicDetail,
+  WorkbenchWorkpad,
+} from "../../../read-model-types.js";
+import type { WorkbenchWorkflowGraphPlanSummary } from "../../../workflow-projection.js";
 import { evidenceRefs } from "../evidence-refs.js";
 import { schedulerUserFacingActionCopy } from "./scheduler-user-surface.js";
 
@@ -173,14 +178,33 @@ export function sequentialWorkflowToConfirmationItems(
   const conversationId = selectedTopic.id;
   const changeId = selectedTopic.boundChangeId ?? conversationId;
   const authoredGraph = workpad.workflowGraphPlan;
-  if (authoredGraph?.authoringContractVersion === "1.0" && authoredGraph.graphMode === "sequential-v1") {
-    if (workpad.workflowRun?.workflowGraphPlanId === authoredGraph.id) return [];
+  if (!authoredGraph || workpad.workflowRun?.workflowGraphPlanId === authoredGraph.id) return [];
+  return sequentialWorkflowPlanToConfirmationItems(project, {
+    conversationId,
+    changeId,
+    graphScopeId: selectedTopic.graphScopeId,
+    authoredGraph,
+  });
+}
+
+function sequentialWorkflowPlanToConfirmationItems(
+  project: ManagedProject | null,
+  input: {
+    conversationId: string;
+    changeId: string;
+    graphScopeId?: string;
+    authoredGraph: WorkbenchWorkflowGraphPlanSummary;
+  },
+): WorkbenchConfirmationQueueItem[] {
+  const { conversationId, changeId, graphScopeId, authoredGraph } = input;
+  if (authoredGraph.authoringContractVersion === "1.0" && authoredGraph.graphMode === "sequential-v1") {
     return [{
       id: `confirm:workflow-start:${changeId}:${authoredGraph.id}`,
       kind: "planning-confirm",
       projectId: project?.id ?? null,
       conversationId,
       changeId,
+      graphScopeId,
       summary: `已准备好按顺序处理 ${authoredGraph.nodeCount} 项任务。`,
       whyNeedsConfirmation: "确认后开始按顺序处理这些事项。",
       confirmEffect: "系统会逐项处理并返回结果；不会自动提交或合并代码。",
@@ -191,6 +215,7 @@ export function sequentialWorkflowToConfirmationItems(
         label: "开始执行计划",
         kind: "workflow-action",
         changeId,
+        graphScopeId,
         actionType: "workflow.run.start",
         workflowGraphPlanId: authoredGraph.id,
         enabled: true,
