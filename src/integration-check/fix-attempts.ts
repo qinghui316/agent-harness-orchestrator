@@ -23,6 +23,7 @@ import { collectCheckoutPatch, prepareIntegrationFixCheckout } from "./patch-wor
 import type { IntegrationArtifact, IntegrationFixAttempt, IntegrationFixAttemptStatus } from "./types.js";
 import { openWorkbenchDatabase } from "../workbench/persistence/open-workbench-database.js";
 import { finishProviderAttempt, startProviderAttempt } from "../workbench/provider-attempts.js";
+import { defaultProjectRuntimeActivityRegistry } from "../project-runtime/activity.js";
 
 export interface IntegrationFixRepairRunnerInput {
   project: ManagedProject;
@@ -50,13 +51,31 @@ export interface IntegrationFixAttemptOptions {
   changeId?: string;
 }
 
-export async function runIntegrationFixAttempt(
+export function runIntegrationFixAttempt(
   project: ManagedProject,
   directory: string,
   checkId: string,
   inputPatchPath: string,
   reason: string,
   options: IntegrationFixAttemptOptions = {},
+): Promise<{ attempt: IntegrationFixAttempt; artifact?: IntegrationArtifact }> {
+  return defaultProjectRuntimeActivityRegistry.run(project.id, () => runIntegrationFixAttemptActivity(
+    project,
+    directory,
+    checkId,
+    inputPatchPath,
+    reason,
+    options,
+  ));
+}
+
+async function runIntegrationFixAttemptActivity(
+  project: ManagedProject,
+  directory: string,
+  checkId: string,
+  inputPatchPath: string,
+  reason: string,
+  options: IntegrationFixAttemptOptions,
 ): Promise<{ attempt: IntegrationFixAttempt; artifact?: IntegrationArtifact }> {
   const memory = await resolveProjectMemory(project);
   const startedAt = new Date().toISOString();

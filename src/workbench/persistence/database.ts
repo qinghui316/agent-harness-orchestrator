@@ -28,7 +28,12 @@ export class WorkbenchDatabase {
   readonly decisions: DecisionRepository;
   readonly unitOfWork: WorkbenchUnitOfWork;
 
-  private constructor(private readonly connection: Database.Database) {
+  private closed = false;
+
+  private constructor(
+    private readonly connection: Database.Database,
+    private readonly onClose?: () => void,
+  ) {
     this.timeline = new TimelineRepository(connection);
     this.interactions = new InteractionRepository(connection, this.timeline);
     this.conversations = new ConversationRepository(connection);
@@ -47,6 +52,7 @@ export class WorkbenchDatabase {
   static async open(
     paths: { workbenchDbPath: string },
     resetGuard: WorkbenchResetGuard,
+    onClose?: () => void,
   ): Promise<WorkbenchDatabase> {
     await mkdir(dirname(paths.workbenchDbPath), { recursive: true });
     const connection = new Database(paths.workbenchDbPath);
@@ -83,7 +89,7 @@ export class WorkbenchDatabase {
       await rebuildLock?.release();
       throw error;
     }
-    return new WorkbenchDatabase(connection);
+    return new WorkbenchDatabase(connection, onClose);
   }
 
   transaction<T>(operation: () => T): T {
@@ -91,6 +97,9 @@ export class WorkbenchDatabase {
   }
 
   close(): void {
+    if (this.closed) return;
+    this.closed = true;
     this.connection.close();
+    this.onClose?.();
   }
 }

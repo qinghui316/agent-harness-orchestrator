@@ -143,6 +143,19 @@ export class ProjectRegistryStore {
     return removed ?? null;
   }
 
+  async restoreProject(project: ManagedProject): Promise<void> {
+    const registry = await this.load();
+    const comparable = normalizeForCompare(project.path);
+    const conflict = registry.projects.find((candidate) => (
+      candidate.id === project.id || normalizeForCompare(candidate.path) === comparable
+    ));
+    if (conflict) {
+      throw new Error(`Cannot restore project registration because its id or path is occupied: ${project.id}`);
+    }
+    registry.projects.push(ManagedProjectSchema.parse(project));
+    await this.save(registry);
+  }
+
   async resolveProject(query: string): Promise<ManagedProject | null> {
     const registry = await this.load();
     const byIdOrName = registry.projects.find((project) => project.id === query || project.name === query);

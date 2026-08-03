@@ -44,7 +44,7 @@ describe("ProjectRemovalCoordinator", () => {
       confirmed: true,
     });
 
-    expect(result).toEqual({ projectId: setup.projectId, sidecarRemoved: true, cleanupPending: false });
+    expect(result).toEqual({ projectId: setup.projectId, sidecarRemoved: true });
     expect(setup.events).toEqual(["stop", "unsubscribe", "drain", "close", "unregister"]);
     expect(existsSync(setup.paths.sidecarRoot)).toBe(false);
     expect(await readFile(join(setup.projectPath, "source.txt"), "utf8")).toBe("preserved");
@@ -69,6 +69,26 @@ describe("ProjectRemovalCoordinator", () => {
       confirmationToken: confirmation.token,
       confirmed: true,
     })).rejects.toThrow(/missing, stale, or already used/);
+  });
+
+  it("invalidates an older confirmation when the same project prepares again", async () => {
+    const setup = await createSetup({ tokens: ["token-one", "token-two"] });
+    const first = setup.coordinator.issueConfirmation(setup.projectId, setup.projectPath);
+    const second = setup.coordinator.issueConfirmation(setup.projectId, setup.projectPath);
+    await expect(setup.coordinator.remove({
+      projectId: setup.projectId,
+      projectPath: setup.projectPath,
+      runtimePaths: setup.paths,
+      confirmationToken: first.token,
+      confirmed: true,
+    })).rejects.toThrow(/missing, stale, or already used/);
+    await expect(setup.coordinator.remove({
+      projectId: setup.projectId,
+      projectPath: setup.projectPath,
+      runtimePaths: setup.paths,
+      confirmationToken: second.token,
+      confirmed: true,
+    })).resolves.toMatchObject({ projectId: setup.projectId });
   });
 
   it("restores the sidecar and registration when unregister fails", async () => {
@@ -104,6 +124,41 @@ describe("ProjectRemovalCoordinator", () => {
     expect(setup.coordinator.fence.status(setup.projectId)).toBe("active");
   });
 
+  it("continues restoring the sidecar and fence when registry restoration fails", async () => {
+    const setup = await createSetup({
+      failureStage: "unregistered",
+      restoreError: new Error("registry restore failed"),
+    });
+    const confirmation = setup.coordinator.issueConfirmation(setup.projectId, setup.projectPath);
+    await expect(setup.coordinator.remove({
+      projectId: setup.projectId,
+      projectPath: setup.projectPath,
+      runtimePaths: setup.paths,
+      confirmationToken: confirmation.token,
+      confirmed: true,
+    })).rejects.toThrow(/rollback was incomplete/);
+
+    expect(existsSync(setup.paths.sidecarRoot)).toBe(true);
+    expect(setup.coordinator.fence.status(setup.projectId)).toBe("active");
+    expect(setup.events).toContain("aborted");
+  });
+
+  it("fails the transaction and restores registration plus sidecar when quarantine cleanup fails", async () => {
+    const setup = await createSetup({ removeError: new Error("quarantine is locked") });
+    const confirmation = setup.coordinator.issueConfirmation(setup.projectId, setup.projectPath);
+    await expect(setup.coordinator.remove({
+      projectId: setup.projectId,
+      projectPath: setup.projectPath,
+      runtimePaths: setup.paths,
+      confirmationToken: confirmation.token,
+      confirmed: true,
+    })).rejects.toThrow("quarantine is locked");
+
+    expect(setup.restored).toEqual([{ id: setup.projectId, path: setup.projectPath }]);
+    expect(await readFile(join(setup.paths.sidecarRoot, "state.json"), "utf8")).toBe("state");
+    expect(setup.coordinator.fence.status(setup.projectId)).toBe("active");
+  });
+
   it("rejects a sidecar link without touching its target or registration", async () => {
     if (process.platform !== "win32") return;
     const setup = await createSetup({ createSidecar: false });
@@ -127,8 +182,11 @@ describe("ProjectRemovalCoordinator", () => {
 
 async function createSetup(options: {
   unregisterError?: Error;
+  restoreError?: Error;
   failureStage?: string;
   createSidecar?: boolean;
+  tokens?: string[];
+  removeError?: Error;
 } = {}) {
   const root = await mkdtemp(join(tmpdir(), "aho-project-removal-"));
   roots.push(root);
@@ -167,10 +225,14 @@ async function createSetup(options: {
         return { id: projectId, path: projectPath };
       },
       async restore(registration) {
+        if (options.restoreError) throw options.restoreError;
         restored.push(registration);
       },
     },
-    createToken: () => "token-one",
+    createToken: () => options.tokens?.shift() ?? "token-one",
+    ...(options.removeError
+      ? { removeQuarantine: async () => { throw options.removeError; } }
+      : {}),
     ...(options.failureStage
       ? { failureInjection: (stage: string) => {
         if (stage === options.failureStage) throw new Error(`injected ${stage}`);

@@ -68,6 +68,8 @@ export class CodexAppServerHost {
   private lastError: string | undefined;
   private activeThreadId: string | null = null;
   private activeTurnId: string | null = null;
+  private activeLeaseCount = 0;
+  private readonly drainWaiters = new Set<() => void>();
 
   constructor(cwd: string) {
     this.cwd = resolve(cwd);
@@ -86,6 +88,7 @@ export class CodexAppServerHost {
       throw error;
     }
     const generation = this.generation;
+    this.activeLeaseCount += 1;
     let released = false;
     return {
       hostId: this.hostId,
@@ -112,6 +115,7 @@ export class CodexAppServerHost {
       release: () => {
         if (released) return;
         released = true;
+        this.releaseLease();
         if (generation === this.generation) {
           this.handlers = null;
           this.busy = false;
@@ -135,6 +139,7 @@ export class CodexAppServerHost {
       throw conflict(`Codex app-server Host ${this.hostId} is already controlling a Child Agent.`);
     }
     this.auxiliaryHandlers.set(handlers, { parentThreadId, childThreadId });
+    this.activeLeaseCount += 1;
     let released = false;
     return {
       hostId: this.hostId,
@@ -149,6 +154,7 @@ export class CodexAppServerHost {
         if (released) return;
         released = true;
         this.auxiliaryHandlers.delete(handlers);
+        this.releaseLease();
       },
     };
   }
@@ -192,9 +198,17 @@ export class CodexAppServerHost {
     this.childParents.clear();
     this.closedChildParents.clear();
     this.rejectPending(error);
-    handlers?.onExit(error);
-    for (const auxiliary of auxiliaryHandlers) auxiliary.onExit(error);
-    terminateProcessTree(child);
+    try {
+      if (handlers) notifyExitSafely(handlers, error);
+      for (const auxiliary of auxiliaryHandlers) notifyExitSafely(auxiliary, error);
+    } finally {
+      terminateProcessTree(child);
+    }
+  }
+
+  waitForDrain(): Promise<void> {
+    if (this.activeLeaseCount === 0) return Promise.resolve();
+    return new Promise<void>((resolvePromise) => this.drainWaiters.add(resolvePromise));
   }
 
   private async ensureStarted(): Promise<void> {
@@ -366,6 +380,13 @@ export class CodexAppServerHost {
     this.pending.clear();
   }
 
+  private releaseLease(): void {
+    this.activeLeaseCount = Math.max(0, this.activeLeaseCount - 1);
+    if (this.activeLeaseCount !== 0) return;
+    for (const resolvePromise of this.drainWaiters) resolvePromise();
+    this.drainWaiters.clear();
+  }
+
   private assertGeneration(generation: number): void {
     if (generation !== this.generation || !this.child) {
       throw stale(`Codex app-server Host ${this.hostId} generation ${generation} is stale.`);
@@ -375,6 +396,8 @@ export class CodexAppServerHost {
 
 export class CodexAppServerHostRegistry {
   private readonly hosts = new Map<string, CodexAppServerHost>();
+  private readonly projectHostKeys = new Map<string, Set<string>>();
+  private readonly projectIdByHostKey = new Map<string, string>();
 
   hostFor(cwd: string): CodexAppServerHost {
     const key = normalizeHostKey(cwd);
@@ -384,6 +407,21 @@ export class CodexAppServerHostRegistry {
       this.hosts.set(key, host);
     }
     return host;
+  }
+
+  hostForProject(projectId: string, cwd: string): CodexAppServerHost {
+    const normalizedProjectId = projectId.trim();
+    if (!normalizedProjectId) throw new Error("Codex project Host ownership requires a project id.");
+    const key = normalizeHostKey(cwd);
+    const existingOwner = this.projectIdByHostKey.get(key);
+    if (existingOwner && existingOwner !== normalizedProjectId) {
+      throw conflict(`Codex app-server Host ${key} is already owned by project ${existingOwner}.`);
+    }
+    const projectKeys = this.projectHostKeys.get(normalizedProjectId) ?? new Set<string>();
+    projectKeys.add(key);
+    this.projectHostKeys.set(normalizedProjectId, projectKeys);
+    this.projectIdByHostKey.set(key, normalizedProjectId);
+    return this.hostFor(cwd);
   }
 
   snapshots(): CodexAppServerHostSnapshot[] {
@@ -402,11 +440,37 @@ export class CodexAppServerHostRegistry {
     const key = normalizeHostKey(cwd);
     this.hosts.get(key)?.dispose(reason);
     this.hosts.delete(key);
+    this.unbindHostKey(key);
+  }
+
+  async disposeProject(projectId: string, reason?: string): Promise<void> {
+    const keys = [...(this.projectHostKeys.get(projectId) ?? [])];
+    const hosts = keys.flatMap((key) => {
+      const host = this.hosts.get(key);
+      return host ? [host] : [];
+    });
+    for (const host of hosts) host.dispose(reason);
+    for (const key of keys) {
+      this.hosts.delete(key);
+      this.unbindHostKey(key);
+    }
+    await Promise.all(hosts.map((host) => host.waitForDrain()));
   }
 
   disposeAll(reason?: string): void {
     for (const host of this.hosts.values()) host.dispose(reason);
     this.hosts.clear();
+    this.projectHostKeys.clear();
+    this.projectIdByHostKey.clear();
+  }
+
+  private unbindHostKey(key: string): void {
+    const projectId = this.projectIdByHostKey.get(key);
+    if (!projectId) return;
+    this.projectIdByHostKey.delete(key);
+    const projectKeys = this.projectHostKeys.get(projectId);
+    projectKeys?.delete(key);
+    if (projectKeys?.size === 0) this.projectHostKeys.delete(projectId);
   }
 }
 
@@ -466,4 +530,12 @@ function terminateProcessTree(child: ChildProcess | null): void {
     });
   }
   child.kill();
+}
+
+function notifyExitSafely(handlers: CodexAppServerHostHandlers, error: Error): void {
+  try {
+    handlers.onExit(error);
+  } catch {
+    // Runtime shutdown must not be prevented by a consumer callback.
+  }
 }

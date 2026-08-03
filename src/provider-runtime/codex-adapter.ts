@@ -5,6 +5,7 @@ import { executeCodexProjectAction, getCodexDiagnostics, listCodexProjectActions
 import { codexModelSettings, selectCodexModel } from "./codex-models.js";
 import { listCodexNativeSkills, setCodexNativeSkillEnabled } from "../codex/native-skills.js";
 import { defaultCodexAppServerHostRegistry } from "../codex/app-server-host.js";
+import { defaultProjectRemovalFence } from "../project-runtime/removal.js";
 import type { ActiveProviderTurn, ProviderChildCloseRequest, ProviderChildLifecycleEvent, ProviderChildSessionRequest, ProviderChildThreadResult, ProviderChildTurnRequest, ProviderDescriptor, ProviderObjectiveState, ProviderRealtimeEvent, ProviderTurnRequest, ProviderTurnResult, ProviderUserInputRequest } from "./contracts.js";
 import { agentThreadSurfaceId } from "./agent-surface-id.js";
 
@@ -16,6 +17,7 @@ export const codexProviderDescriptor: ProviderDescriptor = {
   displayName: "Codex",
   runtime: {
     shutdown: (reason) => defaultCodexAppServerHostRegistry.disposeAll(reason),
+    shutdownProject: (project, reason) => defaultCodexAppServerHostRegistry.disposeProject(project.projectId, reason),
   },
   capabilitySnapshot: getCodexProviderCapabilitySnapshot,
   runtimeSummary: getCodexProviderRuntimeSummary,
@@ -32,6 +34,7 @@ export const codexProviderDescriptor: ProviderDescriptor = {
 
 export async function runCodexTurn(request: ProviderTurnRequest): Promise<ProviderTurnResult> {
   if (request.providerId !== CODEX_PROVIDER_ID) throw new Error(`Codex adapter cannot run provider ${request.providerId}`);
+  const projectGeneration = defaultProjectRemovalFence.capture(request.projectId);
   const runtimeScopeId = request.runtimeScopeId ?? request.changeId ?? request.runId;
   activeAttemptByScope.set(runtimeScopeId, request.attemptId);
   let result: Awaited<ReturnType<typeof runCodexAppServerTurn>>;
@@ -53,29 +56,43 @@ export async function runCodexTurn(request: ProviderTurnRequest): Promise<Provid
     goalResume: request.objectiveResume,
     timeoutMs: request.timeoutMs,
     onRealtimeEvent: request.onRealtimeEvent ? (event) => {
+      if (!isProjectGenerationCurrent(request.projectId, projectGeneration)) return;
       const mapped = mapRealtime(request, event);
       if (mapped) request.onRealtimeEvent?.(mapped);
     } : undefined,
     onChildLifecycleEvent: request.onChildLifecycleEvent
-      ? (event) => request.onChildLifecycleEvent?.(mapChildLifecycle(event))
+      ? (event) => {
+        if (isProjectGenerationCurrent(request.projectId, projectGeneration)) {
+          request.onChildLifecycleEvent?.(mapChildLifecycle(event));
+        }
+      }
       : undefined,
-    onChildThreadResult: request.onChildThreadResult ? (child) => request.onChildThreadResult?.(mapChild(child)) : undefined,
-    onUserInputRequest: request.onUserInputRequest ? (input) => request.onUserInputRequest?.(mapUserInput(request, input)) : undefined,
-    onUserInputResolved: request.onUserInputResolved ? (input) => request.onUserInputResolved?.({
+    onChildThreadResult: guardedProjectNotification(request.projectId, projectGeneration, request.onChildThreadResult
+      ? (child) => request.onChildThreadResult?.(mapChild(child))
+      : undefined),
+    onUserInputRequest: guardedProjectNotification(request.projectId, projectGeneration, request.onUserInputRequest
+      ? (input) => request.onUserInputRequest?.(mapUserInput(request, input))
+      : undefined),
+    onUserInputResolved: guardedProjectNotification(request.projectId, projectGeneration, request.onUserInputResolved ? (input) => request.onUserInputResolved?.({
       providerId: CODEX_PROVIDER_ID,
       requestId: input.requestId,
       runtimeScopeId,
       runId: request.runId,
       attemptId: request.attemptId,
       ...(input.threadId ? { threadId: input.threadId } : {}),
-    }) : undefined,
+    }) : undefined),
     dynamicTools: request.tools,
-    onDynamicToolCall: request.onToolCall ? async (call) => request.onToolCall?.({ ...call, providerId: CODEX_PROVIDER_ID }) as Promise<import("./contracts.js").ProviderToolResult> : undefined,
-    onGoalUpdate: request.onObjectiveUpdate ? (goal) => request.onObjectiveUpdate?.(mapObjective(goal)) : undefined,
-    onTextDelta: request.onTextDelta,
-    onPlanDelta: request.onPlanDelta,
-    onPlanUpdate: request.onPlanUpdate,
-    onError: request.onError,
+    onDynamicToolCall: request.onToolCall ? async (call) => {
+      defaultProjectRemovalFence.assertCurrent(request.projectId, projectGeneration);
+      return request.onToolCall?.({ ...call, providerId: CODEX_PROVIDER_ID }) as Promise<import("./contracts.js").ProviderToolResult>;
+    } : undefined,
+    onGoalUpdate: guardedProjectNotification(request.projectId, projectGeneration, request.onObjectiveUpdate
+      ? (goal) => request.onObjectiveUpdate?.(mapObjective(goal))
+      : undefined),
+    onTextDelta: guardedProjectNotification(request.projectId, projectGeneration, request.onTextDelta),
+    onPlanDelta: guardedProjectNotification(request.projectId, projectGeneration, request.onPlanDelta),
+    onPlanUpdate: guardedProjectNotification(request.projectId, projectGeneration, request.onPlanUpdate),
+    onError: guardedProjectNotification(request.projectId, projectGeneration, request.onError),
     model: request.model?.modelId,
     imageInputs: request.imageInputs,
     skillInputs: request.skillInputs?.map((skill) => ({ name: skill.id, path: skill.path })),
@@ -111,6 +128,7 @@ export async function runCodexChildTurn(request: ProviderChildTurnRequest): Prom
   if (request.providerId !== CODEX_PROVIDER_ID || request.parentSession.providerId !== CODEX_PROVIDER_ID || request.targetSession.providerId !== CODEX_PROVIDER_ID) {
     throw new Error("Codex Child continuation requires Codex parent and Child sessions.");
   }
+  const projectGeneration = defaultProjectRemovalFence.capture(request.projectId);
   const result = await runCodexAppServerChildTurn({
     projectId: request.projectId,
     conversationId: request.conversationId,
@@ -128,14 +146,21 @@ export async function runCodexChildTurn(request: ProviderChildTurnRequest): Prom
     targetDisplayName: request.targetDisplayName,
     timeoutMs: request.timeoutMs,
     onRealtimeEvent: request.onRealtimeEvent ? (event) => {
+      if (!isProjectGenerationCurrent(request.projectId, projectGeneration)) return;
       const mapped = mapRealtime(request, event);
       if (mapped) request.onRealtimeEvent?.(mapped);
     } : undefined,
     onChildLifecycleEvent: request.onChildLifecycleEvent
-      ? (event) => request.onChildLifecycleEvent?.(mapChildLifecycle(event))
+      ? (event) => {
+        if (isProjectGenerationCurrent(request.projectId, projectGeneration)) {
+          request.onChildLifecycleEvent?.(mapChildLifecycle(event));
+        }
+      }
       : undefined,
-    onChildThreadResult: request.onChildThreadResult ? (child) => request.onChildThreadResult?.(mapChild(child)) : undefined,
-    onError: request.onError,
+    onChildThreadResult: guardedProjectNotification(request.projectId, projectGeneration, request.onChildThreadResult
+      ? (child) => request.onChildThreadResult?.(mapChild(child))
+      : undefined),
+    onError: guardedProjectNotification(request.projectId, projectGeneration, request.onError),
     model: request.model?.modelId,
     skillInputs: request.skillInputs?.map((skill) => ({ name: skill.id, path: skill.path })),
     requiredNativeSkills: request.skillInputs?.filter((skill) => skill.required).map((skill) => skill.id),
@@ -162,7 +187,7 @@ async function inspectCodexChild(request: ProviderChildSessionRequest): Promise<
   if (request.providerId !== CODEX_PROVIDER_ID || request.parentSession.providerId !== CODEX_PROVIDER_ID || request.targetSession.providerId !== CODEX_PROVIDER_ID) {
     return "stale";
   }
-  return isCodexAppServerChildAvailable(request.cwd, request.parentSession.sessionId, request.targetSession.sessionId)
+  return isCodexAppServerChildAvailable(request.projectId, request.cwd, request.parentSession.sessionId, request.targetSession.sessionId)
     ? "available"
     : "stale";
 }
@@ -171,6 +196,7 @@ async function closeCodexChild(request: ProviderChildCloseRequest): Promise<Prov
   if (request.providerId !== CODEX_PROVIDER_ID || request.parentSession.providerId !== CODEX_PROVIDER_ID || request.targetSession.providerId !== CODEX_PROVIDER_ID) {
     throw new Error("Codex Child close requires Codex parent and Child sessions.");
   }
+  const projectGeneration = defaultProjectRemovalFence.capture(request.projectId);
   const result = await runCodexAppServerChildClose({
     projectId: request.projectId,
     conversationId: request.conversationId,
@@ -186,13 +212,18 @@ async function closeCodexChild(request: ProviderChildCloseRequest): Promise<Prov
     targetDisplayName: request.targetDisplayName,
     timeoutMs: request.timeoutMs,
     onRealtimeEvent: request.onRealtimeEvent ? (event) => {
+      if (!isProjectGenerationCurrent(request.projectId, projectGeneration)) return;
       const mapped = mapRealtime(request, event);
       if (mapped) request.onRealtimeEvent?.(mapped);
     } : undefined,
     onChildLifecycleEvent: request.onChildLifecycleEvent
-      ? (event) => request.onChildLifecycleEvent?.(mapChildLifecycle(event))
+      ? (event) => {
+        if (isProjectGenerationCurrent(request.projectId, projectGeneration)) {
+          request.onChildLifecycleEvent?.(mapChildLifecycle(event));
+        }
+      }
       : undefined,
-    onError: request.onError,
+    onError: guardedProjectNotification(request.projectId, projectGeneration, request.onError),
   });
   return {
     providerId: CODEX_PROVIDER_ID,
@@ -205,6 +236,28 @@ async function closeCodexChild(request: ProviderChildCloseRequest): Promise<Prov
     ...(result.host ? { runtimeHost: result.host } : {}),
     error: result.error,
   };
+}
+
+function guardedProjectNotification<TArgs extends unknown[]>(
+  projectId: string,
+  generation: number,
+  callback: ((...args: TArgs) => void) | undefined,
+): ((...args: TArgs) => void) | undefined {
+  if (!callback) return undefined;
+  return (...args) => {
+    if (!isProjectGenerationCurrent(projectId, generation)) return;
+    callback(...args);
+  };
+}
+
+function isProjectGenerationCurrent(projectId: string, generation: number): boolean {
+  try {
+    defaultProjectRemovalFence.assertCurrent(projectId, generation);
+    return true;
+  } catch (error) {
+    if (error instanceof Error && error.name === "Conflict") return false;
+    throw error;
+  }
 }
 
 function latestThreadTurnId(snapshot: Record<string, unknown>): string | null {

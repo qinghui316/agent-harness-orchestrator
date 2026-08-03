@@ -13,7 +13,7 @@ import { getProjectGitCommitDetail, getProjectGitCommitDiff, getProjectGitDiff, 
 import { addSkillRoot, listSkillRoots, listSkills, setSkillEnabled, type SkillCatalogResult } from "../../skill/catalog.js";
 import { getSystemSkillsRoot } from "../../template-source/paths.js";
 import type { ManagedProject } from "../../types/index.js";
-import { addExistingProject, createNewProject, initProjectHarness, listProjectStatuses, removeRegisteredProject } from "./project-admin.js";
+import { addExistingProject, createNewProject, initProjectHarness, listProjectStatuses, prepareRegisteredProjectRemoval, removeRegisteredProject } from "./project-admin.js";
 import { handleDirectWorkbenchApi } from "./direct-routes.js";
 import { handleProjectWorkbenchApi } from "./project-routes.js";
 import { handleTerminalApi } from "./terminal-routes.js";
@@ -21,6 +21,21 @@ import { assertConfirmed, assertLocalWorkbenchRequest, assertRegisteredProject, 
 import type { AddExistingProjectRequest, CreateNewProjectRequest, InitProjectHarnessRequest, RemoveProjectRequest, WorkbenchServerContext } from "./types.js";
 
 export async function handleApi(context: WorkbenchServerContext, request: IncomingMessage, response: ServerResponse, url: URL): Promise<void> {
+  const trackedProjectId = projectIdForTrackedRequest(url.pathname)
+    ?? directProjectIdForTrackedRequest(context, url.pathname);
+  const lease = trackedProjectId
+    ? context.projectRemoval.beginProjectRequest(trackedProjectId, response, {
+      stream: isProjectStreamingRequest(url.pathname),
+    })
+    : null;
+  try {
+    await handleApiRequest(context, request, response, url);
+  } finally {
+    lease?.complete();
+  }
+}
+
+async function handleApiRequest(context: WorkbenchServerContext, request: IncomingMessage, response: ServerResponse, url: URL): Promise<void> {
   if (request.method !== "GET") {
     assertLocalWorkbenchRequest(request);
   }
@@ -43,17 +58,17 @@ export async function handleApi(context: WorkbenchServerContext, request: Incomi
     return;
   }
   if (request.method === "GET" && url.pathname === "/api/providers/capabilities") {
-    const runtimeSummaries = await Promise.all(defaultProviderRegistry.list().map((provider) => provider.runtimeSummary(null)));
+    const runtimeSummaries = await Promise.all(context.providerRegistry.list().map((provider) => provider.runtimeSummary(null)));
     sendJson(response, 200, { providers: runtimeSummaries.map((summary) => summary.snapshot), runtimeSummaries });
     return;
   }
   if (request.method === "GET" && url.pathname === "/api/providers") {
-    sendJson(response, 200, { providers: defaultProviderRegistry.list().map((provider) => ({ providerId: provider.id, displayName: provider.displayName })) });
+    sendJson(response, 200, { providers: context.providerRegistry.list().map((provider) => ({ providerId: provider.id, displayName: provider.displayName })) });
     return;
   }
   const globalProviderSurface = url.pathname.match(/^\/api\/providers\/([^/]+)\/(diagnostics|models)$/);
   if (globalProviderSurface?.[1] && globalProviderSurface[2]) {
-    const provider = defaultProviderRegistry.get(decodeURIComponent(globalProviderSurface[1]));
+    const provider = context.providerRegistry.get(decodeURIComponent(globalProviderSurface[1]));
     if (request.method === "GET" && globalProviderSurface[2] === "diagnostics") {
       sendJson(response, 200, await provider.diagnostics(null));
       return;
@@ -69,16 +84,38 @@ export async function handleApi(context: WorkbenchServerContext, request: Incomi
     return;
   }
   if (request.method === "POST" && url.pathname === "/api/projects") {
-    sendJson(response, 200, await addExistingProject(context.store, await readJsonBody<AddExistingProjectRequest>(request), context.projectRuntimeCoordinator));
+    const result = await addExistingProject(
+      context.store,
+      await readJsonBody<AddExistingProjectRequest>(request),
+      context.projectRuntimeCoordinator,
+      context.projectRemoval,
+    );
+    sendJson(response, 200, result);
     return;
   }
   if (request.method === "POST" && url.pathname === "/api/projects/new") {
-    sendJson(response, 200, await createNewProject(context.store, await readJsonBody<CreateNewProjectRequest>(request), context.projectRuntimeCoordinator));
+    const result = await createNewProject(
+      context.store,
+      await readJsonBody<CreateNewProjectRequest>(request),
+      context.projectRuntimeCoordinator,
+      context.projectRemoval,
+    );
+    sendJson(response, 200, result);
+    return;
+  }
+  const projectRemovalConfirmationMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/removal-confirmation$/);
+  if (request.method === "POST" && projectRemovalConfirmationMatch?.[1]) {
+    sendJson(response, 200, await prepareRegisteredProjectRemoval(
+      context.projectRemoval,
+      decodeURIComponent(projectRemovalConfirmationMatch[1]),
+    ));
     return;
   }
   const projectRemoveMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/remove$/);
   if (request.method === "POST" && projectRemoveMatch?.[1]) {
-    sendJson(response, 200, await removeRegisteredProject(context.store, decodeURIComponent(projectRemoveMatch[1]), await readJsonBody<RemoveProjectRequest>(request)));
+    const projectId = decodeURIComponent(projectRemoveMatch[1]);
+    sendJson(response, 200, await removeRegisteredProject(context.projectRemoval, projectId, await readJsonBody<RemoveProjectRequest>(request)));
+    if (context.input?.project?.id === projectId) context.input = null;
     return;
   }
   if (request.method === "POST" && url.pathname === "/api/dialog/open-folder") {
@@ -106,7 +143,7 @@ export async function handleApi(context: WorkbenchServerContext, request: Incomi
   const providerCapabilitiesMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/providers\/capabilities$/);
   if (request.method === "GET" && providerCapabilitiesMatch?.[1]) {
     const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(providerCapabilitiesMatch[1]));
-    const runtimeSummaries = await Promise.all(defaultProviderRegistry.list().map((provider) => provider.runtimeSummary(input.project, input.path)));
+    const runtimeSummaries = await Promise.all(context.providerRegistry.list().map((provider) => provider.runtimeSummary(input.project, input.path)));
     sendJson(response, 200, { providers: runtimeSummaries.map((summary) => summary.snapshot), runtimeSummaries });
     return;
   }
@@ -114,14 +151,14 @@ export async function handleApi(context: WorkbenchServerContext, request: Incomi
   if (request.method === "POST" && projectProviderDefaultMatch?.[1]) {
     const projectId = decodeURIComponent(projectProviderDefaultMatch[1]);
     const body = await readJsonBody<{ providerId?: string | null }>(request);
-    if (body.providerId) defaultProviderRegistry.get(body.providerId);
+    if (body.providerId) context.providerRegistry.get(body.providerId);
     sendJson(response, 200, { project: await context.store.setDefaultProvider(projectId, body.providerId ?? null) });
     return;
   }
   const projectProviderSurface = url.pathname.match(/^\/api\/projects\/([^/]+)\/providers\/([^/]+)\/(diagnostics|models)$/);
   if (projectProviderSurface?.[1] && projectProviderSurface[2] && projectProviderSurface[3]) {
     const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(projectProviderSurface[1]));
-    const provider = defaultProviderRegistry.get(decodeURIComponent(projectProviderSurface[2]));
+    const provider = context.providerRegistry.get(decodeURIComponent(projectProviderSurface[2]));
     if (request.method === "GET" && projectProviderSurface[3] === "diagnostics") {
       sendJson(response, 200, await provider.diagnostics(input.project, input.path));
       return;
@@ -137,7 +174,7 @@ export async function handleApi(context: WorkbenchServerContext, request: Incomi
     const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(projectProviderAction[1]));
     assertRegisteredProject(input);
     assertConfirmed((await readJsonBody<{ confirm?: boolean }>(request)).confirm);
-    const provider = defaultProviderRegistry.get(decodeURIComponent(projectProviderAction[2]));
+    const provider = context.providerRegistry.get(decodeURIComponent(projectProviderAction[2]));
     sendJson(response, 200, await provider.projectActions.execute(decodeURIComponent(projectProviderAction[3]), input.project, input.path));
     return;
   }
@@ -306,12 +343,12 @@ export async function handleApi(context: WorkbenchServerContext, request: Incomi
     const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(skillsMatch[1]));
     assertRegisteredProject(input);
     if (request.method === "GET") {
-      const provider = resolveProjectSkillProvider(input.project, url.searchParams.get("providerId"));
+      const provider = resolveProjectSkillProvider(input.project, url.searchParams.get("providerId"), context.providerRegistry);
       sendJson(response, 200, catalogResponse(await loadNativeSkillCatalog(context, input.project, provider, false)));
       return;
     }
     if (request.method === "POST") {
-      const provider = resolveProjectSkillProvider(input.project, url.searchParams.get("providerId"));
+      const provider = resolveProjectSkillProvider(input.project, url.searchParams.get("providerId"), context.providerRegistry);
       sendJson(response, 200, catalogResponse(await loadNativeSkillCatalog(context, input.project, provider, true)));
       return;
     }
@@ -321,7 +358,7 @@ export async function handleApi(context: WorkbenchServerContext, request: Incomi
     const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(skillEnableMatch[1]));
     assertRegisteredProject(input);
     const body = await readJsonBody<{ enabled?: boolean; topic?: string }>(request);
-    const provider = resolveProjectSkillProvider(input.project, url.searchParams.get("providerId"));
+    const provider = resolveProjectSkillProvider(input.project, url.searchParams.get("providerId"), context.providerRegistry);
     const runtime = await context.projectRuntimeCoordinator.requireReady(input.project);
     const catalog = await loadNativeSkillCatalog(context, input.project, provider, false);
     sendJson(response, 200, await setSkillEnabled(
@@ -338,7 +375,7 @@ export async function handleApi(context: WorkbenchServerContext, request: Incomi
     const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(providerSkillEnableMatch[1]));
     assertRegisteredProject(input);
     const body = await readJsonBody<{ providerId?: string; enabled?: boolean }>(request);
-    const provider = resolveProjectSkillProvider(input.project, body.providerId);
+    const provider = resolveProjectSkillProvider(input.project, body.providerId, context.providerRegistry);
     const before = await loadNativeSkillCatalog(context, input.project, provider, false);
     const skillId = decodeURIComponent(providerSkillEnableMatch[2]);
     const skill = before.skills.find((item) => item.skillId === skillId);
@@ -382,4 +419,19 @@ async function loadNativeSkillCatalog(
 
 function catalogResponse(result: SkillCatalogResult & { snapshot: unknown }): SkillCatalogResult {
   return { roots: result.roots, skills: result.skills, errors: result.errors };
+}
+
+function projectIdForTrackedRequest(pathname: string): string | null {
+  const match = pathname.match(/^\/api\/projects\/([^/]+)\/(.+)$/);
+  if (!match?.[1] || !match[2] || match[2] === "remove" || match[2] === "removal-confirmation") return null;
+  return decodeURIComponent(match[1]);
+}
+
+function directProjectIdForTrackedRequest(context: WorkbenchServerContext, pathname: string): string | null {
+  if (!context.input?.project || !pathname.startsWith("/api/workbench/")) return null;
+  return context.input.project.id;
+}
+
+function isProjectStreamingRequest(pathname: string): boolean {
+  return /\/(?:live|settle|events)$/.test(pathname);
 }

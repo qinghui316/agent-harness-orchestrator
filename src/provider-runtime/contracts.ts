@@ -283,6 +283,7 @@ export interface ProviderChildCloseRequest {
 
 export interface ProviderChildSessionRequest {
   providerId: ProviderId;
+  projectId: string;
   cwd: string;
   parentSession: ProviderSessionRef;
   targetSession: ProviderSessionRef;
@@ -377,6 +378,10 @@ export interface ProviderDescriptor {
   displayName: string;
   runtime: {
     shutdown(reason?: string): void | Promise<void>;
+    shutdownProject(
+      project: { projectId: string; projectPath: string },
+      reason?: string,
+    ): void | Promise<void>;
   };
   capabilitySnapshot(project: import("../types/index.js").ManagedProject | null, projectPath?: string): Promise<ProviderCapabilitySnapshot>;
   runtimeSummary(project: import("../types/index.js").ManagedProject | null, projectPath?: string): Promise<ProviderRuntimeSummary>;

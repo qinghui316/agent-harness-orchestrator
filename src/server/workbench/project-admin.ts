@@ -13,6 +13,7 @@ import { assertConfirmed, isWithinDirectory } from "./http.js";
 import type { AddExistingProjectRequest, CreateNewProjectRequest, InitProjectHarnessRequest, RemoveProjectRequest } from "./types.js";
 import { listProjectStatusesWithDirect } from "./direct-project.js";
 import type { WorkbenchProjectInput } from "../../workbench/read-model-types.js";
+import type { WorkbenchProjectRemovalConfirmation, WorkbenchProjectRemovalPort } from "./project-removal.js";
 
 export async function listProjectStatuses(store: ProjectRegistryStore, directInput: WorkbenchProjectInput | null = null): Promise<unknown[]> {
   return listProjectStatusesWithDirect(store, directInput);
@@ -25,6 +26,7 @@ export async function addExistingProject(
     store,
     discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
   }),
+  projectRemoval?: Pick<WorkbenchProjectRemovalPort, "runRegistration">,
 ): Promise<{ project: ManagedProject; status: unknown }> {
   assertConfirmed(body.confirm);
   if (typeof body.path !== "string" || body.path.trim() === "") {
@@ -33,9 +35,12 @@ export async function addExistingProject(
     throw error;
   }
   const path = await resolveExistingDirectory(body.path);
-  const state = await projectRuntimeCoordinator.register({ path, name: body.name });
-  const project = state.project;
-  return { project, status: await getProjectStatus(project, project.path) };
+  const register = async (): Promise<{ project: ManagedProject; status: unknown }> => {
+    const state = await projectRuntimeCoordinator.register({ path, name: body.name });
+    const project = state.project;
+    return { project, status: await getProjectStatus(project, project.path) };
+  };
+  return projectRemoval ? projectRemoval.runRegistration(path, register) : register();
 }
 
 export async function createNewProject(
@@ -45,6 +50,7 @@ export async function createNewProject(
     store,
     discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
   }),
+  projectRemoval?: Pick<WorkbenchProjectRemovalPort, "runRegistration">,
 ): Promise<{ project: ManagedProject; status: unknown; createdPath: string }> {
   assertConfirmed(body.confirm);
   if (typeof body.parentPath !== "string" || body.parentPath.trim() === "") {
@@ -71,20 +77,37 @@ export async function createNewProject(
     await runGit(projectPath, ["add", "."]);
     await runGit(projectPath, ["-c", "user.name=AHO", "-c", "user.email=aho@example.local", "commit", "-m", "Initial commit"]);
   }
-  const state = await projectRuntimeCoordinator.register({ path: projectPath, name });
-  const project = state.project;
-  return { project, createdPath: projectPath, status: await getProjectStatus(project, project.path) };
+  const register = async (): Promise<{ project: ManagedProject; status: unknown; createdPath: string }> => {
+    const state = await projectRuntimeCoordinator.register({ path: projectPath, name });
+    const project = state.project;
+    return { project, createdPath: projectPath, status: await getProjectStatus(project, project.path) };
+  };
+  return projectRemoval ? projectRemoval.runRegistration(projectPath, register) : register();
 }
 
-export async function removeRegisteredProject(store: ProjectRegistryStore, projectId: string, body: RemoveProjectRequest): Promise<{ removed: ManagedProject }> {
-  assertConfirmed(body.confirm);
-  const removed = await store.removeProject(projectId);
-  if (!removed) {
-    const error = new Error(`Project not found: ${projectId}`);
-    error.name = "NotFound";
+export async function prepareRegisteredProjectRemoval(
+  projectRemoval: WorkbenchProjectRemovalPort,
+  projectId: string,
+): Promise<WorkbenchProjectRemovalConfirmation> {
+  return projectRemoval.issueConfirmation(projectId);
+}
+
+export async function removeRegisteredProject(
+  projectRemoval: WorkbenchProjectRemovalPort,
+  projectId: string,
+  body: RemoveProjectRequest,
+): Promise<{ removal: Awaited<ReturnType<WorkbenchProjectRemovalPort["remove"]>> }> {
+  if (typeof body.confirmationToken !== "string" || !body.confirmationToken.trim()) {
+    const error = new Error("Project removal confirmation token is required.");
+    error.name = "BadRequest";
     throw error;
   }
-  return { removed };
+  return {
+    removal: await projectRemoval.remove(projectId, {
+      confirmationToken: body.confirmationToken,
+      confirmed: body.confirm === true,
+    }),
+  };
 }
 
 export async function initProjectHarness(store: ProjectRegistryStore, projectId: string, body: InitProjectHarnessRequest): Promise<{ result: unknown; status: unknown }> {

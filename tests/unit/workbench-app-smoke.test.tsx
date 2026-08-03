@@ -108,6 +108,33 @@ describe("Workbench App owner composition", () => {
     await waitFor(() => expect(screen.queryByTestId("agent-office-center-view")).toBeNull());
   });
 
+  it("uses token-bound destructive project removal while preserving source owners in the warning", async () => {
+    installApiFixture(createSnapshot());
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<App />);
+    await screen.findByText("Canonical Main reply");
+
+    fireEvent.click(await screen.findByRole("button", { name: "更多项目操作" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /移出项目/ }));
+
+    await waitFor(() => expect(confirm).toHaveBeenCalledOnce());
+    const warning = String(confirm.mock.calls[0]?.[0] ?? "");
+    expect(warning).toContain("永久删除 AHO 中的对话、运行记录、日志和运行 sidecar");
+    expect(warning).toContain("物理项目 Harness Skill、Git worktree 和 Git 历史会保留");
+    await waitFor(() => {
+      const removalCall = vi.mocked(fetch).mock.calls.find(([input]) => String(input).endsWith("/api/projects/repo/remove"));
+      expect(removalCall).toBeDefined();
+      expect(JSON.parse(String(removalCall?.[1]?.body))).toEqual({
+        confirm: true,
+        confirmationToken: "remove-token-repo",
+      });
+    });
+    const confirmationCall = vi.mocked(fetch).mock.calls.find(([input]) => (
+      String(input).endsWith("/api/projects/repo/removal-confirmation")
+    ));
+    expect(confirmationCall).toBeDefined();
+  });
+
   it("mounts the active Interaction Dock in the Composer slot only", async () => {
     const interaction = createInteraction();
     installApiFixture(createSnapshot(interaction));
@@ -285,6 +312,13 @@ function installApiFixture(snapshot: Snapshot): void {
     if (url.endsWith("/providers/codex/diagnostics")) return json({ providerId: "codex", displayName: "Codex", models: {} });
     if (url.endsWith("/providers/codex/model-settings")) return json({ providerId: "codex" });
     if (url.endsWith("/skills")) return json({ skills: [] });
+    if (url.endsWith("/removal-confirmation")) return json({
+      token: "remove-token-repo",
+      projectId: "repo",
+      projectName: "Repo",
+      expiresAt: "2026-08-03T12:00:00.000Z",
+    });
+    if (url.endsWith("/remove")) return json({ removal: { projectId: "repo" } });
     return json({});
   }));
 }

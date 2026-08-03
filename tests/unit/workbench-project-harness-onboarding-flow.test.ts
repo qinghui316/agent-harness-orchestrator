@@ -221,7 +221,10 @@ function fakeProvider(observed: ProviderTurnRequest[], options: FakeProviderOpti
   return {
     id: providerId,
     displayName: "Codex",
-    runtime: { shutdown: async () => undefined },
+    runtime: {
+      shutdown: async () => undefined,
+      shutdownProject: async () => undefined,
+    },
     capabilitySnapshot: async () => snapshot,
     runtimeSummary: async () => ({ providerId, productMode: "harness", harnessExecutionModes: ["stepwise", "scoped-auto"], snapshot }),
     models: {

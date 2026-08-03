@@ -4,6 +4,7 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   emptyWorkbenchSnapshot,
+  removalConfirmationMessage,
   useProjectConversationSession,
   type ProjectConversationSessionPorts,
   type WorkbenchRestoreParams,
@@ -287,10 +288,24 @@ describe("Project conversation session owner", () => {
     expect(result.current.selectedTopic).toBeNull();
 
     await act(async () => { await result.current.removeProject("repo-1"); });
-    expect(fixture.api.removeProject).toHaveBeenCalledWith("repo-1");
+    expect(fixture.api.prepareProjectRemoval).toHaveBeenCalledWith("repo-1");
+    expect(fixture.api.removeProject).toHaveBeenCalledWith("repo-1", "remove-token-repo-1");
     expect(fixture.timeline.clearProject).toHaveBeenCalledWith("repo-1");
     expect(result.current.selectedProjectId).toBeNull();
     expect(result.current.snapshot).toEqual(emptyWorkbenchSnapshot);
+  });
+
+  it("does not consume a prepared removal when the user declines the destructive warning", async () => {
+    const fixture = ownerFixture();
+    fixture.ui.confirmRemoveProject.mockReturnValue(false);
+    const { result } = renderHook(() => useProjectConversationSession({ ...fixture.ports, autoLoad: false }));
+    await act(async () => { await result.current.loadApp(); });
+
+    await act(async () => { await result.current.removeProject("repo-1"); });
+
+    expect(fixture.api.prepareProjectRemoval).toHaveBeenCalledWith("repo-1");
+    expect(fixture.api.removeProject).not.toHaveBeenCalled();
+    expect(result.current.projects).toHaveLength(2);
   });
 });
 
@@ -301,6 +316,12 @@ function ownerFixture(options: { restore?: WorkbenchRestoreParams } = {}) {
     loadProjects: vi.fn(async () => projects),
     loadSnapshot: vi.fn(async (projectId: string, conversationId: string | null) => snapshot(projectId, conversationId)),
     loadStream: vi.fn(async (_projectId: string, runId: string) => stream(runId)),
+    prepareProjectRemoval: vi.fn(async (projectId: string) => ({
+      token: `remove-token-${projectId}`,
+      projectId,
+      projectName: projectId,
+      expiresAt: "2026-08-03T12:00:00.000Z",
+    })),
     removeProject: vi.fn(async () => undefined),
     hideConversation: vi.fn(async () => undefined),
     updateConversationTitle: vi.fn(async (_projectId: string, conversationId: string, title: string) => ({
@@ -328,6 +349,15 @@ function ownerFixture(options: { restore?: WorkbenchRestoreParams } = {}) {
   const ports: ProjectConversationSessionPorts = { api, navigation, timeline, resources, operations, ui, onError: vi.fn() };
   return { api, navigation, timeline, resources, operations, ui, ports };
 }
+
+describe("Project removal confirmation", () => {
+  it("states the destructive runtime boundary and preserved source owners", () => {
+    const message = removalConfirmationMessage("Example");
+    expect(message).toContain("永久删除 AHO 中的对话、运行记录、日志和运行 sidecar");
+    expect(message).toContain("项目源码、物理项目 Harness Skill、Git worktree 和 Git 历史会保留");
+    expect(message).not.toContain("只会从 App 项目列表移出");
+  });
+});
 
 function managedProject(id: string): ProjectStatus {
   return {

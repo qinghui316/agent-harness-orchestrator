@@ -74,7 +74,7 @@ import {
   useConversationComposerController,
   type ComposerActionRequest,
 } from "./controllers/useConversationComposerController.js";
-import { useProjectConversationSession } from "./controllers/useProjectConversationSession.js";
+import { removalConfirmationMessage, useProjectConversationSession } from "./controllers/useProjectConversationSession.js";
 
 const LEFT_SIDEBAR_DEFAULT_WIDTH = 280;
 const LEFT_SIDEBAR_MIN_WIDTH = 220;
@@ -149,7 +149,7 @@ export function App(): ReactElement {
           setSettingsOpen(true);
         }
       },
-      confirmRemoveProject: (projectName) => window.confirm(`移出“${projectName}”？\n\n只会从 App 项目列表移出，不会删除代码、不会修改 Git，也不会删除项目证据。之后可以重新添加。`),
+      confirmRemoveProject: (projectName) => window.confirm(removalConfirmationMessage(projectName)),
     },
     onError: setError,
   });

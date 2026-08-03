@@ -20,6 +20,7 @@ import { CanonicalTimelineDelivery } from "./canonical-timeline-delivery.js";
 import { toCanonicalTimelineMessage } from "./canonical-timeline-message.js";
 import { createAssistantTranscriptCapture } from "./live-transcript.js";
 import { openWorkbenchDatabase } from "./persistence/open-workbench-database.js";
+import { defaultProjectRuntimeActivityRegistry } from "../project-runtime/activity.js";
 import { buildCanonicalCaptureWrites } from "./provider-capture-persistence.js";
 import { forwardProviderRealtimeEvent } from "./provider-live-events.js";
 import { publishAgentSurfacesInvalidated } from "./project-live-events.js";
@@ -92,7 +93,13 @@ export async function listClosableChildAgents(input: {
   }
 }
 
-export async function runExactChildAgentClose(input: {
+export function runExactChildAgentClose(
+  input: Parameters<typeof runExactChildAgentCloseActivity>[0],
+): ReturnType<typeof runExactChildAgentCloseActivity> {
+  return defaultProjectRuntimeActivityRegistry.run(input.project.id, () => runExactChildAgentCloseActivity(input));
+}
+
+async function runExactChildAgentCloseActivity(input: {
   project: ManagedProject;
   conversationId: string;
   graphScopeId: string;
@@ -113,6 +120,7 @@ export async function runExactChildAgentClose(input: {
   });
   const childState = await defaultProviderRegistry.get(target.providerId).conversation.inspectChild({
     providerId: target.providerId,
+    projectId: input.project.id,
     cwd: input.project.path,
     parentSession: { providerId: target.providerId, sessionId: target.parentThreadId },
     targetSession: { providerId: target.providerId, sessionId: target.threadId },
@@ -161,7 +169,13 @@ export async function runExactChildAgentClose(input: {
   };
 }
 
-export async function runExactChildAgentTurn(input: {
+export function runExactChildAgentTurn(
+  input: Parameters<typeof runExactChildAgentTurnActivity>[0],
+): ReturnType<typeof runExactChildAgentTurnActivity> {
+  return defaultProjectRuntimeActivityRegistry.run(input.project.id, () => runExactChildAgentTurnActivity(input));
+}
+
+async function runExactChildAgentTurnActivity(input: {
   project: ManagedProject;
   conversationId: string;
   agentSurfaceId: string;
@@ -183,6 +197,7 @@ export async function runExactChildAgentTurn(input: {
 
   const childState = await defaultProviderRegistry.get(target.providerId).conversation.inspectChild({
     providerId: target.providerId,
+    projectId: input.project.id,
     cwd: input.project.path,
     parentSession: { providerId: target.providerId, sessionId: target.parentThreadId },
     targetSession: { providerId: target.providerId, sessionId: target.threadId },

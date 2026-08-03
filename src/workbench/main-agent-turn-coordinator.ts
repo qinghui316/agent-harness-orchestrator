@@ -56,17 +56,36 @@ import type {
   TopicThreadEntry,
   WorkbenchLiveSink,
 } from "./types.js";
+import { defaultProjectRuntimeActivityRegistry } from "../project-runtime/activity.js";
 export function buildProjectScopedMainAgentPrompt(userMessage: string): string {
   return userMessage;
 }
 
-export async function runProjectScopedMainAgentTurn(
+export function runProjectScopedMainAgentTurn(
   project: ManagedProject,
   conversationId: string,
   userMessage: string,
   live?: WorkbenchLiveSink,
   planHandoff?: ValidatedPlanHandoffIntent,
   options: { goalResume?: { deliveryKey: string; contextText: string }; graphScopeId?: string } = {},
+): Promise<TopicThreadEntry> {
+  return defaultProjectRuntimeActivityRegistry.run(project.id, () => runProjectScopedMainAgentTurnActivity(
+    project,
+    conversationId,
+    userMessage,
+    live,
+    planHandoff,
+    options,
+  ));
+}
+
+async function runProjectScopedMainAgentTurnActivity(
+  project: ManagedProject,
+  conversationId: string,
+  userMessage: string,
+  live: WorkbenchLiveSink | undefined,
+  planHandoff: ValidatedPlanHandoffIntent | undefined,
+  options: { goalResume?: { deliveryKey: string; contextText: string }; graphScopeId?: string },
 ): Promise<TopicThreadEntry> {
   if (!await readProjectMarker(project.path)) {
     const runtimeState = await resolveProjectRuntimeState(project, {

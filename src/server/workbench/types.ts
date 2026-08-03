@@ -5,6 +5,8 @@ import type { WorkbenchApprovalAction, WorkbenchProjectInput } from "../../workb
 import type { TopicMessageInput, WorkbenchWorkflowActionRequest } from "../../workbench/types.js";
 import type { MemoryMode } from "../../types/index.js";
 import type { ProjectRuntimeCoordinatorPort } from "../../project-runtime/coordinator.js";
+import type { ProviderRegistry } from "../../provider-runtime/registry.js";
+import type { WorkbenchProjectRemovalPort } from "./project-removal.js";
 
 export interface WorkbenchServeOptions {
   host?: string;
@@ -13,6 +15,8 @@ export interface WorkbenchServeOptions {
   store?: ProjectRegistryStore;
   terminalRuntime?: TerminalRuntime;
   projectRuntimeCoordinator?: ProjectRuntimeCoordinatorPort;
+  providerRegistry?: ProviderRegistry;
+  projectRemoval?: WorkbenchProjectRemovalPort;
 }
 
 export interface WorkbenchServerHandle {
@@ -26,6 +30,8 @@ export interface WorkbenchServerContext {
   staticRoot: string;
   store: ProjectRegistryStore;
   projectRuntimeCoordinator: ProjectRuntimeCoordinatorPort;
+  providerRegistry: ProviderRegistry;
+  projectRemoval: WorkbenchProjectRemovalPort;
   terminalRuntime: TerminalRuntime;
 }
 
@@ -129,6 +135,7 @@ export interface InitProjectHarnessRequest {
 
 export interface RemoveProjectRequest {
   confirm?: boolean;
+  confirmationToken?: string;
 }
 
 export interface CreateTopicRequest {

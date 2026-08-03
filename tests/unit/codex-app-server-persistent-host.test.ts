@@ -12,6 +12,8 @@ vi.mock("cross-spawn", () => ({ default: spawnMock }));
 import { runCodexAppServerChildClose, runCodexAppServerChildTurn, runCodexAppServerTurn } from "../../src/codex/app-server.js";
 import { CodexAppServerHost, CodexAppServerHostRegistry, defaultCodexAppServerHostRegistry } from "../../src/codex/app-server-host.js";
 import { listCodexRuntimeModels } from "../../src/codex/model-settings.js";
+import { defaultProjectRemovalFence } from "../../src/project-runtime/removal.js";
+import { runCodexTurn } from "../../src/provider-runtime/codex-adapter.js";
 
 const tempDirs: string[] = [];
 
@@ -203,6 +205,44 @@ describe("Codex persistent app-server Host", () => {
     registry.disposeAll("test cleanup");
   });
 
+  it("stops and drains every canonical and worktree Host owned by one project", async () => {
+    const canonicalCwd = await tempDir();
+    const firstWorktree = await tempDir();
+    const otherProjectCwd = await tempDir();
+    const canonicalServer = new PersistentCollaborationServer(4451);
+    const worktreeServer = new PersistentCollaborationServer(4452);
+    const otherServer = new PersistentCollaborationServer(4453);
+    spawnMock
+      .mockReturnValueOnce(canonicalServer as unknown as ChildProcess)
+      .mockReturnValueOnce(worktreeServer as unknown as ChildProcess)
+      .mockReturnValueOnce(otherServer as unknown as ChildProcess);
+    const registry = new CodexAppServerHostRegistry();
+    const canonicalLease = await registry.hostForProject("project-one", canonicalCwd)
+      .acquire({ onLine: () => undefined, onStderr: () => undefined, onExit: () => undefined });
+    const worktreeLease = await registry.hostForProject("project-one", firstWorktree)
+      .acquire({ onLine: () => undefined, onStderr: () => undefined, onExit: () => undefined });
+    const otherLease = await registry.hostForProject("project-two", otherProjectCwd)
+      .acquire({ onLine: () => undefined, onStderr: () => undefined, onExit: () => undefined });
+
+    let drained = false;
+    const shutdown = registry.disposeProject("project-one", "project removed").then(() => { drained = true; });
+    await Promise.resolve();
+    expect(canonicalServer.killCount).toBe(1);
+    expect(worktreeServer.killCount).toBe(1);
+    expect(otherServer.killCount).toBe(0);
+    expect(drained).toBe(false);
+
+    canonicalLease.release();
+    expect(drained).toBe(false);
+    worktreeLease.release();
+    await shutdown;
+    expect(drained).toBe(true);
+    expect(registry.snapshots()).toEqual([expect.objectContaining({ cwd: otherProjectCwd })]);
+
+    otherLease.release();
+    registry.disposeAll("test cleanup");
+  });
+
   it("runs model discovery without taking or disposing the active Turn lease", async () => {
     const cwd = await tempDir();
     const server = new PersistentCollaborationServer(4501);
@@ -214,6 +254,33 @@ describe("Codex persistent app-server Host", () => {
     expect(host.snapshot()).toMatchObject({ state: "busy", generation: 1, pid: 4501 });
     expect(server.killCount).toBe(0);
     lease.release();
+  });
+
+  it("drops provider callbacks from a generation invalidated by project removal", async () => {
+    const cwd = await tempDir();
+    const server = new PersistentCollaborationServer(4551, true);
+    spawnMock.mockReturnValue(server as unknown as ChildProcess);
+    const realtimeEvents: string[] = [];
+    const base = await turnOptions(cwd, "generation-guard-run", null);
+    const turn = runCodexTurn({
+      ...base,
+      providerId: "codex",
+      operationProfile: "main",
+      attemptId: "attempt-generation-guard",
+      onRealtimeEvent: (event) => realtimeEvents.push(`${event.threadId}:${event.turnId}`),
+    });
+    await vi.waitFor(() => expect(realtimeEvents.length).toBeGreaterThan(0));
+    const eventCountBeforeRemoval = realtimeEvents.length;
+
+    const removalGeneration = defaultProjectRemovalFence.beginRemoval(base.projectId);
+    try {
+      server.completeParent();
+      await expect(turn).resolves.toMatchObject({ status: "completed" });
+      expect(realtimeEvents).toHaveLength(eventCountBeforeRemoval);
+    } finally {
+      defaultProjectRemovalFence.completeRemoval(base.projectId, removalGeneration);
+      defaultProjectRemovalFence.activateAfterRegistration(base.projectId);
+    }
   });
 });
 

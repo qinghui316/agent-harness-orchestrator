@@ -18,8 +18,15 @@ import { openWorkbenchDatabase } from "../workbench/persistence/open-workbench-d
 import { type StoredConversation } from "../workbench/persistence/contracts.js";
 import { assembleSharedConversationContext } from "../workbench/shared-conversation-context.js";
 import { bindProviderAttemptThread, finishProviderAttempt } from "../workbench/provider-attempts.js";
+import { defaultProjectRuntimeActivityRegistry } from "../project-runtime/activity.js";
 
-export async function runProviderCodeTurn(input: {
+export function runProviderCodeTurn(
+  input: Parameters<typeof runProviderCodeTurnActivity>[0],
+): ReturnType<typeof runProviderCodeTurnActivity> {
+  return defaultProjectRuntimeActivityRegistry.run(input.project.id, () => runProviderCodeTurnActivity(input));
+}
+
+async function runProviderCodeTurnActivity(input: {
   project: ManagedProject;
   memory: ResolvedMemory;
   run: RunMetadata;

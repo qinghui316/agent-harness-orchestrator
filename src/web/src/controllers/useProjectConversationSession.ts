@@ -41,6 +41,13 @@ export type CreateDemandConversationInput = {
   showPendingBeforeCreate: boolean;
 };
 
+export type ProjectRemovalConfirmation = {
+  token: string;
+  projectId: string;
+  projectName: string;
+  expiresAt: string;
+};
+
 export type SessionTransitionKind = "project-changed" | "conversation-changed" | "new-conversation";
 
 export type SessionTransition = {
@@ -64,7 +71,8 @@ export interface ProjectConversationSessionApi {
   loadProjects(): Promise<ProjectStatus[]>;
   loadSnapshot(projectId: string, conversationId: string | null): Promise<Snapshot>;
   loadStream(projectId: string, runId: string): Promise<StreamPacket>;
-  removeProject(projectId: string): Promise<void>;
+  prepareProjectRemoval(projectId: string): Promise<ProjectRemovalConfirmation>;
+  removeProject(projectId: string, confirmationToken: string): Promise<void>;
   hideConversation(projectId: string, conversationId: string): Promise<void>;
   updateConversationTitle(projectId: string, conversationId: string, title: string): Promise<{ conversation: Topic }>;
   registerProject(path: string): Promise<{ project: { id: string }; status?: ProjectStatus }>;
@@ -97,7 +105,7 @@ export interface ProjectConversationSessionPorts {
   ui?: {
     transition(event: SessionTransition): void;
     restoreView(view: Pick<WorkbenchRestoreParams, "orchestrationOpen" | "settingsOpen">): void;
-    confirmRemoveProject(projectName: string): boolean;
+    confirmRemoveProject(projectName: string, confirmation: ProjectRemovalConfirmation): boolean;
   };
   onError?(message: string): void;
   autoLoad?: boolean;
@@ -315,9 +323,12 @@ export function useProjectConversationSession(ports: ProjectConversationSessionP
   const removeProject = useCallback(async (projectId: string): Promise<void> => {
     const status = findProject(stateRef.current.projects, projectId);
     const name = projectDisplayName(status?.project, projectId);
-    if (!(portsRef.current.ui?.confirmRemoveProject(name) ?? defaultConfirmRemoveProject(name))) return;
+    const api = sessionApi(portsRef.current);
+    const confirmation = await api.prepareProjectRemoval(projectId);
+    if (!(portsRef.current.ui?.confirmRemoveProject(name, confirmation)
+      ?? defaultConfirmRemoveProject(name, confirmation))) return;
     ++requestGenerationRef.current;
-    await sessionApi(portsRef.current).removeProject(projectId);
+    await api.removeProject(projectId, confirmation.token);
     portsRef.current.timeline?.clearProject(projectId);
     setProjectSnapshots((current) => withoutProject(current, projectId));
     setExpandedProjects((current) => withoutSetValue(current, projectId));
@@ -660,7 +671,16 @@ const defaultApi: ProjectConversationSessionApi = {
   loadStream: (projectId, runId) => fetchJson<StreamPacket>(
     `/api/projects/${encodeURIComponent(projectId)}/workbench/stream/${encodeURIComponent(runId)}`,
   ),
-  removeProject: async (projectId) => { await postJson(`/api/projects/${encodeURIComponent(projectId)}/remove`, { confirm: true }); },
+  prepareProjectRemoval: (projectId) => postJson<ProjectRemovalConfirmation>(
+    `/api/projects/${encodeURIComponent(projectId)}/removal-confirmation`,
+    {},
+  ),
+  removeProject: async (projectId, confirmationToken) => {
+    await postJson(`/api/projects/${encodeURIComponent(projectId)}/remove`, {
+      confirm: true,
+      confirmationToken,
+    });
+  },
   hideConversation: async (projectId, conversationId) => {
     await postJson(`/api/projects/${encodeURIComponent(projectId)}/workbench/topics/${encodeURIComponent(conversationId)}/delete`, { confirm: true });
   },
@@ -755,8 +775,15 @@ function withoutSetValue(values: Set<string>, value: string): Set<string> {
   return next;
 }
 
-function defaultConfirmRemoveProject(projectName: string): boolean {
-  return window.confirm(`移出“${projectName}”？\n\n只会从 App 项目列表移出，不会删除代码、不会修改 Git，也不会删除项目证据。之后可以重新添加。`);
+function defaultConfirmRemoveProject(
+  projectName: string,
+  _confirmation: ProjectRemovalConfirmation,
+): boolean {
+  return window.confirm(removalConfirmationMessage(projectName));
+}
+
+export function removalConfirmationMessage(projectName: string): string {
+  return `永久移出“${projectName}”？\n\n这会停止该项目正在运行的 Agent，并永久删除 AHO 中的对话、运行记录、日志和运行 sidecar。删除后无法从 App 恢复这些数据。\n\n项目源码、物理项目 Harness Skill、Git worktree 和 Git 历史会保留。`;
 }
 
 export function snapshotForProject(project: ProjectStatus | null | undefined): Snapshot {

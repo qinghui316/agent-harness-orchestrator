@@ -23,18 +23,37 @@ import { WorkbenchProjectHarnessOnboardingExecutionStore } from "./project-harne
 import { publishCommittedCanonicalTimelineRow } from "./canonical-timeline-delivery.js";
 import { toCanonicalTimelineMessage } from "./canonical-timeline-message.js";
 import type { TopicThreadEntry, WorkbenchLiveSink } from "./types.js";
+import { defaultProjectRuntimeActivityRegistry } from "../project-runtime/activity.js";
 
 export interface RunProjectHarnessOnboardingTurnOptions {
   providerRegistry?: Pick<ProviderRegistry, "requireProfiles">;
 }
 
-export async function runProjectHarnessOnboardingTurn(
+export function runProjectHarnessOnboardingTurn(
   project: ManagedProject,
   state: Extract<ProjectRuntimeState, { state: "onboarding" }>,
   conversationId: string,
   userMessage: string,
   live?: WorkbenchLiveSink,
   options: RunProjectHarnessOnboardingTurnOptions = {},
+): Promise<TopicThreadEntry> {
+  return defaultProjectRuntimeActivityRegistry.run(project.id, () => runProjectHarnessOnboardingTurnActivity(
+    project,
+    state,
+    conversationId,
+    userMessage,
+    live,
+    options,
+  ));
+}
+
+async function runProjectHarnessOnboardingTurnActivity(
+  project: ManagedProject,
+  state: Extract<ProjectRuntimeState, { state: "onboarding" }>,
+  conversationId: string,
+  userMessage: string,
+  live: WorkbenchLiveSink | undefined,
+  options: RunProjectHarnessOnboardingTurnOptions,
 ): Promise<TopicThreadEntry> {
   const registry = options.providerRegistry ?? defaultProviderRegistry;
   const workspace = await createOnboardingRuntime(project, state);

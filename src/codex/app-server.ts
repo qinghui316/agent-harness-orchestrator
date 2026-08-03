@@ -316,7 +316,7 @@ export function runCodexAppServerTurn(options: CodexAppServerTurnOptions): Promi
 }
 
 export function runCodexAppServerChildTurn(options: CodexAppServerChildTurnOptions): Promise<CodexAppServerTurnResult> {
-  const host = defaultCodexAppServerHostRegistry.hostFor(options.cwd);
+  const host = defaultCodexAppServerHostRegistry.hostForProject(options.projectId, options.cwd);
   if (host.snapshot().state === "busy") return runActiveCodexAppServerChildTurn(options);
   return runCodexAppServerOperation({
     ...options,
@@ -326,8 +326,8 @@ export function runCodexAppServerChildTurn(options: CodexAppServerChildTurnOptio
   }, { action: "followup", parentThreadId: options.parentThreadId, targetThreadId: options.targetThreadId });
 }
 
-export function isCodexAppServerChildAvailable(cwd: string, parentThreadId: string, childThreadId: string): boolean {
-  return defaultCodexAppServerHostRegistry.hasLiveChild(cwd, parentThreadId, childThreadId);
+export function isCodexAppServerChildAvailable(projectId: string, cwd: string, parentThreadId: string, childThreadId: string): boolean {
+  return defaultCodexAppServerHostRegistry.hostForProject(projectId, cwd).hasLiveChild(parentThreadId, childThreadId);
 }
 
 async function runActiveCodexAppServerChildTurn(options: CodexAppServerChildTurnOptions): Promise<CodexAppServerTurnResult> {
@@ -337,7 +337,7 @@ async function runActiveCodexAppServerChildTurn(options: CodexAppServerChildTurn
   ]);
   const eventStream = createWriteStream(options.paths.events, { flags: "a", encoding: "utf8" });
   const stderrStream = createWriteStream(options.paths.stderr, { flags: "a", encoding: "utf8" });
-  const host = defaultCodexAppServerHostRegistry.hostFor(options.cwd);
+  const host = defaultCodexAppServerHostRegistry.hostForProject(options.projectId, options.cwd);
   const collaborationNormalizer = new CodexCollaborationNormalizer();
   let observed = false;
   let childCompleted = false;
@@ -464,7 +464,7 @@ async function runNativeCodexAppServerChildClose(options: CodexAppServerChildClo
   ]);
   const eventStream = createWriteStream(options.paths.events, { flags: "a", encoding: "utf8" });
   const stderrStream = createWriteStream(options.paths.stderr, { flags: "a", encoding: "utf8" });
-  const host = defaultCodexAppServerHostRegistry.hostFor(options.cwd);
+  const host = defaultCodexAppServerHostRegistry.hostForProject(options.projectId, options.cwd);
   if (host.hasClosedChild(options.parentThreadId, options.targetThreadId)) {
     const snapshot = host.snapshot();
     const hostIdentity: CodexAppServerHostIdentity = {
@@ -674,7 +674,7 @@ async function runCodexAppServerOperation(
 
   const startedAt = new Date().toISOString();
   try {
-    hostLease = await defaultCodexAppServerHostRegistry.hostFor(options.cwd).acquire({
+    hostLease = await defaultCodexAppServerHostRegistry.hostForProject(options.projectId, options.cwd).acquire({
       onLine: handleLine,
       onStderr: (text) => stderrStream.write(text),
       onExit: (error) => {
@@ -938,7 +938,7 @@ async function runCodexAppServerOperation(
       childThreadParents.set(event.childThreadId, event.parentThreadId);
       if (event.roleHint) childThreadRoleHints.set(event.childThreadId, event.roleHint);
       if (event.kind === "closed"
-        && defaultCodexAppServerHostRegistry.hasLiveChild(options.cwd, event.parentThreadId, event.childThreadId)) {
+        && defaultCodexAppServerHostRegistry.hostForProject(options.projectId, options.cwd).hasLiveChild(event.parentThreadId, event.childThreadId)) {
         hostLease?.closeChild(event.parentThreadId, event.childThreadId);
       }
       options.onChildLifecycleEvent?.(event);

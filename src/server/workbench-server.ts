@@ -12,6 +12,7 @@ import { defaultProviderRegistry } from "../provider-runtime/index.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/project-harness-discovery.js";
 import type { WorkbenchServeOptions, WorkbenchServerContext, WorkbenchServerHandle } from "./workbench/types.js";
 import { ProjectRuntimeCoordinator, type ProjectRuntimeCoordinatorPort } from "../project-runtime/coordinator.js";
+import { WorkbenchProjectRemovalService } from "./workbench/project-removal.js";
 
 export type { WorkbenchServeOptions, WorkbenchServerHandle } from "./workbench/types.js";
 export { executeWorkbenchAction } from "./workbench/actions.js";
@@ -26,6 +27,9 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
     store,
     discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
   });
+  const providerRegistry = options.providerRegistry ?? defaultProviderRegistry;
+  const projectRemoval = options.projectRemoval ?? new WorkbenchProjectRemovalService({ store, providerRegistry });
+  for (const project of await store.listProjects()) projectRemoval.activateAfterRegistration(project.id);
   const terminalRuntime = options.terminalRuntime ?? new TerminalRuntime();
   await projectRuntimeCoordinator.reconcileStartup();
   const restoredInput = await restoreDirectProjectInput(input, store);
@@ -35,6 +39,8 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
     staticRoot,
     store,
     projectRuntimeCoordinator,
+    providerRegistry,
+    projectRemoval,
     terminalRuntime,
   };
   const server = createServer((request, response) => {
@@ -44,7 +50,7 @@ export async function startWorkbenchServer(input: WorkbenchProjectInput | null =
   });
   let runtimeCleanup: Promise<void> | null = null;
   const cleanupRuntime = (): Promise<void> => runtimeCleanup ??= (async () => {
-    await defaultProviderRegistry.shutdownAll("Workbench server stopped.");
+    await providerRegistry.shutdownAll("Workbench server stopped.");
     terminalRuntime.cleanup();
   })();
   server.on("close", () => {

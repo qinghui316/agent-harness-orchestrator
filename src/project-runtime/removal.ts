@@ -47,7 +47,6 @@ export interface RemoveProjectRuntimeInput {
 export interface ProjectRemovalResult {
   projectId: string;
   sidecarRemoved: boolean;
-  cleanupPending: boolean;
 }
 
 export interface ProjectRemovalCoordinatorOptions<TRegistration> {
@@ -58,6 +57,8 @@ export interface ProjectRemovalCoordinatorOptions<TRegistration> {
   now?: () => number;
   createToken?: () => string;
   failureInjection?: (stage: ProjectRemovalStage) => Promise<void> | void;
+  fence?: ProjectRemovalFence;
+  removeQuarantine?: (path: string) => Promise<void>;
 }
 
 interface ProjectRemovalFenceState {
@@ -78,7 +79,7 @@ export class ProjectRemovalFence {
     const state = this.projects.get(projectId) ?? { generation: 0, status: "active" as const };
     this.assertActive(projectId, state);
     if (state.generation !== generation) {
-      throw new Error(`Project runtime callback is stale for ${projectId}.`);
+      throw conflict(`Project runtime callback is stale for ${projectId}.`);
     }
   }
 
@@ -92,13 +93,13 @@ export class ProjectRemovalFence {
 
   rollbackRemoval(projectId: string, generation: number): void {
     const current = this.requireGeneration(projectId, generation);
-    if (current.status !== "removing") throw new Error(`Project removal is not active for ${projectId}.`);
+    if (current.status !== "removing") throw conflict(`Project removal is not active for ${projectId}.`);
     this.projects.set(projectId, { generation, status: "active" });
   }
 
   completeRemoval(projectId: string, generation: number): void {
     const current = this.requireGeneration(projectId, generation);
-    if (current.status !== "removing") throw new Error(`Project removal is not active for ${projectId}.`);
+    if (current.status !== "removing") throw conflict(`Project removal is not active for ${projectId}.`);
     this.projects.set(projectId, { generation, status: "removed" });
   }
 
@@ -115,27 +116,66 @@ export class ProjectRemovalFence {
 
   private assertActive(projectId: string, state: ProjectRemovalFenceState): void {
     if (state.status !== "active") {
-      throw new Error(`Project runtime is ${state.status} and cannot accept work: ${projectId}.`);
+      throw conflict(`Project runtime is ${state.status} and cannot accept work: ${projectId}.`);
     }
   }
 
   private requireGeneration(projectId: string, generation: number): ProjectRemovalFenceState {
     const current = this.projects.get(projectId);
     if (!current || current.generation !== generation) {
-      throw new Error(`Project removal generation is stale for ${projectId}.`);
+      throw conflict(`Project removal generation is stale for ${projectId}.`);
     }
     return current;
   }
 }
 
+export const defaultProjectRemovalFence = new ProjectRemovalFence();
+
+export class ProjectLifecycleMutationGate {
+  private readonly activeKeys = new Set<string>();
+  private readonly removedProjectIdByPath = new Map<string, string>();
+
+  acquire(projectId: string | null, projectPath: string): { release(): void } {
+    const keys = [lifecyclePathKey(projectPath), ...(projectId ? [`id:${projectId}`] : [])];
+    if (keys.some((key) => this.activeKeys.has(key))) {
+      throw conflict(`Project registration or removal is already in progress for ${projectId ?? projectPath}.`);
+    }
+    for (const key of keys) this.activeKeys.add(key);
+    let released = false;
+    return {
+      release: () => {
+        if (released) return;
+        released = true;
+        for (const key of keys) this.activeKeys.delete(key);
+      },
+    };
+  }
+
+  markRemoved(projectId: string, projectPath: string): void {
+    this.removedProjectIdByPath.set(lifecyclePathKey(projectPath), projectId);
+  }
+
+  removedProjectId(projectPath: string): string | null {
+    return this.removedProjectIdByPath.get(lifecyclePathKey(projectPath)) ?? null;
+  }
+
+  markRegistered(projectPath: string): void {
+    this.removedProjectIdByPath.delete(lifecyclePathKey(projectPath));
+  }
+}
+
+export const defaultProjectLifecycleMutationGate = new ProjectLifecycleMutationGate();
+
 export class ProjectRemovalCoordinator<TRegistration> {
-  readonly fence = new ProjectRemovalFence();
+  readonly fence: ProjectRemovalFence;
   private readonly confirmations = new Map<string, ProjectRemovalConfirmation>();
+  private readonly confirmationTokenByProject = new Map<string, string>();
   private readonly now: () => number;
   private readonly createToken: () => string;
   private readonly confirmationTtlMs: number;
 
   constructor(private readonly options: ProjectRemovalCoordinatorOptions<TRegistration>) {
+    this.fence = options.fence ?? new ProjectRemovalFence();
     this.now = options.now ?? Date.now;
     this.createToken = options.createToken ?? randomUUID;
     this.confirmationTtlMs = options.confirmationTtlMs ?? 5 * 60_000;
@@ -143,6 +183,8 @@ export class ProjectRemovalCoordinator<TRegistration> {
 
   issueConfirmation(projectId: string, projectPath: string): ProjectRemovalConfirmation {
     const runtimePaths = resolveProjectRuntimePaths(projectId, this.options.ahoHome);
+    const previousToken = this.confirmationTokenByProject.get(projectId);
+    if (previousToken) this.confirmations.delete(previousToken);
     const token = this.createToken();
     if (!token.trim() || this.confirmations.has(token)) {
       throw new Error("Project removal confirmation token must be unique and non-empty.");
@@ -155,6 +197,7 @@ export class ProjectRemovalCoordinator<TRegistration> {
       expiresAt: new Date(this.now() + this.confirmationTtlMs).toISOString(),
     };
     this.confirmations.set(token, confirmation);
+    this.confirmationTokenByProject.set(projectId, token);
     return confirmation;
   }
 
@@ -163,6 +206,7 @@ export class ProjectRemovalCoordinator<TRegistration> {
     const generation = this.fence.beginRemoval(input.projectId);
     let quarantineRoot: string | null = null;
     let sidecarQuarantined = false;
+    let sidecarRemoved = false;
     let unregistered: TRegistration | null = null;
     let committed = false;
     try {
@@ -188,37 +232,59 @@ export class ProjectRemovalCoordinator<TRegistration> {
       unregistered = await this.options.registration.unregister(input.projectId);
       if (!unregistered) throw new Error(`Project is not registered: ${input.projectId}.`);
       await this.inject("unregistered");
+
+      if (sidecarQuarantined && quarantineRoot) {
+        await (this.options.removeQuarantine ?? removeRuntimeQuarantine)(quarantineRoot);
+        sidecarQuarantined = false;
+        sidecarRemoved = true;
+      }
       this.fence.completeRemoval(input.projectId, generation);
       committed = true;
     } catch (error) {
-      if (unregistered) await this.options.registration.restore(unregistered);
-      if (sidecarQuarantined && quarantineRoot) {
-        await restoreRuntimeSidecar(input.runtimePaths.sidecarRoot, quarantineRoot);
+      const rollbackErrors: unknown[] = [];
+      if (unregistered) {
+        try {
+          await this.options.registration.restore(unregistered);
+        } catch (rollbackError) {
+          rollbackErrors.push(rollbackError);
+        }
       }
-      this.fence.rollbackRemoval(input.projectId, generation);
-      await this.options.lifecycle.removalAborted?.(input.projectId);
+      if (sidecarQuarantined && quarantineRoot) {
+        try {
+          await restoreRuntimeSidecar(input.runtimePaths.sidecarRoot, quarantineRoot);
+        } catch (rollbackError) {
+          rollbackErrors.push(rollbackError);
+        }
+      }
+      try {
+        this.fence.rollbackRemoval(input.projectId, generation);
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError);
+      }
+      try {
+        await this.options.lifecycle.removalAborted?.(input.projectId);
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError);
+      }
+      if (rollbackErrors.length > 0) {
+        throw new AggregateError([error, ...rollbackErrors], "Project removal failed and rollback was incomplete.");
+      }
       throw error;
     }
 
     if (!committed) throw new Error("Project removal did not reach its commit point.");
-    let cleanupPending = false;
-    if (sidecarQuarantined && quarantineRoot) {
-      try {
-        await rm(quarantineRoot, { recursive: true, force: false });
-      } catch {
-        cleanupPending = true;
-      }
-    }
     return {
       projectId: input.projectId,
-      sidecarRemoved: sidecarQuarantined,
-      cleanupPending,
+      sidecarRemoved,
     };
   }
 
   private consumeConfirmation(input: RemoveProjectRuntimeInput): ProjectRemovalConfirmation {
     const confirmation = this.confirmations.get(input.confirmationToken);
     this.confirmations.delete(input.confirmationToken);
+    if (confirmation && this.confirmationTokenByProject.get(confirmation.projectId) === input.confirmationToken) {
+      this.confirmationTokenByProject.delete(confirmation.projectId);
+    }
     if (input.confirmed !== true) throw new Error("Project removal requires explicit confirmation.");
     if (!confirmation) throw new Error("Project removal confirmation is missing, stale, or already used.");
     if (Date.parse(confirmation.expiresAt) <= this.now()) {
@@ -237,6 +303,10 @@ export class ProjectRemovalCoordinator<TRegistration> {
   private async inject(stage: ProjectRemovalStage): Promise<void> {
     await this.options.failureInjection?.(stage);
   }
+}
+
+async function removeRuntimeQuarantine(path: string): Promise<void> {
+  await rm(path, { recursive: true, force: false, maxRetries: 20, retryDelay: 100 });
 }
 
 async function quarantineRuntimeSidecar(
@@ -270,4 +340,15 @@ async function restoreRuntimeSidecar(sidecarRoot: string, quarantineRoot: string
   }
   await mkdir(dirname(sidecarRoot), { recursive: true });
   await rename(quarantineRoot, sidecarRoot);
+}
+
+function conflict(message: string): Error {
+  const error = new Error(message);
+  error.name = "Conflict";
+  return error;
+}
+
+function lifecyclePathKey(projectPath: string): string {
+  const normalized = resolve(projectPath);
+  return `path:${process.platform === "win32" ? normalized.toLowerCase() : normalized}`;
 }

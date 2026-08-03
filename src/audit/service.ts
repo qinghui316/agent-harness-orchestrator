@@ -25,6 +25,7 @@ import { collectWorktreeDiff } from "./diff.js";
 import { listAuditResults, readAuditResult, summarizeAudit } from "./repository.js";
 import { parseAuditMessage } from "./parser.js";
 import { composeAuditPrompt } from "./prompt.js";
+import { defaultProjectRuntimeActivityRegistry } from "../project-runtime/activity.js";
 
 export interface AuditRunOptions {
   changeId?: string;
@@ -44,7 +45,11 @@ export interface AuditStatusResult {
   audits: AuditSummary[];
 }
 
-export async function startAuditRun(project: ManagedProject, options: AuditRunOptions = {}): Promise<AuditRunResult> {
+export function startAuditRun(project: ManagedProject, options: AuditRunOptions = {}): Promise<AuditRunResult> {
+  return defaultProjectRuntimeActivityRegistry.run(project.id, () => startAuditRunActivity(project, options));
+}
+
+async function startAuditRunActivity(project: ManagedProject, options: AuditRunOptions): Promise<AuditRunResult> {
   const projectHarnessInput = await resolveProjectHarnessAgentInput(project, DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY);
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "Audit run");

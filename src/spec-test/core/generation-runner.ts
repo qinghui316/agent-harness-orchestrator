@@ -19,6 +19,7 @@ import { createWorktree, getWorktreeMetadataPath } from "../../worktree/manager.
 import { getSpecTestStatus } from "./status.js";
 import { resolveSpecTestProvider } from "./provider.js";
 import type { ChangeStatus, ManagedProject, ResolvedMemory, RunMetadata, RunStatus, RunWorktreeInfo, SpecTestAcStatus } from "../../types/index.js";
+import { defaultProjectRuntimeActivityRegistry } from "../../project-runtime/activity.js";
 
 export interface SpecTestGenerateOptions {
   acIds?: string[];
@@ -40,7 +41,11 @@ export interface DiffPolicyResult {
   rejected: string[];
 }
 
-export async function startSpecTestGenerationRun(project: ManagedProject, options: SpecTestGenerateOptions): Promise<SpecTestGenerateResult> {
+export function startSpecTestGenerationRun(project: ManagedProject, options: SpecTestGenerateOptions): Promise<SpecTestGenerateResult> {
+  return defaultProjectRuntimeActivityRegistry.run(project.id, () => startSpecTestGenerationRunActivity(project, options));
+}
+
+async function startSpecTestGenerationRunActivity(project: ManagedProject, options: SpecTestGenerateOptions): Promise<SpecTestGenerateResult> {
   if (options.missing && options.acIds && options.acIds.length > 0) {
     throw new Error("Use either --missing or --ac, not both.");
   }

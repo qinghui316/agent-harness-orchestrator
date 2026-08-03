@@ -27,6 +27,7 @@ import type {
   SpecTestProposalStatus,
   SpecTestProposalSummary,
 } from "../../types/index.js";
+import { defaultProjectRuntimeActivityRegistry } from "../../project-runtime/activity.js";
 
 const specTestRefSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("file"), path: z.string() }),
@@ -128,7 +129,11 @@ export interface SpecTestProposalAcceptResult {
   status: Awaited<ReturnType<typeof getSpecTestStatus>>;
 }
 
-export async function startSpecTestProposalRun(project: ManagedProject, options: SpecTestProposeOptions = {}): Promise<SpecTestProposalRunResult> {
+export function startSpecTestProposalRun(project: ManagedProject, options: SpecTestProposeOptions = {}): Promise<SpecTestProposalRunResult> {
+  return defaultProjectRuntimeActivityRegistry.run(project.id, () => startSpecTestProposalRunActivity(project, options));
+}
+
+async function startSpecTestProposalRunActivity(project: ManagedProject, options: SpecTestProposeOptions): Promise<SpecTestProposalRunResult> {
   const projectHarnessInput = await resolveProjectHarnessAgentInput(project, DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY);
   const memory = await resolveProjectMemory(project);
   assertWritableMemory(memory, "Spec-test proposal run");

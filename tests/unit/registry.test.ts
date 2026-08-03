@@ -74,6 +74,21 @@ describe("ProjectRegistryStore", () => {
     await expect(writeFile(join(projectPath, "still-here.txt"), "ok", "utf8")).resolves.toBeUndefined();
   });
 
+  it("restores the exact registration during a removal rollback", async () => {
+    const store = new ProjectRegistryStore(join(tempDir, "home"));
+    const projectPath = join(tempDir, "repo");
+    const project = await store.registerProject({
+      path: projectPath,
+      name: "Repo",
+      projectId: "canonical-project",
+    });
+    await store.removeProject(project.project.id);
+
+    await store.restoreProject(project.project);
+
+    expect(await store.resolveProject("canonical-project")).toEqual(project.project);
+  });
+
   it("keeps same-name projects registered as separate paths", async () => {
     const store = new ProjectRegistryStore(join(tempDir, "home"));
 

@@ -83,6 +83,24 @@ describe("provider-neutral runtime contract", () => {
     expect(calls.sort()).toEqual(["alpha:test shutdown", "beta:test shutdown"]);
   });
 
+  it("stops only the selected project through every provider-neutral runtime", async () => {
+    const registry = new ProviderRegistry();
+    const calls: string[] = [];
+    for (const providerId of ["alpha", "beta"]) {
+      const provider = fakeProvider(providerId);
+      provider.runtime.shutdownProject = async (project, reason) => {
+        calls.push(`${providerId}:${project.projectId}:${project.projectPath}:${reason}`);
+      };
+      registry.register(provider);
+    }
+
+    await registry.shutdownProject("project-one", root, "remove project");
+    expect(calls.sort()).toEqual([
+      `alpha:project-one:${root}:remove project`,
+      `beta:project-one:${root}:remove project`,
+    ]);
+  });
+
   it("requires leaf capabilities before resuming a paused task queue", () => {
     expect(requiredProfilesForResume({
       workflow: { resume: { nextRuntimeAction: "task.queue.start" } },
@@ -543,7 +561,10 @@ function fakeProvider(providerId: string): ProviderDescriptor {
   return {
     id: providerId,
     displayName: providerId,
-    runtime: { shutdown: async () => undefined },
+    runtime: {
+      shutdown: async () => undefined,
+      shutdownProject: async () => undefined,
+    },
     capabilitySnapshot: async () => snapshot,
     runtimeSummary: async () => ({ providerId, productMode: "harness", harnessExecutionModes: ["stepwise", "scoped-auto"], snapshot }),
     models: {
