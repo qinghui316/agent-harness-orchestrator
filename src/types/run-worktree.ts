@@ -233,13 +233,11 @@ export interface RunMetadata {
 
 export interface RunSkillRecord {
   id: string;
-  providerId?: string;
-  sourceKind?: "managed" | "custom" | "system-aho" | "provider-native";
-  sourceHash: string;
-  materializationMode?: "native" | "aho-managed";
-  materializedHash?: string | null;
-  bridge?: string;
-  version?: string;
+  providerId: string;
+  source: "project-harness" | "aho-system" | "provider-native";
+  path: string;
+  contentHash: string;
+  required: boolean;
 }
 
 export interface RunAgentRecord {
@@ -249,8 +247,6 @@ export interface RunAgentRecord {
   sourceHash: string;
   catalogVersion: string;
   catalogHash: string;
-  bridge?: string;
-  materializedHash?: string | null;
 }
 
 export interface RunEvent {

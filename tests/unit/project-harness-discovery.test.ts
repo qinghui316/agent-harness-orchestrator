@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { discoverProjectHarness } from "../../src/project-harness/discovery.js";
 import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../src/provider-runtime/project-harness-discovery.js";
 import { projectRelativePath } from "../../src/project-harness/contracts.js";
+import { hashNativeSkillPackageContent } from "../../src/skill/content-hash.js";
 
 const cleanup: string[] = [];
 
@@ -33,7 +34,11 @@ describe("project Harness discovery", () => {
       expect.objectContaining({ providerId: "codex", status: "ready", sameTarget: true }),
       expect.objectContaining({ providerId: "claude", status: "ready", sameTarget: true }),
     ]);
-    expect(discovered?.providerInput).toMatchObject({ source: "project-harness", required: true });
+    expect(discovered?.providerInput).toMatchObject({
+      source: "project-harness",
+      required: true,
+      contentHash: await hashNativeSkillPackageContent(skill),
+    });
   });
 
   it("rejects two different physical project Harness targets", async () => {

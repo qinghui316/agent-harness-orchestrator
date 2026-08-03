@@ -9,10 +9,20 @@ import { createProgram } from "../../src/cli/program.js";
 import { writeChangeIndex } from "../../src/ecl/index.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { defaultProviderRegistry } from "../../src/provider-runtime/default-registry.js";
+import {
+  ensureProjectHarnessOnboardingWorkspace,
+  prepareProjectHarnessOnboarding,
+  publishProjectHarnessOnboarding,
+} from "../../src/project-harness/onboarding.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../src/provider-runtime/project-harness-discovery.js";
+import { resolveProjectRuntimePaths } from "../../src/project-runtime/paths.js";
 import { getSpecTestStatus } from "../../src/spec-test/manager.js";
 import { getSpecTestDriftReport } from "../../src/spec-test/drift.js";
+import { getProjectHarnessSkillScaffoldRoot } from "../../src/template-source/paths.js";
 import { getWorkbenchSnapshot, getWorkbenchStream, listWorkbenchApprovals } from "../../src/workbench/projections/read-model/implementation.js";
+import { openProjectRuntimeWorkbenchDatabase } from "../../src/workbench/persistence/open-workbench-database.js";
 import type { ManagedProject } from "../../src/types/index.js";
+import { createFakeCodexRuntime } from "../helpers/fake-codex-runtime.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -50,6 +60,138 @@ async function seedExternalHarnessAfterAgentOnboarding(): Promise<void> {
     await cp(join(templateRoot, name), join(memoryRoot, name), { recursive: true });
   }
   await writeChangeIndex(await resolveProjectMemory(managedProject()));
+}
+
+async function publishTestProjectHarness(): Promise<void> {
+  const projectId = "repo";
+  const sidecarRoot = resolveProjectRuntimePaths(projectId, homeDir).sidecarRoot;
+  const workspace = await ensureProjectHarnessOnboardingWorkspace(projectId, repoDir, sidecarRoot);
+  await writeTestHarnessBundle(workspace.bundleRoot, projectId);
+  const runtimeEntry = join(tempDir, "project-harness-runtime.mjs");
+  await writeFile(runtimeEntry, "export async function runProjectHarnessDailyCommand() { return {}; }\n", "utf8");
+  const prepared = await prepareProjectHarnessOnboarding({
+    projectId,
+    projectRoot: repoDir,
+    sidecarRoot,
+    authorId: "cli-main-attempt",
+    transactionId: "cli-native-skill-onboarding",
+    scaffoldRoot: getProjectHarnessSkillScaffoldRoot(),
+    compiledRuntimeEntry: runtimeEntry,
+    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+  });
+  await writeTestJson(workspace.reviewPath, {
+    schema_version: "1.0",
+    kind: "full-bundle-review",
+    candidate_fingerprint: prepared.candidate_fingerprint,
+    source_snapshot_digest: prepared.source_snapshot_digest,
+    author_id: "cli-main-attempt",
+    reviewer_id: "cli-auditor-attempt",
+    decision: "approve",
+    findings: [],
+    reviewed_at: new Date().toISOString(),
+  });
+  await publishProjectHarnessOnboarding({
+    projectId,
+    projectRoot: repoDir,
+    sidecarRoot,
+    discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY,
+    reviewerId: "cli-auditor-attempt",
+  });
+}
+
+async function writeTestHarnessBundle(bundleRoot: string, projectId: string): Promise<void> {
+  const artifacts = join(bundleRoot, "artifacts");
+  await mkdir(artifacts, { recursive: true });
+  await writeFile(join(artifacts, "overview.md"), [
+    "---",
+    "ecl:",
+    "  id: overview",
+    "  layer: L1",
+    "  kind: current",
+    "  status: implemented",
+    "  owner: project-profile",
+    "  modules: []",
+    "  evidence:",
+    "    - \"user:CLI native Skill fixture\"",
+    "---",
+    "",
+    "# CLI Native Skill Fixture",
+    "",
+  ].join("\n"), "utf8");
+  await writeTestJson(join(bundleRoot, "project-profile.json"), {
+    schema_version: "1.0",
+    analysis_status: "complete",
+    project_state: "empty",
+    project_id: projectId,
+    project_name: projectId,
+    purpose: { summary: "Exercise native Skill CLI behavior.", evidence: ["user:CLI native Skill fixture"] },
+    primary_flows: [],
+    languages: [],
+    frameworks: [],
+    package_managers: [],
+    source_roots: [],
+    entrypoints: [],
+    modules: [],
+    commands: [],
+    environment: { services: [], variables: [], modes: [], evidence: [] },
+    ci: [],
+    bridges: [],
+    reference_projects: [],
+    global_boundaries: [{ summary: "Native Skills are discovered without package copies.", evidence: ["user:CLI native Skill fixture"] }],
+    unknowns: [],
+    evidence: ["user:CLI native Skill fixture"],
+  });
+  await writeTestJson(join(bundleRoot, "architecture.json"), {
+    schema_version: "1.0",
+    analysis_status: "complete",
+    layers: [{ name: "unimplemented", evidence: ["user:CLI native Skill fixture"] }],
+    dependencies: [],
+    components: [],
+    circular_dependencies: [],
+    key_interfaces: [],
+    code_paths: [],
+    error_patterns: {},
+    evidence: ["user:CLI native Skill fixture"],
+  });
+  await writeTestJson(join(bundleRoot, "audit.json"), {
+    schema_version: "1.0",
+    analysis_status: "complete",
+    dimensions: Object.fromEntries([
+      ["project_knowledge", 25],
+      ["mechanical_checks", 20],
+      ["environment", 15],
+      ["coordination", 15],
+      ["ecl_changes", 15],
+      ["evolution", 10],
+    ].map(([name, weight]) => [name, { score: 8, weight }])),
+    overall_score: 8,
+    strengths: [{ summary: "Explicit native Skill fixture", evidence: ["user:CLI native Skill fixture"] }],
+    gaps: [],
+    knowledge_findings: [],
+  });
+  await writeTestJson(join(bundleRoot, "creation-delta.json"), {
+    schema_version: "1.0",
+    mode: "init",
+    decisions: [{
+      source: "user:CLI native Skill fixture",
+      action: "create",
+      owner: "project-profile",
+      projection: "L1",
+      validation: "frontmatter and knowledge check",
+    }],
+    artifacts: [{
+      path: "references/project_wiki/overview.md",
+      action: "create",
+      source: "artifacts/overview.md",
+      owner: "project-profile",
+      validation: "knowledge-check",
+      evidence: ["user:CLI native Skill fixture"],
+    }],
+  });
+}
+
+async function writeTestJson(path: string, value: unknown): Promise<void> {
+  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
 beforeEach(async () => {
@@ -160,30 +302,33 @@ describe("CLI flow", () => {
     expect(snapshot.roles.map((item) => item.id)).not.toContain("validator");
   });
 
-  it("imports project skills and syncs them through the provider binding", async () => {
+  it("registers native Skill roots and keeps selection state without copying packages", async () => {
     await runCli(["project", "add", repoDir, "--name", "Repo"]);
-    await seedExternalHarnessAfterAgentOnboarding();
-    const skillDir = join(tempDir, "skill");
+    await publishTestProjectHarness();
+    process.env.AHO_CODEX_BIN = await createFakeCodexRuntime(tempDir);
+    const skillRoot = join(tempDir, "skills");
+    const skillDir = join(skillRoot, "pricing-helper");
     await mkdir(join(skillDir, "references"), { recursive: true });
     await mkdir(join(skillDir, "scripts"), { recursive: true });
     await writeFile(join(skillDir, "SKILL.md"), "---\nname: pricing-helper\ndescription: Pricing rules.\n---\n\n# Pricing Helper\n", "utf8");
     await writeFile(join(skillDir, "references", "rules.md"), "rules\n", "utf8");
     await writeFile(join(skillDir, "scripts", "unsafe.ps1"), "Write-Host unsafe\n", "utf8");
 
-    await runCli(["skill", "import", "repo", "--path", skillDir]);
+    await runCli(["skill", "root-add", "repo", "--path", skillRoot]);
     await runCli(["skill", "enable", "repo", "pricing-helper"]);
-    await runCli(["provider", "bridge", "install", "codex"]);
-    await runCli(["provider", "bridge", "sync", "codex", "repo"]);
-    await runCli(["provider", "bridge", "status", "codex", "repo", "--json"]);
     await runCli(["skill", "list", "repo", "--json"]);
 
-    const memorySkillRoot = join(homeDir, "projects", "repo", "skills", "pricing-helper");
-    const bridgeSkillRoot = join(process.env.CODEX_HOME ?? "", "plugins", "aho-managed", "skills", "repo__pricing-helper");
-    expect(existsSync(join(memorySkillRoot, "SKILL.md"))).toBe(true);
-    expect(existsSync(join(memorySkillRoot, "scripts", "unsafe.ps1"))).toBe(true);
-    expect(existsSync(join(bridgeSkillRoot, "SKILL.md"))).toBe(true);
-    expect(existsSync(join(bridgeSkillRoot, "scripts", "unsafe.ps1"))).toBe(true);
-    expect(await readFile(join(bridgeSkillRoot, "SKILL.md"), "utf8")).toContain("name: repo__pricing-helper");
+    expect(await readFile(join(skillDir, "scripts", "unsafe.ps1"), "utf8")).toBe("Write-Host unsafe\n");
+    expect(existsSync(join(homeDir, "projects", "repo", "skills"))).toBe(false);
+    expect(existsSync(join(process.env.CODEX_HOME ?? "", "plugins", "aho-managed"))).toBe(false);
+    const store = await openProjectRuntimeWorkbenchDatabase(resolveProjectRuntimePaths("repo", homeDir));
+    expect(store.skills.listSkillRoots("repo")).toEqual([
+      expect.objectContaining({ rootPath: skillRoot, sourceKind: "custom" }),
+    ]);
+    expect(store.skills.listSkillEnablement("repo")).toEqual([
+      expect.objectContaining({ skillId: "pricing-helper", scope: "project", enabled: true }),
+    ]);
+    store.close();
   });
 
   it("links spec-test evidence and joins direct validation results", async () => {

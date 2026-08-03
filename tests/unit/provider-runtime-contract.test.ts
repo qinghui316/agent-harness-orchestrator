@@ -424,28 +424,8 @@ describe("provider-neutral runtime contract", () => {
         updatedAt: now,
         deletedAt: null,
       });
-      store.skills.upsertSkill({
-        projectId: project.id,
-        skillId: "project-skill",
-        name: "Project Skill",
-        description: "Persisted setting",
-        sourcePath: join(root, "skills", "project-skill"),
-        sourceKind: "managed",
-        sourceHash: "source-hash",
-        metadataJson: "{}",
-        updatedAt: now,
-      });
-      store.skills.upsertSkillRoot({ projectId: project.id, rootPath: join(root, "skills"), sourceKind: "managed", updatedAt: now });
+      store.skills.upsertSkillRoot({ projectId: project.id, rootPath: join(root, "skills"), sourceKind: "custom", updatedAt: now });
       store.skills.setSkillEnablement({ projectId: project.id, changeId: null, skillId: "project-skill", scope: "project", enabled: true, updatedAt: now });
-      store.skills.upsertBridgeSync({
-        projectId: project.id,
-        skillId: "project-skill",
-        sourceHash: "source-hash",
-        materializedPath: join(root, "provider-skills", "project-skill"),
-        materializedHash: "materialized-hash",
-        bridgeVersion: "1",
-        syncedAt: now,
-      });
     } finally {
       store.close();
     }
@@ -456,13 +436,58 @@ describe("provider-neutral runtime contract", () => {
     const rebuilt = await openWorkbenchDatabase(memory);
     try {
       expect(rebuilt.conversations.readConversation(project.id, "old-conversation")).toBeNull();
-      expect(rebuilt.skills.readSkill(project.id, "project-skill")).toMatchObject({ sourceHash: "source-hash" });
       expect(rebuilt.skills.listSkillRoots(project.id)).toEqual([expect.objectContaining({ rootPath: join(root, "skills") })]);
       expect(rebuilt.skills.listSkillEnablement(project.id)).toEqual([expect.objectContaining({ skillId: "project-skill", enabled: true })]);
-      expect(rebuilt.skills.readBridgeSync(project.id, "project-skill")).toMatchObject({ materializedHash: "materialized-hash" });
     } finally {
       rebuilt.close();
     }
+  });
+
+  it("retires schema-9 bridge state without rebuilding Conversation data", async () => {
+    const project = managedProject(root);
+    const memory = repoLocalMemory(root, project.id);
+    const now = new Date().toISOString();
+    const store = await openWorkbenchDatabase(memory);
+    store.conversations.createConversation({
+      projectId: project.id,
+      conversationId: "preserved-conversation",
+      title: "Preserved history",
+      state: "active",
+      boundChangeId: null,
+      currentGraphScopeId: null,
+      selectedProviderId: "alpha",
+      completedTurnSequence: 0,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    });
+    store.close();
+
+    const schema9 = new Database(memory.workbenchDbPath);
+    schema9.exec(`
+      CREATE TABLE bridge_sync (
+        project_id TEXT NOT NULL,
+        skill_id TEXT NOT NULL,
+        source_hash TEXT NOT NULL,
+        materialized_path TEXT NOT NULL,
+        materialized_hash TEXT NOT NULL,
+        bridge_version TEXT NOT NULL,
+        synced_at TEXT NOT NULL,
+        PRIMARY KEY(project_id, skill_id)
+      );
+    `);
+    schema9.pragma("user_version = 9");
+    schema9.close();
+
+    const migrated = await openWorkbenchDatabase(memory);
+    expect(migrated.conversations.readConversation(project.id, "preserved-conversation")).toMatchObject({
+      title: "Preserved history",
+    });
+    migrated.close();
+    const inspected = new Database(memory.workbenchDbPath, { readonly: true });
+    expect(inspected.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'bridge_sync'").get()).toBeUndefined();
+    expect(Number(inspected.pragma("user_version", { simple: true }))).toBe(10);
+    inspected.close();
   });
 
   it("prevents a file-backed AgentTask claim from racing a schema rebuild", async () => {
@@ -538,11 +563,9 @@ function fakeProvider(providerId: string): ProviderDescriptor {
       projectActions: [],
     }),
     projectActions: { list: async () => [], execute: async () => { throw new Error("No test project actions."); } },
-    skillRoleBinding: {
-      status: async () => ({ state: "ready", installed: true, discoverable: true, manifestValid: true, paths: { root }, diagnostics: [] }),
-      install: async () => ({ paths: { root }, manifest: join(root, "manifest.json") }),
-      sync: async () => ({ synced: [], syncedAgents: [], status: { state: "ready", installed: true, discoverable: true, manifestValid: true, paths: { root }, diagnostics: [] } }),
-      bindCatalog: async () => [],
+    skills: {
+      list: async ({ projectPath }) => ({ providerId, projectPath, skills: [], errors: [] }),
+      setEnabled: async ({ enabled }) => ({ effectiveEnabled: enabled }),
     },
     conversation: {
       runTurn: async (request) => turnResult(request.existingSession?.sessionId ?? `${providerId}-session`),

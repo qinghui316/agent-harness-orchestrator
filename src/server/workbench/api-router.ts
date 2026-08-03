@@ -10,7 +10,9 @@ import { listProjectFileChildren, readProjectFilePreview, searchProjectFiles } f
 import { resolveWorkspaceResource, type WorkspaceResourceTarget } from "../../workbench/workspace-resources.js";
 import { createTopicAttachment, deleteTopicAttachment } from "../../workbench/attachments.js";
 import { getProjectGitCommitDetail, getProjectGitCommitDiff, getProjectGitDiff, getProjectGitHistory, getProjectGitStatus } from "../../workbench/git-panel.js";
-import { addSkillRoot, listSkillRoots, refreshSkills, setSkillEnabled, type SkillSourceKind } from "../../skill/catalog.js";
+import { addSkillRoot, listSkillRoots, listSkills, setSkillEnabled, type SkillCatalogResult } from "../../skill/catalog.js";
+import { getSystemSkillsRoot } from "../../template-source/paths.js";
+import type { ManagedProject } from "../../types/index.js";
 import { addExistingProject, createNewProject, initProjectHarness, listProjectStatuses, removeRegisteredProject } from "./project-admin.js";
 import { handleDirectWorkbenchApi } from "./direct-routes.js";
 import { handleProjectWorkbenchApi } from "./project-routes.js";
@@ -284,17 +286,18 @@ export async function handleApi(context: WorkbenchServerContext, request: Incomi
     const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(skillRootsMatch[1]));
     assertRegisteredProject(input);
     if (request.method === "GET") {
-      sendJson(response, 200, { roots: await listSkillRoots(input.project) });
+      const runtime = await context.projectRuntimeCoordinator.requireReady(input.project);
+      sendJson(response, 200, { roots: await listSkillRoots(runtime.paths) });
       return;
     }
     if (request.method === "POST") {
-      const body = await readJsonBody<{ rootPath?: string; sourceKind?: string }>(request);
+      const body = await readJsonBody<{ rootPath?: string }>(request);
       if (!body.rootPath) {
         sendJson(response, 400, { error: "rootPath is required." });
         return;
       }
-      const result = await addSkillRoot(input.project, body.rootPath, normalizeSkillSourceKind(body.sourceKind));
-      sendJson(response, 200, result);
+      const runtime = await context.projectRuntimeCoordinator.requireReady(input.project);
+      sendJson(response, 200, { roots: await addSkillRoot(runtime.paths, body.rootPath) });
       return;
     }
   }
@@ -304,15 +307,12 @@ export async function handleApi(context: WorkbenchServerContext, request: Incomi
     assertRegisteredProject(input);
     if (request.method === "GET") {
       const provider = resolveProjectSkillProvider(input.project, url.searchParams.get("providerId"));
-      sendJson(response, 200, {
-        roots: await listSkillRoots(input.project),
-        skills: await provider.skillRoleBinding.bindCatalog(input.project),
-        bridge: await provider.skillRoleBinding.status(input.project),
-      });
+      sendJson(response, 200, catalogResponse(await loadNativeSkillCatalog(context, input.project, provider, false)));
       return;
     }
     if (request.method === "POST") {
-      sendJson(response, 200, await refreshSkills(input.project));
+      const provider = resolveProjectSkillProvider(input.project, url.searchParams.get("providerId"));
+      sendJson(response, 200, catalogResponse(await loadNativeSkillCatalog(context, input.project, provider, true)));
       return;
     }
   }
@@ -321,16 +321,33 @@ export async function handleApi(context: WorkbenchServerContext, request: Incomi
     const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(skillEnableMatch[1]));
     assertRegisteredProject(input);
     const body = await readJsonBody<{ enabled?: boolean; topic?: string }>(request);
-    sendJson(response, 200, { skills: await setSkillEnabled(input.project, decodeURIComponent(skillEnableMatch[2]), { enabled: Boolean(body.enabled), topic: body.topic }) });
+    const provider = resolveProjectSkillProvider(input.project, url.searchParams.get("providerId"));
+    const runtime = await context.projectRuntimeCoordinator.requireReady(input.project);
+    const catalog = await loadNativeSkillCatalog(context, input.project, provider, false);
+    sendJson(response, 200, await setSkillEnabled(
+      runtime.paths,
+      catalog.snapshot,
+      decodeURIComponent(skillEnableMatch[2]),
+      { enabled: Boolean(body.enabled), topic: body.topic },
+      [runtime.providerInput],
+    ));
     return;
   }
-  const skillBridgeMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/skills\/provider-binding\/sync$/);
-  if (request.method === "POST" && skillBridgeMatch?.[1]) {
-    const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(skillBridgeMatch[1]));
+  const providerSkillEnableMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/skills\/([^/]+)\/provider-enable$/);
+  if (request.method === "POST" && providerSkillEnableMatch?.[1] && providerSkillEnableMatch[2]) {
+    const input = await resolveProjectInputWithDirect(context.store, context.input, decodeURIComponent(providerSkillEnableMatch[1]));
     assertRegisteredProject(input);
-    const body = await readJsonBody<{ providerId?: string }>(request);
+    const body = await readJsonBody<{ providerId?: string; enabled?: boolean }>(request);
     const provider = resolveProjectSkillProvider(input.project, body.providerId);
-    sendJson(response, 200, await provider.skillRoleBinding.sync(input.project));
+    const before = await loadNativeSkillCatalog(context, input.project, provider, false);
+    const skillId = decodeURIComponent(providerSkillEnableMatch[2]);
+    const skill = before.skills.find((item) => item.skillId === skillId);
+    if (!skill) throw new Error(`Unknown native Skill: ${skillId}`);
+    if (skill.required || skill.runtimeAssigned) {
+      throw new Error(`Skill ${skillId} is assigned by the Runtime and cannot be disabled.`);
+    }
+    await provider.skills.setEnabled({ projectPath: input.project.path, path: skill.sourcePath, enabled: Boolean(body.enabled) });
+    sendJson(response, 200, catalogResponse(await loadNativeSkillCatalog(context, input.project, provider, true)));
     return;
   }
 
@@ -344,7 +361,25 @@ export function resolveProjectSkillProvider(project: { defaultProviderId?: strin
   return registry.requireOnly();
 }
 
-function normalizeSkillSourceKind(value: string | undefined): SkillSourceKind {
-  if (value === "managed" || value === "system-aho") return value;
-  return "custom";
+async function loadNativeSkillCatalog(
+  context: WorkbenchServerContext,
+  project: ManagedProject,
+  provider: ReturnType<typeof resolveProjectSkillProvider>,
+  forceReload: boolean,
+) {
+  const runtime = await context.projectRuntimeCoordinator.requireReady(project);
+  const roots = await listSkillRoots(runtime.paths);
+  const snapshot = await provider.skills.list({
+    projectPath: project.path,
+    extraRoots: [getSystemSkillsRoot(), ...roots.map((root) => root.rootPath)],
+    forceReload,
+  });
+  return {
+    ...await listSkills(runtime.paths, snapshot, [runtime.providerInput]),
+    snapshot,
+  };
+}
+
+function catalogResponse(result: SkillCatalogResult & { snapshot: unknown }): SkillCatalogResult {
+  return { roots: result.roots, skills: result.skills, errors: result.errors };
 }

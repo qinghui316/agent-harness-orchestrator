@@ -33,16 +33,55 @@ if (!args.includes("app-server")) {
 }
 
 const readline = require("node:readline");
+const fs = require("node:fs");
+const path = require("node:path");
 const rl = readline.createInterface({ input: process.stdin });
 const threadId = "thread-server-test";
 const turnId = "turn-server-test";
+let extraRoots = [];
+const disabledSkillPaths = new Set();
 const reply = (id, result) => console.log(JSON.stringify({ id, result }));
+const skillMetadata = (skillPath, scope) => {
+  const raw = fs.readFileSync(skillPath, "utf8");
+  const name = /^name:\\s*["']?([^\\r\\n"']+)/m.exec(raw)?.[1]?.trim() || path.basename(path.dirname(skillPath));
+  const description = /^description:\\s*["']?([^\\r\\n"']*)/m.exec(raw)?.[1]?.trim() || "";
+  return { name, description, path: skillPath, scope, enabled: !disabledSkillPaths.has(path.resolve(skillPath)) };
+};
+const scanRoot = (root, scope, found, errors) => {
+  if (!root || !fs.existsSync(root)) return;
+  const candidates = fs.existsSync(path.join(root, "SKILL.md"))
+    ? [root]
+    : fs.readdirSync(root, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => path.join(root, entry.name));
+  for (const candidate of candidates) {
+    const skillPath = path.join(candidate, "SKILL.md");
+    if (!fs.existsSync(skillPath)) continue;
+    try { found.set(path.resolve(skillPath), skillMetadata(path.resolve(skillPath), scope)); }
+    catch (error) { errors.push({ path: skillPath, message: error instanceof Error ? error.message : String(error) }); }
+  }
+};
+const listSkills = (cwd) => {
+  const found = new Map();
+  const errors = [];
+  scanRoot(path.join(process.env.CODEX_HOME || "", "skills"), "user", found, errors);
+  for (const root of extraRoots) scanRoot(root, "user", found, errors);
+  scanRoot(path.join(cwd, ".agents", "skills"), "repo", found, errors);
+  return { cwd, skills: [...found.values()], errors };
+};
 rl.on("line", (line) => {
   const request = JSON.parse(line);
-  if (request.method === "initialize" || request.method === "skills/extraRoots/set") {
+  if (request.method === "initialize") {
+    reply(request.id, {});
+  } else if (request.method === "skills/extraRoots/set") {
+    extraRoots = Array.isArray(request.params?.extraRoots) ? request.params.extraRoots : [];
     reply(request.id, {});
   } else if (request.method === "skills/list") {
-    reply(request.id, { data: [{ skills: [] }] });
+    const cwds = Array.isArray(request.params?.cwds) && request.params.cwds.length > 0 ? request.params.cwds : [process.cwd()];
+    reply(request.id, { data: cwds.map(listSkills) });
+  } else if (request.method === "skills/config/write") {
+    const skillPath = path.resolve(request.params.path);
+    if (request.params.enabled) disabledSkillPaths.delete(skillPath);
+    else disabledSkillPaths.add(skillPath);
+    reply(request.id, { effectiveEnabled: !disabledSkillPaths.has(skillPath) });
   } else if (request.method === "model/list") {
     reply(request.id, { data: [{ id: "fake-model", model: "fake-model", displayName: "Fake Model" }] });
   } else if (request.method === "thread/start" || request.method === "thread/resume") {

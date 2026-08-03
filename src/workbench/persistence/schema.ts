@@ -1,13 +1,18 @@
 import type Database from "better-sqlite3";
 import type { SqliteRow } from "./sql-mappers.js";
 
-export const WORKBENCH_SCHEMA_VERSION = 9;
+export const WORKBENCH_SCHEMA_VERSION = 10;
+
+export function requiresRuntimeSchemaRebuild(currentVersion: number): boolean {
+  return currentVersion !== 9 && currentVersion !== WORKBENCH_SCHEMA_VERSION;
+}
 
 export function migrate(db: Database.Database): void {
   const currentVersion = Number(db.pragma("user_version", { simple: true }));
-  if (currentVersion !== WORKBENCH_SCHEMA_VERSION) {
+  if (requiresRuntimeSchemaRebuild(currentVersion)) {
     resetWorkbenchConversationRunSchema(db);
   }
+  db.exec("DROP TABLE IF EXISTS bridge_sync; DROP TABLE IF EXISTS skills;");
   db.exec(`
     CREATE TABLE IF NOT EXISTS canonical_timeline_items (
       id TEXT PRIMARY KEY,
@@ -174,19 +179,6 @@ export function migrate(db: Database.Database): void {
       committed_at TEXT NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS skills (
-      project_id TEXT NOT NULL,
-      skill_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      description TEXT NOT NULL,
-      source_path TEXT NOT NULL,
-      source_kind TEXT NOT NULL DEFAULT 'managed',
-      source_hash TEXT NOT NULL,
-      metadata_json TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      PRIMARY KEY(project_id, skill_id)
-    );
-
     CREATE TABLE IF NOT EXISTS skill_roots (
       project_id TEXT NOT NULL,
       root_path TEXT NOT NULL,
@@ -214,17 +206,6 @@ export function migrate(db: Database.Database): void {
       PRIMARY KEY(project_id, approval_id)
     );
 
-    CREATE TABLE IF NOT EXISTS bridge_sync (
-      project_id TEXT NOT NULL,
-      skill_id TEXT NOT NULL,
-      source_hash TEXT NOT NULL DEFAULT '',
-      materialized_path TEXT NOT NULL,
-      materialized_hash TEXT NOT NULL,
-      bridge_version TEXT NOT NULL,
-      synced_at TEXT NOT NULL,
-      PRIMARY KEY(project_id, skill_id)
-    );
-
     CREATE TABLE IF NOT EXISTS decision_records (
       id TEXT NOT NULL,
       project_id TEXT NOT NULL,
@@ -246,6 +227,7 @@ export function migrate(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_decision_records_topic ON decision_records(project_id, change_id, updated_at);
   `);
+  db.exec("DELETE FROM skill_roots WHERE source_kind <> 'custom';");
   db.exec(`
     DELETE FROM conversation_change_links
     WHERE graph_scope_id IS NOT NULL AND rowid NOT IN (

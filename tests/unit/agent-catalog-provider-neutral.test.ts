@@ -33,11 +33,11 @@ describe("provider-neutral Agent role catalog", () => {
     expect(coder).toMatchObject({
       contentHash: expect.any(String),
       compatibility: { requiredCapabilities: ["workspace.read", "workspace.write"] },
-      providerBindings: [],
     });
     expect(planner?.compatibility.requiredCapabilities).toContain("skill.native-load");
     expect(coder).not.toHaveProperty("runtime");
     expect(coder).not.toHaveProperty("sourceHash");
+    expect(coder).not.toHaveProperty("providerBindings");
   });
 });
 

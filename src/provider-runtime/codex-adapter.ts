@@ -3,7 +3,7 @@ import type { CodexAppServerRealtimeEvent } from "../codex/app-server-realtime.j
 import { getCodexProviderCapabilitySnapshot, getCodexProviderRuntimeSummary } from "./codex.js";
 import { executeCodexProjectAction, getCodexDiagnostics, listCodexProjectActions } from "./codex-diagnostics.js";
 import { codexModelSettings, selectCodexModel } from "./codex-models.js";
-import { bindCodexSkillCatalog, getCodexBridgeStatus, installCodexBridge, syncCodexBridge } from "../codex/bridge.js";
+import { listCodexNativeSkills, setCodexNativeSkillEnabled } from "../codex/native-skills.js";
 import { defaultCodexAppServerHostRegistry } from "../codex/app-server-host.js";
 import type { ActiveProviderTurn, ProviderChildCloseRequest, ProviderChildLifecycleEvent, ProviderChildSessionRequest, ProviderChildThreadResult, ProviderChildTurnRequest, ProviderDescriptor, ProviderObjectiveState, ProviderRealtimeEvent, ProviderTurnRequest, ProviderTurnResult, ProviderUserInputRequest } from "./contracts.js";
 import { agentThreadSurfaceId } from "./agent-surface-id.js";
@@ -22,11 +22,9 @@ export const codexProviderDescriptor: ProviderDescriptor = {
   models: { read: codexModelSettings, select: selectCodexModel },
   diagnostics: getCodexDiagnostics,
   projectActions: { list: listCodexProjectActions, execute: executeCodexProjectAction },
-  skillRoleBinding: {
-    status: getCodexBridgeStatus,
-    install: installCodexBridge,
-    sync: syncCodexBridge,
-    bindCatalog: bindCodexSkillCatalog,
+  skills: {
+    list: listCodexNativeSkills,
+    setEnabled: setCodexNativeSkillEnabled,
   },
   conversation: { runTurn: runCodexTurn, inspectChild: inspectCodexChild, continueChild: runCodexChildTurn, closeChild: closeCodexChild, getActiveTurn: activeCodexTurn, listActiveTurns: activeCodexTurns },
   leafExecution: { runTurn: runCodexTurn },
@@ -80,7 +78,7 @@ export async function runCodexTurn(request: ProviderTurnRequest): Promise<Provid
     onError: request.onError,
     model: request.model?.modelId,
     imageInputs: request.imageInputs,
-    skillInputs: request.skillInputs,
+    skillInputs: request.skillInputs?.map((skill) => ({ name: skill.id, path: skill.path })),
     nativeSkillRoots: request.nativeSkillRoots,
     requiredNativeSkills: request.requiredNativeSkills,
     runtimeWorkspaceRoots: request.runtimeWorkspaceRoots,

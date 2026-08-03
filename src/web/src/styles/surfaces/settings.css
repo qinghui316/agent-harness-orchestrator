@@ -606,16 +606,25 @@
   gap: 8px;
 }
 
-.skill-sync-state.synced {
+.skill-sync-state.ready {
   color: var(--success);
 }
 
-.skill-sync-state.native {
-  color: var(--success);
-}
-
-.skill-sync-state.out-of-sync {
+.skill-sync-state.disabled {
   color: var(--warning);
+}
+
+.skill-runtime-assignment {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.settings-toggle-row {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  color: var(--text-muted);
+  font-size: 12px;
 }
 
 @media (max-width: 720px) {

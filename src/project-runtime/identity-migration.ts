@@ -28,6 +28,7 @@ import {
 export interface ProjectIdentitySqliteDatabase {
   relativePath: string;
   identityColumns: readonly SqliteProjectIdentityColumn[];
+  prepareStagedDatabase?: (database: Database.Database) => void;
 }
 
 export interface ProjectIdentityJsonDocument {
@@ -330,9 +331,9 @@ async function prepareMigration(options: MigrateProjectIdentityOptions): Promise
   try {
     await copyIdentityMigrationTree(sourceSidecarRoot, stagedSidecarRoot, excluded);
     const sqliteProofs: SqliteProjectIdentityProof[] = [];
-    for (const database of sqliteDatabases) {
-      const sourcePath = join(sourceSidecarRoot, database.relativePath);
-      const stagedPath = join(stagedSidecarRoot, database.relativePath);
+    for (const databaseDescriptor of sqliteDatabases) {
+      const sourcePath = join(sourceSidecarRoot, databaseDescriptor.relativePath);
+      const stagedPath = join(stagedSidecarRoot, databaseDescriptor.relativePath);
       await assertIdentityMigrationPhysicalFile(sourcePath, "source SQLite database");
       await mkdir(dirname(stagedPath), { recursive: true });
       const source = new Database(sourcePath, { readonly: true, fileMustExist: true });
@@ -341,12 +342,20 @@ async function prepareMigration(options: MigrateProjectIdentityOptions): Promise
       } finally {
         source.close();
       }
+      if (databaseDescriptor.prepareStagedDatabase) {
+        const staged = new Database(stagedPath, { fileMustExist: true });
+        try {
+          databaseDescriptor.prepareStagedDatabase(staged);
+        } finally {
+          staged.close();
+        }
+      }
       sqliteProofs.push(migrateSqliteProjectIdentity(
         stagedPath,
-        database.relativePath,
+        databaseDescriptor.relativePath,
         options.sourceProjectId,
         options.targetProjectId,
-        database.identityColumns,
+        databaseDescriptor.identityColumns,
       ));
     }
 

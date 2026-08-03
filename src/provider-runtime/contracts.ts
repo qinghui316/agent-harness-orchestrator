@@ -1,3 +1,4 @@
+import type { ProviderSkillInput } from "../project-harness/contracts.js";
 import type { ProviderCapabilitySnapshot, ProviderDiagnosticsSnapshot, ProviderId, ProviderModelRef, ProviderModelSettingsSnapshot, ProviderOperationProfile, ProviderRuntimeSummary } from "./types.js";
 
 export interface ProviderSessionRef {
@@ -243,7 +244,7 @@ export interface ProviderTurnRequest {
   onError?: (error: unknown) => void;
   model?: ProviderModelRef | null;
   imageInputs?: Array<{ path: string; mediaType?: string; fileName?: string }>;
-  skillInputs?: Array<{ name: string; path: string }>;
+  skillInputs?: ProviderSkillInput[];
   nativeSkillRoots?: string[];
   requiredNativeSkills?: string[];
   runtimeWorkspaceRoots?: string[];
@@ -330,32 +331,45 @@ export interface LeafExecutionProviderPort {
   runTurn(request: ProviderTurnRequest): Promise<ProviderTurnResult>;
 }
 
-export interface ProviderSkillRoleBindingPort {
-  status(project?: import("../types/index.js").ManagedProject): Promise<ProviderSkillRoleBindingStatus>;
-  install(): Promise<ProviderSkillRoleBindingInstallResult>;
-  sync(project: import("../types/index.js").ManagedProject): Promise<ProviderSkillRoleBindingSyncResult>;
-  bindCatalog(project: import("../types/index.js").ManagedProject): Promise<unknown[]>;
+export type ProviderSkillScope = "user" | "repo" | "system" | "admin";
+
+export interface ProviderNativeSkill {
+  name: string;
+  description: string;
+  path: string;
+  scope: ProviderSkillScope;
+  enabled: boolean;
+  contentHash: string;
+  interface?: {
+    displayName?: string;
+    shortDescription?: string;
+  };
+  dependencies?: Record<string, unknown>;
 }
 
-export interface ProviderSkillRoleBindingStatus {
-  state: string;
-  installed: boolean;
-  discoverable: boolean;
-  manifestValid: boolean;
-  paths: { root: string };
-  project?: { id?: string; outOfSync?: string[] };
-  diagnostics: string[];
+export interface ProviderSkillCatalogError {
+  path: string;
+  message: string;
 }
 
-export interface ProviderSkillRoleBindingInstallResult {
-  paths: { root: string };
-  manifest: string;
+export interface ProviderSkillCatalogSnapshot {
+  providerId: ProviderId;
+  projectPath: string;
+  skills: ProviderNativeSkill[];
+  errors: ProviderSkillCatalogError[];
 }
 
-export interface ProviderSkillRoleBindingSyncResult {
-  synced: Array<{ skillId: string; materializedSkillId: string }>;
-  syncedAgents: Array<{ roleId: string }>;
-  status: ProviderSkillRoleBindingStatus;
+export interface ProviderSkillCatalogPort {
+  list(input: {
+    projectPath: string;
+    extraRoots?: readonly string[];
+    forceReload?: boolean;
+  }): Promise<ProviderSkillCatalogSnapshot>;
+  setEnabled(input: {
+    projectPath: string;
+    path: string;
+    enabled: boolean;
+  }): Promise<{ effectiveEnabled: boolean }>;
 }
 
 export interface ProviderDescriptor {
@@ -375,7 +389,7 @@ export interface ProviderDescriptor {
     list(project: import("../types/index.js").ManagedProject | null, projectPath?: string): Promise<import("./types.js").ProviderProjectAction[]>;
     execute(actionId: string, project: import("../types/index.js").ManagedProject, projectPath: string): Promise<ProviderDiagnosticsSnapshot>;
   };
-  skillRoleBinding: ProviderSkillRoleBindingPort;
+  skills: ProviderSkillCatalogPort;
   conversation: ConversationProviderPort;
   leafExecution: LeafExecutionProviderPort;
 }

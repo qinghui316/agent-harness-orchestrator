@@ -306,7 +306,7 @@ function runDetails(run: RunMetadata): string[] {
     `Runtime: ${run.runtime}`,
     provider ? `Provider: ${provider.displayName}` : "",
     `Product Mode: harness`,
-    run.enabledSkills?.length ? `Skills: ${run.enabledSkills.map((skill) => `${skill.id} (${skill.materializationMode ?? "unknown"})`).join(", ")}` : "",
+    run.enabledSkills?.length ? `Skills: ${run.enabledSkills.map((skill) => `${skill.id} (${skill.source})`).join(", ")}` : "",
     run.executionGate ? `Harness Execution Mode: ${run.executionGate.mode}` : "",
   ].filter(Boolean);
   return details;

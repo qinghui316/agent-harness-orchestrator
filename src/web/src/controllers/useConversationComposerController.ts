@@ -478,6 +478,7 @@ export function activeComposerSkillIds(
 ): string[] {
   return skills
     .filter((skill) => {
+      if (!skill.providerEnabled || skill.required || skill.runtimeAssigned) return false;
       if (conversationId) {
         if (skill.disabledTopics.includes(conversationId)) return false;
         return skill.enabledProject || skill.enabledTopics.includes(conversationId);

@@ -241,11 +241,9 @@ function fakeProvider(observed: ProviderTurnRequest[], options: FakeProviderOpti
       projectActions: [],
     }),
     projectActions: { list: async () => [], execute: async () => { throw new Error("not supported"); } },
-    skillRoleBinding: {
-      status: async () => ({ state: "ready", installed: true, discoverable: true, manifestValid: true, paths: { root: "test" }, diagnostics: [] }),
-      install: async () => ({ paths: { root: "test" }, manifest: "test" }),
-      sync: async () => ({ synced: [], syncedAgents: [], status: { state: "ready", installed: true, discoverable: true, manifestValid: true, paths: { root: "test" }, diagnostics: [] } }),
-      bindCatalog: async () => [],
+    skills: {
+      list: async ({ projectPath }) => ({ providerId, projectPath, skills: [], errors: [] }),
+      setEnabled: async ({ enabled }) => ({ effectiveEnabled: enabled }),
     },
     conversation: {
       runTurn: async (request) => {

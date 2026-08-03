@@ -108,18 +108,6 @@ export interface StoredProviderResumePoint {
   createdAt: string;
 }
 
-export interface StoredSkillIndex {
-  projectId: string;
-  skillId: string;
-  name: string;
-  description: string;
-  sourcePath: string;
-  sourceKind: string;
-  sourceHash: string;
-  metadataJson: string;
-  updatedAt: string;
-}
-
 export interface StoredSkillRoot {
   projectId: string;
   rootPath: string;
@@ -136,16 +124,6 @@ export interface StoredSkillEnablement {
   scope: SkillEnablementScope;
   enabled: boolean;
   updatedAt: string;
-}
-
-export interface StoredBridgeSync {
-  projectId: string;
-  skillId: string;
-  sourceHash: string;
-  materializedPath: string;
-  materializedHash: string;
-  bridgeVersion: string;
-  syncedAt: string;
 }
 
 export type StoredDecisionStatus = "pending" | "accepted" | "requested-changes" | "dismissed" | "completed" | "failed";

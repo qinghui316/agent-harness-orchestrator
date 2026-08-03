@@ -1,17 +1,20 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
-import { copyFile, lstat, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { basename, dirname, join, relative, resolve, sep } from "node:path";
-import { z } from "zod";
+import { existsSync } from "node:fs";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { resolveExistingDirectory, slugify } from "../fs/path.js";
-import { assertWritableMemory, resolveProjectMemory } from "../memory/resolver.js";
+import type { ProviderSkillInput } from "../project-harness/contracts.js";
+import type {
+  ProviderNativeSkill,
+  ProviderSkillCatalogError,
+  ProviderSkillCatalogSnapshot,
+  ProviderSkillScope,
+} from "../provider-runtime/contracts.js";
+import type { ProjectRuntimePaths } from "../project-runtime/paths.js";
 import { getSystemSkillsRoot } from "../template-source/paths.js";
-import type { ManagedProject, ResolvedMemory } from "../types/index.js";
-import { openWorkbenchDatabase } from "../workbench/persistence/open-workbench-database.js";
-import type { WorkbenchDatabase } from "../workbench/persistence/database.js";
-import { type StoredSkillIndex, type StoredSkillRoot } from "../workbench/persistence/contracts.js";
+import { openProjectRuntimeWorkbenchDatabase } from "../workbench/persistence/open-workbench-database.js";
+import type { StoredSkillRoot } from "../workbench/persistence/contracts.js";
 
-export type SkillSourceKind = "managed" | "custom" | "system-aho" | "provider-native";
+export type SkillSourceKind = "custom" | "system-aho" | "provider-native" | "project-harness";
 
 export interface SkillCompatibility {
   requiredCapabilities: string[];
@@ -19,9 +22,10 @@ export interface SkillCompatibility {
 
 export interface SkillProviderBinding {
   providerId: string;
-  bindingKind: "native" | "materialized";
-  status: "ready" | "stale" | "unavailable";
+  bindingKind: "native";
+  status: "ready" | "disabled";
   contentHash: string;
+  scope: ProviderSkillScope;
 }
 
 export interface SkillListItem {
@@ -30,461 +34,295 @@ export interface SkillListItem {
   description: string;
   sourcePath: string;
   sourceKind: SkillSourceKind;
+  scope: ProviderSkillScope;
   contentHash: string;
   compatibility: SkillCompatibility;
   providerBindings: SkillProviderBinding[];
+  providerEnabled: boolean;
+  required: boolean;
+  runtimeAssigned: boolean;
   enabledProject: boolean;
   enabledTopics: string[];
   disabledTopics: string[];
 }
 
-export interface EnabledSkillRecord {
-  id: string;
-  sourceKind: SkillSourceKind;
-  contentHash: string;
-  compatibility: SkillCompatibility;
-  providerBindings: SkillProviderBinding[];
-}
-
-export interface ImportedSkill {
-  skill: SkillListItem;
-  copied: string[];
-}
-
 export interface SkillRootListItem {
   rootPath: string;
-  sourceKind: SkillSourceKind;
+  sourceKind: "custom";
   updatedAt: string;
 }
 
-export interface SkillRefreshResult {
+export interface SkillCatalogResult {
   roots: SkillRootListItem[];
   skills: SkillListItem[];
+  errors: ProviderSkillCatalogError[];
 }
 
 export interface EnabledSkillContext {
-  records: EnabledSkillRecord[];
+  inputs: ProviderSkillInput[];
   promptSection: string;
   warnings: string[];
 }
 
-interface SkillMetadata {
-  name: string;
-  description: string;
-  metadata: Record<string, string>;
-}
-
-const excludedPackageDirs = new Set([".git", "node_modules", ".cache", ".turbo", ".vite", "dist", "build", "coverage"]);
-const maxSkillPackageFiles = 500;
-const maxSkillPackageFileBytes = 1024 * 1024;
-
-export async function importSkill(project: ManagedProject, sourceDirInput: string): Promise<ImportedSkill> {
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, "Skill import");
-  const sourceDir = await resolveExistingDirectory(sourceDirInput);
-  const skillPath = join(sourceDir, "SKILL.md");
-  if (!existsSync(skillPath)) throw new Error(`Skill directory must contain SKILL.md: ${sourceDir}`);
-  const skillRaw = await readFile(skillPath, "utf8");
-  const metadata = parseSkillMetadata(skillRaw, basename(sourceDir));
-  const skillId = slugify(metadata.name || basename(sourceDir));
-  const destination = join(memory.skillsRoot, skillId);
-  ensureNotNestedInSelf(sourceDir, destination);
-  await rm(destination, { recursive: true, force: true });
-  await mkdir(destination, { recursive: true });
-  const copied = await copySkillPackage(sourceDir, destination);
-  const sourceHash = await hashSkillDirectory(destination);
-  const indexed = await upsertSkillIndex(memory, project.id, skillId, metadata, destination, "managed", sourceHash);
-  return { skill: await decorateSkill(memory, indexed), copied };
-}
-
-export async function addSkillRoot(project: ManagedProject, rootPathInput: string, sourceKind: SkillSourceKind = "custom"): Promise<SkillRefreshResult> {
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, "Skill root registration");
+export async function addSkillRoot(
+  paths: ProjectRuntimePaths,
+  rootPathInput: string,
+): Promise<SkillRootListItem[]> {
   const rootPath = await resolveExistingDirectory(rootPathInput);
-  const store = await openWorkbenchDatabase(memory);
+  const store = await openProjectRuntimeWorkbenchDatabase(paths);
   try {
     store.skills.upsertSkillRoot({
-      projectId: project.id,
+      projectId: paths.projectId,
       rootPath,
-      sourceKind,
+      sourceKind: "custom",
       updatedAt: new Date().toISOString(),
     });
+    return store.skills.listSkillRoots(paths.projectId).map(mapSkillRoot);
   } finally {
     store.close();
   }
-  return refreshSkills(project);
 }
 
-export async function listSkillRoots(project: ManagedProject): Promise<SkillRootListItem[]> {
-  const memory = await resolveProjectMemory(project);
-  const store = await openWorkbenchDatabase(memory);
+export async function listSkillRoots(paths: ProjectRuntimePaths): Promise<SkillRootListItem[]> {
+  const store = await openProjectRuntimeWorkbenchDatabase(paths);
   try {
-    return store.skills.listSkillRoots(project.id).map(mapSkillRoot);
+    return store.skills.listSkillRoots(paths.projectId).map(mapSkillRoot);
   } finally {
     store.close();
   }
 }
 
-export async function refreshSkills(project: ManagedProject): Promise<SkillRefreshResult> {
-  const skills = await listSkills(project);
-  return { roots: await listSkillRoots(project), skills };
-}
-
-export async function listSkills(project: ManagedProject): Promise<SkillListItem[]> {
-  const memory = await resolveProjectMemory(project);
-  const store = await openWorkbenchDatabase(memory);
+export async function listSkills(
+  paths: ProjectRuntimePaths,
+  snapshot: ProviderSkillCatalogSnapshot,
+  requiredInputs: readonly ProviderSkillInput[] = [],
+): Promise<SkillCatalogResult> {
+  assertSnapshotIdentity(paths, snapshot);
+  assertRequiredInputsDiscovered(snapshot, requiredInputs);
+  const store = await openProjectRuntimeWorkbenchDatabase(paths);
   try {
-    await refreshSkillIndex(memory, project, store);
-    const skills = store.skills.listSkills(project.id).filter((item) => !isRuntimeAssignedSkill(item.skillId));
-    return await Promise.all(skills.map((item) => decorateSkill(memory, item, store)));
+    const roots = store.skills.listSkillRoots(paths.projectId).map(mapSkillRoot);
+    const enablements = store.skills.listSkillEnablement(paths.projectId);
+    const skills = decorateSkills(snapshot, roots, requiredInputs).map((skill) => ({
+      ...skill,
+      enabledProject: enablements.some((item) => item.skillId === skill.skillId && item.scope === "project" && item.enabled),
+      enabledTopics: enablements
+        .filter((item) => item.skillId === skill.skillId && item.scope === "topic" && item.enabled && item.changeId)
+        .map((item) => item.changeId as string)
+        .sort(),
+      disabledTopics: enablements
+        .filter((item) => item.skillId === skill.skillId && item.scope === "topic" && !item.enabled && item.changeId)
+        .map((item) => item.changeId as string)
+        .sort(),
+    }));
+    return { roots, skills, errors: snapshot.errors };
   } finally {
     store.close();
   }
 }
 
-export async function setSkillEnabled(project: ManagedProject, skillIdInput: string, options: { topic?: string; enabled: boolean }): Promise<SkillListItem[]> {
-  const memory = await resolveProjectMemory(project);
-  assertWritableMemory(memory, "Skill enablement");
+export async function setSkillEnabled(
+  paths: ProjectRuntimePaths,
+  snapshot: ProviderSkillCatalogSnapshot,
+  skillIdInput: string,
+  options: { topic?: string; enabled: boolean },
+  requiredInputs: readonly ProviderSkillInput[] = [],
+): Promise<SkillCatalogResult> {
   const skillId = slugify(skillIdInput);
-  if (isRuntimeAssignedSkill(skillId)) throw new Error(`Skill ${skillId} is Runtime-assigned and cannot be enabled from project or conversation settings.`);
-  const store = await openWorkbenchDatabase(memory);
+  const catalog = await listSkills(paths, snapshot, requiredInputs);
+  const skill = catalog.skills.find((item) => item.skillId === skillId);
+  if (!skill) throw new Error(`Unknown native Skill: ${skillId}`);
+  if (skill.required || skill.runtimeAssigned) {
+    throw new Error(`Skill ${skillId} is assigned by the Runtime and cannot be changed as a project or Conversation selection.`);
+  }
+  const store = await openProjectRuntimeWorkbenchDatabase(paths);
   try {
-    await refreshSkillIndex(memory, project, store);
-    const skill = store.skills.readSkill(project.id, skillId);
-    if (!skill) throw new Error(`Unknown skill: ${skillId}`);
     store.skills.setSkillEnablement({
-      projectId: project.id,
+      projectId: paths.projectId,
       changeId: options.topic ?? null,
       skillId,
       scope: options.topic ? "topic" : "project",
       enabled: options.enabled,
       updatedAt: new Date().toISOString(),
     });
-    const skills = store.skills.listSkills(project.id);
-    return await Promise.all(skills.map((item) => decorateSkill(memory, item, store)));
   } finally {
     store.close();
   }
+  return listSkills(paths, snapshot, requiredInputs);
 }
 
-export async function getEnabledSkillContext(project: ManagedProject, changeId?: string): Promise<EnabledSkillContext> {
-  const memory = await resolveProjectMemory(project);
-  const store = await openWorkbenchDatabase(memory);
-  try {
-    await refreshSkillIndex(memory, project, store);
-    const skills = store.skills.listSkills(project.id);
-    const enablements = store.skills.listSkillEnablement(project.id);
-    const projectEnabled = new Set(enablements.filter((item) => item.scope === "project" && item.enabled).map((item) => item.skillId));
-    const topicEnabled = new Set(enablements.filter((item) => item.scope === "topic" && item.changeId === changeId && item.enabled).map((item) => item.skillId));
-    const topicDisabled = new Set(enablements.filter((item) => item.scope === "topic" && item.changeId === changeId && !item.enabled).map((item) => item.skillId));
-    const enabledIds = [...new Set([...projectEnabled, ...topicEnabled])]
-      .filter((skillId) => !topicDisabled.has(skillId) && !isRuntimeAssignedSkill(skillId)).sort();
-    const records: EnabledSkillRecord[] = [];
-    const warnings: string[] = [];
-    for (const skillId of enabledIds) {
-      const skill = skills.find((item) => item.skillId === skillId);
-      if (!skill) {
-        warnings.push(`Enabled skill ${skillId} is missing from skill source.`);
-        continue;
-      }
-      const sourceKind = normalizeSourceKind(skill.sourceKind);
-      records.push({
-        id: skill.skillId,
-        sourceKind,
-        contentHash: skill.sourceHash,
-        compatibility: skillCompatibility(),
-        providerBindings: [],
-      });
+export async function getEnabledSkillContext(
+  paths: ProjectRuntimePaths,
+  snapshot: ProviderSkillCatalogSnapshot,
+  changeId: string | undefined,
+  requiredInputs: readonly ProviderSkillInput[] = [],
+): Promise<EnabledSkillContext> {
+  const catalog = await listSkills(paths, snapshot, requiredInputs);
+  const inputs = new Map<string, ProviderSkillInput>();
+  for (const input of requiredInputs) inputs.set(inputIdentity(input), input);
+  const warnings = catalog.errors.map((error) => `${error.path}: ${error.message}`);
+  for (const skill of catalog.skills) {
+    if (skill.required || skill.runtimeAssigned) continue;
+    const selected = changeId
+      ? !skill.disabledTopics.includes(changeId) && (skill.enabledProject || skill.enabledTopics.includes(changeId))
+      : skill.enabledProject;
+    if (!selected) continue;
+    if (!skill.providerEnabled) {
+      warnings.push(`Selected Skill ${skill.skillId} is disabled in the Provider configuration.`);
+      continue;
     }
-    return {
-      records,
-      warnings,
-      promptSection: records.length > 0
-        ? [
-          "# AHO Skill Availability",
-          "",
-          "Enabled skills are provider-neutral capability inputs. The selected provider must satisfy each Skill's compatibility requirements and bind its content before execution. Skills are not Harness workflow truth and do not authorize workflow actions.",
-          "",
-          ...records.map((record) => `- $${record.id}: sourceKind=${record.sourceKind}; contentHash=${record.contentHash}; requiredCapabilities=${record.compatibility.requiredCapabilities.join(",") || "none"}`),
-        ].join("\n")
-        : "",
+    const input: ProviderSkillInput = {
+      id: skill.name,
+      path: skill.sourcePath,
+      contentHash: skill.contentHash,
+      source: skill.sourceKind === "system-aho" ? "aho-system" : "provider-native",
+      required: true,
     };
-  } finally {
-    store.close();
+    inputs.set(inputIdentity(input), input);
   }
-}
-
-export async function hashSkillDirectory(path: string): Promise<string> {
-  const hash = createHash("sha256");
-  const files = await listSkillPackageFiles(path);
-  for (const file of files) {
-    const rel = relative(path, file).replace(/\\/g, "/");
-    hash.update(rel);
-    hash.update("\0");
-    hash.update(await readFile(file));
-    hash.update("\0");
-  }
-  return hash.digest("hex");
-}
-
-export function isRuntimeAssignedSkill(skillId: string): boolean {
-  return skillId === "aho-harness-engineering";
-}
-
-export async function copySkillToBridge(sourcePath: string, targetPath: string, materializedName: string): Promise<void> {
-  await rm(targetPath, { recursive: true, force: true });
-  await mkdir(targetPath, { recursive: true });
-  const files = await listSkillPackageFiles(sourcePath);
-  for (const file of files) {
-    const rel = relative(sourcePath, file);
-    const to = join(targetPath, rel);
-    await mkdir(dirname(to), { recursive: true });
-    if (rel.replace(/\\/g, "/") === "SKILL.md") {
-      await writeFile(to, rewriteSkillName(await readFile(file, "utf8"), materializedName), "utf8");
-    } else {
-      await copyFile(file, to);
-    }
-  }
-}
-
-async function upsertSkillIndex(
-  memory: ResolvedMemory,
-  projectId: string,
-  skillId: string,
-  metadata: SkillMetadata,
-  sourcePath: string,
-  sourceKind: SkillSourceKind,
-  sourceHash: string,
-): Promise<StoredSkillIndex> {
-  const store = await openWorkbenchDatabase(memory);
-  try {
-    const indexed: StoredSkillIndex = {
-      projectId,
-      skillId,
-      name: metadata.name,
-      description: metadata.description,
-      sourcePath,
-      sourceKind,
-      sourceHash,
-      metadataJson: JSON.stringify(metadata.metadata),
-      updatedAt: new Date().toISOString(),
-    };
-    store.skills.upsertSkill(indexed);
-    return indexed;
-  } finally {
-    store.close();
-  }
-}
-
-async function refreshSkillIndex(memory: ResolvedMemory, project: ManagedProject, store: WorkbenchDatabase): Promise<void> {
-  const sources = await discoverSkillSources(memory, project, store);
-  store.skills.deleteSkillsExcept(project.id, sources.map((source) => source.skillId));
-  for (const source of sources) {
-    const raw = await readFile(join(source.sourcePath, "SKILL.md"), "utf8");
-    const metadata = parseSkillMetadata(raw, basename(source.sourcePath));
-    const sourceHash = await hashSkillDirectory(source.sourcePath);
-    store.skills.upsertSkill({
-      projectId: project.id,
-      skillId: source.skillId,
-      name: metadata.name,
-      description: metadata.description,
-      sourcePath: source.sourcePath,
-      sourceKind: source.sourceKind,
-      sourceHash,
-      metadataJson: JSON.stringify(metadata.metadata),
-      updatedAt: new Date().toISOString(),
-    });
-  }
-}
-
-async function decorateSkill(memory: ResolvedMemory, skill: StoredSkillIndex, providedStore?: WorkbenchDatabase): Promise<SkillListItem> {
-  const closeStore = !providedStore;
-  const store = providedStore ?? await openWorkbenchDatabase(memory);
-  try {
-    const enablements = store.skills.listSkillEnablement(skill.projectId).filter((item) => item.skillId === skill.skillId);
-    const sourceKind = normalizeSourceKind(skill.sourceKind);
-    return {
-      skillId: skill.skillId,
-      name: skill.name,
-      description: skill.description,
-      sourcePath: skill.sourcePath,
-      sourceKind,
-      contentHash: skill.sourceHash,
-      compatibility: skillCompatibility(),
-      providerBindings: [],
-      enabledProject: enablements.some((item) => item.scope === "project" && item.enabled),
-      enabledTopics: enablements.filter((item) => item.scope === "topic" && item.enabled && item.changeId).map((item) => item.changeId as string),
-      disabledTopics: enablements.filter((item) => item.scope === "topic" && !item.enabled && item.changeId).map((item) => item.changeId as string),
-    };
-  } finally {
-    if (closeStore) store.close();
-  }
-}
-
-async function listSkillPackageFiles(root: string): Promise<string[]> {
-  const files: string[] = [];
-  await collectPackageFiles(root, root, files);
-  if (!files.some((file) => relative(root, file).replace(/\\/g, "/") === "SKILL.md")) {
-    throw new Error(`Skill package must contain SKILL.md: ${root}`);
-  }
-  return files.sort();
-}
-
-async function copySkillPackage(sourcePath: string, targetPath: string): Promise<string[]> {
-  const files = await listSkillPackageFiles(sourcePath);
-  const copied = new Set<string>();
-  for (const file of files) {
-    const rel = relative(sourcePath, file);
-    const to = join(targetPath, rel);
-    await mkdir(dirname(to), { recursive: true });
-    await copyFile(file, to);
-    copied.add(rel.split(/[\\/]/)[0]);
-  }
-  return [...copied].sort();
-}
-
-async function collectPackageFiles(packageRoot: string, current: string, files: string[]): Promise<void> {
-  if (files.length > maxSkillPackageFiles) throw new Error(`Skill package has too many files: ${packageRoot}`);
-  for (const entry of await readdir(current, { withFileTypes: true })) {
-    if (entry.name === "." || entry.name === "..") continue;
-    if (entry.isDirectory() && excludedPackageDirs.has(entry.name)) continue;
-    const path = join(current, entry.name);
-    assertInside(packageRoot, path);
-    const info = await lstat(path);
-    if (info.isSymbolicLink()) continue;
-    if (info.isDirectory()) {
-      await collectPackageFiles(packageRoot, path, files);
-    } else if (info.isFile()) {
-      if (info.size > maxSkillPackageFileBytes) continue;
-      files.push(path);
-    }
-  }
-}
-
-async function discoverSkillSources(memory: ResolvedMemory, project: ManagedProject, store: WorkbenchDatabase): Promise<Array<{ skillId: string; sourcePath: string; sourceKind: SkillSourceKind }>> {
-  const candidates: Array<{ sourcePath: string; sourceKind: SkillSourceKind }> = [];
-  const systemSkillsRoot = getSystemSkillsRoot();
-  if (existsSync(systemSkillsRoot)) candidates.push(...await discoverSkillsInRoot(systemSkillsRoot, "system-aho"));
-  if (existsSync(memory.skillsRoot)) candidates.push(...await discoverSkillsInRoot(memory.skillsRoot, "managed"));
-  for (const root of store.skills.listSkillRoots(project.id)) {
-    if (existsSync(root.rootPath)) candidates.push(...await discoverSkillsInRoot(root.rootPath, normalizeSourceKind(root.sourceKind)));
-  }
-
-  const used = new Map<string, string>();
-  return candidates.map((candidate) => {
-    const rawId = slugify(parseSkillMetadataSafe(candidate.sourcePath)?.name ?? basename(candidate.sourcePath));
-    const existingPath = used.get(rawId);
-    const skillId = existingPath && resolve(existingPath) !== resolve(candidate.sourcePath)
-      ? `${rawId}-${hashText(candidate.sourcePath).slice(0, 8)}`
-      : rawId;
-    used.set(skillId, candidate.sourcePath);
-    return { skillId, sourcePath: candidate.sourcePath, sourceKind: candidate.sourceKind };
-  });
-}
-
-async function discoverSkillsInRoot(root: string, sourceKind: SkillSourceKind): Promise<Array<{ sourcePath: string; sourceKind: SkillSourceKind }>> {
-  const resolvedRoot = resolve(root);
-  const found: Array<{ sourcePath: string; sourceKind: SkillSourceKind }> = [];
-  if (existsSync(join(resolvedRoot, "SKILL.md"))) found.push({ sourcePath: resolvedRoot, sourceKind });
-  for (const entry of await readdir(resolvedRoot, { withFileTypes: true })) {
-    if (!entry.isDirectory() || excludedPackageDirs.has(entry.name)) continue;
-    const sourcePath = join(resolvedRoot, entry.name);
-    assertInside(resolvedRoot, sourcePath);
-    if (existsSync(join(sourcePath, "SKILL.md"))) found.push({ sourcePath, sourceKind });
-  }
-  return found;
-}
-
-function parseSkillMetadataSafe(sourcePath: string): SkillMetadata | null {
-  try {
-    const raw = existsSync(join(sourcePath, "SKILL.md")) ? readFileSyncUtf8(join(sourcePath, "SKILL.md")) : "";
-    return raw ? parseSkillMetadata(raw, basename(sourcePath)) : null;
-  } catch {
-    return null;
-  }
-}
-
-function parseSkillMetadata(raw: string, fallbackName: string): SkillMetadata {
-  raw = stripUtf8Bom(raw);
-  const metadata: Record<string, string> = {};
-  if (raw.startsWith("---\n")) {
-    const end = raw.indexOf("\n---", 4);
-    if (end > 0) {
-      for (const line of raw.slice(4, end).split(/\r?\n/)) {
-        const match = /^([A-Za-z0-9_-]+):\s*(.*)$/.exec(line);
-        if (match) metadata[match[1]] = match[2].replace(/^["']|["']$/g, "");
-      }
-    }
-  }
-  const name = z.string().min(1).catch(fallbackName).parse(metadata.name);
-  const description = z.string().catch("").parse(metadata.description);
-  return { name, description, metadata };
-}
-
-function rewriteSkillName(raw: string, materializedName: string): string {
-  raw = stripUtf8Bom(raw);
-  if (raw.startsWith("---\n")) {
-    const end = raw.indexOf("\n---", 4);
-    if (end > 0) {
-      const lines = raw.slice(4, end).split(/\r?\n/);
-      let hasName = false;
-      const next = lines.map((line) => {
-        if (/^name:\s*/.test(line)) {
-          hasName = true;
-          return `name: ${materializedName}`;
-        }
-        return line;
-      });
-      if (!hasName) next.unshift(`name: ${materializedName}`);
-      return `---\n${next.join("\n")}\n---${raw.slice(end + 4)}`;
-    }
-  }
-  return `---\nname: ${materializedName}\n---\n\n${raw}`;
-}
-
-function stripUtf8Bom(text: string): string {
-  return text.charCodeAt(0) === 0xFEFF ? text.slice(1) : text;
-}
-
-function mapSkillRoot(root: StoredSkillRoot): SkillRootListItem {
+  const records = [...inputs.values()].sort((left, right) => left.id.localeCompare(right.id) || left.path.localeCompare(right.path));
   return {
-    rootPath: root.rootPath,
-    sourceKind: normalizeSourceKind(root.sourceKind),
-    updatedAt: root.updatedAt,
+    inputs: records,
+    warnings,
+    promptSection: records.length > 0
+      ? [
+        "# Native Skill Inputs",
+        "",
+        "These provider-native Skill inputs are available for this turn. They do not replace project Harness evidence or authorize workflow transitions.",
+        "",
+        ...records.map((record) => `- $${record.id}: source=${record.source}; contentHash=${record.contentHash}; required=${record.required}`),
+      ].join("\n")
+      : "",
   };
 }
 
-function normalizeSourceKind(value: string): SkillSourceKind {
-  if (value === "custom" || value === "system-aho") return value;
-  return "managed";
+export function isRuntimeAssignedSkill(skillId: string): boolean {
+  return skillId === "aho-main-orchestration" || skillId === "aho-harness-engineering";
 }
 
-function skillCompatibility(): SkillCompatibility {
-  return { requiredCapabilities: ["skill.native-load"] };
+function decorateSkills(
+  snapshot: ProviderSkillCatalogSnapshot,
+  roots: readonly SkillRootListItem[],
+  requiredInputs: readonly ProviderSkillInput[],
+): Array<Omit<SkillListItem, "enabledProject" | "enabledTopics" | "disabledTopics">> {
+  const baseIds = snapshot.skills.map((skill) => slugify(skill.name));
+  return snapshot.skills.map((skill, index) => {
+    const baseId = baseIds[index];
+    const skillId = baseIds.filter((candidate) => candidate === baseId).length === 1
+      ? baseId
+      : `${baseId}-${hashText(normalizePath(skill.path)).slice(0, 8)}`;
+    const requiredInput = requiredInputs.find((input) =>
+      input.id === skill.name
+      && input.contentHash === skill.contentHash
+      && samePath(input.path, skill.path));
+    const sourceKind = sourceKindFor(skill, roots, requiredInput);
+    const required = requiredInput?.source === "project-harness";
+    const runtimeAssigned = isRuntimeAssignedSkill(skillId);
+    return {
+      skillId,
+      name: skill.name,
+      description: skill.description,
+      sourcePath: skill.path,
+      sourceKind,
+      scope: skill.scope,
+      contentHash: skill.contentHash,
+      compatibility: { requiredCapabilities: ["skill.native-load"] },
+      providerBindings: [{
+        providerId: snapshot.providerId,
+        bindingKind: "native" as const,
+        status: skill.enabled ? "ready" as const : "disabled" as const,
+        contentHash: skill.contentHash,
+        scope: skill.scope,
+      }],
+      providerEnabled: skill.enabled,
+      required,
+      runtimeAssigned,
+    };
+  }).sort((left, right) => left.name.localeCompare(right.name) || left.skillId.localeCompare(right.skillId));
+}
+
+function sourceKindFor(
+  skill: ProviderNativeSkill,
+  roots: readonly SkillRootListItem[],
+  requiredInput: ProviderSkillInput | undefined,
+): SkillSourceKind {
+  if (requiredInput?.source === "project-harness") return "project-harness";
+  const skillRoot = skillRootForPath(skill.path);
+  if (isInside(getSystemSkillsRoot(), skillRoot)) return "system-aho";
+  if (roots.some((root) => isInside(root.rootPath, skillRoot))) return "custom";
+  return "provider-native";
+}
+
+function mapSkillRoot(root: StoredSkillRoot): SkillRootListItem {
+  if (root.sourceKind !== "custom") throw new Error(`Unsupported native Skill root kind: ${root.sourceKind}`);
+  return { rootPath: root.rootPath, sourceKind: "custom", updatedAt: root.updatedAt };
+}
+
+function assertSnapshotIdentity(paths: ProjectRuntimePaths, snapshot: ProviderSkillCatalogSnapshot): void {
+  if (!snapshot.projectPath || !existsSync(snapshot.projectPath)) {
+    throw new Error(`Provider Skill catalog project path is unavailable: ${snapshot.projectPath}`);
+  }
+  if (!paths.projectId.trim()) throw new Error("Project Runtime paths require a project id.");
+}
+
+function assertRequiredInputsDiscovered(
+  snapshot: ProviderSkillCatalogSnapshot,
+  requiredInputs: readonly ProviderSkillInput[],
+): void {
+  const identities = new Set<string>();
+  for (const input of requiredInputs) {
+    const identity = inputIdentity(input);
+    if (identities.has(identity)) throw new Error(`Duplicate required Skill input: ${input.id}`);
+    identities.add(identity);
+
+    const sameName = snapshot.skills.filter((skill) => skill.name === input.id);
+    const sameLocation = snapshot.skills.filter((skill) => samePath(skill.path, input.path));
+    const matching = sameName.filter((skill) => samePath(skill.path, input.path));
+    if (matching.length === 0) {
+      if (sameName.length > 0 || sameLocation.length > 0) {
+        throw new Error(`Required Skill ${input.id} does not match the Provider-discovered path identity.`);
+      }
+      throw new Error(`Required Skill ${input.id} was not discovered by Provider ${snapshot.providerId}.`);
+    }
+    if (matching.length !== 1) {
+      throw new Error(`Required Skill ${input.id} has an ambiguous Provider discovery identity.`);
+    }
+    const discovered = matching[0]!;
+    if (discovered.contentHash !== input.contentHash) {
+      throw new Error(`Required Skill ${input.id} content identity does not match Provider discovery.`);
+    }
+    if (!discovered.enabled) {
+      throw new Error(`Required Skill ${input.id} is disabled in the Provider configuration.`);
+    }
+  }
+}
+
+function skillRootForPath(path: string): string {
+  return path.toLowerCase().endsWith("skill.md") ? dirname(path) : path;
+}
+
+function inputIdentity(input: ProviderSkillInput): string {
+  return `${input.id}\0${normalizePath(input.path)}`;
+}
+
+function samePath(left: string, right: string): boolean {
+  const leftRoot = skillRootForPath(left);
+  const rightRoot = skillRootForPath(right);
+  return normalizePath(resolve(leftRoot)) === normalizePath(resolve(rightRoot));
+}
+
+function isInside(root: string, candidate: string): boolean {
+  const normalizedRoot = resolve(root);
+  const normalizedCandidate = resolve(candidate);
+  const rel = relative(normalizedRoot, normalizedCandidate);
+  return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+}
+
+function normalizePath(path: string): string {
+  const normalized = resolve(path);
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 
 function hashText(text: string): string {
-  return createHash("sha256").update(text).digest("hex");
-}
-
-function readFileSyncUtf8(path: string): string {
-  // This synchronous read is limited to metadata discovery during root scanning,
-  // before the async hash/copy pass validates the full package.
-  return readFileSync(path, "utf8");
-}
-
-function assertInside(root: string, path: string): void {
-  const resolvedRoot = resolve(root);
-  const resolvedPath = resolve(path);
-  if (resolvedPath !== resolvedRoot && !resolvedPath.startsWith(`${resolvedRoot}${sep}`)) {
-    throw new Error(`Skill package path escapes root: ${path}`);
-  }
-}
-
-function ensureNotNestedInSelf(sourceDir: string, destination: string): void {
-  const source = resolve(sourceDir);
-  const target = resolve(destination);
-  if (target === source || target.startsWith(`${source}${sep}`)) {
-    throw new Error("Cannot import a skill into itself.");
-  }
+  return createHash("sha256").update(text, "utf8").digest("hex");
 }

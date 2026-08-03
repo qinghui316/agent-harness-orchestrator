@@ -1,7 +1,7 @@
 ﻿import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { auditHarness } from "../harness/audit.js";
 import { readAgentCatalog } from "../agent/catalog.js";
 import { defaultProviderRegistry, type ProviderTurnResult } from "../provider-runtime/index.js";
@@ -15,6 +15,7 @@ import { readProjectMarker } from "../project/marker.js";
 import { resolveProjectRuntimeState } from "../project-runtime/coordinator.js";
 import { assertChangeFinalizationReady, closeChangeForFinalization } from "../change/manager.js";
 import { getSystemSkillsRoot } from "../template-source/paths.js";
+import { hashNativeSkillPackageContent } from "../skill/content-hash.js";
 import { runSchedulerReadySetInitialization } from "../workflow-runtime/scheduler.js";
 import {
   claimTransitionExecution,
@@ -146,6 +147,10 @@ export async function runProjectScopedMainAgentTurn(
   const harnessAudit = await auditHarness(project.path);
   const onboarding = harnessAudit.readiness !== "ready";
   if (onboarding && !existsSync(harnessEngineeringSkillPath)) throw new Error("原生 Harness Skill 不可用：未找到 aho-harness-engineering。");
+  const mainOrchestrationSkillHash = await hashNativeSkillPackageContent(dirname(mainOrchestrationSkillPath));
+  const harnessEngineeringSkillHash = onboarding
+    ? await hashNativeSkillPackageContent(dirname(harnessEngineeringSkillPath))
+    : null;
   const prompt = buildProjectScopedMainAgentPrompt(userMessage);
   const additionalContext: Record<string, { kind: "untrusted" | "application"; value: string }> = {
     "aho.project": {
@@ -386,8 +391,20 @@ export async function runProjectScopedMainAgentTurn(
     nativeSkillRoots: [getSystemSkillsRoot()],
     requiredNativeSkills: ["aho-main-orchestration", ...(onboarding ? ["aho-harness-engineering"] : [])],
     skillInputs: [
-      { name: "aho-main-orchestration", path: mainOrchestrationSkillPath },
-      ...(onboarding ? [{ name: "aho-harness-engineering", path: harnessEngineeringSkillPath }] : []),
+      {
+        id: "aho-main-orchestration",
+        path: mainOrchestrationSkillPath,
+        contentHash: mainOrchestrationSkillHash,
+        source: "aho-system",
+        required: true,
+      },
+      ...(onboarding ? [{
+        id: "aho-harness-engineering",
+        path: harnessEngineeringSkillPath,
+        contentHash: harnessEngineeringSkillHash!,
+        source: "aho-system" as const,
+        required: true,
+      }] : []),
     ],
     existingSession: mainSessionId ? { providerId: providerId!, sessionId: mainSessionId } : null,
     objectiveSession: true,

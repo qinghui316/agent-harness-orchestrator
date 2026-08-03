@@ -17,6 +17,7 @@ export function SkillsSettingsView({
   const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [catalogErrors, setCatalogErrors] = useState<Array<{ path: string; message: string }>>([]);
 
   const filteredSkills = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -31,19 +32,20 @@ export function SkillsSettingsView({
   }, [query, skills]);
   const selectedSkill = skills.find((skill) => skill.skillId === selectedSkillId) ?? filteredSkills[0] ?? null;
   const selectedTarget = selectedSkill?.providerBindings[0];
-  const selectedNative = selectedTarget?.bindingKind === "native" && selectedTarget.status === "ready";
 
   async function load(): Promise<void> {
     if (!projectId) {
       setSkills([]);
       setRoots([]);
       setSelectedSkillId(null);
+      setCatalogErrors([]);
       return;
     }
-    const payload = await fetchJson<{ roots?: SkillRootListItem[]; skills?: SkillListItem[] }>(`/api/projects/${encodeURIComponent(projectId)}/skills`);
+    const payload = await fetchJson<{ roots?: SkillRootListItem[]; skills?: SkillListItem[]; errors?: Array<{ path: string; message: string }> }>(`/api/projects/${encodeURIComponent(projectId)}/skills`);
     const nextSkills = Array.isArray(payload.skills) ? payload.skills : [];
     setRoots(Array.isArray(payload.roots) ? payload.roots : []);
     setSkills(nextSkills);
+    setCatalogErrors(Array.isArray(payload.errors) ? payload.errors : []);
     setSelectedSkillId((current) => current && nextSkills.some((skill) => skill.skillId === current) ? current : nextSkills[0]?.skillId ?? null);
   }
 
@@ -158,19 +160,32 @@ export function SkillsSettingsView({
                 <p>{selectedSkill.description || "无描述"}</p>
               </div>
               <div className="settings-inline-actions">
-                {!selectedNative ? (
-                  <button className="outline-button" disabled={busy} onClick={() => run(async () => { await postJson(`/api/projects/${encodeURIComponent(projectId)}/skills/provider-binding/sync`, {}); })}>同步到 Agent Provider</button>
-                ) : null}
+                {selectedSkill.required || selectedSkill.runtimeAssigned ? (
+                  <span className="skill-runtime-assignment">由 AHO 运行时加载</span>
+                ) : (
+                  <label className="settings-toggle-row">
+                    <input
+                      type="checkbox"
+                      checked={selectedSkill.providerEnabled}
+                      disabled={busy}
+                      onChange={(event) => run(async () => {
+                        await postJson(`/api/projects/${encodeURIComponent(projectId)}/skills/${encodeURIComponent(selectedSkill.skillId)}/provider-enable`, { enabled: event.target.checked });
+                      })}
+                    />
+                    <span>Provider 全局启用</span>
+                  </label>
+                )}
               </div>
             </header>
             <div className="settings-info-grid">
               <Info label="来源" value={sourceKindLabel(selectedSkill.sourceKind)} />
               <Info label="运行状态" value={runtimeStatusLabel(selectedTarget?.status, selectedTarget?.bindingKind)} />
+              <Info label="作用域" value={scopeLabel(selectedSkill.scope)} />
               <Info label="路径" value={selectedSkill.sourcePath} />
             </div>
             <div className="skill-package-summary">
               <h4>包内容</h4>
-              <p>{selectedNative ? "这个 Skill 可由当前 Agent Provider 原生加载。" : "同步后可供当前 Agent Provider 使用；scripts 只作为 Skill 包内容保留，AHO 不直接执行。"}</p>
+              <p>这个 Skill 由当前 Agent Provider 从原始路径直接加载；AHO 不复制或改写 Skill 包内容。</p>
               <div className="skill-package-items">
                 <span><FileText size={13} />SKILL.md</span>
                 <span>references/</span>
@@ -178,6 +193,7 @@ export function SkillsSettingsView({
                 <span>scripts/</span>
               </div>
             </div>
+            {catalogErrors.map((error) => <p className="diagnostic-errors" key={`${error.path}:${error.message}`}>{error.path}: {error.message}</p>)}
             {message ? <p className="diagnostic-errors">{message}</p> : null}
           </>
         ) : (
@@ -201,17 +217,23 @@ function Info({ label, value }: { label: string; value: string }): ReactElement 
   );
 }
 
-function runtimeStatusLabel(status: SkillListItem["providerBindings"][number]["status"] | undefined, bindingKind?: SkillListItem["providerBindings"][number]["bindingKind"]): string {
-  if (status === "ready" && bindingKind === "native") return "Provider 原生可用";
-  if (status === "ready") return "已同步";
-  if (status === "stale") return "需要重新同步";
-  return "需要同步";
+function runtimeStatusLabel(status: SkillListItem["providerBindings"][number]["status"] | undefined, _bindingKind?: SkillListItem["providerBindings"][number]["bindingKind"]): string {
+  if (status === "ready") return "Provider 原生可用";
+  if (status === "disabled") return "Provider 已禁用";
+  return "Provider 不可用";
 }
 
 function sourceKindLabel(kind: string): string {
   if (kind === "system-aho") return "AHO 内置";
   if (kind === "provider-native") return "Provider 原生";
+  if (kind === "project-harness") return "项目 Harness";
   if (kind === "custom") return "自定义";
-  if (kind === "managed") return "AHO";
   return kind;
+}
+
+function scopeLabel(scope: SkillListItem["scope"]): string {
+  if (scope === "repo") return "项目";
+  if (scope === "user") return "用户";
+  if (scope === "system") return "系统";
+  return "管理员";
 }

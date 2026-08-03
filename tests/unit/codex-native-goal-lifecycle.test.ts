@@ -114,7 +114,10 @@ describe("Codex native Goal lifecycle", () => {
       prompt: "请根据项目现状判断下一步。",
       nativeSkillRoots: ["C:/aho/templates/system-skills"],
       requiredNativeSkills: ["aho-main-orchestration"],
-      skillInputs: [{ name: "aho-main-orchestration", path: "C:/aho/templates/system-skills/aho-main-orchestration/SKILL.md" }],
+      skillInputs: [{
+        name: "aho-main-orchestration",
+        path: "C:/aho/templates/system-skills/aho-main-orchestration/SKILL.md",
+      }],
       runtimeWorkspaceRoots: ["C:/project", "C:/memory", "C:/proposal"],
       additionalContext: {
         "aho.project": { kind: "application", value: JSON.stringify({ projectRoot: "C:/project", memoryRoot: "C:/memory" }) },

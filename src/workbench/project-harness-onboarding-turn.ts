@@ -13,6 +13,7 @@ import {
   type ProjectHarnessOnboardingResult,
 } from "../project-harness/onboarding.js";
 import { getCompiledProjectHarnessRuntimeEntry, getProjectHarnessSkillScaffoldRoot, getSystemSkillsRoot } from "../template-source/paths.js";
+import { hashNativeSkillPackageContent } from "../skill/content-hash.js";
 import type { ManagedProject } from "../types/index.js";
 import type { ProjectRuntimeState } from "../project-runtime/coordinator.js";
 import { openProjectRuntimeWorkbenchDatabase } from "./persistence/open-workbench-database.js";
@@ -109,6 +110,10 @@ export async function runProjectHarnessOnboardingTurn(
     }
     throw new Error("AHO bundled Main or Harness Engineering Skill is unavailable.");
   }
+  const [mainSkillHash, engineeringSkillHash] = await Promise.all([
+    hashNativeSkillPackageContent(dirname(mainSkillPath)),
+    hashNativeSkillPackageContent(dirname(engineeringSkillPath)),
+  ]);
   const existingBinding = database.providerAttempts.readConversationProviderBinding(project.id, conversationId, providerId);
 
   let result: ProviderTurnResult;
@@ -149,8 +154,8 @@ export async function runProjectHarnessOnboardingTurn(
       nativeSkillRoots: [mainSkillRoot],
       requiredNativeSkills: ["aho-main-orchestration", "aho-harness-engineering"],
       skillInputs: [
-        { name: "aho-main-orchestration", path: mainSkillPath },
-        { name: "aho-harness-engineering", path: engineeringSkillPath },
+        { id: "aho-main-orchestration", path: mainSkillPath, contentHash: mainSkillHash, source: "aho-system", required: true },
+        { id: "aho-harness-engineering", path: engineeringSkillPath, contentHash: engineeringSkillHash, source: "aho-system", required: true },
       ],
       tools: [{
         name: "aho_prepare_project_harness",
@@ -410,7 +415,13 @@ async function runIndependentBundleReview(input: {
         input.record.candidate_root,
         input.workspace.workspace.reviewRoot,
       ],
-      skillInputs: [{ name: input.record.skill_name, path: join(input.record.candidate_root, "SKILL.md") }],
+      skillInputs: [{
+        id: input.record.skill_name,
+        path: join(input.record.candidate_root, "SKILL.md"),
+        contentHash: input.record.candidate_fingerprint,
+        source: "project-harness",
+        required: true,
+      }],
       nativeSkillRoots: [dirname(input.record.candidate_root)],
       requiredNativeSkills: [input.record.skill_name],
       paths: providerPaths(runRoot),

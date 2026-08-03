@@ -100,12 +100,13 @@ export type ProjectStatus = {
   harness: { readiness: string };
 };
 
-export type SkillSourceKind = "managed" | "custom" | "system-aho" | "provider-native";
+export type SkillSourceKind = "custom" | "system-aho" | "provider-native" | "project-harness";
 export type SkillProviderBinding = {
   providerId: string;
-  bindingKind: "native" | "materialized";
-  status: "ready" | "stale" | "unavailable";
+  bindingKind: "native";
+  status: "ready" | "disabled";
   contentHash: string;
+  scope: "user" | "repo" | "system" | "admin";
 };
 export type SkillListItem = {
   skillId: string;
@@ -113,16 +114,20 @@ export type SkillListItem = {
   description: string;
   sourcePath: string;
   sourceKind: SkillSourceKind;
+  scope: "user" | "repo" | "system" | "admin";
   contentHash: string;
   compatibility: { requiredCapabilities: string[] };
   providerBindings: SkillProviderBinding[];
+  providerEnabled: boolean;
+  required: boolean;
+  runtimeAssigned: boolean;
   enabledProject: boolean;
   enabledTopics: string[];
   disabledTopics: string[];
 };
 export type SkillRootListItem = {
   rootPath: string;
-  sourceKind: SkillSourceKind;
+  sourceKind: "custom";
   updatedAt: string;
 };
 export type TopicFileReference = {

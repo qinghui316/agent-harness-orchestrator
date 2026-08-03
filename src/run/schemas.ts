@@ -60,13 +60,11 @@ export const runMetadataSchema = z.object({
   promptStack: z.array(z.string()).optional(),
   enabledSkills: z.array(z.object({
     id: z.string(),
-    providerId: z.string().optional(),
-    sourceKind: z.enum(["managed", "custom", "system-aho", "provider-native"]).optional(),
-    sourceHash: z.string(),
-    materializationMode: z.enum(["native", "aho-managed"]).optional(),
-    materializedHash: z.string().nullable().optional(),
-    bridge: z.string().optional(),
-    version: z.string().optional(),
+    providerId: z.string(),
+    source: z.enum(["project-harness", "aho-system", "provider-native"]),
+    path: z.string(),
+    contentHash: z.string(),
+    required: z.boolean(),
   })).optional(),
   mainAgentStrategy: z.object({
     authority: z.literal("read-only-main-agent-current-run-strategy-metadata"),
@@ -87,8 +85,6 @@ export const runMetadataSchema = z.object({
     sourceHash: z.string(),
     catalogVersion: z.string(),
     catalogHash: z.string(),
-    bridge: z.string().optional(),
-    materializedHash: z.string().nullable().optional(),
   }).optional(),
   contextPacket: z.object({
     ref: z.string(),

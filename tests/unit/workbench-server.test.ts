@@ -10,7 +10,10 @@ import { initHarness } from "../../src/harness/init.js";
 import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { ProjectRegistryStore } from "../../src/registry/store.js";
 import { resolveProjectRuntimePaths } from "../../src/project-runtime/paths.js";
+import { initializeProjectRuntimeSidecar } from "../../src/project-runtime/lifecycle.js";
+import type { ProjectRuntimeResolution } from "../../src/project-runtime/context.js";
 import type { ProjectRuntimeCoordinatorPort } from "../../src/project-runtime/coordinator.js";
+import { hashNativeSkillPackageContent } from "../../src/skill/content-hash.js";
 import { startLocalCommandRun } from "../../src/run/manager.js";
 import { TerminalRuntime } from "../../src/server/terminal/terminal-runtime.js";
 import { buildNativeFolderDialogCommand, executeWorkbenchAction, recoverWorkbenchProjects, startWorkbenchServer, type WorkbenchServerHandle } from "../../src/server/workbench-server.js";
@@ -58,12 +61,14 @@ describe("workbench server", () => {
     process.env.AHO_CODEX_BIN = await createFakeCodexRuntime(tempDir);
     await writeFile(join(staticRoot, "index.html"), "<div>AHO</div>", "utf8");
     await initHarness(project());
+    const projectRuntimeCoordinator = await createTestProjectRuntimeCoordinator();
     const conversation = await createConversationChangeFixture(project(), { title: "Server Topic" });
     serverConversationId = conversation.conversationId;
     await startLocalCommandRun(project(), [process.execPath, "-e", "console.log('server stream')"]);
     handle = await startWorkbenchServer({ project: project(), path: tempDir }, {
       port: 0,
       staticRoot,
+      projectRuntimeCoordinator,
     });
   });
 
@@ -153,7 +158,7 @@ describe("workbench server", () => {
     expect(replay.status).toBe(404);
   });
 
-  it("serves project Skill catalog and provider binding routes", async () => {
+  it("serves the Provider-native Skill catalog without materializing packages", async () => {
     const skillRoot = join(tempDir, "custom-skills");
     const skillDir = join(skillRoot, "pricing-helper");
     await mkdir(join(skillDir, "scripts"), { recursive: true });
@@ -172,8 +177,8 @@ describe("workbench server", () => {
     const system = listed.skills.find((skill) => skill.skillId === "aho-harness-engineering");
     expect(pricing).toMatchObject({ skillId: "pricing-helper", sourceKind: "custom" });
     expect(pricing).toMatchObject({ contentHash: expect.any(String) });
-    expect(pricing?.providerBindings[0]).toMatchObject({ providerId: "codex", status: "unavailable" });
-    expect(system).toBeUndefined();
+    expect(pricing?.providerBindings[0]).toMatchObject({ providerId: "codex", status: "ready" });
+    expect(system).toMatchObject({ runtimeAssigned: true, sourceKind: "system-aho" });
 
     const enabled = await fetch(`${handle!.url}/api/projects/repo/skills/pricing-helper/enable`, {
       method: "POST",
@@ -182,13 +187,16 @@ describe("workbench server", () => {
     });
     expect(enabled.ok).toBe(true);
 
-    const synced = await fetch(`${handle!.url}/api/projects/repo/skills/provider-binding/sync`, {
+    const disabled = await fetch(`${handle!.url}/api/projects/repo/skills/pricing-helper/provider-enable`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
+      body: JSON.stringify({ enabled: false }),
     });
-    expect(synced.ok).toBe(true);
-    expect(existsSync(join(process.env.CODEX_HOME ?? "", "plugins", "aho-managed", "skills", "repo__pricing-helper", "scripts", "run.ps1"))).toBe(true);
+    expect(disabled.ok).toBe(true);
+    const refreshed = await getJson<{ skills: Array<{ skillId: string; providerEnabled: boolean }> }>(`${handle!.url}/api/projects/repo/skills`);
+    expect(refreshed.skills.find((skill) => skill.skillId === "pricing-helper")?.providerEnabled).toBe(false);
+    expect(existsSync(join(skillDir, "scripts", "run.ps1"))).toBe(true);
+    expect(existsSync(join(process.env.CODEX_HOME ?? "", "plugins", "aho-managed"))).toBe(false);
   });
 
   it("serves safe project file search results for composer references", async () => {
@@ -941,9 +949,52 @@ describe("workbench server", () => {
   });
 });
 
+async function createTestProjectRuntimeCoordinator(): Promise<ProjectRuntimeCoordinatorPort> {
+  const paths = resolveProjectRuntimePaths(project().id, registryRoot);
+  await initializeProjectRuntimeSidecar(paths);
+  const skillRoot = join(tempDir, ".agents", "skills", "repo-harness");
+  await mkdir(join(skillRoot, "state"), { recursive: true });
+  await writeFile(join(skillRoot, "SKILL.md"), "---\nname: repo-harness\ndescription: Test project Harness.\n---\n", "utf8");
+  const contentFingerprint = await hashNativeSkillPackageContent(skillRoot);
+  const resolution: ProjectRuntimeResolution = {
+    projectRoot: tempDir,
+    harness: {
+      projectId: project().id,
+      skillName: "repo-harness",
+      skillRevision: 1,
+      skillRoot,
+      contentFingerprint,
+    },
+    binding: {
+      projectId: project().id,
+      skillName: "repo-harness",
+      sourcePath: skillRoot,
+      contentFingerprint,
+      providers: [{ providerId: "codex", discoveryPath: skillRoot, status: "ready", sameTarget: true }],
+    },
+    providerInput: {
+      id: "repo-harness",
+      path: join(skillRoot, "SKILL.md"),
+      contentHash: contentFingerprint,
+      source: "project-harness",
+      required: true,
+    },
+    paths,
+  };
+  const ready = { state: "ready" as const, project: project(), resolution };
+  return {
+    async reconcileStartup() {
+      return { states: [ready], migrations: [], recoveries: [], onboardingRecoveries: [] };
+    },
+    async register() { return ready; },
+    async resolve() { return ready; },
+    async requireReady() { return resolution; },
+  };
+}
+
 async function getJson<T>(url: string): Promise<T> {
   const response = await fetch(url);
-  expect(response.ok).toBe(true);
+  if (!response.ok) throw new Error(`GET ${url} failed (${response.status}): ${await response.text()}`);
   return response.json() as Promise<T>;
 }
 

@@ -1,7 +1,8 @@
 import { detectCodexCapabilities } from "../codex/capabilities.js";
 import { detectCodexAppServerCapability } from "../codex/app-server.js";
 import { getCodexModelSettingsSnapshot } from "../codex/model-settings.js";
-import { listSkills } from "../skill/catalog.js";
+import { listCodexNativeSkills } from "../codex/native-skills.js";
+import { getSystemSkillsRoot } from "../template-source/paths.js";
 import type { ManagedProject } from "../types/index.js";
 import type {
   ProviderCapabilityItem,
@@ -38,15 +39,19 @@ export async function getCodexProviderCapabilitySnapshot(project: ManagedProject
     detectCodexCapabilities(),
     detectCodexAppServerCapability(),
     getCodexModelSettingsSnapshot(projectPath),
-    project ? listSkills(project).catch((error: unknown) => ({ error })) : Promise.resolve(null),
+    project ? listCodexNativeSkills({
+      projectPath: project.path,
+      extraRoots: [getSystemSkillsRoot()],
+      forceReload: false,
+    }).catch((error: unknown) => ({ error })) : Promise.resolve(null),
   ]);
 
   const cliReady = cli.available && cli.errors.length === 0;
   const appServerReady = appServer.supportsStdio && appServer.errors.length === 0;
   const safeExecReady = cliReady && cli.supportsJson && cli.supportsSandbox && cli.supportsCd;
   const modelListReady = models.modelList.available && !models.modelList.degraded;
-  const skillCount = Array.isArray(skills) ? skills.length : 0;
-  const skillError = skills && !Array.isArray(skills) && "error" in skills ? messageFrom(skills.error) : null;
+  const skillCount = skills && "skills" in skills ? skills.skills.length : 0;
+  const skillError = skills && "error" in skills ? messageFrom(skills.error) : null;
 
   const items: CapabilityInput[] = [
     {
@@ -86,7 +91,7 @@ export async function getCodexProviderCapabilitySnapshot(project: ManagedProject
       label: "MCP / 插件",
       spec: "supported",
       runtime: skillError ? "degraded" : "ready",
-      summary: skillError ? "Skill/MCP 状态读取降级。" : "Codex Skill / plugin bridge 可作为 runtime capability 使用。",
+      summary: skillError ? "Skill/MCP 状态读取降级。" : "Codex 原生 Skill 和 MCP 能力可供 Runtime 使用。",
       reason: skillError ?? undefined,
     },
     {

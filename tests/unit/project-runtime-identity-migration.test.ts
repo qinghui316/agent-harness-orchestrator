@@ -37,7 +37,7 @@ describe("staged canonical project identity migration", () => {
         .sort();
 
       expect(actual).toEqual(expected);
-      expect(expected).toHaveLength(16);
+      expect(expected).toHaveLength(14);
     } finally {
       database.close();
     }
@@ -61,15 +61,17 @@ describe("staged canonical project identity migration", () => {
     expect(await sqliteProjectIds(join(fixture.targetSidecarRoot, "workbench", "workbench.sqlite"))).toEqual({
       canonical_timeline_items: [TARGET_ID],
       conversations: [TARGET_ID],
-      skills: [TARGET_ID],
     });
+    const migratedDatabase = new Database(join(fixture.targetSidecarRoot, "workbench", "workbench.sqlite"), { readonly: true });
+    expect(migratedDatabase.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('skills', 'bridge_sync')").all()).toEqual([]);
+    migratedDatabase.close();
     expect(result.sqliteProofs).toHaveLength(1);
     for (const proof of result.sqliteProofs[0].tables) {
       expect(proof.countAfter, proof.table).toBe(proof.countBefore);
       expect(proof.identityNeutralHashAfter, proof.table).toBe(proof.identityNeutralHashBefore);
     }
-    expect(result.sqliteProofs[0].userVersion).toBe(9);
-    expect(result.sqliteProofs[0].updatedRows).toBe(4);
+    expect(result.sqliteProofs[0].userVersion).toBe(10);
+    expect(result.sqliteProofs[0].updatedRows).toBe(2);
 
     const run = await readJson<{ projectId: string; payload: { keep: string } }>(
       join(fixture.targetSidecarRoot, "runs", "run-1.json"),
@@ -273,6 +275,7 @@ async function createFixture(transactionId: string): Promise<{
       sqliteDatabases: [{
         relativePath: "workbench/workbench.sqlite",
         identityColumns: WORKBENCH_PROJECT_IDENTITY_COLUMNS,
+        prepareStagedDatabase: migrateWorkbenchSchema,
       }],
       jsonDocuments: [
         { kind: "runtime-state", scope: "sidecar", path: "runs/run-1.json", allowedIdentityPaths: ["/projectId"] },
@@ -287,6 +290,7 @@ async function createFixture(transactionId: string): Promise<{
 
 async function createDatabase(path: string): Promise<void> {
   const database = new Database(path);
+  migrateWorkbenchSchema(database);
   database.exec(`
     CREATE TABLE skills (
       project_id TEXT NOT NULL,
@@ -294,26 +298,27 @@ async function createDatabase(path: string): Promise<void> {
       metadata_json TEXT NOT NULL,
       PRIMARY KEY(project_id, skill_id)
     );
-    CREATE TABLE conversations (
+    CREATE TABLE bridge_sync (
       project_id TEXT NOT NULL,
-      conversation_id TEXT NOT NULL,
-      title TEXT NOT NULL,
-      PRIMARY KEY(project_id, conversation_id)
-    );
-    CREATE TABLE canonical_timeline_items (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      raw_json TEXT NOT NULL
+      skill_id TEXT NOT NULL,
+      source_hash TEXT NOT NULL,
+      materialized_path TEXT NOT NULL,
+      materialized_hash TEXT NOT NULL,
+      bridge_version TEXT NOT NULL,
+      synced_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, skill_id)
     );
   `);
   database.prepare("INSERT INTO skills(project_id, skill_id, metadata_json) VALUES (?, ?, ?)")
     .run(SOURCE_ID, "skill-a", JSON.stringify({ name: "skill-a", enabled: true }));
   database.prepare("INSERT INTO skills(project_id, skill_id, metadata_json) VALUES (?, ?, ?)")
     .run(SOURCE_ID, "skill-b", JSON.stringify({ name: "skill-b", enabled: false }));
-  database.prepare("INSERT INTO conversations(project_id, conversation_id, title) VALUES (?, ?, ?)")
-    .run(SOURCE_ID, "conversation-a", "Keep this title");
-  database.prepare("INSERT INTO canonical_timeline_items(id, project_id, raw_json) VALUES (?, ?, ?)")
-    .run("timeline-a", SOURCE_ID, JSON.stringify({ type: "message", text: "unchanged" }));
+  database.prepare("INSERT INTO bridge_sync(project_id, skill_id, source_hash, materialized_path, materialized_hash, bridge_version, synced_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .run(SOURCE_ID, "skill-a", "source", "legacy", "materialized", "1", new Date().toISOString());
+  database.prepare("INSERT INTO conversations(project_id, conversation_id, title, selected_provider_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(SOURCE_ID, "conversation-a", "Keep this title", "codex", new Date().toISOString(), new Date().toISOString());
+  database.prepare("INSERT INTO canonical_timeline_items(id, project_id, conversation_id, change_id, position, revision, agent_surface_id, type, timestamp, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .run("timeline-a", SOURCE_ID, "conversation-a", "", 1, 1, "main-agent", "message", new Date().toISOString(), JSON.stringify({ type: "message", text: "unchanged" }));
   database.pragma("user_version = 9");
   database.close();
 }
@@ -321,7 +326,7 @@ async function createDatabase(path: string): Promise<void> {
 async function sqliteProjectIds(path: string): Promise<Record<string, string[]>> {
   const database = new Database(path, { readonly: true, fileMustExist: true });
   try {
-    return Object.fromEntries(["canonical_timeline_items", "conversations", "skills"].map((table) => [
+    return Object.fromEntries(["canonical_timeline_items", "conversations"].map((table) => [
       table,
       (database.prepare(`SELECT DISTINCT project_id FROM ${table} ORDER BY project_id`).all() as Array<{ project_id: string }>)
         .map((row) => row.project_id),

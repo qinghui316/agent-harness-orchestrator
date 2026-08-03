@@ -41,7 +41,6 @@ export interface AgentRole {
   catalogVersion: string;
   catalogHash: string;
   compatibility: AgentRoleCompatibility;
-  providerBindings: AgentRoleProviderBinding[];
   writeCapability: AgentWriteCapability;
   allowedInputs: string[];
   allowedOutputs: string[];
@@ -54,13 +53,6 @@ export interface AgentRole {
 
 export interface AgentRoleCompatibility {
   requiredCapabilities: string[];
-}
-
-export interface AgentRoleProviderBinding {
-  providerId: string;
-  bindingKind: "native" | "materialized";
-  status: "ready" | "stale" | "unavailable";
-  contentHash: string;
 }
 
 export interface AgentSyncResult {
@@ -172,7 +164,6 @@ export async function resolveAgentRole(memory: ResolvedMemory, roleIdInput: stri
     catalogVersion: catalog.version,
     catalogHash: hashText(JSON.stringify(catalog)),
     compatibility: roleCompatibility(entry),
-    providerBindings: [],
     markdown,
   };
 }
@@ -191,7 +182,7 @@ export function validateRolePromptContract(roleId: string, markdown: string): vo
   }
 }
 
-export function buildRunAgentRecord(role: AgentRole, materialized?: { hash?: string | null }): RunAgentRecord {
+export function buildRunAgentRecord(role: AgentRole): RunAgentRecord {
   return {
     roleId: role.roleId,
     source: role.source,
@@ -199,8 +190,6 @@ export function buildRunAgentRecord(role: AgentRole, materialized?: { hash?: str
     sourceHash: role.contentHash,
     catalogVersion: role.catalogVersion,
     catalogHash: role.catalogHash,
-    bridge: materialized ? "aho-managed" : undefined,
-    materializedHash: materialized?.hash ?? null,
   };
 }
 

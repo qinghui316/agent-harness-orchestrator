@@ -1,7 +1,11 @@
 ﻿import type { Command } from "commander";
 import { listAgentRoles, showAgentRole, syncAgentCatalog } from "../../agent/catalog.js";
 import { defaultProviderRegistry } from "../../provider-runtime/index.js";
-import { importSkill, listSkills, setSkillEnabled } from "../../skill/catalog.js";
+import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../../provider-runtime/project-harness-discovery.js";
+import { ProjectRuntimeCoordinator } from "../../project-runtime/coordinator.js";
+import { addSkillRoot, listSkillRoots, listSkills, setSkillEnabled } from "../../skill/catalog.js";
+import { getSystemSkillsRoot } from "../../template-source/paths.js";
+import type { ManagedProject } from "../../types/index.js";
 import { printJson, printTable } from "../output.js";
 import { resolveManagedProject, type CliContext } from "../context.js";
 
@@ -69,8 +73,9 @@ export function installSkillAgentProviderCommands(program: Command, context: Cli
     .argument("<project>", "registered project id/name/path")
     .option("--json", "print JSON")
     .action(async (query: string, options: { json?: boolean }) => {
-      const project = await resolveManagedProject(store, query);
-      const skills = await listSkills(project);
+      const project = await resolveRegisteredSkillProject(query);
+      const catalog = await nativeCatalog(project);
+      const skills = catalog.skills;
       if (options.json) printJson(skills);
       else printTable(skills.map((item) => ({
         id: item.skillId,
@@ -84,17 +89,17 @@ export function installSkillAgentProviderCommands(program: Command, context: Cli
     });
 
   skill
-    .command("import")
+    .command("root-add")
     .argument("<project>", "registered project id/name/path")
-    .requiredOption("--path <skill-dir>", "local skill directory containing SKILL.md")
+    .requiredOption("--path <skills-root>", "local directory containing one or more native Skills")
     .option("--json", "print JSON")
     .action(async (query: string, options: { path: string; json?: boolean }) => {
-      const project = await resolveManagedProject(store, query);
-      const result = await importSkill(project, options.path);
-      if (options.json) printJson(result);
+      const project = await resolveRegisteredSkillProject(query);
+      const runtime = await runtimeCoordinator().requireReady(project);
+      const roots = await addSkillRoot(runtime.paths, options.path);
+      if (options.json) printJson({ roots });
       else {
-        console.log(`Imported skill ${result.skill.skillId}.`);
-        console.log(`Copied: ${result.copied.join(", ") || "SKILL.md"}`);
+        console.log(`Registered native Skill root ${options.path}.`);
       }
     });
 
@@ -105,8 +110,9 @@ export function installSkillAgentProviderCommands(program: Command, context: Cli
     .option("--topic <change-id>", "enable only for a specific Topic/Change")
     .option("--json", "print JSON")
     .action(async (query: string, skillId: string, options: { topic?: string; json?: boolean }) => {
-      const project = await resolveManagedProject(store, query);
-      const result = await setSkillEnabled(project, skillId, { topic: options.topic, enabled: true });
+      const project = await resolveRegisteredSkillProject(query);
+      const catalog = await nativeCatalog(project);
+      const result = await setSkillEnabled(catalog.runtime.paths, catalog.snapshot, skillId, { topic: options.topic, enabled: true }, [catalog.runtime.providerInput]);
       if (options.json) printJson(result);
       else console.log(`Enabled skill ${skillId}${options.topic ? ` for Topic ${options.topic}` : " for project"}.`);
     });
@@ -118,67 +124,35 @@ export function installSkillAgentProviderCommands(program: Command, context: Cli
     .option("--topic <change-id>", "disable only for a specific Topic/Change")
     .option("--json", "print JSON")
     .action(async (query: string, skillId: string, options: { topic?: string; json?: boolean }) => {
-      const project = await resolveManagedProject(store, query);
-      const result = await setSkillEnabled(project, skillId, { topic: options.topic, enabled: false });
+      const project = await resolveRegisteredSkillProject(query);
+      const catalog = await nativeCatalog(project);
+      const result = await setSkillEnabled(catalog.runtime.paths, catalog.snapshot, skillId, { topic: options.topic, enabled: false }, [catalog.runtime.providerInput]);
       if (options.json) printJson(result);
       else console.log(`Disabled skill ${skillId}${options.topic ? ` for Topic ${options.topic}` : " for project"}.`);
     });
 
-  const providerCommand = program.command("provider").description("Manage Agent provider adapters");
-  const providerBridge = providerCommand.command("bridge").description("Install and sync a provider Skill/role binding");
+  function runtimeCoordinator(): ProjectRuntimeCoordinator {
+    return new ProjectRuntimeCoordinator({ store, discoveryPolicy: DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY });
+  }
 
-  providerBridge
-    .command("status")
-    .argument("<provider-id>", "registered provider id")
-    .argument("[project]", "optional registered project id/name/path")
-    .option("--json", "print JSON")
-    .action(async (providerId: string, query: string | undefined, options: { json?: boolean }) => {
-      const project = query ? await resolveManagedProject(store, query) : undefined;
-      const status = await defaultProviderRegistry.get(providerId).skillRoleBinding.status(project);
-      if (options.json) printJson(status);
-      else {
-        printTable([{
-          state: status.state,
-          installed: status.installed,
-          discoverable: status.discoverable,
-          manifestValid: status.manifestValid,
-          path: status.paths.root,
-          project: status.project?.id ?? "",
-          outOfSync: status.project?.outOfSync?.join(", ") ?? "",
-        }]);
-        for (const diagnostic of status.diagnostics) console.log(`DIAGNOSTIC: ${diagnostic}`);
-      }
+  async function resolveRegisteredSkillProject(query: string): Promise<ManagedProject> {
+    const project = await store.resolveProject(query);
+    if (!project) throw new Error("Project must be registered before using Skill commands.");
+    await runtimeCoordinator().requireReady(project);
+    return project;
+  }
+
+  async function nativeCatalog(project: ManagedProject) {
+    const runtime = await runtimeCoordinator().requireReady(project);
+    const provider = project.defaultProviderId
+      ? defaultProviderRegistry.get(project.defaultProviderId)
+      : defaultProviderRegistry.requireOnly();
+    const roots = await listSkillRoots(runtime.paths);
+    const snapshot = await provider.skills.list({
+      projectPath: project.path,
+      extraRoots: [getSystemSkillsRoot(), ...roots.map((root) => root.rootPath)],
+      forceReload: true,
     });
-
-  providerBridge
-    .command("install")
-    .argument("<provider-id>", "registered provider id")
-    .option("--json", "print JSON")
-    .action(async (providerId: string, options: { json?: boolean }) => {
-      const result = await defaultProviderRegistry.get(providerId).skillRoleBinding.install();
-      if (options.json) printJson(result);
-      else {
-        console.log(`Installed ${providerId} Skill/role binding at ${result.paths.root}`);
-        console.log(`Manifest: ${result.manifest}`);
-      }
-    });
-
-  providerBridge
-    .command("sync")
-    .argument("<provider-id>", "registered provider id")
-    .argument("<project>", "registered project id/name/path")
-    .option("--json", "print JSON")
-    .action(async (providerId: string, query: string, options: { json?: boolean }) => {
-      const project = await resolveManagedProject(store, query);
-      const result = await defaultProviderRegistry.get(providerId).skillRoleBinding.sync(project);
-      if (options.json) printJson(result);
-      else {
-        console.log(`Synced ${result.synced.length} enabled skill(s) and ${result.syncedAgents.length} agent role(s) through ${providerId}.`);
-        for (const item of result.synced) console.log(`- ${item.skillId} -> ${item.materializedSkillId}`);
-        for (const item of result.syncedAgents) console.log(`- agent ${item.roleId}`);
-        for (const diagnostic of result.status.diagnostics) console.log(`DIAGNOSTIC: ${diagnostic}`);
-      }
-    });
-
-
+    return { runtime, snapshot, ...await listSkills(runtime.paths, snapshot, [runtime.providerInput]) };
+  }
 }

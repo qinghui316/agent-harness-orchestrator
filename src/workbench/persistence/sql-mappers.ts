@@ -1,5 +1,5 @@
 import type { ProviderCapabilitySnapshot, ProviderModelRef } from "../../provider-runtime/index.js";
-import type { StoredBridgeSync, StoredConversation, StoredConversationProviderBinding, StoredDecisionRecord, StoredDecisionStatus, StoredProviderAttempt, StoredProviderResumePoint, StoredProviderThreadLink, StoredSkillEnablement, StoredSkillIndex, StoredSkillRoot, StoredTopicMessage } from "./contracts.js";
+import type { StoredConversation, StoredConversationProviderBinding, StoredDecisionRecord, StoredDecisionStatus, StoredProviderAttempt, StoredProviderResumePoint, StoredProviderThreadLink, StoredSkillEnablement, StoredSkillRoot, StoredTopicMessage } from "./contracts.js";
 
 export interface SqliteRow { [key: string]: unknown; }
 
@@ -149,20 +149,6 @@ export function parseJsonObject<T>(value: unknown): T | null {
   }
 }
 
-export function mapSkillRow(row: SqliteRow): StoredSkillIndex {
-  return {
-    projectId: String(row.projectId),
-    skillId: String(row.skillId),
-    name: String(row.name),
-    description: String(row.description),
-    sourcePath: String(row.sourcePath),
-    sourceKind: String(row.sourceKind ?? "managed"),
-    sourceHash: String(row.sourceHash),
-    metadataJson: String(row.metadataJson),
-    updatedAt: String(row.updatedAt),
-  };
-}
-
 export function mapSkillRootRow(row: SqliteRow): StoredSkillRoot {
   return {
     projectId: String(row.projectId),
@@ -180,18 +166,6 @@ export function mapEnablementRow(row: SqliteRow): StoredSkillEnablement {
     scope: row.scope === "topic" ? "topic" : "project",
     enabled: Number(row.enabled) === 1,
     updatedAt: String(row.updatedAt),
-  };
-}
-
-export function mapBridgeRow(row: SqliteRow): StoredBridgeSync {
-  return {
-    projectId: String(row.projectId),
-    skillId: String(row.skillId),
-    sourceHash: String(row.sourceHash),
-    materializedPath: String(row.materializedPath),
-    materializedHash: String(row.materializedHash),
-    bridgeVersion: String(row.bridgeVersion),
-    syncedAt: String(row.syncedAt),
   };
 }
 

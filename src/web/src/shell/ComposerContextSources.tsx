@@ -193,18 +193,23 @@ function fallbackSkill(skillId: string): SkillListItem {
     description: "",
     sourcePath: "",
     sourceKind: "custom",
+    scope: "user",
     contentHash: "",
     compatibility: { requiredCapabilities: [] },
     enabledProject: false,
     enabledTopics: [],
     disabledTopics: [],
     providerBindings: [],
+    providerEnabled: true,
+    required: false,
+    runtimeAssigned: false,
   };
 }
 
 function sourceKindLabel(kind: SkillListItem["sourceKind"]): string {
   if (kind === "system-aho") return "AHO 内置";
   if (kind === "provider-native") return "服务原生技能";
+  if (kind === "project-harness") return "项目 Harness";
   return "自定义技能";
 }
 

@@ -46,13 +46,14 @@ describe("run metadata schema", () => {
       enabledSkills: [{
         id: "aho-harness-engineering",
         providerId: "test-provider",
-        sourceKind: "system-aho",
-        sourceHash: "hash-system",
-        materializationMode: "aho-managed",
+        source: "aho-system",
+        path: "E:/aho/system-skills/aho-harness-engineering/SKILL.md",
+        contentHash: "hash-system",
+        required: true,
       }],
     });
 
-    expect(parsed.enabledSkills?.[0]?.sourceKind).toBe("system-aho");
+    expect(parsed.enabledSkills?.[0]?.source).toBe("aho-system");
   });
 
   it("accepts provider-backed integration repairs and rejects the retired Codex mode", () => {

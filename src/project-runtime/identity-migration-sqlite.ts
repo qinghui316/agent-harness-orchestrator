@@ -33,11 +33,9 @@ export const WORKBENCH_PROJECT_IDENTITY_COLUMNS: readonly SqliteProjectIdentityC
   { table: "conversation_change_links", column: "project_id" },
   { table: "conversation_graph_scopes", column: "project_id" },
   { table: "planning_acceptance_commits", column: "project_id" },
-  { table: "skills", column: "project_id" },
   { table: "skill_roots", column: "project_id" },
   { table: "skill_enablement", column: "project_id" },
   { table: "approval_cache", column: "project_id" },
-  { table: "bridge_sync", column: "project_id" },
   { table: "decision_records", column: "project_id" },
 ] as const;
 

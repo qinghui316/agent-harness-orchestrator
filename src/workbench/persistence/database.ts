@@ -14,6 +14,7 @@ import {
   beginExclusiveSchemaRebuild,
   hasWorkbenchRuntimeTables,
   migrate,
+  requiresRuntimeSchemaRebuild,
   WORKBENCH_SCHEMA_VERSION,
 } from "./schema.js";
 import { WorkbenchUnitOfWork } from "./unit-of-work.js";
@@ -53,7 +54,9 @@ export class WorkbenchDatabase {
     connection.pragma("foreign_keys = ON");
     const currentVersion = Number(connection.pragma("user_version", { simple: true }) ?? 0);
     const needsRebuild = currentVersion !== WORKBENCH_SCHEMA_VERSION;
-    const rebuildingExistingRuntime = needsRebuild && hasWorkbenchRuntimeTables(connection);
+    const rebuildingExistingRuntime = needsRebuild
+      && requiresRuntimeSchemaRebuild(currentVersion)
+      && hasWorkbenchRuntimeTables(connection);
     let rebuildTransaction = false;
     let rebuildLock: WorkbenchRuntimeMutationLock | null = null;
     if (rebuildingExistingRuntime) {
