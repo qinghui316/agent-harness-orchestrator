@@ -17,6 +17,10 @@ export interface ProjectRuntimePaths {
   transactionStagingRoot: string;
 }
 
+export type ProjectRunsPathPort = Pick<ProjectRuntimePaths, "runsRoot">;
+export type ProjectWorktreeMetadataPathPort = Pick<ProjectRuntimePaths, "worktreeMetadataRoot">;
+export type ProjectWorktreeIndexPathPort = Pick<ProjectRuntimePaths, "worktreeIndexPath">;
+
 export function resolveProjectRuntimePaths(projectId: string, ahoHome = getAhoHome()): ProjectRuntimePaths {
   assertPortableProjectId(projectId);
   const sidecarRoot = join(resolve(ahoHome), "projects", projectId);

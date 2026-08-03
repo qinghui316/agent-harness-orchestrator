@@ -3,16 +3,16 @@ import { readdir } from "node:fs/promises";
 import { readRequiredJsonFile, writeJsonFile } from "../fs/json.js";
 import { worktreeMetadataSchema } from "./schemas.js";
 import { assertWorktreeMetadataScope, WorktreeMetadataScopeError } from "./guards.js";
-import { getWorktreeMetadataPath } from "./paths.js";
-import type { ResolvedMemory, WorktreeMetadata } from "../types/index.js";
+import { getWorktreeMetadataPath, type WorktreeMetadataPort } from "./paths.js";
+import type { WorktreeMetadata } from "../types/index.js";
 
-export async function readWorktreeMetadata(memory: ResolvedMemory, worktreeId: string): Promise<WorktreeMetadata> {
+export async function readWorktreeMetadata(memory: WorktreeMetadataPort, worktreeId: string): Promise<WorktreeMetadata> {
   const metadata = await readRequiredJsonFile(getWorktreeMetadataPath(memory, worktreeId), worktreeMetadataSchema);
   await assertWorktreeMetadataScope(memory, worktreeId, metadata);
   return metadata;
 }
 
-export async function tryReadWorktreeMetadata(memory: ResolvedMemory, worktreeId: string): Promise<WorktreeMetadata | null> {
+export async function tryReadWorktreeMetadata(memory: WorktreeMetadataPort, worktreeId: string): Promise<WorktreeMetadata | null> {
   try {
     return await readWorktreeMetadata(memory, worktreeId);
   } catch (error) {
@@ -21,7 +21,7 @@ export async function tryReadWorktreeMetadata(memory: ResolvedMemory, worktreeId
   }
 }
 
-export async function listWorktreeMetadata(memory: ResolvedMemory): Promise<WorktreeMetadata[]> {
+export async function listWorktreeMetadata(memory: WorktreeMetadataPort): Promise<WorktreeMetadata[]> {
   if (!existsSync(memory.worktreeMetadataRoot)) return [];
   const entries = await readdir(memory.worktreeMetadataRoot, { withFileTypes: true });
   const metadata: WorktreeMetadata[] = [];
@@ -33,7 +33,7 @@ export async function listWorktreeMetadata(memory: ResolvedMemory): Promise<Work
   return metadata;
 }
 
-export async function writeWorktreeMetadata(memory: ResolvedMemory, metadata: WorktreeMetadata): Promise<void> {
+export async function writeWorktreeMetadata(memory: WorktreeMetadataPort, metadata: WorktreeMetadata): Promise<void> {
   await assertWorktreeMetadataScope(memory, metadata.worktreeId, metadata);
   await writeJsonFile(getWorktreeMetadataPath(memory, metadata.worktreeId), metadata);
 }

@@ -39,7 +39,7 @@ export async function startLocalCommandRun(project: ManagedProject, command: str
     };
   }
   const directory = join(memory.runsRoot, runId);
-  const relativeDir = displayArtifactPath(memory, directory);
+  const relativeDir = displayArtifactPath(memory.artifactBase === "memory-root" ? memory.memoryRoot : memory.projectRoot, directory);
   const artifacts = {
     base: memory.artifactBase,
     directory: relativeDir,

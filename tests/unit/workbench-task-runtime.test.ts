@@ -287,14 +287,15 @@ describe("workbench task runtime domain", () => {
       workflowGraphPlanId: prepared.workflowGraphPlanId,
     });
     const memory = await resolveProjectMemory(project());
-    const items = await listTaskQueueItems(memory, "task-queue", result.queue.id);
+    const runPaths = { runsRoot: memory.runsRoot };
+    const items = await listTaskQueueItems(runPaths, "task-queue", result.queue.id);
 
     expect(result.queue).toMatchObject({ status: "queued", totalCount: 1, completedCount: 0 });
     expect(items).toEqual([
       expect.objectContaining({ taskId: "T-001", status: "skipped", order: 1, workflowGraphPlanId: prepared.workflowGraphPlanId, workflowRunId: result.queue.workflowRunId }),
       expect.objectContaining({ taskId: "T-002", status: "queued", order: 2, workflowGraphPlanId: prepared.workflowGraphPlanId, workflowRunId: result.queue.workflowRunId }),
     ]);
-    await expect(readWorkflowRun(memory, "task-queue", result.queue.workflowRunId!)).resolves.toMatchObject({
+    await expect(readWorkflowRun(runPaths, "task-queue", result.queue.workflowRunId!)).resolves.toMatchObject({
       id: result.queue.workflowRunId,
       status: "running",
       queueRunId: result.queue.id,

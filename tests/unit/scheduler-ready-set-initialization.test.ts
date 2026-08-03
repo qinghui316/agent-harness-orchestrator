@@ -134,11 +134,12 @@ describe("authored ready-set Scheduler initialization", () => {
       kind: "start-first-worker",
       reservationIntent: { claimIntentId: graph.nodes[0].claimIntentId },
     });
-    expect(await listTaskQueues(memory, topic.changeId)).toEqual([]);
-    expect(await listTaskRuns(memory, topic.changeId)).toEqual([]);
-    expect(await listWorkerLeases(memory, topic.changeId)).toEqual([]);
+    const runPaths = { runsRoot: memory.runsRoot };
+    expect(await listTaskQueues(runPaths, topic.changeId)).toEqual([]);
+    expect(await listTaskRuns(runPaths, topic.changeId)).toEqual([]);
+    expect(await listWorkerLeases(runPaths, topic.changeId)).toEqual([]);
     expect(await listWorktreeMetadata(memory)).toEqual([]);
-    expect(await listRuns(memory)).toEqual([]);
+    expect(await listRuns(runPaths)).toEqual([]);
 
     const retried = await runSchedulerReadySetInitialization(memory, changePath, graph);
     expect(retried.schedulerRun.id).toBe(initialized.schedulerRun.id);

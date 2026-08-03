@@ -1,8 +1,8 @@
 import { writeJsonFile } from "../fs/json.js";
 import { listWorktreeMetadata } from "./repository.js";
-import type { ResolvedMemory } from "../types/index.js";
+import type { WorktreeIndexPort } from "./paths.js";
 
-export async function writeWorktreeIndex(memory: ResolvedMemory): Promise<void> {
+export async function writeWorktreeIndex(memory: WorktreeIndexPort): Promise<void> {
   const metadata = await listWorktreeMetadata(memory);
   await writeJsonFile(memory.worktreeIndexPath, {
     generatedAt: new Date().toISOString(),

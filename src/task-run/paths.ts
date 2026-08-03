@@ -1,18 +1,18 @@
 import { join } from "node:path";
-import type { ResolvedMemory } from "../types/index.js";
+import type { ProjectRunsPathPort } from "../project-runtime/paths.js";
 
-export function taskRunDir(memory: ResolvedMemory, changeId: string): string {
+export function taskRunDir(memory: ProjectRunsPathPort, changeId: string): string {
   return join(memory.runsRoot, "task-runs", changeId);
 }
 
-export function taskRunPath(memory: ResolvedMemory, changeId: string, taskRunId: string): string {
+export function taskRunPath(memory: ProjectRunsPathPort, changeId: string, taskRunId: string): string {
   return join(taskRunDir(memory, changeId), `${taskRunId}.json`);
 }
 
-export function workerLeaseDir(memory: ResolvedMemory, changeId: string): string {
+export function workerLeaseDir(memory: ProjectRunsPathPort, changeId: string): string {
   return join(memory.runsRoot, "worker-leases", changeId);
 }
 
-export function workerLeasePath(memory: ResolvedMemory, changeId: string, leaseId: string): string {
+export function workerLeasePath(memory: ProjectRunsPathPort, changeId: string, leaseId: string): string {
   return join(workerLeaseDir(memory, changeId), `${leaseId}.json`);
 }

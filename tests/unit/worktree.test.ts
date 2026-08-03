@@ -66,7 +66,12 @@ describe("worktree metadata scope", () => {
     await writeMetadata("wt-invalid", validMetadata({ worktreeId: "wt-invalid", projectId: "other-repo" }));
 
     const statuses = await listWorktreeStatuses(memory);
-    await writeWorktreeIndex(memory);
+    await writeWorktreeIndex({
+      projectId: memory.projectId,
+      projectRoot: memory.projectRoot,
+      worktreeMetadataRoot: memory.worktreeMetadataRoot,
+      worktreeIndexPath: memory.worktreeIndexPath,
+    });
 
     expect(statuses.map((item) => item.worktreeId)).toEqual(["wt-valid"]);
     expect(statuses[0]).toMatchObject({ exists: false, dirty: null, headCommit: null });

@@ -3,8 +3,8 @@ import { isAbsolute, relative, resolve } from "node:path";
 import { getAhoHome, normalizeForCompare } from "../fs/path.js";
 import { gitText } from "../project/git.js";
 import { resolveWithinPhysicalRoot } from "../project-harness/path-safety.js";
-import { getGlobalWorktreeCheckoutRoot } from "./paths.js";
-import type { ResolvedMemory, WorktreeMetadata } from "../types/index.js";
+import { getGlobalWorktreeCheckoutRoot, type WorktreeMetadataPort } from "./paths.js";
+import type { WorktreeMetadata } from "../types/index.js";
 
 export class WorktreeMetadataScopeError extends Error {
   constructor(message: string) {
@@ -14,7 +14,7 @@ export class WorktreeMetadataScopeError extends Error {
 }
 
 export async function assertWorktreeMetadataScope(
-  memory: ResolvedMemory,
+  memory: WorktreeMetadataPort,
   requestedWorktreeId: string,
   metadata: WorktreeMetadata,
 ): Promise<void> {

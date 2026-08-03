@@ -7,6 +7,7 @@ import { CodexCompletionTracker } from "../../src/codex/completion.js";
 import { createCodexJsonlStreamParser } from "../../src/codex/jsonl.js";
 import { createChange } from "../../src/change/manager.js";
 import { initHarness } from "../../src/harness/init.js";
+import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { listRuns, readRun, startLocalCommandRun } from "../../src/run/manager.js";
 import { executeProcessStreaming } from "../../src/run/process.js";
 import type { ManagedProject } from "../../src/types/index.js";
@@ -84,8 +85,10 @@ describe("run manager", () => {
     await createChange(project(tempDir), { title: "List Runs" });
     const result = await startLocalCommandRun(project(tempDir), [process.execPath, "-e", ""]);
 
-    const runs = await listRuns(tempDir);
-    const read = await readRun(tempDir, result.run.id);
+    const memory = await resolveProjectMemory(project(tempDir));
+    const runPaths = { runsRoot: memory.runsRoot };
+    const runs = await listRuns(runPaths);
+    const read = await readRun(runPaths, result.run.id);
 
     expect(runs).toHaveLength(1);
     expect(read.id).toBe(result.run.id);
