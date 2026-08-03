@@ -2,7 +2,8 @@ import { existsSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { readRequiredJsonFile } from "../fs/json.js";
-import type { ResolvedMemory, ValidationResult, ValidationSummary } from "../types/index.js";
+import type { ProjectRunsPathPort } from "../project-runtime/paths.js";
+import type { ValidationResult, ValidationSummary } from "../types/index.js";
 import { assertValidationScope } from "./guards.js";
 import { validationResultSchema } from "./schemas.js";
 
@@ -10,7 +11,7 @@ export interface ValidationReadOptions {
   changeId?: string;
 }
 
-export async function listValidationResults(memory: ResolvedMemory, changeId?: string): Promise<ValidationResult[]> {
+export async function listValidationResults(memory: ProjectRunsPathPort, changeId?: string): Promise<ValidationResult[]> {
   if (!existsSync(memory.runsRoot)) return [];
   const entries = await readdir(memory.runsRoot, { withFileTypes: true });
   const results: ValidationResult[] = [];
@@ -28,7 +29,7 @@ export async function listValidationResults(memory: ResolvedMemory, changeId?: s
   return results.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
 }
 
-export async function readValidationResult(memory: ResolvedMemory, validationId: string, options: ValidationReadOptions = {}): Promise<ValidationResult> {
+export async function readValidationResult(memory: ProjectRunsPathPort, validationId: string, options: ValidationReadOptions = {}): Promise<ValidationResult> {
   const path = join(memory.runsRoot, validationId, "validation.json");
   const result = await readRequiredJsonFile(path, validationResultSchema) as ValidationResult;
   assertValidationScope(result, { expectedId: validationId, changeId: options.changeId });
@@ -40,7 +41,7 @@ export interface ValidationLookupFilter {
   worktreeDiffHash?: string;
 }
 
-export async function getLatestValidationSummary(memory: ResolvedMemory, changeId: string, filter: ValidationLookupFilter = {}): Promise<ValidationSummary | null> {
+export async function getLatestValidationSummary(memory: ProjectRunsPathPort, changeId: string, filter: ValidationLookupFilter = {}): Promise<ValidationSummary | null> {
   const results = (await listValidationResults(memory, changeId)).filter((item) => {
     if (filter.worktreeId && item.worktreeId !== filter.worktreeId) return false;
     if (filter.worktreeDiffHash && item.worktreeDiffHash !== filter.worktreeDiffHash) return false;

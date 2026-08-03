@@ -2,20 +2,21 @@ import { existsSync } from "node:fs";
 import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { shortHash } from "../fs/path.js";
-import type { ResolvedMemory, WorkflowRun, WorkflowRunEvent, WorkflowRunEventType } from "../types/index.js";
+import type { ProjectRunsPathPort } from "../project-runtime/paths.js";
+import type { WorkflowRun, WorkflowRunEvent, WorkflowRunEventType } from "../types/index.js";
 import { assertWorkflowRunEventScope, canonicalWorkflowRunEventInput } from "./guards.js";
 import { workflowEventPath } from "./paths.js";
 import { readWorkflowRun } from "./repository.js";
 import type { WorkflowRunEventInput } from "./types.js";
 
-export async function appendWorkflowTaskEvent(memory: ResolvedMemory, workflowRunId: string | undefined, changeId: string, type: WorkflowRunEventType, input: WorkflowRunEventInput & Partial<WorkflowRunEvent>): Promise<void> {
+export async function appendWorkflowTaskEvent(memory: ProjectRunsPathPort, workflowRunId: string | undefined, changeId: string, type: WorkflowRunEventType, input: WorkflowRunEventInput & Partial<WorkflowRunEvent>): Promise<void> {
   if (!workflowRunId) return;
   const run = await readWorkflowRun(memory, changeId, workflowRunId).catch(() => null);
   if (!run) return;
   await appendWorkflowRunEvent(memory, run, type, input);
 }
 
-export async function readWorkflowRunEvents(memory: ResolvedMemory, changeId: string, workflowRunId: string): Promise<WorkflowRunEvent[]> {
+export async function readWorkflowRunEvents(memory: ProjectRunsPathPort, changeId: string, workflowRunId: string): Promise<WorkflowRunEvent[]> {
   const run = await readWorkflowRun(memory, changeId, workflowRunId);
   const path = workflowEventPath(memory, run.changeId, run.id);
   if (!existsSync(path)) return [];
@@ -27,7 +28,7 @@ export async function readWorkflowRunEvents(memory: ResolvedMemory, changeId: st
   });
 }
 
-export async function appendWorkflowRunEvent(memory: ResolvedMemory, run: WorkflowRun, type: WorkflowRunEventType, input: WorkflowRunEventInput & Partial<WorkflowRunEvent> = {}): Promise<void> {
+export async function appendWorkflowRunEvent(memory: ProjectRunsPathPort, run: WorkflowRun, type: WorkflowRunEventType, input: WorkflowRunEventInput & Partial<WorkflowRunEvent> = {}): Promise<void> {
   const now = new Date().toISOString();
   const scopedInput = canonicalWorkflowRunEventInput(input);
   const event: WorkflowRunEvent = {

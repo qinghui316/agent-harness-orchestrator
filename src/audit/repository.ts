@@ -2,7 +2,8 @@ import { existsSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { readRequiredJsonFile } from "../fs/json.js";
-import type { AuditResult, AuditSummary, ResolvedMemory } from "../types/index.js";
+import type { ProjectRunsPathPort } from "../project-runtime/paths.js";
+import type { AuditResult, AuditSummary } from "../types/index.js";
 import { assertAuditScope } from "./guards.js";
 import { auditResultSchema } from "./schemas.js";
 
@@ -10,7 +11,7 @@ export interface AuditReadOptions {
   changeId?: string;
 }
 
-export async function listAuditResults(memory: ResolvedMemory, changeId?: string): Promise<AuditResult[]> {
+export async function listAuditResults(memory: ProjectRunsPathPort, changeId?: string): Promise<AuditResult[]> {
   if (!existsSync(memory.runsRoot)) return [];
   const entries = await readdir(memory.runsRoot, { withFileTypes: true });
   const results: AuditResult[] = [];
@@ -28,14 +29,14 @@ export async function listAuditResults(memory: ResolvedMemory, changeId?: string
   return results.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
 }
 
-export async function readAuditResult(memory: ResolvedMemory, auditId: string, options: AuditReadOptions = {}): Promise<AuditResult> {
+export async function readAuditResult(memory: ProjectRunsPathPort, auditId: string, options: AuditReadOptions = {}): Promise<AuditResult> {
   const path = join(memory.runsRoot, auditId, "audit.json");
   const result = await readRequiredJsonFile(path, auditResultSchema) as AuditResult;
   assertAuditScope(result, { expectedId: auditId, changeId: options.changeId });
   return result;
 }
 
-export async function getLatestAuditSummary(memory: ResolvedMemory, changeId: string): Promise<AuditSummary | null> {
+export async function getLatestAuditSummary(memory: ProjectRunsPathPort, changeId: string): Promise<AuditSummary | null> {
   const results = await listAuditResults(memory, changeId);
   const latest = results[0];
   return latest ? summarizeAudit(latest) : null;

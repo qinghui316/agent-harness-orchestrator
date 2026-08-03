@@ -11,10 +11,9 @@ import type {
   AgentTaskKind,
   AgentTaskResult,
   AgentTaskStatus,
-  ResolvedMemory,
 } from "../types/index.js";
 import { resultSchema, taskSchema } from "./schemas.js";
-import { taskPath, taskResultPath, tasksRoot } from "./paths.js";
+import { taskPath, taskResultPath, tasksRoot, type AgentTaskStorePort } from "./paths.js";
 import { acquireWorkbenchRuntimeMutationLock } from "../workbench/schema-rebuild-gate.js";
 
 const DEFAULT_LEASE_MS = 30_000;
@@ -60,7 +59,7 @@ export interface CompleteAgentTaskInput {
   writer?: AgentTaskWriterIdentity;
 }
 
-export async function createAgentTask(memory: ResolvedMemory, input: CreateAgentTaskInput): Promise<AgentTask> {
+export async function createAgentTask(memory: AgentTaskStorePort, input: CreateAgentTaskInput): Promise<AgentTask> {
   if (input.maxAttempts !== undefined && (!Number.isInteger(input.maxAttempts) || input.maxAttempts < 1)) {
     throw new Error("AgentTask maxAttempts must be a positive integer.");
   }
@@ -68,7 +67,7 @@ export async function createAgentTask(memory: ResolvedMemory, input: CreateAgent
   return createAgentTaskUnlocked(memory, input);
 }
 
-async function createAgentTaskUnlocked(memory: ResolvedMemory, input: CreateAgentTaskInput): Promise<AgentTask> {
+async function createAgentTaskUnlocked(memory: AgentTaskStorePort, input: CreateAgentTaskInput): Promise<AgentTask> {
   if (input.idempotencyKey) {
     const existing = (await listAgentTasks(memory)).find((task) => task.idempotencyKey === input.idempotencyKey);
     if (existing) return existing;
@@ -103,7 +102,7 @@ async function createAgentTaskUnlocked(memory: ResolvedMemory, input: CreateAgen
   return task;
 }
 
-export async function claimAgentTask(memory: ResolvedMemory, task: AgentTask, input: AgentTaskLeaseInput = {}): Promise<AgentTask> {
+export async function claimAgentTask(memory: AgentTaskStorePort, task: AgentTask, input: AgentTaskLeaseInput = {}): Promise<AgentTask> {
   const runtimeLock = await acquireWorkbenchRuntimeMutationLock(memory, "领取 Agent 任务");
   try {
     return await withTaskMutex(memory, task.id, async () => {
@@ -143,7 +142,7 @@ export async function claimAgentTask(memory: ResolvedMemory, task: AgentTask, in
   }
 }
 
-export async function startAgentTask(memory: ResolvedMemory, task: AgentTask, writer?: AgentTaskWriterIdentity): Promise<AgentTask> {
+export async function startAgentTask(memory: AgentTaskStorePort, task: AgentTask, writer?: AgentTaskWriterIdentity): Promise<AgentTask> {
   return withTaskMutex(memory, task.id, async () => {
     const current = await assertCurrentWriter(memory, task, writer);
     const now = new Date().toISOString();
@@ -153,7 +152,7 @@ export async function startAgentTask(memory: ResolvedMemory, task: AgentTask, wr
   });
 }
 
-export async function heartbeatAgentTask(memory: ResolvedMemory, task: AgentTask, writer: AgentTaskWriterIdentity, leaseDurationMs = DEFAULT_LEASE_MS, now = new Date().toISOString()): Promise<AgentTask> {
+export async function heartbeatAgentTask(memory: AgentTaskStorePort, task: AgentTask, writer: AgentTaskWriterIdentity, leaseDurationMs = DEFAULT_LEASE_MS, now = new Date().toISOString()): Promise<AgentTask> {
   return withTaskMutex(memory, task.id, async () => {
     const current = await assertCurrentWriter(memory, task, writer, now);
     const lease = { ...current.lease!, heartbeatAt: now, expiresAt: new Date(Date.parse(now) + normalizeLeaseMs(leaseDurationMs)).toISOString() };
@@ -164,7 +163,7 @@ export async function heartbeatAgentTask(memory: ResolvedMemory, task: AgentTask
   });
 }
 
-export async function checkpointAgentTask(memory: ResolvedMemory, task: AgentTask, writer: AgentTaskWriterIdentity, input: Omit<AgentTaskCheckpoint, "sequence" | "createdAt"> & { createdAt?: string }): Promise<AgentTask> {
+export async function checkpointAgentTask(memory: AgentTaskStorePort, task: AgentTask, writer: AgentTaskWriterIdentity, input: Omit<AgentTaskCheckpoint, "sequence" | "createdAt"> & { createdAt?: string }): Promise<AgentTask> {
   return withTaskMutex(memory, task.id, async () => {
     const current = await assertCurrentWriter(memory, task, writer);
     const createdAt = input.createdAt ?? new Date().toISOString();
@@ -175,7 +174,7 @@ export async function checkpointAgentTask(memory: ResolvedMemory, task: AgentTas
   });
 }
 
-export async function failAgentTask(memory: ResolvedMemory, task: AgentTask, input: Omit<CompleteAgentTaskInput, "status"> & { retryable: boolean }): Promise<AgentTask | AgentTaskResult> {
+export async function failAgentTask(memory: AgentTaskStorePort, task: AgentTask, input: Omit<CompleteAgentTaskInput, "status"> & { retryable: boolean }): Promise<AgentTask | AgentTaskResult> {
   return withTaskMutex(memory, task.id, async () => {
     const current = await assertCurrentWriter(memory, task, input.writer);
     const now = new Date().toISOString();
@@ -189,7 +188,7 @@ export async function failAgentTask(memory: ResolvedMemory, task: AgentTask, inp
   });
 }
 
-export async function recoverExpiredAgentTasks(memory: ResolvedMemory, now = new Date().toISOString()): Promise<AgentTask[]> {
+export async function recoverExpiredAgentTasks(memory: AgentTaskStorePort, now = new Date().toISOString()): Promise<AgentTask[]> {
   const recovered: AgentTask[] = [];
   for (const task of await listAgentTasks(memory)) {
     if (!task.lease || Date.parse(task.lease.expiresAt) > Date.parse(now) || TERMINAL_STATUSES.has(task.status)) continue;
@@ -209,7 +208,7 @@ export async function recoverExpiredAgentTasks(memory: ResolvedMemory, now = new
   return recovered;
 }
 
-export async function completeAgentTask(memory: ResolvedMemory, task: AgentTask, input: CompleteAgentTaskInput): Promise<AgentTaskResult> {
+export async function completeAgentTask(memory: AgentTaskStorePort, task: AgentTask, input: CompleteAgentTaskInput): Promise<AgentTaskResult> {
   if (!TERMINAL_STATUSES.has(input.status)) throw new Error(`AgentTask terminal result cannot use status ${input.status}.`);
   return withTaskMutex(memory, task.id, async () => {
     const existing = await readAgentTaskResult(memory, task.id);
@@ -219,7 +218,7 @@ export async function completeAgentTask(memory: ResolvedMemory, task: AgentTask,
   });
 }
 
-export async function listAgentTasks(memory: ResolvedMemory, changeId?: string): Promise<AgentTask[]> {
+export async function listAgentTasks(memory: AgentTaskStorePort, changeId?: string): Promise<AgentTask[]> {
   const root = tasksRoot(memory);
   if (!existsSync(root)) return [];
   const entries = await readdir(root, { withFileTypes: true });
@@ -234,17 +233,17 @@ export async function listAgentTasks(memory: ResolvedMemory, changeId?: string):
   return tasks.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
 }
 
-export async function readAgentTaskResult(memory: ResolvedMemory, taskId: string): Promise<AgentTaskResult | null> {
+export async function readAgentTaskResult(memory: AgentTaskStorePort, taskId: string): Promise<AgentTaskResult | null> {
   if (!existsSync(taskResultPath(memory, taskId))) return null;
   return readJsonFile(taskResultPath(memory, taskId), resultSchema, null as unknown as AgentTaskResult).catch(() => null);
 }
 
-export function writeTask(memory: ResolvedMemory, task: AgentTask): Promise<void> {
+export function writeTask(memory: AgentTaskStorePort, task: AgentTask): Promise<void> {
   taskSchema.parse(task);
   return writeJsonFile(taskPath(memory, task.id), task);
 }
 
-async function writeTerminalResult(memory: ResolvedMemory, task: AgentTask, input: CompleteAgentTaskInput, now: string): Promise<AgentTaskResult> {
+async function writeTerminalResult(memory: AgentTaskStorePort, task: AgentTask, input: CompleteAgentTaskInput, now: string): Promise<AgentTaskResult> {
   const result: AgentTaskResult = {
     version: "1.0", taskId: task.id, roleId: task.roleId, status: input.status, summary: input.summary,
     artifactRefs: input.artifactRefs ?? [], attempt: task.attempt ?? 1,
@@ -264,7 +263,7 @@ async function writeTerminalResult(memory: ResolvedMemory, task: AgentTask, inpu
   return result;
 }
 
-async function convergeCommittedResult(memory: ResolvedMemory, task: AgentTask, result: AgentTaskResult): Promise<AgentTask> {
+async function convergeCommittedResult(memory: AgentTaskStorePort, task: AgentTask, result: AgentTaskResult): Promise<AgentTask> {
   const completed: AgentTask = {
     ...task,
     status: result.status,
@@ -280,7 +279,7 @@ async function convergeCommittedResult(memory: ResolvedMemory, task: AgentTask, 
   return completed;
 }
 
-async function assertCurrentWriter(memory: ResolvedMemory, task: AgentTask, writer?: AgentTaskWriterIdentity, now = new Date().toISOString()): Promise<AgentTask> {
+async function assertCurrentWriter(memory: AgentTaskStorePort, task: AgentTask, writer?: AgentTaskWriterIdentity, now = new Date().toISOString()): Promise<AgentTask> {
   const current = await readCurrentTask(memory, task.id);
   if (TERMINAL_STATUSES.has(current.status)) throw new Error(`AgentTask ${task.id} is terminal; stale writer rejected.`);
   if (!current.lease) {
@@ -295,13 +294,13 @@ async function assertCurrentWriter(memory: ResolvedMemory, task: AgentTask, writ
   return current;
 }
 
-async function readCurrentTask(memory: ResolvedMemory, taskId: string): Promise<AgentTask> {
+async function readCurrentTask(memory: AgentTaskStorePort, taskId: string): Promise<AgentTask> {
   const task = await readJsonFile(taskPath(memory, taskId), taskSchema, null as unknown as AgentTask);
   if (!task) throw new Error(`AgentTask ${taskId} does not exist.`);
   return task;
 }
 
-async function withTaskMutex<T>(memory: ResolvedMemory, taskId: string, action: () => Promise<T>): Promise<T> {
+async function withTaskMutex<T>(memory: AgentTaskStorePort, taskId: string, action: () => Promise<T>): Promise<T> {
   const lockPath = join(dirname(taskPath(memory, taskId)), "lifecycle.lock");
   await mkdir(dirname(lockPath), { recursive: true });
   let handle;
@@ -320,7 +319,7 @@ async function withTaskMutex<T>(memory: ResolvedMemory, taskId: string, action: 
   try { return await action(); } finally { await handle.close(); await unlink(lockPath).catch(ignoreMissing); }
 }
 
-async function nextFencingToken(memory: ResolvedMemory, taskId: string): Promise<number> {
+async function nextFencingToken(memory: AgentTaskStorePort, taskId: string): Promise<number> {
   const path = join(dirname(taskPath(memory, taskId)), "fencing-counter");
   const previous = Number.parseInt(await readFile(path, "utf8").catch(() => "0"), 10) || 0;
   const next = previous + 1;
@@ -333,11 +332,11 @@ async function readClaimFile(path: string): Promise<AgentTask["lease"]> {
   catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; }
 }
 
-async function releaseClaim(memory: ResolvedMemory, taskId: string): Promise<void> {
+async function releaseClaim(memory: AgentTaskStorePort, taskId: string): Promise<void> {
   await unlink(taskClaimPath(memory, taskId)).catch(ignoreMissing);
 }
 
-function taskClaimPath(memory: ResolvedMemory, taskId: string): string { return join(dirname(taskPath(memory, taskId)), "claim.json"); }
+function taskClaimPath(memory: AgentTaskStorePort, taskId: string): string { return join(dirname(taskPath(memory, taskId)), "claim.json"); }
 function normalizeLeaseMs(value?: number): number { return Number.isFinite(value) && value! > 0 ? Math.floor(value!) : DEFAULT_LEASE_MS; }
 function ignoreMissing(error: unknown): void { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
 

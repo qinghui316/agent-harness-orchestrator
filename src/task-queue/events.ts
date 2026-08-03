@@ -1,8 +1,9 @@
 import { appendWorkflowTaskEvent } from "../workflow-run/manager.js";
-import type { ResolvedMemory, TaskQueueItem, WorkflowRunEventType } from "../types/index.js";
+import type { ProjectRunsPathPort } from "../project-runtime/paths.js";
+import type { TaskQueueItem, WorkflowRunEventType } from "../types/index.js";
 
 export async function appendTaskQueueTaskEvent(
-  memory: ResolvedMemory,
+  memory: ProjectRunsPathPort,
   item: Pick<TaskQueueItem, "workflowRunId" | "changeId" | "queueRunId" | "taskId">,
   type: WorkflowRunEventType,
   payload: Record<string, unknown>,

@@ -2,7 +2,8 @@ import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { readRequiredJsonFile, writeJsonFile } from "../fs/json.js";
-import type { LocalExecutionAuthorization, ResolvedMemory, TransitionExecution } from "../types/index.js";
+import type { ProjectRunsPathPort } from "../project-runtime/paths.js";
+import type { LocalExecutionAuthorization, TransitionExecution } from "../types/index.js";
 import { localExecutionAuthorizationSchema, transitionExecutionSchema } from "./execution-authorization-schema.js";
 
 interface JsonRow { json: string }
@@ -16,31 +17,31 @@ export interface ExecutionAuthorizationTransaction {
   countCompletionReservations(authorizationId: string): number;
 }
 
-function root(memory: ResolvedMemory): string {
+function root(memory: ProjectRunsPathPort): string {
   return join(memory.runsRoot, "execution-authorization");
 }
 
-export function executionAuthorizationDatabasePath(memory: ResolvedMemory): string {
+export function executionAuthorizationDatabasePath(memory: ProjectRunsPathPort): string {
   return join(root(memory), "coordination.sqlite");
 }
 
-export function executionAuthorizationPath(memory: ResolvedMemory, authorizationId: string): string {
+export function executionAuthorizationPath(memory: ProjectRunsPathPort, authorizationId: string): string {
   return join(root(memory), "authorizations", `${authorizationId}.json`);
 }
 
-export function transitionExecutionPath(memory: ResolvedMemory, operationId: string): string {
+export function transitionExecutionPath(memory: ProjectRunsPathPort, operationId: string): string {
   return join(root(memory), "operations", operationId, "execution.json");
 }
 
 export function runExecutionAuthorizationTransaction<T>(
-  memory: ResolvedMemory,
+  memory: ProjectRunsPathPort,
   action: (transaction: ExecutionAuthorizationTransaction) => T,
 ): T {
   return withDatabase(memory, (database) => database.transaction(() => action(transactionStore(database))).immediate());
 }
 
 export async function projectExecutionAuthorizationState(
-  memory: ResolvedMemory,
+  memory: ProjectRunsPathPort,
   authorization?: LocalExecutionAuthorization | null,
   execution?: TransitionExecution | null,
 ): Promise<void> {
@@ -65,21 +66,21 @@ async function serializeProjectionWrite(path: string, write: () => Promise<void>
   }
 }
 
-export async function readExecutionAuthorization(memory: ResolvedMemory, authorizationId: string) {
+export async function readExecutionAuthorization(memory: ProjectRunsPathPort, authorizationId: string) {
   const value = withDatabase(memory, (database) => transactionStore(database).getAuthorization(authorizationId));
   if (!value) throw missing(`Execution authorization not found: ${authorizationId}.`);
   await projectExecutionAuthorizationState(memory, value);
   return value;
 }
 
-export async function readTransitionExecution(memory: ResolvedMemory, operationId: string) {
+export async function readTransitionExecution(memory: ProjectRunsPathPort, operationId: string) {
   const value = withDatabase(memory, (database) => transactionStore(database).getExecution(operationId));
   if (!value) throw missing(`Transition execution not found: ${operationId}.`);
   await projectExecutionAuthorizationState(memory, null, value);
   return value;
 }
 
-export async function rebuildExecutionAuthorizationProjections(memory: ResolvedMemory): Promise<void> {
+export async function rebuildExecutionAuthorizationProjections(memory: ProjectRunsPathPort): Promise<void> {
   const state = withDatabase(memory, (database) => ({
     authorizations: (database.prepare("SELECT json FROM execution_authorizations").all() as JsonRow[])
       .map((row) => localExecutionAuthorizationSchema.parse(JSON.parse(row.json))),
@@ -91,11 +92,11 @@ export async function rebuildExecutionAuthorizationProjections(memory: ResolvedM
 }
 
 // Projection-only readers are useful for diagnostics; coordination never reads them.
-export function readExecutionAuthorizationProjection(memory: ResolvedMemory, authorizationId: string) {
+export function readExecutionAuthorizationProjection(memory: ProjectRunsPathPort, authorizationId: string) {
   return readRequiredJsonFile(executionAuthorizationPath(memory, authorizationId), localExecutionAuthorizationSchema);
 }
 
-function withDatabase<T>(memory: ResolvedMemory, action: (database: Database.Database) => T): T {
+function withDatabase<T>(memory: ProjectRunsPathPort, action: (database: Database.Database) => T): T {
   const path = executionAuthorizationDatabasePath(memory);
   mkdirSync(root(memory), { recursive: true });
   const database = new Database(path);
