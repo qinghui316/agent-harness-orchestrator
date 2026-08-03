@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { ProjectRegistryStore } from "../registry/store.js";
-import { recoverPendingApplyTransactions } from "../apply/manager.js";
+import { recoverApplyApprovalReceipts, recoverDiscardApprovalReceipts } from "../apply/manager.js";
+import { recoverIntegrationCheckApprovalReceipts } from "../integration-check/manager.js";
 import { recoverChangeCloseTransactions } from "../change/manager.js";
 import type { WorkbenchProjectInput } from "../workbench/read-model-types.js";
 import { TerminalRuntime } from "./terminal/terminal-runtime.js";
@@ -13,6 +14,7 @@ import { DEFAULT_PROJECT_HARNESS_DISCOVERY_POLICY } from "../provider-runtime/pr
 import type { WorkbenchServeOptions, WorkbenchServerContext, WorkbenchServerHandle } from "./workbench/types.js";
 import { ProjectRuntimeCoordinator, type ProjectRuntimeCoordinatorPort } from "../project-runtime/coordinator.js";
 import { WorkbenchProjectRemovalService } from "./workbench/project-removal.js";
+import { reconcileRecoveredApprovalDecisions } from "../workbench/actions/approval-decision-reconciliation.js";
 
 export type { WorkbenchServeOptions, WorkbenchServerHandle } from "./workbench/types.js";
 export { executeWorkbenchAction } from "./workbench/actions.js";
@@ -83,7 +85,12 @@ export async function recoverWorkbenchProjects(
   }
   for (const project of projects) {
     if ((await projectRuntimeCoordinator.resolve(project)).state !== "ready") continue;
-    await recoverPendingApplyTransactions(project);
+    const reconcileReceipt = (receipt: Parameters<typeof reconcileRecoveredApprovalDecisions>[1][number]) => (
+      reconcileRecoveredApprovalDecisions(project, [receipt])
+    );
+    await recoverApplyApprovalReceipts(project, true, reconcileReceipt);
+    await recoverIntegrationCheckApprovalReceipts(project, true, reconcileReceipt);
+    await recoverDiscardApprovalReceipts(project, true, reconcileReceipt);
     await recoverChangeCloseTransactions(project);
   }
 }

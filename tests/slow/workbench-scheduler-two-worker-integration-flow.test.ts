@@ -1,4 +1,4 @@
-import { rm } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { executeWorkbenchAction } from "../../src/server/workbench-server.js";
@@ -294,6 +294,27 @@ describe("workbench scheduler two-worker integration slow flow", () => {
       ))).toBe(true);
       expect(schedulerRuntimeEvents.some((event) => event.type === "scheduler-runtime.integration-outcome-recorded")).toBe(false);
       expect(schedulerRuntimeEvents.some((event) => event.type === "scheduler-runtime.run-completed")).toBe(false);
+
+      const statusBeforeApply = await execFileAsync("git", ["status", "--short", "--untracked-files=all"], { cwd: getTempDir() });
+      expect(statusBeforeApply.stdout.trim()).toBe("");
+      const appliedAction = await executeWorkbenchAction(
+        { project: project(), path: getTempDir() },
+        { action: applyAction, confirm: true },
+      );
+      expect(unwrapWorkflowActionResult(appliedAction.result)).toMatchObject({
+        check: { id: handoff.handoff?.integrationCheckId, status: "applied" },
+      });
+      expect((await readFile(join(getTempDir(), "README.md"), "utf8")).trim()).toContain("Scheduler worker fake coder");
+      const statusAfterApply = await execFileAsync("git", ["status", "--short", "--untracked-files=all"], { cwd: getTempDir() });
+      expect(statusAfterApply.stdout.trim()).not.toBe("");
+      expect(await listWorktreeStatuses(prepared.runtimePaths)).toEqual(expect.arrayContaining([
+        expect.objectContaining({ worktreeId: prepared.workerStart.worktreeId, status: "applied" }),
+        expect.objectContaining({ worktreeId: secondStart.workerStart?.worktreeId, status: "applied" }),
+      ]));
+      await expect(executeWorkbenchAction(
+        { project: project(), path: getTempDir() },
+        { action: applyAction, confirm: true },
+      )).rejects.toThrow(/stale|available|completed|already/i);
     } finally {
       if (oldPath === undefined) delete process.env.PATH;
       else process.env.PATH = oldPath;

@@ -17,6 +17,7 @@ import type {
   WorkflowRunSummary,
 } from "../types/index.js";
 import type { ApplyReadinessKind } from "../apply/manager.js";
+import type { HighImpactApprovalScope } from "../workflow-actions/high-impact-approval.js";
 import type {
   WorkbenchSchedulerClaimReconcilePlanSummary,
   WorkbenchSchedulerContractSummary,
@@ -868,6 +869,7 @@ export interface WorkbenchApprovalAction {
   args: string[];
   mutates: boolean;
   requiresConfirmation: boolean;
+  scope?: HighImpactApprovalScope;
 }
 
 export interface WorkbenchStreamPacket {

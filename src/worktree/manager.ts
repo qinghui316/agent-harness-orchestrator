@@ -3,6 +3,6 @@ export { prepareWorktreeDependencyBridge, WorktreeDependencyBridgeError } from "
 export { getGlobalWorktreeCheckoutRoot, getWorktreeMetadataPath } from "./paths.js";
 export { listWorktreeMetadata } from "./repository.js";
 export { getWorktreeStatus, listWorktreeStatuses, listWorktreesForChange } from "./status.js";
-export { markWorktreeApplied, removeWorktree } from "./lifecycle.js";
+export { markWorktreeApplied, removeWorktree, removeWorktreeUnderLease } from "./lifecycle.js";
 export { writeWorktreeIndex } from "./index.js";
 export type { WorktreeAppliedUpdate, WorktreeCreateOptions, WorktreeCreateResult, WorktreeRemoveResult } from "./types.js";

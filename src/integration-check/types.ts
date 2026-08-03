@@ -1,3 +1,6 @@
+import type { ExecutionAuthorizationSnapshot } from "../types/index.js";
+import type { HighImpactApprovalScope } from "../workflow-actions/high-impact-approval.js";
+
 export type IntegrationCheckStatus = "passed" | "conflict" | "validation-failed" | "audit-failed" | "stale-result" | "failed" | "applied" | "discarded";
 export type IntegrationFixAttemptStatus = "completed" | "failed";
 export type AggregateValidationStatus = "passed" | "failed";
@@ -9,6 +12,13 @@ export interface IntegrationCheckTarget {
   diffHash: string;
   diffStat: string;
   sourceHead: string | null;
+  validationRunId?: string;
+  auditRunId?: string;
+}
+
+export interface SkillNativeIntegrationCheckTarget extends IntegrationCheckTarget {
+  validationRunId: string;
+  auditRunId: string;
 }
 
 export interface IntegrationArtifact {
@@ -89,4 +99,55 @@ export interface IntegrationCheckCandidate {
 export interface IntegrationCheckResult {
   check: IntegrationCheckRecord;
   artifactDirectory: string;
+}
+
+export interface IntegrationCheckApplyTransaction {
+  version: "1.0";
+  checkId: string;
+  changeId: string;
+  runId: string;
+  manifestHash: string;
+  sourceHeadBefore: string;
+  artifactHash: string;
+  publishedCheckHash: string | null;
+  publishedCheck: IntegrationCheckRecord;
+  diffHash: string;
+  expectedTree: string;
+  changedPaths: string[];
+  stage: "prepared" | "patch-applied" | "metadata-updated" | "evidence-written" | "completed";
+  actionScope: HighImpactApprovalScope;
+  approvalActionId: "apply-check.apply" | null;
+  authorization: {
+    authorizationId: string;
+    authorizationEpoch: number;
+    snapshot: ExecutionAuthorizationSnapshot;
+    operationId: string;
+    claimToken: string;
+    fencingToken: number;
+  };
+  createdAt: string;
+  updatedAt: string;
+  blockedReason: string | null;
+}
+
+export interface IntegrationCheckDiscardTransaction {
+  version: "1.0";
+  checkId: string;
+  changeId: string;
+  manifestHash: string;
+  publishedCheckHash: string | null;
+  publishedCheck: IntegrationCheckRecord;
+  stage: "prepared" | "evidence-written" | "completed";
+  actionScope: HighImpactApprovalScope;
+  approvalActionId: "apply-check.discard" | null;
+  authorization: {
+    authorizationId: string;
+    authorizationEpoch: number;
+    operationId: string;
+    claimToken: string;
+    fencingToken: number;
+  };
+  createdAt: string;
+  updatedAt: string;
+  blockedReason: string | null;
 }

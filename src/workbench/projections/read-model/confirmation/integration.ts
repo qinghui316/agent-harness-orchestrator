@@ -1,6 +1,7 @@
 import type { IntegrationCheckCandidate, IntegrationCheckRecord } from "../../../../integration-check/manager.js";
 import type { ManagedProject } from "../../../../types/index.js";
 import type { WorkbenchConfirmationQueueItem } from "../../../read-model-types.js";
+import type { HighImpactApprovalScope } from "../../../../workflow-actions/high-impact-approval.js";
 import { evidenceActions } from "../evidence-actions.js";
 import { approvalAction } from "./shared.js";
 
@@ -45,7 +46,7 @@ export function sameIntegrationTargets(left: IntegrationCheckCandidate["targets"
   return leftKey.length === rightKey.length && leftKey.every((item, index) => item === rightKey[index]);
 }
 
-export function integrationCheckQueueItem(project: ManagedProject, check: IntegrationCheckRecord, selectedChangeId: string | undefined): WorkbenchConfirmationQueueItem {
+export function integrationCheckQueueItem(project: ManagedProject, check: IntegrationCheckRecord, selectedChangeId: string | undefined, scope?: HighImpactApprovalScope): WorkbenchConfirmationQueueItem {
   const selected = Boolean(selectedChangeId && check.resultTargets.some((target) => target.changeId === selectedChangeId));
   const itemChangeId = selected ? selectedChangeId : check.resultTargets[0]?.changeId;
   return {
@@ -61,29 +62,31 @@ export function integrationCheckQueueItem(project: ManagedProject, check: Integr
     riskSummary: check.riskSummary,
     evidenceRefs: check.artifactRefs,
     actions: [
+      ...(scope ? [
       {
         id: `apply-check-apply:${check.id}`,
         label: "确认应用到项目",
-        kind: "approval",
-        action: approvalAction("apply-check.apply", "确认应用到项目", "apply-check", ["apply", check.id, check.latestArtifactHash ?? ""], true),
+        kind: "approval" as const,
+        action: approvalAction("apply-check.apply", "确认应用到项目", "apply-check", ["apply", check.id, check.latestArtifactHash ?? ""], true, scope),
         enabled: true,
         requiresConfirmation: true,
       },
       {
         id: `apply-check-feedback:${check.id}`,
         label: "要求修改",
-        kind: "feedback",
+        kind: "feedback" as const,
         enabled: true,
         requiresConfirmation: false,
       },
       {
         id: `apply-check-discard:${check.id}`,
         label: "放弃",
-        kind: "approval",
-        action: approvalAction("apply-check.discard", "放弃组合结果", "apply-check", ["discard", check.id], true),
+        kind: "approval" as const,
+        action: approvalAction("apply-check.discard", "放弃组合结果", "apply-check", ["discard", check.id], true, scope),
         enabled: true,
         requiresConfirmation: true,
       },
+      ] : []),
       ...evidenceActions(check.artifactRefs[0], { label: "查看证据" }),
     ],
     primary: selected,
@@ -91,7 +94,7 @@ export function integrationCheckQueueItem(project: ManagedProject, check: Integr
   };
 }
 
-export function integrationCheckNeedsActionQueueItem(project: ManagedProject, check: IntegrationCheckRecord, selectedChangeId: string | undefined): WorkbenchConfirmationQueueItem {
+export function integrationCheckNeedsActionQueueItem(project: ManagedProject, check: IntegrationCheckRecord, selectedChangeId: string | undefined, scope?: HighImpactApprovalScope): WorkbenchConfirmationQueueItem {
   const selected = Boolean(selectedChangeId && check.resultTargets.some((target) => target.changeId === selectedChangeId));
   const itemChangeId = selected ? selectedChangeId : check.resultTargets[0]?.changeId;
   return {
@@ -116,14 +119,16 @@ export function integrationCheckNeedsActionQueueItem(project: ManagedProject, ch
         enabled: true,
         requiresConfirmation: false,
       },
+      ...(scope ? [
       {
         id: `apply-check-discard:${check.id}`,
         label: "放弃",
-        kind: "approval",
-        action: approvalAction("apply-check.discard", "放弃组合结果", "apply-check", ["discard", check.id], true),
+        kind: "approval" as const,
+        action: approvalAction("apply-check.discard", "放弃组合结果", "apply-check", ["discard", check.id], true, scope),
         enabled: true,
         requiresConfirmation: true,
       },
+      ] : []),
       ...evidenceActions(check.artifactRefs[0], { label: "查看证据" }),
     ],
     primary: selected,

@@ -2,6 +2,11 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { canApplyResultFromGate, classifyApplyReadiness, evaluateSkillNativeApplyGate } from "../../../apply/gate.js";
+import { worktreeApplyManifestHash } from "../../../apply/gate.js";
+import { projectApplyActionScope, resolveProjectApplyExecutionScope } from "../../../apply/execution-scope.js";
+import { listCompletedWorktreeDispositions } from "../../../apply/manager.js";
+import type { HighImpactApprovalScope } from "../../../workflow-actions/high-impact-approval.js";
+import { integrationCheckActionManifestHash } from "../../../integration-check/manager.js";
 import { listAuditResults, summarizeAudit } from "../../../audit/repository.js";
 import { getProjectStatus } from "../../../project/status.js";
 import { readProjectHarnessPlanningGate } from "../../../project-harness/planning-gate-query.js";
@@ -22,12 +27,14 @@ import { listSkillNativeSchedulerRuns } from "../../../workflow-runtime/skill-na
 import type { AuditResult, ManagedProject, ValidationResult, WorkflowGraphPlan, WorkflowRun } from "../../../types/index.js";
 import { buildConversationInteractionQueue } from "../../conversation-interactions.js";
 import { openProjectRuntimeWorkbenchDatabase } from "../../persistence/open-workbench-database.js";
+import type { StoredDecisionRecord } from "../../persistence/contracts.js";
 import type {
   HarnessGap,
   WorkbenchConfirmationQueue,
   WorkbenchProjectHarnessStatus,
   WorkbenchSnapshot,
   WorkbenchDecisionContext,
+  WorkbenchDecisionItem,
   WorkbenchResultReview,
   WorkbenchTopicDetail,
   WorkbenchTopicSummary,
@@ -40,7 +47,7 @@ import {
   buildTypedWorkflowNextAction,
   type WorkbenchSchedulerCurrentTransitionProjection,
 } from "../../workflow-projection.js";
-import { integrationCheckQueueItem } from "./confirmation/integration.js";
+import { integrationCheckNeedsActionQueueItem, integrationCheckNeedsUserAction, integrationCheckQueueItem } from "./confirmation/integration.js";
 import { sequentialWorkflowToConfirmationItems } from "./confirmation/typed-workflow.js";
 import { schedulerNextActionToConfirmationItems } from "./confirmation/typed-workflow.js";
 import { changeFinalizationToConfirmationItems } from "./confirmation/change-finalization.js";
@@ -140,9 +147,18 @@ export async function tryBuildSkillNativePlanningSnapshot(input: {
         workflowGraphPlan: workflowGraphSummary(graph),
         view,
       });
-      if (view.currentIntegrationCheck?.status === "passed") {
+      if (view.currentIntegrationCheck?.status === "passed" || (view.currentIntegrationCheck && integrationCheckNeedsUserAction(view.currentIntegrationCheck.status))) {
+        const target = view.currentIntegrationCheck.resultTargets.find((item) => item.changeId === selected.boundChangeId)
+          ?? view.currentIntegrationCheck.resultTargets[0];
+        const applyScope = target
+          ? await resolveProjectApplyExecutionScope(input.project, target.worktreeId)
+            .then((scope) => projectApplyActionScope(scope, integrationCheckActionManifestHash(view.currentIntegrationCheck!)))
+          : undefined;
+        const item = view.currentIntegrationCheck.status === "passed"
+          ? integrationCheckQueueItem(input.project, view.currentIntegrationCheck, selected.boundChangeId, applyScope)
+          : integrationCheckNeedsActionQueueItem(input.project, view.currentIntegrationCheck, selected.boundChangeId, applyScope);
         schedulerIntegrationBarrier = {
-          ...integrationCheckQueueItem(input.project, view.currentIntegrationCheck, selected.boundChangeId),
+          ...item,
           conversationId: selected.conversationId,
         };
       }
@@ -272,7 +288,7 @@ async function buildSkillNativeExecutionSnapshot(input: {
     input.selected.boundChangeId,
   );
   const harness = await projectHarnessExecutionPort(input.project, evidenceRoot, input.planningEvidence);
-  const [runs, taskQueues, taskQueueItems, taskRuns, workerLeases, worktrees, validations, audits, finalizationRequests] = await Promise.all([
+  const [runs, taskQueues, taskQueueItems, taskRuns, workerLeases, worktrees, validations, audits, finalizationRequests, decisionRecords, worktreeDispositions] = await Promise.all([
     listRuns(runtime).then((items) => items.filter((item) => item.changeId === input.selected.boundChangeId)),
     listTaskQueues(runtime, input.selected.boundChangeId),
     listTaskQueueItems(runtime, input.selected.boundChangeId),
@@ -282,6 +298,13 @@ async function buildSkillNativeExecutionSnapshot(input: {
     listValidationResults(runtime, input.selected.boundChangeId),
     listAuditResults(runtime, input.selected.boundChangeId),
     listPendingSkillNativeProjectHarnessChangeFinalizations(input.resolution, input.selected.boundChangeId),
+    listSkillNativeDecisionRecords(input.resolution, input.selected.boundChangeId),
+    listCompletedWorktreeDispositions(runtime, input.selected.boundChangeId),
+  ]);
+  const decisions = decisionRecords.map(mapSkillNativeDecisionRecord);
+  const terminalWorktreeIds = new Set([
+    ...worktrees.filter((worktree) => worktree.status === "applied").map((worktree) => worktree.worktreeId),
+    ...worktreeDispositions.map((disposition) => disposition.worktreeId),
   ]);
   const topic: WorkbenchTopicDetail = {
     ...conversationTopic(input.selected),
@@ -309,14 +332,22 @@ async function buildSkillNativeExecutionSnapshot(input: {
     worktrees,
     validations,
     audits,
+    terminalWorktreeIds,
   );
+  const resultTerminal = !resultReview && terminalWorktreeIds.size > 0;
+  let applyActionScope: HighImpactApprovalScope | undefined;
+  if (resultReview?.worktreeId) {
+    const executionScope = await resolveProjectApplyExecutionScope(input.project, resultReview.worktreeId);
+    const gate = await evaluateSkillNativeApplyGate(input.project, executionScope.runtime, executionScope.harness, resultReview.worktreeId);
+    applyActionScope = projectApplyActionScope(executionScope, worktreeApplyManifestHash(gate));
+  }
   const graphSummary = workflowGraphSummary(input.graph);
   const base = planningWorkpad(input.project, topic, graphSummary, false, input.warnings, input.gaps);
   const queue = taskQueues[0];
   const workpad: WorkbenchWorkpad = {
     ...base,
-    userStatus: "waiting-confirmation",
-    userStatusLabel: "等待确认",
+    userStatus: resultTerminal ? "completed" : "waiting-confirmation",
+    userStatusLabel: resultTerminal ? "结果处理完成" : "等待确认",
     workflowRun: summarizeWorkflowRun(input.workflowRun),
     resultReview,
     taskQueue: queue ? {
@@ -341,7 +372,16 @@ async function buildSkillNativeExecutionSnapshot(input: {
       })),
     } : undefined,
     evidence: resultReview?.evidence ?? [],
-    nextAction: resultReview?.status === "ready-to-apply"
+    nextAction: resultTerminal
+      ? {
+          id: "result-terminal",
+          label: "结果处理完成",
+          description: "已按确认结果完成应用或放弃，不再提供旧的审查或应用动作。",
+          kind: "none",
+          enabled: false,
+          requiresConfirmation: false,
+        }
+      : resultReview?.status === "ready-to-apply"
       ? {
           id: "result-apply-ready",
           label: "应用到项目",
@@ -361,7 +401,7 @@ async function buildSkillNativeExecutionSnapshot(input: {
           requiresConfirmation: true,
         },
   };
-  const decision = resultDecisionContext(input.project, topic, resultReview);
+  const decision = resultDecisionContext(input.project, topic, resultReview, applyActionScope);
   const finalizationItems = changeFinalizationToConfirmationItems(input.project, finalizationRequests);
   const current = finalizationItems.length
     ? finalizationItems
@@ -378,9 +418,9 @@ async function buildSkillNativeExecutionSnapshot(input: {
     id: item.id,
     title: item.title,
     state: item.state,
-    runtimeStatus: item.id === topic.id ? "waiting-decision" : "active",
-    userStatus: item.id === topic.id ? "waiting-confirmation" : "processing",
-    userStatusLabel: item.id === topic.id ? "等待确认" : "处理中",
+    runtimeStatus: item.id === topic.id ? (resultTerminal ? "active" : "waiting-decision") : "active",
+    userStatus: item.id === topic.id ? (resultTerminal ? "completed" : "waiting-confirmation") : "processing",
+    userStatusLabel: item.id === topic.id ? (resultTerminal ? "结果处理完成" : "等待确认") : "处理中",
     conversationLifecycle: item.state === "active" ? "active" : "archived-readonly",
     linkedFromChangeId: item.boundChangeId ?? undefined,
     selected: item.id === topic.id,
@@ -406,7 +446,7 @@ async function buildSkillNativeExecutionSnapshot(input: {
       activeTab: "conversation",
       agentLoop: { runs },
     },
-    right: { approvals: [], decisions: [], decisionInspector: emptyDecisionInspector(), confirmationQueue },
+    right: { approvals: [], decisions, decisionInspector: emptyDecisionInspector(), confirmationQueue },
     roles,
     harnessGaps: input.gaps,
     warnings: input.warnings,
@@ -420,8 +460,11 @@ async function buildSkillNativeResultReview(
   worktrees: Awaited<ReturnType<typeof listWorktreesForChange>>,
   validations: ValidationResult[],
   audits: AuditResult[],
+  terminalWorktreeIds: ReadonlySet<string>,
 ): Promise<WorkbenchResultReview | undefined> {
-  const worktree = worktrees.find((item) => item.status === "active") ?? worktrees[0];
+  const worktree = worktrees.find((item) => item.status === "active" && !terminalWorktreeIds.has(item.worktreeId))
+    ?? worktrees.find((item) => !terminalWorktreeIds.has(item.worktreeId));
+  if (!worktree && terminalWorktreeIds.size > 0) return undefined;
   const validation = latestForWorktree(validations, worktree?.worktreeId);
   const audit = latestForWorktree(audits, worktree?.worktreeId);
   if (!worktree && !validation && !audit) return undefined;
@@ -467,6 +510,7 @@ function resultDecisionContext(
   project: ManagedProject,
   topic: WorkbenchTopicDetail,
   review: WorkbenchResultReview | undefined,
+  actionScope?: HighImpactApprovalScope,
 ): WorkbenchDecisionContext | null {
   const changeId = topic.boundChangeId ?? topic.id;
   if (!review?.audit) return null;
@@ -494,6 +538,24 @@ function resultDecisionContext(
           args: ["apply", project.id, changeId, review.worktreeId],
           mutates: true,
           requiresConfirmation: true,
+          scope: actionScope,
+        },
+      }, {
+        id: `worktree.discard:${review.worktreeId}`,
+        label: "放弃这次结果",
+        kind: "approval",
+        enabled: true,
+        requiresConfirmation: true,
+        changeId,
+        worktreeId: review.worktreeId,
+        action: {
+          actionId: "worktree.discard",
+          label: "放弃这次结果",
+          command: "worktree",
+          args: ["discard", project.id, changeId, review.worktreeId],
+          mutates: true,
+          requiresConfirmation: true,
+          scope: actionScope,
         },
       }],
     };
@@ -525,6 +587,35 @@ function resultDecisionContext(
         requiresConfirmation: true,
       },
     }],
+  };
+}
+
+async function listSkillNativeDecisionRecords(
+  resolution: ProjectRuntimeResolution,
+  changeId: string,
+): Promise<StoredDecisionRecord[]> {
+  const database = await openProjectRuntimeWorkbenchDatabase(resolution.paths);
+  try {
+    return database.decisions.listDecisions(resolution.harness.projectId, changeId);
+  } finally {
+    database.close();
+  }
+}
+
+function mapSkillNativeDecisionRecord(record: StoredDecisionRecord): WorkbenchDecisionItem {
+  return {
+    id: record.id,
+    kind: record.decisionType,
+    label: record.label,
+    status: record.status,
+    changeId: record.changeId ?? undefined,
+    runId: record.runId ?? undefined,
+    targetId: record.targetId ?? undefined,
+    artifact: record.artifact ?? undefined,
+    summary: record.summary,
+    feedback: record.feedback ?? undefined,
+    updatedAt: record.updatedAt,
+    completedAt: record.completedAt ?? undefined,
   };
 }
 

@@ -45,6 +45,48 @@ upsertDecision(record: StoredDecisionRecord): void {
     );
   }
 
+  upsertFailureUnlessAccepted(record: StoredDecisionRecord): boolean {
+    const result = this.db.prepare(`
+      INSERT INTO decision_records (
+        id, project_id, change_id, decision_type, status, label, summary, target_id, run_id,
+        artifact, action_id, feedback, payload_json, created_at, updated_at, completed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(project_id, id) DO UPDATE SET
+        change_id = excluded.change_id,
+        decision_type = excluded.decision_type,
+        status = excluded.status,
+        label = excluded.label,
+        summary = excluded.summary,
+        target_id = excluded.target_id,
+        run_id = excluded.run_id,
+        artifact = excluded.artifact,
+        action_id = excluded.action_id,
+        feedback = excluded.feedback,
+        payload_json = excluded.payload_json,
+        updated_at = excluded.updated_at,
+        completed_at = excluded.completed_at
+      WHERE decision_records.status NOT IN ('accepted', 'completed')
+    `).run(
+      record.id,
+      record.projectId,
+      encodeScopeChangeId(record.changeId),
+      record.decisionType,
+      record.status,
+      record.label,
+      record.summary,
+      record.targetId,
+      record.runId,
+      record.artifact,
+      record.actionId,
+      record.feedback,
+      record.payloadJson,
+      record.createdAt,
+      record.updatedAt,
+      record.completedAt,
+    );
+    return result.changes === 1;
+  }
+
 listDecisions(projectId: string, changeId?: string): StoredDecisionRecord[] {
     const rows = changeId
       ? this.db.prepare(`

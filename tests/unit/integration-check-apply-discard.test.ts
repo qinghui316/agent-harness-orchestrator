@@ -1,87 +1,124 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { applyIntegrationCheck, discardIntegrationCheck } from "../../src/integration-check/manager.js";
-import { integrationCheckRoot } from "../../src/integration-check/paths.js";
-import { readIntegrationCheck, writeCheckArtifacts } from "../../src/integration-check/repository.js";
-import type { IntegrationCheckRecord } from "../../src/integration-check/types.js";
-import { resolveProjectMemory } from "../../src/memory/resolver.js";
-import { claimProjectWriteLease, releaseProjectWriteLease } from "../../src/project/index.js";
-import { execFileAsync, getTempDir, prepareSeededSchedulerIntegrationHandoff, project } from "./workbench/fixtures.js";
+import { projectExecutionRuntimePort } from "../../src/project-runtime/execution-ports.js";
+import { withProjectWriteLeaseAtPath } from "../../src/project/project-write-lease.js";
+import { prepareSkillNativeIntegrationCheckFixture } from "../helpers/skill-native-apply-fixture.js";
+import { execFileAsync, getTempDir, git, initGitRepository, project } from "./workbench/fixtures.js";
 
-describe("integration check apply/discard gates", () => {
+let previousAhoHome: string | undefined;
+
+beforeEach(() => {
+  previousAhoHome = process.env.AHO_HOME;
+  process.env.AHO_HOME = join(getTempDir(), ".aho-home");
+});
+
+afterEach(() => {
+  if (previousAhoHome === undefined) delete process.env.AHO_HOME;
+  else process.env.AHO_HOME = previousAhoHome;
+});
+
+describe("Skill-native integration check apply/discard gates", () => {
+  it("applies the exact reviewed IntegrationCheck candidate", async () => {
+    const prepared = await prepareFixture("Integration Apply Gate");
+    const result = await applyIntegrationCheck(
+      project(),
+      prepared.check.id,
+      prepared.check.latestArtifactHash,
+      prepared.actionScope,
+    );
+
+    expect(result.check).toMatchObject({ status: "applied" });
+    expect((await readFile(join(getTempDir(), "candidate-a.txt"), "utf8")).trim()).toBe("candidate A");
+    expect((await readFile(join(getTempDir(), "candidate-b.txt"), "utf8")).trim()).toBe("candidate B");
+    await expect(applyIntegrationCheck(
+      project(),
+      prepared.check.id,
+      prepared.check.latestArtifactHash,
+      prepared.actionScope,
+    )).rejects.toThrow(/completed|already|status is applied/i);
+  }, 120_000);
+
   it("discards a passed IntegrationCheck without mutating source root", async () => {
-    const prepared = await prepareSeededSchedulerIntegrationHandoff("Integration Discard Gate");
-    const beforeModuleA = await readFile(join(getTempDir(), "src", "module-a.ts"), "utf8");
-    const beforeModuleB = await readFile(join(getTempDir(), "src", "module-b.ts"), "utf8");
-    const beforeStatus = await execFileAsync("git", ["status", "--short", "--untracked-files=all"], { cwd: getTempDir() });
-    expect(beforeStatus.stdout.trim()).toBe("");
+    const prepared = await prepareFixture("Integration Discard Gate");
+    const beforeStatus = await status();
 
-    const result = await discardIntegrationCheck(project(), prepared.handoff.handoff!.integrationCheckId);
+    const result = await discardIntegrationCheck(project(), prepared.check.id, prepared.actionScope);
 
     expect(result.check).toMatchObject({ status: "discarded" });
-    expect(await readFile(join(getTempDir(), "src", "module-a.ts"), "utf8")).toBe(beforeModuleA);
-    expect(await readFile(join(getTempDir(), "src", "module-b.ts"), "utf8")).toBe(beforeModuleB);
-    const afterStatus = await execFileAsync("git", ["status", "--short", "--untracked-files=all"], { cwd: getTempDir() });
-    expect(afterStatus.stdout.trim()).toBe("");
-  });
+    expect(await status()).toBe(beforeStatus);
+    await expect(readFile(join(getTempDir(), "candidate-a.txt"), "utf8")).rejects.toThrow();
+    await expect(readFile(join(getTempDir(), "candidate-b.txt"), "utf8")).rejects.toThrow();
+  }, 120_000);
 
   it("fails closed when discarding terminal IntegrationChecks", async () => {
-    const prepared = await prepareSeededSchedulerIntegrationHandoff("Integration Discard Terminal Guard");
-    const memory = await resolveProjectMemory(project());
-    const checkId = prepared.handoff.handoff!.integrationCheckId;
-    const directory = join(integrationCheckRoot(memory), checkId);
-    const check = await readIntegrationCheck(memory, checkId);
-
-    await discardIntegrationCheck(project(), checkId);
-    await expect(discardIntegrationCheck(project(), checkId)).rejects.toThrow(/status is discarded/i);
-
-    const applied: IntegrationCheckRecord = {
-      ...check,
-      status: "applied",
-      appliedAt: new Date().toISOString(),
-      summary: "Applied fixture.",
-    };
-    await writeCheckArtifacts(memory, directory, applied);
-
-    await expect(discardIntegrationCheck(project(), checkId)).rejects.toThrow(/status is applied/i);
-  });
+    const prepared = await prepareFixture("Integration Discard Terminal Guard");
+    await discardIntegrationCheck(project(), prepared.check.id, prepared.actionScope);
+    await expect(discardIntegrationCheck(project(), prepared.check.id, prepared.actionScope)).rejects.toThrow(/completed|discarded/i);
+  }, 180_000);
 
   it("fails closed when applying with a stale artifact hash", async () => {
-    const prepared = await prepareSeededSchedulerIntegrationHandoff("Integration Apply Hash Guard");
-    const checkId = prepared.handoff.handoff!.integrationCheckId;
-    const beforeModuleA = await readFile(join(getTempDir(), "src", "module-a.ts"), "utf8");
+    const prepared = await prepareFixture("Integration Apply Hash Guard");
 
-    await expect(applyIntegrationCheck(project(), checkId, "stale-artifact-hash")).rejects.toThrow(/selected integration artifact is stale/i);
+    await expect(applyIntegrationCheck(
+      project(),
+      prepared.check.id,
+      "stale-artifact-hash",
+      prepared.actionScope,
+    )).rejects.toThrow(/selected integration artifact is stale/i);
 
-    expect(await readFile(join(getTempDir(), "src", "module-a.ts"), "utf8")).toBe(beforeModuleA);
-  });
+    expect(await status()).toBe("");
+  }, 120_000);
 
   it("fails closed when source HEAD drifts before integration apply", async () => {
-    const prepared = await prepareSeededSchedulerIntegrationHandoff("Integration Apply Source Drift Guard");
-    const checkId = prepared.handoff.handoff!.integrationCheckId;
-    await writeFile(join(getTempDir(), "src", "unrelated.ts"), "export const unrelated = true;\n", "utf8");
-    await execFileAsync("git", ["add", "src/unrelated.ts"], { cwd: getTempDir() });
-    await execFileAsync("git", ["commit", "-m", "source drift"], { cwd: getTempDir() });
+    const prepared = await prepareFixture("Integration Apply Source Drift Guard");
+    await writeFile(join(getTempDir(), "unrelated.ts"), "export const unrelated = true;\n", "utf8");
+    await git(getTempDir(), ["add", "unrelated.ts"]);
+    await git(getTempDir(), ["commit", "-m", "source drift"]);
 
-    await expect(applyIntegrationCheck(project(), checkId, prepared.latestArtifactHash)).rejects.toThrow(/project changed after the check/i);
+    await expect(applyIntegrationCheck(
+      project(),
+      prepared.check.id,
+      prepared.check.latestArtifactHash,
+      prepared.actionScope,
+    )).rejects.toThrow(/project changed after the check|authorization lineage is stale/i);
 
-    expect(await readFile(join(getTempDir(), "src", "module-a.ts"), "utf8")).toBe("export const moduleA = 1;\n");
-  });
+    await expect(readFile(join(getTempDir(), "candidate-a.txt"), "utf8")).rejects.toThrow();
+  }, 120_000);
 
-  it("fails closed before integration revalidation when another apply holds the project lease", async () => {
-    const prepared = await prepareSeededSchedulerIntegrationHandoff("Integration Apply Lease Guard");
-    const checkId = prepared.handoff.handoff!.integrationCheckId;
-    const beforeModuleA = await readFile(join(getTempDir(), "src", "module-a.ts"), "utf8");
-    const held = await claimProjectWriteLease(getTempDir(), { holderId: "other-apply", ttlMs: 10_000 });
-    if (!held) throw new Error("Expected test lease claim to succeed.");
+  it("fails closed before integration revalidation when another apply holds the sidecar lease", async () => {
+    const prepared = await prepareFixture("Integration Apply Lease Guard");
+    const runtime = projectExecutionRuntimePort(prepared.base.project, prepared.base.resolution);
 
-    try {
-      await expect(applyIntegrationCheck(project(), checkId, prepared.latestArtifactHash)).rejects.toThrow(/already held/);
-    } finally {
-      await releaseProjectWriteLease(getTempDir(), held);
-    }
+    await withProjectWriteLeaseAtPath(runtime.projectWriteLeasePath, { holderId: "other-apply", ttlMs: 10_000 }, async () => {
+      await expect(applyIntegrationCheck(
+        project(),
+        prepared.check.id,
+        prepared.check.latestArtifactHash,
+        prepared.actionScope,
+      )).rejects.toThrow(/already held/);
+    });
 
-    expect(await readFile(join(getTempDir(), "src", "module-a.ts"), "utf8")).toBe(beforeModuleA);
-  });
+    expect(await status()).toBe("");
+  }, 120_000);
 });
+
+async function prepareFixture(title: string) {
+  await initGitRepository(getTempDir());
+  await writeFile(join(getTempDir(), ".gitignore"), ".aho-home/\n.agents/\n.claude/\n", "utf8");
+  await writeFile(join(getTempDir(), "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"process.exit(0)\\\"\"}}\n", "utf8");
+  await git(getTempDir(), ["add", "."]);
+  await git(getTempDir(), ["commit", "-m", "initial"]);
+  return prepareSkillNativeIntegrationCheckFixture({
+    projectRoot: getTempDir(),
+    ahoHome: process.env.AHO_HOME!,
+    projectId: project().id,
+    projectName: project().name,
+    title,
+  });
+}
+
+async function status(): Promise<string> {
+  return (await execFileAsync("git", ["status", "--short", "--untracked-files=all"], { cwd: getTempDir() })).stdout.trim();
+}

@@ -1,4 +1,4 @@
-import { applyResultToProject, applyWorktree, discardWorktree } from "../../apply/manager.js";
+import { applyResultToProject, discardWorktree } from "../../apply/manager.js";
 import { acceptAudit, acceptSkillNativeAudit } from "../../audit/manager.js";
 import { applyIntegrationCheck, discardIntegrationCheck } from "../../integration-check/manager.js";
 import { acceptSpecTestProposal } from "../../spec-test/proposal.js";
@@ -20,7 +20,6 @@ export const allowedActionIds = new Set([
   "spec-test.proposal.accept-all-existing",
   "audit.accept",
   "result.apply",
-  "worktree.apply",
   "worktree.discard",
   "apply-check.apply",
   "apply-check.discard",
@@ -37,19 +36,16 @@ export async function runAllowlistedAction(project: ManagedProject, action: Work
       return acceptAuditForWorkbenchProject(project, args[2]);
     case "result.apply":
       assertArgs(action, "result", ["apply"], 3);
-      return applyResultToProject(project, scopedWorktreeArgOrThrow(action), { commit: options?.commit === true, message: options?.message, userConfirmed: true });
-    case "worktree.apply":
-      assertArgs(action, "worktree", ["apply"], 3);
-      return applyWorktree(project, scopedWorktreeArgOrThrow(action), { commit: options?.commit === true, message: options?.message, userConfirmed: true });
+      return applyResultToProject(project, scopedWorktreeArgOrThrow(action), { commit: options?.commit === true, message: options?.message, userConfirmed: true, actionScope: action.scope, approvalActionId: "result.apply" });
     case "worktree.discard":
       assertArgs(action, "worktree", ["discard"], 3);
-      return discardWorktree(project, scopedWorktreeArgOrThrow(action));
+      return discardWorktree(project, scopedWorktreeArgOrThrow(action), { actionScope: action.scope, approvalActionId: "worktree.discard" });
     case "apply-check.apply":
       assertArgs(action, "apply-check", ["apply"], 2);
-      return applyIntegrationCheck(project, args[1], args[2]);
+      return applyIntegrationCheck(project, args[1], args[2], action.scope, "apply-check.apply");
     case "apply-check.discard":
       assertArgs(action, "apply-check", ["discard"], 2);
-      return discardIntegrationCheck(project, args[2] ?? args[1]);
+      return discardIntegrationCheck(project, args[2] ?? args[1], action.scope, "apply-check.discard");
     default:
       throw new Error("Unsupported Workbench action.");
   }
@@ -80,7 +76,6 @@ export function inferTargetIdFromAction(action: WorkbenchApprovalAction, _result
   if (action.actionId === "spec-test.proposal.accept-all-existing") return action.args[3] ?? null;
   if (action.actionId === "audit.accept") return action.args[2] ?? null;
   if (action.actionId === "result.apply") return scopedWorktreeArg(action) ?? null;
-  if (action.actionId === "worktree.apply") return scopedWorktreeArg(action) ?? null;
   if (action.actionId === "worktree.discard") return scopedWorktreeArg(action) ?? null;
   if (action.actionId === "apply-check.apply" || action.actionId === "apply-check.discard") return action.args[1] ?? null;
   return null;

@@ -12,6 +12,8 @@ export const integrationCheckSchema = z.object({
     diffHash: z.string(),
     diffStat: z.string(),
     sourceHead: z.string().nullable(),
+    validationRunId: z.string().optional(),
+    auditRunId: z.string().optional(),
   })),
   sourceHead: z.string().nullable(),
   createdAt: z.string(),

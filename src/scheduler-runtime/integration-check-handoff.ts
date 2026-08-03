@@ -1,4 +1,4 @@
-import { canApplyResultFromGate, classifyApplyReadiness, evaluateSkillNativeApplyGate } from "../apply/gate.js";
+import { canApplyResultFromGate, classifyApplyReadiness, evaluateSkillNativeCandidateGate } from "../apply/gate.js";
 import { shortHash } from "../fs/path.js";
 import { runSkillNativeIntegrationCheck } from "../integration-check/service.js";
 import { readIntegrationCheck } from "../integration-check/repository.js";
@@ -76,6 +76,8 @@ export async function runSchedulerIntegrationCheckHandoff(project: ManagedProjec
       diffHash: target.worktreeDiffHash,
       diffStat: target.diffStat,
       sourceHead: target.sourceHead,
+      validationRunId: target.validationRunId,
+      auditRunId: target.auditRunId,
     })),
     input.changeId,
   );
@@ -132,7 +134,7 @@ export async function runSchedulerIntegrationCheckHandoff(project: ManagedProjec
 async function revalidateReadyTargets(project: ManagedProject, port: SchedulerReadySetExecutionPort, readyTargets: SchedulerIntegrationCandidateReadyTarget[]): Promise<SchedulerIntegrationCheckHandoffTarget[]> {
   const revalidated: SchedulerIntegrationCheckHandoffTarget[] = [];
   for (const target of readyTargets) {
-    const gate = await evaluateSkillNativeApplyGate(project, port.runtime, port.harness, target.worktreeId);
+    const gate = await evaluateSkillNativeCandidateGate(project, port.runtime, port.harness, target.worktreeId);
     const readiness = classifyApplyReadiness(gate);
     if (!canApplyResultFromGate(gate) || readiness.kind !== "ready") {
       throw new Error(`planning.scheduler.integration-check.run ready target is no longer apply-ready: ${target.worktreeId}. ${readiness.message}`);

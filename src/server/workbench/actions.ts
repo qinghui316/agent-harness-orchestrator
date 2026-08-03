@@ -3,14 +3,21 @@ import type { ManagedProject } from "../../types/index.js";
 import { resumeNativeGoalAfterAction, runWorkbenchWorkflowAction } from "../../workbench/workflow-conversation-bridge.js";
 import { postConversationMessage } from "../../workbench/conversation-service.js";
 import { runProjectScopedMainAgentTurn } from "../../workbench/main-agent-turn-coordinator.js";
-import { recordWorkbenchDecision } from "../../workbench/decisions.js";
+import {
+  buildWorkbenchApprovalDecisionId,
+  recordWorkbenchDecision,
+  recordWorkbenchDecisionFailureUnlessAccepted,
+} from "../../workbench/decisions.js";
 import { getWorkbenchSnapshot, type WorkbenchProjectInput } from "../../workbench/projections/read-model/implementation.js";
 import { assertCurrentWorkflowAction } from "./action-revalidation.js";
+import { assertCurrentApprovalAction, auditHighImpactApprovalAction } from "../../workbench/actions/current-approval-revalidation.js";
+import {
+  isRecoverableApprovalAction,
+  recordAcceptedApprovalDecision,
+} from "../../workbench/actions/approval-decision-reconciliation.js";
 import {
   allowedActionIds,
-  inferArtifactFromActionResult,
   inferChangeIdFromAction,
-  inferRunIdFromActionResult,
   inferTargetIdFromAction,
   runAllowlistedAction,
 } from "./approval-actions.js";
@@ -22,7 +29,25 @@ const workflowConversationPorts = {
   continueMainAgentTurn: runProjectScopedMainAgentTurn,
 };
 
-export async function executeWorkbenchAction(input: WorkbenchProjectInput, body: WorkbenchActionRequest): Promise<{ result: unknown; snapshot: unknown }> {
+export interface WorkbenchApprovalExecutionDeps {
+  assertCurrentAction: typeof assertCurrentApprovalAction;
+  runAction: typeof runAllowlistedAction;
+  recordAcceptedDecision: typeof recordAcceptedApprovalDecision;
+  recordFailureDecision: typeof recordWorkbenchDecisionFailureUnlessAccepted;
+}
+
+const defaultApprovalExecutionDeps: WorkbenchApprovalExecutionDeps = {
+  assertCurrentAction: assertCurrentApprovalAction,
+  runAction: runAllowlistedAction,
+  recordAcceptedDecision: recordAcceptedApprovalDecision,
+  recordFailureDecision: recordWorkbenchDecisionFailureUnlessAccepted,
+};
+
+export async function executeWorkbenchAction(
+  input: WorkbenchProjectInput,
+  body: WorkbenchActionRequest,
+  approvalDeps: WorkbenchApprovalExecutionDeps = defaultApprovalExecutionDeps,
+): Promise<{ result: unknown; snapshot: unknown }> {
   if (!input.project) throw new Error("Workbench actions require a registered project.");
   if (body.abandon) {
     return executeAbandonAction(input as WorkbenchProjectInput & { project: ManagedProject }, body);
@@ -30,7 +55,11 @@ export async function executeWorkbenchAction(input: WorkbenchProjectInput, body:
   if (body.actionType) {
     return executeWorkflowAction(input as WorkbenchProjectInput & { project: ManagedProject }, body);
   }
-  return executeApprovalOrFeedbackAction(input as WorkbenchProjectInput & { project: ManagedProject }, body);
+  return executeApprovalOrFeedbackAction(
+    input as WorkbenchProjectInput & { project: ManagedProject },
+    body,
+    approvalDeps,
+  );
 }
 
 async function executeAbandonAction(input: WorkbenchProjectInput & { project: ManagedProject }, body: WorkbenchActionRequest): Promise<{ result: unknown; snapshot: unknown }> {
@@ -128,7 +157,11 @@ async function executeWorkflowAction(input: WorkbenchProjectInput & { project: M
   return { result, snapshot: await getWorkbenchSnapshot(input, { topicId: body.changeId }) };
 }
 
-async function executeApprovalOrFeedbackAction(input: WorkbenchProjectInput & { project: ManagedProject }, body: WorkbenchActionRequest): Promise<{ result: unknown; snapshot: unknown }> {
+async function executeApprovalOrFeedbackAction(
+  input: WorkbenchProjectInput & { project: ManagedProject },
+  body: WorkbenchActionRequest,
+  deps: WorkbenchApprovalExecutionDeps,
+): Promise<{ result: unknown; snapshot: unknown }> {
   const action = body.action;
   if ((!action || !allowedActionIds.has(action.actionId)) && !(typeof body.feedback === "string" && body.feedback.trim())) {
     const error = new Error("Unknown or unsupported Workbench action.");
@@ -176,24 +209,38 @@ async function executeApprovalOrFeedbackAction(input: WorkbenchProjectInput & { 
     error.name = "Conflict";
     throw error;
   }
-  const result = await runAllowlistedAction(input.project, action, body.options);
-  const decisionId = `approval:${action.actionId}:${action.args.join(":")}`;
-  const changeId = inferChangeIdFromAction(action, result);
-  await recordWorkbenchDecision(input.project, {
-    id: decisionId,
-    changeId,
-    decisionType: action.actionId,
-    status: "accepted",
-    label: action.label,
-    summary: `Accepted ${action.label}.`,
-    targetId: inferTargetIdFromAction(action, result),
-    runId: inferRunIdFromActionResult(result),
-    artifact: inferArtifactFromActionResult(result),
-    actionId: action.actionId,
-    feedback: body.feedback ?? null,
-    payload: result,
-    completedAt: new Date().toISOString(),
-  });
+  await deps.assertCurrentAction(input, action, { getWorkbenchSnapshot });
+  await auditHighImpactApprovalAction(input.project, action);
+  const decisionId = buildWorkbenchApprovalDecisionId(action.actionId, action.args);
+  const scopedChangeId = action.scope?.changeId ?? null;
+  let result: unknown;
+  try {
+    result = await deps.runAction(input.project, action, body.options);
+  } catch (error) {
+    await deps.recordFailureDecision(input.project, {
+      id: decisionId,
+      changeId: scopedChangeId,
+      decisionType: action.actionId,
+      status: "failed",
+      label: action.label,
+      summary: `${action.label} failed.`,
+      targetId: inferTargetIdFromAction(action, null),
+      runId: null,
+      artifact: null,
+      actionId: action.actionId,
+      feedback: body.feedback ?? null,
+      payload: { error: error instanceof Error ? error.message : String(error), scope: action.scope ?? null },
+      completedAt: new Date().toISOString(),
+    }).catch(() => undefined);
+    throw error;
+  }
+  const changeId = inferChangeIdFromAction(action, result) ?? scopedChangeId;
+  try {
+    await deps.recordAcceptedDecision(input.project, action, result, body.feedback ?? null);
+  } catch (error) {
+    if (!isRecoverableApprovalAction(action.actionId)) throw error;
+    await deps.recordAcceptedDecision(input.project, action, result, body.feedback ?? null).catch(() => undefined);
+  }
   if (action.actionId === "result.apply" && changeId && isCommittedApplyResult(result)) {
     await resumeNativeGoalAfterAction({
       project: input.project,

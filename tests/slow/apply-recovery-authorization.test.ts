@@ -1,27 +1,22 @@
-import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { collectWorktreeDiff } from "../../src/audit/diff.js";
 import { recoverPendingApplyTransactions } from "../../src/apply/manager.js";
 import type { ApplyTransaction } from "../../src/apply/types.js";
-import { initHarness } from "../../src/harness/init.js";
-import { resolveProjectMemory } from "../../src/memory/resolver.js";
 import { getGitCommit, getGitStatusShort } from "../../src/project/git.js";
+import { projectExecutionRuntimePort } from "../../src/project-runtime/execution-ports.js";
 import { buildRunId } from "../../src/run/manager.js";
-import type { ExecutionAuthorizationSnapshot, RunMetadata } from "../../src/types/index.js";
-import { createWorktree } from "../../src/worktree/manager.js";
+import type { RunMetadata } from "../../src/types/index.js";
 import {
   appendLocalExecutionAuthorizationTargets,
   claimTransitionExecution,
-  issueLocalExecutionAuthorization,
   markTransitionExecutionStarted,
   readTransitionExecution,
   revokeLocalExecutionAuthorization,
 } from "../../src/workflow-runtime/execution-authorization.js";
 import { runExecutionAuthorizationTransaction } from "../../src/workflow-runtime/execution-authorization-repository.js";
-import { createConversationChangeFixture } from "../helpers/conversation-change-fixture.js";
+import { prepareSkillNativeApplyFixture } from "../helpers/skill-native-apply-fixture.js";
 import { getTempDir, git, initGitRepository, project } from "../unit/workbench/fixtures.js";
 
 describe("ApplyTransaction restart authorization", () => {
@@ -71,84 +66,69 @@ describe("ApplyTransaction restart authorization", () => {
     }),
     120_000,
   );
+
+  it("rejects a forged recovery journal without authorization before Git writes", async () => {
+    await withAhoHome(async () => {
+      const fixture = await createPreparedRecoveryFixture();
+      const transaction = JSON.parse(await readFile(fixture.transactionPath, "utf8")) as Record<string, unknown>;
+      transaction.authorization = null;
+      await writeFile(fixture.transactionPath, `${JSON.stringify(transaction, null, 2)}\n`, "utf8");
+      const headBefore = await getGitCommit(getTempDir());
+
+      await expect(recoverPendingApplyTransactions(project())).rejects.toThrow(/invalid ApplyTransaction/i);
+      expect(await getGitCommit(getTempDir())).toBe(headBefore);
+      expect(await getGitStatusShort(getTempDir())).toEqual([]);
+      expect(existsSync(join(getTempDir(), "restart-proof.txt"))).toBe(false);
+    });
+  }, 120_000);
 });
 
 async function createPreparedRecoveryFixture(options: { claimExpired?: boolean } = {}) {
   await initGitRepository(getTempDir());
-  await writeFile(join(getTempDir(), ".gitignore"), ".aho-home/\n.agent-harness/\nharness/\nAGENTS.md\ndocs/\nscripts/\n", "utf8");
+  await writeFile(join(getTempDir(), ".gitignore"), ".aho-home/\n.agents/\n.claude/\n", "utf8");
   await writeFile(join(getTempDir(), "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"process.exit(0)\\\"\"}}\n", "utf8");
   await git(getTempDir(), ["add", "."]);
   await git(getTempDir(), ["commit", "-m", "initial"]);
-  await initHarness(project());
-  const change = await createConversationChangeFixture(project(), { title: "Prepared Restart" });
-  const memory = await resolveProjectMemory(project());
-  const worktree = await createWorktree(project(), memory, change.changeId);
-  await writeFile(join(worktree.metadata.checkoutPath, "restart-proof.txt"), "authorized restart\n", "utf8");
-  const diff = await collectWorktreeDiff(memory, worktree.metadata.worktreeId, change.changeId);
-  const sourceHead = await getGitCommit(getTempDir());
-  if (!sourceHead) throw new Error("Expected source HEAD.");
-  const sourceStateHash = createHash("sha256").update(JSON.stringify(await getGitStatusShort(getTempDir()))).digest("hex");
-  const manifestHash = createHash("sha256").update(JSON.stringify({
-    diffHash: diff.diffHash,
-    changedPaths: diff.changedPaths,
-    expectedTree: diff.expectedTree,
-    sourceHead,
-  })).digest("hex");
-  const hash = "a".repeat(64);
-  const authorization = await issueLocalExecutionAuthorization(memory, {
-    projectId: memory.projectId,
-    changeId: change.changeId,
-    conversationId: change.conversationId,
-    providerThreadId: "restart-thread",
-    goalIdentityHash: hash,
-    mode: "stepwise",
-    acceptedPlanId: "restart-plan",
-    acceptedPlanHash: hash,
-    graphId: "restart-graph",
-    graphHash: hash,
-    artifactManifestHash: hash,
-    sourceHead,
-    sourceStateHash,
-    permissionProfileHash: hash,
-    providerScopeHash: hash,
-    policyHash: hash,
-    targets: [{ transition: "source.apply", targetId: worktree.metadata.worktreeId, manifestHash }],
-    budget: { maxCompletedOperations: 4, maxReworks: 1, maxChangedFiles: 20, maxChangedBytes: 1_000_000 },
-    userDecision: { decisionId: "restart-decision", actorId: "user", decidedAt: new Date().toISOString() },
-    issuedAt: new Date().toISOString(),
-    expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+  const fixture = await prepareSkillNativeApplyFixture({
+    projectRoot: getTempDir(),
+    ahoHome: join(getTempDir(), ".aho-home"),
+    projectId: project().id,
+    projectName: project().name,
+    title: "Prepared Restart",
+    changedPath: "restart-proof.txt",
+    changedContent: "authorized restart\n",
   });
-  const snapshot: ExecutionAuthorizationSnapshot = {
-    acceptedPlanHash: authorization.acceptedPlanHash,
-    graphHash: authorization.graphHash,
-    artifactManifestHash: authorization.artifactManifestHash,
-    sourceHead: authorization.sourceHead,
-    sourceStateHash: authorization.sourceStateHash,
-    permissionProfileHash: authorization.permissionProfileHash,
-    providerScopeHash: authorization.providerScopeHash,
-    policyHash: authorization.policyHash,
-  };
+  const memory = projectExecutionRuntimePort(fixture.project, fixture.resolution);
+  const authorization = await appendLocalExecutionAuthorizationTargets(
+    memory,
+    fixture.authorizationId,
+    fixture.authorizationEpoch,
+    fixture.authorizationSnapshot,
+    { projectId: memory.projectId, changeId: fixture.changeId },
+    [{ transition: "source.apply", targetId: fixture.worktreeId, manifestHash: fixture.actionScope.targetManifestHash }],
+  );
+  const snapshot = fixture.authorizationSnapshot;
   const claimNow = options.claimExpired ? new Date(Date.now() - 2_000) : new Date();
   const claim = await claimTransitionExecution(memory, {
     authorizationId: authorization.id,
     authorizationEpoch: authorization.epoch,
     transition: "source.apply",
-    targetId: worktree.metadata.worktreeId,
-    manifestHash,
+    targetId: fixture.worktreeId,
+    manifestHash: fixture.actionScope.targetManifestHash,
     snapshot,
     claimedBy: "apply-transaction",
     claimTtlMs: options.claimExpired ? 1_000 : 10 * 60_000,
     now: claimNow,
   });
   await markTransitionExecutionStarted(memory, claim.operationId, claim.claimToken, claim.fencingToken, claimNow);
-  const runId = buildRunId(change.changeId, ["worktree-apply", worktree.metadata.worktreeId, diff.diffHash, "commit"]);
+  const runId = buildRunId(fixture.changeId, ["worktree-apply", fixture.worktreeId, fixture.diffHash, "commit"]);
   const directory = join(memory.runsRoot, runId);
   await mkdir(directory, { recursive: true });
   const relativeDir = `runs/${runId}`;
   const run: RunMetadata = {
     version: "1.0",
     id: runId,
-    changeId: change.changeId,
+    changeId: fixture.changeId,
     projectPath: getTempDir(),
     runtime: "worktree-apply",
     executionMode: "direct",
@@ -160,7 +140,7 @@ async function createPreparedRecoveryFixture(options: { claimExpired?: boolean }
     startedAt: new Date().toISOString(),
     finishedAt: null,
     artifacts: {
-      base: memory.artifactBase,
+      base: memory.runArtifactBase,
       directory: relativeDir,
       context: `${relativeDir}/context.md`,
       events: `${relativeDir}/events.jsonl`,
@@ -175,44 +155,49 @@ async function createPreparedRecoveryFixture(options: { claimExpired?: boolean }
   const transaction: ApplyTransaction = {
     version: "1.0",
     id: `apply-transaction-${runId}`,
-    changeId: change.changeId,
-    worktreeId: worktree.metadata.worktreeId,
+    changeId: fixture.changeId,
+    worktreeId: fixture.worktreeId,
+    worktreeIdentityHash: fixture.worktreeIdentityHash,
     runId,
-    diffHash: diff.diffHash,
-    manifestHash: createHash("sha256").update(JSON.stringify(diff.changedPaths)).digest("hex"),
-    changedPaths: diff.changedPaths,
-    expectedTree: diff.expectedTree,
-    sourceHeadBefore: sourceHead,
+    diffHash: fixture.diffHash,
+    manifestHash: fixture.actionScope.targetManifestHash,
+    changedPaths: fixture.changedPaths,
+    expectedTree: fixture.expectedTree,
+    sourceHeadBefore: fixture.sourceHead,
     stage: "prepared",
+    approvalActionId: null,
     commitRequested: true,
     commitMessage: "restart apply",
     commitHash: null,
-    validationId: "validation-restart",
-    auditId: "audit-restart",
-    reviewAuditId: "audit-restart",
+    validationId: fixture.validationId,
+    auditId: fixture.auditId,
+    reviewAuditId: fixture.auditId,
     authorization: {
       authorizationId: authorization.id,
       authorizationEpoch: authorization.epoch,
       snapshot,
-      manifestHash,
+      manifestHash: fixture.actionScope.targetManifestHash,
       operationId: claim.operationId,
       claimToken: claim.claimToken,
       fencingToken: claim.fencingToken,
     },
+    actionScope: fixture.actionScope,
     blockedReason: null,
     createdAt: now,
     updatedAt: now,
   };
   await writeFile(join(directory, "run.json"), `${JSON.stringify(run, null, 2)}\n`, "utf8");
-  await writeFile(join(directory, "diff.patch"), diff.diff, "utf8");
-  await writeFile(join(directory, "apply-transaction.json"), `${JSON.stringify(transaction, null, 2)}\n`, "utf8");
+  await writeFile(join(directory, "diff.patch"), fixture.diff, "utf8");
+  const transactionPath = join(directory, "apply-transaction.json");
+  await writeFile(transactionPath, `${JSON.stringify(transaction, null, 2)}\n`, "utf8");
   return {
     memory,
-    changeId: change.changeId,
+    changeId: fixture.changeId,
     authorizationId: authorization.id,
     authorizationEpoch: authorization.epoch,
     snapshot,
     operationId: claim.operationId,
+    transactionPath,
   };
 }
 

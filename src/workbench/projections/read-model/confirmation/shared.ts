@@ -1,4 +1,5 @@
 import type { WorkbenchApprovalAction, WorkbenchConfirmationQueue, WorkbenchConfirmationQueueItem } from "../../../read-model-types.js";
+import type { HighImpactApprovalScope } from "../../../../workflow-actions/high-impact-approval.js";
 
 export function emptyConfirmationQueue(): WorkbenchConfirmationQueue {
   return {
@@ -28,7 +29,7 @@ export function scopeConfirmationQueueItemActions(item: WorkbenchConfirmationQue
   };
 }
 
-export function approvalAction(actionId: string, label: string, command: string, args: string[], mutates: boolean): WorkbenchApprovalAction {
+export function approvalAction(actionId: string, label: string, command: string, args: string[], mutates: boolean, scope?: HighImpactApprovalScope): WorkbenchApprovalAction {
   return {
     actionId,
     label,
@@ -36,6 +37,7 @@ export function approvalAction(actionId: string, label: string, command: string,
     args,
     mutates,
     requiresConfirmation: mutates,
+    ...(scope ? { scope } : {}),
   };
 }
 

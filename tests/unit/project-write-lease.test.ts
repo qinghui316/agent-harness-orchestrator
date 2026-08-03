@@ -1,16 +1,19 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { applyWorktree } from "../../src/apply/apply-discard.js";
+import { projectExecutionRuntimePort } from "../../src/project-runtime/execution-ports.js";
 import {
   claimProjectWriteLease,
   heartbeatProjectWriteLease,
   readProjectWriteLease,
   releaseProjectWriteLease,
   withProjectWriteLease,
+  withProjectWriteLeaseAtPath,
 } from "../../src/project/index.js";
-import type { ManagedProject } from "../../src/types/index.js";
+import { prepareSkillNativeApplyFixture } from "../helpers/skill-native-apply-fixture.js";
+import { git, initGitRepository } from "./workbench/fixtures.js";
 
 describe("project write lease", () => {
   let projectPath: string;
@@ -145,17 +148,42 @@ describe("project write lease", () => {
   });
 
   it("guards the production worktree apply entrypoint before revalidation", async () => {
-    const held = await claimProjectWriteLease(projectPath, { holderId: "other-apply", ttlMs: 10_000 });
-    if (!held) throw new Error("Expected test lease claim to succeed.");
-    const project: ManagedProject = {
-      id: "project-1",
-      name: "Project 1",
-      path: projectPath,
-      addedAt: new Date().toISOString(),
-      lastSeenAt: new Date().toISOString(),
-    };
-
-    await expect(applyWorktree(project, "worktree-1")).rejects.toThrow(/already held/);
-    await releaseProjectWriteLease(projectPath, held);
+    const previousAhoHome = process.env.AHO_HOME;
+    process.env.AHO_HOME = join(projectPath, ".aho-home");
+    try {
+      await initGitRepository(projectPath);
+      await writeFile(join(projectPath, ".gitignore"), ".aho-home/\n.agents/\n.claude/\n", "utf8");
+      await writeFile(join(projectPath, "package.json"), "{\"scripts\":{\"test\":\"node -e \\\"process.exit(0)\\\"\"}}\n", "utf8");
+      await git(projectPath, ["add", "."]);
+      await git(projectPath, ["commit", "-m", "initial"]);
+      const fixture = await prepareSkillNativeApplyFixture({
+        projectRoot: projectPath,
+        ahoHome: process.env.AHO_HOME,
+        projectId: "project-1",
+        projectName: "Project 1",
+      });
+      const runtime = projectExecutionRuntimePort(fixture.project, fixture.resolution);
+      let entered!: () => void;
+      let release!: () => void;
+      const active = new Promise<void>((resolve) => { entered = resolve; });
+      const blocked = new Promise<void>((resolve) => { release = resolve; });
+      const held = withProjectWriteLeaseAtPath(runtime.projectWriteLeasePath, { holderId: "other-apply", ttlMs: 10_000 }, async () => {
+        entered();
+        await blocked;
+      });
+      await active;
+      try {
+        await expect(applyWorktree(fixture.project, fixture.worktreeId, {
+          userConfirmed: true,
+          actionScope: fixture.actionScope,
+        })).rejects.toThrow(/already held/);
+      } finally {
+        release();
+        await held;
+      }
+    } finally {
+      if (previousAhoHome === undefined) delete process.env.AHO_HOME;
+      else process.env.AHO_HOME = previousAhoHome;
+    }
   });
 });

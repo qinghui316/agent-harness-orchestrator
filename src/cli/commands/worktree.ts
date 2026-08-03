@@ -1,5 +1,6 @@
 ﻿import type { Command } from "commander";
-import { applyWorktree, discardWorktree, previewWorktreeApply } from "../../apply/manager.js";
+import { applyWorktree, discardWorktree, previewWorktreeApply, resolveWorktreeApprovalScope } from "../../apply/manager.js";
+import { auditHighImpactApproval } from "../../workflow-actions/high-impact-approval.js";
 import { getChangeStatus } from "../../change/manager.js";
 import { resolveProjectMemory } from "../../memory/resolver.js";
 import { createWorktree, getWorktreeStatus, listWorktreeStatuses, removeWorktree } from "../../worktree/manager.js";
@@ -115,7 +116,9 @@ export function installWorktreeCommands(program: Command, context: CliContext): 
     .option("--json", "print JSON")
     .action(async (query: string, worktreeId: string, options: { commit?: boolean; message?: string; json?: boolean }) => {
       const project = await resolveManagedProject(store, query);
-      const result = await applyWorktree(project, worktreeId, { commit: options.commit === true, message: options.message, userConfirmed: true });
+      const actionScope = await resolveWorktreeApprovalScope(project, worktreeId);
+      await auditHighImpactApproval(project, "worktree.apply", worktreeId, actionScope);
+      const result = await applyWorktree(project, worktreeId, { commit: options.commit === true, message: options.message, userConfirmed: true, actionScope });
       if (options.json) printJson(result);
       else {
         console.log(`Applied worktree ${result.apply.worktreeId}: ${result.apply.status}`);
@@ -132,7 +135,9 @@ export function installWorktreeCommands(program: Command, context: CliContext): 
     .option("--json", "print JSON")
     .action(async (query: string, worktreeId: string, options: { json?: boolean }) => {
       const project = await resolveManagedProject(store, query);
-      const result = await discardWorktree(project, worktreeId);
+      const actionScope = await resolveWorktreeApprovalScope(project, worktreeId);
+      await auditHighImpactApproval(project, "worktree.discard", worktreeId, actionScope);
+      const result = await discardWorktree(project, worktreeId, { actionScope });
       if (options.json) printJson(result);
       else console.log(`Discarded worktree ${result.discard.worktreeId}: ${result.discard.status}`);
       if (result.discard.status === "failed") process.exitCode = 1;

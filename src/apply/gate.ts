@@ -1,13 +1,13 @@
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { collectWorktreeDiff } from "../audit/diff.js";
 import { listAuditResults } from "../audit/artifacts.js";
-import { getChangeStatusForChange } from "../change/manager.js";
 import { getGitCommit, isGitDirtyIgnoringAhoMemory } from "../project/git.js";
 import { listValidationResults } from "../validation/artifacts.js";
 import { getWorktreeStatus } from "../worktree/manager.js";
-import type { AuditResult, ChangeStatus, ManagedProject, ResolvedMemory, ValidationResult } from "../types/index.js";
+import type { AuditResult, ChangeStatus, ManagedProject, ValidationResult } from "../types/index.js";
 import type { ProjectExecutionRuntimePort, ProjectHarnessExecutionPort } from "../project-runtime/execution-ports.js";
 import type { WorktreeDiffPort } from "../audit/diff.js";
 import type { ApplyReadinessClassification, WorktreeGateState } from "./types.js";
@@ -51,29 +51,55 @@ export function classifyApplyReadiness(gate: WorktreeGateState): ApplyReadinessC
   return { kind: "not-approved", message: "结果证据还不完整，暂时不能应用。", primaryAction: "request-changes" };
 }
 
-export async function evaluateApplyGate(project: ManagedProject, memory: ResolvedMemory, worktreeId: string): Promise<WorktreeGateState> {
-  const worktree = await getWorktreeStatus(memory, worktreeId);
-  const changeId = worktree.changeId;
-  const status = await getChangeStatusForChange(project, changeId);
-  if (!status.change) throw new Error(`Cannot evaluate apply gate: demand conversation is not active: ${changeId}.`);
-  const activeChangePath = status.activeChanges.find((item) => item.name === changeId)?.path;
-  return evaluateApplyGateForStatus(project, memory, status, activeChangePath ? join(memory.memoryRoot, activeChangePath) : null, worktreeId);
-}
-
 export async function evaluateSkillNativeApplyGate(
   project: ManagedProject,
   runtime: ProjectExecutionRuntimePort,
   harness: ProjectHarnessExecutionPort,
   worktreeId: string,
 ): Promise<WorktreeGateState> {
-  return evaluateApplyGateForStatus(project, runtime, harness.changeStatus, harness.evidenceRoot, worktreeId);
+  const gate = await evaluateSkillNativeCandidateGate(project, runtime, harness, worktreeId);
+  const blockingIssues = [...gate.blockingIssues];
+  const reviewAuditId = await readAcceptedReviewAuditId(harness.evidenceRoot);
+  if (!reviewAuditId) {
+    blockingIssues.push("reviews/review.md does not reference an accepted Audit ID.");
+  } else if (gate.audit && reviewAuditId !== gate.audit.id) {
+    blockingIssues.push(`reviews/review.md accepts audit ${reviewAuditId}, not latest matching audit ${gate.audit.id}.`);
+  }
+  return {
+    ...gate,
+    ready: blockingIssues.length === 0,
+    blockingIssues,
+    reviewAuditId,
+  };
 }
 
-async function evaluateApplyGateForStatus(
+export async function evaluateSkillNativeCandidateGate(
+  project: ManagedProject,
+  runtime: ProjectExecutionRuntimePort,
+  harness: ProjectHarnessExecutionPort,
+  worktreeId: string,
+): Promise<WorktreeGateState> {
+  return evaluateCandidateGateForStatus(project, runtime, harness.changeStatus, worktreeId);
+}
+
+export function worktreeApplyManifestHash(gate: WorktreeGateState): string {
+  return createHash("sha256").update(JSON.stringify({
+    changeId: gate.changeId,
+    worktreeId: gate.worktree.worktreeId,
+    diffHash: gate.diffHash,
+    changedPaths: gate.changedPaths,
+    expectedTree: gate.expectedTree,
+    sourceHead: gate.sourceHead,
+    validationId: gate.validation?.id ?? null,
+    auditId: gate.audit?.id ?? null,
+    reviewAuditId: gate.reviewAuditId,
+  })).digest("hex");
+}
+
+async function evaluateCandidateGateForStatus(
   project: ManagedProject,
   memory: WorktreeDiffPort,
   status: ChangeStatus,
-  evidenceRoot: string | null,
   worktreeId: string,
 ): Promise<WorktreeGateState> {
   const worktree = await getWorktreeStatus(memory, worktreeId);
@@ -106,13 +132,6 @@ async function evaluateApplyGateForStatus(
     blockingIssues.push(`Latest matching audit is not approved: ${audit.id} (${audit.status}).`);
   }
 
-  const reviewAuditId = await readAcceptedReviewAuditId(evidenceRoot);
-  if (!reviewAuditId) {
-    blockingIssues.push("reviews/review.md does not reference an accepted Audit ID.");
-  } else if (audit && reviewAuditId !== audit.id) {
-    blockingIssues.push(`reviews/review.md accepts audit ${reviewAuditId}, not latest matching audit ${audit.id}.`);
-  }
-
   return {
     ready: blockingIssues.length === 0,
     warnings,
@@ -125,7 +144,7 @@ async function evaluateApplyGateForStatus(
     expectedTree: diff.expectedTree,
     validation,
     audit,
-    reviewAuditId,
+    reviewAuditId: null,
     sourceHead,
   };
 }

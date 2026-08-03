@@ -3,6 +3,7 @@ import { appendFile, readFile, realpath, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { WorkbenchSnapshot } from "../../src/workbench/read-model-types.js";
 
 const appServerTurn = vi.hoisted(() => vi.fn());
 const projectHarnessAgentInput = vi.hoisted(() => ({
@@ -162,7 +163,7 @@ afterEach(() => {
 });
 
 describe("workbench Skill-native demand-to-execution golden flow", () => {
-  it("carries Main-owned planning through the human gate, Coder, Validation, and Audit without source apply", async () => {
+  it("carries Main-owned planning through Coder, Validation, Audit, and the exact source apply gate", async () => {
     appServerTurn
       .mockImplementationOnce(async (options) => planningTurn(options))
       .mockImplementationOnce(async (options) => acceptanceTurn(options))
@@ -385,6 +386,69 @@ describe("workbench Skill-native demand-to-execution golden flow", () => {
     )).rejects.toThrow(/stale|already|no longer available/i);
     expect(await listWorkflowRuns(runtimePaths, changeId)).toHaveLength(1);
     expect(await listTaskRuns(runtimePaths, changeId)).toEqual(taskRunsBeforeDuplicate);
+
+    const applyAction = primaryApprovalAction(snapshot, "result.apply");
+    const sourceBeforeApply = await readFile(join(getTempDir(), "README.md"), "utf8");
+    await expect(executeWorkbenchAction(
+      { project: managedProject(), path: getTempDir() },
+      { action: applyAction.action },
+    )).rejects.toThrow(/confirm/i);
+    expect(await readFile(join(getTempDir(), "README.md"), "utf8")).toBe(sourceBeforeApply);
+    expect(await getGitStatusShort(getTempDir())).toEqual([]);
+
+    await expect(executeWorkbenchAction(
+      { project: managedProject(), path: getTempDir() },
+      {
+        action: {
+          ...applyAction.action,
+          scope: { ...applyAction.action.scope!, conversationId: "forged-conversation" },
+        },
+        confirm: true,
+      },
+    )).rejects.toThrow(/stale|available|current project Conversation/i);
+    expect(await readFile(join(getTempDir(), "README.md"), "utf8")).toBe(sourceBeforeApply);
+    expect(await getGitStatusShort(getTempDir())).toEqual([]);
+
+    const concurrent = await Promise.allSettled([
+      executeWorkbenchAction(
+        { project: managedProject(), path: getTempDir() },
+        { action: applyAction.action, confirm: true },
+      ),
+      executeWorkbenchAction(
+        { project: managedProject(), path: getTempDir() },
+        { action: applyAction.action, confirm: true },
+      ),
+    ]);
+    const applied = concurrent.find((result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof executeWorkbenchAction>>> => result.status === "fulfilled");
+    expect(concurrent.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(concurrent.filter((result) => result.status === "rejected")).toHaveLength(1);
+    expect(applied?.value.result).toMatchObject({ apply: { status: "applied", changeId } });
+    const postApplySnapshot = applied?.value.snapshot as WorkbenchSnapshot;
+    expect(postApplySnapshot.center.workpad.resultReview).toBeUndefined();
+    expect(postApplySnapshot.center.workpad.nextAction).toMatchObject({
+      id: "result-terminal",
+      kind: "none",
+      enabled: false,
+    });
+    expect(postApplySnapshot.right.decisions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "result.apply", status: "accepted", changeId }),
+    ]));
+    expect(JSON.stringify(postApplySnapshot.right.confirmationQueue)).not.toContain('"actionId":"result.apply"');
+    expect(JSON.stringify(postApplySnapshot.right.confirmationQueue)).not.toContain('"actionId":"audit.accept"');
+    expect(await readFile(join(getTempDir(), "README.md"), "utf8")).not.toBe(sourceBeforeApply);
+    expect(await getGitStatusShort(getTempDir())).not.toEqual([]);
+    const decisionStore = await openProjectRuntimeWorkbenchDatabase(runtimePaths);
+    try {
+      expect(decisionStore.decisions.listDecisions(managedProject().id, changeId)
+        .filter((decision) => decision.actionId === "result.apply"))
+        .toEqual([expect.objectContaining({ status: "accepted", targetId: expect.any(String) })]);
+    } finally {
+      decisionStore.close();
+    }
+    await expect(executeWorkbenchAction(
+      { project: managedProject(), path: getTempDir() },
+      { action: applyAction.action, confirm: true },
+    )).rejects.toThrow(/stale|already|available|completed/i);
   }, SLOW_FLOW_TIMEOUT_MS);
 
   it("rejects stale project and Change actions before execution state is created", async () => {

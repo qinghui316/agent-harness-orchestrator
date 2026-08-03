@@ -143,6 +143,62 @@ export async function advanceLocalExecutionAuthorizationSource(
   return result;
 }
 
+export async function advanceCommittedLocalExecutionAuthorizationSource(
+  memory: ProjectRunsPathPort,
+  input: {
+    operationId: string;
+    authorizationId: string;
+    authorizationEpoch: number;
+    transition: string;
+    targetId: string;
+    manifestHash: string;
+    claimToken: string;
+    fencingToken: number;
+    snapshot: ExecutionAuthorizationSnapshot;
+    sourceHead: string;
+    sourceStateHash: string;
+  },
+): Promise<LocalExecutionAuthorization> {
+  if (!/^[a-f0-9]{40,64}$/i.test(input.sourceHead)) {
+    throw new Error("Committed source advancement requires a valid Git commit.");
+  }
+  if (!/^[a-f0-9]{64}$/i.test(input.sourceStateHash)) {
+    throw new Error("Committed source advancement requires a valid source state hash.");
+  }
+  const result = runExecutionAuthorizationTransaction(memory, (transaction) => {
+    const current = transaction.getAuthorization(input.authorizationId);
+    if (!current) throw new Error(`Execution authorization not found: ${input.authorizationId}.`);
+    if (current.epoch === input.authorizationEpoch + 1
+      && current.sourceHead === input.sourceHead
+      && current.sourceStateHash === input.sourceStateHash) return current;
+    if (current.epoch !== input.authorizationEpoch) {
+      throw new Error(`Stale authorization epoch after committed source mutation: ${input.authorizationId}.`);
+    }
+    for (const key of Object.keys(input.snapshot) as Array<keyof ExecutionAuthorizationSnapshot>) {
+      if (current[key] !== input.snapshot[key]) {
+        throw new Error(`Stale committed authorization ${key}: ${input.authorizationId}.`);
+      }
+    }
+    const execution = transaction.getExecution(input.operationId);
+    if (!execution) throw new Error(`Transition execution not found: ${input.operationId}.`);
+    assertExecutionLineage(execution, input);
+    if (!execution.commitPointReservedAt
+      || (execution.status !== "executing" && execution.status !== "completed")) {
+      throw new Error(`Transition execution has no committed source mutation: ${input.operationId}.`);
+    }
+    const advanced: LocalExecutionAuthorization = {
+      ...current,
+      epoch: current.epoch + 1,
+      sourceHead: input.sourceHead,
+      sourceStateHash: input.sourceStateHash,
+    };
+    transaction.putAuthorization(advanced);
+    return advanced;
+  });
+  await projectExecutionAuthorizationState(memory, result);
+  return result;
+}
+
 export async function reactivateLocalExecutionAuthorizationAfterRollback(
   memory: ProjectRunsPathPort,
   authorizationId: string,

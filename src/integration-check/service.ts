@@ -14,7 +14,7 @@ import { runIntegrationFixAttempt, type IntegrationFixRepairRunner } from "./fix
 import { integrationCheckRoot, displayArtifactPath, displaySkillNativeArtifactPath } from "./paths.js";
 import { prepareIntegrationCheckout, prepareSkillNativeIntegrationCheckout } from "./patch-workspace.js";
 import { appendIntegrationEvent, writeCheckArtifacts } from "./repository.js";
-import type { IntegrationArtifact, IntegrationCheckResult, IntegrationCheckStatus, IntegrationCheckTarget, IntegrationFixAttempt } from "./types.js";
+import type { IntegrationArtifact, IntegrationCheckResult, IntegrationCheckStatus, IntegrationFixAttempt, SkillNativeIntegrationCheckTarget } from "./types.js";
 import type { ProjectCodeExecutionRuntimePort } from "../project-runtime/execution-ports.js";
 
 export interface RunIntegrationCheckOptions {
@@ -164,7 +164,7 @@ export async function runIntegrationCheck(project: ManagedProject, worktreeIds?:
 export async function runSkillNativeIntegrationCheck(
   project: ManagedProject,
   runtime: ProjectCodeExecutionRuntimePort,
-  targets: IntegrationCheckTarget[],
+  targets: SkillNativeIntegrationCheckTarget[],
   expectedChangeId: string,
 ): Promise<IntegrationCheckResult> {
   if (project.id !== runtime.projectId) throw new Error("Skill-native IntegrationCheck project scope mismatch.");
